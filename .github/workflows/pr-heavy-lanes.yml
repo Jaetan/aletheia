@@ -38,7 +38,7 @@
 # hit the Agda store that workflow already populated; each one additionally
 # carries this lane's scope condition, which that workflow's do not.  The workflow
 # ALSO runs on push:main: the heavy caches (Mull-from-source, the mutation
-# trees) are otherwise only written on feature branches, which do NOT
+# tree) are otherwise only written on feature branches, which do NOT
 # cross-pollinate, so a fresh PR branch would miss them, and the C++ legs pay
 # for Mull and their mutation tree from cold.  A push:main run writes those
 # caches under the default branch, where every PR branch can read them,
@@ -69,11 +69,10 @@ jobs:
   # observed survivors > the docs/MUTATION_BENCH.yaml baseline.  It runs once
   # per binding, in parallel: the four tools cost wildly different amounts and
   # a single job charges the slowest of them against a clock the others have
-  # already spent.  The C++ binding is nine legs, each one tree carrying one
-  # slice of the surface's mutants, and the `mutation merge` job below unions
-  # each tree's slices and intersects the trees into the one C++ verdict; a
-  # leg judges no survivor, since it has read neither the rest of its own
-  # tree nor anything of the others, where the mutant it let live may die.
+  # already spent.  The C++ binding is three legs, each one slice of the
+  # surface's mutants, and the `mutation merge` job below unions the slices
+  # into the one C++ verdict; a leg judges no survivor, since it has not read
+  # the rest of the surface, where the mutant it let live may die.
   # The Go binding is two shards, each a part of the package's files, which
   # the same job unions into the one Go verdict.
   # The `mutation testing` job at the end of this file is what the main branch
@@ -93,59 +92,29 @@ jobs:
           # from its own name: the derivation would rest on how GitHub casts
           # the string it yields, and the failure it casts wrong is a lane that
           # skips every binding, runs nothing and reports success.  `lane` is the
-          # job's name and its artifact's; `stage` and `slice` are what the C++
-          # runner is told (tools/mutation_cpp_legs.py `cpp_stage`), `go_shard`
+          # job's name and its artifact's; `stage` is what the C++ runner is
+          # told (tools/mutation_cpp_legs.py `cpp_stage`), `go_shard`
           # what the Go runner is (tools/mutation_go.py `go_stage`), `rust_job`
           # what the Rust runner is (tools/mutation_rust.py `rust_stage`), each
           # empty for the other lanes.
           #
           # Every budget is read off a measurement: the lane's slowest recorded
           # wall clock plus the allowance for its caches missing, rounded up
-          # to five minutes.  The C++ figures are the first sliced run's,
-          # 35506016652, taken with every cache cold for the new keys: leak
-          # legs 11.3, 17.8 and 19.1 minutes, plain legs 22.1, 23.0 and 23.9.
-          # A tree's legs share one budget, the slowest of them, because which
-          # slice is slowest moves with the surface; so leak is 19.1 + 33.3 =
-          # 52.4 and plain 23.9 + 33.3 = 57.2, each rounded up.  The trees now
-          # compile under libstdc++'s debug mode and the runner caps a mutant
-          # at ten minutes instead of ten times the baseline, which together
-          # slow the sweeps, measured locally on whole trees under the lane's
-          # own command: leak 1m58s to 3m10s, 1.61 times, plain 2m56s to
-          # 5m10s, 1.76 times.  A leg's sweep is a third of the unsliced
-          # figures below, leak 33m14s and plain 45m41s, so 11.1 and 15.2
-          # minutes; scaled, 17.8 and 26.8, adding 6.7 and 11.6 to the
-          # slowest legs: leak 19.1 + 6.7 + 33.3 = 59.1 and plain 23.9 + 11.6 +
-          # 33.3 = 68.8, each rounded up.  The allowance is what a cold run paid, measured
+          # to five minutes.  The allowance is what a cold run paid, measured
           # on run 30150643321 (the toolchain bump, every cache cold): the Agda
           # install 18m34s and the FFI build 9m08s, 27m42s; a C++ leg adds the
-          # Mull build, 5m35s on run 35486430315, 33m17s.  The slowest walls
-          # are run 35486430315's (push:main, 1037 C++ mutants): python 8m20s;
-          # a C++ leg is that job's warm setup, 3m41s, plus its own
-          # tree's build and sweep, leak 7m48s + 33m14s = 44m43s and plain
-          # 8m09s + 45m41s = 57m31s, the builds of that run compiling one unit
-          # at a time where the runner now builds four at once.  So python
-          # 36m02s, leak 78m00s, plain 90m48s, each rounded up.  The Go lane's
-          # is its first run against a suite that passes in each mutant's copy,
-          # 36801545298: 20m24s of wall, of which the sweep took 16m51s
-          # (`elapsed_s`); plus the 27m42s allowance, 48m06s, rounded up.
-          # Each Go shard keeps that budget until a sharded run measures one:
-          # a shard sweeps part of the package that run swept whole.
-          # The address legs are budgeted from their own run, 35670441747, the
-          # first that swept them: 15.1, 11.0 and 14.5 minutes of wall, against
-          # leak's 18.1, 14.3 and 24.1 and plain's 28.3, 28.2 and 33.6.  The
-          # address tree is the cheapest of the three, carrying 310 mutants
-          # against the others' 1037 on that run, where the local ratio this
-          # figure was first taken from said it would be the dearest: that
-          # ratio scaled the sweep, and a leg's wall is mostly the setup and
-          # the tree build, which every tree pays alike.  Slowest leg 15.1
-          # plus the 33.3 cold allowance is 48.4, rounded up to 50.
-          # The surface then grew, from 1037 mutants to 1476 on the leak and
-          # plain trees and from 310 to 337 on the address tree, when the
-          # mutator set widened (cpp/mull.yml).  The first run of that
-          # surface, 36017662713, with the Mull cache cold for the new
-          # patches: leak legs 29.5, 31.0 and 35.7 minutes, plain 33.6, 43.0
-          # and 33.8, address 20.1, 21.9 and 25.3.  Slowest leg plus the
-          # 33.3 cold allowance: leak 69.0, plain 76.3, address 58.6, each
+          # Mull build, 5m35s on run 35486430315, 33m17s.  The python lane's
+          # slowest wall is run 35486430315's (push:main), 8m20s; plus the
+          # allowance, 36m02s, rounded up.  The Go lane's is its first run
+          # against a suite that passes in each mutant's copy, 36801545298:
+          # 20m24s of wall, of which the sweep took 16m51s (`elapsed_s`); plus
+          # the 27m42s allowance, 48m06s, rounded up.  Each Go shard keeps that
+          # budget until a sharded run measures one: a shard sweeps part of the
+          # package that run swept whole.
+          # The C++ legs' is run 36017662713's, with the Mull cache cold for
+          # its patches: 33.6, 43.0 and 33.8 minutes.  The legs share one
+          # budget, the slowest of them, because which slice is slowest moves
+          # with the surface: 43.0 plus the 33.3 cold allowance is 76.3,
           # rounded up.
           # The Rust lane's budget is its first run's, 36228427884: 16.7
           # minutes of wall, of which the sweep at 369 mutants took 12.2
@@ -160,7 +129,6 @@ jobs:
           - lane: python
             binding: python
             stage: ''
-            slice: ''
             go_shard: ''
             rust_job: ''
             timeout: 40
@@ -171,7 +139,6 @@ jobs:
           - lane: go-1
             binding: go
             stage: ''
-            slice: ''
             go_shard: '1'
             rust_job: ''
             timeout: 50
@@ -182,7 +149,6 @@ jobs:
           - lane: go-2
             binding: go
             stage: ''
-            slice: ''
             go_shard: '2'
             rust_job: ''
             timeout: 50
@@ -193,7 +159,6 @@ jobs:
           - lane: rust-1
             binding: rust
             stage: ''
-            slice: ''
             go_shard: ''
             rust_job: '1'
             timeout: 50
@@ -204,7 +169,6 @@ jobs:
           - lane: rust-2
             binding: rust
             stage: ''
-            slice: ''
             go_shard: ''
             rust_job: '2'
             timeout: 50
@@ -212,43 +176,9 @@ jobs:
             skip_go: '1'
             skip_cpp: '1'
             skip_rust: ''
-          - lane: cpp-leak-1
+          - lane: cpp-1
             binding: cpp
-            stage: leak
-            slice: '1'
-            go_shard: ''
-            rust_job: ''
-            timeout: 70
-            skip_python: '1'
-            skip_go: '1'
-            skip_cpp: ''
-            skip_rust: '1'
-          - lane: cpp-leak-2
-            binding: cpp
-            stage: leak
-            slice: '2'
-            go_shard: ''
-            rust_job: ''
-            timeout: 70
-            skip_python: '1'
-            skip_go: '1'
-            skip_cpp: ''
-            skip_rust: '1'
-          - lane: cpp-leak-3
-            binding: cpp
-            stage: leak
-            slice: '3'
-            go_shard: ''
-            rust_job: ''
-            timeout: 70
-            skip_python: '1'
-            skip_go: '1'
-            skip_cpp: ''
-            skip_rust: '1'
-          - lane: cpp-plain-1
-            binding: cpp
-            stage: plain
-            slice: '1'
+            stage: '1'
             go_shard: ''
             rust_job: ''
             timeout: 80
@@ -256,10 +186,9 @@ jobs:
             skip_go: '1'
             skip_cpp: ''
             skip_rust: '1'
-          - lane: cpp-plain-2
+          - lane: cpp-2
             binding: cpp
-            stage: plain
-            slice: '2'
+            stage: '2'
             go_shard: ''
             rust_job: ''
             timeout: 80
@@ -267,46 +196,12 @@ jobs:
             skip_go: '1'
             skip_cpp: ''
             skip_rust: '1'
-          - lane: cpp-plain-3
+          - lane: cpp-3
             binding: cpp
-            stage: plain
-            slice: '3'
+            stage: '3'
             go_shard: ''
             rust_job: ''
             timeout: 80
-            skip_python: '1'
-            skip_go: '1'
-            skip_cpp: ''
-            skip_rust: '1'
-          - lane: cpp-address-1
-            binding: cpp
-            stage: address
-            slice: '1'
-            go_shard: ''
-            rust_job: ''
-            timeout: 60
-            skip_python: '1'
-            skip_go: '1'
-            skip_cpp: ''
-            skip_rust: '1'
-          - lane: cpp-address-2
-            binding: cpp
-            stage: address
-            slice: '2'
-            go_shard: ''
-            rust_job: ''
-            timeout: 60
-            skip_python: '1'
-            skip_go: '1'
-            skip_cpp: ''
-            skip_rust: '1'
-          - lane: cpp-address-3
-            binding: cpp
-            stage: address
-            slice: '3'
-            go_shard: ''
-            rust_job: ''
-            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -543,7 +438,7 @@ jobs:
       # build: the key hashes tools/build_mull.sh, which pins the Mull tag and
       # the LLVM version, and every patch under tools/mull/ the script applies,
       # so any change to what is built misses the cache rather than replaying
-      # the previous binaries.  Both C++ legs restore this key and the clang
+      # the previous binaries.  Each C++ leg restores this key and the clang
       # one; on a miss each builds Mull and each tries to save, and the second
       # save of a key is logged as a warning by the action, not a failure.
       - name: Cache Mull-23 (built from source vs LLVM-23)
@@ -576,30 +471,27 @@ jobs:
       # cacheable calls, and the same slice wiped and rebuilt takes 13s reading
       # 213 hits of 213.
       #
-      # Per lane, because a lane's objects are its own: the trees differ by
-      # their sanitizer and the slices by the configuration each is given, so
-      # one shared key would hold one lane's objects and miss for every other
-      # lane.  The eviction step evicts every entry a run that built did not use
+      # Per lane, because a lane's objects are its own: the slices differ by
+      # the configuration each is given, so one shared key would hold one
+      # lane's objects and miss for every other lane.  The eviction step evicts every entry a run that built did not use
       # (tools/mutation_ccache_evict.sh), so the saved cache is that run's
       # working set, and CCACHE_MAXSIZE bounds what one run holds, or after
       # builds that stopped at a failed compile what those runs held together,
       # rather than a history of every build.  Measured, each slice built from
-      # cold into an empty cache, 20 CPUs at the build's own job cap: a leak
-      # slice holds 26600 to 26792 KiB, a plain slice 27712 to 27840 KiB, an
-      # address slice 31792 to 31840 KiB (the address objects are the largest,
-      # the sanitizer's instrumentation being in them).  A build that misses
+      # cold into an empty cache, 20 CPUs at the build's own job cap: a slice
+      # holds 27712 to 27840 KiB.  A build that misses
       # every object, after a change to what every object hashes (the plugin,
       # the configuration, the toolchain), holds the restored working set beside
       # its own until the eviction, and such a build, stopping at a failed
       # compile or a preprocessor error, is saved whole, both sets, so the run
       # after it can hold two beside its own: the cap needs three of the
-      # largest, 97.8 MB, and each further run since the last eviction that
+      # largest, 85.5 MB, and each further run since the last eviction that
       # fails a compile or its eviction can stack one more, so a run holding
       # four of the largest is past the cap, where ccache's own cleanup, an
       # approximate LRU over part of the cache, can trim the build's own objects
       # too.  It is 128M, the rest being room for the code to grow, and a probe
-      # reads red once three of the largest no longer fit.  A save of the nine
-      # slices' working sets comes to 265.1 MB on disk;
+      # reads red once three of the largest no longer fit.  The saves of the
+      # slices' working sets accumulate across runs;
       # tools/prune_actions_cache.py keeps the newest few per lane on `main`,
       # and on an open pull request one per lane for each push that sweeps C++,
       # until the request closes.
@@ -608,7 +500,7 @@ jobs:
       # it, and that key is what pins it.  Split restore/save like the build
       # tree, so a lane that built its tree and then failed still seeds the
       # next run.
-      - name: Set up ccache (C++ mutation trees)
+      - name: Set up ccache (C++ mutation tree)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           set -euo pipefail
@@ -631,7 +523,7 @@ jobs:
             echo "CCACHE_DIR=${HOME}/.ccache"
             echo "CCACHE_MAXSIZE=128M"
           } >> "${GITHUB_ENV}"
-      - name: Restore ccache (C++ mutation trees)
+      - name: Restore ccache (C++ mutation tree)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         id: ccache-cache
         uses: actions/cache/restore@v6
@@ -645,7 +537,7 @@ jobs:
       # below read this run alone.  The run's start is taken here too, after
       # the restore and before anything compiles: the eviction keeps what was
       # used since.
-      - name: Zero ccache statistics (C++ mutation trees)
+      - name: Zero ccache statistics (C++ mutation tree)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           ccache --zero-stats
@@ -698,11 +590,11 @@ jobs:
           ALETHEIA_MUTATION_SKIP_GO: ${{ matrix.skip_go }}
           ALETHEIA_MUTATION_SKIP_CPP: ${{ matrix.skip_cpp }}
           ALETHEIA_MUTATION_SKIP_RUST: ${{ matrix.skip_rust }}
-          # Which C++ tree this lane sweeps, and which slice of the surface it
-          # carries mutants for. Empty means the whole lane, which no lane here
-          # runs, since each tree is three legs and each leg one slice.
+          # Which slice of the surface this lane carries mutants for: the stage
+          # names the slice, as the Go shard variable below names the Go
+          # lane's part.  Empty means the whole lane, which no lane here runs,
+          # since the C++ binding is three legs and each leg one slice.
           ALETHEIA_MUTATION_CPP_STAGE: ${{ matrix.stage }}
-          ALETHEIA_MUTATION_CPP_SLICE: ${{ matrix.slice }}
           # Which part of the Go package this lane sweeps: the runner takes a
           # dry run's census of the package and cuts the files on it, every
           # shard the same way, and the merge holds the shards to that census.
@@ -736,20 +628,20 @@ jobs:
       # counters were never zeroed saves its cache as restored, and one that
       # failed before the restore has none.  What the script keeps, prints and
       # refuses is in its header.
-      - name: Evict what this run did not use (C++ mutation trees)
+      - name: Evict what this run did not use (C++ mutation tree)
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.ccache-cache.outputs.cache-hit != 'true' && env.MUTATION_CACHE_START != '' }}
         run: tools/mutation_ccache_evict.sh "${MUTATION_CACHE_START}"
       # The record of what the lane's cache holds as it is saved, in the log:
       # the restore step reports only the tarball's size.  The working set the
       # cap above is sized from is read again here, and the size the build left,
       # with the cleanups ccache made at the cap, in the eviction's before line.
-      - name: Report ccache (C++ mutation trees)
+      - name: Report ccache (C++ mutation tree)
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' }}
         run: ccache --show-stats
       # `!cancelled()`, so a leg that swept and then failed still saves its
       # cache; skipped on an exact-key hit, the key being immutable, which makes
       # a second write of one a logged failure.
-      - name: Save ccache (C++ mutation trees)
+      - name: Save ccache (C++ mutation tree)
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.ccache-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
@@ -800,7 +692,7 @@ jobs:
           python/.venv/bin/pip install -e 'python/.[dev,mutation]'
 
       # One directory per leg artifact under mutation-legs/; the merge wants
-      # each tree's reports exactly once, wherever they are under it.
+      # each slice's reports exactly once, wherever they are under it.
       - name: Download the C++ legs' reports
         uses: actions/download-artifact@v8
         with:

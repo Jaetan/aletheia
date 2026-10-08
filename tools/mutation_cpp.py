@@ -1,25 +1,23 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The C++ mutation lane: Mull over the mutation trees, merged into one verdict.
+"""The C++ mutation lane: Mull over the mutation tree, one verdict.
 
 Driven by ``tools/mutation_run.py`` as the ``cpp`` binding.  The lane builds
-each tree ``CppTree`` names, sweeps it under ``mull-runner-23``, and merges
-the trees' Elements reports so a mutant is a survivor only where every tree
-let it live; the SQLite report of each tree feeds the kill-route census in
+the mutation tree, sweeps it under ``mull-runner-23`` and reads the verdict
+off its Elements report; the SQLite report feeds the kill-route census in
 ``tools/mutation_routes.py``.
 
-``ALETHEIA_MUTATION_CPP_STAGE`` and ``ALETHEIA_MUTATION_CPP_SLICE`` split the
-lane across processes (see ``CppLeg`` in ``tools/mutation_cpp_legs.py``): a
-leg builds one tree carrying the mutants of one slice of the surface and is its
-own binding, ``cpp-leak-1`` and its siblings, whose survivors nobody judges;
-the merge stage reads the legs' reports from the directory
-``ALETHEIA_MUTATION_CPP_LEGS`` names, unions each tree's slices and intersects
-the trees, and is gated as the whole lane is.
+``ALETHEIA_MUTATION_CPP_STAGE`` splits the lane across processes (see
+``CppLeg`` in ``tools/mutation_cpp_legs.py``): a leg builds the tree carrying
+the mutants of one slice of the surface and is its own binding, ``cpp-1`` and
+its siblings, whose survivors nobody judges; the merge stage reads the legs'
+reports from the directory ``ALETHEIA_MUTATION_CPP_LEGS`` names, unions the
+slices, and is gated as the whole lane is.
 
 A slice is how the work is spread over CI jobs and not a unit of meaning: the
 tree is what an instrument reads and what a verdict is about.  With the stage
-unset the lane sweeps each tree whole in one process, which is what a local
-run does and what the recorded census was taken with, so the sliced union has
+unset the lane sweeps the tree whole in one process, which is what a local run
+does and what the recorded census was taken with, so the sliced union has
 something to be equal to.
 """
 
@@ -44,7 +42,6 @@ from tools.mutation_cpp_legs import (
     CPP_MERGE_STAGE,
     CPP_STAGE_ENV,
     CppLeg,
-    CppTree,
     cpp_stage,
     leg_of_binding,
     sliced_legs,
@@ -53,8 +50,8 @@ from tools.mutation_cpp_runs import (
     CPP_LEG_RUNS_SUFFIX,
     CPP_RUNS_REPORT,
     MullLog,
+    lane_runs,
     leg_runs,
-    tree_runs,
     weight_drift,
 )
 from tools.mutation_cpp_slices import CPP_SLICES
@@ -108,32 +105,30 @@ def elements_survivor_rows(
 
 
 # The routes a kill takes when no test observed it: the standard library's own
-# check, a sanitizer's report, and a bare signal.  A leak is a sanitizer's
-# report too, and is here for the same reason.
-_UNOBSERVED_ROUTES: frozenset[str] = frozenset({"check", "address", "leak", "fault"})
+# check and a bare signal.
+_UNOBSERVED_ROUTES: frozenset[str] = frozenset({"check", "fault"})
 
 
 def unobserved_kill_rows(
-    lanes: Sequence[Mapping[str, Ending]], read_line: Callable[[str, int], str]
+    legs: Sequence[Mapping[str, Ending]], read_line: Callable[[str, int], str]
 ) -> dict[UnobservedKey, int]:
     """Collect the kills no test observes by behaviour into rows.
 
-    A mutant is here when every lane that ran it ended by a check the standard
-    library runs in the mutation build, by a sanitizer's report, or by a bare
-    signal: what it changes, a
-    guard for most of them and the value an index is computed from for the
-    rest, leads straight to an operation the language does not define, and the
-    suite reports nothing before the process stops.  A row is keyed as a
-    survivor's is, by mutator, repository-relative file and the stripped text
+    ``legs`` holds each leg's endings by mutant; the legs are disjoint, so a
+    mutant has one ending.  A mutant is here when it ended by a check the
+    standard library runs in the mutation build or by a bare signal: what it
+    changes, a guard for most of them and the value an index is computed from
+    for the rest, leads straight to an operation the language does not define,
+    and the suite reports nothing before the process stops.  A row is keyed as
+    a survivor's is, by mutator, repository-relative file and the stripped text
     of the source line rather than its number, plus the route and what the
     check refused; ``read_line(file, line)`` supplies the text.  The
     instantiations of one template share a line and are one row with their
-    count.  Where the lanes refused different invariants for one mutant, the
-    row carries the first lane's, the trees being read in their own order.
+    count.
     """
     rows: dict[UnobservedKey, int] = collections.Counter()
-    for mutant in {mutant for lane in lanes for mutant in lane}:
-        endings = [lane[mutant] for lane in lanes if mutant in lane]
+    for mutant in {mutant for leg in legs for mutant in leg}:
+        endings = [leg[mutant] for leg in legs if mutant in leg]
         route = next(r for r in KILL_ROUTES if r in {ending.route for ending in endings})
         if route not in _UNOBSERVED_ROUTES:
             continue
@@ -212,12 +207,8 @@ class LegPaths(NamedTuple):
     config: Path
 
 
-def build_cpp_mutation_tree(
-    cmake: str,
-    paths: LegPaths,
-    leg: CppLeg,
-) -> str | MutationReport:
-    """Configure + build one mutation build tree, returning the raw log or a failure report.
+def build_cpp_mutation_tree(cmake: str, paths: LegPaths) -> str | MutationReport:
+    """Configure + build one leg's mutation build tree, returning the raw log or a failure report.
 
     The configuration is named to the configure, which hands it both to the
     plugin and to the compiler cache: a build's objects carry the mutants that
@@ -231,7 +222,6 @@ def build_cpp_mutation_tree(
             "-B",
             str(paths.build_dir),
             "-DALETHEIA_MUTATION=ON",
-            f"-DALETHEIA_SANITIZER={leg.tree.sanitizer}",
             f"-DALETHEIA_MULL_CONFIG={paths.config}",
             "-DCMAKE_C_COMPILER=clang-23",
             "-DCMAKE_CXX_COMPILER=clang++-23",
@@ -271,7 +261,7 @@ def build_cpp_mutation_tree(
 # compiled one unit at a time and took 8 minutes of a leg on the runner.
 CPP_BUILD_JOBS_CAP = 8
 
-# The test binary a tree is built for and the runner runs once per mutant:
+# The test binary the tree is built for and the runner runs once per mutant:
 # the unit suite, with the integration and loader suites folded in by the
 # mutation build (cpp/CMakeLists.txt).
 CPP_TEST_TARGET = "unit_tests"
@@ -283,7 +273,7 @@ def cpp_build_command(cmake: str, build_dir: Path) -> list[str]:
     return [cmake, "--build", str(build_dir), "--target", CPP_TEST_TARGET, "--parallel", str(jobs)]
 
 
-# The three reports Mull writes per leg, by suffix: Elements (what the merge
+# The three reports Mull writes per leg, by suffix: Elements (what the union
 # reads), SQLite (what the kill-route census reads) and the IDE summary.
 CPP_LEG_REPORT_SUFFIXES: tuple[str, ...] = (".json", ".sqlite", ".txt")
 
@@ -300,8 +290,8 @@ CPP_LEGS_REPORT = "cpp-legs.json"
 # through to a parser run 65 to 79 seconds against baselines of 2 and 5, and
 # the default ended them where the tests would have. ``--minimum-timeout`` is
 # the knob that raises it. Ten minutes is seven times the slowest run measured,
-# so it ends only a run that would not end; a mutant that hangs costs this once
-# per tree, and none does today.
+# so it ends only a run that would not end; a mutant that hangs costs this
+# once, and none does today.
 CPP_MUTANT_CAP_MS = 600_000
 
 
@@ -323,13 +313,13 @@ def elements_counts(report: Mapping[str, object]) -> ElementsCounts:
     return ElementsCounts(len(statuses), statuses.count("Survived"))
 
 
-# The kill-route census of the C++ sweep, beside the merged Elements report.
+# The kill-route census of the C++ sweep, beside the Elements report.
 CPP_ROUTES_REPORT = "cpp-routes.json"
-# The merge stage's list of the mutants no test observes by behaviour, beside
-# ``cpp.json``: each killed in every lane by a check the standard library runs
-# in the mutation build or by a signal, with its site, so that the changes
-# running straight into an operation the language does not define are named
-# and not only counted.
+# The lane's list of the mutants no test observes by behaviour, beside
+# ``cpp.json``: each killed by a check the standard library runs in the
+# mutation build or by a signal, with its site, so that the changes running
+# straight into an operation the language does not define are named and not
+# only counted.
 CPP_UNOBSERVED_REPORT = "cpp-unobserved.json"
 
 
@@ -344,7 +334,7 @@ def cpp_endings(artifact_dir: Path, legs: Sequence[CppLeg]) -> list[dict[str, En
 def cpp_unobserved_rows(artifact_dir: Path) -> dict[UnobservedKey, int] | None:
     """Read the run's unobserved kills by identity, or None where the run wrote none.
 
-    From the artifact the merge wrote rather than from the reports again, so
+    From the artifact the lane wrote rather than from the reports again, so
     what the record is compared against is exactly what the run published and a
     re-take is a copy.
     """
@@ -355,54 +345,41 @@ def cpp_unobserved_rows(artifact_dir: Path) -> dict[UnobservedKey, int] | None:
     return unobserved_ledger_to_rows(ledger)
 
 
-def recorded_total_mutants(tree: CppTree | None = None) -> int | None:
-    """Read the mutants the recorded census counted, or None where none is recorded.
-
-    With a tree, its own figure where the record names one: the trees do not
-    all carry one surface, since a tree that cannot read a mutator carries
-    none of its mutants.  Without one, the merged surface, which is what the
-    trees carrying every mutator hold.
-    """
+def recorded_total_mutants() -> int | None:
+    """Read the mutants the recorded census counted, or None where none is recorded."""
     baseline = cast(
         "Mapping[str, object]",
         load_spec().get("bindings", {}).get("cpp", {}).get("baseline", {}),
     )
-    merged = baseline.get("total_mutants")
-    if tree is not None:
-        by_tree = cast("Mapping[str, int]", baseline.get("mutants_by_tree", {}))
-        if tree.value in by_tree:
-            return by_tree[tree.value]
-    return cast("int | None", merged)
+    return cast("int | None", baseline.get("total_mutants"))
 
 
-def _off_record(tree: CppTree, total: int) -> str | None:
-    """Refuse a tree's union off the recorded census, either way.
+def _off_record(total: int) -> str | None:
+    """Refuse a union of the slices off the recorded census, either way.
 
     Short of the record is what a hole in the slices reads as, a slice that
     carried fewer files than the partition gave it.  Past it, or short by a
     deliberate removal, is a surface that moved, and the change that moved it
     records the new census in the same commit, as it does the survivors.
     """
-    recorded = recorded_total_mutants(tree)
+    recorded = recorded_total_mutants()
     if recorded is None or total == recorded:
         return None
     return (
-        f"the {tree.value} tree's slices union to {total} mutants, where the record holds "
+        f"the slices union to {total} mutants, where the record holds "
         f"{recorded}: either a slice carried fewer files than the partition gave it, or the "
         "surface moved and docs/MUTATION_BENCH.yaml records the new census in the same commit"
     )
 
 
 def _scored(report: dict[str, object]) -> dict[str, object]:
-    """Give a merged report the score its own mutants carry.
+    """Give a unioned report the score its own mutants carry.
 
-    Mull writes the score of the sweep that produced a report, and a merge
-    produces a report no sweep did: the cross-tree merge revives every mutant
-    a tree other than the first killed, and a tree's slices each scored their
-    own share of the surface.  Left alone the field keeps the first input's
-    score, which is what the Elements viewer renders and what a reader of the
-    artifact believes.  Measured on two reports scoring 50 and 99 whose merge
-    kills every mutant: the merge carried 50.
+    Mull writes the score of the sweep that produced a report, and a union
+    produces a report no sweep did: each slice scored its own share of the
+    surface.  Left alone the field keeps the first input's score, which is
+    what the Elements viewer renders and what a reader of the artifact
+    believes.
     """
     total, survived = elements_counts(report)
     report["mutationScore"] = round(100.0 * (total - survived) / total, 2) if total else 0.0
@@ -410,7 +387,7 @@ def _scored(report: dict[str, object]) -> dict[str, object]:
 
 
 def union_slices(reports: Sequence[Mapping[str, object]]) -> dict[str, object] | str:
-    """Union one tree's slices into that tree's census, or name a mutant two of them carry.
+    """Union the slices into the lane's census, or name a mutant two of them carry.
 
     The slices partition the files, so their mutants are disjoint by
     construction, and an identifier arriving twice is a file no slice held
@@ -442,58 +419,6 @@ def union_slices(reports: Sequence[Mapping[str, object]]) -> dict[str, object] |
                 files[path] = {**copy.deepcopy(dict(entry)), "mutants": []}
             cast("list[object]", files[path]["mutants"]).extend(copy.deepcopy(mutants))
     merged["files"] = files
-    return _scored(merged)
-
-
-def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
-    """Merge Elements reports: a mutant survives where every lane carrying it let it live.
-
-    The lanes compile the same sources with the same plugin, so a mutant both
-    carry is one identifier; a mutant one lane killed is killed, whichever
-    instrument read it.  A tree that drops a mutator carries none of that
-    mutator's mutants, and a lane that never read a mutant says nothing about
-    it: judging on the intersection alone would read its absence as a kill,
-    which is the one direction a merge must not invent.  The merged census is
-    the union, each mutant's row taken from the first report carrying it, so
-    a mutant only a later tree read is judged too and the kill-route census,
-    which unions the lanes the same way, counts the same survivors.
-    """
-    carried: list[set[str]] = []
-    survivors: list[set[str]] = []
-    for report in reports:
-        files = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
-        mutants = [
-            mutant
-            for entry in files.values()
-            for mutant in cast("list[Mapping[str, object]]", entry.get("mutants", []))
-        ]
-        carried.append({str(mutant["id"]) for mutant in mutants})
-        survivors.append({str(m["id"]) for m in mutants if m.get("status") == "Survived"})
-    merged = copy.deepcopy(dict(reports[0]))
-    files = cast("dict[str, dict[str, object]]", merged.setdefault("files", {}))
-    seen = set(carried[0])
-    for report in reports[1:]:
-        entries = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
-        for path, entry in entries.items():
-            mutants = cast("list[Mapping[str, object]]", entry.get("mutants", []))
-            unseen = [copy.deepcopy(dict(m)) for m in mutants if str(m["id"]) not in seen]
-            if not unseen:
-                continue
-            seen.update(str(m["id"]) for m in unseen)
-            if path not in files:
-                files[path] = {**copy.deepcopy(dict(entry)), "mutants": []}
-            cast("list[object]", files[path]["mutants"]).extend(unseen)
-    for entry in files.values():
-        for mutant in cast("list[dict[str, object]]", entry.get("mutants", [])):
-            if mutant.get("status") != "Survived":
-                continue
-            identifier = str(mutant["id"])
-            killed_somewhere = any(
-                identifier in held and identifier not in lived
-                for held, lived in zip(carried, survivors, strict=True)
-            )
-            if killed_somewhere:
-                mutant["status"] = "Killed"
     return _scored(merged)
 
 
@@ -543,7 +468,7 @@ def _run_cpp_lane(
     paths: LegPaths,
     leg: CppLeg,
 ) -> tuple[str, tuple[int, int] | None]:
-    """Run one built tree under mull-runner, returning its log and its (killed, survived)."""
+    """Run one leg's built tree under mull-runner, returning its log and its (killed, survived)."""
     # The runner is given the sweep's own environment, nothing of the caller's
     # but its search path and temp directory; SweepEnvironment says what it
     # holds and why. The IDE reporter
@@ -559,8 +484,8 @@ def _run_cpp_lane(
     reaped = reap_dead_scratch_dirs()
     raw += f"scratch directories left by killed runs and removed: {reaped}\n"
     # Mull's own summary goes to the IDE report, and its stdout carries the
-    # survivor count only when there is one: a lane that killed everything
-    # says so in the report alone, so the report is part of the lane's log.
+    # survivor count only when there is one: a leg that killed everything
+    # says so in the report alone, so the report is part of the leg's log.
     ide_report = paths.artifact_dir / f"{leg.report_name}.txt"
     if ide_report.is_file():
         raw += ide_report.read_text(encoding="utf-8") + "\n"
@@ -592,8 +517,8 @@ class SweepEnvironment(NamedTuple):
     command line, for the reason at CPP_MUTANT_CAP_MS.  Anything else the
     caller had set would change what a sweep reports with nothing in the sweep
     saying so: with ALETHEIA_LIB the library lookup returns before it reads
-    the repository root, leaving that read's mutants uncovered, and a
-    sanitizer's or the GHC runtime's options change how a run ends.
+    the repository root, leaving that read's mutants uncovered, and the GHC
+    runtime's options change how a run ends.
     PYTHONUNBUFFERED is the one variable that says nothing of the sweep:
     run_streaming gives it to every child it starts, the lane's runner
     included, and it is spelled here so every runner gets the same.
@@ -646,7 +571,7 @@ def _sweep_cpp_lane(
     config = leg_config(leg, build_dir)
     raw += f"configuration: {config}\n"
     paths = LegPaths(cpp_sweep_directory(), build_dir, artifact_dir, config)
-    built = build_cpp_mutation_tree(cmake, paths, leg)
+    built = build_cpp_mutation_tree(cmake, paths)
     if isinstance(built, MutationReport):
         return raw + built.raw_log, built.error or f"the {leg} leg did not build"
     raw += built
@@ -666,7 +591,7 @@ def _sweep_cpp_lane(
 
 
 def run_cpp(artifact_dir: Path) -> MutationReport:
-    """Mull pass over the mutation trees; a mutant survives only where every lane let it.
+    """Mull pass over the mutation tree, whole or as the stage names it.
 
     The stage (``cpp_stage``) selects the whole lane, one leg or the merge.
     """
@@ -678,7 +603,7 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
         return _merge_cpp_legs(artifact_dir)
     # A leg reports under its own binding whatever becomes of it, so a leg that
     # never reached its sweep says which leg it was.
-    legs = [CppLeg(tree) for tree in CppTree] if stage is None else [stage]
+    legs = [CppLeg()] if stage is None else [stage]
     binding = "cpp" if stage is None else stage.binding
     checked = _check_cpp_tools()
     if isinstance(checked, str):
@@ -688,14 +613,14 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
         return MutationReport(binding, "mull", 0, 0, raw, error=swept)
 
     if stage is not None:
-        # One leg: its result is its own slice of one tree, judged by nobody
-        # until the merge has read every slice of every tree.
+        # One leg: its result is its own slice of the tree, judged by nobody
+        # until the merge has read every slice.
         total, survived = elements_counts(swept[0])
         raw += f"=== {stage} leg ===\nkilled {total - survived}, survived {survived}"
         raw += f" of {total}\n"
         (artifact_dir / "cpp.raw.txt").write_text(raw)
         return MutationReport(binding, "mull", total - survived, survived, raw)
-    return _finish_cpp(artifact_dir, raw, swept, legs)
+    return _finish_cpp(artifact_dir, raw, dict(swept[0]), legs)
 
 
 def _sweep_legs(
@@ -703,7 +628,7 @@ def _sweep_legs(
 ) -> tuple[str, list[Mapping[str, object]] | str]:
     """Sweep the legs given, returning the log and their reports or the reason there are none.
 
-    The whole lane is every tree swept whole; a CI leg is one slice of one.
+    The whole lane is the tree swept whole; a CI leg is one slice of it.
     The log is written out after each leg, so a run its clock kills leaves
     what it reached.
     """
@@ -735,24 +660,21 @@ def _merge_cpp_legs(artifact_dir: Path) -> MutationReport:
         return MutationReport("cpp", "mull", 0, 0, "", error=msg)
     legs_dir = Path(legs)
     raw = f"=== merge of the legs under {legs_dir} ===\n"
-    reports: list[Mapping[str, object]] = []
-    for tree in CppTree:
-        slices: list[Mapping[str, object]] = []
-        for leg in (CppLeg(tree, number) for number in range(1, CPP_SLICES + 1)):
-            copied = _copy_leg_reports(legs_dir, artifact_dir, leg)
-            if isinstance(copied, str):
-                return MutationReport("cpp", "mull", 0, 0, raw + copied + "\n", error=copied)
-            raw += copied.log
-            slices.append(copied.elements)
-        unioned = union_slices(slices)
-        if isinstance(unioned, str):
-            return MutationReport("cpp", "mull", 0, 0, raw + unioned + "\n", error=unioned)
-        counts = elements_counts(unioned)
-        off = _off_record(tree, counts.total)
-        if off is not None:
-            return MutationReport("cpp", "mull", 0, 0, raw + off + "\n", error=off)
-        raw += f"the {tree.value} tree's {CPP_SLICES} slices union to {counts.total} mutants\n"
-        reports.append(unioned)
+    slices: list[Mapping[str, object]] = []
+    for leg in sliced_legs():
+        copied = _copy_leg_reports(legs_dir, artifact_dir, leg)
+        if isinstance(copied, str):
+            return MutationReport("cpp", "mull", 0, 0, raw + copied + "\n", error=copied)
+        raw += copied.log
+        slices.append(copied.elements)
+    unioned = union_slices(slices)
+    if isinstance(unioned, str):
+        return MutationReport("cpp", "mull", 0, 0, raw + unioned + "\n", error=unioned)
+    counts = elements_counts(unioned)
+    off = _off_record(counts.total)
+    if off is not None:
+        return MutationReport("cpp", "mull", 0, 0, raw + off + "\n", error=off)
+    raw += f"the {CPP_SLICES} slices union to {counts.total} mutants\n"
     elapsed = _legs_elapsed(legs_dir)
     if isinstance(elapsed, str):
         return MutationReport("cpp", "mull", 0, 0, raw + elapsed + "\n", error=elapsed)
@@ -761,7 +683,7 @@ def _merge_cpp_legs(artifact_dir: Path) -> MutationReport:
     )
     for leg, secs in elapsed.items():
         raw += f"{leg} leg swept in {secs}s\n"
-    return _finish_cpp(artifact_dir, raw, reports, sliced_legs())
+    return _finish_cpp(artifact_dir, raw, unioned, sliced_legs())
 
 
 class LegReports(NamedTuple):
@@ -814,14 +736,21 @@ def _legs_elapsed(legs_dir: Path) -> dict[CppLeg, float] | str:
 
 
 def _finish_cpp(
-    artifact_dir: Path, raw: str, reports: list[Mapping[str, object]], legs: Sequence[CppLeg]
+    artifact_dir: Path, raw: str, report: dict[str, object], legs: Sequence[CppLeg]
 ) -> MutationReport:
-    """Merge the trees' reports, count the kill routes and the surface, and write the lane's log."""
-    total, survived = _merge_cpp_lanes(artifact_dir, reports)
+    """Write the lane's report, count the kill routes and the surface, and write the lane's log.
+
+    The report is written scored over its own mutants, here as well as at the
+    union, so the whole tree's report and the merged slices' carry the one
+    score computed one way.
+    """
+    scored = _scored(copy.deepcopy(report))
+    (artifact_dir / CPP_ELEMENTS_REPORT).write_text(json.dumps(scored))
+    total, survived = elements_counts(scored)
     endings = cpp_endings(artifact_dir, legs)
     routes = merge_endings(endings) if endings is not None else None
-    # A mutant the runner ended at its cap in every tree is neither killed nor
-    # survived: the census names it, and the drift gate refuses the sweep.
+    # A mutant the runner ended at its cap is neither killed nor survived: the
+    # census names it, and the drift gate refuses the sweep.
     timeouts = routes["timeout"] if routes is not None else None
     killed = total - survived - (timeouts or 0)
     raw += "=== merged ===\n"
@@ -832,13 +761,13 @@ def _finish_cpp(
         unobserved = unobserved_rows_to_ledger(unobserved_kill_rows(endings, _repo_line))
         (artifact_dir / CPP_UNOBSERVED_REPORT).write_text(json.dumps(unobserved, indent=2))
         raw += unobserved_summary(unobserved)
-    runs = tree_runs(artifact_dir, legs)
+    runs = lane_runs(artifact_dir, legs)
     (artifact_dir / CPP_RUNS_REPORT).write_text(json.dumps(runs, indent=2))
     raw += weight_drift(runs)
     (artifact_dir / "cpp.raw.txt").write_text(raw)
     # Every mutant the runner made has a row, so a file with runs is a file
     # holding a mutant, whatever became of it.
-    mutated = frozenset(file for figures in runs.values() for file in figures)
+    mutated = frozenset(runs)
     census = None if routes is None else {KillRoute(r): MutantCount(c) for r, c in routes.items()}
     return MutationReport(
         "cpp",
@@ -874,15 +803,8 @@ def unobserved_summary(unobserved: Sequence[UnobservedRow]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _merge_cpp_lanes(artifact_dir: Path, reports: list[Mapping[str, object]]) -> ElementsCounts:
-    """Write the merged Elements report and return its counts."""
-    merged = merge_elements(reports)
-    (artifact_dir / CPP_ELEMENTS_REPORT).write_text(json.dumps(merged))
-    return elements_counts(merged)
-
-
 def mull_counts(raw: str) -> tuple[int, int] | None:
-    """Read ``(killed, survived)`` from a lane's log, or None if it carries no summary.
+    """Read ``(killed, survived)`` from a leg's log, or None if it carries no summary.
 
     The log is mull-runner's stdout followed by its IDE report.
 

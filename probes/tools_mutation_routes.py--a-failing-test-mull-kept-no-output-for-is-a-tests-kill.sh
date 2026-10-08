@@ -56,7 +56,6 @@ from pathlib import Path
 from tools.mutation_cpp import (
     CPP_SWEEP_LOCALE,
     CppLeg,
-    CppTree,
     SearchPath,
     SweepEnvironment,
     cpp_lane_command,
@@ -81,7 +80,7 @@ wanted = {"failed": "test", "signalled": "fault"}
 bad = [f"recorded {mutant}: read {ending.route}, stands for {wanted[mutant]}"
        for mutant, ending in lane_endings(recorded).items() if ending.route != wanted[mutant]]
 if sweep:
-    leg = CppLeg(CppTree.PLAIN)
+    leg = CppLeg()
     runner = shutil.which("mull-runner-23")
     if runner is None:
         sys.exit(2)

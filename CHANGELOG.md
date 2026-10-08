@@ -269,6 +269,29 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation lane sweeps one tree.** It swept three, a leak tree
+  under LeakSanitizer, a plain one and an address one, and merged their
+  verdicts. Measured on the lane's own sweep, the address tree killed nothing
+  the plain tree let live, and the leak tree killed three mutants the plain
+  tree let live, each the removal of a free of a kernel string, which a test
+  now observes by the recording kernel's free count. So the leak and address
+  trees go, with the tree concept in the tooling: `ALETHEIA_MUTATION_CPP_STAGE`
+  names a slice or the merge as the Go lane's variable does, a leg reports as
+  `cpp-1` and its siblings, the record keeps one `runs_by_file` and no per-tree
+  census, the kill-route census has no sanitizer routes, and the `leak` choice
+  of `ALETHEIA_SANITIZER` is gone with its only user. Per pull request the C++
+  binding is three CI legs where it was nine.
+
+- **A C++ test reads every release of a string the kernel handed back.** The
+  recording kernel stand-in counts its frees beside its closes, and two tests
+  read the count: the backend's, one command through the stand-in and one more
+  free; and the renderer's, in a process of its own
+  (`cpp/tests/renderer_frees_kernel_strings_tests.cpp`), since the renderer
+  loads its library once per process, one more free after a render and after
+  a refused decimal parse. Before, only the mutation lane's leak tree saw a
+  removed free, at exit; the plain tree now kills the three such mutants by a
+  test, and the record's two leak-route rows leave the unobserved ledger.
+
 - **A gate refuses the C++ library's unchecked reads, in the parse the
   type-deduction ratchet already makes.** A probe held the reads of a state a
   check has ruled out at zero (AGENTS/cpp.md cat 24), one clang-query over

@@ -6,7 +6,7 @@
 # Claim: the test double under cpp/src/detail is held out of the mutation
 # surface. Only the tests include it, so a mutant in it measures the harness
 # rather than the library, the reason the test sources are held out; the
-# library's other detail sources keep their mutants. The leak tree is read
+# library's other detail sources keep their mutants. The mutation tree is read
 # through a dry run of the lane's own command, in the lane's environment and
 # directory, its report in scratch. Non-zero exit: the dry run lists a mutant
 # in cpp/src/detail/mock_backend.hpp, or none in cpp/src/detail/ffi_logic.cpp,
@@ -25,17 +25,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-from tools.mutation_cpp_legs import CppLeg, CppTree
-from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, tree_binary
+from tools.mutation_cpp_legs import CppLeg
+from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, lane_binary
 
 if shutil.which(MULL_RUNNER) is None:
     print("Mull not installed, claim untestable")
     sys.exit(0)
-if not os.access(tree_binary(CppTree.LEAK), os.X_OK):
+if not os.access(lane_binary(), os.X_OK):
     print("no mutation tree built, claim untestable")
     sys.exit(0)
 with tempfile.TemporaryDirectory(prefix="dry-run-") as scratch:
-    report = dry_run_report(CppLeg(CppTree.LEAK), Path(scratch))
+    report = dry_run_report(CppLeg(), Path(scratch))
     if isinstance(report, str):
         print(report)
         sys.exit(1)

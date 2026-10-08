@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""A dry run of one leg of the C++ mutation lane, over the leg's tree as the lane built it.
+"""A dry run of one leg of the C++ mutation lane, over the tree as the lane built it.
 
 A dry run runs the leg's unmutated test binary once and reports every mutant
 the binary carries without running one, which is the surface a sweep of the
@@ -19,7 +19,7 @@ from tools.mutation_cpp import (
     cpp_sweep_directory,
     cpp_sweep_environment,
 )
-from tools.mutation_cpp_legs import CppLeg, CppTree
+from tools.mutation_cpp_legs import CppLeg
 
 from aletheia.common_types import Prose
 
@@ -32,13 +32,13 @@ MULL_RUNNER = "mull-runner-23"
 
 
 def leg_build_dir(leg: CppLeg) -> Path:
-    """Name the directory one leg's tree is built in."""
+    """Name the directory one leg builds the tree in."""
     return cpp_sweep_directory() / leg.directory
 
 
-def tree_binary(tree: CppTree) -> Path:
-    """Name the test binary of one whole tree, which the runner runs once per mutant."""
-    return leg_build_dir(CppLeg(tree)) / CPP_TEST_TARGET
+def lane_binary() -> Path:
+    """Name the whole tree's test binary, which the runner runs once per mutant."""
+    return leg_build_dir(CppLeg()) / CPP_TEST_TARGET
 
 
 def dry_run_report(leg: CppLeg, report_dir: Path) -> Path | Prose:

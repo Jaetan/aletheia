@@ -3,11 +3,11 @@
 """The suite runs a C++ leg's mutants cost by file (``tools.mutation_cpp_runs``).
 
 A mutant's run, from Mull's SQLite report, over the leg's unmutated run, from
-Mull's log, summed by file: the figure the record weighs each tree's files by.
+Mull's log, summed by file: the figure the record weighs the files by.
 Held here: the three shapes Mull prints a duration in and nothing else, the
 baseline read rather than the warm-up run Mull prints before it, the runner's
-speed divided out, a leg without a baseline refused, the legs of a tree summed
-to the tenth the record keeps, and the leg writing its figures beside its
+speed divided out, a leg without a baseline refused, the legs summed to the
+tenth the record keeps, and the leg writing its figures beside its
 reports where the merge looks for them.
 """
 
@@ -16,23 +16,23 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
-from typing import TYPE_CHECKING, NewType, get_args
+from typing import TYPE_CHECKING, NewType
 from unittest.mock import Mock
 
 import pytest
 
 from tools import mutation_cpp, mutation_cpp_config
 from tools._common import RelPath
-from tools.mutation_cpp_legs import CPP_SLICE_ENV, CPP_STAGE_ENV, CppLeg, CppTree, CppTreeName
+from tools.mutation_cpp_legs import CPP_STAGE_ENV, CppLeg
 from tools.mutation_cpp_runs import (
     CPP_LEG_RUNS_SUFFIX,
     MullDuration,
     MullLog,
     RunSeconds,
     baseline_seconds,
+    lane_runs,
     leg_runs,
     mull_seconds,
-    tree_runs,
 )
 from tools.mutation_cpp_slices import SuiteRuns
 
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    from tools.mutation_cpp_slices import TreeRuns
+    from tools.mutation_cpp_slices import FileRuns
     from tools.mutation_report import MutationReport
 
 # How long one mutant's run took, in the milliseconds Mull's SQLite report keeps.
@@ -87,12 +87,6 @@ def _report(path: Path, rows: Sequence[MutantRow]) -> Path:
         )
         conn.commit()
     return path
-
-
-def test_the_names_the_record_keys_trees_by_are_the_trees() -> None:
-    """A tree the lane gains is a key the record can hold, and no key names a tree it lacks."""
-    assert set(get_args(CppTreeName)) == {tree.value for tree in CppTree}
-    assert all(tree.key == tree.value for tree in CppTree)
 
 
 @pytest.mark.parametrize(
@@ -168,23 +162,25 @@ def test_a_leg_without_its_sqlite_report_is_refused(tmp_path: Path) -> None:
     assert not missing.exists()
 
 
-def test_a_tree_s_legs_sum_to_the_tenth_the_record_keeps(tmp_path: Path) -> None:
-    """The slices of a tree add up file by file, each tree apart, rounded once at the end."""
-    figures: dict[CppLeg, TreeRuns] = {
-        CppLeg(CppTree.LEAK, 1): {_A: SuiteRuns(1.04), _B: SuiteRuns(0.5)},
-        CppLeg(CppTree.LEAK, 2): {_A: SuiteRuns(1.04)},
-        CppLeg(CppTree.PLAIN, 1): {_B: SuiteRuns(3.0)},
+def test_the_legs_sum_to_the_tenth_the_record_keeps(tmp_path: Path) -> None:
+    """The slices add up file by file, rounded once at the end."""
+    figures: dict[CppLeg, FileRuns] = {
+        CppLeg(1): {_A: SuiteRuns(1.04), _B: SuiteRuns(0.5)},
+        CppLeg(2): {_A: SuiteRuns(1.04)},
+        CppLeg(3): {_B: SuiteRuns(3.0)},
     }
     for leg, runs in figures.items():
         _ = (tmp_path / f"{leg.report_name}{CPP_LEG_RUNS_SUFFIX}").write_text(json.dumps(runs))
-    assert tree_runs(tmp_path, list(figures)) == {
-        "leak": {_A: 2.1, _B: 0.5},
-        "plain": {_B: 3.0},
-    }
+    assert lane_runs(tmp_path, list(figures)) == {_A: 2.1, _B: 3.5}
+
+
+def _no_files(_leg: CppLeg) -> tuple[list[RelPath], list[RelPath]]:
+    """Stand in for the partition over the fake root, which tracks no file: nothing claimed."""
+    return [], []
 
 
 def _swept_leg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, log: MullLog) -> MutationReport:
-    """Run the leak tree's leg through the lane over a faked root, its build and runner faked.
+    """Run the first slice's leg through the lane over a faked root, its build and runner faked.
 
     The runner's reports are laid down first, as Mull would have left them,
     one mutant in a.cpp costing four seconds.
@@ -194,13 +190,15 @@ def _swept_leg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, log: MullLog) ->
     _ = (root / "cpp" / "mull.yml").write_text("mutators:\n  - cxx_add_to_sub\n", encoding="utf-8")
     for module in (mutation_cpp, mutation_cpp_config):
         monkeypatch.setattr(module, "REPO_ROOT", root)
-    leg = CppLeg(CppTree.LEAK)
+    # The slice's files are partitioned over the tracked tree, which the fake
+    # root is not; the leg claims nothing and holds nothing out.
+    monkeypatch.setattr(mutation_cpp_config, "leg_files", _no_files)
+    leg = CppLeg(1)
     artifact_dir = tmp_path / "out"
     artifact_dir.mkdir()
     _ = (artifact_dir / f"{leg.report_name}.json").write_text(json.dumps({"files": {}}))
     _ = _report(artifact_dir / f"{leg.report_name}.sqlite", [(tmp_path / _A, Millis(4000))])
-    monkeypatch.setenv(CPP_STAGE_ENV, CppTree.LEAK.value)
-    monkeypatch.delenv(CPP_SLICE_ENV, raising=False)
+    monkeypatch.setenv(CPP_STAGE_ENV, "1")
     monkeypatch.setattr(mutation_cpp, "_check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
     monkeypatch.setattr(mutation_cpp, "build_cpp_mutation_tree", Mock(return_value=""))
     monkeypatch.setattr(mutation_cpp, "_run_cpp_lane", Mock(return_value=(log, (1, 0))))
@@ -213,7 +211,7 @@ def test_a_leg_writes_its_runs_beside_its_reports(
     """The leg is the one place its baseline is printed, so it is the one that counts its runs."""
     report = _swept_leg(monkeypatch, tmp_path, _log(MullDuration("9s"), MullDuration("2.00s")))
     assert report.error is None
-    written = tmp_path / "out" / f"{CppLeg(CppTree.LEAK).report_name}{CPP_LEG_RUNS_SUFFIX}"
+    written = tmp_path / "out" / f"{CppLeg(1).report_name}{CPP_LEG_RUNS_SUFFIX}"
     assert json.loads(written.read_text(encoding="utf-8")) == {_A: 2.0}
 
 
@@ -222,7 +220,7 @@ def test_a_leg_whose_log_has_no_baseline_is_an_error(
 ) -> None:
     """A leg that cannot count its runs fails where it ran, not at a merge missing its file."""
     report = _swept_leg(monkeypatch, tmp_path, MullLog("no timing here\n"))
-    leg = CppLeg(CppTree.LEAK)
+    leg = CppLeg(1)
     assert report.error is not None
     assert f"the {leg} leg: mull-runner-23 printed no baseline run" in report.error
     assert not (tmp_path / "out" / f"{leg.report_name}{CPP_LEG_RUNS_SUFFIX}").exists()

@@ -21,7 +21,6 @@ import yaml
 from tools.mutation_cpp_legs import (
     CPP_LEGS_ENV,
     CPP_MERGE_STAGE,
-    CPP_SLICE_ENV,
     CPP_STAGE_ENV,
     sliced_legs,
 )
@@ -94,29 +93,24 @@ def _artifact_name(lane: str) -> str:
     return uploads[0].replace("${{ matrix.lane }}", lane)
 
 
-def test_every_slice_of_every_tree_is_one_leg_and_no_lane_sweeps_a_whole_tree() -> None:
-    """One matrix entry per leg, named by its tree and slice, and no entry sweeps more."""
+def test_every_slice_is_one_leg_and_no_lane_sweeps_the_whole_tree() -> None:
+    """One matrix entry per leg, named by its slice, and no entry sweeps more."""
     entries = _matrix()
     assert len({str(entry["lane"]) for entry in entries}) == len(entries)
     cpp = [entry for entry in entries if entry["binding"] == "cpp"]
     assert len(cpp) == len(sliced_legs())
     for leg in sliced_legs():
-        legs = [
-            entry
-            for entry in cpp
-            if entry["stage"] == leg.tree.value and entry["slice"] == str(leg.slice_no)
-        ]
+        legs = [entry for entry in cpp if entry["stage"] == str(leg.slice_no)]
         assert len(legs) == 1, str(leg)
         assert legs[0]["lane"] == leg.binding
         assert legs[0]["skip_cpp"] == ""
     for entry in entries:
         assert isinstance(entry["timeout"], int)
+        assert "slice" not in entry
         if entry["binding"] != "cpp":
             assert entry["stage"] == ""
-            assert entry["slice"] == ""
         else:
             assert entry["stage"] != ""
-            assert entry["slice"] != ""
 
 
 def test_every_go_shard_is_one_lane_and_no_lane_sweeps_the_package_whole() -> None:
@@ -147,22 +141,20 @@ def test_every_rust_job_is_one_lane_and_no_lane_sweeps_the_crate_whole() -> None
             assert entry["rust_job"] == ""
 
 
-def test_the_sweep_step_hands_each_lane_its_tree_and_its_slice() -> None:
-    """The runner reads both from the environment the sweep step sets.
+def test_the_sweep_step_hands_each_lane_its_slice() -> None:
+    """The runner reads its slice from the environment the sweep step sets.
 
-    Either one alone is a leg that sweeps something nobody asked for: the tree
-    without the slice is the whole tree, six times over.
+    Without it a leg sweeps the whole tree, three times over.
     """
     sweeps = [step for step in _steps(_LANE_JOB) if "tools.mutation_run" in str(step.get("run"))]
     assert len(sweeps) == 1
     assert _env(sweeps[0])[CPP_STAGE_ENV] == "${{ matrix.stage }}"
-    assert _env(sweeps[0])[CPP_SLICE_ENV] == "${{ matrix.slice }}"
     assert _env(sweeps[0])[GO_STAGE_ENV] == "${{ matrix.go_shard }}"
     assert _env(sweeps[0])[RUST_STAGE_ENV] == "${{ matrix.rust_job }}"
 
 
 def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
-    """Nine legs build nine slices, and the build is only affordable cached.
+    """Three legs build three slices, and the build is only affordable cached.
 
     The cache is what the launcher's extra-files hashing makes safe, and
     nothing else here would notice its absence: without a directory, a key and

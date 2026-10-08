@@ -18,10 +18,9 @@ import pytest
 
 from tools import mutation_cpp, mutation_cpp_config, mutation_cpp_dry_run
 from tools.mutation_cpp import CPP_LEG_REPORT_SUFFIXES
-from tools.mutation_cpp_legs import CPP_SLICE_ENV, CPP_STAGE_ENV, CppLeg, CppTree
+from tools.mutation_cpp_legs import CPP_STAGE_ENV, CppLeg
 
-# A configuration with a mutator every tree keeps and one the address tree
-# drops, so that tree is configured apart.
+# The tree's configuration: two mutators and no hold-out.
 _MULL_CONFIG = "mutators:\n  - cxx_add_to_sub\n  - cxx_remove_void_call\nexcludePaths: []\n"
 
 # A runner standing in for Mull: it writes every report a leg writes, and
@@ -45,15 +44,14 @@ with open(base + ".env", "w") as out:
 
 @pytest.fixture(name="root")
 def _root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Fake the repository under a scratch root, each tree configured as the lane configures it."""
+    """Fake the repository under a scratch root, the tree configured as the lane configures it."""
     root = tmp_path / "repo"
     (root / "cpp").mkdir(parents=True)
     for module in (mutation_cpp, mutation_cpp_config):
         monkeypatch.setattr(module, "REPO_ROOT", root)
     _ = (root / "cpp" / "mull.yml").write_text(_MULL_CONFIG, encoding="utf-8")
-    for tree in CppTree:
-        leg = CppLeg(tree)
-        _ = mutation_cpp_config.leg_config(leg, mutation_cpp_dry_run.leg_build_dir(leg))
+    leg = CppLeg()
+    _ = mutation_cpp_config.leg_config(leg, mutation_cpp_dry_run.leg_build_dir(leg))
     return root
 
 
@@ -75,11 +73,9 @@ def _assert_ran_as_the_lane(root: Path, base: Path, leg: CppLeg, build_dir: Path
     assert recorded == mutation_cpp.cpp_sweep_environment(leg, build_dir).variables()
 
 
-def test_a_tree_s_binary_is_the_lane_s_test_target(root: Path) -> None:
-    """The binary a whole tree's runner runs is the lane's test target in that tree."""
-    for tree in CppTree:
-        binary = mutation_cpp_dry_run.tree_binary(tree)
-        assert binary == root / "cpp" / tree.directory / "unit_tests"
+def test_the_tree_s_binary_is_the_lane_s_test_target(root: Path) -> None:
+    """The binary the whole tree's runner runs is the lane's test target in that tree."""
+    assert mutation_cpp_dry_run.lane_binary() == root / "cpp" / "build-mutation" / "unit_tests"
 
 
 def test_a_dry_run_of_a_slice_runs_the_lane_s_command_for_it(
@@ -88,9 +84,9 @@ def test_a_dry_run_of_a_slice_runs_the_lane_s_command_for_it(
     """The slice's own tree, configuration and report name, and the runner told to run no mutant."""
     runner = _write_runner(root.parent / "runner")
     monkeypatch.setattr(mutation_cpp_dry_run, "MULL_RUNNER", str(runner))
-    leg = CppLeg(CppTree.PLAIN, 2)
+    leg = CppLeg(2)
     build_dir = mutation_cpp_dry_run.leg_build_dir(leg)
-    assert build_dir == root / "cpp" / f"{CppTree.PLAIN.directory}-2"
+    assert build_dir == root / "cpp" / "build-mutation-2"
     report_dir = root.parent / "reports"
     report_dir.mkdir()
     report = mutation_cpp_dry_run.dry_run_report(leg, report_dir)
@@ -108,7 +104,7 @@ def test_a_dry_run_that_wrote_no_report_says_so(
 ) -> None:
     """A runner that ran and left no Elements report is reported, not read."""
     monkeypatch.setattr(mutation_cpp_dry_run, "MULL_RUNNER", "true")
-    leg = CppLeg(CppTree.LEAK)
+    leg = CppLeg()
     assert mutation_cpp_dry_run.dry_run_report(leg, root.parent) == (
         f"the dry run of the {leg} leg wrote no {leg.report_name}.json"
     )
@@ -142,10 +138,9 @@ def test_the_lane_and_a_dry_run_run_the_runner_alike(
     _ = plugin.write_text("plugin", encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("PATH", f"{tools}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv(CPP_STAGE_ENV, CppTree.LEAK.value)
-    monkeypatch.delenv(CPP_SLICE_ENV, raising=False)
+    monkeypatch.delenv(CPP_STAGE_ENV, raising=False)
     monkeypatch.setattr(mutation_cpp, "reap_dead_scratch_dirs", lambda: 0)
-    leg = CppLeg(CppTree.LEAK)
+    leg = CppLeg()
     lane, dry = root.parent / "lane", root.parent / "dry"
     lane.mkdir()
     dry.mkdir()

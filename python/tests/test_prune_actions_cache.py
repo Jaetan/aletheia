@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 _SHA_A = "a" * 40
 _SHA_B = "b" * 40
 _SHA_C = "c" * 40
-_PREFIX = "ccache-mutation-cpp-plain-1-clang23-v1"
+_PREFIX = "ccache-mutation-cpp-1-clang23-v1"
 _MAIN = prune.DEFAULT_REF
 
 
@@ -125,7 +125,7 @@ def test_a_commit_suffixed_key_on_another_branch_is_not_a_candidate() -> None:
 
 def test_prefixes_are_counted_apart() -> None:
     """Two lanes' keys share everything but the lane, and each keeps its own newest."""
-    other = _PREFIX.replace("plain-1", "plain-2")
+    other = _PREFIX.replace("cpp-1", "cpp-2")
     entries = [
         _entry(1, f"{_PREFIX}-{_SHA_A}", created="2026-09-20T00:00:00Z"),
         _entry(2, f"{other}-{_SHA_A}", created="2026-09-20T00:00:00Z"),

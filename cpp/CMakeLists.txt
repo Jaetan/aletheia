@@ -42,21 +42,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Build into a dedicated directory so the instrumented artifacts are not
 # mixed with the standard build:
 #
-#   cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
+#   cmake -B build-mutation -DALETHEIA_MUTATION=ON \
 #         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 #   cmake --build build-mutation --target unit_tests
 #
 # and sweep it the way the lane does (docs/operations/MUTATION.md § Running
 # the lane).
 #
-# A CI leg sweeps one slice of the surface instead of a whole tree, which is
+# A CI leg sweeps one slice of the surface instead of the whole tree, which is
 # the same build given a generated configuration holding the other slices'
 # files out (tools/mutation_cpp_slices.py writes it,
-# tools/mutation_cpp_config.py puts it in place).  Its tree is the tree's
-# directory and the slice's number:
+# tools/mutation_cpp_config.py puts it in place).  Its directory is the
+# tree's and the slice's number:
 #
-#   cmake -B build-mutation-plain-1 -DALETHEIA_MUTATION=ON \
-#         -DALETHEIA_MULL_CONFIG=$PWD/build-mutation-plain-1/mull-config.yml \
+#   cmake -B build-mutation-1 -DALETHEIA_MUTATION=ON \
+#         -DALETHEIA_MULL_CONFIG=$PWD/build-mutation-1/mull-config.yml \
 #         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 #
 # Requires Mull-23 (LLVM 23), which tools/build_mull.sh builds from source (see
@@ -99,7 +99,7 @@ if(ALETHEIA_MUTATION)
     # include fails, and it drops every mutant of that unit, so the surface was
     # whichever units happened to parse without their include paths.
     set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0 -grecord-command-line)
-    # The mutation trees run the standard library's debug mode, every object
+    # The mutation tree runs the standard library's debug mode, every object
     # of the tree included, so a mutant that steps past a container's end or
     # subscripts out of range dies at that step with the check's message,
     # instead of reading what lies beyond. What lies beyond is not
@@ -107,12 +107,12 @@ if(ALETHEIA_MUTATION)
     # skipped guard reads past a map's end decides between a bad_alloc a test
     # catches and a signal. Debug mode changes the containers' layout, so it is
     # the whole tree or nothing: the fetched libraries are compiled below under
-    # the same define, and the trees link no prebuilt C++ but libstdc++ itself,
+    # the same define, and the tree links no prebuilt C++ but libstdc++ itself,
     # which debug mode is built against. The shipped build is untouched.
-    # Measured over the unmutated suite, three runs each: the leak tree 2.1s
-    # either way, the plain tree 3.6s to 4.9s. The mutants that let an
-    # oversized input through to a parser pay far more, which is why the
-    # runner's cap per mutant is explicit (tools/mutation_cpp.py).
+    # Measured over the unmutated suite, three runs: 3.6s to 4.9s.
+    # The mutants that let an oversized input through to a parser pay far
+    # more, which is why the runner's cap per mutant is explicit
+    # (tools/mutation_cpp.py).
     # probes/cpp_CMakeLists.txt--a-mutation-tree-ends-a-read-past-the-end-at-the-read.sh
     add_compile_definitions(_GLIBCXX_DEBUG)
 endif()
@@ -187,25 +187,12 @@ endif()
 #   cmake -B build-asan   -DALETHEIA_SANITIZER=address
 #   cmake -B build-ubsan  -DALETHEIA_SANITIZER=undefined
 #   cmake -B build-tsan   -DALETHEIA_SANITIZER=thread
-#   cmake -B build-mutation -DALETHEIA_SANITIZER=leak (with ALETHEIA_MUTATION=ON)
-#
-# The leak choice is LeakSanitizer alone: no instrumentation pass, only the
-# runtime that reports what was never freed at exit. The mutation lane runs
-# under it so a mutant that removes a destructor leaks and fails, where an
-# instrumenting sanitizer hands the mutator its own runtime calls: measured
-# on the plain tree under -fsanitize=undefined, 1116 mutants against its
-# 1037, the 81 more each removing a check the sanitizer had inserted at the
-# site of a call the source wrote, and 87 mutants surviving where none does.
-# Debug mode (ALETHEIA_MUTATION above) is the instrument the trees carry for
-# undefined behaviour instead: its checks live in the library's headers,
-# which the mutation configuration holds out, and the census under it is the
-# tree's own, file for file.
 #
 # Use a separate build directory per sanitizer — sanitizer flags are not
 # safe to mix on the same archive.
 set(ALETHEIA_SANITIZER "" CACHE STRING
-    "Sanitizer lane: address | undefined | thread | leak (empty = off)")
-set_property(CACHE ALETHEIA_SANITIZER PROPERTY STRINGS "" address undefined thread leak)
+    "Sanitizer lane: address | undefined | thread (empty = off)")
+set_property(CACHE ALETHEIA_SANITIZER PROPERTY STRINGS "" address undefined thread)
 
 set(ALETHEIA_SANITIZER_FLAGS "")
 if(ALETHEIA_SANITIZER STREQUAL "address")
@@ -215,8 +202,6 @@ elseif(ALETHEIA_SANITIZER STREQUAL "undefined")
         -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
 elseif(ALETHEIA_SANITIZER STREQUAL "thread")
     set(ALETHEIA_SANITIZER_FLAGS -fsanitize=thread -fno-omit-frame-pointer)
-elseif(ALETHEIA_SANITIZER STREQUAL "leak")
-    set(ALETHEIA_SANITIZER_FLAGS -fsanitize=leak -fno-omit-frame-pointer)
 elseif(ALETHEIA_SANITIZER)
     message(FATAL_ERROR
         "ALETHEIA_SANITIZER='${ALETHEIA_SANITIZER}' invalid; "
@@ -316,8 +301,8 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
 # The spreadsheet library hides its symbols. The allocation-fault harness
 # spares the library's own allocations by naming the frames on the stack, and
-# a hidden frame has no name, so the mutation trees, which are test trees and
-# ship nothing, build it visible; the shipped library keeps it hidden.
+# a hidden frame has no name, so the mutation tree, which is a test tree and
+# ships nothing, builds it visible; the shipped library keeps it hidden.
 if(ALETHEIA_MUTATION)
     set_target_properties(OpenXLSX PROPERTIES CXX_VISIBILITY_PRESET default
                                               VISIBILITY_INLINES_HIDDEN OFF)
@@ -602,10 +587,10 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         ALETHEIA_TEST_ABI_ONLY_LIB="${ALETHEIA_STAND_IN_DIR}/abi_only_kernel.so")
     # The allocation-fault sweeps replace the program's allocation functions,
     # which every sanitizer runtime defines as well: the two carry the same
-    # symbols and cannot be linked together, so the sweeps build in the lanes
-    # that run without one. They read back the symbol an allocation returns
-    # into, which the dynamic loader answers for only when the binary exports
-    # its own symbols.
+    # symbols and cannot be linked together, so the sweeps build in the trees
+    # that run without one, which is why the mutation tree carries them. They
+    # read back the symbol an allocation returns into, which the dynamic
+    # loader answers for only when the binary exports its own symbols.
     if(NOT ALETHEIA_SANITIZER)
         target_sources(unit_tests PRIVATE tests/alloc_fault.cpp tests/unit_tests_alloc_fault.cpp)
         target_compile_definitions(unit_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
@@ -688,6 +673,17 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(renderer_missing_library_tests
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
 
+    # The renderer's releases of the kernel's strings, read from the recording
+    # kernel's count, in a process of its own because the renderer loads its
+    # library once per process. Run as a child of fresh_process_tests, below.
+    add_executable(renderer_frees_kernel_strings_tests
+        tests/renderer_frees_kernel_strings_tests.cpp)
+    target_link_libraries(renderer_frees_kernel_strings_tests
+        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    target_compile_definitions(renderer_frees_kernel_strings_tests PRIVATE
+        ALETHEIA_TEST_RECORDING_KERNEL="$<TARGET_FILE:aletheia_test_recording_kernel>")
+    add_dependencies(renderer_frees_kernel_strings_tests aletheia_test_recording_kernel)
+
     # Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
     # ("<header>#<symbol>") resolves to an existing header containing the
@@ -754,16 +750,18 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         PRIVATE ALETHEIA_RTS_WORKLOAD_BIN="$<TARGET_FILE:rts_heap_cap_workload>")
     add_dependencies(rts_heap_cap_tests rts_heap_cap_workload)
 
-    # The three suites above that need a process of their own for the
+    # The suites above that need a process of their own for the
     # renderer and the runtime run as children of one binary
     # (tests/fresh_process_tests.cpp), which ctest runs, and which the
     # mutation build folds into the mutation binary, so the lane sweeps them
     # with the mutant each child inherits.
     set(ALETHEIA_FRESH_PROCESS_BINARIES rts_init_renderer_uninitialized_tests
-        renderer_missing_library_tests rts_heap_cap_tests rts_heap_cap_workload)
+        renderer_missing_library_tests renderer_frees_kernel_strings_tests rts_heap_cap_tests
+        rts_heap_cap_workload)
     set(ALETHEIA_FRESH_PROCESS_DEFINITIONS
         ALETHEIA_RUNTIME_DOWN_TESTS="$<TARGET_FILE:rts_init_renderer_uninitialized_tests>"
         ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS="$<TARGET_FILE:renderer_missing_library_tests>"
+        ALETHEIA_RENDERER_FREES_TESTS="$<TARGET_FILE:renderer_frees_kernel_strings_tests>"
         ALETHEIA_RTS_HEAP_CAP_TESTS="$<TARGET_FILE:rts_heap_cap_tests>")
     add_executable(fresh_process_tests tests/fresh_process_tests.cpp)
     target_compile_features(fresh_process_tests PRIVATE cxx_std_23)
