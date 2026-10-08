@@ -1847,6 +1847,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A commit leaves the files it commits where they were.** The pre-commit
+  hook parked unstaged and untracked changes with a stash of the whole tree
+  and `--keep-index`, which checks every staged file out again, contents
+  unchanged: each commit moved every committed file's mtime to the commit's
+  time (four files at 13:09:15.67 for a commit at 13:09:15), and every
+  consumer that reads mtimes rebuilt from committed sources, ninja and CMake
+  what depends on them, the slices probe refusing a mutation tree built from
+  those exact contents. The hook now records the parked paths in a stash
+  entry it builds itself, from trees written through private index files,
+  with the parents `git stash pop` reads, and shows the gates the staged
+  content by writing the parked tracked paths from the index tree and
+  removing the untracked files; the repository's index is never staged into
+  and a file that is only staged is never written. The entry's tree records
+  the parked paths as they stand, so an unstaged deletion of a staged-new
+  file and a worktree copy put back to HEAD by hand, which git's own stash
+  tree loses, come back as they were; a file removed from the index but kept
+  on disk is committed as deleted and stays on disk, where git's `stash
+  push` over a pathspec stages it again. Every path the hook hands git is
+  read literally, so a name with a colon or a bracket is a name, never
+  pathspec magic or a pattern (an untracked `x[1].txt` once matched the
+  tracked `x1.txt` on the restore and removed it from the tree), a name
+  that is not UTF-8 is parked and comes back, and a nested repository stays
+  where it is. A parking step that fails refuses the commit and writes back
+  what it parked; the entry dropped is the hook's own, never the top of the
+  stack; the commands printed when a restore fails run as printed. Each
+  holds a test, shown red first.
 - **`benchmarks/run_all.sh` runs the Rust harness cargo built.** It ran the
   binary in `rust/target` whatever `CARGO_TARGET_DIR` said, so with the
   variable set the Rust lane measured an earlier build, or failed where there
