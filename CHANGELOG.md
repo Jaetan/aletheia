@@ -336,6 +336,26 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   its directory are refused, so it runs the recipe against a copy of the seeds
   and compares the two. The two probes that time the kernel's growth take its
   processor time, the two sizes in turn, rather than its wall time.
+- **The probe store runs its probes side by side, each in a sandbox.** The
+  runner ran one probe at a time, since only then could it tell which probe
+  had moved a tracked file. It now runs `PROBE_WORKERS` probes at once, 4
+  unless told otherwise, each under a Landlock ruleset (`setpriv`, util-linux
+  2.42) that lets it write only beneath a directory of its own, the tool
+  caches and the git directory, so a write to a tracked file or to another
+  probe's directory is refused in the probe that made it. Landlock does not
+  govern a file's times or mode, so the runner reads every tracked file's
+  mtime, size and mode whenever a probe starts or ends; a change makes the
+  probes running since the last reading suspects, each runs again alone, and
+  the one that moves a file fails. Lines and kept times are in path order
+  whatever order the probes finish in, so a run at one worker and a run at
+  eight keep the same record once the times are taken out. A probe starts
+  with SIGINT and SIGQUIT at their defaults, as one run by hand does. The 294
+  probes took 1305.9 s at one worker and 429.3 s at four, with 14.6 GiB of
+  memory at the peak, page cache included; eight took 399.7 s and 20.8 GiB,
+  and sixteen 387.3 s, held at a 22 GiB cap. Past four, the three longest
+  probes bound the run. The probe over the runner holds a refused write, a touched file, a flipped mode,
+  one record at one worker and at eight, and two probes that see each other
+  running at two workers.
 - **Every list in a DBC has a bound, every DBC command decides them alike,
   and a loaded DBC carries the proof (BREAKING).** Eight lists had no bound on
   any route and now refuse past it with `input_bound_exceeded`,
