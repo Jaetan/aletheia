@@ -337,6 +337,7 @@ add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}
     src/checked.cpp
     src/client.cpp
     src/dbc.cpp
+    src/detail/dl_symbol.cpp
     src/detail/ffi_logic.cpp
     src/detail/loader_utils.cpp
     src/detail/rts_init.cpp

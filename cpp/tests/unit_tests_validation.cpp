@@ -10,6 +10,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include "detail/dl_symbol.hpp"
 #include "detail/ffi_abi.hpp"
 #include "detail/mock_backend.hpp"
 #include "loaded_library.hpp"
@@ -337,6 +338,39 @@ private:
     std::optional<std::string> saved_;
 };
 } // namespace
+
+TEST_CASE("the loader is read one way, and a refusal never reads a null from it", "[ffi][loader]") {
+    // dlerror holds the loader's text for the failure just made and answers
+    // null once that text has been read, so a refusal built after another has
+    // read it must stand on a fixed phrase rather than on a null.
+    const aletheia::test::LoadedLibrary symbolless{
+        dlopen(stand_in(ALETHEIA_TEST_SYMBOLLESS_LIB).c_str(), RTLD_NOW)};
+    REQUIRE(symbolless != nullptr);
+    auto const missing = aletheia::detail::dl_symbol(symbolless.get(), "aletheia_abi_version");
+    REQUIRE_FALSE(missing.has_value());
+    CHECK_THAT(missing.error(), ContainsSubstring("aletheia_abi_version: "));
+    CHECK_THAT(missing.error(), !ContainsSubstring("the loader reported no detail"));
+    CHECK(aletheia::detail::dl_error_text() == "the loader reported no detail");
+
+    const aletheia::test::LoadedLibrary recording{
+        dlopen(stand_in(ALETHEIA_TEST_RECORDING_KERNEL).c_str(), RTLD_NOW)};
+    REQUIRE(recording != nullptr);
+    auto const present = aletheia::detail::dl_symbol(recording.get(), "aletheia_abi_version");
+    REQUIRE(present.has_value());
+    CHECK(present.value() != nullptr);
+}
+
+TEST_CASE("make_ffi_backend_from_env opens the library ALETHEIA_LIB names", "[ffi][validation]") {
+    // The route's success, before its two refusals below: a guard on the
+    // variable read backwards refuses a set variable, which this reports.
+    auto const lib = find_ffi_library();
+    if (lib.empty())
+        SKIP("no kernel library to name");
+    const ScopedAletheiaLib guard{lib.c_str()};
+    auto const backend = make_ffi_backend_from_env(1);
+    REQUIRE(backend != nullptr);
+    CHECK(backend->init());
+}
 
 TEST_CASE("make_ffi_backend_from_env with ALETHEIA_LIB unset throws Validation-kinded exception",
           "[ffi][validation]") {

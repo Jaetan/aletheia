@@ -273,6 +273,24 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
     CHECK(v->reason == "Speed limit exceeded");
 }
 
+TEST_CASE("a moved BackendState hands its state over, and a self-move keeps it",
+          "[backend][lifecycle]") {
+    // Read before either handle is destroyed, so a move that transferred
+    // nothing is reported by the handles themselves rather than by what their
+    // destructors do with a state they both hold.
+    MockBackend mock;
+    int first = 0;
+    int second = 0;
+    BackendState source{mock, &first};
+    BackendState target{mock, &second};
+    target = std::move(source);
+    CHECK(target.get() == &first);
+    CHECK_FALSE(source);
+    auto& same = target;
+    target = std::move(same);
+    CHECK(target.get() == &first);
+}
+
 TEST_CASE("client is movable", "[client]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));

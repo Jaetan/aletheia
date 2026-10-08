@@ -67,10 +67,11 @@ auto DbcMessage::multiplexor_names() const -> std::vector<SignalName> {
     std::set<SignalName> seen;
     std::vector<SignalName> out;
     for (auto const& s : signals) {
-        if (auto const* m = std::get_if<Multiplexed>(&s.presence);
-            m != nullptr && seen.insert(m->multiplexor).second) {
-            out.push_back(m->multiplexor);
-        }
+        if (!is_multiplexed_signal(s))
+            continue;
+        auto const& m = std::get<Multiplexed>(s.presence);
+        if (seen.insert(m.multiplexor).second)
+            out.push_back(m.multiplexor);
     }
     return out;
 }
@@ -80,13 +81,14 @@ auto DbcMessage::multiplex_values(const SignalName& multiplexor) const
     std::set<MultiplexValue> seen;
     std::vector<MultiplexValue> out;
     for (auto const& s : signals) {
-        if (auto const* m = std::get_if<Multiplexed>(&s.presence);
-            m != nullptr && m->multiplexor == multiplexor) {
-            for (auto const& v : m->multiplex_values) {
-                if (seen.insert(v).second) {
-                    out.push_back(v);
-                }
-            }
+        if (!is_multiplexed_signal(s))
+            continue;
+        auto const& m = std::get<Multiplexed>(s.presence);
+        if (m.multiplexor != multiplexor)
+            continue;
+        for (auto const& v : m.multiplex_values) {
+            if (seen.insert(v).second)
+                out.push_back(v);
         }
     }
     return out;
