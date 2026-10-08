@@ -141,8 +141,10 @@ What fails the lane:
   a line that lost its test; fewer of them, or a row the sweep no longer
   produces, is a stale record, and fails until the change lowers it. What the ledger names is package-level
   constants, whose declarations Go's cover profile does not mark as statements,
-  so no test executes them and gremlins never tries their mutants; the values
-  are held by the tests that read them. The coverage lane
+  and one generic function's type-constraint union, a line outside any statement;
+  no test executes either, so gremlins never tries their mutants, and each
+  constant's value is held by a test that reads it or feeds it to the kernel's
+  own refusal at the bound. The coverage lane
   ([COVERAGE.md](COVERAGE.md)) is the same gap seen from the suite's side.
 - **The unobserved ledger (C++, gated)**: those kills are recorded in the C++
   baseline as `unobserved_ledger`, a row per mutator, repository-relative file,

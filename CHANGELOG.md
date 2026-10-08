@@ -12,6 +12,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **A Rust test reads the kernel stand-in's counts:
+  `rust/tests/kernel_releases.rs`.** The recording kernel, the stand-in that
+  refuses every call quoting its arguments and counts the closes and frees it is
+  handed, was a C++ test target under `cpp/tests`, so only the C++ suite could
+  read a release the real kernel acknowledges without reading. It is now one of
+  the stand-ins `cabal run shake -- build` makes beside the library (`haskell-
+  shim/test/recording_kernel.c`, against the kernel's own header, at
+  `build/stand-ins/recording_kernel.so`), where every binding's tests load
+  theirs. The Rust test points `ALETHEIA_LIB` at it in a process of its own,
+  reads one free after a command and one close after the client's drop, and
+  kills the one mutant the Rust record carried as a survivor, the backend's
+  `Drop`, which only a leak checker on a nightly toolchain was thought able to
+  see. The Rust record reads no survivor and an empty ledger.
+
 - **Every probe's time is on its line and kept.** The probe store's runner
   printed a verdict and a path, so a whole run, 70 min 54 s on the tree of
   `77d2a3a4`, said nothing of where the time went. Each line now carries the
@@ -1869,6 +1883,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **A C++ loader's refusal never reads a null from `dlerror`.** Both loaders,
+  the backend resolving the kernel's entries and the rational renderer resolving
+  its three, built their refusal by appending `dlerror()` to a string, and POSIX
+  lets `dlerror` answer null once its text has been read or when the loader set
+  none: the refusal then read a null and the process died by a segmentation
+  fault instead of refusing. The mutation lane's unobserved ledger had been
+  carrying the sites as kills by a fault, twenty-five mutants over the two
+  loaders, each the refusal path crashing rather than the guard it mutated being
+  unobservable. One helper now reads the loader for both
+  (`cpp/src/detail/dl_symbol.hpp`): a symbol the library lacks is refused by its
+  name with the loader's text, or a fixed phrase where the loader holds none;
+  the renderer, which checked `dlerror` where the backend checked the symbol,
+  reads it the backend's way. Three guards that reached a variant through
+  `std::get_if` and a null test (the batch a frame's response carries, a
+  signal's multiplexed presence, twice) ask the variant instead, so a guard read
+  backwards throws `std::bad_variant_access`, which a test reports, rather than
+  dereferencing null. `make_ffi_backend_from_env`'s success had no test and has
+  one; `BackendState`'s move is read by a test on the handles themselves. The
+  C++ record is re-taken: 1429 kills by a test, 15 by a standard-library check,
+  10 by a fault, 23 unobserved rows over 25 mutants, 4 survivors, 1460 mutants.
 
 - **A commit leaves the files it commits where they were.** The pre-commit
   hook parked unstaged and untracked changes with a stash of the whole tree
