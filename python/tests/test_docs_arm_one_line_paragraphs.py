@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 from _planted_tree import run_planted
 
+from tools._common import RelPath
 from tools.docs_arms.one_line_paragraphs import SUBJECT, findings
 
 from aletheia.common_types import Prose
@@ -70,7 +71,7 @@ def _run(repo: Path) -> list[Prose]:
 
 def test_a_guide_of_one_line_paragraphs_is_clean(tmp_path: Path) -> None:
     """Headings, items, table rows and a fence may follow one another; nothing is found."""
-    assert not _run(_repo(tmp_path, CLEAN))
+    assert _run(_repo(tmp_path, CLEAN)) == list[Prose]()
 
 
 @pytest.mark.parametrize(
@@ -160,6 +161,8 @@ def test_a_wrapped_paragraph_is_found_by_line(tmp_path: Path, text: Prose, expec
         Prose("# Building\n\nA paragraph.\n| a | b |\n"),
         Prose("# Building\n\n| a | b |\nA line right under a table row.\n"),
         Prose("# Building\n\n- an item\n> a quote right under it\n"),
+        Prose("# Building\n\nA paragraph.\n#\tA heading\n"),
+        Prose("# Building\n\nA paragraph.\n#\n"),
     ],
     ids=[
         "blank line",
@@ -179,17 +182,19 @@ def test_a_wrapped_paragraph_is_found_by_line(tmp_path: Path, text: Prose, expec
         "table row under a paragraph",
         "line under a table row",
         "quote under an item",
+        "heading opened by a tab under a paragraph",
+        "empty heading under a paragraph",
     ],
 )
 def test_a_line_that_opens_a_block_is_not_a_wrap(tmp_path: Path, text: Prose) -> None:
     """A blank line ends a block, and a heading, item, table row or break starts one: none wraps."""
-    assert not _run(_repo(tmp_path, text))
+    assert _run(_repo(tmp_path, text)) == list[Prose]()
 
 
 def test_wrapped_lines_inside_a_fence_are_code(tmp_path: Path) -> None:
     """Fenced code wraps freely; only prose is held to one line."""
     text = Prose("# Building\n\n~~~\nline one\nline two\n  indented\n~~~\n")
-    assert not _run(_repo(tmp_path, text))
+    assert _run(_repo(tmp_path, text)) == list[Prose]()
 
 
 def test_a_missing_guide_is_a_finding(tmp_path: Path) -> None:
@@ -222,5 +227,30 @@ def test_a_line_opening_on_a_number_with_no_marker_wraps(tmp_path: Path) -> None
     """A number is a list marker only with a dot and a space after it; otherwise it is prose."""
     text = Prose("# Building\n\nThe ratio of a circle is near\n3.14 for every radius.\n")
     assert _run(_repo(tmp_path, text)) == [
+        Prose("docs/development/BUILDING.md: line 4 wraps the paragraph above it")
+    ]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        Prose("#5 bolt continues it"),
+        Prose("####### seven marks continue it"),
+        Prose("#\u00a0a no-break space continues it"),
+    ],
+    ids=["digit after the run", "run of seven", "no-break space after the run"],
+)
+def test_a_hash_run_that_opens_no_heading_is_prose(tmp_path: Path, line: Prose) -> None:
+    """A run of over six ``#``, or one before anything but a space, tab or line end, is prose."""
+    text = Prose(f"# Building\n\nA paragraph\n{line}\n")
+    assert _run(_repo(tmp_path, text)) == [
+        Prose("docs/development/BUILDING.md: line 4 wraps the paragraph above it")
+    ]
+
+
+def test_a_lone_carriage_return_ends_a_line(tmp_path: Path) -> None:
+    """A guide whose lines end in a carriage return alone has its wraps found by line."""
+    text = Prose("# Building\r\rA paragraph\rwrapped onto a second line\r")
+    assert findings(tmp_path, [SUBJECT, RelPath("README.md")], {SUBJECT: text}) == [
         Prose("docs/development/BUILDING.md: line 4 wraps the paragraph above it")
     ]

@@ -39,6 +39,7 @@ def _run(tmp_path: Path, files: Mapping[RelPath, Prose]) -> list[Prose]:
         (Prose("PY-S-20"), Prose("review finding mark -> 'PY-S-20'")),
         (Prose("Pending Push"), Prose("transient session phrase -> 'Pending Push'")),
         (Prose("committed locally"), Prose("transient session phrase -> 'committed locally'")),
+        (Prose("Committed Locally"), Prose("transient session phrase -> 'Committed Locally'")),
         (
             Prose("[x](memory/notes.md)"),
             Prose("link into the ~/.claude memory store -> ](memory/notes.md)"),
@@ -48,7 +49,17 @@ def _run(tmp_path: Path, files: Mapping[RelPath, Prose]) -> list[Prose]:
             Prose("link into the ~/.claude memory store -> ](/home/u/.claude/notes.md)"),
         ),
     ],
-    ids=["pr", "cluster", "finding-id", "py-s", "pending", "committed", "memory", "claude"],
+    ids=[
+        "pr",
+        "cluster",
+        "finding-id",
+        "py-s",
+        "pending",
+        "committed",
+        "committed-any-case",
+        "memory",
+        "claude",
+    ],
 )
 def test_a_mark_in_living_prose_is_a_finding(tmp_path: Path, mark: Prose, finding: Prose) -> None:
     """Each refused mark, in the prose of a document under docs/, is reported against it."""
@@ -75,13 +86,13 @@ def test_every_living_document_is_read(tmp_path: Path, rel: RelPath) -> None:
 )
 def test_a_record_of_history_is_not_read(tmp_path: Path, rel: RelPath) -> None:
     """The logs and the standards outside docs/ are not living documents here."""
-    assert _run(tmp_path, {rel: Prose(f"{_CLEAN}(PR C)\n")}) == []
+    assert _run(tmp_path, {rel: Prose(f"{_CLEAN}(PR C)\n")}) == list[Prose]()
 
 
 def test_a_mark_shown_as_code_is_not_prose(tmp_path: Path) -> None:
     """A mark in a fence or an inline code span is an example, not a label."""
     text = Prose(f"{_CLEAN}```\n(PR C)\n```\nMarks like `AGDA-C-6.2` are refused.\n")
-    assert _run(tmp_path, {RelPath("docs/guide.md"): text}) == []
+    assert _run(tmp_path, {RelPath("docs/guide.md"): text}) == list[Prose]()
 
 
 def test_each_distinct_mark_is_reported_once_in_order(tmp_path: Path) -> None:

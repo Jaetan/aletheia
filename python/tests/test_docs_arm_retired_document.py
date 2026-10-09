@@ -14,9 +14,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from _planted_tree import run_planted
+from _planted_tree import run_planted, tracked_paths
 
 from tools._common import RelPath
+from tools.check_docs import read_documents
 from tools.docs_arms import retired_document
 from tools.docs_arms.retired_document import LEDGER, RECORD_OF_THE_MOVE, RETIRED_DOCUMENT, findings
 
@@ -45,7 +46,7 @@ def _run(repo: Path) -> list[Prose]:
 
 def test_a_clean_tree_has_no_finding(tmp_path: Path) -> None:
     """The ledger in its home, the old file untracked and unnamed: no finding."""
-    assert not _run(_repo(tmp_path))
+    assert _run(_repo(tmp_path)) == list[Prose]()
 
 
 def test_the_changelog_may_name_the_retired_file(tmp_path: Path) -> None:
@@ -53,7 +54,7 @@ def test_the_changelog_may_name_the_retired_file(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     with (repo / RECORD_OF_THE_MOVE).open("a", encoding="utf-8") as record:
         _ = record.write(f"\nThe ledger moved out of {RETIRED_DOCUMENT}.\n")
-    assert not _run(repo)
+    assert _run(repo) == list[Prose]()
 
 
 def test_a_tracked_copy_of_the_retired_file_is_a_finding(tmp_path: Path) -> None:
@@ -62,6 +63,113 @@ def test_a_tracked_copy_of_the_retired_file_is_a_finding(tmp_path: Path) -> None
     _ = (repo / RETIRED_DOCUMENT).write_text("# Dependencies\n", encoding="utf-8")
     assert _run(repo) == [
         f"{RETIRED_DOCUMENT}: is tracked, a second home for the ledger beside {LEDGER}"
+    ]
+
+
+def test_a_nested_copy_of_the_retired_file_is_a_finding(tmp_path: Path) -> None:
+    """A tracked file bearing the retired name in any directory is a second home for the ledger."""
+    repo = _repo(tmp_path)
+    _ = (repo / "docs" / RETIRED_DOCUMENT).write_text("# Dependencies\n", encoding="utf-8")
+    assert _run(repo) == [
+        f"docs/{RETIRED_DOCUMENT}: is tracked, a second home for the ledger beside {LEDGER}"
+    ]
+
+
+def test_each_line_naming_the_retired_file_is_a_finding(tmp_path: Path) -> None:
+    """A file naming the old file on two lines has one finding per line."""
+    repo = _repo(tmp_path)
+    with (repo / "README.md").open("a", encoding="utf-8") as readme:
+        _ = readme.write(f"\nLicenses are listed in {RETIRED_DOCUMENT}.\n")
+        _ = readme.write(f"\nSee {RETIRED_DOCUMENT}.\n")
+    assert _run(repo) == [
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}",
+        f"README.md: line 7 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}",
+    ]
+
+
+def test_a_line_naming_the_retired_file_twice_is_one_finding(tmp_path: Path) -> None:
+    """The finding is the line, so a line naming the old file twice is reported once."""
+    repo = _repo(tmp_path)
+    with (repo / "README.md").open("a", encoding="utf-8") as readme:
+        _ = readme.write(f"\nSee {RETIRED_DOCUMENT}, then {RETIRED_DOCUMENT} again.\n")
+    assert _run(repo) == [
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+    ]
+
+
+def test_a_line_opening_on_the_retired_name_is_numbered_as_that_line(tmp_path: Path) -> None:
+    """A mention at the start of a line is reported on that line, not the one before."""
+    repo = _repo(tmp_path)
+    with (repo / "README.md").open("a", encoding="utf-8") as readme:
+        _ = readme.write(f"\n{RETIRED_DOCUMENT} listed the licenses.\n")
+    assert _run(repo) == [
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+    ]
+
+
+def test_a_file_opening_on_the_retired_name_is_a_finding(tmp_path: Path) -> None:
+    """A mention at the very start of a file is found, on line 1."""
+    repo = _repo(tmp_path)
+    text = f"{RETIRED_DOCUMENT} moved into the building guide.\n"
+    _ = (repo / "NOTICE").write_text(text, encoding="utf-8")
+    assert _run(repo) == [
+        f"NOTICE: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+    ]
+
+
+@pytest.mark.parametrize(
+    "separator",
+    [
+        Prose("\x0b"),
+        Prose("\x0c"),
+        Prose("\x1c"),
+        Prose("\x1d"),
+        Prose("\x1e"),
+        Prose("\x85"),
+        Prose("\u2028"),
+        Prose("\u2029"),
+    ],
+    ids=["vt", "ff", "fs", "gs", "rs", "nel", "ls", "ps"],
+)
+def test_a_separator_that_ends_no_line_moves_no_mention(tmp_path: Path, separator: Prose) -> None:
+    """A form feed or another separator that ends no line leaves a mention on grep -n's line."""
+    repo = _repo(tmp_path)
+    text = f"\n{separator}\n# writes {RETIRED_DOCUMENT}\n"
+    _ = (repo / "tool.py").write_text(text, encoding="utf-8")
+    assert _run(repo) == [
+        f"tool.py: line 3 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+    ]
+
+
+@pytest.mark.parametrize("name", [RelPath("tool.py"), RelPath("README.md")], ids=["code", "md"])
+def test_a_lone_carriage_return_ends_a_line(tmp_path: Path, name: RelPath) -> None:
+    """A lone CR ends a line, since the read makes a newline of it."""
+    repo = _repo(tmp_path)
+    _ = (repo / name).write_bytes(f"A line\rnames {RETIRED_DOCUMENT}.\n".encode())
+    assert _run(repo) == [
+        f"{name}: line 2 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+    ]
+
+
+def test_a_document_is_scanned_in_the_text_the_gate_read(tmp_path: Path) -> None:
+    """A Markdown file is scanned in the text handed to the arm, not read again from disk."""
+    repo = _repo(tmp_path)
+    with (repo / "README.md").open("a", encoding="utf-8") as readme:
+        _ = readme.write(f"\nSee {RETIRED_DOCUMENT}.\n")
+    tracked = tracked_paths(repo)
+    documents = read_documents(repo, tracked)
+    documents[RelPath("README.md")] = Prose(f"# Front door\n\nSee {RETIRED_DOCUMENT}.\n")
+    assert findings(repo, tracked, documents) == [
+        f"README.md: line 3 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+    ]
+
+
+def test_a_file_that_is_not_utf8_is_scanned(tmp_path: Path) -> None:
+    """A tracked file holding a byte that is not UTF-8 is still read, and its mention found."""
+    repo = _repo(tmp_path)
+    _ = (repo / "tool.py").write_bytes(b"# \xff" + f" writes {RETIRED_DOCUMENT}\n".encode())
+    assert _run(repo) == [
+        f"tool.py: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
     ]
 
 
@@ -89,7 +197,9 @@ def test_a_mention_shown_as_code_is_a_finding(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nThe former `{RETIRED_DOCUMENT}` is gone.\n")
-    assert len(_run(repo)) == 1
+    assert _run(repo) == [
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+    ]
 
 
 def test_a_ledger_without_its_section_is_a_finding(tmp_path: Path) -> None:
@@ -114,7 +224,9 @@ def test_a_ledger_whose_heading_sits_in_a_fence_is_a_finding(tmp_path: Path) -> 
     """A heading shown inside a code fence is an example, not the section."""
     repo = _repo(tmp_path)
     _ = (repo / LEDGER).write_text(f"# Building\n\n```\n{_SECTION_LINE}```\n", encoding="utf-8")
-    assert len(_run(repo)) == 1
+    assert _run(repo) == [
+        f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
+    ]
 
 
 def test_a_tree_without_the_guide_is_a_finding(tmp_path: Path) -> None:
@@ -160,7 +272,15 @@ def test_a_longer_name_holding_the_retired_one_is_no_finding(tmp_path: Path, nam
     repo = _repo(tmp_path)
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nSee {name}.\n")
-    assert not _run(repo)
+    assert _run(repo) == list[Prose]()
+
+
+def test_a_name_differing_from_the_retired_one_at_its_dot_is_no_finding(tmp_path: Path) -> None:
+    """The dot of the retired name is a dot: a name with another character there is another file."""
+    repo = _repo(tmp_path)
+    with (repo / "README.md").open("a", encoding="utf-8") as readme:
+        _ = readme.write(f"\nSee {RETIRED_DOCUMENT}.\n".replace(".md", "_md"))
+    assert _run(repo) == list[Prose]()
 
 
 def test_the_arm_s_own_source_is_left_out() -> None:
@@ -169,7 +289,7 @@ def test_the_arm_s_own_source_is_left_out() -> None:
     root = source.parents[2]
     assert RETIRED_DOCUMENT in source.read_text(encoding="utf-8")
     own = RelPath(source.relative_to(root).as_posix())
-    assert not findings(root, [own], {LEDGER: Prose(f"# Building\n\n{_SECTION_LINE}")})
+    assert findings(root, [own], {LEDGER: Prose(f"# Building\n\n{_SECTION_LINE}")}) == list[Prose]()
 
 
 def test_a_heading_holding_more_than_the_section_name_is_not_its_home(tmp_path: Path) -> None:
@@ -186,4 +306,4 @@ def test_the_section_may_be_the_guide_s_first_heading(tmp_path: Path) -> None:
     """A guide opening on the section is its home all the same."""
     repo = _repo(tmp_path)
     _ = (repo / LEDGER).write_text(f"{_SECTION_LINE}\nA table.\n", encoding="utf-8")
-    assert not _run(repo)
+    assert _run(repo) == list[Prose]()

@@ -20,6 +20,8 @@ from __future__ import annotations
 import ast
 import json
 import re
+from fractions import Fraction
+from math import ceil, isfinite
 from typing import TYPE_CHECKING, Annotated, NamedTuple, NotRequired, TypedDict, cast
 
 import yaml
@@ -45,11 +47,11 @@ _CANONICAL_NAME = Prose("Canonical Results")
 _CANONICAL = Prose(f"## {_CANONICAL_NAME}")
 _LOCAL_NAME = Prose("Local baselines")
 _LOCAL = Prose(f"## {_LOCAL_NAME}")
-_LATENCY_FIGURES = re.compile(r"median of ([\d.]+) µs and a mean of ([\d.]+) µs")
+_LATENCY_FIGURES = re.compile(r"median of (\d*\.?\d+) µs and a mean of (\d*\.?\d+) µs")
 _RESIDENCY_SENTENCE = re.compile(
     r"a session of ([\d,]+) frames whose peak resident set grows by (\d+) MiB"
 )
-_SPREAD_BOUND = re.compile(r"standard deviation exceeds ([\d.]+)% of its mean")
+_SPREAD_BOUND = re.compile(r"standard deviation exceeds (\d*\.?\d+)% of its mean")
 _VERSION = re.compile(r"\d+(?:\.\d+)+")
 
 # The table's column titles, less their unit, and the binding each names.
@@ -193,7 +195,11 @@ def _baselines(root: Path, tracked: frozenset[RelPath]) -> dict[RelPath, _Baseli
 
 
 def _throughput_lanes(baselines: dict[RelPath, _Baseline]) -> tuple[Lanes, list[Prose]]:
-    """Index the throughput baselines' rows by lane and binding, naming a row missing its mean."""
+    """Index the throughput baselines' rows by lane and binding, reporting each row left out.
+
+    A row is left out when its mean or its spread is missing or not finite, or its mean is not
+    positive, since a spread is measured as a share of the mean.
+    """
     lanes: Lanes = {}
     out: list[Prose] = []
     for rel, data in baselines.items():
@@ -203,6 +209,14 @@ def _throughput_lanes(baselines: dict[RelPath, _Baseline]) -> tuple[Lanes, list[
         for row in cast("list[_ThroughputRow]", data["results"]):
             if "fps_mean" not in row or "fps_stdev" not in row:
                 out.append(Prose(f"{rel}: a row has no mean and spread to compare the table with"))
+            elif not (isfinite(row["fps_mean"]) and isfinite(row["fps_stdev"])):
+                out.append(Prose(f"{rel}: {row['name']} has a mean or spread that is not finite"))
+            elif row["fps_mean"] <= 0:
+                out.append(
+                    Prose(
+                        f"{rel}: {row['name']} has no positive mean to measure its spread against"
+                    )
+                )
             else:
                 lanes.setdefault(row["name"], {})[data["language"]] = row
     return lanes, out
@@ -279,22 +293,37 @@ def _cell_findings(
 
 
 def _bound_findings(section: Prose, lanes: Lanes) -> list[Prose]:
-    """Compare the stated standard-deviation bound with the baselines' worst lane."""
+    """Hold the stated standard-deviation bound true and tight at one decimal, in exact arithmetic.
+
+    Each mean and spread counts as the shortest decimal that parses to its value: the number the
+    baseline spells, for any spelling of at most 15 significant digits whose value is zero or lies
+    in a double's normal range. The baselines' worst lane spreads by at most the bound and by more
+    than the bound less a tenth of a point; a finding prints that worst at two decimals and the
+    one-decimal bound it needs.
+    """
     match = _SPREAD_BOUND.search(section)
     if match is None:
         return [Prose("the section no longer states a standard-deviation bound")]
-    claimed = float(match.group(1))
+    stated = match.group(1)
+    claimed = Fraction(stated)
     worst_lane, worst = max(
         (
-            (Prose(f"{lane} {binding}"), 100 * row["fps_stdev"] / row["fps_mean"])
+            (
+                Prose(f"{lane} {binding}"),
+                Fraction(repr(row["fps_stdev"])) * 100 / Fraction(repr(row["fps_mean"])),
+            )
             for lane, held in lanes.items()
             for binding, row in held.items()
         ),
         key=lambda pair: pair[1],
     )
-    if round(worst, 1) != claimed:
+    if not claimed - Fraction(1, 10) < worst <= claimed:
+        needed = Fraction(ceil(worst * 10), 10)
         return [
-            Prose(f"claims at most {claimed}%, the baselines' worst is {worst:.1f}% ({worst_lane})")
+            Prose(
+                f"claims at most {stated}%, the baselines' worst is {worst:.2f}% ({worst_lane}),"
+                + f" which needs {needed:.1f}%"
+            )
         ]
     return []
 
@@ -428,10 +457,8 @@ def _int_value(node: ast.expr) -> PositiveInt | None:
     return None
 
 
-def _residency(root: Path, tracked: frozenset[RelPath]) -> _Residency | None:
+def _residency(root: Path) -> _Residency | None:
     """Read the residency test's budget and frame counts from its source; None when gone."""
-    if _RESIDENCY_TEST not in tracked:
-        return None
     module = ast.parse((root / _RESIDENCY_TEST).read_text(encoding="utf-8"))
     named: dict[Prose, ast.expr] = {}
     for node in ast.walk(module):
@@ -457,7 +484,12 @@ def _latency_findings(doc: Prose, baselines: dict[RelPath, _Baseline]) -> list[P
     """Hold the per-frame median and mean to the streaming lane of the C++ latency baseline."""
     latency = baselines.get(_LATENCY_BASELINE)
     if latency is None:
-        return [Prose(f"{_LATENCY_BASELINE} is not a committed baseline")]
+        return [
+            Prose(
+                f"the per-frame median and mean go unchecked: {_LATENCY_BASELINE}"
+                + " is not a committed baseline"
+            )
+        ]
     rows = cast("list[_LatencyRow]", latency["results"])
     row = next((r for r in rows if r["name"] == _LATENCY_LANE), None)
     if row is None:
@@ -478,7 +510,11 @@ def _latency_findings(doc: Prose, baselines: dict[RelPath, _Baseline]) -> list[P
 
 def _residency_findings(doc: Prose, root: Path, tracked: frozenset[RelPath]) -> list[Prose]:
     """Hold the residency sentence's frame count and budget to the test that asserts them."""
-    residency = _residency(root, tracked)
+    if _RESIDENCY_TEST not in tracked:
+        return [
+            Prose(f"{_RESIDENCY_TEST} is not tracked, so the residency sentence goes unchecked")
+        ]
+    residency = _residency(root)
     if residency is None:
         return [Prose(f"{_RESIDENCY_TEST} no longer names its budget and its cases")]
     match = _RESIDENCY_SENTENCE.search(doc)

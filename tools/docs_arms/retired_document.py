@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 from tools._common import RelPath
 from tools.docs_arms import headings
@@ -28,8 +28,14 @@ LEDGER = RelPath("docs/development/BUILDING.md")
 LEDGER_SECTION = Prose("Dependencies and Licenses")
 RECORD_OF_THE_MOVE = RelPath("CHANGELOG.md")
 
-_NAMES_RETIRED = re.compile(rf"\b{re.escape(RETIRED_DOCUMENT)}\b")
+_NAME = re.escape(RETIRED_DOCUMENT)
+# The name as a whole word, its left boundary tested by a lookbehind after it: a pattern
+# opening on its literal text is scanned for as fast as a substring.
+_NAMES_RETIRED = re.compile(rf"{_NAME}(?<!\w{_NAME})\b")
 _SELF = Path(__file__).resolve()
+
+# A line of a file, counted from one.
+LineNumber = NewType("LineNumber", int)
 
 
 def _ledger_findings(documents: Mapping[RelPath, Prose]) -> list[Prose]:
@@ -42,19 +48,27 @@ def _ledger_findings(documents: Mapping[RelPath, Prose]) -> list[Prose]:
 
 
 def _mention_findings(root: Path, rel: RelPath, documents: Mapping[RelPath, Prose]) -> list[Prose]:
-    """Return one finding per line of the tracked file ``rel`` that names the retired file."""
+    """Return one finding per line of the tracked file ``rel`` that names the retired file.
+
+    A line ends where the read puts a newline: at LF, CRLF or a lone CR, never at a form
+    feed or another separator ``str.splitlines`` also honours; one pass counts the
+    newlines between consecutive mentions.
+    """
     text = documents.get(rel)
     if text is None:
         try:
             text = Prose((root / rel).read_text(encoding="utf-8", errors="replace"))
         except OSError:
             return [Prose(f"{rel}: could not be read, so its lines are unchecked")]
-    if RETIRED_DOCUMENT not in text:  # most files never spell the name: skip their lines
-        return []
+    numbers: dict[LineNumber, None] = {}
+    line, counted = 1, 0
+    for mention in _NAMES_RETIRED.finditer(text):
+        line += text.count("\n", counted, mention.start())
+        counted = mention.start()
+        numbers[LineNumber(line)] = None
     return [
         Prose(f"{rel}: line {number} names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}")
-        for number, line in enumerate(text.splitlines(), start=1)
-        if _NAMES_RETIRED.search(line)
+        for number in numbers
     ]
 
 
@@ -67,14 +81,14 @@ def findings(
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
         documents: Every tracked Markdown file's text, by its repo-relative path; any
-            other tracked file is read from ``root``, since the claim covers every one.
+            other tracked file is read from ``root``, since the claim covers every one,
+            a byte that is not UTF-8 not stopping the read.
 
     Returns:
         The findings, empty when the ledger has its one home and nothing else names
         the retired file.
 
     """
-    root = root.resolve()
     own = RelPath(_SELF.relative_to(root).as_posix()) if _SELF.is_relative_to(root) else None
     found = _ledger_findings(documents)
     found.extend(

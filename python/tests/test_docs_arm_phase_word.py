@@ -56,7 +56,16 @@ def test_table_and_pitch_agree(tmp_path: Path) -> None:
             RelPath("docs/GUIDE.md"): _FENCED,
         },
     )
-    assert not found
+    assert found == list[Prose]()
+
+
+def test_a_fenced_table_row_is_not_read(tmp_path: Path) -> None:
+    """A table row inside a fenced code block is an example, not a row of the phase table."""
+    status = Prose(_TABLE + "\n~~~\n| 7   | Protocols | Planned | Later. |\n~~~\n")
+    found = _findings(
+        tmp_path, {RelPath("PROJECT_STATUS.md"): status, RelPath("docs/PITCH.md"): _PITCH}
+    )
+    assert found == list[Prose]()
 
 
 def test_pitch_uses_another_word(tmp_path: Path) -> None:
@@ -144,7 +153,7 @@ def test_the_word_is_compared_trimmed_and_in_any_case(tmp_path: Path, sentence: 
     found = _findings(
         tmp_path, {RelPath("PROJECT_STATUS.md"): _TABLE, RelPath("docs/PITCH.md"): pitch}
     )
-    assert not found
+    assert found == list[Prose]()
 
 
 def test_a_decimal_phase_can_be_the_open_one(tmp_path: Path) -> None:
@@ -153,7 +162,7 @@ def test_a_decimal_phase_can_be_the_open_one(tmp_path: Path) -> None:
         tmp_path,
         {RelPath("PROJECT_STATUS.md"): _DECIMAL_TABLE, RelPath("docs/PITCH.md"): _DECIMAL_PITCH},
     )
-    assert not found
+    assert found == list[Prose]()
 
 
 @pytest.mark.parametrize(
@@ -171,7 +180,7 @@ def test_a_lookalike_sentence_is_not_read(tmp_path: Path, line: Prose) -> None:
             RelPath("docs/OTHER.md"): Prose("# Other\n\n" + line),
         },
     )
-    assert not found
+    assert found == list[Prose]()
 
 
 def test_pitch_silent_about_the_phase(tmp_path: Path) -> None:

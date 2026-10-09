@@ -59,7 +59,7 @@ def test_a_document_the_index_does_not_name_is_a_finding(tmp_path: Path) -> None
 def test_an_index_naming_every_document_is_clean(tmp_path: Path) -> None:
     """An index naming every document in scope yields no finding."""
     repo = _repo(tmp_path, {INDEX: _INDEX_NAMING_ALL, **_DOCS})
-    assert _run(repo) == []
+    assert _run(repo) == list[Prose]()
 
 
 def test_a_name_inside_a_longer_name_does_not_count(tmp_path: Path) -> None:
@@ -84,7 +84,7 @@ def test_a_name_quoted_in_backticks_counts(tmp_path: Path) -> None:
             **_DOCS,
         },
     )
-    assert _run(repo) == []
+    assert _run(repo) == list[Prose]()
 
 
 def test_a_tree_with_no_document_in_scope_is_a_finding(tmp_path: Path) -> None:
@@ -120,3 +120,31 @@ def test_names_is_a_whole_name_match() -> None:
     assert not names(Prose("(DESIGN.mdx)"), RelPath("DESIGN.md"))
     assert names(Prose("See DESIGN.md."), RelPath("DESIGN.md"))
     assert names(Prose("(OLD-DESIGN.md)"), RelPath("DESIGN.md"))
+
+
+def test_a_path_only_beginning_with_a_scope_name_is_out_of_scope() -> None:
+    """A path whose first segment only begins with ``docs`` or ``AGENTS`` is not in scope."""
+    assert not in_scope(RelPath("docs-archive/OLD.md"))
+    assert not in_scope(RelPath("AGENTS-draft.md"))
+
+
+def test_the_dot_of_a_file_name_matches_only_a_dot() -> None:
+    """``DESIGN.md`` is not named by ``DESIGN_md``, where another character stands for the dot."""
+    assert not names(Prose("See DESIGN_md for the layout."), RelPath("DESIGN.md"))
+
+
+def test_findings_follow_the_order_of_the_documents(tmp_path: Path) -> None:
+    """The unnamed documents are reported in the order the documents are handed in."""
+    documents = {
+        INDEX: Prose("# Index\n"),
+        RelPath("docs/guides/TUTORIAL.md"): Prose("# Tutorial\n"),
+        RelPath("AGENTS/python.md"): Prose("# Python\n"),
+        RelPath("docs/architecture/DESIGN.md"): Prose("# Design\n"),
+        RelPath("AGENTS.md"): Prose("# Standards\n"),
+    }
+    assert findings(tmp_path, list(documents), documents) == [
+        Prose("docs/INDEX.md: does not name docs/guides/TUTORIAL.md"),
+        Prose("docs/INDEX.md: does not name AGENTS/python.md"),
+        Prose("docs/INDEX.md: does not name docs/architecture/DESIGN.md"),
+        Prose("docs/INDEX.md: does not name AGENTS.md"),
+    ]

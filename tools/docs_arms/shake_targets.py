@@ -54,9 +54,10 @@ def findings(
         documents: Every tracked Markdown file's text, by its repo-relative path.
 
     Returns:
-        The findings, each naming the document concerned; the Shakefile when it
-        is untracked or defines no target; the building guide when it shows no
-        shake command.
+        The findings, each naming the document concerned: per document in the
+        order of ``documents``, by target name within one, then the building
+        guide when it shows no shake command; alone, the Shakefile when it is
+        untracked or defines no target.
 
     """
     if SHAKEFILE not in tracked:
@@ -66,7 +67,7 @@ def findings(
         return [Prose(f"{SHAKEFILE}: defines no phony target")]
     out: list[Prose] = []
     guide_shows_a_command = False
-    for rel, text in sorted(documents.items()):
+    for rel, text in documents.items():
         named = named_targets(text)
         if rel == BUILDING_GUIDE and named:
             guide_shows_a_command = True

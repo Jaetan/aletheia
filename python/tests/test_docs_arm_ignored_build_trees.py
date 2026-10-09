@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from _git_repo import git
-from _planted_tree import run_planted
+from _planted_tree import run_planted, tracked_paths
 
 from tools._common import RelPath
 from tools.docs_arms import ignored_build_trees, tracked_dirs
@@ -71,7 +71,7 @@ def _run(repo: Path, *, untracked: Iterable[RelPath] = ()) -> list[Prose]:
 
 def test_clean_fixture_passes(tmp_path: Path) -> None:
     """Documented trees and binary ignored, the sanctioned venv ignored, no stray venv hidden."""
-    assert not _run(_repo(tmp_path))
+    assert _run(_repo(tmp_path)) == list[Prose]()
 
 
 def test_documented_build_tree_not_ignored(tmp_path: Path) -> None:
@@ -98,6 +98,44 @@ def test_a_binary_two_documents_build_names_the_first(tmp_path: Path) -> None:
     _ = (repo / "A.md").write_text(CLEAN_README, encoding="utf-8")
     assert _run(repo) == [
         Prose(".gitignore: a documented Go build output is not ignored: go/aletheia-cli (A.md)")
+    ]
+
+
+def test_a_binary_two_documents_build_names_the_first_given(tmp_path: Path) -> None:
+    """A Go build output two documents print is reported against the first in the order given."""
+    repo = _repo(tmp_path, ignore=Prose("build/\nbuild-asan/\n/python/.venv/\n"))
+    _ = (repo / "A.md").write_text(CLEAN_README, encoding="utf-8")
+    documents = {RelPath("README.md"): CLEAN_README, RelPath("A.md"): CLEAN_README}
+    assert findings(repo, tracked_paths(repo), documents) == [
+        Prose(
+            ".gitignore: a documented Go build output is not ignored: go/aletheia-cli (README.md)"
+        )
+    ]
+
+
+def test_ignore_files_in_tracked_directories_answer_for_their_trees(tmp_path: Path) -> None:
+    """Every tracked ignore file is asked, each in its own directory, not the top one alone."""
+    repo = _repo(tmp_path, ignore=Prose("# rules live beside the trees\n"))
+    nested = {
+        RelPath("cpp/.gitignore"): Prose("/build/\n/build-asan/\n"),
+        RelPath("go/.gitignore"): Prose("/aletheia-cli\n"),
+        RelPath("python/.gitignore"): Prose("/.venv/\n"),
+    }
+    for rel, rules in nested.items():
+        _ = (repo / rel).write_text(rules, encoding="utf-8")
+    assert _run(repo) == list[Prose]()
+
+
+def test_rules_ignoring_none_of_the_asked_paths_name_every_one(tmp_path: Path) -> None:
+    """Rules matching no asked path are an answer: each documented path and the venv is found."""
+    repo = _repo(tmp_path, ignore=Prose("# no rule\n"))
+    assert _run(repo) == [
+        Prose(f".gitignore: a documented build tree is not ignored: cpp/build ({BUILD_FILE})"),
+        Prose(f".gitignore: a documented build tree is not ignored: cpp/build-asan ({BUILD_FILE})"),
+        Prose(
+            ".gitignore: a documented Go build output is not ignored: go/aletheia-cli (README.md)"
+        ),
+        Prose(".gitignore: the sanctioned venv is not ignored: python/.venv"),
     ]
 
 
@@ -133,12 +171,37 @@ def test_only_the_tracked_rules_ignore_the_sanctioned_venv(tmp_path: Path, local
     ]
 
 
+def test_a_template_s_exclude_stands_in_for_no_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A git template whose exclude ignores the sanctioned venv stands in for no tracked rule."""
+    template = tmp_path / "template"
+    (template / "info").mkdir(parents=True)
+    _ = (template / "info" / "exclude").write_text("/python/.venv/\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_TEMPLATE_DIR", str(template))
+    repo = _repo(tmp_path, ignore=Prose("build/\nbuild-asan/\ngo/aletheia-cli\n"))
+    assert _run(repo) == [Prose(".gitignore: the sanctioned venv is not ignored: python/.venv")]
+
+
+def test_the_user_s_global_excludes_stand_in_for_no_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A global excludes file ignoring the sanctioned venv stands in for no tracked rule."""
+    excludes = tmp_path / "excludes"
+    _ = excludes.write_text("/python/.venv/\n", encoding="utf-8")
+    config = tmp_path / "gitconfig"
+    _ = config.write_text(f"[core]\n\texcludesFile = {excludes}\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    repo = _repo(tmp_path, ignore=Prose("build/\nbuild-asan/\ngo/aletheia-cli\n"))
+    assert _run(repo) == [Prose(".gitignore: the sanctioned venv is not ignored: python/.venv")]
+
+
 def test_a_stray_venv_s_own_ignore_file_hides_it_from_no_tracked_rule(tmp_path: Path) -> None:
     """A stray venv on disk ignoring itself is not hidden by the tracked rules: no finding here."""
     repo = _repo(tmp_path)
     stray = RelPath(".venv/.gitignore")
     _untracked_ignore_file(repo, stray, Prose("*\n"))
-    assert not _run(repo, untracked=[stray])
+    assert _run(repo, untracked=[stray]) == list[Prose]()
 
 
 @pytest.mark.parametrize(
@@ -190,7 +253,7 @@ def test_a_nested_directory_ignoring_its_contents_is_not_asked(tmp_path: Path) -
     log_dir = repo / "tools" / "ci-output"
     log_dir.mkdir()
     _ = (log_dir / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")
-    assert not _run(repo)
+    assert _run(repo) == list[Prose]()
 
 
 def test_build_file_documents_no_tree(tmp_path: Path) -> None:

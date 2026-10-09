@@ -55,22 +55,20 @@ def _run(repo: Path) -> list[Prose]:
 
 def test_clean_guide_has_no_finding(tmp_path: Path) -> None:
     """A guide naming only exported symbols passes."""
-    assert _run(_repo(tmp_path, _CLEAN_GUIDE, _SHIM_TEXT)) == []
+    assert _run(_repo(tmp_path, _CLEAN_GUIDE, _SHIM_TEXT)) == list[Prose]()
 
 
 def test_unexported_symbol_is_a_finding(tmp_path: Path) -> None:
     """A guide naming a symbol the shim does not export is reported, naming the guide."""
-    found = _run(_repo(tmp_path, _PLANTED_GUIDE, _SHIM_TEXT))
-    assert len(found) == 1
-    assert found[0].startswith(f"{GUIDE}: ")
-    assert "aletheia_process_json" in found[0]
-    assert SHIM in found[0]
+    assert _run(_repo(tmp_path, _PLANTED_GUIDE, _SHIM_TEXT)) == [
+        Prose(f"{GUIDE}: names aletheia_process_json, which {SHIM} does not export")
+    ]
 
 
 def test_a_token_inside_a_longer_word_is_not_a_symbol(tmp_path: Path) -> None:
     """``libaletheia_ffi.so`` names a library file, not a symbol ``aletheia_ffi``."""
     guide = Prose(_CLEAN_GUIDE + "\nThe build links `libaletheia_ffi.so`.\n")
-    assert _run(_repo(tmp_path, guide, _SHIM_TEXT)) == []
+    assert _run(_repo(tmp_path, guide, _SHIM_TEXT)) == list[Prose]()
 
 
 def test_a_commented_out_export_is_not_exported(tmp_path: Path) -> None:
@@ -84,27 +82,51 @@ def test_a_commented_out_export_is_not_exported(tmp_path: Path) -> None:
 
 def test_guide_naming_no_symbol_is_a_finding(tmp_path: Path) -> None:
     """A guide naming no symbol gives the arm nothing to hold, which it reports."""
-    found = _run(_repo(tmp_path, _SILENT_GUIDE, _SHIM_TEXT))
-    assert len(found) == 1
-    assert found[0].startswith(f"{GUIDE}: ")
+    assert _run(_repo(tmp_path, _SILENT_GUIDE, _SHIM_TEXT)) == [
+        Prose(f"{GUIDE}: names no aletheia_<name> symbol; the arm has nothing to hold")
+    ]
 
 
 def test_untracked_guide_is_a_finding(tmp_path: Path) -> None:
     """A tree without the guide is reported rather than passed."""
-    found = _run(_repo(tmp_path, None, _SHIM_TEXT))
-    assert len(found) == 1
-    assert found[0].startswith(f"{GUIDE}: ")
+    assert _run(_repo(tmp_path, None, _SHIM_TEXT)) == [
+        Prose(f"{GUIDE}: not a tracked document; the arm has no guide to read")
+    ]
 
 
 def test_untracked_shim_is_a_finding(tmp_path: Path) -> None:
     """A tree without the shim is reported rather than passed."""
-    found = _run(_repo(tmp_path, _CLEAN_GUIDE, None))
-    assert len(found) == 1
-    assert found[0].startswith(f"{SHIM}: ")
+    assert _run(_repo(tmp_path, _CLEAN_GUIDE, None)) == [
+        Prose(f"{SHIM}: not tracked; the arm has no exports to check the guide against")
+    ]
 
 
 def test_shim_exporting_nothing_is_a_finding(tmp_path: Path) -> None:
     """A shim with no foreign export cannot hold any name, which is reported."""
-    found = _run(_repo(tmp_path, _CLEAN_GUIDE, _EMPTY_SHIM))
-    assert len(found) == 1
-    assert found[0].startswith(f"{SHIM}: ")
+    assert _run(_repo(tmp_path, _CLEAN_GUIDE, _EMPTY_SHIM)) == [
+        Prose(f"{SHIM}: has no foreign export ccall line; the arm has nothing to hold")
+    ]
+
+
+def test_unexported_symbols_are_reported_in_name_order(tmp_path: Path) -> None:
+    """Several symbols the shim does not export are reported one each, in name order."""
+    guide = Prose(
+        _CLEAN_GUIDE
+        + "\nRetired: `aletheia_delta`, `aletheia_alpha`, `aletheia_charlie`, `aletheia_bravo`.\n"
+    )
+    assert _run(_repo(tmp_path, guide, _SHIM_TEXT)) == [
+        Prose(f"{GUIDE}: names aletheia_{name}, which {SHIM} does not export")
+        for name in ("alpha", "bravo", "charlie", "delta")
+    ]
+
+
+def test_a_shim_byte_that_is_not_utf8_does_not_stop_the_read(tmp_path: Path) -> None:
+    """A non-UTF-8 shim byte ends the name it sits in, not vanishing; exports after it are read."""
+    guide = Prose(_CLEAN_GUIDE + "\nThe cut name `aletheia_proc` is exported.\n")
+    repo = _repo(tmp_path, guide, _EMPTY_SHIM)
+    _ = (repo / SHIM).write_bytes(
+        b"module AletheiaFFI where\n"
+        + b"foreign export ccall aletheia_proc\xe9ess :: IO ()\n"
+        + b"foreign export ccall aletheia_send_frame :: IO ()\n"
+    )
+    assert _run(repo) == [Prose(f"{GUIDE}: names aletheia_process, which {SHIM} does not export")]

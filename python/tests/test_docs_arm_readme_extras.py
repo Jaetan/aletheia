@@ -71,7 +71,7 @@ def _run(repo: Path) -> list[Prose]:
 
 def test_clean_readme_has_no_finding(tmp_path: Path) -> None:
     """Every extra the README names, in a span or an install command, is defined."""
-    assert not _run(_repo(tmp_path, _CLEAN_README))
+    assert _run(_repo(tmp_path, _CLEAN_README)) == list[Prose]()
 
 
 def test_undefined_extra_is_a_finding(tmp_path: Path) -> None:
@@ -164,7 +164,7 @@ def test_a_bracket_neither_alone_in_a_span_nor_installed_names_no_extra(
 ) -> None:
     """A bracket after other code in a span, before more of it, or as link text is no extra."""
     readme = Prose(f"{_CLEAN_README}\nAlso {text}.\n")
-    assert not _run(_repo(tmp_path, readme))
+    assert _run(_repo(tmp_path, readme)) == list[Prose]()
 
 
 def test_an_undefined_extra_of_the_package_install_is_a_finding(tmp_path: Path) -> None:
@@ -180,7 +180,7 @@ def test_a_document_that_is_not_a_readme_is_not_read(tmp_path: Path) -> None:
     _ = (repo / "docs" / "DESIGN.md").write_text(
         Prose("# Design\n\nA future `[arxml]` extra.\n"), encoding="utf-8"
     )
-    assert not _run(repo)
+    assert _run(repo) == list[Prose]()
 
 
 def test_one_readme_naming_an_extra_is_enough(tmp_path: Path) -> None:
@@ -189,10 +189,31 @@ def test_one_readme_naming_an_extra_is_enough(tmp_path: Path) -> None:
     _ = (repo / "python" / "README.md").write_text(
         Prose("# Binding\n\nNo extra here.\n"), encoding="utf-8"
     )
-    assert not _run(repo)
+    assert _run(repo) == list[Prose]()
 
 
 def test_a_space_inside_a_name_is_part_of_the_name(tmp_path: Path) -> None:
     """Only the spaces around a comma separate extras: one inside a name stays in it."""
     readme = Prose(f"{_CLEAN_README}\nAlso `[can fd]`.\n")
     assert _run(_repo(tmp_path, readme)) == [_undefined(RelPath("README.md"), Prose("can fd"))]
+
+
+def test_a_readmes_undefined_extras_are_reported_in_name_order(tmp_path: Path) -> None:
+    """Several undefined extras of one README are reported one each, in name order."""
+    readme = Prose(f"{_CLEAN_README}\nAlso `[delta]`, `[alpha]`, `[charlie]` and `[bravo]`.\n")
+    assert _run(_repo(tmp_path, readme)) == [
+        _undefined(RelPath("README.md"), Prose(extra))
+        for extra in ("alpha", "bravo", "charlie", "delta")
+    ]
+
+
+def test_readmes_are_read_in_the_order_of_the_documents(tmp_path: Path) -> None:
+    """The READMEs' findings come in the order the documents are handed, not resorted by path."""
+    repo = _repo(tmp_path, _CLEAN_README)
+    nested, top = RelPath("python/README.md"), RelPath("README.md")
+    documents = {nested: Prose("Needs `[excel]`.\n"), top: Prose("Needs `[gps]`.\n")}
+    tracked = [nested, top, RelPath("python/pyproject.toml")]
+    assert findings(repo, tracked, documents) == [
+        _undefined(nested, Prose("excel")),
+        _undefined(top, Prose("gps")),
+    ]

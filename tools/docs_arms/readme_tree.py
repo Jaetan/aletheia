@@ -53,7 +53,9 @@ def findings(
 
     Returns:
         A finding for each directory listed but untracked, each tracked but
-        unlisted, a README without a tree, or no tracked README at all.
+        unlisted, a README without a tree, or no tracked README at all. The
+        untracked listed ones come first, then the unlisted tracked ones, each
+        in name order.
 
     """
     del root
