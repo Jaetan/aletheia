@@ -222,15 +222,6 @@ hints:
   - file: probes/probes--no-probe-writes-a-tracked-file-in-place.sh
     text: "str | None"
     count: 2
-  - file: probes/review--no-line-the-round-wrote-carries-an-em-dash.sh
-    text: "dict[str, set[str]]"
-    count: 1
-  - file: probes/review--no-line-the-round-wrote-carries-an-em-dash.sh
-    text: "list[str]"
-    count: 1
-  - file: probes/review--no-line-the-round-wrote-carries-an-em-dash.sh
-    text: "str"
-    count: 1
   - file: probes/tools__scheduler.py--a-killed-sweep-stops-a-guarded-step-and-its-build.sh
     text: "int"
     count: 1
@@ -269,12 +260,6 @@ hints:
     count: 1
   - file: probes/tools_mutation_cpp_slices.py--the-sliced-union-is-the-unsliced-census.sh
     text: "list[str]"
-    count: 1
-  - file: probes/tools_mutation_scope.py--a-lane-installs-what-its-scope-names.sh
-    text: "list[str]"
-    count: 2
-  - file: probes/tools_mutation_scope.py--a-lane-installs-what-its-scope-names.sh
-    text: "list[tuple[str, list[str], dict[str, bool]]]"
     count: 1
   - file: python/aletheia/__init__.py
     text: "str"

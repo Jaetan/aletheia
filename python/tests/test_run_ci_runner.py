@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import shlex
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -232,6 +233,21 @@ def test_every_tracked_python_file_is_read_by_all_three_linters(tmp_path: Path) 
         and not any(PurePosixPath(rel).is_relative_to(d) for d in (*under_package, *under_root))
     ]
     assert not unlinted, f"tracked Python no linter reads: {unlinted}"
+
+
+def test_basedpyright_leaves_the_kept_outputs_under_tools_unread() -> None:
+    """The basedpyright step is told to leave ``tools/ci-output`` alone.
+
+    The step hands basedpyright the directory ``tools`` whole, and basedpyright,
+    unlike ruff, does not read the ignore list, so a helper script kept under
+    ``tools/ci-output`` (logs and scratch no gate owns) would be type-checked
+    with the gates and fail the sweep.  The exclusion is the configuration's,
+    read here as the step would read it.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    config = tomllib.loads((repo / "python" / "pyproject.toml").read_text(encoding="utf-8"))
+    excluded = config["tool"]["basedpyright"].get("exclude", [])
+    assert "../tools/ci-output" in excluded, f"basedpyright reads tools/ci-output: {excluded}"
 
 
 def test_the_doc_example_step_reads_exactly_the_harness_documents(tmp_path: Path) -> None:
