@@ -7,13 +7,12 @@ cpp/tests/unit_tests_property.cpp.  One @composite strategy per
 wire-format encode/decode pair the Python binding owns; properties
 assert round-trip + structural invariants under randomly-generated input.
 
-Profiles per AGENTS.md cat 34b:
-- ``ci``: max_examples=200, deterministic seed (CI bot)
-- ``dev``: max_examples=20, statistically-shrunk failures (developer)
-
-The tests run under both standard and ``--random-order`` lanes.  Hypothesis
-manages its own random seed; deterministic-by-seed runs are the default
-unless ``--hypothesis-profile=ci`` is selected.
+Profiles per AGENTS.md cat 34b: ``ci`` draws 200 examples a test, ``dev``
+(the default) 20.  Every run draws the same sample, in every profile and lane:
+each test is seeded with the seed every binding's property tests share
+(``fixtures/property_seed``), and no example a run before it saved is
+replayed.  No deadline or speed check decides an outcome either, since a test
+reads no clock (AGENTS.md, Universal Rules).
 """
 
 from __future__ import annotations
@@ -21,11 +20,13 @@ from __future__ import annotations
 import contextlib
 import json
 from fractions import Fraction
+from pathlib import Path
+from typing import Literal, NewType
 
 import hypothesis
 import pytest
 from _canonical_dbc import CANONICAL_SIGNAL
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, seed, settings
 from hypothesis import strategies as st
 
 from aletheia import ProtocolError
@@ -42,8 +43,29 @@ from aletheia.types import (
     dump_json,
 )
 
-hypothesis.settings.register_profile("ci", max_examples=200)
-hypothesis.settings.register_profile("dev", max_examples=20)
+# The seed every binding's property tests draw their sample from.
+PropertySeed = NewType("PropertySeed", int)
+PROPERTY_SEED = PropertySeed(
+    int((Path(__file__).parent / "fixtures" / "property_seed").read_text(encoding="utf-8"))
+)
+# How many examples a profile draws for a test, and the profiles there are.
+ExampleCount = NewType("ExampleCount", int)
+type ProfileName = Literal["ci", "dev"]
+
+
+def _register_profile(name: ProfileName, examples: ExampleCount) -> None:
+    """Register a profile that draws ``examples`` a test and nothing a run before it saved."""
+    hypothesis.settings.register_profile(
+        name,
+        max_examples=examples,
+        database=None,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
+
+
+_register_profile("ci", ExampleCount(200))
+_register_profile("dev", ExampleCount(20))
 hypothesis.settings.load_profile("dev")
 
 
@@ -122,6 +144,7 @@ def dbc_strategy(draw: st.DrawFn) -> DBCDefinition:
 # -----------------------------------------------------------------------------
 
 
+@seed(PROPERTY_SEED)
 @given(payload=st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126)))
 @settings(max_examples=200)
 def test_load_json_total_on_printable_ascii(payload: str) -> None:
@@ -137,6 +160,7 @@ def test_load_json_total_on_printable_ascii(payload: str) -> None:
         json.loads(payload)
 
 
+@seed(PROPERTY_SEED)
 @given(
     numerator=st.integers(min_value=-(10**18), max_value=10**18),
     denominator=st.integers(min_value=1, max_value=10**18),
@@ -159,6 +183,7 @@ def test_decode_wire_rational_accepts_positive_denominator(
     assert parsed == Fraction(numerator, denominator)
 
 
+@seed(PROPERTY_SEED)
 @given(
     numerator=st.integers(min_value=-(10**18), max_value=10**18),
     denominator=st.integers(min_value=-(10**18), max_value=0),
@@ -218,6 +243,7 @@ def test_parse_values_list_wire_rejects_float_value() -> None:
     assert parse_values_list([{"name": "Speed", "value": 150}]) == {"Speed": Fraction(150)}
 
 
+@seed(PROPERTY_SEED)
 @given(
     numerator=st.integers(min_value=-(10**18), max_value=10**18),
     denominator=st.integers(min_value=1, max_value=10**18),
@@ -238,6 +264,7 @@ def test_fraction_round_trips_through_json(numerator: int, denominator: int) -> 
     assert reconstructed == original
 
 
+@seed(PROPERTY_SEED)
 @given(dbc=dbc_strategy())
 def test_dbc_serialization_round_trips(dbc: DBCDefinition) -> None:
     """``dump_json(dbc)`` followed by ``load_json`` reconstructs the input.
@@ -250,6 +277,7 @@ def test_dbc_serialization_round_trips(dbc: DBCDefinition) -> None:
     assert decoded == dbc
 
 
+@seed(PROPERTY_SEED)
 @given(can_id=can_id_strategy())
 def test_can_id_within_standard_range(can_id: int) -> None:
     """Generated CAN IDs fit in 11 bits.  Sanity check on the strategy."""

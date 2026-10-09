@@ -13,17 +13,21 @@ dependencies its configure fetched there.
 from __future__ import annotations
 
 import json
+from functools import partial
 from typing import TYPE_CHECKING
 
 import pytest
+from _executors import DrivenExecutor, Order
 
 from tools import _clang_query as clang_query
 from tools._clang_query import (
     COMPILE_DB,
+    Query,
     QueryFailedError,
     QueryOutput,
     UnitPath,
     query_unit,
+    query_units,
     translation_units,
 )
 
@@ -123,3 +127,40 @@ def test_the_units_are_the_bindings_own(tmp_path: Path) -> None:
     ]
     _ = database.write_text(json.dumps([{"file": file} for file in files]), encoding="utf-8")
     assert translation_units(tmp_path) == [f"{cpp}/src/a.cpp", f"{cpp}/src/z.cpp"]
+
+
+def test_every_unit_runs_on_the_executor_handed_in_and_keeps_its_place(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The units run on the caller's executor, last first here, and come back in unit order."""
+    queried: list[UnitPath] = []
+
+    def query(_repo: Path, _script: Path, unit: UnitPath) -> QueryOutput:
+        queried.append(unit)
+        return QueryOutput(f"matches in {unit}")
+
+    monkeypatch.setattr(clang_query, "query_unit", query)
+    units = [UnitPath("a.cpp"), UnitPath("b.cpp"), UnitPath("c.cpp")]
+    outputs = query_units(
+        tmp_path, units, Query("m"), executor=partial(DrivenExecutor, order=Order.LAST_SUBMITTED)
+    )
+    assert queried == [UnitPath("c.cpp"), UnitPath("b.cpp"), UnitPath("a.cpp")]
+    assert outputs == [QueryOutput(f"matches in {unit}") for unit in units]
+
+
+def test_a_unit_that_fails_its_query_fails_the_run_by_its_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A unit whose query fails turns the run into that failure's reason."""
+
+    def query(_repo: Path, _script: Path, unit: UnitPath) -> QueryOutput:
+        if unit == UnitPath("b.cpp"):
+            msg = "clang-query refused b.cpp"
+            raise QueryFailedError(msg)
+        return QueryOutput("")
+
+    monkeypatch.setattr(clang_query, "query_unit", query)
+    units = [UnitPath("a.cpp"), UnitPath("b.cpp")]
+    assert query_units(tmp_path, units, Query("m"), executor=DrivenExecutor) == Prose(
+        "clang-query refused b.cpp"
+    )

@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from _executors import DrivenExecutor
 from _git_repo import repo_with_an_uncommitted_edit
 
 from tools import mutation_run, mutation_rust
@@ -238,7 +239,7 @@ def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
     repo = _sweepable(tmp_path, monkeypatch)
     monkeypatch.setattr(mutation_rust, "rust_shards", lambda: mutation_rust.ShardCount(2))
     artifacts = tmp_path / "artifacts"
-    report = mutation_rust.run_rust(artifacts)
+    report = mutation_rust.run_rust(artifacts, executor=DrivenExecutor)
     assert report.error is None
     assert (report.killed, report.survived) == (10, 0)
     copies: set[Path] = set()
@@ -275,7 +276,7 @@ def test_a_tree_that_cannot_be_copied_is_a_refusal(
     monkeypatch.setattr(mutation_rust, "REPO_ROOT", outside)
     monkeypatch.setattr(mutation_rust, "_check_rust_tools", tools_found)
     artifacts = tmp_path / "artifacts"
-    report = mutation_rust.run_rust(artifacts)
+    report = mutation_rust.run_rust(artifacts, executor=DrivenExecutor)
     assert report.error is not None
     assert report.error.startswith("no scratch copy of the tree: git worktree add")
     assert not (artifacts / "rust").exists()
@@ -289,7 +290,7 @@ def _job(jobs: Path, monkeypatch: pytest.MonkeyPatch, job: mutation_rust.RustJob
     monkeypatch.setenv(mutation_rust.RUST_STAGE_ENV, str(job))
     commit = mutation_rust.short_sha(mutation_rust.REPO_ROOT)
     artifacts = jobs / f"mutation-rust-{job}" / commit
-    report = mutation_rust.run_rust(artifacts)
+    report = mutation_rust.run_rust(artifacts, executor=DrivenExecutor)
     summary = {"commit": commit, "runs": [{"binding": report.binding}]}
     _ = (artifacts / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
     return report
@@ -300,7 +301,7 @@ def _merge(jobs: Path, monkeypatch: pytest.MonkeyPatch, out: Path) -> MutationRe
     monkeypatch.setattr(mutation_rust, "_check_rust_tools", None)
     monkeypatch.setenv(mutation_rust.RUST_STAGE_ENV, mutation_rust.RUST_MERGE_STAGE)
     monkeypatch.setenv(mutation_rust.RUST_JOBS_ENV, str(jobs))
-    return mutation_rust.run_rust(out)
+    return mutation_rust.run_rust(out, executor=DrivenExecutor)
 
 
 def test_a_job_sweeps_its_four_of_the_jobs_eight_shards(
@@ -381,7 +382,7 @@ def test_a_stage_that_is_no_job_is_an_error(
 ) -> None:
     """A third job of two would deal shards the merge never reads."""
     monkeypatch.setenv(mutation_rust.RUST_STAGE_ENV, "3")
-    report = mutation_rust.run_rust(tmp_path)
+    report = mutation_rust.run_rust(tmp_path, executor=DrivenExecutor)
     assert report.error is not None
     assert mutation_rust.RUST_STAGE_ENV in report.error
 

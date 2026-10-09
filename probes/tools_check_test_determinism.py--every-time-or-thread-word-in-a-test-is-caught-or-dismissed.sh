@@ -64,6 +64,8 @@ DISMISSED = {
         "asyncio.sleep": "the zero sleep, one turn of the loop, which the catalogue exempts",
         "asyncio.testing": "the turn executor's module",
         "asyncio.timeout": "the zero timeout, the next turn, which the catalogue exempts",
+        "concurrent": "the module the executor interface and its future come from; a pool it"
+        " starts is counted by its own name, and the runtime guard refuses its thread",
         "os.getpid": "the test's own process id",
         "os.kill": "a signal to a child the test drives through a handshake",
         "os.utime": "file times set to fixed instants",

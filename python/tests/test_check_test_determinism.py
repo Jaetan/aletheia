@@ -15,6 +15,9 @@ from __future__ import annotations
 import textwrap
 from typing import TYPE_CHECKING
 
+import pytest
+
+from tools import _determinism_guard
 from tools._common import RelPath, git_toplevel
 from tools._ratchet import CanonicalText, RatchetRows, RowKey
 from tools.check_test_determinism import (
@@ -22,6 +25,8 @@ from tools.check_test_determinism import (
     BINDINGS,
     CLEAN,
     OUT_OF_STEP,
+    REPLAYING_PROFILE,
+    UNSEEDED_PROPERTY,
     Binding,
     BlankedCode,
     SiteCount,
@@ -33,6 +38,7 @@ from tools.check_test_determinism import (
     rust_test_modules,
     rust_tests_run_alone,
     sites_in,
+    unseeded_properties,
     which_are_tests,
 )
 
@@ -311,6 +317,82 @@ def test_an_async_client_on_its_default_runner_is_a_thread_site() -> None:
     assert async_clients_on_a_thread(source) == 4
     rel = RelPath("python/tests/test_x.py")
     assert rows_of(rel, source) == {RowKey(rel, ASYNC_CLIENT_ON_A_THREAD): 4}
+    assert not rows_of(RelPath("python/aletheia/x.py"), source)
+
+
+def test_an_unseeded_go_property_check_is_a_random_site() -> None:
+    """A testing/quick check handed no Rand, or no configuration, draws from the clock."""
+    rel = RelPath("go/aletheia/x_test.go")
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            func T(t *testing.T) {
+                quick.Check(p, &quick.Config{MaxCount: 200})
+                quick.Check(p, &quick.Config{MaxCount: 200, Rand: propertyRand(t)})
+                quick.Check(func(x int) bool { return f(x) }, nil)
+                quick.CheckEqual(f, g, nil)
+                quick.Check(p, cfg)
+            }
+            // quick.Config{MaxCount: 1} in a comment
+            """
+        )
+    )
+    assert _counts(GO, rel, source) == {UNSEEDED_PROPERTY: 3}
+
+
+def test_an_unseeded_hypothesis_test_and_a_replaying_profile_are_random_sites() -> None:
+    """A hypothesis test with no seed, and a profile with an example database, each count.
+
+    Found by what the file imports, an alias or the module included; a seeded
+    test, a plain test, a profile with no database and a mention in a string
+    are none.
+    """
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            import hypothesis as h
+            from hypothesis import given, seed as fix, settings
+            from hypothesis import settings as s
+
+            @given(x=st.integers())
+            def test_a(x): ...
+
+            @fix(1)
+            @given(x=st.integers())
+            def test_b(x): ...
+
+            @h.given(st.integers())
+            def test_c(x): ...
+
+            @h.seed(2)
+            @h.given(st.integers())
+            async def test_d(x): ...
+
+            @pytest.mark.slow
+            @given(st.integers())
+            def test_f(x): ...
+
+            def test_e(): ...
+
+            def test_g(): ...
+
+            @given(st.integers())
+            async def test_h(x): ...
+
+            settings.register_profile("a", max_examples=1)
+            s.register_profile("b", database=None)
+            h.settings.register_profile("c", database=None, deadline=None)
+            h.settings.register_profile("d", database=other)
+            note = "@given(x) settings.register_profile()"
+            """
+        )
+    )
+    assert unseeded_properties(source) == 4
+    rel = RelPath("python/tests/test_x.py")
+    assert rows_of(rel, source) == {
+        RowKey(rel, UNSEEDED_PROPERTY): 4,
+        RowKey(rel, REPLAYING_PROFILE): 2,
+    }
     assert not rows_of(RelPath("python/aletheia/x.py"), source)
 
 
@@ -621,3 +703,150 @@ def test_every_test_tree_of_every_binding_is_read() -> None:
     assert RUST.is_test(RelPath("rust/excel/tests/load.rs"))
     assert RUST.is_test(RelPath("rust/src/backend.rs"))
     assert not RUST.is_test(RelPath("rust/examples/demo.rs"))
+
+
+# The runtime guard, tools/_determinism_guard.py, holds what a test reaches, the
+# code under test included.  Each plant below is a test run in a session inside
+# this one, under the guard: what it does must fail it, or must not.
+
+
+def _run_guarded(pytester: pytest.Pytester, test: SourceText) -> pytest.RunResult:
+    """Run one test file under the guard, in a session inside this test's process."""
+    _ = pytester.makeconftest('pytest_plugins = ["tools._determinism_guard"]')
+    _ = pytester.makepyfile(test_plant=textwrap.dedent(test))
+    return pytester.runpytest_inprocess("-p", "no:cacheprovider")
+
+
+@pytest.mark.parametrize(
+    ("call", "refusal"),
+    [
+        ("import threading; threading.Thread(target=print).start()", "a thread started"),
+        ("import _thread; _thread.start_new_thread(print, ())", "a thread started on print"),
+        ("import _thread; _thread.start_joinable_thread(print)", "a thread started on print"),
+        ("import time; time.sleep(0)", "time.sleep(0)"),
+        ("import threading; threading.Event().wait(0.01)", "a wait of 0.01 s on a condition"),
+        ("import threading; threading.Event().wait(0)", "a wait of 0 s on a condition"),
+        ("import queue; queue.Queue().get(timeout=0.01)", "s on a condition"),
+        (
+            "import subprocess; subprocess.Popen.__new__(subprocess.Popen).wait(timeout=1)",
+            "a process waited on for 1 s",
+        ),
+        (
+            "import subprocess; subprocess.Popen.__new__(subprocess.Popen).wait(timeout=0)",
+            "a process waited on for 0 s",
+        ),
+        (
+            "import subprocess; subprocess.Popen.__new__(subprocess.Popen).communicate(timeout=1)",
+            "a process waited on for 1 s",
+        ),
+        ("import select; select.select([], [], [], 0)", "a select of 0 s"),
+        ("import signal; signal.alarm(1)", "an alarm set 1 s ahead"),
+        ("import signal; signal.setitimer(signal.ITIMER_REAL, 1)", "a timer set 1 s ahead"),
+        ("import asyncio; asyncio.run(asyncio.sleep(1))", "a callback scheduled 1.0 s ahead"),
+    ],
+)
+def test_the_guard_fails_a_test_that_waits_or_starts_a_thread(
+    pytester: pytest.Pytester, call: SourceText, refusal: SourceText
+) -> None:
+    """A thread, a sleep, a timed wait or a timer fails the test that reaches it, named."""
+    result = _run_guarded(pytester, SourceText(f"def test_plant():\n    {call}\n"))
+    result.assert_outcomes(failed=1)
+    assert refusal in result.stdout.str()
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "import asyncio; asyncio.run(asyncio.sleep(0))",
+        "import signal; signal.alarm(0)",
+        "import signal; signal.setitimer(signal.ITIMER_REAL, 0)",
+        "import threading; e = threading.Event(); e.set(); e.wait()",
+        "import asyncio; loop = asyncio.new_event_loop(); loop.call_later(0, print); loop.close()",
+    ],
+)
+def test_the_guard_lets_a_test_yield_cancel_a_timer_or_wait_on_what_is_done(
+    pytester: pytest.Pytester, call: SourceText
+) -> None:
+    """A zero sleep on a loop yields, a zero timer cancels one, and a set event waits on nothing."""
+    result = _run_guarded(pytester, SourceText(f"def test_plant():\n    {call}\n"))
+    result.assert_outcomes(passed=1)
+
+
+def test_the_guard_fails_a_test_whose_code_caught_the_refusal(pytester: pytest.Pytester) -> None:
+    """A refusal the code under test swallowed still fails the test, at its teardown."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            import time
+            def test_plant():
+                try:
+                    time.sleep(0)
+                except BaseException:
+                    pass
+            """
+        ),
+    )
+    result.assert_outcomes(passed=1, errors=1)
+    assert "time.sleep(0)" in result.stdout.str()
+
+
+def test_every_test_reads_one_clock_that_moves_only_when_told(pytester: pytest.Pytester) -> None:
+    """The clocks and calendars all read the guard's clock, from the same instant in every test."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            import datetime, time
+            import pytest
+            from tools._determinism_guard import Seconds
+
+            START = 1_767_225_600
+
+            def test_the_clocks_agree_and_stand_still():
+                assert time.time() == time.monotonic() == time.perf_counter() == START
+                assert time.time_ns() == time.monotonic_ns() == START * 1_000_000_000
+                assert time.perf_counter_ns() == time.process_time_ns() == START * 1_000_000_000
+                assert time.thread_time_ns() == START * 1_000_000_000
+                assert time.gmtime()[:6] == (2026, 1, 1, 0, 0, 0)
+                assert datetime.datetime.now(datetime.UTC) == datetime.datetime(
+                    2026, 1, 1, tzinfo=datetime.UTC
+                )
+                assert datetime.date.today() == datetime.date.fromtimestamp(START)
+                assert isinstance(datetime.datetime.now(), datetime.datetime)
+                assert datetime.datetime.today() == datetime.datetime.fromtimestamp(START)
+                assert datetime.datetime.utcnow() == datetime.datetime(2026, 1, 1)
+                assert time.process_time() == time.thread_time() == START
+                assert time.clock_gettime(time.CLOCK_MONOTONIC) == START
+                assert time.clock_gettime_ns(time.CLOCK_MONOTONIC) == START * 1_000_000_000
+                assert time.localtime() == time.localtime(START)
+                assert time.ctime() == time.ctime(START)
+                assert time.asctime() == time.asctime(time.localtime(START))
+                assert time.strftime("%Y-%m-%d") == time.strftime("%Y-%m-%d", time.localtime(START))
+                assert time.gmtime(0)[:6] == (1970, 1, 1, 0, 0, 0)
+                assert time.mktime(time.localtime(0)) == 0
+                assert time.ctime(0) == time.asctime(time.localtime(0))
+                assert time.strftime("%Y", time.gmtime(0)) == "1970"
+                assert time.time() == START
+
+            def test_the_clock_moves_by_what_the_test_advances(clock):
+                clock.advance(Seconds(2.5))
+                assert time.monotonic() == START + 2.5
+
+            def test_the_clock_never_moves_back(clock):
+                with pytest.raises(ValueError, match="moves forward"):
+                    clock.advance(Seconds(-1))
+                assert time.time() == START
+
+            def test_the_next_test_starts_from_the_same_instant():
+                assert time.time() == START
+            """
+        ),
+    )
+    result.assert_outcomes(passed=4)
+
+
+def test_a_session_inside_a_test_leaves_the_guard_on(pytester: pytest.Pytester) -> None:
+    """The guard stays until the last session that installed it ends, not the first."""
+    _run_guarded(pytester, SourceText("def test_plant():\n    pass\n")).assert_outcomes(passed=1)
+    assert _determinism_guard.installed()

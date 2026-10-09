@@ -18,17 +18,21 @@ unit, which read as clean would drop the unit from the gate.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import NewType, TypedDict, cast
+from typing import TYPE_CHECKING, NewType, TypedDict, cast
 
-from tools._common import CPP_LINT_TREE
+from tools._common import CPP_LINT_TREE, WorkerCount
 
 from aletheia.common_types import Prose
+
+if TYPE_CHECKING:
+    from tools._common import ExecutorFactory
 
 # A translation unit as the compile database names it: the absolute path CMake
 # writes, the spelling in which clang-query reports each match's file and the
@@ -111,13 +115,25 @@ def query_unit(repo: Path, script: Path, unit: UnitPath) -> QueryOutput:
     return QueryOutput(finished.stdout)
 
 
-def query_units(repo: Path, units: list[UnitPath], query: Query) -> list[QueryOutput] | Prose:
-    """Run the query over every unit, returning what each printed or why one failed."""
+def query_units(
+    repo: Path,
+    units: list[UnitPath],
+    query: Query,
+    *,
+    executor: ExecutorFactory = ThreadPoolExecutor,
+) -> list[QueryOutput] | Prose:
+    """Run the query over every unit, returning what each printed or why one failed.
+
+    ``executor`` builds what the units are queried on: a thread pool by
+    default, and in a test an executor that runs each query on the test's own
+    thread.
+    """
     with TemporaryDirectory() as scratch:
         script = Path(scratch) / "gate.query"
         _ = script.write_text(query, encoding="utf-8")
         try:
-            with ThreadPoolExecutor() as pool:
+            # The thread pool's own default count, spelled out for the factory.
+            with executor(WorkerCount(min(32, (os.process_cpu_count() or 1) + 4))) as pool:
                 return list(pool.map(partial(query_unit, repo, script), units))
         except QueryFailedError as failure:
             return Prose(str(failure))

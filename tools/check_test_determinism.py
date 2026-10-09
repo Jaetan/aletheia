@@ -41,8 +41,9 @@ An example is not a test: a documentation fence and a file under
 ``examples/`` show production use, and keep the threads and timers that use
 needs.  The harness that runs one is a test file like any other.
 
-Rows are keyed by file and by the primitive's label, the kind first (``time:``
-or ``thread:``), with how many sites the file holds.
+Rows are keyed by file and by the primitive's label, the kind first (``time:``,
+``thread:``, or ``random:`` for a property test whose sample no seed fixes),
+with how many sites the file holds.
 
 One setting is held beside the record: ``rust/.cargo/config.toml`` forces
 ``RUST_TEST_THREADS`` to 1, since the Rust test harness otherwise runs a
@@ -73,6 +74,18 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 from tools._common import RelPath, emit, git_ls_files, git_toplevel
+from tools._determinism_syntax import (
+    ASYNC_CLIENT_ON_A_THREAD,
+    REPLAYING_PROFILE,
+    UNSEEDED_PROPERTY,
+    BoundName,
+    DottedName,
+    SiteCount,
+    SourceText,
+    async_clients_on_a_thread,
+    replaying_profiles,
+    unseeded_properties,
+)
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
 from tools.check_cpp_index_loops import blank_noncode
 
@@ -87,24 +100,11 @@ RECORD = Path("docs/TEST_DETERMINISM.yaml")
 RUST_CARGO_CONFIG = Path("rust/.cargo/config.toml")
 CLEAN, OUT_OF_STEP, UNREADABLE = ExitStatus(0), ExitStatus(1), ExitStatus(2)
 
-# A test file's text as read, and the same text with its comments and literals
-# blanked to spaces, every offset and newline kept: only the second is scanned.
-SourceText = NewType("SourceText", str)
+# A test file's text with its comments and literals blanked to spaces, every
+# offset and newline kept: only it is scanned.
 BlankedCode = NewType("BlankedCode", str)
 # A regular expression's source, compiled where it is matched.
 RegexSource = NewType("RegexSource", str)
-# How many sites of one primitive a file holds.
-SiteCount = NewType("SiteCount", int)
-# A name or an attribute chain as source spells it, dots included.
-DottedName = NewType("DottedName", str)
-
-
-# Each binding's async client runs its sync client's calls on a thread of its
-# own unless a test hands it a turn executor: Python's through
-# ``asyncio.to_thread`` unless it is given a ``run_in_thread``, Rust's on the
-# worker thread its constructors start.  A test that builds one that way leans
-# on that thread, which no thread primitive in the test itself spells.
-ASYNC_CLIENT_ON_A_THREAD = CanonicalText("thread: an async client on its default thread runner")
 
 
 class Primitive(NamedTuple):
@@ -138,6 +138,13 @@ _GO = (
     ),
     Primitive(
         CanonicalText("thread: a goroutine started through a group"), RegexSource(r"\.Go\s*\(")
+    ),
+    Primitive(
+        UNSEEDED_PROPERTY,
+        RegexSource(
+            r"\bquick\.Config\s*\{(?![^{}]*\bRand\s*:)"
+            + r"|\bquick\.Check(?:Equal)?\s*\((?:[^()]|\([^()]*\))*,\s*nil\s*\)"
+        ),
     ),
 )
 
@@ -335,9 +342,8 @@ def blank_python(text: SourceText) -> BlankedCode:
 # blanked code to the qualified spelling; the result is only counted, never
 # reported, so the offsets it moves do not matter.
 
-# A name an import binds in a test, a Rust path ``::``-joined, one of its
-# segments, the text of a Rust use tree, and a Go package's import path.
-BoundName = NewType("BoundName", str)
+# A Rust path ``::``-joined, one of its segments, the text of a Rust use tree,
+# and a Go package's import path.
 RustPath = NewType("RustPath", str)
 PathSegment = NewType("PathSegment", str)
 UseTree = NewType("UseTree", str)
@@ -783,54 +789,6 @@ def which_are_tests(repo: Path, rels: list[RelPath]) -> list[RelPath]:
     return named
 
 
-_ASYNC_MODULE = DottedName("aletheia.asyncio")
-
-
-def _dotted(node: ast.expr) -> DottedName | None:
-    """Spell a name or an attribute chain as dots, or None for anything else."""
-    if isinstance(node, ast.Name):
-        return DottedName(node.id)
-    if isinstance(node, ast.Attribute):
-        base = _dotted(node.value)
-        return DottedName(f"{base}.{node.attr}") if base is not None else None
-    return None
-
-
-def async_clients_on_a_thread(text: SourceText) -> SiteCount:
-    """Count the async-client constructions in a Python test that hand it no ``run_in_thread``.
-
-    The client is found by what the file imports: a name bound to
-    ``aletheia.asyncio.AletheiaClient``, or an attribute reached through a name
-    bound to the module.  A file the parser refuses counts none here; its other
-    sites are still read by the catalogue.
-    """
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return SiteCount(0)
-    spellings = {DottedName(f"{_ASYNC_MODULE}.AletheiaClient")}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == _ASYNC_MODULE:
-            spellings |= {
-                DottedName(a.asname or a.name) for a in node.names if a.name == "AletheiaClient"
-            }
-        elif isinstance(node, ast.Import):
-            spellings |= {
-                DottedName(f"{a.asname}.AletheiaClient")
-                for a in node.names
-                if a.name == _ASYNC_MODULE and a.asname
-            }
-    return SiteCount(
-        sum(
-            1
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and _dotted(node.func) in spellings
-            and not any(keyword.arg == "run_in_thread" for keyword in node.keywords)
-        )
-    )
-
-
 def rows_of(rel: RelPath, text: SourceText) -> RatchetRows:
     """Count the time and thread primitives one file's text uses, read as the path it stands for."""
     rows: RatchetRows = {}
@@ -838,8 +796,14 @@ def rows_of(rel: RelPath, text: SourceText) -> RatchetRows:
         if binding.is_test(rel):
             for label, count in sites_in(binding.code(rel, text), binding.primitives).items():
                 rows[RowKey(rel, label)] = count
-    if _is_python_test(rel) and (on_a_thread := async_clients_on_a_thread(text)):
-        rows[RowKey(rel, ASYNC_CLIENT_ON_A_THREAD)] = on_a_thread
+    if _is_python_test(rel):
+        for label, count in (
+            (ASYNC_CLIENT_ON_A_THREAD, async_clients_on_a_thread(text)),
+            (UNSEEDED_PROPERTY, unseeded_properties(text)),
+            (REPLAYING_PROFILE, replaying_profiles(text)),
+        ):
+            if count:
+                rows[RowKey(rel, label)] = count
     return rows
 
 
@@ -871,9 +835,10 @@ def report(
     if file is not None:
         unrecorded = [key for key in unrecorded if key.file == file]
     for path, label in unrecorded:
-        emit(f"{path}: a test uses physical time or a thread the record does not allow")
+        emit(f"{path}: a test uses time, a thread or an unseeded sample the record does not allow")
         emit(f"    {label}")
-        emit("  Inject the clock or the scheduler and drive it (AGENTS.md § Universal Rules),")
+        emit("  Inject the clock or the scheduler and drive it, or seed the sample")
+        emit("  (AGENTS.md § Universal Rules),")
         emit(f"  or, with user approval, add this row to {RECORD}:")
         emit(as_row(path, label, observed[RowKey(path, label)]))
     for path, label in stale:
@@ -884,7 +849,9 @@ def report(
     if unrecorded or stale:
         emit(f"{len(unrecorded)} unrecorded, {len(stale)} stale")
         return OUT_OF_STEP
-    emit(f"time and thread primitives in tests: {sum(observed.values())}, every one recorded")
+    emit(
+        f"time, thread and sample primitives in tests: {sum(observed.values())}, every one recorded"
+    )
     return CLEAN
 
 

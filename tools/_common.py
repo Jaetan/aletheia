@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, NewType
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterable, Mapping
+    from concurrent.futures import Executor
     from typing import IO
 
 # A path relative to the repository root, spelled as git prints it: `git ls-files`
@@ -49,6 +50,14 @@ RelPath = NewType("RelPath", str)
 
 # A gate's name as its messages print it, such as check-action-pins.
 GateName = NewType("GateName", str)
+
+# How many calls a pool may run at once.
+WorkerCount = NewType("WorkerCount", int)
+
+# What builds the executor a tool runs its concurrent calls on, given how many
+# may run at once: a thread pool in a run, and in a test an executor that runs
+# each call on the test's own thread, since a test starts no thread.
+type ExecutorFactory = Callable[[WorkerCount], Executor]
 
 # The C++ tree the compile-database gates read, clang-tidy among them, under
 # cpp/: configured with the binding's compiler and never built, so those gates

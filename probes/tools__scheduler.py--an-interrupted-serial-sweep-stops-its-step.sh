@@ -48,7 +48,7 @@ sweep = subprocess.Popen(
         "-c",
         "from tools._scheduler import Step, run_lanes; "
         + "run_lanes([[Step('build', 'cabal run shake -- build')]], "
-        + "max_workers=1, heavy_limit=1, serial=True)",
+        + "max_workers=1, heavy_limit=1, executor=None)",
     ],
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL,

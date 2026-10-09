@@ -43,7 +43,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast
 
-from tools._common import find_executable, run_capture, run_streaming, short_sha
+from tools._common import WorkerCount, find_executable, run_capture, run_streaming, short_sha
 from tools._resources import detect_cpus
 from tools.mutation_go import ShortSha
 from tools.mutation_report import (
@@ -59,6 +59,7 @@ from aletheia.common_types import ExitStatus, Prose
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from tools._common import ExecutorFactory
     from tools.mutation_report import SurvivorKey
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -290,11 +291,15 @@ def shard_output(artifact_dir: Path, number: RustShard) -> Path:
     return artifact_dir / RUST_OUTPUT_DIR / f"shard-{number}"
 
 
-def run_rust(artifact_dir: Path) -> MutationReport:
+def run_rust(
+    artifact_dir: Path, *, executor: ExecutorFactory = ThreadPoolExecutor
+) -> MutationReport:
     """Sweep the crate's hot path with cargo-mutants, in shards side by side in scratch copies.
 
     The stage (``rust_stage``) selects the whole sweep, one job's part of it,
-    or the merge of the jobs' parts, which needs no cargo.
+    or the merge of the jobs' parts, which needs no cargo.  ``executor`` builds
+    what the shards run on: a thread pool by default, and in a test an executor
+    that runs each shard on the test's own thread.
     """
     try:
         stage = rust_stage()
@@ -352,9 +357,16 @@ def run_rust(artifact_dir: Path) -> MutationReport:
                 )
             return ExitStatus(proc.returncode)
 
-        with ThreadPoolExecutor(max_workers=len(plan.numbers)) as pool:
-            exits = list(pool.map(sweep, plan.numbers))
+        exits = _sweep_shards(executor, plan, sweep)
     return _finish_rust(artifact_dir, binding, plan, CargoListing(listing.stdout), exits)
+
+
+def _sweep_shards(
+    executor: ExecutorFactory, plan: ShardPlan, sweep: Callable[[RustShard], ExitStatus]
+) -> list[ExitStatus]:
+    """Run every shard of the plan side by side on what ``executor`` builds; return their exits."""
+    with executor(WorkerCount(len(plan.numbers))) as pool:
+        return list(pool.map(sweep, plan.numbers))
 
 
 def _scratch_trees(
