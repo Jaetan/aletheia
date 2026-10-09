@@ -21,7 +21,7 @@ Every tracked, non-binary file is scanned EXCEPT:
   ``CHANGELOG.md`` and ``PROJECT_STATUS.md`` are read by users, so a store pointer
   is as dead for their readers as for anyone's — they are gated, and being
   historical does not license an unresolvable pointer;
-* the detectors and their fixtures (this gate, ``check_docs``,
+* the detectors and their fixtures (this gate, the label arm's tests,
   ``check_no_review_marks``, and their tests) — they carry citation-shaped strings
   by construction. Excluded BY EXACT PATH so the exclusion cannot mask a real
   citation in an ordinary file (unit-tested);
@@ -29,8 +29,8 @@ Every tracked, non-binary file is scanned EXCEPT:
 
 ## Relationship to the other doc gates
 
-* ``tools/check_docs.py`` resolves Markdown links/anchors and flags
-  Markdown-link-syntax memory links (``](memory/x.md)``). This gate overlaps there
+* ``tools/check_docs.py`` resolves Markdown links/anchors and, in its label arm,
+  flags Markdown-link-syntax memory links (``](memory/x.md)``). This gate overlaps there
   only on that one syntactic form; it additionally catches the **bare** shapes
   (``[[slug]]``, a bare ``memory/x.md``, a bare ``slug.md``) that link resolution
   cannot see.
@@ -105,10 +105,9 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
 # gated (see the module docstring).
 _EXEMPT_FILES = {
     # detectors + their fixtures
-    "tools/check_docs.py",
     "tools/check_no_review_marks.py",
     "tools/check_no_memory_citations.py",
-    "python/tests/test_check_docs.py",
+    "python/tests/test_docs_arm_labels.py",
     "python/tests/test_check_no_review_marks.py",
     "python/tests/test_check_no_memory_citations.py",
     # AI-process-infra docs whose purpose includes citing the store

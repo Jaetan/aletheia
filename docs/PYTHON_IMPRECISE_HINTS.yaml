@@ -2572,28 +2572,7 @@ hints:
     text: "tuple[str, ...]"
     count: 5
   - file: tools/check_docs.py
-    text: "dict[Path, set[str]]"
-    count: 1
-  - file: tools/check_docs.py
-    text: "dict[str, int]"
-    count: 1
-  - file: tools/check_docs.py
-    text: "int"
-    count: 1
-  - file: tools/check_docs.py
-    text: "list[str]"
-    count: 7
-  - file: tools/check_docs.py
     text: "list[str] | None"
-    count: 1
-  - file: tools/check_docs.py
-    text: "set[str]"
-    count: 2
-  - file: tools/check_docs.py
-    text: "str"
-    count: 7
-  - file: tools/check_docs.py
-    text: "str | None"
     count: 1
   - file: tools/check_gate_claim.py
     text: "dict[str, str]"

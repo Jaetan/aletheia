@@ -12,6 +12,45 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **The documentation gate is a set of arms, one claim each, and holds what 17
+  probes held: `tools/docs_arms/`.** `tools/check_docs.py` reads every tracked
+  Markdown file once and runs each arm over the same texts. Its own checks are
+  arms like the rest: `links` (every relative link and anchor resolves in a
+  fresh checkout) and `labels` (no living document carries a transient label or
+  a link into the agent memory store), each now held by tests on planted
+  repositories where the gate's own code was held by almost none. Fourteen arms
+  hold what the retired probes held: the C symbols the building guide names are
+  the shim's exports; the Go standard names exactly the fuzz targets the binding
+  defines, and nothing schedules a fuzz run; the build trees and the Go binary
+  the documents name are ignored by the tracked rules, and a venv is ignored at
+  its sanctioned path and at no other top-level one; the index names every
+  document; the building guide's paragraphs are one line each; every document
+  gives the current phase the phase table's word; every pip extra a README names
+  is defined; the README's project tree is the tracked top-level directories;
+  the dependency ledger has its one home; a section number cited beside a link
+  names a heading of the target; every shake target a document shows exists; the
+  opening README.md shares with the pitch is one text; the benchmarks guide
+  states what the baselines, the schema and the residency test record; and every
+  path the building guide names is tracked. The ignore rules are asked in a
+  fresh repository holding only the tracked ignore files, since the `*` file
+  `python -m venv` writes inside a venv answers for any rule otherwise.
+  `python/tests/test_check_docs.py` refuses an arm module the gate does not run.
+  Before the probes left, each of their 112 checks was planted in a private
+  clone: 93 turned the gate red, 14 guard the probes' own interpreter and
+  directory, 2 found an arm blind, and each was fixed (the venv's own ignore
+  file; an extras list with a stray comma), and 3 hold nothing a document
+  states. Mutation rounds over the gate and every arm ran in private clones: the
+  first ran 273 mutants and killed 206, and each survivor that changes behaviour
+  was then held by a test shown red with the mutant applied, or fixed in the
+  arm; the gate, its shared readers and the two arms that were its own checks
+  now kill all 53 mutants run on them. Two more rounds on the lines the fixes
+  changed found 31, then 47, surviving mutants that change behaviour: 58 are
+  held by tests, and 20 are dismissed, each a regular-expression variant told
+  apart only by input outside the arm's claim (a case flag, a Unicode digit, an
+  unclosed bracket, a run of whitespace) or by an order Python randomises per
+  run. The rounds stop there, since a regular expression has no end of such
+  variants.
+
 - **A Rust test reads the kernel stand-in's counts:
   `rust/tests/kernel_releases.rs`.** The recording kernel, the stand-in that
   refuses every call quoting its arguments and counts the closes and frees it is
@@ -1883,6 +1922,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **A link to the repository root resolves.** The documentation gate took the
+  root, `[text](../)` from `docs/` or `[text](./)` at the top, for an untracked
+  path and reported the link broken.
+
+- **`docs/guides/QUICKSTART.md` cites the building guide's Prerequisites
+  section by name.** It cited "§1 Prerequisites", and the building guide numbers
+  no section; the anchor resolved, the number named nothing. The documentation
+  gate now holds every section number cited beside a link, in every document.
 
 - **The sweep reads the tracked tree under `tools/`, not the directory whole.**
   `tools/ci-output` keeps the gates' logs and the scratch scripts of

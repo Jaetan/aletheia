@@ -4,8 +4,8 @@
 
 The mark-shaped strings in this file are deliberate FIXTURES for the detector.
 The gate exempts this file by name (``_EXEMPT_FILES``), so they are never
-flagged in the live tree — the same arrangement ``test_check_docs.py`` uses for
-``check_docs``.
+flagged in the live tree — the same arrangement ``test_docs_arm_labels.py`` uses
+for the documentation gate's label arm.
 """
 
 from __future__ import annotations
@@ -93,9 +93,8 @@ def test_keep_spans_are_masked() -> None:
     "rel",
     [
         "tools/review_db.py",
-        "tools/check_docs.py",
         "tools/check_no_review_marks.py",
-        "python/tests/test_check_docs.py",
+        "python/tests/test_docs_arm_labels.py",
         "python/tests/test_check_no_review_marks.py",
         ".archive/reviews/r20/round.yaml",
     ],

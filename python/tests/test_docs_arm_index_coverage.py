@@ -1,0 +1,124 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""The index-coverage arm finds a tracked document docs/INDEX.md does not name.
+
+Each test builds a throwaway repository with an index and a few documents,
+commits it, and runs the arm the way the gate does, on ``git ls-files`` and
+the tracked Markdown files.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from _git_repo import committed
+
+from tools._common import RelPath
+from tools.check_docs import run_arm
+from tools.docs_arms.index_coverage import INDEX, findings, in_scope, names
+
+from aletheia.common_types import Prose
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def _repo(tmp_path: Path, files: dict[RelPath, Prose]) -> Path:
+    """Return a committed repository holding ``files``, each at its relative path."""
+    return committed(tmp_path / "repo", files)
+
+
+def _run(repo: Path) -> list[Prose]:
+    """Run the arm on ``repo`` as the gate does: every tracked path, every tracked Markdown file."""
+    return run_arm(findings, repo)
+
+
+_DESIGN_LINE = Prose("- [Design](architecture/DESIGN.md)\n")
+_SOMEIP_LINE = Prose("- [SOME/IP](development/SOMEIP_DESIGN.md)\n")
+_STANDARDS_LINE = Prose("- [Standards](../AGENTS.md)\n")
+_PYTHON_LINE = Prose("- [Python](../AGENTS/python.md)\n")
+_INDEX_NAMING_ALL = Prose(f"# Index\n\n{_DESIGN_LINE}{_STANDARDS_LINE}{_PYTHON_LINE}")
+_DOCS = {
+    RelPath("docs/architecture/DESIGN.md"): Prose("# Design\n"),
+    RelPath("AGENTS.md"): Prose("# Standards\n"),
+    RelPath("AGENTS/python.md"): Prose("# Python\n"),
+    RelPath("README.md"): Prose("# Not in scope\n"),
+}
+
+
+def test_a_document_the_index_does_not_name_is_a_finding(tmp_path: Path) -> None:
+    """A tracked per-language standards file absent from the index is reported against the index."""
+    repo = _repo(
+        tmp_path,
+        {
+            INDEX: Prose(f"# Index\n\n{_DESIGN_LINE}{_STANDARDS_LINE}"),
+            **_DOCS,
+        },
+    )
+    assert _run(repo) == [Prose("docs/INDEX.md: does not name AGENTS/python.md")]
+
+
+def test_an_index_naming_every_document_is_clean(tmp_path: Path) -> None:
+    """An index naming every document in scope yields no finding."""
+    repo = _repo(tmp_path, {INDEX: _INDEX_NAMING_ALL, **_DOCS})
+    assert _run(repo) == []
+
+
+def test_a_name_inside_a_longer_name_does_not_count(tmp_path: Path) -> None:
+    """``SOMEIP_DESIGN.md`` in the index does not name ``DESIGN.md``."""
+    repo = _repo(
+        tmp_path,
+        {
+            INDEX: Prose(f"# Index\n\n{_SOMEIP_LINE}{_STANDARDS_LINE}{_PYTHON_LINE}"),
+            RelPath("docs/development/SOMEIP_DESIGN.md"): Prose("# SOME/IP\n"),
+            **_DOCS,
+        },
+    )
+    assert _run(repo) == [Prose("docs/INDEX.md: does not name docs/architecture/DESIGN.md")]
+
+
+def test_a_name_quoted_in_backticks_counts(tmp_path: Path) -> None:
+    """A file name in a code span still tells the reader where to look."""
+    repo = _repo(
+        tmp_path,
+        {
+            INDEX: Prose("# Index\n\n`DESIGN.md`, `AGENTS.md` and `python.md` sit beside it.\n"),
+            **_DOCS,
+        },
+    )
+    assert _run(repo) == []
+
+
+def test_a_tree_with_no_document_in_scope_is_a_finding(tmp_path: Path) -> None:
+    """An index with nothing to name is not a pass: the scan found nothing it expects."""
+    repo = _repo(tmp_path, {INDEX: Prose("# Index\n"), RelPath("README.md"): Prose("# Root\n")})
+    assert _run(repo) == [
+        Prose("docs/INDEX.md: no tracked document under docs/ or AGENTS/ to check against it")
+    ]
+
+
+def test_an_untracked_index_is_a_finding(tmp_path: Path) -> None:
+    """A tree whose index is not tracked has no index naming its documents."""
+    repo = _repo(tmp_path, dict(_DOCS))
+    assert _run(repo) == [Prose("docs/INDEX.md: not tracked, so no index names the documents")]
+
+
+def test_scope_is_docs_agents_and_the_root_standards_file() -> None:
+    """The index names the documents under docs/ and AGENTS/ and AGENTS.md, never itself."""
+    assert in_scope(RelPath("docs/guides/TUTORIAL.md"))
+    assert in_scope(RelPath("AGENTS/go.md"))
+    assert in_scope(RelPath("AGENTS.md"))
+    assert not in_scope(INDEX)
+    assert not in_scope(RelPath("README.md"))
+    assert not in_scope(RelPath("python/README.md"))
+    assert not in_scope(RelPath(".archive/reviews/notes.md"))
+
+
+def test_names_is_a_whole_name_match() -> None:
+    """A name is whole between non-word characters; a dot or a hyphen beside it is a boundary."""
+    assert names(Prose("(architecture/DESIGN.md)"), RelPath("DESIGN.md"))
+    assert names(Prose("`DESIGN.md`"), RelPath("DESIGN.md"))
+    assert not names(Prose("(development/SOMEIP_DESIGN.md)"), RelPath("DESIGN.md"))
+    assert not names(Prose("(DESIGN.mdx)"), RelPath("DESIGN.md"))
+    assert names(Prose("See DESIGN.md."), RelPath("DESIGN.md"))
+    assert names(Prose("(OLD-DESIGN.md)"), RelPath("DESIGN.md"))
