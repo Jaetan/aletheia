@@ -58,7 +58,7 @@ def test_clean_guide_has_no_finding(tmp_path: Path) -> None:
         "",
     ]
     guide = Prose("\n".join(lines))
-    assert _findings(_repo(tmp_path, guide)) == []
+    assert _findings(_repo(tmp_path, guide)) == list[Prose]()
 
 
 def test_untracked_paths_are_findings(tmp_path: Path) -> None:
@@ -72,6 +72,31 @@ def test_untracked_paths_are_findings(tmp_path: Path) -> None:
     assert _findings(_repo(tmp_path, guide)) == [
         Prose(f"{GUIDE}: not tracked: Dockerfile.ci"),
         Prose(f"{GUIDE}: not tracked: tools/gone.py"),
+    ]
+
+
+def test_a_path_under_every_source_directory_is_checked(tmp_path: Path) -> None:
+    """A path under each top-level source directory is checked; a path elsewhere is not."""
+    gone = [
+        RelPath(path)
+        for path in (
+            "tools/gone.py",
+            "docs/gone.md",
+            "cpp/gone.cpp",
+            "go/gone.go",
+            "rust/gone.rs",
+            "python/gone.py",
+            "src/Gone.agda",
+            "haskell-shim/Gone.hs",
+            "examples/gone.py",
+            "probes/gone.py",
+            "packaging/gone.spec",
+            "benchmarks/gone.py",
+        )
+    ]
+    guide = Prose(" ".join(f"`{path}`" for path in (*gone, ".github/workflows/gone.yml")) + "\n")
+    assert _findings(_repo(tmp_path, guide)) == [
+        Prose(f"{GUIDE}: not tracked: {path}") for path in gone
     ]
 
 
@@ -112,7 +137,7 @@ def test_other_documents_are_out_of_scope(tmp_path: Path) -> None:
     """The claim is the guide's; a path another document names is not checked."""
     repo = _repo(tmp_path, Prose("See `tools/run_ci.py`.\n"), extra=(RelPath("docs/OTHER.md"),))
     _ = (repo / "docs" / "OTHER.md").write_text("`tools/gone.py`\n", encoding="utf-8")
-    assert _findings(repo) == []
+    assert _findings(repo) == list[Prose]()
 
 
 def test_tree_paths_keeps_order_and_drops_build_outputs() -> None:
@@ -129,11 +154,59 @@ def test_tree_paths_keeps_order_and_drops_build_outputs() -> None:
 
 
 def test_the_project_agda_lib_is_a_tree_path(tmp_path: Path) -> None:
-    """The project's ``aletheia.agda-lib`` is checked; the standard library's is no tree path."""
-    guide = Prose("Pin `standard-library.agda-lib` in `aletheia.agda-lib`.\n")
+    """The project's ``aletheia.agda-lib`` is checked; another library's is no tree path."""
+    guide = Prose("Pin `standard-library.agda-lib` or `stdlib.agda-lib` in `aletheia.agda-lib`.\n")
     assert _findings(_repo(tmp_path, guide)) == [Prose(f"{GUIDE}: not tracked: aletheia.agda-lib")]
 
 
 def test_a_span_running_past_its_line_is_not_read() -> None:
     """A span is read within one line, so no path the arm reads carries a line break."""
     assert tree_paths(Prose("`tools/a.py\n` and `tools/b.py`\n")) == [RelPath("tools/b.py")]
+
+
+def test_a_span_running_past_a_path_names_none() -> None:
+    """A span whose path is followed by other characters names no tree path."""
+    spans = [
+        "tools/run_ci.py:main",
+        "Dockerfile:latest",
+        "CI_LOCAL.md#setup",
+        "go/aletheia/client.go@v1",
+        "tools/run_ci.py",
+    ]
+    text = Prose(" ".join(f"`{span}`" for span in spans) + "\n")
+    assert tree_paths(text) == [RelPath("tools/run_ci.py")]
+
+
+def test_a_glob_names_no_tree_path() -> None:
+    """A span holding a glob character names a pattern, not a tree path."""
+    spans = [
+        "cpp/*.cpp",
+        "cpp/?.cpp",
+        "cpp/[ab].cpp",
+        "*.md",
+        "?.md",
+        "[ab].md",
+        "Dockerfile*",
+        "Dockerfile?",
+        "tools/run_ci.py",
+    ]
+    text = Prose(" ".join(f"`{span}`" for span in spans) + "\n")
+    assert tree_paths(text) == [RelPath("tools/run_ci.py")]
+
+
+def test_only_a_directory_named_build_is_a_build_output() -> None:
+    """A ``build`` directory is dropped; a name that merely ends in ``build`` is kept."""
+    spans = [
+        "build/x",
+        "cpp/build",
+        "cpp/build/x",
+        "tools/rebuild/x.py",
+        "cpp/prebuild",
+        "tools/build.py",
+    ]
+    text = Prose(" ".join(f"`{span}`" for span in spans) + "\n")
+    assert tree_paths(text) == [
+        RelPath("tools/rebuild/x.py"),
+        RelPath("cpp/prebuild"),
+        RelPath("tools/build.py"),
+    ]

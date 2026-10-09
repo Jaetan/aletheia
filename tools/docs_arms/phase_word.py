@@ -6,9 +6,11 @@ The phase table of ``PROJECT_STATUS.md`` is the authority on which phase the
 project is in: exactly one of its rows has a status cell other than the
 completion mark, and that cell's word is the one ``docs/PITCH.md`` uses in its
 sentence ``Phase <n> is <word>``, as does the same sentence wherever another
-tracked document carries it.  The pitch must carry the sentence.  A status
-document without a table, or a table with no open row or several, holds no
-current phase, and the arm reports that rather than passing on nothing.
+tracked document carries it.  The pitch must carry the sentence.  A line whose
+first characters other than whitespace are three backticks or three tildes
+toggles fenced code, and no table row or sentence inside fenced code is read.
+A status document without a table, or a table with no open row or several,
+holds no current phase, and the arm reports that rather than passing on nothing.
 """
 
 from __future__ import annotations

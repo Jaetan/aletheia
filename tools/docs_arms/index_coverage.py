@@ -76,15 +76,15 @@ def findings(
         documents: Every tracked Markdown file's text, by its repo-relative path.
 
     Returns:
-        A finding naming the index for each unnamed document; one finding when
-        the index is not tracked or when no document is in scope, since a scan
-        over nothing holds nothing.
+        A finding naming the index for each unnamed document, in the order of
+        ``documents``; one finding when the index is not tracked or when no
+        document is in scope, since a scan over nothing holds nothing.
 
     """
     del root, tracked
     if INDEX not in documents:
         return [Prose(f"{INDEX}: not tracked, so no index names the documents")]
-    in_scope_docs = sorted(rel for rel in documents if in_scope(rel))
+    in_scope_docs = [rel for rel in documents if in_scope(rel)]
     if not in_scope_docs:
         return [Prose(f"{INDEX}: no tracked document under docs/ or AGENTS/ to check against it")]
     index_text = documents[INDEX]

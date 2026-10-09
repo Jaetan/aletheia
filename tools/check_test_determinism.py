@@ -313,14 +313,16 @@ def blank_python(text: SourceText) -> BlankedCode:
 
     Read by the tokenizer, which knows every string prefix and nesting the
     language allows; a file the tokenizer refuses is returned unblanked, so its
-    sites are counted rather than hidden.
+    sites are counted rather than hidden.  The rows end where the parser's do,
+    at a line feed, a carriage return or the two together, so a line separator
+    inside a string ends none.
     """
-    out = [list(line) for line in text.splitlines(keepends=True)]
+    out = [list(line) for line in io.StringIO(text, newline="").readlines()]
     try:
-        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+        tokens = list(tokenize.generate_tokens(io.StringIO(text, newline="").readline))
     except tokenize.TokenError, SyntaxError:
         return BlankedCode(text)
-    blanked = {tokenize.COMMENT, tokenize.STRING, tokenize.FSTRING_MIDDLE}
+    blanked = {tokenize.COMMENT, tokenize.STRING, tokenize.FSTRING_MIDDLE, tokenize.TSTRING_MIDDLE}
     for token in tokens:
         if token.type not in blanked:
             continue
@@ -330,7 +332,7 @@ def blank_python(text: SourceText) -> BlankedCode:
             first = start_col if row == start_row else 0
             last = end_col if row == end_row else len(line)
             for col in range(first, last):
-                if line[col] != "\n":
+                if line[col] not in "\r\n":
                     line[col] = " "
     return BlankedCode("".join("".join(line) for line in out))
 
@@ -433,7 +435,8 @@ def spell_python_aliases(text: SourceText, code: BlankedCode) -> BlankedCode:
     """Spell every read of a Python import alias as the qualified name it stands for.
 
     The names are found by the parser, which sees only code; a file the parser
-    refuses is returned as it came.
+    refuses is returned as it came.  Its rows end where the parser's do, at a
+    line feed, a carriage return or the two together.
     """
     tree = _python_tree(text)
     if tree is None:
@@ -441,7 +444,7 @@ def spell_python_aliases(text: SourceText, code: BlankedCode) -> BlankedCode:
     aliases = _python_aliases(tree)
     if not aliases:
         return code
-    lines = text.splitlines(keepends=True)
+    lines = io.StringIO(text, newline="").readlines()
     starts = [CharOffset(0)]
     for line in lines:
         starts.append(CharOffset(starts[-1] + len(line)))
@@ -685,7 +688,8 @@ def _go_code(_rel: RelPath, text: SourceText) -> BlankedCode:
 # source it is.  The gate's own test is exempt: its strings are the fixtures
 # it feeds the gate, and its code is read like any other test's.
 _STRING_FIXTURES = RelPath("python/tests/test_check_test_determinism.py")
-# The stand-in for an interpolated value when an f-string is read as source.
+# The stand-in for an interpolated value when an f-string or a t-string is
+# read as source.
 _INTERPOLATED = "_"
 
 
@@ -697,12 +701,12 @@ def _is_script(tree: ast.Module | None) -> bool:
 
 
 def python_child_sources(text: SourceText) -> list[SourceText]:
-    """Every string literal in Python source that is a script, dedented.
+    """Every string literal in Python source that is a script, dedented with its rows ending at LF.
 
     A script parses as Python and calls or imports something, which a phrase
     that happens to parse (``"non-monotonic"``) does not.  A docstring is prose
-    and is skipped; an f-string is read with each value it interpolates
-    standing as one name.  A file the parser refuses yields none.
+    and is skipped; an f-string or a t-string is read with each value it
+    interpolates standing as one name.  A file the parser refuses yields none.
     """
     tree = _python_tree(text)
     if tree is None:
@@ -714,7 +718,10 @@ def python_child_sources(text: SourceText) -> list[SourceText]:
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
     }
     skipped |= {
-        id(part) for node in nodes if isinstance(node, ast.JoinedStr) for part in node.values
+        id(part)
+        for node in nodes
+        if isinstance(node, (ast.JoinedStr, ast.TemplateStr))
+        for part in node.values
     }
     literals = [
         node.value
@@ -730,9 +737,12 @@ def python_child_sources(text: SourceText) -> list[SourceText]:
             for part in node.values
         )
         for node in nodes
-        if isinstance(node, ast.JoinedStr)
+        if isinstance(node, (ast.JoinedStr, ast.TemplateStr))
     ]
-    sources = [SourceText(textwrap.dedent(literal)) for literal in literals]
+    sources = [
+        SourceText(textwrap.dedent(io.StringIO(literal, newline=None).read()))
+        for literal in literals
+    ]
     return [source for source in sources if _is_script(_python_tree(source))]
 
 

@@ -5,10 +5,12 @@
 The subject is ``docs/development/BUILDING.md``. An indented line that is not a list item, a
 prose line under a prose, item or ``>`` line, and a ``>`` line under another are each a finding
 naming the line that continues the block. Headings, table rows, list items at any indent and
-``---`` breaks may follow one another. The fenced blocks are the ones ``tools._common.prose_lines``
-drops; the shape of a line is read from its original text, because that helper's inline-code
-mask moves a line's first column. A subject missing from the documents, or one with nothing but
-blank lines outside fenced code, is a finding too.
+``---`` breaks may follow one another; a ``#`` run opens a heading only when a space, a tab or the
+line's end follows it. The fenced blocks are the ones ``tools._common.prose_lines`` drops, and lines
+end where that helper ends them, a lone carriage return included; the shape of a line is read from
+its original text, because that helper's inline-code mask moves a line's first column. A subject
+missing from the documents, or one with nothing but blank lines outside fenced code, is a finding
+too.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import re
 from typing import TYPE_CHECKING
 
 from tools._common import RelPath, prose_lines
+from tools.docs_arms import ATX_OPEN
 
 from aletheia.common_types import Prose
 
@@ -42,7 +45,7 @@ class Shape(enum.Enum):
 
 # The first pattern a line matches gives its shape; a line matching none is prose.
 _SHAPES = (
-    (re.compile(r"^#{1,6} "), Shape.HEADING),
+    (ATX_OPEN, Shape.HEADING),
     (re.compile(r"^\|"), Shape.TABLE),
     (re.compile(r"^[ \t]*(?:- |\* |\d+\. )"), Shape.ITEM),
     (re.compile(r"^>"), Shape.QUOTE),

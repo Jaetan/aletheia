@@ -75,9 +75,10 @@ def findings(
         documents: Every tracked Markdown file's text, by its repo-relative path.
 
     Returns:
-        A finding per undefined extra, naming the README and the extra; one
-        finding when the manifest is missing or defines no extra; one when no
-        README names an extra.
+        A finding per undefined extra, naming the README and the extra, the
+        READMEs in the order of ``documents`` and each one's extras in name
+        order; one finding when the manifest is missing or defines no extra;
+        one when no README names an extra.
 
     """
     if _MANIFEST not in tracked:
@@ -87,7 +88,7 @@ def findings(
         return [Prose(f"{_MANIFEST}: defines no extra under [project.optional-dependencies]")]
     out: list[Prose] = []
     named_anywhere = False
-    for rel, text in sorted(documents.items()):
+    for rel, text in documents.items():
         if PurePosixPath(rel).name != "README.md":
             continue
         named = named_extras(text)

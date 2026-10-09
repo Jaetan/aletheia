@@ -2,14 +2,16 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """A section number cited beside a Markdown link names a heading of the link's target.
 
-A document cites a section of another by number, either inside a link's text
-(``[CANCELLATION.md § 2.2](path)``) or right after the link (``[path](path)
-§ 2.2``, the number allowed on the next line).  The link's own anchor is held
-by the link check; the number beside it is held here, in every tracked
-document: the target is a tracked Markdown document and one of its headings,
-outside code fences, starts with that number and no more digits.  The subject
-that is not among the documents, or that carries no such citation, is a
-finding, so the scan cannot pass by matching nothing.
+A document cites a section of another by number, inside a link's text
+(``[CANCELLATION.md § 2.2](path)``), right after the link (``[path](path)
+§ 2.2``, the number allowed on the next line), or both, and every such number
+is read.  The link's own anchor is held by the link check; the number beside it
+is held here, in every tracked document: the target is a tracked Markdown
+document and one of its headings, outside code fences, starts with that number
+and no more digits.  A link's title is not part of its target, and a code span
+in a link's parentheses makes no link.  The subject that is not among the
+documents, or that carries no such citation, is a finding, so the scan cannot
+pass by matching nothing.
 """
 
 from __future__ import annotations
@@ -17,8 +19,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, NamedTuple
 
-from tools._common import RelPath, prose_lines
-from tools.docs_arms import headings
+from tools._common import RelPath
+from tools.docs_arms import destination, headings, paragraphs
 
 from aletheia.common_types import Prose
 
@@ -31,8 +33,11 @@ SUBJECT = RelPath("go/README.md")
 
 # A section number as the prose cites it: a section sign, then dotted digits.
 _SECTION = re.compile(r"§\s*(\d+(?:\.\d+)*)")
-# An inline link, with the section number cited right after it when there is one.
-_LINK = re.compile(r"\[(?P<text>[^\]]*)\]\((?P<target>[^)]+)\)(?:\s*§\s*(?P<after>\d+(?:\.\d+)*))?")
+# An inline link, no bracket in its text and no backtick, a masked code span, in its
+# parentheses, and the number cited right after it if there is one.
+_LINK = re.compile(
+    r"\[(?P<text>[^\[\]]*)\]\((?P<target>[^)`]+)\)(?:\s*§\s*(?P<after>\d+(?:\.\d+)*))?"
+)
 
 
 class Citation(NamedTuple):
@@ -43,12 +48,17 @@ class Citation(NamedTuple):
 
 
 def citations(rel: RelPath, text: Prose) -> Iterator[Citation]:
-    """Yield every section number cited beside a link in the prose of document ``rel``."""
-    for m in _LINK.finditer("\n".join(line for _, line in prose_lines(rel, text))):
-        in_text = _SECTION.search(m.group("text"))
-        section = in_text.group(1) if in_text else m.group("after")
-        if section is not None:
-            yield Citation(Prose(section), Prose(m.group("target").strip().split(" ", 1)[0]))
+    """Yield every section number cited beside a link in the prose of document ``rel``.
+
+    Each paragraph is read alone, so no link or number beside it crosses a blank line.
+    """
+    for m in (found for paragraph in paragraphs(rel, text) for found in _LINK.finditer(paragraph)):
+        # The destination ends at a space, a tab or a line break; a title may follow it.
+        target = destination(Prose(m.group("target")))
+        in_text = (s.group(1) for s in _SECTION.finditer(m.group("text")))
+        for section in (*in_text, m.group("after")):
+            if section is not None:
+                yield Citation(Prose(section), target)
 
 
 def starts_with_section(heading: Prose, section: Prose) -> bool:
@@ -67,8 +77,9 @@ def _document_findings(
         cited = True
         path = target.partition("#")[0]
         tgt = doc if path == "" else (doc.parent / path).resolve()
-        tgt_rel = RelPath(tgt.relative_to(root).as_posix()) if tgt.is_relative_to(root) else None
-        if tgt_rel is None or tgt_rel not in documents:
+        # A target outside the root walks up to a ``../`` path that no document has.
+        tgt_rel = RelPath(tgt.relative_to(root, walk_up=True).as_posix())
+        if tgt_rel not in documents:
             out.append(
                 Prose(f"{rel}: § {section} cited beside a link to {target}, not a tracked document")
             )
@@ -88,7 +99,6 @@ def findings(
     One more names the subject when it is not among the documents or cites no section.
     """
     del tracked
-    root = root.resolve()
     out: list[Prose] = []
     citing: set[RelPath] = set()
     for rel in documents:

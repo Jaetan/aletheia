@@ -1961,6 +1961,34 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The documentation gate reads the links, citations and figures it misread,
+  and every recorded mutant of its arms is killed.** Of the 562 mutants recorded
+  over the gate's 16 arms, 86 survived the tests; each is now killed by a test,
+  or its site is gone: `tools/docs_arms/__init__.py` states that the root
+  arrives resolved and the documents in tracked order, so no arm resolves the
+  root or sorts the documents again. Writing those tests found arms wrong, each
+  now held by a test that failed first. `links` and `section_citations` read a
+  link within its paragraph, its text or title running onto the next line, a
+  blank line or fenced code ending it; a destination ends at a space, a tab or a
+  line break, a no-break space staying in it, and parentheses holding a
+  backtick, as a code span leaves them, make no link. `section_citations` holds
+  every section number beside a link, in its text and after it, and a `[`
+  earlier on the line no longer opens the link's text. `stated_measurements`
+  holds the standard-deviation bound true and tight at one decimal over the
+  numbers the baselines spell and names the bound the worst lane needs, reports
+  a missing latency baseline and an untracked residency test as what they are,
+  leaves out a row whose mean or spread is not finite or whose mean is not
+  positive, and reads a bound or figure with a stray dot as unstated rather than
+  stopping the gate. `retired_document` numbers a mention as `grep -n` does, in
+  time linear in the file. `one_line_paragraphs` and the shared heading reader
+  take a `#` run as a heading only before a space, a tab or the line's end.
+  `tools/check_test_determinism.py` reads a test's rows where Python's parser
+  does, so a U+2028 in a string or a carriage return in a child script no longer
+  stops the scan or hides a site; a t-string's text is blanked, and a script
+  built as a t-string is read as one built as an f-string is. The arm, gate and
+  determinism tests went from 364 to 560, and the arm tests start 49 processes,
+  all in `ignored_build_trees`, whose arm asks git.
+
 - **A link to the repository root resolves.** The documentation gate took the
   root, `[text](../)` from `docs/` or `[text](./)` at the top, for an untracked
   path and reported the link broken.

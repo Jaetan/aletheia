@@ -4,10 +4,11 @@
 
 Each arm's ``findings(root, tracked, documents)`` returns its findings, one per
 defect, naming the file concerned; a scan that finds nothing it expects is a
-finding too.  ``root`` is the repository, ``tracked`` every tracked path as
-``git ls-files`` prints it, and ``documents`` the text of every tracked Markdown
-file, read once by ``tools/check_docs.py`` for all of its checks.  The heading
-and tracked-directory readers here are shared by the gate's link checks and the arms.
+finding too.  ``root`` is the repository's resolved path, ``tracked`` every
+tracked path as ``git ls-files`` prints it, and ``documents`` the text of every
+tracked Markdown file in the order of ``tracked``, read once by
+``tools/check_docs.py`` for all of its checks.  The heading, tracked-directory,
+paragraph and link-destination readers here are shared by the gate's link checks and the arms.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from collections import Counter
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
-from tools._common import RelPath
+from tools._common import FENCE, INLINE_CODE, RelPath, prose_lines
 
 from aletheia.common_types import Prose
 
@@ -27,9 +28,11 @@ if TYPE_CHECKING:
 
     type Arm = Callable[[Path, Sequence[RelPath], Mapping[RelPath, Prose]], list[Prose]]
 
-_ATX = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
+# An ATX heading opens on a run of one to six # before a space, a tab or the line's end.
+ATX_OPEN = re.compile(r"#{1,6}(?:[ \t]|$)")
+_ATX = re.compile(ATX_OPEN.pattern + r"[ \t]*(.*?)[ \t]*#*[ \t]*$")
 _HTML_ANCHOR = re.compile(r'(?:name|id)="([^"]+)"')
-_FENCE = re.compile(r"^\s*(```|~~~)")
+_LINK_TOKEN = re.compile(r"[^ \t\n]+")
 
 
 def tracked_dirs(tracked: Iterable[RelPath]) -> set[RelPath]:
@@ -41,12 +44,45 @@ def tracked_dirs(tracked: Iterable[RelPath]) -> set[RelPath]:
     }
 
 
+def destination(raw: Prose) -> Prose:
+    """Return the destination of a link written ``raw``, a title after it dropped.
+
+    Leading spaces, tabs and line breaks are dropped and the destination ends at
+    the next one, "" when nothing is left; any other space, U+00A0 among them, stays in it.
+    """
+    token = _LINK_TOKEN.search(raw)
+    return Prose(token.group() if token else "")
+
+
+def paragraphs(rel: RelPath, text: Prose) -> list[Prose]:
+    """Return each paragraph of the prose of document ``rel``, its lines joined by line breaks.
+
+    The prose drops fenced code and masks each inline code span to one backtick,
+    which no link destination holds, so a line holding only a code span is paragraph
+    text.  A blank line, a line of spaces and tabs alone, or fenced code ends a
+    paragraph, and no link or definition crosses it.
+    """
+    prose = {number for number, _ in prose_lines(rel, text)}
+    out: list[Prose] = []
+    lines: list[Prose] = []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        line = INLINE_CODE.sub("`", raw)
+        if number in prose and line.strip(" \t"):
+            lines.append(Prose(line))
+        elif lines:
+            out.append(Prose("\n".join(lines)))
+            lines = []
+    if lines:
+        out.append(Prose("\n".join(lines)))
+    return out
+
+
 def headings(text: Prose) -> list[Prose]:
     """Return the text of every ATX heading of ``text`` outside fenced code, code spans kept."""
     out: list[Prose] = []
     in_fence = False
     for line in text.splitlines():
-        if _FENCE.match(line):
+        if FENCE.match(line):
             in_fence = not in_fence
         elif not in_fence and (m := _ATX.match(line)) is not None:
             out.append(Prose(m.group(1)))

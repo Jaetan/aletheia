@@ -6,7 +6,8 @@ The guide is ``docs/development/BUILDING.md``; the shim is ``haskell-shim/src/Al
 whose ``foreign export ccall`` lines are the C entry points the shared library carries. A symbol
 is read wherever the guide spells it, in prose or in a code span, since a reader copies it from
 either. A guide naming no symbol, a shim exporting none, and either file missing from the tracked
-set are findings too: the arm then holds nothing.
+set are findings too: the arm then holds nothing. A shim byte that is not UTF-8 ends the name it
+sits in rather than vanishing or stopping the read; the exports after it are read.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ def symbols_exported(text: Prose) -> set[Prose]:
 def findings(
     root: Path, tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]
 ) -> list[Prose]:
-    """Return one finding per symbol the guide names and the shim does not export.
+    """Return one finding per symbol the guide names and the shim does not export, in name order.
 
     Args:
         root: The repository root.

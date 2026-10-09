@@ -3,18 +3,21 @@
 """Every relative link and anchor in a tracked document resolves in a fresh checkout.
 
 A link ``[text](target)`` or a reference definition ``[id]: target``, outside
-fenced code and inline code spans, names a target relative to its document.
-The target resolves when git tracks it, as a file or as a directory on the way
-to one, or when it is the repository root: a fresh checkout holds what git
-tracks, so a gitignored file sitting in one working tree does not count. A
+fenced code and inline code spans, names a target relative to its document; a
+code span in a link's parentheses, or opening a definition's target, makes no link. A
+link's text may be empty or run onto the next line of its paragraph, and a
+definition may be indented by spaces or tabs, its target on its own line.
+The target resolves when git tracks it, as a file or as a directory on
+the way to one, or when it is the repository root: a fresh checkout holds what
+git tracks, so a gitignored file sitting in one working tree does not count. A
 target outside the repository is a finding even when it exists. An anchor
 ``#slug``, alone or after a tracked Markdown target, must be one of that
 document's anchors, compared without case: a heading's GitHub slug, suffixed
 ``-1``, ``-2`` for a repeat, or an HTML ``name`` or ``id``. An anchor into any
-other file is not checked. A link's title is not part of its target, and a
-link with a scheme (``http://``, ``https://``, ``mailto:``, ``tel:``), a
-``#!`` route or an ``<...>`` autolink is not resolved. A tree whose documents
-carry no link to resolve is a finding, the scan holding nothing.
+other file is not checked. A link's title is not part of its target, and a link
+with a scheme (``http://``, ``https://``, ``mailto:``, ``tel:``), a ``#!`` route
+or an ``<...>`` autolink is not resolved. A tree whose documents carry no link
+to resolve is a finding, the scan holding nothing.
 """
 
 from __future__ import annotations
@@ -22,8 +25,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, NamedTuple
 
-from tools._common import RelPath, prose_lines
-from tools.docs_arms import header_slugs, tracked_dirs
+from tools._common import RelPath
+from tools.docs_arms import destination, header_slugs, paragraphs, tracked_dirs
 
 from aletheia.common_types import Prose
 
@@ -31,9 +34,9 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-# Inline [text](target) and reference-style [id]: target.
-_INLINE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-_REFDEF = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)")
+# Inline [text](target), or reference-style [id]: target opening a line.  A backtick,
+# a masked code span, in the parentheses makes no link, and ends a definition's target.
+_LINK = re.compile(r"\[[^\]]*\]\(([^)`]+)\)|^[ \t]*\[[^\]]+\]:[ \t]*([^ \t\n`]+)", re.MULTILINE)
 _UNRESOLVED = ("http://", "https://", "mailto:", "tel:", "#!", "<")
 _ROOT = RelPath(".")
 
@@ -50,19 +53,22 @@ class Checkout(NamedTuple):
 
 
 def links(rel: RelPath, text: Prose) -> list[Prose]:
-    """Return the link targets of document ``rel`` outside fenced code and inline code spans."""
+    """Return the link targets of document ``rel`` outside fenced code and inline code spans.
+
+    Each paragraph is read alone, so a link may run onto the next line but not past a blank one.
+    """
     return [
-        Prose(target)
-        for _, line in prose_lines(rel, text)
-        for pattern in (_INLINE, _REFDEF)
-        for target in pattern.findall(line)
+        # The destination ends at a space, a tab or a line break; a title may follow it.
+        destination(Prose(inline or reference))
+        for paragraph in paragraphs(rel, text)
+        for inline, reference in _LINK.findall(paragraph)
     ]
 
 
 def _link_finding(
     root: Path,
     rel: RelPath,
-    raw: Prose,
+    link: Prose,
     checkout: Checkout,
     anchors: Mapping[RelPath, set[Prose]],
 ) -> Prose | None:
@@ -70,7 +76,6 @@ def _link_finding(
 
     ``anchors`` holds each document's anchors in lower case, as they are compared.
     """
-    link = raw.strip().split(" ", 1)[0]
     if link.startswith(_UNRESOLVED):
         return None
     target, _, anchor = link.partition("#")
@@ -100,16 +105,15 @@ def findings(
         The findings, each naming the document that holds the link.
 
     """
-    root = root.resolve()
     checkout = Checkout(frozenset(tracked), frozenset(tracked_dirs(tracked)))
     anchors = {
         rel: {Prose(slug.lower()) for slug in header_slugs(text)} for rel, text in documents.items()
     }
-    found = [(rel, raw) for rel, text in documents.items() for raw in links(rel, text)]
-    if not any(not raw.strip().startswith(_UNRESOLVED) for _, raw in found):
+    found = [(rel, link) for rel, text in documents.items() for link in links(rel, text)]
+    if not any(not link.startswith(_UNRESOLVED) for _, link in found):
         return [Prose("README.md: no tracked document carries a link to resolve")]
     return [
         finding
-        for rel, raw in found
-        if (finding := _link_finding(root, rel, raw, checkout, anchors)) is not None
+        for rel, link in found
+        if (finding := _link_finding(root, rel, link, checkout, anchors)) is not None
     ]

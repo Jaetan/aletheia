@@ -6,8 +6,9 @@ A living document is any tracked Markdown file under ``docs/``, the root
 ``README.md`` and every other ``README.md``: each describes the current state,
 so an internal review mark, a finding identifier or a session phrase such as
 "pending push" in its prose is a finding, and so is a Markdown link into the
-agent memory store, which no checkout holds. The repository-root logs, the
-changelog and the status page, record history by purpose and are not read.
+agent memory store, which no checkout holds. A session phrase is matched in
+any letter case. The repository-root logs, the changelog and the status page,
+record history by purpose and are not read.
 Fenced code and inline code spans are not prose, so a mark shown as an
 example is not a finding. Each distinct mark is reported once per document,
 and a tree with no living document is a finding, the scan holding nothing.

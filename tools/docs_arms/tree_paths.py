@@ -46,7 +46,7 @@ _SOURCE_DIRS = (
     "benchmarks",
 )
 _TREE_PATH = re.compile(
-    r"^(?:(?:"
+    r"(?:(?:"
     + "|".join(_SOURCE_DIRS)
     + r")/[A-Za-z0-9_./-]+|Dockerfile[.A-Za-z]*|[A-Za-z_.-]+\.(?:cabal|md)|aletheia\.agda-lib)$"
 )

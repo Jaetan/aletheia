@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _planted_tree import run_planted
+from _planted_tree import plant, run_planted
 
 from tools._common import RelPath
 from tools.docs_arms.readme_tree import findings
@@ -55,7 +55,7 @@ def _run(repo: Path) -> list[Prose]:
 def test_tree_naming_every_tracked_directory_is_clean(tmp_path: Path) -> None:
     """A tree listing exactly the tracked top-level directories is no finding."""
     names = [RelPath("docs"), RelPath("src"), RelPath("tools")]
-    assert _run(_repo(tmp_path, names, _tree(names))) == []
+    assert _run(_repo(tmp_path, names, _tree(names))) == list[Prose]()
 
 
 def test_tree_omitting_a_tracked_directory_is_a_finding(tmp_path: Path) -> None:
@@ -99,25 +99,53 @@ def test_a_branch_drawn_as_a_path_lists_its_top_directory(tmp_path: Path) -> Non
     """A branch such as src/Aletheia/ lists src, the first component of its path."""
     names = [RelPath("docs"), RelPath("src")]
     repo = _repo(tmp_path, names, _tree([RelPath("docs"), RelPath("src/Aletheia")]))
-    assert _run(repo) == []
+    assert _run(repo) == list[Prose]()
 
 
 def test_a_nested_tree_lists_only_its_top_branches(tmp_path: Path) -> None:
     """A nested line drawn under a vertical bar stays in the tree and lists no directory."""
     readme = Prose(README_HEAD + "├── docs/\n│   └── guides/\n└── src/\n" + README_TAIL)
     repo = _repo(tmp_path, [RelPath("docs"), RelPath("src")], readme)
-    assert _run(repo) == []
+    assert _run(repo) == list[Prose]()
 
 
 def test_a_spacer_line_and_a_dotted_directory_stay_in_the_tree(tmp_path: Path) -> None:
     """A bar alone on its line keeps the tree going, and a directory name may hold a dot."""
     names = [RelPath(".github"), RelPath("src")]
     readme = Prose(README_HEAD + "├── .github/\n│\n└── src/\n" + README_TAIL)
-    assert _run(_repo(tmp_path, names, readme)) == []
+    assert _run(_repo(tmp_path, names, readme)) == list[Prose]()
 
 
 def test_branch_lines_after_the_tree_are_not_read(tmp_path: Path) -> None:
     """The tree ends at its first line that is not a branch; a later drawing is another tree."""
     tree = "├── src/\n not a branch\n├── extra/\n"
     readme = Prose(README_HEAD + tree + README_TAIL + "\nother/\n└── more/\n")
-    assert _run(_repo(tmp_path, [RelPath("src")], readme)) == []
+    assert _run(_repo(tmp_path, [RelPath("src")], readme)) == list[Prose]()
+
+
+def test_a_deep_file_counts_for_its_top_directory(tmp_path: Path) -> None:
+    """A file two directories deep makes its first path component the tracked directory."""
+    files = {
+        RelPath("README.md"): _tree([RelPath("docs")]),
+        RelPath("docs/guides/intro.txt"): Prose("intro\n"),
+        RelPath("src/Aletheia/Main.agda"): Prose("module Main where\n"),
+    }
+    assert _run(plant(tmp_path / "repo", files)) == [
+        Prose("README.md: the repository tracks src/, which the tree omits")
+    ]
+
+
+def test_findings_come_listed_first_then_omitted_each_in_name_order(tmp_path: Path) -> None:
+    """Listed but untracked directories come first, then tracked but omitted ones, each sorted."""
+    tracked = [RelPath(name) for name in ("zeta", "docs", "tools", "alpha", "lib")]
+    printed = [RelPath(name) for name in ("web", "docs", "probes", "bench", "extra")]
+    assert _run(_repo(tmp_path, tracked, _tree(printed))) == [
+        Prose("README.md: the tree lists bench/, which the repository does not track"),
+        Prose("README.md: the tree lists extra/, which the repository does not track"),
+        Prose("README.md: the tree lists probes/, which the repository does not track"),
+        Prose("README.md: the tree lists web/, which the repository does not track"),
+        Prose("README.md: the repository tracks alpha/, which the tree omits"),
+        Prose("README.md: the repository tracks lib/, which the tree omits"),
+        Prose("README.md: the repository tracks tools/, which the tree omits"),
+        Prose("README.md: the repository tracks zeta/, which the tree omits"),
+    ]

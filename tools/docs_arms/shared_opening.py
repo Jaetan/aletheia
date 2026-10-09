@@ -6,8 +6,9 @@ Each document is read without the other, so both open with the same two sections
 classes the proof removes and the comparison with the tested decoders. The arm holds the two
 copies equal: each shared section is read from its heading up to the next heading of the same
 level or shallower, which differs by design, with blank lines and horizontal rules dropped as
-each document's own spacing. A document the pair names that is not tracked, or no longer
-carries a shared heading, is a finding, since the comparison then holds nothing.
+each document's own spacing, and a line's indentation and trailing blanks kept as content. A
+document the pair names that is not tracked, or does not carry a shared heading, is a
+finding, since the comparison then holds nothing.
 """
 
 from __future__ import annotations

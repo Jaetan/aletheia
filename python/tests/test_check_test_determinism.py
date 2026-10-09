@@ -32,12 +32,14 @@ from tools.check_test_determinism import (
     SiteCount,
     SourceText,
     async_clients_on_a_thread,
+    blank_python,
     is_test,
     report,
     rows_of,
     rust_test_modules,
     rust_tests_run_alone,
     sites_in,
+    spell_python_aliases,
     unseeded_properties,
     which_are_tests,
 )
@@ -188,6 +190,8 @@ def test_python_time_threads_and_tasks_are_sites_and_their_prose_is_not() -> Non
             """\
             # time.sleep(1) threading.Thread done.wait(5)
             msg = "asyncio.create_task(c()) timeout=3 loop.call_later(1, f)"
+            msg = f"time.sleep(1) {x}"
+            msg = t"time.sleep(1) {x}"
             """
         )
     )
@@ -266,12 +270,100 @@ def test_python_clock_reads_signal_timers_and_yields_are_sites() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        SourceText('import time\nnote = "a\u2028b"\ntime.sleep(1)\n# threading.Thread()\n'),
+        SourceText('import time as t\nnote = "a\u2028b"\nt.sleep(1)\n# threading.Thread()\n'),
+    ],
+    ids=["qualified", "alias"],
+)
+def test_a_line_separator_inside_a_string_ends_no_line(source: SourceText) -> None:
+    """A U+2028 in a string literal ends no line, so the code and comment after it are read."""
+    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {
+        "time: a clock or sleep from module time": 1
+    }
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        SourceText("import time as t\\rx = 1\\nt.sleep(1)\\n"),
+        SourceText("import time as t\\r\\nx = 1\\rt.sleep(1)\\n"),
+    ],
+    ids=["cr", "crlf"],
+)
+def test_a_carriage_return_in_a_child_script_ends_a_row(script: SourceText) -> None:
+    """A carriage return or CRLF in a child script ends a row, so the alias read after it counts."""
+    source = SourceText(f'import subprocess\nsubprocess.run(["python", "-c", "{script}"])\n')
+    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {
+        "time: a clock or sleep from module time": 1
+    }
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        SourceText("import os\\r# time.sleep(1)\\nos.getcwd()\\n"),
+        SourceText("import os\\r\\n# time.sleep(1)\\r\\nos.getcwd()\\r\\n"),
+    ],
+    ids=["cr", "crlf"],
+)
+def test_a_comment_after_a_carriage_return_in_a_child_script_is_no_site(
+    script: SourceText,
+) -> None:
+    """A comment after a carriage return or CRLF in a child script is blanked like any other."""
+    source = SourceText(f'import subprocess\nsubprocess.run(["python", "-c", "{script}"])\n')
+    assert (
+        _counts(PYTHON, RelPath("python/tests/test_x.py"), source)
+        == dict[CanonicalText, SiteCount]()
+    )
+
+
+def test_an_indented_child_script_whose_rows_end_at_a_carriage_return_is_read_dedented() -> None:
+    """An indented child script whose rows end at a carriage return is dedented and counts."""
+    script = SourceText("\\r    import time\\r    time.sleep(1)\\r")
+    source = SourceText(f'import subprocess\nsubprocess.run(["python", "-c", "{script}"])\n')
+    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {
+        "time: a clock or sleep from module time": 1
+    }
+
+
+@pytest.mark.parametrize(
+    ("source", "blanked"),
+    [
+        (SourceText("x = '''a\nb'''\nimport os\n"), BlankedCode("x =     \n    \nimport os\n")),
+        (SourceText("x = '''a\rb'''\nimport os\n"), BlankedCode("x =     \r    \nimport os\n")),
+        (
+            SourceText("x = '''a\r\nb'''\r\nimport os\r\n"),
+            BlankedCode("x =     \r\n    \r\nimport os\r\n"),
+        ),
+        (SourceText("x = 'Xy'\nimport os\n"), BlankedCode("x =     \nimport os\n")),
+    ],
+    ids=["lf", "cr", "crlf", "letters"],
+)
+def test_a_blanked_string_keeps_the_row_ends_inside_it(
+    source: SourceText, blanked: BlankedCode
+) -> None:
+    """Blanking a string spanning rows keeps each line feed, carriage return or CRLF ending one."""
+    assert blank_python(source) == blanked
+
+
+@pytest.mark.parametrize("end", [SourceText("\r"), SourceText("\r\n")], ids=["cr", "crlf"])
+def test_an_alias_read_on_a_row_a_carriage_return_opens_is_spelled_out(end: SourceText) -> None:
+    """The parser ends a row at a carriage return or CRLF, and the alias read on it is spelled."""
+    source = SourceText(f"import time as t{end}t.sleep(1){end}")
+    assert spell_python_aliases(source, blank_python(source)) == BlankedCode(
+        f"import time as t{end}time.sleep(1){end}"
+    )
+
+
 def test_a_child_script_in_a_python_string_is_read_as_source() -> None:
     """A script a test hands a child interpreter counts; prose and a docstring do not.
 
-    An f-string is read with what it interpolates standing as a name, and a
-    line passed alone is read dedented.  The gate's own test is exempt, its
-    strings being the fixtures it feeds the gate.
+    An f-string or a t-string is read with what it interpolates standing as a
+    name, and a line passed alone is read dedented.  The gate's own test is
+    exempt, its strings being the fixtures it feeds the gate.
     """
     source = SourceText(
         textwrap.dedent(
@@ -282,13 +374,14 @@ def test_a_child_script_in_a_python_string_is_read_as_source() -> None:
                 fd = open({path!r})
                 time.sleep(60)
             """
+            script = render(t"import time\\ntime.sleep(1)\\n{x}")
             lines = ["import sys", "    time.sleep(0.01)"]
             note = "wait for time.sleep(1) then go"
             '''
         )
     )
     sleep = CanonicalText("time: a clock or sleep from module time")
-    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {sleep: 2}
+    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {sleep: 3}
     assert not rows_of(RelPath("python/tests/test_check_test_determinism.py"), source)
 
 

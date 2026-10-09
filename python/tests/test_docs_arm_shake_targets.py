@@ -50,7 +50,7 @@ def test_documents_naming_defined_targets_are_clean(tmp_path: Path) -> None:
     repo = _repo(
         tmp_path, {SHAKEFILE: TWO_TARGETS, GUIDE: GUIDE_NAMING_BUILD, README: README_NAMING_CLEAN}
     )
-    assert not _scan(repo)
+    assert _scan(repo) == list[Prose]()
 
 
 def test_a_target_the_shakefile_lacks_is_a_finding(tmp_path: Path) -> None:
@@ -114,7 +114,7 @@ def test_a_hyphenated_target_the_shakefile_defines_is_clean(tmp_path: Path) -> N
     """A phony target whose name carries a hyphen is defined, so a document may name it."""
     shakefile = Prose(f'{TWO_TARGETS}  phony "check-properties" $ need ["proofs"]\n')
     guide = Prose(f"{GUIDE_NAMING_BUILD}\n```bash\ncabal run shake -- check-properties\n```\n")
-    assert not _scan(_repo(tmp_path, {SHAKEFILE: shakefile, GUIDE: guide}))
+    assert _scan(_repo(tmp_path, {SHAKEFILE: shakefile, GUIDE: guide})) == list[Prose]()
 
 
 def test_a_building_guide_showing_no_shake_command_is_a_finding(tmp_path: Path) -> None:
@@ -135,3 +135,58 @@ def test_an_untracked_shakefile_is_a_finding(tmp_path: Path) -> None:
     """Without a tracked Shakefile, no target a document names can be checked."""
     repo = _repo(tmp_path, {GUIDE: GUIDE_NAMING_BUILD})
     assert _scan(repo) == [Prose("Shakefile.hs: not a tracked file")]
+
+
+def test_a_target_with_a_digit_the_shakefile_defines_is_clean(tmp_path: Path) -> None:
+    """A phony target whose name carries a digit is defined, so a document may name it."""
+    shakefile = Prose(f'{TWO_TARGETS}  phony "check-utf8" $ need ["proofs"]\n')
+    guide = Prose(f"{GUIDE_NAMING_BUILD}\n```bash\ncabal run shake -- check-utf8\n```\n")
+    assert _scan(_repo(tmp_path, {SHAKEFILE: shakefile, GUIDE: guide})) == list[Prose]()
+
+
+def test_the_undefined_targets_of_one_document_are_reported_by_name(tmp_path: Path) -> None:
+    """A document's undefined targets are reported by name, whatever order it shows them in."""
+    commands = "".join(
+        f"cabal run shake -- {target}\n"
+        for target in ("zeta", "deploy", "alpha", "omega", "mu", "beta")
+    )
+    readme = Prose(f"# Aletheia\n\n```bash\n{commands}```\n")
+    repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, GUIDE: GUIDE_NAMING_BUILD, README: readme})
+    assert _scan(repo) == [
+        Prose(f"README.md: names a shake target Shakefile.hs does not define: {target}")
+        for target in ("alpha", "beta", "deploy", "mu", "omega", "zeta")
+    ]
+
+
+def test_findings_follow_the_order_of_the_documents(tmp_path: Path) -> None:
+    """The documents are scanned in the order they are handed in."""
+    root = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS})
+    documents = {
+        README: Prose("Run `cabal run shake -- deploy`.\n"),
+        GUIDE: Prose(f"{GUIDE_NAMING_BUILD}\n```bash\ncabal run shake -- release\n```\n"),
+        RelPath("AGENTS.md"): Prose("Run `cabal run shake -- publish`.\n"),
+        RelPath("CHANGELOG.md"): Prose("Run `cabal run shake -- lint`.\n"),
+    }
+    assert findings(root, [SHAKEFILE, *documents], documents) == [
+        Prose("README.md: names a shake target Shakefile.hs does not define: deploy"),
+        Prose(
+            "docs/development/BUILDING.md: names a shake target Shakefile.hs does not define: "
+            + "release"
+        ),
+        Prose("AGENTS.md: names a shake target Shakefile.hs does not define: publish"),
+        Prose("CHANGELOG.md: names a shake target Shakefile.hs does not define: lint"),
+    ]
+
+
+def test_a_guide_showing_no_command_is_reported_after_every_document(tmp_path: Path) -> None:
+    """The guide's missing command is reported last, after a document that follows it."""
+    root = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS})
+    later = RelPath("docs/z.md")
+    documents = {
+        GUIDE: Prose("# Building\n\nRun the build.\n"),
+        later: Prose("Run `cabal run shake -- deploy`.\n"),
+    }
+    assert findings(root, [SHAKEFILE, *documents], documents) == [
+        Prose("docs/z.md: names a shake target Shakefile.hs does not define: deploy"),
+        Prose("docs/development/BUILDING.md: shows no cabal run shake command"),
+    ]

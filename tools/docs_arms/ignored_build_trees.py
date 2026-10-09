@@ -92,7 +92,7 @@ def _documented_trees(root: Path, tracked: Sequence[RelPath]) -> tuple[list[RelP
 def _documented_binaries(documents: Mapping[RelPath, Prose]) -> dict[RelPath, RelPath]:
     """Return each Go binary a document builds from ``go/``, with the first document printing it."""
     binaries: dict[RelPath, RelPath] = {}
-    for rel, text in sorted(documents.items()):
+    for rel, text in documents.items():
         for name in _GO_BUILD.findall(text):
             binaries.setdefault(RelPath(f"go/{name}"), rel)
     return binaries

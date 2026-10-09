@@ -667,8 +667,8 @@ BINARY_SUFFIXES: frozenset[str] = frozenset(
 
 MARKDOWN_SUFFIXES: frozenset[str] = frozenset({".md", ".markdown"})
 
-_INLINE_CODE = re.compile(r"`[^`]*`")
-_FENCE = re.compile(r"^\s*(```|~~~)")
+INLINE_CODE = re.compile(r"`[^`]*`")
+FENCE = re.compile(r"\s*(```|~~~)")
 
 
 def prose_lines(rel: str, text: str) -> list[tuple[int, str]]:
@@ -682,12 +682,12 @@ def prose_lines(rel: str, text: str) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     in_fence = False
     for lineno, line in enumerate(text.splitlines(), start=1):
-        if is_markdown and _FENCE.match(line):
+        if is_markdown and FENCE.match(line):
             in_fence = not in_fence
             continue
         if in_fence:
             continue
-        out.append((lineno, _INLINE_CODE.sub("", line) if is_markdown else line))
+        out.append((lineno, INLINE_CODE.sub("", line) if is_markdown else line))
     return out
 
 

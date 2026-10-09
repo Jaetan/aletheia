@@ -4,11 +4,12 @@
 
 AGENTS/go.md cites its fuzz targets as backticked ``Fuzz...`` names; the binding
 defines them as ``func Fuzz...`` in go/aletheia/fuzz_test.go. Each name on one side
-and not the other is a finding against the file that is wrong about it. The standard
-says fuzzing is a command someone types, so a tracked workflow or tool that passes a
-fuzz duration or selects a fuzz target contradicts it and is named. A standard that
-names no target, or a tree missing either file, has matched nothing, which is a
-finding rather than a pass.
+and not the other is a finding against the file that is wrong about it, in name order.
+The standard says fuzzing is a command someone types, so a tracked workflow or tool
+that passes a fuzz duration or selects a fuzz target contradicts it and is named; a
+byte that is not UTF-8 does not stop a file's read. A standard that names no
+target, a target file that defines none, or a tree that does not track either file, has
+matched nothing, which is a finding rather than a pass.
 """
 
 from __future__ import annotations
