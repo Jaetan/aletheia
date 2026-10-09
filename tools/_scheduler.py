@@ -38,11 +38,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from tools._common import run_guarded
+from tools._common import WorkerCount, run_guarded
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from pathlib import Path
+
+    from tools._common import ExecutorFactory
 
 _POSIX_SHELL = "/bin/sh"
 
@@ -141,13 +143,16 @@ def run_lanes(
     *,
     max_workers: int,
     heavy_limit: int,
-    serial: bool = False,
     progress: Callable[[StepEvent], None] | None = None,
+    executor: ExecutorFactory | None = ThreadPoolExecutor,
 ) -> list[StepResult]:
     """Run ``lanes`` concurrently (bounded by ``max_workers``) and collect results.
 
-    ``serial=True`` runs every lane in order on the calling thread — the escape
-    hatch for debugging or a resource-starved host.  ``heavy_limit`` caps how
+    ``executor`` builds what the lanes run on concurrently: a thread pool by
+    default, and in a test an executor that runs each lane on the test's own
+    thread, in the order the test picks.  ``None`` runs every lane in order on
+    the calling thread — the escape hatch for debugging or a resource-starved
+    host.  ``heavy_limit`` caps how
     many ``heavy`` steps run at once (the OOM guard).  Results are returned in
     lane-then-step order, deterministic regardless of completion timing, so the
     caller can tee them without interleaving.  Any exception inside a lane
@@ -159,7 +164,7 @@ def run_lanes(
     deterministic result stream.  A ``None`` progress is zero-overhead.
     """
     heavy_sem = threading.Semaphore(max(1, heavy_limit))
-    if serial:
+    if executor is None:
         out: list[StepResult] = []
         for lane in lanes:
             out.extend(_run_lane(lane, heavy_sem, progress, None))
@@ -171,11 +176,10 @@ def run_lanes(
     # thread reads it, stops the lanes still running the same way.
     stop_read, stop_write = os.pipe()
     try:
-        with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
+        with executor(WorkerCount(max(1, max_workers))) as pool:
             try:
                 futures = [
-                    executor.submit(_run_lane, lane, heavy_sem, progress, stop_read)
-                    for lane in lanes
+                    pool.submit(_run_lane, lane, heavy_sem, progress, stop_read) for lane in lanes
                 ]
                 per_lane = [future.result() for future in futures]
             finally:

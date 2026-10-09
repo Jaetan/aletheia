@@ -18,6 +18,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 
 import pytest
+from _executors import DrivenExecutor
 from _git_repo import commit, git
 
 from tools._ci_steps import (
@@ -34,7 +35,13 @@ from tools._ci_steps import (
     register_all_steps,
     should_run_staleness,
 )
-from tools._common import CPP_LINT_TREE, find_executable, git_ls_files, run_capture
+from tools._common import (
+    CPP_LINT_TREE,
+    WorkerCount,
+    find_executable,
+    git_ls_files,
+    run_capture,
+)
 from tools.check_gate_claim import (
     SOURCES_ENV,
     SOURCES_LINE,
@@ -465,7 +472,7 @@ def test_parallel_mode_passes(tmp_path: Path) -> None:
     runner = _runner(tmp_path, parallel=True)
     runner.step("a", "exit 0", lane="x")
     runner.step("b", "exit 0", lane="y")
-    assert runner.run() == 0
+    assert runner.run(executor=DrivenExecutor) == 0
 
 
 def test_parallel_mode_surfaces_failure(tmp_path: Path) -> None:
@@ -473,7 +480,22 @@ def test_parallel_mode_surfaces_failure(tmp_path: Path) -> None:
     runner = _runner(tmp_path, parallel=True)
     runner.step("a", "exit 0", lane="x")
     runner.step("boom", "exit 5", lane="y")
-    assert runner.run() == 1
+    assert runner.run(executor=DrivenExecutor) == 1
+
+
+def test_parallel_mode_runs_its_lanes_on_the_executor_handed_in(tmp_path: Path) -> None:
+    """Parallel lanes run on what the caller's executor factory builds, one executor a sweep."""
+    built: list[DrivenExecutor] = []
+
+    def build(workers: WorkerCount) -> DrivenExecutor:
+        built.append(DrivenExecutor(workers))
+        return built[-1]
+
+    runner = _runner(tmp_path, parallel=True)
+    runner.step("a", "exit 0", lane="x")
+    runner.step("b", "exit 0", lane="y")
+    assert runner.run(executor=build) == 0
+    assert len(built) == 1
 
 
 def test_live_progress_streams_to_stderr(

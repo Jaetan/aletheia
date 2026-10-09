@@ -154,6 +154,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType, TextIO
@@ -180,6 +181,8 @@ from tools.sweep_evidence import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from tools._common import ExecutorFactory
 
 # A lane's name, as a step registers into it (``Step.lane``), and the text
 # ``--lanes`` takes: lane names separated by commas.
@@ -256,7 +259,7 @@ class OptInOptions:
     # merge gate).  It adds no step and does not change total_steps.
     iwyu_all: bool = False
     # Lane-parallel gate execution + the heavy-step concurrency cap.  Default
-    # serial (run_lanes serial=True): exit-code-identical to today.  --parallel
+    # serial (run_lanes executor=None): exit-code-identical to today.  --parallel
     # opts into the lane scheduler; heavy_limit bounds concurrent big-memory
     # steps (the OOM guard) and is only consulted in parallel mode.
     parallel: bool = False
@@ -779,8 +782,11 @@ class Runner:
         )
         return None
 
-    def run(self) -> int:
+    def run(self, executor: ExecutorFactory = ThreadPoolExecutor) -> int:
         """Execute build first, then the lanes (serial or parallel); return exit code.
+
+        ``executor`` builds what the parallel lanes run on: a thread pool, and in
+        a test an executor that runs each lane on the test's own thread.
 
         For the duration of a sweep of every gate the digest of the observed
         build sources is exported to every step, which is how the gate-claim
@@ -794,14 +800,14 @@ class Runner:
         else:
             os.environ[SOURCES_ENV] = self.ctx.sources
         try:
-            return self._run_steps()
+            return self._run_steps(executor)
         finally:
             if previous is None:
                 _ = os.environ.pop(SOURCES_ENV, None)
             else:
                 os.environ[SOURCES_ENV] = previous
 
-    def _run_steps(self) -> int:
+    def _run_steps(self, executor: ExecutorFactory) -> int:
         """Run the registered steps and finalize; the body of :meth:`run`."""
         total = len(self._registry)
         self._header(total)
@@ -818,8 +824,8 @@ class Runner:
                 [[build]],
                 max_workers=1,
                 heavy_limit=1,
-                serial=True,
                 progress=self._progress,
+                executor=None,
             )
             self._emit(built)
             results.append(built)
@@ -830,8 +836,8 @@ class Runner:
             self._group_lanes(rest),
             max_workers=cpu_budget(),
             heavy_limit=self.opts.heavy_limit,
-            serial=not self.opts.parallel,
             progress=self._progress,
+            executor=executor if self.opts.parallel else None,
         )
         for result in lane_results:
             self._emit(result)

@@ -13,10 +13,31 @@ package aletheia
 
 import (
 	"encoding/json"
+	"math/rand"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"testing/quick"
 )
+
+// propertyRand returns a source seeded with the seed every binding's property
+// tests share, python/tests/fixtures/property_seed, so each property takes the
+// same sample on every run and in every language. testing/quick seeds from the
+// clock when a check is handed none.
+func propertyRand(t *testing.T) *rand.Rand {
+	t.Helper()
+	text, err := os.ReadFile(filepath.Join(repoRoot(t), "python", "tests", "fixtures", "property_seed"))
+	if err != nil {
+		t.Fatalf("read the property seed: %v", err)
+	}
+	seed, err := strconv.ParseInt(strings.TrimSpace(string(text)), 10, 64)
+	if err != nil {
+		t.Fatalf("the property seed %q is not an integer: %v", text, err)
+	}
+	return rand.New(rand.NewSource(seed))
+}
 
 // A rational encoded and read back is the same value, for any numerator and
 // any denominator above zero. The trip goes through the decoder the library
@@ -46,7 +67,7 @@ func TestProperty_RationalRoundTrip(t *testing.T) {
 		// are compared by cross-multiplication rather than by their fields.
 		return original.Numerator*parsed.Denominator == parsed.Numerator*original.Denominator
 	}
-	if err := quick.Check(property, &quick.Config{MaxCount: 200}); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 200, Rand: propertyRand(t)}); err != nil {
 		t.Errorf("RationalRoundTrip property failed: %v", err)
 	}
 }
@@ -63,7 +84,7 @@ func TestProperty_ParseResponseTotal(t *testing.T) {
 		_, _ = parseResponse(string(ascii))
 		return true // reaching here is the claim: the call returned
 	}
-	if err := quick.Check(property, &quick.Config{MaxCount: 200}); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 200, Rand: propertyRand(t)}); err != nil {
 		t.Errorf("ParseResponseTotal property failed: %v", err)
 	}
 }
@@ -89,7 +110,7 @@ func TestProperty_CommandRoundTrip(t *testing.T) {
 		}
 		return got == command
 	}
-	if err := quick.Check(property, &quick.Config{MaxCount: 200}); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 200, Rand: propertyRand(t)}); err != nil {
 		t.Errorf("CommandRoundTrip property failed: %v", err)
 	}
 }
@@ -116,7 +137,7 @@ func TestProperty_RationalOrderIsPreserved(t *testing.T) {
 		}
 		return ra.Numerator > rb.Numerator
 	}
-	if err := quick.Check(property, &quick.Config{MaxCount: 200}); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 200, Rand: propertyRand(t)}); err != nil {
 		t.Errorf("the order of two numbers was not preserved: %v", err)
 	}
 }
@@ -223,7 +244,7 @@ func TestProperty_DefinitionRoundTripsThroughTheKernel(t *testing.T) {
 			back.Factor.Numerator*factor.Denominator == factor.Numerator*back.Factor.Denominator &&
 			back.Offset.Numerator*offset.Denominator == offset.Numerator*back.Offset.Denominator
 	}
-	if err := quick.Check(property, &quick.Config{MaxCount: 25}); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 25, Rand: propertyRand(t)}); err != nil {
 		t.Errorf("a definition did not come back as it was sent: %v", err)
 	}
 }

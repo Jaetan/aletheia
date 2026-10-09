@@ -12,6 +12,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **The Python suite is held to determinism while it runs, and every property
+  test draws a fixed sample.** `tools/_determinism_guard.py`, registered by
+  the suite's `conftest.py`, gives every test one clock that stands still
+  until the test's `clock` fixture advances it (`time`'s clocks and calendar
+  defaults and `datetime`'s current instant, library time stamps included),
+  and fails a test that starts a thread, sleeps, schedules a loop callback for
+  later or waits with a timeout, wherever the call is made: the static gate
+  reads what a test spells, the guard what it runs. It found what the gate
+  could not see: `tools/_scheduler.py`'s lanes and `tools/mutation_rust.py`'s
+  shards ran on thread pools under 20 tests, a test asserted a step's duration
+  read from the clock, and hypothesis's default deadline decided the property
+  tests by the machine's speed (6 of 14 failed under a slowed clock). The
+  tools that run work concurrently (`run_lanes`, `Runner.run`, `run_rust`,
+  `query_units`) take the executor they run on, and a test hands them the one
+  in `python/tests/_executors.py`, which runs each call on the test's own
+  thread in an order the test picks; `run_lanes`'s `serial=True` is
+  `executor=None`. Property tests draw one sample in every binding, seeded
+  from `python/tests/fixtures/property_seed`: Go's `testing/quick` checks take
+  a `Rand` from it and each hypothesis test a `@seed`, and neither hypothesis
+  profile keeps an example database or a deadline.
+  `tools/check_test_determinism.py` refuses a property test left unseeded
+  (`random:` rows), its syntax-tree arms now in
+  `tools/_determinism_syntax.py`. The guard is installed when the first pytest
+  session starts and removed when the last ends, so mutmut, which runs pytest
+  inside its own process, keeps the real clock and threads.
+
 - **The documentation gate is a set of arms, one claim each, and holds what 17
   probes held: `tools/docs_arms/`.** `tools/check_docs.py` reads every tracked
   Markdown file once and runs each arm over the same texts. Its own checks are

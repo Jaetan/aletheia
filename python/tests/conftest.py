@@ -20,10 +20,21 @@ if TYPE_CHECKING:
     from aletheia.types import DBCDefinition
 
 # Make the repo root importable so tests can reach the ``tools`` package (the dev
-# tooling lives at ``<repo>/tools``, a sibling of ``python/``, not under it).
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+# tooling lives at ``<repo>/tools``, a sibling of ``python/``, not under it).  The
+# root is the nearest directory above holding it, since the mutation lane runs
+# this suite from mutmut's copy under ``python/mutants/``.
+_REPO_ROOT = next(
+    parent
+    for parent in Path(__file__).resolve().parents
+    if (parent / "tools" / "_common.py").is_file()
+)
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+# Every test runs under the determinism guard: a clock that stands still unless
+# the test advances it, and no thread, sleep or timed wait.  ``pytester`` runs
+# the guard's own tests as sessions inside the suite's process.
+pytest_plugins = ["tools._determinism_guard", "pytester"]
 
 
 @dataclass(frozen=True)
