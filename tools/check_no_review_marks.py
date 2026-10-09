@@ -8,8 +8,9 @@ the live tree should read as a product, not a review log. This gate fails
 (exit 1) when an internal review-process mark appears in any tracked file
 outside that archive.
 
-It complements ``tools/check_docs.py`` (which owns link/anchor resolution and is
-Markdown-only): this gate is language-agnostic and covers the WHOLE tree —
+It complements ``tools/check_docs.py`` (which owns link/anchor resolution and
+labels in Markdown, and the claims the documents make about the tree): this
+gate is language-agnostic and covers the WHOLE tree —
 Agda / Go / C++ / Python / Rust / Haskell source comments, build files, and the
 history/guidance docs.
 
@@ -32,8 +33,8 @@ they are handled by the one-time human-guided sweep, not a standing regex.
 ## What it does not touch
 
 * ``.archive/reviews/`` and ``tools/review_db.py`` — the work record (exempt).
-* This gate + its unit test + ``check_docs`` and ITS unit test — they carry
-  mark-shaped strings as detector patterns / fixtures (exempt).
+* This gate + its unit test + the unit test of the documentation gate's label
+  arm — they carry mark-shaped strings as detector patterns / fixtures (exempt).
 * Markdown fenced blocks and inline-code spans — a mark shown as an example is
   documentation, not a live mark.
 * ``[[wikilink]]`` targets and ``memory/<name>.md`` pointers — these resolve to
@@ -70,9 +71,8 @@ REPO = Path(__file__).resolve().parent.parent
 # fixtures) — scanned-around, never flagged.
 _EXEMPT_FILES = {
     "tools/review_db.py",
-    "tools/check_docs.py",
     "tools/check_no_review_marks.py",
-    "python/tests/test_check_docs.py",
+    "python/tests/test_docs_arm_labels.py",
     "python/tests/test_check_no_review_marks.py",
 }
 _EXEMPT_PREFIXES = (".archive/reviews/",)

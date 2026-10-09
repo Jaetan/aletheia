@@ -4,7 +4,7 @@
 
 The citation-shaped strings in this file are deliberate FIXTURES for the
 detector. The gate exempts this file by name (``_EXEMPT_FILES``), so they are
-never flagged in the live tree — the same arrangement ``test_check_docs.py`` and
+never flagged in the live tree — the same arrangement ``test_docs_arm_labels.py`` and
 ``test_check_no_review_marks.py`` use.
 
 Following the gate-audit discipline (a gate that cannot fail has a bug): every
@@ -125,10 +125,9 @@ def test_user_facing_docs_are_gated() -> None:
     "rel",
     [
         # detectors + their fixtures
-        "tools/check_docs.py",
         "tools/check_no_review_marks.py",
         "tools/check_no_memory_citations.py",
-        "python/tests/test_check_docs.py",
+        "python/tests/test_docs_arm_labels.py",
         "python/tests/test_check_no_review_marks.py",
         "python/tests/test_check_no_memory_citations.py",
         # AI-process-infra docs whose purpose includes citing the store

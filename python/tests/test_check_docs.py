@@ -1,109 +1,132 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Tests for ``tools.check_docs`` — the documentation-accuracy gate.
+"""Tests for ``tools.check_docs``, the documentation gate, and the readers its arms share.
 
-Covers the parsers/predicates the gate depends on:
-
-* ``slug`` — GitHub-flavored anchor slugs WITHOUT whitespace-run collapse, so
-  ``## Change Detection & Stability`` → ``change-detection--stability`` (the
-  double-hyphen case a naive slugger gets wrong).
-* ``prose_lines`` / ``links`` — prose extraction that skips BOTH fenced code
-  blocks and inline code spans, so neither a ``[](const T& e)`` lambda in a
-  fence nor prose describing link syntax as ``[text](target)`` in backticks is
-  mistaken for a real link OR a live internal label. Plus the baseline: a
-  genuine ``[x](y)`` link IS extracted (existence/anchor resolution is the
-  caller's job).
-* ``escapes_repo`` — a relative link resolving outside the repo is a defect
-  (not a valid in-checkout link) even if the path exists on the CI runner.
-* ``target_in_checkout`` — a link resolves only if its target is git-TRACKED
-  (present in a fresh checkout); a gitignored file that merely sits in the
-  working tree does not count (the local-only false green that fails on CI).
+The gate reads every tracked Markdown file once and runs every arm over the
+same texts: these tests hold the reading, the order the arms' findings come
+in, the exit status, the registry of arms, and the heading and directory
+readers in ``tools/docs_arms/__init__.py``. Each arm's own claim is tested in
+``python/tests/test_docs_arm_<arm>.py``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+import pkgutil
+from typing import TYPE_CHECKING
 
-from tools._common import RelPath
-from tools.check_docs import (
-    REPO,
-    escapes_repo,
-    header_slugs,
-    links,
-    prose_lines,
-    slug,
-    target_in_checkout,
-)
+from _git_repo import committed
+
+from tools import check_docs, docs_arms
+from tools._common import RelPath, git_ls_files
+from tools.check_docs import ARMS, check_tree, main, read_documents
+from tools.docs_arms import header_slugs, headings, slug, tracked_dirs
+
+from aletheia.common_types import ExitStatus, Prose
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from pathlib import Path
+
+    import pytest
+
+    from tools.docs_arms import Arm
 
 
-def test_slug_no_whitespace_collapse() -> None:
-    """Each whitespace char becomes one hyphen — runs are NOT collapsed."""
-    assert slug("Change Detection & Stability") == "change-detection--stability"
-    assert slug("Path 1 (Excel + CLI)") == "path-1-excel--cli"
+def test_slug_turns_each_whitespace_character_into_one_hyphen() -> None:
+    """GitHub's slug keeps a run of spaces as a run of hyphens, punctuation dropped."""
+    assert slug(Prose("Change Detection & Stability")) == "change-detection--stability"
+    assert slug(Prose("Path 1 (Excel + CLI)")) == "path-1-excel--cli"
+    assert slug(Prose("See [the guide](x.md)")) == "see-the-guide"
 
 
-def test_links_skip_fences_and_inline_code(tmp_path: Path) -> None:
-    """A fenced lambda and an inline `[t](u)` code span are not extracted as links."""
-    good = tmp_path / "good.md"
-    content = (
-        "# Title\n## Change Detection & Stability\n"
-        + "[ok](#change-detection--stability)\n"
-        + "```\n[not a link](const T& e)\n```\n"
-        + "Prose describing link syntax as `[text](target)` is not a link.\n"
+def test_headings_skip_fenced_code_and_keep_code_spans() -> None:
+    """A heading-shaped line in a fence is code; a code span stays in the heading's text."""
+    text = Prose("# One\n```\n# Not a heading\n```\n## Two `code` ##\n")
+    assert headings(text) == [Prose("One"), Prose("Two `code`")]
+
+
+def test_a_repeated_heading_takes_githubs_numbered_suffixes() -> None:
+    """The first copy keeps the slug; each later one adds -1, -2 in order."""
+    text = Prose("# Same\n## Same\n### Same\n")
+    assert header_slugs(text) == {Prose("same"), Prose("same-1"), Prose("same-2")}
+
+
+def test_an_html_name_or_id_is_an_anchor_too() -> None:
+    """Explicit name= and id= attributes are anchors beside the headings' slugs."""
+    text = Prose('# Top\n<a name="kept"></a> <span id="also-kept"></span>\n')
+    assert header_slugs(text) == {Prose("top"), Prose("kept"), Prose("also-kept")}
+
+
+def test_tracked_dirs_are_every_directory_on_the_way_to_a_file() -> None:
+    """Each proper prefix of a tracked path, and neither the file nor the empty path."""
+    assert tracked_dirs([RelPath("a/b/c.md"), RelPath("top.md")]) == {RelPath("a"), RelPath("a/b")}
+
+
+def test_read_documents_reads_every_tracked_markdown_file_and_nothing_else(tmp_path: Path) -> None:
+    """Both Markdown suffixes are read; a source file is not; a byte not UTF-8 reads as U+FFFD."""
+    repo = committed(
+        tmp_path / "repo",
+        {
+            RelPath("a.md"): Prose("# A\n"),
+            RelPath("docs/b.markdown"): Prose("# B\n"),
+            RelPath("c.py"): Prose("print()\n"),
+        },
     )
-    good.write_text(content, encoding="utf-8")
-    assert "change-detection--stability" in header_slugs(good)
-    # The only extracted link is the real anchor — the fenced lambda and the
-    # inline `[text](target)` code span are both masked.
-    assert links(good) == ["#change-detection--stability"]
+    _ = (repo / "a.md").write_bytes(b"# A \xff\n")
+    assert read_documents(repo, git_ls_files(repo)) == {
+        RelPath("a.md"): Prose("# A �\n"),
+        RelPath("docs/b.markdown"): Prose("# B\n"),
+    }
 
 
-def test_real_links_are_extracted(tmp_path: Path) -> None:
-    """Genuine links are extracted; existence/anchor checks happen caller-side."""
-    bad = tmp_path / "bad.md"
-    bad.write_text("[x](nope.md)\n[y](#missing)\n", encoding="utf-8")
-    assert links(bad) == ["nope.md", "#missing"]
+def _arm(found: Sequence[Prose]) -> Arm:
+    """Return a stand-in arm that reports ``found`` whatever the tree holds."""
+
+    def arm(
+        root: Path, tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]
+    ) -> list[Prose]:
+        del root, tracked, documents
+        return list(found)
+
+    return arm
 
 
-def test_prose_lines_mask_code_examples() -> None:
-    """Internal labels / memory links shown as code examples are stripped from prose.
+def test_check_tree_returns_every_arms_findings_in_registry_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each registered arm runs, and its findings follow the previous arm's."""
+    first, second = [Prose("a.md: first")], [Prose("b.md: second"), Prose("b.md: third")]
+    monkeypatch.setattr(check_docs, "ARMS", (_arm(first), _arm(()), _arm(second)))
+    assert check_tree(tmp_path, [], {}) == [*first, *second]
 
-    ``_label_findings`` runs on ``prose_lines`` output, so a mark shown as a
-    fenced or inline-code EXAMPLE must not reach it — otherwise a doc explaining
-    the convention would trip its own gate (the false positive Copilot flagged).
-    A genuine mark written in prose still survives (and is flagged downstream).
+
+def test_main_exits_1_listing_the_findings_and_0_when_every_arm_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A finding fails the gate and is printed; no finding passes it."""
+    printed: list[Prose] = []
+
+    def record(message: Prose) -> None:
+        printed.append(message)
+
+    repo = committed(tmp_path / "repo", {RelPath("README.md"): Prose("# Readme\n")})
+    monkeypatch.setattr(check_docs, "emit", record)
+    monkeypatch.setattr(check_docs, "REPO", repo)
+    monkeypatch.setattr(check_docs, "ARMS", (_arm([Prose("README.md: planted")]),))
+    assert main([]) == ExitStatus(1)
+    assert Prose("  README.md: planted") in printed
+    monkeypatch.setattr(check_docs, "ARMS", (_arm(()),))
+    assert main([]) == ExitStatus(0)
+
+
+def test_every_arm_module_is_registered() -> None:
+    """The gate runs the ``findings`` of every module under ``tools/docs_arms/``, and nothing else.
+
+    An arm written and left out of ``ARMS`` would hold its claim nowhere while
+    its own tests stay green.
     """
-    doc = (
-        "# Conventions\n"
-        "Review marks like `AGDA-C-6.2` are stripped from living docs.\n"  # inline code
-        "```\n(PR C) example line\n```\n"  # fenced block
-        "The pointer `[x](memory/foo.md)` is illustrative.\n"  # inline memory link
-        "A real (PR C) mark and a real [x](memory/foo.md) survive.\n"  # prose — kept
-    )
-    prose = "\n".join(prose_lines(doc))
-    assert "AGDA-C-6.2" not in prose  # inline-code mark masked
-    assert prose.count("(PR C)") == 1  # fenced example dropped; prose mark kept
-    assert prose.count("memory/foo.md") == 1  # inline-code link masked; prose link kept
-
-
-def test_escapes_repo_flags_out_of_tree_targets() -> None:
-    """A target resolving outside the repo is a defect; an in-repo one is fine."""
-    assert escapes_repo(Path("/etc/passwd"))
-    assert not escapes_repo(REPO / "README.md")
-    assert not escapes_repo(REPO / "docs" / "INDEX.md")
-
-
-def test_target_in_checkout_gates_on_git_tracking() -> None:
-    """A tracked file/dir resolves; an untracked target does not (even if on disk).
-
-    This is the fix for the local-only false green: ``docs/presentation/index.html``
-    is gitignored and present in a working tree, so ``Path.exists()`` said True and
-    the gate passed locally — but a fresh CI checkout lacks it, so the PITCH.md link
-    to it was broken. Resolving against git's tracked set makes local match CI.
-    """
-    tracked = {RelPath("docs/PITCH.md"), RelPath("src/Aletheia/Main.agda")}
-    tracked_dirs = {RelPath("docs"), RelPath("src"), RelPath("src/Aletheia")}
-    assert target_in_checkout("docs/PITCH.md", tracked, tracked_dirs)  # tracked file
-    assert target_in_checkout("src/Aletheia", tracked, tracked_dirs)  # tracked dir
-    assert not target_in_checkout("docs/presentation/index.html", tracked, tracked_dirs)  # ignored
-    assert not target_in_checkout("nope.md", tracked, tracked_dirs)  # nonexistent
+    modules = {f"tools.docs_arms.{info.name}" for info in pkgutil.iter_modules(docs_arms.__path__)}
+    assert modules, "a scan over no arm module holds nothing"
+    assert {arm.__module__ for arm in ARMS} == modules
+    assert {arm.__name__ for arm in ARMS} == {"findings"}
+    assert len(ARMS) == len(modules)

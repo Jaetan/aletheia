@@ -1,270 +1,144 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Documentation-accuracy gate: broken links, broken anchors, transient labels.
+"""The documentation gate: every claim the tracked documents make about the tree, one arm each.
 
-Scans every tracked ``*.md`` and fails (exit 1) on:
+The gate reads every tracked Markdown file once and runs each arm under
+``tools/docs_arms/`` over the same texts; it fails (exit 1) when any arm has a
+finding. ``ARMS`` registers every arm module, and each holds one claim:
 
-1. **Broken / escaping relative links** — ``[text](target)`` whose target is not
-   tracked by git (absent from a fresh checkout — a gitignored file that merely
-   sits in the working tree still counts as broken, since ``git ls-files`` is
-   asked, not ``Path.exists()``), or whose resolved target escapes the
-   repository. Fenced code blocks AND inline code spans are skipped, so a
-   ``[](const T& e)`` lambda in a fence — or ``[text](target)`` shown as inline
-   syntax — is not mistaken for a link (a real false positive the r26 audit hit).
-2. **Broken anchors** — ``#slug`` (same-file or ``file.md#slug``) with no matching
-   header in the target. GitHub slugs are computed WITHOUT collapsing whitespace
-   runs, so ``## Change Detection & Stability`` → ``change-detection--stability``.
-3. **Transient / internal labels** in the user-facing docs — internal review
-   marks (``(PR C)``, ``R19 cluster``, ``AGDA-C-6.2``, ``PY-S-20.1``), transient
-   session phrases (``pending push``), and committed links INTO the private
-   ``~/.claude`` agent memory store (unresolvable in a checkout). Linted in
-   PROSE only — a mark shown as a code example (fenced or ``inline``) is skipped.
+* ``links``: every relative link and anchor resolves in a fresh checkout;
+* ``labels``: no living document carries a transient label or a link into the
+  agent memory store;
+* ``ffi_symbols``: every ``aletheia_<name>`` symbol the building guide names
+  is a foreign export of the shim;
+* ``fuzz_targets``: the Go standard names exactly the fuzz targets the
+  binding defines, and nothing schedules a fuzz run;
+* ``ignored_build_trees``: every build tree the build file and the documents
+  name is ignored by the tracked rules, and no top-level venv but the
+  sanctioned one is;
+* ``index_coverage``: ``docs/INDEX.md`` names every tracked document under
+  ``docs/`` and ``AGENTS/`` and the root ``AGENTS.md``;
+* ``one_line_paragraphs``: every paragraph, list item and blockquote of the
+  building guide is one line;
+* ``phase_word``: the phase table names one current phase, and every
+  document uses the table's word for it;
+* ``readme_extras``: every pip extra a README names is one
+  ``python/pyproject.toml`` defines;
+* ``readme_tree``: the project tree ``README.md`` prints names exactly the
+  top-level directories git tracks;
+* ``retired_document``: the dependency ledger has one home, a section of the
+  building guide;
+* ``section_citations``: a section number cited beside a link names a
+  heading of the link's target;
+* ``shake_targets``: every ``cabal run shake -- <target>`` a document shows
+  is a target the Shakefile defines;
+* ``shared_opening``: the sections ``README.md`` and ``docs/PITCH.md`` both
+  carry are one text;
+* ``stated_measurements``: every measurement the benchmarks guide states is
+  what its sources record;
+* ``tree_paths``: every repository path the building guide names in
+  backticks is tracked.
 
-Run ``python -m tools.check_docs`` from the repo root. Its parsers are unit-tested
-by ``python/tests/test_check_docs.py``.
+Run ``python -m tools.check_docs`` from the repo root. The gate is tested by
+``python/tests/test_check_docs.py``, each arm by
+``python/tests/test_docs_arm_<arm>.py``.
 """
 
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING
 
-from tools._common import RelPath, emit, git_ls_files
+from tools._common import MARKDOWN_SUFFIXES, RelPath, emit, git_ls_files
+from tools.docs_arms import (
+    ffi_symbols,
+    fuzz_targets,
+    ignored_build_trees,
+    index_coverage,
+    labels,
+    links,
+    one_line_paragraphs,
+    phase_word,
+    readme_extras,
+    readme_tree,
+    retired_document,
+    section_citations,
+    shake_targets,
+    shared_opening,
+    stated_measurements,
+    tree_paths,
+)
+
+from aletheia.common_types import ExitStatus, Prose
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from tools.docs_arms import Arm
 
 REPO = Path(__file__).resolve().parent.parent
 
-# Inline [text](target) and reference-style [id]: target.
-_INLINE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-_REFDEF = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)", re.MULTILINE)
-_ATX = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-_HTML_ANCHOR = re.compile(r'(?:name|id)="([^"]+)"')
-_FENCE = re.compile(r"^\s*(```|~~~)")
-# An inline code span: `...`. A link-shaped string inside backticks is code, not
-# a link — e.g. prose describing link syntax as `[text](target)`. Masked before
-# link extraction so it is not mistaken for a real link (the inline analogue of
-# the fenced-block skip).
-_INLINE_CODE = re.compile(r"`[^`]*`")
-
-# Transient / internal labels — checked only in the user-facing doc surface.
-_LABEL_PATTERNS = [
-    (re.compile(r"\(PR [A-Z]\d*\)"), "internal PR label"),
-    (re.compile(r"\bR\d+ cluster\b"), "review-round cluster mark"),
-    (re.compile(r"\b(?:AGDA|GO|CPP|PY|RUST|XBINDING|DOCS)-[A-Z]-\d+\.\d+"), "finding id"),
-    (re.compile(r"\bPY-S-\d+"), "review finding mark"),
-    (re.compile(r"\bpending push\b", re.IGNORECASE), "transient session phrase"),
-    (re.compile(r"\bcommitted locally\b", re.IGNORECASE), "transient session phrase"),
-]
-# A markdown link INTO the agent memory store (outside any checkout).
-_MEMORY_LINK = re.compile(r"\][(](?:[^)]*/\.claude/[^)]*|memory/[^)]*)[)]")
-
-# Frozen/historical-by-purpose surfaces are skipped ENTIRELY (both checks):
-# the archived snapshot and the presentation deck are not maintained.
-_SKIP_PREFIXES = ("docs/archive/", "docs/presentation/")
-
-# Transient-label + memory-link checks apply to every LIVING doc — the whole
-# `docs/` tree (front door, guides, reference, AND the contributor docs under
-# architecture/development/operations, which must describe the CURRENT state,
-# pruned of past-referring review-process marks) plus README + per-binding
-# READMEs. The repo-root logs (CHANGELOG, PROJECT_STATUS) are historical BY
-# PURPOSE, so they are not label-scoped; they are still link-checked.
-_LABEL_SCOPE_PREFIXES = ("docs/",)
-_LABEL_SCOPE_FILES = {"README.md"}
-_LABEL_SCOPE_SUFFIX = "/README.md"
+# Every arm under tools/docs_arms/, each run over the same reads.
+ARMS: tuple[Arm, ...] = (
+    links.findings,
+    labels.findings,
+    ffi_symbols.findings,
+    fuzz_targets.findings,
+    ignored_build_trees.findings,
+    index_coverage.findings,
+    one_line_paragraphs.findings,
+    phase_word.findings,
+    readme_extras.findings,
+    readme_tree.findings,
+    retired_document.findings,
+    section_citations.findings,
+    shake_targets.findings,
+    shared_opening.findings,
+    stated_measurements.findings,
+    tree_paths.findings,
+)
 
 
-class TrackedIndex(NamedTuple):
-    """What a fresh checkout contains: every tracked file, and every directory on the way to one."""
+def read_documents(root: Path, tracked: Sequence[RelPath]) -> dict[RelPath, Prose]:
+    """Return the text of every tracked Markdown file under ``root``, read once for every arm.
 
-    files: set[RelPath]
-    dirs: set[RelPath]
-
-
-def _tracked_md() -> list[Path]:
-    return [REPO / p for p in git_ls_files(REPO, "*.md", "*.markdown")]
-
-
-def _tracked_index() -> TrackedIndex:
-    """Return (tracked files, tracked dirs) as POSIX repo-relative strings.
-
-    A link resolves iff its target is something git TRACKS — the set a fresh
-    checkout contains. Resolving against ``Path.exists()`` instead passes a link
-    to an untracked / gitignored file that merely sits in the working tree (e.g.
-    ``docs/presentation/index.html``) yet is absent from any checkout — a
-    local-only false green that then fails on CI.
+    A byte that is not UTF-8 reads as U+FFFD, so one such document is checked
+    like any other rather than stopping the gate.
     """
-    files = set(git_ls_files(REPO))
-    dirs: set[RelPath] = set()
-    for posix in files:
-        parts = Path(posix).parts
-        for i in range(1, len(parts)):
-            dirs.add(RelPath(Path(*parts[:i]).as_posix()))
-    return TrackedIndex(files, dirs)
+    return {
+        rel: Prose((root / rel).read_text(encoding="utf-8", errors="replace"))
+        for rel in tracked
+        if Path(rel).suffix in MARKDOWN_SUFFIXES
+    }
 
 
-def slug(header: str) -> str:
-    """GitHub-flavored anchor slug (no whitespace-run collapse)."""
-    s = header.strip().lower()
-    s = s.replace("`", "")
-    s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)  # [t](u) -> t
-    s = re.sub(r"[^\w\s-]", "", s)  # drop punctuation, KEEP surrounding spaces
-    return re.sub(r"\s", "-", s)  # each whitespace char -> one hyphen (no collapse)
+def run_arm(arm: Arm, root: Path) -> list[Prose]:
+    """Run one arm over the repository at ``root`` with the inputs the gate gives every arm."""
+    tracked = git_ls_files(root)
+    return arm(root, tracked, read_documents(root, tracked))
 
 
-def header_slugs(path: Path) -> set[str]:
-    """Return the set of GitHub anchor slugs for every header in ``path``.
-
-    ATX headers outside fenced code blocks, deduplicated with GitHub's
-    ``-1``/``-2`` suffixing, plus any explicit ``name=``/``id=`` HTML anchors.
-    """
-    slugs: set[str] = set()
-    counts: dict[str, int] = {}
-    text = path.read_text(encoding="utf-8", errors="replace")
-    in_fence = False
-    for line in text.splitlines():
-        if _FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        m = _ATX.match(line)
-        if m:
-            base = slug(m.group(2))
-            n = counts.get(base, 0)
-            counts[base] = n + 1
-            slugs.add(base if n == 0 else f"{base}-{n}")
-    slugs.update(_HTML_ANCHOR.findall(text))
-    return slugs
+def check_tree(
+    root: Path, tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]
+) -> list[Prose]:
+    """Return every arm's findings over the tree at ``root``, in the order ``ARMS`` lists them."""
+    return [finding for arm in ARMS for finding in arm(root, tracked, documents)]
 
 
-def prose_lines(text: str) -> list[str]:
-    """Return the PROSE lines of ``text`` — fenced code dropped, inline spans masked.
-
-    Both link extraction and transient-label linting target prose only — a link
-    or an internal mark shown as a code EXAMPLE (fenced, or an ``inline`` span)
-    is documentation, not a live link/label. Centralising the fence-skip +
-    inline-code mask here keeps ``links`` and ``_label_findings`` consistent.
-    """
-    out: list[str] = []
-    in_fence = False
-    for line in text.splitlines():
-        if _FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        out.append(_INLINE_CODE.sub("", line))  # a `[t](u)`-shaped span is not a link
-    return out
-
-
-def links(path: Path) -> list[str]:
-    """Links outside fenced code blocks and inline code spans."""
-    out: list[str] = []
-    for line in prose_lines(path.read_text(encoding="utf-8", errors="replace")):
-        out.extend(_INLINE.findall(line))
-        out.extend(_REFDEF.findall(line))
-    return out
-
-
-def _in_label_scope(rel: str) -> bool:
-    return (
-        rel in _LABEL_SCOPE_FILES
-        or rel.startswith(_LABEL_SCOPE_PREFIXES)
-        or rel.endswith(_LABEL_SCOPE_SUFFIX)
-    )
-
-
-def escapes_repo(tgt: Path) -> bool:
-    """Return True if a resolved link target lies outside the repository.
-
-    A relative link resolving outside ``REPO`` (e.g. ``../../../etc/passwd``) is
-    not a valid in-checkout link — GitHub would not render it — so the gate
-    treats it as a defect even when the path happens to exist on the CI runner.
-    ``tgt`` is expected already-resolved, as ``_link_finding`` passes it.
-    """
-    return not tgt.is_relative_to(REPO)
-
-
-def target_in_checkout(rel: str, tracked: set[RelPath], tracked_dirs: set[RelPath]) -> bool:
-    """Return True if a repo-relative target is a tracked file or tracked directory.
-
-    ``rel`` is a POSIX repo-relative path. Membership in git's tracked set — not
-    filesystem existence — is what a fresh checkout contains, so this is the
-    faithful "does this link resolve for someone who cloned the repo?" test.
-    """
-    return rel in tracked or rel in tracked_dirs
-
-
-def _link_finding(
-    raw: str,
-    src: Path,
-    tracked: set[RelPath],
-    tracked_dirs: set[RelPath],
-    header_cache: dict[Path, set[str]],
-) -> str | None:
-    """Return a finding suffix for one extracted link, or None if it resolves."""
-    link = raw.strip().split(" ", 1)[0]  # drop optional "title"
-    if link.startswith(("http://", "https://", "mailto:", "tel:", "#!", "<")):
-        return None
-    target, _, anchor = link.partition("#")
-    tgt = src if target == "" else (src.parent / target).resolve()
-    if escapes_repo(tgt):
-        return f"link escapes the repo -> {link}"
-    rel = tgt.relative_to(REPO).as_posix()
-    if target != "" and not target_in_checkout(rel, tracked, tracked_dirs):
-        return f"broken link -> {link}"
-    if anchor and rel in tracked and tgt.suffix in (".md", ".markdown"):
-        hs = header_cache.get(tgt) or header_slugs(tgt)
-        if anchor.lower() not in {h.lower() for h in hs}:
-            return f"broken anchor -> {link}"
-    return None
-
-
-def _label_findings(text: str) -> list[str]:
-    """Return finding suffixes for each transient label / memory link in ``text``."""
-    out = [
-        f"link into the ~/.claude memory store -> {m.group(0)}" for m in _MEMORY_LINK.finditer(text)
-    ]
-    for pat, why in _LABEL_PATTERNS:
-        out.extend(f"{why} -> {m!r}" for m in {m.group(0) for m in pat.finditer(text)})
-    return out
-
-
-def check_tree(md_files: list[Path]) -> list[str]:
-    """Return a list of human-readable findings (empty = clean)."""
-    header_cache = {p: header_slugs(p) for p in md_files}
-    tracked, tracked_dirs = _tracked_index()
-    findings: list[str] = []
-
-    for src in md_files:
-        rel = str(src.relative_to(REPO))
-        if rel.startswith(_SKIP_PREFIXES):
-            continue
-        findings.extend(
-            f"{rel}: {f}"
-            for raw in links(src)
-            if (f := _link_finding(raw, src, tracked, tracked_dirs, header_cache)) is not None
-        )
-        if _in_label_scope(rel):
-            prose = "\n".join(prose_lines(src.read_text(encoding="utf-8", errors="replace")))
-            findings.extend(f"{rel}: {suffix}" for suffix in _label_findings(prose))
-    return findings
-
-
-def main(argv: list[str] | None = None) -> int:
-    """Scan every tracked Markdown file; return 1 (and list defects) if any, else 0."""
+def main(argv: list[str] | None = None) -> ExitStatus:
+    """Run every arm over the repository; 1 (listing the findings) when any has one, else 0."""
     argparse.ArgumentParser(description=__doc__).parse_args(argv)  # no options; --help only
-
-    findings = check_tree(_tracked_md())
+    tracked = git_ls_files(REPO)
+    findings = check_tree(REPO, tracked, read_documents(REPO, tracked))
     if findings:
         emit(f"check_docs: {len(findings)} documentation defect(s):")
-        for f in findings:
-            emit(f"  {f}")
-        return 1
-    emit("check_docs: all documentation links/anchors resolve; no transient labels.")
-    return 0
+        for finding in findings:
+            emit(f"  {finding}")
+        return ExitStatus(1)
+    emit("check_docs: every arm holds over the tracked documents.")
+    return ExitStatus(0)
 
 
 if __name__ == "__main__":

@@ -22,7 +22,9 @@ import re
 import sys
 from pathlib import Path
 
-from tools.check_docs import header_slugs
+from tools.docs_arms import header_slugs
+
+from aletheia.common_types import Prose
 
 guide = Path("docs/development/DISTRIBUTION.md")
 readme = Path("README.md").read_text(encoding="utf-8")
@@ -54,7 +56,7 @@ if "### Install" not in readme:
 section = readme[readme.index("### Install"):]
 section = section[:section.index("\n### ", 1)]
 linked = set(re.findall(r"\]\(docs/development/DISTRIBUTION\.md#([^)]+)\)", section))
-slugs = header_slugs(guide)
+slugs = header_slugs(Prose(guide.read_text(encoding="utf-8")))
 for route in sorted(published - linked):
     bad.append(f"the release publishes a route the Install section does not link: #{route}")
 for route in sorted(linked - published):
