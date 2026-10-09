@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for the shake-target arm of the documentation gate (``tools/docs_arms/shake_targets.py``).
 
-Each test builds a throwaway repository holding a Shakefile and a few documents,
+Each test plants a tree holding a Shakefile and a few documents,
 then hands the arm what the gate hands it: the root, the tracked paths and the
 tracked Markdown files.
 """
@@ -12,10 +12,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import committed
+from _planted_tree import plant, run_planted
 
 from tools._common import GateName, RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.shake_targets import findings, named_targets
 
 from aletheia.common_types import Prose
@@ -37,13 +36,13 @@ README_NAMING_CLEAN = Prose("# Aletheia\n\nStart over with `cabal run shake -- c
 
 
 def _repo(tmp_path: Path, files: Mapping[RelPath, Prose]) -> Path:
-    """Return a committed repository under ``tmp_path`` holding exactly ``files``."""
-    return committed(tmp_path / "repo", files)
+    """Return a planted tree under ``tmp_path`` holding exactly ``files``."""
+    return plant(tmp_path / "repo", files)
 
 
 def _scan(repo: Path) -> list[Prose]:
     """Run the arm over ``repo`` the way the gate does."""
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 def test_documents_naming_defined_targets_are_clean(tmp_path: Path) -> None:

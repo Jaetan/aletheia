@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for the documentation-gate arm ``tools.docs_arms.tree_paths``.
 
-Each test builds a throwaway repository whose building guide names paths in
-backticks, and asserts the arm's findings over what that repository tracks: an
+Each test plants a tree whose building guide names paths in backticks, and
+asserts the arm's findings over what that tree tracks: an
 untracked path is a finding, a tracked one or a build output is not, and a
 guide that is missing or names no path is a finding of its own.
 """
@@ -12,10 +12,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from _git_repo import commit, git
+from _planted_tree import run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.tree_paths import GUIDE, findings, tree_paths
 
 from aletheia.common_types import Prose
@@ -35,21 +34,19 @@ _TRACKED = (
 
 
 def _repo(tmp_path: Path, guide: Prose | None, *, extra: Sequence[RelPath] = ()) -> Path:
-    """Return a committed repository tracking ``_TRACKED``, ``extra`` and, when given, the guide."""
+    """Return a planted tree tracking ``_TRACKED``, ``extra`` and, when given, the guide."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    git(repo, "init", "-q")
     for rel in (*_TRACKED, *extra, *([GUIDE] if guide is not None else [])):
         path = repo / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         text = guide if rel == GUIDE and guide is not None else "x\n"
         _ = path.write_text(text, encoding="utf-8")
-    _ = commit(repo, "base")
     return repo.resolve()
 
 
 def _findings(repo: Path) -> list[Prose]:
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 def test_clean_guide_has_no_finding(tmp_path: Path) -> None:
@@ -89,7 +86,10 @@ def test_an_untracked_file_in_the_worktree_is_a_finding(tmp_path: Path) -> None:
     """A path that sits in the work tree but is not tracked is absent from a checkout."""
     repo = _repo(tmp_path, Prose("Read `tools/local.py`.\n"))
     _ = (repo / "tools" / "local.py").write_text("x\n", encoding="utf-8")
-    assert _findings(repo) == [Prose(f"{GUIDE}: not tracked: tools/local.py")]
+    untracked = {RelPath("tools/local.py")}
+    assert run_planted(findings, repo, untracked=untracked) == [
+        Prose(f"{GUIDE}: not tracked: tools/local.py")
+    ]
 
 
 def test_guide_naming_no_path_is_a_finding(tmp_path: Path) -> None:
@@ -112,7 +112,6 @@ def test_other_documents_are_out_of_scope(tmp_path: Path) -> None:
     """The claim is the guide's; a path another document names is not checked."""
     repo = _repo(tmp_path, Prose("See `tools/run_ci.py`.\n"), extra=(RelPath("docs/OTHER.md"),))
     _ = (repo / "docs" / "OTHER.md").write_text("`tools/gone.py`\n", encoding="utf-8")
-    _ = commit(repo, "other")
     assert _findings(repo) == []
 
 

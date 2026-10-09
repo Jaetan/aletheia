@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """The stated-measurements arm finds a BENCHMARKS.md number its sources do not hold.
 
-A throwaway repository carries a reduced document, schema, baseline set and
+A planted tree carries a reduced document, schema, baseline set and
 residency test that agree; each test plants one disagreement and asserts the
 finding, the clean fixture and each agreeing respelling of it return none, and a
 fixture with nothing to compare is a finding of its own.
@@ -14,10 +14,9 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import committed
+from _planted_tree import plant, run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.stated_measurements import findings
 
 from aletheia.common_types import Prose
@@ -201,8 +200,8 @@ def _recording(stated: Prose, key: Prose, value: Prose) -> dict[RelPath, Prose]:
 
 
 def _findings(tmp_path: Path, files: Mapping[RelPath, Prose]) -> list[Prose]:
-    """Commit ``files`` into a fresh repository and run the arm over it."""
-    return run_arm(findings, committed(tmp_path / "repo", files))
+    """Plant ``files`` in a fresh tree and run the arm over it."""
+    return run_planted(findings, plant(tmp_path / "repo", files))
 
 
 def test_clean_fixture_has_no_finding(tmp_path: Path) -> None:

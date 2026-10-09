@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for the documentation-gate arm holding the building guide to one line per paragraph.
 
-Each test builds a throwaway repository whose ``docs/development/BUILDING.md``
+Each test plants a tree whose ``docs/development/BUILDING.md``
 carries one shape, runs the arm as the gate does, and reads its findings.
 """
 
@@ -11,9 +11,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import commit, git
+from _planted_tree import run_planted
 
-from tools.check_docs import run_arm
 from tools.docs_arms.one_line_paragraphs import SUBJECT, findings
 
 from aletheia.common_types import Prose
@@ -53,22 +52,20 @@ another fenced line
 
 
 def _repo(tmp_path: Path, text: Prose | None) -> Path:
-    """Return a repository whose building guide reads ``text``, or has no guide when None."""
+    """Return a planted tree whose building guide reads ``text``, or has no guide when None."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    git(repo, "init", "-q")
     _ = (repo / "README.md").write_text("# Readme\n", encoding="utf-8")
     if text is not None:
         guide = repo / SUBJECT
         guide.parent.mkdir(parents=True)
         _ = guide.write_text(text, encoding="utf-8")
-    _ = commit(repo, "fixture")
     return repo.resolve()
 
 
 def _run(repo: Path) -> list[Prose]:
     """Run the arm over ``repo`` as the gate hands it: root, tracked paths, Markdown documents."""
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 def test_a_guide_of_one_line_paragraphs_is_clean(tmp_path: Path) -> None:

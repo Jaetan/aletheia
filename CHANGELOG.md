@@ -348,6 +348,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The documentation gate's arm tests plant their files instead of building
+  repositories.** A test whose claim does not need a process starts none. Each
+  arm is handed the paths and texts the gate hands it, so its tests plant the
+  files in a directory and name which are tracked through
+  `python/tests/_planted_tree.py`: a file left untracked is written and not
+  named, one tracked but gone is named and not written. The test files started
+  1627 processes and now start 39, all in `ignored_build_trees`, whose arm
+  asks git which paths the tracked rules ignore and three of whose tests need
+  a repository to hold an untracked ignore file where git would honour it.
+  Mutants of every arm, 562 in all, were run against the tests before and
+  after: each set kills the same ones.
+
 - **The C++ mutation lane sweeps one tree.** It swept three, a leak tree
   under LeakSanitizer, a plain one and an address one, and merged their
   verdicts. Measured on the lane's own sweep, the address tree killed nothing

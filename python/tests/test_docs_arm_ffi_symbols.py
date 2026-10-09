@@ -2,17 +2,16 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for ``tools.docs_arms.ffi_symbols``: the building guide names only exported C symbols.
 
-Each test builds a throwaway repository holding the guide and the shim, commits it, and
-calls the arm the way the documentation gate does.
+Each test plants a tree holding the guide and the shim, all tracked, and calls the
+arm the way the documentation gate does.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from _git_repo import commit, git
+from _planted_tree import run_planted
 
-from tools.check_docs import run_arm
 from tools.docs_arms.ffi_symbols import GUIDE, SHIM, findings
 
 from aletheia.common_types import Prose
@@ -36,10 +35,9 @@ _SILENT_GUIDE = Prose("# Building\n\nNo entry point is named here.\n")
 
 
 def _repo(tmp_path: Path, guide: Prose | None, shim: Prose | None) -> Path:
-    """Return a committed repository holding the given guide and shim, each omitted when None."""
+    """Return a planted tree holding the given guide and shim, each omitted when None."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    git(repo, "init", "-q")
     if guide is not None:
         (repo / GUIDE).parent.mkdir(parents=True)
         _ = (repo / GUIDE).write_text(guide, encoding="utf-8")
@@ -47,13 +45,12 @@ def _repo(tmp_path: Path, guide: Prose | None, shim: Prose | None) -> Path:
         (repo / SHIM).parent.mkdir(parents=True)
         _ = (repo / SHIM).write_text(shim, encoding="utf-8")
     _ = (repo / "README.md").write_text("# Readme\n", encoding="utf-8")
-    _ = commit(repo, "base")
     return repo.resolve()
 
 
 def _run(repo: Path) -> list[Prose]:
     """Call the arm over ``repo`` with the arguments the documentation gate passes."""
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 def test_clean_guide_has_no_finding(tmp_path: Path) -> None:

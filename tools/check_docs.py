@@ -114,12 +114,6 @@ def read_documents(root: Path, tracked: Sequence[RelPath]) -> dict[RelPath, Pros
     }
 
 
-def run_arm(arm: Arm, root: Path) -> list[Prose]:
-    """Run one arm over the repository at ``root`` with the inputs the gate gives every arm."""
-    tracked = git_ls_files(root)
-    return arm(root, tracked, read_documents(root, tracked))
-
-
 def check_tree(
     root: Path, tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]
 ) -> list[Prose]:

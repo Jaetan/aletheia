@@ -9,12 +9,7 @@ from typing import TYPE_CHECKING
 from tools._common import find_executable, git_clean_env, run_capture
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from pathlib import Path
-
-    from tools._common import RelPath
-
-    from aletheia.common_types import Prose
 
 
 def git(repo: Path, *args: str) -> str:
@@ -45,18 +40,6 @@ def commit(repo: Path, message: str) -> str:
         message,
     )
     return git(repo, "rev-parse", "HEAD").strip()
-
-
-def committed(repo: Path, files: Mapping[RelPath, Prose]) -> Path:
-    """Return ``repo``, made a new repository whose one commit holds exactly ``files``."""
-    repo.mkdir(parents=True)
-    git(repo, "init", "-q")
-    for rel, text in files.items():
-        path = repo / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _ = path.write_text(text, encoding="utf-8")
-    _ = commit(repo, "base")
-    return repo
 
 
 def tracked_but_absent(tmp_path: Path) -> tuple[Path, str]:
