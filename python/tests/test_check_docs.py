@@ -14,10 +14,10 @@ from __future__ import annotations
 import pkgutil
 from typing import TYPE_CHECKING
 
-from _git_repo import committed
+from _planted_tree import plant
 
 from tools import check_docs, docs_arms
-from tools._common import RelPath, git_ls_files
+from tools._common import RelPath
 from tools.check_docs import ARMS, check_tree, main, read_documents
 from tools.docs_arms import header_slugs, headings, slug, tracked_dirs
 
@@ -64,16 +64,14 @@ def test_tracked_dirs_are_every_directory_on_the_way_to_a_file() -> None:
 
 def test_read_documents_reads_every_tracked_markdown_file_and_nothing_else(tmp_path: Path) -> None:
     """Both Markdown suffixes are read; a source file is not; a byte not UTF-8 reads as U+FFFD."""
-    repo = committed(
-        tmp_path / "repo",
-        {
-            RelPath("a.md"): Prose("# A\n"),
-            RelPath("docs/b.markdown"): Prose("# B\n"),
-            RelPath("c.py"): Prose("print()\n"),
-        },
-    )
+    files = {
+        RelPath("a.md"): Prose("# A\n"),
+        RelPath("docs/b.markdown"): Prose("# B\n"),
+        RelPath("c.py"): Prose("print()\n"),
+    }
+    repo = plant(tmp_path / "repo", files)
     _ = (repo / "a.md").write_bytes(b"# A \xff\n")
-    assert read_documents(repo, git_ls_files(repo)) == {
+    assert read_documents(repo, list(files)) == {
         RelPath("a.md"): Prose("# A �\n"),
         RelPath("docs/b.markdown"): Prose("# B\n"),
     }
@@ -109,9 +107,14 @@ def test_main_exits_1_listing_the_findings_and_0_when_every_arm_holds(
     def record(message: Prose) -> None:
         printed.append(message)
 
-    repo = committed(tmp_path / "repo", {RelPath("README.md"): Prose("# Readme\n")})
+    repo = plant(tmp_path / "repo", {RelPath("README.md"): Prose("# Readme\n")})
     monkeypatch.setattr(check_docs, "emit", record)
     monkeypatch.setattr(check_docs, "REPO", repo)
+
+    def tracked(_root: Path) -> list[RelPath]:
+        return [RelPath("README.md")]
+
+    monkeypatch.setattr(check_docs, "git_ls_files", tracked)
     monkeypatch.setattr(check_docs, "ARMS", (_arm([Prose("README.md: planted")]),))
     assert main([]) == ExitStatus(1)
     assert Prose("  README.md: planted") in printed

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The transient-label arm of the documentation gate, run over throwaway repositories.
+"""The transient-label arm of the documentation gate, run over planted trees.
 
 Each mark the arm refuses is planted in the prose of a living document and
 reported once; the same mark in code, or in a document the arm does not read,
@@ -12,10 +12,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import committed
+from _planted_tree import plant, run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.labels import findings
 
 from aletheia.common_types import Prose
@@ -28,7 +27,7 @@ _CLEAN = Prose("# Guide\n\nThe current state, plainly.\n")
 
 
 def _run(tmp_path: Path, files: Mapping[RelPath, Prose]) -> list[Prose]:
-    return run_arm(findings, committed(tmp_path / "repo", {RelPath("README.md"): _CLEAN, **files}))
+    return run_planted(findings, plant(tmp_path / "repo", {RelPath("README.md"): _CLEAN, **files}))
 
 
 @pytest.mark.parametrize(
@@ -96,7 +95,7 @@ def test_each_distinct_mark_is_reported_once_in_order(tmp_path: Path) -> None:
 
 def test_a_tree_with_no_living_document_is_a_finding(tmp_path: Path) -> None:
     """With no living document the scan holds nothing, which is reported."""
-    repo = committed(tmp_path / "repo", {RelPath("CHANGELOG.md"): _CLEAN})
-    assert run_arm(findings, repo) == [
+    repo = plant(tmp_path / "repo", {RelPath("CHANGELOG.md"): _CLEAN})
+    assert run_planted(findings, repo) == [
         Prose("README.md: not tracked, and no other living document is")
     ]

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The retired-document arm of the documentation gate, run over throwaway repositories.
+"""The retired-document arm of the documentation gate, run over planted trees.
 
 The arm holds that the dependency ledger has one home, the Dependencies and
 Licenses section of the building guide: no copy of the retired ledger file is
@@ -14,10 +14,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from _git_repo import commit, git
+from _planted_tree import run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms import retired_document
 from tools.docs_arms.retired_document import LEDGER, RECORD_OF_THE_MOVE, RETIRED_DOCUMENT, findings
 
@@ -27,7 +26,7 @@ _SECTION_LINE = "## Dependencies and Licenses\n"
 
 
 def _repo(tmp_path: Path) -> Path:
-    """Return a committed repository: the ledger in its one home, nothing naming the old file."""
+    """Return a planted tree: the ledger in its one home, nothing naming the old file."""
     repo = tmp_path / "repo"
     (repo / "docs" / "development").mkdir(parents=True)
     _ = (repo / LEDGER).write_text(f"# Building\n\n{_SECTION_LINE}\nA table.\n", encoding="utf-8")
@@ -36,14 +35,12 @@ def _repo(tmp_path: Path) -> Path:
     )
     _ = (repo / RECORD_OF_THE_MOVE).write_text("# Changelog\n\nA record.\n", encoding="utf-8")
     _ = (repo / "tool.py").write_text("print('a line of code')\n", encoding="utf-8")
-    git(repo, "init", "-q")
-    _ = commit(repo, "base")
     return repo
 
 
 def _run(repo: Path) -> list[Prose]:
     """Run the arm over ``repo`` as the gate does, with every tracked path and Markdown file."""
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 def test_a_clean_tree_has_no_finding(tmp_path: Path) -> None:
@@ -56,7 +53,6 @@ def test_the_changelog_may_name_the_retired_file(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     with (repo / RECORD_OF_THE_MOVE).open("a", encoding="utf-8") as record:
         _ = record.write(f"\nThe ledger moved out of {RETIRED_DOCUMENT}.\n")
-    _ = commit(repo, "record the move")
     assert not _run(repo)
 
 
@@ -64,7 +60,6 @@ def test_a_tracked_copy_of_the_retired_file_is_a_finding(tmp_path: Path) -> None
     """A tracked file bearing the retired name is a second home for the ledger."""
     repo = _repo(tmp_path)
     _ = (repo / RETIRED_DOCUMENT).write_text("# Dependencies\n", encoding="utf-8")
-    _ = commit(repo, "plant the old file")
     assert _run(repo) == [
         f"{RETIRED_DOCUMENT}: is tracked, a second home for the ledger beside {LEDGER}"
     ]
@@ -75,7 +70,6 @@ def test_a_document_naming_the_retired_file_is_a_finding(tmp_path: Path) -> None
     repo = _repo(tmp_path)
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nLicenses are listed in {RETIRED_DOCUMENT}.\n")
-    _ = commit(repo, "plant a mention")
     assert _run(repo) == [
         f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
     ]
@@ -85,7 +79,6 @@ def test_a_code_file_naming_the_retired_file_is_a_finding(tmp_path: Path) -> Non
     """The claim covers every tracked file, so a mention in code is found too."""
     repo = _repo(tmp_path)
     _ = (repo / "tool.py").write_text(f"# writes {RETIRED_DOCUMENT}\n", encoding="utf-8")
-    _ = commit(repo, "plant a mention in code")
     assert _run(repo) == [
         f"tool.py: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
     ]
@@ -96,7 +89,6 @@ def test_a_mention_shown_as_code_is_a_finding(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nThe former `{RETIRED_DOCUMENT}` is gone.\n")
-    _ = commit(repo, "plant a mention in a span")
     assert len(_run(repo)) == 1
 
 
@@ -104,7 +96,6 @@ def test_a_ledger_without_its_section_is_a_finding(tmp_path: Path) -> None:
     """The guide without the Dependencies and Licenses heading gives the ledger no home."""
     repo = _repo(tmp_path)
     _ = (repo / LEDGER).write_text("# Building\n\n## Toolchain\n", encoding="utf-8")
-    _ = commit(repo, "drop the section")
     assert _run(repo) == [
         f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
     ]
@@ -114,7 +105,6 @@ def test_a_ledger_whose_heading_differs_in_case_is_a_finding(tmp_path: Path) -> 
     """The section is named in its own case; a heading spelled in another case is not it."""
     repo = _repo(tmp_path)
     _ = (repo / LEDGER).write_text("# Building\n\n## dependencies and licenses\n", encoding="utf-8")
-    _ = commit(repo, "lowercase the section")
     assert _run(repo) == [
         f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
     ]
@@ -124,15 +114,13 @@ def test_a_ledger_whose_heading_sits_in_a_fence_is_a_finding(tmp_path: Path) -> 
     """A heading shown inside a code fence is an example, not the section."""
     repo = _repo(tmp_path)
     _ = (repo / LEDGER).write_text(f"# Building\n\n```\n{_SECTION_LINE}```\n", encoding="utf-8")
-    _ = commit(repo, "fence the heading")
     assert len(_run(repo)) == 1
 
 
 def test_a_tree_without_the_guide_is_a_finding(tmp_path: Path) -> None:
     """A tree with no building guide gives the scan nothing it expects."""
     repo = _repo(tmp_path)
-    git(repo, "rm", "-q", "--", str(LEDGER))
-    _ = commit(repo, "drop the guide")
+    (repo / LEDGER).unlink()
     assert _run(repo) == [f"{LEDGER}: is not tracked, the ledger has no home"]
 
 
@@ -140,7 +128,9 @@ def test_a_tracked_file_gone_from_the_worktree_is_a_finding(tmp_path: Path) -> N
     """A tracked file that cannot be read is reported, never passed as clean."""
     repo = _repo(tmp_path)
     (repo / "tool.py").unlink()
-    assert _run(repo) == ["tool.py: could not be read, so its lines are unchecked"]
+    assert run_planted(findings, repo, absent={RelPath("tool.py")}) == [
+        "tool.py: could not be read, so its lines are unchecked"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -155,7 +145,6 @@ def test_a_ledger_with_only_an_html_anchor_is_a_finding(tmp_path: Path, anchor: 
     """An HTML anchor spelling the section's slug is no heading, so the section is missing."""
     repo = _repo(tmp_path)
     _ = (repo / LEDGER).write_text(f"# Building\n\n{anchor}\nA table.\n", encoding="utf-8")
-    _ = commit(repo, "an anchor without its heading")
     assert _run(repo) == [
         f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
     ]
@@ -171,7 +160,6 @@ def test_a_longer_name_holding_the_retired_one_is_no_finding(tmp_path: Path, nam
     repo = _repo(tmp_path)
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nSee {name}.\n")
-    _ = commit(repo, "plant a longer name")
     assert not _run(repo)
 
 
@@ -189,7 +177,6 @@ def test_a_heading_holding_more_than_the_section_name_is_not_its_home(tmp_path: 
     repo = _repo(tmp_path)
     text = "# Building\n\n## Dependencies and Licenses (old)\n"
     _ = (repo / LEDGER).write_text(text, encoding="utf-8")
-    _ = commit(repo, "rename the section")
     assert _run(repo) == [
         f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
     ]
@@ -199,5 +186,4 @@ def test_the_section_may_be_the_guide_s_first_heading(tmp_path: Path) -> None:
     """A guide opening on the section is its home all the same."""
     repo = _repo(tmp_path)
     _ = (repo / LEDGER).write_text(f"{_SECTION_LINE}\nA table.\n", encoding="utf-8")
-    _ = commit(repo, "open on the section")
     assert not _run(repo)

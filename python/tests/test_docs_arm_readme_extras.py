@@ -13,10 +13,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import commit, git
+from _planted_tree import run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.readme_extras import findings
 
 from aletheia.common_types import Prose
@@ -58,18 +57,16 @@ def _undefined(rel: RelPath, extra: Prose) -> Prose:
 
 
 def _repo(tmp_path: Path, readme: Prose, manifest: Prose = _MANIFEST) -> Path:
-    """Return a committed repository holding ``readme`` at the root and ``manifest`` at python/."""
+    """Return a tree holding ``readme`` at the root and ``manifest`` at python/."""
     repo = tmp_path / "repo"
     (repo / "python").mkdir(parents=True)
     _ = (repo / "README.md").write_text(readme, encoding="utf-8")
     _ = (repo / "python" / "pyproject.toml").write_text(manifest, encoding="utf-8")
-    _ = git(repo, "init", "-q")
-    _ = commit(repo, "base")
     return repo.resolve()
 
 
 def _run(repo: Path) -> list[Prose]:
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 def test_clean_readme_has_no_finding(tmp_path: Path) -> None:
@@ -89,7 +86,6 @@ def test_nested_readme_is_scanned(tmp_path: Path) -> None:
     _ = (repo / "python" / "README.md").write_text(
         Prose("# Binding\n\nNeeds the `[excel]` extra.\n"), encoding="utf-8"
     )
-    _ = commit(repo, "nested")
     assert _run(repo) == [_undefined(RelPath("python/README.md"), Prose("excel"))]
 
 
@@ -111,8 +107,7 @@ def test_manifest_without_extras_is_a_finding(tmp_path: Path) -> None:
 def test_untracked_manifest_is_a_finding(tmp_path: Path) -> None:
     """A manifest git does not track is absent from a checkout, so nothing holds the names."""
     repo = _repo(tmp_path, _CLEAN_README)
-    _ = git(repo, "rm", "-q", "--cached", "python/pyproject.toml")
-    assert _run(repo) == [
+    assert run_planted(findings, repo, untracked={RelPath("python/pyproject.toml")}) == [
         Prose("python/pyproject.toml: not tracked, so the extras the READMEs name cannot be held")
     ]
 
@@ -185,7 +180,6 @@ def test_a_document_that_is_not_a_readme_is_not_read(tmp_path: Path) -> None:
     _ = (repo / "docs" / "DESIGN.md").write_text(
         Prose("# Design\n\nA future `[arxml]` extra.\n"), encoding="utf-8"
     )
-    _ = commit(repo, "design")
     assert not _run(repo)
 
 
@@ -195,7 +189,6 @@ def test_one_readme_naming_an_extra_is_enough(tmp_path: Path) -> None:
     _ = (repo / "python" / "README.md").write_text(
         Prose("# Binding\n\nNo extra here.\n"), encoding="utf-8"
     )
-    _ = commit(repo, "nested")
     assert not _run(repo)
 
 

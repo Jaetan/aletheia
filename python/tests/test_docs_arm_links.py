@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The link arm of the documentation gate, run over throwaway repositories.
+"""The link arm of the documentation gate, run over planted trees.
 
 A clean fixture holds every shape of link the arm resolves or leaves alone and
 yields nothing; each planted defect yields exactly its one finding, naming the
@@ -12,10 +12,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import committed
+from _planted_tree import plant, run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.links import findings
 
 from aletheia.common_types import Prose
@@ -42,8 +41,8 @@ _CLEAN = Prose(
 
 
 def _repo(tmp_path: Path, guide: Prose = _CLEAN) -> Path:
-    """Return a committed repository holding the guide, the document it links and a source."""
-    return committed(
+    """Return a planted tree holding the guide, the document it links and a source."""
+    return plant(
         tmp_path / "repo",
         {
             _GUIDE: guide,
@@ -54,7 +53,7 @@ def _repo(tmp_path: Path, guide: Prose = _CLEAN) -> Path:
 
 
 def _run(repo: Path) -> list[Prose]:
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 def test_every_resolving_shape_is_clean(tmp_path: Path) -> None:
@@ -94,10 +93,13 @@ def test_a_file_on_disk_that_git_does_not_track_is_a_broken_link(tmp_path: Path)
     """A fresh checkout lacks an untracked file, so a link to it is broken here too."""
     repo = _repo(tmp_path, Prose(f"{_CLEAN}\n[local](local.html)\n"))
     _ = (repo / "docs" / "local.html").write_text("<p>local</p>\n", encoding="utf-8")
-    assert _run(repo) == [Prose(f"{_GUIDE}: broken link -> local.html")]
+    untracked = {RelPath("docs/local.html")}
+    assert run_planted(findings, repo, untracked=untracked) == [
+        Prose(f"{_GUIDE}: broken link -> local.html")
+    ]
 
 
 def test_documents_carrying_no_link_are_a_finding(tmp_path: Path) -> None:
     """With nothing to resolve the scan holds nothing, which is reported."""
-    repo = committed(tmp_path / "repo", {_GUIDE: Prose("# Guide\n\n[web](https://example.com)\n")})
+    repo = plant(tmp_path / "repo", {_GUIDE: Prose("# Guide\n\n[web](https://example.com)\n")})
     assert _run(repo) == [Prose("README.md: no tracked document carries a link to resolve")]

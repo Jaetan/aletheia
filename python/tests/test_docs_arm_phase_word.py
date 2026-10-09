@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for ``tools.docs_arms.phase_word``: the phase table and the pitch name one current phase.
 
-Each test builds a throwaway repository holding a status document with a phase
+Each test plants a tree holding a status document with a phase
 table and a pitch with its ``Phase <n> is <word>`` sentence, then asks the arm
-for its findings over that repository's tracked Markdown.
+for its findings over that tree's tracked Markdown.
 """
 
 from __future__ import annotations
@@ -12,10 +12,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import committed
+from _planted_tree import plant, run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.phase_word import findings
 
 from aletheia.common_types import Prose
@@ -43,8 +42,8 @@ _FENCED = Prose("# Guide\n\n```\nPhase 6 is planned.\n```\n")
 
 
 def _findings(tmp_path: Path, files: dict[RelPath, Prose]) -> list[Prose]:
-    """Commit ``files`` into a fresh repository and run the arm over it as the gate does."""
-    return run_arm(findings, committed(tmp_path / "repo", files))
+    """Plant ``files`` in a fresh tree and run the arm over it as the gate does."""
+    return run_planted(findings, plant(tmp_path / "repo", files))
 
 
 def test_table_and_pitch_agree(tmp_path: Path) -> None:

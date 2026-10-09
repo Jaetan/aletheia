@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The section-citation arm of the documentation gate, run over throwaway repositories.
+"""The section-citation arm of the documentation gate, run over planted trees.
 
-Each fixture is a repository holding ``go/README.md``, the document the arm
+Each fixture is a tree holding ``go/README.md``, the document the arm
 expects a section citation in, and the document it cites. A planted defect
 yields one finding naming the citing document; a clean fixture yields none; a
 subject carrying no citation is a finding too, so the scan cannot pass by
@@ -14,9 +14,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import commit, git
+from _planted_tree import run_planted
 
-from tools.check_docs import run_arm
 from tools.docs_arms.section_citations import findings
 
 from aletheia.common_types import Prose
@@ -41,14 +40,12 @@ _IN_LINK_TEXT = Prose(
 
 
 def _repo(tmp_path: Path, readme: Prose, contract: Prose) -> Path:
-    """Return a committed repository holding the subject and the document it cites."""
+    """Return a planted tree holding the subject and the document it cites."""
     repo = tmp_path / "repo"
     (repo / "go").mkdir(parents=True)
     (repo / "docs" / "architecture").mkdir(parents=True)
     _ = (repo / _SUBJECT).write_text(readme, encoding="utf-8")
     _ = (repo / _TARGET).write_text(contract, encoding="utf-8")
-    git(repo, "init", "-q")
-    _ = commit(repo, "base")
     return repo.resolve()
 
 
@@ -61,7 +58,7 @@ def _contract(go: Prose) -> Prose:
 
 def _run(repo: Path) -> list[Prose]:
     """Run the arm over ``repo`` the way the gate does."""
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 @pytest.mark.parametrize("readme", [_AFTER_LINK, _IN_LINK_TEXT], ids=["after-link", "in-text"])
@@ -148,8 +145,7 @@ def test_subject_without_a_citation_is_a_finding(tmp_path: Path) -> None:
 def test_absent_subject_is_a_finding(tmp_path: Path) -> None:
     """The subject is not among the tracked documents: a finding naming it."""
     repo = _repo(tmp_path, _AFTER_LINK, _contract(Prose("### 2.2 Go")))
-    git(repo, "rm", "-q", "--", _SUBJECT)
-    _ = commit(repo, "drop the subject")
+    (repo / _SUBJECT).unlink()
     found = _run(repo)
     assert len(found) == 1
     assert found[0].startswith(f"{_SUBJECT}: ")
@@ -173,7 +169,6 @@ def test_a_citation_in_any_document_is_read(tmp_path: Path) -> None:
         "See [the contract §1 Prerequisites](../architecture/CANCELLATION.md#cancellation).\n",
         encoding="utf-8",
     )
-    _ = commit(repo, "a guide citing a section the contract does not number")
     assert _run(repo) == [
         Prose(
             "docs/guides/QUICK.md: § 1 cited beside a link to "

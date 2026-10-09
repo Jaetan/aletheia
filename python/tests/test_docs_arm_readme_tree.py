@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """The project tree README.md prints names exactly the top-level directories git tracks.
 
-A throwaway repository tracks a few directories and a README printing a tree;
-the arm reports a listed directory the repository does not track, a tracked
-directory the tree omits, a README printing no tree, and a repository tracking
-no README; a tree that agrees with the repository yields nothing.
+A planted tree tracks a few directories and a README printing a tree; the arm
+reports a listed directory the tree does not track, a tracked directory the
+printed tree omits, a README printing no tree, and a tree tracking no README; a
+printed tree that agrees with the tracked one yields nothing.
 """
 
 from __future__ import annotations
@@ -13,10 +13,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import commit, git
+from _planted_tree import run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.readme_tree import findings
 
 from aletheia.common_types import Prose
@@ -31,16 +30,14 @@ README_TAIL = "~~~\n\nProse after the tree.\n"
 
 
 def _repo(tmp_path: Path, directories: Sequence[RelPath], readme: Prose | None) -> Path:
-    """Return a committed repository tracking one file under each directory, plus ``readme``."""
+    """Return a planted tree tracking one file under each directory, plus ``readme``."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    git(repo, "init", "-q")
     for name in directories:
         (repo / name).mkdir()
         _ = (repo / name / "file.txt").write_text("tracked\n", encoding="utf-8")
     if readme is not None:
         _ = (repo / "README.md").write_text(readme, encoding="utf-8")
-    _ = commit(repo, "base")
     return repo
 
 
@@ -52,7 +49,7 @@ def _tree(entries: Sequence[RelPath]) -> Prose:
 
 
 def _run(repo: Path) -> list[Prose]:
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 def test_tree_naming_every_tracked_directory_is_clean(tmp_path: Path) -> None:
@@ -69,7 +66,7 @@ def test_tree_omitting_a_tracked_directory_is_a_finding(tmp_path: Path) -> None:
 
 
 def test_tree_listing_an_untracked_directory_is_a_finding(tmp_path: Path) -> None:
-    """A directory the tree prints that the repository does not track is reported."""
+    """A directory the README prints that the tree does not track is reported."""
     names = [RelPath("docs"), RelPath("src")]
     repo = _repo(tmp_path, names, _tree([*names, RelPath("probes")]))
     assert _run(repo) == [
@@ -93,7 +90,7 @@ def test_readme_without_a_tree_is_a_finding(tmp_path: Path, readme: Prose) -> No
 
 
 def test_untracked_readme_is_a_finding(tmp_path: Path) -> None:
-    """A repository tracking no README.md is reported, not passed as agreeing."""
+    """A tree tracking no README.md is reported, not passed as agreeing."""
     repo = _repo(tmp_path, [RelPath("docs")], None)
     assert _run(repo) == [Prose("README.md: not a tracked document")]
 

@@ -2,19 +2,17 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """The index-coverage arm finds a tracked document docs/INDEX.md does not name.
 
-Each test builds a throwaway repository with an index and a few documents,
-commits it, and runs the arm the way the gate does, on ``git ls-files`` and
-the tracked Markdown files.
+Each test plants a tree with an index and a few documents and runs the arm the
+way the gate does, on the tracked paths and the tracked Markdown files.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from _git_repo import committed
+from _planted_tree import plant, run_planted
 
 from tools._common import RelPath
-from tools.check_docs import run_arm
 from tools.docs_arms.index_coverage import INDEX, findings, in_scope, names
 
 from aletheia.common_types import Prose
@@ -24,13 +22,13 @@ if TYPE_CHECKING:
 
 
 def _repo(tmp_path: Path, files: dict[RelPath, Prose]) -> Path:
-    """Return a committed repository holding ``files``, each at its relative path."""
-    return committed(tmp_path / "repo", files)
+    """Return a planted tree holding ``files``, each at its relative path."""
+    return plant(tmp_path / "repo", files)
 
 
 def _run(repo: Path) -> list[Prose]:
     """Run the arm on ``repo`` as the gate does: every tracked path, every tracked Markdown file."""
-    return run_arm(findings, repo)
+    return run_planted(findings, repo)
 
 
 _DESIGN_LINE = Prose("- [Design](architecture/DESIGN.md)\n")
