@@ -124,7 +124,10 @@ Agda: one whose identifier (CAN ID) is out of range, whose data length code
 (DLC) is past 15, or whose payload's byte count is not the one its DLC names is
 refused with a typed error. A requested signal value is written exactly, from
 the proofs the validated DBC carries, or refused with a typed error; it is never
-rounded or wrapped. Loading a DBC takes time linear in its length on both routes
+rounded or wrapped. Every list a DBC holds has a bound that every DBC command
+enforces alike: a DBC past one is refused with a typed error naming the part that
+crossed it, and a loaded DBC carries the proof that it is within every bound.
+Loading a DBC takes time linear in its length on both routes
 (JSON and `.dbc` text), and a check the main branch requires fails any change
 under which doubling a DBC's messages more than triples its load time.
 
