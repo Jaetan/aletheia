@@ -168,6 +168,11 @@ reportExplicitAny = "error"  # Force explicit structure definitions instead of A
 reportPrivateUsage = "error"  # Disallow accessing private members
 reportMissingModuleSource = false  # _install_config.py is generated at install time
 reportImplicitStringConcatenation = "error"  # Require explicit + for string concatenation
+# What basedpyright leaves unread.  The first three are its own defaults, kept
+# because setting the key replaces them.  tools/ci-output holds the gates' kept
+# logs and the scratch scripts of investigations, no gate's source; ruff leaves
+# it alone through the ignore list, which basedpyright does not read.
+exclude = ["**/node_modules", "**/__pycache__", "**/.*", "../tools/ci-output"]
 
 # tools/ lives at the repository root (one level up from this config) and its
 # scripts import siblings as ``from tools.X import ...`` -- the package is run

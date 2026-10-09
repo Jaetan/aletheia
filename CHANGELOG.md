@@ -1884,6 +1884,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The sweep reads the tracked tree under `tools/`, not the directory whole.**
+  `tools/ci-output` keeps the gates' logs and the scratch scripts of
+  investigations, none of it a gate's source, and two readers took it for the
+  tree: basedpyright, handed the directory `tools` and reading no ignore list,
+  type-checked a kept helper script and failed the pre-push sweep; and the
+  AGENTS/go.md fuzz-targets probe, grepping `tools/` for a scheduled fuzz run,
+  read a kept record as a lane. basedpyright now excludes `tools/ci-output` in
+  `python/pyproject.toml`, pinned by a test in `python/tests/test_run_ci_runner.py`,
+  and the probe reads `git ls-files`.
+
 - **A C++ loader's refusal never reads a null from `dlerror`.** Both loaders,
   the backend resolving the kernel's entries and the rational renderer resolving
   its three, built their refusal by appending `dlerror()` to a string, and POSIX
@@ -2600,6 +2610,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   probes under `probes/` carry the claims.
 
 ### Removed
+
+- **60 probes whose claims a gate already holds, or that recorded an
+  investigation, leave the store.** Every probe of `probes/` was sorted: the
+  claim, what the probe builds, and the gate that already holds the claim or
+  the gate it folds into. 42 probes named a holder, and each holder was shown
+  red on the probe's own defect, planted in a private clone of the tree, before
+  the probe went; 17 recorded a candidate a review dismissed or a wording no
+  gate owns, and go as records, their claims in the commit that removes them.
+  The route reader's probe still carried a `leak` sample after the leak tree
+  retired, so it had read red since; the one arm no test held, the census order
+  ranking a test's kill before a library check's, is now asserted in
+  `python/tests/test_mutation_cpp_routes.py`. With the probes went their rows in
+  `docs/PYTHON_IMPRECISE_HINTS.yaml`.
 
 - **The kept sweeps of the C++ mutation trees, and the two probes that read
   them.** Two probes swept the C++ trees again under a variant of the lane's

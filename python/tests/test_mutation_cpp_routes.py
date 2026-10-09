@@ -152,7 +152,7 @@ def test_a_failed_test_mull_kept_no_output_for_is_read_by_its_exit(tmp_path: Pat
 
 
 def test_the_routes_are_counted_over_the_legs() -> None:
-    """Each leg's mutants are counted by route, and every route has a count, in the census order."""
+    """Each leg's mutants are counted by route, every route counted, in the order ranking kills."""
     legs = [
         {"a": "fault", "b": "kernel", "c": "survived"},
         {"d": "timeout", "e": "check", "f": "test", "g": "survived"},
@@ -166,6 +166,11 @@ def test_the_routes_are_counted_over_the_legs() -> None:
         "survived": 2,
     }
     assert tuple(merge_routes(legs)) == KILL_ROUTES
+    # A mutant two legs ended differently takes the first of its routes in this
+    # order, so a test's own assertion outranks the kernel's refusal, which
+    # outranks a library check, which outranks a bare fault; what ran out of
+    # time or survived comes after every kill.
+    assert KILL_ROUTES == ("test", "kernel", "check", "fault", "timeout", "survived")
 
 
 def test_an_ending_carries_what_the_check_refused(tmp_path: Path) -> None:

@@ -26,8 +26,9 @@ if [ "$in_doc" != "$in_code" ]; then
 	status=1
 fi
 
-# Nothing schedules a fuzz run, which is what the standard now says.
-scheduled=$(grep -rln "fuzztime\|-fuzz=" .github/workflows/ tools/ 2>/dev/null || true)
+# Nothing schedules a fuzz run, which is what the standard now says; the tracked
+# files are read, since tools/ci-output keeps logs and records no gate owns.
+scheduled=$(git ls-files .github/workflows tools | xargs grep -ln "fuzztime\|-fuzz=" 2>/dev/null || true)
 if [ -n "$scheduled" ]; then
 	echo "something runs a fuzz lane, and the standard says fuzzing is a command someone types:"
 	printf '%s\n' "$scheduled" | sed 's/^/  /'

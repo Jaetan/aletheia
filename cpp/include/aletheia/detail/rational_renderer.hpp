@@ -59,7 +59,8 @@ namespace aletheia::detail {
 // renderer reads it once, inside its `std::call_once`.  The load takes
 // the first candidate that exists, in the order `ALETHEIA_LIB`, the
 // registered path, the relative heuristic: a variable naming a missing
-// file is skipped, not an error (a probe under probes/ pins both halves).
+// file is skipped, not an error; the search tests in cpp/tests/unit_tests_validation.cpp
+// hold both halves.
 void register_default_lib_path(const std::filesystem::path& lib_path);
 
 // The search behind `aletheia::find_ffi_library`, over the inputs it reads:
