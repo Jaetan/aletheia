@@ -1961,6 +1961,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The fresh-process probe reads a child that ends mid-read as gone.** The
+  probe that holds a fresh-process suite's child to dying with its parent read
+  `/proc/<pid>/status` catching only `FileNotFoundError`, the error of a
+  process gone before the open; one that ended between the open and the read
+  raised `ProcessLookupError`, the probe stopped with a traceback, and its
+  kill of a child it had found outliving the parent never ran. Both errors now
+  read as gone, and the kill tolerates a child that ends before it.
+
 - **The documentation gate names a tracked file the work tree lacks instead of
   stopping.** A path git tracks and the work tree does not hold, deleted and not
   yet staged, stopped the gate with a traceback: in its read of the Markdown
