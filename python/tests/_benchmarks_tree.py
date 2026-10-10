@@ -256,10 +256,17 @@ def spread_about(stdev: Prose, bound: Prose, mean: Prose, cell: Prose) -> dict[R
 
 
 def planted_findings(
-    tmp_path: Path, files: Mapping[RelPath, Prose], untracked: Collection[RelPath] = ()
+    tmp_path: Path,
+    files: Mapping[RelPath, Prose],
+    untracked: Collection[RelPath] = (),
+    absent: Collection[RelPath] = (),
 ) -> list[Prose]:
-    """Plant ``files`` in a fresh tree and run the arm over it, ``untracked`` left untracked."""
-    return run_planted(findings, plant(tmp_path / "repo", files), untracked=untracked)
+    """Plant ``files`` in a fresh tree and run the arm over it.
+
+    ``untracked`` are planted and left untracked; ``absent`` are tracked and not planted.
+    """
+    repo = plant(tmp_path / "repo", files)
+    return run_planted(findings, repo, untracked=untracked, absent=absent)
 
 
 def reported(expected: Sequence[Prose]) -> list[Prose]:

@@ -250,10 +250,13 @@ def test_subject_without_a_citation_is_a_finding(tmp_path: Path) -> None:
 
 
 def test_absent_subject_is_a_finding(tmp_path: Path) -> None:
-    """The subject is not among the tracked documents: a finding naming it."""
+    """The subject is not tracked: a finding naming it."""
     repo = plant(tmp_path / "repo", {_TARGET: _contract(Prose("### 2.2 Go"))})
     assert _run(repo) == [
-        Prose(f"{_SUBJECT}: not among the tracked documents, the subject of this arm")
+        Prose(
+            f"{_SUBJECT}: not tracked,"
+            + " so the section citations this arm expects in it are unchecked"
+        )
     ]
 
 
@@ -288,3 +291,56 @@ def test_a_citation_in_any_document_is_read(tmp_path: Path) -> None:
     assert _run(repo) == [
         Prose(f"docs/guides/QUICK.md: § 1 cited beside a link to {_TARGET} names no heading there")
     ]
+
+
+def test_a_tracked_subject_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A subject git tracks and the work tree lacks is named as unread, never as untracked."""
+    repo = plant(tmp_path / "repo", {_TARGET: _contract(Prose("### 2.2 Go"))})
+    assert run_planted(findings, repo, absent={_SUBJECT}) == [
+        Prose(f"{_SUBJECT}: could not be read, so what it says is unchecked"),
+        Prose(
+            f"{_SUBJECT}: could not be read,"
+            + " so the section citations this arm expects in it are unchecked"
+        ),
+    ]
+
+
+def test_a_cited_document_the_work_tree_lacks_is_named_as_unread(tmp_path: Path) -> None:
+    """A cited document git tracks and the work tree lacks is unread, not untracked."""
+    repo = plant(tmp_path / "repo", {_SUBJECT: _AFTER_LINK})
+    assert run_planted(findings, repo, absent={_TARGET}) == [
+        Prose(f"{_TARGET}: could not be read, so what it says is unchecked"),
+        Prose(f"{_SUBJECT}: § 2.2 cited beside a link to ../{_TARGET}, which could not be read"),
+    ]
+
+
+def test_a_tracked_file_that_is_not_markdown_is_no_document(tmp_path: Path) -> None:
+    """A section cited beside a link to a tracked source file names no document's heading."""
+    readme = Prose("# Go binding\n\nSee [the notes](../docs/notes.txt) § 2.2.\n")
+    repo = plant(tmp_path / "repo", {_SUBJECT: readme, RelPath("docs/notes.txt"): Prose("2.2\n")})
+    assert _run(repo) == [
+        Prose(f"{_SUBJECT}: § 2.2 cited beside a link to ../docs/notes.txt, not a tracked document")
+    ]
+
+
+def test_a_cited_symlink_the_work_tree_cannot_follow_is_named_as_unread(tmp_path: Path) -> None:
+    """A tracked document linking to nothing is unread under the path git tracks."""
+    readme = Prose("# Go binding\n\nSee [the notes](../docs/link.md) § 2.2.\n")
+    repo = plant(tmp_path / "repo", {_SUBJECT: readme})
+    link = RelPath("docs/link.md")
+    (repo / "docs").mkdir()
+    (repo / link).symlink_to("gone.md")
+    assert run_planted(findings, repo, absent={link}) == [
+        Prose(f"{link}: could not be read, so what it says is unchecked"),
+        Prose(f"{_SUBJECT}: § 2.2 cited beside a link to ../{link}, which could not be read"),
+    ]
+
+
+def test_a_cited_symlink_is_read_as_the_document_git_tracks(tmp_path: Path) -> None:
+    """A tracked document linking outside the tree is held by its own text, under its own path."""
+    readme = Prose("# Go binding\n\nSee [the notes](../docs/link.md) § 2.2.\n")
+    repo = plant(tmp_path / "repo", {_SUBJECT: readme})
+    outside = plant(tmp_path / "outside", {RelPath("notes.md"): _contract(Prose("### 2.2 Go"))})
+    (repo / "docs").mkdir()
+    (repo / "docs" / "link.md").symlink_to(outside / "notes.md")
+    assert _run(repo) == list[Prose]()

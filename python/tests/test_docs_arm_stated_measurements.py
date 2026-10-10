@@ -22,8 +22,10 @@ from _benchmarks_tree import (
     LATENCY,
     PYTHON,
     RESIDENCY_TEST,
+    RESIDENCY_TEXT,
     SCALING,
     SCHEMA,
+    SCHEMA_TEXT,
     THROUGHPUT,
     baseline,
     edited_files,
@@ -37,6 +39,10 @@ from _benchmarks_tree import (
     spreading,
     without,
 )
+from _planted_tree import plant, run_planted
+
+from tools.docs_arms import FileBytes
+from tools.docs_arms.stated_measurements import findings
 
 from aletheia.common_types import Prose
 
@@ -551,11 +557,6 @@ def test_a_bound_off_the_worst_is_quoted_as_spelled(tmp_path: Path, bound: Prose
     ("files", "expected"),
     [
         pytest.param(
-            without(DOCUMENT),
-            ["not among the tracked documents, so nothing it states is checked"],
-            id="document-untracked",
-        ),
-        pytest.param(
             {rel: text for rel, text in FILES.items() if "_baseline.json" not in rel},
             ["no committed baseline under benchmarks/results/ to compare with"],
             id="no-baseline",
@@ -655,19 +656,6 @@ def test_a_bound_off_the_worst_is_quoted_as_spelled(tmp_path: Path, bound: Prose
             ),
             ["the section no longer states the latency operation count"],
             id="no-operation-count-phrase",
-        ),
-        pytest.param(
-            without(SCHEMA),
-            ["benchmarks/SCHEMA.yaml is not tracked, so the baseline roster goes unchecked"],
-            id="no-schema",
-        ),
-        pytest.param(
-            without(RESIDENCY_TEST),
-            [
-                "python/tests/test_streaming_residency.py is not tracked,"
-                + " so the residency sentence goes unchecked"
-            ],
-            id="no-residency-test",
         ),
         pytest.param(
             edited_files(
@@ -805,11 +793,125 @@ def test_a_mean_below_one_is_positive(tmp_path: Path) -> None:
 
 def test_untracked_residency_test_is_not_read(tmp_path: Path) -> None:
     """A residency test on disk that git does not track is no source for the residency sentence."""
-    assert planted_findings(tmp_path, FILES, untracked=[RESIDENCY_TEST]) == reported(
-        [
+    assert planted_findings(tmp_path, FILES, untracked=[RESIDENCY_TEST]) == [
+        Prose(
+            f"{RESIDENCY_TEST}: not tracked, so the residency sentence of {DOCUMENT} is unchecked"
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("rel", "expected"),
+    [
+        pytest.param(
+            DOCUMENT,
+            Prose(f"{DOCUMENT}: not tracked, so nothing it states is checked"),
+            id="document",
+        ),
+        pytest.param(
+            SCHEMA,
+            Prose(f"{SCHEMA}: not tracked, so the baseline roster {DOCUMENT} states is unchecked"),
+            id="schema",
+        ),
+        pytest.param(
+            RESIDENCY_TEST,
             Prose(
-                "python/tests/test_streaming_residency.py is not tracked,"
-                + " so the residency sentence goes unchecked"
-            )
-        ]
-    )
+                f"{RESIDENCY_TEST}: not tracked,"
+                + f" so the residency sentence of {DOCUMENT} is unchecked"
+            ),
+            id="residency-test",
+        ),
+    ],
+)
+def test_an_untracked_source_is_named_as_untracked(
+    tmp_path: Path, rel: RelPath, expected: Prose
+) -> None:
+    """A source the tree does not track is named in a finding of its own, the rest still held."""
+    assert planted_findings(tmp_path, without(rel)) == [expected]
+
+
+@pytest.mark.parametrize(
+    ("rel", "expected"),
+    [
+        pytest.param(
+            DOCUMENT,
+            [
+                Prose(f"{DOCUMENT}: could not be read, so what it says is unchecked"),
+                Prose(f"{DOCUMENT}: could not be read, so nothing it states is checked"),
+            ],
+            id="document",
+        ),
+        pytest.param(
+            SCHEMA,
+            [
+                Prose(
+                    f"{SCHEMA}: could not be read,"
+                    + f" so the baseline roster {DOCUMENT} states is unchecked"
+                )
+            ],
+            id="schema",
+        ),
+        pytest.param(
+            RESIDENCY_TEST,
+            [
+                Prose(
+                    f"{RESIDENCY_TEST}: could not be read,"
+                    + f" so the residency sentence of {DOCUMENT} is unchecked"
+                )
+            ],
+            id="residency-test",
+        ),
+        pytest.param(
+            baseline(CPP, LATENCY),
+            [
+                Prose(
+                    f"{baseline(CPP, LATENCY)}: could not be read,"
+                    + f" so the measurements {DOCUMENT} states are unchecked"
+                )
+            ],
+            id="baseline",
+        ),
+    ],
+)
+def test_a_tracked_source_the_work_tree_lacks_is_a_finding(
+    tmp_path: Path, rel: RelPath, expected: list[Prose]
+) -> None:
+    """A source git tracks and the work tree lacks is named; an unread baseline ends the arm."""
+    assert planted_findings(tmp_path, without(rel), absent=[rel]) == expected
+
+
+def test_every_unread_baseline_is_named(tmp_path: Path) -> None:
+    """Two baselines the work tree lacks are each named, in path order."""
+    gone = [baseline(PYTHON, SCALING), baseline(CPP, THROUGHPUT)]
+    files = {rel: text for rel, text in FILES.items() if rel not in gone}
+    assert planted_findings(tmp_path, files, absent=gone) == [
+        Prose(f"{rel}: could not be read, so the measurements {DOCUMENT} states are unchecked")
+        for rel in sorted(gone)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("rel", "data"),
+    [
+        pytest.param(
+            SCHEMA, FileBytes(b"# \xff\n" + str(SCHEMA_TEXT).encode()), id="schema-comment"
+        ),
+        pytest.param(
+            RESIDENCY_TEST, FileBytes(b"# \xff\n" + str(RESIDENCY_TEXT).encode()), id="test-comment"
+        ),
+        pytest.param(
+            baseline(CPP, LATENCY),
+            FileBytes(
+                str(FILES[baseline(CPP, LATENCY)]).encode().replace(b"{", b'{"note": "\xff", ', 1)
+            ),
+            id="baseline-string",
+        ),
+    ],
+)
+def test_a_source_byte_that_is_not_utf8_reads_as_a_replacement(
+    tmp_path: Path, rel: RelPath, data: FileBytes
+) -> None:
+    """A byte that is not UTF-8 in a comment or a string of a source does not stop its read."""
+    repo = plant(tmp_path / "repo", FILES)
+    _ = (repo / rel).write_bytes(data)
+    assert run_planted(findings, repo) == []

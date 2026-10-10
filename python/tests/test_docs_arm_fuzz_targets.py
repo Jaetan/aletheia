@@ -251,9 +251,7 @@ def test_missing_standard_is_a_finding(tmp_path: Path) -> None:
     """A tree that does not track the Go standard leaves its fuzz targets unchecked: it is named."""
     repo = _repo(tmp_path)
     (repo / DOC).unlink()
-    assert _run(repo) == [
-        Prose(f"{DOC}: not a tracked document, so its fuzz targets are unchecked")
-    ]
+    assert _run(repo) == [Prose(f"{DOC}: not tracked, so its fuzz targets are unchecked")]
 
 
 def test_target_selected_with_an_equals_sign(tmp_path: Path) -> None:
@@ -261,3 +259,55 @@ def test_target_selected_with_an_equals_sign(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _write(repo, TOOL, Prose(TOOL_TEXT + 'FUZZ = ["go", "test", "-fuzz=FuzzA", "./aletheia/"]\n'))
     assert _run(repo) == [_schedule_finding(TOOL)]
+
+
+@pytest.mark.parametrize(
+    ("rel", "expected"),
+    [
+        pytest.param(
+            DOC,
+            [
+                Prose(f"{DOC}: could not be read, so what it says is unchecked"),
+                Prose(f"{DOC}: could not be read, so its fuzz targets are unchecked"),
+            ],
+            id="standard",
+        ),
+        pytest.param(
+            TARGETS,
+            [Prose(f"{TARGETS}: could not be read, so the targets {DOC} names are unchecked")],
+            id="targets",
+        ),
+        pytest.param(
+            WORKFLOW,
+            [
+                Prose(
+                    f"{WORKFLOW}: could not be read, so whether it invokes a fuzz run is unchecked"
+                )
+            ],
+            id="workflow",
+        ),
+        pytest.param(
+            TOOL,
+            [Prose(f"{TOOL}: could not be read, so whether it invokes a fuzz run is unchecked")],
+            id="tool",
+        ),
+    ],
+)
+def test_a_tracked_file_the_work_tree_lacks_is_a_finding(
+    tmp_path: Path, rel: RelPath, expected: list[Prose]
+) -> None:
+    """Each file the arm reads, tracked and gone from the work tree, is named as unread."""
+    repo = _repo(tmp_path)
+    (repo / rel).unlink()
+    assert run_planted(findings, repo, absent={rel}) == expected
+
+
+def test_an_unread_scheduling_file_leaves_the_others_scanned(tmp_path: Path) -> None:
+    """A workflow the work tree lacks is named, and the tool after it is still read."""
+    repo = _repo(tmp_path)
+    (repo / WORKFLOW).unlink()
+    _write(repo, TOOL, Prose(TOOL_TEXT + 'FUZZ = ["go", "test", "-fuzztime=1h"]\n'))
+    assert run_planted(findings, repo, absent={WORKFLOW}) == [
+        Prose(f"{WORKFLOW}: could not be read, so whether it invokes a fuzz run is unchecked"),
+        _schedule_finding(TOOL),
+    ]

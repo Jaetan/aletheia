@@ -21,7 +21,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, NamedTuple
 
 from tools._common import RelPath
-from tools.docs_arms import tracked_dirs
+from tools.docs_arms import missing, tracked_dirs
 
 from aletheia.common_types import Prose
 
@@ -97,7 +97,7 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
         A finding per untracked path the guide names, or one finding when the
@@ -106,7 +106,7 @@ def findings(
     """
     del root
     if GUIDE not in documents:
-        return [Prose(f"{GUIDE}: not among the tracked documents; the arm checks nothing")]
+        return [missing(GUIDE, tracked, Prose("the tree paths it names are unchecked"))]
     paths = tree_paths(documents[GUIDE])
     if not paths:
         return [Prose(f"{GUIDE}: names no tree path in backticks; the arm checks nothing")]

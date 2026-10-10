@@ -11,7 +11,7 @@ any letter case. The repository-root logs, the changelog and the status page,
 record history by purpose and are not read.
 Fenced code and inline code spans are not prose, so a mark shown as an
 example is not a finding. Each distinct mark is reported once per document,
-and a tree with no living document is a finding, the scan holding nothing.
+and a tree with no living document read is a finding, the scan holding nothing.
 """
 
 from __future__ import annotations
@@ -68,14 +68,15 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
-        The findings, each naming the document that carries the mark.
+        The findings, each naming the document that carries the mark, or one naming
+        ``README.md`` when no living document was read.
 
     """
     del root, tracked
     living = [rel for rel in documents if is_living(rel)]
     if not living:
-        return [Prose(f"{_README}: not tracked, and no other living document is")]
+        return [Prose(f"{_README}: no living document was read, so no label is checked")]
     return [finding for rel in living for finding in label_findings(rel, documents[rel])]

@@ -293,3 +293,12 @@ def test_a_heading_the_readme_lost_names_the_pitch_as_keeping_it(tmp_path: Path)
             + "which docs/PITCH.md still does"
         )
     ]
+
+
+def test_a_tracked_document_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A document of the pair git tracks and the work tree lacks is named as unread."""
+    repo = plant(tmp_path / "repo", {PITCH_MD: PITCH})
+    assert run_planted(findings, repo, absent={README_MD}) == [
+        Prose("README.md: could not be read, so what it says is unchecked"),
+        Prose("README.md: could not be read, so the opening docs/PITCH.md shares is uncheckable"),
+    ]

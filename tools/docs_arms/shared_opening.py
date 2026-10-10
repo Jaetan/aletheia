@@ -7,7 +7,7 @@ classes the proof removes and the comparison with the tested decoders. The arm h
 copies equal: each shared section is read from its heading up to the next heading of the same
 level or shallower, which differs by design, with blank lines and horizontal rules dropped as
 each document's own spacing, and a line's indentation and trailing blanks kept as content. A
-document the pair names that is not tracked, or does not carry a shared heading, is a
+document the pair names that is untracked, unread, or does not carry a shared heading, is a
 finding, since the comparison then holds nothing.
 """
 
@@ -17,6 +17,7 @@ import re
 from typing import TYPE_CHECKING, NamedTuple
 
 from tools._common import RelPath
+from tools.docs_arms import missing
 
 from aletheia.common_types import Prose
 
@@ -69,10 +70,12 @@ def section(text: Prose, heading: Prose) -> list[Prose] | None:
     return [heading, *body]
 
 
-def _missing(pair: SharedOpening, documents: Mapping[RelPath, Prose]) -> list[Prose]:
-    """One finding per document of the pair that is not a tracked document."""
+def _missing(
+    pair: SharedOpening, tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]
+) -> list[Prose]:
+    """One finding per document of the pair that is untracked or unread."""
     return [
-        Prose(f"{rel}: not tracked, so the opening {other} shares is uncheckable")
+        missing(rel, tracked, Prose(f"the opening {other} shares is uncheckable"))
         for rel, other in ((pair.first, pair.second), (pair.second, pair.first))
         if rel not in documents
     ]
@@ -121,17 +124,17 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
         Each finding names the repository-relative path of the document concerned.
 
     """
-    del root, tracked
+    del root
     out: list[Prose] = []
     for pair in PAIRS:
-        missing = _missing(pair, documents)
-        out.extend(missing)
-        if not missing:
+        absent = _missing(pair, tracked, documents)
+        out.extend(absent)
+        if not absent:
             out.extend(_compare(pair, documents))
     return out

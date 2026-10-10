@@ -209,7 +209,7 @@ def test_a_file_on_disk_that_git_does_not_track_is_a_broken_link(tmp_path: Path)
 def test_documents_carrying_no_link_are_a_finding(tmp_path: Path, link: Prose) -> None:
     """With nothing to resolve the scan holds nothing, which is reported."""
     repo = plant(tmp_path / "repo", {_GUIDE: Prose(f"# Guide\n\n{link}\n")})
-    assert _run(repo) == [Prose("README.md: no tracked document carries a link to resolve")]
+    assert _run(repo) == [Prose("README.md: no document read carries a link to resolve")]
 
 
 def test_a_scheme_after_a_no_break_space_is_a_link_to_resolve(tmp_path: Path) -> None:
@@ -218,3 +218,22 @@ def test_a_scheme_after_a_no_break_space_is_a_link_to_resolve(tmp_path: Path) ->
         tmp_path / "repo", {_GUIDE: Prose("# Guide\n\n[web](\u00a0https://example.com)\n")}
     )
     assert _run(repo) == [Prose(f"{_GUIDE}: broken link -> \u00a0https://example.com")]
+
+
+def test_a_linked_document_the_work_tree_lacks_is_named_and_still_resolves(tmp_path: Path) -> None:
+    """A tracked target the work tree lacks still resolves; the read names it, anchors unchecked."""
+    repo = _repo(tmp_path)
+    other = RelPath("docs/other.md")
+    (repo / other).unlink()
+    assert run_planted(findings, repo, absent={other}) == [
+        Prose(f"{other}: could not be read, so what it says is unchecked")
+    ]
+
+
+def test_every_document_the_work_tree_lacks_leaves_no_link(tmp_path: Path) -> None:
+    """With the one document unread there is nothing to resolve, which is reported."""
+    repo = plant(tmp_path / "repo", {RelPath("src/main.py"): Prose("print()\n")})
+    assert run_planted(findings, repo, absent={_GUIDE}) == [
+        Prose(f"{_GUIDE}: could not be read, so what it says is unchecked"),
+        Prose("README.md: no document read carries a link to resolve"),
+    ]

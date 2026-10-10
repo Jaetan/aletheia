@@ -157,7 +157,7 @@ def test_a_document_is_scanned_in_the_text_the_gate_read(tmp_path: Path) -> None
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nSee {RETIRED_DOCUMENT}.\n")
     tracked = tracked_paths(repo)
-    documents = read_documents(repo, tracked)
+    documents, _ = read_documents(repo, tracked)
     documents[RelPath("README.md")] = Prose(f"# Front door\n\nSee {RETIRED_DOCUMENT}.\n")
     assert findings(repo, tracked, documents) == [
         f"README.md: line 3 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
@@ -233,7 +233,7 @@ def test_a_tree_without_the_guide_is_a_finding(tmp_path: Path) -> None:
     """A tree with no building guide gives the scan nothing it expects."""
     repo = _repo(tmp_path)
     (repo / LEDGER).unlink()
-    assert _run(repo) == [f"{LEDGER}: is not tracked, the ledger has no home"]
+    assert _run(repo) == [f"{LEDGER}: not tracked, so the ledger's one home is unchecked"]
 
 
 def test_a_tracked_file_gone_from_the_worktree_is_a_finding(tmp_path: Path) -> None:
@@ -307,3 +307,14 @@ def test_the_section_may_be_the_guide_s_first_heading(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _ = (repo / LEDGER).write_text(f"{_SECTION_LINE}\nA table.\n", encoding="utf-8")
     assert _run(repo) == list[Prose]()
+
+
+def test_a_tracked_guide_the_work_tree_lacks_is_named_as_unread(tmp_path: Path) -> None:
+    """A guide git tracks and the work tree lacks is unread: its section and its lines unchecked."""
+    repo = _repo(tmp_path)
+    (repo / LEDGER).unlink()
+    assert run_planted(findings, repo, absent={LEDGER}) == [
+        f"{LEDGER}: could not be read, so what it says is unchecked",
+        f"{LEDGER}: could not be read, so the ledger's one home is unchecked",
+        f"{LEDGER}: could not be read, so its lines are unchecked",
+    ]

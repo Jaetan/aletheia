@@ -108,5 +108,23 @@ def test_a_tree_with_no_living_document_is_a_finding(tmp_path: Path) -> None:
     """With no living document the scan holds nothing, which is reported."""
     repo = plant(tmp_path / "repo", {RelPath("CHANGELOG.md"): _CLEAN})
     assert run_planted(findings, repo) == [
-        Prose("README.md: not tracked, and no other living document is")
+        Prose("README.md: no living document was read, so no label is checked")
+    ]
+
+
+def test_a_tracked_readme_the_work_tree_lacks_leaves_no_living_document(tmp_path: Path) -> None:
+    """A README git tracks and the work tree lacks, and no other living document, is a finding."""
+    repo = plant(tmp_path / "repo", {RelPath("src/main.py"): Prose("print()\n")})
+    assert run_planted(findings, repo, absent={RelPath("README.md")}) == [
+        Prose("README.md: could not be read, so what it says is unchecked"),
+        Prose("README.md: no living document was read, so no label is checked"),
+    ]
+
+
+def test_an_unread_readme_leaves_the_other_living_documents_checked(tmp_path: Path) -> None:
+    """A README the work tree lacks is named, and a guide under docs/ is still read for labels."""
+    repo = plant(tmp_path / "repo", {RelPath("docs/guide.md"): Prose("# Guide\n\n(PR C)\n")})
+    assert run_planted(findings, repo, absent={RelPath("README.md")}) == [
+        Prose("README.md: could not be read, so what it says is unchecked"),
+        Prose("docs/guide.md: internal PR label -> '(PR C)'"),
     ]

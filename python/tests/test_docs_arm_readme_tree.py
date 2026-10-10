@@ -92,7 +92,7 @@ def test_readme_without_a_tree_is_a_finding(tmp_path: Path, readme: Prose) -> No
 def test_untracked_readme_is_a_finding(tmp_path: Path) -> None:
     """A tree tracking no README.md is reported, not passed as agreeing."""
     repo = _repo(tmp_path, [RelPath("docs")], None)
-    assert _run(repo) == [Prose("README.md: not a tracked document")]
+    assert _run(repo) == [Prose("README.md: not tracked, so its project tree is unchecked")]
 
 
 def test_a_branch_drawn_as_a_path_lists_its_top_directory(tmp_path: Path) -> None:
@@ -148,4 +148,14 @@ def test_findings_come_listed_first_then_omitted_each_in_name_order(tmp_path: Pa
         Prose("README.md: the repository tracks lib/, which the tree omits"),
         Prose("README.md: the repository tracks tools/, which the tree omits"),
         Prose("README.md: the repository tracks zeta/, which the tree omits"),
+    ]
+
+
+def test_a_tracked_readme_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A README git tracks and the work tree lacks is named as unread, never as untracked."""
+    repo = _repo(tmp_path, [RelPath("docs")], None)
+    readme = RelPath("README.md")
+    assert run_planted(findings, repo, absent={readme}) == [
+        Prose(f"{readme}: could not be read, so what it says is unchecked"),
+        Prose(f"{readme}: could not be read, so its project tree is unchecked"),
     ]

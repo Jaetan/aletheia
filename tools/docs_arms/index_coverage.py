@@ -17,6 +17,7 @@ import re
 from typing import TYPE_CHECKING
 
 from tools._common import RelPath
+from tools.docs_arms import missing
 
 from aletheia.common_types import Prose
 
@@ -73,20 +74,20 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
         A finding naming the index for each unnamed document, in the order of
-        ``documents``; one finding when the index is not tracked or when no
-        document is in scope, since a scan over nothing holds nothing.
+        ``documents``; one finding when the index is untracked or unread, or when no
+        document read is in scope, since a scan over nothing holds nothing.
 
     """
-    del root, tracked
+    del root
     if INDEX not in documents:
-        return [Prose(f"{INDEX}: not tracked, so no index names the documents")]
+        return [missing(INDEX, tracked, Prose("whether it names every document is unchecked"))]
     in_scope_docs = [rel for rel in documents if in_scope(rel)]
     if not in_scope_docs:
-        return [Prose(f"{INDEX}: no tracked document under docs/ or AGENTS/ to check against it")]
+        return [Prose(f"{INDEX}: no document read under docs/ or AGENTS/ to check against it")]
     index_text = documents[INDEX]
     return [
         Prose(f"{INDEX}: does not name {rel}")

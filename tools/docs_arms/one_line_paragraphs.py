@@ -20,7 +20,7 @@ import re
 from typing import TYPE_CHECKING
 
 from tools._common import RelPath, prose_lines
-from tools.docs_arms import ATX_OPEN
+from tools.docs_arms import ATX_OPEN, missing
 
 from aletheia.common_types import Prose
 
@@ -102,10 +102,11 @@ def findings(
 ) -> list[Prose]:
     """Return the arm's findings over the tracked documents under ``root``.
 
-    ``tracked`` is every tracked path; ``documents`` every tracked Markdown file's
-    text, by its repo-relative path. Only the subject is read; its absence is a finding.
+    ``tracked`` is every tracked path; ``documents`` each tracked Markdown file's text
+    the work tree gives, by repo-relative path. Only the subject is read; its absence
+    is a finding.
     """
-    del root, tracked
+    del root
     if SUBJECT not in documents:
-        return [Prose(f"{SUBJECT}: not among the tracked documents")]
+        return [missing(SUBJECT, tracked, Prose("its paragraphs are unchecked"))]
     return paragraph_findings(SUBJECT, documents[SUBJECT])

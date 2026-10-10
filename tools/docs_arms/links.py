@@ -17,7 +17,8 @@ document's anchors, compared without case: a heading's GitHub slug, suffixed
 other file is not checked. A link's title is not part of its target, and a link
 with a scheme (``http://``, ``https://``, ``mailto:``, ``tel:``), a ``#!`` route
 or an ``<...>`` autolink is not resolved. A tree whose documents carry no link
-to resolve is a finding, the scan holding nothing.
+to resolve is a finding, the scan holding nothing. An anchor into a document the
+work tree cannot give goes unchecked here: the gate names that document as unread.
 """
 
 from __future__ import annotations
@@ -99,7 +100,7 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
         The findings, each naming the document that holds the link.
@@ -111,7 +112,7 @@ def findings(
     }
     found = [(rel, link) for rel, text in documents.items() for link in links(rel, text)]
     if not any(not link.startswith(_UNRESOLVED) for _, link in found):
-        return [Prose("README.md: no tracked document carries a link to resolve")]
+        return [Prose("README.md: no document read carries a link to resolve")]
     return [
         finding
         for rel, link in found

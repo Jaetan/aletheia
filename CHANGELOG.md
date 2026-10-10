@@ -1961,6 +1961,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The documentation gate names a tracked file the work tree lacks instead of
+  stopping.** A path git tracks and the work tree does not hold, deleted and not
+  yet staged, stopped the gate with a traceback: in its read of the Markdown
+  documents, and in the arms reading the Go fuzz targets and every workflow and
+  tool, the shim, the Shakefile, the C++ build file and every ignore file, the
+  Python manifest, and the benchmark schema, residency test and baselines. Every
+  read of a tracked file now goes through one read in
+  `tools/docs_arms/__init__.py`, which returns the file's bytes, or its text, or
+  the finding `<path>: could not be read, so <what goes unchecked>`, and a byte
+  that is not UTF-8 reads as U+FFFD in every source, the manifest, schema,
+  baselines and residency test among them. An arm needing a document the read
+  could not give said it was not tracked; every arm now words a file it needs
+  and has no text of one way, `<path>: not tracked, so ...` or `<path>: could
+  not be read, so ...`. An ignore file or a baseline the work tree lacks ends
+  its arm's comparison, since the rules or measurements left would answer for
+  the whole set; the ignore files are still asked as their bytes, so a carriage
+  return git keeps inside a line stays in it. `phase_word` reads every
+  document's word for the current phase when the pitch is untracked or unread,
+  where it stopped at the pitch, and `section_citations` reads a cited target
+  under the path git tracks, never a symlink's destination.
+
 - **The documentation gate reads the links, citations and figures it misread,
   and every recorded mutant of its arms is killed.** Of the 562 mutants recorded
   over the gate's 16 arms, 86 survived the tests; each is now killed by a test,

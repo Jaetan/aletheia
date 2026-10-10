@@ -195,7 +195,7 @@ def test_pitch_silent_about_the_phase(tmp_path: Path) -> None:
 def test_pitch_missing(tmp_path: Path) -> None:
     """A tree without the pitch is a finding."""
     found = _findings(tmp_path, {RelPath("PROJECT_STATUS.md"): _TABLE})
-    assert found == [Prose("docs/PITCH.md: not a tracked document")]
+    assert found == [Prose("docs/PITCH.md: not tracked, so its word for phase 6 is unchecked")]
 
 
 def test_no_phase_table(tmp_path: Path) -> None:
@@ -210,7 +210,7 @@ def test_no_phase_table(tmp_path: Path) -> None:
 def test_status_document_missing(tmp_path: Path) -> None:
     """A tree without the status document holds nothing, so the scan reports it."""
     found = _findings(tmp_path, {RelPath("docs/PITCH.md"): _PITCH})
-    assert found == [Prose("PROJECT_STATUS.md: not a tracked document")]
+    assert found == [Prose("PROJECT_STATUS.md: not tracked, so no current phase is read")]
 
 
 def test_several_open_phases(tmp_path: Path) -> None:
@@ -262,4 +262,35 @@ def test_the_word_is_its_run_of_letters_and_spaces(
     )
     assert found == [
         Prose(f"docs/OTHER.md: says phase 6 is {word!r}; the table says 'in progress'")
+    ]
+
+
+def test_a_tracked_pitch_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A pitch git tracks and the work tree lacks is named as unread, never as untracked."""
+    repo = plant(tmp_path / "repo", {RelPath("PROJECT_STATUS.md"): _TABLE})
+    assert run_planted(findings, repo, absent={RelPath("docs/PITCH.md")}) == [
+        Prose("docs/PITCH.md: could not be read, so what it says is unchecked"),
+        Prose("docs/PITCH.md: could not be read, so its word for phase 6 is unchecked"),
+    ]
+
+
+def test_a_tracked_status_document_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A status document git tracks and the work tree lacks gives no current phase."""
+    repo = plant(tmp_path / "repo", {RelPath("docs/PITCH.md"): _PITCH})
+    assert run_planted(findings, repo, absent={RelPath("PROJECT_STATUS.md")}) == [
+        Prose("PROJECT_STATUS.md: could not be read, so what it says is unchecked"),
+        Prose("PROJECT_STATUS.md: could not be read, so no current phase is read"),
+    ]
+
+
+def test_an_unread_pitch_leaves_every_other_document_checked(tmp_path: Path) -> None:
+    """A pitch the work tree lacks is named, and another document's word is still held."""
+    other = Prose("# Guide\n\nPhase 6 is planned.\n")
+    repo = plant(
+        tmp_path / "repo", {RelPath("PROJECT_STATUS.md"): _TABLE, RelPath("docs/guide.md"): other}
+    )
+    assert run_planted(findings, repo, absent={RelPath("docs/PITCH.md")}) == [
+        Prose("docs/PITCH.md: could not be read, so what it says is unchecked"),
+        Prose("docs/PITCH.md: could not be read, so its word for phase 6 is unchecked"),
+        Prose("docs/guide.md: says phase 6 is 'planned'; the table says 'in progress'"),
     ]

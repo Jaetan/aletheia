@@ -3,8 +3,9 @@
 """The documentation gate: every claim the tracked documents make about the tree, one arm each.
 
 The gate reads every tracked Markdown file once and runs each arm under
-``tools/docs_arms/`` over the same texts; it fails (exit 1) when any arm has a
-finding. ``ARMS`` registers every arm module, and each holds one claim:
+``tools/docs_arms/`` over the same texts; it fails (exit 1) when a tracked
+document cannot be read or any arm has a finding. ``ARMS`` registers every arm
+module, and each holds one claim:
 
 * ``links``: every relative link and anchor resolves in a fresh checkout;
 * ``labels``: no living document carries a transient label or a link into the
@@ -53,6 +54,7 @@ from typing import TYPE_CHECKING
 
 from tools._common import MARKDOWN_SUFFIXES, RelPath, emit, git_ls_files
 from tools.docs_arms import (
+    Unread,
     ffi_symbols,
     fuzz_targets,
     ignored_build_trees,
@@ -61,6 +63,7 @@ from tools.docs_arms import (
     links,
     one_line_paragraphs,
     phase_word,
+    read_tracked,
     readme_extras,
     readme_tree,
     retired_document,
@@ -101,17 +104,26 @@ ARMS: tuple[Arm, ...] = (
 )
 
 
-def read_documents(root: Path, tracked: Sequence[RelPath]) -> dict[RelPath, Prose]:
+def read_documents(
+    root: Path, tracked: Sequence[RelPath]
+) -> tuple[dict[RelPath, Prose], list[Prose]]:
     """Return the text of every tracked Markdown file under ``root``, read once for every arm.
 
     A byte that is not UTF-8 reads as U+FFFD, so one such document is checked
-    like any other rather than stopping the gate.
+    like any other rather than stopping the gate.  A document the work tree
+    cannot give is left out of the texts and named in the findings returned
+    beside them, both in the order of ``tracked``.
     """
-    return {
-        rel: Prose((root / rel).read_text(encoding="utf-8", errors="replace"))
-        for rel in tracked
-        if Path(rel).suffix in MARKDOWN_SUFFIXES
-    }
+    texts: dict[RelPath, Prose] = {}
+    unread: list[Prose] = []
+    for rel in tracked:
+        if Path(rel).suffix in MARKDOWN_SUFFIXES:
+            match read_tracked(root, rel, Prose("what it says is unchecked")):
+                case Unread(finding):
+                    unread.append(finding)
+                case text:
+                    texts[rel] = text
+    return texts, unread
 
 
 def check_tree(
@@ -122,10 +134,11 @@ def check_tree(
 
 
 def main(argv: list[str] | None = None) -> ExitStatus:
-    """Run every arm over the repository; 1 (listing the findings) when any has one, else 0."""
+    """Run every arm over the repository; exit 1 listing the findings when there are any, else 0."""
     argparse.ArgumentParser(description=__doc__).parse_args(argv)  # no options; --help only
     tracked = git_ls_files(REPO)
-    findings = check_tree(REPO, tracked, read_documents(REPO, tracked))
+    documents, unread = read_documents(REPO, tracked)
+    findings = [*unread, *check_tree(REPO, tracked, documents)]
     if findings:
         emit(f"check_docs: {len(findings)} documentation defect(s):")
         for finding in findings:

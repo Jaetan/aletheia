@@ -129,7 +129,7 @@ def test_guide_absent_is_a_finding(tmp_path: Path) -> None:
     """A tree without the guide gives the arm nothing to check, which it reports."""
     repo = _repo(tmp_path, None)
     assert _findings(repo) == [
-        Prose(f"{GUIDE}: not among the tracked documents; the arm checks nothing")
+        Prose(f"{GUIDE}: not tracked, so the tree paths it names are unchecked")
     ]
 
 
@@ -209,4 +209,12 @@ def test_only_a_directory_named_build_is_a_build_output() -> None:
         RelPath("tools/rebuild/x.py"),
         RelPath("cpp/prebuild"),
         RelPath("tools/build.py"),
+    ]
+
+
+def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A guide git tracks and the work tree lacks is named as unread, never as untracked."""
+    assert run_planted(findings, _repo(tmp_path, None), absent={GUIDE}) == [
+        Prose(f"{GUIDE}: could not be read, so what it says is unchecked"),
+        Prose(f"{GUIDE}: could not be read, so the tree paths it names are unchecked"),
     ]
