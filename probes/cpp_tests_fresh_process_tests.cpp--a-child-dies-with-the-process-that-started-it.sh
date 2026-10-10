@@ -23,6 +23,7 @@ for bin in cpp/build/fresh_process_tests cpp/build/rts_heap_cap_tests; do
     [ -x "$bin" ] || { echo "$bin is not built: build cpp/build first"; exit 2; }
 done
 exec "$py" - << 'PY'
+import contextlib
 import os
 import signal
 import subprocess
@@ -55,10 +56,14 @@ def holders(fifo):
 
 
 def ending(pid):
-    """True when ``pid`` is gone, a zombie, or has SIGKILL pending."""
+    """True when ``pid`` is gone, a zombie, or has SIGKILL pending.
+
+    A process gone before the open raises FileNotFoundError; one gone between the open and the read
+    raises ProcessLookupError. Either is gone.
+    """
     try:
         status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return True
     fields = dict(line.split(":\t", 1) for line in status.splitlines() if ":\t" in line)
     if fields.get("State", "").startswith(("Z", "X")):
@@ -79,7 +84,8 @@ def case(label, argv):
         parent.wait()
         orphans = [pid for pid in held if not ending(pid)]
         for pid in orphans:
-            os.kill(pid, signal.SIGKILL)
+            with contextlib.suppress(ProcessLookupError):  # it may end between the check and the kill
+                os.kill(pid, signal.SIGKILL)
         os.close(writer)
     if not held:
         print(f"{label}: no child held the library open, so nothing was shown")
