@@ -12,9 +12,9 @@ is held to the keys of ``[project.optional-dependencies]`` in
 loader that exists.  Fences are read too, since that is where the install
 commands sit.
 
-A manifest that is not tracked or defines no extra is a finding, and so is a
-set of READMEs that names no extra at all: either leaves the claim with
-nothing to hold.
+A manifest that is untracked, unread or defines no extra is a finding, and so
+is a set of READMEs that names no extra at all: either leaves the claim with
+nothing to hold.  A byte of the manifest that is not UTF-8 reads as U+FFFD.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from tools._common import RelPath
+from tools.docs_arms import Unread, missing, read_tracked
 
 from aletheia.common_types import Prose
 
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 
 _MANIFEST = RelPath("python/pyproject.toml")
 _ROOT_README = RelPath("README.md")
+_EXTRAS_UNCHECKED = Prose("the extras the READMEs name cannot be held")
 
 # The extras a bracket holds: names, commas and spaces, with one name character at
 # least.  A list is read with any commas it holds, so a stray one names an empty
@@ -52,9 +54,9 @@ class _Manifest(TypedDict, total=False):
     project: _Project
 
 
-def defined_extras(manifest: Path) -> set[Prose]:
-    """Return the extras ``manifest`` defines under ``[project.optional-dependencies]``."""
-    data = cast("_Manifest", tomllib.loads(manifest.read_text(encoding="utf-8")))
+def defined_extras(manifest: Prose) -> set[Prose]:
+    """Return the keys of ``[project.optional-dependencies]`` in the manifest text ``manifest``."""
+    data = cast("_Manifest", tomllib.loads(manifest))
     return set(data.get("project", {}).get("optional-dependencies", {}))
 
 
@@ -72,18 +74,21 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
         A finding per undefined extra, naming the README and the extra, the
         READMEs in the order of ``documents`` and each one's extras in name
-        order; one finding when the manifest is missing or defines no extra;
+        order; one finding when the manifest is untracked, unread or defines no extra;
         one when no README names an extra.
 
     """
     if _MANIFEST not in tracked:
-        return [Prose(f"{_MANIFEST}: not tracked, so the extras the READMEs name cannot be held")]
-    defined = defined_extras(root / _MANIFEST)
+        return [missing(_MANIFEST, tracked, _EXTRAS_UNCHECKED)]
+    manifest = read_tracked(root, _MANIFEST, _EXTRAS_UNCHECKED)
+    if isinstance(manifest, Unread):
+        return [manifest.finding]
+    defined = defined_extras(manifest)
     if not defined:
         return [Prose(f"{_MANIFEST}: defines no extra under [project.optional-dependencies]")]
     out: list[Prose] = []
@@ -99,6 +104,6 @@ def findings(
         )
     if not named_anywhere:
         out.append(
-            Prose(f"{_ROOT_README}: no README names a pip extra; no install sentence is left")
+            Prose(f"{_ROOT_README}: no README read names a pip extra; no install sentence is left")
         )
     return out

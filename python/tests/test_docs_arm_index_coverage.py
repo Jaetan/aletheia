@@ -91,14 +91,16 @@ def test_a_tree_with_no_document_in_scope_is_a_finding(tmp_path: Path) -> None:
     """An index with nothing to name is not a pass: the scan found nothing it expects."""
     repo = _repo(tmp_path, {INDEX: Prose("# Index\n"), RelPath("README.md"): Prose("# Root\n")})
     assert _run(repo) == [
-        Prose("docs/INDEX.md: no tracked document under docs/ or AGENTS/ to check against it")
+        Prose("docs/INDEX.md: no document read under docs/ or AGENTS/ to check against it")
     ]
 
 
 def test_an_untracked_index_is_a_finding(tmp_path: Path) -> None:
     """A tree whose index is not tracked has no index naming its documents."""
     repo = _repo(tmp_path, dict(_DOCS))
-    assert _run(repo) == [Prose("docs/INDEX.md: not tracked, so no index names the documents")]
+    assert _run(repo) == [
+        Prose("docs/INDEX.md: not tracked, so whether it names every document is unchecked")
+    ]
 
 
 def test_scope_is_docs_agents_and_the_root_standards_file() -> None:
@@ -147,4 +149,23 @@ def test_findings_follow_the_order_of_the_documents(tmp_path: Path) -> None:
         Prose("docs/INDEX.md: does not name AGENTS/python.md"),
         Prose("docs/INDEX.md: does not name docs/architecture/DESIGN.md"),
         Prose("docs/INDEX.md: does not name AGENTS.md"),
+    ]
+
+
+def test_a_tracked_index_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """An index git tracks and the work tree lacks is named as unread, never as untracked."""
+    repo = _repo(tmp_path, _DOCS)
+    assert run_planted(findings, repo, absent={INDEX}) == [
+        Prose(f"{INDEX}: could not be read, so what it says is unchecked"),
+        Prose(f"{INDEX}: could not be read, so whether it names every document is unchecked"),
+    ]
+
+
+def test_an_unread_document_in_scope_leaves_none_read(tmp_path: Path) -> None:
+    """A document under docs/ the work tree lacks is named by the read; none is left to check."""
+    repo = _repo(tmp_path, {INDEX: Prose("# Index\n")})
+    gone = RelPath("docs/architecture/DESIGN.md")
+    assert run_planted(findings, repo, absent={gone}) == [
+        Prose(f"{gone}: could not be read, so what it says is unchecked"),
+        Prose(f"{INDEX}: no document read under docs/ or AGENTS/ to check against it"),
     ]

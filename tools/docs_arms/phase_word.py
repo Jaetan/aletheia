@@ -10,7 +10,9 @@ tracked document carries it.  The pitch must carry the sentence.  A line whose
 first characters other than whitespace are three backticks or three tildes
 toggles fenced code, and no table row or sentence inside fenced code is read.
 A status document without a table, or a table with no open row or several,
-holds no current phase, and the arm reports that rather than passing on nothing.
+holds no current phase, and the arm reports that rather than passing on nothing;
+so does a status document untracked or unread, and nothing else is then checked.
+A pitch untracked or unread is a finding, and every other document is still read.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ import re
 from typing import TYPE_CHECKING, NamedTuple
 
 from tools._common import RelPath, prose_lines
+from tools.docs_arms import missing
 
 from aletheia.common_types import Prose
 
@@ -80,28 +83,32 @@ def _words(rel: RelPath, text: Prose, label: Prose) -> list[Prose]:
 def findings(
     root: Path, tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]
 ) -> list[Prose]:
-    """Return one finding per disagreement with the phase table, or per document it cannot read.
+    """Return one finding per disagreement with the phase table and per needed document it lacks.
+
+    Without the status document there is no table, so that document's finding is the only one.
 
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
         The findings, each naming the document concerned; none when the table
         names one current phase and every sentence about it uses the table's word.
 
     """
-    del root, tracked
+    del root
     if STATUS not in documents:
-        return [Prose(f"{STATUS}: not a tracked document")]
+        return [missing(STATUS, tracked, Prose("no current phase is read"))]
     current = _current_phase(documents[STATUS])
     if not isinstance(current, _Phase):
         return [current]
-    if PITCH not in documents:
-        return [Prose(f"{PITCH}: not a tracked document")]
     word = current.status.lower()
     out: list[Prose] = []
+    if PITCH not in documents:
+        out.append(
+            missing(PITCH, tracked, Prose(f"its word for phase {current.label} is unchecked"))
+        )
     for rel, text in documents.items():
         words = _words(rel, text, current.label)
         if rel == PITCH and not words:

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
 from tools._common import RelPath
-from tools.docs_arms import headings
+from tools.docs_arms import Unread, headings, missing, read_tracked
 
 from aletheia.common_types import Prose
 
@@ -38,10 +38,10 @@ _SELF = Path(__file__).resolve()
 LineNumber = NewType("LineNumber", int)
 
 
-def _ledger_findings(documents: Mapping[RelPath, Prose]) -> list[Prose]:
-    """Return the findings about the guide: untracked, or without the ledger's section."""
+def _ledger_findings(tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]) -> list[Prose]:
+    """Return the findings about the guide: untracked, unread, or without the ledger's section."""
     if LEDGER not in documents:
-        return [Prose(f"{LEDGER}: is not tracked, the ledger has no home")]
+        return [missing(LEDGER, tracked, Prose("the ledger's one home is unchecked"))]
     if LEDGER_SECTION not in headings(documents[LEDGER]):
         return [Prose(f"{LEDGER}: has no {LEDGER_SECTION} section, the ledger's one home")]
     return []
@@ -56,10 +56,9 @@ def _mention_findings(root: Path, rel: RelPath, documents: Mapping[RelPath, Pros
     """
     text = documents.get(rel)
     if text is None:
-        try:
-            text = Prose((root / rel).read_text(encoding="utf-8", errors="replace"))
-        except OSError:
-            return [Prose(f"{rel}: could not be read, so its lines are unchecked")]
+        text = read_tracked(root, rel, Prose("its lines are unchecked"))
+        if isinstance(text, Unread):
+            return [text.finding]
     numbers: dict[LineNumber, None] = {}
     line, counted = 1, 0
     for mention in _NAMES_RETIRED.finditer(text):
@@ -75,14 +74,16 @@ def _mention_findings(root: Path, rel: RelPath, documents: Mapping[RelPath, Pros
 def findings(
     root: Path, tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]
 ) -> list[Prose]:
-    """Return the findings over the tree at ``root``, one per defect, each naming its file.
+    """Return the findings over the tree at ``root``, each naming its file.
+
+    One finding per defect, and one per claim a file the work tree cannot give leaves unchecked.
 
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path; any
-            other tracked file is read from ``root``, since the claim covers every one,
-            a byte that is not UTF-8 not stopping the read.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative
+            path; any other tracked file is read from ``root``, since the claim covers
+            every one, a byte that is not UTF-8 not stopping the read.
 
     Returns:
         The findings, empty when the ledger has its one home and nothing else names
@@ -90,7 +91,7 @@ def findings(
 
     """
     own = RelPath(_SELF.relative_to(root).as_posix()) if _SELF.is_relative_to(root) else None
-    found = _ledger_findings(documents)
+    found = _ledger_findings(tracked, documents)
     found.extend(
         Prose(f"{rel}: is tracked, a second home for the ledger beside {LEDGER}")
         for rel in tracked

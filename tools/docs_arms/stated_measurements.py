@@ -13,6 +13,11 @@ with it, and so is a baseline set or a table with nothing in it to compare. The
 sentence on what the committed files lack is held to the files both ways, and a
 Go, Python or rustc version stated outside code to the release every baseline's
 ``system`` object records for that runtime, an object the document must name.
+A baseline the work tree cannot give is named in a finding of its own and ends
+the comparison, since the set left would answer for the whole of it; once a
+baseline is read, so is a schema or a residency test the comparison consults that
+is untracked or that the work tree cannot give.  A source byte that is not UTF-8
+reads as U+FFFD.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from typing import TYPE_CHECKING, Annotated, NamedTuple, NotRequired, TypedDict,
 import yaml
 
 from tools._common import RelPath, prose_lines
+from tools.docs_arms import Unread, missing, read_tracked
 
 from aletheia.common_types import Gt, PositiveInt, Prose
 
@@ -53,6 +59,9 @@ _RESIDENCY_SENTENCE = re.compile(
 )
 _SPREAD_BOUND = re.compile(r"standard deviation exceeds (\d*\.?\d+)% of its mean")
 _VERSION = re.compile(r"\d+(?:\.\d+)+")
+_MEASUREMENTS_UNCHECKED = Prose(f"the measurements {_DOCUMENT} states are unchecked")
+_ROSTER_UNCHECKED = Prose(f"the baseline roster {_DOCUMENT} states is unchecked")
+_RESIDENCY_UNCHECKED = Prose(f"the residency sentence of {_DOCUMENT} is unchecked")
 
 # The table's column titles, less their unit, and the binding each names.
 _COLUMNS: dict[Prose, Prose] = {
@@ -185,13 +194,25 @@ def _section(doc: Prose, heading: Prose) -> Prose | None:
     return Prose("\n".join(body))
 
 
-def _baselines(root: Path, tracked: frozenset[RelPath]) -> dict[RelPath, _Baseline]:
-    """Load every committed baseline the tracked set names, keyed by its path."""
+def _of_document(items: Sequence[Prose]) -> list[Prose]:
+    """Return each of ``items``, a finding about the document, naming the document."""
+    return [Prose(f"{_DOCUMENT}: {item}") for item in items]
+
+
+def _baselines(
+    root: Path, tracked: frozenset[RelPath]
+) -> tuple[dict[RelPath, _Baseline], list[Prose]]:
+    """Load every committed baseline the tracked set names, by its path; name each one unread."""
     loaded: dict[RelPath, _Baseline] = {}
+    unread: list[Prose] = []
     for rel in sorted(tracked):
         if _BASELINE.match(rel):
-            loaded[rel] = cast("_Baseline", json.loads((root / rel).read_text(encoding="utf-8")))
-    return loaded
+            match read_tracked(root, rel, _MEASUREMENTS_UNCHECKED):
+                case Unread(finding):
+                    unread.append(finding)
+                case text:
+                    loaded[rel] = cast("_Baseline", json.loads(text))
+    return loaded, unread
 
 
 def _throughput_lanes(baselines: dict[RelPath, _Baseline]) -> tuple[Lanes, list[Prose]]:
@@ -457,9 +478,9 @@ def _int_value(node: ast.expr) -> PositiveInt | None:
     return None
 
 
-def _residency(root: Path) -> _Residency | None:
-    """Read the residency test's budget and frame counts from its source; None when gone."""
-    module = ast.parse((root / _RESIDENCY_TEST).read_text(encoding="utf-8"))
+def _residency(source: Prose) -> _Residency | None:
+    """Read the residency test's budget and frame counts from its ``source``; None when gone."""
+    module = ast.parse(source)
     named: dict[Prose, ast.expr] = {}
     for node in ast.walk(module):
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value:
@@ -511,15 +532,16 @@ def _latency_findings(doc: Prose, baselines: dict[RelPath, _Baseline]) -> list[P
 def _residency_findings(doc: Prose, root: Path, tracked: frozenset[RelPath]) -> list[Prose]:
     """Hold the residency sentence's frame count and budget to the test that asserts them."""
     if _RESIDENCY_TEST not in tracked:
-        return [
-            Prose(f"{_RESIDENCY_TEST} is not tracked, so the residency sentence goes unchecked")
-        ]
-    residency = _residency(root)
+        return [missing(_RESIDENCY_TEST, tracked, _RESIDENCY_UNCHECKED)]
+    source = read_tracked(root, _RESIDENCY_TEST, _RESIDENCY_UNCHECKED)
+    if isinstance(source, Unread):
+        return [source.finding]
+    residency = _residency(source)
     if residency is None:
-        return [Prose(f"{_RESIDENCY_TEST} no longer names its budget and its cases")]
+        return _of_document([Prose(f"{_RESIDENCY_TEST} no longer names its budget and its cases")])
     match = _RESIDENCY_SENTENCE.search(doc)
     if match is None:
-        return [Prose("no longer states a residency budget over a frame count")]
+        return _of_document([Prose("no longer states a residency budget over a frame count")])
     out: list[Prose] = []
     frames = int(match.group(1).replace(",", ""))
     if frames not in residency.frame_counts:
@@ -528,7 +550,20 @@ def _residency_findings(doc: Prose, root: Path, tracked: frozenset[RelPath]) -> 
     if float(match.group(2)) != residency.budget_mib:
         budget = f"{residency.budget_mib:.0f}"
         out.append(Prose(f"states a {match.group(2)} MiB budget, the test asserts {budget} MiB"))
-    return out
+    return _of_document(out)
+
+
+def _schema_findings(
+    root: Path, tracked: frozenset[RelPath], local: Prose, baselines: dict[RelPath, _Baseline]
+) -> list[Prose]:
+    """Hold the Local baselines section to the schema, or name it untracked or unread."""
+    if _SCHEMA not in tracked:
+        return [missing(_SCHEMA, tracked, _ROSTER_UNCHECKED)]
+    text = read_tracked(root, _SCHEMA, _ROSTER_UNCHECKED)
+    if isinstance(text, Unread):
+        return [text.finding]
+    schema = cast("_Schema", yaml.safe_load(text))
+    return _of_document(_roster_findings(local, baselines, schema))
 
 
 def _same_release(stated: Prose, recorded: Prose) -> bool:
@@ -571,35 +606,32 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
-        The findings, each naming the document; empty when every stated measurement holds.
+        The findings, each naming the document, or a source untracked or unread; empty
+        when every stated measurement holds.
 
     """
     if _DOCUMENT not in documents:
-        return [
-            Prose(f"{_DOCUMENT}: not among the tracked documents, so nothing it states is checked")
-        ]
+        return [missing(_DOCUMENT, tracked, Prose("nothing it states is checked"))]
     doc = documents[_DOCUMENT]
     tracked_set = frozenset(tracked)
-    baselines = _baselines(root, tracked_set)
+    baselines, unread = _baselines(root, tracked_set)
+    if unread:
+        return unread
     if not baselines:
-        return [
-            Prose(f"{_DOCUMENT}: no committed baseline under benchmarks/results/ to compare with")
-        ]
-    what = _canonical_table(doc, baselines)
+        return _of_document(
+            [Prose("no committed baseline under benchmarks/results/ to compare with")]
+        )
+    out = _of_document(_canonical_table(doc, baselines))
     local = _section(doc, _LOCAL)
     if local is None:
-        what.append(Prose(f"has no {_LOCAL_NAME} section"))
+        out.extend(_of_document([Prose(f"has no {_LOCAL_NAME} section")]))
     else:
-        if _SCHEMA in tracked_set:
-            schema = cast("_Schema", yaml.safe_load((root / _SCHEMA).read_text(encoding="utf-8")))
-            what.extend(_roster_findings(local, baselines, schema))
-        else:
-            what.append(Prose(f"{_SCHEMA} is not tracked, so the baseline roster goes unchecked"))
-        what.extend(_lacking_findings(local, baselines))
-    what.extend(_latency_findings(doc, baselines))
-    what.extend(_residency_findings(doc, root, tracked_set))
-    what.extend(_toolchain_findings(doc, baselines))
-    return [Prose(f"{_DOCUMENT}: {item}") for item in what]
+        out.extend(_schema_findings(root, tracked_set, local, baselines))
+        out.extend(_of_document(_lacking_findings(local, baselines)))
+    out.extend(_of_document(_latency_findings(doc, baselines)))
+    out.extend(_residency_findings(doc, root, tracked_set))
+    out.extend(_of_document(_toolchain_findings(doc, baselines)))
+    return out

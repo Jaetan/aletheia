@@ -134,7 +134,9 @@ def test_a_shakefile_defining_no_phony_target_is_a_finding(tmp_path: Path) -> No
 def test_an_untracked_shakefile_is_a_finding(tmp_path: Path) -> None:
     """Without a tracked Shakefile, no target a document names can be checked."""
     repo = _repo(tmp_path, {GUIDE: GUIDE_NAMING_BUILD})
-    assert _scan(repo) == [Prose("Shakefile.hs: not a tracked file")]
+    assert _scan(repo) == [
+        Prose("Shakefile.hs: not tracked, so the shake targets the documents name are unchecked")
+    ]
 
 
 def test_a_target_with_a_digit_the_shakefile_defines_is_clean(tmp_path: Path) -> None:
@@ -189,4 +191,31 @@ def test_a_guide_showing_no_command_is_reported_after_every_document(tmp_path: P
     assert findings(root, [SHAKEFILE, *documents], documents) == [
         Prose("docs/z.md: names a shake target Shakefile.hs does not define: deploy"),
         Prose("docs/development/BUILDING.md: shows no cabal run shake command"),
+    ]
+
+
+def test_a_tracked_shakefile_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A Shakefile git tracks and the work tree lacks leaves no target to check against."""
+    repo = _repo(tmp_path, {GUIDE: GUIDE_NAMING_BUILD})
+    assert run_planted(findings, repo, absent={SHAKEFILE}) == [
+        Prose(
+            "Shakefile.hs: could not be read, so the shake targets the documents name are unchecked"
+        )
+    ]
+
+
+def test_a_tracked_guide_the_work_tree_lacks_is_named_as_unread(tmp_path: Path) -> None:
+    """A guide git tracks and the work tree lacks is unread, not a guide showing no command."""
+    repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, README: README_NAMING_CLEAN})
+    assert run_planted(findings, repo, absent={GUIDE}) == [
+        Prose(f"{GUIDE}: could not be read, so what it says is unchecked"),
+        Prose(f"{GUIDE}: could not be read, so the shake commands it keeps are unchecked"),
+    ]
+
+
+def test_an_untracked_guide_is_named_as_untracked(tmp_path: Path) -> None:
+    """A tree without the guide reports the guide untracked, not showing no command."""
+    repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, README: README_NAMING_CLEAN})
+    assert _scan(repo) == [
+        Prose(f"{GUIDE}: not tracked, so the shake commands it keeps are unchecked")
     ]

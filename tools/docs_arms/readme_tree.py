@@ -6,8 +6,9 @@ A curated tree reads as the whole shape of the project and goes stale silently
 when a directory is added or removed, so the tree block opening ``aletheia/`` is
 compared with the first path component of every tracked file: a directory the
 tree lists and the repository does not track is a finding, as is a tracked
-directory the tree omits. A README printing no tree, or a repository tracking
-no README, is a finding too, so the scan never passes for want of a subject.
+directory the tree omits. A README printing no tree, untracked, or that the
+work tree cannot give, is a finding too, so the scan never passes for want of a
+subject.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import re
 from typing import TYPE_CHECKING
 
 from tools._common import RelPath
+from tools.docs_arms import missing
 
 from aletheia.common_types import Prose
 
@@ -49,18 +51,18 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, repo-relative, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
         A finding for each directory listed but untracked, each tracked but
-        unlisted, a README without a tree, or no tracked README at all. The
+        unlisted, a README without a tree, or a README untracked or unread. The
         untracked listed ones come first, then the unlisted tracked ones, each
         in name order.
 
     """
     del root
     if README not in documents:
-        return [Prose(f"{README}: not a tracked document")]
+        return [missing(README, tracked, Prose("its project tree is unchecked"))]
     listed = _listed(documents[README])
     if listed is None:
         return [Prose(f"{README}: prints no project tree")]

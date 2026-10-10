@@ -92,7 +92,7 @@ def test_nested_readme_is_scanned(tmp_path: Path) -> None:
 def test_no_extra_named_anywhere_is_a_finding(tmp_path: Path) -> None:
     """A set of READMEs naming no extra leaves the claim nothing to hold."""
     assert _run(_repo(tmp_path, _NO_EXTRA_README)) == [
-        Prose("README.md: no README names a pip extra; no install sentence is left")
+        Prose("README.md: no README read names a pip extra; no install sentence is left")
     ]
 
 
@@ -216,4 +216,32 @@ def test_readmes_are_read_in_the_order_of_the_documents(tmp_path: Path) -> None:
     assert findings(repo, tracked, documents) == [
         _undefined(nested, Prose("excel")),
         _undefined(top, Prose("gps")),
+    ]
+
+
+def test_a_tracked_manifest_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A manifest git tracks and the work tree lacks holds no extra the names could match."""
+    repo = _repo(tmp_path, _CLEAN_README)
+    manifest = RelPath("python/pyproject.toml")
+    (repo / manifest).unlink()
+    assert run_planted(findings, repo, absent={manifest}) == [
+        Prose(f"{manifest}: could not be read, so the extras the READMEs name cannot be held")
+    ]
+
+
+def test_a_manifest_byte_that_is_not_utf8_reads_as_a_replacement(tmp_path: Path) -> None:
+    """A byte that is not UTF-8 in a manifest comment does not stop its extras being read."""
+    repo = _repo(tmp_path, _CLEAN_README)
+    _ = (repo / "python" / "pyproject.toml").write_bytes(b"# \xff\n" + str(_MANIFEST).encode())
+    assert _run(repo) == list[Prose]()
+
+
+def test_a_tracked_readme_the_work_tree_lacks_names_no_extra(tmp_path: Path) -> None:
+    """A README git tracks and the work tree lacks is unread, and no extra is left named."""
+    repo = _repo(tmp_path, _CLEAN_README)
+    readme = RelPath("README.md")
+    (repo / readme).unlink()
+    assert run_planted(findings, repo, absent={readme}) == [
+        Prose(f"{readme}: could not be read, so what it says is unchecked"),
+        Prose(f"{readme}: no README read names a pip extra; no install sentence is left"),
     ]

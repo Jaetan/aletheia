@@ -4,9 +4,9 @@
 
 The gate reads every tracked Markdown file once and runs every arm over the
 same texts: these tests hold the reading, the order the arms' findings come
-in, the exit status, the registry of arms, and the heading, directory,
-paragraph and destination readers in ``tools/docs_arms/__init__.py`` and the
-prose reader in ``tools/_common.py`` they rest on. Each
+in, the exit status, the registry of arms, and the tracked-file, heading,
+directory, paragraph and destination readers in ``tools/docs_arms/__init__.py``
+and the prose reader in ``tools/_common.py`` they rest on. Each
 arm's own claim is tested in ``python/tests/test_docs_arm_<arm>.py``.
 """
 
@@ -22,10 +22,14 @@ from tools import check_docs, docs_arms
 from tools._common import RelPath, prose_lines
 from tools.check_docs import ARMS, check_tree, main, read_documents
 from tools.docs_arms import (
+    Unread,
     destination,
     header_slugs,
     headings,
+    missing,
     paragraphs,
+    read_tracked,
+    read_tracked_bytes,
     slug,
     tracked_dirs,
 )
@@ -173,17 +177,69 @@ def test_read_documents_reads_every_tracked_markdown_file_and_nothing_else(tmp_p
     }
     repo = plant(tmp_path / "repo", files)
     _ = (repo / "a.md").write_bytes(b"# A \xff\n")
-    assert read_documents(repo, list(files)) == {
-        RelPath("a.md"): Prose("# A �\n"),
-        RelPath("docs/b.markdown"): Prose("# B\n"),
-    }
+    assert read_documents(repo, list(files)) == (
+        {RelPath("a.md"): Prose("# A �\n"), RelPath("docs/b.markdown"): Prose("# B\n")},
+        [],
+    )
 
 
 def test_read_documents_keeps_the_order_of_the_tracked_paths(tmp_path: Path) -> None:
     """The texts come in the order the tracked paths are given, which every arm reports in."""
     tracked = [RelPath("b.md"), RelPath("a.md"), RelPath("c.md")]
     repo = plant(tmp_path / "repo", dict.fromkeys(tracked, Prose("# Doc\n")))
-    assert list(read_documents(repo, tracked)) == tracked
+    texts, _ = read_documents(repo, tracked)
+    assert list(texts) == tracked
+
+
+def test_read_documents_names_each_document_the_work_tree_lacks(tmp_path: Path) -> None:
+    """A tracked document gone from the work tree is left out of the texts and named, in order."""
+    tracked = [RelPath("a.md"), RelPath("gone.md"), RelPath("b.md"), RelPath("lost.markdown")]
+    repo = plant(tmp_path / "repo", dict.fromkeys(tracked[::2], Prose("# Doc\n")))
+    assert read_documents(repo, tracked) == (
+        {RelPath("a.md"): Prose("# Doc\n"), RelPath("b.md"): Prose("# Doc\n")},
+        [
+            Prose("gone.md: could not be read, so what it says is unchecked"),
+            Prose("lost.markdown: could not be read, so what it says is unchecked"),
+        ],
+    )
+
+
+def test_read_tracked_names_a_path_that_is_no_readable_file(tmp_path: Path) -> None:
+    """A directory where a tracked file should be is unread like a missing one, never an error."""
+    (tmp_path / "dir.md").mkdir()
+    for rel in (RelPath("dir.md"), RelPath("gone.md")):
+        assert read_tracked(tmp_path, rel, Prose("its claim is unchecked")) == Unread(
+            Prose(f"{rel}: could not be read, so its claim is unchecked")
+        )
+
+
+def test_read_tracked_decodes_utf8_and_ends_lines_as_python_text_files_do(tmp_path: Path) -> None:
+    """UTF-8 decodes, a byte that is not UTF-8 is U+FFFD, and CRLF and a lone CR are each LF."""
+    _ = (tmp_path / "a.md").write_bytes("# Café\r\nb\rc\r\r\n".encode() + b"\xff\n")
+    assert read_tracked(tmp_path, RelPath("a.md"), Prose("x")) == Prose("# Café\nb\nc\n\n\ufffd\n")
+
+
+def test_read_tracked_bytes_gives_the_bytes_as_the_work_tree_holds_them(tmp_path: Path) -> None:
+    """The bytes come back unchanged: line ends and a byte that is not UTF-8 among them."""
+    data = b"a\r\nb\rc\xff\n"
+    _ = (tmp_path / "a").write_bytes(data)
+    assert read_tracked_bytes(tmp_path, RelPath("a"), Prose("x")) == data
+
+
+def test_an_unread_finding_is_a_value() -> None:
+    """Two unread findings of one text are one value, so a set holds them once."""
+    assert {Unread(Prose("a: x")), Unread(Prose("a: x"))} == {Unread(Prose("a: x"))}
+
+
+def test_missing_names_an_untracked_file_apart_from_an_unread_one() -> None:
+    """A file git does not track is untracked; one it tracks that has no text is unread."""
+    tracked = [RelPath("a.md")]
+    assert missing(RelPath("a.md"), tracked, Prose("x is unchecked")) == Prose(
+        "a.md: could not be read, so x is unchecked"
+    )
+    assert missing(RelPath("b.md"), tracked, Prose("x is unchecked")) == Prose(
+        "b.md: not tracked, so x is unchecked"
+    )
 
 
 def _arm(found: Sequence[Prose]) -> Arm:
@@ -229,6 +285,43 @@ def test_main_exits_1_listing_the_findings_and_0_when_every_arm_holds(
     assert Prose("  README.md: planted") in printed
     monkeypatch.setattr(check_docs, "ARMS", (_arm(()),))
     assert main([]) == ExitStatus(0)
+
+
+def test_main_lists_a_document_the_work_tree_lacks_before_the_arms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tracked document gone from the work tree fails the gate, named before every arm's finding.
+
+    The arms run over the documents that were read, the unread one not among them.
+    """
+    printed: list[Prose] = []
+    seen: list[list[RelPath]] = []
+
+    def record(message: Prose) -> None:
+        printed.append(message)
+
+    def arm(
+        root: Path, tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]
+    ) -> list[Prose]:
+        del root, tracked
+        seen.append(list(documents))
+        return [Prose("README.md: planted")]
+
+    def tracked(_root: Path) -> list[RelPath]:
+        return [RelPath("README.md"), RelPath("gone.md")]
+
+    repo = plant(tmp_path / "repo", {RelPath("README.md"): Prose("# Readme\n")})
+    monkeypatch.setattr(check_docs, "emit", record)
+    monkeypatch.setattr(check_docs, "REPO", repo)
+    monkeypatch.setattr(check_docs, "git_ls_files", tracked)
+    monkeypatch.setattr(check_docs, "ARMS", (arm,))
+    assert main([]) == ExitStatus(1)
+    assert printed == [
+        Prose("check_docs: 2 documentation defect(s):"),
+        Prose("  gone.md: could not be read, so what it says is unchecked"),
+        Prose("  README.md: planted"),
+    ]
+    assert seen == [[RelPath("README.md")]]
 
 
 def test_every_arm_module_is_registered() -> None:

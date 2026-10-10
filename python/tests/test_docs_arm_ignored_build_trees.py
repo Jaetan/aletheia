@@ -265,12 +265,62 @@ def test_build_file_documents_no_tree(tmp_path: Path) -> None:
 def test_build_file_untracked(tmp_path: Path) -> None:
     """A tree without the C++ build file cannot document a build directory."""
     repo = _repo(tmp_path, build_file=None)
-    assert _run(repo) == [Prose(f"{BUILD_FILE}: the C++ build file is not tracked")]
+    assert _run(repo) == [
+        Prose(f"{BUILD_FILE}: not tracked, so the build trees it documents are unchecked")
+    ]
 
 
 def test_no_document_builds_the_go_command_line(tmp_path: Path) -> None:
     """No document printing the Go build is a scan that matched nothing."""
     repo = _repo(tmp_path, readme=Prose("# Go\n\nRun the tests.\n"))
     assert _run(repo) == [
-        Prose(".gitignore: no tracked document prints a build of the Go command line")
+        Prose(".gitignore: no document read prints a build of the Go command line")
+    ]
+
+
+def test_a_tracked_build_file_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A build file git tracks and the work tree lacks documents no tree; the rest is asked."""
+    repo = _repo(tmp_path, build_file=None)
+    assert run_planted(findings, repo, absent={BUILD_FILE}) == [
+        Prose(f"{BUILD_FILE}: could not be read, so the build trees it documents are unchecked")
+    ]
+
+
+def test_a_tracked_ignore_file_the_work_tree_lacks_ends_the_asking(tmp_path: Path) -> None:
+    """Rules the work tree lacks would make every answer wrong, so no path is asked."""
+    repo = _repo(tmp_path)
+    (repo / ".gitignore").unlink()
+    assert run_planted(findings, repo, absent={RelPath(".gitignore")}) == [
+        Prose(
+            ".gitignore: could not be read, so no path is checked against the tracked ignore rules"
+        )
+    ]
+
+
+def test_an_unread_ignore_file_keeps_the_findings_made_before_it(tmp_path: Path) -> None:
+    """The build file's own finding stays when a nested ignore file is unread after it."""
+    repo = _repo(tmp_path, build_file=Prose("# no build directory documented\n"))
+    nested = RelPath("rust/.gitignore")
+    assert run_planted(findings, repo, absent={nested}) == [
+        Prose(f"{BUILD_FILE}: the build file documents no build directory"),
+        Prose(
+            f"{nested}: could not be read, so no path is checked against the tracked ignore rules"
+        ),
+    ]
+
+
+def test_rules_with_crlf_line_ends_ignore_as_they_read(tmp_path: Path) -> None:
+    """An ignore file written with CRLF line ends ignores what its lines name."""
+    assert _run(_repo(tmp_path, ignore=Prose(str(CLEAN_IGNORE).replace("\n", "\r\n")))) == []
+
+
+def test_rules_are_asked_as_their_bytes_a_lone_carriage_return_kept(tmp_path: Path) -> None:
+    """Git keeps a lone CR inside a line, so a rule after it in that line is part of a comment.
+
+    The rules are copied as bytes: read as text, the CR would end the comment and
+    ``build/`` would be a rule of its own, ignoring a tree the tracked rules do not.
+    """
+    repo = _repo(tmp_path, ignore=Prose(f"# trees\r{CLEAN_IGNORE}"))
+    assert _run(repo) == [
+        Prose(f".gitignore: a documented build tree is not ignored: cpp/build ({BUILD_FILE})")
     ]

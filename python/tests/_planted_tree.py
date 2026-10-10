@@ -3,7 +3,7 @@
 """Run a documentation arm over files planted in a directory, as the gate runs it over a checkout.
 
 The gate hands every arm the repository root, the tracked paths and the text of
-every tracked Markdown file.  A test plants the files under a directory and
+every tracked Markdown file the work tree gives.  A test plants the files under a directory and
 names which of them are tracked: each file it wrote, less those it leaves
 untracked, plus those tracked but absent from the work tree.  No repository is
 built, since an arm's claim is over the paths and texts it is handed; which
@@ -58,6 +58,10 @@ def run_planted(
     untracked: Collection[RelPath] = (),
     absent: Collection[RelPath] = (),
 ) -> list[Prose]:
-    """Run ``arm`` over ``root`` with the inputs the gate gives it, the tracked paths as named."""
+    """Run ``arm`` over ``root`` with the inputs the gate gives it, the tracked paths as named.
+
+    The findings are the gate's: the documents its read could not give, then the arm's.
+    """
     tracked = tracked_paths(root, untracked=untracked, absent=absent)
-    return arm(root, tracked, read_documents(root, tracked))
+    documents, unread = read_documents(root, tracked)
+    return [*unread, *arm(root, tracked, documents)]

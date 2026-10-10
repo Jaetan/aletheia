@@ -199,7 +199,9 @@ def test_wrapped_lines_inside_a_fence_are_code(tmp_path: Path) -> None:
 
 def test_a_missing_guide_is_a_finding(tmp_path: Path) -> None:
     """A scan whose subject is not among the documents vouches for nothing."""
-    assert _run(_repo(tmp_path, None)) == [Prose(f"{SUBJECT}: not among the tracked documents")]
+    assert _run(_repo(tmp_path, None)) == [
+        Prose(f"{SUBJECT}: not tracked, so its paragraphs are unchecked")
+    ]
 
 
 @pytest.mark.parametrize(
@@ -253,4 +255,12 @@ def test_a_lone_carriage_return_ends_a_line(tmp_path: Path) -> None:
     text = Prose("# Building\r\rA paragraph\rwrapped onto a second line\r")
     assert findings(tmp_path, [SUBJECT, RelPath("README.md")], {SUBJECT: text}) == [
         Prose("docs/development/BUILDING.md: line 4 wraps the paragraph above it")
+    ]
+
+
+def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A guide git tracks and the work tree lacks is named as unread, never as untracked."""
+    assert run_planted(findings, _repo(tmp_path, None), absent={SUBJECT}) == [
+        Prose(f"{SUBJECT}: could not be read, so what it says is unchecked"),
+        Prose(f"{SUBJECT}: could not be read, so its paragraphs are unchecked"),
     ]

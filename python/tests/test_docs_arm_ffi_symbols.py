@@ -90,14 +90,14 @@ def test_guide_naming_no_symbol_is_a_finding(tmp_path: Path) -> None:
 def test_untracked_guide_is_a_finding(tmp_path: Path) -> None:
     """A tree without the guide is reported rather than passed."""
     assert _run(_repo(tmp_path, None, _SHIM_TEXT)) == [
-        Prose(f"{GUIDE}: not a tracked document; the arm has no guide to read")
+        Prose(f"{GUIDE}: not tracked, so the arm has no guide to read")
     ]
 
 
 def test_untracked_shim_is_a_finding(tmp_path: Path) -> None:
     """A tree without the shim is reported rather than passed."""
     assert _run(_repo(tmp_path, _CLEAN_GUIDE, None)) == [
-        Prose(f"{SHIM}: not tracked; the arm has no exports to check the guide against")
+        Prose(f"{SHIM}: not tracked, so the arm has no exports to check the guide against")
     ]
 
 
@@ -130,3 +130,20 @@ def test_a_shim_byte_that_is_not_utf8_does_not_stop_the_read(tmp_path: Path) -> 
         + b"foreign export ccall aletheia_send_frame :: IO ()\n"
     )
     assert _run(repo) == [Prose(f"{GUIDE}: names aletheia_process, which {SHIM} does not export")]
+
+
+def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A guide git tracks and the work tree lacks is named as unread, never as untracked."""
+    repo = _repo(tmp_path, None, _SHIM_TEXT)
+    assert run_planted(findings, repo, absent={GUIDE}) == [
+        Prose(f"{GUIDE}: could not be read, so what it says is unchecked"),
+        Prose(f"{GUIDE}: could not be read, so the arm has no guide to read"),
+    ]
+
+
+def test_a_tracked_shim_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A shim git tracks and the work tree lacks is a finding, not an error."""
+    repo = _repo(tmp_path, _CLEAN_GUIDE, None)
+    assert run_planted(findings, repo, absent={SHIM}) == [
+        Prose(f"{SHIM}: could not be read, so the arm has no exports to check the guide against")
+    ]

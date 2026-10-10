@@ -7,9 +7,10 @@ defines them as ``func Fuzz...`` in go/aletheia/fuzz_test.go. Each name on one s
 and not the other is a finding against the file that is wrong about it, in name order.
 The standard says fuzzing is a command someone types, so a tracked workflow or tool
 that passes a fuzz duration or selects a fuzz target contradicts it and is named; a
-byte that is not UTF-8 does not stop a file's read. A standard that names no
-target, a target file that defines none, or a tree that does not track either file, has
-matched nothing, which is a finding rather than a pass.
+byte that is not UTF-8 does not stop a file's read, and a file the work tree cannot
+give is named as unread. A standard that names no target, a target file that defines
+none, or a tree that does not track or cannot give either file, has matched nothing,
+which is a finding rather than a pass.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import re
 from typing import TYPE_CHECKING
 
 from tools._common import RelPath
+from tools.docs_arms import Unread, missing, read_tracked
 
 from aletheia.common_types import Prose
 
@@ -38,10 +40,10 @@ _DEFINED = re.compile(r"^func (Fuzz[A-Za-z]+)", re.MULTILINE)
 _INVOKES_FUZZ = re.compile(
     re.escape("fuzz" + "time") + "|" + re.escape("-" + "fuzz") + "(?![A-Za-z0-9_-])"
 )
-
-
-def _read(root: Path, rel: RelPath) -> Prose:
-    return Prose((root / rel).read_text(encoding="utf-8", errors="replace"))
+_STANDARD_UNCHECKED = Prose("its fuzz targets are unchecked")
+_TARGETS_UNCHECKED = Prose(f"the targets {STANDARD} names are unchecked")
+_SCHEDULE_UNCHECKED = Prose("whether it invokes a fuzz run is unchecked")
+_INVOKES = Prose(f"invokes a fuzz run, while {STANDARD} says fuzzing is a command one types")
 
 
 def _target_findings(
@@ -50,13 +52,16 @@ def _target_findings(
     """Compare the names the standard cites with the targets the binding defines."""
     out: list[Prose] = []
     if STANDARD not in documents:
-        out.append(Prose(f"{STANDARD}: not a tracked document, so its fuzz targets are unchecked"))
+        out.append(missing(STANDARD, tracked, _STANDARD_UNCHECKED))
     if TARGETS not in tracked:
-        out.append(Prose(f"{TARGETS}: not tracked, so the targets {STANDARD} names are unchecked"))
+        out.append(missing(TARGETS, tracked, _TARGETS_UNCHECKED))
     if out:
         return out
+    source = read_tracked(root, TARGETS, _TARGETS_UNCHECKED)
+    if isinstance(source, Unread):
+        return [source.finding]
     named = set(_NAMED.findall(documents[STANDARD]))
-    defined = set(_DEFINED.findall(_read(root, TARGETS)))
+    defined = set(_DEFINED.findall(source))
     if not named:
         out.append(Prose(f"{STANDARD}: names no backticked Fuzz target, so nothing was compared"))
     if not defined:
@@ -73,12 +78,17 @@ def _target_findings(
 
 
 def _schedule_findings(root: Path, tracked: Sequence[RelPath]) -> list[Prose]:
-    """Name every tracked workflow or tool that invokes a fuzz run."""
-    return [
-        Prose(f"{rel}: invokes a fuzz run, while {STANDARD} says fuzzing is a command one types")
-        for rel in tracked
-        if rel.startswith(SCHEDULING_TREES) and _INVOKES_FUZZ.search(_read(root, rel))
-    ]
+    """Name every tracked workflow or tool that invokes a fuzz run, or that cannot be read."""
+    out: list[Prose] = []
+    for rel in tracked:
+        if not rel.startswith(SCHEDULING_TREES):
+            continue
+        text = read_tracked(root, rel, _SCHEDULE_UNCHECKED)
+        if isinstance(text, Unread):
+            out.append(text.finding)
+        elif _INVOKES_FUZZ.search(text):
+            out.append(Prose(f"{rel}: {_INVOKES}"))
+    return out
 
 
 def findings(
@@ -89,7 +99,7 @@ def findings(
     Args:
         root: The repository root.
         tracked: Every tracked path, as ``git ls-files`` prints it.
-        documents: Every tracked Markdown file's text, by its repo-relative path.
+        documents: Each tracked Markdown file's text the work tree gives, by repo-relative path.
 
     Returns:
         One line per defect, each opening with the repo-relative path of the file concerned.
