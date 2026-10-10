@@ -1982,6 +1982,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   where it stopped at the pitch, and `section_citations` reads a cited target
   under the path git tracks, never a symlink's destination.
 
+- **clang-tidy runs with the jobs it was given, in the probe store and in the
+  gate.** `run-clang-tidy` sizes itself from `multiprocessing.cpu_count()`,
+  the machine's count whatever CPUs it was given: 24 under `taskset -c 0-19`.
+  Four clang-tidy probes running at once in the store started 24 jobs each,
+  and the memory cap of the cgroup they ran under forced more than an hour
+  of reclaim with nothing killed. The store now starts each probe with
+  `PYTHON_CPU_COUNT` at its CPUs divided by `PROBE_WORKERS`, at least one, and
+  `tools/run_ci.py`'s clang-tidy step passes `-j` with the job count every gate
+  step takes; the lint command `AGENTS.md` and `AGENTS/cpp.md` give for a run
+  by hand passes `-j "$(nproc)"`.
+
 - **The documentation gate reads the links, citations and figures it misread,
   and every recorded mutant of its arms is killed.** Of the 562 mutants recorded
   over the gate's 16 arms, 86 survived the tests; each is now killed by a test,

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tools._common import CPP_LINT_TREE, find_executable, run_capture
+from tools._resources import cpu_budget
 
 if TYPE_CHECKING:
     from tools.run_ci import OptInOptions, Runner
@@ -577,10 +578,14 @@ def _run_lints(runner: Runner) -> None:
     # objects, so the gate need not wait for the test build: behind it on the
     # runner, clang-tidy started 242 s into the sweep and its lane ended last.
     # A probe holds the two databases to one set of commands.
+    # run-clang-tidy alone starts one job per CPU of the machine, whatever
+    # CPUs the sweep was given, so it is told the step budget every gate
+    # step takes.
     runner.step(
         "clang-tidy",
         f"cmake -B {CPP_LINT_TREE} {CPP_COMPILERS} > /dev/null"
-        + f" && run-clang-tidy-23 -quiet -p {CPP_LINT_TREE} cpp/src/ cpp/tests/ cpp/benchmarks/",
+        + f" && run-clang-tidy-23 -j {cpu_budget()} -quiet -p {CPP_LINT_TREE}"
+        + " cpp/src/ cpp/tests/ cpp/benchmarks/",
         cwd=runner.repo_root / "cpp",
         lane=CPP_LINT_LANE,
     )

@@ -42,6 +42,7 @@ from tools._common import (
     git_ls_files,
     run_capture,
 )
+from tools._resources import cpu_budget
 from tools.check_gate_claim import (
     SOURCES_ENV,
     SOURCES_LINE,
@@ -334,10 +335,22 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
     tidy = str(lane[0].cmd)
     assert _build_dir(tidy) == CPP_LINT_TREE
     assert CPP_COMPILERS in tidy
-    assert f"run-clang-tidy-23 -quiet -p {CPP_LINT_TREE} " in tidy
+    assert f" -p {CPP_LINT_TREE} cpp/src/ cpp/tests/ cpp/benchmarks/" in tidy
     cpp = [step.name for step in runner.registered_steps if step.lane == "cpp"]
     assert "ctest" in cpp
     assert not set(gates) & set(cpp)
+
+
+def test_clang_tidy_is_told_the_step_budget(tmp_path: Path) -> None:
+    """run-clang-tidy runs with the job count every gate step takes, never its own.
+
+    Left to itself it starts one job per CPU of the machine, whatever CPUs the
+    sweep was given, beside the other lanes.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    (tidy,) = [step for step in runner.registered_steps if step.name == "clang-tidy"]
+    assert f"run-clang-tidy-23 -j {cpu_budget()} -quiet " in str(tidy.cmd)
 
 
 def test_the_full_ci_parts_split_every_lane_between_them(tmp_path: Path) -> None:
