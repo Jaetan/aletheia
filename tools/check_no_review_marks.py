@@ -35,8 +35,9 @@ they are handled by the one-time human-guided sweep, not a standing regex.
 * ``.archive/reviews/`` and ``tools/review_db.py`` — the work record (exempt).
 * This gate + its unit test + the unit test of the documentation gate's label
   arm — they carry mark-shaped strings as detector patterns / fixtures (exempt).
-* Markdown fenced blocks and inline-code spans — a mark shown as an example is
-  documentation, not a live mark.
+* Markdown code blocks and code spans, as CommonMark reads them
+  (``tools._markdown``) — a mark shown as an example is documentation, not a
+  live mark.
 * ``[[wikilink]]`` targets and ``memory/<name>.md`` pointers — these resolve to
   real agent-store files whose names embed round/track tokens and cannot be
   renamed by a repo change.
@@ -58,12 +59,15 @@ from pathlib import Path
 from typing import cast
 
 from tools._common import (
+    RelPath,
     TreeScan,
     pattern_findings,
-    prose_lines,
     report_tree_scan,
     scan_tracked_tree,
 )
+from tools._markdown import prose_lines
+
+from aletheia.common_types import Prose
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -117,12 +121,12 @@ def _mask_keeps(line: str) -> str:
 def scannable_lines(rel: str, text: str) -> list[tuple[int, str]]:
     """Return ``(1-based lineno, masked line)`` pairs to scan for ``rel``.
 
-    The shared scanner decides what is prose (Markdown drops fenced blocks and
-    masks inline code, every other file is read whole); this masks the
+    The shared reader decides what is prose (Markdown drops code blocks and
+    code spans, every other file is read whole); this masks the
     ``[[…]]`` / ``memory/…`` keep-spans on top, which resolve to real
     out-of-repo files whose names embed round tokens.
     """
-    return [(lineno, _mask_keeps(line)) for lineno, line in prose_lines(rel, text)]
+    return [(lineno, _mask_keeps(line)) for lineno, line in prose_lines(RelPath(rel), Prose(text))]
 
 
 def scan_text(rel: str, text: str) -> list[str]:

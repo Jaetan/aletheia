@@ -294,3 +294,20 @@ def test_an_unread_pitch_leaves_every_other_document_checked(tmp_path: Path) -> 
         Prose("docs/PITCH.md: could not be read, so its word for phase 6 is unchecked"),
         Prose("docs/guide.md: says phase 6 is 'planned'; the table says 'in progress'"),
     ]
+
+
+def test_a_row_is_split_into_cells_as_github_splits_it(tmp_path: Path) -> None:
+    """An escaped pipe stays in its cell, so the status is the third cell, not part of the title."""
+    table = Prose(
+        "# Status\n\n| Phase | Title | Status |\n|---|---|---|\n"
+        + "| 1 | Core | ✅ |\n| 6 | Extensions \\| more | In progress |\n"
+    )
+    files = {RelPath("PROJECT_STATUS.md"): table, RelPath("docs/PITCH.md"): _PITCH}
+    assert _findings(tmp_path, files) == list[Prose]()
+
+
+def test_a_table_of_two_columns_holds_no_phase(tmp_path: Path) -> None:
+    """A row needs a status cell, the third, to be a phase row."""
+    table = Prose("# Status\n\n| Phase | Title |\n|---|---|\n| 6 | Extensions |\n")
+    files = {RelPath("PROJECT_STATUS.md"): table, RelPath("docs/PITCH.md"): _PITCH}
+    assert _findings(tmp_path, files) == [Prose("PROJECT_STATUS.md: no phase table")]

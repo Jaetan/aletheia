@@ -87,7 +87,7 @@ def test_a_guide_of_one_line_paragraphs_is_clean(tmp_path: Path) -> None:
         ),
         (
             Prose("# Building\n\nA paragraph\n\tcontinued on a tab-indented line\n"),
-            Prose(f"{SUBJECT}: line 4 continues a list item or paragraph"),
+            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
         ),
         (
             Prose("# Building\n\n- an item\nlazily continued at the margin\n"),
@@ -102,24 +102,36 @@ def test_a_guide_of_one_line_paragraphs_is_clean(tmp_path: Path) -> None:
             Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
         ),
         (
-            Prose("# Building\n\n    indented after a blank line\n"),
-            Prose(f"{SUBJECT}: line 3 continues a list item or paragraph"),
-        ),
-        (
-            Prose("# Building\n  indented under a heading\n"),
-            Prose(f"{SUBJECT}: line 2 continues a list item or paragraph"),
-        ),
-        (
             Prose("# Building\n\n> a quote\n  indented under it\n"),
-            Prose(f"{SUBJECT}: line 4 continues a list item or paragraph"),
+            Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
         ),
         (
-            Prose("# Building\n\n| a | b |\n  indented under a table row\n"),
-            Prose(f"{SUBJECT}: line 4 continues a list item or paragraph"),
+            Prose("# Building\n\n| a | b |\n  indented under a pipe line\n"),
+            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
         ),
         (
-            Prose("# Building\n\n---\n  indented under a break\n"),
-            Prose(f"{SUBJECT}: line 4 continues a list item or paragraph"),
+            Prose("# Building\n\n> a quote\n| a | b |\n"),
+            Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
+        ),
+        (
+            Prose("# Building\n\nA paragraph.\n| a | b |\n"),
+            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+        ),
+        (
+            Prose("# Building\n\n| a | b |\nA line right under a pipe line.\n"),
+            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+        ),
+        (
+            Prose("# Building\n\n- an item\n\n  a second paragraph in it\n"),
+            Prose(f"{SUBJECT}: line 5 continues a list item or paragraph"),
+        ),
+        (
+            Prose("# Building\n\nOne\n\u00a0\n"),
+            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+        ),
+        (
+            Prose("# Building\n\n> a quote\n>\n"),
+            Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
         ),
     ],
     ids=[
@@ -129,15 +141,18 @@ def test_a_guide_of_one_line_paragraphs_is_clean(tmp_path: Path) -> None:
         "lazy item",
         "quote",
         "lazy quote",
-        "indented after a blank line",
-        "indented under a heading",
         "indented under a quote",
-        "indented under a table row",
-        "indented under a break",
+        "indented under a pipe line that opens no table",
+        "pipe line under a quote, which opens no table",
+        "pipe line under a paragraph, which opens no table",
+        "line under a pipe line that opens no table",
+        "second paragraph of an item",
+        "no-break space line, which is not blank",
+        "empty quote line",
     ],
 )
 def test_a_wrapped_paragraph_is_found_by_line(tmp_path: Path, text: Prose, expected: Prose) -> None:
-    """The line that continues a block is named, and it alone; an indented line, under anything."""
+    """The line that continues a block, as CommonMark reads blocks, is named, and it alone."""
     assert _run(_repo(tmp_path, text)) == [expected]
 
 
@@ -153,13 +168,20 @@ def test_a_wrapped_paragraph_is_found_by_line(tmp_path: Path, text: Prose, expec
         Prose("# Building\n\n- an outer item\n  - a nested item\n\t- a tab-nested item\n"),
         Prose("# Building\n\n> a quote\n- an item right under it\n"),
         Prose("# Building\n\n> a quote\n## A heading right under it\n"),
-        Prose("# Building\n\n> a quote\n| a | b |\n"),
         Prose("# Building\n\n> a quote\n---\n"),
         Prose("# Building\n\nA paragraph.\n> a quote right under it\n"),
         Prose("# Building\n\nA paragraph.\n## A heading right under it\n"),
         Prose("# Building\n\nA paragraph.\n- an item right under it\n"),
-        Prose("# Building\n\nA paragraph.\n| a | b |\n"),
-        Prose("# Building\n\n| a | b |\nA line right under a table row.\n"),
+        Prose("# Building\n\nA paragraph.\n| a | b |\n|---|---|\n"),
+        Prose("# Building\n\n| a | b |\n|---|---|\nA row with no pipe.\n"),
+        Prose("# Building\n  indented under a heading\n"),
+        Prose("# Building\n\n---\n  indented under a break\n"),
+        Prose("# Building\n\nOne\u2028two\n"),
+        Prose("# Building\n\n<div>\n<p>an HTML block</p>\n</div>\n"),
+        Prose("# Building\n\n[a]: one.md\n[b]: two.md\n"),
+        Prose("# Building\n\n- an item\n  ~~~\n  code\n  ~~~\n"),
+        Prose("# Building\n\n    indented code\n    after a blank line\n"),
+        Prose("# Building\n\n-     code opening an item\n"),
         Prose("# Building\n\n- an item\n> a quote right under it\n"),
         Prose("# Building\n\nA paragraph.\n#\tA heading\n"),
         Prose("# Building\n\nA paragraph.\n#\n"),
@@ -174,20 +196,30 @@ def test_a_wrapped_paragraph_is_found_by_line(tmp_path: Path, text: Prose, expec
         "nested",
         "item under a quote",
         "heading under a quote",
-        "table row under a quote",
         "break under a quote",
         "quote under a paragraph",
         "heading under a paragraph",
         "item under a paragraph",
-        "table row under a paragraph",
-        "line under a table row",
+        "table under a paragraph",
+        "row with no pipe under a table",
+        "indented paragraph under a heading",
+        "indented paragraph under a break",
+        "line separator inside a line",
+        "HTML block",
+        "reference definitions",
+        "fence in an item",
+        "indented code",
+        "code opening an item",
         "quote under an item",
         "heading opened by a tab under a paragraph",
         "empty heading under a paragraph",
     ],
 )
 def test_a_line_that_opens_a_block_is_not_a_wrap(tmp_path: Path, text: Prose) -> None:
-    """A blank line ends a block, and a heading, item, table row or break starts one: none wraps."""
+    """A blank line ends a block, and a heading, item, table, break or HTML block opens one.
+
+    A definition and a paragraph after a heading or a break stand alone: none wraps.
+    """
     assert _run(_repo(tmp_path, text)) == list[Prose]()
 
 
@@ -264,3 +296,104 @@ def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> Non
         Prose(f"{SUBJECT}: could not be read, so what it says is unchecked"),
         Prose(f"{SUBJECT}: could not be read, so its paragraphs are unchecked"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            Prose("# Building\n\n> a quote\n> ```\n> code\n> ```\n> more\n"),
+            [Prose(f"{SUBJECT}: line 7 wraps the blockquote above it")],
+        ),
+        (
+            Prose("# Building\n\n-\n  an item opened on a bare marker\n"),
+            [Prose(f"{SUBJECT}: line 4 continues a list item or paragraph")],
+        ),
+        (
+            Prose("# Building\n\n- <div>\n  x\n  </div>\n"),
+            [
+                Prose(f"{SUBJECT}: line 4 continues a list item or paragraph"),
+                Prose(f"{SUBJECT}: line 5 continues a list item or paragraph"),
+            ],
+        ),
+        (
+            Prose("# Building\n\n- [a]: x.md\n\n  a second block\n"),
+            [Prose(f"{SUBJECT}: line 5 continues a list item or paragraph")],
+        ),
+        (
+            Prose("# Building\n\n- an item\n\n      code in it\n      \n      more\n"),
+            [
+                Prose(f"{SUBJECT}: line 5 continues a list item or paragraph"),
+                Prose(f"{SUBJECT}: line 7 continues a list item or paragraph"),
+            ],
+        ),
+        (
+            Prose("# Building\n\n- an item\n\n      code in it\n\t\n      more\n"),
+            [
+                Prose(f"{SUBJECT}: line 5 continues a list item or paragraph"),
+                Prose(f"{SUBJECT}: line 7 continues a list item or paragraph"),
+            ],
+        ),
+    ],
+    ids=[
+        "fence-in-a-quote",
+        "bare-marker",
+        "html-in-an-item",
+        "definition-first-in-an-item",
+        "spaces-line-in-item-code",
+        "tab-line-in-item-code",
+    ],
+)
+def test_an_item_or_quote_spanning_lines_is_found_outside_fenced_code_and_blank_lines(
+    tmp_path: Path, text: Prose, expected: list[Prose]
+) -> None:
+    """Every later line of an item or a quote is named, but fenced code and blank lines."""
+    assert _run(_repo(tmp_path, text)) == expected
+
+
+@pytest.mark.parametrize("blank", [Prose("   "), Prose("\t")], ids=["spaces", "tab"])
+def test_a_guide_of_blank_lines_alone_is_a_finding(tmp_path: Path, blank: Prose) -> None:
+    """Lines of spaces or tabs alone are blank, so the guide has nothing to check."""
+    assert _run(_repo(tmp_path, Prose(f"{blank}\n{blank}\n"))) == [
+        Prose(f"{SUBJECT}: no paragraph outside fenced code to check")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            Prose("# Building\n\nA paragraph\nX\n"),
+            [Prose(f"{SUBJECT}: line 4 wraps the paragraph above it")],
+        ),
+        (
+            Prose("# Building\n\n- an item\n  - a nested item\n\n  the item's next block\n"),
+            [Prose(f"{SUBJECT}: line 6 continues a list item or paragraph")],
+        ),
+    ],
+    ids=["a-letter-is-not-blank", "item-continued-after-its-nested-list"],
+)
+def test_a_line_of_one_letter_and_a_block_after_a_nested_list_are_found(
+    tmp_path: Path, text: Prose, expected: list[Prose]
+) -> None:
+    """A line holding a letter is text, and an item's block after its nested list continues it."""
+    assert _run(_repo(tmp_path, text)) == expected
+
+
+def test_a_guide_of_one_letter_has_a_paragraph_to_check(tmp_path: Path) -> None:
+    """A line holding a letter is not blank, so the guide has something to check."""
+    assert _run(_repo(tmp_path, Prose("X\n"))) == list[Prose]()
+
+
+def test_a_quote_continuing_an_item_is_found_even_when_a_list_opens_it(tmp_path: Path) -> None:
+    """A list inside a quote inside an item is not nested in the item; the quote continues it."""
+    text = Prose("# Building\n\n- an item\n  > - a quoted list\n")
+    assert _run(_repo(tmp_path, text)) == [
+        Prose(f"{SUBJECT}: line 4 continues a list item or paragraph")
+    ]
+
+
+def test_a_list_nested_two_levels_continues_no_item(tmp_path: Path) -> None:
+    """Every level of a nested list is excepted from the items holding it."""
+    text = Prose("# Building\n\n- a\n  - b\n    - c\n")
+    assert _run(_repo(tmp_path, text)) == list[Prose]()

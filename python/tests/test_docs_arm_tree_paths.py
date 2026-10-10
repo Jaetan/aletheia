@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 from _planted_tree import run_planted
 
 from tools._common import RelPath
@@ -218,3 +219,18 @@ def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> Non
         Prose(f"{GUIDE}: could not be read, so what it says is unchecked"),
         Prose(f"{GUIDE}: could not be read, so the tree paths it names are unchecked"),
     ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        Prose("```\nRun `tools/nope.py` here.\n```"),
+        Prose("A span of a span: `` `tools/nope.py` ``."),
+        Prose("An escaped mark: \\`tools/nope.py`."),
+    ],
+    ids=["fenced", "span-holding-backticks", "escaped-opener"],
+)
+def test_a_path_is_read_only_from_a_code_span(tmp_path: Path, text: Prose) -> None:
+    """Backticks in code, around a span or escaped name no path: nothing is found."""
+    guide = Prose(f"# Building\n\nSee `tools/run_ci.py`.\n\n{text}\n")
+    assert _findings(_repo(tmp_path, guide)) == list[Prose]()

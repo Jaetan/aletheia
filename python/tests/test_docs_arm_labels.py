@@ -42,11 +42,11 @@ def _run(tmp_path: Path, files: Mapping[RelPath, Prose]) -> list[Prose]:
         (Prose("Committed Locally"), Prose("transient session phrase -> 'Committed Locally'")),
         (
             Prose("[x](memory/notes.md)"),
-            Prose("link into the ~/.claude memory store -> ](memory/notes.md)"),
+            Prose("link into the ~/.claude memory store -> memory/notes.md"),
         ),
         (
             Prose("[x](/home/u/.claude/notes.md)"),
-            Prose("link into the ~/.claude memory store -> ](/home/u/.claude/notes.md)"),
+            Prose("link into the ~/.claude memory store -> /home/u/.claude/notes.md"),
         ),
     ],
     ids=[
@@ -95,6 +95,53 @@ def test_a_mark_shown_as_code_is_not_prose(tmp_path: Path) -> None:
     assert _run(tmp_path, {RelPath("docs/guide.md"): text}) == list[Prose]()
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        Prose("````\n```\n(PR C)\n````"),
+        Prose("Marks like ``(PR C)`` are refused."),
+        Prose("Marks like `` `(PR C)` `` are refused."),
+        Prose("```\n[x](memory/notes.md)\n```"),
+        Prose("See `[x](memory/notes.md)` there."),
+    ],
+    ids=[
+        "fence-of-four",
+        "double-backtick-span",
+        "span-holding-backticks",
+        "fenced-link",
+        "span-link",
+    ],
+)
+def test_code_as_commonmark_reads_it_holds_no_label(tmp_path: Path, code: Prose) -> None:
+    """A fence closes only on a run as long as its own; a span of two backticks is code too."""
+    text = Prose(f"{_CLEAN}\n{code}\n")
+    assert _run(tmp_path, {RelPath("docs/guide.md"): text}) == list[Prose]()
+
+
+@pytest.mark.parametrize(
+    ("text", "finding"),
+    [
+        (Prose("~~~\n```\n~~~\n(PR C)"), Prose("internal PR label -> '(PR C)'")),
+        (Prose("    ```\n(PR C)"), Prose("internal PR label -> '(PR C)'")),
+        (
+            Prose("See [x][notes].\n\n[notes]: memory/notes.md"),
+            Prose("link into the ~/.claude memory store -> memory/notes.md"),
+        ),
+        (
+            Prose("See [x](<memory/my notes.md>)."),
+            Prose("link into the ~/.claude memory store -> memory/my notes.md"),
+        ),
+    ],
+    ids=["backticks-inside-a-tilde-fence", "indented-backticks", "reference", "pointy-brackets"],
+)
+def test_prose_and_links_as_commonmark_reads_them_are_read(
+    tmp_path: Path, text: Prose, finding: Prose
+) -> None:
+    """Backticks inside a tilde fence or indented as code open no fence; any link form is read."""
+    found = _run(tmp_path, {RelPath("docs/guide.md"): Prose(f"{_CLEAN}\n{text}\n")})
+    assert found == [Prose(f"docs/guide.md: {finding}")]
+
+
 def test_each_distinct_mark_is_reported_once_in_order(tmp_path: Path) -> None:
     """A repeated mark is one finding; two distinct ones come in sorted order."""
     text = Prose(f"{_CLEAN}(PR D) and (PR C), then (PR D) again.\n")
@@ -127,4 +174,36 @@ def test_an_unread_readme_leaves_the_other_living_documents_checked(tmp_path: Pa
     assert run_planted(findings, repo, absent={RelPath("README.md")}) == [
         Prose("README.md: could not be read, so what it says is unchecked"),
         Prose("docs/guide.md: internal PR label -> '(PR C)'"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("link", "target"),
+    [
+        (Prose("[x](.claude/notes.md)"), Prose(".claude/notes.md")),
+        (Prose("[x](./memory/notes.md)"), Prose("./memory/notes.md")),
+        (Prose("[x](memory%2Fnotes.md)"), Prose("memory%2Fnotes.md")),
+        (Prose("<file:///home/u/.claude/notes.md>"), Prose("file:///home/u/.claude/notes.md")),
+    ],
+    ids=["relative-claude", "dot-memory", "encoded-slash", "autolink"],
+)
+def test_every_spelling_of_a_memory_link_is_found(
+    tmp_path: Path, link: Prose, target: Prose
+) -> None:
+    """A ``.claude`` directory anywhere, ``./`` before ``memory/``, an escape, an autolink."""
+    found = _run(tmp_path, {RelPath("docs/guide.md"): Prose(f"{_CLEAN}\nSee {link}.\n")})
+    assert found == [Prose(f"docs/guide.md: link into the ~/.claude memory store -> {target}")]
+
+
+def test_a_path_that_only_begins_like_the_store_is_not_one(tmp_path: Path) -> None:
+    """``memoryless.md`` is not under ``memory/``."""
+    text = Prose(f"{_CLEAN}\nSee [x](memoryless.md).\n")
+    assert _run(tmp_path, {RelPath("docs/guide.md"): text}) == list[Prose]()
+
+
+def test_a_mark_opening_a_line_is_read_apart_from_the_line_before(tmp_path: Path) -> None:
+    """The prose's lines stay apart, so a word ending one line leaves the next one's mark whole."""
+    text = Prose(f"{_CLEAN}\nSee\nPY-S-20 here.\n")
+    assert _run(tmp_path, {RelPath("docs/guide.md"): text}) == [
+        Prose("docs/guide.md: review finding mark -> 'PY-S-20'")
     ]

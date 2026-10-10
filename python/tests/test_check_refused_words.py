@@ -99,3 +99,16 @@ def test_an_unreadable_file_dominates_a_finding_and_the_finding_is_still_printed
     captured = capsys.readouterr()
     assert "prose.md:1" in captured.out
     assert rel in captured.err
+
+
+def test_a_line_is_numbered_by_newlines_alone() -> None:
+    """A form feed or a line separator before the word moves no line number."""
+    found = scan_text("src/x.py", "# a\x0cb\u2028c\n# a spurious d\n")
+    assert [finding.split(" ", 1)[0] for finding in found] == ["src/x.py:2:"]
+
+
+def test_markdown_code_is_what_commonmark_reads_as_code() -> None:
+    """A fence closes on its own mark at its length; a span of two backticks is code."""
+    assert scan_text("docs/x.md", "~~~\n```\n~~~\na spurious claim\n")
+    assert not scan_text("docs/x.md", "````\n```\na spurious claim\n````\n")
+    assert not scan_text("docs/x.md", "shown as ``a spurious`` claim\n")

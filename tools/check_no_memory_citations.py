@@ -141,7 +141,7 @@ def scan_text(rel: str, text: str) -> list[str]:
     The pure core of the scan — no filesystem — so the detector is unit-testable
     on synthetic input (``python/tests/test_check_no_memory_citations.py``).
     """
-    return pattern_findings(rel, enumerate(text.splitlines(), start=1), _PATTERNS)
+    return pattern_findings(rel, enumerate(text.split("\n"), start=1), _PATTERNS)
 
 
 def check_tree(repo: Path = REPO) -> TreeScan:

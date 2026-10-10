@@ -11,8 +11,10 @@ does not explain is a finding — the operator is left blind.
 Strategy:
 
 1. Load every ``name`` field under ``events:`` in ``LOG_EVENTS.yaml``.
-2. Read ``RUNBOOK.md``.  An event is "covered" iff a heading line
-   (``#### `<name>``` or ``#### `<name>` ...``) appears in the runbook.
+2. Read ``RUNBOOK.md`` as CommonMark (``tools._markdown``).  An event is
+   "covered" iff a level-four heading opens on a code span whose content is
+   ``<name>`` (``#### `<name>``` or ``#### `<name>` ...``, the span of any
+   backtick run); a heading-shaped line inside code is not a heading.
 3. Report any uncovered events; exit non-zero if any are missing.
 
 Exit codes:
@@ -31,7 +33,6 @@ RUNBOOK.md fires this script; restoring it returns to exit 0.
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 from typing import cast
@@ -39,10 +40,17 @@ from typing import cast
 import yaml
 
 from tools._common import emit
+from tools._markdown import headings
+
+from aletheia.common_types import Prose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOG_EVENTS_YAML = REPO_ROOT / "docs" / "LOG_EVENTS.yaml"
 RUNBOOK_MD = REPO_ROOT / "docs" / "operations" / "RUNBOOK.md"
+
+
+# The level of a runbook entry's heading, ``####``.
+_ENTRY_LEVEL = 4
 
 
 def _load_event_names(yaml_path: Path) -> list[str]:
@@ -66,29 +74,24 @@ def _load_event_names(yaml_path: Path) -> list[str]:
     return names
 
 
-def _covered_events(runbook_path: Path, names: list[str]) -> set[str]:
+def covered_events(runbook_path: Path, names: list[str]) -> set[str]:
+    """Return the events of ``names`` a level-four heading of the runbook opens on as a code span.
+
+    A runbook that is not a file stops the check (exit 2).
+    """
     if not runbook_path.is_file():
         _ = sys.stderr.write(f"check-runbook: {runbook_path} not found\n")
         sys.exit(2)
-    text = runbook_path.read_text(encoding="utf-8")
-    covered: set[str] = set()
-    for name in names:
-        # Heading anchor: `#### `<name>`` at the start of a line, allowing
-        # trailing content on the same line for future expansion.
-        pattern = re.compile(
-            rf"^####\s+`{re.escape(name)}`",
-            flags=re.MULTILINE,
-        )
-        if pattern.search(text):
-            covered.add(name)
-    return covered
+    text = Prose(str(runbook_path.read_bytes(), "utf-8"))
+    entries = {heading.opening_code for heading in headings(text) if heading.level == _ENTRY_LEVEL}
+    return {name for name in names if name in entries}
 
 
 def main() -> int:
     """Verify every LOG_EVENTS.yaml event is documented in RUNBOOK.md."""
     argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     names = _load_event_names(LOG_EVENTS_YAML)
-    covered = _covered_events(RUNBOOK_MD, names)
+    covered = covered_events(RUNBOOK_MD, names)
     missing = [n for n in names if n not in covered]
     if missing:
         _ = sys.stderr.write(

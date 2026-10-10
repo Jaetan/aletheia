@@ -28,7 +28,6 @@ import fcntl
 import hashlib
 import json
 import os
-import re
 import shutil
 import signal
 import subprocess
@@ -40,6 +39,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
 if TYPE_CHECKING:
+    import re
     from collections.abc import Callable, Generator, Iterable, Mapping
     from concurrent.futures import Executor
     from typing import IO
@@ -666,29 +666,6 @@ BINARY_SUFFIXES: frozenset[str] = frozenset(
 )
 
 MARKDOWN_SUFFIXES: frozenset[str] = frozenset({".md", ".markdown"})
-
-INLINE_CODE = re.compile(r"`[^`]*`")
-FENCE = re.compile(r"\s*(```|~~~)")
-
-
-def prose_lines(rel: str, text: str) -> list[tuple[int, str]]:
-    """Return ``(1-based lineno, line)`` pairs of ``text`` that are the project's prose.
-
-    A Markdown file drops fenced blocks and masks inline-code spans; every other
-    file is returned whole, because a comment in a source file is the project
-    speaking.
-    """
-    is_markdown = Path(rel).suffix in MARKDOWN_SUFFIXES
-    out: list[tuple[int, str]] = []
-    in_fence = False
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        if is_markdown and FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        out.append((lineno, INLINE_CODE.sub("", line) if is_markdown else line))
-    return out
 
 
 def is_prose_file(rel: str, is_exempt: Callable[[str], bool]) -> bool:

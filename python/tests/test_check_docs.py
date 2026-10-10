@@ -4,10 +4,10 @@
 
 The gate reads every tracked Markdown file once and runs every arm over the
 same texts: these tests hold the reading, the order the arms' findings come
-in, the exit status, the registry of arms, and the tracked-file, heading,
-directory, paragraph and destination readers in ``tools/docs_arms/__init__.py``
-and the prose reader in ``tools/_common.py`` they rest on. Each
-arm's own claim is tested in ``python/tests/test_docs_arm_<arm>.py``.
+in, the exit status, the registry of arms, and the tracked-file, directory and
+anchor readers in ``tools/docs_arms/__init__.py`` they rest on. The Markdown
+reader under them is tested in ``python/tests/test_markdown.py``, and each
+arm's own claim in ``python/tests/test_docs_arm_<arm>.py``.
 """
 
 from __future__ import annotations
@@ -19,15 +19,13 @@ import pytest
 from _planted_tree import plant
 
 from tools import check_docs, docs_arms
-from tools._common import RelPath, prose_lines
+from tools._common import RelPath
 from tools.check_docs import ARMS, check_tree, main, read_documents
 from tools.docs_arms import (
     Unread,
-    destination,
     header_slugs,
-    headings,
+    html_anchors,
     missing,
-    paragraphs,
     read_tracked,
     read_tracked_bytes,
     slug,
@@ -47,45 +45,6 @@ def test_slug_turns_each_whitespace_character_into_one_hyphen() -> None:
     """GitHub's slug keeps a run of spaces as a run of hyphens, punctuation dropped."""
     assert slug(Prose("Change Detection & Stability")) == "change-detection--stability"
     assert slug(Prose("Path 1 (Excel + CLI)")) == "path-1-excel--cli"
-    assert slug(Prose("See [the guide](x.md)")) == "see-the-guide"
-
-
-def test_headings_skip_fenced_code_and_keep_code_spans() -> None:
-    """A heading-shaped line in a fence is code; a code span stays in the heading's text."""
-    text = Prose("# One\n```\n# Not a heading\n```\n## Two `code` ##\n")
-    assert headings(text) == [Prose("One"), Prose("Two `code`")]
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        (Prose("#\tTitle\n"), [Prose("Title")]),
-        (Prose("#\u00a0Title\n"), list[Prose]()),
-        (Prose("#\n"), [Prose("")]),
-    ],
-    ids=["tab", "no-break-space", "run-alone"],
-)
-def test_a_hash_run_opens_a_heading_before_a_space_a_tab_or_the_line_end(
-    text: Prose, expected: list[Prose]
-) -> None:
-    """A run opens a heading before a space, a tab or the line's end, never a no-break space."""
-    assert headings(text) == expected
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        (Prose("##  \tTitle \t##  \n"), [Prose("Title")]),
-        (Prose("# \u00a0Title\n"), [Prose("\u00a0Title")]),
-        (Prose("# Title\u00a0\n"), [Prose("Title\u00a0")]),
-    ],
-    ids=["spaces-and-tabs", "leading-no-break-space", "trailing-no-break-space"],
-)
-def test_only_spaces_and_tabs_around_a_headings_text_are_dropped(
-    text: Prose, expected: list[Prose]
-) -> None:
-    """Spaces and tabs around the text and a closing run are dropped; a no-break space stays."""
-    assert headings(text) == expected
 
 
 def test_a_repeated_heading_takes_githubs_numbered_suffixes() -> None:
@@ -100,72 +59,34 @@ def test_an_html_name_or_id_is_an_anchor_too() -> None:
     assert header_slugs(text) == {Prose("top"), Prose("kept"), Prose("also-kept")}
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (Prose("# a &amp; b\n"), {Prose("a--b")}),
+        (Prose("# See [the guide](x.md)\n"), {Prose("see-the-guide")}),
+        (Prose("# Set *in* `code`\n"), {Prose("set-in-code")}),
+        (Prose("Underlined\n===\n"), {Prose("underlined")}),
+        (Prose("> ## Quoted\n"), {Prose("quoted")}),
+        (Prose("## Closed #\n"), {Prose("closed")}),
+    ],
+    ids=["entity", "link", "emphasis-and-code", "setext", "in-a-quote", "closing-run"],
+)
+def test_a_headings_anchor_is_the_slug_of_what_it_renders(
+    text: Prose, expected: set[Prose]
+) -> None:
+    """The slug is taken from the rendered text, of any heading CommonMark reads."""
+    assert header_slugs(text) == expected
+
+
+def test_html_in_code_defines_no_anchor() -> None:
+    """An id or a name inside a fence or a code span is an example, not an anchor."""
+    text = Prose('# Top\n\n```\n<a id="fenced"></a>\n```\n\nSee `<a name="span">`.\n')
+    assert header_slugs(text) == {Prose("top")}
+
+
 def test_tracked_dirs_are_every_directory_on_the_way_to_a_file() -> None:
     """Each proper prefix of a tracked path, and neither the file nor the empty path."""
     assert tracked_dirs([RelPath("a/b/c.md"), RelPath("top.md")]) == {RelPath("a"), RelPath("a/b")}
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        (Prose('x.md "Title"'), Prose("x.md")),
-        (Prose("x.md\t'Title'"), Prose("x.md")),
-        (Prose("x.md\n(Title)"), Prose("x.md")),
-        (Prose(" \t\nx.md"), Prose("x.md")),
-        (Prose('\u00a0g\u00a0b.md "Title"'), Prose("\u00a0g\u00a0b.md")),
-        (Prose(" \t\n"), Prose("")),
-        (Prose(""), Prose("")),
-    ],
-    ids=["space", "tab", "line-break", "leading", "no-break-space", "blank", "empty"],
-)
-def test_destination_ends_at_a_space_a_tab_or_a_line_break(raw: Prose, expected: Prose) -> None:
-    """A destination drops the spaces, tabs and line breaks before it and ends at the next one."""
-    assert destination(raw) == expected
-
-
-def test_paragraphs_end_at_a_blank_or_whitespace_only_line() -> None:
-    """A paragraph's lines are joined by line breaks; a line of spaces and tabs alone ends it."""
-    text = Prose("\n\none\ntwo\n \t\nthree\n\u00a0\nfour\n\nfive\n")
-    assert paragraphs(RelPath("a.md"), text) == [
-        Prose("one\ntwo"),
-        Prose("three\n\u00a0\nfour"),
-        Prose("five"),
-    ]
-
-
-def test_a_line_of_letters_alone_is_paragraph_text() -> None:
-    """Only spaces and tabs make a line blank, so a line holding a letter stays in its paragraph."""
-    assert paragraphs(RelPath("a.md"), Prose("one\nX\ntwo\n")) == [Prose("one\nX\ntwo")]
-
-
-def test_paragraphs_end_lines_where_the_prose_reader_does() -> None:
-    """A form feed or line separator ends a line as the prose reader does; two make a blank line."""
-    text = Prose("one\x0c\x0ctwo\nthree\u2028\u2028four\n")
-    assert paragraphs(RelPath("a.md"), text) == [Prose("one"), Prose("two\nthree"), Prose("four")]
-
-
-def test_paragraphs_hold_the_prose_alone() -> None:
-    """Fenced code is dropped and each inline code span masked to one backtick."""
-    text = Prose("one `[a](x.md)` two `b` three\n\n```\n[b](y.md)\n```\n\nfour\n")
-    assert paragraphs(RelPath("a.md"), text) == [Prose("one ` two ` three"), Prose("four")]
-
-
-def test_a_file_other_than_markdown_is_prose_whole() -> None:
-    """A source file's fences and code spans are its own text: every line stays as it is."""
-    text = Prose("```\nx = `y`\n```\n")
-    assert prose_lines(RelPath("a.py"), text) == [(1, "```"), (2, "x = `y`"), (3, "```")]
-
-
-def test_an_indented_fence_opens_and_closes_fenced_code() -> None:
-    """A fence after leading spaces or a tab still opens and closes fenced code in Markdown."""
-    text = Prose("  ```\nx\n\t```\ny\n")
-    assert prose_lines(RelPath("a.md"), text) == [(4, "y")]
-
-
-def test_fenced_code_ends_a_paragraph() -> None:
-    """A fence interrupts a paragraph, so the prose on either side of it is two paragraphs."""
-    text = Prose("[a](x.md\n```\ncode\n```\nb) c\n")
-    assert paragraphs(RelPath("a.md"), text) == [Prose("[a](x.md"), Prose("b) c")]
 
 
 def test_read_documents_reads_every_tracked_markdown_file_and_nothing_else(tmp_path: Path) -> None:
@@ -335,3 +256,45 @@ def test_every_arm_module_is_registered() -> None:
     assert {arm.__module__ for arm in ARMS} == modules
     assert {arm.__name__ for arm in ARMS} == {"findings"}
     assert len(ARMS) == len(modules)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            Prose("<a id='single'></a> <span id=bare></span> <b ID=\"upper\">"),
+            [Prose("single"), Prose("bare"), Prose("upper")],
+        ),
+        (Prose('<a name="named"></a> <div name="not"></div>'), [Prose("named")]),
+        (Prose('<a id="a&amp;b"></a>'), [Prose("a&b")]),
+        (Prose('<p id="first" id="second"></p>'), [Prose("first")]),
+        (
+            Prose('<div data-id="no" title=\'id="no"\'></div> <a href="h" title="t" id>'),
+            list[Prose](),
+        ),
+        (Prose('<!-- <a id="no"> -->'), list[Prose]()),
+        (Prose('<script>x = "<a id=no>"</script>'), list[Prose]()),
+        (Prose('<textarea><a id="no"></textarea>'), list[Prose]()),
+    ],
+    ids=[
+        "quoting-and-case",
+        "name-on-a-only",
+        "reference",
+        "repeated-attribute",
+        "other-attributes",
+        "comment",
+        "script",
+        "textarea",
+    ],
+)
+def test_an_html_fragment_is_what_a_browser_would_scroll_to(
+    raw: Prose, expected: list[Prose]
+) -> None:
+    """Any element's id and an a element's name, read as HTML, and nothing else."""
+    assert html_anchors(raw) == expected
+
+
+def test_a_tag_inside_an_inline_script_is_no_anchor() -> None:
+    """A paragraph's tags are read together, so one inside its ``<script>`` names nothing."""
+    text = Prose('# Top\n\nText <script>x = "<a id="no">";</script> more.\n')
+    assert header_slugs(text) == {Prose("top")}

@@ -3,12 +3,17 @@
 """The project tree README.md prints names exactly the top-level directories git tracks.
 
 A curated tree reads as the whole shape of the project and goes stale silently
-when a directory is added or removed, so the tree block opening ``aletheia/`` is
-compared with the first path component of every tracked file: a directory the
-tree lists and the repository does not track is a finding, as is a tracked
-directory the tree omits. A README printing no tree, untracked, or that the
-work tree cannot give, is a finding too, so the scan never passes for want of a
-subject.
+when a directory is added or removed, so the tree is compared with the
+top-level directories a tracked path passes through. The tree is the first code
+block (as CommonMark reads code blocks, ``tools._markdown``) whose first line
+that is not blank reads ``aletheia/`` from its first column, spaces and tabs
+after it allowed; its top-level directories are named by its lines opening on
+``├── `` or ``└── ``, each name the run of characters, neither whitespace nor
+``/``, that follows those marks and ends at a ``/``, so an entry with no ``/``
+after its name is a file. A directory the tree lists and the repository
+does not track is a finding, as is a tracked directory the tree omits. A README
+printing no tree, untracked, or that the work tree cannot give, is a finding too,
+so the scan never passes for want of a subject.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from tools import _markdown
 from tools._common import RelPath
 from tools.docs_arms import missing
 
@@ -27,20 +33,19 @@ if TYPE_CHECKING:
 
 README = RelPath("README.md")
 
-# The tree block: a line reading ``aletheia/`` followed by its branch lines, nested
-# ones drawn under a ``│`` included.
-_TREE = re.compile(r"^aletheia/\n((?:[├└│].*\n)+)", re.MULTILINE)
+# The tree: a code block whose first line that is not blank reads ``aletheia/``.
+_ROOT = re.compile(r"(?:[ \t]*\n)*aletheia/[ \t]*(?:\n|$)")
 # A top-level branch naming a directory. The lazy match stops at the first slash, so a
 # branch drawn as a path such as ``src/Aletheia/`` names its top directory.
-_BRANCH = re.compile(r"^[├└]── (\S+?)/", re.MULTILINE)
+_BRANCH = re.compile(r"^[├└]── ([^/\s]+)/", re.MULTILINE)
 
 
 def _listed(text: Prose) -> set[RelPath] | None:
     """Return the top-level directories the tree in ``text`` lists, or None without a tree."""
-    match = _TREE.search(text)
-    if match is None:
-        return None
-    return {RelPath(m.group(1)) for m in _BRANCH.finditer(match.group(1))}
+    for block in _markdown.code_blocks(text):
+        if (root := _ROOT.match(block)) is not None:
+            return {RelPath(m.group(1)) for m in _BRANCH.finditer(block, root.end())}
+    return None
 
 
 def findings(

@@ -2,99 +2,86 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Outside fenced code, every paragraph, list item and blockquote of the building guide is one line.
 
-The subject is ``docs/development/BUILDING.md``. An indented line that is not a list item, a
-prose line under a prose, item or ``>`` line, and a ``>`` line under another are each a finding
-naming the line that continues the block. Headings, table rows, list items at any indent and
-``---`` breaks may follow one another; a ``#`` run opens a heading only when a space, a tab or the
-line's end follows it. The fenced blocks are the ones ``tools._common.prose_lines`` drops, and lines
-end where that helper ends them, a lone carriage return included; the shape of a line is read from
-its original text, because that helper's inline-code mask moves a line's first column. A subject
-missing from the documents, or one with nothing but blank lines outside fenced code, is a finding
-too.
+The subject is ``docs/development/BUILDING.md``, read as CommonMark (``tools._markdown``). A line
+that holds more of a paragraph, a list item or a blockquote than its first line does is a finding
+naming it, whatever block it holds, indented code, a heading or a table row among them: a
+paragraph's second line and after, wherever the paragraph sits; a blockquote's second line and
+after; and a list item's second line and after, but the lines of a list nested in it through
+items alone. At the top level, headings, table rows, list items, thematic breaks and indented
+code may follow one another. Fenced code is not read, and a line of spaces and tabs alone is
+blank. A subject missing from the documents, or one with nothing but blank lines outside fenced
+code, is a finding too.
 """
 
 from __future__ import annotations
 
-import enum
-import re
 from typing import TYPE_CHECKING
 
-from tools._common import RelPath, prose_lines
-from tools.docs_arms import ATX_OPEN, missing
+from tools import _markdown
+from tools._common import RelPath
+from tools.docs_arms import missing
 
-from aletheia.common_types import Prose
+from aletheia.common_types import PositiveInt, Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
 SUBJECT = RelPath("docs/development/BUILDING.md")
 
-
-class Shape(enum.Enum):
-    """What a line outside fenced code is, as Markdown reads it."""
-
-    HEADING = "heading"
-    TABLE = "table"
-    ITEM = "item"
-    QUOTE = "quote"
-    CONTINUATION = "continuation"
-    RULE = "rule"
-    PROSE = "prose"
+_PARAGRAPH = Prose("wraps the paragraph above it")
+_QUOTE = Prose("wraps the blockquote above it")
+_ITEM = Prose("continues a list item or paragraph")
 
 
-# The first pattern a line matches gives its shape; a line matching none is prose.
-_SHAPES = (
-    (ATX_OPEN, Shape.HEADING),
-    (re.compile(r"^\|"), Shape.TABLE),
-    (re.compile(r"^[ \t]*(?:- |\* |\d+\. )"), Shape.ITEM),
-    (re.compile(r"^>"), Shape.QUOTE),
-    (re.compile(r"^[ \t]"), Shape.CONTINUATION),
-    (re.compile(r"^---\s*$"), Shape.RULE),
-)
+def _nested_in(inner: _markdown.Block, item: _markdown.Block) -> bool:
+    """Whether the list ``inner`` sits right inside an item at the depth of ``item``.
 
-
-def shape(line: Prose) -> Shape:
-    """Return the shape of one non-blank line outside fenced code."""
-    return next((kind for pattern, kind in _SHAPES if pattern.match(line)), Shape.PROSE)
-
-
-def _wrap(previous: Shape | None, current: Shape) -> Prose | None:
-    """Return how a ``current`` line continues the ``previous`` line's block, else None."""
-    match previous, current:
-        case (_, Shape.CONTINUATION) | (Shape.ITEM, Shape.PROSE):
-            return Prose("continues a list item or paragraph")
-        case (Shape.PROSE, Shape.PROSE):
-            return Prose("wraps the paragraph above it")
-        case (Shape.QUOTE, Shape.PROSE | Shape.QUOTE):
-            return Prose("wraps the blockquote above it")
-        case _:
-            return None
+    A list nested deeper lies inside one that does, and one inside a quote does not.
+    """
+    return inner.within == (*item.within, "item")
 
 
 def paragraph_findings(rel: RelPath, text: Prose) -> list[Prose]:
-    """Return one finding per line of ``text`` that continues the block above it.
+    """Return one finding per line of ``text`` that continues the block above it, in line order.
 
-    Blank lines and fence markers end a block. A finding names the line that wraps;
-    a document with nothing but blank lines outside fenced code is itself a finding.
+    A document with nothing but blank lines outside fenced code is itself a finding.
     """
-    outside = {lineno for lineno, _ in prose_lines(rel, text)}
-    lines = text.splitlines()
-    found: list[Prose] = []
-    previous: Shape | None = None
-    seen = False
-    for lineno, line in enumerate(lines, start=1):
-        if lineno not in outside or not line.strip():
-            previous = None
-            continue
-        seen = True
-        current = shape(Prose(line))
-        if (wrap := _wrap(previous, current)) is not None:
-            found.append(Prose(f"{rel}: line {lineno} {wrap}"))
-        previous = current
-    if not seen:
-        found.append(Prose(f"{rel}: no paragraph outside fenced code to check"))
-    return found
+    lines = _markdown.lines(text)
+    found_blocks = _markdown.blocks(text)
+    fenced = {
+        number
+        for block in found_blocks
+        if block.kind == "fence"
+        for number in range(block.first, block.last + 1)
+    }
+    found: dict[PositiveInt, Prose] = {}
+
+    def mark(numbers: Iterable[PositiveInt], why: Prose) -> None:
+        for number in numbers:
+            if number not in fenced and lines[number - 1].strip(" \t"):
+                _ = found.setdefault(number, why)
+
+    for block in found_blocks:
+        later = range(block.first + 1, block.last + 1)
+        if block.kind == "item":
+            nested = {
+                number
+                for inner in found_blocks
+                if inner.kind == "list" and _nested_in(inner, block)
+                for number in range(inner.first, inner.last + 1)
+            }
+            mark((number for number in later if number not in nested), _ITEM)
+        elif block.kind == "quote":
+            mark(later, _QUOTE)
+        elif block.kind == "paragraph":
+            mark(later, _PARAGRAPH)
+    out = [Prose(f"{rel}: line {number} {found[number]}") for number in sorted(found)]
+    if not any(
+        line.strip(" \t") for number, line in enumerate(lines, start=1) if number not in fenced
+    ):
+        out.append(Prose(f"{rel}: no paragraph outside fenced code to check"))
+    return out
 
 
 def findings(

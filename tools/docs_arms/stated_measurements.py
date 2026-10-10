@@ -17,7 +17,10 @@ A baseline the work tree cannot give is named in a finding of its own and ends
 the comparison, since the set left would answer for the whole of it; once a
 baseline is read, so is a schema or a residency test the comparison consults that
 is untracked or that the work tree cannot give.  A source byte that is not UTF-8
-reads as U+FFFD.
+reads as U+FFFD.  The document is read as CommonMark (``tools._markdown``): a
+section runs from its heading, its text written as here whether by a run of ``#``
+or as a setext heading, to the next heading of level two or shallower, and a
+table row is a row of a table in it, its cells as GitHub splits them.
 """
 
 from __future__ import annotations
@@ -31,7 +34,8 @@ from typing import TYPE_CHECKING, Annotated, NamedTuple, NotRequired, TypedDict,
 
 import yaml
 
-from tools._common import RelPath, prose_lines
+from tools import _markdown
+from tools._common import RelPath
 from tools.docs_arms import Unread, missing, read_tracked
 
 from aletheia.common_types import Gt, PositiveInt, Prose
@@ -181,17 +185,9 @@ class _Residency(NamedTuple):
 Lanes = dict[Prose, dict[Prose, _ThroughputRow]]
 
 
-def _section(doc: Prose, heading: Prose) -> Prose | None:
-    """Return the section ``heading`` opens, up to the next level-two heading; None when absent."""
-    lines = doc.splitlines()
-    if heading not in lines:
-        return None
-    body: list[Prose] = []
-    for line in lines[lines.index(heading) + 1 :]:
-        if line.startswith("## "):
-            break
-        body.append(Prose(line))
-    return Prose("\n".join(body))
+def _text(doc: Prose, section: _markdown.Section) -> Prose:
+    """Return the lines of ``section`` of ``doc`` as CommonMark ends them, joined by newlines."""
+    return Prose("\n".join(_markdown.lines(doc)[section.first - 1 : section.end - 1]))
 
 
 def _of_document(items: Sequence[Prose]) -> list[Prose]:
@@ -243,14 +239,14 @@ def _throughput_lanes(baselines: dict[RelPath, _Baseline]) -> tuple[Lanes, list[
     return lanes, out
 
 
-def _table_rows(section: Prose) -> list[Prose]:
-    """Return the lines of ``section`` that are rows of a table, the header among them."""
-    return [Prose(line) for line in section.splitlines() if line.startswith("| ")]
+def _table_rows(doc: Prose, section: _markdown.Section) -> list[_markdown.Row]:
+    """Return the rows of the tables in ``section`` of ``doc``, the header rows among them."""
+    return [row for row in _markdown.table_rows(doc) if section.first <= row.line < section.end]
 
 
 def _canonical_table(doc: Prose, baselines: dict[RelPath, _Baseline]) -> list[Prose]:
     """Hold every cell, the lane roster and the spread bound of the canonical table."""
-    section = _section(doc, _CANONICAL)
+    section = _markdown.section(doc, _CANONICAL)
     if section is None:
         return [Prose(f"has no {_CANONICAL_NAME} section")]
     lanes, out = _throughput_lanes(baselines)
@@ -259,23 +255,22 @@ def _canonical_table(doc: Prose, baselines: dict[RelPath, _Baseline]) -> list[Pr
             Prose("no committed throughput baseline carries a lane to compare the table with")
         )
         return out
-    rows = _table_rows(section)
-    header = next((line for line in rows if line.startswith("| Benchmark ")), None)
+    rows = _table_rows(doc, section)
+    header = next((row for row in rows if row.cells[:1] == (Prose("Benchmark"),)), None)
     if header is None:
         out.append(Prose("the canonical table has no header row opening on Benchmark"))
         return out
     bindings: list[Prose | None] = []
-    for cell in header.strip().strip("|").split("|")[1:]:
-        title = Prose(cell.strip().removesuffix(" (fps)"))
+    for cell in header.cells[1:]:
+        title = Prose(cell.removesuffix(" (fps)"))
         if title not in _COLUMNS:
             out.append(Prose(f"the table has a column no binding answers to: {title!r}"))
         bindings.append(_COLUMNS.get(title))
     seen: set[Prose] = set()
-    for line in rows:
-        if line is header:
+    for row in rows:
+        if row is header:
             continue
-        cells = [Prose(cell.strip()) for cell in line.strip().strip("|").split("|")]
-        lane, printed = cells[0], cells[1:]
+        lane, printed = row.cells[0], row.cells[1:]
         if lane not in lanes:
             out.append(Prose(f"the table has a lane the baselines do not: {lane!r}"))
             continue
@@ -289,7 +284,7 @@ def _canonical_table(doc: Prose, baselines: dict[RelPath, _Baseline]) -> list[Pr
         for lane in lanes
         if lane not in seen
     )
-    out.extend(_bound_findings(section, lanes))
+    out.extend(_bound_findings(_text(doc, section), lanes))
     return out
 
 
@@ -581,7 +576,7 @@ def _toolchain_findings(doc: Prose, baselines: dict[RelPath, _Baseline]) -> list
     out: list[Prose] = []
     if _SYSTEM not in doc:
         out.append(Prose("does not name the system object as where the runtime versions are"))
-    prose = "\n".join(line for _, line in prose_lines(_DOCUMENT, doc))
+    prose = "\n".join(line for _, line in _markdown.prose_lines(_DOCUMENT, doc))
     systems = [data["system"] for data in baselines.values()]
     runtimes = (
         (Prose("Go"), r"\bGo (\d+\.\d+(?:\.\d+)?)", [s.get("go") for s in systems]),
@@ -625,12 +620,13 @@ def findings(
             [Prose("no committed baseline under benchmarks/results/ to compare with")]
         )
     out = _of_document(_canonical_table(doc, baselines))
-    local = _section(doc, _LOCAL)
+    local = _markdown.section(doc, _LOCAL)
     if local is None:
         out.extend(_of_document([Prose(f"has no {_LOCAL_NAME} section")]))
     else:
-        out.extend(_schema_findings(root, tracked_set, local, baselines))
-        out.extend(_of_document(_lacking_findings(local, baselines)))
+        local_text = _text(doc, local)
+        out.extend(_schema_findings(root, tracked_set, local_text, baselines))
+        out.extend(_of_document(_lacking_findings(local_text, baselines)))
     out.extend(_of_document(_latency_findings(doc, baselines)))
     out.extend(_residency_findings(doc, root, tracked_set))
     out.extend(_of_document(_toolchain_findings(doc, baselines)))

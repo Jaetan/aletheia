@@ -311,3 +311,10 @@ def test_an_unread_scheduling_file_leaves_the_others_scanned(tmp_path: Path) -> 
         Prose(f"{WORKFLOW}: could not be read, so whether it invokes a fuzz run is unchecked"),
         _schedule_finding(TOOL),
     ]
+
+
+def test_a_target_is_named_only_in_a_code_span(tmp_path: Path) -> None:
+    """Backticks inside a fence are code, so a name between them is not cited."""
+    repo = _repo(tmp_path)
+    _write(repo, DOC, Prose(f"{STANDARD}\n```\n`FuzzGhost`\n```\n"))
+    assert _run(repo) == list[Prose]()

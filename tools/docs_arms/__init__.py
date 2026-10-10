@@ -10,9 +10,9 @@ tracked Markdown file the work tree gives, in the order of ``tracked``, read onc
 by ``tools/check_docs.py`` for all of its checks.  A tracked file the work tree
 cannot give is a finding, never an error: ``read_tracked_bytes`` is the one read
 of a tracked file, ``read_tracked`` its text, and ``missing`` words the finding
-for a file an arm needs and has no text of.  The heading, tracked-directory,
-paragraph and link-destination readers here are shared by the gate's link checks
-and the arms.
+for a file an arm needs and has no text of.  A document's structure, its
+headings, links, code spans, tables and prose, is read through ``tools._markdown``;
+the tracked-directory reader and GitHub's anchors are here.
 """
 
 from __future__ import annotations
@@ -20,10 +20,12 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, NewType
 
-from tools._common import FENCE, INLINE_CODE, RelPath, prose_lines
+from tools import _markdown
+from tools._common import RelPath
 
 from aletheia.common_types import Prose
 
@@ -33,11 +35,6 @@ if TYPE_CHECKING:
 
     type Arm = Callable[[Path, Sequence[RelPath], Mapping[RelPath, Prose]], list[Prose]]
 
-# An ATX heading opens on a run of one to six # before a space, a tab or the line's end.
-ATX_OPEN = re.compile(r"#{1,6}(?:[ \t]|$)")
-_ATX = re.compile(ATX_OPEN.pattern + r"[ \t]*(.*?)[ \t]*#*[ \t]*$")
-_HTML_ANCHOR = re.compile(r'(?:name|id)="([^"]+)"')
-_LINK_TOKEN = re.compile(r"[^ \t\n]+")
 
 # The bytes of a file as the work tree holds them.
 FileBytes = NewType("FileBytes", bytes)
@@ -99,69 +96,47 @@ def tracked_dirs(tracked: Iterable[RelPath]) -> set[RelPath]:
     }
 
 
-def destination(raw: Prose) -> Prose:
-    """Return the destination of a link written ``raw``, a title after it dropped.
-
-    Leading spaces, tabs and line breaks are dropped and the destination ends at
-    the next one, "" when nothing is left; any other space, U+00A0 among them, stays in it.
-    """
-    token = _LINK_TOKEN.search(raw)
-    return Prose(token.group() if token else "")
-
-
-def paragraphs(rel: RelPath, text: Prose) -> list[Prose]:
-    """Return each paragraph of the prose of document ``rel``, its lines joined by line breaks.
-
-    The prose drops fenced code and masks each inline code span to one backtick,
-    which no link destination holds, so a line holding only a code span is paragraph
-    text.  A blank line, a line of spaces and tabs alone, or fenced code ends a
-    paragraph, and no link or definition crosses it.
-    """
-    prose = {number for number, _ in prose_lines(rel, text)}
-    out: list[Prose] = []
-    lines: list[Prose] = []
-    for number, raw in enumerate(text.splitlines(), start=1):
-        line = INLINE_CODE.sub("`", raw)
-        if number in prose and line.strip(" \t"):
-            lines.append(Prose(line))
-        elif lines:
-            out.append(Prose("\n".join(lines)))
-            lines = []
-    if lines:
-        out.append(Prose("\n".join(lines)))
-    return out
-
-
-def headings(text: Prose) -> list[Prose]:
-    """Return the text of every ATX heading of ``text`` outside fenced code, code spans kept."""
-    out: list[Prose] = []
-    in_fence = False
-    for line in text.splitlines():
-        if FENCE.match(line):
-            in_fence = not in_fence
-        elif not in_fence and (m := _ATX.match(line)) is not None:
-            out.append(Prose(m.group(1)))
-    return out
-
-
 def slug(heading: Prose) -> Prose:
-    """Return GitHub's anchor slug for ``heading``, each whitespace character one hyphen."""
-    s = heading.strip().lower().replace("`", "")
-    s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)  # [t](u) -> t
-    s = re.sub(r"[^\w\s-]", "", s)  # drop punctuation, keep the spaces around it
+    """Return GitHub's anchor slug for a heading whose rendered text is ``heading``.
+
+    The text is trimmed of whitespace at its ends and lowered, every character but
+    a word character (a letter, a digit or another numeral, an underscore), a hyphen
+    or whitespace dropped, and each whitespace character becomes one hyphen.
+    """
+    s = re.sub(r"[^\w\s-]", "", heading.strip().lower())
     return Prose(re.sub(r"\s", "-", s))
 
 
+def html_anchors(raw: Prose) -> list[Prose]:
+    """Return the fragments the HTML ``raw`` names: every element's ``id``, every ``a``'s ``name``.
+
+    The HTML is read as a browser reads it: a comment, a declaration, the text of
+    a raw-text or RCDATA element (``script``, ``style``, ``textarea`` and ``title``
+    among them) and any attribute but those two name nothing, an attribute a tag
+    repeats counts once, its first, and a value's character references are decoded.
+    """
+    found: list[Prose] = []
+    reader = HTMLParser()
+    reader.handle_starttag = lambda tag, attrs: found.extend(
+        Prose(value)
+        for name, value in dict(reversed(attrs)).items()
+        if value is not None and (name == "id" or (name == "name" and tag == "a"))
+    )
+    reader.feed(raw)
+    return found
+
+
 def header_slugs(text: Prose) -> set[Prose]:
-    """Return every anchor ``text`` defines: its headings' slugs and its HTML ``name``/``id``.
+    """Return every anchor ``text`` defines: its headings' slugs and its HTML fragments.
 
     A repeated slug takes GitHub's ``-1``, ``-2`` suffixes in order of appearance.
+    An HTML fragment comes only from HTML the document carries, never from code.
     """
     slugs: set[Prose] = set()
     seen = Counter[Prose]()
-    for heading in headings(text):
-        base = slug(heading)
+    for heading in _markdown.headings(text):
+        base = slug(heading.text)
         slugs.add(Prose(f"{base}-{seen[base]}") if seen[base] else base)
         seen[base] += 1
-    slugs.update(Prose(anchor) for anchor in _HTML_ANCHOR.findall(text))
+    slugs.update(anchor for raw in _markdown.html(text) for anchor in html_anchors(raw))
     return slugs

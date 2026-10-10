@@ -99,6 +99,10 @@ def test_clean_fixture_has_no_finding(tmp_path: Path) -> None:
             id="toolchain-release-prefixed",
         ),
         pytest.param(
+            edited_files(DOCUMENT, Prose("| 100,000 |"), Prose("| 100,000 | 7 |")),
+            id="a-cell-past-the-header-which-github-does-not-show",
+        ),
+        pytest.param(
             recording(
                 Prose("rustc 1.97"), Prose("rust"), Prose("rustc 1.97.1 (8bab26f4f 2026-07-14)")
             ),
@@ -214,14 +218,18 @@ def test_each_stated_version_is_reported_once_in_the_order_stated(tmp_path: Path
             id="table-cell",
         ),
         pytest.param(
-            edited_files(DOCUMENT, Prose("| 100,000 |"), Prose("| 100,000 | 7 |")),
+            edited_files(
+                DOCUMENT,
+                Prose("| 50,000 | 25,000 |\n"),
+                Prose("| 50,000 | 25,000 |\n\n| Lane A | 1 | 2 | 3 |\n|---|---|---|---|\n"),
+            ),
             ["Lane A: 3 cells under 2 columns"],
-            id="row-with-a-cell-past-the-columns",
+            id="row-of-a-wider-second-table",
         ),
         pytest.param(
             edited_files(DOCUMENT, Prose("| 50,000 | 25,000 |"), Prose("| 50,000 |")),
-            ["Lane B: 1 cells under 2 columns"],
-            id="row-short-of-the-columns",
+            ["Lane B, python: the table says , the baseline 25,000"],
+            id="row-short-of-the-columns-shows-an-empty-cell",
         ),
         pytest.param(
             spread(Prose("610.0"), Prose("2.4")),
@@ -291,8 +299,8 @@ def test_each_stated_version_is_reported_once_in_the_order_stated(tmp_path: Path
         pytest.param(
             edited_files(
                 DOCUMENT,
-                Prose("| Python (fps) |"),
-                Prose("| Python (fps) | Rust (fps) |"),
+                Prose("| Python (fps) |\n|---|---:|---:|"),
+                Prose("| Python (fps) | Rust (fps) |\n|---|---:|---:|---:|"),
                 edited_files(
                     DOCUMENT,
                     Prose("| 100,000 |"),

@@ -4,22 +4,25 @@
 
 Each document is read without the other, so both open with the same two sections, the bug
 classes the proof removes and the comparison with the tested decoders. The arm holds the two
-copies equal: each shared section is read from its heading up to the next heading of the same
-level or shallower, which differs by design, with blank lines and horizontal rules dropped as
-each document's own spacing, and a line's indentation and trailing blanks kept as content. A
+copies equal. Each document is read as CommonMark (``tools._markdown``): a shared section runs
+from its heading, its text written as the pair spells it whether by a run of ``#``, with a
+closing run or not, or as a setext heading, up to the next heading of the same level or
+shallower, which differs by design. Its blank lines and its thematic breaks outside any list or
+quote are dropped as each document's own spacing, while every line of code and of an HTML block
+is kept, blank ones included, and a line's indentation and trailing blanks are content. A
 document the pair names that is untracked, unread, or does not carry a shared heading, is a
 finding, since the comparison then holds nothing.
 """
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, NamedTuple
 
+from tools import _markdown
 from tools._common import RelPath
 from tools.docs_arms import missing
 
-from aletheia.common_types import Prose
+from aletheia.common_types import PositiveInt, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -45,29 +48,36 @@ PAIRS: tuple[SharedOpening, ...] = (
     ),
 )
 
-# A horizontal rule once stripped: three or more of one of ``-``, ``*``, ``_``, spaced or not.
-_RULE = re.compile(r"^([-*_])(?:[ \t]*\1){2,}$")
 _SHOWN = 120
 
 
 def section(text: Prose, heading: Prose) -> list[Prose] | None:
-    """Return the heading's section as its non-blank lines, horizontal rules dropped.
+    """Return the heading's section as ``heading`` and the lines of its body a reader compares.
 
-    The section runs from the line that is ``heading`` to the next heading of the same level or
-    shallower, exclusive. None when ``text`` has no such heading line.
+    The body runs from the line after the heading to the next heading of the same level or
+    shallower, exclusive; its blank lines outside code and HTML, and its thematic breaks outside
+    a list or a quote, are dropped. None when ``text`` has no such heading.
     """
-    lines = text.split("\n")
-    if heading not in lines:
+    found = _markdown.section(text, heading)
+    if found is None:
         return None
-    level = len(heading) - len(heading.lstrip("#"))
-    closes = re.compile(rf"^#{{1,{level}}} ")
-    body: list[Prose] = []
-    for line in lines[lines.index(heading) + 1 :]:
-        if closes.match(line):
-            break
-        if line.strip() and not _RULE.match(line.strip()):
-            body.append(Prose(line))
-    return [heading, *body]
+    code: set[PositiveInt] = set()
+    spacing: set[PositiveInt] = set()
+    for block in _markdown.blocks(text):
+        lines = range(block.first, block.last + 1)
+        if block.kind in {"fence", "code", "html"}:
+            code.update(lines)
+        elif block.kind == "rule" and not block.within:
+            spacing.update(lines)
+    numbered = enumerate(_markdown.lines(text)[found.first - 1 : found.end - 1], start=found.first)
+    return [
+        heading,
+        *(
+            line
+            for number, line in numbered
+            if number not in spacing and (number in code or line.strip(" \t"))
+        ),
+    ]
 
 
 def _missing(

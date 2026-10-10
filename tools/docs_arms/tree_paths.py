@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Every repository path the building guide names in backticks is tracked.
 
-The guide is ``docs/development/BUILDING.md``.  A span in backticks names a
-tree path when it is a path under a top-level source directory, a Dockerfile,
-a bare Cabal or Markdown file name, or the project's own ``aletheia.agda-lib``;
-the standard library's ``.agda-lib`` the guide names lives outside the tree.
+The guide is ``docs/development/BUILDING.md``, read as CommonMark
+(``tools._markdown``): a span in backticks is a code span, so one inside code
+is not read.  A code span names a tree path when it is a path under a
+top-level source directory, a Dockerfile, a bare Cabal or Markdown file name,
+or the project's own ``aletheia.agda-lib``; the standard library's
+``.agda-lib`` the guide names lives outside the tree.
 A path with a directory part resolves when a tracked file or directory carries
 it; a bare name resolves when a tracked file carries it as its base name, since
 the guide names such files from the directory that holds them.  Build outputs
@@ -20,6 +22,7 @@ import re
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, NamedTuple
 
+from tools import _markdown
 from tools._common import RelPath
 from tools.docs_arms import missing, tracked_dirs
 
@@ -51,7 +54,6 @@ _TREE_PATH = re.compile(
     + r")/[A-Za-z0-9_./-]+|Dockerfile[.A-Za-z]*|[A-Za-z_.-]+\.(?:cabal|md)|aletheia\.agda-lib)$"
 )
 _BUILD_OUTPUT = re.compile(r"(?:^|/)build(?:/|$)|\.venv")
-_SPAN = re.compile(r"`([^`\s]+)`")
 
 
 class _TrackedIndex(NamedTuple):
@@ -77,7 +79,7 @@ def tree_paths(text: Prose) -> list[RelPath]:
     the order the text first names them.
     """
     seen: dict[RelPath, None] = {}
-    for span in _SPAN.findall(text):
+    for span in _markdown.code_spans(text):
         if _TREE_PATH.match(span) and not _BUILD_OUTPUT.search(span):
             seen.setdefault(RelPath(span.rstrip("/")), None)
     return list(seen)

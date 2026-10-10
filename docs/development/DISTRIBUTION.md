@@ -1,9 +1,13 @@
 # Distributing Aletheia
 
 ---
+
 **Version**: 5.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
+
 **Last Updated**: 2026-07-24
+
 **Platform**: Linux x86-64 only
+
 ---
 
 > **New to Aletheia?** The fastest path is a **release bundle**: one tarball with the verified library and all four language wrappers (Python, C++, Go, Rust), usable after a single `source env.sh`. See [Using a release bundle](#using-a-release-bundle). The per-language sections further down are the in-depth integration reference (explicit `.so`-path constructors, RPATH, Docker).

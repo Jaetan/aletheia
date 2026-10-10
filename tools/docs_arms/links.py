@@ -2,32 +2,39 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Every relative link and anchor in a tracked document resolves in a fresh checkout.
 
-A link ``[text](target)`` or a reference definition ``[id]: target``, outside
-fenced code and inline code spans, names a target relative to its document; a
-code span in a link's parentheses, or opening a definition's target, makes no link. A
-link's text may be empty or run onto the next line of its paragraph, and a
-definition may be indented by spaces or tabs, its target on its own line.
-The target resolves when git tracks it, as a file or as a directory on
-the way to one, or when it is the repository root: a fresh checkout holds what
-git tracks, so a gitignored file sitting in one working tree does not count. A
-target outside the repository is a finding even when it exists. An anchor
-``#slug``, alone or after a tracked Markdown target, must be one of that
+The document is read as CommonMark (``tools._markdown``): an inline link or image
+``[text](target)`` and a reference definition ``[id]: target`` name a target, read
+where it is written, so a reference link counts at its definition.  Each target is
+read once by ``urllib.parse``: one ``urlsplit`` reads with a scheme or a host, an
+autolink among them, is absolute and not resolved, and neither is a ``#!`` route,
+which names a page of a client-side router rather than an anchor.  Any other is a
+URL reference, resolved by ``urljoin`` against the document's own URL, a path
+opening on ``/`` taken from the repository root as GitHub rewrites it in rendered
+Markdown.  The query is dropped, and each segment of the path is percent-decoded
+as UTF-8, so ``%23`` and ``%3F`` are a ``#`` and a ``?`` inside a file name, while
+a ``%2F`` names no tracked path, no file name holding a ``/``; a target
+``urllib.parse`` refuses is broken.  The path resolves when git tracks it, as a
+file or as a directory on the way to one, or when it is the repository root, and
+one ending in ``/`` must be a directory: a fresh checkout holds what git tracks,
+so neither a gitignored file nor a symlink in one working tree counts. A path
+leading out of the repository, ``..`` above its root included, is a finding even
+when something is there. The fragment, percent-decoded, must be one of the target
 document's anchors, compared without case: a heading's GitHub slug, suffixed
-``-1``, ``-2`` for a repeat, or an HTML ``name`` or ``id``. An anchor into any
-other file is not checked. A link's title is not part of its target, and a link
-with a scheme (``http://``, ``https://``, ``mailto:``, ``tel:``), a ``#!`` route
-or an ``<...>`` autolink is not resolved. A tree whose documents carry no link
-to resolve is a finding, the scan holding nothing. An anchor into a document the
-work tree cannot give goes unchecked here: the gate names that document as unread.
+``-1``, ``-2`` for a repeat, or an HTML fragment, any element's ``id`` or an ``a``
+element's ``name``. An anchor into any other file is not checked. A tree whose
+documents carry no link to resolve is a finding, the scan holding nothing. An
+anchor into a document the work tree cannot give goes unchecked here: the gate
+names that document as unread.
 """
 
 from __future__ import annotations
 
-import re
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
+from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
+from tools import _markdown
 from tools._common import RelPath
-from tools.docs_arms import destination, header_slugs, paragraphs, tracked_dirs
+from tools.docs_arms import header_slugs, tracked_dirs
 
 from aletheia.common_types import Prose
 
@@ -35,39 +42,95 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-# Inline [text](target), or reference-style [id]: target opening a line.  A backtick,
-# a masked code span, in the parentheses makes no link, and ends a definition's target.
-_LINK = re.compile(r"\[[^\]]*\]\(([^)`]+)\)|^[ \t]*\[[^\]]+\]:[ \t]*([^ \t\n`]+)", re.MULTILINE)
-_UNRESOLVED = ("http://", "https://", "mailto:", "tel:", "#!", "<")
-_ROOT = RelPath(".")
+# The URL a document is read under: its path below the repository's own root segment, so
+# a link whose resolved path leaves that segment leaves the repository.
+_ROOT_PATH = "/root/"
+_BASE = f"https://repository.invalid{_ROOT_PATH}"
+# The repository root, as a link that resolves to it names it: the empty path.
+_ROOT = RelPath("")
 
 
 class Checkout(NamedTuple):
-    """What a fresh checkout holds: every tracked file, every directory on the way to one."""
+    """What a fresh checkout holds: each tracked file, the root and each directory above one."""
 
     files: frozenset[RelPath]
     dirs: frozenset[RelPath]
 
     def holds(self, rel: RelPath) -> bool:
-        """Whether ``rel``, repo-relative, is the root, a tracked file or a tracked directory."""
-        return rel == _ROOT or rel in self.files or rel in self.dirs
+        """Whether ``rel``, repo-relative, is a tracked file or a directory of the checkout."""
+        return rel in self.files or rel in self.dirs
 
 
-def links(rel: RelPath, text: Prose) -> list[Prose]:
-    """Return the link targets of document ``rel`` outside fenced code and inline code spans.
+def links(text: Prose) -> list[Prose]:
+    """Return the target written at each link, image, autolink and definition of ``text``, in order.
 
-    Each paragraph is read alone, so a link may run onto the next line but not past a blank one.
+    A reference link has no target of its own: it counts at its definition.
     """
-    return [
-        # The destination ends at a space, a tab or a line break; a title may follow it.
-        destination(Prose(inline or reference))
-        for paragraph in paragraphs(rel, text)
-        for inline, reference in _LINK.findall(paragraph)
+    written = [
+        *((found.line, found.destination) for found in _markdown.links(text) if found.written_here),
+        *((found.line, found.destination) for found in _markdown.definitions(text)),
     ]
+    return [Prose(target) for _, target in sorted(written, key=lambda pair: pair[0])]
+
+
+class _Named(NamedTuple):
+    """The repository path a link names, whether it writes a directory, and its anchor."""
+
+    path: RelPath
+    directory: bool
+    anchor: Prose
+
+
+# What a link reads as when it names no path and is not broken: absolute, or leaving the repository.
+type _Unnamed = Literal["absolute", "escapes"]
+
+
+def _read(rel: RelPath, link: Prose) -> _Named | _Unnamed | None:
+    """Return what ``link`` of document ``rel`` names, read once by ``urllib.parse``.
+
+    A ``#!`` route, and a link ``urlsplit`` reads with a scheme or a host, are
+    absolute.  Any other is resolved by ``urljoin`` against the document's own URL, a
+    path opening on ``/`` from the repository root, as GitHub rewrites it; the query
+    is dropped, a path out of the repository escapes, and each segment is
+    percent-decoded as UTF-8, a segment that cannot be, one decoding to hold a ``/``,
+    or a link ``urllib.parse`` refuses being broken, None.
+    """
+    if link.startswith("#!"):
+        return "absolute"
+    try:
+        written = urlsplit(link)
+        if written.scheme or written.netloc:
+            return "absolute"
+        if written.path.startswith("/"):
+            written = written._replace(path=_ROOT_PATH.removesuffix("/") + written.path)
+        joined = urlsplit(urljoin(_BASE + quote(rel), urlunsplit(written)))
+    except ValueError:
+        return None
+    if not joined.path.startswith(_ROOT_PATH):
+        return "escapes"
+    inner = joined.path.removeprefix(_ROOT_PATH)
+    path = _decoded(Prose(inner.removesuffix("/")))
+    if path is None:
+        return None
+    return _Named(path, inner.endswith("/"), Prose(unquote(joined.fragment)))
+
+
+def _decoded(inner: Prose) -> RelPath | None:
+    """Return the repository path ``inner``, each segment percent-decoded; None when one can't be.
+
+    A segment that is not UTF-8 once decoded, or that decodes to one holding a
+    ``/``, names no tracked path.
+    """
+    try:
+        segments = [unquote(segment, errors="strict") for segment in inner.split("/")]
+    except UnicodeDecodeError:
+        return None
+    if any("/" in segment for segment in segments):
+        return None
+    return RelPath("/".join(segments))
 
 
 def _link_finding(
-    root: Path,
     rel: RelPath,
     link: Prose,
     checkout: Checkout,
@@ -77,17 +140,18 @@ def _link_finding(
 
     ``anchors`` holds each document's anchors in lower case, as they are compared.
     """
-    if link.startswith(_UNRESOLVED):
+    named = _read(rel, link)
+    if named == "absolute":
         return None
-    target, _, anchor = link.partition("#")
-    source = root / rel
-    resolved = source if target == "" else (source.parent / target).resolve()
-    if not resolved.is_relative_to(root):
+    if named == "escapes":
         return Prose(f"{rel}: link escapes the repo -> {link}")
-    rel_target = RelPath(resolved.relative_to(root).as_posix())
-    if not checkout.holds(rel_target):
+    if (
+        named is None
+        or not checkout.holds(named.path)
+        or (named.directory and named.path not in checkout.dirs)
+    ):
         return Prose(f"{rel}: broken link -> {link}")
-    if anchor and rel_target in anchors and anchor.lower() not in anchors[rel_target]:
+    if named.anchor and named.path in anchors and named.anchor.lower() not in anchors[named.path]:
         return Prose(f"{rel}: broken anchor -> {link}")
     return None
 
@@ -106,15 +170,16 @@ def findings(
         The findings, each naming the document that holds the link.
 
     """
-    checkout = Checkout(frozenset(tracked), frozenset(tracked_dirs(tracked)))
+    del root
+    checkout = Checkout(frozenset(tracked), frozenset({_ROOT, *tracked_dirs(tracked)}))
     anchors = {
         rel: {Prose(slug.lower()) for slug in header_slugs(text)} for rel, text in documents.items()
     }
-    found = [(rel, link) for rel, text in documents.items() for link in links(rel, text)]
-    if not any(not link.startswith(_UNRESOLVED) for _, link in found):
+    found = [(rel, link) for rel, text in documents.items() for link in links(text)]
+    if all(_read(rel, link) == "absolute" for rel, link in found):
         return [Prose("README.md: no document read carries a link to resolve")]
     return [
         finding
         for rel, link in found
-        if (finding := _link_finding(root, rel, link, checkout, anchors)) is not None
+        if (finding := _link_finding(rel, link, checkout, anchors)) is not None
     ]

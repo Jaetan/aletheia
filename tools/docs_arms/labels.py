@@ -8,24 +8,30 @@ so an internal review mark, a finding identifier or a session phrase such as
 "pending push" in its prose is a finding, and so is a Markdown link into the
 agent memory store, which no checkout holds. A session phrase is matched in
 any letter case. The repository-root logs, the changelog and the status page,
-record history by purpose and are not read.
-Fenced code and inline code spans are not prose, so a mark shown as an
-example is not a finding. Each distinct mark is reported once per document,
-and a tree with no living document read is a finding, the scan holding nothing.
+record history by purpose and are not read.  Each document is read as
+CommonMark (``tools._markdown``): code blocks and code spans are not prose, so
+a mark shown as an example is not a finding, and a link into the store is any
+link, image, autolink or reference definition whose target, percent-decoded, is
+a ``memory/`` path, ``./`` before it or not, or runs through a ``.claude``
+directory. Each distinct mark is reported once per document, and a
+tree with no living document read is a finding, the scan holding nothing.
 """
 
 from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import unquote
 
-from tools._common import RelPath, prose_lines
+from tools import _markdown
 
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
+
+    from tools._common import RelPath
 
 _PATTERNS = (
     (re.compile(r"\(PR [A-Z]\d*\)"), Prose("internal PR label")),
@@ -35,8 +41,9 @@ _PATTERNS = (
     (re.compile(r"\bpending push\b", re.IGNORECASE), Prose("transient session phrase")),
     (re.compile(r"\bcommitted locally\b", re.IGNORECASE), Prose("transient session phrase")),
 )
-# A Markdown link into the agent memory store, which lives outside any checkout.
-_MEMORY_LINK = re.compile(r"\][(](?:[^)]*/\.claude/[^)]*|memory/[^)]*)[)]")
+# A link target into the agent memory store, which lives outside any checkout: a
+# ``.claude`` directory anywhere in the path, or a ``memory/`` path, ``./`` before it or not.
+_MEMORY_TARGET = re.compile(r"(?:.*/)?\.claude/|(?:\./)*memory/")
 _README = "README.md"
 
 
@@ -47,10 +54,15 @@ def is_living(rel: RelPath) -> bool:
 
 def label_findings(rel: RelPath, text: Prose) -> list[Prose]:
     """Return one finding per memory-store link and per distinct mark in the prose of ``text``."""
-    prose = "\n".join(line for _, line in prose_lines(rel, text))
+    prose = "\n".join(line for _, line in _markdown.prose_lines(rel, text))
+    targets = [
+        *(found.destination for found in _markdown.links(text) if found.written_here),
+        *(found.destination for found in _markdown.definitions(text)),
+    ]
     out = [
-        Prose(f"{rel}: link into the ~/.claude memory store -> {m.group(0)}")
-        for m in _MEMORY_LINK.finditer(prose)
+        Prose(f"{rel}: link into the ~/.claude memory store -> {target}")
+        for target in targets
+        if _MEMORY_TARGET.match(unquote(target))
     ]
     for pattern, why in _PATTERNS:
         out.extend(
