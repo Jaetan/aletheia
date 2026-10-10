@@ -23,6 +23,11 @@
 # tracked file or another probe's directory, is refused in the probe that
 # made it. A probe starts with SIGINT and SIGQUIT at their defaults, as
 # one run by hand does, though the runner starts it in the background.
+# A probe starts with PYTHON_CPU_COUNT at the runner's CPUs divided by
+# PROBE_WORKERS, at least one: a tool that sizes its jobs from
+# multiprocessing.cpu_count() (run-clang-tidy does) otherwise starts one per
+# CPU of the machine, whatever CPUs the runner was given, in every probe at
+# once.
 # Landlock does not govern a file's times or mode, so every tracked file's
 # mtime, size and mode are read whenever a probe starts or ends, and a change
 # makes the probes running since the previous reading suspects; each suspect
@@ -45,6 +50,8 @@ workers=${PROBE_WORKERS:-4}
 case $workers in
     '' | *[!0-9]* | 0*) echo "run_all: PROBE_WORKERS is '$workers', not a positive count of probes to run at once"; exit 2 ;;
 esac
+share=$(($(nproc) / workers))
+export PYTHON_CPU_COUNT=$((share ? share : 1))
 [ -n "${EPOCHREALTIME:-}" ] || { echo "run_all: this shell has no EPOCHREALTIME (bash 5), so a probe's time cannot be read"; exit 2; }
 ((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1))) \
     || { echo "run_all: bash $BASH_VERSION cannot wait on one probe at a time (5.1 can)"; exit 2; }
