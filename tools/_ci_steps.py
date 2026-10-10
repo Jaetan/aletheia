@@ -579,8 +579,7 @@ def _run_lints(runner: Runner) -> None:
     # runner, clang-tidy started 242 s into the sweep and its lane ended last.
     # A probe holds the two databases to one set of commands.
     # run-clang-tidy alone starts one job per CPU of the machine, whatever
-    # CPUs the sweep was given, so it is told the step budget every gate
-    # step takes.
+    # CPUs the sweep was given, so it is told the step budget iwyu takes.
     runner.step(
         "clang-tidy",
         f"cmake -B {CPP_LINT_TREE} {CPP_COMPILERS} > /dev/null"

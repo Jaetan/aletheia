@@ -105,11 +105,10 @@ cd cpp && ctest --test-dir build --schedule-random --output-on-failure
 # The format gate lists tracked sources from the repository root, because two
 # live outside cpp/, and names the style because nothing above them carries one.
 git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 -r clang-format-22 --style=file:cpp/.clang-format --dry-run --Werror
-# The lint gate runs FROM cpp/: clang-tidy finds .clang-tidy by walking up, so
-# the same command from the repository root enables no checks and looks clean.
-# -j: run-clang-tidy alone starts one job per CPU of the machine, not of those
-# it was given.
-cd cpp && cmake -B build-tidy -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null && run-clang-tidy-23 -j "$(nproc)" -quiet -p build-tidy cpp/src/ cpp/tests/ cpp/benchmarks/
+# The lint gate as the sweep runs it: the lint tree configured, never built,
+# clang-tidy over cpp/src/, cpp/tests/ and cpp/benchmarks/ from cpp/, where it
+# finds .clang-tidy, with run_ci's job count, then the lane's database checks.
+python/.venv/bin/python -m tools.run_ci --lanes cpp-lint
 # Cat 33 dynamic-analysis lanes:
 cd cpp && cmake -B build-asan -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build-asan && ctest --test-dir build-asan
 # The fuzz recipe is written once, in cpp/tests/fuzz/fuzz_parse_response.cpp,
