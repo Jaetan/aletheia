@@ -7,7 +7,7 @@ SPDX-License-Identifier: BSD-2-Clause
 
 > **Status: ENFORCED (2026-06-10).** `main` branch protection requires the
 > `tools/run_ci.py (all gates)` check (`.github/workflows/pr-full-ci.yml`);
-> merges are squash/rebase only with linear history, and the ruleset has run
+> merges are squash only, with linear history, and the ruleset has run
 > green on real PRs. Required approving
 > reviews are set to **0** — the green CI sweep is the gate.
 
@@ -110,7 +110,10 @@ on a branch that changes what users get, and requires a CHANGELOG edit when the
 vocabulary's table says the title owes an entry. It runs on every title edit
 and every push, and needs no build. Once the pull request that adds it has
 reported it green, add **`PR title`** to the `main` ruleset's required checks,
-before that pull request merges.
+before that pull request merges. A squash merge is then the only way onto `main`
+(the ruleset allows that one method and the repository offers no other), and it
+lands the title the check held, plus `(#N)`: the repository's squash title is
+the pull request's title.
 
 ## How to protect `main` (repo-admin — you must do this in GitHub)
 

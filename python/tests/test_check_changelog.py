@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import commit, git
+from _git_repo import commit, git, merge
 
 from tools._common import RelPath
 from tools.check_changelog import (
@@ -37,7 +37,7 @@ from tools.check_changelog import (
     subjects_refused,
     unreleased_headers,
 )
-from tools.commit_subjects import Branch
+from tools.commit_subjects import Branch, Revision
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -216,7 +216,7 @@ def test_e2e_a_merge_commit_is_no_subject_of_the_branch(
     (repo / "README.md").write_text("# moved\n", encoding="utf-8")
     commit(repo, "docs: move the readme")
     git(repo, "checkout", "feature")
-    git(repo, "merge", "--no-ff", "--no-edit", "main")
+    merge(repo, Revision("main"))
     assert _run_gate(repo, monkeypatch) == 0
 
 
