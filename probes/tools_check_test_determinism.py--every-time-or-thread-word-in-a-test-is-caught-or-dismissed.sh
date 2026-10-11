@@ -166,7 +166,7 @@ undismissed = set()
 for rel in git_ls_files(repo):
     for binding in BINDINGS:
         if binding.is_test(rel) and (repo / rel).is_file():
-            code = binding.code(rel, SourceText((repo / rel).read_text(encoding="utf-8")))
+            code = binding.code(repo, rel, SourceText((repo / rel).read_text(encoding="utf-8")))
             counted = [
                 site.span()
                 for primitive in binding.primitives

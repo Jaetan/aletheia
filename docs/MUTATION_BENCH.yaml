@@ -720,8 +720,11 @@ bindings:
       # tool's are one; a file added there is added here.
       - rust/src/response.rs
       - rust/src/dbc.rs
+      - rust/src/dbc/decode.rs
+      - rust/src/dbc/encode.rs
       - rust/src/types.rs
       - rust/src/backend.rs
+      - rust/src/backend/ffi_backend.rs
     config:
       # cargo-mutants reads this from the crate it examines: the files above
       # and every feature on, as the suite is run everywhere else.
@@ -778,10 +781,10 @@ bindings:
       run_at: "2026-10-08"
       # A mutant cargo-mutants ended at its timeout is neither killed nor
       # alive, and no verdict comes from a clock.  None can hang a run by
-      # construction: the lane's four files hold no loop, wait or thread, the
-      # Rust tests read no clock and start no thread of their own, and
-      # cargo-mutants replaces a body or an operator, which cannot turn
-      # loop-free code into a loop that never ends.  Its cap is a backstop, and
+      # construction: the lane's files hold no wait, no thread and no loop
+      # but a `for` over a range or a slice, the Rust tests read no clock and
+      # start no thread of their own, and cargo-mutants replaces a body or an
+      # operator, which leaves such a loop finite.  Its cap is a backstop, and
       # the lane refuses a sweep in which it fired.
       timeout_ceiling: 0
       survivors_ledger: []

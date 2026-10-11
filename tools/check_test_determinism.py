@@ -27,8 +27,9 @@ back:
 
 What is a test file, per binding: ``*_test.go`` under ``go/``; every Python file
 under ``python/tests/`` and the repository's ``conftest.py``; every C++ source
-under ``cpp/tests/``; every Rust file under a crate's ``tests/``, and the
-``#[cfg(test)] mod`` blocks of the crates' sources.  Comments and string
+under ``cpp/tests/``; every Rust file under a crate's ``tests/`` or holding a
+module declared under ``#[cfg(test)]``, or one below such a module, and the
+``#[cfg(test)] mod`` blocks of the crates' other sources.  Comments and string
 literals are blanked before the scan, so a primitive named in prose is not a
 site, and a name bound by an import, a ``use`` or a using-declaration is read
 as the qualified name it stands for, so no spelling of an import hides one.  A
@@ -290,7 +291,13 @@ _RUST_NONCODE = re.compile(
     r"//[^\n]*|/\*.*?\*/|r(#*)\".*?\"\1|b?\"(?:\\.|[^\"\\])*\"|b?'(?:\\.|[^'\\\n])'",
     re.DOTALL,
 )
-_CFG_TEST_MOD = re.compile(r"#\[cfg\(test\)\]\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+# A module declared under ``#[cfg(test)]``, by its name, whatever attributes
+# follow: in line, or held in a file of its own.
+_CFG_TEST_MOD_HEAD = (
+    r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*"
+)
+_CFG_TEST_MOD = re.compile(_CFG_TEST_MOD_HEAD + r"\{")
+_CFG_TEST_MOD_NAMED = re.compile(_CFG_TEST_MOD_HEAD + r"[;{]")
 
 
 def blank_go(text: SourceText) -> BlankedCode:
@@ -645,21 +652,49 @@ def rust_test_modules(code: BlankedCode) -> BlankedCode:
     return BlankedCode("".join(kept))
 
 
-def _rust_code(rel: RelPath, text: SourceText) -> BlankedCode:
+def rust_test_file(repo: Path, rel: RelPath) -> bool:
+    """Say whether a Rust source file is test code whole.
+
+    It is when its module, or a module above it, is declared under
+    ``#[cfg(test)]``: ``src/a/b.rs`` holds module ``b``, which ``src/a.rs`` or
+    ``src/a/mod.rs`` declares, and ``a`` is declared by ``src/lib.rs`` or
+    ``src/main.rs``.
+    """
+    crate, _, inner = rel.partition("/src/")
+    names = inner.removesuffix(".rs").split("/")
+    for depth, name in enumerate(names):
+        above = "/".join([crate, "src", *names[:depth]])
+        declaring = (
+            (f"{above}/lib.rs", f"{above}/main.rs")
+            if depth == 0
+            else (f"{above}.rs", f"{above}/mod.rs")
+        )
+        for path in declaring:
+            try:
+                text = SourceText((repo / path).read_text(encoding="utf-8"))
+            except OSError, UnicodeDecodeError:
+                continue
+            if name in _CFG_TEST_MOD_NAMED.findall(blank_rust(text)):
+                return True
+    return False
+
+
+def _rust_code(repo: Path, rel: RelPath, text: SourceText) -> BlankedCode:
     code = spell_rust_aliases(blank_rust(text))
-    return code if "/tests/" in rel else rust_test_modules(code)
+    whole = "/tests/" in rel or rust_test_file(repo, rel)
+    return code if whole else rust_test_modules(code)
 
 
 class Binding(NamedTuple):
     """How one binding's test files are recognised, read and scanned.
 
-    ``code`` is what the scan reads of a file: its comments and literals
-    blanked, and every name an import or a using-declaration binds spelled
-    out as the catalogue spells it.
+    ``code`` is what the scan reads of a file in the tree at ``repo``: its
+    comments and literals blanked, and every name an import or a
+    using-declaration binds spelled out as the catalogue spells it.
     """
 
     is_test: Callable[[RelPath], bool]
-    code: Callable[[RelPath, SourceText], BlankedCode]
+    code: Callable[[Path, RelPath, SourceText], BlankedCode]
     primitives: tuple[Primitive, ...]
 
 
@@ -679,7 +714,7 @@ def _is_rust_test(rel: RelPath) -> bool:
     return rel.startswith("rust/") and rel.endswith(".rs") and ("/tests/" in rel or "/src/" in rel)
 
 
-def _go_code(_rel: RelPath, text: SourceText) -> BlankedCode:
+def _go_code(_repo: Path, _rel: RelPath, text: SourceText) -> BlankedCode:
     return spell_go_aliases(text, blank_go(text))
 
 
@@ -746,7 +781,7 @@ def python_child_sources(text: SourceText) -> list[SourceText]:
     return [source for source in sources if _is_script(_python_tree(source))]
 
 
-def _python_code(rel: RelPath, text: SourceText) -> BlankedCode:
+def _python_code(_repo: Path, rel: RelPath, text: SourceText) -> BlankedCode:
     code = spell_python_aliases(text, blank_python(text))
     if rel == _STRING_FIXTURES:
         return code
@@ -756,7 +791,7 @@ def _python_code(rel: RelPath, text: SourceText) -> BlankedCode:
     return BlankedCode("\n".join([code, *children]))
 
 
-def _cpp_code(_rel: RelPath, text: SourceText) -> BlankedCode:
+def _cpp_code(_repo: Path, _rel: RelPath, text: SourceText) -> BlankedCode:
     return spell_cpp_aliases(blank_cpp(text))
 
 
@@ -799,12 +834,12 @@ def which_are_tests(repo: Path, rels: list[RelPath]) -> list[RelPath]:
     return named
 
 
-def rows_of(rel: RelPath, text: SourceText) -> RatchetRows:
+def rows_of(repo: Path, rel: RelPath, text: SourceText) -> RatchetRows:
     """Count the time and thread primitives one file's text uses, read as the path it stands for."""
     rows: RatchetRows = {}
     for binding in BINDINGS:
         if binding.is_test(rel):
-            for label, count in sites_in(binding.code(rel, text), binding.primitives).items():
+            for label, count in sites_in(binding.code(repo, rel, text), binding.primitives).items():
                 rows[RowKey(rel, label)] = count
     if _is_python_test(rel):
         for label, count in (
@@ -823,7 +858,7 @@ def observed_rows(repo: Path) -> RatchetRows:
     for rel in git_ls_files(repo):
         path = repo / rel
         if is_test(rel) and path.is_file():
-            rows |= rows_of(rel, SourceText(path.read_text(encoding="utf-8")))
+            rows |= rows_of(repo, rel, SourceText(path.read_text(encoding="utf-8")))
     return rows
 
 
@@ -955,7 +990,7 @@ def main() -> ExitStatus:
         except (OSError, UnicodeDecodeError) as exc:
             emit(f"{arguments.file}: cannot be read: {exc}")
             return UNREADABLE
-        return report(rows_of(arguments.rel, text), recorded, file=arguments.rel)
+        return report(rows_of(repo, arguments.rel, text), recorded, file=arguments.rel)
     return max(report(observed_rows(repo), recorded), rust_harness_report(repo))
 
 
