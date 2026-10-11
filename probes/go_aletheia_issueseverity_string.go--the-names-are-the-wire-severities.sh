@@ -5,7 +5,7 @@
 # Probes go/aletheia/issueseverity_string.go.
 # Claim: the names the stringer output renders for IssueSeverity, taken from
 # the line comments on the constants in go/aletheia/result.go, are the
-# severities the wire carries, which go/aletheia/json.go reads by hand in a
+# severities the wire carries, which go/aletheia/json_response.go reads by hand in a
 # switch and which the kernel's validation issues use. Printing a severity and
 # reading one back must agree even though nothing compiles the generated table
 # against the parser. Non-zero exit: a name in the generated table is one the
@@ -24,13 +24,13 @@ fi
 for n in $names; do
 	grep -q "^const _IssueSeverity_name = \".*$n.*\"" go/aletheia/issueseverity_string.go ||
 		{ echo "$n is not in the generated name table"; status=1; }
-	grep -q "case \"$n\":" go/aletheia/json.go ||
+	grep -q "case \"$n\":" go/aletheia/json_response.go ||
 		{ echo "the parser never reads the severity $n"; status=1; }
 done
 
 # The other direction: a severity the parser accepts and the enumeration lacks
 # would decode to a constant that prints as a number.
-accepted=$(awk '/severity := getString|switch s := getString\(issue, "severity"\)/{f=1} f && /^\t*}/{exit} f && /case "/{gsub(/.*case "|":.*/, ""); print}' go/aletheia/json.go)
+accepted=$(awk '/severity := getString|switch s := getString\(issue, "severity"\)/{f=1} f && /^\t*}/{exit} f && /case "/{gsub(/.*case "|":.*/, ""); print}' go/aletheia/json_response.go)
 for a in $accepted; do
 	printf '%s\n' "$names" | grep -qx "$a" ||
 		{ echo "the parser accepts $a, which the enumeration does not name"; status=1; }

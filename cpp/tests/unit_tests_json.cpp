@@ -1457,7 +1457,7 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
 TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
           "[json][serialize][parse][dbc][regression]") {
     // Wire-roundtrip parity with Python (`_helpers.py::_normalize_raw_value_desc`)
-    // and Go (`json.go::parseUnresolvedValueDescs`). Originally the C++ parser
+    // and Go (`json_dbc.go::parseUnresolvedValueDescs`). Originally the C++ parser
     // dropped `unresolvedValueDescs` silently; this test pins the field through
     // the full serialize-then-parse cycle.
     auto dbc = make_test_dbc();

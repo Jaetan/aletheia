@@ -304,7 +304,7 @@ func (e *InputBoundExceededError) Error() string {
 }
 
 // newInputBoundExceededError builds the typed error, for the lifter in
-// json.go and for the bounds the binding checks before the call, which name
+// json_response.go and for the bounds the binding checks before the call, which name
 // no field and carry no message.
 func newInputBoundExceededError(kind string, observed, limit uint64, code, field, message string) *InputBoundExceededError {
 	return &InputBoundExceededError{
@@ -353,7 +353,7 @@ func (e *ValidationFailedError) Error() string {
 }
 
 // newValidationFailedError builds the typed error from a decoded envelope,
-// for validationFailedFromResponse in json.go.
+// for validationFailedFromResponse in json_response.go.
 func newValidationFailedError(issues []ValidationIssue, hasErrors bool, code, msg string) *ValidationFailedError {
 	return &ValidationFailedError{
 		Issues:    issues,
@@ -401,7 +401,7 @@ func (e *TextRoundTripFailedError) Error() string {
 }
 
 // newTextRoundTripFailedError builds the typed error from a decoded
-// envelope, for textRoundtripFailedFromResponse in json.go.
+// envelope, for textRoundtripFailedFromResponse in json_response.go.
 func newTextRoundTripFailedError(issues []ValidationIssue, hasErrors bool, code, msg string) *TextRoundTripFailedError {
 	return &TextRoundTripFailedError{
 		Issues:    issues,

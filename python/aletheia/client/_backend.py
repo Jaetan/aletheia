@@ -55,7 +55,8 @@ class BinaryPathUnsupportedError(AletheiaError):
     """Raised by a Backend whose binary FFI methods are not supported.
 
     Cross-binding parity with Go ``ErrBinaryPathUnsupported`` and the
-    fallback contract documented at ``go/aletheia/client.go:447``: when
+    fallback contract documented in ``go/aletheia/client_stream.go``
+    (``Client.ExtractSignals``): when
     a Backend cannot service a binary-output method (e.g. MockBackend's
     :meth:`MockBackend.extract_signals_bin`), the Client catches this
     sentinel and falls back to the JSON-out path.

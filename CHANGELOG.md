@@ -353,6 +353,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **No Go source file is over 1000 lines.** Each of the five that were is split
+  along the seams it had, every part named for its subject and holding the
+  declarations byte for byte as they were: `go/aletheia/json.go` keeps the
+  serialization and gives response decoding to `json_response.go` and DBC
+  decoding to `json_dbc.go`; `client.go` keeps the type, its lock and the DBC
+  methods and gives the frame and stream methods to `client_stream.go` and
+  the enrichment helpers to `client_enrich.go`; `stream_test.go` gives the
+  end-of-stream verdict cases to `stream_eos_test.go`; `go/benchmarks/main.go`
+  gives each mode to `throughput.go`, `latency.go` and `scaling.go`;
+  `go/excel/excel_test.go` gives the template, loader-edge, hardening and
+  cell-type cases a file each. The test names listed before and after are the
+  same, the mutation record's hot path names the parts, and every probe and
+  comment that cited moved code cites its new file. The C++, Rust and Haskell
+  files over the cap follow, one change per language, and a tree-wide gate
+  then holds every code file to it.
+
 - **The C++ mutation binary runs its costliest tests last.** Under
   `--order decl` and `--abort` a mutant pays for every test ahead of the one
   that kills it, and the tests that build an input past a size bound through
