@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# A pull request's title is the subject its squash commit lands with, so it is
+# held to the commit-subject vocabulary (tools/commit_subjects.py): it names a
+# shipped scope, or none, when the branch changes what users get, and the
+# branch edits CHANGELOG.md when the vocabulary's table says it owes an entry.
+# A title can change without a push, so the check runs on every edit as well as
+# every push.  It needs no build and no package beyond the standard library and
+# the project's own: a bare venv and the tree on the path.
+#
+# The title reaches the step through the environment, never spliced into the
+# script, so no title can run as shell, and after `--`, so no title (`--help`)
+# can be read as an option of the check.
+
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    name: PR title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fetch the base branch as a local ref
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/heads/${BASE_REF}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Hold the title to the vocabulary
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.base_ref }}
+          PYTHONPATH: python
+        run: |
+          python -m venv python/.venv
+          python/.venv/bin/python -m tools.check_pr_title -- "$PR_TITLE" "$BASE_REF"

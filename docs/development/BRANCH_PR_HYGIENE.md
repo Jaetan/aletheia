@@ -103,6 +103,15 @@ cannot. Once the pull request that adds it has reported it green, add
 **`load scaling`** to the `main` ruleset's required checks, before that pull
 request merges.
 
+**PR title → required.** The `PR title` check, `pr-title.yml`, holds a pull
+request's title, the subject its squash commit lands with, to the closed
+commit-subject vocabulary (`tools/check_pr_title.py`), refuses an internal scope
+on a branch that changes what users get, and requires a CHANGELOG edit when the
+vocabulary's table says the title owes an entry. It runs on every title edit
+and every push, and needs no build. Once the pull request that adds it has
+reported it green, add **`PR title`** to the `main` ruleset's required checks,
+before that pull request merges.
+
 ## How to protect `main` (repo-admin — you must do this in GitHub)
 
 `main` is protected by **repository rulesets** (Settings → Rules → Rulesets) —
@@ -131,9 +140,9 @@ code, so it cannot live in this repo.
      appears in that list **after it has run at least once** — that's why the
      rollout merges `ci-speed` (a green workflow run) *before* this step. Also add
      **`mutation testing`** here once its cache-seeding proof passes (see the
-     mutation rollout note above), and **`load scaling`** once it has reported
-     green (see the load scaling note above) — all three are required merge
-     gates.
+     mutation rollout note above), **`load scaling`** once it has reported
+     green (see the load scaling note above), and **`PR title`** likewise (see
+     the PR title note above) — all four are required merge gates.
 4. Leave the **Bypass list empty** — any actor in it could merge around the gate
    (the ruleset equivalent of an admin override), reopening the hole this closes.
 5. Set **Enforcement status: Enabled** (this repo's UI offers only **Disabled**

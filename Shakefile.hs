@@ -1233,16 +1233,14 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo $ "Stdlib version OK: " ++ unwords requiredDeps
 
     phony "check-changelog" $ do
-        -- CHANGELOG discipline enforcement.  Detects notable drift since
-        -- merge-base with `main` — the public-API surface (UR-1) PLUS the
-        -- build system, CI, and tooling — and fails if CHANGELOG.md was not
-        -- also modified.
+        -- Commit subjects and the CHANGELOG: every subject on the branch
+        -- (since its merge-base with `main`) reads in the vocabulary of
+        -- tools/commit_subjects.py, a branch whose subjects or public-surface
+        -- records owe an entry edits CHANGELOG.md, and the [Unreleased]
+        -- section holds one header per category.
         --
-        -- Implementation lives in tools/check_changelog.py so the same
-        -- gate can be invoked from the pre-push hook and from local CI
-        -- without rebuilding the Shake binary.  Branch-level granularity
-        -- (one CHANGELOG commit covers any number of notable commits
-        -- on the same branch).
+        -- Implementation lives in tools/check_changelog.py so local CI runs
+        -- it without rebuilding the Shake binary.
         cmd_ pythonBin "-m" "tools.check_changelog"
 
     phony "check-gate-claim" $ do

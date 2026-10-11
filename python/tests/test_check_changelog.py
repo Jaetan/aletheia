@@ -1,19 +1,20 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Tests for ``tools.check_changelog`` — the gate guarding CHANGELOG discipline.
+"""Tests for ``tools.check_changelog``: a branch's subjects, the entries they owe, the section.
 
-Two layers:
+Three layers:
 
-* ``watched_files`` — the pure path matcher.  Exercised by tests parameterized
-  over a watched set (public-API + build/CI/tooling) and an excluded set (tests,
-  Markdown docs, Agda ``src/``, the separate ``go/excel`` module).  The
-  discriminating case is a ``.md`` file *under* a watched dir
-  (e.g. ``tools/.../README.md``): it must be excluded, proving the ``.md``
-  filter, not merely the repo-root-doc non-match.
-* ``main`` — a hermetic end-to-end run in a throwaway git repo, both polarities:
-  a watched change WITHOUT a CHANGELOG edit fails; the same change WITH one
-  passes; a doc-only change passes.  This is the orchestrator end-to-end
-  validation check at the gate level.
+* ``owed`` / ``subjects_refused`` — the pure reading of a branch: the surface
+  records it changed and the subjects owing an entry by the vocabulary's table,
+  and every subject the vocabulary refuses (the table itself is
+  ``test_commit_subjects``'s).
+* ``unreleased_headers`` / ``headers_refused`` — the pure audit of the section's
+  ``###`` headers, read as CommonMark.
+* ``main`` — a hermetic end-to-end run in a throwaway git repo: a refused
+  subject fails; a subject owing an entry, or a surface record changed, fails
+  without a CHANGELOG edit and passes with one; anything else passes without
+  one; a merge commit is no subject of the branch's; git that cannot answer
+  stops the gate with exit 2.
 """
 
 from __future__ import annotations
@@ -25,71 +26,83 @@ from _git_repo import commit, git
 
 from tools._common import RelPath
 from tools.check_changelog import (
+    SURFACE_RECORDS,
     Category,
+    Owed,
+    OwedSubject,
     UnreleasedHeaders,
     headers_refused,
     main,
+    owed,
+    subjects_refused,
     unreleased_headers,
-    watched_files,
 )
+from tools.commit_subjects import Branch
 
-from aletheia.common_types import Prose
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-# Watched: a representative path per public-API + infra pattern.
-WATCHED_PATHS = [
-    RelPath("python/aletheia/client.py"),
-    RelPath("go/aletheia/client.go"),
-    RelPath("cpp/include/aletheia/client.hpp"),
-    RelPath("rust/src/lib.rs"),
-    RelPath("haskell-shim/ffi-exports.snapshot"),
-    RelPath("haskell-shim/src/AletheiaFFI.hs"),
-    RelPath("haskell-shim/aletheia.cabal"),
-    RelPath("Shakefile.hs"),
-    RelPath("shake.cabal"),
-    RelPath("aletheia.agda-lib"),
-    RelPath("tools/check_changelog.py"),
-    RelPath("tools/run_ci.py"),
-    RelPath(".github/workflows/pr-full-ci.yml"),
-]
-
-# Excluded: never requires a CHANGELOG entry.  Includes the discriminators that
-# tell intent from implementation — a ``.md`` under a watched dir, Agda ``src/``
-# (covered transitively via the bindings), and the separate ``go/excel`` module.
-EXCLUDED_PATHS = [
-    RelPath("docs/development/BUILDING.md"),
-    RelPath("README.md"),
-    RelPath("CHANGELOG.md"),
-    RelPath("tools/agda-iwyu-reader/README.md"),
-    RelPath("haskell-shim/NOTES.md"),
-    RelPath("python/tests/test_x.py"),
-    RelPath("go/aletheia/client_test.go"),
-    RelPath("cpp/tests/foo.cpp"),
-    RelPath("rust/tests/dbc_model.rs"),
-    RelPath("haskell-shim/test/ConstructorTest.hs"),
-    RelPath("tools/agda-iwyu-reader/test/manifest.tsv"),
-    RelPath("src/Aletheia/Main.agda"),
-    RelPath("go/excel/loader.go"),
-]
+ADDED = Prose("### Added")
+FIXED = Prose("### Fixed")
 
 
-@pytest.mark.parametrize("path", WATCHED_PATHS)
-def test_watched_path_requires_changelog(path: RelPath) -> None:
-    """Each watched path is reported as requiring a CHANGELOG entry."""
-    assert watched_files([path]) == [path]
+def test_the_surface_records_are_the_four_named() -> None:
+    """The records are the feature matrix, the ABI snapshot, the wire codes and the log events."""
+    assert {
+        RelPath("docs/FEATURE_MATRIX.yaml"),
+        RelPath("haskell-shim/ffi-exports.snapshot"),
+        RelPath("docs/WIRE_CODES.yaml"),
+        RelPath("docs/LOG_EVENTS.yaml"),
+    } == SURFACE_RECORDS
 
 
-@pytest.mark.parametrize("path", EXCLUDED_PATHS)
-def test_excluded_path_is_ignored(path: RelPath) -> None:
-    """Each excluded path is never reported, even under a watched directory."""
-    assert watched_files([path]) == []
+@pytest.mark.parametrize("record", sorted(SURFACE_RECORDS))
+def test_a_surface_record_changed_is_owed(record: RelPath) -> None:
+    """Each public-surface record a branch changes is named as owing an entry."""
+    assert owed(Branch([RelPath("tools/x.py"), record], [])) == Owed([record], [])
 
 
-def test_mixed_set_reports_only_watched() -> None:
-    """A mixed change set yields exactly the watched, non-test/doc files."""
-    assert set(watched_files([*WATCHED_PATHS, *EXCLUDED_PATHS])) == set(WATCHED_PATHS)
+def test_the_subjects_owing_an_entry_are_named_with_where_it_goes() -> None:
+    """Each subject the table says owes an entry is named, in order, with its category."""
+    branch = Branch(
+        [RelPath("tools/x.py")],
+        [
+            Prose("feat(python): a feature"),
+            Prose("refactor(python): a shape"),
+            Prose("fix(ci): a gate"),
+            Prose("fix(go): a bug"),
+        ],
+    )
+    assert owed(branch) == Owed(
+        [],
+        [
+            OwedSubject(Prose("feat(python): a feature"), ADDED),
+            OwedSubject(Prose("fix(go): a bug"), FIXED),
+        ],
+    )
+
+
+def test_a_refused_subject_owes_nothing_and_is_named(
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A subject off the vocabulary owes no entry of its own; the refusal names it and why."""
+    branch = Branch([], [Prose("style(python): a"), Prose("feat(python): fine")])
+    assert owed(branch) == Owed([], [OwedSubject(Prose("feat(python): fine"), ADDED)])
+    assert subjects_refused(branch)
+    assert capsys.readouterr().err == (
+        "check-changelog: FAIL — 'style(python): a': `style` is not a type: feat, fix, perf, "
+        + "refactor, test, docs, ci, build, deps, chore, revert.\n"
+    )
+
+
+def test_subjects_in_the_vocabulary_are_not_refused(
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A branch whose every subject reads in the vocabulary has nothing refused, and is silent."""
+    assert not subjects_refused(Branch([], [Prose("docs: a"), Prose("fix(tools): b")]))
+    assert capsys.readouterr().err == ""
 
 
 # ── Hermetic end-to-end of main() in a throwaway git repo ──────────────────
@@ -102,68 +115,218 @@ def _make_repo(tmp_path: Path) -> Path:
     git(repo, "init", "-b", "main")
     (repo / "README.md").write_text("# base\n", encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n", encoding="utf-8")
+    (repo / "haskell-shim").mkdir()
+    (repo / "haskell-shim" / "runtime-closure.snapshot").write_text(
+        "MAlonzo.Code.Aletheia.Main\nMAlonzo.Code.Data.Nat.Base\n", encoding="utf-8"
+    )
     commit(repo, "base")
     return repo
 
 
-def _run_gate(repo: Path, monkeypatch: pytest.MonkeyPatch) -> int:
-    """Run ``check_changelog.main()`` against ``main`` from inside ``repo``."""
+def _run_gate(repo: Path, monkeypatch: pytest.MonkeyPatch) -> ExitStatus:
+    """Run ``check_changelog.main()`` from inside ``repo``, against its default base."""
     monkeypatch.chdir(repo)
-    monkeypatch.setattr("sys.argv", ["check_changelog", "main"])
+    monkeypatch.setattr("sys.argv", ["check_changelog"])
     return main()
 
 
-def test_e2e_watched_change_without_changelog_fails(
+def _on_a_branch(repo: Path, path: RelPath, subject: Prose, *, changelog: bool = False) -> None:
+    """Commit, on a new branch, a change to ``path`` under ``subject``, and an entry when asked."""
+    git(repo, "checkout", "-b", "feature")
+    (repo / path).parent.mkdir(parents=True, exist_ok=True)
+    (repo / path).write_text("x = 1\n", encoding="utf-8")
+    if changelog:
+        (repo / "CHANGELOG.md").write_text(
+            "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- **A bug.** Gone.\n",
+            encoding="utf-8",
+        )
+    commit(repo, subject)
+
+
+def test_e2e_a_subject_owing_nothing_passes_without_a_changelog_edit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A tooling change with no CHANGELOG edit fails the gate."""
+    """A tooling fix owes no entry, so its branch passes without a CHANGELOG edit."""
     repo = _make_repo(tmp_path)
-    git(repo, "checkout", "-b", "feature")
-    (repo / "tools").mkdir()
-    (repo / "tools" / "thing.py").write_text("x = 1\n", encoding="utf-8")
-    commit(repo, "touch tooling")
+    _on_a_branch(repo, RelPath("tools/thing.py"), Prose("fix(tools): a gate"))
+    assert _run_gate(repo, monkeypatch) == 0
+
+
+def test_e2e_a_subject_owing_an_entry_fails_without_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A shipped fix with no CHANGELOG edit fails the gate, which names it and the category."""
+    repo = _make_repo(tmp_path)
+    _on_a_branch(repo, RelPath("python/aletheia/thing.py"), Prose("fix(python): a bug"))
     assert _run_gate(repo, monkeypatch) == 1
+    err = capsys.readouterr().err
+    assert "  fix(python): a bug: owes ### Fixed\n" in err
+    assert err.endswith("however intricate the change; the detail belongs to the commit message.\n")
 
 
-def test_e2e_watched_change_with_changelog_passes(
+def test_e2e_a_subject_owing_an_entry_passes_with_one(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The same tooling change passes once CHANGELOG.md is also edited."""
+    """The same shipped fix passes once the branch edits CHANGELOG.md."""
     repo = _make_repo(tmp_path)
-    git(repo, "checkout", "-b", "feature")
-    (repo / "tools").mkdir()
-    (repo / "tools" / "thing.py").write_text("x = 1\n", encoding="utf-8")
-    (repo / "CHANGELOG.md").write_text(
-        "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- internal — no behavior change\n",
-        encoding="utf-8",
+    _on_a_branch(
+        repo, RelPath("python/aletheia/thing.py"), Prose("fix(python): a bug"), changelog=True
     )
-    commit(repo, "touch tooling + changelog")
     assert _run_gate(repo, monkeypatch) == 0
 
 
-def test_e2e_doc_only_change_passes(
+def test_e2e_a_refused_subject_fails_even_with_an_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A subject off the vocabulary fails the gate whatever else the branch carries."""
+    repo = _make_repo(tmp_path)
+    _on_a_branch(repo, RelPath("tools/thing.py"), Prose("Tidy the tools"), changelog=True)
+    assert _run_gate(repo, monkeypatch) == 1
+    assert "'Tidy the tools': it does not read `type(scope)!: text`.\n" in capsys.readouterr().err
+
+
+def test_e2e_a_surface_record_changed_without_a_changelog_edit_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A branch moving the feature matrix with no CHANGELOG edit fails, naming the record."""
+    repo = _make_repo(tmp_path)
+    _on_a_branch(repo, RelPath("docs/FEATURE_MATRIX.yaml"), Prose("refactor: move a row"))
+    assert _run_gate(repo, monkeypatch) == 1
+    assert "  changes the public-surface record docs/FEATURE_MATRIX.yaml\n" in (
+        capsys.readouterr().err
+    )
+
+
+def test_e2e_a_merge_commit_is_no_subject_of_the_branch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A docs-only change never trips the gate, even with no CHANGELOG edit."""
+    """A branch brought up to date with a merge git wrote passes on its own subjects."""
     repo = _make_repo(tmp_path)
-    git(repo, "checkout", "-b", "feature")
-    (repo / "docs").mkdir()
-    (repo / "docs" / "GUIDE.md").write_text("hello\n", encoding="utf-8")
-    commit(repo, "doc only")
+    _on_a_branch(repo, RelPath("tools/thing.py"), Prose("ci(tools): a step"))
+    git(repo, "checkout", "main")
+    (repo / "README.md").write_text("# moved\n", encoding="utf-8")
+    commit(repo, "docs: move the readme")
+    git(repo, "checkout", "feature")
+    git(repo, "merge", "--no-ff", "--no-edit", "main")
     assert _run_gate(repo, monkeypatch) == 0
+
+
+@pytest.mark.parametrize(
+    "path", [RelPath("python/aletheia/thing.py"), RelPath("src/Aletheia/Main.agda")]
+)
+def test_e2e_shipped_files_under_an_internal_label_fail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+    path: RelPath,
+) -> None:
+    """A binding file, or a kernel module the closure compiles, under a tooling label fails."""
+    repo = _make_repo(tmp_path)
+    _on_a_branch(repo, path, Prose("fix(tools): a gate"))
+    assert _run_gate(repo, monkeypatch) == 1
+    assert capsys.readouterr().err == (
+        "check-changelog: FAIL — the branch changes what users get, and every subject names "
+        + f"an internal scope:\n  {path}\nName the shipped scope the change is in: cli, cpp, "
+        + "dist, excel, ffi, go, kernel, python, rust.\n"
+    )
+
+
+def test_e2e_a_proof_module_under_an_internal_label_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A kernel module outside the runtime closure ships nothing, so a proofs label fits it."""
+    repo = _make_repo(tmp_path)
+    _on_a_branch(repo, RelPath("src/Aletheia/Main/Properties.agda"), Prose("refactor(proofs): a"))
+    assert _run_gate(repo, monkeypatch) == 0
+
+
+def test_e2e_an_unreadable_snapshot_stops_the_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """Without the runtime-closure snapshot the kernel's shipped files are unknown: exit 2."""
+    repo = _make_repo(tmp_path)
+    (repo / "haskell-shim" / "runtime-closure.snapshot").unlink()
+    assert _run_gate(repo, monkeypatch) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("check-changelog: FAIL — ")
+    assert "runtime-closure.snapshot cannot be read: " in err
+
+
+def test_e2e_without_the_comparison_ref_the_branch_cannot_be_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A comparison ref git cannot resolve stops the gate with exit 2, naming the command."""
+    repo = _make_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr("sys.argv", ["check_changelog", "no-such-ref"])
+    assert main() == 2
+    assert capsys.readouterr().err.startswith(
+        "check-changelog: git merge-base HEAD no-such-ref failed\n"
+    )
+
+
+def test_e2e_a_branch_whose_files_git_cannot_list_stops_the_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A ``git diff`` that fails after the merge-base is found stops the gate with exit 2."""
+    repo = _make_repo(tmp_path)
+    git(repo, "config", "diff.renames", "bogus")
+    assert _run_gate(repo, monkeypatch) == 2
+    err = capsys.readouterr().err
+    assert "check-changelog: git diff --name-only " in err
+    assert "bad boolean config value 'bogus' for 'diff.renames'" in err
+
+
+def test_e2e_a_branch_whose_subjects_git_cannot_list_stops_the_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A ``git log`` that fails after the files are listed stops the gate with exit 2."""
+    repo = _make_repo(tmp_path)
+    git(repo, "config", "log.date", "bogus")
+    assert _run_gate(repo, monkeypatch) == 2
+    assert "check-changelog: git log --no-merges --format=%s " in capsys.readouterr().err
+
+
+def test_e2e_outside_a_repository_the_changelog_cannot_be_found(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """With no repository to name a top level, the gate stops with exit 2 and says why."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    assert _run_gate(outside, monkeypatch) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("check-changelog: git rev-parse --show-toplevel failed\n")
+    assert err.count("check-changelog:") == 1
 
 
 def test_e2e_a_repeated_category_header_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[Prose],
 ) -> None:
-    """Two ``### Changed`` under Unreleased fail, whatever the diff holds."""
+    """Two ``### Changed`` under Unreleased fail."""
     repo = _make_repo(tmp_path)
-    git(repo, "checkout", "-b", "feature")
     (repo / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- one\n\n### Fixed\n\n- two\n\n"
         + "### Changed\n\n- three\n\n## [1.0.0]\n\n### Changed\n\n- released\n",
@@ -177,11 +340,10 @@ def test_e2e_a_repeated_category_header_fails(
 def test_e2e_a_header_outside_the_categories_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """A ``### Improved`` under Unreleased is refused and named."""
     repo = _make_repo(tmp_path)
-    git(repo, "checkout", "-b", "feature")
     (repo / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Improved\n\n- one\n\n"
         + "## [1.0.0]\n\n### Changed\n\n- x\n",
@@ -198,7 +360,6 @@ def test_e2e_one_header_per_category_passes(
 ) -> None:
     """A header repeated only in a released section is not the Unreleased one."""
     repo = _make_repo(tmp_path)
-    git(repo, "checkout", "-b", "feature")
     (repo / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- one\n\n### Fixed\n\n- two\n\n"
         + "## [1.0.0]\n\n### Changed\n\n- released\n",
@@ -301,21 +462,6 @@ def test_a_header_is_its_whole_text(header: Prose, word: Prose) -> None:
     """A header carries its category and nothing else, as it reads."""
     changelog = Prose(f"## [Unreleased]\n\n### {header}\n")
     assert unreleased_headers(changelog) == UnreleasedHeaders([], [word])
-
-
-def test_e2e_the_headers_are_audited_before_the_diff(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A repeated header fails the gate even when the comparison ref cannot be read."""
-    repo = _make_repo(tmp_path)
-    (repo / "CHANGELOG.md").write_text(
-        "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n### Fixed\n", encoding="utf-8"
-    )
-    commit(repo, "repeat a header")
-    monkeypatch.chdir(repo)
-    monkeypatch.setattr("sys.argv", ["check_changelog", "no-such-ref"])
-    assert main() == 1
 
 
 def test_e2e_a_changelog_that_is_not_utf8_cannot_be_checked(

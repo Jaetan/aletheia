@@ -58,7 +58,7 @@ updates:
       interval: weekly
     open-pull-requests-limit: 3
     commit-message:
-      prefix: "deps(go-excel)"
+      prefix: "deps(excel)"
     labels:
       - "dependencies"
       - "go"
@@ -69,7 +69,7 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "deps(actions)"
+      prefix: "deps(ci)"
     labels:
       - "dependencies"
       - "github-actions"
