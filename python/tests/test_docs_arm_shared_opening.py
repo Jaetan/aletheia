@@ -219,6 +219,42 @@ def test_a_line_short_of_a_horizontal_rule_is_kept(line: Prose) -> None:
     assert section(Prose(f"## A\n{line}\nx"), Prose("## A")) == [Prose("## A"), line, Prose("x")]
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            Prose("## A\n```\n## not a heading\n```\nx\n## B"),
+            [Prose("```"), Prose("## not a heading"), Prose("```"), Prose("x")],
+        ),
+        (
+            Prose("## A\n```\n---\n\n***\n```"),
+            [Prose("```"), Prose("---"), Prose(""), Prose("***"), Prose("```")],
+        ),
+        (Prose("## A\nx\n\n    ---\n"), [Prose("x"), Prose("    ---")]),
+        (Prose("## A\nx\n\nB\n---\ny"), [Prose("x")]),
+        (Prose("## A\nx\n##\tB\ny"), [Prose("x")]),
+        (Prose("## A\nx\n##\ny"), [Prose("x")]),
+        (Prose("## A ##\nx"), [Prose("x")]),
+        (Prose("  ## A\nx"), [Prose("x")]),
+        (Prose("## A\nx\n\u00a0\ny"), [Prose("x"), Prose("\u00a0"), Prose("y")]),
+    ],
+    ids=[
+        "heading-shaped-line-in-a-fence",
+        "rules-and-blank-lines-in-a-fence",
+        "indented-rule-is-code",
+        "setext-heading-closes",
+        "tab-after-the-run-closes",
+        "bare-run-closes",
+        "closing-run-on-the-heading",
+        "indented-heading",
+        "no-break-space-line-is-content",
+    ],
+)
+def test_a_section_is_read_as_commonmark_reads_blocks(text: Prose, expected: list[Prose]) -> None:
+    """Code keeps every line; any heading CommonMark reads opens or closes; blank lines space."""
+    assert section(text, Prose("## A")) == [Prose("## A"), *expected]
+
+
 def test_a_lost_heading_is_a_finding(tmp_path: Path) -> None:
     """A document that does not carry a shared heading has nothing to compare."""
     found = _run(tmp_path, pitch=_edited(PITCH, Prose("## Why switch"), Prose("## Why move")))
@@ -302,3 +338,29 @@ def test_a_tracked_document_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> 
         Prose("README.md: could not be read, so what it says is unchecked"),
         Prose("README.md: could not be read, so the opening docs/PITCH.md shares is uncheckable"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            Prose("## A\nx\n\n    a\n\n    b\n"),
+            [Prose("x"), Prose("    a"), Prose(""), Prose("    b")],
+        ),
+        (
+            Prose("## A\n<pre>\na\n\nb\n</pre>\n"),
+            [Prose("<pre>"), Prose("a"), Prose(""), Prose("b"), Prose("</pre>")],
+        ),
+        (Prose("## A\nx\n   \ny\n\t\nz\n"), [Prose("x"), Prose("y"), Prose("z")]),
+        (Prose("## A\n- ***\n> ---\n"), [Prose("- ***"), Prose("> ---")]),
+    ],
+    ids=["blank-in-indented-code", "blank-in-pre", "spaces-and-tab-lines", "break-in-a-container"],
+)
+def test_spacing_is_what_renders_as_none(text: Prose, expected: list[Prose]) -> None:
+    """A blank line in code or HTML renders, and so does a break in a list or a quote."""
+    assert section(text, Prose("## A")) == [Prose("## A"), *expected]
+
+
+def test_a_line_of_one_letter_is_content() -> None:
+    """Only spaces and tabs make a line blank."""
+    assert section(Prose("## A\nx\nX\n"), Prose("## A")) == [Prose("## A"), Prose("x"), Prose("X")]

@@ -245,3 +245,9 @@ def test_a_tracked_readme_the_work_tree_lacks_names_no_extra(tmp_path: Path) -> 
         Prose(f"{readme}: could not be read, so what it says is unchecked"),
         Prose(f"{readme}: no README read names a pip extra; no install sentence is left"),
     ]
+
+
+def test_an_extra_is_read_from_a_code_span_as_commonmark_reads_it(tmp_path: Path) -> None:
+    """A span's padding is dropped, and an escaped backtick opens no span."""
+    readme = Prose(f"{_CLEAN_README}\nPadded: ` [nope] `. Escaped: \\`[ghost]`.\n")
+    assert _run(_repo(tmp_path, readme)) == [_undefined(RelPath("README.md"), Prose("nope"))]

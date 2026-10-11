@@ -25,10 +25,10 @@ Markdown docs are excluded by the regex filter.
 
 Exit codes:
   0 — no watched change, OR a watched change accompanied by a CHANGELOG.md edit.
-  1 — a watched change without a CHANGELOG.md edit, a category header
-      repeated under ``## [Unreleased]``, or a header there that is not a
-      Keep-a-Changelog category.
-  2 — usage error / git failure.
+  1 — a watched change without a CHANGELOG.md edit, no ``## [Unreleased]``
+      section, a category header repeated under it, or a header there that is
+      not a Keep-a-Changelog category.
+  2 — usage error / git failure / a CHANGELOG.md that cannot be read as UTF-8.
 
 v0 limitations (deliberate; see PROJECT_STATUS.md for v1+ plan):
   * Presence-of-CHANGELOG-modification is sufficient; the script does NOT
@@ -50,6 +50,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
 from tools._common import RelPath, emit, find_executable, run_capture
+from tools._markdown import headings, sections
+
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -92,8 +95,8 @@ TEST_EXCLUSIONS = re.compile(r"_test\.go$|/tests?/|^python/aletheia/.*/test_|^cp
 DOC_EXCLUSIONS = re.compile(r"\.md$")
 
 CHANGELOG_RE = re.compile(r"^CHANGELOG\.md$")
-RELEASE_HEADER_RE = re.compile(r"^## ")
-CATEGORY_HEADER_RE = re.compile(r"^### (\S+)")
+# The level of a category header under a release, ``###``.
+_CATEGORY_LEVEL = 3
 UNRELEASED_HEADER = "## [Unreleased]"
 
 
@@ -112,35 +115,38 @@ class UnreleasedHeaders(NamedTuple):
     """What the ``## [Unreleased]`` section's ``###`` headers say about themselves.
 
     ``repeated`` names each category that heads two blocks, once, in the order
-    its second block appears; ``unknown`` is every header word that is not a
-    category, as written.  Both empty is the section as the gate wants it.
+    its second block appears; ``unknown`` is every header that is not a category,
+    as it reads; ``missing`` is whether the changelog has no ``## [Unreleased]``
+    section at all.  Both lists empty and a section found is what the gate wants.
     """
 
     repeated: list[Category]
     unknown: list[str]
+    missing: bool = False
 
 
 def unreleased_headers(changelog: str) -> UnreleasedHeaders:
     """Audit the ``###`` headers under ``## [Unreleased]``.
 
-    The section runs from its header to the next ``## `` line.
+    The changelog is read as CommonMark (``tools._markdown``): each section a
+    top-level ``## [Unreleased]`` opens runs to the next top-level heading of level
+    two or shallower, every such section is read, and a header is a top-level
+    level-three heading inside one, whose category is the whole of what it
+    renders, trimmed.  A heading-shaped line in code is neither.
     """
     seen: set[Category] = set()
     repeated: list[Category] = []
     unknown: list[str] = []
-    inside = False
-    for line in changelog.splitlines():
-        if line.rstrip() == UNRELEASED_HEADER:
-            inside = True
+    text = Prose(changelog)
+    unreleased = sections(text, Prose(UNRELEASED_HEADER))
+    if not unreleased:
+        return UnreleasedHeaders(repeated, unknown, missing=True)
+    for heading in headings(text):
+        if heading.level != _CATEGORY_LEVEL or heading.nested:
             continue
-        if not inside:
+        if not any(found.first <= heading.line < found.end for found in unreleased):
             continue
-        if RELEASE_HEADER_RE.match(line):
-            break
-        header = CATEGORY_HEADER_RE.match(line)
-        if header is None:
-            continue
-        word = header.group(1)
+        word = heading.text.strip()
         try:
             category = Category(word)
         except ValueError:
@@ -185,8 +191,13 @@ def _changed_files(base: str) -> list[RelPath] | None:
     return [RelPath(line) for line in changed_text.splitlines() if line]
 
 
-def _headers_refused(headers: UnreleasedHeaders) -> bool:
-    """Write the refusal for a repeated or unknown header, and say whether there was one."""
+def headers_refused(headers: UnreleasedHeaders) -> bool:
+    """Write the refusal for a missing section or a repeated or unknown header; say if one was."""
+    if headers.missing:
+        _ = sys.stderr.write(
+            f"check-changelog: FAIL — CHANGELOG.md has no '{UNRELEASED_HEADER}' section.\n"
+        )
+        return True
     if headers.repeated:
         named = ", ".join(f"### {category}" for category in headers.repeated)
         _ = sys.stderr.write(
@@ -205,8 +216,22 @@ def _headers_refused(headers: UnreleasedHeaders) -> bool:
     return False
 
 
+def _changelog_refused(toplevel: Path) -> ExitStatus | None:
+    """Audit the CHANGELOG.md under ``toplevel``; return the exit status refusing it, or None.
+
+    A file that cannot be read as UTF-8 is 2, a refused ``[Unreleased]`` section 1.
+    """
+    changelog = toplevel / "CHANGELOG.md"
+    try:
+        text = str(changelog.read_bytes(), "utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        _ = sys.stderr.write(f"check-changelog: FAIL — {changelog} cannot be read: {exc}\n")
+        return ExitStatus(GIT_FAILURE_EXIT)
+    return ExitStatus(1) if headers_refused(unreleased_headers(text)) else None
+
+
 def main() -> int:
-    """Fail when a watched path changed without a matching CHANGELOG.md edit."""
+    """Fail on a refused ``[Unreleased]`` section or a watched path changed without an entry."""
     ap = argparse.ArgumentParser(description=DESCRIPTION)
     ap.add_argument(
         "base",
@@ -216,14 +241,13 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    refused = _changelog_refused(Path(_git("rev-parse", "--show-toplevel").strip()))
+    if refused is not None:
+        return refused
+
     changed_files = _changed_files(args.base)
     if changed_files is None:
         return GIT_FAILURE_EXIT
-
-    toplevel = _git("rev-parse", "--show-toplevel").strip()
-    changelog = Path(toplevel) / "CHANGELOG.md"
-    if _headers_refused(unreleased_headers(changelog.read_text(encoding="utf-8"))):
-        return 1
 
     if not changed_files:
         emit(f"check-changelog: ok (no changes since merge-base with {args.base})")

@@ -6,9 +6,9 @@ The phase table of ``PROJECT_STATUS.md`` is the authority on which phase the
 project is in: exactly one of its rows has a status cell other than the
 completion mark, and that cell's word is the one ``docs/PITCH.md`` uses in its
 sentence ``Phase <n> is <word>``, as does the same sentence wherever another
-tracked document carries it.  The pitch must carry the sentence.  A line whose
-first characters other than whitespace are three backticks or three tildes
-toggles fenced code, and no table row or sentence inside fenced code is read.
+tracked document carries it.  The pitch must carry the sentence.  Each
+document is read as CommonMark (``tools._markdown``): a row is a row of a
+table, its cells as GitHub splits them, and no sentence inside code is read.
 A status document without a table, or a table with no open row or several,
 holds no current phase, and the arm reports that rather than passing on nothing;
 so does a status document untracked or unread, and nothing else is then checked.
@@ -20,7 +20,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, NamedTuple
 
-from tools._common import RelPath, prose_lines
+from tools import _markdown
+from tools._common import RelPath
 from tools.docs_arms import missing
 
 from aletheia.common_types import Prose
@@ -33,8 +34,10 @@ STATUS = RelPath("PROJECT_STATUS.md")
 PITCH = RelPath("docs/PITCH.md")
 COMPLETE = Prose("✅")
 
-# A phase row: the phase label, its title, then the status cell.
-_ROW = re.compile(r"^\|\s*(\d+(?:\.\d+)?)\s*\|[^|]+\|\s*([^|]+?)\s*\|")
+# A phase label, the first cell of a phase row: a number, or two joined by a dot.
+_LABEL = re.compile(r"\d+(?:\.\d+)?")
+# A phase row's cells: its label, its title, then its status.
+_STATUS_CELL = 2
 
 
 class _Phase(NamedTuple):
@@ -46,15 +49,15 @@ class _Phase(NamedTuple):
 
 def _lines(rel: RelPath, text: Prose) -> list[Prose]:
     """Return the prose lines of the document ``rel``, whose text is ``text``."""
-    return [Prose(line) for _, line in prose_lines(rel, text)]
+    return [line for _, line in _markdown.prose_lines(rel, text)]
 
 
 def _current_phase(status: Prose) -> _Phase | Prose:
     """Return the one row of the status document's table that is not complete, or the finding."""
     rows = [
-        _Phase(Prose(m.group(1)), Prose(m.group(2).strip()))
-        for line in _lines(STATUS, status)
-        if (m := _ROW.match(line)) is not None
+        _Phase(row.cells[0], row.cells[_STATUS_CELL])
+        for row in _markdown.table_rows(status)
+        if len(row.cells) > _STATUS_CELL and _LABEL.fullmatch(row.cells[0])
     ]
     if not rows:
         return Prose(f"{STATUS}: no phase table")

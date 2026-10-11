@@ -16,10 +16,11 @@ The Python harness collects through ``harness_markdown_it``, the parser this
 module builds, which reads a tilde fence as a code block, so no harness runs a
 tilde fence either.
 
-The gate reads every tracked Markdown file with a CommonMark parser and refuses
-a fence opened with backticks whose run is not exactly three or whose first
-info word is not one of those languages: a suffixed word (``go,ignore``), an
-alias (``golang``) or another language (``bash``) is refused alike.
+The gate reads every tracked Markdown file as CommonMark (``tools._markdown``),
+whose parser the harness's is built on, and refuses a fence opened with
+backticks whose run is not exactly three or whose first info word is not one of
+those languages: a suffixed word (``go,ignore``), an alias (``golang``) or
+another language (``bash``) is refused alike.
 
 Run ``python -m tools.check_fence_marks`` from the repository root. Exit 0 =
 clean, 1 = a backtick fence no harness runs, 2 = could-not-check (a tracked
@@ -34,13 +35,13 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
-from markdown_it import MarkdownIt
-
 from tools._common import RelPath, report_tree_scan, scan_tracked_tree
+from tools._markdown import commonmark, fences
 
 from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
+    from markdown_it import MarkdownIt
     from markdown_it.rules_core import StateCore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -64,8 +65,8 @@ def _tilde_fences_are_code_blocks(state: StateCore) -> None:
 
 
 def harness_markdown_it() -> MarkdownIt:
-    """Return the CommonMark parser the Python harness collects with: a tilde fence is not one."""
-    parser = MarkdownIt("commonmark")
+    """Return the reader's parser as the Python harness collects with it: no tilde fence."""
+    parser = commonmark()
     parser.core.ruler.after("block", "tilde_fences_are_code_blocks", _tilde_fences_are_code_blocks)
     return parser
 
@@ -73,14 +74,14 @@ def harness_markdown_it() -> MarkdownIt:
 def scan_text(rel: RelPath, text: MarkdownText) -> list[Prose]:
     """Return one finding per backtick fence of ``text`` that no harness runs."""
     findings: list[Prose] = []
-    for token in MarkdownIt("commonmark").parse(text):
-        if token.type != "fence" or not token.markup.startswith("`") or not token.map:
+    for fence in fences(Prose(text)):
+        if not fence.markup.startswith("`"):
             continue
-        word = (token.info.split() or [""])[0]
-        if token.markup != RUN_FENCE or word not in RUN_LANGUAGES:
+        word = (fence.info.split() or [""])[0]
+        if fence.markup != RUN_FENCE or word not in RUN_LANGUAGES:
             findings.append(
                 Prose(
-                    f"{rel}:{token.map[0] + 1}: a fence opened with {token.markup} and "
+                    f"{rel}:{fence.line}: a fence opened with {fence.markup} and "
                     + f"{word or 'no info word'!r} is one no harness runs; open it with tildes"
                 )
             )

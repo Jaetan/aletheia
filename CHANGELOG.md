@@ -12,6 +12,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **No document turns a paragraph into a heading with a line of `-` or `=`.**
+  The documentation gate's new `atx_headings` arm names every setext heading of a
+  tracked document. It found two documents whose metadata block rendered as one
+  large heading, where a thematic break was meant; both are fixed.
+
 - **The Python suite is held to determinism while it runs, and every property
   test draws a fixed sample.** `tools/_determinism_guard.py`, registered by
   the suite's `conftest.py`, gives every test one clock that stands still
@@ -1960,6 +1965,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **The documentation and prose gates read Markdown as CommonMark does.** They
+  read documents with line patterns of their own, which misread fences, indented
+  code, code spans, links, headings, sections and tables where GitHub renders
+  otherwise, and could number a line wrongly. `tools/_markdown.py` is now the one
+  reader: each document is parsed once with markdown-it-py, CommonMark with
+  GitHub's tables and strikethrough, and the documentation gate's arms and the
+  refused-word, review-mark, fence-mark, runbook and changelog gates take their
+  structure from it. Links resolve as GitHub's relative URLs do, HTML anchors are
+  read as a browser reads tags, and the memory-citation gate no longer starts a
+  line at a form feed or U+2028.
 
 - **The fresh-process probe reads a child that ends mid-read as gone.** The
   probe that holds a fresh-process suite's child to dying with its parent read

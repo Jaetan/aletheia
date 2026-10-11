@@ -15,8 +15,9 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
+from tools import _markdown
 from tools._common import RelPath
-from tools.docs_arms import Unread, headings, missing, read_tracked
+from tools.docs_arms import Unread, missing, read_tracked
 
 from aletheia.common_types import Prose
 
@@ -42,7 +43,7 @@ def _ledger_findings(tracked: Sequence[RelPath], documents: Mapping[RelPath, Pro
     """Return the findings about the guide: untracked, unread, or without the ledger's section."""
     if LEDGER not in documents:
         return [missing(LEDGER, tracked, Prose("the ledger's one home is unchecked"))]
-    if LEDGER_SECTION not in headings(documents[LEDGER]):
+    if LEDGER_SECTION not in [h.source for h in _markdown.headings(documents[LEDGER])]:
         return [Prose(f"{LEDGER}: has no {LEDGER_SECTION} section, the ledger's one home")]
     return []
 

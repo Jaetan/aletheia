@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """The Go standard names exactly the fuzz targets the binding defines, and nothing schedules a run.
 
-AGENTS/go.md cites its fuzz targets as backticked ``Fuzz...`` names; the binding
+AGENTS/go.md cites its fuzz targets as ``Fuzz...`` names, each the whole of a
+code span as CommonMark reads it (``tools._markdown``); the binding
 defines them as ``func Fuzz...`` in go/aletheia/fuzz_test.go. Each name on one side
 and not the other is a finding against the file that is wrong about it, in name order.
 The standard says fuzzing is a command someone types, so a tracked workflow or tool
@@ -18,6 +19,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from tools import _markdown
 from tools._common import RelPath
 from tools.docs_arms import Unread, missing, read_tracked
 
@@ -32,7 +34,7 @@ TARGETS = RelPath("go/aletheia/fuzz_test.go")
 # The trees a fuzz run would be scheduled from: every tracked file under each is read.
 SCHEDULING_TREES = (".github/workflows/", "tools/")
 
-_NAMED = re.compile(r"`(Fuzz[A-Za-z]+)`")
+_NAMED = re.compile(r"Fuzz[A-Za-z]+")
 _DEFINED = re.compile(r"^func (Fuzz[A-Za-z]+)", re.MULTILINE)
 # A fuzz duration, or the target flag not run into a longer word, whether its value follows
 # after "=", after a space or as the next list element; each is assembled so this module
@@ -60,7 +62,7 @@ def _target_findings(
     source = read_tracked(root, TARGETS, _TARGETS_UNCHECKED)
     if isinstance(source, Unread):
         return [source.finding]
-    named = set(_NAMED.findall(documents[STANDARD]))
+    named = {span for span in _markdown.code_spans(documents[STANDARD]) if _NAMED.fullmatch(span)}
     defined = set(_DEFINED.findall(source))
     if not named:
         out.append(Prose(f"{STANDARD}: names no backticked Fuzz target, so nothing was compared"))

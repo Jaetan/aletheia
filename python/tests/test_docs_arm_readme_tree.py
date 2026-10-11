@@ -78,13 +78,12 @@ def test_tree_listing_an_untracked_directory_is_a_finding(tmp_path: Path) -> Non
     "readme",
     [
         Prose("# Title\n\nNo tree here.\n"),
-        Prose("# Title\n\n~~~\naletheia/\nno branches\n~~~\n"),
         Prose("# Title\n\n~~~\nnot-aletheia/\n├── docs/\n~~~\n"),
     ],
-    ids=["no-root", "root-without-branches", "root-mid-line"],
+    ids=["no-root", "root-mid-line"],
 )
 def test_readme_without_a_tree_is_a_finding(tmp_path: Path, readme: Prose) -> None:
-    """A README printing no tree, a bare root, or a root mid-line, is reported, not passed."""
+    """A README printing no tree, or a root not opening its code block, is reported, not passed."""
     repo = _repo(tmp_path, [RelPath("docs")], readme)
     assert _run(repo) == [Prose("README.md: prints no project tree")]
 
@@ -116,11 +115,21 @@ def test_a_spacer_line_and_a_dotted_directory_stay_in_the_tree(tmp_path: Path) -
     assert _run(_repo(tmp_path, names, readme)) == list[Prose]()
 
 
-def test_branch_lines_after_the_tree_are_not_read(tmp_path: Path) -> None:
-    """The tree ends at its first line that is not a branch; a later drawing is another tree."""
+def test_the_tree_is_its_whole_block_and_nothing_after_it(tmp_path: Path) -> None:
+    """A branch after a note in the block is the tree's; a drawing after the block is not."""
     tree = "├── src/\n not a branch\n├── extra/\n"
     readme = Prose(README_HEAD + tree + README_TAIL + "\nother/\n└── more/\n")
-    assert _run(_repo(tmp_path, [RelPath("src")], readme)) == list[Prose]()
+    assert _run(_repo(tmp_path, [RelPath("src")], readme)) == [
+        Prose("README.md: the tree lists extra/, which the repository does not track")
+    ]
+
+
+def test_a_root_without_branches_lists_no_directory(tmp_path: Path) -> None:
+    """A code block holding the root alone is a tree that omits every tracked directory."""
+    readme = Prose("# Title\n\n~~~\naletheia/\nno branches\n~~~\n")
+    assert _run(_repo(tmp_path, [RelPath("docs")], readme)) == [
+        Prose("README.md: the repository tracks docs/, which the tree omits")
+    ]
 
 
 def test_a_deep_file_counts_for_its_top_directory(tmp_path: Path) -> None:
@@ -159,3 +168,53 @@ def test_a_tracked_readme_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> No
         Prose(f"{readme}: could not be read, so what it says is unchecked"),
         Prose(f"{readme}: could not be read, so its project tree is unchecked"),
     ]
+
+
+def test_a_tree_outside_a_code_block_is_no_tree(tmp_path: Path) -> None:
+    """The tree is a code block; the same lines written as a paragraph print no tree."""
+    names = [RelPath("docs")]
+    readme = Prose("# Title\n\naletheia/\n└── docs/\n")
+    assert _run(_repo(tmp_path, names, readme)) == [Prose("README.md: prints no project tree")]
+
+
+def test_a_tree_in_an_indented_code_block_is_read(tmp_path: Path) -> None:
+    """An indented code block opening on ``aletheia/`` is the tree as much as a fence is."""
+    names = [RelPath("docs")]
+    readme = Prose("# Title\n\n    aletheia/\n    └── docs/\n")
+    assert _run(_repo(tmp_path, names, readme)) == list[Prose]()
+
+
+@pytest.mark.parametrize(
+    "tree",
+    [
+        Prose("~~~\naletheia/\n├── docs/\n\n└── src/\n~~~\n"),
+        Prose("~~~\naletheia/\n├── docs/\n(generated files omitted)\n└── src/\n~~~\n"),
+        Prose("~~~\n\naletheia/  \n├── docs/\n└── src/\n~~~\n"),
+        Prose("~~~\naletheia/\n├── docs/\n└── src/"),
+    ],
+    ids=["blank-line", "note-line", "blank-first-and-trailing-spaces", "unclosed-fence-no-newline"],
+)
+def test_every_branch_of_the_tree_is_read(tmp_path: Path, tree: Prose) -> None:
+    """A blank or note line inside the tree cuts nothing; the root may be padded."""
+    names = [RelPath("docs"), RelPath("src")]
+    assert _run(_repo(tmp_path, names, Prose(f"# Title\n\n{tree}"))) == list[Prose]()
+
+
+def test_a_root_away_from_the_first_column_is_no_tree(tmp_path: Path) -> None:
+    """The root reads ``aletheia/`` from its line's first column."""
+    readme = Prose("# Title\n\n~~~\n  aletheia/\n  ├── docs/\n~~~\n")
+    assert _run(_repo(tmp_path, [RelPath("docs")], readme)) == [
+        Prose("README.md: prints no project tree")
+    ]
+
+
+def test_a_branch_names_the_run_right_before_its_first_slash(tmp_path: Path) -> None:
+    """A branch opening on a slash names nothing; ``a/b/`` names ``a``."""
+    readme = Prose("# Title\n\n~~~\naletheia/\n├── /x/\n└── docs/sub/\n~~~\n")
+    assert _run(_repo(tmp_path, [RelPath("docs")], readme)) == list[Prose]()
+
+
+def test_an_entry_with_no_slash_is_a_file(tmp_path: Path) -> None:
+    """A branch naming no ``/`` after its name is a file, not a directory."""
+    readme = Prose("# Title\n\n~~~\naletheia/\n├── docs/\n└── README.md\n~~~\n")
+    assert _run(_repo(tmp_path, [RelPath("docs")], readme)) == list[Prose]()

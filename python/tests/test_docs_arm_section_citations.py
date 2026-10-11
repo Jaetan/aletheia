@@ -344,3 +344,63 @@ def test_a_cited_symlink_is_read_as_the_document_git_tracks(tmp_path: Path) -> N
     (repo / "docs").mkdir()
     (repo / "docs" / "link.md").symlink_to(outside / "notes.md")
     assert _run(repo) == list[Prose]()
+
+
+@pytest.mark.parametrize(
+    "go",
+    [Prose("   ### 2.2 Go"), Prose("2.2 Go\n------"), Prose("### 2.2 Go#")],
+    ids=["indented", "setext", "closing-run-without-a-space"],
+)
+def test_a_target_heading_is_any_commonmark_reads(tmp_path: Path, go: Prose) -> None:
+    """An indented, an underlined or a hash-ended heading names its section like any other."""
+    assert _run(_repo(tmp_path, _AFTER_LINK, _contract(go))) == list[Prose]()
+
+
+def test_a_heading_shaped_line_in_code_names_no_section(tmp_path: Path) -> None:
+    """A line in a fence that reads like the cited heading is code: the number names nothing."""
+    contract = _contract(Prose("```\n### 2.2 Go\n```"))
+    assert _run(_repo(tmp_path, _AFTER_LINK, contract)) == [_no_heading(Prose("2.2"))]
+
+
+def test_a_reference_link_carries_its_citation(tmp_path: Path) -> None:
+    """A number beside a link naming a definition is read, the target being the definition's."""
+    readme = Prose(
+        "# Go binding\n\nPer [CANCELLATION.md § 2.3][c], the lock.\n\n"
+        + "[c]: ../docs/architecture/CANCELLATION.md\n"
+    )
+    assert _run(_repo(tmp_path, readme, _contract(Prose("### 2.2 Go")))) == [
+        _no_heading(Prose("2.3"))
+    ]
+
+
+def test_an_image_carries_no_citation(tmp_path: Path) -> None:
+    """A number in an image's description is not cited beside a link."""
+    readme = Prose(
+        "# Go binding\n\n![CANCELLATION.md § 2.3](../docs/architecture/CANCELLATION.md)\n"
+    )
+    assert _run(_repo(tmp_path, readme, _contract(Prose("### 2.2 Go")))) == [_CITES_NOTHING]
+
+
+def test_backticks_in_a_destination_are_part_of_it(tmp_path: Path) -> None:
+    """CommonMark links the whole token, so the target is the path with its backticks."""
+    readme = Prose("# Go binding\n\nSee [it](CANCELLATION.md`x`) § 2.2.\n")
+    assert _run(_repo(tmp_path, readme, _contract(Prose("### 2.2 Go")))) == [
+        Prose(
+            f"{_SUBJECT}: § 2.2 cited beside a link to CANCELLATION.md`x`, not a tracked document"
+        )
+    ]
+
+
+def test_a_number_right_after_a_link_needs_no_space(tmp_path: Path) -> None:
+    """``§ 2.2`` touching the link's closing parenthesis is still cited beside it."""
+    readme = Prose(
+        "# Go binding\n\nSee [it](../docs/architecture/CANCELLATION.md)§ 2.3 for more.\n"
+    )
+    assert _run(_repo(tmp_path, readme, _contract(Prose("### 2.2 Go")))) == [
+        _no_heading(Prose("2.3"))
+    ]
+
+
+def test_a_headings_number_is_read_as_it_renders(tmp_path: Path) -> None:
+    """A number written in bold still opens the heading as a reader sees it."""
+    assert _run(_repo(tmp_path, _AFTER_LINK, _contract(Prose("### **2.2** Go")))) == list[Prose]()

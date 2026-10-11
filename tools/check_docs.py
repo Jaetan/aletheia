@@ -10,6 +10,8 @@ module, and each holds one claim:
 * ``links``: every relative link and anchor resolves in a fresh checkout;
 * ``labels``: no living document carries a transient label or a link into the
   agent memory store;
+* ``atx_headings``: every heading of a tracked document opens on a run of
+  ``#``;
 * ``ffi_symbols``: every ``aletheia_<name>`` symbol the building guide names
   is a foreign export of the shim;
 * ``fuzz_targets``: the Go standard names exactly the fuzz targets the
@@ -55,6 +57,7 @@ from typing import TYPE_CHECKING
 from tools._common import MARKDOWN_SUFFIXES, RelPath, emit, git_ls_files
 from tools.docs_arms import (
     Unread,
+    atx_headings,
     ffi_symbols,
     fuzz_targets,
     ignored_build_trees,
@@ -87,6 +90,7 @@ REPO = Path(__file__).resolve().parent.parent
 ARMS: tuple[Arm, ...] = (
     links.findings,
     labels.findings,
+    atx_headings.findings,
     ffi_symbols.findings,
     fuzz_targets.findings,
     ignored_build_trees.findings,

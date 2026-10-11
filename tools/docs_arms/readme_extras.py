@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Every pip extra a README names is one ``python/pyproject.toml`` defines.
 
-A README names an extra as a bracketed token, either shown on its own in an
-inline code span such as ``[can]`` or inside an install command such as
-``pip install -e '.[can]'`` or ``pip install 'aletheia[can]'``; a bracket may
+A README names an extra as a bracketed token, either shown alone in a code
+span such as ``[can]``, as CommonMark reads code spans (``tools._markdown``),
+or inside an install command such as ``pip install -e '.[can]'`` or
+``pip install 'aletheia[can]'``; a bracket may
 hold several extras separated by commas, with or without a space, each name
 spelled in lowercase letters, digits, dots, hyphens or underscores.  Each name
 is held to the keys of ``[project.optional-dependencies]`` in
@@ -24,6 +25,7 @@ import tomllib
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, TypedDict, cast
 
+from tools import _markdown
 from tools._common import RelPath
 from tools.docs_arms import Unread, missing, read_tracked
 
@@ -41,8 +43,8 @@ _EXTRAS_UNCHECKED = Prose("the extras the READMEs name cannot be held")
 # least.  A list is read with any commas it holds, so a stray one names an empty
 # extra, which nothing defines.
 _EXTRAS = r"(?=[^\]]*[a-z0-9])([a-z0-9._, -]+)"
-# `[can]` or `[can, yaml]` shown on its own in an inline code span.
-_SPAN_EXTRA = re.compile(rf"`\[{_EXTRAS}\]`")
+# `[can]` or `[can, yaml]`, the whole of a code span.
+_SPAN_EXTRA = re.compile(rf"\[{_EXTRAS}\]")
 # The extras of an install command: `.[can]`, `'.[all,dev]'`, `aletheia[excel]`.
 _INSTALL_EXTRA = re.compile(rf"(?:\.|aletheia)\[{_EXTRAS}\]")
 
@@ -62,7 +64,10 @@ def defined_extras(manifest: Prose) -> set[Prose]:
 
 def named_extras(text: Prose) -> set[Prose]:
     """Return every extra ``text`` names, each comma group split into its stripped members."""
-    groups = [*_SPAN_EXTRA.findall(text), *_INSTALL_EXTRA.findall(text)]
+    groups = [
+        *(m.group(1) for span in _markdown.code_spans(text) if (m := _SPAN_EXTRA.fullmatch(span))),
+        *_INSTALL_EXTRA.findall(text),
+    ]
     return {Prose(name.strip()) for group in groups for name in group.split(",")}
 
 

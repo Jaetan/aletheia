@@ -192,3 +192,9 @@ def test_a_tracked_file_that_cannot_be_read_is_not_clean(
     repo, rel = tracked_but_absent(tmp_path)
     assert main([], repo=repo) == 2
     assert rel in capsys.readouterr().err
+
+
+def test_a_line_is_numbered_by_newlines_alone() -> None:
+    """A form feed before a citation moves no line number."""
+    findings = scan_text("docs/x.md", "a\x0cb\nsee [[learnings_aletheia]] here\n")
+    assert [finding.split(" ", 1)[0] for finding in findings] == ["docs/x.md:2:"]

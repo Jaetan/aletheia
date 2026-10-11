@@ -85,6 +85,12 @@ dev = [
     "pytest>=9.1.1,<10",
     "pytest-cov>=7.1.0,<8",
     "pytest-markdown-docs>=0.9.2,<1",
+    # markdown-it-py is the CommonMark parser ``tools/_markdown.py`` reads every
+    # document's structure with, for the documentation, prose and fence-mark
+    # gates; the doc-example harness collects through the same parser.  How a
+    # parser reads a document is version-specific, so the bound is the major line
+    # the gates were checked on.
+    "markdown-it-py>=3.0.0,<4",
     # AGENTS.md Python cat 14(f) requires test-isolation runs via
     # ``pytest --random-order --random-order-bucket=package`` alongside the
     # deterministic lane.  Both must stay green.
@@ -452,6 +458,9 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_proof_coverage.py",
     "--ignore=tests/test_check_clang_tidy_coverage.py",
     "--ignore=tests/test_check_docs.py",
+    "--ignore=tests/test_markdown.py",
+    "--ignore=tests/test_check_runbook_coverage.py",
+    "--ignore=tests/test_docs_arm_atx_headings.py",
     "--ignore=tests/test_docs_arm_ffi_symbols.py",
     "--ignore=tests/test_docs_arm_fuzz_targets.py",
     "--ignore=tests/test_docs_arm_ignored_build_trees.py",
@@ -467,6 +476,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_docs_arm_shake_targets.py",
     "--ignore=tests/test_docs_arm_shared_opening.py",
     "--ignore=tests/test_docs_arm_stated_measurements.py",
+    "--ignore=tests/test_docs_arm_stated_measurements_sections.py",
     "--ignore=tests/test_docs_arm_tree_paths.py",
     "--ignore=tests/test_check_no_review_marks.py",
     "--ignore=tests/test_check_refused_words.py",

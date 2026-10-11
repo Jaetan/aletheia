@@ -118,3 +118,10 @@ def test_a_tracked_file_that_cannot_be_read_is_not_clean(
     repo, rel = tracked_but_absent(tmp_path)
     assert main(argv, repo=repo) == 2
     assert rel in capsys.readouterr().err
+
+
+def test_markdown_code_is_what_commonmark_reads_as_code() -> None:
+    """Backticks in a tilde fence open nothing; a span of two backticks is code."""
+    assert scan_text("docs/x.md", "~~~\n```\n~~~\nprose R19 cluster 14 here\n")
+    assert not scan_text("docs/x.md", "````\n```\nR19 cluster 99 in a fence\n````\n")
+    assert not scan_text("docs/x.md", "shown as ``AGDA-C-6.2`` inline\n")

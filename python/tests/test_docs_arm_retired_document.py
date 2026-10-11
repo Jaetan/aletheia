@@ -318,3 +318,29 @@ def test_a_tracked_guide_the_work_tree_lacks_is_named_as_unread(tmp_path: Path) 
         f"{LEDGER}: could not be read, so the ledger's one home is unchecked",
         f"{LEDGER}: could not be read, so its lines are unchecked",
     ]
+
+
+@pytest.mark.parametrize(
+    ("section", "found"),
+    [
+        (
+            Prose("## Dependencies and Licenses#"),
+            [Prose("has no Dependencies and Licenses section")],
+        ),
+        (
+            Prose("```\n## Dependencies and Licenses\n```"),
+            [Prose("has no Dependencies and Licenses section")],
+        ),
+        (Prose("   ## Dependencies and Licenses"), list[Prose]()),
+        (Prose("Dependencies and Licenses\n---"), list[Prose]()),
+        (Prose("## Dependencies and Licenses ##"), list[Prose]()),
+    ],
+    ids=["closing-run-without-a-space", "fenced", "indented", "setext", "closing-run"],
+)
+def test_the_ledger_section_is_a_heading_as_commonmark_reads_one(
+    tmp_path: Path, section: Prose, found: list[Prose]
+) -> None:
+    """The section is any heading whose text is the ledger's name, never a line in code."""
+    repo = _repo(tmp_path)
+    _ = (repo / LEDGER).write_text(f"# Building\n\n{section}\n\nA table.\n", encoding="utf-8")
+    assert _run(repo) == [Prose(f"{LEDGER}: {why}, the ledger's one home") for why in found]

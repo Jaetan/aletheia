@@ -23,8 +23,9 @@ the reason it is refused and what carries the meaning honestly.
 
 * ``tools/check_refused_words.py`` and its unit test — they carry the words as
   detectors and fixtures.
-* Markdown fenced blocks and inline-code spans — a word quoted as an example is
-  documentation, not the project speaking.
+* Markdown code blocks and code spans, as CommonMark reads them
+  (``tools._markdown``) — a word quoted as an example is documentation, not the
+  project speaking.
 * Untracked files and the vendored trees, which ``git ls-files`` never lists.
 
 Run ``python -m tools.check_refused_words`` from the repository root. Exit 0 =
@@ -40,7 +41,10 @@ import re
 import sys
 from pathlib import Path
 
-from tools._common import TreeScan, prose_lines, report_tree_scan, scan_tracked_tree
+from tools._common import RelPath, TreeScan, report_tree_scan, scan_tracked_tree
+from tools._markdown import prose_lines
+
+from aletheia.common_types import Prose
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -67,7 +71,7 @@ def is_exempt(rel: str) -> bool:
 def scan_text(rel: str, text: str) -> list[str]:
     """Return findings for ``text`` treated as file ``rel`` (empty = clean)."""
     findings: list[str] = []
-    for lineno, line in prose_lines(rel, text):
+    for lineno, line in prose_lines(RelPath(rel), Prose(text)):
         for pattern, instead in _REFUSED:
             findings.extend(
                 f"{rel}:{lineno}: {match.group(0)!r} is refused; {instead}"

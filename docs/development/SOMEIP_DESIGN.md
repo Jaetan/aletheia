@@ -1,9 +1,13 @@
 # SOME/IP Support — Design Draft
 
 ---
+
 **Status**: Draft — proposed design, not scheduled, no implementation started
+
 **Last Updated**: 2026-07-18
+
 **Scope**: A verified SOME/IP *monitor* (offline pcap / passive tap), not a transport stack
+
 ---
 
 This document proposes how Aletheia grows from a CAN/CAN-FD verifier into a

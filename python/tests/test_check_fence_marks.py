@@ -54,3 +54,11 @@ def test_the_harness_parser_reads_a_tilde_fence_as_code() -> None:
         ("code_block", "~~~"),
         ("fence", "```"),
     ]
+
+
+def test_a_refused_fence_is_named_by_its_line_run_and_word() -> None:
+    """The finding names the line, the opening run and the first info word."""
+    assert scan_text(_DOC, MarkdownText("# T\n\n```bash\nx\n```\n")) == [
+        "docs/x.md:3: a fence opened with ``` and 'bash' is one no harness runs; "
+        + "open it with tildes"
+    ]
