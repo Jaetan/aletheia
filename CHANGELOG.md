@@ -353,6 +353,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation lane holds the pointer-call rule itself.** A census of
+  the whole tree, swept in one process or merged from the legs, is refused
+  when it carries no `cxx_replace_pointer_call_null` mutant, or one on a line
+  reading an exception's message through `what()`
+  (`tools/mutation_cpp_pointer_calls.py`). The probe that held the rule on one
+  unit is retired: that unit no longer makes the replacement anywhere. A
+  change to the Mull patches or `tools/build_mull.sh` now sweeps every lane.
+
 - **The documentation gate's arm tests plant their files instead of building
   repositories.** A test whose claim does not need a process starts none. Each
   arm is handed the paths and texts the gate hands it, so its tests plant the
@@ -1235,8 +1243,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   gremlins ships off by default are on in `go/.gremlins.yaml`. Python:
   mutmut's operator table is fixed, and what it cannot mutate is pinned by a
   probe rather than counted as swept. Each lift is swept and the baselines
-  re-taken; the probes under `probes/` hold each lift and each refusal. The
-  widened set also found a test that waited with no deadline for a backend
+  re-taken; the probes under `probes/` and the C++ lane's pointer-call rule
+  hold each lift and each refusal. The widened set also found a test that waited with no deadline for a backend
   call the client had refused, holding the process open past the run's end
   under the mutant; the wait now has one and the test fails fast.
 

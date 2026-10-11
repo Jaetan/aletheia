@@ -32,7 +32,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, cast
 
-from tools._common import run_streaming, short_sha
+from tools._common import RelPath, run_streaming, short_sha
 from tools._resources import detect_cpus
 from tools.cpp_scratch import reap_dead_scratch_dirs, scratch_root
 from tools.mutation_cpp_config import leg_config, leg_config_path
@@ -45,6 +45,13 @@ from tools.mutation_cpp_legs import (
     cpp_stage,
     leg_of_binding,
     sliced_legs,
+)
+from tools.mutation_cpp_pointer_calls import (
+    LineNumber,
+    MullPath,
+    SourceLine,
+    pointer_call_refusal,
+    repo_relative,
 )
 from tools.mutation_cpp_runs import (
     CPP_LEG_RUNS_SUFFIX,
@@ -70,7 +77,9 @@ from tools.mutation_report import (
 from tools.mutation_routes import KILL_ROUTES, Ending, lane_endings, merge_endings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
+
+    from tools.mutation_cpp_pointer_calls import ElementsFiles, LineReader
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -80,7 +89,7 @@ FULL_SCORE_PCT = 100
 
 
 def elements_survivor_rows(
-    report: Mapping[str, object], read_line: Callable[[str, int], str]
+    report: Mapping[str, object], read_line: LineReader
 ) -> dict[SurvivorKey, int]:
     """Collect the survivors of a Mull Elements report into rows.
 
@@ -97,9 +106,9 @@ def elements_survivor_rows(
         for mutant in mutants:
             if mutant.get("status") != "Survived":
                 continue
-            file = "cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path
+            file = repo_relative(MullPath(path))
             location = cast("Mapping[str, Mapping[str, int]]", mutant["location"])
-            line = location["start"]["line"]
+            line = LineNumber(location["start"]["line"])
             rows[(str(mutant["mutatorName"]), file, read_line(file, line).strip())] += 1
     return rows
 
@@ -110,7 +119,7 @@ _UNOBSERVED_ROUTES: frozenset[str] = frozenset({"check", "fault"})
 
 
 def unobserved_kill_rows(
-    legs: Sequence[Mapping[str, Ending]], read_line: Callable[[str, int], str]
+    legs: Sequence[Mapping[str, Ending]], read_line: LineReader
 ) -> dict[UnobservedKey, int]:
     """Collect the kills no test observes by behaviour into rows.
 
@@ -134,16 +143,16 @@ def unobserved_kill_rows(
             continue
         mutator, location = mutant.split(":", 1)
         path, line = location.split(":")[:2]
-        file = "cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path
+        file = repo_relative(MullPath(path))
         refused = next((ending.refused for ending in endings if ending.refused), "")
-        rows[(mutator, file, read_line(file, int(line)).strip(), route, refused)] += 1
+        rows[(mutator, file, read_line(file, LineNumber(int(line))).strip(), route, refused)] += 1
     return rows
 
 
-def _repo_line(file: str, line: int) -> str:
+def _repo_line(file: RelPath, line: LineNumber) -> SourceLine:
     """Read the ``line``-th line (1-based) of ``file`` under the repository root."""
     with (REPO_ROOT / file).open(encoding="utf-8") as src:
-        return src.read().split("\n")[line - 1]
+        return SourceLine(src.read().split("\n")[line - 1])
 
 
 def cpp_survivor_rows(artifact_dir: Path) -> dict[SurvivorKey, int] | None:
@@ -738,7 +747,10 @@ def _legs_elapsed(legs_dir: Path) -> dict[CppLeg, float] | str:
 def _finish_cpp(
     artifact_dir: Path, raw: str, report: dict[str, object], legs: Sequence[CppLeg]
 ) -> MutationReport:
-    """Write the lane's report, count the kill routes and the surface, and write the lane's log.
+    """Write the lane's reports and log, and refuse a census that breaks the pointer-call rule.
+
+    The kill routes and the surface are counted, and the census is held to the
+    rule ``tools/mutation_cpp_pointer_calls.py`` states once every report is written.
 
     The report is written scored over its own mutants, here as well as at the
     union, so the whole tree's report and the merged slices' carry the one
@@ -764,10 +776,12 @@ def _finish_cpp(
     runs = lane_runs(artifact_dir, legs)
     (artifact_dir / CPP_RUNS_REPORT).write_text(json.dumps(runs, indent=2))
     raw += weight_drift(runs)
+    # The census is held to the pointer-call rule once its reports are written,
+    # so a refused census can still be read.
+    refused = pointer_call_refusal(cast("ElementsFiles", scored.get("files", {})), _repo_line)
+    if refused is not None:
+        raw += f"{refused}\n"
     (artifact_dir / "cpp.raw.txt").write_text(raw)
-    # Every mutant the runner made has a row, so a file with runs is a file
-    # holding a mutant, whatever became of it.
-    mutated = frozenset(runs)
     census = None if routes is None else {KillRoute(r): MutantCount(c) for r, c in routes.items()}
     return MutationReport(
         "cpp",
@@ -775,7 +789,10 @@ def _finish_cpp(
         killed,
         survived,
         raw,
-        observed=Observed(timeouts, routes=census, mutated_files=mutated),
+        error=refused,
+        # Every mutant the runner made has a row, so a file with runs is a file
+        # holding a mutant, whatever became of it.
+        observed=Observed(timeouts, routes=census, mutated_files=frozenset(runs)),
     )
 
 

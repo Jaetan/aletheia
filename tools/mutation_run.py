@@ -107,8 +107,8 @@ running four shards side by side (``tools/mutation_rust.py``):
 Diff scoping (automatic): on a PR branch only the binding(s) whose directory the
 diff vs ``main`` touches are run; the rest are skipped, since an unchanged
 binding's survivor count is unchanged from its baseline by construction.  A
-change to a shared artifact (the Agda ``src/`` → ``.so``, this harness, or
-``docs/MUTATION_BENCH.yaml``) forces ALL bindings, as does push:main / an empty
+change to a shared artifact (the Agda ``src/`` → ``.so``, this harness, the Mull
+build, or ``docs/MUTATION_BENCH.yaml``) forces ALL bindings, as does push:main / an empty
 diff (the post-merge backstop).  Set ``ALETHEIA_MUTATION_NO_DIFF_SCOPE=1`` to
 force the full run regardless.  See ``bindings_in_scope``.
 
@@ -559,7 +559,7 @@ def go_mutant_rows(
 # ── Diff-scope ──────────────────────────────────────────────────────────────
 # A binding's mutation result can only change if its own source, tests, or
 # mutation config changed, OR if a shared artifact every binding depends on
-# changed (the .so they all dlopen, or this harness / the baselines).  So on a
+# changed (the .so they all dlopen, this harness / the Mull build / the baselines).  So on a
 # PR we run only the affected engine(s); an unchanged binding's survivor count
 # is definitionally unchanged from its baseline, so skipping it is coverage-
 # neutral.  Mirrors ``tools/_ci_steps._build_graph_changed``'s fail-safe
@@ -578,7 +578,7 @@ BINDING_DIRS: dict[str, str] = {
 }
 
 # A change under any of these can alter the shared ``.so`` every binding dlopens,
-# or this harness / the baselines themselves, so it forces ALL bindings.  This
+# this harness, the Mull build or the baselines, so it forces ALL bindings.  This
 # set IS precision-sensitive: a miss here under-scopes (the dangerous direction),
 # unlike the generous per-binding dirs above.
 # What makes the kernel every binding loads: a change here moves every
@@ -600,6 +600,8 @@ _GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
     # own pull request.
     "tools/mutation_",
     "tools/cpp_scratch.py",  # the C++ lane's scratch-directory reaping
+    "tools/mull/",  # the patches the Mull plugin is built with, which decide its mutants
+    "tools/build_mull.sh",  # the Mull release the plugin is built from, and how
     "tools/_common.py",  # the harness's shared helpers
     "tools/_resources.py",  # the CPU budget the C++ lane builds with
     "tools/__init__.py",  # the package every harness module is imported through
@@ -627,7 +629,7 @@ def bindings_in_scope(
         ``main`` ref, git error),
       * the diff is EMPTY (push:main / on-main: ``HEAD == main``, the
         cache-seeding + post-merge backstop run), or
-      * any GLOBAL path changed (shared ``.so`` / harness / baselines).
+      * any GLOBAL path changed (shared ``.so`` / harness / Mull build / baselines).
 
     Otherwise returns the set of bindings whose directory the diff touched,
     possibly empty (e.g. a docs-only PR), meaning "run NONE".

@@ -28,6 +28,7 @@ tools/mutation_cpp_config.py       The configuration a C++ leg is built and swep
 tools/mutation_cpp_slices.py       The C++ surface's partition into slices
 tools/mutation_cpp_runs.py         What the C++ sweep spends on each file, and how far the recorded slice weights have drifted from it
 tools/mutation_routes.py           The C++ kill-route census
+tools/mutation_cpp_pointer_calls.py The C++ census held to the pointer-call rule cpp/mull.yml states
 tools/mutation_ccache_evict.sh     The C++ lane's compiler cache cut to its run's working set before the save
 tools/mutation_cpp_dry_run.py      A dry run of one C++ leg over the tree the lane built: the mutants a sweep of it would run
 tools/build_mull.sh                Mull built from source against LLVM 23, with the patches in tools/mull/
@@ -160,6 +161,11 @@ What fails the lane:
   rename or a reworded line surfaces in seconds rather than at the end of a
   mutation run.  The lane writes the same rows to `cpp-unobserved.json` beside the
   census and prints them in its log, so re-taking the ledger is a copy.
+- **Pointer-call rule (C++, gated)**: a census of the whole tree, swept in one
+  process or merged from the legs, that carries no `cxx_replace_pointer_call_null`
+  mutant, or one on a line reading an exception's message through `.what()` or
+  `->what()`, fails the lane whatever the record says
+  (`tools/mutation_cpp_pointer_calls.py`).
 - **First run (no gate)**: when the YAML baseline is `null`, the runner
   records the observed survivor count as informational and exits 0.  The
   next commit is expected to match this count; the
@@ -320,7 +326,10 @@ constant truncates to false on a call returning `bool`, so
 made only where null is an answer the caller reads, a call through a function
 pointer or a result compared with null, since a string's data or an
 exception's message never answers null and replacing it would measure the
-language's undefined behaviour. Those destructors are a mutator of their own,
+language's undefined behaviour. The lane refuses a census of the whole tree
+that carries no such mutant, or one on a line reading an exception's message
+through `what()` (`tools/mutation_cpp_pointer_calls.py`). The implicit
+destructors of temporaries are a mutator of their own,
 `cxx_remove_implicit_destructor` (`tools/mull/mull-implicit-destructor-mutator.patch`),
 which `cpp/mull.yml` leaves out of the swept set: it removes a call the
 compiler emits and the source never writes, and on this tree every one it
@@ -397,9 +406,9 @@ On a pull request the runner sweeps only the bindings whose directory the diff
 against `main` touches, and each CI lane installs only the toolchain its own
 sweep needs: the lane asks `tools/mutation_scope.py`, which reads that same
 scope, ahead of its install steps rather than after them. A change under the
-Agda kernel, the FFI shim, any module of this harness or the recorded
-baselines is every binding's change, and a push to `main`, whose diff is
-empty, sweeps every binding.
+Agda kernel, the FFI shim, any module of this harness, the Mull build and its
+patches, or the recorded baselines is every binding's change, and a push to
+`main`, whose diff is empty, sweeps every binding.
 Set `ALETHEIA_MUTATION_NO_DIFF_SCOPE=1` to sweep everything regardless.
 
 ## Running the lane
@@ -574,12 +583,13 @@ mutated by all three, so its mutants arrive once per slice and the merge
 refuses the repeated identifiers.  Stating what a slice claims would instead
 drop that file and report the smaller census as a clean sweep.
 
-Two refusals guard the union.  A mutant carried by two slices is refused by
+Three refusals guard the union.  A mutant carried by two slices is refused by
 identity, as above.  A union off the recorded `total_mutants` is
 refused either way: short of it is what a slice that carried fewer files than
 the partition gave it reads as, and past it, or short by a deliberate
 removal, is a surface the record does not follow, which the change that
-moved it records in the same commit, the way the survivors baseline is.
+moved it records in the same commit, the way the survivors baseline is.  And
+the union is held to the pointer-call rule, as a census swept in one process is.
 
 **The weights are balance, never coverage, and they are reviewed on a
 schedule.**  The partition is balanced by the figures under `runs_by_file`

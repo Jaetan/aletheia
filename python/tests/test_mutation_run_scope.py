@@ -10,7 +10,7 @@
   Under-scoping a binding would silently skip a real regression, so the witness
   cases here are a ``python/tests/``-only and a ``cpp/tests/``-only diff: both
   MUST still scope their binding in;
-* the GLOBAL set (the shared ``.so`` / this harness / the baselines) and the
+* the GLOBAL set (the shared ``.so`` / this harness / the Mull build / the baselines) and the
   empty-diff / git-error / escape-hatch cases all fail SAFE to ``None`` (run
   everything);
 * a docs-only diff scopes to the empty set (run nothing) — and the public
@@ -102,13 +102,15 @@ def test_scope_matches_changed_bindings(
         ["tools/mutation_report.py"],  # the shapes every lane reports in
         ["tools/mutation_routes.py"],  # the kill-route census
         ["tools/cpp_scratch.py"],  # the scratch-directory reaping the C++ lane imports
+        ["tools/mull/libirm-call-replacement-indirect.patch"],  # what the plugin mutates
+        ["tools/build_mull.sh"],  # the Mull release and the patches the plugin is built with
         ["tools/_common.py"],  # the harness's shared helpers
         [".github/workflows/pr-heavy-lanes.yml"],  # the lane definition
         ["go/aletheia/check.go", "src/X.agda"],  # a global path wins over a binding
     ],
 )
 def test_global_paths_force_all_bindings(monkeypatch: pytest.MonkeyPatch, files: list[str]) -> None:
-    """A change to the shared .so / harness / baselines forces the full run."""
+    """A change to the shared .so / harness / Mull build / baselines forces the full run."""
     _fake_diff(monkeypatch, files=files)
     assert mutation_run.bindings_in_scope(mutation_run.REPO_ROOT) is None
 

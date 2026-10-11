@@ -12,7 +12,7 @@ refuses a row whose line the tree no longer holds.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 import yaml
@@ -20,6 +20,7 @@ import yaml
 from tools import mutation_run
 from tools.check_mutation_setup import ledger_rows_still_name_their_line
 from tools.mutation_cpp import unobserved_kill_rows
+from tools.mutation_cpp_pointer_calls import LineNumber, SourceLine
 from tools.mutation_report import (
     SPEC_PATH,
     Baseline,
@@ -32,6 +33,9 @@ from tools.mutation_report import (
     unobserved_rows_to_ledger,
 )
 from tools.mutation_routes import Ending
+
+if TYPE_CHECKING:
+    from tools._common import RelPath
 
 _GUARD = "cxx_replace_scalar_call:/t/cpp/src/excel.cpp:214:12:214:14:4aafce37.0"
 _CLONE = "cxx_replace_scalar_call:/t/cpp/src/excel.cpp:214:12:214:14:4aafce37.1"
@@ -49,13 +53,14 @@ _ROW: UnobservedRow = {
 }
 
 
-def _read_line(file: str, line: int) -> str:
+def _read_line(file: RelPath, line: LineNumber) -> SourceLine:
     """Stand in for the repository's source, one line per site the tests use."""
-    return {
+    text = {
         ("cpp/src/excel.cpp", 214): "    if (it == cells.end())",
         ("cpp/src/dbc.cpp", 71): "        m != nullptr && seen.insert(m->multiplexor).second) {",
         ("cpp/src/client.cpp", 350): "    auto const slice = buf.subspan(off + bound);",
     }[(file, line)]
+    return SourceLine(text)
 
 
 def test_a_mutant_a_test_observed_in_any_lane_is_not_a_row() -> None:
