@@ -19,8 +19,8 @@ import re
 import sqlite3
 from typing import TYPE_CHECKING, NewType, cast
 
-from tools._common import RelPath
 from tools.mutation_cpp_config import recorded_runs
+from tools.mutation_cpp_pointer_calls import MullPath, repo_relative
 from tools.mutation_cpp_slices import FileRuns, SuiteRuns, partition, slice_domain
 from tools.mutation_report import REPO_ROOT
 
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
+    from tools._common import RelPath
     from tools.mutation_cpp_legs import CppLeg
 
 # What mull-runner-23 printed while it swept one leg, and a duration as it
@@ -85,8 +86,7 @@ def leg_runs(sqlite_path: Path, log: MullLog) -> FileRuns | Prose:
     runs: FileRuns = {}
     with contextlib.closing(sqlite3.connect(sqlite_path)) as conn:
         for site, duration_ms in conn.execute("SELECT filename, duration FROM mutant"):
-            path = str(site)
-            file = RelPath("cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path)
+            file = repo_relative(MullPath(str(site)))
             _add(runs, file, SuiteRuns(int(duration_ms) / 1000 / baseline))
     return dict(sorted(runs.items()))
 

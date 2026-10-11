@@ -20,7 +20,7 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
@@ -35,6 +35,7 @@ from tools.mutation_cpp_legs import (
     is_cpp_leg,
     sliced_legs,
 )
+from tools.mutation_cpp_pointer_calls import POINTER_CALL_MUTATOR, LineNumber, SourceLine
 from tools.mutation_cpp_runs import CPP_LEG_RUNS_SUFFIX, CPP_RUNS_REPORT
 from tools.mutation_cpp_slices import CPP_SLICES, SuiteRuns
 from tools.mutation_report import MutantCount
@@ -57,6 +58,10 @@ _ALL_MUTANTS = tuple(mutant for mutants in _SLICE_MUTANTS.values() for mutant in
 # What the sweep lets live, whichever leg reads it.
 _SURVIVORS = {"m11"}
 
+# The fixture's one pointer-call mutant, on a call that can answer null: the
+# lane refuses a census carrying none.
+_POINTER_CALL = "m13"
+
 
 def _elements(mutants: Sequence[str], survivors: set[str]) -> dict[str, object]:
     """Build an Elements report over the mutants given, those named surviving."""
@@ -67,7 +72,7 @@ def _elements(mutants: Sequence[str], survivors: set[str]) -> dict[str, object]:
                     {
                         "id": mutant,
                         "status": "Survived" if mutant in survivors else "Killed",
-                        "mutatorName": "m",
+                        "mutatorName": POINTER_CALL_MUTATOR if mutant == _POINTER_CALL else "m",
                         "location": {"start": {"line": 1}},
                     }
                     for mutant in mutants
@@ -109,6 +114,16 @@ def _fixture_census() -> int:
     return len(_ALL_MUTANTS)
 
 
+def _null_reading_line(_file: RelPath, _line: LineNumber) -> SourceLine:
+    """Stand in for the tree's source with a line whose call can answer null."""
+    return SourceLine("    return process_fn_(state.get(), &text);")
+
+
+def _message_line(_file: RelPath, _line: LineNumber) -> SourceLine:
+    """Stand in for the tree's source with a line reading an exception's message."""
+    return SourceLine("        return Error{e.what()};")
+
+
 def _fixed_sha(_root: Path | None = None) -> str:
     """Stand in for ``short_sha`` with a constant under the sandbox."""
     return _SHA
@@ -148,6 +163,8 @@ def _fake_sweeps(
     # The fixture's surface is nine mutants, not the repository's census, so
     # the census is the fixture's; the refusal it exists for has its own test.
     monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", _fixture_census)
+    # The fixture's files are not the repository's.
+    monkeypatch.setattr(mutation_cpp, "_repo_line", _null_reading_line)
 
 
 def _stage(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
@@ -463,3 +480,30 @@ def test_the_merge_needs_the_legs_directory(
     merged = run_cpp(tmp_path)
     assert merged.error is not None
     assert CPP_LEGS_ENV in merged.error
+
+
+@pytest.mark.parametrize("run", ["whole", "merge"])
+def test_the_lane_refuses_a_pointer_call_on_a_message_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, run: Literal["whole", "merge"]
+) -> None:
+    """The census of the whole tree and the union of the legs are both held to the rule.
+
+    The reports are written all the same, so the refused census can be read.
+    """
+    _download(tmp_path / "legs", *sliced_legs())
+    _fake_sweeps(monkeypatch, [])
+    monkeypatch.setattr(mutation_cpp, "_repo_line", _message_line)
+    _stage(monkeypatch, CPP_MERGE_STAGE if run == "merge" else None)
+    monkeypatch.setenv(CPP_LEGS_ENV, str(tmp_path / "legs"))
+    out = tmp_path / "out"
+    out.mkdir()
+    report = run_cpp(out)
+    refusal = (
+        f"{POINTER_CALL_MUTATOR} mutants on lines reading an exception's message, which "
+        + "never answers null: cpp/src/a.cpp:1"
+    )
+    assert report.error == refusal
+    assert (out / "cpp.raw.txt").read_text().endswith(f"{refusal}\n")
+    assert (out / "cpp-mull.json").is_file()
+    verdict = mutation_run.drift_for(report, {"cpp": {"baseline": {"survivors": 1}}})
+    assert verdict["status"] == "error"

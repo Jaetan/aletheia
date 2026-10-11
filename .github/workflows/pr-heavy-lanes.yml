@@ -14,11 +14,11 @@
 # which must report on every pull request.
 #
 # Enforcement (see BRANCH_PR_HYGIENE):
-#   * mutation testing: REQUIRED (2026-06-20).  The drift gate is baseline-
-#     relative (fails only on a collection crash OR observed survivors > the
-#     recorded baseline), and this project's suite is deterministic (no physical
-#     time in tests), so it is a stable merge-blocking signal, not "score-
-#     squishy".
+#   * mutation testing: REQUIRED (2026-06-20).  The drift gate holds every
+#     recorded figure exactly, a run worse or better than the record failing,
+#     beside each lane's own refusals (docs/operations/MUTATION.md, Threshold
+#     model), and this project's suite is deterministic (no physical time in
+#     tests), so it is a stable merge-blocking signal, not "score-squishy".
 #   The lanes run on EVERY PR commit-state (incl. synchronize) so the result
 #   reflects the latest commit; a `synchronize`-skip froze them at the PR's
 #   first (often broken) commit.  Per-job `cancel-in-progress` collapses rapid

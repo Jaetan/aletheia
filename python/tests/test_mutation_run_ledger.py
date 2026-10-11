@@ -10,8 +10,13 @@ stale record, as it does a lower count.
 
 from __future__ import annotations
 
-from tools import mutation_run
-from tools.mutation_cpp import elements_survivor_rows
+import json
+from typing import TYPE_CHECKING
+
+from tools import mutation_cpp, mutation_run
+from tools.mutation_cpp import cpp_survivor_rows, elements_survivor_rows
+from tools.mutation_cpp_legs import CPP_ELEMENTS_REPORT
+from tools.mutation_cpp_pointer_calls import SourceLine
 from tools.mutation_report import (
     Baseline,
     BindingSpec,
@@ -21,6 +26,11 @@ from tools.mutation_report import (
     SurvivorKey,
 )
 from tools.mutation_run import ledger_to_rows, rows_to_ledger
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 _ROW: LedgerRow = {
     "mutator": "cxx_replace_scalar_call",
@@ -58,9 +68,23 @@ def test_elements_rows_count_survivors_by_identity() -> None:
             }
         }
     }
-    lines = {3: "    x = y;   ", 4: "z"}
+    lines = {3: SourceLine("    x = y;   "), 4: SourceLine("z")}
     rows = elements_survivor_rows(report, lambda _file, line: lines[line])
     assert rows == {("m", "cpp/src/a.cpp", "x = y;"): 2, ("n", "cpp/src/a.cpp", "z"): 1}
+
+
+def test_a_written_report_reads_each_survivors_line_from_the_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The lane keys a survivor by its line's text, read from the repository's own file."""
+    source = tmp_path / "cpp/src/a.cpp"
+    source.parent.mkdir(parents=True)
+    _ = source.write_text("first\n    second;  \nthird\n", encoding="utf-8")
+    survivor = {"status": "Survived", "mutatorName": "m", "location": {"start": {"line": 2}}}
+    report = {"files": {"/ci/tree/cpp/src/a.cpp": {"mutants": [survivor]}}}
+    _ = (tmp_path / CPP_ELEMENTS_REPORT).write_text(json.dumps(report), encoding="utf-8")
+    monkeypatch.setattr(mutation_cpp, "REPO_ROOT", tmp_path)
+    assert cpp_survivor_rows(tmp_path) == {("m", "cpp/src/a.cpp", "second;"): 1}
 
 
 def test_ledger_round_trips_through_rows() -> None:

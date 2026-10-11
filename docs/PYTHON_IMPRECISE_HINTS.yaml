@@ -1855,11 +1855,8 @@ hints:
     text: "dict[str, object]"
     count: 3
   - file: python/tests/test_mutation_unobserved_ledger.py
-    text: "int"
-    count: 1
-  - file: python/tests/test_mutation_unobserved_ledger.py
     text: "str"
-    count: 4
+    count: 2
   - file: python/tests/test_parse_dbc_text.py
     text: "int"
     count: 4
@@ -3049,9 +3046,6 @@ hints:
     text: "str"
     count: 9
   - file: tools/mutation_cpp.py
-    text: "Callable[[str, int], str]"
-    count: 2
-  - file: tools/mutation_cpp.py
     text: "LegReports | str"
     count: 1
   - file: tools/mutation_cpp.py
@@ -3111,7 +3105,7 @@ hints:
     count: 1
   - file: tools/mutation_cpp.py
     text: "int"
-    count: 6
+    count: 5
   - file: tools/mutation_cpp.py
     text: "int | None"
     count: 2
@@ -3129,7 +3123,7 @@ hints:
     count: 2
   - file: tools/mutation_cpp.py
     text: "str"
-    count: 13
+    count: 11
   - file: tools/mutation_cpp.py
     text: "str | MutationReport"
     count: 1
