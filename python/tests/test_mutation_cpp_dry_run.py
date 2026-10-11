@@ -10,6 +10,7 @@ and a runner standing in for Mull records where and how it was started.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -41,6 +42,15 @@ with open(base + ".env", "w") as out:
     out.write("\\0".join(name + "=" + value for name, value in sorted(os.environ.items())))
 """
 
+# A test binary standing in for the tree's: asked for its tests, it lists one
+# untagged test and then the costly one, the tail the lane holds a binary to.
+_LISTED_BINARY = """#!{python}
+print({listing!r})
+"""
+_LISTING = json.dumps(
+    {"listings": {"tests": [{"name": "a", "tags": []}, {"name": "z", "tags": ["costly"]}]}}
+)
+
 
 @pytest.fixture(name="root")
 def _root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -60,6 +70,16 @@ def _write_runner(path: Path) -> Path:
     _ = path.write_text(
         _RUNNER.format(python=sys.executable, suffixes=tuple(CPP_LEG_REPORT_SUFFIXES)),
         encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
+
+
+def _write_listed_binary(path: Path) -> Path:
+    """Write the test binary standing in for the tree's at ``path``, ready to list its tests."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _ = path.write_text(
+        _LISTED_BINARY.format(python=sys.executable, listing=_LISTING), encoding="utf-8"
     )
     path.chmod(0o755)
     return path
@@ -129,6 +149,9 @@ def test_the_lane_and_a_dry_run_run_the_runner_alike(
     tools = root.parent / "bin"
     tools.mkdir()
     runner = _write_runner(tools / "mull-runner-23")
+    # The stand-in cmake builds nothing, so the binary the lane lists before
+    # its runner is planted where the build would have left it.
+    _ = _write_listed_binary(mutation_cpp_dry_run.lane_binary())
     for stand_in in (tools / "cmake", tools / "clang++-23"):
         _ = stand_in.write_text("#!/bin/sh\n", encoding="utf-8")
         stand_in.chmod(0o755)

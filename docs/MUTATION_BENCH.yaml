@@ -284,9 +284,11 @@ bindings:
       # command line by content.
       mutators: cpp/mull.yml
     invocation: |
-      # The ALETHEIA_MUTATION build folds tests/integration_tests.cpp into the
-      # unit_tests binary so the real FfiBackend (dlopen glue) is on the
-      # mutation surface. Those tests dlopen build/libaletheia-ffi.so, so
+      # The ALETHEIA_MUTATION build folds the integration suite
+      # (tests/integration_tests.cpp, and last of all the size-bound unit
+      # tests/integration_tests_size_bounds.cpp) into the unit_tests binary so
+      # the real FfiBackend (dlopen glue) is on the mutation surface. Those
+      # tests dlopen build/libaletheia-ffi.so, so
       # `cabal run shake -- build` must have produced it first.
       cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
@@ -392,7 +394,10 @@ bindings:
       # signal. With both, two sweeps compared mutant for mutant moved
       # nothing. What the order moves is the route, because a fault
       # ends the process and the order decides which test reports before it
-      # stops.
+      # stops. The order also decides the cost: the tests whose cost is the
+      # input's are the last the binary lists, which the lane holds before its
+      # runner starts (tools/mutation_cpp_order.py), and moving them last left
+      # every route and every row below where it was.
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
@@ -415,9 +420,10 @@ bindings:
       #
       # They are a measurement and they age in one direction: adding code adds
       # mutants, nothing refuses that, and the slices drift out of balance
-      # quietly.  So the merge prints what the heaviest slice would cost
-      # today under these weights, and the review that re-takes them is
-      # scheduled against that number rather than against a date
+      # quietly.  So the merge prints what the heaviest slice costs under the
+      # cut on these weights against what it costs under a cut on the run's
+      # own figures, and the review that re-takes them is scheduled against
+      # that number rather than against a date
       # (docs/operations/MUTATION.md, AGENTS.md § Universal Rules). Coverage
       # never depends on them: a file the record does not name still lands in
       # a slice, because the partition is computed over every tracked file of

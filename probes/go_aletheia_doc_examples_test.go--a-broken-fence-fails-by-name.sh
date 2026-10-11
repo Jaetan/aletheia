@@ -26,6 +26,9 @@ trap 'git worktree remove --force "$tree" > /dev/null 2>&1; rm -rf "$work"' EXIT
 git worktree add -q --detach "$tree" HEAD || exit 2
 git diff --no-ext-diff --no-color --binary --src-prefix=a/ --dst-prefix=b/ HEAD |
 	git -C "$tree" apply --index --allow-empty || exit 2
+# The tree as it stands includes the files not yet tracked, which the diff
+# does not carry and the compile database already names.
+git ls-files -z --others --exclude-standard | tar --null -T - -cf - | tar -C "$tree" -xf - || exit 2
 cp "$tree/$readme" "$work/saved"
 # The line of the fence about to be appended: the file's last line, plus the
 # blank line before the fence.

@@ -31,6 +31,9 @@ trap 'git worktree remove --force "$tree" > /dev/null 2>&1; rm -rf "$work"' EXIT
 git worktree add -q --detach "$tree" HEAD || exit 2
 git diff --no-ext-diff --no-color --binary --src-prefix=a/ --dst-prefix=b/ HEAD |
     git -C "$tree" apply --index --allow-empty || exit 2
+# The tree as it stands includes the files not yet tracked, which the diff
+# does not carry and the compile database already names.
+git ls-files -z --others --exclude-standard | tar --null -T - -cf - | tar -C "$tree" -xf - || exit 2
 record=$tree/docs/MUTATION_BENCH.yaml
 
 sed -i 's|^      - go/aletheia/client.go$|      - go/aletheia/moved_away.go|' "$record"

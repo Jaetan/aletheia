@@ -547,7 +547,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         # report its mutants as uncovered.  Fold the real-.so integration tests
         # into the mutation binary so FfiBackend's FFI-boundary guards are
         # exercised and killed.  (Mutation build only; the normal unit_tests
-        # stays Mock-only / .so-free for speed.)
+        # stays Mock-only / .so-free for speed.)  The suite's size-bound unit
+        # is folded in last of all, below.
         target_sources(unit_tests PRIVATE tests/integration_tests.cpp)
         target_link_libraries(unit_tests PRIVATE Threads::Threads)
         # The two loaders reach the binary only through their own suites: the
@@ -595,8 +596,12 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 
-    # Integration tests (real .so, Catch2, threads for concurrent test)
-    add_executable(integration_tests tests/integration_tests.cpp)
+    # Integration tests (real .so, Catch2, threads for concurrent test). The
+    # size-bound tests are their own unit, which the mutation binary takes
+    # last (below).
+    add_executable(integration_tests
+        tests/integration_tests.cpp
+        tests/integration_tests_size_bounds.cpp)
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
     target_include_directories(integration_tests PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
@@ -770,6 +775,20 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         target_sources(unit_tests PRIVATE tests/fresh_process_tests.cpp)
         target_compile_definitions(unit_tests PRIVATE ${ALETHEIA_FRESH_PROCESS_DEFINITIONS})
         add_dependencies(unit_tests ${ALETHEIA_FRESH_PROCESS_BINARIES})
+    endif()
+
+    # The tests whose cost is the input's, a DBC with one list past a size
+    # bound or text at the cap through the kernel, are the last units of
+    # unit_tests: the mutation lane runs the binary in link order
+    # (--order decl) and ends a run at its first failing assertion (--abort),
+    # so every mutant a later test kills pays for the tests ahead of it. The
+    # lane refuses a binary that lists a [costly] test ahead of an untagged one
+    # (tools/mutation_cpp_order.py), so these stay the last sources added: a
+    # new test unit goes above this block, and the tag goes only on a test
+    # whose cost is its input's.
+    target_sources(unit_tests PRIVATE tests/unit_tests_input_cap.cpp)
+    if(ALETHEIA_MUTATION)
+        target_sources(unit_tests PRIVATE tests/integration_tests_size_bounds.cpp)
     endif()
 
     # Cross-binding integration. Counterpart of

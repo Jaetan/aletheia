@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, NewType, cast
 
 from tools.mutation_cpp_config import recorded_runs
 from tools.mutation_cpp_pointer_calls import MullPath, repo_relative
-from tools.mutation_cpp_slices import FileRuns, SuiteRuns, partition, slice_domain
+from tools.mutation_cpp_slices import FileRuns, Slice, SuiteRuns, partition, slice_domain
 from tools.mutation_report import REPO_ROOT
 
 from aletheia.common_types import Prose
@@ -107,26 +107,34 @@ def lane_runs(artifact_dir: Path, legs: Sequence[CppLeg]) -> FileRuns:
     return {path: SuiteRuns(round(value, 1)) for path, value in sorted(sums.items())}
 
 
+def _heaviest(slices: Sequence[Slice], observed: FileRuns) -> SuiteRuns:
+    """Cost the slices with the runs just measured and name the heaviest."""
+    return SuiteRuns(max(sum(observed.get(path, 0.0) for path in claimed) for claimed in slices))
+
+
 def weight_drift(observed: FileRuns) -> Prose:
     """Say how far the recorded weights have drifted from the surface they balance.
 
     The slices are cut on the recorded figures, and the surface grows without
     anything refusing, so the cut goes stale quietly.  This is the number the
-    scheduled review of the weights reads: what the heaviest slice would cost
-    today, against an equal share, if the partition were cut on the recorded
-    figures and run over the sweep just measured.
+    scheduled review of the weights reads: what the heaviest slice costs under
+    the recorded cut, run over the sweep just measured, against what it costs
+    under the partition cut on this sweep's own figures.  An equal share is
+    not the comparison: one file can outweigh a share, and no cut goes below
+    the heaviest file, so a record that still cuts as well as the figures
+    allow reads as no drift.
     """
     domain = slice_domain(REPO_ROOT, REPO_ROOT / "cpp" / "mull.yml")
     recorded = recorded_runs()
     if not recorded:
         return Prose("weights: none recorded, so the slices are cut on nothing\n")
-    loads = [
-        sum(observed.get(path, 0.0) for path in claimed) for claimed in partition(domain, recorded)
-    ]
-    share = sum(loads) / len(loads)
-    over = 100 * (max(loads) / share - 1) if share else 0.0
-    drift = f"weights: the heaviest slice costs {max(loads):.1f} of"
-    drift += f" {sum(loads):.1f} suite runs, {over:.1f}% over an equal share of {share:.1f}\n"
+    recorded_cut = _heaviest(partition(domain, recorded), observed)
+    own_cut = _heaviest(partition(domain, observed), observed)
+    total = sum(observed.get(path, 0.0) for path in domain)
+    over = 100 * (recorded_cut / own_cut - 1) if own_cut else 0.0
+    drift = f"weights: the heaviest slice costs {recorded_cut:.1f} of {total:.1f} suite runs"
+    drift += f" under the recorded cut, {own_cut:.1f} under a cut on this run's own figures,"
+    drift += f" {over:.1f}% over\n"
     unrecorded = sorted(set(observed) - set(recorded))
     if unrecorded:
         drift += f"weights: {len(unrecorded)} file(s) cost runs the record"

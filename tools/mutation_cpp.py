@@ -46,6 +46,7 @@ from tools.mutation_cpp_legs import (
     leg_of_binding,
     sliced_legs,
 )
+from tools.mutation_cpp_order import order_refusal
 from tools.mutation_cpp_pointer_calls import (
     LineNumber,
     MullPath,
@@ -584,6 +585,15 @@ def _sweep_cpp_lane(
     if isinstance(built, MutationReport):
         return raw + built.raw_log, built.error or f"the {leg} leg did not build"
     raw += built
+    # The binary's tail is held before the runner starts: a sweep over a
+    # binary whose costly tests run early is a sweep paid for twice over.
+    misplaced = order_refusal(
+        build_dir / CPP_TEST_TARGET,
+        cwd=paths.cpp_root,
+        environment=cpp_sweep_environment(leg, build_dir),
+    )
+    if misplaced is not None:
+        return raw + misplaced + "\n", f"the {leg} leg: {misplaced}"
     lane_raw, counts = _run_cpp_lane(mull_runner, paths, leg)
     raw += lane_raw
     if counts is None:
