@@ -11,6 +11,8 @@ from tools._common import find_executable, git_clean_env, run_capture
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from tools.commit_subjects import Revision
+
 
 def git(repo: Path, *args: str) -> str:
     """Run a git command in ``repo``, asserting success, and return its stdout.
@@ -23,23 +25,28 @@ def git(repo: Path, *args: str) -> str:
     return result.stdout
 
 
+# A local identity and no signing, for every git command that writes a commit: a
+# machine without a global identity (CI) refuses to write one otherwise.
+_AS_TESTER = (
+    "-c",
+    "user.email=test@example.com",
+    "-c",
+    "user.name=Test",
+    "-c",
+    "commit.gpgsign=false",
+)
+
+
 def commit(repo: Path, message: str) -> str:
     """Stage everything, commit with a local identity and no signing, return the commit hash."""
     git(repo, "add", "-A")
-    git(
-        repo,
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "user.name=Test",
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "-q",
-        "-m",
-        message,
-    )
+    git(repo, *_AS_TESTER, "commit", "-q", "-m", message)
     return git(repo, "rev-parse", "HEAD").strip()
+
+
+def merge(repo: Path, source: Revision) -> None:
+    """Merge ``source`` into the checked-out branch with a merge commit, as ``commit`` commits."""
+    _ = git(repo, *_AS_TESTER, "merge", "--no-ff", "--no-edit", source)
 
 
 def tracked_but_absent(tmp_path: Path) -> tuple[Path, str]:

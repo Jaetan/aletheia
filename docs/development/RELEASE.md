@@ -61,8 +61,9 @@ Read the accumulated `## [Unreleased]` notes and pick `X.Y.Z` by
 ### 1. ⚑ Branch — the prepare-release commit goes through a PR
 
 `main` is protected (the ruleset requires `tools/run_ci.py (all gates)`,
-`mutation testing` and `load scaling`), so the version bump **cannot** be committed straight to
-`main`. Branch first:
+`mutation testing`, `load scaling` and `PR title`), so the version bump **cannot** be committed straight to
+`main`. Branch first; the commit and the pull request take the subject
+`chore(dist): prepare vX.Y.Z`, which the commit-subject vocabulary accepts:
 ~~~bash
 git switch main && git fetch origin main && git merge --ff-only origin/main
 git switch -c chore/prepare-vX.Y.Z
@@ -107,8 +108,8 @@ history and deliberate prose.
 
 Rename `## [Unreleased]` → `## [X.Y.Z] — YYYY-MM-DD` and add a fresh empty
 `## [Unreleased]` above it. This **must** happen in the prepare-release commit,
-not after publishing: the version bump touches watched `.cabal` files, so
-`check_changelog` requires a `CHANGELOG.md` edit here. While renaming, enforce
+not after publishing, so the tagged tree carries the release's dated section.
+While renaming, enforce
 **one `###` header per Keep-a-Changelog category** (`Added`, `Changed`,
 `Removed`, `Fixed`, in that order) — merge any duplicate headers that accumulated
 over the cycle, and confirm the merge is content-preserving with a sorted-line

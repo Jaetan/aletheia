@@ -411,5 +411,7 @@ passed sweep recorded, even if the pre-push hook didn't run.
 - [`tools/iwyu.py`](../../tools/iwyu.py) — the single IWYU tool: `--check` (named + wildcard gate), `--apply` (wildcard narrow/remove), `--self-test` (fixture matrix); `--wait-lock` queues behind a running Agda tool. Pre-commit gate + pre-push gate.
 - [`tools/_iwyu.py`](../../tools/_iwyu.py) — its engine (internal): the `.agdai` reader driver + both analyses.
 - [`tools/agda-iwyu-reader/`](../../tools/agda-iwyu-reader/) — the Haskell reader (links the prebuilt Agda from the cabal store) + its `test/` fixture matrix.
-- [`tools/check_changelog.py`](../../tools/check_changelog.py) — CHANGELOG discipline (public API + build/CI/tooling).
+- [`tools/check_changelog.py`](../../tools/check_changelog.py) — the branch's commit subjects held to the vocabulary, the CHANGELOG entry they or a public-surface record owe, and the `[Unreleased]` section's headers.
+- [`tools/commit_subjects.py`](../../tools/commit_subjects.py) — the closed commit-subject vocabulary (`type(scope)!: text`), the table of the CHANGELOG entries subjects owe, and the shipped files a label must fit.
+- [`tools/check_pr_title.py`](../../tools/check_pr_title.py) — a pull request's title held to that vocabulary and table, run by `.github/workflows/pr-title.yml`.
 - [`tools/check_gate_claim.py`](../../tools/check_gate_claim.py) — gate-claim integrity: a "gates clean" claim means a sweep observed the build sources the commit carries, read from the sweep's own record and never from a timestamp.

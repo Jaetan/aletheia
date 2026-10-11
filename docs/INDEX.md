@@ -76,7 +76,7 @@ Build and contribute:
 - **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
 - **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
 - **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
-- **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
+- **[CHANGELOG](../CHANGELOG.md)** - Release notes: one entry per behaviour change, fix or feature, breaking changes first (AGENTS.md "CHANGELOG: one entry per significant change")
 
 ---
 
