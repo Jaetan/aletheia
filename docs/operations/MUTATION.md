@@ -27,6 +27,7 @@ tools/mutation_cpp_legs.py         The C++ lane's legs and stage variable
 tools/mutation_cpp_config.py       The configuration a C++ leg is built and swept under, and its stamp
 tools/mutation_cpp_slices.py       The C++ surface's partition into slices
 tools/mutation_cpp_runs.py         What the C++ sweep spends on each file, and how far the recorded slice weights have drifted from it
+tools/mutation_cpp_order.py        The order the C++ mutation binary runs its tests in: the costly ones last, held before each leg's runner
 tools/mutation_routes.py           The C++ kill-route census
 tools/mutation_cpp_pointer_calls.py The C++ census held to the pointer-call rule cpp/mull.yml states
 tools/mutation_ccache_evict.sh     The C++ lane's compiler cache cut to its run's working set before the save
@@ -125,7 +126,16 @@ What fails the lane:
   none of those names).  A run ends at its first failing assertion (Catch2's
   `--abort`), which moves no route: a failing assertion is the test's kill
   whatever ends the process after it, and a run with none goes through the
-  whole suite either way.  The counts land in
+  whole suite either way.  The order also decides what a sweep costs: a
+  mutant pays for every test ahead of the one that kills it, so the tests
+  whose cost is the input's, a DBC with one list past a size bound or text at
+  the cap through the kernel, carry the `[costly]` tag and are the last units
+  linked into the binary, and before a leg's runner starts the lane lists the
+  binary (`--list-tests --order decl --reporter json`) and refuses one with a tagged test
+  ahead of an untagged one, or with none (`tools/mutation_cpp_order.py`).
+  Moving those tests last took a local whole sweep's mutant time from 2690 s
+  to 517 s and the median `excel.cpp` mutant from 6.15 s to 0.60 s, with
+  every kill route and every ledger row where it was.  The counts land in
   `cpp-routes.json` beside `cpp.json`, and the lane holds them to the C++
   baseline's `kill_routes` route by route, which the pinned test order and
   the debug-mode checks make exact; a sweep with any timeout is refused by the
@@ -608,16 +618,19 @@ still lands in a slice; it simply weighs nothing, which is right for the files
 that carry no mutants and costs a newly added file some balance until the
 weights are re-taken.  Because adding code adds mutants and nothing refuses
 that, the figures age quietly in one direction.  So the merge prints beside
-its verdict what the heaviest slice would cost today under the recorded
-weights against an equal share.  Computed over the run the weights were taken
-from, it reads 0.0 percent over; the figure grows as the surface outgrows the record,
-and the review that re-takes the weights is scheduled against it rather than
-against a date (AGENTS.md § Universal Rules; the task list carries it).  The
-figures are read from a CI merge and compared with one, since the unit does
-not hold across hosts: a local whole-tree sweep on another host, its mutants
-twenty at a time against a CI leg's four, read 0.30 to 0.94 of the CI
-figures for the files of 2 percent or more, and its drift line 34.2 percent
-over against the same record.  Each leg writes its
+its verdict what the heaviest slice costs under the recorded cut, run over
+the sweep just measured, against what it costs under a cut on that sweep's
+own figures.  An equal share is not the comparison: one file can outweigh a
+share, and no cut goes below the heaviest file, so a record that still cuts
+as well as the figures allow reads as no drift.  Computed over the run the
+weights were taken from, it reads 0.0 percent over; the figure grows as the
+surface outgrows the record, and the review that re-takes the weights is
+scheduled against it rather than against a date (AGENTS.md § Universal Rules;
+the task list carries it).  The figures are read from a CI merge and compared
+with one, since the unit does not hold across hosts: a local whole-tree sweep
+on another host, its mutants twenty at a time against a CI leg's four, read
+0.30 to 0.94 of the CI figures for the files of 2 percent or more.  Each leg
+writes its
 figures beside its reports, because only its own log prints its unmutated
 run, and the merge sums the legs into `cpp-runs.json`; re-take by copying
 that file's mapping into `runs_by_file` from a CI run's `mutation merge`

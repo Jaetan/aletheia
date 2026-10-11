@@ -201,6 +201,9 @@ def _swept_leg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, log: MullLog) ->
     monkeypatch.setenv(CPP_STAGE_ENV, "1")
     monkeypatch.setattr(mutation_cpp, "_check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
     monkeypatch.setattr(mutation_cpp, "build_cpp_mutation_tree", Mock(return_value=""))
+    # The binary the lane would list before its runner is not built here; the
+    # order rule has its own tests.
+    monkeypatch.setattr(mutation_cpp, "order_refusal", Mock(return_value=None))
     monkeypatch.setattr(mutation_cpp, "_run_cpp_lane", Mock(return_value=(log, (1, 0))))
     return mutation_cpp.run_cpp(artifact_dir)
 

@@ -353,6 +353,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation binary runs its costliest tests last.** Under
+  `--order decl` and `--abort` a mutant pays for every test ahead of the one
+  that kills it, and the tests that build an input past a size bound through
+  the kernel ran before the loader suites, so every `excel.cpp` mutant paid for
+  them. Those tests are their own units
+  (`cpp/tests/integration_tests_size_bounds.cpp`,
+  `cpp/tests/unit_tests_input_cap.cpp`), tagged `[costly]` and linked last into
+  the mutation binary, while ctest's suites hold the same tests as before; the
+  library lookup two integration units now share is `cpp/tests/find_lib.hpp`.
+  Before a leg's runner starts, the lane lists the binary and refuses one with
+  a `[costly]` test ahead of an untagged one, or with none
+  (`tools/mutation_cpp_order.py`). On a local whole sweep the mutants' run
+  time fell from 2690 s to 517 s and the median `excel.cpp` mutant from 6.15 s
+  to 0.60 s; every kill route and ledger row stayed where it was. The merge's
+  drift line now reads the heaviest slice under the recorded cut against the
+  heaviest under a cut on the run's own figures, since one file can outweigh
+  an equal share and no cut goes below it. The probes that read the tree as
+  it stands, through a scratch checkout of the last commit plus the
+  uncommitted diff, now copy the untracked files too: the diff does not carry
+  them, and the compile database already names them.
+
 - **The C++ mutation lane holds the pointer-call rule itself.** A census of
   the whole tree, swept in one process or merged from the legs, is refused
   when it carries no `cxx_replace_pointer_call_null` mutant, or one on a line

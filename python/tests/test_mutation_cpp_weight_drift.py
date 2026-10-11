@@ -6,12 +6,12 @@ The slices are cut on the suite runs the files' mutants cost when the weights
 were last recorded, and the surface grows without anything refusing, so the
 cut goes stale quietly.  The lines are the one instrument the scheduled review
 of those weights reads, and nothing in the lane parses them, so their text is
-held here: what the heaviest slice would cost today, against an equal share,
-if the partition were cut on the recorded figures and run over the sweep just
-measured.  The share keeps a decimal, because a total that does not divide by
-the slice count otherwise prints a heaviest slice "over" a share it equals.
-Four arms: weights recorded, none recorded, a file costing runs the record
-does not count, and the partition cut on the record rather than on the sweep.
+held here: what the heaviest slice costs under the recorded cut, run over the
+sweep just measured, against what it costs under the partition cut on that
+sweep's own figures.  Five arms: a sweep that is its own record, a file that
+grew where no cut could place it better, none recorded, a file costing runs
+the record does not count, and a record whose cut the sweep's figures no
+longer fit.
 """
 
 from __future__ import annotations
@@ -47,22 +47,26 @@ def _cut_on(monkeypatch: pytest.MonkeyPatch, recorded: FileRuns) -> None:
     monkeypatch.setattr(mutation_cpp_runs, "slice_domain", domain)
 
 
-def test_fresh_weights_read_the_share_to_a_decimal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A sweep that is its own record reads its heaviest slice against the exact share."""
+def test_a_sweep_that_is_its_own_record_reads_no_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cut on the record and cut on its own figures are one cut, and the line says 0.0 over."""
     _cut_on(monkeypatch, _RECORDED)
     assert weight_drift(_RECORDED) == (
-        "weights: the heaviest slice costs 4.0 of 11.0 suite runs,"
-        + " 9.1% over an equal share of 3.7\n"
+        "weights: the heaviest slice costs 4.0 of 11.0 suite runs under the recorded cut,"
+        + " 4.0 under a cut on this run's own figures, 0.0% over\n"
     )
 
 
-def test_a_file_that_grew_moves_the_figure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Runs added to one recorded file land in its slice, and the line says by how much."""
+def test_a_file_that_grew_alone_in_its_slice_is_no_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file that outgrew its slice is the heaviest slice under any cut, so the record still fits.
+
+    An equal share would read it as drift; the cut on the sweep's own figures
+    carries the file alone too, and no cut goes below it.
+    """
     _cut_on(monkeypatch, _RECORDED)
-    grown = {**_RECORDED, _B: SuiteRuns(6.0)}
+    grown = {**_RECORDED, _C: SuiteRuns(6.0)}
     assert weight_drift(grown) == (
-        "weights: the heaviest slice costs 6.0 of 13.0 suite runs,"
-        + " 38.5% over an equal share of 4.3\n"
+        "weights: the heaviest slice costs 6.0 of 14.0 suite runs under the recorded cut,"
+        + " 6.0 under a cut on this run's own figures, 0.0% over\n"
     )
 
 
@@ -73,12 +77,16 @@ def test_no_weights_recorded_is_said(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_file_the_record_does_not_count_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A file weighing nothing still lands in a slice; its runs count there and it is named."""
+    """A file weighing nothing lands beside the lightest; its runs count there and it is named.
+
+    The record puts d beside c for 8.0; its own figures would give d a slice
+    of its own and put b beside c for 7.0.
+    """
     _cut_on(monkeypatch, _RECORDED)
-    added = {**_RECORDED, _D: SuiteRuns(2.0)}
+    added = {**_RECORDED, _D: SuiteRuns(5.0)}
     assert weight_drift(added) == (
-        "weights: the heaviest slice costs 5.0 of 13.0 suite runs,"
-        + " 15.4% over an equal share of 4.3\n"
+        "weights: the heaviest slice costs 8.0 of 16.0 suite runs under the recorded cut,"
+        + " 7.0 under a cut on this run's own figures, 14.3% over\n"
         + "weights: 1 file(s) cost runs the record does not count: cpp/src/d.cpp\n"
     )
 
@@ -95,13 +103,13 @@ _C_AND_D_HEAVY: FileRuns = {
 def test_the_partition_is_cut_on_the_record_and_read_against_the_sweep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The line is the recorded cut costed with the measured runs, not a fresh cut.
+    """The line is the recorded cut costed with the measured runs, against the sweep's own cut.
 
-    The figures that are even under their own cut are lopsided under a record
-    that puts a and b in one slice.
+    The figures that cut even on their own are lopsided under a record that
+    puts a and b in one slice: twice the heaviest slice their own cut gives.
     """
     _cut_on(monkeypatch, _C_AND_D_HEAVY)
     assert weight_drift(_RECORDED) == (
-        "weights: the heaviest slice costs 8.0 of 11.0 suite runs,"
-        + " 118.2% over an equal share of 3.7\n"
+        "weights: the heaviest slice costs 8.0 of 11.0 suite runs under the recorded cut,"
+        + " 4.0 under a cut on this run's own figures, 100.0% over\n"
     )
