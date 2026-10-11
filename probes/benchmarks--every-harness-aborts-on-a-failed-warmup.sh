@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes the four benchmark harnesses benchmarks/run_all.sh drives:
-# python/benchmarks/throughput.py and latency.py, go/benchmarks/main.go,
+# python/benchmarks/throughput.py and latency.py, go/benchmarks/throughput.go and latency.go,
 # cpp/benchmarks/benchmark.cpp with measure.hpp, rust/examples/benchmark.rs.
 # Claim: every warmup loop aborts the lane on a failed operation the way the
 # measured loop does. A harness whose warmup failed ran against a client it
@@ -90,10 +90,10 @@ FORBID = {
 # it makes with the measured call the file must make with the same callee.
 SITES = [
     # Go throughput: the error arm returns, and the callee is measured below.
-    ("go/benchmarks/main.go", "go", r"for w := 0; w < warmupRuns; w\+\+ \{", 1,
+    ("go/benchmarks/throughput.go", "go", r"for w := 0; w < warmupRuns; w\+\+ \{", 1,
      r"err != nil \{\s*(?:return\b|die\()", (r"(?P<callee>[\w.]+)\(numFrames / 10\)", "{callee}(numFrames)")),
     # Go latency: one loop, the error arm returns, op() on both sides.
-    ("go/benchmarks/main.go", "go", r"for i := 0; i < warmup; i\+\+ \{", 1,
+    ("go/benchmarks/latency.go", "go", r"for i := 0; i < warmup; i\+\+ \{", 1,
      r"err != nil \{\s*return\b", (r"(?P<callee>\w+)\(\)", "start := time.Now()\n\t\tif err := {callee}(); err != nil {{\n\t\t\treturn")),
     # C++ throughput: the warmup calls the measured function, which throws.
     ("cpp/benchmarks/benchmark.cpp", "cpp", r"std::views::repeat\(0, warmup_runs\)", 1,

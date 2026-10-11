@@ -112,7 +112,7 @@ class SignalOpsMixin(ClientHostState):
             # Use binary path when signal name cache is populated.  MockBackend
             # raises BinaryPathUnsupportedError to fall through to the JSON
             # path (cross-binding parity with Go's ErrBinaryPathUnsupported
-            # contract in client.go:447).
+            # contract in client_stream.go, Client.ExtractSignals).
             lookup = self._signal_lookup.get((can_id, extended))
             if lookup is not None:
                 try:

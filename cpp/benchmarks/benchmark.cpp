@@ -840,7 +840,7 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
 // Five sweeps emitted as a DICT keyed by sub-benchmark, in this exact order:
 // trace_size_can20, trace_size_canfd, property_count, property_complexity,
 // dbc_size. The canonical schema is benchmarks/SCHEMA.yaml; the semantic source
-// is python/benchmarks/scaling.py; go/benchmarks/main.go runScaling is the
+// is python/benchmarks/scaling.py; go/benchmarks/scaling.go runScaling is the
 // conformant structural reference. Methodology (identical across bindings):
 // every streaming sweep point is the MEAN fps over --runs streaming passes;
 // relative = fps / (fps of the first row in the same sweep). A dbc_size point

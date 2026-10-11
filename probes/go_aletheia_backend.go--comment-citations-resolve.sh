@@ -21,7 +21,7 @@ grep -q '\[MANDATORY\]' cpp/include/aletheia/backend.hpp || { echo "backend.hpp 
 grep -q '\[OPTIONAL\]' cpp/include/aletheia/backend.hpp || { echo "backend.hpp has no [OPTIONAL] marker"; status=1; }
 grep -q '"rts.cores_mismatch"' go/aletheia/ffi.go || { echo "ffi.go logs no rts.cores_mismatch event"; status=1; }
 for m in $(grep -o '\[Client\.[A-Za-z]*\]' "$f" | tr -d '[]' | cut -d. -f2 | sort -u); do
-    grep -q "^func (c \*Client) $m(" go/aletheia/client.go || { echo "[Client.$m] names no Client method"; status=1; }
+    grep -q "^func (c \*Client) $m(" go/aletheia/client.go go/aletheia/client_stream.go go/aletheia/client_enrich.go || { echo "[Client.$m] names no Client method"; status=1; }
 done
 for t in FFIBackend MockBackend NewFFIBackend Client; do
     grep -q "\[$t\]" "$f" || continue

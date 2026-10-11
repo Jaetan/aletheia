@@ -6,7 +6,8 @@
 # Claim: the log event table in the package documentation names exactly the
 # events docs/LOG_EVENTS.yaml pins, each at the level the YAML gives it, and
 # each emitted by the source the table names (rts.cores_mismatch by the
-# FFIBackend in ffi.go, every other event by the Client in client.go).
+# FFIBackend in ffi.go, every other event by the Client in client.go and its
+# stream and enrichment parts).
 # Non-zero exit: an event is in one list and not the other, a level differs,
 # or a named emitter does not carry the event string.
 set -u
@@ -32,13 +33,16 @@ for name in sorted(pinned.keys() - listed):
     bad.append(f"{name} is pinned in LOG_EVENTS.yaml and missing from doc.go")
 for name in sorted(listed - pinned.keys()):
     bad.append(f"{name} is listed in doc.go and not pinned in LOG_EVENTS.yaml")
-emitter_file = {"Client": "go/aletheia/client.go", "FFIBackend": "go/aletheia/ffi.go"}
+emitter_files = {
+    "Client": ["go/aletheia/client.go", "go/aletheia/client_stream.go", "go/aletheia/client_enrich.go"],
+    "FFIBackend": ["go/aletheia/ffi.go"],
+}
 for name, emitter, level in rows:
     if name in pinned and pinned[name] != level.lower():
         bad.append(f"{name}: doc.go says {level}, LOG_EVENTS.yaml says {pinned[name]}")
-    src = open(emitter_file[emitter], encoding="utf-8").read()
+    src = "".join(open(f, encoding="utf-8").read() for f in emitter_files[emitter])
     if f'"{name}"' not in src:
-        bad.append(f"{name}: doc.go names {emitter} as the emitter but {emitter_file[emitter]} never logs it")
+        bad.append(f"{name}: doc.go names {emitter} as the emitter but {', '.join(emitter_files[emitter])} never logs it")
 for line in bad:
     print(line)
 if bad:

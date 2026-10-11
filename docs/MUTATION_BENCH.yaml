@@ -84,11 +84,17 @@ bindings:
     install: |
       go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
     hot_path:
-      # The cat 14(g) Go list, at the paths those modules are at: the protocol
-      # marshalling is json.go and the per-frame enrichment is enrich.go.
+      # The cat 14(g) Go list, at the paths those modules are at: the client
+      # is client.go with its stream and enrichment parts, the protocol
+      # marshalling is json.go with its response and DBC decoding parts, and
+      # the per-frame enrichment is enrich.go.
       - go/aletheia/client.go
+      - go/aletheia/client_stream.go
+      - go/aletheia/client_enrich.go
       - go/aletheia/dbc.go
       - go/aletheia/json.go
+      - go/aletheia/json_response.go
+      - go/aletheia/json_dbc.go
       - go/aletheia/ffi.go
       - go/aletheia/ffi_nocgo.go
       - go/aletheia/enrich.go
@@ -223,7 +229,7 @@ bindings:
           text: const extendedIDFlag = 1 << 32 // bit 32 distinguishes extended from standard IDs in map keys
           count: 1
         - mutator: INVERT_BITWISE
-          file: go/aletheia/json.go
+          file: go/aletheia/json_response.go
           text: func narrow[T ~uint8 | ~uint16 | ~uint32 | ~int32](v int64) (T, bool) {
           count: 3
       # Every survivor, by mutator, repository-relative file, the text of its
