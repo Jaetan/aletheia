@@ -15,7 +15,15 @@
 # run time, so the copy of the crate alone that cargo-mutants would make does
 # not build.  In place, a copy runs one mutant at a time, so the runner
 # sweeps several copies side by side, one `--shard` each.
-examine_globs = ["src/response.rs", "src/dbc.rs", "src/types.rs", "src/backend.rs"]
+examine_globs = [
+    "src/response.rs",
+    "src/dbc.rs",
+    "src/dbc/decode.rs",
+    "src/dbc/encode.rs",
+    "src/types.rs",
+    "src/backend.rs",
+    "src/backend/ffi_backend.rs",
+]
 all_features = true
 # A function returning Result gets an Err mutant only from a value named here:
 # without one, cargo-mutants can offer it only Ok of a default, and a Result

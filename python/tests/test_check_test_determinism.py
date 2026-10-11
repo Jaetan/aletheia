@@ -7,7 +7,8 @@ must count, and to the same words in a comment or a string, which it must not:
 a scan that read prose would record sites no test holds, and one that missed a
 spelling would let a timed wait or a thread back in unrecorded. Rust's tests sit
 in ``#[cfg(test)]`` modules inside library sources, so only those blocks are
-read there. The report fails in both directions, as a ratchet must.
+read there, and the files such a module names are read whole. The report fails
+in both directions, as a ratchet must.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from tools.check_test_determinism import (
     is_test,
     report,
     rows_of,
+    rust_test_file,
     rust_test_modules,
     rust_tests_run_alone,
     sites_in,
@@ -52,12 +54,12 @@ GO, PYTHON, CPP, RUST = BINDINGS
 
 def _labels(binding: Binding, rel: RelPath, source: SourceText) -> set[CanonicalText]:
     """Name the primitives the scan finds in one file's source."""
-    return set(sites_in(binding.code(rel, source), binding.primitives))
+    return set(sites_in(binding.code(git_toplevel(), rel, source), binding.primitives))
 
 
 def _counts(binding: Binding, rel: RelPath, source: SourceText) -> dict[CanonicalText, SiteCount]:
     """Count the sites of each primitive the scan finds in one file's source."""
-    return dict(sites_in(binding.code(rel, source), binding.primitives))
+    return dict(sites_in(binding.code(git_toplevel(), rel, source), binding.primitives))
 
 
 def test_go_time_and_goroutines_are_sites_and_their_prose_is_not() -> None:
@@ -382,7 +384,9 @@ def test_a_child_script_in_a_python_string_is_read_as_source() -> None:
     )
     sleep = CanonicalText("time: a clock or sleep from module time")
     assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {sleep: 3}
-    assert not rows_of(RelPath("python/tests/test_check_test_determinism.py"), source)
+    assert not rows_of(
+        git_toplevel(), RelPath("python/tests/test_check_test_determinism.py"), source
+    )
 
 
 def test_an_async_client_on_its_default_runner_is_a_thread_site() -> None:
@@ -409,8 +413,8 @@ def test_an_async_client_on_its_default_runner_is_a_thread_site() -> None:
     )
     assert async_clients_on_a_thread(source) == 4
     rel = RelPath("python/tests/test_x.py")
-    assert rows_of(rel, source) == {RowKey(rel, ASYNC_CLIENT_ON_A_THREAD): 4}
-    assert not rows_of(RelPath("python/aletheia/x.py"), source)
+    assert rows_of(git_toplevel(), rel, source) == {RowKey(rel, ASYNC_CLIENT_ON_A_THREAD): 4}
+    assert not rows_of(git_toplevel(), RelPath("python/aletheia/x.py"), source)
 
 
 def test_an_unseeded_go_property_check_is_a_random_site() -> None:
@@ -482,11 +486,11 @@ def test_an_unseeded_hypothesis_test_and_a_replaying_profile_are_random_sites() 
     )
     assert unseeded_properties(source) == 4
     rel = RelPath("python/tests/test_x.py")
-    assert rows_of(rel, source) == {
+    assert rows_of(git_toplevel(), rel, source) == {
         RowKey(rel, UNSEEDED_PROPERTY): 4,
         RowKey(rel, REPLAYING_PROFILE): 2,
     }
-    assert not rows_of(RelPath("python/aletheia/x.py"), source)
+    assert not rows_of(git_toplevel(), RelPath("python/aletheia/x.py"), source)
 
 
 def test_a_rust_async_client_on_its_worker_thread_is_a_thread_site() -> None:
@@ -711,6 +715,37 @@ def test_a_test_module_ends_at_its_own_closing_brace() -> None:
     assert len(kept) == len(code)
 
 
+def test_a_module_declared_under_cfg_test_is_read_whole_in_its_own_file(tmp_path: Path) -> None:
+    """A file is test code whole when its module, or one above it, is declared under cfg(test)."""
+    sources = {
+        "rust/src/lib.rs": "#[cfg(test)]\nmod tests;\nmod a;\nmod b; // #[cfg(test)] mod b;\n",
+        "rust/src/a.rs": "#[cfg(test)] pub(crate) mod t;\nmod u;\n#[cfg(test)]\nmod i { mod y; }\n",
+        "rust/src/a/t.rs": "mod x;\n",
+        "rust/src/c/mod.rs": "#[cfg(test)]\nmod t;\n#[cfg(test)]\n#[allow(dead_code)]\nmod q;\n",
+        "rust/bin/src/main.rs": "#[cfg(test)]\nmod tests;\n",
+    }
+    for rel, source in sources.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        _ = (tmp_path / rel).write_text(source, encoding="utf-8")
+    whole = [
+        "src/tests",
+        "src/a/t",
+        "src/a/t/x",
+        "src/a/i/y",
+        "src/c/t",
+        "src/c/q",
+        "bin/src/tests",
+    ]
+    for name in whole:
+        assert rust_test_file(tmp_path, RelPath(f"rust/{name}.rs")), name
+    for name in ["src/lib", "src/a", "src/a/u", "src/b", "src/c/mod", "src/d/t", "bin/src/main"]:
+        assert not rust_test_file(tmp_path, RelPath(f"rust/{name}.rs")), name
+    sleep = SourceText("fn f() { std::thread::sleep(d); }\n")
+    key = RowKey(RelPath("rust/src/a/t/x.rs"), CanonicalText("time: a sleep"))
+    assert rows_of(tmp_path, key.file, sleep) == {key: 1}
+    assert not rows_of(tmp_path, RelPath("rust/src/a/u.rs"), sleep)
+
+
 def test_every_rust_test_binary_is_held_to_one_test_at_a_time(tmp_path: Path) -> None:
     """Cargo's configuration must force one test thread; unforced, other or absent fails."""
     assert rust_tests_run_alone(git_toplevel())
@@ -751,12 +786,16 @@ def test_one_file_is_held_to_its_own_rows_and_never_called_stale() -> None:
     other = RowKey(RelPath("python/tests/test_y.py"), CanonicalText("thread: an executor"))
     sleep = RowKey(rel, CanonicalText("time: a clock or sleep from module time"))
     recorded: RatchetRows = {sleep: 2}
-    edited = rows_of(rel, SourceText("time.sleep(1)\ntime.sleep(2)\ntime.sleep(3)\n"))
+    edited = rows_of(
+        git_toplevel(), rel, SourceText("time.sleep(1)\ntime.sleep(2)\ntime.sleep(3)\n")
+    )
     assert edited == {sleep: 3}
     assert report(edited, recorded, file=rel) == OUT_OF_STEP
-    assert report(rows_of(rel, SourceText("x = 1\n")), recorded, file=rel) == CLEAN
+    assert report(rows_of(git_toplevel(), rel, SourceText("x = 1\n")), recorded, file=rel) == CLEAN
     assert report({other: 1}, recorded, file=rel) == CLEAN
-    assert not rows_of(RelPath("python/aletheia/types.py"), SourceText("time.sleep(1)\n"))
+    assert not rows_of(
+        git_toplevel(), RelPath("python/aletheia/types.py"), SourceText("time.sleep(1)\n")
+    )
 
 
 def test_is_test_asks_every_binding() -> None:

@@ -4,7 +4,7 @@
 #
 # Probes the four benchmark harnesses: python/benchmarks/throughput.py and
 # latency.py, cpp/benchmarks/benchmark.cpp, go/benchmarks/throughput.go and latency.go and
-# rust/examples/benchmark.rs.
+# rust/examples/benchmark/.
 # Claim: run without --warmup, the four warm a mode alike, as the warmup each
 # report records in its parameters object says: one count of untimed passes
 # for throughput and one count of untimed operations for latency, the same in

@@ -4,7 +4,7 @@
 #
 # Probes the four benchmark harnesses benchmarks/run_all.sh drives:
 # python/benchmarks/throughput.py and latency.py, go/benchmarks/throughput.go and latency.go,
-# cpp/benchmarks/benchmark.cpp with measure.hpp, rust/examples/benchmark.rs.
+# cpp/benchmarks/benchmark.cpp with measure.hpp, rust/examples/benchmark/throughput.rs and latency.rs.
 # Claim: every warmup loop aborts the lane on a failed operation the way the
 # measured loop does. A harness whose warmup failed ran against a client it
 # could not drive, and its measured runs then measure something else or fail
@@ -103,13 +103,13 @@ SITES = [
      r"require\(op\(i\), step\)", None),
     # Rust throughput: the lane is Fn(u64) -> f64, so a failure is a panic
     # inside it; the warmup calls the same closure the measured loop does.
-    ("rust/examples/benchmark.rs", "rust", r"for _ in 0\.\.warmup \{\s*let _ = ", 1,
+    ("rust/examples/benchmark/throughput.rs", "rust", r"for _ in 0\.\.warmup \{\s*let _ = ", 1,
      None, (r"(?P<callee>\w+)\(frames / 10\)", "{callee}(frames)")),
     # Rust latency: three loops, expect() on the warmup call, and the same
     # method timed under Instant::now().
-    ("rust/examples/benchmark.rs", "rust", r"for i in 0\.\.warmup \{", 1,
+    ("rust/examples/benchmark/latency.rs", "rust", r"for i in 0\.\.warmup \{", 1,
      r"\.expect\(", (r"client\s*\.(?P<callee>\w+)\(", "Instant::now();\n        client\n            .{callee}(")),
-    ("rust/examples/benchmark.rs", "rust", r"for _ in 0\.\.warmup \{\s*client", 2,
+    ("rust/examples/benchmark/latency.rs", "rust", r"for _ in 0\.\.warmup \{\s*client", 2,
      r"\.expect\(", (r"client\s*\.(?P<callee>\w+)\(", "Instant::now();\n        client\n            .{callee}(")),
     # Python throughput: the warmup calls the measured function, which raises.
     ("python/benchmarks/throughput.py", "python", r"for _ in range\(cfg\.warmup_runs\):", 1,
@@ -154,8 +154,8 @@ for site in SITES:
 
 # The Rust lane yields a bare number, so its failure can only be a panic inside
 # it; a lane returning a Result would make `let _ =` a discard.
-if "type Lane<'a> = (&'static str, Box<dyn Fn(u64) -> f64 + 'a>);" not in Path("rust/examples/benchmark.rs").read_text(encoding="utf-8"):
-    findings.append("rust/examples/benchmark.rs: the throughput lane is not spelled Fn(u64) -> f64")
+if "type Lane<'a> = (&'static str, Box<dyn Fn(u64) -> f64 + 'a>);" not in Path("rust/examples/benchmark/throughput.rs").read_text(encoding="utf-8"):
+    findings.append("rust/examples/benchmark/throughput.rs: the throughput lane is not spelled Fn(u64) -> f64")
 
 if findings:
     print("\n".join(findings))

@@ -5,7 +5,7 @@
 # "same measurement, same name, every API language" rule.
 #
 # All four benchmark harnesses (Python python/benchmarks/, C++ cpp/benchmarks/,
-# Go go/benchmarks/, Rust rust/examples/benchmark.rs) MUST emit JSON that
+# Go go/benchmarks/, Rust rust/examples/benchmark/) MUST emit JSON that
 # matches this schema for each mode: identical CLI flag set, identical `results`
 # container, identical per-row key sets, and byte-identical human label strings
 # in the same order. tools/check_bench_schema.py enforces this against every
