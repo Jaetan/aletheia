@@ -15,8 +15,11 @@ import pytest
 from tools._common import RelPath
 from tools.commit_subjects import (
     SHIPPED_SCOPES,
+    Branch,
     CommitType,
     Refusal,
+    ReleaseVersion,
+    Revision,
     Scope,
     Subject,
     cuts_a_release,
@@ -24,6 +27,8 @@ from tools.commit_subjects import (
     mislabelled,
     owed_entry,
     parse,
+    release_version,
+    released,
     ships,
 )
 
@@ -312,23 +317,58 @@ def test_a_revert_owes_what_the_subject_it_reverts_owes(
 @pytest.mark.parametrize(
     ("subject", "expected"),
     [
-        (Prose("chore(dist): prepare v1.2.3"), True),
-        (Prose("chore(dist): prepare v10.0.0"), True),
-        (Prose("chore(dist): prepare the release"), False),
-        (Prose("chore(dist): prepare v1.2"), False),
-        (Prose("chore(ci): prepare v1.2.3"), False),
-        (Prose("docs(dist): prepare v1.2.3"), False),
-        (Prose("fix(dist): prepare v1.2.3"), False),
+        (Prose("chore(dist): prepare v1.2.3"), ReleaseVersion("1.2.3")),
+        (Prose("chore(dist): prepare v10.0.0"), ReleaseVersion("10.0.0")),
+        (Prose("chore(dist): prepare the release"), None),
+        (Prose("chore(dist): prepare v1.2"), None),
+        (Prose("chore(ci): prepare v1.2.3"), None),
+        (Prose("docs(dist): prepare v1.2.3"), None),
+        (Prose("fix(dist): prepare v1.2.3"), None),
+        (Prose("chore(dist): prepare v01.2.3"), None),
+        (Prose("chore(dist): prepare v1.2.03"), None),
+        (Prose("chore(dist): prepare v\u0661.\u0662.\u0663"), None),
+        (Prose("chore(dist): prepare v1\u0662.0.0"), None),
+        (Prose("chore(dist): prepare v0.0.0"), ReleaseVersion("0.0.0")),
     ],
-    ids=["release", "two-digit", "no-version", "short-version", "other-scope", "docs", "fix"],
+    ids=[
+        "release",
+        "two-digit",
+        "no-version",
+        "short-version",
+        "other-scope",
+        "docs",
+        "fix",
+        "leading-zero",
+        "leading-zero-patch",
+        "arabic-indic-digits",
+        "arabic-indic-after-an-ascii-digit",
+        "zeros",
+    ],
 )
 def test_the_release_preparation_is_the_one_subject_that_cuts_a_release(
-    subject: Prose, *, expected: bool
+    subject: Prose, expected: ReleaseVersion | None
 ) -> None:
-    """``chore(dist): prepare vX.Y.Z`` alone is the release preparation."""
+    """``chore(dist): prepare vX.Y.Z`` alone is the release preparation, and cuts ``X.Y.Z``."""
     read = parse(subject)
     assert isinstance(read, Subject), read
-    assert cuts_a_release(read) is expected
+    assert release_version(read) == expected
+    assert cuts_a_release(read) is (expected is not None)
+
+
+def test_a_branch_prepares_the_versions_its_release_subjects_name() -> None:
+    """Each release preparation on the branch names its version; any other subject none."""
+    branch = Branch(
+        [],
+        [
+            Prose("chore(dist): prepare v1.2.3"),
+            Prose("fix(go): a bug"),
+            Prose("chore(dist): prepare v1.2.4"),
+            Prose("chore(dist): prepare v1.2.3"),
+            Prose("prepare v9.9.9"),
+        ],
+        Revision("base"),
+    )
+    assert released(branch) == {ReleaseVersion("1.2.3"), ReleaseVersion("1.2.4")}
 
 
 KERNEL = frozenset({RelPath("src/Aletheia/Main.agda"), RelPath("src/Aletheia/CAN/Frame.agda")})

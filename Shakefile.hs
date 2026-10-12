@@ -1233,15 +1233,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo $ "Stdlib version OK: " ++ unwords requiredDeps
 
     phony "check-changelog" $ do
-        -- Commit subjects and the CHANGELOG: every subject on the branch
-        -- (since its merge-base with `main`) reads in the vocabulary of
-        -- tools/commit_subjects.py, the branch edits CHANGELOG.md exactly when
-        -- its subjects or public-surface records owe an entry (the release
-        -- preparation apart), and the [Unreleased] section holds one header
-        -- per category.
-        --
-        -- Implementation lives in tools/check_changelog.py so local CI runs
-        -- it without rebuilding the Shake binary.
+        -- Commit subjects and the CHANGELOG, by the rules tools/check_changelog.py's
+        -- docstring lists; it is Python so local CI runs it without rebuilding
+        -- the Shake binary.
         cmd_ pythonBin "-m" "tools.check_changelog"
 
     phony "check-gate-claim" $ do
