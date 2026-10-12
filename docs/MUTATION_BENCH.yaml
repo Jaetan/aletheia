@@ -266,11 +266,13 @@ bindings:
       # file here without one.
       - cpp/src/backend.cpp
       - cpp/src/client.cpp
+      - cpp/src/client_stream.cpp
       - cpp/src/dbc.cpp
       - cpp/src/enrich.cpp
       - cpp/src/excel.cpp
       - cpp/src/ffi_backend.cpp
       - cpp/src/json_parse.cpp
+      - cpp/src/json_parse_dbc.cpp
       - cpp/src/json_serialize.cpp
       - cpp/src/yaml.cpp
     config:
@@ -291,10 +293,10 @@ bindings:
       mutators: cpp/mull.yml
     invocation: |
       # The ALETHEIA_MUTATION build folds the integration suite
-      # (tests/integration_tests.cpp, and last of all the size-bound unit
-      # tests/integration_tests_size_bounds.cpp) into the unit_tests binary so
-      # the real FfiBackend (dlopen glue) is on the mutation surface. Those
-      # tests dlopen build/libaletheia-ffi.so, so
+      # (tests/integration_tests.cpp and the units that follow it, and last of
+      # all the size-bound unit tests/integration_tests_size_bounds.cpp) into
+      # the unit_tests binary so the real FfiBackend (dlopen glue) is on the
+      # mutation surface. Those tests dlopen build/libaletheia-ffi.so, so
       # `cabal run shake -- build` must have produced it first.
       cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
@@ -421,7 +423,7 @@ bindings:
       # the CI one, so the figures are taken from CI.  Dividing by the leg's
       # own unmutated run takes out the runner's speed, a mutant's cost
       # varying by file, a killed run ending at its first failed assertion.
-      # Taken from the legs of heavy lanes run 38113127692 by the merge's own
+      # Taken from the legs of heavy lanes run 38193540468 by the merge's own
       # computation, which writes the same figures to cpp-runs.json.
       #
       # They are a measurement and they age in one direction: adding code adds
@@ -437,7 +439,7 @@ bindings:
       runs_by_file:
         cpp/benchmarks/measure.hpp: 0.2
         cpp/include/aletheia/backend.hpp: 0.0
-        cpp/include/aletheia/check.hpp: 0.3
+        cpp/include/aletheia/check.hpp: 0.2
         cpp/include/aletheia/client.hpp: 0.0
         cpp/include/aletheia/detail/cache_keys.hpp: 0.2
         cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
@@ -446,22 +448,25 @@ bindings:
         cpp/include/aletheia/response.hpp: 0.1
         cpp/include/aletheia/types.hpp: 0.3
         cpp/src/backend.cpp: 0.2
-        cpp/src/checked.cpp: 0.2
-        cpp/src/client.cpp: 13.6
+        cpp/src/checked.cpp: 0.1
+        cpp/src/client.cpp: 10.8
+        cpp/src/client_stream.cpp: 2.1
         cpp/src/dbc.cpp: 0.7
         cpp/src/detail/dl_symbol.cpp: 0.0
         cpp/src/detail/ffi_abi.hpp: 0.0
         cpp/src/detail/ffi_logic.cpp: 0.9
-        cpp/src/detail/loader_utils.cpp: 2.8
+        cpp/src/detail/json_parse_helpers.hpp: 0.1
+        cpp/src/detail/loader_utils.cpp: 2.7
         cpp/src/detail/loader_utils.hpp: 1.3
         cpp/src/enrich.cpp: 0.1
-        cpp/src/excel.cpp: 20.0
-        cpp/src/ffi_backend.cpp: 4.6
-        cpp/src/json_parse.cpp: 2.7
+        cpp/src/excel.cpp: 22.9
+        cpp/src/ffi_backend.cpp: 4.7
+        cpp/src/json_parse.cpp: 2.4
+        cpp/src/json_parse_dbc.cpp: 0.5
         cpp/src/json_serialize.cpp: 0.4
-        cpp/src/rational_renderer.cpp: 2.5
+        cpp/src/rational_renderer.cpp: 2.6
         cpp/src/types.cpp: 0.1
-        cpp/src/yaml.cpp: 26.7
+        cpp/src/yaml.cpp: 28.0
       timeouts: 0
       score_pct: 99.7
       run_at: "2026-10-11"
@@ -645,7 +650,7 @@ bindings:
           refused: get() != pointer()
           count: 1
         - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
+          file: cpp/src/client_stream.cpp
           text: if (cache_it == cache_.end()) {
           route: check
           refused: attempt to dereference a past-the-end iterator.

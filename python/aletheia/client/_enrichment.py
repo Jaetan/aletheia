@@ -454,7 +454,7 @@ def format_enriched_reason(
                 # identical to the other bindings. `val` is an exact Fraction.
                 parts.append(f"{sig} = {format_rational(val)}")
     except FFIError:
-        # Eval-path degrade (parity with C++ client.cpp format_enriched_reason):
+        # Eval-path degrade (parity with C++ client_stream.cpp format_enriched_reason):
         # this renders an ALREADY-PROCESSED frame's observed values, so a render
         # failure must not sink the result — degrade the whole reason to the
         # formula description rather than propagating. The RTS is necessarily up

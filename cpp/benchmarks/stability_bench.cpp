@@ -192,8 +192,8 @@ static auto take_snapshot() -> Snapshot {
 }
 
 // minimal_dbc constructs a single-message DBC sufficient for parse_dbc +
-// start_stream to succeed.  Mirrors the can20_dbc helper in
-// cpp/benchmarks/benchmark.cpp but trimmed to one signal so the harness
+// start_stream to succeed.  Mirrors the make_can20_dbc helper in
+// cpp/benchmarks/benchmark_fixtures.cpp but trimmed to one signal so the harness
 // measures resource accounting, not Stream LTL semantics.
 static auto minimal_dbc() -> aletheia::DbcDefinition {
     using aletheia::AlwaysPresent, aletheia::BitLength, aletheia::BitPosition, aletheia::ByteOrder,

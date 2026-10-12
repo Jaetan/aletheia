@@ -4,6 +4,7 @@
 #
 # Probes go/aletheia/cross_binding_integration_test.go,
 # cpp/tests/test_cross_binding_integration.cpp, cpp/tests/integration_tests.cpp,
+# cpp/tests/integration_tests_geometry.cpp,
 # python/tests/test_cross_binding_integration.py and the Python test files the
 # roster below names.
 # Claim: every case the Go binding carries for the shared protocol has a case
@@ -21,8 +22,9 @@ cd "$(dirname "$0")/.." || exit 2
 go_file=go/aletheia/cross_binding_integration_test.go
 cpp_cross=cpp/tests/test_cross_binding_integration.cpp
 cpp_integration=cpp/tests/integration_tests.cpp
+cpp_geometry=cpp/tests/integration_tests_geometry.cpp
 py_cross=python/tests/test_cross_binding_integration.py
-for f in "$go_file" "$cpp_cross" "$cpp_integration" "$py_cross"; do
+for f in "$go_file" "$cpp_cross" "$cpp_integration" "$cpp_geometry" "$py_cross"; do
 	[ -f "$f" ] || exit 2
 done
 
@@ -38,8 +40,8 @@ TestCrossBinding_CANIDRefusedAtTheTypeBoundary|cpp_cross|invalid CAN ID is rejec
 TestCrossBinding_SendFrameBrsEsiPassthrough|cpp_cross|send_frame with BRS / ESI passthrough|python/tests/test_unified_client_canfd_mux.py|test_canfd_brs_esi_passthrough
 TestCrossBinding_IdentifierAtMaxLengthAccepted|cpp_cross|identifier at max length is accepted|python/tests/test_input_bounds.py|test_identifier_at_max_length_accepted
 TestCrossBinding_IdentifierOverMaxRejected|cpp_cross|identifier over max length is rejected|python/tests/test_input_bounds.py|test_identifier_one_over_max_rejected
-TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit|cpp_integration|out-of-frame start bit|python/tests/test_parse_dbc_text.py|test_text_route_refuses_out_of_frame_start_bit
-TestCrossBinding_MotorolaFullFrameClosure|cpp_integration|text-loaded Motorola full-frame signal is accepted back by the JSON route|python/tests/test_parse_dbc_text.py|test_text_loaded_motorola_rounds_through_json_surface
+TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit|cpp_geometry|out-of-frame start bit|python/tests/test_parse_dbc_text.py|test_text_route_refuses_out_of_frame_start_bit
+TestCrossBinding_MotorolaFullFrameClosure|cpp_geometry|text-loaded Motorola full-frame signal is accepted back by the JSON route|python/tests/test_parse_dbc_text.py|test_text_loaded_motorola_rounds_through_json_surface
 TestCrossBinding_NestingDepthLiftsToInputBoundExceeded|cpp_cross|nesting depth over limit lifts to InputBoundExceeded|python/tests/test_input_bounds.py|test_nested_at_depth_63_rejected
 TestCrossBinding_BinaryExtractionReasonParity|cpp_integration|binary extraction decodes values, wire reasons, and absent exactly|python/tests/test_binary_extraction.py|test_known_code_surfaces_wire_reason_verbatim
 ROWS
@@ -53,6 +55,7 @@ while IFS='|' read -r go_case cpp_where cpp_case py_file py_case; do
 	case $cpp_where in
 		cpp_cross) cpp_file=$cpp_cross ;;
 		cpp_integration) cpp_file=$cpp_integration ;;
+		cpp_geometry) cpp_file=$cpp_geometry ;;
 		*) echo "$go_case: the roster names no C++ file"; status=1; continue ;;
 	esac
 	grep -q "^func $go_case(" "$go_file" || {

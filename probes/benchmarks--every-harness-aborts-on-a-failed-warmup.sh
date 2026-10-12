@@ -4,7 +4,7 @@
 #
 # Probes the four benchmark harnesses benchmarks/run_all.sh drives:
 # python/benchmarks/throughput.py and latency.py, go/benchmarks/throughput.go and latency.go,
-# cpp/benchmarks/benchmark.cpp with measure.hpp, rust/examples/benchmark/throughput.rs and latency.rs.
+# cpp/benchmarks/benchmark_throughput.cpp with measure.hpp, rust/examples/benchmark/throughput.rs and latency.rs.
 # Claim: every warmup loop aborts the lane on a failed operation the way the
 # measured loop does. A harness whose warmup failed ran against a client it
 # could not drive, and its measured runs then measure something else or fail
@@ -96,7 +96,7 @@ SITES = [
     ("go/benchmarks/latency.go", "go", r"for i := 0; i < warmup; i\+\+ \{", 1,
      r"err != nil \{\s*return\b", (r"(?P<callee>\w+)\(\)", "start := time.Now()\n\t\tif err := {callee}(); err != nil {{\n\t\t\treturn")),
     # C++ throughput: the warmup calls the measured function, which throws.
-    ("cpp/benchmarks/benchmark.cpp", "cpp", r"std::views::repeat\(0, warmup_runs\)", 1,
+    ("cpp/benchmarks/benchmark_throughput.cpp", "cpp", r"std::views::repeat\(0, warmup_runs\)", 1,
      None, (r"(?P<callee>\w+)\(num_frames / 10\)", "{callee}(num_frames)")),
     # C++ latency: require() on both sides.
     ("cpp/benchmarks/measure.hpp", "cpp", r"for \(auto const i : std::views::iota\(0, warmup\)\)", 1,
