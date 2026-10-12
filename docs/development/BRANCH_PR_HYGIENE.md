@@ -106,8 +106,10 @@ request merges.
 **PR title → required.** The `PR title` check, `pr-title.yml`, holds a pull
 request's title, the subject its squash commit lands with, to the closed
 commit-subject vocabulary (`tools/check_pr_title.py`), refuses an internal scope
-on a branch that changes what users get, and requires a CHANGELOG edit when the
-vocabulary's table says the title owes an entry. It runs on every title edit
+on a branch that changes what users get, and requires a CHANGELOG edit exactly
+when the vocabulary's table says the title owes an entry: a title that owes none
+on a branch that edits `CHANGELOG.md` is refused too, the release preparation
+(`chore(dist): prepare vX.Y.Z`) apart. It runs on every title edit
 and every push, and needs no build. Once the pull request that adds it has
 reported it green, add **`PR title`** to the `main` ruleset's required checks,
 before that pull request merges. A squash merge is then the only way onto `main`

@@ -159,6 +159,48 @@ def test_a_title_owing_an_entry_passes_when_the_branch_edits_the_changelog(
     )
 
 
+def test_a_title_owing_nothing_fails_when_the_branch_edits_the_changelog(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A tooling title owes no entry, so a branch that edits CHANGELOG.md under it fails."""
+    repo = _repo(tmp_path, TOOLING, changelog=True)
+    assert _check(repo, monkeypatch, Prose("ci(tools): a step")) == 1
+    assert capsys.readouterr().err == (
+        "check-pr-title: FAIL — 'ci(tools): a step' owes no entry, and the branch edits "
+        + "CHANGELOG.md.\nRelabel the change, or leave CHANGELOG.md alone.\n"
+    )
+
+
+def test_the_release_title_edits_the_changelog_owing_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """The release preparation's title passes with the CHANGELOG edit it exists to make."""
+    repo = _repo(tmp_path, TOOLING, changelog=True)
+    assert _check(repo, monkeypatch, Prose("chore(dist): prepare v1.2.3")) == 0
+    assert capsys.readouterr().out == (
+        "check-pr-title: ok ('chore(dist): prepare v1.2.3' cuts a release; the branch edits "
+        + "CHANGELOG.md)\n"
+    )
+
+
+def test_the_release_title_claims_no_edit_the_branch_leaves_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """The release title on a branch that leaves the CHANGELOG alone reads as owing none."""
+    repo = _repo(tmp_path, TOOLING, changelog=False)
+    assert _check(repo, monkeypatch, Prose("chore(dist): prepare v1.2.3")) == 0
+    assert capsys.readouterr().out == (
+        "check-pr-title: ok ('chore(dist): prepare v1.2.3' reads in the vocabulary and owes "
+        + "no entry)\n"
+    )
+
+
 def test_a_title_is_read_whatever_the_commits_say(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

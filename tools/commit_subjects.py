@@ -21,6 +21,10 @@ Whether a subject owes the CHANGELOG an entry is one table (``owed_entry``):
   own subject), and it owes what that subject owes.
 * The breaking mark makes any subject owe an entry, with a BREAKING lead under
   ``### Changed``, or ``### Removed`` when surface goes.
+* A branch edits the CHANGELOG only when a subject owes it an entry or a record
+  of the public surface changed, the release preparation apart:
+  ``chore(dist): prepare vX.Y.Z`` moves the unreleased entries under the
+  version's heading and owes none (``cuts_a_release``).
 
 The text is one line of printable characters, starting with one that is not a
 space.
@@ -199,6 +203,20 @@ def owed_entry(subject: Subject) -> Prose | None:
     if subject.scope in SHIPPED_SCOPES:
         return _ENTRY_TYPES.get(subject.type)
     return None
+
+
+# The release preparation's text (docs/development/RELEASE.md), the one subject
+# that edits the CHANGELOG while owing it nothing.
+_RELEASE_TEXT = re.compile(r"prepare v\d+\.\d+\.\d+")
+
+
+def cuts_a_release(subject: Subject) -> bool:
+    """Say whether the subject is the release preparation, which edits the CHANGELOG owing none."""
+    return (
+        subject.type is CommitType.CHORE
+        and subject.scope is Scope.DIST
+        and _RELEASE_TEXT.fullmatch(subject.text) is not None
+    )
 
 
 # Where what users get lives, outside the kernel: every file under these

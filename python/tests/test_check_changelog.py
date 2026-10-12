@@ -153,6 +153,40 @@ def test_e2e_a_subject_owing_nothing_passes_without_a_changelog_edit(
     assert _run_gate(repo, monkeypatch) == 0
 
 
+def test_e2e_a_subject_owing_nothing_fails_with_a_changelog_edit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A refactor owes no entry, so a branch that edits CHANGELOG.md under it fails."""
+    repo = _make_repo(tmp_path)
+    _on_a_branch(repo, RelPath("cpp/src/thing.cpp"), Prose("refactor(cpp): tidy"), changelog=True)
+    assert _run_gate(repo, monkeypatch) == 1
+    assert capsys.readouterr().err == (
+        "check-changelog: FAIL — the branch edits CHANGELOG.md, and no subject owes it an entry:\n"
+        + "  refactor(cpp): tidy\n"
+        + "An entry is owed by a feat, fix or perf on a shipped scope, a breaking mark, or a\n"
+        + "changed public-surface record; relabel the change, or leave CHANGELOG.md alone.\n"
+    )
+
+
+def test_e2e_the_release_preparation_edits_the_changelog_owing_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """The release preparation moves the unreleased entries under a version, owing none."""
+    repo = _make_repo(tmp_path)
+    _on_a_branch(
+        repo, RelPath("python/pyproject.toml"), Prose("chore(dist): prepare v1.2.3"), changelog=True
+    )
+    assert _run_gate(repo, monkeypatch) == 0
+    assert capsys.readouterr().out == (
+        "check-changelog: ok (the subjects since main read in the vocabulary, and CHANGELOG.md "
+        + "is edited exactly when they owe it an entry, the release preparation apart)\n"
+    )
+
+
 def test_e2e_a_subject_owing_an_entry_fails_without_one(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -203,6 +237,18 @@ def test_e2e_a_surface_record_changed_without_a_changelog_edit_fails(
     assert "  changes the public-surface record docs/FEATURE_MATRIX.yaml\n" in (
         capsys.readouterr().err
     )
+
+
+def test_e2e_a_surface_record_changed_with_an_entry_passes_under_an_internal_subject(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The record owes the entry, so the branch edits the CHANGELOG whatever its subject says."""
+    repo = _make_repo(tmp_path)
+    _on_a_branch(
+        repo, RelPath("docs/FEATURE_MATRIX.yaml"), Prose("refactor: move a row"), changelog=True
+    )
+    assert _run_gate(repo, monkeypatch) == 0
 
 
 def test_e2e_a_merge_commit_is_no_subject_of_the_branch(

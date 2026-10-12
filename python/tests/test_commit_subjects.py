@@ -19,6 +19,7 @@ from tools.commit_subjects import (
     Refusal,
     Scope,
     Subject,
+    cuts_a_release,
     kernel_sources,
     mislabelled,
     owed_entry,
@@ -306,6 +307,28 @@ def test_a_revert_owes_what_the_subject_it_reverts_owes(
 ) -> None:
     """A revert's entry is the one its reverted subject would owe."""
     assert _owes(subject) == expected
+
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        (Prose("chore(dist): prepare v1.2.3"), True),
+        (Prose("chore(dist): prepare v10.0.0"), True),
+        (Prose("chore(dist): prepare the release"), False),
+        (Prose("chore(dist): prepare v1.2"), False),
+        (Prose("chore(ci): prepare v1.2.3"), False),
+        (Prose("docs(dist): prepare v1.2.3"), False),
+        (Prose("fix(dist): prepare v1.2.3"), False),
+    ],
+    ids=["release", "two-digit", "no-version", "short-version", "other-scope", "docs", "fix"],
+)
+def test_the_release_preparation_is_the_one_subject_that_cuts_a_release(
+    subject: Prose, *, expected: bool
+) -> None:
+    """``chore(dist): prepare vX.Y.Z`` alone is the release preparation."""
+    read = parse(subject)
+    assert isinstance(read, Subject), read
+    assert cuts_a_release(read) is expected
 
 
 KERNEL = frozenset({RelPath("src/Aletheia/Main.agda"), RelPath("src/Aletheia/CAN/Frame.agda")})
