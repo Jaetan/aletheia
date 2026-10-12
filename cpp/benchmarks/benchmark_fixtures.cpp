@@ -24,7 +24,7 @@ namespace aletheia::bench {
 
 auto make_can20_dbc() -> DbcDefinition {
     // EngineStatus: ID=0x100, DLC=8, sender=ECU1
-    DbcSignal engine_speed{
+    const DbcSignal engine_speed{
         .name = SignalName{"EngineSpeed"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -37,7 +37,7 @@ auto make_can20_dbc() -> DbcDefinition {
         .unit = Unit{"rpm"},
         .presence = AlwaysPresent{},
     };
-    DbcSignal engine_temp{
+    const DbcSignal engine_temp{
         .name = SignalName{"EngineTemp"},
         .start_bit = BitPosition{16},
         .bit_length = BitLength{8},
@@ -51,7 +51,7 @@ auto make_can20_dbc() -> DbcDefinition {
         .presence = AlwaysPresent{},
     };
 
-    DbcMessage engine_msg{
+    const DbcMessage engine_msg{
         .id = CanId{StandardId::create(0x100).value()},
         .name = MessageName{"EngineStatus"},
         .dlc = Dlc::create(8).value(),
@@ -60,7 +60,7 @@ auto make_can20_dbc() -> DbcDefinition {
     };
 
     // BrakeStatus: ID=0x200, DLC=8, sender=ECU2
-    DbcSignal brake_pressure{
+    const DbcSignal brake_pressure{
         .name = SignalName{"BrakePressure"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -73,7 +73,7 @@ auto make_can20_dbc() -> DbcDefinition {
         .unit = Unit{"bar"},
         .presence = AlwaysPresent{},
     };
-    DbcSignal brake_pressed{
+    const DbcSignal brake_pressed{
         .name = SignalName{"BrakePressed"},
         .start_bit = BitPosition{16},
         .bit_length = BitLength{1},
@@ -87,7 +87,7 @@ auto make_can20_dbc() -> DbcDefinition {
         .presence = AlwaysPresent{},
     };
 
-    DbcMessage brake_msg{
+    const DbcMessage brake_msg{
         .id = CanId{StandardId::create(0x200).value()},
         .name = MessageName{"BrakeStatus"},
         .dlc = Dlc::create(8).value(),
@@ -118,7 +118,7 @@ auto make_canfd_dbc() -> DbcDefinition {
         };
     };
 
-    DbcMessage sensor_fusion{
+    const DbcMessage sensor_fusion{
         .id = CanId{StandardId::create(0x200).value()},
         .name = MessageName{"SensorFusion"},
         .dlc = Dlc::create(15).value(),

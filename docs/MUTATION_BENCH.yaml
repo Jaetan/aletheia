@@ -410,7 +410,7 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 4
-      total_mutants: 1460
+      total_mutants: 1445
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -469,7 +469,7 @@ bindings:
         cpp/src/yaml.cpp: 28.0
       timeouts: 0
       score_pct: 99.7
-      run_at: "2026-10-11"
+      run_at: "2026-10-12"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -478,9 +478,9 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1429
+        test: 1415
         kernel: 2
-        check: 15
+        check: 14
         fault: 10
         timeout: 0
         survived: 4
@@ -690,12 +690,6 @@ bindings:
           text: std::vector<char*> ptrs(rts_argv.size());
           route: fault
           refused: ''
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/json_serialize.cpp
-          text: if (can_id_is_extended(id))
-          route: check
-          refused: attempt to dereference a past-the-end iterator.
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/src/json_serialize.cpp

@@ -60,7 +60,7 @@ struct WireCodeRow {
 static auto load_section(const char* section) -> std::vector<WireCodeRow> {
     auto const path = repo_root() / "docs" / "WIRE_CODES.yaml";
     REQUIRE(std::filesystem::exists(path));
-    auto root = YAML::LoadFile(path.string());
+    auto const root = YAML::LoadFile(path.string());
     REQUIRE(root[section]);
     REQUIRE(root[section].IsSequence());
     REQUIRE(root[section].size() > 0);
@@ -98,7 +98,7 @@ constexpr auto k_named_error_count =
 
 TEST_CASE("WIRE_CODES.yaml is well-formed", "[parity][wire_codes][yaml]") {
     for (auto const* section : {"issue_codes", "error_codes"}) {
-        auto rows = load_section(section);
+        auto const rows = load_section(section);
         std::set<std::string> seen;
         for (auto const [i, row] : std::views::enumerate(rows)) {
             INFO(section << "[" << i << "] name=" << row.name);

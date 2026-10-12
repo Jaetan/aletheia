@@ -79,7 +79,7 @@ TEST_CASE("serialize_parse_dbc emits empty arrays when metadata absent", "[json]
 }
 
 TEST_CASE("parse_dbc_response with Tier 1 metadata", "[json][parse][dbc]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "1.0",
@@ -131,7 +131,7 @@ TEST_CASE("parse_dbc_response with Tier 1 metadata", "[json][parse][dbc]") {
 TEST_CASE("parse_dbc_response accepts missing Tier 1 metadata keys", "[json][parse][dbc]") {
     // Wire format compatibility — pre-Tier-1 responses omit the new fields;
     // they should parse as empty vectors, not errors.
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "1.0", "messages": []}
     })");
@@ -145,15 +145,14 @@ TEST_CASE("parse_dbc_response rejects unknown varType", "[json][parse][dbc][erro
     // Past the known types on either side: a negative type is an integer the
     // reader accepts and the type switch refuses, by the same words.
     auto const var_type = GENERATE(7, -1);
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "1.0",
             "messages": [],
             "environmentVars": [
-                {"name": "Bad", "varType": )" +
-                                             std::to_string(var_type) +
-                                             R"(,
+                {"name": "Bad", "varType": )" + std::to_string(var_type) +
+                                                   R"(,
                  "initial": 0, "minimum": 0, "maximum": 0}
             ]
         }
@@ -170,15 +169,14 @@ TEST_CASE("parse_dbc_response refuses a varType wider than its integer",
     // side is refused as out of range before the type switch ever sees a
     // truncation of it.
     auto const wide = GENERATE(std::int64_t{3000000000LL}, std::int64_t{-3000000000LL});
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "1.0",
             "messages": [],
             "environmentVars": [
-                {"name": "Wide", "varType": )" +
-                                             std::to_string(wide) +
-                                             R"(,
+                {"name": "Wide", "varType": )" + std::to_string(wide) +
+                                                   R"(,
                  "initial": 0, "minimum": 0, "maximum": 0}
             ]
         }
@@ -188,7 +186,7 @@ TEST_CASE("parse_dbc_response refuses a varType wider than its integer",
 }
 
 TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse][dbc]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "",
@@ -331,22 +329,22 @@ TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
     auto const j = Json::parse(str);
 
     // Confirm wire shape: every tagged union carries "kind" first.
-    REQUIRE(j["dbc"]["nodes"].is_array());
-    REQUIRE(j["dbc"]["nodes"].size() == 2);
-    CHECK(j["dbc"]["nodes"][0]["name"] == "ECU1");
+    REQUIRE(j.at("dbc").at("nodes").is_array());
+    REQUIRE(j.at("dbc").at("nodes").size() == 2);
+    CHECK(j.at("dbc").at("nodes").at(0).at("name") == "ECU1");
 
-    REQUIRE(j["dbc"]["comments"].size() == 5);
-    CHECK(j["dbc"]["comments"][0]["target"]["kind"] == "network");
-    CHECK(j["dbc"]["comments"][3]["target"]["kind"] == "signal");
-    CHECK(j["dbc"]["comments"][3]["target"]["extended"] == true);
+    REQUIRE(j.at("dbc").at("comments").size() == 5);
+    CHECK(j.at("dbc").at("comments").at(0).at("target").at("kind") == "network");
+    CHECK(j.at("dbc").at("comments").at(3).at("target").at("kind") == "signal");
+    CHECK(j.at("dbc").at("comments").at(3).at("target").at("extended") == true);
 
-    REQUIRE(j["dbc"]["attributes"].size() == 13);
-    CHECK(j["dbc"]["attributes"][0]["kind"] == "definition");
-    CHECK(j["dbc"]["attributes"][0]["attrType"]["kind"] == "int");
+    REQUIRE(j.at("dbc").at("attributes").size() == 13);
+    CHECK(j.at("dbc").at("attributes").at(0).at("kind") == "definition");
+    CHECK(j.at("dbc").at("attributes").at(0).at("attrType").at("kind") == "int");
     // Float attribute values serialize as {numerator, denominator} dicts
     // — matches Python's Fraction, drifts under double.
-    CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["numerator"] == -1);
-    CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["denominator"] == 2);
+    CHECK(j.at("dbc").at("attributes").at(1).at("attrType").at("min").at("numerator") == -1);
+    CHECK(j.at("dbc").at("attributes").at(1).at("attrType").at("min").at("denominator") == 2);
 }
 
 TEST_CASE("Tier 2 attribute bounds and values survive the parse leg, each one",
@@ -376,8 +374,8 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
 
     // Route the serialized JSON through parse_dbc_response (wrap as success
     // envelope) to exercise the parser leg of the round-trip.
-    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
-    auto result = detail::parse_dbc_response(envelope.dump());
+    const Json envelope = {{"status", "success"}, {"dbc", j.at("dbc")}};
+    auto const result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
 
     REQUIRE(result->nodes.size() == 2);
@@ -456,12 +454,12 @@ TEST_CASE("a target naming an identifier too wide for its width is refused",
         return std::string{R"({"status":"success","dbc":{"version":"1.0","messages":[],)"} +
                R"("comments":[{"target":)" + target + R"(,"text":"x"}]}})";
     };
-    auto too_wide = detail::parse_dbc_response(make(R"({"kind":"message","id":2048})"));
+    auto const too_wide = detail::parse_dbc_response(make(R"({"kind":"message","id":2048})"));
     REQUIRE_FALSE(too_wide.has_value());
     CHECK(std::string{too_wide.error().message()}.contains("2048"));
 
     // The same value is fine when the target says the identifier is extended.
-    auto as_extended =
+    auto const as_extended =
         detail::parse_dbc_response(make(R"({"kind":"message","id":2048,"extended":true})"));
     REQUIRE(as_extended.has_value());
     REQUIRE(as_extended->comments.size() == 1);
@@ -486,7 +484,7 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][1] == "ECU_B");
 
     const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
-    auto result = detail::parse_dbc_response(envelope.dump());
+    auto const result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
     REQUIRE(result->messages[0].signals.size() == 1);
@@ -499,7 +497,7 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
 TEST_CASE("parse_dbc_response accepts missing receivers field", "[json][parse][dbc][tier2]") {
     // Older snapshots / hand-written JSON may omit the receivers key entirely;
     // the parser defaults to an empty vector rather than rejecting.
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "1.0", "messages": [{
             "id": 256, "name": "M", "dlc": 8, "sender": "ECU", "extended": false,
@@ -538,7 +536,7 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     CHECK(j["dbc"]["messages"][0]["senders"][1] == "ECU_C");
 
     const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
-    auto result = detail::parse_dbc_response(envelope.dump());
+    auto const result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
     auto const& parsed = result->messages[0].senders;
@@ -550,7 +548,7 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
 TEST_CASE("parse_dbc_response accepts missing senders field", "[json][parse][dbc][tier2]") {
     // Older snapshots / hand-written JSON may omit `senders`; default to
     // an empty vector rather than rejecting.
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "1.0", "messages": [{
             "id": 256, "name": "M", "dlc": 8, "sender": "ECU", "extended": false,
@@ -563,7 +561,7 @@ TEST_CASE("parse_dbc_response accepts missing senders field", "[json][parse][dbc
 }
 
 TEST_CASE("parse_dbc_response accepts missing Tier 2 metadata keys", "[json][parse][dbc][tier2]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "1.0", "messages": []}
     })");
@@ -575,7 +573,7 @@ TEST_CASE("parse_dbc_response accepts missing Tier 2 metadata keys", "[json][par
 
 TEST_CASE("parse_dbc_response rejects unknown comment target kind",
           "[json][parse][dbc][tier2][error]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "1.0", "messages": [],
                 "comments": [{"target": {"kind": "galaxy"}, "text": "x"}]}
@@ -594,7 +592,7 @@ TEST_CASE("parse_dbc_response rejects unknown comment target kind",
 // ===========================================================================
 
 TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "1.0",
@@ -660,7 +658,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
 
     // Re-wrap the dbc body as a success response and parse it back.
     const Json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
-    auto parsed = detail::parse_dbc_response(response.dump());
+    auto const parsed = detail::parse_dbc_response(response.dump());
     REQUIRE(parsed.has_value());
     REQUIRE(parsed->unresolved_value_descs.size() == 1);
     auto const& rvd = parsed->unresolved_value_descs[0];
@@ -675,7 +673,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
 }
 
 TEST_CASE("parse_dbc_response accepts missing unresolvedValueDescs", "[json][parse][dbc]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "1.0", "messages": []}
     })");

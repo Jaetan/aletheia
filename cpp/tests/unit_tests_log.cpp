@@ -68,7 +68,7 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
     REQUIRE(client.end_stream(std::stop_token{}).has_value());
 
@@ -404,7 +404,7 @@ TEST_CASE("frame.processed classifies the response and names the frame", "[clien
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     const FramePayload data(8, std::byte{0});
-    for (std::int64_t ts : {1000, 2000, 3000})
+    for (const std::int64_t ts : {1000, 2000, 3000})
         REQUIRE(client.send_frame(std::stop_token{}, Timestamp{ts}, id, dlc, data).has_value());
 
     REQUIRE(cap.count("frame.processed") == 3);
@@ -632,8 +632,8 @@ TEST_CASE("extraction failures on the binary path are logged by kind, and a succ
     };
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const send = [&](AletheiaClient& client) {
-        auto r = client.send_frame(std::stop_token{}, Timestamp{1000}, id, Dlc::create(8).value(),
-                                   FramePayload(8));
+        auto const r = client.send_frame(std::stop_token{}, Timestamp{1000}, id,
+                                         Dlc::create(8).value(), FramePayload(8));
         REQUIRE(r.has_value());
         auto const* v = std::get<PropertyBatch>(*r).first_violation();
         REQUIRE(v != nullptr);

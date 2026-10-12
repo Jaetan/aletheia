@@ -27,15 +27,16 @@ Run: ``python -m tools.check_cpp_ast`` (exit 0 = clean, 1 = findings).
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType
 
-from tools._clang_query import CPP_ROOT, Query
+from tools._clang_query import CPP_ROOT, PrintedPath, Query, printed_file
 from tools._common import RelPath, emit
 
 from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tools._clang_query import QueryOutput
 
 # The name a matcher binds its read to, which is what clang-query prints.
@@ -149,7 +150,7 @@ def reads_in(repo: Path, output: QueryOutput) -> list[Read]:
     """Read every unchecked read clang-query bound out of its diagnostics."""
     reads: list[Read] = []
     for location in _LOCATION.finditer(output):
-        path, bind = Path(location.group(1)), BindName(location.group(3))
+        path, bind = printed_file(PrintedPath(location.group(1))), BindName(location.group(3))
         if bind not in _CHECKED:
             continue
         if not any(path.is_relative_to(repo / CPP_ROOT / scoped) for scoped in SCOPED):

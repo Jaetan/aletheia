@@ -113,7 +113,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
     auto const resp = backend_->send_frame_binary(state_, ts, id, dlc, data, brs, esi);
     auto result = detail::parse_frame_response(resp);
     if (result.has_value()) {
-        auto id_value = can_id_value(id);
+        auto const id_value = can_id_value(id);
         auto const is_extended = can_id_is_extended(id);
         // Track last frame per CAN ID for end-of-stream enrichment.
         // Find-then-assign reuses the existing FramePayload's heap buffer
@@ -123,7 +123,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         // `insert_or_assign` would force per call.  First frame for a key
         // still allocates via `emplace`; this is the common cold path on a
         // bounded number of unique CAN IDs.
-        auto key = detail::MessageKey{id_value, is_extended};
+        auto const key = detail::MessageKey{id_value, is_extended};
         if (auto const it = last_frames_.find(key); it != last_frames_.end()) {
             it->second.id = id;
             it->second.dlc = dlc;
@@ -324,7 +324,7 @@ void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
                                       std::span<const std::byte> data, std::uint32_t id_value,
                                       bool is_extended) {
     auto& v = pr;
-    auto idx = v.property_index.get();
+    auto const idx = v.property_index.get();
     if (idx >= diags_.size()) {
         // Property index out of range — protocol mismatch; skip enrichment.
         logger_.warn("enrichment.property_index_oob",
@@ -344,7 +344,7 @@ void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
 }
 
 void AletheiaClient::enrich_end_stream_results(StreamResult& result) {
-    auto todo = collect_enrichable_results(result);
+    auto const todo = collect_enrichable_results(result);
 
     // Union of the signal names any collected diagnostic wants. When the
     // union is empty, skip the frame extraction loop entirely (zero FFI
@@ -362,7 +362,7 @@ void AletheiaClient::enrich_end_stream_results(StreamResult& result) {
     // Distribute: each result's values are the merged map filtered to its
     // own diagnostic's signals; the enrichment is always attached (empty
     // values degrade to the "violated: <formula>" fallback reason).
-    for (auto& [pr, diag] : todo) {
+    for (auto const& [pr, diag] : todo) {
         std::map<SignalName, PhysicalValue> values;
         for (auto const& sig : diag->signals) {
             if (auto const it = merged.find(sig); it != merged.end())
@@ -384,7 +384,7 @@ auto AletheiaClient::collect_enrichable_results(StreamResult& result)
     for (auto& pr : result.results) {
         if (pr.verdict != Verdict::Fails && pr.verdict != Verdict::Unresolved)
             continue;
-        auto idx = pr.property_index.get();
+        auto const idx = pr.property_index.get();
         if (idx >= diags_.size()) {
             // Property index out of range — protocol mismatch; skip enrichment.
             logger_.warn("enrichment.property_index_oob",
@@ -442,8 +442,8 @@ auto AletheiaClient::merge_last_known_values(std::set<SignalName> remaining)
     // end_stream. Stops early once every remaining wanted name is merged.
     std::map<SignalName, PhysicalValue> merged;
     for (auto const& [key, last_frame] : last_frames_) {
-        auto extraction = extract_signals_internal(last_frame.id, last_frame.dlc, last_frame.data,
-                                                   key.first, key.second);
+        auto const extraction = extract_signals_internal(last_frame.id, last_frame.dlc,
+                                                         last_frame.data, key.first, key.second);
         if (!extraction.has_value()) {
             logger_.warn("enrichment.extraction_failed",
                          {{"canId", static_cast<std::uint64_t>(key.first)}});

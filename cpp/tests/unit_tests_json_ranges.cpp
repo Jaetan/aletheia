@@ -16,7 +16,7 @@ using namespace aletheia;
 using Catch::Matchers::ContainsSubstring;
 
 TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse][error]") {
-    auto result = detail::parse_extraction(R"({
+    auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Bad", "value": {"numerator": 1, "denominator": 0}}],
         "errors": [], "absent": []
@@ -32,7 +32,7 @@ TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse
 }
 
 TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{
             "type": "property",
@@ -46,19 +46,19 @@ TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][
 }
 
 TEST_CASE("parse_stream_result rejects malformed JSON", "[json][parse][error]") {
-    auto result = detail::parse_stream_result("not json");
+    auto const result = detail::parse_stream_result("not json");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
 }
 
 TEST_CASE("parse_stream_result rejects missing results field", "[json][parse][error]") {
-    auto result = detail::parse_stream_result(R"({"status": "complete"})");
+    auto const result = detail::parse_stream_result(R"({"status": "complete"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
 }
 
 TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse][error]") {
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{
             "type": "property",
@@ -77,7 +77,7 @@ TEST_CASE("parse_frame_response rejects a property_index above the signed 64-bit
     // One past the signed maximum arrives as an unsigned number.  Narrowed
     // without a range check it wraps to the most negative value, and the sign
     // test below it then reports a negative index the document never carried.
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{
             "type": "property",
@@ -96,10 +96,10 @@ TEST_CASE("parse_frame_response rejects a property_index above the signed 64-bit
 TEST_CASE("parse_frame_data rejects a data byte above a byte", "[json][parse][validation]") {
     // 256 narrows to zero without a range check, so the payload would decode
     // one byte the document did not state.
-    auto bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 256, 3]})");
+    auto const bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 256, 3]})");
     CHECK_FALSE(bad.has_value());
     CHECK_THAT(std::string{bad.error().message()}, ContainsSubstring("out of range"));
-    auto ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 255, 3]})");
+    auto const ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 255, 3]})");
     REQUIRE(ok.has_value());
     CHECK(ok->size() == 3);
 }
@@ -114,17 +114,17 @@ TEST_CASE("parse_dbc_response rejects a CAN id above the 32-bit position",
                R"("id":)" + id +
                R"(,"name":"M","dlc":8,"sender":"","extended":true,"signals":[]}]}})";
     };
-    auto bad = detail::parse_dbc_response(make("4294967296"));
+    auto const bad = detail::parse_dbc_response(make("4294967296"));
     CHECK_FALSE(bad.has_value());
     CHECK_THAT(std::string{bad.error().message()}, ContainsSubstring("out of range"));
-    auto ok = detail::parse_dbc_response(make("536870911"));
+    auto const ok = detail::parse_dbc_response(make("536870911"));
     REQUIRE(ok.has_value());
     REQUIRE(ok->messages.size() == 1);
     CHECK(std::get<ExtendedId>(ok->messages[0].id).value() == 536870911);
 }
 
 TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][error]") {
-    auto result = detail::parse_stream_result(R"({
+    auto const result = detail::parse_stream_result(R"({
         "status": "complete",
         "results": [{"status": "holds", "property_index": -5}]
     })");
@@ -138,7 +138,7 @@ TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][
 // and that contract is enforced upstream rather than here. The negative and
 // non-integer refusals do apply.
 TEST_CASE("parse_frame_response accepts fails with missing timestamp", "[json][parse]") {
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{
             "type": "property",
@@ -147,15 +147,15 @@ TEST_CASE("parse_frame_response accepts fails with missing timestamp", "[json][p
         }]
     })");
     REQUIRE(result.has_value());
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     CHECK_FALSE(v->timestamp.has_value());
 }
 
 TEST_CASE("parse_frame_response rejects fails with missing property_index",
           "[json][parse][error]") {
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{
             "type": "property",
@@ -168,7 +168,7 @@ TEST_CASE("parse_frame_response rejects fails with missing property_index",
 }
 
 TEST_CASE("parse_stream_result rejects entry with missing status", "[json][parse][error]") {
-    auto result = detail::parse_stream_result(R"({
+    auto const result = detail::parse_stream_result(R"({
         "status": "complete",
         "results": [{"property_index": 0}]
     })");
@@ -179,7 +179,7 @@ TEST_CASE("parse_stream_result rejects entry with missing status", "[json][parse
 
 TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][error]") {
     // {"numerator": 3, "denominator": 2} → 1.5, not an integer
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{
             "type": "property",
@@ -198,7 +198,7 @@ TEST_CASE("parse_frame_response rejects unrecognised top-level type", "[json][pa
     // failure status is not a shape the parser knows. Any top-level shape
     // other than an acknowledgement, an error or a property batch is a
     // protocol violation.
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "status": "fails",
         "property_index": 0,
         "timestamp": 100
@@ -211,7 +211,7 @@ TEST_CASE("parse_frame_response rejects unrecognised top-level type", "[json][pa
 
 TEST_CASE("parse_rational rejects float input", "[json][parse][error]") {
     // A floating-point 1.5 should be rejected (not integer, not {num, den} dict)
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "", "messages": [{
@@ -230,7 +230,7 @@ TEST_CASE("parse_rational rejects float input", "[json][parse][error]") {
 }
 
 TEST_CASE("parse_dbc_response accepts standard CAN ID at boundary (2047)", "[json][parse]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "", "messages": [{
@@ -240,12 +240,12 @@ TEST_CASE("parse_dbc_response accepts standard CAN ID at boundary (2047)", "[jso
         }
     })");
     REQUIRE(result.has_value());
-    auto& id = result->messages[0].id;
+    auto const& id = result->messages[0].id;
     CHECK(std::get<StandardId>(id).value() == 2047);
 }
 
 TEST_CASE("parse_dbc_response rejects standard CAN ID at boundary (2048)", "[json][parse][error]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "", "messages": [{
@@ -259,7 +259,7 @@ TEST_CASE("parse_dbc_response rejects standard CAN ID at boundary (2048)", "[jso
 }
 
 TEST_CASE("parse_dbc_response rejects truncating standard CAN ID (70000)", "[json][parse][error]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "", "messages": [{

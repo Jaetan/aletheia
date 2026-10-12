@@ -340,7 +340,7 @@ static auto parse_message_id(const std::string& val, const std::string& ctx_str)
     auto const digits = is_hex ? val.substr(2) : val;
     std::uint32_t result = 0;
     auto const* const end = sv_end_ptr(digits);
-    auto [ptr, ec] = std::from_chars(digits.data(), end, result, is_hex ? 16 : 10);
+    auto const [ptr, ec] = std::from_chars(digits.data(), end, result, is_hex ? 16 : 10);
     if (ec != std::errc{} || ptr != end)
         throw std::runtime_error(
             ctx_str +
@@ -363,8 +363,8 @@ static void apply_row_metadata(CheckResult& result, const CellMap& cells,
 
 static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
     auto const ctx_str = row_ctx(row_num);
-    auto signal = get_str(cells, "Signal", ctx_str);
-    auto condition = get_str(cells, "Condition", ctx_str);
+    auto const signal = get_str(cells, "Signal", ctx_str);
+    auto const condition = get_str(cells, "Condition", ctx_str);
 
     if (!detail::is_simple_condition(condition))
         throw std::runtime_error(ctx_str + ": unknown condition '" + condition + "'");
@@ -419,7 +419,7 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
     auto const when_result = detail::dispatch_when(when_builder, when_cond, when_value);
 
     auto const then_signal = get_str(cells, "Then Signal", ctx_str);
-    auto then_cond = get_str(cells, "Then Condition", ctx_str);
+    auto const then_cond = get_str(cells, "Then Condition", ctx_str);
 
     // The word is held to the vocabulary by taking its slots: one lookup
     // answers both whether the obligation is known and what it reads.
@@ -427,8 +427,8 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
     if (!slots)
         throw std::runtime_error(ctx_str + ": unknown then condition '" + then_cond + "'");
 
-    auto then_builder = when_result.then(then_signal);
-    auto within_ms = std::chrono::milliseconds{get_int(cells, "Within (ms)", ctx_str)};
+    auto const then_builder = when_result.then(then_signal);
+    auto const within_ms = std::chrono::milliseconds{get_int(cells, "Within (ms)", ctx_str)};
 
     // Which columns the obligation reads is the vocabulary's business, not
     // this loader's; which columns they are, and what to say when one is
@@ -628,12 +628,12 @@ static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
     for (auto const [i, data_row] : std::views::enumerate(data_rows)) {
         auto const& cells = data_row.cells;
         auto const ctx_str = row_ctx(data_row.number);
-        auto msg_id = parse_message_id(get_any(cells, "Message ID", ctx_str), ctx_str);
+        auto const msg_id = parse_message_id(get_any(cells, "Message ID", ctx_str), ctx_str);
         auto const msg_name = get_str(cells, "Message Name", ctx_str);
-        auto dlc = get_int(cells, "DLC", ctx_str);
+        auto const dlc = get_int(cells, "DLC", ctx_str);
         auto const extended = has_key(cells, "Extended") && get_bool(cells, "Extended", ctx_str);
         MessageKeyExt key{msg_id, msg_name, dlc, extended};
-        auto [it, inserted] = positions.try_emplace(key, groups.size());
+        auto const [it, inserted] = positions.try_emplace(key, groups.size());
         if (inserted)
             groups.emplace_back(std::move(key), std::vector<std::size_t>{});
         groups.at(it->second).second.push_back(static_cast<std::size_t>(i));
@@ -650,13 +650,13 @@ static auto build_message_from_group(const MessageKeyExt& key,
     std::ranges::transform(indices, std::back_inserter(signals), [&](std::size_t idx) {
         return parse_dbc_signal(data_rows.at(idx).cells, data_rows.at(idx).number);
     });
-    auto [msg_id, msg_name, dlc, extended] = key;
+    auto const [msg_id, msg_name, dlc, extended] = key;
     // A standard id is created from the 16 bits it fits in; a wider value is
     // refused here rather than truncated into the factory's range.
     if (!extended && !std::in_range<std::uint16_t>(msg_id))
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "Invalid CAN ID: " + std::to_string(msg_id)});
-    auto can_id_result =
+    auto const can_id_result =
         extended
             ? ExtendedId::create(msg_id).transform([](auto eid) -> CanId { return CanId{eid}; })
             : StandardId::create(static_cast<std::uint16_t>(msg_id))
@@ -673,7 +673,7 @@ static auto build_message_from_group(const MessageKeyExt& key,
     };
     if (!std::in_range<std::uint8_t>(dlc))
         return dlc_refused();
-    auto dlc_result = Dlc::create(static_cast<std::uint8_t>(dlc));
+    auto const dlc_result = Dlc::create(static_cast<std::uint8_t>(dlc));
     if (!dlc_result.has_value())
         return dlc_refused();
     return DbcMessage{

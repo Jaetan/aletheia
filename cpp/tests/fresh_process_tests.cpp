@@ -72,7 +72,7 @@ static auto run_child(std::string binary, const std::vector<std::string>& extra)
     envp.push_back(nullptr);
     std::string order{"--order"};
     std::string decl{"decl"};
-    std::vector<char*> argv{binary.data(), order.data(), decl.data(), nullptr};
+    const std::vector<char*> argv{binary.data(), order.data(), decl.data(), nullptr};
     static_cast<void>(std::fflush(nullptr));
     auto const parent = ::getpid();
     auto const pid = ::fork();

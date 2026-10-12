@@ -133,7 +133,7 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
 // error wording.
 static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
     if (extended) {
-        auto result = ExtendedId::create(id_val);
+        auto const result = ExtendedId::create(id_val);
         if (!result)
             throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) + ": " +
                                      detail::error_of(result));
@@ -144,7 +144,7 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
     if (!std::in_range<std::uint16_t>(id_val))
         throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
                                  " exceeds 16 bits");
-    auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
+    auto const result = StandardId::create(static_cast<std::uint16_t>(id_val));
     if (!result)
         throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
                                  detail::error_of(result));
@@ -156,7 +156,7 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
     auto const extended = j.value("extended", false);
     auto const id = json_to_can_id(id_val, extended);
 
-    auto dlc_result = bytes_to_dlc(require_uint<std::size_t>(j.at("dlc"), "dlc"));
+    auto const dlc_result = bytes_to_dlc(require_uint<std::size_t>(j.at("dlc"), "dlc"));
     if (!dlc_result)
         throw std::runtime_error("Invalid DLC: " + detail::error_of(dlc_result));
 
@@ -279,7 +279,7 @@ constexpr auto attr_scope_table = std::to_array<AttrScopeEntry>({
 });
 
 static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
-    if (auto scope = lookup(attr_scope_table, s))
+    if (auto const scope = lookup(attr_scope_table, s))
         return scope.value();
     throw std::runtime_error("Unknown attribute scope: " + std::string{s});
 }

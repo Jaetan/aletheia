@@ -64,7 +64,7 @@ static auto run_workload(const std::string& n, const char* rts_opts)
         // vector without a C-style ellipsis, and both take the same strings.
         std::string bin{ALETHEIA_RTS_WORKLOAD_BIN};
         std::string count{n};
-        std::array<char*, 3> args{bin.data(), count.data(), nullptr};
+        const std::array<char*, 3> args{bin.data(), count.data(), nullptr};
         execv(bin.c_str(), args.data());
         _exit(127); // exec failed
     }

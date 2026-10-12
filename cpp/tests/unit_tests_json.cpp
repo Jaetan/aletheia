@@ -86,10 +86,10 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
 }
 
 TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
-    auto id = StandardId::create(0x200).value();
+    auto const id = StandardId::create(0x200).value();
     auto const dlc = Dlc::create(8).value();
 
-    DbcSignal sig{
+    const DbcSignal sig{
         .name = SignalName{"MuxedTemp"},
         .start_bit = BitPosition{16},
         .bit_length = BitLength{8},
@@ -130,7 +130,7 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
 }
 
 TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
-    auto id = ExtendedId::create(0x18FEF100).value();
+    auto const id = ExtendedId::create(0x18FEF100).value();
     auto const dlc = Dlc::create(8).value();
 
     const DbcDefinition dbc{
@@ -196,7 +196,7 @@ TEST_CASE("parse_success on success response", "[json][parse]") {
 }
 
 TEST_CASE("parse_success on error response", "[json][parse]") {
-    auto result = detail::parse_success(
+    auto const result = detail::parse_success(
         R"({"status": "error", "code": "handler_no_dbc", "message": "DBC not loaded"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
@@ -205,7 +205,7 @@ TEST_CASE("parse_success on error response", "[json][parse]") {
 
 TEST_CASE("parse_success rejects \"ack\" status", "[json][parse]") {
     // parse_success is strict: only accepts "success". "ack" is for trace events.
-    auto result = detail::parse_success(R"({"status": "ack"})");
+    auto const result = detail::parse_success(R"({"status": "ack"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected status"));
@@ -219,14 +219,14 @@ TEST_CASE("parse_event_ack on ack response", "[json][parse]") {
 TEST_CASE("parse_event_ack rejects \"success\" status", "[json][parse]") {
     // Trace events always emit "ack" per Agda Protocol/StreamState.agda;
     // "success" must not be accepted.
-    auto result = detail::parse_event_ack(R"({"status": "success"})");
+    auto const result = detail::parse_event_ack(R"({"status": "success"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected status"));
 }
 
 TEST_CASE("parse_event_ack on error response", "[json][parse]") {
-    auto result = detail::parse_event_ack(
+    auto const result = detail::parse_event_ack(
         R"({"status": "error", "message": "non-monotonic timestamp", "code": "monotonicity_violation"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
@@ -234,7 +234,7 @@ TEST_CASE("parse_event_ack on error response", "[json][parse]") {
 }
 
 TEST_CASE("parse_validation response", "[json][parse]") {
-    auto result = detail::parse_validation(R"({
+    auto const result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": true,
         "issues": [
@@ -252,7 +252,7 @@ TEST_CASE("parse_validation response", "[json][parse]") {
 }
 
 TEST_CASE("parse_extraction response", "[json][parse]") {
-    auto result = detail::parse_extraction(R"({
+    auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [
             {"name": "Speed", "value": {"numerator": 241, "denominator": 2}},
@@ -276,7 +276,7 @@ TEST_CASE("parse_extraction response", "[json][parse]") {
 }
 
 TEST_CASE("parse_extraction with rational values", "[json][parse]") {
-    auto result = detail::parse_extraction(R"({
+    auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [
             {"name": "Ratio", "value": {"numerator": 1, "denominator": 3}}
@@ -334,7 +334,7 @@ TEST_CASE("parse_extraction still accepts integer and rational signal values",
           "[json][parse][validation]") {
     // Positive case: the canonical integer and {num,den} shapes decode after
     // the float branch is dropped.
-    auto result = detail::parse_extraction(R"({
+    auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [
             {"name": "RPM", "value": 3000},
@@ -395,7 +395,7 @@ TEST_CASE("parse_dbc_response rejects a float startBit instead of truncating",
                R"("factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always"}]}]}})";
     };
     CHECK_FALSE(detail::parse_dbc_response(make("5.5")).has_value());
-    auto ok = detail::parse_dbc_response(make("5"));
+    auto const ok = detail::parse_dbc_response(make("5"));
     REQUIRE(ok.has_value());
     REQUIRE(ok->messages.size() == 1);
     REQUIRE(ok->messages[0].signals.size() == 1);
@@ -420,7 +420,7 @@ TEST_CASE("parse_frame_data rejects a float data byte", "[json][parse][validatio
     // must be rejected, not truncated.
     auto const bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 2.5, 3]})");
     CHECK_FALSE(bad.has_value());
-    auto ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
+    auto const ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
     REQUIRE(ok.has_value());
     CHECK(ok->size() == 3);
 }
@@ -430,15 +430,15 @@ TEST_CASE("parse_frame_response integer property_index uses exact division",
     // property_index {6,3} -> 2 (an integer field divides). Kills the
     // division-to-multiplication mutant on the return in parse_rational_as_int,
     // whose product would be 18.
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{"type": "property", "status": "fails",
                      "property_index": {"numerator": 6, "denominator": 3},
                      "timestamp": {"numerator": 3000000, "denominator": 1}}]
     })");
     REQUIRE(result.has_value());
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     CHECK(v->property_index == PropertyIndex{2});
 }
@@ -447,22 +447,22 @@ TEST_CASE("parse_frame_response accepts a zero timestamp", "[json][parse][mutati
     // A timestamp of zero is the legal lower boundary. Kills the
     // less-than-to-less-or-equal mutant on the negative-timestamp refusal in
     // the property-result parser, which would reject zero.
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{"type": "property", "status": "fails",
                      "property_index": {"numerator": 1, "denominator": 1},
                      "timestamp": {"numerator": 0, "denominator": 1}}]
     })");
     REQUIRE(result.has_value());
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     REQUIRE(v->timestamp.has_value());
     CHECK(*v->timestamp == Timestamp{0});
 }
 
 TEST_CASE("parse_frame_data response", "[json][parse]") {
-    auto result = detail::parse_frame_data(R"({
+    auto const result = detail::parse_frame_data(R"({
         "status": "success",
         "data": [232, 3, 0, 0, 0, 0, 0, 0]
     })");
@@ -474,7 +474,7 @@ TEST_CASE("parse_frame_data response", "[json][parse]") {
 }
 
 TEST_CASE("parse_frame_response ack", "[json][parse]") {
-    auto result = detail::parse_frame_response(R"({"status": "ack"})");
+    auto const result = detail::parse_frame_response(R"({"status": "ack"})");
     REQUIRE(result.has_value());
     CHECK(std::holds_alternative<Ack>(*result));
 }
@@ -486,13 +486,13 @@ TEST_CASE("parse_frame_response reads an ack whatever its spacing", "[json][pars
         GENERATE(std::string_view{R"({"status":"ack"})"}, std::string_view{R"({"status": "ack"})"},
                  std::string_view{R"({ "status" : "ack" })"},
                  std::string_view{"{\n  \"status\": \"ack\"\n}"});
-    auto result = detail::parse_frame_response(spelling);
+    auto const result = detail::parse_frame_response(spelling);
     REQUIRE(result.has_value());
     CHECK(std::holds_alternative<Ack>(*result));
 }
 
 TEST_CASE("parse_frame_response violation", "[json][parse]") {
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{
             "type": "property",
@@ -504,8 +504,8 @@ TEST_CASE("parse_frame_response violation", "[json][parse]") {
     })");
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(*result));
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     CHECK(v->property_index == PropertyIndex{0});
     REQUIRE(v->timestamp.has_value());
@@ -514,7 +514,7 @@ TEST_CASE("parse_frame_response violation", "[json][parse]") {
 }
 
 TEST_CASE("parse_frame_response violation with rational index", "[json][parse]") {
-    auto result = detail::parse_frame_response(R"({
+    auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{
             "type": "property",
@@ -524,8 +524,8 @@ TEST_CASE("parse_frame_response violation with rational index", "[json][parse]")
         }]
     })");
     REQUIRE(result.has_value());
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     CHECK(v->property_index == PropertyIndex{2});
     REQUIRE(v->timestamp.has_value());
@@ -533,7 +533,7 @@ TEST_CASE("parse_frame_response violation with rational index", "[json][parse]")
 }
 
 TEST_CASE("parse_stream_result complete", "[json][parse]") {
-    auto result = detail::parse_stream_result(R"({
+    auto const result = detail::parse_stream_result(R"({
         "status": "complete",
         "results": [
             {"type": "property", "status": "holds", "property_index": 0},
@@ -556,7 +556,7 @@ TEST_CASE("parse_stream_result complete", "[json][parse]") {
 }
 
 TEST_CASE("parse_dbc_response", "[json][parse]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "2.0",
@@ -591,7 +591,7 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
 }
 
 TEST_CASE("parse_dbc_response reads a signed signal as signed", "[json][parse]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "",

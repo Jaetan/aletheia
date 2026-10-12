@@ -36,7 +36,7 @@
 
 TEST_CASE("InputBoundExceededError carries kind / observed / limit, and no field unless given",
           "[input_bounds]") {
-    aletheia::InputBoundExceededError err{
+    const aletheia::InputBoundExceededError err{
         .bound_kind = std::string{aletheia::bound_kind_input_length_bytes},
         .observed = 100,
         .limit = 50,
@@ -140,7 +140,7 @@ TEST_CASE("parse_bounded rejects JSON exceeding nesting depth", "[input_bounds]"
     deep_json += '1';
     deep_json.append(aletheia::max_nesting_depth + 1, ']');
 
-    auto result = aletheia::detail::parse_success(deep_json);
+    auto const result = aletheia::detail::parse_success(deep_json);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()},
@@ -160,7 +160,7 @@ TEST_CASE("parse_bounded accepts JSON at nesting depth", "[input_bounds]") {
     // parse_success rejects this for non-success status (it's wrapped in arrays),
     // but the depth-bound itself does not fire.  Verify the error message does
     // NOT mention nesting depth — ie the depth callback ran without throwing.
-    auto result = aletheia::detail::parse_success(ok_json);
+    auto const result = aletheia::detail::parse_success(ok_json);
     if (!result.has_value()) {
         CHECK_THAT(std::string{result.error().message()},
                    !Catch::Matchers::ContainsSubstring("nesting depth"));
@@ -180,7 +180,7 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds]") {
 
     const std::string big_text(aletheia::max_dbc_text_bytes + 1, 'x');
     const std::stop_source stop_source;
-    auto result = client.parse_dbc_text(stop_source.get_token(), big_text);
+    auto const result = client.parse_dbc_text(stop_source.get_token(), big_text);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
     CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
@@ -213,7 +213,7 @@ TEST_CASE("Input-bound error JSON lifts structured fields into bound_info", "[in
         R"("bound_kind":"input_length_bytes",)"
         R"("observed":100000000,)"
         R"("limit":67108864})";
-    auto result = aletheia::detail::parse_success(err_json);
+    auto const result = aletheia::detail::parse_success(err_json);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
     CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
@@ -232,7 +232,7 @@ TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt"
     const std::string err_json = R"({"status":"error",)"
                                  R"("code":"input_bound_exceeded",)"
                                  R"("message":"input length exceeded"})";
-    auto result = aletheia::detail::parse_success(err_json);
+    auto const result = aletheia::detail::parse_success(err_json);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
     CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);

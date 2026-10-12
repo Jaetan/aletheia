@@ -70,7 +70,7 @@ TEST_CASE("Tier 1 DBC metadata round-trips through real FFI", "[integration][dbc
     });
 
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
-    auto round_tripped = client.format_dbc(std::stop_token{});
+    auto const round_tripped = client.format_dbc(std::stop_token{});
     REQUIRE(round_tripped.has_value());
 
     REQUIRE(round_tripped->signal_groups.size() == 1);
@@ -109,7 +109,7 @@ TEST_CASE("env var with non-terminating rational is rejected") {
         .maximum = Rational{1, 1},
     });
 
-    auto result = client.parse_dbc(std::stop_token{}, dbc);
+    auto const result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().code() == ErrorCode::ParseNonTerminatingRational);
 }
@@ -131,7 +131,7 @@ TEST_CASE("signal with non-terminating rational factor is rejected") {
     // Override the first signal's factor to a repeating rational.
     dbc.messages[0].signals[0].factor = RationalFactor{Rational{1, 3}};
 
-    auto result = client.parse_dbc(std::stop_token{}, dbc);
+    auto const result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().code() == ErrorCode::ParseNonTerminatingRational);
 }
@@ -148,11 +148,11 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
     // RPM   = 3000 raw * 1.0 factor = 3000 rpm
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0xE8}, std::byte{0x03}, // 1000 LE
-                      std::byte{0xB8}, std::byte{0x0B}, // 3000 LE
-                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    const FramePayload data{std::byte{0xE8}, std::byte{0x03}, // 1000 LE
+                            std::byte{0xB8}, std::byte{0x0B}, // 3000 LE
+                            std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
 
-    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
+    auto const result = client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 2);
     CHECK(result->get(SignalName{"Speed"}).get() == Rational{100, 1});
@@ -241,7 +241,7 @@ struct WireBuf {
         u16(static_cast<std::uint16_t>(v >> 16U));
     }
     void i64(std::int64_t v) {
-        auto u = static_cast<std::uint64_t>(v);
+        auto const u = static_cast<std::uint64_t>(v);
         for (auto const i : std::views::iota(0U, 8U))
             u8(static_cast<std::uint8_t>((u >> (8U * i)) & 0xFFU));
     }
@@ -270,12 +270,12 @@ static auto extract_with_crafted_buf(std::vector<std::byte> buf) -> Result<Extra
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     return client.extract_signals(std::stop_token{}, id, dlc, data);
 }
 
 static auto expect_protocol_error(std::vector<std::byte> buf) {
-    auto result = extract_with_crafted_buf(std::move(buf));
+    auto const result = extract_with_crafted_buf(std::move(buf));
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     return result.error();
@@ -312,7 +312,7 @@ TEST_CASE("binary extraction decodes values, wire reasons, and absent exactly", 
     w.str(reason_b);
     w.u16(6);
 
-    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    auto const result = extract_with_crafted_buf(std::move(w.bytes));
     REQUIRE(result.has_value());
     REQUIRE(result->values.size() == 1);
     CHECK(result->values[0].name == SignalName{"Speed"});
@@ -336,7 +336,7 @@ TEST_CASE("binary extraction with zero errors decodes the lone offset entry", "[
     w.i64(1);
     w.u32(0); // lone offsets entry
 
-    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    auto const result = extract_with_crafted_buf(std::move(w.bytes));
     REQUIRE(result.has_value());
     REQUIRE(result->values.size() == 1);
     CHECK(result->values[0].name == SignalName{"RPM"});
@@ -423,7 +423,7 @@ TEST_CASE("binary extraction decodes adjacent reasons, an empty one included", "
     w.u32(2);
     w.u32(6);
     w.str("abcdef");
-    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    auto const result = extract_with_crafted_buf(std::move(w.bytes));
     REQUIRE(result.has_value());
     REQUIRE(result->errors.size() == 3);
     CHECK(result->errors[0].reason == "ab");
@@ -442,7 +442,7 @@ TEST_CASE("binary extraction names a wire index one past the message's signals b
     w.i64(1);
     w.u32(0);
     w.u16(2);
-    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    auto const result = extract_with_crafted_buf(std::move(w.bytes));
     REQUIRE(result.has_value());
     REQUIRE(result->values.size() == 1);
     CHECK(result->values[0].name == SignalName{"signal_2"});
@@ -490,7 +490,7 @@ TEST_CASE("binary extraction accepts every well-formed UTF-8 boundary in a reaso
         std::vector<std::uint8_t>{0xEE, 0x80, 0x80},        // U+E000, just above the surrogates
         std::vector<std::uint8_t>{0xF0, 0x90, 0x80, 0x80},  // U+10000, the first four-byte point
         std::vector<std::uint8_t>{0xF4, 0x8F, 0xBF, 0xBF}); // U+10FFFF, the last code point
-    auto result = extract_with_crafted_buf(single_reason_buf(reason));
+    auto const result = extract_with_crafted_buf(single_reason_buf(reason));
     REQUIRE(result.has_value());
     REQUIRE(result->errors.size() == 1);
     CHECK(std::ranges::equal(result->errors[0].reason, reason, [](char c, std::uint8_t b) {
@@ -541,12 +541,12 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     // Speed raw 0xFFFF → 6553.5 km/h, above the DBC maximum of 655.35.
-    FramePayload data{std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
-                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    const FramePayload data{std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
+                            std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
 
     AletheiaClient bin_client(make_ffi_backend(lib));
     REQUIRE(bin_client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
-    auto bin = bin_client.extract_signals(std::stop_token{}, id, dlc, data);
+    auto const bin = bin_client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(bin.has_value());
 
     // Force the JSON fallback by handing the fixed-result backend a
@@ -557,7 +557,7 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
                                       "binary path not supported by this backend"}));
     AletheiaClient json_client(std::move(json_backend));
     REQUIRE(json_client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
-    auto json = json_client.extract_signals(std::stop_token{}, id, dlc, data);
+    auto const json = json_client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(json.has_value());
 
     REQUIRE(bin->errors.size() == 1);

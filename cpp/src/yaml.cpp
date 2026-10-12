@@ -174,7 +174,7 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
         throw std::runtime_error(ctx(name) + ": when/then checks require 'within_ms'");
 
     auto const when = get_map(entry, "when", ctx(name));
-    auto then = get_map(entry, "then", ctx(name));
+    auto const then = get_map(entry, "then", ctx(name));
     auto const within_ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
 
     // When clause
@@ -222,7 +222,7 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
 // ---------------------------------------------------------------------------
 
 static auto parse_check(const YAML::Node& entry) -> CheckResult {
-    auto name = check_name(entry);
+    auto const name = check_name(entry);
 
     auto result = [&] {
         if (entry["when"])

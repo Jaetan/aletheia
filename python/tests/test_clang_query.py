@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from functools import partial
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from _executors import DrivenExecutor, Order
@@ -22,19 +22,20 @@ from _executors import DrivenExecutor, Order
 from tools import _clang_query as clang_query
 from tools._clang_query import (
     COMPILE_DB,
+    PrintedPath,
+    Queried,
     Query,
     QueryFailedError,
     QueryOutput,
     UnitPath,
+    printed_file,
+    query_tree,
     query_unit,
     query_units,
     translation_units,
 )
 
 from aletheia.common_types import ExitStatus, Prose
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 _UNIT = UnitPath("src/enrich.cpp")
 
@@ -106,6 +107,12 @@ def test_a_clean_unit_returns_what_clang_query_printed(
     assert query_unit(tmp_path, tmp_path / "q", _UNIT) == printed
 
 
+def test_a_printed_file_lands_where_its_parent_segments_lead() -> None:
+    """A header a relative include reaches is the header's own path, ``..`` folded away."""
+    printed = PrintedPath("/r/cpp/tests/../src/./detail/x.hpp")
+    assert printed_file(printed) == Path("/r/cpp/src/detail/x.hpp")
+
+
 def test_a_missing_database_names_the_configure(tmp_path: Path) -> None:
     """Without the lint tree there is nothing to read, and the gate says how to make it."""
     refusal = translation_units(tmp_path)
@@ -127,6 +134,46 @@ def test_the_units_are_the_bindings_own(tmp_path: Path) -> None:
     ]
     _ = database.write_text(json.dumps([{"file": file} for file in files]), encoding="utf-8")
     assert translation_units(tmp_path) == [f"{cpp}/src/a.cpp", f"{cpp}/src/z.cpp"]
+
+
+def test_a_queried_tree_carries_its_root_units_and_outputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The tree queried whole is the repository root, every unit, and what each printed."""
+    cpp = tmp_path / "cpp"
+    database = tmp_path / COMPILE_DB
+    database.parent.mkdir(parents=True)
+    units = [UnitPath(f"{cpp}/src/a.cpp"), UnitPath(f"{cpp}/src/b.cpp")]
+    _ = database.write_text(json.dumps([{"file": file} for file in units]), encoding="utf-8")
+
+    def query(_repo: Path, _script: Path, unit: UnitPath) -> QueryOutput:
+        return QueryOutput(f"in {unit}")
+
+    monkeypatch.setattr(clang_query, "git_toplevel", lambda: tmp_path)
+    monkeypatch.setattr(clang_query, "query_unit", query)
+    assert query_tree(Query("m"), executor=DrivenExecutor) == Queried(
+        tmp_path, units, [QueryOutput(f"in {unit}") for unit in units]
+    )
+
+
+def test_a_tree_that_cannot_be_queried_is_none_and_the_reason_printed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Without a database, or with a unit that fails its query, the tree is None and says why."""
+    monkeypatch.setattr(clang_query, "git_toplevel", lambda: tmp_path)
+    assert query_tree(Query("m"), executor=DrivenExecutor) is None
+    assert f"{COMPILE_DB} is missing" in capsys.readouterr().out
+    database = tmp_path / COMPILE_DB
+    database.parent.mkdir(parents=True)
+    _ = database.write_text(json.dumps([{"file": f"{tmp_path}/cpp/src/a.cpp"}]), encoding="utf-8")
+
+    def fail(_repo: Path, _script: Path, unit: UnitPath) -> QueryOutput:
+        msg = f"{unit}: clang-query could not parse it"
+        raise QueryFailedError(msg)
+
+    monkeypatch.setattr(clang_query, "query_unit", fail)
+    assert query_tree(Query("m"), executor=DrivenExecutor) is None
+    assert capsys.readouterr().out == f"{tmp_path}/cpp/src/a.cpp: clang-query could not parse it\n"
 
 
 def test_every_unit_runs_on_the_executor_handed_in_and_keeps_its_place(

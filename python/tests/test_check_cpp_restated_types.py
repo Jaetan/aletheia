@@ -17,7 +17,7 @@ from tools import check_cpp_restated_types as rule
 from tools._clang_query import QueryOutput
 from tools._common import RelPath
 from tools._ratchet import CanonicalText, as_row
-from tools.check_cpp_restated_types import ALLOWLIST, BIND, judge
+from tools.check_cpp_restated_types import ALLOWLIST, BIND, Hit, judge, parse_hits
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -39,12 +39,26 @@ def _printed(monkeypatch: pytest.MonkeyPatch) -> list[Prose]:
 
 
 def _output(repo: Path) -> QueryOutput:
+    """clang-query's diagnostic for the declaration in the record's file."""
+    return _diagnostic(repo / _FILE)
+
+
+def _diagnostic(path: Path) -> QueryOutput:
     """clang-query's diagnostic for the declaration: its location, its line, the caret run."""
     return QueryOutput(
-        f'{repo / _FILE}:3:5: note: "{BIND}" binds here\n'
+        f'{path}:3:5: note: "{BIND}" binds here\n'
         + f"    3 |     {_DECLARATION};\n"
         + f"      |     ^{'~' * (len(_DECLARATION) - 1)}\n"
     )
+
+
+def test_a_header_a_relative_include_reaches_counts_where_it_lies(tmp_path: Path) -> None:
+    """A path through ``..`` is keyed and scoped by the directory it lands in."""
+    landed = _diagnostic(tmp_path / "cpp/tests/../src/a.hpp")
+    away = _diagnostic(tmp_path / "cpp/tests/../vendor/b.hpp")
+    assert parse_hits(tmp_path, QueryOutput(landed + away)) == [
+        Hit(RelPath("cpp/src/a.hpp"), 3, _DECLARATION)
+    ]
 
 
 def _record(repo: Path, *, recorded: bool) -> None:

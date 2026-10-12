@@ -61,7 +61,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-from tools._clang_query import CPP_ROOT, Query
+from tools._clang_query import CPP_ROOT, PrintedPath, Query, printed_file
 from tools._common import emit
 from tools._ratchet import CanonicalText, RatchetRows, RelPath, RowKey, as_row, read_ratchet_rows
 
@@ -179,7 +179,7 @@ def parse_hits(repo: Path, output: QueryOutput) -> list[Hit]:
         text = collapse(source.group(1)[start : start + len(caret.group(2))])
         if not text or _MACRO_CALL.match(text):
             continue
-        path = Path(location.group(1))
+        path = printed_file(PrintedPath(location.group(1)))
         if not any(path.is_relative_to(repo / CPP_ROOT / scoped) for scoped in SCOPED):
             continue
         hits.append(Hit(RelPath(str(path.relative_to(repo))), int(location.group(2)), text))

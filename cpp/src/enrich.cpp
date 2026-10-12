@@ -20,7 +20,7 @@ namespace aletheia {
 constexpr std::string_view k_delta = "\u0394";
 
 static auto format_timebound(Timestamp t) -> std::string {
-    auto us = t.count();
+    auto const us = t.count();
     if (us % us_per_second == 0)
         return std::format("{}s ", us / us_per_second);
     if (us % us_per_millisecond == 0)

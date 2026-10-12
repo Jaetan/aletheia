@@ -40,7 +40,7 @@ static_assert(std::endian::native == std::endian::little,
 namespace aletheia::detail {
 
 auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void> {
-    auto expected = dlc_to_bytes(dlc);
+    auto const expected = dlc_to_bytes(dlc);
     if (data.size() != expected)
         return std::unexpected(
             AletheiaError{ErrorKind::Validation,
@@ -108,7 +108,7 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     // Parity with the `rts.cores_mismatch` event of Go (go/aletheia/ffi.go) and
     // Python (python/aletheia/client/_ffi.py), both of which carry
     // `active_cores` and `requested_cores` integer fields.
-    if (auto rts = backend_->rts_mismatch_info(); rts) {
+    if (auto const rts = backend_->rts_mismatch_info(); rts) {
         auto const active = static_cast<std::int64_t>(rts.value().first);
         auto const requested = static_cast<std::int64_t>(rts.value().second);
         logger_.warn("rts.cores_mismatch",
@@ -160,7 +160,7 @@ void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
     signal_index_.clear();
     signal_names_.clear();
     for (auto const& msg : dbc.messages) {
-        auto id_value = can_id_value(msg.id);
+        auto const id_value = can_id_value(msg.id);
         auto const is_extended = can_id_is_extended(msg.id);
         std::vector<std::string> names;
         for (auto const [i, signal] : std::views::enumerate(msg.signals)) {
@@ -264,7 +264,7 @@ static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t 
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Zero denominator in extraction value for {}", std::string_view{name})});
-    auto rat_or_err = Rational::make(num, den);
+    auto const rat_or_err = Rational::make(num, den);
     if (!rat_or_err)
         return std::unexpected(
             AletheiaError{ErrorKind::Protocol,
@@ -474,11 +474,11 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
     // ErrorKind::BinaryUnsupported (e.g. MockBackend) triggers the JSON
     // fallback — any other error (decode / truncation / real FFI failure)
     // propagates, matching Go's ErrBinaryPathUnsupported contract.
-    auto id_value = can_id_value(id);
+    auto const id_value = can_id_value(id);
     auto const is_extended = can_id_is_extended(id);
     auto const names_it = signal_names_.find(detail::MessageKey{id_value, is_extended});
     if (names_it != signal_names_.end()) {
-        auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
+        auto const buf = backend_->extract_signals_bin(state_, id, dlc, data);
         if (buf)
             return parse_extraction_bin(buf.value(), names_it->second);
         if (detail::error_of(buf).kind() != ErrorKind::BinaryUnsupported)
@@ -492,7 +492,7 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
 }
 
 auto AletheiaClient::ResolvedSignals::injection() const -> Result<SignalInjection> {
-    auto block = SignalInjection::create(indices, numerators, denominators);
+    auto const block = SignalInjection::create(indices, numerators, denominators);
     if (!block)
         return std::unexpected(AletheiaError{ErrorKind::Validation, detail::error_of(block)});
     return block.value();
@@ -504,8 +504,8 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
     if (signal_index_.empty())
         return std::unexpected(AletheiaError{
             ErrorKind::State, std::format("{}: no DBC loaded (call parse_dbc first)", method)});
-    auto id_value = can_id_value(id);
-    auto is_extended = can_id_is_extended(id);
+    auto const id_value = can_id_value(id);
+    auto const is_extended = can_id_is_extended(id);
 
     // Distinguish "this CAN ID has no DBC message" from "this message lacks this
     // signal": without this guard a missing message collapses into the per-signal
@@ -544,11 +544,11 @@ auto AletheiaClient::build_frame(std::stop_token stop, CanId id, Dlc dlc,
                                  std::span<const SignalValue> signals) -> Result<FramePayload> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("build_frame"));
-    auto resolved = resolve_signals("build_frame", id, signals);
+    auto const resolved = resolve_signals("build_frame", id, signals);
     if (!resolved) {
         return std::unexpected(detail::error_of(resolved));
     }
-    auto inj = resolved.value().injection();
+    auto const inj = resolved.value().injection();
     if (!inj)
         return std::unexpected(detail::error_of(inj));
     return backend_->build_frame_bin(state_, id, dlc, inj.value(), dlc_to_bytes(dlc));
@@ -562,11 +562,11 @@ auto AletheiaClient::update_frame(std::stop_token stop, CanId id, Dlc dlc,
     if (auto const v = validate_payload(dlc, data); !v.has_value()) {
         return std::unexpected(detail::error_of(v));
     }
-    auto resolved = resolve_signals("update_frame", id, signals);
+    auto const resolved = resolve_signals("update_frame", id, signals);
     if (!resolved) {
         return std::unexpected(detail::error_of(resolved));
     }
-    auto inj = resolved.value().injection();
+    auto const inj = resolved.value().injection();
     if (!inj)
         return std::unexpected(detail::error_of(inj));
     return backend_->update_frame_bin(state_, id, dlc, data, inj.value(), dlc_to_bytes(dlc));
@@ -582,7 +582,7 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
     // as std::nullopt.
     auto const names_it = signal_names_.find(detail::MessageKey{id_value, is_extended});
     if (names_it != signal_names_.end()) {
-        auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
+        auto const buf = backend_->extract_signals_bin(state_, id, dlc, data);
         if (buf) {
             auto bin_result = parse_extraction_bin(buf.value(), names_it->second);
             if (!bin_result) {

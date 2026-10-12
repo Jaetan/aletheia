@@ -201,7 +201,7 @@ static auto minimal_dbc() -> aletheia::DbcDefinition {
         aletheia::Dlc, aletheia::MessageName, aletheia::NodeName, aletheia::Rational,
         aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset,
         aletheia::SignalName, aletheia::StandardId, aletheia::Unit;
-    DbcSignal engine_speed{
+    const DbcSignal engine_speed{
         .name = SignalName{"EngineSpeed"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -214,7 +214,7 @@ static auto minimal_dbc() -> aletheia::DbcDefinition {
         .unit = Unit{"rpm"},
         .presence = AlwaysPresent{},
     };
-    DbcMessage engine_msg{
+    const DbcMessage engine_msg{
         .id = CanId{StandardId::create(0x100).value()},
         .name = MessageName{"EngineStatus"},
         .dlc = Dlc::create(8).value(),
@@ -260,7 +260,7 @@ static auto env_count(const char* name, int default_value) -> int {
     const std::string_view text{env};
     int value = 0;
     auto const* const last = std::to_address(text.end());
-    auto [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
+    auto const [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
     if (ec != std::errc{} || end != last || value <= 0)
         throw std::runtime_error(
             std::format("{} must be a positive whole number, got '{}'", name, text));

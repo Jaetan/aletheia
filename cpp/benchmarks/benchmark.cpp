@@ -113,7 +113,7 @@ auto get_system_info() -> Json {
 }
 
 auto iso_timestamp() -> std::string {
-    auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    auto const now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
     return std::format("{:%FT%TZ}", now);
 }
 
@@ -156,7 +156,7 @@ static void print_usage(std::string_view argv0) {
 static auto parse_count(std::string_view option, std::string_view text) -> int {
     int value = 0;
     auto const* const last = std::to_address(text.end());
-    auto [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
+    auto const [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
     if (ec != std::errc{} || end != last || value < 0) {
         std::println(stderr, "{} expects a non-negative whole number, got '{}'", option, text);
         std::exit(1);
@@ -192,7 +192,7 @@ static auto parse_args(std::span<char* const> argv) -> Args {
         return value;
     };
     while (!rest.empty()) {
-        auto arg = std::string_view{rest.front()};
+        auto const arg = std::string_view{rest.front()};
         rest = rest.subspan(1);
         auto const has_value = !rest.empty();
         if (arg == "--json") {

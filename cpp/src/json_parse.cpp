@@ -306,7 +306,7 @@ auto parse_rational(const Json& j) -> Rational {
         return Rational{require_int<std::int64_t>(j, "rational integer"), std::int64_t{1}};
     // contains() answers false on anything but an object, so it is the one test.
     if (j.contains("numerator") && j.contains("denominator")) {
-        auto [num, den] = parse_rational_dict(j);
+        auto const [num, den] = parse_rational_dict(j);
         return Rational{num, den};
     }
     throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
@@ -419,7 +419,7 @@ auto parse_event_ack(std::string_view input) -> Result<void> {
 
 auto parse_validation(std::string_view input) -> Result<ValidationResult> {
     try {
-        auto j = parse_bounded(input);
+        auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Validation, j));
@@ -477,7 +477,7 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
 
 auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
     try {
-        auto j = parse_bounded(input);
+        auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -509,13 +509,13 @@ static auto parse_property_result_entry(const Json& r) -> PropertyResult {
     auto const verdict = lookup(verdicts, entry_status);
     if (!verdict)
         throw std::runtime_error("Unknown verdict status: " + entry_status);
-    auto idx = parse_rational_as_int(r.at("property_index"));
+    auto const idx = parse_rational_as_int(r.at("property_index"));
     if (idx < 0)
         throw std::runtime_error("Negative property_index: " + std::to_string(idx));
 
     std::optional<Timestamp> ts;
     if (r.contains("timestamp")) {
-        auto ts_val = parse_rational_as_int(r.at("timestamp"));
+        auto const ts_val = parse_rational_as_int(r.at("timestamp"));
         if (ts_val < 0)
             throw std::runtime_error("Negative timestamp: " + std::to_string(ts_val));
         ts = Timestamp{ts_val};
@@ -543,7 +543,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         return FrameResponse{Ack{}};
 
     try {
-        auto j = parse_bounded(input);
+        auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
 
         if (status == "ack")
@@ -583,7 +583,7 @@ static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
     if (!w.contains("property_index"))
         throw std::runtime_error("Warning entry missing required 'property_index' field");
     auto kind = w.value("kind", "");
-    auto idx = parse_rational_as_int(w.at("property_index"));
+    auto const idx = parse_rational_as_int(w.at("property_index"));
     if (idx < 0)
         throw std::runtime_error("Negative warning property_index: " + std::to_string(idx));
     auto detail = w.value("detail", "");
@@ -596,7 +596,7 @@ static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
 
 auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
     try {
-        auto j = parse_bounded(input);
+        auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
 
         if (status == "error")
@@ -621,7 +621,7 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
 
 auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
     try {
-        auto j = parse_bounded(input);
+        auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -639,7 +639,7 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
 
 auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
     try {
-        auto j = parse_bounded(input);
+        auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -668,7 +668,7 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
 
 auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
     try {
-        auto j = parse_bounded(input);
+        auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));

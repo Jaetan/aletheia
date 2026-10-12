@@ -83,7 +83,7 @@ static auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
     // the Agda wire form for "extended" (omitted on standard frames) and
     // "presence" (explicit "always"), so no post-processing is needed.
     auto const envelope = detail::serialize_parsed_dbc_response(dbc);
-    auto parsed = nlohmann::json::parse(envelope);
+    auto const parsed = nlohmann::json::parse(envelope);
     return parsed.at("dbc").dump(2) + "\n";
 }
 
@@ -108,14 +108,14 @@ TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",
     for (auto const& dbc_path : dbc_files) {
         DYNAMIC_SECTION("corpus DBC: " << dbc_path.filename().string()) {
             auto const text = read_text_file(dbc_path);
-            auto result = client.parse_dbc_text(std::stop_token{}, text);
+            auto const result = client.parse_dbc_text(std::stop_token{}, text);
             REQUIRE(result.has_value());
 
-            auto actual = canonical_dbc_json(result->dbc);
+            auto const actual = canonical_dbc_json(result->dbc);
 
             auto const snapshot_path = parity_dir / (dbc_path.stem().string() + ".json");
             REQUIRE(fs::exists(snapshot_path));
-            auto expected = read_text_file(snapshot_path);
+            auto const expected = read_text_file(snapshot_path);
 
             CHECK(actual == expected);
         }

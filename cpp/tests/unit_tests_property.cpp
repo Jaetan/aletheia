@@ -39,11 +39,11 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
     // Serialize a wire-form DBC carrying the Rational as a signal factor;
     // round-trip through serialize → parse and assert value equality
     // (cross-multiplication, avoids canonical-form reasoning).
-    auto sid = StandardId::create(0x100);
+    auto const sid = StandardId::create(0x100);
     REQUIRE(sid.has_value());
-    auto dlc = Dlc::create(8);
+    auto const dlc = Dlc::create(8);
     REQUIRE(dlc.has_value());
-    DbcSignal sig{
+    const DbcSignal sig{
         .name = SignalName{"S"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -67,7 +67,7 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
         }},
     };
     auto const wire = detail::serialize_parsed_dbc_response(dbc);
-    auto parsed = detail::parse_parsed_dbc(wire);
+    auto const parsed = detail::parse_parsed_dbc(wire);
     REQUIRE(parsed.has_value());
     REQUIRE(parsed.value().dbc.messages.size() == 1);
     REQUIRE(parsed.value().dbc.messages[0].signals.size() == 1);

@@ -100,7 +100,7 @@ TEST_CASE("rts_cores_mismatch: matching cores yield no mismatch", "[ffi][logic][
 
 TEST_CASE("rts_cores_mismatch: differing cores report {active, requested}", "[ffi][logic][rts]") {
     // A second backend asks for four cores where one is already running.
-    auto mismatch = detail::rts_cores_mismatch(4, 1);
+    auto const mismatch = detail::rts_cores_mismatch(4, 1);
     REQUIRE(mismatch.has_value());
     CHECK(mismatch->first == 1);  // active
     CHECK(mismatch->second == 4); // requested
@@ -122,7 +122,7 @@ TEST_CASE("ffi_error_from_status: non-zero status decodes the envelope's code an
     // mutable: buf.data() binds to char*
     std::string buf =
         R"({"status": "error", "code": "handler_no_dbc", "message": "no DBC loaded"})";
-    auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+    auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
     REQUIRE(err.has_value());
     CHECK(err->kind() == ErrorKind::Protocol);
     CHECK(err->code() == ErrorCode::HandlerNoDbc);
@@ -141,7 +141,7 @@ TEST_CASE("ffi_error_from_status: the shim's own refusal keeps its message under
     reset_free();
     std::string buf = R"({"status":"error","code":"ffi_validation_error",)"
                       R"("message":"aletheia_build_frame_bin: null out buffer"})";
-    auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+    auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
     REQUIRE(err.has_value());
     CHECK(err->kind() == ErrorKind::Protocol);
     CHECK(err->code() == ErrorCode::Unknown);
@@ -155,7 +155,7 @@ TEST_CASE("ffi_error_from_status: an input-bound envelope carries its kind and i
     std::string buf = R"({"status":"error","code":"input_bound_exceeded",)"
                       R"("message":"array cardinality 2000 exceeds limit 1024",)"
                       R"("bound_kind":"array_cardinality","observed":2000,"limit":1024})";
-    auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+    auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
     REQUIRE(err.has_value());
     CHECK(err->kind() == ErrorKind::InputBoundExceeded);
     CHECK(err->code() == ErrorCode::InputBoundExceeded);
@@ -171,7 +171,7 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
     reset_free();
     SECTION("text that does not parse") {
         std::string buf = "boom";
-        auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+        auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
         CHECK(err->code() == ErrorCode::Unknown);
@@ -180,7 +180,7 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
     }
     SECTION("an envelope whose status is not error") {
         std::string buf = R"({"status":"success","code":"handler_no_dbc","message":"m"})";
-        auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+        auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
         CHECK(err->code() == ErrorCode::Unknown);
@@ -189,7 +189,7 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
     }
     SECTION("an envelope without its message") {
         std::string buf = R"({"status":"error","code":"handler_no_dbc"})";
-        auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+        auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
         CHECK(err->code() == ErrorCode::Unknown);
@@ -202,7 +202,7 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
 TEST_CASE("ffi_error_from_status: non-zero status without message falls back, frees nothing",
           "[ffi][logic][error]") {
     reset_free();
-    auto err = detail::ffi_error_from_status(1, nullptr, mock_free);
+    auto const err = detail::ffi_error_from_status(1, nullptr, mock_free);
     REQUIRE(err.has_value());
     CHECK(err->kind() == ErrorKind::Protocol);
     CHECK(std::string{err->message()} == "Unknown error");

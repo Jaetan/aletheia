@@ -53,7 +53,7 @@ TEST_CASE("the FFI backend is refused a library path that is empty", "[integrati
 // payload, so only the exact rule refuses them, one from below and one from
 // above.
 TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", "[integration]") {
-    auto backend = make_ffi_backend(find_lib());
+    auto const backend = make_ffi_backend(find_lib());
     auto const state = backend->init();
     auto const id = CanId{StandardId::create(0x100).value()};
     const std::vector<std::uint32_t> indices{0};
@@ -114,7 +114,7 @@ TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", 
 // client would never make, a command past the JSON cap or a message the DBC
 // lacks, is a legitimate call on that interface and not a fabricated state.
 TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]") {
-    auto backend = make_ffi_backend(find_lib());
+    auto const backend = make_ffi_backend(find_lib());
     auto const state = backend->init();
     // No DBC is loaded, so every binary endpoint the kernel reaches refuses.
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -156,7 +156,7 @@ TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]
 // entry the way the backend does, through the library's own symbol.
 TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
+    auto const backend = make_ffi_backend(lib);
     auto const state = backend->init();
     const aletheia::test::LoadedLibrary handle{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     REQUIRE(handle != nullptr);
@@ -273,7 +273,7 @@ TEST_CASE("a CAN-FD frame is built and updated at its full length", "[integratio
 // frame before writing into it, and hands back how much it wrote into one
 // longer than the frame, which the backend trims the result to.
 TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[integration]") {
-    auto backend = make_ffi_backend(find_lib());
+    auto const backend = make_ffi_backend(find_lib());
     auto const state = backend->init();
     REQUIRE(backend
                 ->process(state, R"({"type":"command","command":"parseDBC","dbc":{)"
@@ -377,12 +377,12 @@ TEST_CASE("build frame via real FFI", "[integration]") {
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
-    std::vector<SignalValue> signals{
+    const std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}, // raw = 1000
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},  // raw = 3000
     };
 
-    auto result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    auto const result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
     REQUIRE(result.has_value());
     // Speed: 1000 = 0x03E8 LE → [0xE8, 0x03]
     CHECK((*result)[0] == std::byte{0xE8});
@@ -404,14 +404,15 @@ TEST_CASE("build then extract round-trip on an extended CAN ID via real FFI", "[
     dbc.messages[0].id = id;
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
-    std::vector<SignalValue> signals{
+    const std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{85, 2}}},
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1500, 1}}},
     };
-    auto built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    auto const built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
     REQUIRE(built.has_value());
 
-    auto extracted = client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
+    auto const extracted =
+        client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
     REQUIRE(extracted.has_value());
     CHECK(extracted->get(SignalName{"Speed"}).get() == Rational{85, 2});
     CHECK(extracted->get(SignalName{"RPM"}).get() == Rational{1500, 1});
@@ -428,10 +429,10 @@ TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[in
     // missing message ("no DBC message for CAN ID"), distinct from the per-signal
     // "signal not found", matching Go (resolveSignalIndices) and Python.
     auto const id = CanId{StandardId::create(0x200).value()};
-    std::vector<SignalValue> signals{
+    const std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
     };
-    auto result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    auto const result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
     CHECK(std::string_view{result.error().message()}.contains("no DBC message for CAN ID"));
@@ -445,15 +446,16 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
-    std::vector<SignalValue> signals{
+    const std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{85, 2}}},
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1500, 1}}},
     };
 
-    auto built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    auto const built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
     REQUIRE(built.has_value());
 
-    auto extracted = client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
+    auto const extracted =
+        client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
     REQUIRE(extracted.has_value());
     // Each value is one a raw value scales to exactly, so it comes back unchanged.
     CHECK(extracted->get(SignalName{"Speed"}).get() == Rational{85, 2});
@@ -613,7 +615,7 @@ TEST_CASE("FFI payload guards accept a payload of its DLC's length, 64 bytes inc
     // rejecting the exact length fails the check.
     auto const accepts_64 = [&](auto&& call) {
         try {
-            auto result = call();
+            auto const result = call();
             if (!result.has_value())
                 CHECK_FALSE(mentions_mismatch(result.error().message()));
         } catch (const AletheiaException& e) {

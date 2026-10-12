@@ -40,10 +40,10 @@ using namespace aletheia;
 // admits it, but the .dbc text form cannot express it, so re-parsing the emitted
 // text does not reproduce the input DBC — format_dbc_text refuses it.
 static auto make_multi_value_mux_dbc() -> DbcDefinition {
-    auto id = StandardId::create(0x123).value();
+    auto const id = StandardId::create(0x123).value();
     auto const dlc = Dlc::create(8).value();
 
-    DbcSignal selector{
+    const DbcSignal selector{
         .name = SignalName{"Selector"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{8},
@@ -56,7 +56,7 @@ static auto make_multi_value_mux_dbc() -> DbcDefinition {
         .unit = Unit{""},
         .presence = AlwaysPresent{},
     };
-    DbcSignal payload{
+    const DbcSignal payload{
         .name = SignalName{"Payload"},
         .start_bit = BitPosition{8},
         .bit_length = BitLength{8},
@@ -87,7 +87,7 @@ static auto make_multi_value_mux_dbc() -> DbcDefinition {
 // cycle — but .dbc text keeps a single M marker, so re-parsing the emitted
 // text would rebind every slave to one master; the JSON side admits the shape.
 static auto make_split_master_mux_dbc() -> DbcDefinition {
-    auto id = StandardId::create(0x124).value();
+    auto const id = StandardId::create(0x124).value();
     auto const dlc = Dlc::create(8).value();
 
     auto const make_sig = [](std::string_view name, std::uint16_t start_bit,
@@ -150,20 +150,21 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     // Speed 100, 120 and 150 km/h at the DBC's factor of one tenth, all
     // under the threshold.
     for (auto const raw : {std::uint16_t{1000}, std::uint16_t{1200}, std::uint16_t{1500}}) {
-        FramePayload data{static_cast<std::byte>(raw & 0xFFU),
-                          static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0}};
-        auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+        const FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+                                static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
+                                std::byte{0},
+                                std::byte{0},
+                                std::byte{0},
+                                std::byte{0},
+                                std::byte{0},
+                                std::byte{0}};
+        auto const result =
+            client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
         REQUIRE(result.has_value());
         CHECK(std::holds_alternative<Ack>(*result));
     }
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Holds);
@@ -192,21 +193,22 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     // Speed 100, 110 and 150 km/h at the DBC's factor of one tenth; the last
     // one breaks the threshold.
     for (auto const raw : {std::uint16_t{1000}, std::uint16_t{1100}, std::uint16_t{1500}}) {
-        FramePayload data{static_cast<std::byte>(raw & 0xFFU),
-                          static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0}};
-        auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+        const FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+                                static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
+                                std::byte{0},
+                                std::byte{0},
+                                std::byte{0},
+                                std::byte{0},
+                                std::byte{0},
+                                std::byte{0}};
+        auto const result =
+            client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
         REQUIRE(result.has_value());
         if (std::holds_alternative<PropertyBatch>(*result))
             got_violation = true;
     }
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
 
     // Either got a mid-stream violation or end-of-stream violation
@@ -236,26 +238,26 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload payload{std::byte{10}, std::byte{0}, std::byte{0}, std::byte{0},
-                         std::byte{0},  std::byte{0}, std::byte{0}, std::byte{0}};
+    const FramePayload payload{std::byte{10}, std::byte{0}, std::byte{0}, std::byte{0},
+                               std::byte{0},  std::byte{0}, std::byte{0}, std::byte{0}};
 
     // First frame at t=5000 µs — accepted.
-    auto ok = client.send_frame(std::stop_token{}, Timestamp{5000}, id, dlc, payload);
+    auto const ok = client.send_frame(std::stop_token{}, Timestamp{5000}, id, dlc, payload);
     REQUIRE(ok.has_value());
     CHECK(std::holds_alternative<Ack>(*ok));
 
     // Regressing to t=4999 µs — rejected by Agda.
-    auto err = client.send_frame(std::stop_token{}, Timestamp{4999}, id, dlc, payload);
+    auto const err = client.send_frame(std::stop_token{}, Timestamp{4999}, id, dlc, payload);
     REQUIRE_FALSE(err.has_value());
     CHECK(err.error().code() == ErrorCode::HandlerNonMonotonicTimestamp);
 
     // Same-timestamp frames (≥, not >) are accepted.
-    auto eq = client.send_frame(std::stop_token{}, Timestamp{5000}, id, dlc, payload);
+    auto const eq = client.send_frame(std::stop_token{}, Timestamp{5000}, id, dlc, payload);
     REQUIRE(eq.has_value());
     CHECK(std::holds_alternative<Ack>(*eq));
 
     // Anchor unchanged after rejection — next ≥ 5000 still accepted.
-    auto fwd = client.send_frame(std::stop_token{}, Timestamp{6000}, id, dlc, payload);
+    auto const fwd = client.send_frame(std::stop_token{}, Timestamp{6000}, id, dlc, payload);
     REQUIRE(fwd.has_value());
     CHECK(std::holds_alternative<Ack>(*fwd));
 
@@ -268,7 +270,7 @@ TEST_CASE("validate DBC via real FFI", "[integration]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto result = client.validate_dbc(std::stop_token{}, make_integration_dbc());
+    auto const result = client.validate_dbc(std::stop_token{}, make_integration_dbc());
     REQUIRE(result.has_value());
     // Our test DBC is well-formed — no errors expected
     CHECK_FALSE(result->has_errors);
@@ -294,7 +296,7 @@ BO_ 300 Transmission: 8 ECU
 VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
 )";
 
-    auto parsed = client.parse_dbc_text(std::stop_token{}, text);
+    auto const parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE(parsed.has_value());
     REQUIRE(parsed->dbc.messages.size() == 1);
     REQUIRE(parsed->dbc.messages[0].signals.size() == 1);
@@ -309,7 +311,7 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
     CHECK(sig.value_descriptions[3].value == 3);
     CHECK(sig.value_descriptions[3].description == "Stall");
 
-    auto formatted = client.format_dbc_text(std::stop_token{}, parsed->dbc);
+    auto const formatted = client.format_dbc_text(std::stop_token{}, parsed->dbc);
     REQUIRE(formatted.has_value());
     constexpr std::string_view want_line =
         R"(VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;)";
@@ -328,7 +330,7 @@ TEST_CASE("format_dbc_text refuses a multi-value mux via real FFI",
     // A multi-value mux selector does not round-trip through .dbc text, so the
     // always-strict formatter refuses it with a typed round-trip error rather
     // than emitting lossy text.
-    auto result = client.format_dbc_text(std::stop_token{}, make_multi_value_mux_dbc());
+    auto const result = client.format_dbc_text(std::stop_token{}, make_multi_value_mux_dbc());
     REQUIRE_FALSE(result.has_value());
     auto const& err = result.error();
     CHECK(err.kind() == ErrorKind::TextRoundtrip);
@@ -369,7 +371,7 @@ BO_ 256 Engine: 8 ECU
 VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
 )";
 
-    auto parsed = client.parse_dbc_text(std::stop_token{}, text);
+    auto const parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE(parsed.has_value());
     auto const hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
         return issue.code == IssueCode::UnknownValueDescriptionTarget;
@@ -385,13 +387,13 @@ TEST_CASE("CHECK 24 multi_value_mux_selector warning via real FFI",
 
     // validate_dbc mirrors the round-trip diagnostic warning-class: the shape
     // loads and streams fine, so has_errors stays false.
-    auto result = client.validate_dbc(std::stop_token{}, make_multi_value_mux_dbc());
+    auto const result = client.validate_dbc(std::stop_token{}, make_multi_value_mux_dbc());
     REQUIRE(result.has_value());
     CHECK_FALSE(result->has_errors);
     CHECK(has_warning(result->issues, IssueCode::MultiValueMuxSelector));
 
     // The load route surfaces the same warning without blocking.
-    auto parsed = client.parse_dbc(std::stop_token{}, make_multi_value_mux_dbc());
+    auto const parsed = client.parse_dbc(std::stop_token{}, make_multi_value_mux_dbc());
     REQUIRE(parsed.has_value());
     CHECK(has_warning(parsed->warnings, IssueCode::MultiValueMuxSelector));
 }
@@ -404,13 +406,13 @@ TEST_CASE("CHECK 25 mux_master_incoherent warning via real FFI",
 
     // The split-master shape passes every error-class mux check, so only the
     // warning-class mirror names it.
-    auto result = client.validate_dbc(std::stop_token{}, make_split_master_mux_dbc());
+    auto const result = client.validate_dbc(std::stop_token{}, make_split_master_mux_dbc());
     REQUIRE(result.has_value());
     CHECK_FALSE(result->has_errors);
     CHECK(has_warning(result->issues, IssueCode::MuxMasterIncoherent));
 
     // The load route surfaces the same warning without blocking.
-    auto parsed = client.parse_dbc(std::stop_token{}, make_split_master_mux_dbc());
+    auto const parsed = client.parse_dbc(std::stop_token{}, make_split_master_mux_dbc());
     REQUIRE(parsed.has_value());
     CHECK(has_warning(parsed->warnings, IssueCode::MuxMasterIncoherent));
 }
@@ -532,7 +534,7 @@ BO_ 256 EngineStatus: 8 Engine
  SG_ EngineSpeed : 16|8@1+ (1,-40) [-40|215] "degC" Gateway
 )";
 
-    auto parsed = client.parse_dbc_text(std::stop_token{}, text);
+    auto const parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE_FALSE(parsed.has_value());
     CHECK(parsed.error().code() == ErrorCode::HandlerValidationFailed);
     CHECK(std::string{parsed.error().message()}.contains("duplicate signal name"));

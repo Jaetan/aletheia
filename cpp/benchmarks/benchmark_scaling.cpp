@@ -396,12 +396,12 @@ static auto scan_property_count(const fs::path& lib, const DbcDefinition& dbc, i
             props.reserve(count);
             for (auto const i : std::views::iota(0, count))
                 props.push_back(make_scaling_property(i));
-            auto fps =
+            auto const fps =
                 mean_fps(lib, dbc, can20_id, can20_dlc, can20_frame(), props, num_frames, num_runs);
             if (baseline == 0)
                 baseline = fps;
-            auto relative = relative_of(fps, baseline);
-            auto us = us_per_frame_of(fps);
+            auto const relative = relative_of(fps, baseline);
+            auto const us = us_per_frame_of(fps);
             std::println(out_file(), "{:10} {:12.0f} {:10.1f} {:10.2f}x", count, fps, us, relative);
             prop_count.push_back(
                 {.properties = count, .fps = fps, .us_per_frame = us, .relative = relative});
@@ -422,12 +422,12 @@ static auto scan_property_complexity(const fs::path& lib, const DbcDefinition& d
     std::vector<ComplexityRow> complexity;
     double baseline = 0;
     for (auto const& [label, props] : complexity_levels()) {
-        auto fps =
+        auto const fps =
             mean_fps(lib, dbc, can20_id, can20_dlc, can20_frame(), props, num_frames, num_runs);
         if (baseline == 0)
             baseline = fps;
-        auto relative = relative_of(fps, baseline);
-        auto us = us_per_frame_of(fps);
+        auto const relative = relative_of(fps, baseline);
+        auto const us = us_per_frame_of(fps);
         std::println(out_file(), "{:<25} {:12.0f} {:10.1f} {:10.2f}x", label, fps, us, relative);
         complexity.push_back(
             {.complexity = label, .fps = fps, .us_per_frame = us, .relative = relative});
@@ -496,10 +496,10 @@ void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit_json) 
         std::vector<TraceSizeRow> rows;
         double baseline = 0;
         for (auto const size : trace_sizes(quick)) {
-            auto fps = mean_fps(lib, dbc, id, dlc, frame, props, size, num_runs);
+            auto const fps = mean_fps(lib, dbc, id, dlc, frame, props, size, num_runs);
             if (baseline == 0)
                 baseline = fps;
-            auto relative = relative_of(fps, baseline);
+            auto const relative = relative_of(fps, baseline);
             std::println(out_file(), "{:10} {:12.0f} {:10.2f}x", size, fps, relative);
             rows.push_back({.frames = size, .fps = fps, .relative = relative});
         }

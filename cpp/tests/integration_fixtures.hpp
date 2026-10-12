@@ -19,10 +19,10 @@ namespace aletheia::test {
 // ---------------------------------------------------------------------------
 
 inline auto make_integration_dbc() -> DbcDefinition {
-    auto speed_id = StandardId::create(0x100).value();
+    auto const speed_id = StandardId::create(0x100).value();
     auto const speed_dlc = Dlc::create(8).value();
 
-    DbcSignal speed_sig{
+    const DbcSignal speed_sig{
         .name = SignalName{"Speed"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -36,7 +36,7 @@ inline auto make_integration_dbc() -> DbcDefinition {
         .presence = AlwaysPresent{},
     };
 
-    DbcSignal rpm_sig{
+    const DbcSignal rpm_sig{
         .name = SignalName{"RPM"},
         .start_bit = BitPosition{16},
         .bit_length = BitLength{16},

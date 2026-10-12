@@ -267,7 +267,7 @@ namespace ltl {
 // by their members rather than by type; an alternative of a new shape fails
 // the final static_assert.
 [[nodiscard]] inline auto clone(const LtlFormula& f) -> LtlFormula {
-    auto cp = [](const std::unique_ptr<LtlFormula>& p) -> std::unique_ptr<LtlFormula> {
+    auto const cp = [](const std::unique_ptr<LtlFormula>& p) -> std::unique_ptr<LtlFormula> {
         return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;
     };
     return f.visit([&cp](auto const& v) -> LtlFormula {
