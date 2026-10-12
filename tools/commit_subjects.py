@@ -34,8 +34,8 @@ A label is the author's claim, so it is held to the files the branch changes
 where a file can say it (``mislabelled``): a branch that changes what users get
 (``ships``) carries a label naming a shipped scope, or none, never internal ones
 alone.  A behaviour change filed as a ``refactor`` of a shipped scope reads the
-same as a real one from its files, and stays a reviewer's call; so do the dist
-lines of ``Shakefile.hs``, a build file that holds the gates as well.
+same as a real one from its files, and stays a reviewer's call; so does a change
+to the dist rules, ``shake/Rules/Dist.hs``, which ``ships`` leaves out.
 
 Nothing here needs a package beyond the standard library and the project's own,
 so the pull-request title check runs on a bare interpreter.

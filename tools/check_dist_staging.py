@@ -4,7 +4,7 @@
 
 ``cabal run shake -- dist`` stages each language binding into the release
 bundle with ``git archive HEAD <pathspecs>`` (the ``stageBinding`` call sites
-in ``Shakefile.hs``), copies the consumer entry scripts from ``packaging/``,
+of the dist rule, ``shake/Rules/Dist.hs``), copies the consumer entry scripts from ``packaging/``,
 and ships ``LICENSE.md``.  All of that runs only at release time, so a broken
 input — a renamed path, a dead exclude glob, an untracked script — used to
 surface (or worse, NOT surface) only when a tag was cut.  This gate re-checks
@@ -30,25 +30,22 @@ index, which is exactly the staged content the pre-commit FAST tier checks):
 * ``LICENSE.md`` must be git-tracked (dist ships it with the bundle — BSD-2
   requires the notice to travel with redistributions).
 
-The pathspec lists are parsed out of ``Shakefile.hs`` as literal Haskell
-list-of-string arguments.  The parse fails CLOSED: an expected binding
-missing, a call site not followed by a literal ``[...]`` list, a string using
-Haskell escape/gap syntax (which this gate does not interpret), an
-unterminated literal, or unknown pathspec magic all exit 2 rather than
-checking a partial read; a quote-count cross-check additionally asserts that
-every double-quoted literal inside each block was captured.
+The pathspec lists are parsed out of the build program (``Shakefile.hs`` and
+the modules under ``shake/``) as literal Haskell list-of-string arguments.
+The parse fails CLOSED: an expected binding missing, a call site not followed
+by a literal ``[...]`` list, a string using Haskell escape/gap syntax (which
+this gate does not interpret), an unterminated literal, or unknown pathspec
+magic all exit 2 rather than checking a partial read; a quote-count
+cross-check additionally asserts that every double-quoted literal inside each
+block was captured.
 
 Exit codes:
   0 — all staging inputs resolve.
   1 — at least one broken input (dead pathspec, leaked go.work, untracked or
       syntax-broken packaging script), each named with a remedy.
-  2 — could not check: unparseable Shakefile, missing input, or a required
-      tool absent on a CI runner (a vacuous pass is refused).
-
-Forward-revert verified 2026-07-19: pointing --shakefile at a doctored copy
-(renamed positive path / dead exclude glob / a go positive matching go.work)
-exits 1 naming the pathspec, and a multiline-gap literal exits 2; the real
-tree returns to exit 0.
+  2 — could not check: an unparseable or absent build program, a missing
+      input, or a required tool absent on a CI runner (a vacuous pass is
+      refused).
 """
 
 from __future__ import annotations
@@ -61,13 +58,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from tools._common import emit, find_executable, run_capture
+from tools._common import emit, find_executable, read_shake_program, run_capture
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SHAKEFILE = REPO_ROOT / "Shakefile.hs"
 
 # The bindings the dist bundle ships; a stageBinding call site must exist for
-# each (Shakefile.hs is the staging SSOT — adding a binding there extends this
+# each (the dist rule is the staging SSOT — adding a binding there extends this
 # set in the same commit).
 EXPECTED_BINDINGS: frozenset[str] = frozenset({"python", "cpp", "go", "rust"})
 
@@ -226,7 +222,7 @@ def _classify(name: str, literals: list[str]) -> BindingSpec:
 
 
 def parse_stage_bindings(text: str) -> list[BindingSpec]:
-    """Parse every ``stageBinding`` call site's pathspec list out of the Shakefile.
+    """Parse every ``stageBinding`` call site's pathspec list out of the build program.
 
     Raises :class:`DistStagingError` when any expected binding is missing or
     any block cannot be read as a literal list of plain strings.  A
@@ -250,7 +246,7 @@ def parse_stage_bindings(text: str) -> list[BindingSpec]:
     if missing:
         message = (
             f"expected stageBinding call sites not found for: {', '.join(sorted(missing))} "
-            + "— the staging layout in Shakefile.hs changed; update this gate with it"
+            + "— the staging layout of the dist rule changed; update this gate with it"
         )
         raise DistStagingError(message)
     return bindings
@@ -282,7 +278,7 @@ def check_pathspecs_resolve(repo_root: Path, bindings: list[BindingSpec]) -> lis
         failures.extend(
             f"binding '{binding.name}': positive pathspec '{spec}' matches no "
             + "tracked file — git archive would fail at release time; fix the "
-            + "path in Shakefile.hs or restore the files"
+            + "path in shake/Rules/Dist.hs or restore the files"
             for spec in binding.positives
             if not git_ls_files(repo_root, (spec,))
         )
@@ -290,7 +286,7 @@ def check_pathspecs_resolve(repo_root: Path, bindings: list[BindingSpec]) -> lis
             f"binding '{binding.name}': exclude pathspec "
             + f"'{_EXCLUDE_PREFIX}{inner}' matches no tracked file — git archive "
             + "passes SILENTLY over a dead exclude, so the files it was meant to "
-            + "keep out of the bundle would ship; fix the glob in Shakefile.hs"
+            + "keep out of the bundle would ship; fix the glob in shake/Rules/Dist.hs"
             for inner in binding.excludes
             if not git_ls_files(repo_root, (inner,))
         )
@@ -311,7 +307,7 @@ def check_go_work_not_staged(repo_root: Path, bindings: list[BindingSpec]) -> li
             failures.append(
                 f"binding 'go': its pathspecs select '{GO_WORK}', which would ship in "
                 + "the bundle and hijack a consumer's Go module resolution — narrow the "
-                + "pathspecs in Shakefile.hs"
+                + "pathspecs in shake/Rules/Dist.hs"
             )
     return failures
 
@@ -354,12 +350,13 @@ def check_license_tracked(repo_root: Path) -> list[str]:
     return []
 
 
-def _read_shakefile(path: Path) -> str:
-    """Return the Shakefile's text, raising the could-not-check class when absent."""
-    if not path.is_file():
-        message = f"Shakefile not found: {path}"
-        raise DistStagingError(message)
-    return path.read_text(encoding="utf-8")
+def _read_build_program(root: Path) -> str:
+    """Return the build program's text under ``root``, raising the could-not-check class."""
+    try:
+        return read_shake_program(root)
+    except OSError as exc:
+        message = f"build program not read under {root}: {exc}"
+        raise DistStagingError(message) from exc
 
 
 def _resolve_fish(*, require_fish: bool) -> str | None:
@@ -393,7 +390,10 @@ def main() -> int:
         description="Enforce that the release bundle's staging inputs all resolve."
     )
     _ = parser.add_argument(
-        "--shakefile", type=Path, default=DEFAULT_SHAKEFILE, help="Shakefile path (test seam)"
+        "--build-root",
+        type=Path,
+        default=REPO_ROOT,
+        help="directory holding the build program to read (test seam)",
     )
     _ = parser.add_argument(
         "--repo-root", type=Path, default=REPO_ROOT, help="git work tree to check (test seam)"
@@ -404,11 +404,11 @@ def main() -> int:
         help="treat a missing fish as a failure even off CI",
     )
     args = parser.parse_args()
-    shakefile: Path = args.shakefile
+    build_root: Path = args.build_root
     repo_root: Path = args.repo_root
 
     try:
-        bindings = parse_stage_bindings(_read_shakefile(shakefile))
+        bindings = parse_stage_bindings(_read_build_program(build_root))
         fish = _resolve_fish(require_fish=args.require_fish)
         failures = check_pathspecs_resolve(repo_root, bindings)
         failures += check_go_work_not_staged(repo_root, bindings)

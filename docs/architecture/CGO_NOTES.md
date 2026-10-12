@@ -146,8 +146,8 @@ The blind spots are covered by:
   catches malformed inputs at the boundary), the closure on memory-safety
   bugs in the marshal code is reasonable.
 - **GHC RTS internals**: GHC has its own test suite. Aletheia inherits
-  RTS correctness from GHC's release process and pins the GHC version in
-  `Shakefile.hs` for reproducibility.
+  RTS correctness from GHC's release process and pins the GHC version (the
+  CI workflows' `GHC_VERSION`) for reproducibility.
 
 ## Go cgo specifics
 

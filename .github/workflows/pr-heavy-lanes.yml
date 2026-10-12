@@ -549,7 +549,7 @@ jobs:
       # Python/Go/C++/docs PR doesn't change the .so), turning the cold ~338s
       # build into seconds.  Includes haskell-shim/dist-newstyle (the foreign
       # lib's ~194 MB .o/.hi tree): it is the cabal foreign-lib build state that
-      # build/libaletheia-ffi.so is copied out of (Shakefile.hs `cp`), so
+      # build/libaletheia-ffi.so is copied out of (shake/Rules/Library.hs `cp`), so
       # leaving it uncached forced cabal to recompile all 276 MAlonzo objects
       # (~47s) on EVERY run, not just Agda-changing ones.  Caching it lets cabal
       # skip the recompile (~0s work when nothing changed).  Verified locally:

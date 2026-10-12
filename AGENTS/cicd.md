@@ -1,6 +1,6 @@
 ## CI/CD (5 categories)
 
-Scope: ALL files in `.github/workflows/`, `.github/actions/`, plus any cron/scheduled-job configuration files, release-pipeline scripts under `tools/release/`, and the Shake build targets that ship to release lanes (`Shakefile.hs` `dist`/`install`/`release` rules). The CI/CD configuration is part of the supply chain — review with the same rigor as production code. A workflow YAML that silently masks a failed test produces a false green build; a misconfigured cache poisons every downstream build until detected. CI/CD findings block release.
+Scope: ALL files in `.github/workflows/`, `.github/actions/`, plus any cron/scheduled-job configuration files, release-pipeline scripts under `tools/release/`, and the Shake build targets that ship to release lanes (`dist`/`packages` of `shake/Rules/Dist.hs` and `install` of `shake/Rules/Install.hs`). The CI/CD configuration is part of the supply chain — review with the same rigor as production code. A workflow YAML that silently masks a failed test produces a false green build; a misconfigured cache poisons every downstream build until detected. CI/CD findings block release.
 
 **Tooling gates (hard requirements):**
 - `actionlint` must produce **zero findings** on every workflow YAML in `.github/workflows/`.

@@ -30,6 +30,7 @@ from tools._ci_steps import (
     FAST_STEPS,
     HEAVY_STEPS,
     ROOT_PYTHON,
+    build_graph_touched,
     build_prereq_cmd,
     in_every_go_module,
     register_all_steps,
@@ -37,6 +38,7 @@ from tools._ci_steps import (
 )
 from tools._common import (
     CPP_LINT_TREE,
+    RelPath,
     WorkerCount,
     find_executable,
     git_ls_files,
@@ -119,6 +121,39 @@ def test_should_run_staleness_decision() -> None:
     assert should_run_staleness("never", build_graph_changed=False) is False
     assert should_run_staleness("auto", build_graph_changed=True) is True
     assert should_run_staleness("auto", build_graph_changed=False) is False
+
+
+def _branch_changing(tmp_path: Path, changed: RelPath) -> Path:
+    """Return a repository whose checked-out branch changes ``changed`` against ``main``."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _ = (repo / "README.md").write_text("# base\n", encoding="utf-8")
+    git(repo, "init", "-q", "-b", "main")
+    _ = commit(repo, "base")
+    git(repo, "checkout", "-q", "-b", "change")
+    path = repo / changed
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _ = path.write_text("changed\n", encoding="utf-8")
+    _ = commit(repo, "change")
+    return repo
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        RelPath("Shakefile.hs"),
+        RelPath("shake/Rules/Library.hs"),
+        RelPath("haskell-shim/src/AletheiaFFI.hs"),
+    ],
+)
+def test_a_branch_touching_the_build_graph_is_seen(tmp_path: Path, changed: RelPath) -> None:
+    """A branch changing the build program or the shim changed the graph the gate checks."""
+    assert build_graph_touched(_branch_changing(tmp_path, changed))
+
+
+def test_a_branch_touching_a_document_leaves_the_graph(tmp_path: Path) -> None:
+    """A branch changing a document only leaves the build graph as it was."""
+    assert not build_graph_touched(_branch_changing(tmp_path, RelPath("docs/BUILDING.md")))
 
 
 def test_build_staleness_flag_resolves() -> None:

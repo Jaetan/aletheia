@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for the shake-target arm of the documentation gate (``tools/docs_arms/shake_targets.py``).
 
-Each test plants a tree holding a Shakefile and a few documents,
-then hands the arm what the gate hands it: the root, the tracked paths and the
+Each test plants a tree holding a build program and a few documents, then
+hands the arm what the gate hands it: the root, the tracked paths and the
 tracked Markdown files.
 """
 
@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 from _planted_tree import plant, run_planted
 
-from tools._common import GateName, RelPath
+from tools._common import SHAKEFILE, GateName, RelPath
 from tools.docs_arms.shake_targets import findings, named_targets
 
 from aletheia.common_types import Prose
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-SHAKEFILE = RelPath("Shakefile.hs")
+RULES = RelPath("shake/Rules/Dist.hs")
 GUIDE = RelPath("docs/development/BUILDING.md")
 README = RelPath("README.md")
 
@@ -58,10 +58,7 @@ def test_a_target_the_shakefile_lacks_is_a_finding(tmp_path: Path) -> None:
     guide = Prose(f"{GUIDE_NAMING_BUILD}\n```bash\ncabal run shake -- deploy\n```\n")
     repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, GUIDE: guide, README: README_NAMING_CLEAN})
     assert _scan(repo) == [
-        Prose(
-            "docs/development/BUILDING.md: names a shake target Shakefile.hs does not define: "
-            + "deploy"
-        )
+        Prose("docs/development/BUILDING.md: names a shake target no rule defines: " + "deploy")
     ]
 
 
@@ -69,9 +66,7 @@ def test_a_command_wrapped_over_two_lines_is_read(tmp_path: Path) -> None:
     """A target on the line after the separator, as a wrapped command puts it, is still read."""
     readme = Prose("# Aletheia\n\nThe sweep needs what `cabal run shake --\nbuild-all` needs.\n")
     repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, GUIDE: GUIDE_NAMING_BUILD, README: readme})
-    assert _scan(repo) == [
-        Prose("README.md: names a shake target Shakefile.hs does not define: build-all")
-    ]
+    assert _scan(repo) == [Prose("README.md: names a shake target no rule defines: build-all")]
 
 
 def test_a_command_continued_by_a_backslash_is_read(tmp_path: Path) -> None:
@@ -79,10 +74,7 @@ def test_a_command_continued_by_a_backslash_is_read(tmp_path: Path) -> None:
     guide = Prose(f"{GUIDE_NAMING_BUILD}\n```bash\ncabal run shake -- \\\n  deploy\n```\n")
     repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, GUIDE: guide, README: README_NAMING_CLEAN})
     assert _scan(repo) == [
-        Prose(
-            "docs/development/BUILDING.md: names a shake target Shakefile.hs does not define: "
-            + "deploy"
-        )
+        Prose("docs/development/BUILDING.md: names a shake target no rule defines: " + "deploy")
     ]
 
 
@@ -128,7 +120,7 @@ def test_a_shakefile_defining_no_phony_target_is_a_finding(tmp_path: Path) -> No
     """A Shakefile with no phony target defines nothing a document could name."""
     shakefile = Prose("main :: IO ()\nmain = shakeArgs shakeOptions $ pure ()\n")
     repo = _repo(tmp_path, {SHAKEFILE: shakefile, GUIDE: GUIDE_NAMING_BUILD})
-    assert _scan(repo) == [Prose("Shakefile.hs: defines no phony target")]
+    assert _scan(repo) == [Prose("Shakefile.hs: the build program defines no phony target")]
 
 
 def test_an_untracked_shakefile_is_a_finding(tmp_path: Path) -> None:
@@ -155,7 +147,7 @@ def test_the_undefined_targets_of_one_document_are_reported_by_name(tmp_path: Pa
     readme = Prose(f"# Aletheia\n\n```bash\n{commands}```\n")
     repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, GUIDE: GUIDE_NAMING_BUILD, README: readme})
     assert _scan(repo) == [
-        Prose(f"README.md: names a shake target Shakefile.hs does not define: {target}")
+        Prose(f"README.md: names a shake target no rule defines: {target}")
         for target in ("alpha", "beta", "deploy", "mu", "omega", "zeta")
     ]
 
@@ -170,13 +162,10 @@ def test_findings_follow_the_order_of_the_documents(tmp_path: Path) -> None:
         RelPath("CHANGELOG.md"): Prose("Run `cabal run shake -- lint`.\n"),
     }
     assert findings(root, [SHAKEFILE, *documents], documents) == [
-        Prose("README.md: names a shake target Shakefile.hs does not define: deploy"),
-        Prose(
-            "docs/development/BUILDING.md: names a shake target Shakefile.hs does not define: "
-            + "release"
-        ),
-        Prose("AGENTS.md: names a shake target Shakefile.hs does not define: publish"),
-        Prose("CHANGELOG.md: names a shake target Shakefile.hs does not define: lint"),
+        Prose("README.md: names a shake target no rule defines: deploy"),
+        Prose("docs/development/BUILDING.md: names a shake target no rule defines: " + "release"),
+        Prose("AGENTS.md: names a shake target no rule defines: publish"),
+        Prose("CHANGELOG.md: names a shake target no rule defines: lint"),
     ]
 
 
@@ -189,8 +178,36 @@ def test_a_guide_showing_no_command_is_reported_after_every_document(tmp_path: P
         later: Prose("Run `cabal run shake -- deploy`.\n"),
     }
     assert findings(root, [SHAKEFILE, *documents], documents) == [
-        Prose("docs/z.md: names a shake target Shakefile.hs does not define: deploy"),
+        Prose("docs/z.md: names a shake target no rule defines: deploy"),
         Prose("docs/development/BUILDING.md: shows no cabal run shake command"),
+    ]
+
+
+def test_a_target_a_module_under_shake_defines_is_clean(tmp_path: Path) -> None:
+    """A phony target of a module the main imports is defined, so a document may name it."""
+    rules = Prose('distRules = do\n  phony "dist" $ need ["build"]\n')
+    guide = Prose(f"{GUIDE_NAMING_BUILD}\n```bash\ncabal run shake -- dist\n```\n")
+    repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, RULES: rules, GUIDE: guide})
+    assert _scan(repo) == list[Prose]()
+
+
+def test_a_phony_spelled_in_a_comment_defines_no_target(tmp_path: Path) -> None:
+    """A comment quoting a phony declaration leaves the target undefined for the documents."""
+    shakefile = Prose(f'{TWO_TARGETS}  -- not through a Shake `phony "ci"` target\n')
+    guide = Prose(f"{GUIDE_NAMING_BUILD}\n```bash\ncabal run shake -- ci\n```\n")
+    assert _scan(_repo(tmp_path, {SHAKEFILE: shakefile, GUIDE: guide})) == [
+        Prose("docs/development/BUILDING.md: names a shake target no rule defines: ci")
+    ]
+
+
+def test_a_module_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+    """A module git tracks and the work tree lacks may define a target: nothing is checked."""
+    repo = _repo(tmp_path, {SHAKEFILE: TWO_TARGETS, GUIDE: GUIDE_NAMING_BUILD})
+    assert run_planted(findings, repo, absent={RULES}) == [
+        Prose(
+            "shake/Rules/Dist.hs: could not be read, "
+            + "so the shake targets the documents name are unchecked"
+        )
     ]
 
 

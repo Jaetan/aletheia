@@ -2,7 +2,7 @@
 #
 # Purpose: guard against silent drift of the mangled names when Agda
 # definitions are reordered or new definitions are added above existing
-# ones. The build system (Shakefile phony `check-ffi-exports`) diffs the
+# ones. The build's `check-ffi-exports` target (shake/Rules/Ffi.hs) diffs the
 # fresh MAlonzo output against this file and fails on mismatch.
 #
 # Format:
@@ -16,7 +16,7 @@
 # Regenerate after an intentional refactor with:
 #   cabal run shake -- regen-ffi-exports
 #
-# This snapshot is paired with `checkFFINames` in Shakefile.hs, which
+# This snapshot is paired with `checkFFINames` in shake/Rules/Ffi.hs, which
 # ensures `haskell-shim/src/AletheiaFFI.hs` calls match these names.
 
 # ============================================================================

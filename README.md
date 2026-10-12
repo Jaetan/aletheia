@@ -210,6 +210,7 @@ Linking the library into a C++, Go, or Rust project, the `add_subdirectory` / `g
 aletheia/
 ├── src/Aletheia/        # Agda core (formal verification)
 ├── haskell-shim/        # Minimal I/O layer and the C header (include/aletheia.h)
+├── shake/               # The build's rules, which Shakefile.hs runs
 ├── python/              # Python API
 ├── cpp/                 # C++23 binding
 ├── go/                  # Go binding

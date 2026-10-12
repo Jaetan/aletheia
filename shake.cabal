@@ -7,10 +7,22 @@ build-type:         Simple
 
 executable shake
     main-is:          Shakefile.hs
+    hs-source-dirs:   ., shake
+    other-modules:
+        Shared
+        Rules.Dist
+        Rules.Ffi
+        Rules.Gates
+        Rules.Install
+        Rules.Library
+        Rules.Proofs
     build-depends:
         base >= 4.18.3.0 && < 5,
         shake >= 0.19,
         directory,
         filepath
     default-language: Haskell2010
-    ghc-options:      -threaded -rtsopts -with-rtsopts=-I0
+    ghc-options:
+        -threaded -rtsopts -with-rtsopts=-I0
+        -- A module the build imports that other-modules does not list fails it.
+        -Werror=missing-home-modules

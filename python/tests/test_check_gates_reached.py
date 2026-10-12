@@ -4,8 +4,9 @@
 
 Each way a target can be reached (the CI fan-in, a rule's ``need``, the
 on-demand list) is shown to clear it, a target none of them reaches is shown to
-fail, and so is a list naming a target the Shakefile no longer declares; an
-unreadable Shakefile and one declaring no check target exit 2.
+fail, and so is a list naming a target no rule declares any more; a tree with
+no build program and one declaring no check target exit 2, and a target or a
+``need`` in a module under ``shake/`` counts as one in ``Shakefile.hs`` does.
 """
 
 from __future__ import annotations
@@ -59,8 +60,26 @@ def test_run_exit_codes(tmp_path: Path) -> None:
     """Run exit codes."""
     shakefile = tmp_path / "Shakefile.hs"
     _ = shakefile.write_text(SHAKEFILE, encoding="utf-8")
-    assert run(shakefile, (GateName("check-ci"),), {GateName("check-hand"): Prose("by hand")}) == 0
-    assert run(shakefile, (GateName("check-ci"),), {}) == 1
-    assert run(tmp_path / "missing.hs", (GateName("check-ci"),), {}) == 2
+    assert run(tmp_path, (GateName("check-ci"),), {GateName("check-hand"): Prose("by hand")}) == 0
+    assert run(tmp_path, (GateName("check-ci"),), {}) == 1
+    assert run(tmp_path / "missing", (GateName("check-ci"),), {}) == 2
     _ = shakefile.write_text('    phony "build" $ do\n', encoding="utf-8")
-    assert run(shakefile, (), {}) == 2
+    assert run(tmp_path, (), {}) == 2
+
+
+def test_a_phony_spelled_in_a_comment_is_no_target() -> None:
+    """A comment quoting a phony declaration declares nothing a list must reach."""
+    commented = ShakeSource(f'{SHAKEFILE}    -- there is no `phony "check-ghost"` target\n')
+    assert unreached(
+        commented, (GateName("check-ci"),), {GateName("check-hand"): Prose("by hand")}
+    ) == (set(), set())
+
+
+def test_run_reads_the_modules_under_shake(tmp_path: Path) -> None:
+    """A target a module declares is checked, and a module's ``need`` reaches one."""
+    _ = (tmp_path / "Shakefile.hs").write_text("main = pure ()\n", encoding="utf-8")
+    rules = tmp_path / "shake" / "Rules"
+    rules.mkdir(parents=True)
+    _ = (rules / "Gates.hs").write_text(SHAKEFILE, encoding="utf-8")
+    assert run(tmp_path, (GateName("check-ci"),), {GateName("check-hand"): Prose("by hand")}) == 0
+    assert run(tmp_path, (GateName("check-ci"),), {}) == 1

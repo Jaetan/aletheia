@@ -19,7 +19,7 @@ per line): the gate must not *guess* where a user installed, and a
 custom-``PREFIX`` install would otherwise vanish from view the moment
 ``PREFIX`` is no longer exported.  Without a receipt (pre-receipt
 installs), the gate falls back to probing the installer's default prefix
-(``$PREFIX``, else ``~/.local`` — mirrors Shakefile.hs).
+(``$PREFIX``, else ``~/.local`` — mirrors shake/Rules/Install.hs).
 
 This gate makes both failure modes loud: whenever an artifact copy
 exists, it must be the *same build* as the current ``build/`` library,
@@ -59,7 +59,7 @@ _CHUNK_BYTES = 1 << 20
 _ELFCLASS64 = 2
 _ELFDATA2LSB = 1
 
-# Repo-relative locations (mirror Shakefile.hs's `dist` / `install` targets).
+# Repo-relative locations (mirror the build's `dist` / `install` targets).
 BUILD_SO = Path("build") / "libaletheia-ffi.so"
 DIST_SO = Path("dist") / "aletheia" / "lib" / "libaletheia-ffi.so"
 INSTALL_RECEIPT = Path(".install-receipt")

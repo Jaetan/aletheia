@@ -82,7 +82,7 @@ Every Agda module MUST start with:
 - `--without-K`: HoTT compatibility (no Streicher's K).
 - Library-level `--erasure` (in `aletheia.agda-lib`) enables `@0` for zero-cost phantom parameters (e.g. `Timestamp μs`).
 
-**Exceptions**: postulates require a separate `*.Unsafe.agda` module (drop `--safe` only there); allowlisted by name in `Shakefile.hs`. `cabal run shake -- check-invariants` rejects any other `^postulate` line or `Unsafe`-named module, and CI runs `check-invariants` on every build.
+**Exceptions**: postulates require a separate `*.Unsafe.agda` module (drop `--safe` only there); allowlisted by name in `shake/Rules/Proofs.hs`. `cabal run shake -- check-invariants` rejects any other `^postulate` line or `Unsafe`-named module, and CI runs `check-invariants` on every build.
 
 ### Module Safety Flags
 
@@ -150,7 +150,7 @@ foreign library's `-Werror=missing-home-modules` drift gate). Details:
 ## Key Files
 
 - **aletheia.agda-lib**: Agda library config (pinned stdlib version)
-- **Shakefile.hs**: build orchestration (Agda → Haskell → shared library)
+- **Shakefile.hs** + **shake/**: build orchestration (Agda → Haskell → shared library); the main registers the rule modules under `shake/`
 - **haskell-shim/aletheia.cabal**: Haskell package + `foreign-library aletheia-ffi`
 - **haskell-shim/src/AletheiaFFI.hs**: FFI exports (Python ctypes, C++/Go dlopen)
 - **python/pyproject.toml**: Python package config

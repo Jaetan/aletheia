@@ -157,6 +157,7 @@ _UNMEASURED: tuple[tuple[RelPath, ...], ...] = (
 _MEASURED: tuple[tuple[RelPath, ...], ...] = (
     (RelPath("src/Aletheia/DBC/Validator/Checks.agda"),),
     (RelPath("haskell-shim/src/AletheiaFFI.hs"),),
+    (RelPath("shake/Rules/Library.hs"),),
     (RelPath("python/benchmarks/scaling.py"),),
     (RelPath("go/aletheia/client.go"),),
     (RelPath("cpp/src/client.cpp"),),

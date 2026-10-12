@@ -337,9 +337,49 @@ def git_ls_files(repo: Path, *patterns: str) -> list[RelPath]:
     Optional ``patterns`` are passed as ``git ls-files`` pathspecs. The result is
     the set a fresh checkout contains, so resolving against it (rather than
     ``Path.exists()``) never sees an untracked / gitignored working-tree file.
+    The paths are read NUL-separated, so one holding a space or a byte git would
+    quote reads as itself.
     """
-    listed = run_capture([find_executable("git"), "ls-files", *patterns], cwd=repo, check=True)
-    return [RelPath(path) for path in listed.stdout.split()]
+    listed = run_capture(
+        [find_executable("git"), "ls-files", "-z", *patterns], cwd=repo, check=True
+    )
+    return [RelPath(path) for path in listed.stdout.split("\0") if path]
+
+
+# The build program Shake runs: the main shake.cabal names, and every .hs
+# under shake/, where its modules live.  A tool reading its rules reads every
+# source, so a rule moving from one module to another moves nothing it checks.
+SHAKEFILE = RelPath("Shakefile.hs")
+SHAKE_MODULES = RelPath("shake")
+
+# The build program's text: its sources in path order, one after another.
+ShakeSource = NewType("ShakeSource", str)
+
+
+def is_shake_source(rel: RelPath) -> bool:
+    """Return True when tracked path ``rel`` is a source of the build program."""
+    return rel == SHAKEFILE or (rel.startswith(f"{SHAKE_MODULES}/") and rel.endswith(".hs"))
+
+
+def shake_sources(root: Path) -> list[Path]:
+    """Return the build program's sources under ``root``: the main, then the modules by path."""
+    return [root / SHAKEFILE, *sorted((root / SHAKE_MODULES).rglob("*.hs"))]
+
+
+def read_shake_program(root: Path) -> ShakeSource:
+    """Return the text of the build program under ``root``.
+
+    Raises:
+        OSError: A source, the main included, could not be read or is not UTF-8.
+
+    """
+    texts: list[ShakeSource] = []
+    for path in shake_sources(root):
+        try:
+            texts.append(ShakeSource(path.read_text(encoding="utf-8")))
+        except UnicodeDecodeError as exc:
+            raise OSError(errno.EILSEQ, f"not UTF-8 at byte {exc.start}", str(path)) from exc
+    return ShakeSource("\n".join(texts))
 
 
 # Git's own variables, which a hook exports and which point a git command at

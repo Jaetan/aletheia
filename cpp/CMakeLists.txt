@@ -484,7 +484,7 @@ install(TARGETS aletheia-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 option(BUILD_TESTING "Build test suite" ON)
 
 # The tests/ tree is not shipped in the release bundle (see `dist` in
-# Shakefile.hs), so also require it to be present: a bundle consumer who runs a
+# shake/Rules/Dist.hs), so also require it to be present: a bundle consumer who runs a
 # plain standalone `cmake bindings/cpp` then gets the library + CLI cleanly
 # instead of a configure error on the absent test sources.
 if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL

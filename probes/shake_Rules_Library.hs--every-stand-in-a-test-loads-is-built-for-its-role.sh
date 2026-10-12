@@ -2,11 +2,11 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes Shakefile.hs.
+# Probes shake/Rules/Library.hs.
 # Claim: the stand-in kernels the build makes are the ones the tests load, and
 # each exports what its role needs. Every name a binding's test loads (Go's
 # standIn, Python's StandInName, Rust's stand_in::stand_in and the C++ build's
-# ALETHEIA_STAND_IN_DIR paths) is in the Shakefile's standIns table, and every
+# ALETHEIA_STAND_IN_DIR paths) is in the build's standIns table, and every
 # entry of the table is loaded by some test. After a build, every entry is under
 # build/stand-ins: the stale and the ABI-only kernels export
 # aletheia_abi_version alone of the kernel's symbols, symbolless exports none of
@@ -16,10 +16,10 @@
 # the names, without a built library or nm.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-for file in Shakefile.hs cpp/CMakeLists.txt; do [ -f "$file" ] || exit 2; done
+for file in shake/Rules/Library.hs cpp/CMakeLists.txt; do [ -f "$file" ] || exit 2; done
 
 names() { grep -o '"[a-z_]*"' | tr -d '"' | grep -vx 'so' | sort -u; }
-table=$(sed -n '/^standIns = /,/\]/p' Shakefile.hs | names)
+table=$(sed -n '/^standIns = /,/\]/p' shake/Rules/Library.hs | names)
 loaded=$({
 	grep -oh 'standIn(t, lib, "[a-z_]*")' go/aletheia/*_test.go
 	grep -oh 'StandInName("[a-z_]*")' python/tests/*.py
@@ -30,8 +30,8 @@ loaded=$({
 unbuilt=$(comm -13 <(printf '%s\n' "$table") <(printf '%s\n' "$loaded"))
 unloaded=$(comm -23 <(printf '%s\n' "$table") <(printf '%s\n' "$loaded"))
 if [ -n "$unbuilt" ] || [ -n "$unloaded" ]; then
-	[ -n "$unbuilt" ] && echo "loaded by a test but not in the Shakefile's table: $unbuilt"
-	[ -n "$unloaded" ] && echo "in the Shakefile's table but loaded by no test: $unloaded"
+	[ -n "$unbuilt" ] && echo "loaded by a test but not in the build's table: $unbuilt"
+	[ -n "$unloaded" ] && echo "in the build's table but loaded by no test: $unloaded"
 	exit 1
 fi
 
