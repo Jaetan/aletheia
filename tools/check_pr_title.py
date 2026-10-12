@@ -5,9 +5,10 @@
 The title is the subject the squash commit lands with on the comparison ref, so
 it reads ``type(scope)!: text`` in the closed vocabulary of
 ``tools/commit_subjects.py``; it names a shipped scope, or none, when the branch
-changes what users get; and when that module's table says it owes the CHANGELOG
-an entry, the branch edits ``CHANGELOG.md``.  The branch's own commits and the
-CHANGELOG's shape are ``tools/check_changelog.py``'s.
+changes what users get; and the branch edits ``CHANGELOG.md`` exactly when that
+module's table says the title owes it an entry, the release preparation apart
+(``cuts_a_release``).  The branch's own commits and the CHANGELOG's shape are
+``tools/check_changelog.py``'s.
 
 The workflow ``.github/workflows/pr-title.yml`` runs it on every title edit and
 every push to a pull request, on a bare interpreter: nothing it imports needs a
@@ -15,9 +16,11 @@ package beyond the standard library and the project's own.
 
 Exit codes:
   0 — the title reads in the vocabulary, its label fits the branch's files, and
-      it owes no entry or the branch carries one.
+      the branch edits the CHANGELOG exactly when the title owes it an entry,
+      the release preparation apart.
   1 — the vocabulary refuses the title, it names an internal scope on a branch
-      that changes what users get, or it owes an entry the branch leaves out.
+      that changes what users get, it owes an entry the branch leaves out, or
+      it owes none, cuts no release, and the branch edits the CHANGELOG.
   2 — git cannot answer (no comparison ref, no merge-base, no top level), or the
       runtime-closure snapshot cannot be read as UTF-8.
 """
@@ -35,6 +38,7 @@ from tools.commit_subjects import (
     Refusal,
     Revision,
     Subject,
+    cuts_a_release,
     kernel_sources,
     mislabelled,
     owed_entry,
@@ -47,7 +51,7 @@ from aletheia.common_types import ExitStatus, Prose
 
 DESCRIPTION = (
     "Hold a pull request's title to the commit-subject vocabulary, the files its branch "
-    + "changes, and the CHANGELOG entry it owes."
+    + "changes, and the CHANGELOG entry it owes or does not."
 )
 TOOL = Prose("check-pr-title")
 CHANGELOG = RelPath("CHANGELOG.md")
@@ -77,6 +81,15 @@ def verdict(title: Prose, read: Subject, branch: Branch, kernel: frozenset[RelPa
         )
         return ExitStatus(1)
     where = owed_entry(read)
+    if where is None and CHANGELOG in branch.changed:
+        if cuts_a_release(read):
+            emit(f"check-pr-title: ok ({title!r} cuts a release; the branch edits CHANGELOG.md)")
+            return ExitStatus(0)
+        _ = sys.stderr.write(
+            f"check-pr-title: FAIL — {title!r} owes no entry, and the branch edits "
+            + "CHANGELOG.md.\nRelabel the change, or leave CHANGELOG.md alone.\n"
+        )
+        return ExitStatus(1)
     if where is None:
         emit(f"check-pr-title: ok ({title!r} reads in the vocabulary and owes no entry)")
         return ExitStatus(0)

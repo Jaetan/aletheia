@@ -4,7 +4,7 @@
 
 The changelog has one entry per significant change and none for internal work
 (AGENTS.md § Universal Rules).  Comparing the branch with the merge-base of a
-comparison ref (default ``main``), this gate holds four things:
+comparison ref (default ``main``), this gate holds these:
 
 * every commit subject on the branch reads ``type(scope)!: text`` in the closed
   vocabulary of ``tools/commit_subjects.py``, merge commits aside;
@@ -16,6 +16,10 @@ comparison ref (default ``main``), this gate holds four things:
   which the parity tests hold every binding's listed symbols to; the C ABI's
   export snapshot; the wire codes and the log events, names consumers match
   on), edits ``CHANGELOG.md``;
+* a branch that owes no entry leaves ``CHANGELOG.md`` alone, the release
+  preparation apart (that module's ``cuts_a_release``): the changelog records
+  what users get, and an entry under a subject that owes none is where internal
+  work leaks into it;
 * the ``## [Unreleased]`` section carries each of its ``###`` category headers
   once, and every one is a Keep-a-Changelog category: a second
   ``### Changed`` is where an entry lands out of sight of the first.
@@ -28,9 +32,10 @@ Exit codes:
   0 — the subjects read in the vocabulary, the branch owes no entry or carries
       one, and the section is sound.
   1 — a subject the vocabulary refuses, shipped files under internal labels
-      alone, a branch that owes an entry and leaves ``CHANGELOG.md`` alone, no
-      ``## [Unreleased]`` section, a category header repeated under it, or a
-      header there that is not a category.
+      alone, a branch that owes an entry and leaves ``CHANGELOG.md`` alone, one
+      that edits it owing none and cutting no release, no ``## [Unreleased]``
+      section, a category header repeated under it, or a header there that is
+      not a category.
   2 — git cannot answer (no comparison ref, no merge-base, no top level), or
       ``CHANGELOG.md`` or the runtime-closure snapshot cannot be read as UTF-8.
 """
@@ -52,6 +57,7 @@ from tools.commit_subjects import (
     Refusal,
     Revision,
     Subject,
+    cuts_a_release,
     kernel_sources,
     mislabelled,
     owed_entry,
@@ -64,7 +70,8 @@ from aletheia.common_types import ExitStatus, Prose
 
 DESCRIPTION = (
     "Hold a branch's commit subjects to the vocabulary, require the CHANGELOG entry they or a "
-    + "public-surface record owe, and hold [Unreleased] to one header per category."
+    + "public-surface record owe and refuse one nothing owes, and hold [Unreleased] to one "
+    + "header per category."
 )
 TOOL = Prose("check-changelog")
 
@@ -255,8 +262,26 @@ def entry_refused(branch: Branch) -> bool:
     return True
 
 
+def unowed_edit_refused(branch: Branch) -> bool:
+    """Write the refusal for a branch that edits the CHANGELOG owing it nothing; say if one was."""
+    if CHANGELOG not in branch.changed:
+        return False
+    reasons = owed(branch)
+    subjects = [read for read in map(parse, branch.subjects) if isinstance(read, Subject)]
+    if reasons.records or reasons.subjects or any(map(cuts_a_release, subjects)):
+        return False
+    lines = [
+        "check-changelog: FAIL — the branch edits CHANGELOG.md, and no subject owes it an entry:",
+        *(f"  {subject}" for subject in branch.subjects),
+        "An entry is owed by a feat, fix or perf on a shipped scope, a breaking mark, or a",
+        "changed public-surface record; relabel the change, or leave CHANGELOG.md alone.",
+    ]
+    _ = sys.stderr.write("\n".join(lines) + "\n")
+    return True
+
+
 def main() -> ExitStatus:
-    """Fail on a refused subject or label, an owed entry left out, or a refused section."""
+    """Fail on a refused subject or label, an entry owed or unowed, or a refused section."""
     ap = argparse.ArgumentParser(description=DESCRIPTION)
     _ = ap.add_argument("base", nargs="?", default="main", help="comparison ref (default: main)")
     base = Revision(str(ap.parse_args().base))
@@ -278,12 +303,14 @@ def main() -> ExitStatus:
         subjects_refused(branch),
         labels_refused(branch, kernel_sources(snapshot)),
         entry_refused(branch),
+        unowed_edit_refused(branch),
     ]
     if any(refused):
         return ExitStatus(1)
     emit(
         f"check-changelog: ok (the subjects since {base} read in the vocabulary, "
-        + "and every entry they owe is there)"
+        + "and CHANGELOG.md is edited exactly when they owe it an entry, the release "
+        + "preparation apart)"
     )
     return ExitStatus(0)
 

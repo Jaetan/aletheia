@@ -63,7 +63,8 @@ Read the accumulated `## [Unreleased]` notes and pick `X.Y.Z` by
 `main` is protected (the ruleset requires `tools/run_ci.py (all gates)`,
 `mutation testing`, `load scaling` and `PR title`), so the version bump **cannot** be committed straight to
 `main`. Branch first; the commit and the pull request take the subject
-`chore(dist): prepare vX.Y.Z`, which the commit-subject vocabulary accepts:
+`chore(dist): prepare vX.Y.Z`, which the commit-subject vocabulary accepts and which
+alone may edit `CHANGELOG.md` while owing it no entry:
 ~~~bash
 git switch main && git fetch origin main && git merge --ff-only origin/main
 git switch -c chore/prepare-vX.Y.Z
