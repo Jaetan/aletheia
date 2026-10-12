@@ -71,7 +71,7 @@ struct LogEventRow {
 static auto load_log_events() -> std::vector<LogEventRow> {
     auto const path = yaml_path();
     REQUIRE(std::filesystem::exists(path));
-    auto root = YAML::LoadFile(path.string());
+    auto const root = YAML::LoadFile(path.string());
     REQUIRE(root["events"]);
     REQUIRE(root["events"].IsSequence());
 
@@ -98,7 +98,7 @@ static auto canonical_event_set() -> std::set<std::string> {
 // ----- 1. YAML schema sanity -----
 
 TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
-    auto rows = load_log_events();
+    auto const rows = load_log_events();
     REQUIRE(rows.size() == 16);
 
     std::set<std::string> seen;
@@ -203,7 +203,7 @@ static auto events_of_one_workflow() -> std::set<std::string> {
     auto const dlc = Dlc::create(8).value();
 
     // 5. send_frame ack
-    FramePayload data_ack(8, std::byte{0});
+    const FramePayload data_ack(8, std::byte{0});
     REQUIRE(
         client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data_ack).has_value());
 

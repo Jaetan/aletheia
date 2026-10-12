@@ -165,7 +165,7 @@ static auto load_renderer(const std::filesystem::path& lib_path)
     auto const abi_version = load_sym("aletheia_abi_version");
     if (!abi_version)
         return std::unexpected(detail::error_of(abi_version));
-    if (auto refusal = detail::abi_version_refusal(
+    if (auto const refusal = detail::abi_version_refusal(
             detail::symbol_as<std::uint32_t (*)()>(abi_version.value())()))
         return std::unexpected("renderer: " + refusal.value());
     // The three entries the renderer needs, resolved by one loop with one

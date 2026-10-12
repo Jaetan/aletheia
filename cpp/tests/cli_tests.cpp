@@ -132,7 +132,7 @@ TEST_CASE("extract --json renders signal values as exact rationals, never a loss
     // EngineTemp (factor 1, raw 0, offset -40) = -40 -> a bare integer.  Parse
     // the JSON and assert the exact structure (a substring check could
     // false-positive on another field's text).
-    auto [code, out] =
+    auto const [code, out] =
         run_capture({"extract", "--dbc", dbc, "0x100", "112700000A000000", "--json"});
     CHECK(code == 0);
     auto const parsed = nlohmann::json::parse(out);
@@ -156,7 +156,7 @@ TEST_CASE("signals text renders a fine-resolution factor exactly via format_rati
         "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
         "BO_ 1024 FineMsg: 8 ECU4\n"
         " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|7.9998779296875] \"x\" Vector__XXX\n"};
-    auto [code, out] = run_capture({"signals", "--dbc", dbc.string()});
+    auto const [code, out] = run_capture({"signals", "--dbc", dbc.string()});
     CHECK(code == 0);
     CHECK(out.contains("x0.0001220703125"));
 }
@@ -166,7 +166,7 @@ TEST_CASE("validate renders the issue list and exits 1 when the parser rejects t
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
     const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
-    auto [code, out] = run_capture({"validate", "--dbc", dbc.string()});
+    auto const [code, out] = run_capture({"validate", "--dbc", dbc.string()});
     CHECK(code == 1);
     CHECK(out.contains("Validation FAILED"));
     CHECK(out.contains("[ERROR] duplicate_signal_name"));
@@ -179,7 +179,7 @@ TEST_CASE("validate --json emits the has_errors fail shape when the parser rejec
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
     const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
-    auto [code, out] = run_capture({"validate", "--dbc", dbc.string(), "--json"});
+    auto const [code, out] = run_capture({"validate", "--dbc", dbc.string(), "--json"});
     // The exit code reflects the validation outcome in both output modes:
     // --json on a has_errors result exits 1 like text mode.
     CHECK(code == 1);
@@ -204,7 +204,7 @@ TEST_CASE("validate reports warnings from the single parse pass", "[cli]") {
     // the success report — no validate_dbc round-trip to re-collect them.
     auto const dbc =
         (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc").string();
-    auto [code, out] = run_capture({"validate", "--dbc", dbc});
+    auto const [code, out] = run_capture({"validate", "--dbc", dbc});
     CHECK(code == 0);
     CHECK(out.contains("Validation passed with warnings"));
     CHECK(out.contains("offset_scale_range"));

@@ -329,7 +329,7 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
     """
     runner = _runner(tmp_path)
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
-    gates = ["clang-tidy", "check-clang-tidy-coverage", "check-cpp-ast"]
+    gates = ["clang-tidy", "check-clang-tidy-coverage", "check-cpp-ast", "check-cpp-const-locals"]
     lane = [step for step in runner.registered_steps if step.lane == CPP_LINT_LANE]
     assert [step.name for step in lane] == gates
     tidy = str(lane[0].cmd)
@@ -351,6 +351,14 @@ def test_clang_tidy_is_told_the_step_budget(tmp_path: Path) -> None:
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
     (tidy,) = [step for step in runner.registered_steps if step.name == "clang-tidy"]
     assert f"run-clang-tidy-23 -j {cpu_budget()} -quiet " in str(tidy.cmd)
+
+
+def test_the_const_locals_gate_is_told_the_step_budget(tmp_path: Path) -> None:
+    """The const-locals gate compiles with the job count every gate step takes."""
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    (gate,) = [step for step in runner.registered_steps if step.name == "check-cpp-const-locals"]
+    assert list(gate.cmd)[-2:] == ["--jobs", str(cpu_budget())]
 
 
 def test_the_full_ci_parts_split_every_lane_between_them(tmp_path: Path) -> None:

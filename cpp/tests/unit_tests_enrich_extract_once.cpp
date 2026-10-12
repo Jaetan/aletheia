@@ -73,10 +73,10 @@ TEST_CASE("end_stream extracts each tracked frame once across properties", "[cli
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 2);
 
@@ -131,7 +131,7 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     // No frames sent — last-frame tracking stays empty.
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 1);
 
@@ -188,10 +188,10 @@ TEST_CASE("end_stream with all properties holding makes zero extraction calls",
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 2);
 
@@ -235,13 +235,13 @@ TEST_CASE("end_stream frame loop breaks early once the wanted union is covered",
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     auto const id1 = CanId{StandardId::create(0x100).value()};
     auto const id2 = CanId{StandardId::create(0x200).value()};
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id1, dlc, data).has_value());
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id2, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 2);
 
@@ -296,13 +296,13 @@ TEST_CASE("end_stream merge is first-frame-wins across tracked frames", "[client
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     auto const id1 = CanId{StandardId::create(0x100).value()};
     auto const id2 = CanId{StandardId::create(0x200).value()};
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id1, dlc, data).has_value());
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id2, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 2);
 
@@ -353,10 +353,10 @@ TEST_CASE("end_stream failed extraction warns once per frame, not per property",
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 2);
 
@@ -415,10 +415,10 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 2);
 
@@ -465,13 +465,13 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    const FramePayload data(8, std::byte{0});
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(*result));
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     CHECK(v->property_index == PropertyIndex{oob});
     CHECK(v->reason == "some reason");

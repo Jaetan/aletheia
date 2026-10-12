@@ -624,6 +624,17 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root,
         lane=CPP_LINT_LANE,
     )
+    # The locals that compile as const and are not (AGENTS/cpp.md cat 5), where
+    # misc-const-correctness passes over them: each one clang-query lists is
+    # declared const in an overlaid copy and syntax-checked against the same
+    # database, so it runs in clang-tidy's lane; it compiles, so it is told the
+    # step budget clang-tidy takes.
+    runner.step(
+        "check-cpp-const-locals",
+        [runner.python, "-m", "tools.check_cpp_const_locals", "--jobs", str(cpu_budget())],
+        cwd=runner.repo_root,
+        lane=CPP_LINT_LANE,
+    )
 
     # Rust lints: rustfmt (check) + clippy (deny warnings) + rustdoc (deny
     # warnings) — the cargo equivalents of gofmt+vet / clang-format+clang-tidy.

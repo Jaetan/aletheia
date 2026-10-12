@@ -48,6 +48,19 @@ def test_a_library_path_inside_a_dependency_is_not_the_library(tmp_path: Path) -
     assert not reads_in(tmp_path, output)
 
 
+def test_a_header_a_relative_include_reaches_is_read_where_it_lies(tmp_path: Path) -> None:
+    """A path through ``..`` is held to the directory it lands in, not to the includer's."""
+    landed = tmp_path / "cpp/tests/../src/detail/a.hpp"
+    away = tmp_path / "cpp/src/../vendor/b.hpp"
+    output = QueryOutput(
+        f'{landed}:4:5: note: "unchecked end" binds here\n'
+        + f'{away}:6:5: note: "unchecked end" binds here\n'
+    )
+    assert reads_in(tmp_path, output) == [
+        Read(RelPath("cpp/src/detail/a.hpp"), LineNumber(4), BindName("unchecked end"))
+    ]
+
+
 def test_another_rules_bind_is_not_a_read(tmp_path: Path) -> None:
     """The one parse prints every rule's binds; only this rule's names are reads."""
     source = tmp_path / "cpp/src/a.cpp"

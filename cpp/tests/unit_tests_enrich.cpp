@@ -34,7 +34,7 @@ TEST_CASE("collect_signals multi-signal", "[enrich]") {
     auto const f = ltl::both(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
         ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})));
-    auto signals = collect_signals(f);
+    auto const signals = collect_signals(f);
     REQUIRE(signals.size() == 2);
     CHECK(signals[0] == SignalName{"Speed"});
     CHECK(signals[1] == SignalName{"RPM"});
@@ -44,7 +44,7 @@ TEST_CASE("collect_signals dedup", "[enrich]") {
     auto const f =
         ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
                   ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{}})));
-    auto signals = collect_signals(f);
+    auto const signals = collect_signals(f);
     CHECK(signals.size() == 1);
     CHECK(signals[0] == SignalName{"Speed"});
 }
@@ -53,7 +53,7 @@ TEST_CASE("build_diagnostic always succeeds", "[enrich]") {
     auto const f = ltl::always(ltl::both(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
         ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}}))));
-    auto diag = build_diagnostic(f);
+    auto const diag = build_diagnostic(f);
     CHECK(diag.signals.size() == 2);
     CHECK_FALSE(diag.formula_desc.empty());
     CHECK_THAT(diag.formula_desc, ContainsSubstring("Speed"));
@@ -97,14 +97,14 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0xF5}, std::byte{0x00}, std::byte{0}, std::byte{0},
-                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
-    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
+    const FramePayload data{std::byte{0xF5}, std::byte{0x00}, std::byte{0}, std::byte{0},
+                            std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(*result));
 
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     REQUIRE(v->enrichment.has_value());
     CHECK_THAT(v->enrichment->formula_desc, ContainsSubstring("Speed < 220"));
@@ -147,12 +147,12 @@ TEST_CASE("send_frame enrichment renders the observed value exactly (kernel form
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-                      std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
-    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
+    const FramePayload data{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+                            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(*result));
-    auto* v = std::get<PropertyBatch>(*result).first_violation();
+    auto const* v = std::get<PropertyBatch>(*result).first_violation();
     REQUIRE(v != nullptr);
     REQUIRE(v->enrichment.has_value());
     CHECK_THAT(v->enrichment->enriched_reason, ContainsSubstring("Speed = 740/3"));
@@ -190,11 +190,11 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
+    const FramePayload data(8, std::byte{0});
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     REQUIRE(v->enrichment.has_value());
     CHECK(v->enrichment->signals.size() == 2);
@@ -243,13 +243,13 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
-                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
-    auto r1 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    const FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                            std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    auto const r1 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
     CHECK(std::get<PropertyBatch>(*r1).first_violation()->enrichment.has_value());
 
-    auto r2 = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
+    auto const r2 = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
     CHECK(std::get<PropertyBatch>(*r2).first_violation()->enrichment.has_value());
 
@@ -290,10 +290,10 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 1);
     CHECK(end_result->results[0].verdict == Verdict::Fails);
@@ -337,10 +337,10 @@ TEST_CASE("end_stream surfaces uncached_atom warnings", "[client][warnings]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->warnings.size() == 1);
     CHECK(end_result->warnings[0].kind == "uncached_atom");
@@ -397,15 +397,15 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
-                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    const FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                            std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
     auto const r1 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
     REQUIRE(client.end_stream(std::stop_token{}).has_value());
 
     // Second stream: same frame data but cache cleared
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
-    auto r2 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    auto const r2 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
     CHECK(std::get<PropertyBatch>(*r2).first_violation()->enrichment.has_value());
 
@@ -428,12 +428,12 @@ TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
     AletheiaClient client(std::move(mock));
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
+    const FramePayload data(8, std::byte{0});
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     CHECK_FALSE(v->enrichment.has_value());
 }
@@ -470,12 +470,12 @@ TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
+    const FramePayload data(8, std::byte{0});
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
-    auto& b = std::get<PropertyBatch>(*result);
-    auto* v = b.first_violation();
+    auto const& b = std::get<PropertyBatch>(*result);
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     REQUIRE(v->enrichment.has_value());
     CHECK(v->enrichment->core_reason.empty());
@@ -535,16 +535,16 @@ TEST_CASE("end_stream enrichment includes last-known signal values", "[client][e
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
-                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    const FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                            std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 1);
     REQUIRE(end_result->results[0].enrichment.has_value());
-    auto& enrichment = *end_result->results[0].enrichment;
+    auto const& enrichment = *end_result->results[0].enrichment;
 
     // Last-known values from last-frame tracking (populated by send_frame)
     CHECK_FALSE(enrichment.signals.empty());
@@ -594,16 +594,17 @@ TEST_CASE("end_stream enrichment uses last-frame tracking, not just cache", "[cl
     // Send a frame that gets ack (no violation, so no extraction cache entry)
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
-    auto frame_result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    const FramePayload data(8, std::byte{0});
+    auto const frame_result =
+        client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(frame_result.has_value());
     CHECK(std::holds_alternative<Ack>(*frame_result));
 
-    auto end_result = client.end_stream(std::stop_token{});
+    auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 1);
     REQUIRE(end_result->results[0].enrichment.has_value());
-    auto& enrichment = *end_result->results[0].enrichment;
+    auto const& enrichment = *end_result->results[0].enrichment;
 
     // Signal values came from last-frame tracking, not the extraction cache
     CHECK_FALSE(enrichment.signals.empty());

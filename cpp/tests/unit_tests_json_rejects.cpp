@@ -42,7 +42,7 @@ using Catch::Matchers::ContainsSubstring;
 // ===========================================================================
 
 static auto base_dbc_response() -> Json {
-    auto cmd = Json::parse(detail::serialize_parse_dbc(make_test_dbc()));
+    auto const cmd = Json::parse(detail::serialize_parse_dbc(make_test_dbc()));
     Json resp;
     resp["status"] = "success";
     resp["dbc"] = cmd.at("dbc");
@@ -149,27 +149,27 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
 // ===========================================================================
 
 TEST_CASE("make_json_error rejects a missing code field", "[json][parse][error]") {
-    auto r = detail::parse_success(R"({"status": "error", "message": "m"})");
+    auto const r = detail::parse_success(R"({"status": "error", "message": "m"})");
     CHECK_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("missing or non-string 'code'"));
 }
 
 TEST_CASE("make_json_error rejects a non-string code field", "[json][parse][error]") {
-    auto r = detail::parse_success(R"({"status": "error", "code": 123, "message": "m"})");
+    auto const r = detail::parse_success(R"({"status": "error", "code": 123, "message": "m"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("missing or non-string 'code'"));
 }
 
 TEST_CASE("make_json_error rejects a missing message field", "[json][parse][error]") {
-    auto r = detail::parse_success(R"({"status": "error", "code": "handler_no_dbc"})");
+    auto const r = detail::parse_success(R"({"status": "error", "code": "handler_no_dbc"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()},
                ContainsSubstring("missing or non-string 'message'"));
 }
 
 TEST_CASE("make_json_error rejects a non-string message field", "[json][parse][error]") {
-    auto r =
+    auto const r =
         detail::parse_success(R"({"status": "error", "code": "handler_no_dbc", "message": 123})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()},
@@ -177,7 +177,7 @@ TEST_CASE("make_json_error rejects a non-string message field", "[json][parse][e
 }
 
 TEST_CASE("parse_rational_as_int rejects a non-numeric property_index", "[json][parse][error]") {
-    auto r = detail::parse_frame_response(
+    auto const r = detail::parse_frame_response(
         R"({"type": "property_batch", "results": [{"status": "holds", "property_index": "x"}]})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()},
@@ -185,20 +185,20 @@ TEST_CASE("parse_rational_as_int rejects a non-numeric property_index", "[json][
 }
 
 TEST_CASE("require_int rejects a fractional rational component", "[json][parse][error]") {
-    auto r = detail::parse_extraction(
+    auto const r = detail::parse_extraction(
         R"({"status": "success", "values": [{"name": "S", "value": {"numerator": 1.5, "denominator": 2}}]})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("must be an integer"));
 }
 
 TEST_CASE("parse_event_ack rejects a malformed JSON envelope", "[json][parse][error]") {
-    auto r = detail::parse_event_ack("{");
+    auto const r = detail::parse_event_ack("{");
     CHECK_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Protocol);
 }
 
 TEST_CASE("parse_validation lifts a status=error envelope", "[json][parse][error]") {
-    auto r = detail::parse_validation(
+    auto const r = detail::parse_validation(
         R"({"status": "error", "code": "factor_zero", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Validation);
@@ -206,20 +206,20 @@ TEST_CASE("parse_validation lifts a status=error envelope", "[json][parse][error
 }
 
 TEST_CASE("parse_validation rejects a wrong response type", "[json][parse][error]") {
-    auto r = detail::parse_validation(R"({"status": "weird"})");
+    auto const r = detail::parse_validation(R"({"status": "weird"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Expected validation response"));
 }
 
 TEST_CASE("parse_validation rejects a malformed JSON envelope", "[json][parse][error]") {
-    auto r = detail::parse_validation("{");
+    auto const r = detail::parse_validation("{");
     CHECK_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Protocol);
 }
 
 TEST_CASE("handler_validation_failed envelope lifts issues into the typed error",
           "[json][parse][error]") {
-    auto r = detail::parse_parsed_dbc(
+    auto const r = detail::parse_parsed_dbc(
         R"({"status":"error","code":"handler_validation_failed",)"
         R"("message":"ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'",)"
         R"("has_errors":true,"issues":[)"
@@ -246,8 +246,9 @@ TEST_CASE("handler_validation_failed without structured fields degrades to nullo
           "[json][parse][error]") {
     // Cores predating the structured envelope emit only code/message; the
     // decode must not fail harder than before.
-    auto r = detail::parse_parsed_dbc(R"({"status":"error","code":"handler_validation_failed",)"
-                                      R"("message":"ParseDBCText: validation failed: boom"})");
+    auto const r =
+        detail::parse_parsed_dbc(R"({"status":"error","code":"handler_validation_failed",)"
+                                 R"("message":"ParseDBCText: validation failed: boom"})");
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
@@ -275,7 +276,7 @@ TEST_CASE("handler_validation_failed with a malformed issues payload degrades to
         // an ill-typed detail field
         R"({"status":"error","code":"handler_validation_failed","message":"m",)"
         R"("has_errors":true,"issues":[{"severity":"error","code":"x","detail":42}]})");
-    auto r = detail::parse_parsed_dbc(envelope);
+    auto const r = detail::parse_parsed_dbc(envelope);
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
     CHECK(r.error().message() == "m");
@@ -283,56 +284,60 @@ TEST_CASE("handler_validation_failed with a malformed issues payload degrades to
 }
 
 TEST_CASE("parse_extraction lifts a status=error envelope", "[json][parse][error]") {
-    auto r = detail::parse_extraction(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r =
+        detail::parse_extraction(R"({"status": "error", "code": "x", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
 
 TEST_CASE("parse_frame_data lifts a status=error envelope", "[json][parse][error]") {
-    auto r = detail::parse_frame_data(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r =
+        detail::parse_frame_data(R"({"status": "error", "code": "x", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
 
 TEST_CASE("parse_frame_data rejects an unexpected status", "[json][parse][error]") {
-    auto r = detail::parse_frame_data(R"({"status": "weird"})");
+    auto const r = detail::parse_frame_data(R"({"status": "weird"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Unexpected frame data status"));
 }
 
 TEST_CASE("parse_frame_response rejects a negative timestamp", "[json][parse][error]") {
-    auto r = detail::parse_frame_response(
+    auto const r = detail::parse_frame_response(
         R"({"type": "property_batch", "results": [{"status": "holds", "property_index": 0, "timestamp": -5}]})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Negative timestamp"));
 }
 
 TEST_CASE("parse_frame_response lifts a status=error envelope", "[json][parse][error]") {
-    auto r = detail::parse_frame_response(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r =
+        detail::parse_frame_response(R"({"status": "error", "code": "x", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
 
 TEST_CASE("parse_frame_response rejects an empty property_batch", "[json][parse][error]") {
-    auto r = detail::parse_frame_response(R"({"type": "property_batch", "results": []})");
+    auto const r = detail::parse_frame_response(R"({"type": "property_batch", "results": []})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("non-empty array"));
 }
 
 TEST_CASE("parse_stream_result lifts a status=error envelope", "[json][parse][error]") {
-    auto r = detail::parse_stream_result(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r =
+        detail::parse_stream_result(R"({"status": "error", "code": "x", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
 
 TEST_CASE("parse_stream_result rejects a wrong response type", "[json][parse][error]") {
-    auto r = detail::parse_stream_result(R"({"status": "weird"})");
+    auto const r = detail::parse_stream_result(R"({"status": "weird"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Expected complete response"));
 }
 
 TEST_CASE("parse_stream_result rejects a warning missing property_index", "[json][parse][error]") {
-    auto r = detail::parse_stream_result(
+    auto const r = detail::parse_stream_result(
         R"({"status": "complete", "results": [], "warnings": [{"kind": "x"}]})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()},
@@ -340,7 +345,7 @@ TEST_CASE("parse_stream_result rejects a warning missing property_index", "[json
 }
 
 TEST_CASE("parse_stream_result rejects a negative warning property_index", "[json][parse][error]") {
-    auto r = detail::parse_stream_result(
+    auto const r = detail::parse_stream_result(
         R"({"status": "complete", "results": [], "warnings": [{"property_index": -1}]})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()},
@@ -348,7 +353,8 @@ TEST_CASE("parse_stream_result rejects a negative warning property_index", "[jso
 }
 
 TEST_CASE("parse_dbc_response lifts a status=error envelope", "[json][parse][error]") {
-    auto r = detail::parse_dbc_response(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r =
+        detail::parse_dbc_response(R"({"status": "error", "code": "x", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
@@ -356,7 +362,7 @@ TEST_CASE("parse_dbc_response lifts a status=error envelope", "[json][parse][err
 // format_dbc_text response decoder — decode-level coverage of the success arm and
 // its malformed branches (the real-FFI integration tests never emit these).
 TEST_CASE("parse_dbc_text_response decodes a success response with issues", "[json][parse]") {
-    auto r = detail::parse_dbc_text_response(
+    auto const r = detail::parse_dbc_text_response(
         R"({"status":"success","text":"VERSION \"\"\n","issues":[{"severity":"warning","code":"multi_value_mux_selector","detail":"mux"}]})");
     REQUIRE(r.has_value());
     CHECK(r->text == "VERSION \"\"\n");
@@ -368,7 +374,7 @@ TEST_CASE("parse_dbc_text_response decodes a success response with issues", "[js
 }
 
 TEST_CASE("parse_dbc_text_response defaults an absent issues field to empty", "[json][parse]") {
-    auto r = detail::parse_dbc_text_response(R"({"status":"success","text":"x"})");
+    auto const r = detail::parse_dbc_text_response(R"({"status":"success","text":"x"})");
     REQUIRE(r.has_value());
     CHECK(r->text == "x");
     CHECK(r->issues.empty());
@@ -377,20 +383,21 @@ TEST_CASE("parse_dbc_text_response defaults an absent issues field to empty", "[
 TEST_CASE("parse_dbc_text_response rejects a non-array issues field", "[json][parse][error]") {
     // Parity with Python/Go/Rust: a present-but-non-array issues on a success
     // response is a protocol error, not silently harvested from an object's values.
-    auto r = detail::parse_dbc_text_response(R"({"status":"success","text":"x","issues":{}})");
+    auto const r =
+        detail::parse_dbc_text_response(R"({"status":"success","text":"x","issues":{}})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("'issues' must be an array"));
 }
 
 TEST_CASE("parse_dbc_text_response rejects an unexpected status", "[json][parse][error]") {
-    auto r = detail::parse_dbc_text_response(R"({"status":"weird"})");
+    auto const r = detail::parse_dbc_text_response(R"({"status":"weird"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()},
                ContainsSubstring("Unexpected formatDBCText response status"));
 }
 
 TEST_CASE("parse_dbc_text_response rejects a missing text field", "[json][parse][error]") {
-    auto r = detail::parse_dbc_text_response(R"({"status":"success"})");
+    auto const r = detail::parse_dbc_text_response(R"({"status":"success"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Missing or non-string 'text'"));
 }
@@ -509,10 +516,10 @@ TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
     std::vector<LtlFormula> props;
     props.push_back(ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{lowest, 1}})));
     auto const j = Json::parse(detail::serialize_set_properties(props));
-    auto const& value = j["properties"][0]["predicate"]["value"];
+    auto const& value = j.at("properties").at(0).at("predicate").at("value");
     REQUIRE(value.is_object());
-    CHECK(value["numerator"] == lowest);
-    CHECK(value["denominator"] == 1);
+    CHECK(value.at("numerator") == lowest);
+    CHECK(value.at("denominator") == 1);
 }
 
 // The constructor and make are templates over the integral types, so each

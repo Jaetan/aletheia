@@ -454,7 +454,7 @@ static auto fence_cache() -> const std::vector<CppFence>& {
         std::vector<CppFence> out;
         auto const root = repo_root();
         for (auto const rel : k_doc_files) {
-            auto fs_list = extract_cpp_fences(root / rel, rel);
+            auto const fs_list = extract_cpp_fences(root / rel, rel);
             out.insert(out.end(), fs_list.begin(), fs_list.end());
         }
         return out;
@@ -501,7 +501,7 @@ static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
         << ALETHEIA_DOC_SANITIZER_FLAG;
     auto const compile_cmd = cmd.str();
 
-    auto [compile_rc, compile_out] = run_capture(compile_cmd);
+    auto const [compile_rc, compile_out] = run_capture(compile_cmd);
     INFO("Wrapper source: " << src_path);
     INFO("Compile command: " << compile_cmd);
     INFO("Compile output:\n" << compile_out);
@@ -509,7 +509,7 @@ static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
 
     std::ostringstream run_cmd;
     run_cmd << "ALETHEIA_LIB=" << sh_quote(lib) << " " << sh_quote(out_path.string());
-    auto [run_rc, run_out] = run_capture(run_cmd.str());
+    auto const [run_rc, run_out] = run_capture(run_cmd.str());
     INFO("Run output:\n" << run_out);
     REQUIRE(run_rc == 0);
 }

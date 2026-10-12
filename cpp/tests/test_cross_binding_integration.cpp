@@ -45,9 +45,9 @@ namespace fs = std::filesystem;
 // go/aletheia/cross_binding_integration_test.go::canonicalDBC. Drift of any
 // of the three is the cross-binding hazard the test is designed to catch.
 static auto canonical_dbc() -> DbcDefinition {
-    auto sig_id = StandardId::create(256).value();
+    auto const sig_id = StandardId::create(256).value();
     auto const dlc = Dlc::create(8).value();
-    DbcSignal test_sig{
+    const DbcSignal test_sig{
         .name = SignalName{"TestSignal"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -93,7 +93,7 @@ TEST_CASE("ParsedDBC response has documented shape", "[cross_binding]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto result = client.parse_dbc(std::stop_token{}, canonical_dbc());
+    auto const result = client.parse_dbc(std::stop_token{}, canonical_dbc());
     REQUIRE(result.has_value());
     auto const& parsed = result.value();
 
@@ -113,7 +113,7 @@ TEST_CASE("ValidationResult response has documented shape", "[cross_binding]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto result = client.validate_dbc(std::stop_token{}, canonical_dbc());
+    auto const result = client.validate_dbc(std::stop_token{}, canonical_dbc());
     REQUIRE(result.has_value());
     auto const& validation = result.value();
 
@@ -135,11 +135,11 @@ TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto sid = StandardId::create(256).value();
+    auto const sid = StandardId::create(256).value();
     auto const dlc = Dlc::create(8).value();
-    auto payload = std::array<std::byte, 8>{};
-    auto resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
-                                  std::span<const std::byte>{payload});
+    auto const payload = std::array<std::byte, 8>{};
+    auto const resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
+                                        std::span<const std::byte>{payload});
     REQUIRE(resp.has_value());
     // FrameResponse is an acknowledgement or a property batch; 0 < 1000 acks.
     CHECK(std::holds_alternative<Ack>(resp.value()));
@@ -158,15 +158,15 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto sid = StandardId::create(256).value();
+    auto const sid = StandardId::create(256).value();
     auto const dlc = Dlc::create(8).value();
     // Signal value 0xFFFF (65535) > 100 → violation.
-    auto payload = std::array<std::byte, 8>{
+    auto const payload = std::array<std::byte, 8>{
         std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
         std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0},
     };
-    auto resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
-                                  std::span<const std::byte>{payload});
+    auto const resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
+                                        std::span<const std::byte>{payload});
     REQUIRE(resp.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
     auto const& b = std::get<PropertyBatch>(resp.value());
@@ -201,17 +201,17 @@ TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_b
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto sid = StandardId::create(256).value();
+    auto const sid = StandardId::create(256).value();
     auto const dlc = Dlc::create(8).value();
     // TestSignal = 100 fires BOTH:
     //  - property 0 (eventually(== 100)): Satisfied → complete(0)
     //  - property 1 (always(< 50)):       Violated  → halt(1)
-    auto payload = std::array<std::byte, 8>{
+    auto const payload = std::array<std::byte, 8>{
         std::byte{100}, std::byte{0}, std::byte{0}, std::byte{0},
         std::byte{0},   std::byte{0}, std::byte{0}, std::byte{0},
     };
-    auto resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
-                                  std::span<const std::byte>{payload});
+    auto const resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
+                                        std::span<const std::byte>{payload});
     REQUIRE(resp.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
     auto const& b = std::get<PropertyBatch>(resp.value());
@@ -238,9 +238,9 @@ TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto sid = StandardId::create(256).value();
+    auto const sid = StandardId::create(256).value();
     auto const dlc = Dlc::create(8).value();
-    auto payload = std::array<std::byte, 8>{};
+    auto const payload = std::array<std::byte, 8>{};
 
     const std::array<std::optional<bool>, 3> options = {
         std::nullopt,
@@ -251,8 +251,8 @@ TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
     for (auto const& brs : options) {
         for (auto const& esi : options) {
             ts += 1000;
-            auto resp = client.send_frame(std::stop_token{}, Timestamp{ts}, CanId{sid}, dlc,
-                                          std::span<const std::byte>{payload}, brs, esi);
+            auto const resp = client.send_frame(std::stop_token{}, Timestamp{ts}, CanId{sid}, dlc,
+                                                std::span<const std::byte>{payload}, brs, esi);
             REQUIRE(resp.has_value());
             CHECK(std::holds_alternative<Ack>(resp.value()));
         }
@@ -288,7 +288,7 @@ TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
 
     const std::string name(aletheia::max_identifier_length, 'A');
     auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
-    auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
+    auto const result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE(result.has_value());
     REQUIRE(result->dbc.messages.size() == 1);
     CHECK(result->dbc.messages[0].name.get() == name);
@@ -334,7 +334,7 @@ TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_bindin
                           [&inner](auto) { inner = ltl::always(std::move(inner)); });
     std::vector<LtlFormula> props;
     props.push_back(std::move(inner));
-    auto result = client.set_properties(std::stop_token{}, props);
+    auto const result = client.set_properties(std::stop_token{}, props);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
     CHECK(result.error().code() == ErrorCode::InputBoundExceeded);

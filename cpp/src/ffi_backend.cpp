@@ -246,7 +246,8 @@ public:
                 load_sym<AletheiaAbiVersionFn>(handle, "aletheia_abi_version")()))
             throw AletheiaException(AletheiaError{ErrorKind::Ffi, std::move(refusal).value()});
 
-        auto hs_init = load_sym<HsInitFn>(handle, std::string{detail::rts_init_symbol}.c_str());
+        auto const hs_init =
+            load_sym<HsInitFn>(handle, std::string{detail::rts_init_symbol}.c_str());
         init_fn_ = load_sym<AletheiaInitFn>(handle, "aletheia_init");
         process_fn_ = load_sym<AletheiaProcessFn>(handle, "aletheia_process");
         send_frame_fn_ = load_sym<AletheiaSendFrameFn>(handle, "aletheia_send_frame");
@@ -293,7 +294,7 @@ public:
             hs_init(&argc, &argv);
             rts.cores = rts_cores;
             rts.initialized = true;
-        } else if (auto mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {
+        } else if (auto const mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {
             rts_mismatch_ = mismatch.value();
         }
         handle_ = opened.release();
@@ -323,7 +324,7 @@ public:
     auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> std::string override {
-        if (auto err = payload_length_error(dlc, data))
+        if (auto const err = payload_length_error(dlc, data))
             throw AletheiaException(err.value());
 
         // Encode optional<bool> as (present, value) byte pairs — inverse
@@ -371,7 +372,7 @@ public:
 
     auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
-        if (auto err = payload_length_error(dlc, data))
+        if (auto const err = payload_length_error(dlc, data))
             throw AletheiaException(err.value());
         auto const frame = payload_frame(id, dlc, data);
         return wrap_str_result(extract_signals_fn_(state.get(), &frame),
@@ -388,7 +389,7 @@ public:
                               .err = nullptr,
                               .size = static_cast<std::uint32_t>(buf.size())};
         auto const status = build_frame_bin_fn_(state.get(), &frame, &values, &out);
-        if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
+        if (auto const err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
             return std::unexpected(err.value());
         buf.resize(out.size);
         return buf;
@@ -398,7 +399,7 @@ public:
                           std::span<const std::byte> data, SignalInjection signals,
                           std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        if (auto err = payload_length_error(dlc, data))
+        if (auto const err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
         auto const values = signal_values(signals);
@@ -407,7 +408,7 @@ public:
                               .err = nullptr,
                               .size = static_cast<std::uint32_t>(buf.size())};
         auto const status = update_frame_bin_fn_(state.get(), &frame, &values, &out);
-        if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
+        if (auto const err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
             return std::unexpected(err.value());
         buf.resize(out.size);
         return buf;
@@ -416,12 +417,12 @@ public:
     auto extract_signals_bin(const BackendState& state, const CanId& id, Dlc dlc,
                              std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        if (auto err = payload_length_error(dlc, data))
+        if (auto const err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
         detail::FfiBuffer out{.data = nullptr, .err = nullptr, .size = 0};
         auto const status = extract_signals_bin_fn_(state.get(), &frame, &out);
-        if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
+        if (auto const err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
             return std::unexpected(err.value());
         // RAII-owned so a throwing std::vector construction (e.g. bad_alloc on
         // copy) still frees the Haskell-allocated buffer. A bare free call

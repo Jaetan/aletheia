@@ -119,7 +119,7 @@ static auto resolve_lib() -> std::optional<std::filesystem::path> {
 }
 
 static auto make_client() -> std::expected<AletheiaClient, std::string> {
-    auto lib = resolve_lib();
+    auto const lib = resolve_lib();
     if (!lib)
         return std::unexpected<std::string>(
             "libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'");
@@ -182,7 +182,7 @@ static auto parse_can_id(std::string_view s) -> std::optional<std::uint32_t> {
     const std::string str{s};
     std::uint32_t value = 0;
     auto const* const end = std::to_address(str.end());
-    auto [ptr, ec] = std::from_chars(str.data(), end, value, base);
+    auto const [ptr, ec] = std::from_chars(str.data(), end, value, base);
     if (ec != std::errc{} || ptr != end)
         return std::nullopt;
     return value;
@@ -190,13 +190,13 @@ static auto parse_can_id(std::string_view s) -> std::optional<std::uint32_t> {
 
 static auto make_can_id(std::uint32_t n, bool extended) -> std::optional<CanId> {
     if (extended) {
-        if (auto id = ExtendedId::create(n))
+        if (auto const id = ExtendedId::create(n))
             return CanId{id.value()};
         return std::nullopt;
     }
     if (n > k_std_id_max)
         return std::nullopt;
-    if (auto id = StandardId::create(static_cast<std::uint16_t>(n)))
+    if (auto const id = StandardId::create(static_cast<std::uint16_t>(n)))
         return CanId{id.value()};
     return std::nullopt;
 }
@@ -217,7 +217,7 @@ static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std:
         const std::string octet{octet_chars.begin(), octet_chars.end()};
         std::uint8_t byte = 0;
         auto const* const end = std::to_address(octet.end());
-        auto [ptr, ec] = std::from_chars(octet.data(), end, byte, 16);
+        auto const [ptr, ec] = std::from_chars(octet.data(), end, byte, 16);
         if (ec != std::errc{} || ptr != end)
             return std::nullopt;
         out.push_back(std::byte{byte});
@@ -329,7 +329,7 @@ static auto cmd_validate(const Args& a) -> int {
     auto client = make_client();
     if (!client)
         return die(aletheia::detail::error_of(client));
-    auto def = load_dbc_text(client.value(), opt_or(a, "dbc"));
+    auto const def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def) {
         // A parse rejected with validation issues renders as a normal
         // validation report; any other load failure stays fatal.
@@ -379,26 +379,26 @@ static auto render_rational(const aletheia::Rational& r) -> std::string {
 static auto cmd_extract(const Args& a) -> int {
     if (a.positionals.size() != 2)
         return die("extract requires <can_id> <data> positional arguments");
-    auto can_id = parse_can_id(a.positionals.at(0));
+    auto const can_id = parse_can_id(a.positionals.at(0));
     if (!can_id)
         return die("invalid CAN ID: " + a.positionals.at(0));
-    auto data = parse_hex_data(a.positionals.at(1));
+    auto const data = parse_hex_data(a.positionals.at(1));
     if (!data)
         return die("invalid hex data: " + a.positionals.at(1));
     auto const extended = a.flags.contains("extended");
     auto client = make_client();
     if (!client)
         return die(aletheia::detail::error_of(client));
-    auto def = load_dbc_text(client.value(), opt_or(a, "dbc"));
+    auto const def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
         return die(aletheia::detail::error_of(def).message);
-    auto id = make_can_id(can_id.value(), extended);
+    auto const id = make_can_id(can_id.value(), extended);
     if (!id)
         return die("invalid CAN ID for the selected width");
     auto const* msg = def.value().dbc.message_by_id(id.value());
     if (msg == nullptr)
         return die("CAN ID not found in DBC");
-    auto res =
+    auto const res =
         client.value().extract_signals(std::stop_token{}, id.value(), msg->dlc, data.value());
     if (!res)
         return die(aletheia::detail::error_of(res).message());
@@ -444,7 +444,7 @@ static auto cmd_signals(const Args& a) -> int {
     auto client = make_client();
     if (!client)
         return die(aletheia::detail::error_of(client));
-    auto def = load_dbc_text(client.value(), opt_or(a, "dbc"));
+    auto const def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
         return die(aletheia::detail::error_of(def).message);
     if (a.flags.contains("json")) {
@@ -471,7 +471,7 @@ static auto cmd_format_dbc(const Args& a) -> int {
     auto const def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
         return die(aletheia::detail::error_of(def).message);
-    auto canonical = client.value().format_dbc(std::stop_token{});
+    auto const canonical = client.value().format_dbc(std::stop_token{});
     if (!canonical)
         return die(aletheia::detail::error_of(canonical).message());
     std::cout << aletheia::to_canonical_json(canonical.value()) << '\n';
@@ -480,8 +480,8 @@ static auto cmd_format_dbc(const Args& a) -> int {
 
 static auto resolve_mux_message(const DbcDefinition& def, const std::string& ident, bool extended)
     -> const DbcMessage* {
-    if (auto can_id = parse_can_id(ident))
-        if (auto id = make_can_id(can_id.value(), extended))
+    if (auto const can_id = parse_can_id(ident))
+        if (auto const id = make_can_id(can_id.value(), extended))
             if (auto const* msg = def.message_by_id(id.value()))
                 return msg;
     return def.message_by_name(aletheia::MessageName{ident});
@@ -557,7 +557,7 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
     for (auto const& name : msg.multiplexor_names()) {
         std::cout << "  " << name.get() << ":\n";
         for (auto const v : msg.multiplex_values(name)) {
-            auto sigs = msg.signals_for_mux_value(name, v);
+            auto const sigs = msg.signals_for_mux_value(name, v);
             std::cout << "    value " << v.get() << ": " << sigs.size() << " signals ("
                       << join_signal_names(sigs) << ")\n";
         }
@@ -571,7 +571,7 @@ static auto cmd_mux_query(const Args& a) -> int {
     auto client = make_client();
     if (!client)
         return die(aletheia::detail::error_of(client));
-    auto def = load_dbc_text(client.value(), opt_or(a, "dbc"));
+    auto const def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
         return die(aletheia::detail::error_of(def).message);
     auto const* msg =
@@ -591,7 +591,7 @@ static auto cmd_mux_query(const Args& a) -> int {
     const std::string& vstr = a.opts.at("value");
     std::uint32_t value = 0;
     auto const* const vend = std::to_address(vstr.end());
-    if (auto [ptr, ec] = std::from_chars(vstr.data(), vend, value);
+    if (auto const [ptr, ec] = std::from_chars(vstr.data(), vend, value);
         ec != std::errc{} || ptr != vend) {
         return die("invalid --value: " + vstr);
     }
@@ -629,7 +629,7 @@ constexpr std::string_view k_usage =
 static auto dispatch(const std::string& cmd, std::span<const std::string> rest) -> int {
     const std::set<std::string> bool_flags{"json", "extended"};
     if (cmd == "validate" || cmd == "signals" || cmd == "format-dbc") {
-        auto parsed = parse_args(rest, {"dbc"}, bool_flags);
+        auto const parsed = parse_args(rest, {"dbc"}, bool_flags);
         if (!parsed)
             return die(aletheia::detail::error_of(parsed));
         if (cmd == "validate")
@@ -639,19 +639,19 @@ static auto dispatch(const std::string& cmd, std::span<const std::string> rest) 
         return cmd_format_dbc(parsed.value());
     }
     if (cmd == "extract") {
-        auto parsed = parse_args(rest, {"dbc"}, bool_flags);
+        auto const parsed = parse_args(rest, {"dbc"}, bool_flags);
         if (!parsed)
             return die(aletheia::detail::error_of(parsed));
         return cmd_extract(parsed.value());
     }
     if (cmd == "mux-query") {
-        auto parsed = parse_args(rest, {"dbc", "mux", "value"}, bool_flags);
+        auto const parsed = parse_args(rest, {"dbc", "mux", "value"}, bool_flags);
         if (!parsed)
             return die(aletheia::detail::error_of(parsed));
         return cmd_mux_query(parsed.value());
     }
     if (cmd == "template") {
-        auto parsed = parse_args(rest, {}, {});
+        auto const parsed = parse_args(rest, {}, {});
         if (!parsed)
             return die(aletheia::detail::error_of(parsed));
         return cmd_template(parsed.value());

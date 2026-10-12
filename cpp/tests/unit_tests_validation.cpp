@@ -55,8 +55,9 @@ TEST_CASE("send_frame rejects payload length mismatch", "[client][validation]") 
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value(); // expects 8 bytes
-    FramePayload short_data(3, std::byte{0});
-    auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, short_data);
+    const FramePayload short_data(3, std::byte{0});
+    auto const result =
+        client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, short_data);
 
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
@@ -70,8 +71,8 @@ TEST_CASE("extract_signals rejects payload length mismatch", "[client][validatio
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload long_data(16, std::byte{0}); // 16 bytes but DLC 8 expects 8
-    auto result = client.extract_signals(std::stop_token{}, id, dlc, long_data);
+    const FramePayload long_data(16, std::byte{0}); // 16 bytes but DLC 8 expects 8
+    auto const result = client.extract_signals(std::stop_token{}, id, dlc, long_data);
 
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
@@ -83,10 +84,10 @@ TEST_CASE("update_frame rejects payload length mismatch", "[client][validation]"
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload bad_data(5, std::byte{0});
-    std::vector<SignalValue> signals{
+    const FramePayload bad_data(5, std::byte{0});
+    const std::vector<SignalValue> signals{
         {.name = SignalName{"S"}, .value = PhysicalValue{Rational{1, 1}}}};
-    auto result = client.update_frame(std::stop_token{}, id, dlc, bad_data, signals);
+    auto const result = client.update_frame(std::stop_token{}, id, dlc, bad_data, signals);
 
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
@@ -99,8 +100,8 @@ TEST_CASE("send_frame accepts correct payload length", "[client][validation]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0}); // exactly 8 bytes for DLC 8
-    auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    const FramePayload data(8, std::byte{0}); // exactly 8 bytes for DLC 8
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     CHECK(std::holds_alternative<Ack>(*result));
@@ -113,8 +114,8 @@ TEST_CASE("send_frame accepts CAN-FD payload", "[client][validation]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(15).value(); // DLC 15 = 64 bytes
-    FramePayload data(64, std::byte{0});
-    auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    const FramePayload data(64, std::byte{0});
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     CHECK(std::holds_alternative<Ack>(*result));
@@ -130,8 +131,8 @@ TEST_CASE("send_frame rejects negative timestamp", "[client][validation]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(std::stop_token{}, Timestamp{-1000}, id, dlc, data);
+    const FramePayload data(8, std::byte{0});
+    auto const result = client.send_frame(std::stop_token{}, Timestamp{-1000}, id, dlc, data);
 
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
@@ -149,7 +150,7 @@ TEST_CASE("send_error succeeds with mock backend", "[client][validation]") {
 TEST_CASE("send_error rejects negative timestamp", "[client][validation]") {
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
-    auto result = client.send_error(std::stop_token{}, Timestamp{-1000});
+    auto const result = client.send_error(std::stop_token{}, Timestamp{-1000});
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("non-negative"));
@@ -168,7 +169,7 @@ TEST_CASE("send_remote rejects negative timestamp", "[client][validation]") {
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
     auto const id = CanId{StandardId::create(0x100).value()};
-    auto result = client.send_remote(std::stop_token{}, Timestamp{-1000}, id);
+    auto const result = client.send_remote(std::stop_token{}, Timestamp{-1000}, id);
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("non-negative"));
@@ -179,31 +180,31 @@ TEST_CASE("send_remote rejects negative timestamp", "[client][validation]") {
 // ===========================================================================
 
 TEST_CASE("bytes_to_dlc valid CAN 2.0B sizes", "[types]") {
-    auto r7 = bytes_to_dlc(7);
+    auto const r7 = bytes_to_dlc(7);
     REQUIRE(r7.has_value());
     CHECK(r7->value() == 7);
 
-    auto r8 = bytes_to_dlc(8);
+    auto const r8 = bytes_to_dlc(8);
     REQUIRE(r8.has_value());
     CHECK(r8->value() == 8);
 }
 
 TEST_CASE("bytes_to_dlc valid CAN-FD sizes", "[types]") {
-    auto r12 = bytes_to_dlc(12);
+    auto const r12 = bytes_to_dlc(12);
     REQUIRE(r12.has_value());
     CHECK(r12->value() == 9);
 
-    auto r64 = bytes_to_dlc(64);
+    auto const r64 = bytes_to_dlc(64);
     REQUIRE(r64.has_value());
     CHECK(r64->value() == 15);
 }
 
 TEST_CASE("bytes_to_dlc invalid sizes return error", "[types]") {
-    auto r9 = bytes_to_dlc(9);
+    auto const r9 = bytes_to_dlc(9);
     REQUIRE_FALSE(r9.has_value());
     CHECK_THAT(r9.error(), ContainsSubstring("invalid DLC"));
 
-    auto r65 = bytes_to_dlc(65);
+    auto const r65 = bytes_to_dlc(65);
     REQUIRE_FALSE(r65.has_value());
     CHECK_THAT(r65.error(), ContainsSubstring("invalid DLC"));
 }
@@ -213,10 +214,10 @@ TEST_CASE("bytes_to_dlc invalid sizes return error", "[types]") {
 // ===========================================================================
 
 TEST_CASE("Rational operator<=> and operator==", "[types]") {
-    Rational a{1, 2};  // 0.5
-    Rational b{2, 4};  // 0.5
-    Rational c{3, 4};  // 0.75
-    Rational d{-1, 2}; // -0.5
+    const Rational a{1, 2};  // 0.5
+    const Rational b{2, 4};  // 0.5
+    const Rational c{3, 4};  // 0.75
+    const Rational d{-1, 2}; // -0.5
 
     SECTION("equality") {
         CHECK(a == b);
@@ -241,7 +242,7 @@ TEST_CASE("Rational operator<=> and operator==", "[types]") {
     }
 
     SECTION("negative values") {
-        Rational neg{-3, 4};
+        const Rational neg{-3, 4};
         CHECK(neg < a);
         CHECK(d == Rational{-1, 2});
     }
@@ -558,7 +559,7 @@ TEST_CASE("the FFI backend hands the kernel every byte of a command", "[ffi][mar
     // the kernel's to refuse rather than the end of the command.
     if (find_ffi_library().empty())
         SKIP("no kernel library holds the process, so the stand-in must not be its first backend");
-    auto backend = make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL});
+    auto const backend = make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL});
     auto const state = backend->init();
     using namespace std::string_view_literals;
     CHECK_THAT(backend->process(state, "{}\0{}"sv), ContainsSubstring("process size=5"));
@@ -597,7 +598,7 @@ TEST_CASE("the FFI backend frees the string the kernel handed it", "[ffi][marsha
     const aletheia::test::LoadedLibrary handle{dlopen(stand_in.c_str(), RTLD_NOW)};
     REQUIRE(handle != nullptr);
     auto* const count = recording_kernel_counter(handle, "aletheia_test_free_count");
-    auto backend = make_ffi_backend(stand_in);
+    auto const backend = make_ffi_backend(stand_in);
     auto const state = backend->init();
     auto const before = count();
     CHECK_THAT(backend->process(state, "{}"), ContainsSubstring("process size=2"));

@@ -74,10 +74,10 @@ inline auto parsed_dbc_response_for(const ::aletheia::DbcDefinition& dbc) -> std
 // tests, and validation tests. Kept here (not in a .cpp) so each translation
 // unit in the split gets the same definition without a separate library.
 inline auto make_test_dbc() -> ::aletheia::DbcDefinition {
-    auto id = ::aletheia::StandardId::create(0x100).value();
+    auto const id = ::aletheia::StandardId::create(0x100).value();
     auto const dlc = ::aletheia::Dlc::create(8).value();
 
-    ::aletheia::DbcSignal sig{
+    const ::aletheia::DbcSignal sig{
         .name = ::aletheia::SignalName{"Speed"},
         .start_bit = ::aletheia::BitPosition{0},
         .bit_length = ::aletheia::BitLength{16},
@@ -91,7 +91,7 @@ inline auto make_test_dbc() -> ::aletheia::DbcDefinition {
         .presence = ::aletheia::AlwaysPresent{},
     };
 
-    ::aletheia::DbcMessage msg{
+    const ::aletheia::DbcMessage msg{
         .id = ::aletheia::CanId{id},
         .name = ::aletheia::MessageName{"VehicleSpeed"},
         .dlc = dlc,

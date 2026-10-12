@@ -12,7 +12,8 @@ all the rules, the parse being most of the time a rule takes; every unit's
 output then goes to every judge, each printing what it refuses, and the run
 fails when any judge does.
 
-Run: ``python -m tools.check_cpp_ast`` (exit 0 = clean, 1 = findings).
+Run: ``python -m tools.check_cpp_ast`` (exit 0 = clean, 1 = findings, or the lint
+tree could not be read or queried).
 """
 
 from __future__ import annotations
@@ -22,8 +23,7 @@ import sys
 from typing import TYPE_CHECKING, NamedTuple
 
 from tools import check_cpp_checked_reads, check_cpp_restated_types
-from tools._clang_query import Query, query_units, translation_units
-from tools._common import emit, git_toplevel
+from tools._clang_query import Query, query_tree
 
 from aletheia.common_types import ExitStatus
 
@@ -59,16 +59,10 @@ def verdict(repo: Path, outputs: list[QueryOutput], rules: tuple[AstRule, ...]) 
 def main() -> ExitStatus:
     """Parse every unit once and judge it by every rule; 0 when all are clean, 1 otherwise."""
     argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
-    repo = git_toplevel()
-    units = translation_units(repo)
-    if isinstance(units, str):
-        emit(units)
+    queried = query_tree(QUERY)
+    if queried is None:
         return ExitStatus(1)
-    outputs = query_units(repo, units, QUERY)
-    if isinstance(outputs, str):
-        emit(outputs)
-        return ExitStatus(1)
-    return verdict(repo, outputs, RULES)
+    return verdict(queried.repo, queried.outputs, RULES)
 
 
 if __name__ == "__main__":

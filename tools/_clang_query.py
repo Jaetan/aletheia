@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Run a clang-query script over every translation unit of the C++ binding.
 
-``tools/check_cpp_ast.py`` runs the rules matched on the C++ AST through it:
+``tools/check_cpp_ast.py`` runs the rules matched on the C++ AST through it,
 ``tools/check_cpp_restated_types.py`` (AGENTS/cpp.md cat 34) and
-``tools/check_cpp_checked_reads.py`` (cat 24).  ``clang-query`` ships with
+``tools/check_cpp_checked_reads.py`` (cat 24), and ``tools/check_cpp_const_locals.py``
+(cat 5) lists its candidates through it.  ``clang-query`` ships with
 ``clang-tidy`` (the ``clang-tidy-23`` package Depends on ``clang-tools-23``),
 so wherever the lint gate runs this can, and it reads the lint tree's compile
 database, so it runs in clang-tidy's lane after the configure that writes it.
@@ -25,9 +26,9 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, NewType, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
-from tools._common import CPP_LINT_TREE, WorkerCount
+from tools._common import CPP_LINT_TREE, WorkerCount, emit, git_toplevel
 
 from aletheia.common_types import Prose
 
@@ -72,6 +73,21 @@ _ERROR = re.compile(r"^.*\berror: .*$", re.MULTILINE)
 
 class QueryFailedError(Exception):
     """clang-query could not be run over a unit, or could not parse it."""
+
+
+# A file as a clang-query diagnostic spells it.
+PrintedPath = NewType("PrintedPath", str)
+
+
+def printed_file(printed: PrintedPath) -> Path:
+    """Return the file a clang-query diagnostic names, its ``..`` segments folded away.
+
+    A header a relative include reaches prints as the includer's directory
+    joined to the include's text, ``cpp/tests/../src/x.hpp``; folded, it is the
+    header's one path whichever unit reaches it, and a check of the directory
+    it lies in reads the header's directory rather than the includer's.
+    """
+    return Path(os.path.normpath(printed))
 
 
 def translation_units(repo: Path) -> list[UnitPath] | Prose:
@@ -137,3 +153,28 @@ def query_units(
                 return list(pool.map(partial(query_unit, repo, script), units))
         except QueryFailedError as failure:
             return Prose(str(failure))
+
+
+class Queried(NamedTuple):
+    """The tree queried whole: its root, its units, and what clang-query printed for each."""
+
+    repo: Path
+    units: list[UnitPath]
+    outputs: list[QueryOutput]
+
+
+def query_tree(query: Query, *, executor: ExecutorFactory = ThreadPoolExecutor) -> Queried | None:
+    """Query every unit of the binding from the repository root, or print why not and give None.
+
+    ``executor`` is handed to ``query_units``.
+    """
+    repo = git_toplevel()
+    units = translation_units(repo)
+    if isinstance(units, str):
+        emit(units)
+        return None
+    outputs = query_units(repo, units, query, executor=executor)
+    if isinstance(outputs, str):
+        emit(outputs)
+        return None
+    return Queried(repo, units, outputs)

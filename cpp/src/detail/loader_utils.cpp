@@ -270,7 +270,7 @@ auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "Could not open .xlsx archive: " + path.string()});
 
-    auto eocd = find_eocd(f, file_size);
+    auto const eocd = find_eocd(f, file_size);
     if (!eocd)
         return std::unexpected(AletheiaError{ErrorKind::Validation,
                                              "Not a valid .xlsx (ZIP) archive: " + path.string()});
@@ -285,7 +285,7 @@ auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<
             ErrorKind::Validation,
             "Malformed central directory location in .xlsx archive: " + path.string()});
 
-    auto total = sum_uncompressed_sizes(f, location);
+    auto const total = sum_uncompressed_sizes(f, location);
     if (!total)
         return std::unexpected(
             AletheiaError{ErrorKind::Validation,

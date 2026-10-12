@@ -2,15 +2,17 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """The record a ratchet gate compares its tree against.
 
-Three gates keep one: ``tools/check_cpp_index_loops.py`` over the counting
-loops AGENTS/cpp.md cat 27 refuses, ``tools/check_cpp_restated_types.py`` over
-the declarations cat 34 refuses, and ``tools/check_precise_hints.py`` over the
-Python type hints AGENTS/python.md cat 8 refuses.  Reading the record is the
-same work for each, so it is written once.
+The ratchet gates keep one: ``tools/check_cpp_index_loops.py`` over the
+counting loops AGENTS/cpp.md cat 27 refuses, ``tools/check_cpp_restated_types.py``
+over the declarations cat 34 refuses, ``tools/check_cpp_const_locals.py`` over the
+locals cat 5 refuses, ``tools/check_precise_hints.py`` over the Python type
+hints AGENTS/python.md cat 8 refuses, and ``tools/check_test_determinism.py``
+over the clock, wait and thread sites the tests' universal rule refuses.  Reading
+the record is the same work for each, so it is written once.
 
 It lives here rather than in ``tools/_common.py`` because it needs PyYAML, and
 ``_common`` is imported by the pre-commit hook under an interpreter that has no
-third-party packages.  Only the three gates and their tests import this module,
+third-party packages.  Only those gates and their tests import this module,
 and they run under the project's virtual environment.
 """
 

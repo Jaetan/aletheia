@@ -61,7 +61,7 @@ static auto streaming_client(std::initializer_list<const char*> frame_responses)
     }
     auto* mock = backend.get();
     AletheiaClient client(std::move(backend));
-    auto prop = ltl::always(
+    auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
@@ -70,7 +70,7 @@ static auto streaming_client(std::initializer_list<const char*> frame_responses)
 
 static auto ack_frames(std::size_t count) -> std::vector<Frame> {
     auto const dlc = Dlc::create(8).value();
-    auto sid = StandardId::create(0x100).value();
+    auto const sid = StandardId::create(0x100).value();
     const FramePayload data(8, std::byte{0});
     std::vector<Frame> frames;
     frames.reserve(count);
@@ -86,7 +86,7 @@ static auto ack_frames(std::size_t count) -> std::vector<Frame> {
 TEST_CASE("send_frames_lazy yields one value per frame", "[client][batch][lazy]") {
     auto [client, mock] =
         streaming_client({R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"});
-    auto frames = ack_frames(3);
+    auto const frames = ack_frames(3);
 
     std::size_t n = 0;
     for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
@@ -101,10 +101,10 @@ TEST_CASE("send_frames_lazy yields one value per frame", "[client][batch][lazy]"
 TEST_CASE("send_frames_lazy stops after first error with frame index", "[client][batch][lazy]") {
     auto [client, mock] = streaming_client({R"({"status":"ack"})"}); // only frame 0 reaches backend
     auto const dlc = Dlc::create(8).value();
-    auto sid = StandardId::create(0x100).value();
+    auto const sid = StandardId::create(0x100).value();
     FramePayload const good(8, std::byte{0});
     FramePayload const bad(3, std::byte{0}); // 3 bytes vs DLC 8
-    std::vector<Frame> frames{
+    const std::vector<Frame> frames{
         {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = good},
         {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = bad},
         {.timestamp = Timestamp{3000}, .id = CanId{sid}, .dlc = dlc, .data = good},
@@ -132,7 +132,7 @@ TEST_CASE("send_frames_lazy surfaces violations and continues", "[client][batch]
         R"({"status":"success","values":[{"name":"Speed","value":350}],"errors":[],"absent":[]})", // enrichment extract
         R"({"status":"ack"})",
     });
-    auto frames = ack_frames(3);
+    auto const frames = ack_frames(3);
 
     std::vector<FrameResponse> got;
     for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
@@ -148,7 +148,7 @@ TEST_CASE("send_frames_lazy surfaces violations and continues", "[client][batch]
 
 TEST_CASE("send_frames_lazy empty source yields nothing", "[client][batch][lazy]") {
     auto [client, mock] = streaming_client({});
-    std::vector<Frame> none;
+    const std::vector<Frame> none;
 
     std::size_t n = 0;
     for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(none))) {
@@ -163,7 +163,7 @@ TEST_CASE("send_frames_lazy commits only the consumed prefix", "[client][batch][
     auto [client, mock] =
         streaming_client({R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})",
                           R"({"status":"ack"})", R"({"status":"ack"})"});
-    auto frames = ack_frames(5);
+    auto const frames = ack_frames(5);
 
     std::size_t got = 0;
     for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
@@ -180,11 +180,11 @@ TEST_CASE("send_frames_lazy matches send_frames", "[client][batch][lazy]") {
     auto const responses = {R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"};
 
     auto [eager_client, eager_mock] = streaming_client(responses);
-    auto eager_frames = ack_frames(3);
-    auto eager = eager_client.send_frames(std::stop_token{}, eager_frames);
+    auto const eager_frames = ack_frames(3);
+    auto const eager = eager_client.send_frames(std::stop_token{}, eager_frames);
 
     auto [lazy_client, lazy_mock] = streaming_client(responses);
-    auto lazy_frames = ack_frames(3);
+    auto const lazy_frames = ack_frames(3);
     std::vector<FrameResponse> lazy;
     for (auto&& r :
          lazy_client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(lazy_frames))) {
@@ -206,7 +206,7 @@ TEST_CASE("send_frames_lazy honors stop_token mid-stream", "[client][batch][lazy
     // which the generator co_yields as std::unexpected and then ends.
     auto [client, mock] =
         streaming_client({R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"});
-    auto frames = ack_frames(3);
+    auto const frames = ack_frames(3);
     const std::stop_source source;
 
     std::size_t oks = 0;
@@ -236,7 +236,7 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
     backend_a->queue_response(R"({"status":"ack"})");     // send_frame
     AletheiaClient a(std::move(backend_a));
 
-    auto prop = ltl::always(
+    auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     REQUIRE(a.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(a.start_stream(std::stop_token{}).has_value());
@@ -248,10 +248,10 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
     // Move-assign: b takes over a's state.
     b = std::move(a);
 
-    auto id = StandardId::create(0x100).value();
+    auto const id = StandardId::create(0x100).value();
     auto const dlc = Dlc::create(8).value();
-    std::array<std::byte, 8> data{};
-    auto resp = b.send_frame(std::stop_token{}, Timestamp{1000}, CanId{id}, dlc, data);
+    const std::array<std::byte, 8> data{};
+    auto const resp = b.send_frame(std::stop_token{}, Timestamp{1000}, CanId{id}, dlc, data);
     REQUIRE(resp.has_value());
     CHECK(std::holds_alternative<Ack>(resp.value()));
 }
@@ -264,7 +264,7 @@ TEST_CASE("the public mock factory answers without anything queued", "[client][m
     // What an installed consumer can reach: the factory and the public headers.
     // The queueing methods are in a test-internal header, so a backend that
     // refused until its queue was filled would be one they could never call.
-    auto backend = make_mock_backend();
+    auto const backend = make_mock_backend();
     REQUIRE(backend);
     auto const state = backend->init();
 
@@ -283,7 +283,7 @@ TEST_CASE("the public mock factory answers without anything queued", "[client][m
         auto const id = CanId{StandardId::create(0x100).value()};
         auto const dlc = Dlc::create(8).value();
         auto const signals = SignalInjection::create({}, {}, {}).value();
-        auto built = backend->build_frame_bin(state, id, dlc, signals, 8);
+        auto const built = backend->build_frame_bin(state, id, dlc, signals, 8);
         REQUIRE(built.has_value());
         CHECK(built->size() == 8);
         CHECK(std::ranges::all_of(*built, [](std::byte b) { return b == std::byte{0}; }));
@@ -303,7 +303,7 @@ TEST_CASE("the two doubles differ on purpose", "[client][mock]") {
     auto const strict_state = configurable.init();
     CHECK_THROWS_AS(configurable.process(strict_state, "<binary:sendFrame>"), AletheiaException);
 
-    auto fixed = make_mock_backend();
+    auto const fixed = make_mock_backend();
     auto const fixed_state = fixed->init();
     CHECK(fixed->process(fixed_state, "<binary:sendFrame>") == R"({"status":"ack"})");
 }
@@ -341,7 +341,7 @@ TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
 
     // A queued response takes priority over the throw path.
     mock.queue_response(R"({"custom": true})");
-    auto custom = mock.process(state, "<binary:sendFrame>");
+    auto const custom = mock.process(state, "<binary:sendFrame>");
     CHECK(custom == R"({"custom": true})");
 
     // Queue drained again → throws once more.
@@ -412,7 +412,7 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
     const std::vector<std::int64_t> denominators{1, 2};
 
     SECTION("three arrays of equal length are accepted") {
-        auto block = SignalInjection::create(indices, numerators, denominators);
+        auto const block = SignalInjection::create(indices, numerators, denominators);
         REQUIRE(block.has_value());
         CHECK(block->count() == 2);
         CHECK(block->indices().size() == 2);
@@ -420,14 +420,14 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
 
     SECTION("a shorter numerator array is refused, not truncated") {
         const std::vector<std::int64_t> short_numerators{1};
-        auto block = SignalInjection::create(indices, short_numerators, denominators);
+        auto const block = SignalInjection::create(indices, short_numerators, denominators);
         REQUIRE_FALSE(block.has_value());
         CHECK(block.error().contains("differ in length: 2 indices, 1 numerators, 2 denominators"));
     }
 
     SECTION("a shorter denominator array is refused too") {
         const std::vector<std::int64_t> short_denominators{1};
-        auto block = SignalInjection::create(indices, numerators, short_denominators);
+        auto const block = SignalInjection::create(indices, numerators, short_denominators);
         REQUIRE_FALSE(block.has_value());
         CHECK(block.error().contains("differ in length: 2 indices, 2 numerators, 1 denominators"));
     }
@@ -482,7 +482,7 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     auto const signals = SignalInjection::create({}, {}, {}).value();
 
     {
-        auto result = mock.build_frame_bin(state, id, dlc, signals, 8);
+        auto const result = mock.build_frame_bin(state, id, dlc, signals, 8);
         CHECK_FALSE(result.has_value());
         CHECK(result.error().kind() == ErrorKind::State);
         CHECK(std::string{result.error().message()} ==
@@ -491,7 +491,7 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     }
 
     {
-        auto result =
+        auto const result =
             mock.update_frame_bin(state, id, dlc, std::span<const std::byte>{}, signals, 8);
         CHECK_FALSE(result.has_value());
         CHECK(result.error().kind() == ErrorKind::State);
@@ -503,7 +503,7 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     // Success path: a queued packed-frame byte buffer is returned verbatim.
     {
         mock.queue_frame_bytes({std::byte{0x01}, std::byte{0x02}});
-        auto result = mock.build_frame_bin(state, id, dlc, signals, 8);
+        auto const result = mock.build_frame_bin(state, id, dlc, signals, 8);
         REQUIRE(result.has_value());
         CHECK(*result == std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}});
     }

@@ -17,7 +17,7 @@
 namespace aletheia {
 
 auto Rational::from_decimal(std::string_view s) -> Rational {
-    auto answer = detail::parse_decimal_ffi(s);
+    auto const answer = detail::parse_decimal_ffi(s);
     if (!answer)
         throw AletheiaException(detail::decimal_refusal(detail::error_of(answer)));
     return answer.value();

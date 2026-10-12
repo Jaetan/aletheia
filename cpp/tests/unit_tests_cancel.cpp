@@ -116,7 +116,7 @@ TEST_CASE("Client cancellation: pre-FFI guard rejects already-cancelled stop_tok
     const std::stop_source source;
     source.request_stop(); // cancel BEFORE the call
 
-    auto result = client.set_properties(source.get_token(), std::span<const LtlFormula>{});
+    auto const result = client.set_properties(source.get_token(), std::span<const LtlFormula>{});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().kind() == ErrorKind::Cancellation);
     REQUIRE(std::string_view{result.error().message()}.contains("set_properties"));
@@ -134,9 +134,9 @@ TEST_CASE("Client cancellation: mid-batch commit-prefix-and-report", "[cancellat
 
     std::vector<Frame> frames;
     frames.reserve(total);
-    auto sid = StandardId::create(0x123).value();
+    auto const sid = StandardId::create(0x123).value();
     auto const dlc = Dlc::create(8).value();
-    std::vector<std::byte> payload(8, std::byte{0});
+    const std::vector<std::byte> payload(8, std::byte{0});
     for (auto const i : std::views::iota(std::size_t{0}, total)) {
         frames.push_back(Frame{
             .timestamp = Timestamp{static_cast<std::int64_t>((i + 1) * 1000)},
@@ -146,7 +146,7 @@ TEST_CASE("Client cancellation: mid-batch commit-prefix-and-report", "[cancellat
         });
     }
 
-    auto batch = client.send_frames(source.get_token(), frames);
+    auto const batch = client.send_frames(source.get_token(), frames);
     REQUIRE(batch.error.has_value());
     REQUIRE(batch.error->kind() == ErrorKind::Cancellation);
     REQUIRE(batch.responses.size() == cancel_after);
@@ -170,7 +170,7 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     REQUIRE(cancel_token.stop_requested());
 
     // Subsequent call honors the now-cancelled token (sticky).
-    auto r2 = client.set_properties(cancel_token, std::span<const LtlFormula>{});
+    auto const r2 = client.set_properties(cancel_token, std::span<const LtlFormula>{});
     REQUIRE_FALSE(r2.has_value());
     REQUIRE(r2.error().kind() == ErrorKind::Cancellation);
 }

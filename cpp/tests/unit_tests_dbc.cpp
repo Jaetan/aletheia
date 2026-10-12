@@ -24,7 +24,7 @@ using aletheia::test::make_test_dbc;
 // ---------------------------------------------------------------------------
 
 static auto make_mux_dbc() -> DbcDefinition {
-    auto id = StandardId::create(0x200).value();
+    auto const id = StandardId::create(0x200).value();
     auto const dlc = Dlc::create(8).value();
 
     std::vector<DbcSignal> sigs;
@@ -84,39 +84,39 @@ static auto make_mux_dbc() -> DbcDefinition {
 }
 
 TEST_CASE("DbcMessage::is_multiplexed", "[dbc][mux]") {
-    auto dbc = make_mux_dbc();
+    auto const dbc = make_mux_dbc();
     CHECK(dbc.messages[0].is_multiplexed());
 
-    auto plain = make_test_dbc();
+    auto const plain = make_test_dbc();
     CHECK_FALSE(plain.messages[0].is_multiplexed());
 }
 
 TEST_CASE("DbcMessage::always_present_signals", "[dbc][mux]") {
-    auto dbc = make_mux_dbc();
-    auto ap = dbc.messages[0].always_present_signals();
+    auto const dbc = make_mux_dbc();
+    auto const ap = dbc.messages[0].always_present_signals();
     REQUIRE(ap.size() == 2);
     CHECK(ap[0].name == SignalName{"MuxSelector"});
     CHECK(ap[1].name == SignalName{"Voltage"});
 }
 
 TEST_CASE("DbcMessage::multiplexed_signals", "[dbc][mux]") {
-    auto dbc = make_mux_dbc();
-    auto ms = dbc.messages[0].multiplexed_signals();
+    auto const dbc = make_mux_dbc();
+    auto const ms = dbc.messages[0].multiplexed_signals();
     REQUIRE(ms.size() == 2);
     CHECK(ms[0].name == SignalName{"Temperature"});
     CHECK(ms[1].name == SignalName{"Pressure"});
 }
 
 TEST_CASE("DbcMessage::multiplexor_names", "[dbc][mux]") {
-    auto dbc = make_mux_dbc();
-    auto mn = dbc.messages[0].multiplexor_names();
+    auto const dbc = make_mux_dbc();
+    auto const mn = dbc.messages[0].multiplexor_names();
     REQUIRE(mn.size() == 1);
     CHECK(mn[0] == SignalName{"MuxSelector"});
 }
 
 TEST_CASE("DbcMessage::multiplex_values", "[dbc][mux]") {
-    auto dbc = make_mux_dbc();
-    auto mv = dbc.messages[0].multiplex_values(SignalName{"MuxSelector"});
+    auto const dbc = make_mux_dbc();
+    auto const mv = dbc.messages[0].multiplex_values(SignalName{"MuxSelector"});
     REQUIRE(mv.size() == 2);
     CHECK(mv[0] == MultiplexValue{0});
     CHECK(mv[1] == MultiplexValue{1});
@@ -126,15 +126,17 @@ TEST_CASE("DbcMessage::multiplex_values", "[dbc][mux]") {
 }
 
 TEST_CASE("DbcMessage::signals_for_mux_value", "[dbc][mux]") {
-    auto dbc = make_mux_dbc();
+    auto const dbc = make_mux_dbc();
 
-    auto s0 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{0});
+    auto const s0 =
+        dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{0});
     REQUIRE(s0.size() == 3); // MuxSelector + Temperature + Voltage
     CHECK(s0[0].name == SignalName{"MuxSelector"});
     CHECK(s0[1].name == SignalName{"Temperature"});
     CHECK(s0[2].name == SignalName{"Voltage"});
 
-    auto s1 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{1});
+    auto const s1 =
+        dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{1});
     REQUIRE(s1.size() == 3); // MuxSelector + Pressure + Voltage
     CHECK(s1[1].name == SignalName{"Pressure"});
 
@@ -143,25 +145,26 @@ TEST_CASE("DbcMessage::signals_for_mux_value", "[dbc][mux]") {
     CHECK(s99.size() == 2); // only always-present
 
     // Unknown multiplexor name — only always-present signals returned.
-    auto su = dbc.messages[0].signals_for_mux_value(SignalName{"NonExistent"}, MultiplexValue{0});
+    auto const su =
+        dbc.messages[0].signals_for_mux_value(SignalName{"NonExistent"}, MultiplexValue{0});
     CHECK(su.size() == 2);
     CHECK(su[0].name == SignalName{"MuxSelector"});
     CHECK(su[1].name == SignalName{"Voltage"});
 }
 
 TEST_CASE("DbcMessage::multiplexor_names non-mux message", "[dbc][mux]") {
-    auto plain = make_test_dbc();
+    auto const plain = make_test_dbc();
     CHECK(plain.messages[0].multiplexor_names().empty());
 }
 
 TEST_CASE("DbcMessage::always_present_signals non-mux message", "[dbc][mux]") {
-    auto plain = make_test_dbc();
+    auto const plain = make_test_dbc();
     auto const ap = plain.messages[0].always_present_signals();
     CHECK(ap.size() == plain.messages[0].signals.size());
 }
 
 TEST_CASE("DbcMessage::signal_by_name", "[dbc]") {
-    auto dbc = make_mux_dbc();
+    auto const dbc = make_mux_dbc();
     auto const* sig = dbc.messages[0].signal_by_name(SignalName{"Temperature"});
     REQUIRE(sig != nullptr);
     CHECK(sig->is_signed == true);
@@ -175,12 +178,12 @@ TEST_CASE("DbcMessage::signal_by_name", "[dbc]") {
 }
 
 TEST_CASE("DbcMessage::multiplex_values non-mux message", "[dbc][mux]") {
-    auto plain = make_test_dbc();
+    auto const plain = make_test_dbc();
     CHECK(plain.messages[0].multiplex_values(SignalName{"Anything"}).empty());
 }
 
 TEST_CASE("DbcMessage::signals_for_mux_value non-mux message", "[dbc][mux]") {
-    auto plain = make_test_dbc();
+    auto const plain = make_test_dbc();
     // Unknown multiplexor on a non-mux message returns all signals (all always-present).
     auto const sigs =
         plain.messages[0].signals_for_mux_value(SignalName{"Anything"}, MultiplexValue{0});
@@ -200,32 +203,32 @@ TEST_CASE("DbcDefinition::message_by_name finds every message, not only the firs
 
 TEST_CASE("DbcDefinition::message_by_id", "[dbc]") {
     auto const dbc = make_mux_dbc();
-    auto id = StandardId::create(0x200).value();
+    auto const id = StandardId::create(0x200).value();
     auto const* msg = dbc.message_by_id(CanId{id});
     REQUIRE(msg != nullptr);
     CHECK(msg->name == MessageName{"MuxMessage"});
 
-    auto missing = StandardId::create(0x7FF).value(); // valid 11-bit, not in DBC
+    auto const missing = StandardId::create(0x7FF).value(); // valid 11-bit, not in DBC
     CHECK(dbc.message_by_id(CanId{missing}) == nullptr);
 
     // Extended ID 0x200 should not match standard ID 0x200.
-    auto ext = ExtendedId::create(0x200).value();
+    auto const ext = ExtendedId::create(0x200).value();
     CHECK(dbc.message_by_id(CanId{ext}) == nullptr);
 }
 
 TEST_CASE("DbcDefinition::message_by_id with extended ID", "[dbc]") {
-    auto std_id = StandardId::create(0x200).value();
-    auto ext_id = ExtendedId::create(0x200).value();
-    DbcMessage std_msg{.id = CanId{std_id},
-                       .name = MessageName{"StdMsg"},
-                       .dlc = Dlc::create(8).value(),
-                       .sender = NodeName{"ECU"},
-                       .signals = {}};
-    DbcMessage ext_msg{.id = CanId{ext_id},
-                       .name = MessageName{"ExtMsg"},
-                       .dlc = Dlc::create(8).value(),
-                       .sender = NodeName{"ECU"},
-                       .signals = {}};
+    auto const std_id = StandardId::create(0x200).value();
+    auto const ext_id = ExtendedId::create(0x200).value();
+    const DbcMessage std_msg{.id = CanId{std_id},
+                             .name = MessageName{"StdMsg"},
+                             .dlc = Dlc::create(8).value(),
+                             .sender = NodeName{"ECU"},
+                             .signals = {}};
+    const DbcMessage ext_msg{.id = CanId{ext_id},
+                             .name = MessageName{"ExtMsg"},
+                             .dlc = Dlc::create(8).value(),
+                             .sender = NodeName{"ECU"},
+                             .signals = {}};
     const DbcDefinition dbc{.version = "1.0", .messages = {std_msg, ext_msg}};
 
     auto const* found_std = dbc.message_by_id(CanId{std_id});
@@ -273,8 +276,8 @@ TEST_CASE("DbcMessage::signal_by_name guards a stale cached index", "[dbc][safet
 }
 
 TEST_CASE("DbcDefinition::message_by_id guards a stale cached index", "[dbc][safety]") {
-    auto id_a = StandardId::create(0x200).value();
-    auto id_b = StandardId::create(0x201).value();
+    auto const id_a = StandardId::create(0x200).value();
+    auto const id_b = StandardId::create(0x201).value();
     DbcMessage msg_a{.id = CanId{id_a},
                      .name = MessageName{"A"},
                      .dlc = Dlc::create(8).value(),
@@ -315,9 +318,9 @@ TEST_CASE("DbcMessage::signal_by_name rejects an in-bounds but wrong cached inde
 
 TEST_CASE("DbcDefinition::message_by_id rejects an in-bounds but wrong cached index",
           "[dbc][safety]") {
-    auto id_a = StandardId::create(0x200).value();
-    auto id_b = StandardId::create(0x201).value();
-    auto id_c = StandardId::create(0x202).value();
+    auto const id_a = StandardId::create(0x200).value();
+    auto const id_b = StandardId::create(0x201).value();
+    auto const id_c = StandardId::create(0x202).value();
     DbcMessage msg_a{.id = CanId{id_a},
                      .name = MessageName{"A"},
                      .dlc = Dlc::create(8).value(),

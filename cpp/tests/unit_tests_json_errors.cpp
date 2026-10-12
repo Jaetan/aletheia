@@ -21,27 +21,27 @@ using Catch::Matchers::ContainsSubstring;
 // ===========================================================================
 
 TEST_CASE("parse_success rejects malformed JSON", "[json][parse][error]") {
-    auto result = detail::parse_success("not json at all");
+    auto const result = detail::parse_success("not json at all");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
 }
 
 TEST_CASE("parse_success rejects missing status field", "[json][parse][error]") {
-    auto result = detail::parse_success(R"({"foo": "bar"})");
+    auto const result = detail::parse_success(R"({"foo": "bar"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected status"));
 }
 
 TEST_CASE("parse_extraction rejects missing status field", "[json][parse][error]") {
-    auto result = detail::parse_extraction(R"({"values": []})");
+    auto const result = detail::parse_extraction(R"({"values": []})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("status"));
 }
 
 TEST_CASE("parse_extraction handles missing optional arrays", "[json][parse]") {
-    auto result = detail::parse_extraction(R"({"status": "success"})");
+    auto const result = detail::parse_extraction(R"({"status": "success"})");
     REQUIRE(result.has_value());
     CHECK(result->values.empty());
     CHECK(result->errors.empty());
@@ -49,7 +49,7 @@ TEST_CASE("parse_extraction handles missing optional arrays", "[json][parse]") {
 }
 
 TEST_CASE("parse_frame_data accepts variable-length data", "[json][parse]") {
-    auto result = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
+    auto const result = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
     REQUIRE(result.has_value());
     CHECK(result->size() == 3);
     CHECK((*result)[0] == std::byte{1});
@@ -65,7 +65,7 @@ TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
         json_str += std::to_string(i);
     }
     json_str += "]}";
-    auto result = detail::parse_frame_data(json_str);
+    auto const result = detail::parse_frame_data(json_str);
     REQUIRE(result.has_value());
     CHECK(result->size() == 64);
     CHECK((*result)[0] == std::byte{0});
@@ -73,7 +73,7 @@ TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
 }
 
 TEST_CASE("parse_frame_response rejects empty status", "[json][parse][error]") {
-    auto result = detail::parse_frame_response(R"({"foo": "bar"})");
+    auto const result = detail::parse_frame_response(R"({"foo": "bar"})");
     CHECK_FALSE(result.has_value());
     // The post-batch-shape error message reports both status= and type= since
     // the discriminator moved.
@@ -82,13 +82,13 @@ TEST_CASE("parse_frame_response rejects empty status", "[json][parse][error]") {
 }
 
 TEST_CASE("parse_dbc_response rejects missing dbc field", "[json][parse][error]") {
-    auto result = detail::parse_dbc_response(R"({"status": "success"})");
+    auto const result = detail::parse_dbc_response(R"({"status": "success"})");
     CHECK_FALSE(result.has_value());
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("dbc"));
 }
 
 TEST_CASE("parse_dbc_response rejects malformed signal", "[json][parse][error]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "1.0",
@@ -103,7 +103,7 @@ TEST_CASE("parse_dbc_response rejects malformed signal", "[json][parse][error]")
 }
 
 TEST_CASE("parse_dbc_response with empty messages array", "[json][parse]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "1.0", "messages": []}
     })");
@@ -113,7 +113,7 @@ TEST_CASE("parse_dbc_response with empty messages array", "[json][parse]") {
 }
 
 TEST_CASE("parse_dbc_response with empty signals array", "[json][parse]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "",
@@ -129,7 +129,7 @@ TEST_CASE("parse_dbc_response with empty signals array", "[json][parse]") {
 }
 
 TEST_CASE("parse_validation preserves the wire string for an unknown issue code", "[json][parse]") {
-    auto result = detail::parse_validation(R"({
+    auto const result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": true,
         "issues": [
@@ -147,7 +147,7 @@ TEST_CASE("parse_validation preserves the wire string for an unknown issue code"
 
 TEST_CASE("issue_code_label falls back to the enum's spelling when the wire code is empty",
           "[json][parse]") {
-    auto result = detail::parse_validation(R"({
+    auto const result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": true,
         "issues": [{"severity": "error", "code": "", "detail": "unnamed"}]
@@ -159,7 +159,7 @@ TEST_CASE("issue_code_label falls back to the enum's spelling when the wire code
 }
 
 TEST_CASE("issue_code_label renders the canonical spelling for a known code", "[json][parse]") {
-    auto result = detail::parse_validation(R"({
+    auto const result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": true,
         "issues": [
@@ -172,7 +172,7 @@ TEST_CASE("issue_code_label renders the canonical spelling for a known code", "[
 }
 
 TEST_CASE("parse_validation rejects unknown severity string", "[json][parse][error]") {
-    auto result = detail::parse_validation(R"({
+    auto const result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": false,
         "issues": [
@@ -185,7 +185,7 @@ TEST_CASE("parse_validation rejects unknown severity string", "[json][parse][err
 }
 
 TEST_CASE("parse_validation rejects missing severity string", "[json][parse][error]") {
-    auto result = detail::parse_validation(R"({
+    auto const result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": false,
         "issues": [
@@ -198,7 +198,7 @@ TEST_CASE("parse_validation rejects missing severity string", "[json][parse][err
 
 TEST_CASE("parse_number rejects non-numeric JSON via exception", "[json][parse][error]") {
     // parse_number throws on bad input; the public wrapper converts to Result
-    auto result = detail::parse_extraction(R"({
+    auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Bad", "value": "not_a_number"}]
     })");
@@ -207,7 +207,7 @@ TEST_CASE("parse_number rejects non-numeric JSON via exception", "[json][parse][
 }
 
 TEST_CASE("parse_dbc_response rejects out-of-range CAN ID", "[json][parse][error]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "",
@@ -222,7 +222,7 @@ TEST_CASE("parse_dbc_response rejects out-of-range CAN ID", "[json][parse][error
 }
 
 TEST_CASE("parse_dbc_response rejects out-of-range DLC", "[json][parse][error]") {
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "",

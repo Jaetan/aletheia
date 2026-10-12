@@ -22,7 +22,7 @@ from typing import NamedTuple, NewType
 
 import pytest
 
-from tools import check_cpp_ast
+from tools import _clang_query as clang_query
 from tools._clang_query import COMPILE_DB, QueryOutput, UnitPath, query_unit, translation_units
 from tools._common import RelPath
 from tools._ratchet import CanonicalText
@@ -241,8 +241,8 @@ def test_every_rule_judges_and_any_refusal_fails(
 def test_a_tree_with_no_database_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A tree the configure has not run in is a gate that cannot run, never a clean one."""
     printed: list[Prose] = []
-    monkeypatch.setattr(check_cpp_ast, "emit", printed.append)
-    monkeypatch.setattr(check_cpp_ast, "git_toplevel", lambda: tmp_path)
+    monkeypatch.setattr(clang_query, "emit", printed.append)
+    monkeypatch.setattr(clang_query, "git_toplevel", lambda: tmp_path)
     monkeypatch.setattr("sys.argv", ["check_cpp_ast"])
     assert main() == ExitStatus(1)
     assert printed == [translation_units(tmp_path)]

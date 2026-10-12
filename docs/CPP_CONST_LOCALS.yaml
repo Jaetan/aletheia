@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Every C++ local that compiles as const and stays written as not const, and the
+# ratchet that keeps the list from growing. AGENTS/cpp.md cat 5, const wherever it
+# can stand: a local nothing writes, declared without const, tells a reader it may
+# change and lets a later edit change it without anyone deciding to.
+# tools/check_cpp_const_locals.py refuses such a local this file does not name, and
+# refuses a row naming more locals than the gate finds, because such a row is
+# standing permission to write one again.
+#
+# A row leaves this file by the change that declares its local const. Adding a row
+# needs user approval, on the same footing as a NOLINT suppression, and a row earns
+# its place only by carrying a reason const would be wrong that the gate cannot see.
+#
+# Rows are keyed by file and by the declaration's source text from its first
+# character, whitespace collapsed, rather than by a line number, so an edit
+# elsewhere in the file does not move them; `count` is how many locals in that file
+# share the text.
+locals: []

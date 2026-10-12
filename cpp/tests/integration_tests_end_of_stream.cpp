@@ -40,11 +40,11 @@ using namespace aletheia;
 // leaves the Speed atomic unresolved.
 
 static auto make_two_message_dbc() -> DbcDefinition {
-    auto speed_id = StandardId::create(0x100).value();
-    auto rpm_id = StandardId::create(0x200).value();
+    auto const speed_id = StandardId::create(0x100).value();
+    auto const rpm_id = StandardId::create(0x200).value();
     auto const dlc = Dlc::create(8).value();
 
-    DbcSignal speed_sig{
+    const DbcSignal speed_sig{
         .name = SignalName{"Speed"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -58,7 +58,7 @@ static auto make_two_message_dbc() -> DbcDefinition {
         .presence = AlwaysPresent{},
     };
 
-    DbcSignal rpm_sig{
+    const DbcSignal rpm_sig{
         .name = SignalName{"Rpm"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -125,11 +125,11 @@ TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresol
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    auto ack = client.send_frame(std::stop_token{}, Timestamp{0}, rpm_id, dlc, bytes_of(5));
+    auto const ack = client.send_frame(std::stop_token{}, Timestamp{0}, rpm_id, dlc, bytes_of(5));
     REQUIRE(ack.has_value());
     CHECK(std::holds_alternative<Ack>(*ack));
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -161,7 +161,7 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -192,7 +192,7 @@ TEST_CASE("end_stream: changed_by on one-frame trace → Unresolved",
         client.send_frame(std::stop_token{}, Timestamp{0}, speed_id, dlc, bytes_of(10));
     REQUIRE(ack.has_value());
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -224,7 +224,7 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved",
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -248,7 +248,7 @@ TEST_CASE("end_stream: Eventually on 0 frames still finalizes to Fails",
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Fails);
@@ -273,7 +273,7 @@ TEST_CASE("end_stream: 0 frames + Always(missing) → Holds (vacuous)",
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Holds);
@@ -315,7 +315,7 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
         client.send_frame(std::stop_token{}, Timestamp{4000}, speed_id, dlc, bytes_of(10));
     REQUIRE(ack2.has_value());
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Holds);
@@ -349,7 +349,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -387,7 +387,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -420,7 +420,7 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     auto const& pr = end->results[0];
@@ -468,7 +468,7 @@ TEST_CASE("end_stream: enrichment carries the newest payload of a repeated CAN i
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, speed_id, dlc, bytes_of(7))
                 .has_value());
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     auto const& pr = end->results[0];
@@ -512,7 +512,7 @@ TEST_CASE("end_stream: the last-frame cache keeps a standard and an extended id 
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, extended_id, dlc, bytes_of(7))
                 .has_value());
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 2);
     for (auto const& pr : end->results) {
