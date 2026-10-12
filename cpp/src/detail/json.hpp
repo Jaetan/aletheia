@@ -6,8 +6,8 @@
 
 // The serialize_*/parse_* signatures below use DbcDefinition, LtlFormula,
 // FramePayload, FrameResponse, StreamResult, etc. Callers (json_parse.cpp,
-// json_serialize.cpp, tests) need those vocabulary types without extra
-// direct includes.
+// json_parse_dbc.cpp, json_serialize.cpp, tests) need those vocabulary types
+// without extra direct includes.
 #include <aletheia/dbc.hpp>        // IWYU pragma: export
 #include <aletheia/error.hpp>      // IWYU pragma: export
 #include <aletheia/ltl.hpp>        // IWYU pragma: export

@@ -257,7 +257,7 @@ streaming-warms-cache dbc σ (p ∷ ps) cache readable (obs , obsAll) (inSet , r
 --     `docs/LOG_EVENTS.yaml` (warn, "End-of-stream diagnostics"
 --     section), `python/aletheia/client/_log.py` (`LogEvent`),
 --     `go/aletheia/client_stream.go` (slog.LevelWarn emit in `EndStream`),
---     `cpp/src/client.cpp` (`logger_.warn` in
+--     `cpp/src/client_stream.cpp` (`logger_.warn` in
 --     `log_end_stream_summary` helper).  Cross-binding parity tests
 --     (`test_log_events_parity.{py,go,cpp}` + `test_logging.py
 --     TestEndStreamWarnings`) exercise the uncached_atom scenario via

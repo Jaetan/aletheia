@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes cpp/benchmarks/benchmark.cpp and cpp/benchmarks/stability_bench.cpp.
+# Probes cpp/benchmarks/benchmark.cpp with the parts it is built from, and
+# cpp/benchmarks/stability_bench.cpp.
 # Claim: no client call in either harness binds its result to a variable in
 # order to ignore it. Every client method returns a std::expected marked
 # nodiscard, so a bare discard is refused by the lint gate; the binding to a
@@ -14,7 +15,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 status=0
-for file in cpp/benchmarks/benchmark.cpp cpp/benchmarks/stability_bench.cpp; do
+for file in cpp/benchmarks/benchmark*.cpp cpp/benchmarks/benchmark*.hpp cpp/benchmarks/stability_bench.cpp; do
     hits=$(tr '\n' ' ' < "$file" | grep -oE '\[\[maybe_unused\]\] auto const [a-z_]+ = *client\.[a-z_]+\(' || true)
     [ -z "$hits" ] || {
         echo "$file binds a client result to ignore it:"

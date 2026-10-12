@@ -336,6 +336,7 @@ add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}
     src/backend.cpp
     src/checked.cpp
     src/client.cpp
+    src/client_stream.cpp
     src/dbc.cpp
     src/detail/dl_symbol.cpp
     src/detail/ffi_logic.cpp
@@ -347,6 +348,7 @@ add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}
     src/mock_backend.cpp
     src/json_serialize.cpp
     src/json_parse.cpp
+    src/json_parse_dbc.cpp
     src/rational_renderer.cpp
     src/types.cpp
     src/yaml.cpp)
@@ -513,8 +515,16 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # into a single executable registered as one ctest name.
     add_executable(unit_tests
         tests/unit_tests_json.cpp
+        tests/unit_tests_json_errors.cpp
+        tests/unit_tests_json_metadata.cpp
+        tests/unit_tests_json_ranges.cpp
+        tests/unit_tests_json_formula.cpp
+        tests/unit_tests_json_rejects.cpp
+        tests/unit_tests_json_guards.cpp
         tests/unit_tests_client.cpp
+        tests/unit_tests_client_backend.cpp
         tests/unit_tests_enrich.cpp
+        tests/unit_tests_enrich_extract_once.cpp
         tests/unit_tests_validation.cpp
         tests/unit_tests_check.cpp
         tests/unit_tests_dbc.cpp
@@ -549,13 +559,22 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         # exercised and killed.  (Mutation build only; the normal unit_tests
         # stays Mock-only / .so-free for speed.)  The suite's size-bound unit
         # is folded in last of all, below.
-        target_sources(unit_tests PRIVATE tests/integration_tests.cpp)
+        target_sources(unit_tests PRIVATE
+            tests/integration_tests.cpp
+            tests/integration_tests_backend.cpp
+            tests/integration_tests_checks.cpp
+            tests/integration_tests_nested_mux.cpp
+            tests/integration_tests_end_of_stream.cpp
+            tests/integration_tests_geometry.cpp)
         target_link_libraries(unit_tests PRIVATE Threads::Threads)
         # The two loaders reach the binary only through their own suites: the
         # library links statically here, so an object no test references is
         # dropped at link and its sources have no mutant.  Fold the loader
         # suites in for the same reason as the integration tests.
-        target_sources(unit_tests PRIVATE tests/yaml_tests.cpp tests/excel_tests.cpp)
+        target_sources(unit_tests PRIVATE
+            tests/yaml_tests.cpp
+            tests/excel_tests.cpp
+            tests/excel_tests_edges.cpp)
         target_link_libraries(unit_tests PRIVATE yaml-cpp::yaml-cpp OpenXLSX::OpenXLSX)
     endif()
     # The stand-in kernels `cabal run shake -- build` makes beside the library,
@@ -601,6 +620,11 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # last (below).
     add_executable(integration_tests
         tests/integration_tests.cpp
+        tests/integration_tests_backend.cpp
+        tests/integration_tests_checks.cpp
+        tests/integration_tests_nested_mux.cpp
+        tests/integration_tests_end_of_stream.cpp
+        tests/integration_tests_geometry.cpp
         tests/integration_tests_size_bounds.cpp)
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
@@ -643,7 +667,10 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # Excel loader tests (OpenXLSX, Catch2). rts_setup_listener.cpp for
     # the same reason as yaml_tests — numeric cells are parsed via the kernel
     # decimal SSOT (RTS-gated).
-    add_executable(excel_tests tests/excel_tests.cpp tests/rts_setup_listener.cpp)
+    add_executable(excel_tests
+        tests/excel_tests.cpp
+        tests/excel_tests_edges.cpp
+        tests/rts_setup_listener.cpp)
     if(NOT ALETHEIA_SANITIZER)
         target_sources(excel_tests PRIVATE tests/alloc_fault.cpp)
         target_compile_definitions(excel_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
@@ -884,7 +911,14 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # loaded via dlopen. The CMake build will succeed without the .so, but the
     # resulting binary will fail at startup with a dlopen error. Build the
     # Haskell shim first with `cabal run shake -- build` from the repo root.)
-    add_executable(benchmark benchmarks/benchmark.cpp)
+    add_executable(benchmark
+        benchmarks/benchmark.cpp
+        benchmarks/benchmark_fixtures.cpp
+        benchmarks/benchmark_stats.cpp
+        benchmarks/benchmark_output.cpp
+        benchmarks/benchmark_throughput.cpp
+        benchmarks/benchmark_latency.cpp
+        benchmarks/benchmark_scaling.cpp)
     target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
 
     # Stability benchmark (long-run leak detection).

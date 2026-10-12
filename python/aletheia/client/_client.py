@@ -624,7 +624,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             binding-internal failures while constructing per-property
             diagnostics surface via the ``Raises`` channel below — mirrors
             the C++ binding's ``Result<void>`` lowering at
-            ``cpp/src/client.cpp::set_properties``.
+            ``cpp/src/client_stream.cpp::set_properties``.
 
         Raises:
             FFIError: The rational renderer cannot load

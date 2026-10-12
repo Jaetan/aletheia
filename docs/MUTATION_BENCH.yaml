@@ -266,11 +266,13 @@ bindings:
       # file here without one.
       - cpp/src/backend.cpp
       - cpp/src/client.cpp
+      - cpp/src/client_stream.cpp
       - cpp/src/dbc.cpp
       - cpp/src/enrich.cpp
       - cpp/src/excel.cpp
       - cpp/src/ffi_backend.cpp
       - cpp/src/json_parse.cpp
+      - cpp/src/json_parse_dbc.cpp
       - cpp/src/json_serialize.cpp
       - cpp/src/yaml.cpp
     config:
@@ -291,10 +293,10 @@ bindings:
       mutators: cpp/mull.yml
     invocation: |
       # The ALETHEIA_MUTATION build folds the integration suite
-      # (tests/integration_tests.cpp, and last of all the size-bound unit
-      # tests/integration_tests_size_bounds.cpp) into the unit_tests binary so
-      # the real FfiBackend (dlopen glue) is on the mutation surface. Those
-      # tests dlopen build/libaletheia-ffi.so, so
+      # (tests/integration_tests.cpp and the units that follow it, and last of
+      # all the size-bound unit tests/integration_tests_size_bounds.cpp) into
+      # the unit_tests binary so the real FfiBackend (dlopen glue) is on the
+      # mutation surface. Those tests dlopen build/libaletheia-ffi.so, so
       # `cabal run shake -- build` must have produced it first.
       cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
@@ -645,7 +647,7 @@ bindings:
           refused: get() != pointer()
           count: 1
         - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
+          file: cpp/src/client_stream.cpp
           text: if (cache_it == cache_.end()) {
           route: check
           refused: attempt to dereference a past-the-end iterator.

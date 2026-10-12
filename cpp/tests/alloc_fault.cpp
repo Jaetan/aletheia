@@ -86,13 +86,18 @@ constexpr std::size_t k_recording_capacity = 1U << 16U;
 // asked, and the library function that called it are the first few frames.
 constexpr std::size_t k_stack_depth = 8;
 
+// A frame's name also names a library when its function only takes one of the
+// library's types, as a function of this project's own does when it reads a
+// JSON document; a frame whose mangled name opens on the project's namespace
+// is the code under test, never the library's.
 [[nodiscard]] static auto vendored_frame_among(const std::array<void*, k_stack_depth>& frames,
                                                int depth) -> bool {
     // take clamps, so a depth the capture never filled reads nothing rather
     // than past the array.
     return std::ranges::any_of(frames | std::views::take(depth), [](auto const* const frame) {
         auto const name = symbol_at(frame);
-        return name.contains("nlohmann") || name.contains("OpenXLSX") || name.contains("4YAML");
+        return !name.starts_with("_ZN8aletheia") &&
+               (name.contains("nlohmann") || name.contains("OpenXLSX") || name.contains("4YAML"));
     });
 }
 

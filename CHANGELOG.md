@@ -365,9 +365,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `go/excel/excel_test.go` gives the template, loader-edge, hardening and
   cell-type cases a file each. The test names listed before and after are the
   same, the mutation record's hot path names the parts, and every probe and
-  comment that cited moved code cites its new file. The C++ and Haskell files
-  over the cap follow, one change per language, and a tree-wide gate then
-  holds every code file to it.
+  comment that cited moved code cites its new file. The Haskell file over the
+  cap follows, and a tree-wide gate then holds every code file to it.
 
 - **The C++ mutation binary runs its costliest tests last.** Under
   `--order decl` and `--abort` a mutant pays for every test ahead of the one

@@ -467,9 +467,9 @@ jobs:
       # as extra files to hash, which is what the command line does not carry
       # (probes/cpp_CMakeLists.txt--a-mutation-object-is-cached-under-the-
       # plugin-and-the-config.sh).  Measured locally, 20 CPUs at --parallel 8,
-      # configure included: a cold slice builds in 60s reading 213 misses of 213
-      # cacheable calls, and the same slice wiped and rebuilt takes 13s reading
-      # 213 hits of 213.
+      # configure included: a cold slice builds in 72s to 79s reading 231 misses
+      # of 231 cacheable calls, and the same slice wiped and rebuilt takes 23s to
+      # 29s reading 231 hits of 231.
       #
       # Per lane, because a lane's objects are its own: the slices differ by
       # the configuration each is given, so one shared key would hold one
@@ -479,13 +479,13 @@ jobs:
       # builds that stopped at a failed compile what those runs held together,
       # rather than a history of every build.  Measured, each slice built from
       # cold into an empty cache, 20 CPUs at the build's own job cap: a slice
-      # holds 27712 to 27840 KiB.  A build that misses
+      # holds 38648 to 38876 KiB.  A build that misses
       # every object, after a change to what every object hashes (the plugin,
       # the configuration, the toolchain), holds the restored working set beside
       # its own until the eviction, and such a build, stopping at a failed
       # compile or a preprocessor error, is saved whole, both sets, so the run
       # after it can hold two beside its own: the cap needs three of the
-      # largest, 85.5 MB, and each further run since the last eviction that
+      # largest, 119.4 MB, and each further run since the last eviction that
       # fails a compile or its eviction can stack one more, so a run holding
       # four of the largest is past the cap, where ccache's own cleanup, an
       # approximate LRU over part of the cache, can trim the build's own objects
