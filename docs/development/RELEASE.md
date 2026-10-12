@@ -105,17 +105,22 @@ rg -n -e '<old X.Y.Z>' -e '\bv<old X>\b'   # expect only CHANGELOG history + int
 **Gate:** no stray occurrence of the previous version outside `CHANGELOG.md`
 history and deliberate prose.
 
-### 3. CHANGELOG — rename and normalize (in THIS commit)
+### 3. ⚑ CHANGELOG — cut, then commit (signed)
 
 Rename `## [Unreleased]` → `## [X.Y.Z] — YYYY-MM-DD` and add a fresh empty
-`## [Unreleased]` above it. This **must** happen in the prepare-release commit,
-not after publishing, so the tagged tree carries the release's dated section.
-While renaming, enforce
-**one `###` header per Keep-a-Changelog category** (`Added`, `Changed`,
-`Removed`, `Fixed`, in that order) — merge any duplicate headers that accumulated
-over the cycle, and confirm the merge is content-preserving with a sorted-line
-diff of the old vs new section.
-**Gate:** `[X.Y.Z]` dated; fresh empty `[Unreleased]`; one header per category.
+`## [Unreleased]` above it, changing no other line. This **must** happen in the
+prepare-release commit, not after publishing, so the tagged tree carries the
+release's dated section. Then stage **only** the prepare-release files by explicit
+path (never `git add -A`) and commit **GPG-signed** (`-S`) under
+`chore(dist): prepare vX.Y.Z`, so the gates below read the cut. If the version
+changes during review, keep one preparation commit: reword or drop the earlier one
+and force-push the re-signed branch (`git push --force-with-lease`), never pulling
+the old one back, since a branch preparing two versions is refused.
+**Gate:** `check-changelog` (run by `tools/run_ci.py`) refuses the branch unless
+the merge-base's `[Unreleased]` lines now sit, in their order, under
+`[X.Y.Z] — YYYY-MM-DD` for the version the commit prepares, with a calendar date,
+below an empty `[Unreleased]`, no other line changed, and `X.Y.Z` newer than every
+release the base holds; the `PR title` check refuses a title naming another version, or none.
 
 ### 4. Rebuild + redeploy the kernel, smoke the version
 
@@ -149,12 +154,11 @@ python/.venv/bin/python3 -m aletheia --version                              # al
 
 **Gate:** both green. A repro-build failure is a stop-the-world event, not a flake.
 
-### 6. ⚑ Commit (signed), push, PR, babysit, merge
+### 6. ⚑ Push, PR, babysit, merge
 
-Stage **only** the prepare-release files by explicit path (never `git add -A`),
-commit **GPG-signed** (`-S`), push, open the PR, babysit CI to
-`mergeStateStatus == CLEAN`, handle **every** review comment (validate + fix, or
-refute — then resolve the thread), then **squash-merge** and fast-forward `main`.
+Push the signed branch, open the PR titled `chore(dist): prepare vX.Y.Z`, babysit
+CI to `mergeStateStatus == CLEAN`, handle **every** review comment (validate + fix,
+or refute — then resolve the thread), then **squash-merge** and fast-forward `main`.
 **Gate:** PR `state == MERGED`, squash commit on `main`, `main == origin/main`.
 
 ### 7. Dispatch dry-run — before the real tag

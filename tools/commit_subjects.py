@@ -24,7 +24,8 @@ Whether a subject owes the CHANGELOG an entry is one table (``owed_entry``):
 * A branch edits the CHANGELOG only when a subject owes it an entry or a record
   of the public surface changed, the release preparation apart:
   ``chore(dist): prepare vX.Y.Z`` moves the unreleased entries under the
-  version's heading and owes none (``cuts_a_release``).
+  version's heading and owes none (``cuts_a_release``; ``release_version``
+  reads the version, ``released`` every version a branch prepares).
 
 The text is one line of printable characters, starting with one that is not a
 space.
@@ -54,6 +55,8 @@ from aletheia.common_types import Prose
 # A revision as git's command line names it, and one argument of a git command.
 Revision = NewType("Revision", str)
 GitArg = NewType("GitArg", str)
+# A release's version as its CHANGELOG heading spells it, ``X.Y.Z`` (its tag is ``vX.Y.Z``).
+ReleaseVersion = NewType("ReleaseVersion", str)
 
 
 class CommitType(StrEnum):
@@ -205,18 +208,30 @@ def owed_entry(subject: Subject) -> Prose | None:
     return None
 
 
+# A release's version as SemVer writes X.Y.Z: ASCII digits, no leading zero.
+VERSION_PATTERN = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
 # The release preparation's text (docs/development/RELEASE.md), the one subject
-# that edits the CHANGELOG while owing it nothing.
-_RELEASE_TEXT = re.compile(r"prepare v\d+\.\d+\.\d+")
+# that edits the CHANGELOG while owing it nothing; its group is the version cut.
+_RELEASE_TEXT = re.compile(rf"prepare v({VERSION_PATTERN})")
+
+
+def release_version(subject: Subject) -> ReleaseVersion | None:
+    """Return the version the release preparation cuts, or None for any other subject."""
+    if subject.type is not CommitType.CHORE or subject.scope is not Scope.DIST:
+        return None
+    matched = _RELEASE_TEXT.fullmatch(subject.text)
+    return None if matched is None else ReleaseVersion(matched.group(1))
 
 
 def cuts_a_release(subject: Subject) -> bool:
     """Say whether the subject is the release preparation, which edits the CHANGELOG owing none."""
-    return (
-        subject.type is CommitType.CHORE
-        and subject.scope is Scope.DIST
-        and _RELEASE_TEXT.fullmatch(subject.text) is not None
-    )
+    return release_version(subject) is not None
+
+
+def released(branch: Branch) -> frozenset[ReleaseVersion]:
+    """Return the versions the branch's commits prepare, a subject the vocabulary refuses aside."""
+    reads = [read for read in map(parse, branch.subjects) if isinstance(read, Subject)]
+    return frozenset(version for version in map(release_version, reads) if version is not None)
 
 
 # Where what users get lives, outside the kernel: every file under these
@@ -297,11 +312,13 @@ class Branch(NamedTuple):
     """What a branch holds since its merge-base: the files it changed, its commits' subjects.
 
     Merge commits are left out: a branch brought up to date with its base gains
-    one, worded by git, which is no change of the branch's own.
+    one, worded by git, which is no change of the branch's own.  ``merge_base``
+    is the commit the branch is read from.
     """
 
     changed: list[RelPath]
     subjects: list[Prose]
+    merge_base: Revision
 
 
 def _git(tool: Prose, *args: GitArg) -> list[Prose] | None:
@@ -324,9 +341,10 @@ def read_branch(tool: Prose, base: Revision) -> Branch | None:
     merge_base = _git(tool, GitArg("merge-base"), GitArg("HEAD"), GitArg(base))
     if merge_base is None:
         return None
-    span = GitArg(f"{''.join(merge_base)}..HEAD")
+    fork = Revision("".join(merge_base))
+    span = GitArg(f"{fork}..HEAD")
     changed = _git(tool, GitArg("diff"), GitArg("--name-only"), span)
     subjects = _git(tool, GitArg("log"), GitArg("--no-merges"), GitArg("--format=%s"), span)
     if changed is None or subjects is None:
         return None
-    return Branch([RelPath(line) for line in changed], subjects)
+    return Branch([RelPath(line) for line in changed], subjects, fork)
