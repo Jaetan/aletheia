@@ -34,7 +34,7 @@ command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim unt
 workflow=.github/workflows/pr-heavy-lanes.yml
 # Recorded, KiB as `ccache --print-stats` counts cache_size_kibibyte, slice 1 of
 # the tree built from cold into an empty cache; the three slices read within
-# 228 KiB of each other, so slice 1 stands for the three.
+# 300 KiB of each other, so slice 1 stands for the three.
 recorded=38648
 tolerance_percent=20
 multiple=3
