@@ -90,7 +90,7 @@ dev = [
     # gates; the doc-example harness collects through the same parser.  How a
     # parser reads a document is version-specific, so the bound is the major line
     # the gates were checked on.
-    "markdown-it-py>=3.0.0,<4",
+    "markdown-it-py>=4.2.0,<5",
     # AGENTS.md Python cat 14(f) requires test-isolation runs via
     # ``pytest --random-order --random-order-bucket=package`` alongside the
     # deterministic lane.  Both must stay green.
