@@ -72,6 +72,10 @@ def _run_child(shape: str, frames: int) -> dict[str, float]:
 
 
 @pytest.mark.parametrize(("shape", "frames"), _CASES)
+@pytest.mark.process(
+    "the peak resident size is a process-wide high-water mark, so one streaming"
+    + " session's growth is read in a fresh process no earlier test has raised"
+)
 def test_streaming_residency_is_bounded(shape: str, frames: int) -> None:
     """Streaming a few hundred thousand frames must not grow the heap with N."""
     report = _run_child(shape, frames)

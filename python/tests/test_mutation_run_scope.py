@@ -132,6 +132,9 @@ def _forces_all(monkeypatch: pytest.MonkeyPatch, relative: RelPath) -> bool:
     return mutation_run.bindings_in_scope(mutation_run.REPO_ROOT) is None
 
 
+@pytest.mark.process(
+    "a fresh interpreter binds only what the harness imports; this one holds every test's imports"
+)
 def test_every_module_the_harness_loads_forces_all_bindings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -150,6 +153,9 @@ def test_every_module_the_harness_loads_forces_all_bindings(
     assert not [relative for relative in relatives if not _forces_all(monkeypatch, relative)]
 
 
+@pytest.mark.process(
+    "which harness modules the live tree tracks is git's own answer, not a glob of the work tree"
+)
 def test_every_tracked_harness_module_forces_all_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
     """A harness module added later is covered the day it is tracked, not the day someone lists it.
 

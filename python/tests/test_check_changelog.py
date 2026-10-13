@@ -745,6 +745,9 @@ def test_e2e_a_surface_record_changed_with_an_entry_passes_under_an_internal_sub
     assert _gate(tmp_path, monkeypatch, branch) == 0
 
 
+@pytest.mark.process(
+    "git's log without merges and its merge base after a merge git wrote are git's own answer"
+)
 def test_e2e_a_merge_commit_is_no_subject_of_the_branch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

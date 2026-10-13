@@ -20,6 +20,8 @@ import ast
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
+import pytest
+
 from tools._common import RelPath, git_ls_files
 
 from aletheia.common_types import Prose
@@ -96,6 +98,10 @@ def _findings(
     return found
 
 
+@pytest.mark.process(
+    "git's own index decides which Python files are tracked, so only git lists the"
+    + " runnable files held to a parser"
+)
 def test_every_runnable_file_parses_its_arguments() -> None:
     """Over the tracked tree, every runnable file parses its arguments or has an exemption."""
     files = [rel for rel in git_ls_files(_REPO, "*.py") if not rel.startswith(".archive/")]

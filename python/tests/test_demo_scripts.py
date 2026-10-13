@@ -42,6 +42,13 @@ _SCRIPTS = sorted(
 )
 _SCRIPT_IDS = [p.relative_to(_EXAMPLES_DIR).as_posix() for p in _SCRIPTS]
 
+# Why every example runs as a user runs it.
+_RUNS_AS_A_PROGRAM = (
+    "each example runs as a user runs it, as a program from its own directory, so its"
+    + " own exit status and output streams, with the runtime it starts once in a fresh"
+    + " interpreter, are the claim"
+)
+
 
 def _examples_state() -> dict[Path, os.stat_result]:
     """Every file under ``examples/`` with its stat, taken either side of a script run."""
@@ -54,6 +61,7 @@ def test_demo_dir_is_populated() -> None:
 
 
 @pytest.mark.parametrize("script", _SCRIPTS, ids=_SCRIPT_IDS)
+@pytest.mark.process(_RUNS_AS_A_PROGRAM)
 def test_demo_script_runs(script: Path) -> None:
     """Each example exits 0 against the built ``.so`` and writes nothing under ``examples/``."""
     env = dict(os.environ)
@@ -114,6 +122,10 @@ def test_demo_script_runs(script: Path) -> None:
         )
 
 
+@pytest.mark.process(
+    "the script runs as a user runs it, as a program, and its refusal is that program's"
+    + " own exit status and error stream, set from the message the script exits with"
+)
 def test_drive_log_refuses_a_drifted_fixture(tmp_path: Path) -> None:
     """``drive_log.py`` exits 1 on a ``drive.log`` its generators do not make, leaving it intact."""
     _ = shutil.copy(_DEMO_DIR / "drive_log.py", tmp_path)
@@ -132,6 +144,7 @@ def test_drive_log_refuses_a_drifted_fixture(tmp_path: Path) -> None:
     assert fixture.read_bytes() == drifted
 
 
+@pytest.mark.process(_RUNS_AS_A_PROGRAM)
 def test_drive_log_update_rewrites_the_fixture(tmp_path: Path) -> None:
     """``drive_log.py --update`` writes the tracked ``drive.log``'s bytes over a drifted copy."""
     _ = shutil.copy(_DEMO_DIR / "drive_log.py", tmp_path)

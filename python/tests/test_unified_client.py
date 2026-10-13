@@ -36,6 +36,11 @@ from aletheia import (
 from aletheia.dbc import dbc_to_json
 from aletheia.types import DLCCode
 
+_FRESH_RUNTIME = (
+    "the GHC runtime starts once per process, so two clients under a runtime"
+    + " of two capabilities are run in a fresh process"
+)
+
 
 @pytest.fixture(name="demo_dbc")
 def demo_dbc_fixture() -> DBCDefinition:
@@ -359,6 +364,7 @@ class TestAletheiaClientLifecycle:
             assert resp.get("status") == "ack"
             client.end_stream()
 
+    @pytest.mark.process(_FRESH_RUNTIME)
     def test_isolated_clients_under_two_capabilities(self) -> None:
         """Two clients keep their streams apart under an RTS of two capabilities.
 

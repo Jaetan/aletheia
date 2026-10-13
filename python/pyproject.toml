@@ -525,6 +525,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_tools_library_path.py",
     "--ignore=tests/test_ratchet.py",
     "--ignore=tests/test_check_test_determinism.py",
+    "--ignore=tests/test_determinism_guard.py",
     "--ignore=tests/test_check_source_length.py",
     "--ignore=tests/test_shake_program.py",
     # Same shape: cover the SBOM binding-manifest parsers and the SBOM

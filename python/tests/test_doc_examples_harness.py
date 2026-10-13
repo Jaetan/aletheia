@@ -90,6 +90,10 @@ def _run_fences(doc: Path) -> set[FenceLine]:
     return _run_fence_lines(MarkdownText((REPO_ROOT / doc).read_text(encoding="utf-8")), doc)
 
 
+@pytest.mark.process(
+    "git's own index decides which Markdown files are tracked, so only git lists the"
+    + " documents whose Python fences must be on the harness list"
+)
 def test_every_tracked_python_fence_is_in_a_harness_document() -> None:
     """Every tracked Markdown file with a Python fence is listed."""
     listed = set(DOC_EXAMPLE_DOCS)
@@ -108,6 +112,7 @@ def _tracked() -> frozenset[RelPath]:
     return frozenset(git_ls_files(REPO_ROOT, *map(str, DOC_EXAMPLE_DOCS)))
 
 
+@pytest.mark.process("git's own index decides whether a document on the harness list is tracked")
 @pytest.mark.parametrize("doc", DOC_EXAMPLE_DOCS, ids=str)
 def test_the_harness_runs_every_python_fence_of_the_document(
     doc: Path, tracked: frozenset[RelPath]

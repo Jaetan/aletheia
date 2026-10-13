@@ -136,12 +136,20 @@ def _started(
                 os.kill(watched, signal.SIGKILL)
 
 
+@pytest.mark.process(
+    "the command's two streams share a pipe it inherits across the guard, and its status"
+    + " crosses the guard's exit, so only a started command shows both pass through"
+)
 def test_the_status_and_the_merged_output_pass_through() -> None:
     """The exit status comes back, and stdout and stderr in the order written, as ``stdout``."""
     result = _common.run_guarded(["sh", "-c", "echo one; echo two >&2; echo three; exit 3"])
     assert (result.returncode, result.stdout, result.stderr) == (3, "one\ntwo\nthree\n", "")
 
 
+@pytest.mark.process(
+    "the command writes both streams through a descriptor it inherits across the guard,"
+    + " so only a started command shows the file receiving them"
+)
 def test_output_sent_to_a_file_lands_in_the_file(tmp_path: Path) -> None:
     """A file handle given as ``output`` receives both streams, and the result carries none."""
     log = tmp_path / "out.log"
@@ -151,6 +159,10 @@ def test_output_sent_to_a_file_lands_in_the_file(tmp_path: Path) -> None:
     assert log.read_text() == "out\nerr\n"
 
 
+@pytest.mark.process(
+    "the command's input is the descriptor it inherits across the guard, so only a started"
+    + " command shows it reads nothing while its caller's input is an open pipe"
+)
 def test_the_command_reads_no_input() -> None:
     """The command's input is empty even where the caller's is a pipe left open.
 
@@ -168,6 +180,10 @@ def test_the_command_reads_no_input() -> None:
             driver.kill()
 
 
+@pytest.mark.process(
+    "the guard, a process of its own, reads end-of-file on the inherited stop descriptor"
+    + " and kills its own group, which only a started guard and command show"
+)
 def test_closing_the_stop_descriptor_stops_the_command(tmp_path: Path) -> None:
     """A closed write end behind ``stop_fd`` interrupts the command as the caller's death does.
 
@@ -236,12 +252,20 @@ def test_no_descriptor_is_left_open(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sorted(fds.iterdir()) == before
 
 
+@pytest.mark.process(
+    "a real signal ends the shell and the guard turns its wait status into its own exit"
+    + " status, which only a started guard shows reaching the caller"
+)
 def test_a_command_a_signal_ended_reports_the_shell_status() -> None:
     """A command a signal ended reports 128 plus the signal number."""
     result = _common.run_guarded(["sh", "-c", "kill -TERM $$"])
     assert result.returncode == 128 + signal.SIGTERM
 
 
+@pytest.mark.process(
+    "the guard reads the process group the kernel started it in, so only a guard started"
+    + " in its caller's group shows its refusal"
+)
 def test_the_guard_refuses_outside_a_group_of_its_own() -> None:
     """Started in its caller's group, the guard runs nothing rather than risk signalling it."""
     guard = REPO_ROOT / "tools" / "_guarded_run.py"
@@ -262,6 +286,10 @@ def test_the_guard_refuses_outside_a_group_of_its_own() -> None:
     assert "not the leader of its own process group" in result.stderr
 
 
+@pytest.mark.process(
+    "the kernel closes a killed caller's pipe end and the guard then stops the command's"
+    + " group, which only a caller killed with SIGKILL and a running command show"
+)
 def test_a_killed_caller_stops_its_command(tmp_path: Path) -> None:
     """SIGKILL of the caller stops the command and frees its lock."""
     with _started(
@@ -272,6 +300,10 @@ def test_a_killed_caller_stops_its_command(tmp_path: Path) -> None:
         _stopped(build)
 
 
+@pytest.mark.process(
+    "SIGTERM reaches a caller process waiting on the guard, and only its exit status and"
+    + " printout show it waited for the group's SIGKILL before leaving"
+)
 def test_an_interrupted_caller_waits_for_its_command(tmp_path: Path) -> None:
     """A restore handler's exit waits for the command's guard before the caller is gone.
 
@@ -288,6 +320,10 @@ def test_an_interrupted_caller_waits_for_its_command(tmp_path: Path) -> None:
         _stopped(build)
 
 
+@pytest.mark.process(
+    "a background process ignoring SIGINT outlives its shell's exit, so only a killed"
+    + " caller and the group's real signals show the guard ends it with SIGKILL"
+)
 def test_a_command_that_ignores_the_interrupt_is_killed(tmp_path: Path) -> None:
     """What ignores the interrupt is killed once the command has exited."""
     body = '(trap "" INT; exec cat {never}) & echo $! > {pid_file}; wait'
@@ -297,6 +333,10 @@ def test_a_command_that_ignores_the_interrupt_is_killed(tmp_path: Path) -> None:
         _stopped(build)
 
 
+@pytest.mark.process(
+    "a command ignoring SIGINT still runs when a zero grace period ends, so only the"
+    + " guard's real SIGKILL of the group after its caller is killed shows the lock freed"
+)
 def test_a_command_that_ignores_the_interrupt_is_killed_after_the_grace_period(
     tmp_path: Path,
 ) -> None:

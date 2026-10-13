@@ -14,14 +14,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 from _git_repo import commit, git
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
 
-
+@pytest.mark.process(
+    "which repository git initialises and commits into under a hook's exported variables"
+    + " is git's own answer"
+)
 def test_a_hooks_repository_is_not_the_one_built(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -25,6 +25,10 @@ from tools._common import GateName, find_executable, gate_repo_root, git_topleve
 if TYPE_CHECKING:
     from pathlib import Path
 
+_GIT_FINDS_THE_ROOT = (
+    "git's own discovery finds the anchor's work tree, or refuses a path no repository contains"
+)
+
 
 @pytest.fixture(name="repo")
 def _repo(tmp_path: Path) -> Path:
@@ -39,11 +43,13 @@ def _repo(tmp_path: Path) -> Path:
     return root.resolve()
 
 
+@pytest.mark.process(_GIT_FINDS_THE_ROOT)
 def test_the_root_is_found_from_a_subdirectory(repo: Path) -> None:
     """With no override in the environment the anchor's own repository answers."""
     assert git_toplevel(repo / "sub") == repo
 
 
+@pytest.mark.process(_GIT_FINDS_THE_ROOT)
 def test_an_exported_git_dir_does_not_move_the_root(
     repo: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -53,6 +59,7 @@ def test_an_exported_git_dir_does_not_move_the_root(
     assert git_toplevel(repo / "sub") == repo
 
 
+@pytest.mark.process(_GIT_FINDS_THE_ROOT)
 def test_an_exported_work_tree_does_not_move_the_root(
     repo: Path,
     tmp_path: Path,
@@ -65,6 +72,7 @@ def test_an_exported_work_tree_does_not_move_the_root(
     assert git_toplevel(repo / "sub") == repo
 
 
+@pytest.mark.process(_GIT_FINDS_THE_ROOT)
 def test_a_path_outside_any_work_tree_is_refused(tmp_path: Path) -> None:
     """An anchor no repository contains raises rather than answering."""
     outside = tmp_path / "outside"

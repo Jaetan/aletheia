@@ -165,12 +165,19 @@ def _query_tree(root: Path) -> Fixture:
     return Fixture(root, library, test)
 
 
+_CLANG_QUERY_ANSWERS = (
+    "what the gate's AST matchers bind in clang's parse of the fixture tree"
+    + " is clang-query's own answer"
+)
+
+
 @pytest.fixture(scope="module", name="fixture")
 def fixture_tree(tmp_path_factory: pytest.TempPathFactory) -> Fixture:
     """Query the tree once for the module."""
     return _query_tree(tmp_path_factory.mktemp("cpp-ast"))
 
 
+@pytest.mark.process(_CLANG_QUERY_ANSWERS)
 def test_every_spelling_binds_its_rule_and_no_checked_form_binds(fixture: Fixture) -> None:
     """The library's reads are exactly the marked lines: each spelling, and nothing else."""
     assert set(reads_in(fixture.root, fixture.library)) == _marked(_LIBRARY, _LIBRARY_SOURCE)
@@ -182,6 +189,7 @@ def test_every_rule_is_spelled_in_the_fixture() -> None:
     assert marked == {rule.bind for rule in RULES}
 
 
+@pytest.mark.process(_CLANG_QUERY_ANSWERS)
 def test_the_held_out_headers_bind_and_are_not_counted(fixture: Fixture) -> None:
     """The helpers' and the double's reads bind, and the rule leaves them out by name."""
     for held_out in (_CHECKED, _DOUBLE):
@@ -192,6 +200,7 @@ def test_the_held_out_headers_bind_and_are_not_counted(fixture: Fixture) -> None
     }
 
 
+@pytest.mark.process(_CLANG_QUERY_ANSWERS)
 def test_a_header_template_counts_where_a_test_instantiates_it(fixture: Fixture) -> None:
     """The template's read is the library's, and the test's own read is not.
 
@@ -202,6 +211,7 @@ def test_a_header_template_counts_where_a_test_instantiates_it(fixture: Fixture)
     assert set(reads_in(fixture.root, fixture.test)) == _marked(_HEADER, _HEADER_SOURCE)
 
 
+@pytest.mark.process(_CLANG_QUERY_ANSWERS)
 def test_the_restated_declaration_is_the_one_hit(fixture: Fixture) -> None:
     """The restated-type rule binds its declaration in the same parse, and nothing else."""
     line = _line_of(_LIBRARY_SOURCE, _RESTATED)

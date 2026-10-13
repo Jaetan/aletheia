@@ -54,6 +54,16 @@ SOURCES = (
     RelPath("rust/Cargo.toml"),
     RelPath("tools/run.py"),
 )
+# Why a test whose rules lack a path's line starts git.
+_LACKING_A_LINE = (
+    "git's own ignore matching decides that rules lacking a path's line leave that path"
+    + " unignored"
+)
+# Why a test with an untracked ignore file builds a repository and asks git.
+_UNTRACKED_RULES = (
+    "an untracked ignore file is a rule only inside a repository git built, and git's own"
+    + " ignore matching shows the tracked rules alone decide the venv"
+)
 
 
 def _repo(
@@ -107,11 +117,16 @@ def _top_rules(ignore: Prose) -> dict[RelPath, FileBytes]:
     return {RelPath(".gitignore"): FileBytes(ignore.encode("utf-8"))}
 
 
+@pytest.mark.process(
+    "git's own ignore matching decides that the clean rules ignore every documented path"
+    + " and the sanctioned venv and hide no stray venv"
+)
 def test_clean_fixture_passes(tmp_path: Path) -> None:
     """Documented trees and binary ignored, the sanctioned venv ignored, no stray venv hidden."""
     assert _run(_repo(tmp_path)) == list[Prose]()
 
 
+@pytest.mark.process(_LACKING_A_LINE)
 def test_documented_build_tree_not_ignored(tmp_path: Path) -> None:
     """A tree the build file tells the reader to create, absent from the ignore rules, is found."""
     repo = _repo(tmp_path, ignore=Prose("build/\n/python/.venv/\ngo/aletheia-cli\n"))
@@ -120,6 +135,7 @@ def test_documented_build_tree_not_ignored(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.process(_LACKING_A_LINE)
 def test_documented_go_binary_not_ignored(tmp_path: Path) -> None:
     """A Go binary a document builds from go/, absent from the ignore rules, is found."""
     repo = _repo(tmp_path, ignore=Prose("build/\nbuild-asan/\n/python/.venv/\n"))
@@ -161,6 +177,9 @@ def test_a_binary_two_documents_build_names_the_first_given(
     assert [question.rules for question in asked] == [_top_rules(ignore)]
 
 
+@pytest.mark.process(
+    "git's own ignore matching applies each nested ignore file's rules in its own directory"
+)
 def test_ignore_files_in_tracked_directories_answer_for_their_trees(tmp_path: Path) -> None:
     """Every tracked ignore file is asked, each in its own directory, not the top one alone."""
     repo = _repo(tmp_path, ignore=Prose("# rules live beside the trees\n"))
@@ -174,6 +193,10 @@ def test_ignore_files_in_tracked_directories_answer_for_their_trees(tmp_path: Pa
     assert _run(repo) == list[Prose]()
 
 
+@pytest.mark.process(
+    "git check-ignore's own exit status, when it ignores no asked path, is an answer"
+    + " the arm reads as one rather than as a failure"
+)
 def test_rules_ignoring_none_of_the_asked_paths_name_every_one(tmp_path: Path) -> None:
     """Rules matching no asked path are an answer: each documented path and the venv is found."""
     repo = _repo(tmp_path, ignore=Prose("# no rule\n"))
@@ -187,6 +210,7 @@ def test_rules_ignoring_none_of_the_asked_paths_name_every_one(tmp_path: Path) -
     ]
 
 
+@pytest.mark.process(_LACKING_A_LINE)
 def test_sanctioned_venv_not_ignored(tmp_path: Path) -> None:
     """The one venv the project sanctions must be ignored."""
     repo = _repo(tmp_path, ignore=Prose("build/\nbuild-asan/\ngo/aletheia-cli\n"))
@@ -205,6 +229,7 @@ def _untracked_ignore_file(repo: Path, rel: RelPath, rules: Prose) -> None:
     _ = path.write_text(rules, encoding="utf-8")
 
 
+@pytest.mark.process(_UNTRACKED_RULES)
 @pytest.mark.parametrize(
     "local", [RelPath("python/.venv/.gitignore"), RelPath(".git/info/exclude")]
 )
@@ -219,6 +244,9 @@ def test_only_the_tracked_rules_ignore_the_sanctioned_venv(tmp_path: Path, local
     ]
 
 
+@pytest.mark.process(
+    "git's own init decides whether a template's exclude file reaches a fresh repository"
+)
 def test_a_template_s_exclude_stands_in_for_no_rule(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -231,6 +259,9 @@ def test_a_template_s_exclude_stands_in_for_no_rule(
     assert _run(repo) == [Prose(".gitignore: the sanctioned venv is not ignored: python/.venv")]
 
 
+@pytest.mark.process(
+    "git's own configuration reading decides whether a global excludes file answers"
+)
 def test_the_user_s_global_excludes_stand_in_for_no_rule(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -244,6 +275,7 @@ def test_the_user_s_global_excludes_stand_in_for_no_rule(
     assert _run(repo) == [Prose(".gitignore: the sanctioned venv is not ignored: python/.venv")]
 
 
+@pytest.mark.process(_UNTRACKED_RULES)
 def test_a_stray_venv_s_own_ignore_file_hides_it_from_no_tracked_rule(tmp_path: Path) -> None:
     """A stray venv on disk ignoring itself is not hidden by the tracked rules: no finding here."""
     repo = _repo(tmp_path)
@@ -252,6 +284,9 @@ def test_a_stray_venv_s_own_ignore_file_hides_it_from_no_tracked_rule(tmp_path: 
     assert _run(repo, untracked=[stray]) == list[Prose]()
 
 
+@pytest.mark.process(
+    "git's own ignore matching decides that an anchored rule hides the venv in that directory"
+)
 @pytest.mark.parametrize(
     "stray",
     [
@@ -403,11 +438,17 @@ def test_an_unread_ignore_file_keeps_the_findings_made_before_it(tmp_path: Path)
     ]
 
 
+@pytest.mark.process(
+    "git's own reading of an ignore file decides that rules ending in CRLF ignore what they name"
+)
 def test_rules_with_crlf_line_ends_ignore_as_they_read(tmp_path: Path) -> None:
     """An ignore file written with CRLF line ends ignores what its lines name."""
     assert _run(_repo(tmp_path, ignore=Prose(str(CLEAN_IGNORE).replace("\n", "\r\n")))) == []
 
 
+@pytest.mark.process(
+    "git's own reading of an ignore file keeps a lone carriage return inside a comment line"
+)
 def test_rules_are_asked_as_their_bytes_a_lone_carriage_return_kept(tmp_path: Path) -> None:
     """Git keeps a lone CR inside a line, so a rule after it in that line is part of a comment.
 

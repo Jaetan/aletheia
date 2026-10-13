@@ -24,6 +24,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+_GIT_ENVIRONMENT = (
+    "which repository, index and work tree git acts on under a hook's exported variables"
+    + " is git's own answer"
+)
+
+
 @pytest.fixture(name="temp")
 def _temp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the temporary directory at an empty one the test can inspect."""
@@ -48,6 +54,10 @@ def _repo(tmp_path: Path) -> Path:
     return root.resolve()
 
 
+@pytest.mark.process(
+    "git's own worktree, diff and apply decide that the copy carries HEAD with the staged"
+    + " and the unstaged edit"
+)
 def test_the_copy_carries_the_tree_as_it_stands(repo: Path, temp: Path) -> None:
     """HEAD with both kinds of uncommitted edit, outside the tree."""
     with scratch_worktree(repo) as tree:
@@ -57,6 +67,10 @@ def test_the_copy_carries_the_tree_as_it_stands(repo: Path, temp: Path) -> None:
         assert (tree / "staged.txt").read_text(encoding="utf-8") == "staged edit\n"
 
 
+@pytest.mark.process(
+    "a git worktree's files are its own checkout, which only git's worktree add makes and"
+    + " its remove clears"
+)
 def test_a_write_in_the_copy_leaves_the_tree_alone(repo: Path, temp: Path) -> None:
     """The copy's files are its own, so a mutant written there never reaches the tree."""
     with scratch_worktree(repo) as tree:
@@ -66,6 +80,10 @@ def test_a_write_in_the_copy_leaves_the_tree_alone(repo: Path, temp: Path) -> No
     assert not any(temp.iterdir())
 
 
+@pytest.mark.process(
+    "git's own worktree list shows the copy registered inside the block and unregistered"
+    + " after it"
+)
 def test_the_copy_is_gone_and_unregistered_on_exit(repo: Path, temp: Path) -> None:
     """Leaving the block removes the copy and its worktree entry."""
     with scratch_worktree(repo) as tree:
@@ -75,6 +93,7 @@ def test_the_copy_is_gone_and_unregistered_on_exit(repo: Path, temp: Path) -> No
     assert not any(temp.iterdir())
 
 
+@pytest.mark.process(_GIT_ENVIRONMENT)
 def test_a_hooks_git_variables_do_not_reach_this_repository(
     repo: Path,
     temp: Path,
@@ -92,6 +111,7 @@ def test_a_hooks_git_variables_do_not_reach_this_repository(
     assert not any(temp.iterdir())
 
 
+@pytest.mark.process(_GIT_ENVIRONMENT)
 def test_a_work_tree_named_elsewhere_is_not_the_copys_source(
     repo: Path,
     tmp_path: Path,
@@ -107,6 +127,10 @@ def test_a_work_tree_named_elsewhere_is_not_the_copys_source(
     assert not any(temp.iterdir())
 
 
+@pytest.mark.process(
+    "git's own refusal to add a worktree from a directory no repository holds is the step"
+    + " the error must name"
+)
 def test_a_refused_step_is_named_and_leaves_nothing(tmp_path: Path, temp: Path) -> None:
     """A directory no repository holds is refused by name, and no copy is left."""
     outside = tmp_path / "outside"

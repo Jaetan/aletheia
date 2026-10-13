@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, NewType
 
+import pytest
 from _git_repo import commit, git
 
 from tools._common import RelPath
@@ -48,8 +49,6 @@ from aletheia.common_types import ExitStatus, Prose
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
-
-    import pytest
 
 # What a git command prints, and the build-source digest of a tree.
 GitOutput = NewType("GitOutput", str)
@@ -166,7 +165,13 @@ def _plant_commit(
 
 # ── The digest is content identity ──────────────────────────────────────────
 
+_GIT_HASHES_THE_TREE = (
+    "the digest is git's blob ids: it hashes content and not mtimes, lists an untracked"
+    + " module, and lists the same ids for the commit's tree"
+)
 
+
+@pytest.mark.process(_GIT_HASHES_THE_TREE)
 def test_a_checkout_that_moves_mtimes_moves_no_digest(tmp_path: Path) -> None:
     """Every build-relevant file dated into the future digests as before.
 
@@ -180,6 +185,7 @@ def test_a_checkout_that_moves_mtimes_moves_no_digest(tmp_path: Path) -> None:
     assert sources_digest_of_worktree(repo) == before
 
 
+@pytest.mark.process(_GIT_HASHES_THE_TREE)
 def test_a_content_edit_moves_the_digest(tmp_path: Path) -> None:
     """One byte in a build-relevant file is a different digest."""
     repo = _make_repo(tmp_path)
@@ -188,6 +194,7 @@ def test_a_content_edit_moves_the_digest(tmp_path: Path) -> None:
     assert sources_digest_of_worktree(repo) != before
 
 
+@pytest.mark.process(_GIT_HASHES_THE_TREE)
 def test_a_clean_checkout_digests_to_its_commit(tmp_path: Path) -> None:
     """The working tree and HEAD agree when nothing build-relevant differs."""
     repo = _make_repo(tmp_path)
@@ -196,6 +203,7 @@ def test_a_clean_checkout_digests_to_its_commit(tmp_path: Path) -> None:
     assert sources_digest_of_worktree(repo) == sources_digest_of_revision("HEAD", repo=repo)
 
 
+@pytest.mark.process(_GIT_HASHES_THE_TREE)
 def test_an_uncommitted_build_edit_parts_the_worktree_from_its_commit(tmp_path: Path) -> None:
     """A modified module, or an untracked one, is content HEAD does not carry."""
     repo = _make_repo(tmp_path)
@@ -207,6 +215,10 @@ def test_an_uncommitted_build_edit_parts_the_worktree_from_its_commit(tmp_path: 
     assert sources_digest_of_worktree(repo) != head
 
 
+@pytest.mark.process(
+    "git refuses to hash an empty list of paths, so only git shows the empty digest is taken"
+    + " without asking it"
+)
 def test_a_tree_with_no_build_source_digests_as_its_commit_does(tmp_path: Path) -> None:
     """A working tree holding no build source digests, and to what its commit digests.
 
@@ -221,6 +233,10 @@ def test_a_tree_with_no_build_source_digests_as_its_commit_does(tmp_path: Path) 
     assert sources_digest_of_worktree(repo) == sources_digest_of_revision("HEAD", repo=repo)
 
 
+@pytest.mark.process(
+    "only git's own listing shows a tracked module gone from the working tree, which the"
+    + " digest leaves out"
+)
 def test_a_deleted_tracked_module_is_left_out_of_the_digest(tmp_path: Path) -> None:
     """A tracked build source gone from the working tree is not there to observe: it is left out."""
     repo = _make_repo(tmp_path)
@@ -367,6 +383,9 @@ def test_e2e_a_failed_or_fast_log_does_not_vouch(
 # ── End to end over main(), what git answers ────────────────────────────────
 
 
+@pytest.mark.process(
+    "what git verifies, logs, diffs and lists for a commit other than HEAD is git's own answer"
+)
 def test_e2e_audit_mode_reads_the_named_commit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -382,6 +401,9 @@ def test_e2e_audit_mode_reads_the_named_commit(
     assert _run_gate(repo, monkeypatch, mode="HEAD") == 0, "HEAD claims nothing"
 
 
+@pytest.mark.process(
+    "what git diffs for a root commit under --root is git's own answer, not a canned file list"
+)
 def test_e2e_a_root_commit_is_diffed_against_nothing_not_skipped(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

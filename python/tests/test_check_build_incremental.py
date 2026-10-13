@@ -113,6 +113,10 @@ class TestShakeLock:
         _ = lock.write_text("")
         assert shake_lock_holder(lock) is None
 
+    @pytest.mark.process(
+        "a record lock reads as free from its own holder, so only another process holding it"
+        + " shows its pid through F_GETLK and its release when that process exits"
+    )
     def test_a_held_lock_names_its_holder(self, held_shake_lock: tuple[Path, int]) -> None:
         """The holding process's pid comes back, and the lock reads free once it exits."""
         lock, pid = held_shake_lock

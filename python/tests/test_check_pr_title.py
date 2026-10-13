@@ -318,6 +318,9 @@ def test_a_title_is_read_whatever_the_commits_say(
     assert _check(repo, monkeypatch, Prose("refactor(tools)!: a break")) == 1
 
 
+@pytest.mark.process(
+    "git's own refusal of a ref it cannot resolve is the failure the check must relay"
+)
 def test_a_branch_git_cannot_read_stops_the_check(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -349,6 +352,10 @@ def test_an_unreadable_snapshot_stops_the_check(
     assert "runtime-closure.snapshot cannot be read: " in err
 
 
+@pytest.mark.process(
+    "git's own refusal to name a top level outside any repository is the failure the check"
+    + " relays once"
+)
 def test_outside_a_repository_the_check_stops(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
