@@ -13,20 +13,22 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 import pytest
 import yaml
-from _git_repo import commit as commit_all
-from _git_repo import git
+from _scratch_copies import install as install_copies
 from _stand_in import ScriptSource, ToolName, install_stand_in
 
 from tools import mutation_run
-from tools._common import RelPath, short_sha
+from tools._common import RelPath
 from tools.mutation_go import (
     GO_CONFIG,
     GO_MERGE_STAGE,
+    GO_PACKAGE,
     GO_SHARDS,
     GO_SHARDS_ENV,
     GO_STAGE_ENV,
@@ -55,6 +57,11 @@ from tools.mutation_go import (
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from _processes import CommandWord
+    from _scratch_copies import ScratchCopies
+
     from tools.mutation_cpp_slices import MutantCounts
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -319,19 +326,42 @@ def _write_shard(directory: Path, sweep: ShardSweep, commit: ShortSha, secs: Wal
     _ = (shard_dir / "summary.json").write_text(json.dumps(summary))
 
 
+# The commit every shard of these tests was swept at, and the merge runs at.
+_SHA = ShortSha("abc1234")
+
+
+@dataclass
+class _FixedSha:
+    """``short_sha`` as the lane resolves it: every repository's commit reads as ``_SHA``."""
+
+    asked: list[Path | None] = field(default_factory=list[Path | None])
+
+    def __call__(self, repo_root: Path | None = None) -> ShortSha:
+        """Record the repository asked of and answer ``_SHA``."""
+        self.asked.append(repo_root)
+        return _SHA
+
+
+def _fixed_sha(monkeypatch: pytest.MonkeyPatch) -> _FixedSha:
+    sha = _FixedSha()
+    monkeypatch.setattr(mutation_run, "short_sha", sha)
+    return sha
+
+
 def test_the_merge_gives_what_a_whole_sweep_of_the_same_mutants_gives(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Counts summed, every mutant line once, so the drift gate's rows are the whole sweep's."""
     shards_dir = tmp_path / "shards"
-    commit = short_sha(_REPO)
+    sha = _fixed_sha(monkeypatch)
     for sweep, secs in zip(_sweeps(), (11.5, 12.25), strict=True):
-        _write_shard(shards_dir, sweep, ShortSha(commit), WallSeconds(secs))
+        _write_shard(shards_dir, sweep, _SHA, WallSeconds(secs))
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
     monkeypatch.setenv(GO_STAGE_ENV, GO_MERGE_STAGE)
     monkeypatch.setenv(GO_SHARDS_ENV, str(shards_dir))
     merged = mutation_run.run_go(artifacts)
+    assert sha.asked == [mutation_run.REPO_ROOT]
     assert merged.error is None
     assert merged.binding == "go"
     assert (merged.killed, merged.survived, merged.observed.timeouts) == (3, 2, 1)
@@ -355,6 +385,7 @@ def test_the_merge_refuses_shards_of_another_commit(
 ) -> None:
     """Shards swept at another commit say nothing about this one."""
     shards_dir = tmp_path / "shards"
+    sha = _fixed_sha(monkeypatch)
     for sweep in _sweeps():
         _write_shard(shards_dir, sweep, ShortSha("0000000"), WallSeconds(1.0))
     artifacts = tmp_path / "artifacts"
@@ -362,8 +393,10 @@ def test_the_merge_refuses_shards_of_another_commit(
     monkeypatch.setenv(GO_STAGE_ENV, GO_MERGE_STAGE)
     monkeypatch.setenv(GO_SHARDS_ENV, str(shards_dir))
     merged = mutation_run.run_go(artifacts)
+    assert sha.asked == [mutation_run.REPO_ROOT]
     assert merged.error is not None
     assert "0000000" in merged.error
+    assert f"the merge is at {_SHA}" in merged.error
 
 
 def test_the_merge_refuses_a_shard_whose_log_is_missing(
@@ -371,15 +404,16 @@ def test_the_merge_refuses_a_shard_whose_log_is_missing(
 ) -> None:
     """A shard its clock killed uploaded no log; the lane has no verdict without it."""
     shards_dir = tmp_path / "shards"
-    commit = short_sha(_REPO)
+    sha = _fixed_sha(monkeypatch)
     for sweep in _sweeps():
-        _write_shard(shards_dir, sweep, ShortSha(commit), WallSeconds(1.0))
-    (shards_dir / "mutation-go-2" / commit / shard_log_name(ShardNumber(2))).unlink()
+        _write_shard(shards_dir, sweep, _SHA, WallSeconds(1.0))
+    (shards_dir / "mutation-go-2" / _SHA / shard_log_name(ShardNumber(2))).unlink()
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
     monkeypatch.setenv(GO_STAGE_ENV, GO_MERGE_STAGE)
     monkeypatch.setenv(GO_SHARDS_ENV, str(shards_dir))
     merged = mutation_run.run_go(artifacts)
+    assert sha.asked == [mutation_run.REPO_ROOT]
     assert merged.error is not None
     assert "0 copies of go-2.raw.txt" in merged.error
 
@@ -391,45 +425,11 @@ def test_a_shard_is_a_leg_the_drift_gate_does_not_judge() -> None:
     assert entry["status"] == "leg"
 
 
-# A stand-in for gremlins that reads the configuration it finds, as gremlins
-# does: a dry run lists one mutant per file the configuration does not hold
-# out, a sweep kills one per such file, and every call is recorded with the
-# configuration it ran under.
-_FAKE_GREMLINS = """\
-import json
-import os
-import re
-import sys
-from pathlib import Path
-
-import yaml
-
-config = yaml.safe_load(Path(".gremlins.yaml").read_text(encoding="utf-8"))
-held = [re.compile(p) for p in config["unleash"]["exclude-files"]]
-names = sorted(
-    f.name
-    for f in Path("aletheia").glob("*.go")
-    if not f.name.endswith("_test.go") and not any(p.search(f.name) for p in held)
-)
-dry = "--dry-run" in sys.argv
-calls = Path(os.environ["GREMLINS_CALLS"])
-seen = json.loads(calls.read_text()) if calls.exists() else []
-seen.append({"dry": dry, "files": names, "goflags": os.environ.get("GOFLAGS")})
-_ = calls.write_text(json.dumps(seen))
-for name in names:
-    print(("    RUNNABLE" if dry else "      KILLED") + f" CONDITIONALS_NEGATION at {name}:1:1")
-if dry:
-    print(f"Runnable: {len(names)}, Not covered: 0")
-else:
-    print(f"Killed: {len(names)}, Lived: 0, Not covered: 0")
-    print("Timed out: 0, Not viable: 0, Skipped: 0")
-"""
-
 _PACKAGE = {"a.go": 300, "b.go": 200, "c.go": 100, "kind_string.go": 50, "a_test.go": 10}
 
 
 def _sharded_repo(root: Path) -> Path:
-    """Build a repository whose Go package has three sources, a generated file and a test file."""
+    """Plant a tree whose Go package has three sources, a generated file and a test file."""
     package = root / "go" / "aletheia"
     package.mkdir(parents=True)
     for name, size in _PACKAGE.items():
@@ -441,16 +441,110 @@ def _sharded_repo(root: Path) -> Path:
     )
     (root / "build").mkdir()
     _ = (root / "build" / "libaletheia-ffi.so").write_bytes(b"")
-    _ = git(root, "init", "-q")
-    _ = commit_all(root, "base")
     return root.resolve()
 
 
-def _fake_sharded_gremlins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    install_stand_in(tmp_path, monkeypatch, ToolName("gremlins"), ScriptSource(_FAKE_GREMLINS))
-    calls = tmp_path / "calls.json"
-    monkeypatch.setenv("GREMLINS_CALLS", str(calls))
-    return calls
+# One variable of a child's environment, by its name and by its value.
+_EnvName = NewType("_EnvName", str)
+_EnvValue = NewType("_EnvValue", str)
+
+
+@dataclass
+class _GremlinsCall:
+    """One run of gremlins: its words, the directory it ran in, and what it read there."""
+
+    words: list[CommandWord]
+    cwd: Path
+    files: list[PackageFile]
+    goflags: mutation_run.GoFlags
+
+    @property
+    def dry(self) -> bool:
+        """Whether the run was the dry run that lists the mutants."""
+        return "--dry-run" in self.words
+
+
+@dataclass
+class _Gremlins:
+    """gremlins as the lane runs it, reading the configuration it finds as gremlins does.
+
+    A dry run lists one mutant per file the configuration does not hold out, a
+    sweep kills one per such file, and every call is recorded with the
+    configuration it ran under.
+    """
+
+    calls: list[_GremlinsCall] = field(default_factory=list[_GremlinsCall])
+
+    def __call__(
+        self, cmd: list[CommandWord], *, cwd: Path, env: Mapping[_EnvName, _EnvValue]
+    ) -> subprocess.CompletedProcess[GremlinsLog]:
+        """Record the call and answer with the lines gremlins prints for it."""
+        config_text = (cwd / ".gremlins.yaml").read_text(encoding="utf-8")
+        config = cast("_Config", yaml.safe_load(config_text))
+        held = [re.compile(pattern) for pattern in config["unleash"]["exclude-files"]]
+        names = sorted(
+            PackageFile(path.name)
+            for path in (cwd / "aletheia").glob("*.go")
+            if not path.name.endswith("_test.go")
+            and not any(pattern.search(path.name) for pattern in held)
+        )
+        call = _GremlinsCall(cmd, cwd, names, mutation_run.GoFlags(env[_EnvName("GOFLAGS")]))
+        self.calls.append(call)
+        mark = "    RUNNABLE" if call.dry else "      KILLED"
+        lines = [f"{mark} CONDITIONALS_NEGATION at {name}:1:1\n" for name in names]
+        if call.dry:
+            lines.append(f"Runnable: {len(names)}, Not covered: 0\n")
+        else:
+            lines.append(f"Killed: {len(names)}, Lived: 0, Not covered: 0\n")
+            lines.append("Timed out: 0, Not viable: 0, Skipped: 0\n")
+        return subprocess.CompletedProcess(cmd, 0, GremlinsLog("".join(lines)), GremlinsLog(""))
+
+
+class _Listing(NamedTuple):
+    """One ``git ls-files`` asked for: the repository and the pathspecs."""
+
+    repo: Path
+    patterns: tuple[RelPath, ...]
+
+
+@dataclass
+class _Listings:
+    """``git ls-files`` over a planted tree, every file of which is tracked."""
+
+    asked: list[_Listing] = field(default_factory=list[_Listing])
+
+    def __call__(self, repo: Path, *patterns: RelPath) -> list[RelPath]:
+        """Record the listing asked for and answer every file under its pathspecs."""
+        self.asked.append(_Listing(repo, patterns))
+        return sorted(
+            RelPath(path.relative_to(repo).as_posix())
+            for pattern in patterns
+            for path in (repo / pattern).rglob("*")
+            if path.is_file()
+        )
+
+
+@dataclass
+class _Lane:
+    """What the Go lane's sweep reaches outside itself, each standing in-process."""
+
+    gremlins: _Gremlins
+    copies: ScratchCopies
+    listings: _Listings
+
+
+# The gremlins the lane finds on the search path; the lane runs it through
+# ``run_streaming`` and ``run_capture``, which run ``_Gremlins`` in its place.
+_NEVER_RUN = ScriptSource("raise SystemExit('the stand-in never runs')")
+
+
+def _fake_lane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Lane:
+    install_stand_in(tmp_path, monkeypatch, ToolName("gremlins"), _NEVER_RUN)
+    lane = _Lane(_Gremlins(), install_copies(monkeypatch, tmp_path / "copies"), _Listings())
+    monkeypatch.setattr(mutation_run, "run_streaming", lane.gremlins)
+    monkeypatch.setattr(mutation_run, "run_capture", lane.gremlins)
+    monkeypatch.setattr("tools.mutation_go.git_ls_files", lane.listings)
+    return lane
 
 
 def test_a_shard_sweeps_its_files_then_takes_the_census_of_the_whole_package(
@@ -463,7 +557,7 @@ def test_a_shard_sweeps_its_files_then_takes_the_census_of_the_whole_package(
     after, under the package's own configuration restored.
     """
     repo = _sharded_repo(tmp_path / "repo")
-    calls = _fake_sharded_gremlins(tmp_path, monkeypatch)
+    lane = _fake_lane(tmp_path, monkeypatch)
     monkeypatch.setattr(mutation_run, "REPO_ROOT", repo)
     monkeypatch.setenv(GO_STAGE_ENV, "1")
     artifacts = tmp_path / "artifacts"
@@ -471,15 +565,24 @@ def test_a_shard_sweeps_its_files_then_takes_the_census_of_the_whole_package(
     report = mutation_run.run_go(artifacts)
     assert report.error is None
     assert report.binding == "go-1"
-    seen = json.loads(calls.read_text(encoding="utf-8"))
-    assert [call["dry"] for call in seen] == [False, True]
-    assert seen[0]["files"] == ["a.go"]
-    assert seen[1]["files"] == ["a.go", "b.go", "c.go"]
-    assert all("-count=1" in call["goflags"].split() for call in seen)
+    seen = lane.gremlins.calls
+    assert [call.dry for call in seen] == [False, True]
+    assert seen[0].files == ["a.go"]
+    assert seen[1].files == ["a.go", "b.go", "c.go"]
+    assert all("-count=1" in call.goflags.split() for call in seen)
     record = json.loads((artifacts / shard_record_name(ShardNumber(1))).read_text())
     assert record["files"] == ["go/aletheia/a.go"]
     assert record["census"] == {"go/aletheia/a.go": 1, "go/aletheia/b.go": 1, "go/aletheia/c.go": 1}
     assert (artifacts / shard_log_name(ShardNumber(1))).is_file()
+    assert [call.words[1:] for call in seen] == [
+        ["unleash", "./aletheia"],
+        ["unleash", "--dry-run", "./aletheia"],
+    ]
+    assert lane.copies.asked == [repo]
+    (copy,) = lane.copies.made
+    assert [call.cwd for call in seen] == [copy / "go", copy / "go"]
+    assert lane.listings.asked == [_Listing(copy, (RelPath(GO_PACKAGE),))]
+    assert not copy.exists()
 
 
 def test_two_stub_shards_merge_into_the_whole_package_s_verdict(
@@ -487,16 +590,18 @@ def test_two_stub_shards_merge_into_the_whole_package_s_verdict(
 ) -> None:
     """Each shard swept through the runner, then merged through it, as the lane runs them."""
     repo = _sharded_repo(tmp_path / "repo")
-    _ = _fake_sharded_gremlins(tmp_path, monkeypatch)
+    lane = _fake_lane(tmp_path, monkeypatch)
+    sha = _fixed_sha(monkeypatch)
     monkeypatch.setattr(mutation_run, "REPO_ROOT", repo)
     shards_dir = tmp_path / "shards"
-    commit_sha = short_sha(repo)
+    commit_sha = _SHA
     for number in range(1, GO_SHARDS + 1):
         monkeypatch.setenv(GO_STAGE_ENV, str(number))
         artifacts = shards_dir / f"mutation-go-{number}" / commit_sha
         artifacts.mkdir(parents=True)
         report = mutation_run.run_go(artifacts)
         assert report.error is None
+        assert not [copy for copy in lane.copies.made if copy.exists()]
         summary = {"commit": commit_sha, "elapsed_s": {"go": 1.0}, "runs": [report.to_dict()]}
         _ = (artifacts / "summary.json").write_text(json.dumps(summary))
     merge_dir = tmp_path / "merge"
@@ -506,3 +611,8 @@ def test_two_stub_shards_merge_into_the_whole_package_s_verdict(
     merged = mutation_run.run_go(merge_dir)
     assert merged.error is None
     assert (merged.killed, merged.survived) == (3, 0)
+    assert sha.asked == [repo]
+    assert lane.copies.asked == [repo] * GO_SHARDS
+    assert lane.listings.asked == [
+        _Listing(copy, (RelPath(GO_PACKAGE),)) for copy in lane.copies.made
+    ]
