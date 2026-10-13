@@ -16,12 +16,12 @@ skipped.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import TYPE_CHECKING, cast
+import subprocess
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
-from _git_repo import repo_with_an_uncommitted_edit
+from _scratch_copies import install as install_copies
 from _stand_in import ScriptSource, ToolName, install_stand_in
 
 from tools import mutation_run
@@ -31,6 +31,10 @@ from tools.mutation_report import MutantCount, MutationReport, Observed, load_sp
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from _processes import CommandWord
+
     from tools.mutation_report import BindingSpec, DriftStatus
 
 _SUMMARY = """\
@@ -230,42 +234,67 @@ def test_the_record_s_own_figures_pass_the_gate_they_record() -> None:
     assert mutation_run.drift_for(rep, load_spec().get("bindings", {}))["status"] == "ok"
 
 
-# A stand-in for gremlins: it records the directory it ran in, its arguments,
-# the variables the lane sets and the source it found there, then prints the
-# summary a sweep ends with.
-_FAKE_GREMLINS = """\
-import json
-import os
-import sys
-from pathlib import Path
+# The variables the lane sets for gremlins.
+type _LaneVariable = Literal["ALETHEIA_REPO_ROOT", "ALETHEIA_LIB", "GOFLAGS"]
+_LANE_VARIABLES: tuple[_LaneVariable, ...] = ("ALETHEIA_REPO_ROOT", "ALETHEIA_LIB", "GOFLAGS")
 
-names = ("ALETHEIA_REPO_ROOT", "ALETHEIA_LIB", "GOFLAGS")
-seen = {
-    "cwd": str(Path.cwd()),
-    "argv": sys.argv[1:],
-    "env": {name: os.environ.get(name) for name in names},
-    "source": (Path.cwd() / "aletheia" / "client.go").read_text(encoding="utf-8"),
-}
-_ = Path(os.environ["GREMLINS_RECORD"]).write_text(json.dumps(seen), encoding="utf-8")
-print("Killed: 1, Lived: 0, Not covered: 0")
-print("Timed out: 0, Not viable: 0, Skipped: 0")
-"""
+# The summary a sweep ends with: one mutant, killed.
+_SWEPT = GremlinsLog(
+    "Killed: 1, Lived: 0, Not covered: 0\nTimed out: 0, Not viable: 0, Skipped: 0\n"
+)
+
+# What the search path finds as gremlins, so the lane's lookup succeeds; the
+# sweep itself runs in-process (``_Gremlins``), and this fails if it is run.
+_NEVER_RUNS = ScriptSource("raise SystemExit('the stand-in never runs')")
+
+
+@dataclass(frozen=True)
+class _Sweep:
+    """What the lane handed gremlins: its command, directory and variables, and the source there."""
+
+    argv: list[CommandWord]
+    cwd: Path
+    env: dict[_LaneVariable, Prose | None]
+    source: Prose
+
+
+@dataclass
+class _Gremlins:
+    """A stand-in for the lane's ``run_streaming`` of gremlins: it records each sweep."""
+
+    sweeps: list[_Sweep] = field(default_factory=list[_Sweep])
+
+    def __call__(
+        self, cmd: list[CommandWord], *, cwd: Path, env: dict[Prose, Prose]
+    ) -> subprocess.CompletedProcess[GremlinsLog]:
+        """Record the sweep, reading the source while the copy exists, and print its summary."""
+        self.sweeps.append(
+            _Sweep(
+                cmd,
+                cwd,
+                {name: env.get(Prose(name)) for name in _LANE_VARIABLES},
+                Prose((cwd / "aletheia" / "client.go").read_text(encoding="utf-8")),
+            )
+        )
+        return subprocess.CompletedProcess(cmd, 0, _SWEPT, GremlinsLog(""))
 
 
 def _go_repo(root: Path) -> Path:
-    """Build a repository with a committed Go source, edited and not committed, and a kernel."""
-    repo = repo_with_an_uncommitted_edit(root, Path("go/aletheia/client.go"))
-    (repo / "build").mkdir()
-    _ = (repo / "build" / "libaletheia-ffi.so").write_bytes(b"")
-    return repo
+    """Plant a tree whose Go source reads as edited, with a built kernel."""
+    source = root / "go" / "aletheia" / "client.go"
+    source.parent.mkdir(parents=True)
+    _ = source.write_text("uncommitted edit\n", encoding="utf-8")
+    (root / "build").mkdir()
+    _ = (root / "build" / "libaletheia-ffi.so").write_bytes(b"")
+    return root.resolve()
 
 
-def _fake_gremlins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Put the stand-in first on the search path and return the file it records to."""
-    install_stand_in(tmp_path, monkeypatch, ToolName("gremlins"), ScriptSource(_FAKE_GREMLINS))
-    record = tmp_path / "gremlins.json"
-    monkeypatch.setenv("GREMLINS_RECORD", str(record))
-    return record
+def _fake_gremlins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Gremlins:
+    """Let the lane find gremlins on the search path and sweep through the in-process stand-in."""
+    install_stand_in(tmp_path, monkeypatch, ToolName("gremlins"), _NEVER_RUNS)
+    gremlins = _Gremlins()
+    monkeypatch.setattr(mutation_run, "run_streaming", gremlins)
+    return gremlins
 
 
 def test_the_sweep_runs_in_a_copy_named_as_the_repository(
@@ -274,21 +303,26 @@ def test_the_sweep_runs_in_a_copy_named_as_the_repository(
 ) -> None:
     """The tool runs in the copy's go/, the copy is the repository, the kernel is the tree's."""
     repo = _go_repo(tmp_path / "repo")
-    record = _fake_gremlins(tmp_path, monkeypatch)
+    gremlins = _fake_gremlins(tmp_path, monkeypatch)
+    copies = install_copies(monkeypatch, tmp_path / "copies")
     monkeypatch.setenv("GOFLAGS", "-mod=mod")
     monkeypatch.setattr(mutation_run, "REPO_ROOT", repo)
     report = mutation_run.run_go(tmp_path)
     assert report.error is None
     assert (report.killed, report.survived) == (1, 0)
-    seen = json.loads(record.read_text(encoding="utf-8"))
-    ran_in = Path(seen["cwd"])
+    assert copies.asked == [repo]
+    [copy] = copies.made
+    [seen] = gremlins.sweeps
+    ran_in = seen.cwd
+    assert ran_in == copy / "go"
     assert ran_in.name == "go"
     assert not ran_in.is_relative_to(repo)
     assert not ran_in.exists()
-    assert seen["argv"] == ["unleash", "./aletheia"]
-    assert seen["source"] == "uncommitted edit\n"
-    assert seen["env"] == {
-        "ALETHEIA_REPO_ROOT": str(ran_in.parent),
+    assert not copy.exists()
+    assert seen.argv == [str(tmp_path / "bin" / "gremlins"), "unleash", "./aletheia"]
+    assert seen.source == "uncommitted edit\n"
+    assert seen.env == {
+        "ALETHEIA_REPO_ROOT": str(copy),
         "ALETHEIA_LIB": str(repo / "build" / "libaletheia-ffi.so"),
         "GOFLAGS": "-mod=mod -count=1 -skip=^TestDocExamples$",
     }
@@ -318,10 +352,16 @@ def test_a_tree_without_a_kernel_is_a_refusal(
 ) -> None:
     """With no built library there is no sweep: the report says why, and the tool never ran."""
     repo = _go_repo(tmp_path / "repo")
-    (repo / "build" / "libaletheia-ffi.so").unlink()
-    record = _fake_gremlins(tmp_path, monkeypatch)
+    lib = repo / "build" / "libaletheia-ffi.so"
+    lib.unlink()
+    gremlins = _fake_gremlins(tmp_path, monkeypatch)
+    copies = install_copies(monkeypatch, tmp_path / "copies")
     monkeypatch.setattr(mutation_run, "REPO_ROOT", repo)
     report = mutation_run.run_go(tmp_path)
     assert report.error is not None
     assert report.error.startswith("libaletheia-ffi.so not found")
-    assert not record.exists()
+    assert report.error == (
+        f"libaletheia-ffi.so not found at {lib}; run `cabal run shake -- build` first"
+    )
+    assert not gremlins.sweeps
+    assert not copies.asked

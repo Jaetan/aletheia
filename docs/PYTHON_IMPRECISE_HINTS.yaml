@@ -1961,7 +1961,7 @@ hints:
     count: 1
   - file: python/tests/test_run_ci_runner.py
     text: "str"
-    count: 4
+    count: 3
   - file: python/tests/test_run_guarded.py
     text: "float"
     count: 1
@@ -1982,13 +1982,10 @@ hints:
     count: 1
   - file: python/tests/test_run_streaming.py
     text: "list[str]"
-    count: 8
+    count: 6
   - file: python/tests/test_run_streaming.py
     text: "str"
     count: 3
-  - file: python/tests/test_run_streaming.py
-    text: "tuple[str, ...]"
-    count: 1
   - file: python/tests/test_sbom_generate.py
     text: "dict[str, Component]"
     count: 1
@@ -2007,9 +2004,6 @@ hints:
   - file: python/tests/test_sbom_generate.py
     text: "pytest.CaptureFixture[str]"
     count: 1
-  - file: python/tests/test_scheduler.py
-    text: "str"
-    count: 2
   - file: python/tests/test_short_circuit_cache_differential.py
     text: "dict[str, object]"
     count: 1

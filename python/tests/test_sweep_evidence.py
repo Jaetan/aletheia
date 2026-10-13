@@ -140,6 +140,14 @@ def test_an_untracked_file_leaves_no_tree_to_vouch_for(tmp_path: Path) -> None:
     assert worktree_tree(repo) is None
 
 
+def test_an_ignored_file_is_no_untracked_one(tmp_path: Path) -> None:
+    """A file git ignores, a sweep's own log among them, leaves the tree to vouch for."""
+    repo = _repo(tmp_path)
+    _ = (repo / ".git" / "info" / "exclude").write_text("ci.log\n", encoding="utf-8")
+    _ = (repo / "ci.log").write_text("a sweep's log\n", encoding="utf-8")
+    assert worktree_tree(repo) == tree_of(Revision("HEAD"), repo)
+
+
 def test_a_log_vouches_only_for_a_full_passing_sweep_whose_tree_held(tmp_path: Path) -> None:
     """Header and summary must name the same tree, and the summary must say every step passed."""
     tree = TreeId("1" * 40)
