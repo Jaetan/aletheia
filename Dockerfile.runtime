@@ -131,13 +131,16 @@ RUN cargo build --release --locked && \
 # workflows take libstdc++ 15 because the 14 noble ships has no pipe form of
 # std::ranges::to, and a verify stage one release behind would accept what the
 # release lane rejects.  The archives are trusted with the script's key files
-# and named by its source lines, so no key is fetched.  The bundle ships no
-# tests/, so a standalone configure builds the library + CLI only.
+# and named by its source lines, so no key is fetched; the toolchain is held to
+# the upstream versions check_upstream.sh records, as the workflows' is.  The
+# bundle ships no tests/, so a standalone configure builds the library + CLI
+# only.
 # FetchContent (nlohmann/json, yaml-cpp, OpenXLSX) is URL+SHA-pinned in the
 # bundled CMakeLists and needs network on first configure.
 # Refresh: docker buildx imagetools inspect ubuntu:24.04
 FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS verify-cpp
 COPY cpp/toolchain/apt.llvm.org.asc cpp/toolchain/ubuntu-toolchain-r.asc /etc/apt/trusted.gpg.d/
+COPY cpp/toolchain/check_upstream.sh /usr/local/bin/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates cmake make && \
@@ -147,6 +150,7 @@ RUN apt-get update && \
         > /etc/apt/sources.list.d/ubuntu-toolchain-r.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends clang-23 libstdc++-15-dev && \
+    check_upstream.sh && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=runtime /opt/aletheia /opt/aletheia
 RUN cmake -S /opt/aletheia/bindings/cpp -B /build \

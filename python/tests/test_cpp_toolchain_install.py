@@ -8,6 +8,9 @@ fetches a signing key: ``add-apt-repository`` asks Launchpad's API for the
 PPA's key on every run, a keyserver or a key URL is one more server a run
 depends on, and a timeout at any of them fails the job before anything of the
 tree runs.  The image writes its own source lines, and they are the script's.
+Both refuse a toolchain built from an upstream version ``check_upstream.sh``
+does not record, whichever path installed it, since an evicted cache is filled
+again with the archives' newest builds.
 The script refreshes apt's lists only when its cache is empty, so every other
 step installing from an archive refreshes them itself, and one weekly job
 installs from an empty directory, where an archive's change of key shows.
@@ -15,11 +18,17 @@ installs from an empty directory, where an archive's change of key shows.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import NamedTuple, NewType, TypedDict, cast
 
+import pytest
 import yaml
+
+from tools._common import find_executable, run_capture
+
+from aletheia.common_types import ExitStatus, Prose
 
 # A step's shell text, an action reference, its if: expression, a cache path, and a job's label.
 ShellText = NewType("ShellText", str)
@@ -28,6 +37,10 @@ IfExpression = NewType("IfExpression", str)
 CachePath = NewType("CachePath", str)
 JobName = NewType("JobName", str)
 CronSpec = NewType("CronSpec", str)
+# A source package, the upstream version of its build, and a line of dpkg-query's answer.
+SourcePackage = NewType("SourcePackage", str)
+UpstreamVersion = NewType("UpstreamVersion", str)
+QueryLine = NewType("QueryLine", str)
 
 
 class _With(TypedDict, total=False):
@@ -58,6 +71,13 @@ class _Triggers(TypedDict, total=False):
 
 # PyYAML reads a workflow's bare key `on` as the boolean True.
 type _Triggered = dict[bool, _Triggers]
+
+
+class _Checked(NamedTuple):
+    """How a run of the upstream check ended: its exit status and its annotations."""
+
+    status: ExitStatus
+    errors: Prose
 
 
 class _JobSteps(NamedTuple):
@@ -179,3 +199,136 @@ def test_the_image_trusts_the_script_keys_and_names_its_sources() -> None:
     sources = set(_SOURCE_LINE.findall(script))
     assert len(sources) == 2
     assert set(_SOURCE_LINE.findall(image)) == sources
+
+
+_CHECK = _REPO / "cpp" / "toolchain" / "check_upstream.sh"
+# A row of the check: a source package and the upstream version it records.
+_ROW = re.compile(r'"([a-z][a-z0-9.+-]*) ([0-9][0-9A-Za-z.+-]*)"')
+_CHECK_COPIED = "COPY cpp/toolchain/check_upstream.sh /usr/local/bin/"
+_CHECK_RUN = "    check_upstream.sh && \\\n"
+_LLVM = SourcePackage("llvm-toolchain-23")
+_LIBSTDCXX = SourcePackage("gcc-15")
+_RUNTIME = SourcePackage("gcc-16")
+_A_SHELL_READS_THE_ANSWER = "only bash and awk answer what the check makes of dpkg-query's lines"
+
+
+def _rows() -> dict[SourcePackage, UpstreamVersion]:
+    """Return each source package the check records, with its upstream version."""
+    (line,) = (
+        line
+        for line in _CHECK.read_text(encoding="utf-8").splitlines()
+        if line.startswith("for entry in ")
+    )
+    return {SourcePackage(source): UpstreamVersion(ver) for source, ver in _ROW.findall(line)}
+
+
+def _moved(upstream: UpstreamVersion) -> UpstreamVersion:
+    """Return an upstream version after ``upstream``."""
+    return UpstreamVersion(f"{upstream}.1")
+
+
+def _answer(rows: dict[SourcePackage, UpstreamVersion]) -> list[QueryLine]:
+    """Return dpkg-query's lines for ``rows``, each source installed at its version."""
+    return [QueryLine(f"installed {source} {upstream}") for source, upstream in rows.items()]
+
+
+def _check(tmp_path: Path, answer: list[QueryLine]) -> _Checked:
+    """Run the check with a ``dpkg-query`` that answers ``answer``, and return how it ended."""
+    lines = tmp_path / "answer"
+    _ = lines.write_text("".join(f"{line}\n" for line in answer), encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    query = bin_dir / "dpkg-query"
+    _ = query.write_text(f"#!/bin/sh\nexec cat '{lines}'\n", encoding="utf-8")
+    query.chmod(0o755)
+    env = os.environ | {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    result = run_capture([find_executable("bash"), str(_CHECK)], env=env)
+    return _Checked(ExitStatus(result.returncode), Prose(result.stderr))
+
+
+def test_the_check_records_each_source_of_the_toolchain() -> None:
+    """The rows name LLVM, the libstdc++ 15 the workflows take, and the runtime it runs on."""
+    assert sorted(_rows()) == sorted([_LLVM, _LIBSTDCXX, _RUNTIME])
+
+
+@pytest.mark.process(_A_SHELL_READS_THE_ANSWER)
+def test_a_rebuild_of_each_recorded_upstream_passes(tmp_path: Path) -> None:
+    """A snapshot suffix after ``~`` is no new upstream, and an unrecorded source is not read."""
+    rows = _rows()
+    answer = [
+        QueryLine(f"installed {_LLVM} {rows[_LLVM]}~++20260919103626+4b1925210476"),
+        QueryLine(f"installed {_LLVM} {rows[_LLVM]}~++20260919103626+4b1925210476"),
+        *_answer({source: upstream for source, upstream in rows.items() if source != _LLVM}),
+        QueryLine("installed gcc-14 14.2.0"),
+    ]
+    assert _check(tmp_path, answer) == (0, "")
+
+
+@pytest.mark.process(_A_SHELL_READS_THE_ANSWER)
+def test_every_new_upstream_is_refused_naming_it(tmp_path: Path) -> None:
+    """Each source installed at another upstream is named with what was found."""
+    rows = _rows()
+    moved = rows | {_LLVM: _moved(rows[_LLVM]), _LIBSTDCXX: _moved(rows[_LIBSTDCXX])}
+    checked = _check(tmp_path, _answer(moved))
+    assert checked.status == 1
+    for source in (_LLVM, _LIBSTDCXX):
+        assert (
+            f"::error::{source} is installed at upstream {moved[source]}, not {rows[source]};"
+            in checked.errors
+        )
+    assert f"::error::{_RUNTIME}" not in checked.errors
+
+
+@pytest.mark.process(_A_SHELL_READS_THE_ANSWER)
+def test_a_recorded_source_with_nothing_installed_is_refused(tmp_path: Path) -> None:
+    """A runtime taken from another source leaves the recorded one with no installed package."""
+    rows = _rows()
+    answer = _answer({source: upstream for source, upstream in rows.items() if source != _RUNTIME})
+    checked = _check(tmp_path, [*answer, QueryLine("installed gcc-17 17-20261001")])
+    assert checked.status == 1
+    assert (
+        f"::error::{_RUNTIME} is installed at upstream none, not {rows[_RUNTIME]};"
+        in checked.errors
+    )
+
+
+@pytest.mark.process(_A_SHELL_READS_THE_ANSWER)
+def test_two_upstreams_of_one_source_are_refused_naming_both(tmp_path: Path) -> None:
+    """Packages of one source at two upstreams are not the recorded toolchain, one matching or not.
+
+    The annotation names both.
+    """
+    rows = _rows()
+    later = _moved(rows[_RUNTIME])
+    answer = [*_answer(rows), QueryLine(f"installed {_RUNTIME} {later}")]
+    checked = _check(tmp_path, answer)
+    assert checked.status == 1
+    both = f"{rows[_RUNTIME]} {later}"
+    assert (
+        f"::error::{_RUNTIME} is installed at upstream {both}, not {rows[_RUNTIME]};"
+        in checked.errors
+    )
+
+
+@pytest.mark.process(_A_SHELL_READS_THE_ANSWER)
+def test_a_package_dpkg_does_not_hold_installed_is_not_read(tmp_path: Path) -> None:
+    """dpkg-query lists removed packages too; one left at another upstream is no toolchain."""
+    rows = _rows()
+    leftover = QueryLine(f"config-files {_LIBSTDCXX} {_moved(rows[_LIBSTDCXX])}")
+    assert _check(tmp_path, [*_answer(rows), leftover]) == (0, "")
+
+
+def test_the_script_checks_the_upstream_after_every_install() -> None:
+    """No install path leaves the script early, and its last command runs the check."""
+    script = _SCRIPT.read_text(encoding="utf-8")
+    assert "exit 0" not in script
+    lines = [line for line in script.splitlines() if line]
+    assert lines[-2:] == ['install_packages "$@"', '"$here/check_upstream.sh"']
+
+
+def test_the_image_checks_the_upstream_after_its_install() -> None:
+    """The verify stage copies the check and runs it once its toolchain is installed."""
+    image = _DOCKERFILE.read_text(encoding="utf-8")
+    assert _CHECK_COPIED in image
+    install = image.index("apt-get install -y --no-install-recommends clang-23")
+    assert _CHECK_RUN in image[install:]
