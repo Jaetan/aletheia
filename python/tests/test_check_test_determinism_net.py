@@ -112,6 +112,27 @@ def test_every_process_start_spelling_is_a_net_site(
     assert _words(tmp_path, rel, code) == words
 
 
+def test_a_date_or_a_memory_cap_is_a_value_and_a_clock_reader_is_a_site(tmp_path: Path) -> None:
+    """A date, a duration or the address-space cap names no clock; a clock reader named does."""
+    rel = RelPath("python/tests/test_x.py")
+    values = "start = datetime.date\nspan = datetime.timedelta\ncap = resource.RLIMIT_AS\n"
+    assert not _words(tmp_path, rel, SourceText(values))
+    readers = (
+        "clock = datetime.datetime.now\nday = date.today\nstamp = datetime.utcnow\n"
+        + "limit = resource.setrlimit\ncpu = resource.RLIMIT_CPU\n"
+    )
+    assert _words(tmp_path, rel, SourceText(readers)) == {
+        NetWord(word)
+        for word in (
+            "datetime.datetime.now",
+            "date.today",
+            "datetime.utcnow",
+            "resource.setrlimit",
+            "resource.RLIMIT_CPU",
+        )
+    }
+
+
 def test_a_counted_site_is_the_catalogue_s_and_a_spaced_word_is_one_word(tmp_path: Path) -> None:
     """A net word inside a catalogue site is no net site; whitespace inside a word is dropped."""
     rel = RelPath("cpp/tests/x.cpp")

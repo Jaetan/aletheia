@@ -319,9 +319,11 @@ _GO_NET = RegexSource(
 _PYTHON_NET = RegexSource(
     r"\btime\b|\bthreading\.\w+|\bThread\b|\bTimer\b|\basyncio\.\w+|\bloop\.\w+|\bconcurrent\b"
     + r"|\bsubprocess\.\w+|\bPopen\b|\bsignal\.\w+|\bselect\.\w+|\bselectors\b|\bsched\b"
-    + r"|\btimeit\b|\bdatetime\b|\bos\.(?:times|fork\w*|utime|kill|wait\w*|getpid)\b"
+    + r"|\btimeit\b|\b(?:datetime\.)?(?:datetime|date)\.(?:now|utcnow|today)\b"
+    + r"|\bos\.(?:times|fork\w*|utime|kill|wait\w*|getpid)\b"
     + r"|\bos\.(?:system|posix_spawnp?|spawn\w*|popen)\b"
-    + r"|\bst_[amc]time\w*|\bresource\.\w+|\bfaulthandler\.\w+|\bmark\.timeout\b|\bsettimeout\b"
+    + r"|\bst_[amc]time\w*|\bresource\.(?!RLIMIT_AS\b)\w+|\bfaulthandler\.\w+"
+    + r"|\bmark\.timeout\b|\bsettimeout\b"
     + r"|\bsleep\b|\bmonotonic\b|\bperf_counter\b|\bwait\s*\(|\bas_completed\b|\banyio\b|\btrio\b"
     + r"|\bfreezegun\b|\bqueue\.\w+|\bBarrier\b|\bCondition\b|\bSemaphore\b"
 )
