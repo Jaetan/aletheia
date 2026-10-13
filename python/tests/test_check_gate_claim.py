@@ -207,6 +207,31 @@ def test_an_uncommitted_build_edit_parts_the_worktree_from_its_commit(tmp_path: 
     assert sources_digest_of_worktree(repo) != head
 
 
+def test_a_tree_with_no_build_source_digests_as_its_commit_does(tmp_path: Path) -> None:
+    """A working tree holding no build source digests, and to what its commit digests.
+
+    git refuses to hash an empty list of paths, so the digest of nothing is
+    taken without asking it.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _ = git(repo, "init", "-q")
+    _ = (repo / "README.md").write_text("# no build source\n", encoding="utf-8")
+    _ = commit(repo, "base")
+    assert sources_digest_of_worktree(repo) == sources_digest_of_revision("HEAD", repo=repo)
+
+
+def test_a_deleted_tracked_module_is_left_out_of_the_digest(tmp_path: Path) -> None:
+    """A tracked build source gone from the working tree is not there to observe: it is left out."""
+    repo = _make_repo(tmp_path)
+    (repo / "src" / "B.agda").write_text("module B where\n", encoding="utf-8")
+    _ = commit(repo, "second module")
+    (repo / "src" / "A.agda").unlink()
+    deleted = sources_digest_of_worktree(repo)
+    git(repo, "rm", "-q", "--cached", "src/A.agda")
+    assert sources_digest_of_worktree(repo) == deleted
+
+
 # ── The digest covers the build sources and nothing else ────────────────────
 
 
