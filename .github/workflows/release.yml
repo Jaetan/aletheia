@@ -289,28 +289,7 @@ jobs:
       # toolchain) from apt.llvm.org.  Same package set + cache key as
       # pr-full-ci.yml so this workflow shares the deb cache seeded there.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: |
-          set -euo pipefail
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
-          # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
-          # form; the toolchain policy tracks the latest stable release rather
-          # than a floor, so take 15 from the toolchain PPA the same way clang
-          # comes from apt.llvm.org.  add-apt-repository is used here, rather
-          # than the hand-written deb line the runtime image needs, only
-          # because the runners already carry it and it fetches the key.
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          mkdir -p ~/llvm-cache
-          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
-            sudo apt-get install -y --download-only \
-              -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-23 clang-tidy-23 libstdc++-15-dev
-            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
-          fi
-          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 
       # The bundle ships install.fish / env.fish; with fish on PATH the
       # validator also runs the fish installer, checks bash/fish recipe
@@ -357,6 +336,7 @@ jobs:
           sudo install -m 0755 /tmp/nfpm /usr/local/bin/nfpm
           rm /tmp/nfpm /tmp/nfpm.tar.gz
           nfpm --version
+          sudo apt-get update
           sudo apt-get install -y --no-install-recommends rpm
 
       # `shake packages` re-needs `dist` (a Shake phony re-runs), so the

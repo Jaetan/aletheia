@@ -252,29 +252,7 @@ jobs:
           path: ~/llvm-cache
           key: clang23-libstdcxx15-noble-v1
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: |
-          set -euo pipefail
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
-          # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
-          # form; the toolchain policy tracks the latest stable release rather
-          # than a floor, so take 15 from the toolchain PPA the same way clang
-          # comes from apt.llvm.org.  add-apt-repository is used here, rather
-          # than the hand-written deb line the runtime image needs, only
-          # because the runners already carry it and it fetches the key.
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          mkdir -p ~/llvm-cache
-          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
-            # Cache miss: download clang-23 + deps into the user-owned cache dir.
-            sudo apt-get install -y --download-only \
-              -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-23 clang-tidy-23 libstdc++-15-dev
-            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
-          fi
-          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 
       # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
       # / Catch2) for every C++ tree run_ci configures: the test build, the
@@ -305,7 +283,7 @@ jobs:
       - name: Set up ccache
         run: |
           set -euo pipefail
-          command -v ccache >/dev/null || sudo apt-get install -y ccache
+          command -v ccache >/dev/null || { sudo apt-get update && sudo apt-get install -y ccache; }
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
             echo "CCACHE_MAXSIZE=2G"
@@ -349,12 +327,11 @@ jobs:
       # through GITHUB_ACTIONS) the gate treats a missing fish as a
       # misconfiguration and fails closed — never a skip — so a broken .fish
       # entry script cannot ship because the runner happened to lack the shell.
-      # Install it here so the check is genuinely always-on in CI.  apt lists
-      # were already updated by the clang-23 step above.
+      # Install it here so the check is genuinely always-on in CI.
       - name: Install fish (check-dist-staging syntax-checks packaging/*.fish)
         run: |
           set -euo pipefail
-          command -v fish >/dev/null || sudo apt-get install -y fish
+          command -v fish >/dev/null || { sudo apt-get update && sudo apt-get install -y fish; }
 
       # ── Incremental build-tree cache (Agda interfaces + MAlonzo .hs + the
       # cabal foreign-lib build) ─────────────────────────────────────────────
