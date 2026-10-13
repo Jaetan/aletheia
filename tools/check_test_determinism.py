@@ -322,7 +322,7 @@ _PYTHON_NET = RegexSource(
     + r"|\btimeit\b|\b(?:datetime\.)?(?:datetime|date)\.(?:now|utcnow|today)\b"
     + r"|\bos\.(?:times|fork\w*|utime|kill|wait\w*|getpid)\b"
     + r"|\bos\.(?:system|posix_spawnp?|spawn\w*|popen)\b"
-    + r"|\bst_[amc]time\w*|\bresource\.(?!RLIMIT_AS\b)\w+|\bfaulthandler\.\w+"
+    + r"|\bst_[amc]time\w*|\bresource\.(?!RLIMIT_AS\b|setrlimit\b)\w+|\bfaulthandler\.\w+"
     + r"|\bmark\.timeout\b|\bsettimeout\b"
     + r"|\bsleep\b|\bmonotonic\b|\bperf_counter\b|\bwait\s*\(|\bas_completed\b|\banyio\b|\btrio\b"
     + r"|\bfreezegun\b|\bqueue\.\w+|\bBarrier\b|\bCondition\b|\bSemaphore\b"

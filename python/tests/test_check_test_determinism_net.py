@@ -113,13 +113,16 @@ def test_every_process_start_spelling_is_a_net_site(
 
 
 def test_a_date_or_a_memory_cap_is_a_value_and_a_clock_reader_is_a_site(tmp_path: Path) -> None:
-    """A date, a duration or the address-space cap names no clock; a clock reader named does."""
+    """A date, a duration or a memory cap set names no clock; a clock or a time limit does."""
     rel = RelPath("python/tests/test_x.py")
-    values = "start = datetime.date\nspan = datetime.timedelta\ncap = resource.RLIMIT_AS\n"
+    values = (
+        "start = datetime.date\nspan = datetime.timedelta\n"
+        + "cap = resource.RLIMIT_AS\nlimit = resource.setrlimit\n"
+    )
     assert not _words(tmp_path, rel, SourceText(values))
     readers = (
         "clock = datetime.datetime.now\nday = date.today\nstamp = datetime.utcnow\n"
-        + "limit = resource.setrlimit\ncpu = resource.RLIMIT_CPU\n"
+        + "cpu = resource.RLIMIT_CPU\nwall = resource.RLIMIT_RTTIME\n"
     )
     assert _words(tmp_path, rel, SourceText(readers)) == {
         NetWord(word)
@@ -127,8 +130,8 @@ def test_a_date_or_a_memory_cap_is_a_value_and_a_clock_reader_is_a_site(tmp_path
             "datetime.datetime.now",
             "date.today",
             "datetime.utcnow",
-            "resource.setrlimit",
             "resource.RLIMIT_CPU",
+            "resource.RLIMIT_RTTIME",
         )
     }
 
