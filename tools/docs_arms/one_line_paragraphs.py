@@ -18,8 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tools import _markdown
-from tools._common import RelPath
-from tools.docs_arms import missing
+from tools.docs_arms import BUILDING_GUIDE, missing
 
 from aletheia.common_types import PositiveInt, Prose
 
@@ -27,7 +26,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
-SUBJECT = RelPath("docs/development/BUILDING.md")
+    from tools._common import RelPath
+
 
 _PARAGRAPH = Prose("wraps the paragraph above it")
 _QUOTE = Prose("wraps the blockquote above it")
@@ -94,6 +94,6 @@ def findings(
     is a finding.
     """
     del root
-    if SUBJECT not in documents:
-        return [missing(SUBJECT, tracked, Prose("its paragraphs are unchecked"))]
-    return paragraph_findings(SUBJECT, documents[SUBJECT])
+    if BUILDING_GUIDE not in documents:
+        return [missing(BUILDING_GUIDE, tracked, Prose("its paragraphs are unchecked"))]
+    return paragraph_findings(BUILDING_GUIDE, documents[BUILDING_GUIDE])

@@ -190,13 +190,17 @@ class Fence(NamedTuple):
 
 
 class Row(NamedTuple):
-    """A table row, a header row among them: its line and each cell's inline text.
+    """A table row: its line, each cell's inline text and what it renders, and whether it heads.
 
-    A cell is as written, but for an escaped pipe, which reads as a pipe.
+    A cell is as written, but for an escaped pipe, which reads as a pipe; what it
+    renders drops emphasis and keeps a code span's content, as a reader sees it.
+    ``header`` is true of a table's first row alone, the one above its delimiter.
     """
 
     line: PositiveInt
     cells: tuple[Prose, ...]
+    shown: tuple[Prose, ...]
+    header: bool
 
 
 class Section(NamedTuple):
@@ -588,15 +592,20 @@ def table_rows(text: Prose) -> list[Row]:
     """Return every row of every table of ``text``, header rows among them, in order."""
     out: list[Row] = []
     tokens = iter(_parse(text).tokens)
+    in_head = False
     for token in tokens:
-        if token.type == "tr_open" and token.map is not None:
+        if token.type in {"thead_open", "thead_close"}:
+            in_head = token.type == "thead_open"
+        elif token.type == "tr_open" and token.map is not None:
             cells: list[Prose] = []
+            shown: list[Prose] = []
             for inner in tokens:  # the row's own tokens, up to its close
                 if inner.type == "tr_close":
                     break
                 if inner.type == "inline":
                     cells.append(Prose(inner.content))
-            out.append(Row(token.map[0] + 1, tuple(cells)))
+                    shown.append(_rendered(inner.children or []))
+            out.append(Row(token.map[0] + 1, tuple(cells), tuple(shown), in_head))
     return out
 
 

@@ -14,7 +14,8 @@ import pytest
 from _planted_tree import run_planted
 
 from tools._common import RelPath
-from tools.docs_arms.one_line_paragraphs import SUBJECT, findings
+from tools.docs_arms import BUILDING_GUIDE
+from tools.docs_arms.one_line_paragraphs import findings
 
 from aletheia.common_types import Prose
 
@@ -58,7 +59,7 @@ def _repo(tmp_path: Path, text: Prose | None) -> Path:
     repo.mkdir()
     _ = (repo / "README.md").write_text("# Readme\n", encoding="utf-8")
     if text is not None:
-        guide = repo / SUBJECT
+        guide = repo / BUILDING_GUIDE
         guide.parent.mkdir(parents=True)
         _ = guide.write_text(text, encoding="utf-8")
     return repo.resolve()
@@ -79,59 +80,59 @@ def test_a_guide_of_one_line_paragraphs_is_clean(tmp_path: Path) -> None:
     [
         (
             Prose("# Building\n\nA paragraph that runs\nonto a second line.\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the paragraph above it"),
         ),
         (
             Prose("# Building\n\n- an item\n  continued on an indented line\n"),
-            Prose(f"{SUBJECT}: line 4 continues a list item or paragraph"),
+            Prose(f"{BUILDING_GUIDE}: line 4 continues a list item or paragraph"),
         ),
         (
             Prose("# Building\n\nA paragraph\n\tcontinued on a tab-indented line\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the paragraph above it"),
         ),
         (
             Prose("# Building\n\n- an item\nlazily continued at the margin\n"),
-            Prose(f"{SUBJECT}: line 4 continues a list item or paragraph"),
+            Prose(f"{BUILDING_GUIDE}: line 4 continues a list item or paragraph"),
         ),
         (
             Prose("# Building\n\n> a quote\n> wrapped onto a second line\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the blockquote above it"),
         ),
         (
             Prose("# Building\n\n> a quote\nlazily continued at the margin\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the blockquote above it"),
         ),
         (
             Prose("# Building\n\n> a quote\n  indented under it\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the blockquote above it"),
         ),
         (
             Prose("# Building\n\n| a | b |\n  indented under a pipe line\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the paragraph above it"),
         ),
         (
             Prose("# Building\n\n> a quote\n| a | b |\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the blockquote above it"),
         ),
         (
             Prose("# Building\n\nA paragraph.\n| a | b |\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the paragraph above it"),
         ),
         (
             Prose("# Building\n\n| a | b |\nA line right under a pipe line.\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the paragraph above it"),
         ),
         (
             Prose("# Building\n\n- an item\n\n  a second paragraph in it\n"),
-            Prose(f"{SUBJECT}: line 5 continues a list item or paragraph"),
+            Prose(f"{BUILDING_GUIDE}: line 5 continues a list item or paragraph"),
         ),
         (
             Prose("# Building\n\nOne\n\u00a0\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the paragraph above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the paragraph above it"),
         ),
         (
             Prose("# Building\n\n> a quote\n>\n"),
-            Prose(f"{SUBJECT}: line 4 wraps the blockquote above it"),
+            Prose(f"{BUILDING_GUIDE}: line 4 wraps the blockquote above it"),
         ),
     ],
     ids=[
@@ -232,7 +233,7 @@ def test_wrapped_lines_inside_a_fence_are_code(tmp_path: Path) -> None:
 def test_a_missing_guide_is_a_finding(tmp_path: Path) -> None:
     """A scan whose subject is not among the documents vouches for nothing."""
     assert _run(_repo(tmp_path, None)) == [
-        Prose(f"{SUBJECT}: not tracked, so its paragraphs are unchecked")
+        Prose(f"{BUILDING_GUIDE}: not tracked, so its paragraphs are unchecked")
     ]
 
 
@@ -244,7 +245,7 @@ def test_a_missing_guide_is_a_finding(tmp_path: Path) -> None:
 def test_a_guide_without_prose_is_a_finding(tmp_path: Path, text: Prose) -> None:
     """A subject with only blank lines outside fenced code gives the scan nothing to check."""
     assert _run(_repo(tmp_path, text)) == [
-        Prose(f"{SUBJECT}: no paragraph outside fenced code to check")
+        Prose(f"{BUILDING_GUIDE}: no paragraph outside fenced code to check")
     ]
 
 
@@ -285,16 +286,16 @@ def test_a_hash_run_that_opens_no_heading_is_prose(tmp_path: Path, line: Prose) 
 def test_a_lone_carriage_return_ends_a_line(tmp_path: Path) -> None:
     """A guide whose lines end in a carriage return alone has its wraps found by line."""
     text = Prose("# Building\r\rA paragraph\rwrapped onto a second line\r")
-    assert findings(tmp_path, [SUBJECT, RelPath("README.md")], {SUBJECT: text}) == [
+    assert findings(tmp_path, [BUILDING_GUIDE, RelPath("README.md")], {BUILDING_GUIDE: text}) == [
         Prose("docs/development/BUILDING.md: line 4 wraps the paragraph above it")
     ]
 
 
 def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
     """A guide git tracks and the work tree lacks is named as unread, never as untracked."""
-    assert run_planted(findings, _repo(tmp_path, None), absent={SUBJECT}) == [
-        Prose(f"{SUBJECT}: could not be read, so what it says is unchecked"),
-        Prose(f"{SUBJECT}: could not be read, so its paragraphs are unchecked"),
+    assert run_planted(findings, _repo(tmp_path, None), absent={BUILDING_GUIDE}) == [
+        Prose(f"{BUILDING_GUIDE}: could not be read, so what it says is unchecked"),
+        Prose(f"{BUILDING_GUIDE}: could not be read, so its paragraphs are unchecked"),
     ]
 
 
@@ -303,35 +304,35 @@ def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> Non
     [
         (
             Prose("# Building\n\n> a quote\n> ```\n> code\n> ```\n> more\n"),
-            [Prose(f"{SUBJECT}: line 7 wraps the blockquote above it")],
+            [Prose(f"{BUILDING_GUIDE}: line 7 wraps the blockquote above it")],
         ),
         (
             Prose("# Building\n\n-\n  an item opened on a bare marker\n"),
-            [Prose(f"{SUBJECT}: line 4 continues a list item or paragraph")],
+            [Prose(f"{BUILDING_GUIDE}: line 4 continues a list item or paragraph")],
         ),
         (
             Prose("# Building\n\n- <div>\n  x\n  </div>\n"),
             [
-                Prose(f"{SUBJECT}: line 4 continues a list item or paragraph"),
-                Prose(f"{SUBJECT}: line 5 continues a list item or paragraph"),
+                Prose(f"{BUILDING_GUIDE}: line 4 continues a list item or paragraph"),
+                Prose(f"{BUILDING_GUIDE}: line 5 continues a list item or paragraph"),
             ],
         ),
         (
             Prose("# Building\n\n- [a]: x.md\n\n  a second block\n"),
-            [Prose(f"{SUBJECT}: line 5 continues a list item or paragraph")],
+            [Prose(f"{BUILDING_GUIDE}: line 5 continues a list item or paragraph")],
         ),
         (
             Prose("# Building\n\n- an item\n\n      code in it\n      \n      more\n"),
             [
-                Prose(f"{SUBJECT}: line 5 continues a list item or paragraph"),
-                Prose(f"{SUBJECT}: line 7 continues a list item or paragraph"),
+                Prose(f"{BUILDING_GUIDE}: line 5 continues a list item or paragraph"),
+                Prose(f"{BUILDING_GUIDE}: line 7 continues a list item or paragraph"),
             ],
         ),
         (
             Prose("# Building\n\n- an item\n\n      code in it\n\t\n      more\n"),
             [
-                Prose(f"{SUBJECT}: line 5 continues a list item or paragraph"),
-                Prose(f"{SUBJECT}: line 7 continues a list item or paragraph"),
+                Prose(f"{BUILDING_GUIDE}: line 5 continues a list item or paragraph"),
+                Prose(f"{BUILDING_GUIDE}: line 7 continues a list item or paragraph"),
             ],
         ),
     ],
@@ -355,7 +356,7 @@ def test_an_item_or_quote_spanning_lines_is_found_outside_fenced_code_and_blank_
 def test_a_guide_of_blank_lines_alone_is_a_finding(tmp_path: Path, blank: Prose) -> None:
     """Lines of spaces or tabs alone are blank, so the guide has nothing to check."""
     assert _run(_repo(tmp_path, Prose(f"{blank}\n{blank}\n"))) == [
-        Prose(f"{SUBJECT}: no paragraph outside fenced code to check")
+        Prose(f"{BUILDING_GUIDE}: no paragraph outside fenced code to check")
     ]
 
 
@@ -364,11 +365,11 @@ def test_a_guide_of_blank_lines_alone_is_a_finding(tmp_path: Path, blank: Prose)
     [
         (
             Prose("# Building\n\nA paragraph\nX\n"),
-            [Prose(f"{SUBJECT}: line 4 wraps the paragraph above it")],
+            [Prose(f"{BUILDING_GUIDE}: line 4 wraps the paragraph above it")],
         ),
         (
             Prose("# Building\n\n- an item\n  - a nested item\n\n  the item's next block\n"),
-            [Prose(f"{SUBJECT}: line 6 continues a list item or paragraph")],
+            [Prose(f"{BUILDING_GUIDE}: line 6 continues a list item or paragraph")],
         ),
     ],
     ids=["a-letter-is-not-blank", "item-continued-after-its-nested-list"],
@@ -389,7 +390,7 @@ def test_a_quote_continuing_an_item_is_found_even_when_a_list_opens_it(tmp_path:
     """A list inside a quote inside an item is not nested in the item; the quote continues it."""
     text = Prose("# Building\n\n- an item\n  > - a quoted list\n")
     assert _run(_repo(tmp_path, text)) == [
-        Prose(f"{SUBJECT}: line 4 continues a list item or paragraph")
+        Prose(f"{BUILDING_GUIDE}: line 4 continues a list item or paragraph")
     ]
 
 

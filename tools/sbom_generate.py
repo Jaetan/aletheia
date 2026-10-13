@@ -48,9 +48,21 @@ import tomllib
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, NotRequired, TypedDict, cast
 
 from tools._common import emit, run_capture, sha256_file
+from tools._manifests import (
+    DistributionName,
+    ManifestError,
+    ManifestText,
+    fetch_declares,
+    fetched_package,
+    go_requires,
+    normalized,
+    requirement,
+)
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -176,6 +188,29 @@ def _ghc_libdir() -> str:
     return _probe("ghc", ["--print-libdir"])
 
 
+# A GHC package's name and version, as a runtime library's file name spells them.
+GhcPackage = NewType("GhcPackage", str)
+GhcVersion = NewType("GhcVersion", str)
+
+# libHSbase-4.19.2.0-9f38-ghc9.8.4.so: the package, its version, an optional
+# unit hash (GHC 9.8 writes four characters of it, earlier ones none), then the
+# compiler that built it.
+_GHC_LIBRARY = re.compile(r"libHS([A-Za-z0-9_-]+?)-(\d[\w.-]*?)(?:-[a-z0-9]{4,})?-ghc[\d.]+\.so")
+
+
+class GhcLibrary(NamedTuple):
+    """The GHC package a runtime library holds, and the version its file name gives it."""
+
+    package: GhcPackage
+    version: GhcVersion
+
+
+def ghc_library(so: Path) -> GhcLibrary | None:
+    """Return the package the GHC runtime library ``so`` holds, or None if it holds none."""
+    found = _GHC_LIBRARY.match(so.name)
+    return None if found is None else GhcLibrary(GhcPackage(found[1]), GhcVersion(found[2]))
+
+
 def _ghc_dep_components(deps: list[Path]) -> list[Component]:
     """Map each GHC runtime .so to one CycloneDX component.
 
@@ -187,15 +222,8 @@ def _ghc_dep_components(deps: list[Path]) -> list[Component]:
     for so in deps:
         if not so.is_file():
             continue
-        version = "unknown"
-        # Pattern: libHSbase-4.19.2.0-...-ghc9.8.4.so → 4.19.2.0
-        m = re.match(
-            r"libHS([A-Za-z0-9_-]+?)-(\d[\w.-]*?)(?:-[a-z0-9]{8,})?-ghc[\d.]+\.so", so.name
-        )
-        package = so.stem
-        if m:
-            package = m.group(1)
-            version = m.group(2)
+        library = ghc_library(so)
+        package, version = (so.stem, "unknown") if library is None else library
         components.append(
             {
                 "type": "library",
@@ -217,12 +245,8 @@ def _ghc_dep_components(deps: list[Path]) -> list[Component]:
 # ─── Binding-manifest components ─────────────────────────────────────────
 # The four bundled binding source trees' dependency manifests, parsed from the
 # staged bindings tree.  Fail-loud discipline throughout: a manifest entry a
-# parser cannot read raises SbomManifestError — an unreadable entry must fail
+# parser cannot read raises ManifestError, since an unreadable entry must fail
 # the SBOM, never silently drop off the bill.
-
-
-class SbomManifestError(Exception):
-    """A binding manifest is missing or carries an entry the parser cannot read."""
 
 
 # Every file the binding parsers read, relative to the bindings dir.  The
@@ -240,10 +264,10 @@ MANIFEST_FILES: tuple[str, ...] = (
 
 
 def _require_file(path: Path) -> Path:
-    """Return ``path`` if it is a file, else raise :class:`SbomManifestError`."""
+    """Return ``path`` if it is a file, else raise :class:`ManifestError`."""
     if not path.is_file():
         message = f"binding manifest missing: {path}"
-        raise SbomManifestError(message)
+        raise ManifestError(message)
     return path
 
 
@@ -251,7 +275,7 @@ def _table(value: object, context: str) -> dict[str, object]:
     """Shape-check ``value`` as a TOML table, or raise naming ``context``."""
     if not isinstance(value, dict):
         message = f"{context}: expected a table"
-        raise SbomManifestError(message)
+        raise ManifestError(message)
     return cast("dict[str, object]", value)
 
 
@@ -259,7 +283,7 @@ def _string(value: object, context: str) -> str:
     """Shape-check ``value`` as a non-empty string, or raise naming ``context``."""
     if not isinstance(value, str) or not value:
         message = f"{context}: expected a non-empty string"
-        raise SbomManifestError(message)
+        raise ManifestError(message)
     return value
 
 
@@ -269,23 +293,8 @@ def _string_list(value: object, context: str) -> list[str]:
         isinstance(item, str) for item in cast("list[object]", value)
     ):
         message = f"{context}: expected a list of strings"
-        raise SbomManifestError(message)
+        raise ManifestError(message)
     return cast("list[str]", value)
-
-
-# A PEP 508 requirement head: name, optional [extras], optional version spec.
-# Environment markers (``; ...``) are not matched — none of the binding's
-# extras use them, and an unmatched entry fails loud rather than mis-parsing.
-_PY_REQUIREMENT_RE = re.compile(
-    r"^(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"
-    + r"(?:\[[^\]]+\])?"
-    + r"(?P<spec>\s*[<>=!~].*)?$"
-)
-
-
-def _normalize_pypi(name: str) -> str:
-    """PEP 503 normalisation: runs of ``-``/``_``/``.`` collapse to ``-``, lowercased."""
-    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def _python_components(bindings_dir: Path) -> list[Component]:
@@ -318,22 +327,20 @@ def _python_components(bindings_dir: Path) -> list[Component]:
     pulled: dict[tuple[str, str], set[str]] = {}  # (name, spec) -> extras that pull it
     for extra, entries in extras.items():
         for entry in _string_list(entries, f"{path}: optional-dependencies[{extra}]"):
-            match = _PY_REQUIREMENT_RE.match(entry.strip())
-            if match is None:
+            read = requirement(ManifestText(entry))
+            if read is None:
                 message = f"{path}: cannot parse requirement {entry!r} in extra '{extra}'"
-                raise SbomManifestError(message)
-            name = match.group("name")
-            if _normalize_pypi(name) == _normalize_pypi(project_name):
+                raise ManifestError(message)
+            if normalized(read.name) == normalized(DistributionName(project_name)):
                 continue  # self-referential extra, not an external package
-            spec = (match.group("spec") or "").strip()
-            pulled.setdefault((name, spec), set()).add(extra)
+            pulled.setdefault((read.name, read.spec), set()).add(extra)
     return [
         {
             "type": "library",
             "name": name,
             "version": spec or "unspecified",
             "scope": "optional",
-            "purl": f"pkg:pypi/{_normalize_pypi(name)}",
+            "purl": f"pkg:pypi/{normalized(DistributionName(name))}",
             "properties": [
                 {"name": "aletheia:binding", "value": "python"},
                 {"name": "aletheia:python-extra", "value": ",".join(sorted(extra_names))},
@@ -343,46 +350,8 @@ def _python_components(bindings_dir: Path) -> list[Component]:
     ]
 
 
-# Field counts of the whitespace-split go.mod / go.sum line shapes.
-_GO_REQUIRE_FIELDS = 2  # "<module> <version>"
+# Field count of the whitespace-split go.sum line shape.
 _GO_SUM_FIELDS = 3  # "<module> <version> h1:<digest>"
-
-
-def _split_go_require(entry: str, context: str) -> tuple[str, str]:
-    """Split one require entry into (module, version), or raise."""
-    parts = entry.split()
-    if len(parts) != _GO_REQUIRE_FIELDS or not parts[1].startswith("v"):
-        message = f"{context}: cannot parse require entry {entry!r}"
-        raise SbomManifestError(message)
-    return (parts[0], parts[1])
-
-
-def _parse_go_requires(text: str, context: str) -> list[tuple[str, str]]:
-    """Return (module, version) for every ``require`` directive in a go.mod.
-
-    Handles both the single-line and the block form; ``//`` comments
-    (including ``// indirect`` markers — indirect requires stay on the bill)
-    are stripped first.
-    """
-    requires: list[tuple[str, str]] = []
-    in_block = False
-    for raw in text.splitlines():
-        line = raw.split("//", 1)[0].strip()
-        if not line:
-            continue
-        if in_block:
-            if line == ")":
-                in_block = False
-            else:
-                requires.append(_split_go_require(line, context))
-        elif line == "require (":
-            in_block = True
-        elif line.startswith("require "):
-            requires.append(_split_go_require(line.removeprefix("require "), context))
-    if in_block:
-        message = f"{context}: unterminated require block"
-        raise SbomManifestError(message)
-    return requires
 
 
 def _parse_go_sum(text: str, context: str) -> dict[tuple[str, str], str]:
@@ -399,7 +368,7 @@ def _parse_go_sum(text: str, context: str) -> dict[tuple[str, str], str]:
         parts = line.split()
         if len(parts) != _GO_SUM_FIELDS or not parts[2].startswith("h1:"):
             message = f"{context}: cannot parse go.sum line {line!r}"
-            raise SbomManifestError(message)
+            raise ManifestError(message)
         module, version, digest = parts
         if not version.endswith("/go.mod"):
             digests[(module, version)] = digest
@@ -419,14 +388,14 @@ def _go_components(bindings_dir: Path) -> list[Component]:
     """
     mod_path = _require_file(bindings_dir / "go" / "go.mod")
     sum_path = _require_file(bindings_dir / "go" / "go.sum")
-    requires = _parse_go_requires(mod_path.read_text(encoding="utf-8"), str(mod_path))
+    requires = go_requires(ManifestText(mod_path.read_text(encoding="utf-8")), Prose(str(mod_path)))
     digests = _parse_go_sum(sum_path.read_text(encoding="utf-8"), str(sum_path))
     components: list[Component] = []
-    for module, version in requires:
+    for module, version, _ in requires:
         digest = digests.get((module, version))
         if digest is None:
             message = f"{sum_path}: no h1: entry for {module} {version} — go.sum is stale"
-            raise SbomManifestError(message)
+            raise ManifestError(message)
         components.append(
             {
                 "type": "library",
@@ -481,7 +450,7 @@ def _rust_default_enabled_deps(cargo: dict[str, object], context: str) -> set[st
                 stack.append(entry)
             else:
                 message = f"{context}: features.{feature} entry {entry!r} names no feature or dep"
-                raise SbomManifestError(message)
+                raise ManifestError(message)
     return enabled
 
 
@@ -491,7 +460,7 @@ def _rust_lock_packages(lock_path: Path) -> list[_LockPackage]:
     raw = data.get("package")
     if not isinstance(raw, list) or not raw:
         message = f"{lock_path}: missing or empty [[package]] list"
-        raise SbomManifestError(message)
+        raise ManifestError(message)
     packages: list[_LockPackage] = []
     for idx, entry_raw in enumerate(cast("list[object]", raw)):
         context = f"{lock_path}: package[{idx}]"
@@ -500,7 +469,7 @@ def _rust_lock_packages(lock_path: Path) -> list[_LockPackage]:
         checksum = None if checksum_raw is None else _string(checksum_raw, f"{context}.checksum")
         if checksum is not None and re.fullmatch(r"[0-9a-f]{64}", checksum) is None:
             message = f"{context}: checksum is not 64 lowercase hex chars (not a SHA-256)"
-            raise SbomManifestError(message)
+            raise ManifestError(message)
         packages.append(
             _LockPackage(
                 name=_string(entry.get("name"), f"{context}.name"),
@@ -515,7 +484,7 @@ def _rust_component(pkg: _LockPackage, scope: str, lock_path: Path, *, closure: 
     """Build one Cargo.lock-backed component (real SHA-256 checksum required)."""
     if pkg.checksum is None:
         message = f"{lock_path}: package {pkg.name} {pkg.version} has no checksum — cannot attest"
-        raise SbomManifestError(message)
+        raise ManifestError(message)
     properties: list[NameValue] = [{"name": "aletheia:binding", "value": "rust"}]
     if closure:
         properties.append({"name": "aletheia:cargo-lock-closure", "value": "true"})
@@ -530,7 +499,7 @@ def _rust_component(pkg: _LockPackage, scope: str, lock_path: Path, *, closure: 
     }
 
 
-def _rust_direct_dep(key: str, spec: object, toml_path: Path) -> tuple[str, bool]:
+def rust_direct_dep(key: str, spec: object, toml_path: Path) -> tuple[str, bool]:
     """Return (lock name, optional flag) for one ``[dependencies]`` entry."""
     if isinstance(spec, str):
         return (key, False)
@@ -538,7 +507,7 @@ def _rust_direct_dep(key: str, spec: object, toml_path: Path) -> tuple[str, bool
     optional_raw = table.get("optional", False)
     if not isinstance(optional_raw, bool):
         message = f"{toml_path}: dependencies.{key}.optional: expected a boolean"
-        raise SbomManifestError(message)
+        raise ManifestError(message)
     package_raw = table.get("package")
     if package_raw is None:
         return (key, optional_raw)
@@ -596,14 +565,14 @@ def _rust_direct_components(
     components: list[Component] = []
     direct: set[tuple[str, str]] = set()
     for key, spec in deps.items():
-        lock_name, optional = _rust_direct_dep(key, spec, toml_path)
+        lock_name, optional = rust_direct_dep(key, spec, toml_path)
         entries = by_name.get(lock_name, [])
         if len(entries) != 1:
             message = (
                 f"{lock_path}: expected exactly one lock package named {lock_name!r} for "
                 + f"direct dependency {key!r}, found {len(entries)}"
             )
-            raise SbomManifestError(message)
+            raise ManifestError(message)
         scope = "required" if (not optional or key in enabled) else "optional"
         components.append(_rust_component(entries[0], scope, lock_path, closure=False))
         direct.add((entries[0].name, entries[0].version))
@@ -614,25 +583,6 @@ def _rust_direct_components(
 # top-level build + a present tests/ tree); the bundle ships no tests/ tree,
 # so a bundle consumer can never fetch it — test-only, excluded from the bill.
 _CPP_TEST_ONLY_FETCHES: frozenset[str] = frozenset({"Catch2"})
-
-# A dependency that fetches its own dependencies is pinned here first, under
-# the content name that dependency's helper expects, which appends `_fetch`.
-# The bill names the package, not the mechanism that fetches it.
-_CPP_FETCH_NAME_SUFFIX = "_fetch"
-
-
-def _cpp_component_name(declare_name: str) -> str:
-    """Return the package name behind a FetchContent content name."""
-    return declare_name.removesuffix(_CPP_FETCH_NAME_SUFFIX)
-
-
-# The one FetchContent shape the C++ binding uses: URL + URL_HASH SHA256=.
-_FETCH_DECLARE_RE = re.compile(
-    r"FetchContent_Declare\(\s*([A-Za-z0-9_-]+)"
-    + r"\s+URL\s+(\S+)"
-    + r"\s+URL_HASH\s+SHA256=([0-9a-fA-F]{64})\b"
-)
-_FETCH_COUNT_RE = re.compile(r"FetchContent_Declare\s*\(")
 
 # Pinned-version shapes a fetch URL can carry: a release-asset tag, an
 # archive tag (optionally v-prefixed), an archive tag that repeats the
@@ -654,37 +604,26 @@ def _cpp_pin_version(url: str, context: str) -> str:
         if match:
             return match.group(1)
     message = f"{context}: cannot derive a pinned version from URL {url}"
-    raise SbomManifestError(message)
+    raise ManifestError(message)
 
 
 def _cpp_components(bindings_dir: Path) -> list[Component]:
     """Parse ``cpp/CMakeLists.txt`` FetchContent pins into components.
 
-    Every ``FetchContent_Declare`` must parse as the ``URL`` + ``URL_HASH
-    SHA256=...`` shape — the parsed count is compared against the raw
-    occurrence count, so a declare this parser cannot read fails the SBOM
-    instead of silently dropping a pin.  The ``URL_HASH`` is a real SHA-256
+    Every ``FetchContent_Declare`` must read as the shape ``fetch_declares``
+    reads, so a declare it cannot read fails the SBOM instead of silently
+    dropping a pin.  The ``URL_HASH`` is a real SHA-256
     of the fetched source archive, so it lands in the CycloneDX ``hashes``
     list (unlike the Go ``h1:`` dirhash).
     """
     path = _require_file(bindings_dir / "cpp" / "CMakeLists.txt")
-    text = path.read_text(encoding="utf-8")
-    declares = _FETCH_DECLARE_RE.findall(text)
-    total = len(_FETCH_COUNT_RE.findall(text))
-    if len(declares) != total:
-        parsed_names = ", ".join(name for name, _, _ in declares) or "none"
-        message = (
-            f"{path}: found {total} FetchContent_Declare occurrence(s) but parsed "
-            f"{len(declares)} ({parsed_names}) — an unparsed declare would drop a pin from "
-            "the SBOM; teach the parser the new shape or fix the declare"
-        )
-        raise SbomManifestError(message)
+    declares = fetch_declares(ManifestText(path.read_text(encoding="utf-8")), Prose(str(path)))
     components: list[Component] = []
     for name, url, sha in declares:
         if name in _CPP_TEST_ONLY_FETCHES:
             continue
         version = _cpp_pin_version(url, str(path))
-        package = _cpp_component_name(name)
+        package = fetched_package(name)
         components.append(
             {
                 "type": "library",
@@ -741,7 +680,7 @@ def binding_components(bindings_dir: Path) -> list[Component]:
                 f"{bindings_dir}: binding '{binding}' parsed to zero dependency components — "
                 "a vacuously empty SBOM section is refused"
             )
-            raise SbomManifestError(message)
+            raise ManifestError(message)
         components.extend(parsed)
     return components
 
@@ -971,7 +910,7 @@ def main() -> int:
                 bindings_dir=cast("Path | None", args.bindings_dir),
             ),
         )
-    except SbomManifestError as exc:
+    except ManifestError as exc:
         _ = sys.stderr.write(f"sbom-generate: ERROR — {exc}\n")
         return 1
     out_path = cast("Path", args.out)

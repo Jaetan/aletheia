@@ -43,11 +43,8 @@ from pathlib import Path
 from typing import cast
 
 from tools._common import emit
-from tools.sbom_generate import (
-    MANIFEST_FILES,
-    SbomManifestError,
-    parse_binding_components,
-)
+from tools._manifests import ManifestError
+from tools.sbom_generate import MANIFEST_FILES, parse_binding_components
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -172,7 +169,7 @@ def _parse_manifests(bindings: Path) -> dict[str, list[dict[str, object]]] | int
         return COULD_NOT_CHECK
     try:
         expected = parse_binding_components(bindings)
-    except SbomManifestError as exc:
+    except ManifestError as exc:
         _ = sys.stderr.write(f"check-sbom-coverage: manifest drift — {exc}\n")
         return 1
     empty = sorted(binding for binding, components in expected.items() if not components)

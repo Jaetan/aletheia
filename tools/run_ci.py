@@ -674,12 +674,14 @@ class Runner:
         ``cmd`` is an argv list (run directly) or a string (via ``/bin/sh -c``
         for lanes that need pipes / globs / redirection).  ``lane`` groups steps
         that share mutable toolchain state — serial within a lane, concurrent
-        across lanes.  Left default, ``lane`` is inferred from the cwd toolchain
-        dir (``_LANE_BY_DIR``); pass it explicitly for Shake steps (cwd=None).
+        across lanes.  Left default, ``lane`` is inferred from the toolchain
+        directory the cwd lies in, the first one below the repository root
+        (``_LANE_BY_DIR``); pass it explicitly for Shake steps (cwd=None).
         "heavy" (OOM-gated in parallel mode) is derived from ``HEAVY_STEPS``.
         """
-        if lane == "misc" and cwd is not None:
-            lane = _LANE_BY_DIR.get(cwd.name, "misc")
+        if lane == "misc" and cwd is not None and cwd.is_relative_to(self.repo_root):
+            top = cwd.relative_to(self.repo_root).parts[:1]
+            lane = _LANE_BY_DIR.get(top[0], "misc") if top else "misc"
         self._registry.append(
             Step(name=name, cmd=cmd, cwd=cwd, heavy=name in HEAVY_STEPS, lane=lane),
         )

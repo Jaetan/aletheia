@@ -18,8 +18,8 @@ from _planted_tree import run_planted, tracked_paths
 
 from tools._common import RelPath
 from tools.check_docs import read_documents
-from tools.docs_arms import retired_document
-from tools.docs_arms.retired_document import LEDGER, RECORD_OF_THE_MOVE, RETIRED_DOCUMENT, findings
+from tools.docs_arms import BUILDING_GUIDE, retired_document
+from tools.docs_arms.retired_document import RECORD_OF_THE_MOVE, RETIRED_DOCUMENT, findings
 
 from aletheia.common_types import Prose
 
@@ -30,7 +30,9 @@ def _repo(tmp_path: Path) -> Path:
     """Return a planted tree: the ledger in its one home, nothing naming the old file."""
     repo = tmp_path / "repo"
     (repo / "docs" / "development").mkdir(parents=True)
-    _ = (repo / LEDGER).write_text(f"# Building\n\n{_SECTION_LINE}\nA table.\n", encoding="utf-8")
+    _ = (repo / BUILDING_GUIDE).write_text(
+        f"# Building\n\n{_SECTION_LINE}\nA table.\n", encoding="utf-8"
+    )
     _ = (repo / "README.md").write_text(
         "# Front door\n\nSee the building guide.\n", encoding="utf-8"
     )
@@ -62,7 +64,7 @@ def test_a_tracked_copy_of_the_retired_file_is_a_finding(tmp_path: Path) -> None
     repo = _repo(tmp_path)
     _ = (repo / RETIRED_DOCUMENT).write_text("# Dependencies\n", encoding="utf-8")
     assert _run(repo) == [
-        f"{RETIRED_DOCUMENT}: is tracked, a second home for the ledger beside {LEDGER}"
+        f"{RETIRED_DOCUMENT}: is tracked, a second home for the ledger beside {BUILDING_GUIDE}"
     ]
 
 
@@ -71,7 +73,7 @@ def test_a_nested_copy_of_the_retired_file_is_a_finding(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _ = (repo / "docs" / RETIRED_DOCUMENT).write_text("# Dependencies\n", encoding="utf-8")
     assert _run(repo) == [
-        f"docs/{RETIRED_DOCUMENT}: is tracked, a second home for the ledger beside {LEDGER}"
+        f"docs/{RETIRED_DOCUMENT}: is tracked, a second home for the ledger beside {BUILDING_GUIDE}"
     ]
 
 
@@ -82,8 +84,8 @@ def test_each_line_naming_the_retired_file_is_a_finding(tmp_path: Path) -> None:
         _ = readme.write(f"\nLicenses are listed in {RETIRED_DOCUMENT}.\n")
         _ = readme.write(f"\nSee {RETIRED_DOCUMENT}.\n")
     assert _run(repo) == [
-        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}",
-        f"README.md: line 7 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}",
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}",
+        f"README.md: line 7 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}",
     ]
 
 
@@ -93,7 +95,7 @@ def test_a_line_naming_the_retired_file_twice_is_one_finding(tmp_path: Path) -> 
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nSee {RETIRED_DOCUMENT}, then {RETIRED_DOCUMENT} again.\n")
     assert _run(repo) == [
-        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -103,7 +105,7 @@ def test_a_line_opening_on_the_retired_name_is_numbered_as_that_line(tmp_path: P
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\n{RETIRED_DOCUMENT} listed the licenses.\n")
     assert _run(repo) == [
-        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -113,7 +115,7 @@ def test_a_file_opening_on_the_retired_name_is_a_finding(tmp_path: Path) -> None
     text = f"{RETIRED_DOCUMENT} moved into the building guide.\n"
     _ = (repo / "NOTICE").write_text(text, encoding="utf-8")
     assert _run(repo) == [
-        f"NOTICE: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"NOTICE: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -137,7 +139,7 @@ def test_a_separator_that_ends_no_line_moves_no_mention(tmp_path: Path, separato
     text = f"\n{separator}\n# writes {RETIRED_DOCUMENT}\n"
     _ = (repo / "tool.py").write_text(text, encoding="utf-8")
     assert _run(repo) == [
-        f"tool.py: line 3 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"tool.py: line 3 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -147,7 +149,7 @@ def test_a_lone_carriage_return_ends_a_line(tmp_path: Path, name: RelPath) -> No
     repo = _repo(tmp_path)
     _ = (repo / name).write_bytes(f"A line\rnames {RETIRED_DOCUMENT}.\n".encode())
     assert _run(repo) == [
-        f"{name}: line 2 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"{name}: line 2 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -160,7 +162,7 @@ def test_a_document_is_scanned_in_the_text_the_gate_read(tmp_path: Path) -> None
     documents, _ = read_documents(repo, tracked)
     documents[RelPath("README.md")] = Prose(f"# Front door\n\nSee {RETIRED_DOCUMENT}.\n")
     assert findings(repo, tracked, documents) == [
-        f"README.md: line 3 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"README.md: line 3 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -169,7 +171,7 @@ def test_a_file_that_is_not_utf8_is_scanned(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _ = (repo / "tool.py").write_bytes(b"# \xff" + f" writes {RETIRED_DOCUMENT}\n".encode())
     assert _run(repo) == [
-        f"tool.py: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"tool.py: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -179,7 +181,7 @@ def test_a_document_naming_the_retired_file_is_a_finding(tmp_path: Path) -> None
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nLicenses are listed in {RETIRED_DOCUMENT}.\n")
     assert _run(repo) == [
-        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -188,7 +190,7 @@ def test_a_code_file_naming_the_retired_file_is_a_finding(tmp_path: Path) -> Non
     repo = _repo(tmp_path)
     _ = (repo / "tool.py").write_text(f"# writes {RETIRED_DOCUMENT}\n", encoding="utf-8")
     assert _run(repo) == [
-        f"tool.py: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"tool.py: line 1 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
@@ -198,42 +200,46 @@ def test_a_mention_shown_as_code_is_a_finding(tmp_path: Path) -> None:
     with (repo / "README.md").open("a", encoding="utf-8") as readme:
         _ = readme.write(f"\nThe former `{RETIRED_DOCUMENT}` is gone.\n")
     assert _run(repo) == [
-        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}"
+        f"README.md: line 5 names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
     ]
 
 
 def test_a_ledger_without_its_section_is_a_finding(tmp_path: Path) -> None:
     """The guide without the Dependencies and Licenses heading gives the ledger no home."""
     repo = _repo(tmp_path)
-    _ = (repo / LEDGER).write_text("# Building\n\n## Toolchain\n", encoding="utf-8")
+    _ = (repo / BUILDING_GUIDE).write_text("# Building\n\n## Toolchain\n", encoding="utf-8")
     assert _run(repo) == [
-        f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
+        f"{BUILDING_GUIDE}: has no Dependencies and Licenses section, the ledger's one home"
     ]
 
 
 def test_a_ledger_whose_heading_differs_in_case_is_a_finding(tmp_path: Path) -> None:
     """The section is named in its own case; a heading spelled in another case is not it."""
     repo = _repo(tmp_path)
-    _ = (repo / LEDGER).write_text("# Building\n\n## dependencies and licenses\n", encoding="utf-8")
+    _ = (repo / BUILDING_GUIDE).write_text(
+        "# Building\n\n## dependencies and licenses\n", encoding="utf-8"
+    )
     assert _run(repo) == [
-        f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
+        f"{BUILDING_GUIDE}: has no Dependencies and Licenses section, the ledger's one home"
     ]
 
 
 def test_a_ledger_whose_heading_sits_in_a_fence_is_a_finding(tmp_path: Path) -> None:
     """A heading shown inside a code fence is an example, not the section."""
     repo = _repo(tmp_path)
-    _ = (repo / LEDGER).write_text(f"# Building\n\n```\n{_SECTION_LINE}```\n", encoding="utf-8")
+    _ = (repo / BUILDING_GUIDE).write_text(
+        f"# Building\n\n```\n{_SECTION_LINE}```\n", encoding="utf-8"
+    )
     assert _run(repo) == [
-        f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
+        f"{BUILDING_GUIDE}: has no Dependencies and Licenses section, the ledger's one home"
     ]
 
 
 def test_a_tree_without_the_guide_is_a_finding(tmp_path: Path) -> None:
     """A tree with no building guide gives the scan nothing it expects."""
     repo = _repo(tmp_path)
-    (repo / LEDGER).unlink()
-    assert _run(repo) == [f"{LEDGER}: not tracked, so the ledger's one home is unchecked"]
+    (repo / BUILDING_GUIDE).unlink()
+    assert _run(repo) == [f"{BUILDING_GUIDE}: not tracked, so the ledger's one home is unchecked"]
 
 
 def test_a_tracked_file_gone_from_the_worktree_is_a_finding(tmp_path: Path) -> None:
@@ -256,9 +262,9 @@ def test_a_tracked_file_gone_from_the_worktree_is_a_finding(tmp_path: Path) -> N
 def test_a_ledger_with_only_an_html_anchor_is_a_finding(tmp_path: Path, anchor: Prose) -> None:
     """An HTML anchor spelling the section's slug is no heading, so the section is missing."""
     repo = _repo(tmp_path)
-    _ = (repo / LEDGER).write_text(f"# Building\n\n{anchor}\nA table.\n", encoding="utf-8")
+    _ = (repo / BUILDING_GUIDE).write_text(f"# Building\n\n{anchor}\nA table.\n", encoding="utf-8")
     assert _run(repo) == [
-        f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
+        f"{BUILDING_GUIDE}: has no Dependencies and Licenses section, the ledger's one home"
     ]
 
 
@@ -289,34 +295,37 @@ def test_the_arm_s_own_source_is_left_out() -> None:
     root = source.parents[2]
     assert RETIRED_DOCUMENT in source.read_text(encoding="utf-8")
     own = RelPath(source.relative_to(root).as_posix())
-    assert findings(root, [own], {LEDGER: Prose(f"# Building\n\n{_SECTION_LINE}")}) == list[Prose]()
+    assert (
+        findings(root, [own], {BUILDING_GUIDE: Prose(f"# Building\n\n{_SECTION_LINE}")})
+        == list[Prose]()
+    )
 
 
 def test_a_heading_holding_more_than_the_section_name_is_not_its_home(tmp_path: Path) -> None:
     """The ledger's home is the heading that reads the section's name, not one containing it."""
     repo = _repo(tmp_path)
     text = "# Building\n\n## Dependencies and Licenses (old)\n"
-    _ = (repo / LEDGER).write_text(text, encoding="utf-8")
+    _ = (repo / BUILDING_GUIDE).write_text(text, encoding="utf-8")
     assert _run(repo) == [
-        f"{LEDGER}: has no Dependencies and Licenses section, the ledger's one home"
+        f"{BUILDING_GUIDE}: has no Dependencies and Licenses section, the ledger's one home"
     ]
 
 
 def test_the_section_may_be_the_guide_s_first_heading(tmp_path: Path) -> None:
     """A guide opening on the section is its home all the same."""
     repo = _repo(tmp_path)
-    _ = (repo / LEDGER).write_text(f"{_SECTION_LINE}\nA table.\n", encoding="utf-8")
+    _ = (repo / BUILDING_GUIDE).write_text(f"{_SECTION_LINE}\nA table.\n", encoding="utf-8")
     assert _run(repo) == list[Prose]()
 
 
 def test_a_tracked_guide_the_work_tree_lacks_is_named_as_unread(tmp_path: Path) -> None:
     """A guide git tracks and the work tree lacks is unread: its section and its lines unchecked."""
     repo = _repo(tmp_path)
-    (repo / LEDGER).unlink()
-    assert run_planted(findings, repo, absent={LEDGER}) == [
-        f"{LEDGER}: could not be read, so what it says is unchecked",
-        f"{LEDGER}: could not be read, so the ledger's one home is unchecked",
-        f"{LEDGER}: could not be read, so its lines are unchecked",
+    (repo / BUILDING_GUIDE).unlink()
+    assert run_planted(findings, repo, absent={BUILDING_GUIDE}) == [
+        f"{BUILDING_GUIDE}: could not be read, so what it says is unchecked",
+        f"{BUILDING_GUIDE}: could not be read, so the ledger's one home is unchecked",
+        f"{BUILDING_GUIDE}: could not be read, so its lines are unchecked",
     ]
 
 
@@ -342,5 +351,7 @@ def test_the_ledger_section_is_a_heading_as_commonmark_reads_one(
 ) -> None:
     """The section is any heading whose text is the ledger's name, never a line in code."""
     repo = _repo(tmp_path)
-    _ = (repo / LEDGER).write_text(f"# Building\n\n{section}\n\nA table.\n", encoding="utf-8")
-    assert _run(repo) == [Prose(f"{LEDGER}: {why}, the ledger's one home") for why in found]
+    _ = (repo / BUILDING_GUIDE).write_text(
+        f"# Building\n\n{section}\n\nA table.\n", encoding="utf-8"
+    )
+    assert _run(repo) == [Prose(f"{BUILDING_GUIDE}: {why}, the ledger's one home") for why in found]

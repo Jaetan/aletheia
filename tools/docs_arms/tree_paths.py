@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from tools import _markdown
 from tools._common import RelPath
-from tools.docs_arms import missing, tracked_dirs
+from tools.docs_arms import BUILDING_GUIDE, missing, tracked_dirs
 
 from aletheia.common_types import Prose
 
@@ -32,7 +32,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-GUIDE = RelPath("docs/development/BUILDING.md")
 
 _SOURCE_DIRS = (
     "tools",
@@ -107,10 +106,14 @@ def findings(
 
     """
     del root
-    if GUIDE not in documents:
-        return [missing(GUIDE, tracked, Prose("the tree paths it names are unchecked"))]
-    paths = tree_paths(documents[GUIDE])
+    if BUILDING_GUIDE not in documents:
+        return [missing(BUILDING_GUIDE, tracked, Prose("the tree paths it names are unchecked"))]
+    paths = tree_paths(documents[BUILDING_GUIDE])
     if not paths:
-        return [Prose(f"{GUIDE}: names no tree path in backticks; the arm checks nothing")]
+        return [Prose(f"{BUILDING_GUIDE}: names no tree path in backticks; the arm checks nothing")]
     index = _index(tracked)
-    return [Prose(f"{GUIDE}: not tracked: {path}") for path in paths if not _resolves(path, index)]
+    return [
+        Prose(f"{BUILDING_GUIDE}: not tracked: {path}")
+        for path in paths
+        if not _resolves(path, index)
+    ]

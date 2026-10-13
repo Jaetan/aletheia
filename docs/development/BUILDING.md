@@ -681,12 +681,17 @@ The compiled shared library links against these Haskell packages, at the version
 | template-haskell | BSD-3-Clause |
 | ghc-boot-th | BSD-3-Clause |
 
+The bundle also carries, beside them, the other libraries GHC's lib directory supplies:
+
+| Library | License | Notes |
+|---|---|---|
+| libffi | MIT | Foreign function interface |
+
 System libraries, dynamically linked and not bundled:
 
 | Library | License | Notes |
 |---|---|---|
 | **libgmp** | **LGPL-3.0+** (GMP is dual-licensed GPL-2.0+ / LGPL-3.0+; taken under the LGPL) | Arbitrary-precision arithmetic (used by ghc-bignum) |
-| libffi | MIT | Foreign function interface |
 | glibc (libc, libm, libpthread, librt, libdl) | LGPL-2.1+ | C standard library |
 
 ### Runtime, C++ layer

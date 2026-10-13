@@ -51,6 +51,7 @@ AGDA_SHAKE_TARGETS: tuple[str, ...] = (
     "count-modules",
     "check-changelog",
     "check-gate-claim",
+    "check-haskell-ledger",
     "check-runbook",
     "check-limits-parity",
     "check-stability-bench",
@@ -434,6 +435,15 @@ def _run_binding_tests(runner: Runner) -> None:
         "cargo test (excel crate)",
         f"ALETHEIA_LIB={rust_lib} cargo test",
         cwd=runner.repo_root / "rust" / "excel",
+    )
+    # The Rust rows of the dependency ledger name the licences cargo records.
+    # Read after both crates' tests, which leave every crate they resolve in
+    # cargo's registry, so the read is offline.
+    runner.step(
+        "check-rust-licences",
+        [runner.python, "-m", "tools.check_rust_licences"],
+        cwd=runner.repo_root,
+        lane="rust",
     )
 
 

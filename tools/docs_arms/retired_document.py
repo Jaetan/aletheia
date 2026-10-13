@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, NewType
 
 from tools import _markdown
 from tools._common import RelPath
-from tools.docs_arms import Unread, missing, read_tracked
+from tools.docs_arms import BUILDING_GUIDE, Unread, missing, read_tracked
 
 from aletheia.common_types import Prose
 
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
 RETIRED_DOCUMENT = RelPath("DEPENDENCIES.md")
-LEDGER = RelPath("docs/development/BUILDING.md")
 LEDGER_SECTION = Prose("Dependencies and Licenses")
 RECORD_OF_THE_MOVE = RelPath("CHANGELOG.md")
 
@@ -41,10 +40,10 @@ LineNumber = NewType("LineNumber", int)
 
 def _ledger_findings(tracked: Sequence[RelPath], documents: Mapping[RelPath, Prose]) -> list[Prose]:
     """Return the findings about the guide: untracked, unread, or without the ledger's section."""
-    if LEDGER not in documents:
-        return [missing(LEDGER, tracked, Prose("the ledger's one home is unchecked"))]
-    if LEDGER_SECTION not in [h.source for h in _markdown.headings(documents[LEDGER])]:
-        return [Prose(f"{LEDGER}: has no {LEDGER_SECTION} section, the ledger's one home")]
+    if BUILDING_GUIDE not in documents:
+        return [missing(BUILDING_GUIDE, tracked, Prose("the ledger's one home is unchecked"))]
+    if LEDGER_SECTION not in [h.source for h in _markdown.headings(documents[BUILDING_GUIDE])]:
+        return [Prose(f"{BUILDING_GUIDE}: has no {LEDGER_SECTION} section, the ledger's one home")]
     return []
 
 
@@ -67,7 +66,9 @@ def _mention_findings(root: Path, rel: RelPath, documents: Mapping[RelPath, Pros
         counted = mention.start()
         numbers[LineNumber(line)] = None
     return [
-        Prose(f"{rel}: line {number} names {RETIRED_DOCUMENT}, whose ledger lives in {LEDGER}")
+        Prose(
+            f"{rel}: line {number} names {RETIRED_DOCUMENT}, whose ledger lives in {BUILDING_GUIDE}"
+        )
         for number in numbers
     ]
 
@@ -94,7 +95,7 @@ def findings(
     own = RelPath(_SELF.relative_to(root).as_posix()) if _SELF.is_relative_to(root) else None
     found = _ledger_findings(tracked, documents)
     found.extend(
-        Prose(f"{rel}: is tracked, a second home for the ledger beside {LEDGER}")
+        Prose(f"{rel}: is tracked, a second home for the ledger beside {BUILDING_GUIDE}")
         for rel in tracked
         if Path(rel).name == RETIRED_DOCUMENT
     )

@@ -3496,9 +3496,6 @@ hints:
     text: "list[str]"
     count: 3
   - file: tools/sbom_generate.py
-    text: "list[tuple[str, str]]"
-    count: 2
-  - file: tools/sbom_generate.py
     text: "object"
     count: 4
   - file: tools/sbom_generate.py
@@ -3509,7 +3506,7 @@ hints:
     count: 1
   - file: tools/sbom_generate.py
     text: "str"
-    count: 41
+    count: 33
   - file: tools/sbom_generate.py
     text: "str | None"
     count: 5
@@ -3524,9 +3521,6 @@ hints:
     count: 1
   - file: tools/sbom_generate.py
     text: "tuple[str, bool]"
-    count: 1
-  - file: tools/sbom_generate.py
-    text: "tuple[str, str]"
     count: 1
   - file: tools/sbom_generate.py
     text: "tuple[tuple[str, Callable[[Path], list[Component]]], ...]"

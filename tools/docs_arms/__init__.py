@@ -39,6 +39,9 @@ if TYPE_CHECKING:
 # The bytes of a file as the work tree holds them.
 FileBytes = NewType("FileBytes", bytes)
 
+# The building guide, which several arms hold to the tree.
+BUILDING_GUIDE = RelPath("docs/development/BUILDING.md")
+
 
 @dataclass(frozen=True)
 class Unread:
@@ -85,6 +88,22 @@ def missing(rel: RelPath, tracked: Collection[RelPath], unchecked: Prose) -> Pro
     if rel in tracked:
         return _unreadable(rel, unchecked)
     return Prose(f"{rel}: not tracked, so {unchecked}")
+
+
+def section_rows(text: Prose, heading: Prose) -> list[_markdown.Row] | None:
+    """Return the body rows of the tables in the section ``heading`` opens, or None without it.
+
+    ``heading`` is spelled as ``_markdown.section`` reads it; a table's header
+    row is left out, so each row returned is one the table lists.
+    """
+    found = _markdown.section(text, heading)
+    if found is None:
+        return None
+    return [
+        row
+        for row in _markdown.table_rows(text)
+        if found.first <= row.line < found.end and not row.header
+    ]
 
 
 def tracked_dirs(tracked: Iterable[RelPath]) -> set[RelPath]:
