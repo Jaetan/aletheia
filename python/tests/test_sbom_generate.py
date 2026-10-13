@@ -8,16 +8,19 @@ manifest entry raises instead of silently dropping off the bill.  The
 byte-determinism test pins the reproducibility contract the dist rule
 depends on (two runs over the same inputs must byte-match), and the Go test
 pins the hash discipline: a go.sum ``h1:`` dirhash rides a property, never a
-CycloneDX SHA-256 ``hashes`` entry.
+CycloneDX SHA-256 ``hashes`` entry.  The CLI tests answer the toolchain probes
+and the HEAD lookup with fixed values, so they start no process and their bill
+is the same on every machine.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NewType, cast
 
 import pytest
+from _processes import CommandWord
 from _sbom_fixtures import (
     CFG_IF_SHA,
     CMAKELISTS,
@@ -39,6 +42,21 @@ if TYPE_CHECKING:
     from tools.sbom_generate import Component
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# What the generator reads off a tool's standard output, stripped.
+ToolAnswer = NewType("ToolAnswer", str)
+
+# The answer each toolchain probe the generator makes gets in place of the
+# installed tool's, keyed by the tool's command line.
+_TOOL_ANSWERS: dict[tuple[CommandWord, ...], ToolAnswer] = {
+    (CommandWord("ghc"), CommandWord("--numeric-version")): ToolAnswer("9.10.1"),
+    (CommandWord("ghc"), CommandWord("--print-libdir")): ToolAnswer("/opt/ghc/lib"),
+    (CommandWord("cabal"), CommandWord("--numeric-version")): ToolAnswer("3.12.1.0"),
+    (CommandWord("agda"), CommandWord("--version")): ToolAnswer("Agda version 2.8.0"),
+}
+
+# The HEAD commit the generator reads in place of the repository's.
+_HEAD_COMMIT = ToolAnswer("0" * 40)
 
 
 def _by_name(components: list[Component]) -> dict[str, Component]:
@@ -235,8 +253,27 @@ def test_vacuously_empty_binding_refused(tmp_path: Path) -> None:
         _ = binding_components(tree)
 
 
+def _probe_answer(tool: CommandWord, args: list[CommandWord]) -> ToolAnswer:
+    """Answer a toolchain probe from ``_TOOL_ANSWERS``; any other probe fails the test."""
+    answer = _TOOL_ANSWERS.get((tool, *args))
+    if answer is None:
+        unanswered = f"the generator probed {tool} {args}, which has no fixed answer"
+        raise AssertionError(unanswered)
+    return answer
+
+
+def _head_commit(_repo: Path) -> ToolAnswer:
+    """Answer the HEAD lookup with ``_HEAD_COMMIT``, whatever the repository."""
+    return _HEAD_COMMIT
+
+
 def _run_cli(monkeypatch: pytest.MonkeyPatch, tree: Path, out: Path) -> int:
-    """Invoke the generator CLI against the fixture tree and the real repo root."""
+    """Invoke the generator CLI against the fixture tree and the real repo root.
+
+    The toolchain probes and the HEAD lookup get fixed answers, so no process starts.
+    """
+    monkeypatch.setattr("tools.sbom_generate._probe", _probe_answer)
+    monkeypatch.setattr("tools.sbom_generate._git_commit", _head_commit)
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -257,7 +294,11 @@ def _run_cli(monkeypatch: pytest.MonkeyPatch, tree: Path, out: Path) -> int:
 def test_cli_emits_binding_components_byte_deterministically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Two CLI runs over the same inputs byte-match, and the bill carries all bindings."""
+    """Two CLI runs over the same inputs byte-match, and the bill carries all bindings.
+
+    The toolchain components and the main component's properties carry the
+    probes' fixed answers, so no installed tool's answer reaches the bill.
+    """
     tree = make_bindings_tree(tmp_path / "bindings")
     out_first = tmp_path / "sbom-first.json"
     out_second = tmp_path / "sbom-second.json"
@@ -268,6 +309,13 @@ def test_cli_emits_binding_components_byte_deterministically(
     components = cast("list[dict[str, object]]", doc["components"])
     names = {component["name"] for component in components}
     assert {"python-can", "gopkg.in/yaml.v3", "libloading", "json"} <= names
+    versions = {component["name"]: component.get("version") for component in components}
+    assert versions["ghc"] == "9.10.1"
+    assert versions["cabal-install"] == "3.12.1.0"
+    assert versions["agda"] == "2.8.0"
+    text = out_first.read_text(encoding="utf-8")
+    assert f'"{_HEAD_COMMIT}"' in text
+    assert '"/opt/ghc/lib"' in text
 
 
 def test_cli_manifest_error_exits_nonzero(

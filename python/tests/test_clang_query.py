@@ -12,12 +12,18 @@ dependencies its configure fetched there.
 
 from __future__ import annotations
 
+import errno
 import json
+import subprocess
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
+from typing import NamedTuple
 
 import pytest
 from _executors import DrivenExecutor, Order
+from _processes import CommandWord
 
 from tools import _clang_query as clang_query
 from tools._clang_query import (
@@ -40,30 +46,59 @@ from aletheia.common_types import ExitStatus, Prose
 _UNIT = UnitPath("src/enrich.cpp")
 
 
+class _Call(NamedTuple):
+    """One command clang-query was handed, and the directory it was run in."""
+
+    argv: list[CommandWord]
+    cwd: Path
+
+
+def _handed(repo: Path) -> _Call:
+    """Return the command that queries ``_UNIT`` with the script ``repo / "q"``, run in cpp/."""
+    words = ["clang-query-23", "-p", "build-tidy", "-f", f"{repo / 'q'}", _UNIT]
+    return _Call([CommandWord(word) for word in words], repo / "cpp")
+
+
+@dataclass
+class _ClangQuery:
+    """clang-query as ``query_unit`` sees it: how it finishes, and every command it is handed."""
+
+    finished: tuple[ExitStatus, QueryOutput, Prose] | OSError
+    calls: list[_Call] = field(default_factory=list[_Call])
+
+    def run(
+        self,
+        argv: list[CommandWord],
+        *,
+        cwd: Path,
+        capture_output: bool,
+        text: bool,
+        check: bool,
+    ) -> subprocess.CompletedProcess[QueryOutput | Prose]:
+        """Record the command, then raise the start failure or return the output and status."""
+        assert capture_output
+        assert text
+        assert not check
+        self.calls.append(_Call(argv, cwd))
+        if isinstance(self.finished, OSError):
+            raise self.finished
+        status, stdout, stderr = self.finished
+        return subprocess.CompletedProcess(argv, status, stdout, stderr)
+
+
 def _stand_in(
-    monkeypatch: pytest.MonkeyPatch,
-    repo: Path,
-    finished: tuple[ExitStatus, QueryOutput, Prose],
-) -> None:
-    """Make clang-query a stand-in that prints this output and errors and exits with this status."""
-    status, stdout, stderr = finished
-    (repo / "cpp").mkdir()
-    _ = (repo / "stdout").write_text(stdout, encoding="utf-8")
-    _ = (repo / "stderr").write_text(stderr, encoding="utf-8")
-    tool = repo / "clang-query-23"
-    _ = tool.write_text(
-        f'#!/bin/sh\ncat "{repo}/stdout"\ncat "{repo}/stderr" >&2\nexit {status}\n',
-        encoding="utf-8",
-    )
-    tool.chmod(0o755)
-    monkeypatch.setattr(clang_query, "CLANG_QUERY", str(tool))
+    monkeypatch: pytest.MonkeyPatch, finished: tuple[ExitStatus, QueryOutput, Prose] | OSError
+) -> _ClangQuery:
+    """Make clang-query finish as ``finished`` says, its output and errors or its start failure."""
+    clang = _ClangQuery(finished)
+    monkeypatch.setattr(clang_query, "subprocess", SimpleNamespace(run=clang.run))
+    return clang
 
 
 def test_a_fatal_diagnostic_fails_the_unit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The failure names the unit and the diagnostic, though clang-query exited zero."""
-    _stand_in(
+    clang = _stand_in(
         monkeypatch,
-        tmp_path,
         (
             ExitStatus(0),
             QueryOutput(""),
@@ -74,28 +109,32 @@ def test_a_fatal_diagnostic_fails_the_unit(monkeypatch: pytest.MonkeyPatch, tmp_
         QueryFailedError, match=r"could not parse src/enrich\.cpp: .*file not found"
     ):
         _ = query_unit(tmp_path, tmp_path / "q", _UNIT)
+    assert clang.calls == [_handed(tmp_path)]
 
 
 def test_a_failed_run_names_the_unit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A non-zero exit fails the unit with the first line clang-query printed."""
-    _stand_in(
-        monkeypatch,
-        tmp_path,
-        (ExitStatus(1), QueryOutput(""), Prose("unknown command: matchh\nmore\n")),
+    clang = _stand_in(
+        monkeypatch, (ExitStatus(1), QueryOutput(""), Prose("unknown command: matchh\nmore\n"))
     )
     with pytest.raises(
         QueryFailedError, match=r"failed on src/enrich\.cpp: unknown command: matchh$"
     ):
         _ = query_unit(tmp_path, tmp_path / "q", _UNIT)
+    assert clang.calls == [_handed(tmp_path)]
 
 
 def test_a_missing_clang_query_is_a_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A tool that cannot be started is named with the package it comes from."""
-    monkeypatch.setattr(clang_query, "CLANG_QUERY", str(tmp_path / "clang-query-23"))
+    clang = _stand_in(
+        monkeypatch,
+        FileNotFoundError(errno.ENOENT, "No such file or directory", clang_query.CLANG_QUERY),
+    )
     with pytest.raises(QueryFailedError, match=r"could not be run .*ships with clang-tidy-23"):
         _ = query_unit(tmp_path, tmp_path / "q", _UNIT)
+    assert clang.calls == [_handed(tmp_path)]
 
 
 def test_a_clean_unit_returns_what_clang_query_printed(
@@ -103,8 +142,9 @@ def test_a_clean_unit_returns_what_clang_query_printed(
 ) -> None:
     """A warning on stderr is not a failure, and the output is handed back whole."""
     printed = QueryOutput('/r/cpp/src/a.cpp:1:1: note: "x" binds here\n')
-    _stand_in(monkeypatch, tmp_path, (ExitStatus(0), printed, Prose("warning: advisory\n")))
+    clang = _stand_in(monkeypatch, (ExitStatus(0), printed, Prose("warning: advisory\n")))
     assert query_unit(tmp_path, tmp_path / "q", _UNIT) == printed
+    assert clang.calls == [_handed(tmp_path)]
 
 
 def test_a_printed_file_lands_where_its_parent_segments_lead() -> None:
