@@ -137,18 +137,43 @@ def _run(repo: Path, monkeypatch: pytest.MonkeyPatch) -> ExitStatus:
     return main(repo=repo)
 
 
+def _planted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[RelPath, LineCount]
+) -> Path:
+    """Return a directory holding one file of each given line count, each one listed to the gate.
+
+    The gate's listing names exactly the keys of ``files``, in their order, so
+    a file written beside them and not named is not the tree's.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for rel, lines in files.items():
+        path = repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_text("x\n" * lines, encoding="utf-8")
+    tracked = list(files)
+
+    def ls_files(tree: Path) -> list[RelPath]:
+        del tree
+        return list(tracked)
+
+    monkeypatch.setattr("tools.check_source_length.git_ls_files", ls_files)
+    return repo
+
+
 def test_a_planted_file_over_the_cap_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A tracked code file of 1001 lines exits 1 and is named; its 1000-line sibling is not."""
     big, full = RelPath("shake/Rules/Big.hs"), RelPath("shake/Rules/Full.hs")
-    repo = _repo(tmp_path, {big: LineCount(1001), full: LineCount(1000)})
+    repo = _planted(tmp_path, monkeypatch, {big: LineCount(1001), full: LineCount(1000)})
     assert _run(repo, monkeypatch) == 1
     assert check_tree(repo).findings == [finding(big, LineCount(1001))]
 
 
 def test_a_tree_within_the_cap_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Code at the cap, data over it and an untracked file over it leave the tree clean."""
-    repo = _repo(
+    repo = _planted(
         tmp_path,
+        monkeypatch,
         {RelPath("Shakefile.hs"): LineCount(1000), RelPath("CHANGELOG.md"): LineCount(5000)},
     )
     _ = (repo / "untracked.py").write_text("x\n" * 2000, encoding="utf-8")
@@ -160,7 +185,7 @@ def test_a_tracked_code_file_that_cannot_be_read_is_not_clean(
 ) -> None:
     """A tracked code file the work tree lacks exits 2 and is named, even beside a finding."""
     gone, big = RelPath("gone.py"), RelPath("big.rs")
-    repo = _repo(tmp_path, {gone: LineCount(1), big: LineCount(1001)})
+    repo = _planted(tmp_path, monkeypatch, {gone: LineCount(1), big: LineCount(1001)})
     (repo / gone).unlink()
     assert _run(repo, monkeypatch) == 2
     scan = check_tree(repo)

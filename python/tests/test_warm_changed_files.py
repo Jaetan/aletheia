@@ -8,7 +8,8 @@ iwyu gate — the deleted path entered the scope and the analyzer's
 collection time (``--diff-filter=d``): a deleted module has no imports left to
 analyze, and its changed importers enter the scope on their own.  Git itself
 performs the exclusion, so the test pins the invocation argument and the
-mapping behavior around it.
+mapping behavior around it.  The root the output is mapped against is the
+module's own ``REPO_ROOT``, so no test asks git where the tree is.
 """
 
 from __future__ import annotations
@@ -19,17 +20,29 @@ from typing import TYPE_CHECKING
 from tools import _warm
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pytest
 
 
+def _root_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``_warm`` take its tree root from ``REPO_ROOT`` rather than from git."""
+
+    def toplevel(_start: Path | None = None) -> Path:
+        return _warm.REPO_ROOT
+
+    monkeypatch.setattr(_warm, "git_toplevel", toplevel)
+
+
 def _capture_git(monkeypatch: pytest.MonkeyPatch, stdout: str) -> list[list[str]]:
-    """Stub ``run_capture`` inside ``_warm``; return the captured argv lists."""
+    """Stub ``run_capture`` and the tree root inside ``_warm``; return the captured argv lists."""
     calls: list[list[str]] = []
 
     def fake_run_capture(argv: list[str], **_kwargs: object) -> SimpleNamespace:
         calls.append(list(argv))
         return SimpleNamespace(returncode=0, stdout=stdout)
 
+    _root_in_process(monkeypatch)
     monkeypatch.setattr(_warm, "run_capture", fake_run_capture)
     return calls
 
@@ -83,6 +96,7 @@ def test_scope_git_failure_signals_could_not_check(
     def failing_run_capture(_argv: list[str], **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(returncode=128, stdout="", stderr="fatal: bad revision 'main'")
 
+    _root_in_process(monkeypatch)
     monkeypatch.setattr(_warm, "run_capture", failing_run_capture)
     assert _warm.changed_agda_files() is None
     reason = capsys.readouterr().out

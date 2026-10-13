@@ -18,9 +18,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import tracked_but_absent
 
-from tools._common import TreeScan, tree_scan_exit_code
+from tools._common import RelPath, TreeScan, tree_scan_exit_code
 from tools.check_no_memory_citations import in_scope, is_exempt, main, scan_text
 
 if TYPE_CHECKING:
@@ -186,12 +185,16 @@ def test_out_of_scope_files_are_skipped(rel: str) -> None:
 
 
 def test_a_tracked_file_that_cannot_be_read_is_not_clean(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A tracked file the gate cannot read exits 2 and is named, through the shared walk."""
-    repo, rel = tracked_but_absent(tmp_path)
-    assert main([], repo=repo) == 2
-    assert rel in capsys.readouterr().err
+
+    def tracked(_repo: Path) -> list[RelPath]:
+        return [RelPath("note.txt")]
+
+    monkeypatch.setattr("tools._common.git_ls_files", tracked)
+    assert main([], repo=tmp_path) == 2
+    assert "note.txt" in capsys.readouterr().err
 
 
 def test_a_line_is_numbered_by_newlines_alone() -> None:

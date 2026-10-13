@@ -7,22 +7,28 @@ Two layers:
 * the build-source digest — the key a sweep's record is filed under.  It is
   content identity: a checkout that rewrites every mtime leaves it unchanged,
   a one-byte edit to a build-relevant file moves it, and the working tree of a
-  clean checkout digests to its commit.
-* ``main`` — a hermetic end-to-end run in a throwaway git repo, every
-  polarity: no claim passes; a claim over a doc-only commit passes; a claim
-  over a build-relevant commit fails with no record, passes when the running
-  sweep exports the commit's digest, fails when it exports another, passes
-  when a finished log records the digest with a passing summary, and fails
-  when the log failed or is a fast-tier log that recorded no digest.
+  clean checkout digests to its commit.  Those are git's answers and run in a
+  throwaway repository; which paths the digest covers is the filter's answer
+  and runs over a planted ``ls-tree`` listing.
+* ``main`` — every polarity over a planted commit, whose message, diffed
+  files, digest and repository root are fed in with git running for none of
+  them: no claim passes; a claim over a doc-only commit passes; a claim over a
+  build-relevant commit fails with no record, passes when the running sweep
+  exports the commit's digest, fails when it exports another, passes when a
+  finished log records the digest with a passing summary, and fails when the
+  log failed or is a fast-tier log that recorded no digest.  What git itself
+  answers, the commit a hash names and the diff of a root commit, runs in a
+  throwaway repository.
 """
 
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 from _git_repo import commit, git
 
+from tools._common import RelPath
 from tools.check_gate_claim import (
     LOG_DIR,
     PASSED_LINE,
@@ -30,17 +36,38 @@ from tools.check_gate_claim import (
     SOURCES_LINE,
     SOURCES_UNRECORDED,
     evidence_for,
+    is_build_source,
     main,
     sources_digest_of_revision,
     sources_digest_of_worktree,
 )
+from tools.commit_subjects import GitArg, Revision
+
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     import pytest
 
-CLAIM = "feat: widen the parser\n\nAll gates clean.\n"
+# What a git command prints, and the build-source digest of a tree.
+GitOutput = NewType("GitOutput", str)
+SourcesDigest = NewType("SourcesDigest", str)
+
+CLAIM = Prose("feat: widen the parser\n\nAll gates clean.\n")
+
+_HEAD = Revision("HEAD")
+_PARENT = Revision("parent")
+_DIGEST = SourcesDigest("a" * 64)
+_OTHER = SourcesDigest("b" * 64)
+
+# Lines of a planted ``git ls-tree -r`` listing: one Agda module, one document
+# in two versions, and one module of the build program.
+_A_AGDA = "100644 blob " + "a" * 40 + "\tsrc/A.agda\n"
+_README = "100644 blob " + "b" * 40 + "\tREADME.md\n"
+_README_EDITED = "100644 blob " + "c" * 40 + "\tREADME.md\n"
+_LIBRARY_HS = "100644 blob " + "d" * 40 + "\tshake/Rules/Library.hs\n"
 
 
 def _make_repo(tmp_path: Path) -> Path:
@@ -81,6 +108,60 @@ def _run_gate(repo: Path, monkeypatch: pytest.MonkeyPatch, mode: str = "HEAD") -
     monkeypatch.delenv(SOURCES_ENV, raising=False)
     monkeypatch.setattr("sys.argv", ["check_gate_claim", mode])
     return main()
+
+
+def _plant_trees(monkeypatch: pytest.MonkeyPatch, trees: Mapping[Revision, GitOutput]) -> None:
+    """Answer ``git ls-tree -r <revision>`` from ``trees``; any other git command fails the test."""
+
+    def ls_tree(*args: GitArg, cwd: Path | None = None) -> tuple[ExitStatus, GitOutput]:
+        del cwd
+        assert args[:2] == ("ls-tree", "-r"), args
+        return ExitStatus(0), trees[Revision(args[2])]
+
+    monkeypatch.setattr("tools.check_gate_claim._git", ls_tree)
+
+
+def _refuse(*args: GitArg, cwd: Path | None = None) -> tuple[ExitStatus, GitOutput]:
+    """Fail the test on any git command: the check answers before reaching one."""
+    del cwd
+    ran = f"git {' '.join(args)} ran"
+    raise AssertionError(ran)
+
+
+def _plant_message(monkeypatch: pytest.MonkeyPatch, message: Prose, files: list[RelPath]) -> None:
+    """Make ``main`` read HEAD as a commit with ``message`` that diffs ``files``, running no git."""
+
+    def resolve(mode: Revision) -> tuple[Prose, list[RelPath]]:
+        del mode
+        return message, files
+
+    monkeypatch.setattr("tools.check_gate_claim._resolve_mode", resolve)
+    monkeypatch.setattr("tools.check_gate_claim._git", _refuse)
+    monkeypatch.delenv(SOURCES_ENV, raising=False)
+    monkeypatch.setattr("sys.argv", ["check_gate_claim", "HEAD"])
+
+
+def _plant_commit(
+    monkeypatch: pytest.MonkeyPatch, root: Path, message: Prose, digest: SourcesDigest
+) -> None:
+    """Make ``main`` read HEAD as a commit with ``message`` over ``src/A.agda`` at ``root``.
+
+    The commit's build sources digest to ``digest``; git answers only the
+    repository root, which is where ``main`` looks for the sweep logs.
+    """
+    _plant_message(monkeypatch, message, [RelPath("src/A.agda")])
+
+    def toplevel(*args: GitArg, cwd: Path | None = None) -> tuple[ExitStatus, GitOutput]:
+        del cwd
+        assert args == ("rev-parse", "--show-toplevel"), args
+        return ExitStatus(0), GitOutput(f"{root}\n")
+
+    def digest_of(revision: Revision, *, repo: Path | None = None) -> SourcesDigest:
+        del revision, repo
+        return digest
+
+    monkeypatch.setattr("tools.check_gate_claim._git", toplevel)
+    monkeypatch.setattr("tools.check_gate_claim.sources_digest_of_revision", digest_of)
 
 
 # ── The digest is content identity ──────────────────────────────────────────
@@ -126,23 +207,34 @@ def test_an_uncommitted_build_edit_parts_the_worktree_from_its_commit(tmp_path: 
     assert sources_digest_of_worktree(repo) != head
 
 
-def test_the_digest_is_over_build_relevant_paths_only(tmp_path: Path) -> None:
+# ── The digest covers the build sources and nothing else ────────────────────
+
+
+def test_the_digest_is_over_build_relevant_paths_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """A commit that changes only documents keeps its parent's digest."""
-    repo = _make_repo(tmp_path)
-    parent = sources_digest_of_revision("HEAD", repo=repo)
-    (repo / "README.md").write_text("# more\n", encoding="utf-8")
-    _ = commit(repo, "docs only")
-    assert sources_digest_of_revision("HEAD", repo=repo) == parent
+    _plant_trees(
+        monkeypatch,
+        {
+            _PARENT: GitOutput(_A_AGDA + _README),
+            _HEAD: GitOutput(_A_AGDA + _README_EDITED),
+        },
+    )
+    assert sources_digest_of_revision(_HEAD) == sources_digest_of_revision(_PARENT)
 
 
-def test_a_module_of_the_build_program_is_a_build_source(tmp_path: Path) -> None:
+def test_a_module_of_the_build_program_is_a_build_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A commit that changes a module under shake/ moves the digest, as Shakefile.hs does."""
-    repo = _make_repo(tmp_path)
-    parent = sources_digest_of_revision("HEAD", repo=repo)
-    (repo / "shake" / "Rules").mkdir(parents=True)
-    (repo / "shake" / "Rules" / "Library.hs").write_text("module Rules.Library\n", encoding="utf-8")
-    _ = commit(repo, "a rule module")
-    assert sources_digest_of_revision("HEAD", repo=repo) != parent
+    assert is_build_source(RelPath("shake/Rules/Library.hs"))
+    _plant_trees(
+        monkeypatch,
+        {
+            _PARENT: GitOutput(_A_AGDA + _README),
+            _HEAD: GitOutput(_A_AGDA + _README + _LIBRARY_HS),
+        },
+    )
+    assert sources_digest_of_revision(_HEAD) != sources_digest_of_revision(_PARENT)
 
 
 # ── Evidence ────────────────────────────────────────────────────────────────
@@ -174,23 +266,19 @@ def test_the_passed_line_matches_the_orchestrator_summary() -> None:
     assert not PASSED_LINE.match("Result:   ALL 50 STEPS PASSED, but the sources moved")
 
 
-# ── Hermetic end-to-end of main() ───────────────────────────────────────────
+# ── End to end over main(), the commit planted ──────────────────────────────
 
 
-def test_e2e_no_claim_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_e2e_no_claim_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     """A build-relevant commit whose message claims nothing is not checked."""
-    repo = _make_repo(tmp_path)
-    (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = commit(repo, "feat: no claim here")
-    assert _run_gate(repo, monkeypatch) == 0
+    _plant_message(monkeypatch, Prose("feat: no claim here\n"), [RelPath("src/A.agda")])
+    assert main() == 0
 
 
-def test_e2e_claim_over_docs_only_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_e2e_claim_over_docs_only_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     """A claim over a commit that touches no build source needs no record."""
-    repo = _make_repo(tmp_path)
-    (repo / "README.md").write_text("# more\n", encoding="utf-8")
-    _ = commit(repo, CLAIM)
-    assert _run_gate(repo, monkeypatch) == 0
+    _plant_message(monkeypatch, CLAIM, [RelPath("README.md")])
+    assert main() == 0
 
 
 def test_e2e_claim_without_a_record_fails_and_names_the_digest(
@@ -199,12 +287,10 @@ def test_e2e_claim_without_a_record_fails_and_names_the_digest(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """No sweep running and no log: the claim is refused with its digest."""
-    repo = _make_repo(tmp_path)
-    (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = commit(repo, CLAIM)
-    assert _run_gate(repo, monkeypatch) == 1
+    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
+    assert main() == 1
     err = capsys.readouterr().err
-    assert sources_digest_of_revision("HEAD", repo=repo) in err
+    assert _DIGEST in err
     assert "src/A.agda" in err
     assert "tools/run_ci.py" in err
 
@@ -214,12 +300,9 @@ def test_e2e_the_running_sweep_vouches_when_it_observes_the_commit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Inside a sweep over this tree the claim passes with no log at all."""
-    repo = _make_repo(tmp_path)
-    (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = commit(repo, CLAIM)
-    assert _run_gate(repo, monkeypatch) == 1
-    monkeypatch.setenv(SOURCES_ENV, sources_digest_of_worktree(repo))
-    monkeypatch.setattr("sys.argv", ["check_gate_claim", "HEAD"])
+    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
+    assert main() == 1
+    monkeypatch.setenv(SOURCES_ENV, _DIGEST)
     assert main() == 0
 
 
@@ -229,13 +312,8 @@ def test_e2e_a_sweep_over_another_tree_does_not_vouch(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A sweep whose tree carries an uncommitted build edit is not evidence."""
-    repo = _make_repo(tmp_path)
-    (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = commit(repo, CLAIM)
-    (repo / "src" / "A.agda").write_text("module A where\n-- y\n", encoding="utf-8")
-    monkeypatch.chdir(repo)
-    monkeypatch.setenv(SOURCES_ENV, sources_digest_of_worktree(repo))
-    monkeypatch.setattr("sys.argv", ["check_gate_claim", "HEAD"])
+    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
+    monkeypatch.setenv(SOURCES_ENV, _OTHER)
     assert main() == 1
     assert "not the commit's" in capsys.readouterr().err
 
@@ -245,13 +323,9 @@ def test_e2e_a_passed_log_vouches_whatever_the_mtimes_say(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A finished passing log over the commit's sources is the evidence."""
-    repo = _make_repo(tmp_path)
-    (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = commit(repo, CLAIM)
-    _write_log(repo, "ci-main.log", sources_digest_of_revision("HEAD", repo=repo), passed=True)
-    later = (repo / "src" / "A.agda").stat().st_mtime + 3600
-    os.utime(repo / "src" / "A.agda", (later, later))
-    assert _run_gate(repo, monkeypatch) == 0
+    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
+    _write_log(tmp_path, "ci-main.log", _DIGEST, passed=True)
+    assert main() == 0
 
 
 def test_e2e_a_failed_or_fast_log_does_not_vouch(
@@ -259,12 +333,13 @@ def test_e2e_a_failed_or_fast_log_does_not_vouch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A failed sweep, and a fast-tier sweep that passed, leave the claim unbacked."""
-    repo = _make_repo(tmp_path)
-    (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = commit(repo, CLAIM)
-    _write_log(repo, "failed.log", sources_digest_of_revision("HEAD", repo=repo), passed=False)
-    _write_log(repo, "fast.log", SOURCES_UNRECORDED, passed=True)
-    assert _run_gate(repo, monkeypatch) == 1
+    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
+    _write_log(tmp_path, "failed.log", _DIGEST, passed=False)
+    _write_log(tmp_path, "fast.log", SOURCES_UNRECORDED, passed=True)
+    assert main() == 1
+
+
+# ── End to end over main(), what git answers ────────────────────────────────
 
 
 def test_e2e_audit_mode_reads_the_named_commit(

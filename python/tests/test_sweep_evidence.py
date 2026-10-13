@@ -3,12 +3,13 @@
 """A push asks for a passing sweep of its exact tree, and only a full, held one counts.
 
 ``tools/sweep_evidence.py`` names the tree of the tracked content a sweep saw,
-and finds the finished log that vouches for a commit's tree.  Each case builds
-a scratch repository, so the trees are git's own ids for real content: a
-committed tree is the one the clean working tree names, an edit moves it even
-where its stat data matches the indexed file's, an untracked file leaves no
-tree to name, and a log vouches only when its header and its summary name the
-tree and its summary says every step passed.
+and finds the finished log that vouches for a commit's tree.  Each case that
+names a tree builds a scratch repository, so the trees are git's own ids for
+real content: a committed tree is the one the clean working tree names, an
+edit moves it even where its stat data matches the indexed file's, an
+untracked file leaves no tree to name, and a log vouches only when its header
+and its summary name the tree and its summary says every step passed.  The
+command's exit is read over trees named in git's place.
 """
 
 from __future__ import annotations
@@ -184,16 +185,21 @@ def test_the_command_says_found_missing_or_unreadable_by_its_exit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Every tree on record exits 0, a tree with no record 1, a revision git cannot name 2."""
-    repo = _repo(tmp_path)
-    _ = (repo / ".git" / "info" / "exclude").write_text(f"{LOG_DIR}/\n", encoding="utf-8")
-    head = LogLine(git(repo, "rev-parse", "HEAD^{tree}").strip())
-    _log(repo / LOG_DIR, LogName("ci.log"), head, head, _PASSED)
-    monkeypatch.chdir(repo)
+    trees = {Revision("HEAD"): TreeId("1" * 40), Revision("HEAD~1"): TreeId("2" * 40)}
+
+    def toplevel(_start: Path | None = None) -> Path:
+        return tmp_path
+
+    def tree_named(revision: Revision, _root: Path) -> TreeId | None:
+        return trees.get(revision)
+
+    monkeypatch.setattr("tools.sweep_evidence.git_toplevel", toplevel)
+    monkeypatch.setattr("tools.sweep_evidence.tree_of", tree_named)
+    head = LogLine(trees[Revision("HEAD")])
+    _log(tmp_path / LOG_DIR, LogName("ci.log"), head, head, _PASSED)
     monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD"])
     assert main() == FOUND
     monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD", "no-such-revision"])
     assert main() == UNREADABLE
-    (repo / "a.txt").write_text("two\n", encoding="utf-8")
-    _ = commit(repo, "edit")
     monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD~1", "HEAD"])
     assert main() == MISSING

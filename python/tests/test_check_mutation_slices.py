@@ -22,6 +22,7 @@ from tools.mutation_report import load_spec
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
     import pytest
 
@@ -41,6 +42,11 @@ def _bindings(runs: FileRuns) -> dict[str, object]:
     return {"cpp": {"baseline": {"runs_by_file": runs}}}
 
 
+def _one_file_domain(_root: Path, _config: Path) -> list[RelPath]:
+    """Stand in for ``slice_domain`` with the one claimable file, so no tree is listed."""
+    return [RelPath("cpp/src/client.cpp")]
+
+
 def test_the_recorded_weights_are_files_a_slice_can_claim() -> None:
     """The record weighs files of the derived domain alone, as the tree stands."""
     assert check_mutation_setup.cpp_slice_weights_are_of_the_domain(_recorded()) == []
@@ -53,8 +59,9 @@ def test_a_record_weighing_nothing_is_caught() -> None:
     assert "records nothing" in failures[0]
 
 
-def test_a_weight_for_a_file_no_slice_can_claim_is_caught() -> None:
+def test_a_weight_for_a_file_no_slice_can_claim_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
     """A renamed or held-out file keeps its weight, and it counts toward no slice."""
+    monkeypatch.setattr(check_mutation_setup, "slice_domain", _one_file_domain)
     stray: FileRuns = {**_CLAIMABLE, RelPath("cpp/src/renamed_away.cpp"): SuiteRuns(7.0)}
     failures = check_mutation_setup.cpp_slice_weights_are_of_the_domain(_bindings(stray))
     assert len(failures) == 1
@@ -75,8 +82,9 @@ def test_a_partition_that_drops_a_file_is_caught(monkeypatch: pytest.MonkeyPatch
         kept = tuple(domain)[1:]
         return (*(() for _ in range(slices - 1)), tuple(kept))
 
+    monkeypatch.setattr(check_mutation_setup, "slice_domain", _one_file_domain)
     monkeypatch.setattr(check_mutation_setup, "partition", dropping)
-    failures = check_mutation_setup.cpp_slice_weights_are_of_the_domain(_recorded())
+    failures = check_mutation_setup.cpp_slice_weights_are_of_the_domain(_bindings(_CLAIMABLE))
     assert len(failures) == 1
     assert "partition claims" in failures[0]
 
@@ -90,7 +98,8 @@ def test_a_partition_that_claims_a_file_twice_is_caught(monkeypatch: pytest.Monk
         whole = tuple(domain)
         return (*(() for _ in range(slices - 2)), whole[:1], whole)
 
+    monkeypatch.setattr(check_mutation_setup, "slice_domain", _one_file_domain)
     monkeypatch.setattr(check_mutation_setup, "partition", doubling)
-    failures = check_mutation_setup.cpp_slice_weights_are_of_the_domain(_recorded())
+    failures = check_mutation_setup.cpp_slice_weights_are_of_the_domain(_bindings(_CLAIMABLE))
     assert len(failures) == 1
     assert "partition claims" in failures[0]
