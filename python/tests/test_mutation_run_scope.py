@@ -93,6 +93,7 @@ def test_scope_matches_changed_bindings(
         ["src/Aletheia/Main.agda"],  # Agda → MAlonzo → .so
         ["haskell-shim/src/AletheiaFFI.hs"],  # FFI shim → .so
         ["Shakefile.hs"],  # build graph → .so
+        ["shake/Rules/Library.hs"],  # the build graph's rules → .so
         ["aletheia.agda-lib"],  # build graph → .so
         ["docs/MUTATION_BENCH.yaml"],  # the baselines the drift gate reads
         ["tools/mutation_run.py"],  # the harness's runner

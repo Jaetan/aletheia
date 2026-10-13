@@ -5,7 +5,7 @@
 -- Bridging axioms for `String ↔ List Char`.
 --
 -- This is the *one* non-`--safe` module in the project.  See
--- `Shakefile.hs` `check-invariants` for the explicit allowlist entry
+-- `shake/Rules/Proofs.hs` `check-invariants` for the explicit allowlist entry
 -- and the corresponding postulate-allowlist exception.  Adding any
 -- other `*Unsafe*.agda` module requires user approval.
 --

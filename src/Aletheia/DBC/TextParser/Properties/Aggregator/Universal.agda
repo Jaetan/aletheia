@@ -11,7 +11,7 @@
 -- Composes:
 --   1. `parseText`-via-`parseTextChars` bridge, using
 --      `Substrate.Unsafe.toList∘fromList` (the only `--unsafe` site in
---      the project, allowlisted by name in `Shakefile.hs`).
+--      the project, allowlisted by name in `shake/Rules/Proofs.hs`).
 --   2. `parseDBCText` 5-step bind-chain composition through the slim
 --      preamble lemmas (Version / Namespace / BitTiming / BU) + the
 --      list-level `parseTopStmts-roundtrip` (Layer 4b's `many-η-with-

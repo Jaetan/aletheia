@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes Shakefile.hs, the `clean` phony.
+# Probes shake/Rules/Library.hs, the `clean` phony.
 # Claim: clean removes the tree Agda writes its interfaces into, `_build/`
 # under the project root, and names no place Agda never writes. A clean that
 # leaves the interfaces behind re-derives MAlonzo from a type-check it did not
@@ -15,8 +15,8 @@ cd "$(dirname "$0")/.." || exit 2
 status=0
 
 # The phony's body: from its header to the first line indented less than it.
-body=$(awk '/^    phony "clean"/{f=1; next} f && /^    [^ ]/{exit} f' Shakefile.hs)
-[ -n "$body" ] || { echo "no clean phony in Shakefile.hs"; exit 2; }
+body=$(awk '/^    phony "clean"/{f=1; next} f && /^    [^ ]/{exit} f' shake/Rules/Library.hs)
+[ -n "$body" ] || { echo "no clean phony in shake/Rules/Library.hs"; exit 2; }
 
 grep -q 'removeFilesAfter "_build"' <<<"$body" || {
     echo "clean does not remove _build/, where Agda writes its interfaces"

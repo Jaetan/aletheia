@@ -9,13 +9,6 @@ at release time: a renamed pathspec target, a dead ``:(exclude)`` glob (which
 cut.  Per the gate-teeth rule, every test here proves a failure mode actually
 fails: each broken staging input exits non-zero, and each unparseable /
 misconfigured input is COULD-NOT-CHECK, never a hollow pass.
-
-Forward-revert verified empirically 2026-07-19 against the real repository via
-the ``--shakefile`` seam (doctored COPIES of ``Shakefile.hs`` — the real file
-was never modified): a renamed positive pathspec, a dead exclude glob, and go
-positives widened to select ``go/go.work`` each exit 1 naming the input; a
-multiline-gap string literal exits 2 as a refused partial parse; the untouched
-tree exits 0.
 """
 
 from __future__ import annotations
@@ -31,10 +24,10 @@ from tools.check_dist_staging import COULD_NOT_CHECK, main, parse_stage_bindings
 if TYPE_CHECKING:
     from pathlib import Path
 
-# Mirrors the real Shakefile's call-site shape, including the local definition
+# Mirrors the dist rule's call-site shape, including the local definition
 # lines the call-site regex must skip (no quoted argument on them).
 GOOD_SHAKEFILE = """\
--- minimal staging fixture mirroring the real Shakefile's call-site shape
+-- minimal staging fixture mirroring the dist rule's call-site shape
 main :: IO ()
 main = do
         let stageBinding :: String -> [String] -> Action ()
@@ -84,13 +77,12 @@ def _repo(tmp_path: Path, files: dict[str, str], skip_add: tuple[str, ...] = ())
 
 
 def _write_shakefile(tmp_path: Path, text: str = GOOD_SHAKEFILE) -> Path:
-    """Write a fixture Shakefile and return its path."""
-    shakefile = tmp_path / "Shakefile.hs"
-    _ = shakefile.write_text(text, encoding="utf-8")
-    return shakefile
+    """Write a fixture build program, its Shakefile.hs alone, and return the directory."""
+    _ = (tmp_path / "Shakefile.hs").write_text(text, encoding="utf-8")
+    return tmp_path
 
 
-def _run(monkeypatch: pytest.MonkeyPatch, shakefile: Path, repo: Path, *extra: str) -> int:
+def _run(monkeypatch: pytest.MonkeyPatch, build_root: Path, repo: Path, *extra: str) -> int:
     """Invoke the gate's ``main`` against the fixture via its DI seams.
 
     Clears ``GITHUB_ACTIONS`` so the fish policy behaves identically on a CI
@@ -99,7 +91,7 @@ def _run(monkeypatch: pytest.MonkeyPatch, shakefile: Path, repo: Path, *extra: s
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_dist_staging", "--shakefile", str(shakefile), "--repo-root", str(repo), *extra],
+        ["check_dist_staging", "--build-root", str(build_root), "--repo-root", str(repo), *extra],
     )
     return main()
 
@@ -120,6 +112,22 @@ def test_fixture_happy_path_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert _run(monkeypatch, _write_shakefile(tmp_path), repo) == 0
 
 
+def test_call_sites_in_a_module_under_shake_are_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The call sites of a module the main imports are checked as the main's would be."""
+    repo = _repo(tmp_path, GOOD_FILES)
+    build_root = _write_shakefile(tmp_path, "main :: IO ()\nmain = distRules\n")
+    rules = build_root / "shake" / "Rules"
+    rules.mkdir(parents=True)
+    _ = (rules / "Dist.hs").write_text(GOOD_SHAKEFILE, encoding="utf-8")
+    assert _run(monkeypatch, build_root, repo) == 0
+    _ = (rules / "Dist.hs").write_text(
+        GOOD_SHAKEFILE.replace('"rust/Cargo.toml"', '"rust/Moved.toml"'), encoding="utf-8"
+    )
+    assert _run(monkeypatch, build_root, repo) == 1
+
+
 def test_real_tree_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     """The gate passes against the actual repository (default paths)."""
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
@@ -130,10 +138,10 @@ def test_real_tree_passes(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_no_stage_binding_blocks_could_not_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """TEETH: a Shakefile with no stageBinding call sites is COULD-NOT-CHECK."""
+    """TEETH: a build program with no stageBinding call sites is COULD-NOT-CHECK."""
     repo = _repo(tmp_path, GOOD_FILES)
-    shakefile = _write_shakefile(tmp_path, "main :: IO ()\nmain = pure ()\n")
-    assert _run(monkeypatch, shakefile, repo) == COULD_NOT_CHECK
+    build_root = _write_shakefile(tmp_path, "main :: IO ()\nmain = pure ()\n")
+    assert _run(monkeypatch, build_root, repo) == COULD_NOT_CHECK
     assert "stageBinding" in capsys.readouterr().err
 
 
@@ -165,9 +173,9 @@ def test_unknown_pathspec_magic_could_not_check(
 
 
 def test_missing_shakefile_could_not_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """TEETH: a missing Shakefile is COULD-NOT-CHECK, never a silent pass."""
+    """TEETH: a missing build program is COULD-NOT-CHECK, never a silent pass."""
     repo = _repo(tmp_path, GOOD_FILES)
-    assert _run(monkeypatch, tmp_path / "absent.hs", repo) == COULD_NOT_CHECK
+    assert _run(monkeypatch, tmp_path / "absent", repo) == COULD_NOT_CHECK
 
 
 def test_repo_root_not_a_git_repo_could_not_check(
@@ -272,12 +280,12 @@ def test_fish_absent_on_ci_fails_closed(
 ) -> None:
     """TEETH: no fish + GITHUB_ACTIONS set = COULD-NOT-CHECK (runner misconfiguration)."""
     repo = _repo(tmp_path, GOOD_FILES)
-    shakefile = _write_shakefile(tmp_path)
+    build_root = _write_shakefile(tmp_path)
     monkeypatch.setattr("tools.check_dist_staging.find_fish", lambda: None)
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_dist_staging", "--shakefile", str(shakefile), "--repo-root", str(repo)],
+        ["check_dist_staging", "--build-root", str(build_root), "--repo-root", str(repo)],
     )
     assert main() == COULD_NOT_CHECK
     assert "fish" in capsys.readouterr().err

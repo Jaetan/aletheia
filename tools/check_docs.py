@@ -34,7 +34,7 @@ module, and each holds one claim:
 * ``section_citations``: a section number cited beside a link names a
   heading of the link's target;
 * ``shake_targets``: every ``cabal run shake -- <target>`` a document shows
-  is a target the Shakefile defines;
+  is a target the build defines;
 * ``shared_opening``: the sections ``README.md`` and ``docs/PITCH.md`` both
   carry are one text;
 * ``stated_measurements``: every measurement the benchmarks guide states is

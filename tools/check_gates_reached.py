@@ -2,18 +2,18 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """tools/check_gates_reached.py — every Shake check target is run by something.
 
-A ``phony "check-*"`` target in ``Shakefile.hs`` is a gate only while
-something runs it: the combined Agda-gates step of ``tools/run_ci.py``
-(``AGDA_SHAKE_TARGETS``), another Shake rule that ``need``s it, or a run on
-demand this file names with its reason (``ON_DEMAND``).  A target none of the
-three reaches is red or green with nobody looking, and fails this check; so
-does an ``ON_DEMAND`` or ``AGDA_SHAKE_TARGETS`` entry naming a target the
-Shakefile no longer has.
+A ``phony "check-*"`` target of the build program (``Shakefile.hs`` and the
+modules under ``shake/``) is a gate only while something runs it: the combined
+Agda-gates step of ``tools/run_ci.py`` (``AGDA_SHAKE_TARGETS``), another Shake
+rule that ``need``s it, or a run on demand this file names with its reason
+(``ON_DEMAND``).  A target none of the three reaches is red or green with
+nobody looking, and fails this check; so does an ``ON_DEMAND`` or
+``AGDA_SHAKE_TARGETS`` entry naming a target no rule declares any more.
 
 Exit codes:
   0 — every check target is reached and every listed name exists.
   1 — a target is reached by nothing, or a list names a target that is gone.
-  2 — the Shakefile could not be read or declares no check target.
+  2 — the build program could not be read or declares no check target.
 """
 
 from __future__ import annotations
@@ -22,17 +22,13 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import NewType
 
 from tools._ci_steps import AGDA_SHAKE_TARGETS
-from tools._common import GateName, emit
+from tools._common import GateName, ShakeSource, emit, read_shake_program
 
 from aletheia.common_types import ExitStatus, Prose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SHAKEFILE = REPO_ROOT / "Shakefile.hs"
-
-ShakeSource = NewType("ShakeSource", str)
 
 REACHED, UNREACHED, UNREADABLE = ExitStatus(0), ExitStatus(1), ExitStatus(2)
 
@@ -44,44 +40,43 @@ ON_DEMAND: dict[GateName, Prose] = {
     ),
 }
 
-_PHONY = re.compile(r'\bphony\s+"(check-[a-z0-9-]+)"')
+# A declaration opens its line; a comment that spells one declares nothing.
+_PHONY = re.compile(r'^\s*phony\s+"(check-[a-z0-9-]+)"', re.MULTILINE)
 _NEED = re.compile(r"\bneed\s*\[([^\]]*)\]")
 _STRING = re.compile(r'"([^"]+)"')
 
 
-def check_targets(shakefile: ShakeSource) -> set[GateName]:
-    """Return the ``check-*`` targets the Shakefile declares."""
-    return {GateName(name) for name in _PHONY.findall(shakefile)}
+def check_targets(program: ShakeSource) -> set[GateName]:
+    """Return the ``check-*`` targets the build program declares."""
+    return {GateName(name) for name in _PHONY.findall(program)}
 
 
-def needed(shakefile: ShakeSource) -> set[GateName]:
+def needed(program: ShakeSource) -> set[GateName]:
     """Every name a Shake rule ``need``s."""
-    return {GateName(name) for block in _NEED.findall(shakefile) for name in _STRING.findall(block)}
+    return {GateName(name) for block in _NEED.findall(program) for name in _STRING.findall(block)}
 
 
 def unreached(
-    shakefile: ShakeSource, ci: tuple[GateName, ...], on_demand: dict[GateName, Prose]
+    program: ShakeSource, ci: tuple[GateName, ...], on_demand: dict[GateName, Prose]
 ) -> tuple[set[GateName], set[GateName]]:
-    """Targets nothing runs, and listed names the Shakefile does not declare."""
-    targets = check_targets(shakefile)
-    reached = set(ci) | needed(shakefile) | set(on_demand)
+    """Targets nothing runs, and listed names no rule of the build program declares."""
+    targets = check_targets(program)
+    reached = set(ci) | needed(program) | set(on_demand)
     listed = {name for name in set(ci) | set(on_demand) if name.startswith("check-")}
     return targets - reached, listed - targets
 
 
-def run(
-    shakefile_path: Path, ci: tuple[GateName, ...], on_demand: dict[GateName, Prose]
-) -> ExitStatus:
-    """Run the check over one Shakefile and return its exit status."""
+def run(root: Path, ci: tuple[GateName, ...], on_demand: dict[GateName, Prose]) -> ExitStatus:
+    """Run the check over the build program under ``root`` and return its exit status."""
     try:
-        shakefile = ShakeSource(shakefile_path.read_text(encoding="utf-8"))
+        program = read_shake_program(root)
     except OSError as exc:
-        sys.stderr.write(f"check-gates-reached: cannot read {shakefile_path}: {exc}\n")
+        sys.stderr.write(f"check-gates-reached: cannot read the build program: {exc}\n")
         return UNREADABLE
-    if not check_targets(shakefile):
-        sys.stderr.write(f'check-gates-reached: no `phony "check-*"` target in {shakefile_path}\n')
+    if not check_targets(program):
+        sys.stderr.write(f'check-gates-reached: no `phony "check-*"` target under {root}\n')
         return UNREADABLE
-    orphans, gone = unreached(shakefile, ci, on_demand)
+    orphans, gone = unreached(program, ci, on_demand)
     for name in sorted(orphans):
         sys.stderr.write(
             f"check-gates-reached: {name} is run by no CI step, "
@@ -89,12 +84,12 @@ def run(
         )
     for name in sorted(gone):
         sys.stderr.write(
-            f"check-gates-reached: {name} is listed but the Shakefile declares no such target\n"
+            f"check-gates-reached: {name} is listed but no rule declares such a target\n"
         )
     if orphans or gone:
         return UNREACHED
     emit(
-        f"check-gates-reached: all {len(check_targets(shakefile))} check targets "
+        f"check-gates-reached: all {len(check_targets(program))} check targets "
         + "are run by something"
     )
     return REACHED
@@ -103,7 +98,7 @@ def run(
 def main() -> ExitStatus:
     """Fail when a Shake check target is run by nothing."""
     argparse.ArgumentParser(description=__doc__).parse_args()
-    return run(SHAKEFILE, tuple(GateName(t) for t in AGDA_SHAKE_TARGETS), ON_DEMAND)
+    return run(REPO_ROOT, tuple(GateName(t) for t in AGDA_SHAKE_TARGETS), ON_DEMAND)
 
 
 if __name__ == "__main__":

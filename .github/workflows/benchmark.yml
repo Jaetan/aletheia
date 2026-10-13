@@ -255,7 +255,7 @@ jobs:
       # -- build` rebuilds ONLY what this commit changed instead of the whole
       # tree (cold ~342s -> ~23s).  haskell-shim/dist-newstyle (the ~194 MB
       # .o/.hi tree) is essential: it is the cabal foreign-lib build state that
-      # build/libaletheia-ffi.so is copied out of (Shakefile.hs `cp`), so
+      # build/libaletheia-ffi.so is copied out of (shake/Rules/Library.hs `cp`), so
       # omitting it forced cabal to recompile all 276 MAlonzo objects (~47s) on
       # EVERY run.  Restore-ONLY: pr-full-ci.yml
       # (and its push:main runs) seed and own this cache, and the shared

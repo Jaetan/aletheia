@@ -135,6 +135,16 @@ def test_the_digest_is_over_build_relevant_paths_only(tmp_path: Path) -> None:
     assert sources_digest_of_revision("HEAD", repo=repo) == parent
 
 
+def test_a_module_of_the_build_program_is_a_build_source(tmp_path: Path) -> None:
+    """A commit that changes a module under shake/ moves the digest, as Shakefile.hs does."""
+    repo = _make_repo(tmp_path)
+    parent = sources_digest_of_revision("HEAD", repo=repo)
+    (repo / "shake" / "Rules").mkdir(parents=True)
+    (repo / "shake" / "Rules" / "Library.hs").write_text("module Rules.Library\n", encoding="utf-8")
+    _ = commit(repo, "a rule module")
+    assert sources_digest_of_revision("HEAD", repo=repo) != parent
+
+
 # ── Evidence ────────────────────────────────────────────────────────────────
 
 

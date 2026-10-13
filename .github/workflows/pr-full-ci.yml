@@ -375,7 +375,7 @@ jobs:
       #
       # haskell-shim/dist-newstyle (the foreign lib's ~194 MB .o/.hi tree) is
       # included: it is the cabal foreign-lib build state that
-      # build/libaletheia-ffi.so is copied out of (Shakefile.hs `cp`), so
+      # build/libaletheia-ffi.so is copied out of (shake/Rules/Library.hs `cp`), so
       # omitting it forced cabal to recompile all 276 MAlonzo objects (~47s) on
       # EVERY run.  With it cached, cabal skips the recompile and Shake
       # content-verifies the .so and no-ops.

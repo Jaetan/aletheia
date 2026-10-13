@@ -21,7 +21,7 @@ Usage::
 Strategy:
   1. Identify commit message + diffed files (mode-dependent).
   2. Pattern-match the message for gate-claim phrases.  If no claim, exit 0.
-  3. Filter diff to build-relevant paths (Agda src, Shakefile, haskell-shim).
+  3. Filter diff to build-relevant paths (Agda src, the build program, haskell-shim).
   4. If filter is empty, exit 0 (doc-only / binding-only edits don't
      invalidate the .so).
   5. Compute the commit's build-source digest and look for a sweep that
@@ -60,7 +60,7 @@ import sys
 from pathlib import Path
 from typing import NewType
 
-from tools._common import emit, find_executable, run_capture
+from tools._common import RelPath, emit, find_executable, is_shake_source, run_capture
 
 _GIT = find_executable("git")
 
@@ -72,11 +72,14 @@ GATE_CLAIM_PATTERN = re.compile(
 )
 
 BUILD_RELEVANT_PATTERN = re.compile(
-    r"(^src/.*\.agda$)"
-    + r"|(^Shakefile\.hs$)"
-    + r"|(^haskell-shim/.*\.(hs|cabal)$)"
-    + r"|(^aletheia\.agda-lib$)",
+    r"(^src/.*\.agda$)|(^haskell-shim/.*\.(hs|cabal)$)|(^aletheia\.agda-lib$)"
 )
+
+
+def is_build_source(path: RelPath) -> bool:
+    """Return True for a build source: an Agda module, the build program, the shim, the library."""
+    return is_shake_source(path) or BUILD_RELEVANT_PATTERN.search(path) is not None
+
 
 # The variable a running sweep exports, holding the digest of the build sources
 # it observes, and the directory its finished logs land in.
@@ -121,7 +124,7 @@ def sources_digest_of_revision(revision: str, *, repo: Path | None = None) -> st
     entries: list[tuple[str, str]] = []
     for line in listing.splitlines():
         meta, _, path = line.partition("\t")
-        if BUILD_RELEVANT_PATTERN.search(path):
+        if is_build_source(RelPath(path)):
             entries.append((meta.split()[2], path))
     return _digest(entries)
 
@@ -143,7 +146,7 @@ def sources_digest_of_worktree(repo: Path | None = None) -> str:
     paths = [
         path
         for path in listing.splitlines()
-        if BUILD_RELEVANT_PATTERN.search(path) and (root / path).is_file()
+        if is_build_source(RelPath(path)) and (root / path).is_file()
     ]
     if not paths:
         return _digest([])
@@ -295,7 +298,7 @@ def main() -> int:
         # No claim in the message; the provenance invariant doesn't apply.
         return 0
 
-    build_relevant = [f for f in diff_files if BUILD_RELEVANT_PATTERN.search(f)]
+    build_relevant = [f for f in diff_files if is_build_source(RelPath(f))]
     if not build_relevant:
         # Doc-only / binding-only / lint-config-only commit.
         return 0

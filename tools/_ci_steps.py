@@ -89,15 +89,16 @@ HEAVY_STEPS: frozenset[str] = frozenset(
 # and pytest-cli-parity, which compile or need artifacts and would (a) trigger
 # recompiles under the pre-commit stash and (b) run against a stale ``.so``.  Those
 # stay pre-push.  Membership scope chosen 2026-07-12: format checks (every binding)
-# + SPDX/review-mark/venv hygiene + the two Python linters (ruff, pylint — both
+# + SPDX/source-length/review-mark/venv hygiene + the two Python linters (ruff, pylint — both
 # interpreted, no compile).  The split of ``gofmt``/``cargo fmt`` out of their
 # ``go vet``/``clippy`` partners exists to make this allowlist expressible.
-# ``check-dist-staging`` qualifies too: it only parses Shakefile.hs and runs
+# ``check-dist-staging`` qualifies too: it only parses the build program and runs
 # ``git ls-files`` / shell syntax checks, and ``git ls-files`` reads the INDEX —
 # exactly the staged content the pre-commit tier is defined over.
 FAST_STEPS: frozenset[str] = frozenset(
     {
         "check-spdx-headers",
+        "check-source-length",
         "check-no-review-marks",
         "check-refused-words",
         "check-fence-marks",
@@ -196,6 +197,7 @@ def build_prereq_cmd(python: str) -> list[str]:
 # `git diff --name-only` output (repo-relative).
 _BUILD_GRAPH_PATHS: tuple[str, ...] = (
     "Shakefile.hs",
+    "shake/",
     "shake.cabal",
     "aletheia.agda-lib",
     "haskell-shim/",
@@ -204,7 +206,7 @@ _BUILD_GRAPH_PATHS: tuple[str, ...] = (
 )
 
 
-def _build_graph_changed(repo_root: Path) -> bool:
+def build_graph_touched(repo_root: Path) -> bool:
     """Return True iff the diff vs ``main`` touches a build-graph file.
 
     Diffs the local ``main`` ref — the repo convention (``tools/_warm.py``'s IWYU
@@ -251,7 +253,7 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     # pre-lane step (no race with the .so-consuming test lanes).
     # Detail: tools/check_build_incremental.py.
     mode = runner.opts.build_staleness
-    graph_changed = mode == "auto" and _build_graph_changed(runner.repo_root)
+    graph_changed = mode == "auto" and build_graph_touched(runner.repo_root)
     if should_run_staleness(mode, build_graph_changed=graph_changed):
         build_cmd: list[str] = build_prereq_cmd(runner.python)
     else:
@@ -671,8 +673,8 @@ def _run_lints(runner: Runner) -> None:
 
 
 def _run_gha_checks(runner: Runner) -> None:
-    """Run the GitHub-Actions workflow meta-checks plus the SPDX-header gate."""
-    # ─── GHA meta-checks + SPDX header gate ──────────────────────────────────────
+    """Run the GitHub-Actions workflow meta-checks, then the tree-wide source and document gates."""
+    # ─── GHA meta-checks + tree-wide gates ───────────────────────────────────────
     if shutil.which("actionlint"):
         if (runner.repo_root / ".github" / "workflows").is_dir():
             runner.step("actionlint", ["actionlint", "-color"])
@@ -697,6 +699,11 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-spdx-headers",
         [runner.python, "-m", "tools.check_spdx_headers"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-source-length",
+        [runner.python, "-m", "tools.check_source_length"],
         cwd=runner.repo_root,
     )
     runner.step(

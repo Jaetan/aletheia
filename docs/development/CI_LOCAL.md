@@ -57,16 +57,17 @@ Plus 4 opt-in lanes (reproducible build, stability bench, mutation
 testing, coverage floors) that can be enabled individually via CLI flags or env vars,
 or all at once via `--full`.  Logs to
 `tools/ci-output/ci-<branch>-<timestamp>.log`.  The log's header records a
-digest of the build sources the sweep observed (the Agda sources, the
-Shakefile, the Haskell shim and the library file, keyed by git's own blob ids,
-so a checkout that rewrites every mtime leaves it unchanged), and the summary
-re-measures it: a sweep whose build sources moved while it ran fails rather
-than vouch for a tree no step is known to have observed.  A passed log is the
-falsifiable evidence behind a "gates clean" claim, and `tools/check_gate_claim.py`
-reads it by that digest.  A `--fast` sweep, or a `--lanes` sweep of some
-lanes, runs a subset and records no digest.  The header and the summary also
-carry the tree of the tracked content the sweep saw, the record a push asks
-for ([§ Pushing](#pushing-sweep-first-then-connect)).
+digest of the build sources the sweep observed (the Agda sources, the build
+program, `Shakefile.hs` and `shake/`, the Haskell shim and the library file,
+keyed by git's own blob ids, so a checkout that rewrites every mtime leaves it
+unchanged), and the summary re-measures it: a sweep whose build sources moved
+while it ran fails rather than vouch for a tree no step is known to have
+observed.  A passed log is the falsifiable evidence behind a "gates clean"
+claim, and `tools/check_gate_claim.py` reads it by that digest.  A `--fast`
+sweep, or a `--lanes` sweep of some lanes, runs a subset and records no
+digest.  The header and the summary also carry the tree of the tracked content
+the sweep saw, the record a push asks for
+([§ Pushing](#pushing-sweep-first-then-connect)).
 Every step runs in a process group of its own under a guard that interrupts it
 when the sweep dies, however it dies, and Ctrl-C stops the running steps before
 the sweep exits, so an ended sweep leaves no build holding Shake's lock.
@@ -78,7 +79,7 @@ depends on `--build-staleness {auto,always,never}` (default `auto`):
 
 - **`auto`** — run the staleness gate (`tools/check_build_incremental.py`) when
   the diff vs the local `main` touches a build-graph file (`Shakefile.hs`,
-  `shake.cabal`, `aletheia.agda-lib`, `haskell-shim/`,
+  `shake/`, `shake.cabal`, `aletheia.agda-lib`, `haskell-shim/`,
   `tools/check_build_incremental.py`, `tools/_warm.py`); otherwise a plain
   `cabal run shake -- build`.  Fails **safe**: if the diff can't be computed
   (e.g. no local `main` ref) the gate runs rather than silently skip a safety

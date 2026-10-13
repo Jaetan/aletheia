@@ -687,7 +687,7 @@ mutual
 -- The L1-L9 hand-written one-liner regressions that motivated and now
 -- guard the universal `roundtrip` theorem moved to
 -- `Aletheia.DBC.TextParser.Format.RegressionTests`.  The sibling submodule
--- imports back into `Format.agda` (one-way dependency); Shakefile.hs
+-- imports back into `Format.agda` (one-way dependency); shake/Rules/Proofs.hs
 -- registers it as an explicit walk root so `check-properties` still
 -- drift-checks the
 -- universal theorem's shape against the nine concrete cases.

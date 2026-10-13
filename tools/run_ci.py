@@ -86,6 +86,7 @@ records no build-source digest.  The always-on steps, by lane:
     - check-workflow-permissions
   Source-hygiene gate:
     - check-spdx-headers (SPDX license header on every source/build file)
+    - check-source-length (no tracked code file over 1000 lines)
     - check-venv-convention (exactly one venv, at python/.venv)
   C++ sanitizer lanes (run last):
     - ubsan ctest (full ctest against -DALETHEIA_SANITIZER=undefined; always-on
@@ -94,7 +95,7 @@ records no build-source digest.  The always-on steps, by lane:
       stack-use-after-return detection asked for by name; the one always-on
       gate that reads the lifetime of a reference)
 
-═══ OPT-IN LANES (3 total) ═══
+═══ OPT-IN LANES ═══
 
 Each opt-in lane is gated on EITHER a command-line flag OR an environment
 variable.  Precedence: CLI flag overrides env var; env var overrides default
@@ -443,7 +444,8 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
             "When the `build` step runs the staleness gate (check_build_incremental, "
             "~2 .so relinks) vs a plain incremental build.  `auto` (default) runs it "
             "only when the diff vs `main` touches a build-graph file (Shakefile.hs, "
-            "shake.cabal, the haskell-shim/, aletheia.agda-lib); `always` is the "
+            "shake/, shake.cabal, aletheia.agda-lib, the haskell-shim/, "
+            "tools/check_build_incremental.py, tools/_warm.py); `always` is the "
             "push:main backstop, `never` an escape hatch.  (env: ALETHEIA_BUILD_STALENESS)"
         ),
     )

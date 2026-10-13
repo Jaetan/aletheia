@@ -562,7 +562,7 @@ def go_mutant_rows(
 # changed (the .so they all dlopen, this harness / the Mull build / the baselines).  So on a
 # PR we run only the affected engine(s); an unchanged binding's survivor count
 # is definitionally unchanged from its baseline, so skipping it is coverage-
-# neutral.  Mirrors ``tools/_ci_steps._build_graph_changed``'s fail-safe
+# neutral.  Mirrors ``tools/_ci_steps.build_graph_touched``'s fail-safe
 # ``git diff main...HEAD`` precedent.
 #
 # Per-binding paths map to the WHOLE binding directory, not just its source:
@@ -587,6 +587,7 @@ KERNEL_PATHS: tuple[str, ...] = (
     "src/",  # Agda → MAlonzo → libaletheia-ffi.so (every binding dlopens it)
     "haskell-shim/",  # FFI shim → .so
     "Shakefile.hs",  # build graph → .so
+    "shake/",  # the build graph's rules
     "shake.cabal",
     "aletheia.agda-lib",
 )

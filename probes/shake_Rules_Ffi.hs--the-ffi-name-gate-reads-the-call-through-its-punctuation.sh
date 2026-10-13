@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes Shakefile.hs, `extractFFIName` through the `check-ffi-names` phony.
+# Probes shake/Rules/Ffi.hs, `extractFFIName` through the `check-ffi-names` phony.
 # Claim: the FFI-name gate reads the mangled name from the wrapper's call,
 # whatever punctuation surrounds it, and from nothing else. A call glued to
 # an opening parenthesis reads as the same name as a bare one; a backticked

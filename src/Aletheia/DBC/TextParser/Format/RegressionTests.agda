@@ -14,7 +14,7 @@
 -- Extracted from `Format.agda` — 109 LOC pulled out to bring `Format.agda`
 -- under the
 -- 800-LOC trigger.  Reachable from check-properties as an explicit
--- walk root (registered in `Shakefile.hs`).  The dependency direction
+-- walk root (registered in `shake/Rules/Proofs.hs`).  The dependency direction
 -- is one-way `RegressionTests → Format`; adding a re-export back into
 -- `Format.agda` would close a cycle.
 module Aletheia.DBC.TextParser.Format.RegressionTests where
