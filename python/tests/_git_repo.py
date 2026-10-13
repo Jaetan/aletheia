@@ -49,22 +49,6 @@ def merge(repo: Path, source: Revision) -> None:
     _ = git(repo, *_AS_TESTER, "merge", "--no-ff", "--no-edit", source)
 
 
-def tracked_but_absent(tmp_path: Path) -> tuple[Path, str]:
-    """Return a repository with one tracked file gone from the worktree, and that file's path.
-
-    ``git ls-files`` lists the file from the index while reading it raises: the
-    shape a prose gate must report as could-not-check rather than as clean.
-    """
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    git(repo, "init", "-q")
-    rel = "note.txt"
-    _ = (repo / rel).write_text("a plain line\n", encoding="utf-8")
-    git(repo, "add", "--", rel)
-    (repo / rel).unlink()
-    return repo, rel
-
-
 def repo_with_an_uncommitted_edit(root: Path, source: Path) -> Path:
     """Return a repository at ``root`` whose ``source`` is committed, then edited and not committed.
 

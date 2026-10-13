@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import subprocess
 import sys
 import textwrap
 from typing import TYPE_CHECKING, NamedTuple
@@ -24,7 +23,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import pytest
 
 from tools import check_precise_hints
-from tools._common import RelPath, find_executable
+from tools._common import RelPath
 from tools._ratchet import CanonicalText, RatchetRows, RowKey
 from tools.check_precise_hints import (
     CLEAN,
@@ -291,15 +290,9 @@ class _GateRun(NamedTuple):
 
 
 def _gate_over(root: Path, record: Path | None, monkeypatch: pytest.MonkeyPatch) -> _GateRun:
-    """Run the gate's command line over another tree, with its record where one is given.
-
-    The git it runs finds no configuration but the tree's own, as on a machine
-    with nothing set up.
-    """
+    """Run the gate's command line over another tree, with its record where one is given."""
     held = ["--root", str(root)] + (["--record", str(record)] if record is not None else [])
     monkeypatch.setattr(sys, "argv", ["check_precise_hints", *held])
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")
-    monkeypatch.setenv("HOME", str(root))
     printed = io.StringIO()
     with contextlib.redirect_stdout(printed):
         status = check_precise_hints.main()
@@ -310,16 +303,21 @@ def test_another_tree_is_held_to_its_own_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """--root and --record judge every tracked file under another tree, keyed from its root."""
-    git = find_executable("git")
-    _ = subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
-    _ = (tmp_path / "kit.py").write_text("def f(a: str) -> None: ...\n")
-    _ = subprocess.run([git, "-C", str(tmp_path), "add", "kit.py"], check=True)
+    _ = (tmp_path / "kit.py").write_text("def f(a: str) -> None: ...\n", encoding="utf-8")
+
+    def tracked(root: Path) -> list[RelPath]:
+        del root
+        return [RelPath("kit.py")]
+
+    monkeypatch.setattr(check_precise_hints, "git_ls_files", tracked)
     record = tmp_path / "RECORD.yaml"
-    _ = record.write_text("hints: []\n")
+    _ = record.write_text("hints: []\n", encoding="utf-8")
     refused = _gate_over(tmp_path, record, monkeypatch)
     assert refused.status == OUT_OF_STEP
     assert "file: kit.py" in refused.output
-    _ = record.write_text('hints:\n  - file: kit.py\n    text: "str"\n    count: 1\n')
+    _ = record.write_text(
+        'hints:\n  - file: kit.py\n    text: "str"\n    count: 1\n', encoding="utf-8"
+    )
     assert _gate_over(tmp_path, record, monkeypatch).status == CLEAN
 
 

@@ -2,23 +2,26 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for ``tools.check_pr_title`` — a pull request's title against the vocabulary.
 
-End to end in a throwaway git repo: a title off the vocabulary fails before
-git is asked anything; a title naming an internal scope fails on a branch that
-changes what users get; a title fails unless it names the release its branch
-prepares, or none on a branch preparing none; a title owing an entry passes
-only when the branch edits ``CHANGELOG.md``; git that cannot read the branch, or
-a missing runtime-closure snapshot, stops the check with exit 2.
+End to end over ``main()``, fed in process what git would read: a title off the
+vocabulary fails before git is asked anything; a title naming an internal scope
+fails on a branch that changes what users get; a title fails unless it names the
+release its branch prepares, or none on a branch preparing none; a title owing an
+entry passes only when the branch edits ``CHANGELOG.md``; a missing
+runtime-closure snapshot stops the check with exit 2.  Git itself runs only
+where the claim is git's own refusal: a ref it cannot resolve, or no repository
+to name a top level.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, NoReturn
 
 import pytest
 from _git_repo import commit, git
 
 from tools._common import RelPath
 from tools.check_pr_title import main
+from tools.commit_subjects import Branch, Revision
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -27,6 +30,7 @@ if TYPE_CHECKING:
 
 SHIPPED = RelPath("go/aletheia/x.go")
 TOOLING = RelPath("tools/x.py")
+CHANGELOG = RelPath("CHANGELOG.md")
 RELEASE = Prose("chore(dist): prepare v1.2.3")
 FIX = Prose("fix(go): a bug")
 
@@ -61,14 +65,48 @@ def _check(repo: Path, monkeypatch: pytest.MonkeyPatch, *argv: Prose) -> ExitSta
     return main()
 
 
+def _toplevel_unasked(_tool: Prose) -> NoReturn:
+    """Stand in for ``toplevel`` where the check must stop before git is asked."""
+    pytest.fail("git was asked for the top level")
+
+
+def _branch_unasked(_tool: Prose, _base: Revision) -> NoReturn:
+    """Stand in for ``read_branch`` where the check must stop before git is asked."""
+    pytest.fail("git was asked for the branch")
+
+
+def _branch(path: RelPath, *, changelog: bool, subjects: tuple[Prose, ...] = (FIX,)) -> Branch:
+    """Give a branch that changed ``path``, and the CHANGELOG when asked, under ``subjects``."""
+    return Branch([path, *([CHANGELOG] if changelog else [])], list(subjects), Revision("base"))
+
+
+def _plant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, branch: Branch) -> Path:
+    """Give ``main()`` a top level holding the kernel's snapshot, and ``branch`` as git's answer."""
+    (tmp_path / "haskell-shim").mkdir()
+    (tmp_path / "haskell-shim" / "runtime-closure.snapshot").write_text(
+        "MAlonzo.Code.Aletheia.Main\n", encoding="utf-8"
+    )
+
+    def planted_toplevel(_tool: Prose) -> Prose | None:
+        return Prose(str(tmp_path))
+
+    def planted_branch(_tool: Prose, _base: Revision) -> Branch | None:
+        return branch
+
+    monkeypatch.setattr("tools.check_pr_title.toplevel", planted_toplevel)
+    monkeypatch.setattr("tools.check_pr_title.read_branch", planted_branch)
+    return tmp_path
+
+
 def test_a_title_off_the_vocabulary_fails_before_git_is_asked(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """A title the vocabulary refuses fails, quoting the title and the reason, whatever the ref."""
-    repo = _repo(tmp_path, SHIPPED, changelog=True)
-    assert _check(repo, monkeypatch, Prose("Fix the Go loader"), Prose("no-such-ref")) == 1
+    monkeypatch.setattr("tools.check_pr_title.toplevel", _toplevel_unasked)
+    monkeypatch.setattr("tools.check_pr_title.read_branch", _branch_unasked)
+    assert _check(tmp_path, monkeypatch, Prose("Fix the Go loader"), Prose("no-such-ref")) == 1
     assert capsys.readouterr().err == (
         "check-pr-title: FAIL — 'Fix the Go loader': it does not read `type(scope)!: text`.\n"
     )
@@ -82,8 +120,9 @@ def test_a_title_that_reads_as_an_option_is_held_to_the_vocabulary(
     title: Prose,
 ) -> None:
     """After ``--``, as the workflow passes it, a title spelled like an option is a title."""
-    repo = _repo(tmp_path, SHIPPED, changelog=True)
-    assert _check(repo, monkeypatch, Prose("--"), title) == 1
+    monkeypatch.setattr("tools.check_pr_title.toplevel", _toplevel_unasked)
+    monkeypatch.setattr("tools.check_pr_title.read_branch", _branch_unasked)
+    assert _check(tmp_path, monkeypatch, Prose("--"), title) == 1
     assert capsys.readouterr().err == (
         f"check-pr-title: FAIL — {title!r}: it does not read `type(scope)!: text`.\n"
     )
@@ -95,7 +134,7 @@ def test_a_title_owing_nothing_on_tooling_passes(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """A tooling title on a branch that ships nothing owes no entry, and passes."""
-    repo = _repo(tmp_path, TOOLING, changelog=False)
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=False))
     assert _check(repo, monkeypatch, Prose("ci(tools): a step")) == 0
     assert capsys.readouterr().out == (
         "check-pr-title: ok ('ci(tools): a step' reads in the vocabulary and owes no entry)\n"
@@ -108,7 +147,7 @@ def test_an_internal_title_on_shipped_files_fails_and_names_them(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """A tooling title on a branch that changes a binding fails, naming the shipped file."""
-    repo = _repo(tmp_path, SHIPPED, changelog=True)
+    repo = _plant(tmp_path, monkeypatch, _branch(SHIPPED, changelog=True))
     assert _check(repo, monkeypatch, Prose("ci(tools): a step")) == 1
     assert capsys.readouterr().err == (
         "check-pr-title: FAIL — 'ci(tools): a step' names an internal scope, and the branch "
@@ -131,7 +170,7 @@ def test_a_proofs_title_fits_a_proof_module_and_not_a_compiled_one(
     expected: ExitStatus,
 ) -> None:
     """The kernel ships the modules the runtime closure compiles, and no proof module."""
-    repo = _repo(tmp_path, path, changelog=False)
+    repo = _plant(tmp_path, monkeypatch, _branch(path, changelog=False))
     assert _check(repo, monkeypatch, Prose("refactor(proofs): a proof")) == expected
 
 
@@ -141,7 +180,7 @@ def test_a_title_owing_an_entry_fails_when_the_branch_leaves_the_changelog(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """A shipped fix's title on a branch with no CHANGELOG edit fails, naming the category."""
-    repo = _repo(tmp_path, SHIPPED, changelog=False)
+    repo = _plant(tmp_path, monkeypatch, _branch(SHIPPED, changelog=False))
     assert _check(repo, monkeypatch, Prose("fix(go): a bug")) == 1
     assert capsys.readouterr().err == (
         "check-pr-title: FAIL — 'fix(go): a bug' owes ### Fixed, and the branch leaves "
@@ -155,7 +194,7 @@ def test_a_title_owing_an_entry_passes_when_the_branch_edits_the_changelog(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """The same title passes on a branch that edits CHANGELOG.md."""
-    repo = _repo(tmp_path, SHIPPED, changelog=True)
+    repo = _plant(tmp_path, monkeypatch, _branch(SHIPPED, changelog=True))
     assert _check(repo, monkeypatch, Prose("fix(go): a bug")) == 0
     assert capsys.readouterr().out == (
         "check-pr-title: ok ('fix(go): a bug' owes ### Fixed; the branch edits CHANGELOG.md)\n"
@@ -168,7 +207,7 @@ def test_a_title_owing_nothing_fails_when_the_branch_edits_the_changelog(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """A tooling title owes no entry, so a branch that edits CHANGELOG.md under it fails."""
-    repo = _repo(tmp_path, TOOLING, changelog=True)
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=True))
     assert _check(repo, monkeypatch, Prose("ci(tools): a step")) == 1
     assert capsys.readouterr().err == (
         "check-pr-title: FAIL — 'ci(tools): a step' owes no entry, and the branch edits "
@@ -182,7 +221,7 @@ def test_the_release_title_edits_the_changelog_owing_none(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """The release preparation's title passes with the CHANGELOG edit it exists to make."""
-    repo = _repo(tmp_path, TOOLING, changelog=True, subject=RELEASE)
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=True, subjects=(RELEASE,)))
     assert _check(repo, monkeypatch, RELEASE) == 0
     assert capsys.readouterr().out == (
         "check-pr-title: ok ('chore(dist): prepare v1.2.3' cuts a release; the branch edits "
@@ -196,7 +235,7 @@ def test_the_release_title_claims_no_edit_the_branch_leaves_out(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """The release title on a branch that leaves the CHANGELOG alone reads as owing none."""
-    repo = _repo(tmp_path, TOOLING, changelog=False, subject=RELEASE)
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=False, subjects=(RELEASE,)))
     assert _check(repo, monkeypatch, RELEASE) == 0
     assert capsys.readouterr().out == (
         "check-pr-title: ok ('chore(dist): prepare v1.2.3' reads in the vocabulary and owes "
@@ -250,7 +289,7 @@ def test_a_title_must_name_the_release_its_branch_prepares(
     case: _Mismatch,
 ) -> None:
     """A release title needs a commit preparing its version, and a release branch that title."""
-    repo = _repo(tmp_path, TOOLING, changelog=True, subject=case.subject)
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=True, subjects=(case.subject,)))
     assert _check(repo, monkeypatch, case.title) == 1
     assert capsys.readouterr().err == f"check-pr-title: FAIL — {case.refusal}"
 
@@ -261,9 +300,8 @@ def test_a_branch_preparing_two_releases_is_told_to_keep_one(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """A title naming neither of two prepared versions is told to keep one preparation."""
-    repo = _repo(tmp_path, TOOLING, changelog=True, subject=Prose("chore(dist): prepare v1.2.2"))
-    (repo / TOOLING).write_text("y\n", encoding="utf-8")
-    commit(repo, RELEASE)
+    two = (RELEASE, Prose("chore(dist): prepare v1.2.2"))
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=True, subjects=two))
     assert _check(repo, monkeypatch, FIX) == 1
     assert capsys.readouterr().err == (
         "check-pr-title: FAIL — 'fix(go): a bug' cuts no release, and the branch prepares "
@@ -276,7 +314,7 @@ def test_a_title_is_read_whatever_the_commits_say(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The title decides what it owes: a breaking title owes an entry the commit would not."""
-    repo = _repo(tmp_path, TOOLING, changelog=False)
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=False))
     assert _check(repo, monkeypatch, Prose("refactor(tools)!: a break")) == 1
 
 
@@ -299,9 +337,13 @@ def test_an_unreadable_snapshot_stops_the_check(
     capsys: pytest.CaptureFixture[Prose],
 ) -> None:
     """Without the runtime-closure snapshot the kernel's shipped files are unknown: exit 2."""
-    repo = _repo(tmp_path, SHIPPED, changelog=True)
-    (repo / "haskell-shim" / "runtime-closure.snapshot").unlink()
-    assert _check(repo, monkeypatch, Prose("fix(go): a bug")) == 2
+
+    def bare_toplevel(_tool: Prose) -> Prose | None:
+        return Prose(str(tmp_path))
+
+    monkeypatch.setattr("tools.check_pr_title.toplevel", bare_toplevel)
+    monkeypatch.setattr("tools.check_pr_title.read_branch", _branch_unasked)
+    assert _check(tmp_path, monkeypatch, Prose("fix(go): a bug")) == 2
     err = capsys.readouterr().err
     assert err.startswith("check-pr-title: FAIL — ")
     assert "runtime-closure.snapshot cannot be read: " in err
