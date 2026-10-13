@@ -26,6 +26,9 @@
 # checked against the archive's InRelease with gpgv, and its fingerprint below
 # updated.
 #
+# Once installed, the toolchain is refused unless check_upstream.sh beside this
+# script records its upstream versions, whichever path installed it.
+#
 # Exits 1 when a key file is not the key it is named for, 2 on a usage error,
 # and otherwise with the failing command's own status.
 set -euo pipefail
@@ -49,23 +52,31 @@ echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" |
 echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu noble main" |
     sudo tee /etc/apt/sources.list.d/ubuntu-toolchain-r.list > /dev/null
 
-mkdir -p "$cache"
-shopt -s nullglob
-debs=("$cache"/*.deb)
-if ((${#debs[@]} > 0)) && sudo dpkg -i "${debs[@]}"; then
-    exit 0
-fi
-sudo apt-get update || {
-    status=$?
-    echo "::error::apt-get update failed; a NO_PUBKEY above names an archive's new key, which replaces its file in $here as this script's header says" >&2
-    exit "$status"
-}
-if ((${#debs[@]} == 0)); then
-    sudo apt-get install -y --download-only -o Dir::Cache::archives="$cache" "$@"
-    sudo chown -R "$(id -u):$(id -g)" "$cache"
+# Installs PACKAGE..., from CACHE when it holds them.
+install_packages() {
+    local -a debs
+    local status
+    mkdir -p "$cache"
+    shopt -s nullglob
     debs=("$cache"/*.deb)
-    if sudo dpkg -i "${debs[@]}"; then
-        exit 0
+    if ((${#debs[@]} > 0)) && sudo dpkg -i "${debs[@]}"; then
+        return 0
     fi
-fi
-sudo apt-get -f install -y
+    sudo apt-get update || {
+        status=$?
+        echo "::error::apt-get update failed; a NO_PUBKEY above names an archive's new key, which replaces its file in $here as this script's header says" >&2
+        exit "$status"
+    }
+    if ((${#debs[@]} == 0)); then
+        sudo apt-get install -y --download-only -o Dir::Cache::archives="$cache" "$@"
+        sudo chown -R "$(id -u):$(id -g)" "$cache"
+        debs=("$cache"/*.deb)
+        if sudo dpkg -i "${debs[@]}"; then
+            return 0
+        fi
+    fi
+    sudo apt-get -f install -y
+}
+
+install_packages "$@"
+"$here/check_upstream.sh"

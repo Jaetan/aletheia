@@ -286,9 +286,13 @@ jobs:
           rustc --version && cargo --version
 
       # From an empty directory rather than the shared package cache: this
-      # weekly run refreshes apt's lists and downloads every package, so an
-      # archive that moves to another signing key, or a break in the download
-      # path, shows within a week while the cached runs carry on.
+      # weekly run refreshes apt's lists and installs the archives' newest
+      # builds.  This step red is an upstream version check_upstream.sh does
+      # not record when its annotation says so, an archive's new signing key
+      # when apt's NO_PUBKEY error does, and a break in the download path
+      # otherwise.  A later step red points at a rebuild the cached runs have
+      # not met when dpkg's `Unpacking <package> (<version>)` lines here name
+      # newer builds than head-dist's, which installs from the cache.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: cpp/toolchain/install.sh "${RUNNER_TEMP}/llvm-cold" clang-23 clang-tidy-23 libstdc++-15-dev
 
