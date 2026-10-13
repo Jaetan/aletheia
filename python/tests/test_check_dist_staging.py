@@ -77,6 +77,10 @@ GOOD_FILES = {
 }
 
 
+_GIT_TRACKED = "git's own index and pathspec matching decide which paths count as tracked"
+_GIT_AND_SHELL = _GIT_TRACKED + ", and each packaging script's own shell decides that it parses"
+
+
 def _write_files(tmp_path: Path, files: dict[str, str]) -> Path:
     """Write ``files`` under ``tmp_path / "repo"``, with no git, and return that directory."""
     repo = tmp_path / "repo"
@@ -158,6 +162,7 @@ def test_parse_extracts_positives_and_excludes() -> None:
     assert bindings["rust"].excludes == ()
 
 
+@pytest.mark.process(_GIT_AND_SHELL)
 def test_fixture_happy_path_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A fixture repo satisfying every check exits 0 (the teeth tests perturb THIS)."""
     repo = _repo(tmp_path, GOOD_FILES)
@@ -184,6 +189,7 @@ def test_call_sites_in_a_module_under_shake_are_read(tmp_path: Path) -> None:
     assert {b.name: b for b in moved}["rust"].positives == ("rust/Moved.toml",)
 
 
+@pytest.mark.process(_GIT_AND_SHELL)
 def test_real_tree_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     """The gate passes against the actual repository (default paths)."""
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
@@ -267,6 +273,7 @@ def test_repo_root_not_a_git_repo_could_not_check(
     assert "matches no tracked file" not in err.getvalue()
 
 
+@pytest.mark.process(_GIT_TRACKED)
 def test_untracked_positive_path_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -280,6 +287,7 @@ def test_untracked_positive_path_fails(
     assert script_checks == [(repo, find_fish())]
 
 
+@pytest.mark.process(_GIT_TRACKED)
 def test_dead_exclude_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -299,6 +307,7 @@ def test_dead_exclude_fails(
     assert script_checks == [(repo, find_fish())]
 
 
+@pytest.mark.process(_GIT_TRACKED)
 def test_go_work_selected_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -312,6 +321,7 @@ def test_go_work_selected_fails(
     assert script_checks == [(repo, find_fish())]
 
 
+@pytest.mark.process("bash's own syntax check is what refuses the broken .sh script")
 def test_bash_syntax_error_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -327,6 +337,7 @@ def test_bash_syntax_error_fails(
 
 
 @pytest.mark.skipif(shutil.which("fish") is None, reason="fish not installed")
+@pytest.mark.process("fish's own syntax check is what refuses the broken .fish script")
 def test_fish_syntax_error_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -341,6 +352,7 @@ def test_fish_syntax_error_fails(
     assert "found 1 broken" in err
 
 
+@pytest.mark.process(_GIT_TRACKED)
 def test_untracked_packaging_script_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -373,6 +385,7 @@ def test_untracked_packaging_script_fails(
     assert [find_executable("bash"), "-n", str(repo / "packaging/install.sh")] in checkers
 
 
+@pytest.mark.process(_GIT_TRACKED)
 def test_untracked_license_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -15,6 +15,7 @@ import json
 import re
 from typing import TYPE_CHECKING, NamedTuple
 
+import pytest
 from _executors import DrivenExecutor
 
 from tools import _clang_query as clang_query
@@ -36,8 +37,6 @@ from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 # A binding line of clang-query's output: the file it names, and what it binds.
 _BOUND = re.compile(r'^(/[^\s:]+):\d+:\d+: note: "([a-z_]+)" binds here$', re.MULTILINE)
@@ -210,6 +209,10 @@ def _planted_tree(root: Path) -> Planted:
     return Planted(root, UnitPath(str(unit)), rel)
 
 
+@pytest.mark.process(
+    "what the matchers bind over real C++ is the query tool's own answer, and which"
+    + " locals compile as const, with the diagnostics of those that do not, the compiler's"
+)
 def test_the_real_query_and_compiler_find_exactly_the_planted_const_locals(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -259,6 +262,10 @@ def test_the_real_query_and_compiler_find_exactly_the_planted_const_locals(
     assert [(site.file, site.line) for site in found.const_json_reads] == [(planted.rel, read_line)]
 
 
+@pytest.mark.process(
+    "the rows main reports are what the real query binds and the real compiler accepts"
+    + " as const, passed through main's wiring end to end"
+)
 def test_main_judges_the_planted_tree_against_its_record(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

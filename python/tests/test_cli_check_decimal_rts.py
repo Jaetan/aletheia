@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import can
+import pytest
 from _cli_check_helpers import (
     CheckInputs,
     dbc_text,
@@ -38,7 +39,13 @@ if TYPE_CHECKING:
 # EngineSpeed factor 0.25: raw 800 decodes to 200.0 rpm, over the 199.5 limit.
 _SIGNAL = 'EngineSpeed : 0|16@1+ (0.25,0) [0|8000] "rpm"'
 
+_IN_A_FRESH_RUNTIME = (
+    "the GHC runtime starts once per process, so a check whose decimal threshold is parsed"
+    + " before any backend has started it runs in a fresh one"
+)
 
+
+@pytest.mark.process(_IN_A_FRESH_RUNTIME)
 def test_check_decimal_threshold_streams_end_to_end(tmp_path: Path) -> None:
     """A decimal-threshold check runs end-to-end (no RTS error) and reports its violation.
 

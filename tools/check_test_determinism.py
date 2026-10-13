@@ -720,9 +720,10 @@ def _go_code(_repo: Path, _rel: RelPath, text: SourceText) -> BlankedCode:
 
 # A Python test hands a child interpreter its script as a string, which the
 # blanking empties; each string literal that parses as Python is read as the
-# source it is.  The gate's own test is exempt: its strings are the fixtures
-# it feeds the gate, and its code is read like any other test's.
-_STRING_FIXTURES = RelPath("python/tests/test_check_test_determinism.py")
+# source it is, but in the gate's and the guard's tests, whose strings are fixtures.
+_STRING_FIXTURES = frozenset(
+    RelPath(f"python/tests/test_{n}.py") for n in ("check_test_determinism", "determinism_guard")
+)
 # The stand-in for an interpolated value when an f-string or a t-string is
 # read as source.
 _INTERPOLATED = "_"
@@ -783,7 +784,7 @@ def python_child_sources(text: SourceText) -> list[SourceText]:
 
 def _python_code(_repo: Path, rel: RelPath, text: SourceText) -> BlankedCode:
     code = spell_python_aliases(text, blank_python(text))
-    if rel == _STRING_FIXTURES:
+    if rel in _STRING_FIXTURES:
         return code
     children = (
         spell_python_aliases(child, blank_python(child)) for child in python_child_sources(text)

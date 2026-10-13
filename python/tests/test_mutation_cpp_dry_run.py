@@ -189,6 +189,10 @@ def _argv_beside_its_reports(argv_file: Path) -> list[Path]:
     return [Path(arg) for arg in argv if arg != "--dry-run" and not arg.startswith("--report-dir=")]
 
 
+@pytest.mark.process(
+    "which program the runner's bare name starts, and the environment it receives once"
+    + " the lane's launcher has added to it, show only in the started runner's own record"
+)
 def test_the_lane_and_a_dry_run_run_the_runner_alike(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -70,6 +70,9 @@ def test_the_detector_and_its_fixtures_are_exempt() -> None:
     assert not is_exempt("docs/architecture/PROTOCOL.md")
 
 
+@pytest.mark.process(
+    "the claim is over the files git tracks in this repository, which only git answers"
+)
 def test_the_tracked_tree_carries_none() -> None:
     """The gate's own subject: the live tree is clean, and every tracked file of it was read."""
     scan = check_tree()

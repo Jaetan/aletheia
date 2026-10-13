@@ -84,6 +84,10 @@ def _run_workload(n: MessageCount, rts_options: RtsOptions | None) -> WorkloadRu
     return WorkloadRun(ExitStatus(done.returncode), Prose(done.stdout), Prose(done.stderr))
 
 
+@pytest.mark.process(
+    "the GHC runtime starts once per process with its heap cap, so the default cap's boot"
+    + " and a workload under it are read in a fresh process"
+)
 def test_default_cap_boots_and_processes() -> None:
     """The correct path (hs_init_with_rtsopts + -M3G) boots and processes a workload."""
     _skip_without_ffi()
@@ -92,6 +96,10 @@ def test_default_cap_boots_and_processes() -> None:
     assert _SENTINEL in result.stdout
 
 
+@pytest.mark.process(
+    "the GHC runtime reads its heap cap once per process and the cap firing aborts the"
+    + " whole process, so the abort is read as a fresh process's exit status"
+)
 def test_tight_cap_aborts_the_process() -> None:
     """A tight cap over a large workload TERMINATES the process (containment-by-abort).
 

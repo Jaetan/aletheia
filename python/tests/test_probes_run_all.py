@@ -35,6 +35,11 @@ _PROBE = (
 )
 # The one line the probe prints: no bound, or a positive one, and a positive nproc.
 _TOLD = re.compile(r"PYTHON_CPU_COUNT=(unset|[1-9][0-9]*) NPROC=([1-9][0-9]*)")
+# Why every test starts the runner, and git to make the tree it requires.
+_RUNNER_IS_BASH = (
+    "the runner is a bash script, so only a started runner shows the share it exports"
+    + " to the probe it starts"
+)
 
 
 @dataclass(frozen=True)
@@ -93,16 +98,19 @@ def _assert_shared(told: Told, workers: PositiveInt) -> None:
     assert told.bound == max(1, told.nproc // workers), told
 
 
+@pytest.mark.process(_RUNNER_IS_BASH)
 def test_each_probe_is_told_the_runners_cpus_divided_by_its_workers(tmp_path: Path) -> None:
     """Four workers over the runner's CPUs: each probe is told a quarter of them."""
     _assert_shared(_told(tmp_path, 4, caller_bound=False), 4)
 
 
+@pytest.mark.process(_RUNNER_IS_BASH)
 def test_a_bound_the_caller_exported_is_replaced(tmp_path: Path) -> None:
     """A PYTHON_CPU_COUNT the runner was started with gives way to the share."""
     _assert_shared(_told(tmp_path, 4, caller_bound=True), 4)
 
 
+@pytest.mark.process(_RUNNER_IS_BASH)
 def test_a_share_below_one_cpu_is_one(tmp_path: Path) -> None:
     """More workers than CPUs: each probe is told one CPU, never none."""
     workers = len(os.sched_getaffinity(0)) + 1

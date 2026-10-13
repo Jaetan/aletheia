@@ -213,6 +213,7 @@ def test_a_shard_configuration_keeps_the_package_s_own_exclusions(tmp_path: Path
     assert shard["mutants"] == package["mutants"]
 
 
+@pytest.mark.process("which files of the Go package the real tree tracks is git's own answer")
 def test_the_domain_is_the_package_s_sources_less_tests_generated_files_and_testdata() -> None:
     """Every file a shard may claim, read from the tree and the configuration."""
     domain = shard_domain(_REPO, _REPO / GO_CONFIG)

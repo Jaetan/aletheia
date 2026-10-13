@@ -18,6 +18,7 @@ import os
 import sys
 from typing import TYPE_CHECKING, NewType
 
+import pytest
 from _git_repo import commit, git
 
 from tools.check_gate_claim import LOG_DIR, LogLine
@@ -40,8 +41,6 @@ from tools.sweep_evidence import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
-
 # A sweep log's file name.
 LogName = NewType("LogName", str)
 
@@ -49,6 +48,11 @@ _PASSED = LogLine("Result:   ALL 3 STEPS PASSED")
 # 2001-09-09T01:46:40Z in nanoseconds, the one instant a case stamps its files
 # with so that it reads no clock.
 _INSTANT = 10**18
+# Why each case that names a tree runs git over a planted repository.
+_GIT_ANSWERS = (
+    "tree ids, the index's stat cache, intent-to-add entries and what GIT_DIR and"
+    + " GIT_INDEX_FILE select are git's own answers over real content"
+)
 _FAILED = LogLine("═══ CI FAILED — 1 step(s) failed: x ═══")
 
 
@@ -79,12 +83,14 @@ def _log(log_dir: Path, name: LogName, header: LogLine, summary: LogLine, verdic
     _ = (log_dir / name).write_text(text, encoding="utf-8")
 
 
+@pytest.mark.process(_GIT_ANSWERS)
 def test_a_clean_working_tree_names_the_commit_s_tree(tmp_path: Path) -> None:
     """With nothing edited, the tracked content is exactly HEAD's tree."""
     repo = _repo(tmp_path)
     assert worktree_tree(repo) == tree_of(Revision("HEAD"), repo)
 
 
+@pytest.mark.process(_GIT_ANSWERS)
 def test_an_edit_names_the_tree_its_commit_will_have(tmp_path: Path) -> None:
     """An edited tracked file moves the tree to the one committing the edit makes."""
     repo = _repo(tmp_path)
@@ -96,6 +102,7 @@ def test_an_edit_names_the_tree_its_commit_will_have(tmp_path: Path) -> None:
     assert edited == tree_of(Revision("HEAD"), repo)
 
 
+@pytest.mark.process(_GIT_ANSWERS)
 def test_a_rewrite_in_the_index_s_own_second_moves_the_tree(tmp_path: Path) -> None:
     """A rewrite whose stat data git cannot tell from the indexed file's is still read.
 
@@ -121,6 +128,7 @@ def test_a_rewrite_in_the_index_s_own_second_moves_the_tree(tmp_path: Path) -> N
     assert git(repo, "show", f"{tree}:a.txt") == "two\n"
 
 
+@pytest.mark.process(_GIT_ANSWERS)
 def test_an_intent_added_file_is_in_the_tree_and_the_index_is_left_alone(tmp_path: Path) -> None:
     """A file added with ``-N`` is tracked, so its content is in; the real index does not move."""
     repo = _repo(tmp_path)
@@ -133,6 +141,7 @@ def test_an_intent_added_file_is_in_the_tree_and_the_index_is_left_alone(tmp_pat
     assert tree == tree_of(Revision("HEAD"), repo)
 
 
+@pytest.mark.process(_GIT_ANSWERS)
 def test_an_untracked_file_leaves_no_tree_to_vouch_for(tmp_path: Path) -> None:
     """A file no gate lists, which the build may still compile, makes the sweep vouch for none."""
     repo = _repo(tmp_path)
@@ -140,6 +149,9 @@ def test_an_untracked_file_leaves_no_tree_to_vouch_for(tmp_path: Path) -> None:
     assert worktree_tree(repo) is None
 
 
+@pytest.mark.process(
+    "only git's own reading of an exclude rule decides that a file is ignored, not" + " untracked"
+)
 def test_an_ignored_file_is_no_untracked_one(tmp_path: Path) -> None:
     """A file git ignores, a sweep's own log among them, leaves the tree to vouch for."""
     repo = _repo(tmp_path)
@@ -172,6 +184,7 @@ def test_a_log_vouches_only_for_a_full_passing_sweep_whose_tree_held(tmp_path: P
     assert evidence_for(tree, tmp_path / "absent") is None
 
 
+@pytest.mark.process(_GIT_ANSWERS)
 def test_a_hook_s_git_variables_do_not_turn_git_to_another_repository(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

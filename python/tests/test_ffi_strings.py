@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import Final
 
+import pytest
 from _locale_child import SENTINEL
 
 from aletheia import FFIBackend
@@ -24,6 +25,10 @@ from aletheia import FFIBackend
 _CHILD: Final = Path(__file__).parent / "_locale_child.py"
 
 
+@pytest.mark.process(
+    "the GHC runtime and the interpreter read the locale once, when the process starts, so"
+    + " the kernel's strings under the C locale are read in a fresh process started with it"
+)
 def test_kernel_strings_do_not_depend_on_the_locale() -> None:
     """Under ``LC_ALL=C`` non-ASCII text crosses the kernel intact both ways."""
     env = dict(os.environ)

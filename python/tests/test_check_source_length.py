@@ -196,6 +196,7 @@ def test_a_tracked_code_file_that_cannot_be_read_is_not_clean(
 @pytest.mark.parametrize(
     "rel", [RelPath("shake/Rules/Ünïcode.hs"), RelPath("shake/Rules/With Space.hs")]
 )
+@pytest.mark.process("git's own listing names a tracked path holding a space or a non-ASCII letter")
 def test_a_path_git_would_quote_or_split_is_measured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rel: RelPath
 ) -> None:
@@ -205,6 +206,9 @@ def test_a_path_git_would_quote_or_split_is_measured(
     assert check_tree(repo).findings == [finding(rel, LineCount(1001))]
 
 
+@pytest.mark.process(
+    "the live tree's tracked files are git's own answer, which no planted list stands for"
+)
 def test_the_tracked_tree_is_within_the_cap() -> None:
     """The gate's own subject: every tracked code file of the live tree is within the cap."""
     scan = check_tree()

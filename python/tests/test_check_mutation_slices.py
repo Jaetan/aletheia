@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from tools import check_mutation_setup
 from tools._common import RelPath
 from tools.mutation_cpp_slices import CPP_SLICES, SuiteRuns
@@ -23,8 +25,6 @@ from tools.mutation_report import load_spec
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
-
-    import pytest
 
     from tools.mutation_cpp_slices import FileRuns, Slice, SliceWeights
 
@@ -47,6 +47,9 @@ def _one_file_domain(_root: Path, _config: Path) -> list[RelPath]:
     return [RelPath("cpp/src/client.cpp")]
 
 
+@pytest.mark.process(
+    "the record is held to what git tracks under the C++ source trees, which only git answers"
+)
 def test_the_recorded_weights_are_files_a_slice_can_claim() -> None:
     """The record weighs files of the derived domain alone, as the tree stands."""
     assert check_mutation_setup.cpp_slice_weights_are_of_the_domain(_recorded()) == []

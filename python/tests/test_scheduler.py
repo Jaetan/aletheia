@@ -19,8 +19,8 @@ import subprocess
 import sys
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+import pytest
 from _executors import DrivenExecutor, Order
 from _processes import CommandWord
 from _step_runs import NO_OUTPUT, Answer, Descriptor, StandIn, StepCall, ends, install, passes
@@ -30,9 +30,6 @@ from tools._determinism_guard import Clock, Seconds
 from tools._scheduler import Step, StepEvent, all_passed, run_lanes
 
 from aletheia.common_types import ExitStatus, Prose
-
-if TYPE_CHECKING:
-    import pytest
 
 REPO_ROOT = Path(_scheduler.__file__).resolve().parents[1]
 
@@ -108,6 +105,10 @@ def test_signal_death_counts_as_failure(monkeypatch: pytest.MonkeyPatch) -> None
     assert runs.commands == [OOM]
 
 
+@pytest.mark.process(
+    "an interrupt reaches a sweep through its process group, and only real processes show"
+    + " the sweep stopping steps that run in groups of their own"
+)
 def test_an_interrupted_parallel_sweep_stops_its_steps(tmp_path: Path) -> None:
     """Ctrl-C, SIGINT to the sweep's process group, ends a parallel sweep and its steps.
 

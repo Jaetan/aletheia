@@ -2184,6 +2184,14 @@ hints:
   - file: tools/_common.py
     text: "subprocess.CompletedProcess[str]"
     count: 3
+  - file: tools/_determinism_guard.py
+    text: "str"
+    count: 1
+    reason: "sys.addaudithook's hook is typed Callable[[str, tuple[Any, ...]], Any] in typeshed, so it takes the event's name as a str; _audit_hook names it an AuditEvent at once"
+  - file: tools/_determinism_guard.py
+    text: "tuple[object, ...]"
+    count: 1
+    reason: "sys.addaudithook's hook is typed Callable[[str, tuple[Any, ...]], Any] in typeshed, so it takes the event's arguments as a tuple of any values; object, narrower than Any, holds them unread"
   - file: tools/_guarded_run.py
     text: "float"
     count: 1

@@ -59,6 +59,12 @@ _SUBPROCESS_CWD = _REPO_ROOT / "python"
 
 _CLI_NAMES: tuple[str, ...] = ("python", "go", "cpp")
 
+# Why every lane starts a process, the Go one also building its binary first.
+_RUNS_AS_A_PROGRAM = (
+    "each binding's command line answers the parity contract as a program,"
+    + " run the same way for every binding"
+)
+
 # The workbook the Python Excel loader reads: its sheets, in order, each with
 # its header row.
 _TEMPLATE_SHEETS: dict[str, list[str]] = {
@@ -295,6 +301,7 @@ def _failure_report(argv: list[str], result: subprocess.CompletedProcess[str]) -
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.process(_RUNS_AS_A_PROGRAM)
 @pytest.mark.parametrize("scenario", _SCENARIOS, ids=_SCENARIO_IDS)
 def test_scenario(
     cli: CliUnderTest, scenario: dict[str, object], cli_env: dict[str, str], tmp_path: Path
@@ -384,6 +391,7 @@ def test_scenario_ids_unique() -> None:
     )
 
 
+@pytest.mark.process(_RUNS_AS_A_PROGRAM)
 def test_help_lists_every_subcommand(cli: CliUnderTest, cli_env: dict[str, str]) -> None:
     """Each CLI's --help output names every declared subcommand."""
     argv = [*cli.argv, "--help"]

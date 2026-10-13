@@ -15,9 +15,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.process(
+    "an interpreter started without site directories has on its path only what importing"
+    + " the tools package adds, which only a fresh interpreter shows"
+)
 def test_the_bare_interpreter_imports_the_common_types_through_tools() -> None:
     """Importing the tools package is enough to reach the library's source."""
     code = "import tools, aletheia.common_types as shared; print(shared.__file__)"
@@ -28,6 +34,10 @@ def test_the_bare_interpreter_imports_the_common_types_through_tools() -> None:
     assert Path(run.stdout.strip()) == REPO / "python" / "aletheia" / "common_types.py"
 
 
+@pytest.mark.process(
+    "an interpreter started without site directories does not find the library, which only"
+    + " a fresh interpreter's own import error and exit status show"
+)
 def test_without_tools_the_bare_interpreter_does_not_find_the_library() -> None:
     """The control: the path the first test relies on is the one the tools package adds."""
     run = subprocess.run(

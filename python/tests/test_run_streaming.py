@@ -121,6 +121,9 @@ def _stand_in(
     return spawns
 
 
+@pytest.mark.process(
+    "each line is framed by the text-mode pipe of a real child, which no fake stdout holds"
+)
 def test_every_line_reaches_the_sink_in_order() -> None:
     """The sink is called once per line, in order, newline included."""
     seen: list[str] = []
@@ -143,6 +146,9 @@ def test_the_return_value_is_the_joined_sink_text(monkeypatch: pytest.MonkeyPatc
     assert proc.stderr == ""
 
 
+@pytest.mark.process(
+    "the order across a child's two streams is set by the one pipe it is given for both"
+)
 def test_stderr_is_merged_into_the_stream() -> None:
     """A diagnostic and the progress line before it stay legible in one stream."""
     seen: list[str] = []
@@ -159,6 +165,9 @@ def test_stderr_is_merged_into_the_stream() -> None:
     assert proc.stdout == "progress\ndiagnostic\n"
 
 
+@pytest.mark.process(
+    "a line reaching the sink before the child exits is a property of a live child's pipe"
+)
 def test_a_line_arrives_before_the_child_exits(tmp_path: Path) -> None:
     """The defining property: output is observable while the child still runs.
 

@@ -284,6 +284,7 @@ def _hooked_repo(tmp_path: Path) -> Path:
     return repo
 
 
+@pytest.mark.process("only git answers what a commit takes of a partly staged file and writes back")
 def test_pre_commit_writes_a_file_staged_in_part_back_whole(tmp_path: Path) -> None:
     """A commit of half a file's hunks lands the half, and the tree comes back whole.
 
@@ -323,6 +324,7 @@ def test_pre_commit_writes_a_file_staged_in_part_back_whole(tmp_path: Path) -> N
 _OLD_STAMP = 978_307_200_000_000_000
 
 
+@pytest.mark.process("only git answers whether restoring the parked paths touches a staged file")
 def test_pre_commit_leaves_a_staged_file_s_modification_time_alone(tmp_path: Path) -> None:
     """A commit through the hook leaves a staged file where it was, its mtime included.
 
@@ -352,6 +354,7 @@ def test_pre_commit_leaves_a_staged_file_s_modification_time_alone(tmp_path: Pat
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("whether git reads a name as a pathspec or literally is git's own parsing")
 def test_pre_commit_parks_an_untracked_file_by_its_name_not_as_a_pathspec(tmp_path: Path) -> None:
     """An untracked `:x.txt` or `x[1].txt` is parked as that file: a name, never a pathspec.
 
@@ -378,6 +381,7 @@ def test_pre_commit_parks_an_untracked_file_by_its_name_not_as_a_pathspec(tmp_pa
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("what git records through a private index and then tracks is git's answer")
 def test_pre_commit_keeps_a_staged_deletion_whose_file_stays_on_disk(tmp_path: Path) -> None:
     """A file removed from the index but kept on disk is committed as deleted and stays on disk.
 
@@ -397,6 +401,7 @@ def test_pre_commit_keeps_a_staged_deletion_whose_file_stays_on_disk(tmp_path: P
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("only git answers what its trees record for a staged file deleted from disk")
 def test_pre_commit_keeps_an_unstaged_deletion_of_a_staged_new_file(tmp_path: Path) -> None:
     """A file added to the index then deleted from the tree is committed, and stays deleted.
 
@@ -418,6 +423,7 @@ def test_pre_commit_keeps_an_unstaged_deletion_of_a_staged_new_file(tmp_path: Pa
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("only git answers whether it lists and restores a worktree copy equal to HEAD")
 def test_pre_commit_keeps_a_worktree_reverted_to_head_beside_its_staged_change(
     tmp_path: Path,
 ) -> None:
@@ -440,6 +446,7 @@ def test_pre_commit_keeps_a_worktree_reverted_to_head_beside_its_staged_change(
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("only git answers how its stash stack moves as the hook stores and drops")
 def test_pre_commit_leaves_a_stash_beneath_its_own_alone(tmp_path: Path) -> None:
     """An entry already on the stack is neither written over the tree nor dropped."""
     repo = _hooked_repo(tmp_path)
@@ -457,6 +464,7 @@ def test_pre_commit_leaves_a_stash_beneath_its_own_alone(tmp_path: Path) -> None
     assert _git(repo, "stash", "list", "--format=%H") == theirs
 
 
+@pytest.mark.process("only git answers which bytes it prints and reads back for a non-UTF-8 name")
 def test_pre_commit_parks_a_file_whose_name_is_not_utf_8(tmp_path: Path) -> None:
     """An untracked file whose name is not UTF-8 is parked and comes back, never a crash."""
     repo = _hooked_repo(tmp_path)
@@ -473,6 +481,7 @@ def test_pre_commit_parks_a_file_whose_name_is_not_utf_8(tmp_path: Path) -> None
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("only git answers what it lists untracked and restores, its directory too")
 def test_pre_commit_parks_an_untracked_file_with_the_directories_it_leaves_empty(
     tmp_path: Path,
 ) -> None:
@@ -493,6 +502,7 @@ def test_pre_commit_parks_an_untracked_file_with_the_directories_it_leaves_empty
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("git's own listing shows a nested repository as one directory it never adds")
 def test_pre_commit_leaves_a_nested_repository_where_it_is(tmp_path: Path) -> None:
     """A repository nested in the tree, untracked, is not parked: git lists it as a directory."""
     repo = _hooked_repo(tmp_path)
@@ -511,6 +521,7 @@ def test_pre_commit_leaves_a_nested_repository_where_it_is(tmp_path: Path) -> No
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("only git decides the index its hook is handed under a commit of all changes")
 def test_pre_commit_serves_a_commit_of_all_tracked_changes(tmp_path: Path) -> None:
     """`git commit -a` hands the hook the index it builds; the untracked file is parked."""
     repo = _hooked_repo(tmp_path)
@@ -525,6 +536,7 @@ def test_pre_commit_serves_a_commit_of_all_tracked_changes(tmp_path: Path) -> No
     assert _git(repo, "stash", "list") == ""
 
 
+@pytest.mark.process("only git builds the temporary index a hook gets for a commit of named paths")
 def test_pre_commit_serves_a_commit_of_named_paths(tmp_path: Path) -> None:
     """`git commit -- <path>` hands the hook a temporary index; the other edit stays in the tree."""
     repo = _hooked_repo(tmp_path)
@@ -550,6 +562,7 @@ class Parked(Enum):
     BOTH = "an unstaged edit and an untracked file"
 
 
+@pytest.mark.process("only a shell running the printed recipe over git's stash trees proves it")
 @pytest.mark.parametrize("parked", list(Parked), ids=lambda p: p.name.lower())
 def test_pre_commit_s_recipe_writes_the_parked_work_back(tmp_path: Path, parked: Parked) -> None:
     """The commands the hook prints when a restore fails write the parked work back, run as printed.
@@ -594,6 +607,7 @@ def test_pre_commit_s_recipe_writes_the_parked_work_back(tmp_path: Path, parked:
         assert (repo / "scratch.txt").read_text(encoding="utf-8") == "scratch\n"
 
 
+@pytest.mark.process("whether git's own stash pop reads the hook's entry is git's answer")
 def test_pre_commit_s_entry_is_one_git_stash_pop_reads(tmp_path: Path) -> None:
     """The entry the hook records is laid out as git's own, so `git stash pop` writes it back.
 

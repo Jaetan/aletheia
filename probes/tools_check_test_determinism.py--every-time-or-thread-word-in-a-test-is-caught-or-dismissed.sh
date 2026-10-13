@@ -7,12 +7,13 @@
 # task or a process, in any binding, is either a site the gate's catalogue
 # counts or a spelling dismissed below with the reason it reads no physical
 # time and starts nothing beside the test; a word that starts a process is
-# dismissed only in the files named, each a process the test's claim needs. The net is wider than the
-# catalogue, read over the same code the gate reads (comments and literals
-# blanked, aliases spelled out), skipping what the catalogue counts, so a
-# spelling the catalogue does not know lands here as undismissed instead of
-# passing unseen. A dismissal is a reason, not a count: a test that adds
-# another use of a dismissed word passes, and a new word does not.
+# dismissed only in the files named, each a process the test's claim needs, or
+# in a Python test the suite's runtime guard holds to its process mark. The net
+# is wider than the catalogue, read over the same code the gate reads (comments
+# and literals blanked, aliases spelled out), skipping what the catalogue
+# counts, so a spelling the catalogue does not know lands here as undismissed
+# instead of passing unseen. A dismissal is a reason, not a count: a test that
+# adds another use of a dismissed word passes, and a new word does not.
 # Non-zero exit: a word the net finds is neither counted by the catalogue nor
 # dismissed, or the gate's modules cannot be imported. Exits 2 without the
 # virtual environment.
@@ -82,6 +83,7 @@ DISMISSED = {
         "subprocess.CompletedProcess": "a type annotation",
         "subprocess.DEVNULL": "a stream redirection",
         "subprocess.PIPE": "a stream redirection",
+        "subprocess.STDOUT": "a stream redirection",
         "wait(": "a wait for a child's exit, with no duration",
     },
     CPP: {
@@ -117,32 +119,6 @@ DISMISSED_IN = {
             "go/aletheia/rts_heap_cap_test.go": CAP_ENDS_PROCESS,
         },
     },
-    PYTHON: dict.fromkeys(
-        ("subprocess.run", "subprocess.Popen"),
-        {
-            "python/tests/_cli_check_helpers.py": "the four CLIs are compared as the programs they are,"
-            " and a claim about a runtime not yet started runs the command as its own process",
-            "python/tests/test_check_build_incremental.py": "a record lock belongs to a process, and"
-            " F_GETLK reports only another process's",
-            "python/tests/test_check_precise_hints.py": TRACKED,
-            "python/tests/test_cli_parity.py": "the Go CLI the parity runs is built from its sources",
-            "python/tests/test_demo_scripts.py": "an example is run as the program it is",
-            "python/tests/test_ffi_abi_version.py": "a library is loaded once per process",
-            "python/tests/test_ffi_strings.py": LOCALE,
-            "python/tests/test_git_toplevel.py": TRACKED,
-            "python/tests/test_install_hooks.py": "a hook is run as git runs it, over a repository git built",
-            "python/tests/test_mutation_run_scope.py": "the modules a fresh interpreter imports are what is claimed",
-            "python/tests/test_probes_run_all.py": "the store's runner is a shell script, and the environment"
-            " it starts each probe's process with is what is claimed",
-            "python/tests/test_rts_heap_cap.py": CAP_ENDS_PROCESS,
-            "python/tests/test_run_guarded.py": "process groups, a guard's own group and a caller's input are"
-            " attributes of processes",
-            "python/tests/test_scheduler.py": "an interrupt is a signal to a process group",
-            "python/tests/test_streaming_residency.py": "resident memory is measured per process",
-            "python/tests/test_tools_library_path.py": "a bare interpreter's import path is what is claimed",
-            "python/tests/test_unified_client.py": FRESH_RUNTIME + ", here with two capabilities",
-        },
-    ),
     CPP: {
         "fork(": {
             "cpp/tests/fresh_process_tests.cpp": "each suite it starts claims what holds only in"
@@ -161,6 +137,23 @@ DISMISSED_IN = {
         },
     },
 }
+# A Python test under python/tests/ is judged as it runs instead: the suite's
+# conftest registers tools/_determinism_guard.py, which fails a process started
+# in a test whose @pytest.mark.process gives no reason. The fuzz harnesses run
+# outside that suite, so a word starting a process in one is still a site.
+PYTHON_STARTS = {
+    "Popen",
+    "os.fork",
+    "os.forkpty",
+    "subprocess.Popen",
+    "subprocess.call",
+    "subprocess.check_call",
+    "subprocess.check_output",
+    "subprocess.getoutput",
+    "subprocess.getstatusoutput",
+    "subprocess.run",
+}
+GUARDED = re.compile(r"python/tests/(?!fuzz/)")
 repo = Path.cwd()
 undismissed = set()
 for rel in git_ls_files(repo):
@@ -177,8 +170,11 @@ for rel in git_ls_files(repo):
                 if any(start < last and first < end for first, last in counted):
                     continue
                 word = re.sub(r"\s+", "", match.group(0))
-                if word not in DISMISSED[binding] and rel not in DISMISSED_IN.get(binding, {}).get(
-                    word, {}
+                held = binding is PYTHON and word in PYTHON_STARTS and GUARDED.match(rel)
+                if (
+                    not held
+                    and word not in DISMISSED[binding]
+                    and rel not in DISMISSED_IN.get(binding, {}).get(word, {})
                 ):
                     undismissed.add((rel, word))
 for rel, word in sorted(undismissed):

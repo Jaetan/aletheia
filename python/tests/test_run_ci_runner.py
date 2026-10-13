@@ -240,6 +240,7 @@ def test_register_all_steps_populates_the_catalog(tmp_path: Path) -> None:
     assert len(names) == len(set(names))  # a duplicate name would mask a dropped step
 
 
+@pytest.mark.process("which Python files the repository tracks is git's own answer")
 def test_every_tracked_python_file_is_read_by_all_three_linters(tmp_path: Path) -> None:
     """ruff, basedpyright and pylint each read every tracked Python file.
 
@@ -309,6 +310,9 @@ def test_the_doc_example_step_reads_exactly_the_harness_documents(tmp_path: Path
     assert cmd[-len(documents) - 1] == "pythonpath=python/tests"
 
 
+@pytest.mark.process(
+    "the mode git's index records for each tracked file, the one CI checks out, is git's answer"
+)
 def test_a_tracked_python_file_has_a_shebang_exactly_when_git_marks_it_executable() -> None:
     """A tracked Python file outside ``.archive/`` is executable iff it has a shebang.
 
@@ -589,6 +593,12 @@ def _scratch_pylint_home(root: Path) -> dict[str, str]:
     return os.environ | {"PYLINTHOME": str(root / "pylint-home")}
 
 
+_THE_LINTER_ANSWERS = (
+    "the exit status and score are the linter's own answer under the given argv and config"
+)
+
+
+@pytest.mark.process(_THE_LINTER_ANSWERS)
 def test_pylint_step_fails_on_a_message_the_score_rounds_away(tmp_path: Path) -> None:
     """The pylint step fails on one message even where the score reads 10.00.
 
@@ -611,6 +621,7 @@ def test_pylint_step_fails_on_a_message_the_score_rounds_away(tmp_path: Path) ->
     assert result.returncode != 0, result.stdout
 
 
+@pytest.mark.process(_THE_LINTER_ANSWERS)
 def test_pylint_config_fails_any_message_and_scores_it(tmp_path: Path) -> None:
     """Under the repository's pylint config one message fails the run and costs a point.
 
@@ -629,6 +640,11 @@ def test_pylint_config_fails_any_message_and_scores_it(tmp_path: Path) -> None:
     assert result.returncode != 0, result.stdout
 
 
+_A_SHELL_RUNS_THE_LOOP = (
+    "only a POSIX shell answers how it runs the loop's && and || chains, test -n and subshell cd"
+)
+
+
 def _go_loop(tmp_path: Path, listing: list[str], cmd: str, *, list_status: int = 0) -> int:
     """Run :func:`in_every_go_module` over ``cmd`` with a ``go`` that lists ``listing``."""
     bin_dir = tmp_path / "bin"
@@ -642,6 +658,7 @@ def _go_loop(tmp_path: Path, listing: list[str], cmd: str, *, list_status: int =
     return run_capture([sh, "-c", in_every_go_module(cmd)], cwd=tmp_path, env=env).returncode
 
 
+@pytest.mark.process(_A_SHELL_RUNS_THE_LOOP)
 def test_the_go_module_loop_runs_the_command_in_every_listed_module(tmp_path: Path) -> None:
     """Every module ``go list -m`` names gets the command, and the step passes."""
     modules = [tmp_path / name for name in ("core", "cli", "excel")]
@@ -651,6 +668,7 @@ def test_the_go_module_loop_runs_the_command_in_every_listed_module(tmp_path: Pa
     assert all((m / "ran").exists() for m in modules)
 
 
+@pytest.mark.process(_A_SHELL_RUNS_THE_LOOP)
 def test_the_go_module_loop_fails_when_one_module_fails(tmp_path: Path) -> None:
     """A module whose command fails fails the step, wherever it sits in the list."""
     modules = [tmp_path / name for name in ("core", "cli", "excel")]
@@ -660,6 +678,7 @@ def test_the_go_module_loop_fails_when_one_module_fails(tmp_path: Path) -> None:
     assert _go_loop(tmp_path, listing, 'test "$(basename "$PWD")" != cli') == 1
 
 
+@pytest.mark.process(_A_SHELL_RUNS_THE_LOOP)
 def test_the_go_module_loop_fails_when_the_listing_fails_or_is_empty(tmp_path: Path) -> None:
     """A workspace go cannot list, or one listing nothing, is a failure, never a pass."""
     (tmp_path / "failed").mkdir()
