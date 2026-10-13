@@ -330,28 +330,7 @@ jobs:
       # toolchain) from apt.llvm.org.  The cmake step below invokes clang-23
       # explicitly, so no update-alternatives is needed.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: |
-          set -euo pipefail
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
-          # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
-          # form; the toolchain policy tracks the latest stable release rather
-          # than a floor, so take 15 from the toolchain PPA the same way clang
-          # comes from apt.llvm.org.  add-apt-repository is used here, rather
-          # than the hand-written deb line the runtime image needs, only
-          # because the runners already carry it and it fetches the key.
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          mkdir -p ~/llvm-cache
-          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
-            sudo apt-get install -y --download-only \
-              -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-23 clang-tidy-23 libstdc++-15-dev
-            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
-          fi
-          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 
       # stability_run errors if these are absent (build/libaletheia-ffi.so and
       # cpp/build/stability_bench).  Build them up front; the Go harness is
@@ -624,22 +603,7 @@ jobs:
       # llvm-cov-23 beside the compiler.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         if: env.LANE_MEASURES != '0'
-        run: |
-          set -euo pipefail
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          mkdir -p ~/llvm-cache
-          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
-            sudo apt-get install -y --download-only \
-              -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-23 clang-tidy-23 libstdc++-15-dev
-            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
-          fi
-          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 
       # The kernel every suite loads.  Restore-only: pr-full-ci is the one
       # saver, and `cabal run shake -- build` no-ops on a hit.
