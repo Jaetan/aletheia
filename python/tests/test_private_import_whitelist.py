@@ -193,6 +193,14 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._enrichment",
             "format_formula",
         ),
+        # The renderer's own lazy load is the ABI test's claim: it reads the
+        # library's version and refuses another before registering it, which no
+        # public path reaches until a backend has registered a library.
+        (
+            "test_ffi_abi_version.py",
+            "aletheia.client._enrichment",
+            "get_renderer_lib",
+        ),
         # FFI loader security test exercises the ALETHEIA_LIB
         # world/group-writable rejection path directly.
         # ``find_ffi_library`` is binding-internal — public callers go

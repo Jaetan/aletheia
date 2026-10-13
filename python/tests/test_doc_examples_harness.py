@@ -29,7 +29,7 @@ import pytest
 from pytest_markdown_docs.plugin import extract_fence_tests
 
 from tools._ci_steps import DOC_EXAMPLE_DOCS
-from tools._common import git_ls_files
+from tools._common import RelPath, git_ls_files
 from tools.check_fence_marks import harness_markdown_it
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -102,10 +102,18 @@ def test_every_tracked_python_fence_is_in_a_harness_document() -> None:
     assert not unlisted, f"Python fences the harness does not run: {unlisted}"
 
 
+@pytest.fixture(scope="module", name="tracked")
+def _tracked() -> frozenset[RelPath]:
+    """Return the tracked files the listed documents name, from one listing of them all."""
+    return frozenset(git_ls_files(REPO_ROOT, *map(str, DOC_EXAMPLE_DOCS)))
+
+
 @pytest.mark.parametrize("doc", DOC_EXAMPLE_DOCS, ids=str)
-def test_the_harness_runs_every_python_fence_of_the_document(doc: Path) -> None:
+def test_the_harness_runs_every_python_fence_of_the_document(
+    doc: Path, tracked: frozenset[RelPath]
+) -> None:
     """``doc`` is tracked and carries a Python fence, and the harness skips none of them."""
-    assert git_ls_files(REPO_ROOT, str(doc)) == [str(doc)], f"{doc} is listed and not tracked"
+    assert str(doc) in tracked, f"{doc} is listed and not tracked"
     fences = _python_fences(doc)
     assert fences, f"{doc} carries no Python fence, so the harness runs nothing in it"
     skipped = sorted(fences - _run_fences(doc))

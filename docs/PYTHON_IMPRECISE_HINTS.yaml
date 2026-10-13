@@ -1253,7 +1253,7 @@ hints:
     count: 3
   - file: python/tests/test_check_build_incremental.py
     text: "tuple[Path, int]"
-    count: 2
+    count: 1
   - file: python/tests/test_check_clang_tidy_coverage.py
     text: "list[str]"
     count: 1

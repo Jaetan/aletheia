@@ -13,15 +13,17 @@ the repository's ``build/``.
 
 import os
 import re
-import subprocess
-import sys
 from pathlib import Path
-from typing import NewType
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 
 from aletheia import FFIBackend, FFIError
+from aletheia.client._enrichment import get_renderer_lib
 from aletheia.client._ffi import ABI_VERSION
+
+if TYPE_CHECKING:
+    import ctypes
 
 # A stand-in kernel's name, the stem of its source under haskell-shim/test.
 StandInName = NewType("StandInName", str)
@@ -61,24 +63,21 @@ def test_a_library_without_the_version_export_is_refused() -> None:
         FFIBackend(lib_path=_stand_in(StandInName("symbolless")))
 
 
-def test_the_renderer_refuses_a_library_at_another_version() -> None:
-    """The renderer's own load reads the version too, in a process that has no backend."""
+def test_the_renderer_refuses_a_library_at_another_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The renderer's own load reads the version too, with no backend's library registered.
+
+    The refused library is never registered: the renderer's cell stays empty.
+    """
     stale = _stand_in(StandInName("stale_abi_kernel"))
-    probe = (
-        "from aletheia.client._enrichment import get_renderer_lib\n"
-        "try:\n"
-        "    get_renderer_lib()\n"
-        "except Exception as exc:\n"
-        "    print(type(exc).__name__, exc)\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        env={**os.environ, "ALETHEIA_LIB": str(stale)},
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert result.stdout.strip() == (
-        f"FFIError the library implements ABI version {ABI_VERSION + 1}, "
+    cell: list[ctypes.CDLL | None] = [None]
+    monkeypatch.setattr("aletheia.client._enrichment._RENDERER_LIB", cell)
+    monkeypatch.setenv("ALETHEIA_LIB", str(stale))
+    with pytest.raises(FFIError) as refused:
+        _ = get_renderer_lib()
+    assert str(refused.value) == (
+        f"the library implements ABI version {ABI_VERSION + 1}, "
         f"and this binding needs {ABI_VERSION}"
     )
+    assert cell == [None]

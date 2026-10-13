@@ -17,16 +17,17 @@ records no lane runs.
 from __future__ import annotations
 
 import ast
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from tools._common import RelPath, git_ls_files, git_toplevel
+from tools._common import RelPath, git_ls_files
 
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-_REPO: Final = git_toplevel()
+_REPO: Final = Path(__file__).resolve().parents[2]
 
 # Every runnable file that reads its arguments without a parser of its own, and why.
 _EXEMPT: Final[dict[RelPath, Prose]] = {
