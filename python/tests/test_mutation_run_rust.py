@@ -9,26 +9,35 @@ the tree, the counts are read from the file, a survivor is keyed on the
 mutation and its source line the way the C++ ledger keys one, a sweep that
 reached no mutant is an error rather than a clean run of nothing, the tool's
 version is read off its banner, and the verdict refuses a survivor the record
-does not name.
+does not name.  The sweeps start no process: the tool, the scratch copy and
+the commit at HEAD are stood in on the test's own thread, so what each test
+holds is the lane's use of them.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
-import sys
+import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NewType, NoReturn, SupportsInt, cast
 
 from _executors import DrivenExecutor
-from _git_repo import repo_with_an_uncommitted_edit
+from _processes import CommandWord
+from _scratch_copies import install as install_copies
 
 from tools import mutation_run, mutation_rust
-from tools.mutation_report import MutationReport, Observed
+from tools.mutation_go import ShortSha
+from tools.mutation_report import MutantCount, MutationReport, Observed
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator, Mapping
 
     import pytest
+    from _scratch_copies import ScratchCopies
 
     from tools.mutation_report import BindingSpec
 
@@ -172,63 +181,167 @@ def test_the_timeout_ceiling_is_read_before_the_count() -> None:
     assert entry.get("observed_timeouts") == 300
 
 
-# A stand-in for cargo-mutants: it records the directory it ran in and the
-# source it found there, writes a mutant into that source as the real tool
-# does, and reports one caught mutant.
-_FAKE_CARGO = """\\
-import json
-import os
-import sys
-from pathlib import Path
+# A stand-in for cargo-mutants on the test's thread, installed where the lane
+# calls the tool.  The listing gives ten mutants of the crate, dealt
+# round-robin to the shards as cargo-mutants deals them: enough that each of a
+# split sweep's eight shards gets one.  A shard's sweep records the directory
+# it ran in and the source it found there, writes a mutant into that source as
+# the real tool does, and reports its share of the mutants caught.
 
-# Ten mutants of the crate, dealt round-robin to the shards as cargo-mutants deals them:
-# enough that each of a split sweep's eight shards gets one.
-def mutant(line, name):
-    span = {"start": {"line": line, "column": 1}, "end": {"line": line, "column": 2}}
-    return {"file": "src/lib.rs", "name": f"src/lib.rs:{line}:1: {name}", "span": span}
-
-listed = [mutant(line, f"replace {line}") for line in range(1, 11)]
-if "--list" in sys.argv:
-    print(json.dumps(listed))
-    sys.exit(0)
-number, total = (int(part) for part in sys.argv[sys.argv.index("--shard") + 1].split("/"))
-out = Path(sys.argv[sys.argv.index("--output") + 1])
-source = Path.cwd() / "src" / "lib.rs"
-seen = source.read_text(encoding="utf-8")
-_ = source.write_text("mutant\\n", encoding="utf-8")
-(out / "mutants.out").mkdir(parents=True, exist_ok=True)
-_ = (out / "ran_in.txt").write_text(f"{Path.cwd()}\\n{seen}", encoding="utf-8")
-_ = (out / "debug.txt").write_text(os.environ.get("CARGO_PROFILE_DEV_DEBUG", "unset"))
-_ = (out / "shard.txt").write_text(f"{number}/{total}")
-mine = [m for index, m in enumerate(listed) if index % total == number]
-outcomes = [{"scenario": "Baseline", "summary": "Success"}] + [
-    {"scenario": {"Mutant": m}, "summary": "CaughtMutant"} for m in mine
-]
-counts = {"caught": len(mine), "missed": 0, "timeout": 0, "unviable": 0, "success": 0}
-document = {"outcomes": outcomes, "total_mutants": len(mine), **counts}
-_ = (out / "mutants.out" / "outcomes.json").write_text(json.dumps(document))
-"""
+# A variable of a run's environment, and the value it is set to.
+_EnvName = NewType("_EnvName", str)
+_EnvValue = NewType("_EnvValue", str)
 
 
-def _crate_repo(root: Path) -> Path:
-    """Build a repository whose crate source is committed, then edited and not committed."""
-    return repo_with_an_uncommitted_edit(root, Path("rust/src/lib.rs"))
+def _listed_mutant(line: mutation_rust.SourceIndex) -> mutation_rust.ListedMutant:
+    """One mutant of ``src/lib.rs`` at ``line``, as ``cargo mutants --list --json`` spells it."""
+    span = mutation_rust.SourceSpan(
+        start=mutation_rust.SourcePosition(line=line, column=mutation_rust.SourceIndex(1)),
+        end=mutation_rust.SourcePosition(line=line, column=mutation_rust.SourceIndex(2)),
+    )
+    return mutation_rust.ListedMutant(
+        file=mutation_rust.CrateFile("src/lib.rs"),
+        name=mutation_rust.MutationName(f"src/lib.rs:{line}:1: replace {line}"),
+        span=span,
+    )
 
 
-def _sweepable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Stand the tool in for a repository whose crate carries an uncommitted edit; give the repo."""
-    repo = _crate_repo(tmp_path / "repo")
-    cargo = tmp_path / "cargo"
-    _ = cargo.write_text(f"#!{sys.executable}\n{_FAKE_CARGO}", encoding="utf-8")
-    cargo.chmod(0o755)
+_LISTED = [_listed_mutant(mutation_rust.SourceIndex(line)) for line in range(1, 11)]
+
+
+@dataclass(frozen=True)
+class _Run:
+    """One run of the stood-in tool: the words, the directory and the environment it was given."""
+
+    argv: tuple[CommandWord, ...]
+    cwd: Path
+    env: dict[_EnvName, _EnvValue]
+
+    def after(self, flag: CommandWord) -> CommandWord:
+        """Give the word that follows ``flag``."""
+        return self.argv[self.argv.index(flag) + 1]
+
+
+@dataclass
+class _Cargo:
+    """cargo-mutants, as the lane lists with it and sweeps each shard with it."""
+
+    listings: list[_Run] = field(default_factory=list[_Run])
+    sweeps: list[_Run] = field(default_factory=list[_Run])
+
+    def capture(
+        self, cmd: list[CommandWord], *, cwd: Path, env: Mapping[_EnvName, _EnvValue]
+    ) -> subprocess.CompletedProcess[Prose]:
+        """Print the listing, the one call the lane captures."""
+        assert cmd[1:] == ["mutants", "--list", "--json"]
+        self.listings.append(_Run(tuple(cmd), cwd, dict(env)))
+        return subprocess.CompletedProcess(cmd, 0, Prose(f"{json.dumps(_LISTED)}\n"), Prose(""))
+
+    def stream(
+        self,
+        cmd: list[CommandWord],
+        *,
+        cwd: Path,
+        env: Mapping[_EnvName, _EnvValue],
+        sink: Callable[[Prose], SupportsInt],
+    ) -> subprocess.CompletedProcess[Prose]:
+        """Sweep the shard ``--shard`` names, writing its outcomes under ``--output``."""
+        run = _Run(tuple(cmd), cwd, dict(env))
+        self.sweeps.append(run)
+        number, total = (int(part) for part in run.after(CommandWord("--shard")).split("/"))
+        out = Path(run.after(CommandWord("--output")))
+        source = cwd / "src" / "lib.rs"
+        seen = source.read_text(encoding="utf-8")
+        _ = source.write_text("mutant\n", encoding="utf-8")
+        (out / "mutants.out").mkdir(parents=True, exist_ok=True)
+        _ = (out / "ran_in.txt").write_text(f"{cwd}\n{seen}", encoding="utf-8")
+        debug = run.env.get(_EnvName(mutation_rust.SWEEP_DEBUG_VAR), _EnvValue("unset"))
+        _ = (out / "debug.txt").write_text(debug)
+        _ = (out / "shard.txt").write_text(f"{number}/{total}")
+        document = _shard_outcomes(mutation_rust.RustShard(number), mutation_rust.ShardCount(total))
+        _ = (out / "mutants.out" / "outcomes.json").write_text(json.dumps(document))
+        # A sweep prints nothing, so no line reaches the lane's log.
+        del sink
+        return subprocess.CompletedProcess(cmd, 0, Prose(""), Prose(""))
+
+
+def _shard_outcomes(
+    number: mutation_rust.RustShard, total: mutation_rust.ShardCount
+) -> mutation_rust.SweepOutcomes:
+    """Give one shard's outcomes: its round-robin share of the listing, every mutant caught."""
+    mine = [m for index, m in enumerate(_LISTED) if index % total == number]
+    outcomes: list[mutation_rust.MutantOutcome] = [
+        {"scenario": "Baseline", "summary": mutation_rust.OutcomeSummary("Success")},
+        *(
+            mutation_rust.MutantOutcome(
+                scenario={"Mutant": m}, summary=mutation_rust.OutcomeSummary("CaughtMutant")
+            )
+            for m in mine
+        ),
+    ]
+    caught, none = MutantCount(len(mine)), MutantCount(0)
+    return {
+        "outcomes": outcomes,
+        "total_mutants": caught,
+        "caught": caught,
+        "missed": none,
+        "timeout": none,
+        "unviable": none,
+        "success": none,
+    }
+
+
+def _install_cargo(monkeypatch: pytest.MonkeyPatch) -> _Cargo:
+    """Stand the tool in where the lane lists and sweeps with it; give the stand-in."""
+    cargo = _Cargo()
+    monkeypatch.setattr(mutation_rust, "run_capture", cargo.capture)
+    monkeypatch.setattr(mutation_rust, "run_streaming", cargo.stream)
+    return cargo
+
+
+# The commit the stood-in ``short_sha`` reads at HEAD.
+_COMMIT = ShortSha("abc1234")
+
+
+@dataclass
+class _Commit:
+    """``short_sha`` stood in: the fixed commit, and every tree it was asked of."""
+
+    asked: list[Path | None] = field(default_factory=list[Path | None])
+
+    def __call__(self, repo_root: Path | None = None) -> ShortSha:
+        """Record ``repo_root`` and give the fixed commit."""
+        self.asked.append(repo_root)
+        return _COMMIT
+
+
+@dataclass(frozen=True)
+class _Lane:
+    """The planted tree, and the stand-ins a sweep of it runs on."""
+
+    repo: Path
+    copies: ScratchCopies
+    cargo: _Cargo
+    commit: _Commit
+
+
+def _sweepable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Lane:
+    """Plant a tree whose crate source reads its uncommitted edit, and stand in what sweeps it."""
+    repo = tmp_path / "repo"
+    source = repo / mutation_rust.CRATE / "src" / "lib.rs"
+    source.parent.mkdir(parents=True)
+    _ = source.write_text("uncommitted edit\n", encoding="utf-8")
     lib = tmp_path / "libaletheia-ffi.so"
 
     def tools_found(_pinned: str | None) -> tuple[str, Path]:
-        return str(cargo), lib
+        return str(tmp_path / "cargo"), lib
 
+    copies = install_copies(monkeypatch, tmp_path / "copies")
+    lane = _Lane(repo, copies, _install_cargo(monkeypatch), _Commit())
     monkeypatch.setattr(mutation_rust, "REPO_ROOT", repo)
     monkeypatch.setattr(mutation_rust, "_check_rust_tools", tools_found)
-    return repo
+    monkeypatch.setattr(mutation_rust, "short_sha", lane.commit)
+    return lane
 
 
 def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
@@ -236,16 +349,22 @@ def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tool runs in a copy carrying the uncommitted edit; the tree keeps its source."""
-    repo = _sweepable(tmp_path, monkeypatch)
+    lane = _sweepable(tmp_path, monkeypatch)
+    repo = lane.repo
     monkeypatch.setattr(mutation_rust, "rust_shards", lambda: mutation_rust.ShardCount(2))
     artifacts = tmp_path / "artifacts"
     report = mutation_rust.run_rust(artifacts, executor=DrivenExecutor)
     assert report.error is None
     assert (report.killed, report.survived) == (10, 0)
+    # A copy of the tree was asked for each shard, and each shard swept its own copy's crate.
+    assert lane.copies.asked == [repo, repo]
+    crates = [copy / mutation_rust.CRATE for copy in lane.copies.made]
+    assert [run.cwd for run in lane.cargo.sweeps] == crates
     copies: set[Path] = set()
     for number in (0, 1):
         ran = artifacts / "rust" / f"shard-{number}" / "ran_in.txt"
         ran_in, seen = ran.read_text(encoding="utf-8").split("\n", 1)
+        assert Path(ran_in) == crates[number]
         assert Path(ran_in).name == "rust"
         assert not Path(ran_in).is_relative_to(repo)
         assert seen == "uncommitted edit\n"
@@ -256,7 +375,13 @@ def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
         assert debug == mutation_rust.SWEEP_DEBUG
     # Each shard swept a copy of its own: one copy holds one mutant at a time.
     assert len(copies) == 2
+    assert not any(copy.exists() for copy in lane.copies.made)
     assert (repo / "rust" / "src" / "lib.rs").read_text(encoding="utf-8") == "uncommitted edit\n"
+
+
+def _refuse(message: Prose) -> NoReturn:
+    """Raise the ``RuntimeError`` ``scratch_worktree`` raises for a git step that failed."""
+    raise RuntimeError(message)
 
 
 def test_a_tree_that_cannot_be_copied_is_a_refusal(
@@ -264,21 +389,28 @@ def test_a_tree_that_cannot_be_copied_is_a_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With no scratch copy there is no sweep: the report says why, and the tool never ran."""
-    cargo = tmp_path / "cargo"
-    _ = cargo.write_text(f"#!{sys.executable}\n{_FAKE_CARGO}", encoding="utf-8")
-    cargo.chmod(0o755)
+    cargo = _install_cargo(monkeypatch)
 
     def tools_found(_pinned: str | None) -> tuple[str, Path]:
-        return str(cargo), tmp_path / "libaletheia-ffi.so"
+        return str(tmp_path / "cargo"), tmp_path / "libaletheia-ffi.so"
 
     outside = tmp_path / "outside"
     outside.mkdir()
+    step = f"git worktree add -q --detach {tmp_path / 'tree'} HEAD"
+    refused = Prose(f"{step} failed in {outside}: fatal: not a git repository")
+
+    @contextlib.contextmanager
+    def refusing(_repo_root: Path) -> Generator[Path]:
+        yield _refuse(refused)
+
+    monkeypatch.setattr("tools.mutation_report.scratch_worktree", refusing)
     monkeypatch.setattr(mutation_rust, "REPO_ROOT", outside)
     monkeypatch.setattr(mutation_rust, "_check_rust_tools", tools_found)
     artifacts = tmp_path / "artifacts"
     report = mutation_rust.run_rust(artifacts, executor=DrivenExecutor)
     assert report.error is not None
-    assert report.error.startswith("no scratch copy of the tree: git worktree add")
+    assert report.error == f"no scratch copy of the tree: {refused}"
+    assert (cargo.listings, cargo.sweeps) == ([], [])
     assert not (artifacts / "rust").exists()
 
 
@@ -288,10 +420,9 @@ def _job(jobs: Path, monkeypatch: pytest.MonkeyPatch, job: mutation_rust.RustJob
     The job's summary records the commit and its binding, as the runner's does.
     """
     monkeypatch.setenv(mutation_rust.RUST_STAGE_ENV, str(job))
-    commit = mutation_rust.short_sha(mutation_rust.REPO_ROOT)
-    artifacts = jobs / f"mutation-rust-{job}" / commit
+    artifacts = jobs / f"mutation-rust-{job}" / _COMMIT
     report = mutation_rust.run_rust(artifacts, executor=DrivenExecutor)
-    summary = {"commit": commit, "runs": [{"binding": report.binding}]}
+    summary = {"commit": _COMMIT, "runs": [{"binding": report.binding}]}
     _ = (artifacts / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
     return report
 
@@ -308,20 +439,23 @@ def test_a_job_sweeps_its_four_of_the_jobs_eight_shards(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Job two takes shards four to seven of eight, whatever CPUs it has, and keeps the listing."""
-    _ = _sweepable(tmp_path, monkeypatch)
+    lane = _sweepable(tmp_path, monkeypatch)
     report = _job(tmp_path / "jobs", monkeypatch, mutation_rust.RustJob(2))
     assert report.error is None
     assert report.binding == "rust-2"
     artifacts = next((tmp_path / "jobs").rglob(mutation_rust.RUST_LISTING)).parent
     dealt = sorted(path.read_text() for path in (artifacts / "rust").glob("shard-*/shard.txt"))
     assert dealt == ["4/8", "5/8", "6/8", "7/8"]
+    shards = [run.after(CommandWord("--shard")) for run in lane.cargo.sweeps]
+    assert shards == ["4/8", "5/8", "6/8", "7/8"]
+    assert lane.copies.asked == [lane.repo] * mutation_rust.RUST_JOB_SHARDS
 
 
 def test_the_jobs_merge_into_the_whole_sweep(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The jobs' eight shards merge into the outcomes and the verdict one whole sweep gives."""
-    _ = _sweepable(tmp_path, monkeypatch)
+    lane = _sweepable(tmp_path, monkeypatch)
     jobs = tmp_path / "jobs"
     assert _job(jobs, monkeypatch, mutation_rust.RustJob(1)).error is None
     assert _job(jobs, monkeypatch, mutation_rust.RustJob(2)).error is None
@@ -331,6 +465,8 @@ def test_the_jobs_merge_into_the_whole_sweep(
     assert (merged.killed, merged.survived) == (10, 0)
     outcomes = json.loads((tmp_path / "out" / mutation_rust.OUTCOMES).read_text(encoding="utf-8"))
     assert outcomes["total_mutants"] == 10
+    # The merge reads the commit of the tree it merges for.
+    assert lane.commit.asked == [lane.repo]
 
 
 def _two_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -364,6 +500,7 @@ def test_a_job_of_another_commit_is_refused(
     merged = _merge(jobs, monkeypatch, tmp_path / "out")
     assert merged.error is not None
     assert "the rust-2 job swept 0000000" in merged.error
+    assert f", this merge is at {_COMMIT}" in merged.error
 
 
 def test_a_shard_missing_from_the_jobs_is_refused(
