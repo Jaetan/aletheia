@@ -25,6 +25,18 @@ back:
 * a row naming more sites than the file holds fails the gate, which prints the
   row to lower or delete.
 
+A second net, each binding's own and wider than its catalogue, reads the same
+code for words that name a clock, a timer, a wait, a thread, a task or a
+process; a word it finds that no catalogue site covers is not counted, whether
+the catalogue does not know it or exempts it.  ``tools/_determinism_dismissals.py``
+holds those words, each with the reason recorded for it, for one file or, with no
+file, for every test of its binding; a word no row dismisses fails, and in the
+tree's run so does a row no site needs.  Adding a row needs user approval.  A
+word that starts a process in a Python test under ``python/tests/``, the fuzz
+harnesses apart, is left to the runtime guard (``tools/_determinism_guard.py``,
+by the test's ``@pytest.mark.process`` reason) rather than to a row; the guard
+sees only the suite's own process, not a script there that a test runs as a child.
+
 What is a test file, per binding: ``*_test.go`` under ``go/``; every Python file
 under ``python/tests/`` and the repository's ``conftest.py``; every C++ source
 under ``cpp/tests/``; every Rust file under a crate's ``tests/`` or holding a
@@ -35,8 +47,9 @@ site, and a name bound by an import, a ``use`` or a using-declaration is read
 as the qualified name it stands for, so no spelling of an import hides one.  A
 Python test's string literal that is a script, one that parses and calls or
 imports something, is read as the child source it is: a test hands a child
-interpreter its script that way.  The gate's own test is the exception, its
-strings being the fixtures it feeds the gate.
+interpreter its script that way.  The gate's test of its catalogue and the
+runtime guard's test are the exception, their strings being the fixtures they
+feed what they test.
 
 An example is not a test: a documentation fence and a file under
 ``examples/`` show production use, and keep the threads and timers that use
@@ -57,7 +70,7 @@ an edit, with the record's rows for REL, which is what the write-time hook runs;
 ``--is-test REL...`` prints each REL that is a test file, or a directory holding
 a tracked one, and exits 0 when it printed one and 1 when it did not, so the
 hook asks this module what a test is rather than spelling it again.  Exit 0 is
-clean, 1 a site or a row out of step, 2 a file or the record that cannot be read.
+clean, 1 a site, a word or a row out of step, 2 a file or the record that cannot be read.
 """
 
 from __future__ import annotations
@@ -68,19 +81,34 @@ import io
 import re
 import sys
 import textwrap
-import tokenize
 import tomllib
-import warnings
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 from tools._common import RelPath, emit, git_ls_files, git_toplevel
+from tools._determinism_dismissals import DISMISSED, Dismissal
+from tools._determinism_reading import (
+    BlankedCode,
+    blank_cpp,
+    blank_go,
+    blank_python,
+    blank_rust,
+    python_tree,
+    spell_cpp_aliases,
+    spell_go_aliases,
+    spell_python_aliases,
+    spell_rust_aliases,
+)
 from tools._determinism_syntax import (
     ASYNC_CLIENT_ON_A_THREAD,
+    CPP,
+    GO,
+    PYTHON,
     REPLAYING_PROFILE,
+    RUST,
     UNSEEDED_PROPERTY,
-    BoundName,
-    DottedName,
+    BindingName,
+    NetWord,
     SiteCount,
     SourceText,
     async_clients_on_a_thread,
@@ -88,22 +116,20 @@ from tools._determinism_syntax import (
     unseeded_properties,
 )
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
-from tools.check_cpp_index_loops import blank_noncode
 
-from aletheia.common_types import ExitStatus
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
 RECORD = Path("docs/TEST_DETERMINISM.yaml")
 # Cargo's configuration for every Rust crate, whose environment runs each test
 # binary's tests one at a time; the harness otherwise runs them side by side.
 RUST_CARGO_CONFIG = Path("rust/.cargo/config.toml")
+# The table of the net's words dismissed in tests, each with its reason.
+_DISMISSALS = Path("tools/_determinism_dismissals.py")
 CLEAN, OUT_OF_STEP, UNREADABLE = ExitStatus(0), ExitStatus(1), ExitStatus(2)
 
-# A test file's text with its comments and literals blanked to spaces, every
-# offset and newline kept: only it is scanned.
-BlankedCode = NewType("BlankedCode", str)
 # A regular expression's source, compiled where it is matched.
 RegexSource = NewType("RegexSource", str)
 
@@ -280,17 +306,43 @@ _RUST = (
     ),
 )
 
+# Each binding's wide net: words that name a clock, a timer, a wait, a thread, a
+# task or a process, past the catalogue's spellings.  A word it finds that no
+# catalogue site covers fails the gate until a row of
+# tools/_determinism_dismissals.py dismisses it, with its reason.
+_GO_NET = RegexSource(
+    r"\btime\.\w+|\bsync\.\w+|\berrgroup\b|\bselect\s*\{|\bchan\b|\bruntime\.\w+"
+    + r"|\bexec\.Command\w*|\bsignal\.\w+|\bb\.(?:Elapsed|ResetTimer|StartTimer|StopTimer|Loop)\b"
+    + r"|\bos\.StartProcess\b|\bSetDeadline\b|\bsynctest\b"
+    + r"|\bsyscall\.(?:ForkExec|StartProcess)\b"
+)
+_PYTHON_NET = RegexSource(
+    r"\btime\b|\bthreading\.\w+|\bThread\b|\bTimer\b|\basyncio\.\w+|\bloop\.\w+|\bconcurrent\b"
+    + r"|\bsubprocess\.\w+|\bPopen\b|\bsignal\.\w+|\bselect\.\w+|\bselectors\b|\bsched\b"
+    + r"|\btimeit\b|\b(?:datetime\.)?(?:datetime|date)\.(?:now|utcnow|today)\b"
+    + r"|\bos\.(?:times|fork\w*|utime|kill|wait\w*|getpid)\b"
+    + r"|\bos\.(?:system|posix_spawnp?|spawn\w*|popen)\b"
+    + r"|\bst_[amc]time\w*|\bresource\.(?!RLIMIT_AS\b|setrlimit\b)\w+|\bfaulthandler\.\w+"
+    + r"|\bmark\.timeout\b|\bsettimeout\b"
+    + r"|\bsleep\b|\bmonotonic\b|\bperf_counter\b|\bwait\s*\(|\bas_completed\b|\banyio\b|\btrio\b"
+    + r"|\bfreezegun\b|\bqueue\.\w+|\bBarrier\b|\bCondition\b|\bSemaphore\b"
+)
+_CPP_NET = RegexSource(
+    r"\bchrono\b|\b\w*_clock\b|\bj?thread\b|\bthis_thread::\w+|\basync\b|\bfuture\b|\bpromise\b"
+    + r"|\bpackaged_task\b|\bcondition_variable\w*|\bclock\s*\(|\bfork\s*\(|\bposix_spawn\w*"
+    + r"|\bpopen\s*\(|\bsystem\s*\(|\blatch\b|\bbarrier\b|\bsemaphore\b|\batomic\w*|\bpoll\s*\("
+    + r"|\bselect\s*\(|\bepoll\w*|\bpthread_\w+|\bwait\w*\s*\(|\bstop_token\b|\bstop_source\b"
+    + r"|\bvfork\s*\(|\btime\s*\("
+)
+_RUST_NET = RegexSource(
+    r"\bstd::time\b|\bDuration\b|\bInstant\b|\bSystemTime\b|\bUNIX_EPOCH\b|\bthread\b"
+    + r"|\bspawn\w*\b|\btokio\w*|\basync_std\b|\bsmol\b|\brayon\b|\bcrossbeam\b|\bblock_on\b"
+    + r"|\bmpsc\b|\bCondvar\b|\bBarrier\b|\bpark\w*\b|\bCommand\b|\bchrono\b|\bjoin!|\bselect!"
+    + r"|\bsleep\b|\belapsed\b|\bMutex\b|\bAtomic\w+"
+    + r"|\blibc::(?:v?fork|posix_spawn\w*|system|popen)\b"
+)
 
-# Comments, string literals and rune or character literals, blanked with their
-# newlines kept, so a scan never reads a primitive named in prose.
-_GO_NONCODE = re.compile(
-    r"//[^\n]*|/\*.*?\*/|`[^`]*`|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])+'",
-    re.DOTALL,
-)
-_RUST_NONCODE = re.compile(
-    r"//[^\n]*|/\*.*?\*/|r(#*)\".*?\"\1|b?\"(?:\\.|[^\"\\])*\"|b?'(?:\\.|[^'\\\n])'",
-    re.DOTALL,
-)
+
 # A module declared under ``#[cfg(test)]``, by its name, whatever attributes
 # follow: in line, or held in a file of its own.
 _CFG_TEST_MOD_HEAD = (
@@ -298,337 +350,6 @@ _CFG_TEST_MOD_HEAD = (
 )
 _CFG_TEST_MOD = re.compile(_CFG_TEST_MOD_HEAD + r"\{")
 _CFG_TEST_MOD_NAMED = re.compile(_CFG_TEST_MOD_HEAD + r"[;{]")
-
-
-def blank_go(text: SourceText) -> BlankedCode:
-    """Return Go source with its comments and literals blanked, offsets preserved."""
-    return BlankedCode(_GO_NONCODE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text))
-
-
-def blank_rust(text: SourceText) -> BlankedCode:
-    """Return Rust source with its comments and literals blanked, offsets preserved."""
-    return BlankedCode(_RUST_NONCODE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text))
-
-
-def blank_cpp(text: SourceText) -> BlankedCode:
-    """Return C++ source blanked as the index-loop gate blanks it."""
-    return BlankedCode(blank_noncode(text))
-
-
-def blank_python(text: SourceText) -> BlankedCode:
-    """Return Python source with its comments and string literals blanked.
-
-    Read by the tokenizer, which knows every string prefix and nesting the
-    language allows; a file the tokenizer refuses is returned unblanked, so its
-    sites are counted rather than hidden.  The rows end where the parser's do,
-    at a line feed, a carriage return or the two together, so a line separator
-    inside a string ends none.
-    """
-    out = [list(line) for line in io.StringIO(text, newline="").readlines()]
-    try:
-        tokens = list(tokenize.generate_tokens(io.StringIO(text, newline="").readline))
-    except tokenize.TokenError, SyntaxError:
-        return BlankedCode(text)
-    blanked = {tokenize.COMMENT, tokenize.STRING, tokenize.FSTRING_MIDDLE, tokenize.TSTRING_MIDDLE}
-    for token in tokens:
-        if token.type not in blanked:
-            continue
-        (start_row, start_col), (end_row, end_col) = token.start, token.end
-        for row in range(start_row, end_row + 1):
-            line = out[row - 1]
-            first = start_col if row == start_row else 0
-            last = end_col if row == end_row else len(line)
-            for col in range(first, last):
-                if line[col] not in "\r\n":
-                    line[col] = " "
-    return BlankedCode("".join("".join(line) for line in out))
-
-
-# The catalogue spells a primitive qualified, as ``time.sleep`` or
-# ``std::thread::spawn``; a test that names one through an import alias, a
-# from-import or a using-declaration is read with that name spelled out again,
-# so no spelling of an import hides a site.  The functions below rewrite the
-# blanked code to the qualified spelling; the result is only counted, never
-# reported, so the offsets it moves do not matter.
-
-# A Rust path ``::``-joined, one of its segments, the text of a Rust use tree,
-# and a Go package's import path.
-RustPath = NewType("RustPath", str)
-PathSegment = NewType("PathSegment", str)
-UseTree = NewType("UseTree", str)
-GoPackage = NewType("GoPackage", str)
-# A character offset into a file's text, and the parser's 1-based row and
-# UTF-8 byte column of a node.
-CharOffset = NewType("CharOffset", int)
-Row = NewType("Row", int)
-ByteColumn = NewType("ByteColumn", int)
-
-# The Python modules whose names the catalogue reads, with the names a star
-# import of each brings in.
-_PY_MODULES: dict[DottedName, tuple[BoundName, ...]] = {
-    DottedName("time"): (
-        BoundName("sleep"),
-        BoundName("monotonic"),
-        BoundName("perf_counter"),
-        BoundName("time"),
-        BoundName("process_time"),
-        BoundName("thread_time"),
-        BoundName("clock_gettime"),
-    ),
-    DottedName("datetime"): (BoundName("datetime"), BoundName("date")),
-    DottedName("threading"): (BoundName("Thread"), BoundName("Timer")),
-    DottedName("_thread"): (BoundName("start_new_thread"),),
-    DottedName("asyncio"): (
-        BoundName("sleep"),
-        BoundName("timeout"),
-        BoundName("timeout_at"),
-        BoundName("wait_for"),
-        BoundName("to_thread"),
-        BoundName("create_task"),
-        BoundName("gather"),
-        BoundName("ensure_future"),
-        BoundName("TaskGroup"),
-    ),
-    DottedName("concurrent.futures"): (
-        BoundName("ThreadPoolExecutor"),
-        BoundName("ProcessPoolExecutor"),
-    ),
-    DottedName("multiprocessing"): (),
-    DottedName("os"): (BoundName("fork"), BoundName("sched_yield")),
-    DottedName("signal"): (BoundName("alarm"), BoundName("setitimer")),
-    DottedName("faulthandler"): (BoundName("dump_traceback_later"),),
-}
-
-
-def _watched_python(dotted: DottedName) -> bool:
-    """Say whether a dotted module path is one of the modules above, inside one or above one."""
-    return any(
-        dotted == module or dotted.startswith(f"{module}.") or module.startswith(f"{dotted}.")
-        for module in _PY_MODULES
-    )
-
-
-def _python_aliases(tree: ast.Module) -> dict[BoundName, DottedName]:
-    """Map each name a Python file binds to a watched module or one of its members."""
-    aliases: dict[BoundName, DottedName] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for name in node.names:
-                if name.asname and _watched_python(DottedName(name.name)):
-                    aliases[BoundName(name.asname)] = DottedName(name.name)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            module = DottedName(node.module)
-            for name in node.names:
-                member = DottedName(f"{module}.{name.name}")
-                if name.name == "*":
-                    for star in _PY_MODULES.get(module, ()):
-                        aliases[star] = DottedName(f"{module}.{star}")
-                elif _watched_python(module) or _watched_python(member):
-                    aliases[BoundName(name.asname or name.name)] = member
-    return aliases
-
-
-def _python_tree(source: SourceText) -> ast.Module | None:
-    """Parse Python source quietly, or None when it is not Python the parser takes."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SyntaxWarning)
-        try:
-            return ast.parse(source)
-        except SyntaxError, ValueError:
-            return None
-
-
-def spell_python_aliases(text: SourceText, code: BlankedCode) -> BlankedCode:
-    """Spell every read of a Python import alias as the qualified name it stands for.
-
-    The names are found by the parser, which sees only code; a file the parser
-    refuses is returned as it came.  Its rows end where the parser's do, at a
-    line feed, a carriage return or the two together.
-    """
-    tree = _python_tree(text)
-    if tree is None:
-        return code
-    aliases = _python_aliases(tree)
-    if not aliases:
-        return code
-    lines = io.StringIO(text, newline="").readlines()
-    starts = [CharOffset(0)]
-    for line in lines:
-        starts.append(CharOffset(starts[-1] + len(line)))
-
-    def offset(row: Row, column: ByteColumn) -> CharOffset:
-        """Turn the parser's row and UTF-8 column into a character offset."""
-        return CharOffset(starts[row - 1] + len(lines[row - 1].encode()[:column].decode()))
-
-    reads = sorted(
-        (
-            (
-                offset(Row(node.lineno), ByteColumn(node.col_offset)),
-                offset(Row(node.lineno), ByteColumn(node.col_offset + len(node.id.encode()))),
-                aliases[BoundName(node.id)],
-            )
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Load)
-            and BoundName(node.id) in aliases
-        ),
-        reverse=True,
-    )
-    spelled = str(code)
-    for start, end, qualified in reads:
-        spelled = spelled[:start] + qualified + spelled[end:]
-    return BlankedCode(spelled)
-
-
-# A Rust ``use`` declaration, whose tree never holds a semicolon, and the paths
-# whose names the catalogue reads, with the names a glob import of each brings in.
-_RUST_USE = re.compile(r"\buse\s+([^;]+);")
-_RUST_PATHS: dict[RustPath, tuple[BoundName, ...]] = {
-    RustPath("std::thread"): (
-        BoundName("sleep"),
-        BoundName("spawn"),
-        BoundName("scope"),
-        BoundName("Builder"),
-        BoundName("yield_now"),
-        BoundName("park_timeout"),
-    ),
-    RustPath("std::time"): (BoundName("Instant"), BoundName("SystemTime")),
-    RustPath("core::time"): (),
-    RustPath("aletheia::AsyncClient"): (),
-    RustPath("crate::AsyncClient"): (),
-    RustPath("tokio"): (BoundName("spawn"), BoundName("time"), BoundName("task")),
-    RustPath("tokio::time"): (BoundName("sleep"), BoundName("timeout"), BoundName("interval")),
-    RustPath("tokio::task"): (
-        BoundName("spawn"),
-        BoundName("spawn_blocking"),
-        BoundName("spawn_local"),
-    ),
-}
-
-
-def _top_level_parts(tree: UseTree) -> list[UseTree]:
-    """Split a use list on the commas outside its nested braces."""
-    parts: list[UseTree] = []
-    depth, start = 0, CharOffset(0)
-    for index, char in enumerate(tree):
-        depth += {"{": 1, "}": -1}.get(char, 0)
-        if char == "," and depth == 0:
-            parts.append(UseTree(tree[start:index]))
-            start = CharOffset(index + 1)
-    parts.append(UseTree(tree[start:]))
-    return [part for part in parts if part.strip()]
-
-
-def _rust_use_tree(
-    prefix: list[PathSegment], tree: UseTree, into: dict[BoundName, RustPath]
-) -> None:
-    """Bind each name a use tree brings in under a watched path to the path it names."""
-    text = str(tree).strip().removeprefix("::")
-    if (brace := text.find("{")) >= 0:
-        head = [PathSegment(part.strip()) for part in text[:brace].split("::") if part.strip()]
-        for part in _top_level_parts(UseTree(text[brace + 1 : text.rindex("}")])):
-            _rust_use_tree(prefix + head, part, into)
-        return
-    path, alias = text, None
-    if renamed := re.fullmatch(r"(.+?)\s+as\s+(\w+)", text, re.DOTALL):
-        path, alias = renamed.group(1), BoundName(renamed.group(2))
-    segments = prefix + [PathSegment(part.strip()) for part in path.split("::") if part.strip()]
-    if segments and segments[-1] == "*":
-        module = "::".join(segments[:-1])
-        for member in _RUST_PATHS.get(RustPath(module), ()):
-            into[member] = RustPath(f"{module}::{member}")
-        return
-    if segments and segments[-1] == "self":
-        segments = segments[:-1]
-    full = "::".join(segments)
-    if segments and any(full == root or full.startswith(f"{root}::") for root in _RUST_PATHS):
-        into[alias or BoundName(segments[-1])] = RustPath(full)
-
-
-def spell_rust_aliases(code: BlankedCode) -> BlankedCode:
-    """Spell every name a Rust ``use`` brings in from a watched path as that path."""
-    names: dict[BoundName, RustPath] = {}
-    for match in _RUST_USE.finditer(code):
-        _rust_use_tree([], UseTree(match.group(1)), names)
-    if not names:
-        return code
-    spelled = _RUST_USE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), code)
-    for name, path in names.items():
-        spelled = re.sub(rf"(?<![\w:.]){re.escape(name)}\b", path, spelled)
-    return BlankedCode(spelled)
-
-
-# A Go import spec that names its package, read from the source at an offset
-# the blanked code shows is code, since the blanking empties the path string.
-_GO_NAMED_IMPORT = re.compile(
-    r'^[ \t]*(?:import[ \t]+)?([A-Za-z_]\w*|\.)[ \t]+"(time|context|runtime)"', re.MULTILINE
-)
-_GO_PACKAGES: dict[GoPackage, tuple[BoundName, ...]] = {
-    GoPackage("time"): tuple(
-        BoundName(name)
-        for name in (
-            "Sleep",
-            "After",
-            "AfterFunc",
-            "NewTimer",
-            "NewTicker",
-            "Tick",
-            "Now",
-            "Since",
-            "Until",
-        )
-    ),
-    GoPackage("context"): tuple(
-        BoundName(name)
-        for name in ("WithTimeout", "WithDeadline", "WithTimeoutCause", "WithDeadlineCause")
-    ),
-    GoPackage("runtime"): (BoundName("Gosched"),),
-}
-
-
-def spell_go_aliases(text: SourceText, code: BlankedCode) -> BlankedCode:
-    """Spell every read through a renamed or dot import of a watched package as the package."""
-    spelled = str(code)
-    for match in _GO_NAMED_IMPORT.finditer(text):
-        name, package = match.group(1), GoPackage(match.group(2))
-        if name == "_" or code[match.start(1)] != text[match.start(1)]:
-            continue
-        if name == ".":
-            members = "|".join(_GO_PACKAGES[package])
-            spelled = re.sub(rf"(?<![\w.])({members})\s*\(", rf"{package}.\1(", spelled)
-        else:
-            spelled = re.sub(rf"(?<![\w.]){re.escape(name)}\.", f"{package}.", spelled)
-    return BlankedCode(spelled)
-
-
-# C++ names a clock, the standard namespace or a thread through an alias, a
-# using-declaration or a using-directive; the lookbehind keeps a member, a
-# qualified name and an ``#include <thread>`` out.
-_CPP_CLOCK_ALIAS = re.compile(
-    r"\busing\s+(\w+)\s*=\s*(?:::)?(?:std::)?(?:chrono::)?(\w+_clock)\s*;"
-    + r"|\btypedef\s+(?:::)?(?:std::)?(?:chrono::)?(\w+_clock)\s+(\w+)\s*;"
-)
-_CPP_STD_ALIAS = re.compile(r"\bnamespace\s+(\w+)\s*=\s*(?:::)?std\s*;")
-_CPP_USING_STD = re.compile(
-    r"\busing\s+namespace\s+std\s*;|\busing\s+(?:::)?std::(j?thread|async)\s*;"
-)
-_CPP_UNQUALIFIED = r"(?<![\w.>:<])"
-
-
-def spell_cpp_aliases(code: BlankedCode) -> BlankedCode:
-    """Spell a clock alias, a standard-namespace alias and a used ``std`` name qualified."""
-    spelled = str(code)
-    for match in _CPP_CLOCK_ALIAS.finditer(code):
-        alias, clock = match.group(1) or match.group(4), match.group(2) or match.group(3)
-        spelled = re.sub(rf"{_CPP_UNQUALIFIED}{alias}::now\b", f"{clock}::now", spelled)
-    for match in _CPP_STD_ALIAS.finditer(code):
-        spelled = re.sub(rf"{_CPP_UNQUALIFIED}{match.group(1)}::", "std::", spelled)
-    used = {match.group(1) or "*" for match in _CPP_USING_STD.finditer(code)}
-    if used & {"*", "thread", "jthread"}:
-        spelled = re.sub(rf"{_CPP_UNQUALIFIED}(j?thread)\b", r"std::\1", spelled)
-    if used & {"*", "async"}:
-        spelled = re.sub(rf"{_CPP_UNQUALIFIED}async\s*\(", "std::async(", spelled)
-    return BlankedCode(spelled)
 
 
 def rust_test_modules(code: BlankedCode) -> BlankedCode:
@@ -691,11 +412,14 @@ class Binding(NamedTuple):
     ``code`` is what the scan reads of a file in the tree at ``repo``: its
     comments and literals blanked, and every name an import or a
     using-declaration binds spelled out as the catalogue spells it.
+    ``primitives`` is the catalogue, and ``net`` the wider net over the same code.
     """
 
+    name: BindingName
     is_test: Callable[[RelPath], bool]
     code: Callable[[Path, RelPath, SourceText], BlankedCode]
     primitives: tuple[Primitive, ...]
+    net: RegexSource
 
 
 def _is_go_test(rel: RelPath) -> bool:
@@ -744,7 +468,7 @@ def python_child_sources(text: SourceText) -> list[SourceText]:
     and is skipped; an f-string or a t-string is read with each value it
     interpolates standing as one name.  A file the parser refuses yields none.
     """
-    tree = _python_tree(text)
+    tree = python_tree(text)
     if tree is None:
         return []
     nodes = list(ast.walk(tree))
@@ -779,7 +503,7 @@ def python_child_sources(text: SourceText) -> list[SourceText]:
         SourceText(textwrap.dedent(io.StringIO(literal, newline=None).read()))
         for literal in literals
     ]
-    return [source for source in sources if _is_script(_python_tree(source))]
+    return [source for source in sources if _is_script(python_tree(source))]
 
 
 def _python_code(_repo: Path, rel: RelPath, text: SourceText) -> BlankedCode:
@@ -797,10 +521,10 @@ def _cpp_code(_repo: Path, _rel: RelPath, text: SourceText) -> BlankedCode:
 
 
 BINDINGS = (
-    Binding(_is_go_test, _go_code, _GO),
-    Binding(_is_python_test, _python_code, _PYTHON),
-    Binding(_is_cpp_test, _cpp_code, _CPP),
-    Binding(_is_rust_test, _rust_code, _RUST),
+    Binding(GO, _is_go_test, _go_code, _GO, _GO_NET),
+    Binding(PYTHON, _is_python_test, _python_code, _PYTHON, _PYTHON_NET),
+    Binding(CPP, _is_cpp_test, _cpp_code, _CPP, _CPP_NET),
+    Binding(RUST, _is_rust_test, _rust_code, _RUST, _RUST_NET),
 )
 
 
@@ -814,6 +538,77 @@ def sites_in(
         if found:
             counts[primitive.label] = SiteCount(found)
     return counts
+
+
+class NetSite(NamedTuple):
+    """A word the net finds in one file, and the binding whose net found it."""
+
+    file: RelPath
+    binding: BindingName
+    word: NetWord
+
+
+# A Python test under python/tests/, the fuzz harnesses apart, runs under the
+# suite's runtime guard (tools/_determinism_guard.py), which fails a test that
+# starts a process without a ``@pytest.mark.process`` reason, so a word that
+# starts one there is left to the guard rather than to a row.  The guard sees only
+# the suite's own process: a script there that a test runs as a child escapes both.
+_GUARDED = re.compile(r"python/tests/(?!fuzz/)")
+_GUARDED_START = re.compile(
+    r"Popen|subprocess\.(?:Popen|call|check_call|check_output|getoutput|getstatusoutput|run)"
+    + r"|os\.(?:fork|forkpty|system|popen|posix_spawnp?|spawn\w+)"
+    + r"|asyncio\.create_subprocess_(?:exec|shell)|loop\.subprocess_(?:exec|shell)"
+)
+
+
+def net_words(binding: Binding, code: BlankedCode) -> set[NetWord]:
+    """Name each word of the binding's net in blanked code that no catalogue site covers."""
+    counted = [
+        site.span()
+        for primitive in binding.primitives
+        for site in re.finditer(primitive.pattern, code, re.MULTILINE)
+    ]
+    return {
+        NetWord(re.sub(r"\s+", "", match.group(0)))
+        for match in re.finditer(binding.net, code, re.MULTILINE)
+        if not any(match.start() < last and first < match.end() for first, last in counted)
+    }
+
+
+def judged(
+    sites: list[NetSite], dismissals: Mapping[Dismissal, Prose]
+) -> tuple[list[NetSite], list[Dismissal]]:
+    """Split the net's sites into those no row dismisses, and name the rows no site needs.
+
+    A row naming a file covers the word there, a row naming none covers it in
+    every file of its binding, the file's row taken first; a word left to the
+    runtime guard needs neither.
+    """
+    used: set[Dismissal] = set()
+    undismissed: list[NetSite] = []
+    for site in sites:
+        if _GUARDED_START.fullmatch(site.word) and _GUARDED.match(site.file):
+            continue
+        rows = (
+            Dismissal(site.binding, site.word, site.file),
+            Dismissal(site.binding, site.word, None),
+        )
+        row = next((row for row in rows if row in dismissals), None)
+        if row is None:
+            undismissed.append(site)
+        else:
+            used.add(row)
+    unused = [row for row in dismissals if row not in used]
+    return undismissed, sorted(unused, key=lambda row: (row.binding, row.word, row.file or ""))
+
+
+def as_dismissal(site: NetSite) -> Prose:
+    """Render the row that would dismiss a site in its file, so a diagnostic can be pasted."""
+    return Prose(
+        f"    Dismissal({site.binding.upper()}, NetWord({site.word!r}), RelPath({site.file!r})):"
+        + ' Prose("<why it reads no physical time and starts nothing, or why the claim'
+        + ' needs the process it starts>"),'
+    )
 
 
 def is_test(rel: RelPath) -> bool:
@@ -835,13 +630,24 @@ def which_are_tests(repo: Path, rels: list[RelPath]) -> list[RelPath]:
     return named
 
 
-def rows_of(repo: Path, rel: RelPath, text: SourceText) -> RatchetRows:
-    """Count the time and thread primitives one file's text uses, read as the path it stands for."""
+class Scan(NamedTuple):
+    """What the gate reads of test files: the catalogue's rows and the net's sites."""
+
+    rows: RatchetRows
+    sites: list[NetSite]
+    unreadable: tuple[Prose, ...] = ()
+
+
+def scan_of(repo: Path, rel: RelPath, text: SourceText) -> Scan:
+    """Read one file's text, as the path it stands for, for its rows and its net sites."""
     rows: RatchetRows = {}
+    sites: list[NetSite] = []
     for binding in BINDINGS:
         if binding.is_test(rel):
-            for label, count in sites_in(binding.code(repo, rel, text), binding.primitives).items():
+            code = binding.code(repo, rel, text)
+            for label, count in sites_in(code, binding.primitives).items():
                 rows[RowKey(rel, label)] = count
+            sites += [NetSite(rel, binding.name, word) for word in sorted(net_words(binding, code))]
     if _is_python_test(rel):
         for label, count in (
             (ASYNC_CLIENT_ON_A_THREAD, async_clients_on_a_thread(text)),
@@ -850,17 +656,31 @@ def rows_of(repo: Path, rel: RelPath, text: SourceText) -> RatchetRows:
         ):
             if count:
                 rows[RowKey(rel, label)] = count
-    return rows
+    return Scan(rows, sites)
 
 
-def observed_rows(repo: Path) -> RatchetRows:
-    """Count every time and thread primitive the tree's test files use."""
+def rows_of(repo: Path, rel: RelPath, text: SourceText) -> RatchetRows:
+    """Count the time and thread primitives one file's text uses, read as the path it stands for."""
+    return scan_of(repo, rel, text).rows
+
+
+def scan_tree(repo: Path) -> Scan:
+    """Read every test file of the tree for its rows and its net sites, naming each unread."""
     rows: RatchetRows = {}
+    sites: list[NetSite] = []
+    unreadable: list[Prose] = []
     for rel in git_ls_files(repo):
         path = repo / rel
         if is_test(rel) and path.is_file():
-            rows |= rows_of(repo, rel, SourceText(path.read_text(encoding="utf-8")))
-    return rows
+            try:
+                text = SourceText(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError) as exc:
+                unreadable.append(Prose(f"{rel}: cannot be read: {exc}"))
+                continue
+            scan = scan_of(repo, rel, text)
+            rows |= scan.rows
+            sites += scan.sites
+    return Scan(rows, sites, tuple(unreadable))
 
 
 def report(
@@ -898,6 +718,37 @@ def report(
     emit(
         f"time, thread and sample primitives in tests: {sum(observed.values())}, every one recorded"
     )
+    return CLEAN
+
+
+def net_report(
+    sites: list[NetSite], dismissals: Mapping[Dismissal, Prose], *, whole: bool
+) -> ExitStatus:
+    """Print every net site no row dismisses and, over the ``whole`` tree, every row no site needs.
+
+    A row no site needs is standing permission past what the tests spell, so the
+    tree's run refuses it; one file under edit is held only to the words it spells.
+    """
+    undismissed, unused = judged(sites, dismissals)
+    if not whole:
+        unused = []
+    for site in undismissed:
+        emit(f"{site.file}: a test names {site.word!r}, which the catalogue does not count")
+        emit("  and no row dismisses.  Inject the clock or the scheduler and drive it, or drop")
+        emit("  the process (AGENTS.md § Universal Rules); or, with user approval, dismiss it")
+        emit(f"  in {_DISMISSALS} with the reason it reads no physical time and starts")
+        emit("  nothing, or the reason the test's claim needs the process it starts:")
+        emit(as_dismissal(site))
+    for row in unused:
+        where = f" in {row.file}" if row.file is not None else ""
+        emit(f"{_DISMISSALS}: a dismissed row no site needs: {row.binding} {row.word!r}{where}")
+        emit("  Drop it: no test spells the word where another row or the runtime guard")
+        emit("  does not already cover it.")
+    if undismissed or unused:
+        emit(f"{len(undismissed)} undismissed, {len(unused)} unused dismissals")
+        return OUT_OF_STEP
+    words = {site.word for site in sites}
+    emit(f"net sites the catalogue does not count: {len(sites)} of {len(words)} words, all held")
     return CLEAN
 
 
@@ -991,8 +842,26 @@ def main() -> ExitStatus:
         except (OSError, UnicodeDecodeError) as exc:
             emit(f"{arguments.file}: cannot be read: {exc}")
             return UNREADABLE
-        return report(rows_of(repo, arguments.rel, text), recorded, file=arguments.rel)
-    return max(report(observed_rows(repo), recorded), rust_harness_report(repo))
+        scan = scan_of(repo, arguments.rel, text)
+        return max(
+            report(scan.rows, recorded, file=arguments.rel),
+            net_report(scan.sites, DISMISSED, whole=False),
+        )
+    return tree_report(repo, recorded)
+
+
+def tree_report(repo: Path, recorded: RatchetRows) -> ExitStatus:
+    """Hold the tree's tests to the record and the dismissals, unless a test could not be read."""
+    scan = scan_tree(repo)
+    for line in scan.unreadable:
+        emit(line)
+    if scan.unreadable:
+        return UNREADABLE
+    return max(
+        report(scan.rows, recorded),
+        net_report(scan.sites, DISMISSED, whole=True),
+        rust_harness_report(repo),
+    )
 
 
 if __name__ == "__main__":

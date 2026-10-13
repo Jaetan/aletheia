@@ -6,7 +6,8 @@
 its catalogue spells.  Some sites no primitive spells: an async client built
 with no runner leans on a thread its library starts, and a property test with
 no seed draws a sample nothing fixes.  These arms find them in the parsed test,
-by what the file imports, however it names them.
+by what the file imports, however it names them.  The types the gate's
+modules share are named here too.
 """
 
 from __future__ import annotations
@@ -24,6 +25,11 @@ SiteCount = NewType("SiteCount", int)
 DottedName = NewType("DottedName", str)
 # A name an import binds in a test.
 BoundName = NewType("BoundName", str)
+# A binding's name, and a word the gate's wide net finds, its whitespace removed
+# so ``wait (`` and ``wait(`` are one.
+BindingName = NewType("BindingName", str)
+NetWord = NewType("NetWord", str)
+GO, PYTHON, CPP, RUST = (BindingName(name) for name in ("go", "python", "cpp", "rust"))
 
 # Each binding's async client runs its sync client's calls on a thread of its
 # own unless a test hands it a turn executor: Python's through
