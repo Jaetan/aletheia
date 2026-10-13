@@ -16,6 +16,7 @@ import re
 import stat
 import subprocess
 import sys
+import types
 from enum import Enum
 from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
@@ -34,6 +35,8 @@ from aletheia.common_types import ExitStatus, Prose
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+    from _processes import CommandWord
 
 
 def test_hook_bodies_are_valid_python() -> None:
@@ -193,18 +196,23 @@ _NOTES_STAGED = "l1\nL2\nl3\nl4\nl5\nl6\n"
 _NOTES_WORKTREE = "l1\nL2\nL3\nl4\nl5\nl6\n"
 
 # A path relative to the test repository's root, a file's text, git's short
-# status of the whole tree, one word of a git command line, a NUL-separated
-# list of paths as the hook hands git, what a git process wrote, the sha of a
-# stash commit, and a revision git resolves (a sha, or one with a suffix).
+# status of the whole tree, one word of a git command line, one word of the
+# command line of a tool the hook runs, a NUL-separated list of paths as the
+# hook hands git, what a git process wrote, what a tool the hook runs wrote,
+# the sha of a stash commit, a revision git resolves (a sha, or one with a
+# suffix), and the work tree's root as git prints it.
 RelPath = NewType("RelPath", str)
 FileText = NewType("FileText", str)
 PorcelainStatus = NewType("PorcelainStatus", str)
 GitWord = NewType("GitWord", str)
 NulPaths = NewType("NulPaths", str)
 GitOutput = NewType("GitOutput", str)
+ToolOutput = NewType("ToolOutput", str)
 StashSha = NewType("StashSha", str)
 Revision = NewType("Revision", str)
+TopLevel = NewType("TopLevel", str)
 GitDone = subprocess.CompletedProcess[GitOutput]
+ToolDone = subprocess.CompletedProcess[ToolOutput]
 
 # The gate stub: it writes down what a gate run by the hook sees, git's status,
 # every file's text and every directory, to the path the test bakes in outside
@@ -631,11 +639,12 @@ class PathCall(NamedTuple):
 
 
 class FakedHook(NamedTuple):
-    """A pre-commit hook loaded with its parking faked, and what it asked git for."""
+    """A pre-commit hook loaded with its parking and its gate faked, and what it ran."""
 
     main: Callable[[], ExitStatus]
     git_calls: list[list[GitWord]]
     restores: list[PathCall]
+    gate_runs: list[list[CommandWord]]
 
 
 _OURS = StashSha("0123456789abcdef0123456789abcdef01234567")
@@ -645,13 +654,16 @@ _THEIRS = StashSha("89abcdef0123456789abcdef0123456789abcdef")
 def _faked_hook(
     tmp_path: Path, *, stash: StashSha | None, isolated: bool, restored: bool
 ) -> FakedHook:
-    """Load the hook with a gate stub that passes and its parking faked.
+    """Load the hook with its gate answering a pass in-process and its parking faked.
 
     The parked paths are one tracked and one untracked file; recording them
     answers ``stash``, isolating the tree answers ``isolated``, and each
     worktree restore succeeds or fails as ``restored`` says. git itself
-    answers only what the gate and the drop read, with a foreign entry on top
-    of the stack and the hook's own beneath it.
+    answers only what the drop reads, with a foreign entry on top of the
+    stack and the hook's own beneath it. The gate's runner file is planted
+    because the hook looks for it before it runs anything; the run itself is
+    answered by the hook's own ``subprocess`` name, rebound to a passing
+    result, so the tests start no process.
     """
     hook = _load_pre_commit(tmp_path)
     (tmp_path / "tools").mkdir()
@@ -659,6 +671,15 @@ def _faked_hook(
     (tmp_path / "tools" / "run_ci.py").write_text("", encoding="utf-8")
     git_calls: list[list[GitWord]] = []
     restores: list[PathCall] = []
+    gate_runs: list[list[CommandWord]] = []
+
+    def fake_gate(
+        args: list[CommandWord], *, cwd: Path | None = None, check: bool = False
+    ) -> ToolDone:
+        del cwd, check
+        assert args[1:] == ["-m", "tools.run_ci", "--fast"], args
+        gate_runs.append(args)
+        return subprocess.CompletedProcess(args, 0, ToolOutput(""), ToolOutput(""))
 
     def fake_run(args: list[GitWord], cwd: Path | None = None) -> GitDone:
         del cwd
@@ -692,16 +713,17 @@ def _faked_hook(
         complaint = GitOutput("" if restored else "boom\n")
         return subprocess.CompletedProcess([source], int(not restored), GitOutput(""), complaint)
 
+    hook["subprocess"] = types.SimpleNamespace(run=fake_gate)
     hook["_run"] = fake_run
     hook["_parked_paths"] = fake_parked_paths
     hook["_create_stash"] = fake_create_stash
     hook["_isolate"] = fake_isolate
     hook["_stash_paths"] = fake_stash_paths
     hook["_restore_worktree"] = fake_restore
-    return FakedHook(cast("Callable[[], ExitStatus]", hook["main"]), git_calls, restores)
+    return FakedHook(cast("Callable[[], ExitStatus]", hook["main"]), git_calls, restores, gate_runs)
 
 
-def _main(faked: FakedHook) -> HookRun:
+def _main(faked: FakedHook | PushedHook) -> HookRun:
     """Run the faked hook's ``main`` with its stderr captured."""
     captured = io.StringIO()
     with contextlib.redirect_stderr(captured):
@@ -742,6 +764,7 @@ def test_pre_commit_drops_its_own_entry_and_not_the_one_on_top(tmp_path: Path) -
     faked = _faked_hook(tmp_path, stash=_OURS, isolated=True, restored=True)
     done = _main(faked)
     assert done.returncode == 0
+    assert len(faked.gate_runs) == 1
     assert ["git", "stash", "drop", "stash@{1}"] in faked.git_calls
     assert ["git", "stash", "drop", "stash@{0}"] not in faked.git_calls
 
@@ -755,6 +778,7 @@ def test_pre_commit_restore_failure_keeps_the_stash_and_prints_the_recipe(tmp_pa
     faked = _faked_hook(tmp_path, stash=_OURS, isolated=True, restored=False)
     done = _main(faked)
     assert done.returncode == 0
+    assert len(faked.gate_runs) == 1
     assert "FAILED to restore" in done.stderr
     assert "boom" in done.stderr
     assert "SAFE in stash commit " + _OURS in done.stderr
@@ -764,76 +788,93 @@ def test_pre_commit_restore_failure_keeps_the_stash_and_prints_the_recipe(tmp_pa
 
 
 class Evidence(Enum):
-    """What the evidence stub answers when the hook asks about the pushed commits."""
+    """What the evidence tool answers when the hook asks about the pushed commits."""
 
     RECORDED = "a sweep of the pushed tree is on record before the push"
     AFTER_SWEEP = "the hook's own sweep records the pushed tree"
     NEVER = "no sweep ever records the pushed tree, as for a dirty working tree"
 
 
-_EVIDENCE_EXIT = {
-    Evidence.RECORDED: "0",
-    Evidence.AFTER_SWEEP: "0 if pathlib.Path('swept').exists() else 1",
-    Evidence.NEVER: "1",
-}
-
-
-def _pushing_repo(tmp_path: Path, evidence: Evidence) -> Path:
-    """Build a repository with the rendered pre-push hook and stubs for its two tools.
-
-    The evidence stub answers as ``evidence`` says and writes down, one line
-    per question, the commits it was asked about; the sweep stub passes and
-    writes down that it ran.  Neither needs a remote: the hook is run
-    directly, with the ref lines git would hand it on stdin.
-    """
-    repo = tmp_path / "repo"
-    (repo / "tools").mkdir(parents=True)
-    _git(repo, "init", "-q")
-    (repo / "tools" / "__init__.py").write_text("", encoding="utf-8")
-    stub = [
-        "import pathlib, sys",
-        "with pathlib.Path('asked').open('a') as asked:",
-        "    asked.write(' '.join(sys.argv[1:]) + '\\n')",
-        f"raise SystemExit({_EVIDENCE_EXIT[evidence]})",
-        "",
-    ]
-    (repo / "tools" / "sweep_evidence.py").write_text("\n".join(stub), encoding="utf-8")
-    (repo / "tools" / "run_ci.py").write_text(
-        "import pathlib\npathlib.Path('swept').write_text('yes')\n", encoding="utf-8"
-    )
-    hook = repo / ".git" / "hooks" / "pre-push"
-    body = PRE_PUSH_BODY.split("\n", 1)[1]
-    hook.write_text("#!" + sys.executable + "\n" + body, encoding="utf-8")
-    hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
-    return repo
-
-
 # The ref lines git hands a pre-push hook on stdin, a file the hook runs, and
-# the commits one question to the evidence stub named.
+# the commits one question to the evidence tool named.
 RefLines = NewType("RefLines", str)
 ToolFile = NewType("ToolFile", str)
 Question = NewType("Question", str)
 
 
-def _push(repo: Path, refs: RefLines) -> HookRun:
-    """Run the pre-push hook as git would, with ``refs`` on its stdin."""
-    done = subprocess.run(
-        [str(repo / ".git" / "hooks" / "pre-push"), "origin", "git@example:repo.git"],
-        cwd=repo,
-        input=refs,
-        env=_GIT_ENV,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return HookRun(ExitStatus(done.returncode), Prose(done.stderr))
+class PushedHook(NamedTuple):
+    """A pre-push hook loaded with its tools faked, and what they were asked."""
+
+    main: Callable[[], ExitStatus]
+    asked: list[Question]
+    sweeps: list[list[CommandWord]]
 
 
-def _asked(repo: Path) -> list[Question]:
-    """Read back the questions the evidence stub was asked, one per line."""
-    asked = repo / "asked"
-    lines = asked.read_text(encoding="utf-8").splitlines() if asked.exists() else []
-    return [Question(line) for line in lines]
+def _load_pre_push(tmp_path: Path) -> types.ModuleType:
+    """Import the rendered pre-push body as a module and return it.
+
+    The body guards ``main`` behind ``__main__``, so importing it runs nothing
+    and yields a module whose names a test can patch.
+    """
+    script = tmp_path / "pre_push.py"
+    script.write_text(PRE_PUSH_BODY, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("aletheia_pre_push_under_test", script)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _faked_push(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, evidence: Evidence) -> PushedHook:
+    """Load the pre-push hook with git and its two tools answered in-process.
+
+    The hook's own ``subprocess`` name is patched: git names ``tmp_path`` as
+    the work tree's root, the evidence tool answers as ``evidence`` says and
+    writes down, one question per entry, the commits it was asked about, and
+    the sweep passes and writes down that it ran. The tool files are planted
+    empty because the hook looks for each before it runs anything.
+    """
+    hook = _load_pre_push(tmp_path)
+    (tmp_path / "tools").mkdir()
+    for tool in ("__init__.py", "run_ci.py", "sweep_evidence.py"):
+        (tmp_path / "tools" / tool).write_text("", encoding="utf-8")
+    asked: list[Question] = []
+    sweeps: list[list[CommandWord]] = []
+
+    def fake_run(
+        args: list[CommandWord],
+        *,
+        cwd: TopLevel | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+    ) -> GitDone | ToolDone:
+        del cwd, capture_output, text, check
+        if args == ["git", "rev-parse", "--show-toplevel"]:
+            return subprocess.CompletedProcess(
+                args, 0, GitOutput(str(tmp_path) + "\n"), GitOutput("")
+            )
+        if args[1:3] == ["-m", "tools.sweep_evidence"]:
+            asked.append(Question(" ".join(args[3:])))
+            recorded = evidence is Evidence.RECORDED or (
+                evidence is Evidence.AFTER_SWEEP and bool(sweeps)
+            )
+            return subprocess.CompletedProcess(
+                args, int(not recorded), ToolOutput(""), ToolOutput("")
+            )
+        assert args[1:4] == ["-m", "tools.run_ci", "--parallel"], args
+        sweeps.append(args)
+        return subprocess.CompletedProcess(args, 0, ToolOutput(""), ToolOutput(""))
+
+    monkeypatch.setattr(hook, "subprocess", types.SimpleNamespace(run=fake_run))
+    return PushedHook(cast("Callable[[], ExitStatus]", hook.main), asked, sweeps)
+
+
+def _push(faked: PushedHook, refs: RefLines, monkeypatch: pytest.MonkeyPatch) -> HookRun:
+    """Run the faked hook's ``main`` as git would, with ``refs`` on its stdin."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO(refs))
+    return _main(faked)
 
 
 _PUSHED = "a" * 40
@@ -849,55 +890,61 @@ _REFS = RefLines(
 
 
 def test_pre_push_allows_at_once_a_push_whose_trees_passed_a_recorded_sweep(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With every pushed ref's tree on record, the push goes without a sweep."""
-    repo = _pushing_repo(tmp_path, Evidence.RECORDED)
-    done = _push(repo, _REFS)
+    faked = _faked_push(tmp_path, monkeypatch, Evidence.RECORDED)
+    done = _push(faked, _REFS, monkeypatch)
     assert done.returncode == 0, done.stderr
-    assert _asked(repo) == [f"{_PUSHED} {_OTHER}"]
-    assert not (repo / "swept").exists()
+    assert faked.asked == [f"{_PUSHED} {_OTHER}"]
+    assert not faked.sweeps
     assert "push allowed" in done.stderr
 
 
 def test_pre_push_sweeps_then_allows_once_its_sweep_records_the_pushed_tree(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A tree no sweep covers makes the hook sweep, then ask again before it allows."""
-    repo = _pushing_repo(tmp_path, Evidence.AFTER_SWEEP)
-    done = _push(repo, _REFS)
+    faked = _faked_push(tmp_path, monkeypatch, Evidence.AFTER_SWEEP)
+    done = _push(faked, _REFS, monkeypatch)
     assert done.returncode == 0, done.stderr
-    assert (repo / "swept").read_text(encoding="utf-8") == "yes"
-    assert _asked(repo) == [f"{_PUSHED} {_OTHER}"] * 2
+    assert len(faked.sweeps) == 1
+    assert faked.asked == [f"{_PUSHED} {_OTHER}"] * 2
     assert "push allowed" in done.stderr
 
 
-def test_pre_push_refuses_when_its_sweep_passed_on_another_tree(tmp_path: Path) -> None:
+def test_pre_push_refuses_when_its_sweep_passed_on_another_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A passing sweep of a working tree that is not the pushed one allows nothing."""
-    repo = _pushing_repo(tmp_path, Evidence.NEVER)
-    done = _push(repo, _REFS)
+    faked = _faked_push(tmp_path, monkeypatch, Evidence.NEVER)
+    done = _push(faked, _REFS, monkeypatch)
     assert done.returncode == 1, done.stderr
-    assert (repo / "swept").read_text(encoding="utf-8") == "yes"
-    assert len(_asked(repo)) == 2
+    assert len(faked.sweeps) == 1
+    assert len(faked.asked) == 2
     assert "push refused" in done.stderr
 
 
-def test_pre_push_allows_a_deletion_which_pushes_no_commit(tmp_path: Path) -> None:
+def test_pre_push_allows_a_deletion_which_pushes_no_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A ref line whose local id is all zeros deletes a remote ref and needs no sweep."""
-    repo = _pushing_repo(tmp_path, Evidence.NEVER)
-    done = _push(repo, RefLines(f"(delete) {'0' * 40} refs/heads/b {_PUSHED}\n"))
+    faked = _faked_push(tmp_path, monkeypatch, Evidence.NEVER)
+    done = _push(faked, RefLines(f"(delete) {'0' * 40} refs/heads/b {_PUSHED}\n"), monkeypatch)
     assert done.returncode == 0, done.stderr
-    assert not _asked(repo)
-    assert not (repo / "swept").exists()
+    assert not faked.asked
+    assert not faked.sweeps
 
 
 @pytest.mark.parametrize("tool", [ToolFile("run_ci.py"), ToolFile("sweep_evidence.py")])
-def test_pre_push_refuses_when_a_tool_it_runs_is_missing(tmp_path: Path, tool: ToolFile) -> None:
+def test_pre_push_refuses_when_a_tool_it_runs_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: ToolFile
+) -> None:
     """Without the sweep or its evidence the hook cannot vouch for the push, so it refuses."""
-    repo = _pushing_repo(tmp_path, Evidence.RECORDED)
-    (repo / "tools" / tool).unlink()
-    done = _push(repo, _REFS)
+    faked = _faked_push(tmp_path, monkeypatch, Evidence.RECORDED)
+    (tmp_path / "tools" / tool).unlink()
+    done = _push(faked, _REFS, monkeypatch)
     assert done.returncode == 1, done.stderr
     assert f"{tool} not found" in done.stderr
-    assert not _asked(repo)
-    assert not (repo / "swept").exists()
+    assert not faked.asked
+    assert not faked.sweeps

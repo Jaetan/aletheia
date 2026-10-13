@@ -13,8 +13,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _git_repo import tracked_but_absent
 
+from tools._common import RelPath
 from tools.check_no_review_marks import is_exempt, main, scan_text
 
 if TYPE_CHECKING:
@@ -112,12 +112,19 @@ def test_live_files_are_not_exempt(rel: str) -> None:
 
 @pytest.mark.parametrize("argv", [[], ["--summary"]])
 def test_a_tracked_file_that_cannot_be_read_is_not_clean(
-    argv: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    argv: list[str],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A tracked file the gate cannot read exits 2 and is named, in either report shape."""
-    repo, rel = tracked_but_absent(tmp_path)
-    assert main(argv, repo=repo) == 2
-    assert rel in capsys.readouterr().err
+
+    def tracked(_repo: Path) -> list[RelPath]:
+        return [RelPath("note.txt")]
+
+    monkeypatch.setattr("tools._common.git_ls_files", tracked)
+    assert main(argv, repo=tmp_path) == 2
+    assert "note.txt" in capsys.readouterr().err
 
 
 def test_markdown_code_is_what_commonmark_reads_as_code() -> None:

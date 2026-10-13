@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""A process id no process holds, for the tests of code that reads one as gone."""
+"""A process as the tests name one: its id, and the words of its command line."""
 
 from __future__ import annotations
 
@@ -9,6 +9,9 @@ from typing import NewType
 
 # A process id, as the kernel numbers processes.
 ProcessId = NewType("ProcessId", int)
+
+# One word of a command line, as the shell splits it: the program, a flag or an argument.
+CommandWord = NewType("CommandWord", str)
 
 
 def pid_no_process_holds() -> ProcessId:

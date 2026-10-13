@@ -10,26 +10,30 @@ reads the diff through the mutation runner's own ``bindings_in_scope`` with the
 benchmark's global paths, and gates its toolchain, its measuring and its gate
 on the answer.
 
-Held here: what the question answers for each kind of diff, read from a real
-branch of a throwaway repository; that the answer lands where the workflow
-reads it; and the workflow's side, the steps that run whatever the answer, the
-reading of the variable that measures when no answer arrived, and the question
-asked once, before anything it gates.
+Held here: what the question answers for each kind of diff, fed as the paths
+git names to the one reading the question asks; that the answer lands where
+the workflow reads it; and the workflow's side, the steps that run whatever
+the answer, the reading of the variable that measures when no answer arrived,
+and the question asked once, before anything it gates.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import NotRequired, TypedDict, cast
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 import pytest
 import yaml
-from _git_repo import commit, git
+from _processes import CommandWord
 
-from tools import benchmark_scope
+from tools import benchmark_scope, mutation_run
 from tools._common import RelPath
 
 from aletheia.common_types import Prose
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "benchmark.yml"
 _QUESTION_STEP = Prose("Does this diff move a measurement?")
@@ -130,29 +134,27 @@ def test_the_leg_asks_once_and_before_anything_it_gates() -> None:
     assert names.index(_QUESTION_STEP) < first_gated, f"{names[first_gated]} runs first"
 
 
-def _branch_changing(tmp_path: Path, changed: tuple[RelPath, ...]) -> Path:
-    """Return a repository on a branch off ``main`` whose one commit writes ``changed``."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _ = git(repo, "init", "-q", "-b", "main")
-    _ = (repo / "base.txt").write_text("base\n", encoding="utf-8")
-    _ = commit(repo, "base")
-    _ = git(repo, "checkout", "-q", "-b", "change")
-    for rel in changed:
-        path = repo / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _ = path.write_text("changed\n", encoding="utf-8")
-    _ = commit(repo, "change")
-    return repo
+# The reading the question asks: the branch's commits against ``main``, by name.
+_DIFF_WORDS = (CommandWord("diff"), CommandWord("--name-only"), CommandWord("main...HEAD"))
 
 
-# Branches whose changes no leg measures on: documentation, and a gate no leg runs.
+def _diff_naming(monkeypatch: pytest.MonkeyPatch, changed: tuple[RelPath, ...]) -> None:
+    """Make the diff reading name ``changed``, the words it asks git with pinned."""
+
+    def fake_run_capture(argv: Sequence[CommandWord]) -> SimpleNamespace:
+        assert tuple(argv[-3:]) == _DIFF_WORDS
+        return SimpleNamespace(returncode=0, stdout="".join(f"{rel}\n" for rel in changed))
+
+    monkeypatch.setattr(mutation_run, "run_capture", fake_run_capture)
+
+
+# Diffs no leg measures on: documentation, and a gate no leg runs.
 _UNMEASURED: tuple[tuple[RelPath, ...], ...] = (
     (RelPath("README.md"), RelPath("docs/development/BENCHMARKS.md")),
     (RelPath("tools/check_spdx_headers.py"),),
 )
 
-# Branches every leg measures on: the kernel, each binding, the harness, its
+# Diffs every leg measures on: the kernel, each binding, the harness, its
 # schema check, its gate, this question, the diff reading it asks, the workflow.
 _MEASURED: tuple[tuple[RelPath, ...], ...] = (
     (RelPath("src/Aletheia/DBC/Validator/Checks.agda"),),
@@ -177,7 +179,8 @@ def test_a_branch_that_can_move_no_measurement_measures_nothing(
 ) -> None:
     """A change outside the kernel, the bindings and the benchmark's own files skips the leg."""
     monkeypatch.delenv("ALETHEIA_MUTATION_NO_DIFF_SCOPE", raising=False)
-    assert not benchmark_scope.lane_measures(_branch_changing(tmp_path, changed))
+    _diff_naming(monkeypatch, changed)
+    assert not benchmark_scope.lane_measures(tmp_path)
 
 
 @pytest.mark.parametrize("changed", _MEASURED)
@@ -186,25 +189,27 @@ def test_a_branch_that_can_move_a_measurement_measures(
 ) -> None:
     """The kernel, a binding, the harness, its gate and this question each measure."""
     monkeypatch.delenv("ALETHEIA_MUTATION_NO_DIFF_SCOPE", raising=False)
-    assert benchmark_scope.lane_measures(_branch_changing(tmp_path, changed))
+    _diff_naming(monkeypatch, changed)
+    assert benchmark_scope.lane_measures(tmp_path)
 
 
 def test_a_branch_with_no_diff_measures(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """``main`` itself, after a merge, measures: the diff scope reads no change as everything."""
     monkeypatch.delenv("ALETHEIA_MUTATION_NO_DIFF_SCOPE", raising=False)
-    repo = _branch_changing(tmp_path, (RelPath("docs/PITCH.md"),))
-    _ = git(repo, "checkout", "-q", "main")
-    assert benchmark_scope.lane_measures(repo)
+    _diff_naming(monkeypatch, ())
+    assert benchmark_scope.lane_measures(tmp_path)
 
 
-@pytest.mark.parametrize("changed", [_UNMEASURED[0], _MEASURED[0]])
+@pytest.mark.parametrize("measures", [False, True])
 def test_the_answer_is_written_where_the_workflow_reads_it(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, changed: tuple[RelPath, ...]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, measures: bool
 ) -> None:
     """The decision lands in the file GITHUB_ENV names, appended, as one assignment."""
-    monkeypatch.delenv("ALETHEIA_MUTATION_NO_DIFF_SCOPE", raising=False)
-    measures = changed in _MEASURED
-    monkeypatch.setattr(benchmark_scope, "REPO_ROOT", _branch_changing(tmp_path, changed))
+
+    def decide(_repo_root: Path) -> bool:
+        return measures
+
+    monkeypatch.setattr(benchmark_scope, "lane_measures", decide)
     monkeypatch.setattr("sys.argv", ["benchmark_scope"])
     env_file = tmp_path / "github.env"
     _ = env_file.write_text("EXISTING=kept\n", encoding="utf-8")

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Literal
 
 import pytest
 
-from tools import mutation_cpp, mutation_run
+from tools import mutation_cpp, mutation_cpp_runs, mutation_run
 from tools._common import RelPath
 from tools.mutation_cpp import elements_counts, run_cpp, union_slices
 from tools.mutation_cpp_legs import (
@@ -129,6 +129,11 @@ def _fixed_sha(_root: Path | None = None) -> str:
     return _SHA
 
 
+def _fixture_domain(_root: Path, _config: Path) -> list[RelPath]:
+    """Stand in for ``slice_domain`` with the fixture's one file, so no tree is listed."""
+    return [RelPath("cpp/src/a.cpp")]
+
+
 # The mutant a sweep can be told the runner ended at its cap.
 _TIMED_OUT_MUTANT = "m12"
 
@@ -165,6 +170,8 @@ def _fake_sweeps(
     monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", _fixture_census)
     # The fixture's files are not the repository's.
     monkeypatch.setattr(mutation_cpp, "_repo_line", _null_reading_line)
+    # The weights' drift line is computed over the fixture's file, not the tree's.
+    monkeypatch.setattr(mutation_cpp_runs, "slice_domain", _fixture_domain)
 
 
 def _stage(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:

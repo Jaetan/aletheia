@@ -14,12 +14,12 @@ in both directions, as a ratchet must.
 from __future__ import annotations
 
 import textwrap
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from tools import _determinism_guard
-from tools._common import RelPath, git_toplevel
+from tools._common import RelPath
 from tools._ratchet import CanonicalText, RatchetRows, RowKey
 from tools.check_test_determinism import (
     ASYNC_CLIENT_ON_A_THREAD,
@@ -46,23 +46,27 @@ from tools.check_test_determinism import (
     which_are_tests,
 )
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 GO, PYTHON, CPP, RUST = BINDINGS
 
-
-def _labels(binding: Binding, rel: RelPath, source: SourceText) -> set[CanonicalText]:
-    """Name the primitives the scan finds in one file's source."""
-    return set(sites_in(binding.code(git_toplevel(), rel, source), binding.primitives))
-
-
-def _counts(binding: Binding, rel: RelPath, source: SourceText) -> dict[CanonicalText, SiteCount]:
-    """Count the sites of each primitive the scan finds in one file's source."""
-    return dict(sites_in(binding.code(git_toplevel(), rel, source), binding.primitives))
+# The nearest directory above holding the tools package: the mutation lane copies this suite.
+_REPO_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "tools" / "_common.py").is_file()
+)
 
 
-def test_go_time_and_goroutines_are_sites_and_their_prose_is_not() -> None:
+def _labels(repo: Path, binding: Binding, rel: RelPath, source: SourceText) -> set[CanonicalText]:
+    """Name the primitives the scan finds in one file's source of ``repo``."""
+    return set(sites_in(binding.code(repo, rel, source), binding.primitives))
+
+
+def _counts(
+    repo: Path, binding: Binding, rel: RelPath, source: SourceText
+) -> dict[CanonicalText, SiteCount]:
+    """Count the sites of each primitive the scan finds in one file's source of ``repo``."""
+    return dict(sites_in(binding.code(repo, rel, source), binding.primitives))
+
+
+def test_go_time_and_goroutines_are_sites_and_their_prose_is_not(tmp_path: Path) -> None:
     """A Go test's timer, deadline, go statement and scheduler yield each count."""
     rel = RelPath("go/aletheia/x_test.go")
     source = SourceText(
@@ -78,7 +82,7 @@ def test_go_time_and_goroutines_are_sites_and_their_prose_is_not() -> None:
             """
         )
     )
-    assert _labels(GO, rel, source) == {
+    assert _labels(tmp_path, GO, rel, source) == {
         "time: a clock or timer from package time",
         "time: a context with a deadline",
         "thread: a go statement",
@@ -92,10 +96,10 @@ def test_go_time_and_goroutines_are_sites_and_their_prose_is_not() -> None:
             """
         )
     )
-    assert _labels(GO, rel, prose) == set()
+    assert _labels(tmp_path, GO, rel, prose) == set()
 
 
-def test_a_parallel_test_and_a_group_s_goroutine_are_go_thread_sites() -> None:
+def test_a_parallel_test_and_a_group_s_goroutine_are_go_thread_sites(tmp_path: Path) -> None:
     """A test run beside its siblings, and a goroutine a wait or error group starts, each count."""
     rel = RelPath("go/aletheia/x_test.go")
     source = SourceText(
@@ -110,15 +114,15 @@ def test_a_parallel_test_and_a_group_s_goroutine_are_go_thread_sites() -> None:
             """
         )
     )
-    assert _counts(GO, rel, source) == {
+    assert _counts(tmp_path, GO, rel, source) == {
         "thread: a parallel test": 2,
         "thread: a goroutine started through a group": 2,
     }
     prose = SourceText('// t.Parallel() and wg.Go(f)\ns := "t.Parallel()"\n')
-    assert _labels(GO, rel, prose) == set()
+    assert _labels(tmp_path, GO, rel, prose) == set()
 
 
-def test_a_go_package_imported_under_another_name_is_read_as_the_package() -> None:
+def test_a_go_package_imported_under_another_name_is_read_as_the_package(tmp_path: Path) -> None:
     """A renamed or a dot import of a watched package hides no site; a blank one binds none."""
     rel = RelPath("go/aletheia/x_test.go")
     renamed = SourceText(
@@ -132,12 +136,12 @@ def test_a_go_package_imported_under_another_name_is_read_as_the_package() -> No
             """
         )
     )
-    assert _counts(GO, rel, renamed) == {
+    assert _counts(tmp_path, GO, rel, renamed) == {
         "time: a clock or timer from package time": 1,
         "time: a context with a deadline": 1,
     }
     dotted = SourceText('import . "time"\nfunc T() { Sleep(d); x.Now(); Now() }\n')
-    assert _counts(GO, rel, dotted) == {"time: a clock or timer from package time": 2}
+    assert _counts(tmp_path, GO, rel, dotted) == {"time: a clock or timer from package time": 2}
     unbound = SourceText(
         textwrap.dedent(
             """\
@@ -147,10 +151,10 @@ def test_a_go_package_imported_under_another_name_is_read_as_the_package() -> No
             """
         )
     )
-    assert _labels(GO, rel, unbound) == set()
+    assert _labels(tmp_path, GO, rel, unbound) == set()
 
 
-def test_python_time_threads_and_tasks_are_sites_and_their_prose_is_not() -> None:
+def test_python_time_threads_and_tasks_are_sites_and_their_prose_is_not(tmp_path: Path) -> None:
     """A Python test's sleep, clock, timeout, thread, executor and task each count."""
     rel = RelPath("python/tests/test_x.py")
     source = SourceText(
@@ -174,7 +178,7 @@ def test_python_time_threads_and_tasks_are_sites_and_their_prose_is_not() -> Non
             """
         )
     )
-    assert _labels(PYTHON, rel, source) == {
+    assert _labels(tmp_path, PYTHON, rel, source) == {
         "time: a clock or sleep from module time",
         "time: an asyncio sleep of a duration",
         "time: an asyncio timeout",
@@ -197,12 +201,12 @@ def test_python_time_threads_and_tasks_are_sites_and_their_prose_is_not() -> Non
             """
         )
     )
-    assert _labels(PYTHON, rel, prose) == set()
+    assert _labels(tmp_path, PYTHON, rel, prose) == set()
     for alone in ("proc.wait(BOUND_SECONDS)\n", "future.result(15)\n"):
-        assert _labels(PYTHON, rel, SourceText(alone)) == {"time: a positional timeout"}
+        assert _labels(tmp_path, PYTHON, rel, SourceText(alone)) == {"time: a positional timeout"}
 
 
-def test_a_python_primitive_imported_by_name_is_read_qualified() -> None:
+def test_a_python_primitive_imported_by_name_is_read_qualified(tmp_path: Path) -> None:
     """A from-import, a module alias and a star import each hide no site."""
     rel = RelPath("python/tests/test_x.py")
     source = SourceText(
@@ -226,7 +230,7 @@ def test_a_python_primitive_imported_by_name_is_read_qualified() -> None:
             """
         )
     )
-    assert _counts(PYTHON, rel, source) == {
+    assert _counts(tmp_path, PYTHON, rel, source) == {
         "time: a clock or sleep from module time": 2,
         "time: an asyncio sleep of a duration": 1,
         "thread: a thread or timer from module threading": 1,
@@ -245,10 +249,10 @@ def test_a_python_primitive_imported_by_name_is_read_qualified() -> None:
             """
         )
     )
-    assert _labels(PYTHON, rel, unbound) == set()
+    assert _labels(tmp_path, PYTHON, rel, unbound) == set()
 
 
-def test_python_clock_reads_signal_timers_and_yields_are_sites() -> None:
+def test_python_clock_reads_signal_timers_and_yields_are_sites(tmp_path: Path) -> None:
     """A process or thread clock, a signal or watchdog timer and a scheduler yield each count."""
     source = SourceText(
         textwrap.dedent(
@@ -264,7 +268,7 @@ def test_python_clock_reads_signal_timers_and_yields_are_sites() -> None:
             """
         )
     )
-    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {
+    assert _counts(tmp_path, PYTHON, RelPath("python/tests/test_x.py"), source) == {
         "time: a clock or sleep from module time": 3,
         "time: a signal timer": 3,
         "thread: a yield to the scheduler": 1,
@@ -280,9 +284,9 @@ def test_python_clock_reads_signal_timers_and_yields_are_sites() -> None:
     ],
     ids=["qualified", "alias"],
 )
-def test_a_line_separator_inside_a_string_ends_no_line(source: SourceText) -> None:
+def test_a_line_separator_inside_a_string_ends_no_line(tmp_path: Path, source: SourceText) -> None:
     """A U+2028 in a string literal ends no line, so the code and comment after it are read."""
-    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {
+    assert _counts(tmp_path, PYTHON, RelPath("python/tests/test_x.py"), source) == {
         "time: a clock or sleep from module time": 1
     }
 
@@ -295,10 +299,10 @@ def test_a_line_separator_inside_a_string_ends_no_line(source: SourceText) -> No
     ],
     ids=["cr", "crlf"],
 )
-def test_a_carriage_return_in_a_child_script_ends_a_row(script: SourceText) -> None:
+def test_a_carriage_return_in_a_child_script_ends_a_row(tmp_path: Path, script: SourceText) -> None:
     """A carriage return or CRLF in a child script ends a row, so the alias read after it counts."""
     source = SourceText(f'import subprocess\nsubprocess.run(["python", "-c", "{script}"])\n')
-    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {
+    assert _counts(tmp_path, PYTHON, RelPath("python/tests/test_x.py"), source) == {
         "time: a clock or sleep from module time": 1
     }
 
@@ -312,21 +316,23 @@ def test_a_carriage_return_in_a_child_script_ends_a_row(script: SourceText) -> N
     ids=["cr", "crlf"],
 )
 def test_a_comment_after_a_carriage_return_in_a_child_script_is_no_site(
-    script: SourceText,
+    tmp_path: Path, script: SourceText
 ) -> None:
     """A comment after a carriage return or CRLF in a child script is blanked like any other."""
     source = SourceText(f'import subprocess\nsubprocess.run(["python", "-c", "{script}"])\n')
     assert (
-        _counts(PYTHON, RelPath("python/tests/test_x.py"), source)
+        _counts(tmp_path, PYTHON, RelPath("python/tests/test_x.py"), source)
         == dict[CanonicalText, SiteCount]()
     )
 
 
-def test_an_indented_child_script_whose_rows_end_at_a_carriage_return_is_read_dedented() -> None:
+def test_an_indented_child_script_whose_rows_end_at_a_carriage_return_is_read_dedented(
+    tmp_path: Path,
+) -> None:
     """An indented child script whose rows end at a carriage return is dedented and counts."""
     script = SourceText("\\r    import time\\r    time.sleep(1)\\r")
     source = SourceText(f'import subprocess\nsubprocess.run(["python", "-c", "{script}"])\n')
-    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {
+    assert _counts(tmp_path, PYTHON, RelPath("python/tests/test_x.py"), source) == {
         "time: a clock or sleep from module time": 1
     }
 
@@ -360,7 +366,7 @@ def test_an_alias_read_on_a_row_a_carriage_return_opens_is_spelled_out(end: Sour
     )
 
 
-def test_a_child_script_in_a_python_string_is_read_as_source() -> None:
+def test_a_child_script_in_a_python_string_is_read_as_source(tmp_path: Path) -> None:
     """A script a test hands a child interpreter counts; prose and a docstring do not.
 
     An f-string or a t-string is read with what it interpolates standing as a
@@ -383,13 +389,11 @@ def test_a_child_script_in_a_python_string_is_read_as_source() -> None:
         )
     )
     sleep = CanonicalText("time: a clock or sleep from module time")
-    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {sleep: 3}
-    assert not rows_of(
-        git_toplevel(), RelPath("python/tests/test_check_test_determinism.py"), source
-    )
+    assert _counts(tmp_path, PYTHON, RelPath("python/tests/test_x.py"), source) == {sleep: 3}
+    assert not rows_of(tmp_path, RelPath("python/tests/test_check_test_determinism.py"), source)
 
 
-def test_an_async_client_on_its_default_runner_is_a_thread_site() -> None:
+def test_an_async_client_on_its_default_runner_is_a_thread_site(tmp_path: Path) -> None:
     """An async client built in a test without ``run_in_thread`` leans on executor threads.
 
     Found by what the file imports, an alias or the module included; one handed
@@ -413,11 +417,11 @@ def test_an_async_client_on_its_default_runner_is_a_thread_site() -> None:
     )
     assert async_clients_on_a_thread(source) == 4
     rel = RelPath("python/tests/test_x.py")
-    assert rows_of(git_toplevel(), rel, source) == {RowKey(rel, ASYNC_CLIENT_ON_A_THREAD): 4}
-    assert not rows_of(git_toplevel(), RelPath("python/aletheia/x.py"), source)
+    assert rows_of(tmp_path, rel, source) == {RowKey(rel, ASYNC_CLIENT_ON_A_THREAD): 4}
+    assert not rows_of(tmp_path, RelPath("python/aletheia/x.py"), source)
 
 
-def test_an_unseeded_go_property_check_is_a_random_site() -> None:
+def test_an_unseeded_go_property_check_is_a_random_site(tmp_path: Path) -> None:
     """A testing/quick check handed no Rand, or no configuration, draws from the clock."""
     rel = RelPath("go/aletheia/x_test.go")
     source = SourceText(
@@ -434,10 +438,12 @@ def test_an_unseeded_go_property_check_is_a_random_site() -> None:
             """
         )
     )
-    assert _counts(GO, rel, source) == {UNSEEDED_PROPERTY: 3}
+    assert _counts(tmp_path, GO, rel, source) == {UNSEEDED_PROPERTY: 3}
 
 
-def test_an_unseeded_hypothesis_test_and_a_replaying_profile_are_random_sites() -> None:
+def test_an_unseeded_hypothesis_test_and_a_replaying_profile_are_random_sites(
+    tmp_path: Path,
+) -> None:
     """A hypothesis test with no seed, and a profile with an example database, each count.
 
     Found by what the file imports, an alias or the module included; a seeded
@@ -486,14 +492,14 @@ def test_an_unseeded_hypothesis_test_and_a_replaying_profile_are_random_sites() 
     )
     assert unseeded_properties(source) == 4
     rel = RelPath("python/tests/test_x.py")
-    assert rows_of(git_toplevel(), rel, source) == {
+    assert rows_of(tmp_path, rel, source) == {
         RowKey(rel, UNSEEDED_PROPERTY): 4,
         RowKey(rel, REPLAYING_PROFILE): 2,
     }
-    assert not rows_of(git_toplevel(), RelPath("python/aletheia/x.py"), source)
+    assert not rows_of(tmp_path, RelPath("python/aletheia/x.py"), source)
 
 
-def test_a_rust_async_client_on_its_worker_thread_is_a_thread_site() -> None:
+def test_a_rust_async_client_on_its_worker_thread_is_a_thread_site(tmp_path: Path) -> None:
     """A Rust test building the async client by a constructor that starts its worker counts.
 
     A renamed import of the client is read through; one a turn executor hosts,
@@ -516,10 +522,10 @@ def test_a_rust_async_client_on_its_worker_thread_is_a_thread_site() -> None:
             """
         )
     )
-    assert _counts(RUST, rel, source) == {ASYNC_CLIENT_ON_A_THREAD: 5}
+    assert _counts(tmp_path, RUST, rel, source) == {ASYNC_CLIENT_ON_A_THREAD: 5}
 
 
-def test_a_python_yield_to_the_loop_is_not_physical_time() -> None:
+def test_a_python_yield_to_the_loop_is_not_physical_time(tmp_path: Path) -> None:
     """A zero sleep, timeout or wait is a poll, not a clock read; a string join is no wait."""
     source = SourceText(
         textwrap.dedent(
@@ -534,10 +540,10 @@ def test_a_python_yield_to_the_loop_is_not_physical_time() -> None:
             """
         )
     )
-    assert _labels(PYTHON, RelPath("python/tests/test_x.py"), source) == set()
+    assert _labels(tmp_path, PYTHON, RelPath("python/tests/test_x.py"), source) == set()
 
 
-def test_cpp_sleeps_clocks_and_threads_are_sites_and_their_prose_is_not() -> None:
+def test_cpp_sleeps_clocks_and_threads_are_sites_and_their_prose_is_not(tmp_path: Path) -> None:
     """A C++ test's sleep, timed wait, clock read and thread each count."""
     rel = RelPath("cpp/tests/x.cpp")
     source = SourceText(
@@ -554,7 +560,7 @@ def test_cpp_sleeps_clocks_and_threads_are_sites_and_their_prose_is_not() -> Non
             """
         )
     )
-    assert _labels(CPP, rel, source) == {
+    assert _labels(tmp_path, CPP, rel, source) == {
         "time: a sleep",
         "time: a wait of a duration",
         "time: a clock read",
@@ -569,12 +575,12 @@ def test_cpp_sleeps_clocks_and_threads_are_sites_and_their_prose_is_not() -> Non
             """
         )
     )
-    assert _labels(CPP, rel, prose) == set()
+    assert _labels(tmp_path, CPP, rel, prose) == set()
     lock_wait = SourceText("void g() { m.try_lock_until(t); }\n")
-    assert _labels(CPP, rel, lock_wait) == {"time: a wait of a duration"}
+    assert _labels(tmp_path, CPP, rel, lock_wait) == {"time: a wait of a duration"}
 
 
-def test_cpp_c_library_time_benchmarks_and_yields_are_sites() -> None:
+def test_cpp_c_library_time_benchmarks_and_yields_are_sites(tmp_path: Path) -> None:
     """A POSIX sleep, clock or timer, a Catch2 benchmark and a yield count; a member does not."""
     rel = RelPath("cpp/tests/x.cpp")
     source = SourceText(
@@ -596,7 +602,7 @@ def test_cpp_c_library_time_benchmarks_and_yields_are_sites() -> None:
             """
         )
     )
-    assert _counts(CPP, rel, source) == {
+    assert _counts(tmp_path, CPP, rel, source) == {
         "time: a sleep": 2,
         "time: a clock read": 3,
         "time: a timer": 1,
@@ -605,7 +611,7 @@ def test_cpp_c_library_time_benchmarks_and_yields_are_sites() -> None:
     }
 
 
-def test_a_cpp_alias_or_using_declaration_is_read_qualified() -> None:
+def test_a_cpp_alias_or_using_declaration_is_read_qualified(tmp_path: Path) -> None:
     """A clock alias, a namespace alias and a used ``std`` name hide no site; an include is none."""
     rel = RelPath("cpp/tests/x.cpp")
     source = SourceText(
@@ -626,21 +632,21 @@ def test_a_cpp_alias_or_using_declaration_is_read_qualified() -> None:
             """
         )
     )
-    assert _counts(CPP, rel, source) == {
+    assert _counts(tmp_path, CPP, rel, source) == {
         "time: a clock read": 2,
         "thread: std::async": 1,
         "thread: a std::thread or std::jthread": 2,
     }
     directive = SourceText("using namespace std;\nvoid f() { jthread j([] {}); async(g); }\n")
-    assert _counts(CPP, rel, directive) == {
+    assert _counts(tmp_path, CPP, rel, directive) == {
         "thread: a std::thread or std::jthread": 1,
         "thread: std::async": 1,
     }
     member = SourceText("#include <thread>\nvoid f() { worker.thread(); }\n")
-    assert _labels(CPP, rel, member) == set()
+    assert _labels(tmp_path, CPP, rel, member) == set()
 
 
-def test_a_rust_use_is_read_as_the_path_it_names() -> None:
+def test_a_rust_use_is_read_as_the_path_it_names(tmp_path: Path) -> None:
     """A used, renamed, nested or glob-imported thread or clock name hides no site."""
     rel = RelPath("rust/tests/t.rs")
     source = SourceText(
@@ -658,23 +664,25 @@ def test_a_rust_use_is_read_as_the_path_it_names() -> None:
             """
         )
     )
-    assert _counts(RUST, rel, source) == {
+    assert _counts(tmp_path, RUST, rel, source) == {
         "time: a sleep": 1,
         "thread: a spawned or scoped thread": 1,
         "time: a clock read": 1,
         "thread: a yield to the scheduler": 1,
     }
     glob = SourceText("use std::thread::*;\nfn t() { scope(|s| {}); park_timeout(d); }\n")
-    assert _counts(RUST, rel, glob) == {
+    assert _counts(tmp_path, RUST, rel, glob) == {
         "thread: a spawned or scoped thread": 1,
         "time: a wait of a duration": 1,
     }
     unwatched = SourceText("use std::sync::Mutex;\nfn t() { let m = Mutex::new(0); sleep(d); }\n")
-    assert _labels(RUST, rel, unwatched) == set()
+    assert _labels(tmp_path, RUST, rel, unwatched) == set()
 
 
-def test_rust_sites_count_only_inside_test_modules_of_a_library_source() -> None:
+def test_rust_sites_count_only_inside_test_modules_of_a_library_source(tmp_path: Path) -> None:
     """A spawn in library code is not a test's; one in a ``#[cfg(test)]`` module is."""
+    (tmp_path / "rust" / "src").mkdir(parents=True)
+    _ = (tmp_path / "rust" / "src" / "lib.rs").write_text("mod tests;\n", encoding="utf-8")
     source = SourceText(
         textwrap.dedent(
             """\
@@ -694,14 +702,14 @@ def test_rust_sites_count_only_inside_test_modules_of_a_library_source() -> None
             """
         )
     )
-    assert _labels(RUST, RelPath("rust/src/lib.rs"), source) == {
+    assert _labels(tmp_path, RUST, RelPath("rust/src/lib.rs"), source) == {
         "time: a sleep",
         "time: a clock read",
         "time: a wait of a duration",
         "thread: a yield to the scheduler",
     }
     integration = SourceText("fn t() { std::thread::spawn(|| {}); }\n")
-    assert _labels(RUST, RelPath("rust/tests/t.rs"), integration) == {
+    assert _labels(tmp_path, RUST, RelPath("rust/tests/t.rs"), integration) == {
         "thread: a spawned or scoped thread"
     }
 
@@ -748,7 +756,7 @@ def test_a_module_declared_under_cfg_test_is_read_whole_in_its_own_file(tmp_path
 
 def test_every_rust_test_binary_is_held_to_one_test_at_a_time(tmp_path: Path) -> None:
     """Cargo's configuration must force one test thread; unforced, other or absent fails."""
-    assert rust_tests_run_alone(git_toplevel())
+    assert rust_tests_run_alone(_REPO_ROOT)
     config = tmp_path / "rust" / ".cargo" / "config.toml"
     assert not rust_tests_run_alone(tmp_path)
     config.parent.mkdir(parents=True)
@@ -776,7 +784,7 @@ def test_the_report_refuses_an_unrecorded_site_and_a_stale_row() -> None:
     assert report(two, one) == OUT_OF_STEP
 
 
-def test_one_file_is_held_to_its_own_rows_and_never_called_stale() -> None:
+def test_one_file_is_held_to_its_own_rows_and_never_called_stale(tmp_path: Path) -> None:
     """The write-time check refuses a site the file's rows do not allow, and only that.
 
     A file under edit holding fewer sites than its row is the change the record
@@ -786,16 +794,12 @@ def test_one_file_is_held_to_its_own_rows_and_never_called_stale() -> None:
     other = RowKey(RelPath("python/tests/test_y.py"), CanonicalText("thread: an executor"))
     sleep = RowKey(rel, CanonicalText("time: a clock or sleep from module time"))
     recorded: RatchetRows = {sleep: 2}
-    edited = rows_of(
-        git_toplevel(), rel, SourceText("time.sleep(1)\ntime.sleep(2)\ntime.sleep(3)\n")
-    )
+    edited = rows_of(tmp_path, rel, SourceText("time.sleep(1)\ntime.sleep(2)\ntime.sleep(3)\n"))
     assert edited == {sleep: 3}
     assert report(edited, recorded, file=rel) == OUT_OF_STEP
-    assert report(rows_of(git_toplevel(), rel, SourceText("x = 1\n")), recorded, file=rel) == CLEAN
+    assert report(rows_of(tmp_path, rel, SourceText("x = 1\n")), recorded, file=rel) == CLEAN
     assert report({other: 1}, recorded, file=rel) == CLEAN
-    assert not rows_of(
-        git_toplevel(), RelPath("python/aletheia/types.py"), SourceText("time.sleep(1)\n")
-    )
+    assert not rows_of(tmp_path, RelPath("python/aletheia/types.py"), SourceText("time.sleep(1)\n"))
 
 
 def test_is_test_asks_every_binding() -> None:
@@ -807,19 +811,27 @@ def test_is_test_asks_every_binding() -> None:
     assert not is_test(RelPath("tools/check_test_determinism.py"))
 
 
-def test_the_hook_is_told_which_paths_are_tests() -> None:
-    """A test file, or a directory holding a tracked one, is named; the root and others are not."""
-    asked = [
-        RelPath("go/aletheia"),
-        RelPath("docs"),
-        RelPath("go/aletheia/client.go"),
-        RelPath("python/tests/test_types_serialization.py"),
-        RelPath("."),
-    ]
-    assert which_are_tests(git_toplevel(), asked) == [
-        RelPath("go/aletheia"),
-        RelPath("python/tests/test_types_serialization.py"),
-    ]
+def test_the_hook_is_told_which_paths_are_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test file or a directory holding one is named; the root is not and asks git nothing."""
+    (tmp_path / "go" / "aletheia").mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
+
+    def _tracked(_repo: Path) -> list[RelPath]:
+        tracked = ("go/aletheia/client_test.go", "go/aletheia/client.go", "docs/x.md")
+        return [RelPath(rel) for rel in tracked]
+
+    monkeypatch.setattr("tools.check_test_determinism.git_ls_files", _tracked)
+    test = RelPath("python/tests/test_types_serialization.py")
+    asked = [RelPath(rel) for rel in ("go/aletheia", "docs", "go/aletheia/client.go", ".")]
+    assert which_are_tests(tmp_path, [*asked, test]) == [RelPath("go/aletheia"), test]
+
+    def _unasked(_repo: Path) -> list[RelPath]:
+        pytest.fail("the root asks git for nothing")
+
+    monkeypatch.setattr("tools.check_test_determinism.git_ls_files", _unasked)
+    assert not which_are_tests(tmp_path, [RelPath("."), RelPath("")])
 
 
 def test_every_test_tree_of_every_binding_is_read() -> None:

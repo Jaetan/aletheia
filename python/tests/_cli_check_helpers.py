@@ -20,9 +20,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import NamedTuple, NewType
+from typing import NamedTuple
 
 import pytest
+from _processes import CommandWord
 
 from aletheia import cli
 from aletheia.common_types import ExitStatus, Prose
@@ -30,9 +31,6 @@ from aletheia.common_types import ExitStatus, Prose
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FFI_LIB = REPO_ROOT / "build" / "libaletheia-ffi.so"
 _SUBPROCESS_CWD = REPO_ROOT / "python"
-
-# One word of a command line.
-CommandWord = NewType("CommandWord", str)
 
 
 class CheckInputs(NamedTuple):

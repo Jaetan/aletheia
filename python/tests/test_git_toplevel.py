@@ -73,9 +73,17 @@ def test_a_path_outside_any_work_tree_is_refused(tmp_path: Path) -> None:
         _ = git_toplevel(outside)
 
 
-def test_a_gate_gets_the_root_or_says_it_runs_outside_one(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_gate_gets_the_root_or_says_it_runs_outside_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Inside the repository a gate gets its root; outside, None, with the gate named."""
-    assert gate_repo_root(GateName("a-gate")) == git_toplevel()
+    root = tmp_path / "root"
+
+    def inside() -> Path:
+        return root
+
+    monkeypatch.setattr(_common, "git_toplevel", inside)
+    assert gate_repo_root(GateName("a-gate")) == root
 
     def outside() -> Path:
         message = "not inside a git work tree"
