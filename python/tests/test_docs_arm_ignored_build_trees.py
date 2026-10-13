@@ -5,13 +5,17 @@
 Each test plants a tree whose tracked files carry one shape: clean, one defect
 of the claim, or a scan the claim expects to match and that matches nothing.
 The arm is called as the gate calls it, on the tracked paths and the tracked
-Markdown files, and asks git which paths the tracked rules ignore.  A tree is a
-repository only where an untracked ignore file must sit where git would honour
-it, the shape the arm must not be fooled by.
+Markdown files, and asks git which paths the tracked rules ignore.  Where a
+test's claim is the arm's own scan, attribution, order or choice of paths, a
+stand-in answers with the set git gives for those rules, which another test
+holds with git, and records what the arm asked.  A tree is a repository only
+where an untracked ignore file must sit where git would honour it, the shape
+the arm must not be fooled by.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,17 +23,26 @@ from _git_repo import git
 from _planted_tree import run_planted, tracked_paths
 
 from tools._common import RelPath
-from tools.docs_arms import ignored_build_trees, tracked_dirs
+from tools.docs_arms import FileBytes, ignored_build_trees, tracked_dirs
 from tools.docs_arms.ignored_build_trees import findings
 
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
 BUILD_FILE = RelPath("cpp/CMakeLists.txt")
 CLEAN_IGNORE = Prose("build/\nbuild-asan/\n/python/.venv/\ngo/aletheia-cli\n")
+# What git answers for CLEAN_IGNORE over every path a tree asks; test_clean_fixture_passes holds it.
+CLEAN_IGNORED = frozenset(
+    {
+        RelPath("cpp/build/probe"),
+        RelPath("cpp/build-asan/probe"),
+        RelPath("go/aletheia-cli"),
+        RelPath("python/.venv/probe"),
+    }
+)
 CLEAN_BUILD_FILE = Prose(
     "# cmake -B build -DX=ON\n#   cmake -B build-asan -DALETHEIA_SANITIZER=address\n"
 )
@@ -69,6 +82,31 @@ def _run(repo: Path, *, untracked: Iterable[RelPath] = ()) -> list[Prose]:
     return run_planted(findings, repo, untracked=frozenset(untracked))
 
 
+@dataclass(frozen=True)
+class _Asked:
+    """One question the arm puts to git: the ignore files by their bytes, and the paths."""
+
+    rules: dict[RelPath, FileBytes]
+    paths: list[RelPath]
+
+
+def _git_answers(monkeypatch: pytest.MonkeyPatch, ignored: frozenset[RelPath]) -> list[_Asked]:
+    """Answer the arm's questions as git does for rules ignoring ``ignored``; return them asked."""
+    asked: list[_Asked] = []
+
+    def answer(rules: Mapping[RelPath, FileBytes], paths: Sequence[RelPath]) -> set[RelPath]:
+        asked.append(_Asked(dict(rules), list(paths)))
+        return {path for path in paths if path in ignored}
+
+    monkeypatch.setattr(ignored_build_trees, "_ignored", answer)
+    return asked
+
+
+def _top_rules(ignore: Prose) -> dict[RelPath, FileBytes]:
+    """Return the rules the arm reads from a tree whose one ignore file is the top ``ignore``."""
+    return {RelPath(".gitignore"): FileBytes(ignore.encode("utf-8"))}
+
+
 def test_clean_fixture_passes(tmp_path: Path) -> None:
     """Documented trees and binary ignored, the sanctioned venv ignored, no stray venv hidden."""
     assert _run(_repo(tmp_path)) == list[Prose]()
@@ -92,18 +130,27 @@ def test_documented_go_binary_not_ignored(tmp_path: Path) -> None:
     ]
 
 
-def test_a_binary_two_documents_build_names_the_first(tmp_path: Path) -> None:
+def test_a_binary_two_documents_build_names_the_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A Go build output two documents print is reported once, against the first in path order."""
-    repo = _repo(tmp_path, ignore=Prose("build/\nbuild-asan/\n/python/.venv/\n"))
+    ignore = Prose("build/\nbuild-asan/\n/python/.venv/\n")
+    asked = _git_answers(monkeypatch, CLEAN_IGNORED - {RelPath("go/aletheia-cli")})
+    repo = _repo(tmp_path, ignore=ignore)
     _ = (repo / "A.md").write_text(CLEAN_README, encoding="utf-8")
     assert _run(repo) == [
         Prose(".gitignore: a documented Go build output is not ignored: go/aletheia-cli (A.md)")
     ]
+    assert [question.rules for question in asked] == [_top_rules(ignore)]
 
 
-def test_a_binary_two_documents_build_names_the_first_given(tmp_path: Path) -> None:
+def test_a_binary_two_documents_build_names_the_first_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A Go build output two documents print is reported against the first in the order given."""
-    repo = _repo(tmp_path, ignore=Prose("build/\nbuild-asan/\n/python/.venv/\n"))
+    ignore = Prose("build/\nbuild-asan/\n/python/.venv/\n")
+    asked = _git_answers(monkeypatch, CLEAN_IGNORED - {RelPath("go/aletheia-cli")})
+    repo = _repo(tmp_path, ignore=ignore)
     _ = (repo / "A.md").write_text(CLEAN_README, encoding="utf-8")
     documents = {RelPath("README.md"): CLEAN_README, RelPath("A.md"): CLEAN_README}
     assert findings(repo, tracked_paths(repo), documents) == [
@@ -111,6 +158,7 @@ def test_a_binary_two_documents_build_names_the_first_given(tmp_path: Path) -> N
             ".gitignore: a documented Go build output is not ignored: go/aletheia-cli (README.md)"
         )
     ]
+    assert [question.rules for question in asked] == [_top_rules(ignore)]
 
 
 def test_ignore_files_in_tracked_directories_answer_for_their_trees(tmp_path: Path) -> None:
@@ -241,48 +289,94 @@ def test_hidden_strays_are_named_in_path_order(
     rules = "".join(f"/{stray}/\n" for stray in strays)
     repo = _repo(tmp_path, ignore=Prose(f"{CLEAN_IGNORE}{rules}"))
     monkeypatch.setattr(ignored_build_trees, "tracked_dirs", _dirs_in_reverse_order)
+    _ = _git_answers(monkeypatch, CLEAN_IGNORED | {RelPath(f"{stray}/probe") for stray in strays})
     assert _run(repo) == [
         Prose(f".gitignore: a venv outside the sanctioned path is hidden: {stray}")
         for stray in strays
     ]
 
 
-def test_a_nested_directory_ignoring_its_contents_is_not_asked(tmp_path: Path) -> None:
+def test_a_nested_directory_ignoring_its_contents_is_not_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Only the top and the top-level directories are asked, so a log directory's rule stands."""
+    asked = _git_answers(monkeypatch, CLEAN_IGNORED)
     repo = _repo(tmp_path)
     log_dir = repo / "tools" / "ci-output"
     log_dir.mkdir()
     _ = (log_dir / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")
     assert _run(repo) == list[Prose]()
+    log_rules = {RelPath("tools/ci-output/.gitignore"): FileBytes(b"*\n!.gitignore\n")}
+    assert asked == [
+        _Asked(
+            _top_rules(CLEAN_IGNORE) | log_rules,
+            [
+                RelPath("cpp/build/probe"),
+                RelPath("cpp/build-asan/probe"),
+                RelPath("go/aletheia-cli"),
+                RelPath("python/.venv/probe"),
+                RelPath(".venv/probe"),
+                RelPath("cpp/.venv/probe"),
+                RelPath("go/.venv/probe"),
+                RelPath("rust/.venv/probe"),
+                RelPath("tools/.venv/probe"),
+            ],
+        )
+    ]
 
 
-def test_build_file_documents_no_tree(tmp_path: Path) -> None:
+def test_build_file_documents_no_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A build file naming no build directory is a scan that matched nothing."""
+    asked = _git_answers(monkeypatch, CLEAN_IGNORED)
     repo = _repo(tmp_path, build_file=Prose("project(aletheia)\n"))
     assert _run(repo) == [Prose(f"{BUILD_FILE}: the build file documents no build directory")]
+    assert [question.rules for question in asked] == [_top_rules(CLEAN_IGNORE)]
 
 
-def test_build_file_untracked(tmp_path: Path) -> None:
+def test_build_file_untracked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A tree without the C++ build file cannot document a build directory."""
+    asked = _git_answers(monkeypatch, CLEAN_IGNORED)
     repo = _repo(tmp_path, build_file=None)
     assert _run(repo) == [
         Prose(f"{BUILD_FILE}: not tracked, so the build trees it documents are unchecked")
     ]
+    assert [question.rules for question in asked] == [_top_rules(CLEAN_IGNORE)]
 
 
-def test_no_document_builds_the_go_command_line(tmp_path: Path) -> None:
+def test_no_document_builds_the_go_command_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """No document printing the Go build is a scan that matched nothing."""
+    asked = _git_answers(monkeypatch, CLEAN_IGNORED)
     repo = _repo(tmp_path, readme=Prose("# Go\n\nRun the tests.\n"))
     assert _run(repo) == [
         Prose(".gitignore: no document read prints a build of the Go command line")
     ]
+    assert [question.rules for question in asked] == [_top_rules(CLEAN_IGNORE)]
 
 
-def test_a_tracked_build_file_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
+def test_a_tracked_build_file_the_work_tree_lacks_is_a_finding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A build file git tracks and the work tree lacks documents no tree; the rest is asked."""
+    asked = _git_answers(monkeypatch, CLEAN_IGNORED)
     repo = _repo(tmp_path, build_file=None)
     assert run_planted(findings, repo, absent={BUILD_FILE}) == [
         Prose(f"{BUILD_FILE}: could not be read, so the build trees it documents are unchecked")
+    ]
+    assert asked == [
+        _Asked(
+            _top_rules(CLEAN_IGNORE),
+            [
+                RelPath("go/aletheia-cli"),
+                RelPath("python/.venv/probe"),
+                RelPath(".venv/probe"),
+                RelPath("cpp/.venv/probe"),
+                RelPath("go/.venv/probe"),
+                RelPath("rust/.venv/probe"),
+                RelPath("tools/.venv/probe"),
+            ],
+        )
     ]
 
 

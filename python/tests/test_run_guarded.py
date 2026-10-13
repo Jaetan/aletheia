@@ -26,7 +26,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, Self, TypedDict, Unpack
 
 import pytest
 
@@ -34,6 +34,9 @@ from tools import _common
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from types import TracebackType
+
+    from _processes import CommandWord
 
 REPO_ROOT = Path(_common.__file__).resolve().parents[1]
 
@@ -180,8 +183,53 @@ def test_closing_the_stop_descriptor_stops_the_command(tmp_path: Path) -> None:
     assert result.returncode == -signal.SIGKILL
 
 
-def test_no_descriptor_is_left_open() -> None:
-    """Both ends of the guard's pipe are closed once the command returns."""
+# A file descriptor of this process.
+Descriptor = NewType("Descriptor", int)
+
+
+class _GuardOptions(TypedDict):
+    """The keywords ``run_guarded`` hands ``Popen`` when given no cwd, output or stop descriptor."""
+
+    cwd: None
+    stdin: Literal[-3]  # subprocess.DEVNULL
+    stdout: Literal[-1]  # subprocess.PIPE
+    stderr: Literal[-2]  # subprocess.STDOUT
+    text: Literal[True]
+    pass_fds: tuple[Descriptor]
+    process_group: Literal[0]
+
+
+class _Guard:
+    """Stands in for the guard's process: it starts nothing and exits 0 with no output.
+
+    Each descriptor it is handed must be open when the guard would start.
+    """
+
+    returncode: Literal[0] = 0
+
+    def __init__(self, _command: list[CommandWord], **options: Unpack[_GuardOptions]) -> None:
+        for fd in options["pass_fds"]:
+            _ = os.fstat(fd)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        _type: type[BaseException] | None,
+        _value: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    def communicate(self) -> tuple[Literal[""], None]:
+        """Return the empty output the stand-in command wrote."""
+        return "", None
+
+
+def test_no_descriptor_is_left_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both ends of the guard's watch pipe are closed in the caller once ``run_guarded`` returns."""
+    monkeypatch.setattr(_common.subprocess, "Popen", _Guard)
     fds = Path("/proc/self/fd")
     before = sorted(fds.iterdir())
     _ = _common.run_guarded(["true"])

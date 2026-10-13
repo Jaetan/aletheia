@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 import textwrap
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 from _processes import pid_no_process_holds
@@ -169,16 +169,26 @@ class TestStartupRefusals:
     @pytest.mark.usefixtures("gate_on_scratch")
     def test_a_build_holding_shakes_lock_is_named(
         self,
-        held_shake_lock: tuple[Path, int],
+        tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """A held Shake lock refuses the run and names the process holding it."""
-        lock, pid = held_shake_lock
-        monkeypatch.setattr(gate, "_SHAKE_LOCK", lock)
+        """A held Shake lock refuses the run and names the process holding it.
+
+        The holder's pid is the reader's answer, which ``TestShakeLock`` holds;
+        here it is given, and the gate's refusal over it is the claim.
+        """
+        asked: list[Path] = []
+
+        def holder(lock: Path) -> Literal[4242]:
+            asked.append(lock)
+            return 4242
+
+        monkeypatch.setattr(gate, "shake_lock_holder", holder)
         assert gate.main() == 1
+        assert asked == [tmp_path / ".shake.lock"]
         out = capsys.readouterr().out
-        assert f"a build (pid {pid}) holds {lock.name}; wait for it to finish" in out
+        assert "a build (pid 4242) holds .shake.lock; wait for it to finish" in out
 
     def test_a_second_run_reports_the_agda_lock_as_held(
         self, gate_on_scratch: tuple[Path, Path], tmp_path: Path

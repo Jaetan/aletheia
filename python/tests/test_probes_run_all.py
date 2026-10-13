@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,6 +45,7 @@ class Told:
     nproc: PositiveInt
 
 
+@cache
 def _landlock() -> bool:
     """Whether ``setpriv`` here can apply a Landlock ruleset, as the runner requires."""
     setpriv = shutil.which("setpriv")
@@ -53,17 +55,15 @@ def _landlock() -> bool:
     return subprocess.run(probe, capture_output=True, check=False).returncode == 0
 
 
-pytestmark = pytest.mark.skipif(
-    not _landlock(), reason="setpriv cannot apply a Landlock ruleset here, so the runner refuses"
-)
-
-
 def _told(root: Path, workers: PositiveInt, *, caller_bound: bool) -> Told:
     """Run the runner over a one-probe store planted at ``root``; return what the probe reported.
 
     With ``caller_bound`` the runner starts with a ``PYTHON_CPU_COUNT`` of its own already
     exported, which it must replace; without, the variable is absent and it must export one.
+    Where ``setpriv`` cannot apply a Landlock ruleset, the runner refuses, so the test is skipped.
     """
+    if not _landlock():
+        pytest.skip("setpriv cannot apply a Landlock ruleset here, so the runner refuses")
     git = shutil.which("git")
     assert git is not None
     probes = root / "probes"
