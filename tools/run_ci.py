@@ -75,7 +75,8 @@ records no build-source digest.  The always-on steps, by lane:
       ruff reads python/ whole, the other two its aletheia/ tests/ benchmarks/;
       all three read the root's Python, ROOT_PYTHON in _ci_steps.py.
     - check-precise-hints (Python type hints held to docs/PYTHON_IMPRECISE_HINTS.yaml)
-    - check-test-determinism (tests' physical time and threads held to docs/TEST_DETERMINISM.yaml)
+    - check-test-determinism (tests' physical time and threads held to docs/TEST_DETERMINISM.yaml,
+      the wider net's other words to tools/_determinism_dismissals.py)
     - gofmt -l + go vet (Go)
     - clang-format --dry-run --Werror (C++)
     - clang-tidy -p build-tidy (C++ — mandatory per AGENTS.md § Step 4)

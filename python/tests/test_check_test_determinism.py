@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from tools._common import RelPath
+from tools._determinism_reading import BlankedCode, blank_python, spell_python_aliases
 from tools._ratchet import CanonicalText, RatchetRows, RowKey
 from tools.check_test_determinism import (
     ASYNC_CLIENT_ON_A_THREAD,
@@ -28,11 +29,9 @@ from tools.check_test_determinism import (
     REPLAYING_PROFILE,
     UNSEEDED_PROPERTY,
     Binding,
-    BlankedCode,
     SiteCount,
     SourceText,
     async_clients_on_a_thread,
-    blank_python,
     is_test,
     report,
     rows_of,
@@ -40,7 +39,6 @@ from tools.check_test_determinism import (
     rust_test_modules,
     rust_tests_run_alone,
     sites_in,
-    spell_python_aliases,
     unseeded_properties,
     which_are_tests,
 )
