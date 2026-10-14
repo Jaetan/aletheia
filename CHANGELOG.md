@@ -2010,6 +2010,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The release's SBOM names each GHC runtime library at its version.** With
+  GHC 9.8, whose library file names carry a four-character unit hash
+  (`libHSbase-4.19.2.0-9f38-ghc9.8.4.so`), the hash was read into the version,
+  so the bill listed `base` at `4.19.2.0-9f38`; it now lists `4.19.2.0`.
+  Bundles built with GHC 9.6, v5.0.0's among them, name no hash and were
+  billed at their versions.
+
 - **The determinism gate reads a Rust test module held in a file of its own.**
   It read only inline `#[cfg(test)] mod` blocks; a sleep in such a file passed.
 
