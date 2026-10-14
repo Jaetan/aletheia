@@ -27,7 +27,7 @@ import pytest
 import yaml
 from _processes import CommandWord
 
-from tools import benchmark_scope, mutation_run
+from tools import _branch_diff, benchmark_scope
 from tools._common import RelPath
 
 from aletheia.common_types import Prose
@@ -145,7 +145,7 @@ def _diff_naming(monkeypatch: pytest.MonkeyPatch, changed: tuple[RelPath, ...]) 
         assert tuple(argv[-3:]) == _DIFF_WORDS
         return SimpleNamespace(returncode=0, stdout="".join(f"{rel}\n" for rel in changed))
 
-    monkeypatch.setattr(mutation_run, "run_capture", fake_run_capture)
+    monkeypatch.setattr(_branch_diff, "run_capture", fake_run_capture)
 
 
 # Diffs no leg measures on: documentation, and a gate no leg runs.

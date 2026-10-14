@@ -13,6 +13,7 @@ level (the lane scheduler itself is covered by test_scheduler.py).
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shlex
 import subprocess
@@ -25,7 +26,7 @@ import pytest
 from _ci_runner import EXIT_0, ci_runner, exits
 from _processes import CommandWord
 
-from tools import _ci_steps
+from tools import _branch_diff
 from tools._ci_steps import (
     AGDA_GATES_STEP,
     AGDA_SHAKE_TARGETS,
@@ -43,6 +44,7 @@ from tools._ci_steps import (
 )
 from tools._common import (
     CPP_LINT_TREE,
+    GateName,
     RelPath,
     find_executable,
     git_ls_files,
@@ -124,7 +126,7 @@ def _diff_naming(
         asked.append(cmd)
         return subprocess.CompletedProcess(cmd, status, Prose(f"{changed}\n"), Prose(""))
 
-    monkeypatch.setattr(_ci_steps, "run_capture", answer_the_diff)
+    monkeypatch.setattr(_branch_diff, "run_capture", answer_the_diff)
     return asked
 
 
@@ -361,12 +363,19 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
 
     The lane's first step configures the lint tree with the binding's
     compilers and lints from that tree's database, so the checks after it read
-    a database that exists; the cpp lane, which builds and runs the tests,
+    a database that exists; the clang-tidy facts gate, last, reads none and
+    runs the lane's clang-tidy.  The cpp lane, which builds and runs the tests,
     holds none of them, so none waits for that build.
     """
     runner = ci_runner(tmp_path)
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
-    gates = ["clang-tidy", "check-clang-tidy-coverage", "check-cpp-ast", "check-cpp-const-locals"]
+    gates = [
+        "clang-tidy",
+        "check-clang-tidy-coverage",
+        "check-cpp-ast",
+        "check-cpp-const-locals",
+        "check-clang-tidy-facts",
+    ]
     lane = [step for step in runner.registered_steps if step.lane == CPP_LINT_LANE]
     assert [step.name for step in lane] == gates
     tidy = str(lane[0].cmd)
@@ -376,6 +385,45 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
     cpp = [step.name for step in runner.registered_steps if step.lane == "cpp"]
     assert "ctest" in cpp
     assert not set(gates) & set(cpp)
+
+
+# Each gate on a tool fact: the lane holding what it reads, and its module.
+_TOOL_FACT_GATES = {
+    "check-clang-format-config": (LaneName("misc"), "tools.check_clang_format_config"),
+    "check-agda-interface-reuse": (LaneName("agda"), "tools.check_agda_interface_reuse"),
+    "check-clang-tidy-facts": (LaneName(CPP_LINT_LANE), "tools.check_clang_tidy_facts"),
+    "check-json-cleanup-abort": (LaneName("cpp"), "tools.check_json_cleanup_abort"),
+}
+
+
+def test_each_tool_fact_gate_runs_its_module_after_what_it_reads(tmp_path: Path) -> None:
+    """A tool-fact gate runs its module from the root, in its lane, after the step making its input.
+
+    The Agda gate copies sources the Agda gates have just checked, and the JSON
+    gate builds a target of the tree the C++ test step configures, so each
+    comes after that step in its lane.
+    """
+    runner = ci_runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    steps = {step.name: step for step in runner.registered_steps}
+    for name, (lane, module) in _TOOL_FACT_GATES.items():
+        step = steps[name]
+        assert (step.lane, step.cmd, step.cwd) == (
+            lane,
+            [runner.python, "-m", module],
+            runner.repo_root,
+        ), name
+        assert importlib.util.find_spec(module) is not None, module
+
+    def order(lane: LaneName) -> list[GateName]:
+        return [GateName(step.name) for step in runner.registered_steps if step.lane == lane]
+
+    agda = order(LaneName("agda"))
+    assert agda.index(GateName("check-agda-interface-reuse")) > agda.index(
+        GateName(AGDA_GATES_STEP)
+    )
+    cpp = order(LaneName("cpp"))
+    assert cpp.index(GateName("check-json-cleanup-abort")) > cpp.index(GateName("ctest"))
 
 
 def test_a_step_below_a_toolchain_directory_runs_in_its_lane(tmp_path: Path) -> None:

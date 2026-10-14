@@ -64,14 +64,15 @@ static std::atomic<std::int64_t> g_allocations{0};
 constexpr std::size_t k_recording_capacity = 1U << 16U;
 
 // The JSON library allocates while it destroys a document, to hold what it is
-// flattening, and the destructor it does that from is noexcept: a failure
-// there ends the program rather than unwinding. The spreadsheet library ends
-// the program the same way on an allocation that fails inside it. None of the
-// vendored libraries is this project's code under test, so an allocation any
-// of them makes for itself is never failed, and the YAML library is spared on
-// the same ground. A library is known by a frame of its own on the stack,
-// since what it allocates it allocates through the standard library's own
-// functions, whose frames name no owner.
+// flattening, and the destructor it does that from is noexcept: a failure there
+// ends the program rather than unwinding, which
+// tools/check_json_cleanup_abort.py shows whenever the library's release moves.
+// The spreadsheet library ends the program the same way on an allocation that
+// fails inside it. None of the vendored libraries is this project's code under
+// test, so an allocation any of them makes for itself is never failed, and the
+// YAML library is spared on the same ground. A library is known by a frame of
+// its own on the stack, since what it allocates it allocates through the
+// standard library's own functions, whose frames name no owner.
 [[nodiscard]] static auto symbol_at(const void* site) -> std::string_view {
     Dl_info info{};
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): dladdr takes a mutable pointer

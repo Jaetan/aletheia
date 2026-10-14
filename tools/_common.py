@@ -63,6 +63,10 @@ type ExecutorFactory = Callable[[WorkerCount], Executor]
 # cpp/: configured with the binding's compiler and never built, so those gates
 # start when its configure ends rather than after the test build in cpp/build.
 CPP_LINT_TREE = "build-tidy"
+# The lane of the gates that read that tree's compile database: clang-tidy
+# first, which configures the tree, then the checks that read it, then the
+# gate on what the toolchain's clang-tidy does, which reads none.
+CPP_LINT_LANE = "cpp-lint"
 
 
 def match_paren_content(text: str, start: int) -> str | None:

@@ -186,12 +186,16 @@ impossible on `main`.
   and every C++ lane (ctest, clang-tidy, ubsan) pins it. `clang-23` is not in
   the runner's default apt, so the workflows install it from `apt.llvm.org`
   (cached). Expect this section to go red first.
-- **Diff base.** `run_ci`'s IWYU `--diff` and `changed_agda_files` do
-  `git diff main...HEAD`; the checkout needs `fetch-depth: 0` **and** a local
-  `main` ref (the draft fetches it explicitly) or the import gate silently sees
-  zero changed files. On a `push`-to-`main` run, `main...HEAD` is empty so only
-  `iwyu --self-test` gates there — fine, because the PR trigger is where it
-  actually gates the diff.
+- **Diff base.** Every gate scoped by the branch reads what it changed
+  against a local `main` ref: the mutation, coverage and benchmark lanes, the
+  build step's staleness choice and the pin gates through
+  `tools/_branch_diff.py` (`git diff main...HEAD`), and `run_ci`'s IWYU
+  `--diff` through `changed_agda_files` (`git diff --merge-base main`, the
+  working tree). The checkout needs `fetch-depth: 0` **and** a local `main`
+  ref (the workflows fetch it explicitly): without them the import gate exits
+  non-zero, unable to read the diff, and the others run whole. On a
+  `push`-to-`main` run the branch's diff is empty, so only `iwyu --self-test`
+  gates there, which is fine because the PR trigger is where it gates the diff.
 - **Cache key** = `{os, GHC 9.8.4, Agda 2.8.0, stdlib v2.4}`; accept a full
   rebuild on miss.
 

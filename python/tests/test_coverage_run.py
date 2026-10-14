@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from tools import coverage_run, mutation_run
+from tools import _branch_diff, coverage_run
 from tools.coverage_run import CoverageReport, Figure
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ def _fake_diff(monkeypatch: pytest.MonkeyPatch, *, files: list[str], returncode:
     def fake(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(mutation_run, "run_capture", fake)
+    monkeypatch.setattr(_branch_diff, "run_capture", fake)
 
 
 def _spec(

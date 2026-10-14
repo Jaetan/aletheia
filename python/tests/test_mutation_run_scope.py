@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 
-from tools import mutation_run
+from tools import _branch_diff, mutation_run
 from tools._common import RelPath, git_ls_files
 
 from aletheia.common_types import Prose
@@ -43,10 +43,10 @@ if TYPE_CHECKING:
 
 
 def _fake_diff(monkeypatch: pytest.MonkeyPatch, *, files: list[str], returncode: int = 0) -> None:
-    """Make ``mutation_run.run_capture`` return a canned ``git diff`` result.
+    """Make the branch-diff reading return a canned ``git diff`` result.
 
-    Only ``bindings_in_scope`` resolves ``run_capture`` through the
-    ``mutation_run`` namespace; ``short_sha`` uses ``_common``'s own reference,
+    Only the diff reading resolves ``run_capture`` through the
+    ``_branch_diff`` namespace; ``short_sha`` uses ``_common``'s own reference,
     so this fake does not perturb SHA computation.
     """
     stdout = "".join(f"{f}\n" for f in files)
@@ -54,7 +54,7 @@ def _fake_diff(monkeypatch: pytest.MonkeyPatch, *, files: list[str], returncode:
     def fake(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(mutation_run, "run_capture", fake)
+    monkeypatch.setattr(_branch_diff, "run_capture", fake)
 
 
 @pytest.mark.parametrize(
@@ -189,7 +189,7 @@ def test_git_binary_absent_fails_safe_to_all(monkeypatch: pytest.MonkeyPatch) ->
         msg = "required executable not found on PATH: git"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(mutation_run, "find_executable", _no_git)
+    monkeypatch.setattr(_branch_diff, "find_executable", _no_git)
     assert mutation_run.bindings_in_scope(mutation_run.REPO_ROOT) is None
 
 
