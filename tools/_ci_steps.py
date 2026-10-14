@@ -52,6 +52,7 @@ AGDA_SHAKE_TARGETS: tuple[str, ...] = (
     "check-changelog",
     "check-gate-claim",
     "check-haskell-ledger",
+    "check-bundle-licences",
     "check-runbook",
     "check-limits-parity",
     "check-stability-bench",
@@ -807,6 +808,14 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-dist-staging",
         [runner.python, "-m", "tools.check_dist_staging"],
+        cwd=runner.repo_root,
+    )
+    # The venv is installed once, so no other step rebuilds the Python package:
+    # this one builds its wheel from what the bundle stages for it, offline, and
+    # holds the wheel to carrying the binding's licence.
+    runner.step(
+        "check-python-wheel",
+        [runner.python, "-m", "tools.check_python_wheel"],
         cwd=runner.repo_root,
     )
 

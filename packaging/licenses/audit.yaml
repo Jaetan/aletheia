@@ -1,0 +1,459 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# The licence audit of the sources compiled into the bundle (tools/licence_audit.py):
+# the tarballs scanned, and per hit (a licence file, or a line granting a licence or
+# saying where code came from) the kept text that covers it or why it owes none.
+# `python -m tools.licence_audit scan --write DIR` rewrites it, keeping each verdict
+# whose hit remains; a new hit comes with an empty `covered_by:` to fill.
+tarballs:
+  Agda-2.8.0: 86841907e78a5aafcf57b09edb7d50036f7de1b2217c8b58e2c57d6004969ba0
+  agda-stdlib-2.4: dd0fab4519523d6c08cd9583a4f5eac38ab135a12ccdab1fb164c271075f6747
+  ghc: 17e8188f3c8a5c2f73fb4e35d01032e8dc258835ec876d52c8ad8ee3d24b2fc5
+verdicts:
+- tarball: agda-stdlib-2.4
+  path: src/Algebra/Properties/Semiring/Binomial.agda
+  line: '-- Freely adapted from PR #1287 by Maciej Piechotka (@uzytkownik)'
+  covered_by: standard-library-2.4/LICENCE
+- tarball: agda-stdlib-2.4
+  path: src/Algebra/Solver/CommutativeMonoid.agda
+  line: -- Adapted from Algebra.Solver.Monoid
+  covered_by: standard-library-2.4/LICENCE
+- tarball: agda-stdlib-2.4
+  path: src/Algebra/Solver/CommutativeMonoid/Normal.agda
+  line: -- Adapted from Algebra.Solver.Monoid.Normal
+  covered_by: standard-library-2.4/LICENCE
+- tarball: agda-stdlib-2.4
+  path: src/Algebra/Solver/IdempotentCommutativeMonoid.agda
+  line: -- Adapted from Algebra.Solver.CommutativeMonoid
+  covered_by: standard-library-2.4/LICENCE
+- tarball: agda-stdlib-2.4
+  path: src/Algebra/Solver/IdempotentCommutativeMonoid/Normal.agda
+  line: -- Adapted from Algebra.Solver.CommutativeMonoid
+  covered_by: standard-library-2.4/LICENCE
+- tarball: agda-stdlib-2.4
+  path: src/Codata/Sized/Stream.agda
+  line: '-- amount of time. The definition is taken from the paper:'
+  dismissed: a definition from a published paper, cited; no code copied
+- tarball: agda-stdlib-2.4
+  path: src/Data/List/Relation/Binary/Subset/Propositional/Properties.agda
+  line: '-- See issue #1354 for why these proofs can''t be taken from `Subset`'
+  dismissed: prose about the library's own proofs; names no other work
+- tarball: agda-stdlib-2.4
+  path: src/Data/Nat/Base.agda
+  line: -- A comparison view. Taken from "View from the left"
+  dismissed: a definition from a published paper, cited; no code copied
+- tarball: agda-stdlib-2.4
+  path: src/Data/Nat/Binary/Base.agda
+  line: "-- An alternative ordering lifted from \u2115"
+  dismissed: 'mathematical prose: an ordering carried over from the naturals'
+- tarball: agda-stdlib-2.4
+  path: src/Data/Nat/PseudoRandom/LCG.agda
+  line: -- Taken from https://en.wikipedia.org/wiki/Linear_congruential_generator
+  dismissed: the parameters of standard linear congruential generators, facts cited
+    from Wikipedia; no text copied
+- tarball: agda-stdlib-2.4
+  path: src/Relation/Binary/Rewriting.agda
+  line: -- The following definitions are taken from Klop [5]
+  dismissed: definitions from a published book, cited; no code copied
+- tarball: agda-stdlib-2.4
+  path: src/Test/Golden.agda
+  line: -- This is a port of the golden testing framework used by the Idris2
+  dismissed: 'not compiled into the kernel: the kernel''s build holds no MAlonzo module
+    for Test.Golden'
+- tarball: ghc
+  path: libffi-tarballs/libffi-3.4.6.tar.gz:src/dlmalloc.c
+  line: Doug Lea and released to the public domain, as explained at
+  dismissed: released to the public domain; no notice owed
+- tarball: ghc
+  path: libffi-tarballs/libffi-3.4.6.tar.gz:src/mips/ffitarget.h
+  line: '* Subprogram calling convention - copied from sgidefs.h'
+  dismissed: MIPS only; the x86_64 build compiles src/x86 and the generic sources
+- tarball: ghc
+  path: libraries/array/LICENSE
+  line: (licence file)
+  covered_by: array-0.5.8.0/LICENSE
+- tarball: ghc
+  path: libraries/base/Control/Concurrent/MVar.hs
+  line: -- This example was adapted from the original Concurrent Haskell paper.
+  dismissed: a documentation example adapted from a paper; no code compiled
+- tarball: ghc
+  path: libraries/base/Data/Array/Byte.hs
+  line: -- Derived from @primitive@ package.
+  covered_by: base-4.19.2.0/LICENSE-primitive
+- tarball: ghc
+  path: libraries/base/Data/Bifoldable1.hs
+  line: '-- License: BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-foldable1-classes-compat
+- tarball: ghc
+  path: libraries/base/Data/Foldable.hs
+  line: -- When the elements of the structure are taken from a 'Monoid', the
+  dismissed: 'prose: elements taken from a Monoid'
+- tarball: ghc
+  path: libraries/base/Data/Foldable1.hs
+  line: '-- License: BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-foldable1-classes-compat
+- tarball: ghc
+  path: libraries/base/Data/Functor/Utils.hs
+  line: -- The implementation is copied from the transformers package with the
+  covered_by: base-4.19.2.0/LICENSE
+- tarball: ghc
+  path: libraries/base/Data/OldList.hs
+  line: -- Efficient definition, adapted from Data.Sequence
+  covered_by: containers-0.6.8/LICENSE
+- tarball: ghc
+  path: libraries/base/Data/OldList.hs
+  line: -- HBC version (stolen)
+  covered_by: base-4.19.2.0/NOTICE
+- tarball: ghc
+  path: libraries/base/Data/OldList.hs
+  line: -- Quick Sort algorithm taken from HBC's QSort library.
+  dismissed: a heading for a quicksort that sits in a {- -} comment block after merge;
+    no code compiled
+- tarball: ghc
+  path: libraries/base/Data/OldList.hs
+  line: -- stolen from HBC
+  covered_by: base-4.19.2.0/NOTICE
+- tarball: ghc
+  path: libraries/base/Data/OldList.hs
+  line: This code originally contributed to the nhc12 compiler by Thomas Nordin
+  covered_by: base-4.19.2.0/LICENSE-nhc98
+- tarball: ghc
+  path: libraries/base/Data/OldList.hs
+  line: in 2002. Rumoured to have been based on code by Lennart Augustsson, e.g.
+  dismissed: a rumour about where the merge sort nhc12 contributed came from, citing
+    a mailing-list post; the code is credited to nhc in base-4.19.2.0/NOTICE
+- tarball: ghc
+  path: libraries/base/GHC/Generics.hs
+  line: -- Copied from the singletons package
+  covered_by: base-4.19.2.0/LICENSE-singletons
+- tarball: ghc
+  path: libraries/base/GHC/IO/Encoding.hs
+  line: -- There is additional notation (borrowed from GNU iconv) for specifying
+  dismissed: a notation named after GNU iconv's; no code copied
+- tarball: ghc
+  path: libraries/base/GHC/IO/Encoding/UTF8.hs
+  line: -- UTF-8 primitives, lifted from Data.Text.Fusion.Utf8
+  covered_by: text-2.1.1/LICENSE
+- tarball: ghc
+  path: libraries/base/GHC/IO/FD.hs
+  line: -- taken from the value of BUFSIZ on the current platform. This value
+  dismissed: 'prose: a buffer size taken from the platform''s BUFSIZ'
+- tarball: ghc
+  path: libraries/base/GHC/IO/Handle.hs
+  line: -- 'True' if no further input can be taken from @hdl@ or for a
+  dismissed: 'prose: input taken from a handle'
+- tarball: ghc
+  path: libraries/base/GHC/IO/Handle/Text.hs
+  line: -- Offset taken from handle
+  dismissed: 'prose: an offset taken from a handle'
+- tarball: ghc
+  path: libraries/base/GHC/List.hs
+  line: -- HBC version (stolen)
+  covered_by: base-4.19.2.0/NOTICE
+- tarball: ghc
+  path: libraries/base/GHC/ResponseFile.hs
+  line: -- n.b., the order of these cases matters; these are cribbed from gcc
+  dismissed: the order of gcc's escape cases, written in Haskell; no code copied
+- tarball: ghc
+  path: libraries/base/GHC/Unicode/Internal/Bits.hs
+  line: '-- License : BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-ucd2haskell
+- tarball: ghc
+  path: libraries/base/GHC/Unicode/Internal/Char/DerivedCoreProperties.hs
+  line: '-- License : BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-ucd2haskell
+- tarball: ghc
+  path: libraries/base/GHC/Unicode/Internal/Char/UnicodeData/GeneralCategory.hs
+  line: '-- License : BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-ucd2haskell
+- tarball: ghc
+  path: libraries/base/GHC/Unicode/Internal/Char/UnicodeData/SimpleLowerCaseMapping.hs
+  line: '-- License : BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-ucd2haskell
+- tarball: ghc
+  path: libraries/base/GHC/Unicode/Internal/Char/UnicodeData/SimpleTitleCaseMapping.hs
+  line: '-- License : BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-ucd2haskell
+- tarball: ghc
+  path: libraries/base/GHC/Unicode/Internal/Char/UnicodeData/SimpleUpperCaseMapping.hs
+  line: '-- License : BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-ucd2haskell
+- tarball: ghc
+  path: libraries/base/GHC/Unicode/Internal/Version.hs
+  line: '-- License : BSD-3-Clause'
+  covered_by: base-4.19.2.0/LICENSE-ucd2haskell
+- tarball: ghc
+  path: libraries/base/LICENSE
+  line: (licence file)
+  covered_by: base-4.19.2.0/LICENSE
+- tarball: ghc
+  path: libraries/base/System/Console/GetOpt.hs
+  line: -- in a standalone program. It is essentially a Haskell port of the GNU
+  dismissed: a Haskell reimplementation of GNU getopt's interface; no C code copied
+- tarball: ghc
+  path: libraries/base/System/Environment/ExecutablePath.hsc
+  line: '-- Adapted from:'
+  dismissed: in the mingw32_HOST_OS branch; the bundle is built for Linux
+- tarball: ghc
+  path: libraries/base/System/IO.hs
+  line: -- XXX Copied from GHC.Handle
+  covered_by: base-4.19.2.0/LICENSE
+- tarball: ghc
+  path: libraries/base/System/IO.hs
+  line: -- XXX bits copied from System.FilePath, since that's not available here
+  covered_by: template-haskell-2.21.0.0/LICENSE-filepath
+- tarball: ghc
+  path: libraries/base/Text/ParserCombinators/ReadP.hs
+  line: -- This is a library of parser combinators, originally written by Koen Claessen.
+  covered_by: base-4.19.2.0/LICENSE
+- tarball: ghc
+  path: libraries/base/Text/Printf.hs
+  line: -- > * as num, but taken from argument list
+  dismissed: 'prose: a format''s width taken from the argument list'
+- tarball: ghc
+  path: libraries/base/Text/Printf.hs
+  line: -- > .* as num, but taken from argument list
+  dismissed: 'prose: a format''s width taken from the argument list'
+- tarball: ghc
+  path: libraries/base/cbits/md5.c
+  line: '* This code is in the public domain; do with it what you wish.'
+  dismissed: in the public domain; no notice owed
+- tarball: ghc
+  path: libraries/binary/LICENSE
+  line: (licence file)
+  covered_by: binary-0.8.9.1/LICENSE
+- tarball: ghc
+  path: libraries/binary/src/Data/Binary/FloatCast.hs
+  line: -- | This module was written based on
+  dismissed: the code based on reinterpret-cast is the base < 4.11 branch; base 4.19
+    compiles the GHC.Float casts
+- tarball: ghc
+  path: libraries/binary/src/Data/Binary/Generic.hs
+  line: -- Borrowed from the cereal package.
+  covered_by: binary-0.8.9.1/LICENSE-cereal
+- tarball: ghc
+  path: libraries/bytestring/Data/ByteString/Builder/ASCII.hs
+  line: -- An optimized version of the integer serialization code
+  covered_by: bytestring-0.12.1.0/LICENSE-blaze-textual
+- tarball: ghc
+  path: libraries/bytestring/Data/ByteString/Builder/Prim/Internal/Base16.hs
+  line: -- The current implementation is based on a table based encoding inspired
+    by
+  dismissed: a table-based encoding inspired by another library; no code copied
+- tarball: ghc
+  path: libraries/bytestring/LICENSE
+  line: (licence file)
+  covered_by: bytestring-0.12.1.0/LICENSE
+- tarball: ghc
+  path: libraries/bytestring/cbits/is-valid-utf8.c
+  line: '// These CPP conditions are taken from ghc-prim:'
+  covered_by: ghc-prim-0.11.0/LICENSE
+- tarball: ghc
+  path: libraries/bytestring/cbits/itoa.c
+  line: '// inspired by: http://www.jb.man.ac.uk/~slowe/cpp/itoa.html //'
+  dismissed: an itoa inspired by a web page; no code copied
+- tarball: ghc
+  path: libraries/containers/containers/LICENSE
+  line: (licence file)
+  covered_by: containers-0.6.8/LICENSE
+- tarball: ghc
+  path: libraries/containers/containers/src/Data/IntMap/Internal.hs
+  line: -- This implementation was stolen from 'Control.Lens.At'.
+  covered_by: containers-0.6.8/LICENSE-lens
+- tarball: ghc
+  path: libraries/containers/containers/src/Data/Tree.hs
+  line: -- Implemented using an algorithm adapted from
+  dismissed: an algorithm from a published paper (Okasaki, ICFP'00), cited; no code
+    copied
+- tarball: ghc
+  path: libraries/containers/containers/src/Utils/Containers/Internal/BitUtil.hs
+  line: -- which has been put in the public domain.
+  dismissed: in the public domain; no notice owed
+- tarball: ghc
+  path: libraries/containers/containers/src/Utils/Containers/Internal/BitUtil.hs
+  line: based on the code on
+  dismissed: in the public domain; no notice owed
+- tarball: ghc
+  path: libraries/deepseq/LICENSE
+  line: (licence file)
+  covered_by: deepseq-1.5.1.0/LICENSE
+- tarball: ghc
+  path: libraries/ghc-bignum/LICENSE
+  line: (licence file)
+  covered_by: ghc-bignum-1.3/LICENSE
+- tarball: ghc
+  path: libraries/ghc-bignum/src/GHC/Num/Backend/GMP.hs
+  line: -- This has been adapted from the legacy `integer-gmp` package written by
+  covered_by: ghc-bignum-1.3/LICENSE-integer-gmp
+- tarball: ghc
+  path: libraries/ghc-bignum/src/GHC/Num/Integer.hs
+  line: '-- License : BSD3'
+  covered_by: ghc-bignum-1.3/LICENSE
+- tarball: ghc
+  path: libraries/ghc-bignum/src/GHC/Num/Primitives.hs
+  line: '-- Before GHC 8.11 we use the exception trick taken from #14664'
+  dismissed: a technique from a GHC issue discussion (#14664); no code from another
+    work
+- tarball: ghc
+  path: libraries/ghc-boot-th/LICENSE
+  line: (licence file)
+  covered_by: ghc-boot-th-9.8.4/LICENSE
+- tarball: ghc
+  path: libraries/ghc-prim/LICENSE
+  line: (licence file)
+  covered_by: ghc-prim-0.11.0/LICENSE
+- tarball: ghc
+  path: libraries/pretty/LICENSE
+  line: (licence file)
+  covered_by: pretty-1.1.3.6/LICENSE
+- tarball: ghc
+  path: libraries/template-haskell/LICENSE
+  line: (licence file)
+  covered_by: template-haskell-2.21.0.0/LICENSE
+- tarball: ghc
+  path: libraries/template-haskell/Language/Haskell/TH/Lib/Map.hs
+  line: -- The code in this module has been ripped from containers-0.5.5.1:Data.Map.Base
+    [1] almost
+  covered_by: containers-0.6.8/LICENSE
+- tarball: ghc
+  path: libraries/template-haskell/Language/Haskell/TH/Lib/Map.hs
+  line: -- The original code is BSD-licensed and copyrighted by Daan Leijen, Andriy
+    Palamarchuk, et al.
+  covered_by: containers-0.6.8/LICENSE
+- tarball: ghc
+  path: libraries/template-haskell/vendored-filepath/System/FilePath.hs
+  line: -- Vendored from filepath v1.4.2.2
+  covered_by: template-haskell-2.21.0.0/LICENSE-filepath
+- tarball: ghc
+  path: libraries/template-haskell/vendored-filepath/System/FilePath.hs
+  line: 'License : BSD3'
+  covered_by: template-haskell-2.21.0.0/LICENSE-filepath
+- tarball: ghc
+  path: libraries/template-haskell/vendored-filepath/System/FilePath/Posix.hs
+  line: '-- License : BSD3'
+  covered_by: template-haskell-2.21.0.0/LICENSE-filepath
+- tarball: ghc
+  path: libraries/template-haskell/vendored-filepath/System/FilePath/Posix.hs
+  line: -- Vendored from filepath v1.4.2.2
+  covered_by: template-haskell-2.21.0.0/LICENSE-filepath
+- tarball: ghc
+  path: libraries/template-haskell/vendored-filepath/System/FilePath/Windows.hs
+  line: '-- License : BSD3'
+  covered_by: template-haskell-2.21.0.0/LICENSE-filepath
+- tarball: ghc
+  path: libraries/template-haskell/vendored-filepath/System/FilePath/Windows.hs
+  line: -- Vendored from filepath v1.4.2.2
+  covered_by: template-haskell-2.21.0.0/LICENSE-filepath
+- tarball: ghc
+  path: libraries/text/LICENSE
+  line: (licence file)
+  covered_by: text-2.1.1/LICENSE
+- tarball: ghc
+  path: libraries/text/cbits/measure_off.c
+  line: // Taken from https://en.wikipedia.org/wiki/Hamming_weight
+  dismissed: the textbook bit-counting technique, its form fixed by its masks; no
+    copyrightable text copied
+- tarball: ghc
+  path: libraries/text/simdutf/LICENSE-APACHE
+  line: (licence file)
+  dismissed: simdutf is not compiled into libHStext (no simdutf symbol or string in
+    the library)
+- tarball: ghc
+  path: libraries/text/simdutf/LICENSE-MIT
+  line: (licence file)
+  dismissed: simdutf is not compiled into libHStext (no simdutf symbol or string in
+    the library)
+- tarball: ghc
+  path: libraries/text/simdutf/simdutf.h
+  line: Redistribution and use in source and binary forms, with or without
+  dismissed: simdutf is not compiled into libHStext (no simdutf symbol or string in
+    the library)
+- tarball: ghc
+  path: libraries/text/src/Data/Text.hs
+  line: -- Adapted from Data.ByteString.Internal.isSpaceWord8
+  covered_by: bytestring-0.12.1.0/LICENSE
+- tarball: ghc
+  path: libraries/text/src/Data/Text/IO.hs
+  line: -- The following functions are largely lifted from GHC.IO.Handle.Text,
+  covered_by: base-4.19.2.0/LICENSE
+- tarball: ghc
+  path: libraries/text/src/Data/Text/IO.hs
+  line: -- This function is completely lifted from GHC.IO.Handle.Text.
+  covered_by: base-4.19.2.0/LICENSE
+- tarball: ghc
+  path: libraries/text/src/Data/Text/Internal/IO.hs
+  line: -- This function is completely lifted from GHC.IO.Handle.Text.
+  covered_by: base-4.19.2.0/LICENSE
+- tarball: ghc
+  path: libraries/text/src/Data/Text/Internal/Lazy/Search.hs
+  line: -- Moore, Horspool, Sunday, and Lundh. Adapted from the strict
+  covered_by: text-2.1.1/LICENSE
+- tarball: ghc
+  path: rts/CloneStack.c
+  line: // Idea stolen from PrimOps.cmm:stg_newArrayzh()
+  covered_by: rts-1.0.2/LICENSE
+- tarball: ghc
+  path: rts/Hpc.c
+  line: '* conditional code for mkdir lifted from lndir.c'
+  dismissed: 'a two-way #if on WIN32 choosing mkdir''s arguments; nothing copyrightable
+    copied'
+- tarball: ghc
+  path: rts/Interpreter.c
+  line: 'case AP: /* Copied from stg_AP_entry. */'
+  covered_by: rts-1.0.2/LICENSE
+- tarball: ghc
+  path: rts/LinkerInternals.h
+  line: /* An array containing ptrs to all the symbol names copied from
+  dismissed: 'prose: symbol names copied from the object files at load time'
+- tarball: ghc
+  path: rts/ReportMemoryMap.c
+  line: // Inspired by MacFUSE /proc implementation
+  dismissed: in the darwin_HOST_OS branch; the bundle is built for Linux
+- tarball: ghc
+  path: rts/RtsUtils.c
+  line: /* borrowed from the MUSL libc project */
+  covered_by: rts-1.0.2/LICENSE-musl
+- tarball: ghc
+  path: rts/StgPrimFloat.c
+  line: '* Encoding and decoding Doubles. Code based on the HBC code'
+  covered_by: rts-1.0.2/NOTICE
+- tarball: ghc
+  path: rts/adjustor/AdjustorPool.c
+  line: '* adjustor code can be simply copied from a "template" and the adjustor fixed'
+  dismissed: 'prose: adjustor code copied from a template at run time'
+- tarball: ghc
+  path: rts/linker/ELFRelocs/LICENSE-LLVM.TXT
+  line: (licence file)
+  covered_by: rts-1.0.2/LICENSE-LLVM.TXT
+- tarball: ghc
+  path: rts/linker/elf_compat.h
+  line: // The files in ELFRelocs/ have been taken from
+  covered_by: rts-1.0.2/LICENSE-LLVM.TXT
+- tarball: ghc
+  path: rts/sm/Storage.c
+  line: which fresh blocks are taken from when we need a new one for a pinned block
+    rather
+  dismissed: 'prose: blocks taken from a pool'
+- tarball: ghc
+  path: rts/xxhash.h
+  line: '* BSD 2-Clause License (https://www.opensource.org/licenses/bsd-license.php)'
+  covered_by: rts-1.0.2/LICENSE-xxHash
+- tarball: ghc
+  path: rts/xxhash.h
+  line: '* Source: https://github.com/google/highwayhash/blob/0aaf66b/highwayhash/hh_avx2.h#L291'
+  dismissed: 'inside #if XXH_VECTOR == XXH_AVX512 || defined(XXH_X86DISPATCH), neither
+    set by the rts; the shipped rts holds no zmm or ymm instruction'
+- tarball: ghc
+  path: rts/xxhash.h
+  line: '* inspired by Pelle Evensen''s rrmxmx'
+  dismissed: a mixing step inspired by a published design; no code copied
+- tarball: ghc
+  path: rts/xxhash.h
+  line: /* Adapted from https://github.com/google/highwayhash/blob/master/highwayhash/hh_vsx.h.
+    */
+  dismissed: 'inside #if XXH_VECTOR == XXH_VSX (POWER); the bundle is built for x86_64'
+- tarball: ghc
+  path: rts/xxhash.h
+  line: /* this mix is inspired by Pelle Evensen's rrmxmx */
+  dismissed: a mixing step inspired by a published design; no code copied

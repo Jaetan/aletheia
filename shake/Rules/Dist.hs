@@ -148,6 +148,7 @@ distRules = do
               "check-erasure",
               "check-fidelity",
               "check-ffi-exports",
+              "check-bundle-licences",
               "build/libaletheia-ffi.so"]
 
         let distDir = "dist/aletheia"
@@ -182,6 +183,11 @@ distRules = do
         ghcDeps <- getGhcDeps "build/libaletheia-ffi.so"
         forM_ ghcDeps $ \dep ->
             cmd_ "cp" "-L" dep distLib
+        -- Each bundled library's licence texts, the kernel's (the Agda code
+        -- compiled into it) among them, kept in packaging/licenses/ (the GHC
+        -- install holds only GHC's own licence), go to
+        -- licenses/<name>-<version>/.
+        cmd_ pythonBin "-m" "tools.bundle_licences" "stage" distDir ((distLib </> "libaletheia-ffi.so") : ghcDeps)
 
         let mainSoDist = distLib </> "libaletheia-ffi.so"
 
@@ -247,15 +253,15 @@ distRules = do
                 cmd_ "tar" "-x" "-C" dest "--strip-components=1" "-f" stageTar
                 liftIO $ removePathForcibly stageTar
         stageBinding "python"
-            [ "python/pyproject.toml", "python/README.md", "python/aletheia" ]
+            [ "python/pyproject.toml", "python/README.md", "python/LICENSE.md", "python/aletheia" ]
         stageBinding "cpp"
-            [ "cpp/CMakeLists.txt", "cpp/README.md", "cpp/sanitizer-ignorelist.txt"
-            , "cpp/include", "cpp/src", "cpp/cmake" ]
+            [ "cpp/CMakeLists.txt", "cpp/README.md", "cpp/LICENSE.md"
+            , "cpp/sanitizer-ignorelist.txt", "cpp/include", "cpp/src", "cpp/cmake" ]
         stageBinding "go"
-            [ "go/go.mod", "go/go.sum", "go/README.md", "go/aletheia"
+            [ "go/go.mod", "go/go.sum", "go/README.md", "go/LICENSE.md", "go/aletheia"
             , ":(exclude)go/aletheia/*_test.go", ":(exclude)go/aletheia/testdata" ]
         stageBinding "rust"
-            [ "rust/Cargo.toml", "rust/Cargo.lock", "rust/README.md", "rust/src" ]
+            [ "rust/Cargo.toml", "rust/Cargo.lock", "rust/README.md", "rust/LICENSE.md", "rust/src" ]
 
         -- Consumer entry scripts (self-locating; export ALETHEIA_LIB as an
         -- ABSOLUTE path).  install.{sh,fish} also print how to source
@@ -270,6 +276,11 @@ distRules = do
         -- Ship the license with the redistributable bundle (BSD-2 requires the
         -- copyright notice to travel with redistributions).
         cmd_ "cp" "LICENSE.md" distDir
+        -- Every library lib/ carries has its licence: the kernel's own
+        -- LICENSE.md, and each library's folders under licenses/ (the
+        -- kernel's for the Agda code compiled into it), the kept texts
+        -- unchanged.
+        cmd_ pythonBin "-m" "tools.bundle_licences" "check-bundle" distDir
 
         -- Staging self-check: each binding must carry its entry file, and
         -- go.work must NOT leak (it would hijack a consumer's Go module
@@ -323,7 +334,8 @@ distRules = do
                 , ""
                 , "Contents:"
                 , "  lib/libaletheia-ffi.so     Verified Agda kernel + GHC runtime"
-                , "  lib/libHS*.so              GHC runtime dependencies (RPATH=$ORIGIN)"
+                , "  lib/libHS*.so libffi.so.8  GHC runtime dependencies (RPATH=$ORIGIN)"
+                , "  licenses/                  License texts of the third-party code in lib/"
                 , "  include/aletheia.h         C ABI header (C / C++-via-C consumers)"
                 , "  bindings/python            Python package (pure ctypes, no build step)"
                 , "  bindings/cpp               C++ wrapper (CMake add_subdirectory)"
@@ -493,7 +505,8 @@ distRules = do
         putInfo ""
         putInfo $ "  dist/aletheia/           (" ++ strip distSize ++ ")"
         putInfo $ "    lib/libaletheia-ffi.so   (main library, sha256 " ++ take 12 finalHash ++ "...)"
-        putInfo $ "    lib/libHS*.so            (" ++ show nDeps ++ " GHC runtime deps, RPATH=$ORIGIN)"
+        putInfo $ "    lib/{libHS*,libffi}.so*  (" ++ show nDeps ++ " GHC runtime deps, RPATH=$ORIGIN)"
+        putInfo $ "    licenses/                (license texts of the third-party code in lib/)"
         putInfo $ "    include/aletheia.h       (C ABI header)"
         putInfo $ "    bindings/{python,cpp,go,rust}   (language wrappers over the .so)"
         putInfo $ "    env.sh env.fish install.sh install.fish   (ALETHEIA_LIB + wiring)"
@@ -604,6 +617,16 @@ distRules = do
             error $ "packages: " ++ debFile ++
                 " does not list the kernel .so under /opt/aletheia/lib — " ++
                 "the packaging/nfpm.yaml contents map no longer covers the staged tree"
+        -- The licence texts travel with the libraries they cover: every text
+        -- the dist rule staged under licenses/ is in each package's payload.
+        licenceTexts <- liftIO $ getDirectoryFilesIO "dist/aletheia" ["licenses//*"]
+        when (null licenceTexts) $
+            error "packages: dist/aletheia/licenses/ holds no licence text"
+        let unlisted contents prefix =
+                [ t | t <- licenceTexts, not ((prefix ++ t) `isInfixOf` contents) ]
+        unless (null (unlisted debContents "./opt/aletheia/")) $
+            error $ "packages: " ++ debFile ++ " does not list the licence texts " ++
+                unwords (unlisted debContents "./opt/aletheia/")
         -- Same payload assertion for the .rpm when rpm is available (the
         -- release runner has it; both formats pack the same contents map, so
         -- the .deb check above already guards the mapping itself).
@@ -614,6 +637,9 @@ distRules = do
                 unless ("/opt/aletheia/lib/libaletheia-ffi.so" `isInfixOf` rpmContents) $
                     error $ "packages: " ++ rpmFile ++
                         " does not list the kernel .so under /opt/aletheia/lib"
+                unless (null (unlisted rpmContents "/opt/aletheia/")) $
+                    error $ "packages: " ++ rpmFile ++ " does not list the licence texts " ++
+                        unwords (unlisted rpmContents "/opt/aletheia/")
             ExitFailure _ ->
                 putWarn $ "packages: rpm not on PATH — skipped the .rpm payload " ++
                     "listing self-check (the .deb payload check covers the shared " ++
@@ -653,7 +679,8 @@ distRules = do
         -- The image build itself carries the cross-binding smoke: the
         -- Dockerfile.runtime throwaway verify stages build the bundled Rust and C++
         -- bindings and build+RUN a Go consumer against the image's own
-        -- /opt/aletheia, and the final stage force-depends on all three — so
+        -- /opt/aletheia, and check every package in the image carries its
+        -- licence text; the final stage force-depends on every one — so
         -- `docker build` failing IS the gate.  The Python smoke (FFIBackend
         -- construction against the packaged .so) runs inside the runtime
         -- stage.  Requires BuildKit (default since Docker 23).

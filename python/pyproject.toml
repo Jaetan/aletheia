@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 [build-system]
-requires = ["setuptools>=84.0.0", "wheel"]
+requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,14 +10,14 @@ version = "5.0.0"
 description = "Formally verified CAN frame analysis with LTL"
 readme = "README.md"
 requires-python = ">=3.14"
-license = {text = "BSD-2-Clause"}
+license = "BSD-2-Clause"
+license-files = ["LICENSE.md"]
 authors = [
     {name = "Nicolas Pelletier"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: BSD License",
     "Topic :: Software Development :: Testing",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -129,6 +129,14 @@ dev = [
     # a machine that happens to have the distro package.  run_ci routes the gate
     # through ``python/.venv/bin/cmake-lint``.
     "cmakelang==0.6.13",
+    # setuptools builds the binding's wheel in the ``check-python-wheel`` gate,
+    # from the venv and offline (``pip wheel --no-build-isolation``), so an edit
+    # that breaks the package fails the local sweep as well as a fresh install.
+    # The floor is the build system's.  Unlike the tools above it has no upper
+    # bound: the gate exists to build as a consumer's pip does, and pip builds
+    # with the newest setuptools the build system's floor admits, so a release
+    # that refuses the package fails the gate on the next fresh venv.
+    "setuptools>=84.0.0",
 ]
 # AGENTS.md Python cat 34(c) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
@@ -542,6 +550,12 @@ pytest_add_cli_args = [
     "--ignore=tests/test_docs_arm_ledger_licences.py",
     "--ignore=tests/test_check_rust_licences.py",
     "--ignore=tests/test_check_haskell_ledger.py",
+    "--ignore=tests/test_bundle_licences.py",
+    "--ignore=tests/test_bundle_licences_staging.py",
+    "--ignore=tests/test_bundle_licences_audit.py",
+    "--ignore=tests/test_check_image_licences.py",
+    "--ignore=tests/test_licence_audit.py",
+    "--ignore=tests/test_check_python_wheel.py",
     # Same class: covers the release-bundle consumer gate (repo-root `tools`
     # package), so it ModuleNotFound-aborts collection in the relocated
     # mutants/ tree.  Infra coverage, not hot-path.

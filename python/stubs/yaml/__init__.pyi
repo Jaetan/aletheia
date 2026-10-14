@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Type stubs for PyYAML library.
 
-Only covers the subset of PyYAML API used by Aletheia's yaml_loader module.
+Only covers the subset of PyYAML's API Aletheia uses: the yaml_loader module,
+and the node tree the licence tools read to refuse a repeated key.
 PyYAML is a third-party library that does not ship inline types.
 """
 
@@ -27,6 +28,16 @@ class ScalarNode(Node):
 
     value: str
 
+class MappingNode(Node):
+    """A mapping node; ``value`` is its key and value nodes, in document order."""
+
+    value: list[tuple[Node, Node]]
+
+class SequenceNode(Node):
+    """A sequence node; ``value`` is its item nodes, in document order."""
+
+    value: list[Node]
+
 class SafeLoader:
     """Subset of ``yaml.SafeLoader`` used by the no-float loader subclass.
 
@@ -41,6 +52,7 @@ class SafeLoader:
     yaml_implicit_resolvers: ClassVar[dict[str | None, list[tuple[str, re.Pattern[str]]]]]
     def __init__(self, stream: str | bytes | IO[str] | IO[bytes]) -> None: ...
     def get_single_data(self) -> object: ...
+    def get_single_node(self) -> Node | None: ...
     def dispose(self) -> None: ...
     @classmethod
     def add_constructor(

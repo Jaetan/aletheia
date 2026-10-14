@@ -18,6 +18,7 @@ be reached raises ``AssertionError``, which the gate does not catch.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import shutil
 import subprocess
@@ -29,6 +30,8 @@ import pytest
 from tools._common import find_executable, read_shake_program, run_capture
 from tools.check_dist_staging import (
     COULD_NOT_CHECK,
+    DistStagingError,
+    check_licence_texts_tracked,
     find_fish,
     main,
     parse_stage_bindings,
@@ -49,18 +52,26 @@ main = do
             stageBinding name paths = do
                 pure ()
         stageBinding "python"
-            [ "python/pyproject.toml" ]
+            [ "python/pyproject.toml", "python/LICENSE.md" ]
         stageBinding "cpp"
-            [ "cpp/CMakeLists.txt" ]
+            [ "cpp/CMakeLists.txt", "cpp/LICENSE.md" ]
         stageBinding "go"
-            [ "go/go.mod", "go/aletheia"
+            [ "go/go.mod", "go/LICENSE.md", "go/aletheia"
             , ":(exclude)go/aletheia/*_test.go", ":(exclude)go/aletheia/testdata" ]
         stageBinding "rust"
-            [ "rust/Cargo.toml" ]
+            [ "rust/Cargo.toml", "rust/LICENSE.md" ]
 """
 
+_LICENCE_TEXT = "Copyright (c) 2008-2009, Tom Harper\n"
+_LICENCE_RECORD = (
+    'ghc: "9.8.4"\ntarball:\n  url: https://downloads.haskell.org/~ghc/9.8.4/ghc-9.8.4-src.tar.xz\n'
+    + f'  sha256: "{"a" * 64}"\nsources: {{}}\ntexts:\n'
+    + "  text-2.1.1/LICENSE:\n    from: libraries/text/LICENSE\n"
+    + f'    sha256: "{hashlib.sha256(_LICENCE_TEXT.encode()).hexdigest()}"\n'
+)
+
 # One tracked file per fixture pathspec target, plus the packaging scripts
-# (syntax-valid) and the license file.
+# (syntax-valid), the license file, and the licence record with its one text.
 GOOD_FILES = {
     "python/pyproject.toml": "[project]\n",
     "cpp/CMakeLists.txt": "cmake_minimum_required(VERSION 3.25)\n",
@@ -74,6 +85,12 @@ GOOD_FILES = {
     "packaging/install.sh": 'echo "install"\n',
     "packaging/install.fish": 'echo "install"\n',
     "LICENSE.md": "BSD-2-Clause\n",
+    "python/LICENSE.md": "BSD-2-Clause\n",
+    "cpp/LICENSE.md": "BSD-2-Clause\n",
+    "go/LICENSE.md": "BSD-2-Clause\n",
+    "rust/LICENSE.md": "BSD-2-Clause\n",
+    "packaging/licenses/sources.yaml": _LICENCE_RECORD,
+    "packaging/licenses/text-2.1.1/LICENSE": _LICENCE_TEXT,
 }
 
 
@@ -156,9 +173,9 @@ def test_parse_extracts_positives_and_excludes() -> None:
     """The parser reads each call site's name, positives, and exclude inner globs."""
     bindings = {b.name: b for b in parse_stage_bindings(GOOD_SHAKEFILE)}
     assert set(bindings) == {"python", "cpp", "go", "rust"}
-    assert bindings["go"].positives == ("go/go.mod", "go/aletheia")
+    assert bindings["go"].positives == ("go/go.mod", "go/LICENSE.md", "go/aletheia")
     assert bindings["go"].excludes == ("go/aletheia/*_test.go", "go/aletheia/testdata")
-    assert bindings["rust"].positives == ("rust/Cargo.toml",)
+    assert bindings["rust"].positives == ("rust/Cargo.toml", "rust/LICENSE.md")
     assert bindings["rust"].excludes == ()
 
 
@@ -166,7 +183,15 @@ def test_parse_extracts_positives_and_excludes() -> None:
 def test_fixture_happy_path_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A fixture repo satisfying every check exits 0 (the teeth tests perturb THIS)."""
     repo = _repo(tmp_path, GOOD_FILES)
+    said: list[Prose] = []
+    monkeypatch.setattr("tools.check_dist_staging.emit", said.append)
     assert _run(monkeypatch, _write_shakefile(tmp_path), repo) == 0
+    fish_note = (
+        "bash+fish syntax OK" if find_fish() else "bash syntax OK; fish absent, .fish skipped"
+    )
+    assert said[-1].endswith(
+        f"{fish_note}; LICENSE.md, its binding copies and the licence texts tracked"
+    )
 
 
 def test_call_sites_in_a_module_under_shake_are_read(tmp_path: Path) -> None:
@@ -186,7 +211,7 @@ def test_call_sites_in_a_module_under_shake_are_read(tmp_path: Path) -> None:
     _ = (rules / "Dist.hs").write_text(moved_text, encoding="utf-8")
     moved = parse_stage_bindings(read_shake_program(build_root))
     assert moved == parse_stage_bindings(moved_text)
-    assert {b.name: b for b in moved}["rust"].positives == ("rust/Moved.toml",)
+    assert {b.name: b for b in moved}["rust"].positives == ("rust/Moved.toml", "rust/LICENSE.md")
 
 
 @pytest.mark.process(_GIT_AND_SHELL)
@@ -312,7 +337,9 @@ def test_go_work_selected_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """TEETH: go positives that select go/go.work fail (module-resolution hijack)."""
-    doctored = GOOD_SHAKEFILE.replace('"go/go.mod", "go/aletheia"', '"go"')
+    doctored = GOOD_SHAKEFILE.replace(
+        '"go/go.mod", "go/LICENSE.md", "go/aletheia"', '"go/LICENSE.md", "go"'
+    )
     assert doctored != GOOD_SHAKEFILE
     repo = _repo(tmp_path, {**GOOD_FILES, "go/go.work": "go 1.26\n"})
     script_checks = _skip_script_checks(monkeypatch)
@@ -397,6 +424,99 @@ def test_untracked_license_fails(
     assert script_checks == [(repo, find_fish())]
 
 
+@pytest.mark.process(_GIT_TRACKED)
+def test_a_binding_licence_that_is_not_the_roots_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TEETH: a binding's LICENSE.md that differs from the root's fails, naming it."""
+    repo = _repo(tmp_path, {**GOOD_FILES, "rust/LICENSE.md": "MIT\n"})
+    _ = _skip_script_checks(monkeypatch)
+    err = io.StringIO()
+    monkeypatch.setattr("sys.stderr", err)
+    assert _run(monkeypatch, _write_shakefile(tmp_path), repo) == 1
+    line = "  - 'rust/LICENSE.md' is not a copy of LICENSE.md; copy the root's over it\n"
+    assert line in err.getvalue()
+    assert err.getvalue().count("LICENSE.md") == line.count("LICENSE.md")
+
+
+@pytest.mark.process(_GIT_TRACKED)
+def test_a_binding_that_stages_no_licence_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TEETH: a binding whose pathspecs leave its LICENSE.md out fails, naming it."""
+    repo = _repo(tmp_path, GOOD_FILES)
+    shakefile = GOOD_SHAKEFILE.replace(
+        '"cpp/CMakeLists.txt", "cpp/LICENSE.md"', '"cpp/CMakeLists.txt"'
+    )
+    assert shakefile != GOOD_SHAKEFILE
+    _ = _skip_script_checks(monkeypatch)
+    err = io.StringIO()
+    monkeypatch.setattr("sys.stderr", err)
+    assert _run(monkeypatch, _write_shakefile(tmp_path, shakefile), repo) == 1
+    line = "  - binding 'cpp' does not stage cpp/LICENSE.md; add it to its pathspecs\n"
+    assert line in err.getvalue()
+
+
+@pytest.mark.process(_GIT_TRACKED)
+@pytest.mark.parametrize(
+    "untracked", ["packaging/licenses/sources.yaml", "packaging/licenses/text-2.1.1/LICENSE"]
+)
+def test_an_untracked_licence_text_or_record_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    untracked: Prose,
+) -> None:
+    """TEETH: the licence record or a text it names, untracked, fails: dist stages them."""
+    repo = _repo(tmp_path, GOOD_FILES, skip_add=(untracked,))
+    _ = _skip_script_checks(monkeypatch)
+    err = io.StringIO()
+    monkeypatch.setattr("sys.stderr", err)
+    assert _run(monkeypatch, _write_shakefile(tmp_path), repo) == 1
+    line = (
+        f"  - '{untracked}' is not git-tracked: "
+        + "dist stages it into the bundle's licenses/; git add it\n"
+    )
+    assert line in err.getvalue()
+    assert err.getvalue().count("is not git-tracked") == 1
+
+
+def test_an_unreadable_licence_record_is_raised_with_its_reason(tmp_path: Path) -> None:
+    """The licence-text check raises the could-not-check class, naming the record and why."""
+    with pytest.raises(DistStagingError, match=r"^the licence record is not read: \[Errno 2\]"):
+        _ = check_licence_texts_tracked(tmp_path)
+
+
+@pytest.mark.process(_GIT_TRACKED)
+@pytest.mark.parametrize(
+    ("record", "reason"),
+    [
+        (None, "No such file or directory"),
+        ("ghc: [\n", "while parsing a flow node"),
+        ('ghc: "9.8.4"\n', "lacks the key 'tarball'"),
+    ],
+    ids=["absent", "not-yaml", "lacking"],
+)
+def test_an_unreadable_licence_record_could_not_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    record: Prose | None,
+    reason: Prose,
+) -> None:
+    """TEETH: a licence record absent or unreadable is COULD-NOT-CHECK, never a pass."""
+    files = {
+        rel: text for rel, text in GOOD_FILES.items() if rel != "packaging/licenses/sources.yaml"
+    }
+    if record is not None:
+        files["packaging/licenses/sources.yaml"] = record
+    repo = _repo(tmp_path, files)
+    _ = _skip_script_checks(monkeypatch)
+    err = io.StringIO()
+    monkeypatch.setattr("sys.stderr", err)
+    assert _run(monkeypatch, _write_shakefile(tmp_path), repo) == COULD_NOT_CHECK
+    assert "the licence record is not read: " in err.getvalue()
+    assert reason in err.getvalue()
+
+
 def test_fish_absent_on_ci_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -444,6 +564,12 @@ def test_fish_absent_locally_skips_loudly(
         return subprocess.CompletedProcess(cmd, 0, Prose(""), Prose(""))
 
     monkeypatch.setattr("tools.check_dist_staging.run_capture", syntax_clean)
+    licences = {
+        rel: text
+        for rel, text in GOOD_FILES.items()
+        if rel.startswith("packaging/licenses/") or rel.endswith("LICENSE.md")
+    }
+    assert _write_files(tmp_path, licences) == root
     assert _run(monkeypatch, _write_shakefile(tmp_path), root) == 0
     out = capsys.readouterr().out
     assert "skipping" in out

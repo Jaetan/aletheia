@@ -23,7 +23,8 @@ Every release is validated this way before it is published: the release workflow
 ~~~
 aletheia/
 ├── lib/libaletheia-ffi.so      # verified Agda kernel + GHC runtime (RPATH=$ORIGIN)
-├── lib/libHS*.so               # GHC runtime dependencies
+├── lib/libHS*.so libffi.so.8   # GHC runtime dependencies
+├── licenses/                   # license texts of the third-party code in lib/
 ├── include/aletheia.h          # C ABI header (C / C++-via-C consumers)
 ├── bindings/
 │   ├── python/                 # pure-ctypes package (pip install)
@@ -38,7 +39,7 @@ aletheia/
 └── LICENSE.md                  # BSD-2-Clause license text
 ~~~
 
-Why source and not just a header + `.so`? For C there is nothing more to ship — `include/aletheia.h` + `lib/libaletheia-ffi.so` is the whole interface. But Python, Go, and Rust have no header/compiled-lib split: their libraries *are* source (a pure-ctypes package, a Go module, a Rust crate). The `bindings/` trees carry each wrapper in its only distributable form — library files only, no tests or benchmarks.
+Why source and not just a header + `.so`? For C there is nothing more to ship: `include/aletheia.h` + `lib/libaletheia-ffi.so` is the whole interface. But Python, Go, and Rust have no header/compiled-lib split: their libraries *are* source (a pure-ctypes package, a Go module, a Rust crate). The `bindings/` trees carry each wrapper in its only distributable form, library files only with no tests or benchmarks, each with a copy of `LICENSE.md` so that a binding taken out of the bundle keeps its license.
 
 ### 1. Make the library discoverable
 
@@ -433,7 +434,7 @@ docker run --rm ghcr.io/jaetan/aletheia:X.Y.Z python3 -c \
   "from aletheia import AletheiaClient; print('OK')"
 ~~~
 
-Every image build is gated by throwaway verify stages: the bundled Rust crate and C++ binding (clang-23, the enforced toolchain) must build, and a Go consumer must build **and run** a real LTL scenario, against the image's own `/opt/aletheia`, or the build fails. The stages ship nothing; the image stays slim.
+Every image build is gated by throwaway verify stages: the bundled Rust crate and C++ binding (clang-23, the enforced toolchain) must build, and a Go consumer must build **and run** a real LTL scenario, against the image's own `/opt/aletheia`, and every third-party package the image ships (each Debian package, each Python distribution and each package it vendors, CPython and the software it compiles in, the bundle) must carry its license text in it, or the build fails. The stages ship nothing; the image stays slim.
 
 #### C++ / Go / Rust consumer images (`COPY --from`)
 
@@ -464,7 +465,7 @@ The distributed container image is built from the pre-built release bundle:
 
 | File | Purpose | Base image |
 |------|---------|------------|
-| `Dockerfile.runtime` | Runtime image from the pre-built dist bundle | `python:3.14-slim` (+ digest-pinned throwaway verify stages that build all four bindings) |
+| `Dockerfile.runtime` | Runtime image from the pre-built dist bundle | `python:3.14-slim` (+ digest-pinned throwaway verify stages that build all four bindings and check every package's license text) |
 
 To build from source, clone the repository and run `cabal run shake -- build`
 for the library, or `cabal run shake -- dist` to produce the `dist/aletheia`
