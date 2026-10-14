@@ -90,6 +90,15 @@ cannot honestly advertise capabilities it does not yet have.
        covered only the visibility flip). The dispatch dry-run
        (`gh workflow run release.yml`) — the whole pipeline minus its publish
        steps — caught the Python one; the real tag caught the GHCR one.
+     - **License texts in every distributed form (2026-10-14).** The
+       bundle's `licenses/` folder holds the license each shipped library
+       declares and, the obligation being transitive, the license of each
+       work compiled into it; the `.deb`, `.rpm` and image carry it, and
+       each binding carries `LICENSE.md`. The texts are kept in the tree,
+       pinned by hash to their source tarballs; a gate refuses a bundle a
+       library's license is missing from, and a source audit, run weekly and
+       on pull requests touching the texts or the audit, holds every notice of code taken
+       from elsewhere to a recorded verdict.
 2. **✅ `aletheia template <file>.xlsx` CLI subcommand (2026-09-29).** A true
    no-code way to obtain the Excel template, in the Python, C++ and Go CLIs, so
    the non-programmer's spreadsheet route starts from the command line. The Go
