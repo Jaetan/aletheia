@@ -383,10 +383,24 @@ def test_table_rows_are_cells_as_github_splits_them() -> None:
     """Header and body rows; an escaped pipe stays in its cell; a short row is padded."""
     text = Prose("| a | b |\n|---|---|\n| c \\| d | `e` |\n| f |\n\n| g |\n")
     assert table_rows(text) == [
-        Row(1, (Prose("a"), Prose("b"))),
-        Row(3, (Prose("c | d"), Prose("`e`"))),
-        Row(4, (Prose("f"), Prose(""))),
+        Row(1, (Prose("a"), Prose("b")), (Prose("a"), Prose("b")), header=True),
+        Row(3, (Prose("c | d"), Prose("`e`")), (Prose("c | d"), Prose("e")), header=False),
+        Row(4, (Prose("f"), Prose("")), (Prose("f"), Prose("")), header=False),
     ]
+
+
+def test_a_cells_shown_text_is_what_it_renders() -> None:
+    """Emphasis marks go, a code span keeps its content and an escaped mark reads as itself."""
+    text = Prose("| **a** | `[b]` | *c* d | \\*e |\n|---|---|---|---|\n")
+    assert [row.shown for row in table_rows(text)] == [
+        (Prose("a"), Prose("[b]"), Prose("c d"), Prose("*e"))
+    ]
+
+
+def test_a_tables_first_row_alone_is_its_header() -> None:
+    """Each table's header row is marked, its body rows not, in every table of the text."""
+    text = Prose("| a |\n|---|\n| b |\n| c |\n\n| d |\n|---|\n| e |\n")
+    assert [row.header for row in table_rows(text)] == [True, False, False, True, False]
 
 
 def test_a_section_runs_to_the_next_heading_of_its_level_or_shallower() -> None:
@@ -584,9 +598,9 @@ def test_table_rows_are_read_in_a_quote_and_in_a_list_item() -> None:
     """A table inside a container has rows like any other."""
     text = Prose("> | a |\n> |---|\n> | b |\n\n- | c |\n  |---|\n")
     assert table_rows(text) == [
-        Row(1, (Prose("a"),)),
-        Row(3, (Prose("b"),)),
-        Row(5, (Prose("c"),)),
+        Row(1, (Prose("a"),), (Prose("a"),), header=True),
+        Row(3, (Prose("b"),), (Prose("b"),), header=False),
+        Row(5, (Prose("c"),), (Prose("c"),), header=True),
     ]
 
 
@@ -602,7 +616,9 @@ def test_a_paragraph_of_a_trimmed_space_alone_is_one_empty_line() -> None:
 
 def test_a_paragraph_before_a_table_adds_no_cell() -> None:
     """Text outside a table is no row's cell."""
-    assert table_rows(Prose("Text\n\n| a |\n|---|\n\nMore\n")) == [Row(3, (Prose("a"),))]
+    assert table_rows(Prose("Text\n\n| a |\n|---|\n\nMore\n")) == [
+        Row(3, (Prose("a"),), (Prose("a"),), header=True)
+    ]
 
 
 def test_every_heading_level_is_read() -> None:

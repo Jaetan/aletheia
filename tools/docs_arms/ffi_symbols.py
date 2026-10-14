@@ -16,7 +16,7 @@ import re
 from typing import TYPE_CHECKING
 
 from tools._common import RelPath
-from tools.docs_arms import Unread, missing, read_tracked
+from tools.docs_arms import BUILDING_GUIDE, Unread, missing, read_tracked
 
 from aletheia.common_types import Prose
 
@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-GUIDE = RelPath("docs/development/BUILDING.md")
 SHIM = RelPath("haskell-shim/src/AletheiaFFI.hs")
 
 _NAMED = re.compile(r"\baletheia_[a-z_]+")
@@ -58,13 +57,15 @@ def findings(
         is exported.
 
     """
-    if GUIDE not in documents:
-        return [missing(GUIDE, tracked, _NO_GUIDE)]
+    if BUILDING_GUIDE not in documents:
+        return [missing(BUILDING_GUIDE, tracked, _NO_GUIDE)]
     if SHIM not in tracked:
         return [missing(SHIM, tracked, _NO_EXPORTS)]
-    named = symbols_named(documents[GUIDE])
+    named = symbols_named(documents[BUILDING_GUIDE])
     if not named:
-        return [Prose(f"{GUIDE}: names no aletheia_<name> symbol; the arm has nothing to hold")]
+        return [
+            Prose(f"{BUILDING_GUIDE}: names no aletheia_<name> symbol; the arm has nothing to hold")
+        ]
     shim = read_tracked(root, SHIM, _NO_EXPORTS)
     if isinstance(shim, Unread):
         return [shim.finding]
@@ -72,6 +73,6 @@ def findings(
     if not exported:
         return [Prose(f"{SHIM}: has no foreign export ccall line; the arm has nothing to hold")]
     return [
-        Prose(f"{GUIDE}: names {symbol}, which {SHIM} does not export")
+        Prose(f"{BUILDING_GUIDE}: names {symbol}, which {SHIM} does not export")
         for symbol in sorted(named - exported)
     ]

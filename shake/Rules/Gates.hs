@@ -111,6 +111,16 @@ gateRules = do
         -- audit form, for a commit that is no longer HEAD).
         cmd_ pythonBin "-m" "tools.check_gate_claim" "HEAD"
 
+    phony "check-haskell-ledger" $ do
+        -- The building guide's Haskell ledger names the libraries the kernel
+        -- library links: the ones the bundle carries, read as the dist rule
+        -- reads them (getGhcDeps), and the system ones it does not.  The
+        -- checker is Python, so the tables are read by the parser every
+        -- documentation gate reads Markdown with.
+        need ["build/libaletheia-ffi.so"]
+        ghcDeps <- getGhcDeps "build/libaletheia-ffi.so"
+        cmd_ pythonBin "-m" "tools.check_haskell_ledger" "build/libaletheia-ffi.so" ghcDeps
+
     phony "check-runbook" $ do
         -- Runbook coverage gate.  AGENTS.md cat 22 mandates
         -- that every structured log event the bindings emit has a matching

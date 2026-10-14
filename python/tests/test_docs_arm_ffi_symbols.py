@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 
 from _planted_tree import run_planted
 
-from tools.docs_arms.ffi_symbols import GUIDE, SHIM, findings
+from tools.docs_arms import BUILDING_GUIDE
+from tools.docs_arms.ffi_symbols import SHIM, findings
 
 from aletheia.common_types import Prose
 
@@ -39,8 +40,8 @@ def _repo(tmp_path: Path, guide: Prose | None, shim: Prose | None) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     if guide is not None:
-        (repo / GUIDE).parent.mkdir(parents=True)
-        _ = (repo / GUIDE).write_text(guide, encoding="utf-8")
+        (repo / BUILDING_GUIDE).parent.mkdir(parents=True)
+        _ = (repo / BUILDING_GUIDE).write_text(guide, encoding="utf-8")
     if shim is not None:
         (repo / SHIM).parent.mkdir(parents=True)
         _ = (repo / SHIM).write_text(shim, encoding="utf-8")
@@ -61,7 +62,7 @@ def test_clean_guide_has_no_finding(tmp_path: Path) -> None:
 def test_unexported_symbol_is_a_finding(tmp_path: Path) -> None:
     """A guide naming a symbol the shim does not export is reported, naming the guide."""
     assert _run(_repo(tmp_path, _PLANTED_GUIDE, _SHIM_TEXT)) == [
-        Prose(f"{GUIDE}: names aletheia_process_json, which {SHIM} does not export")
+        Prose(f"{BUILDING_GUIDE}: names aletheia_process_json, which {SHIM} does not export")
     ]
 
 
@@ -76,21 +77,21 @@ def test_a_commented_out_export_is_not_exported(tmp_path: Path) -> None:
     shim = Prose(_SHIM_TEXT + "-- foreign export ccall aletheia_old :: IO ()\n")
     guide = Prose(_CLEAN_GUIDE + "\nThe old entry point was `aletheia_old`.\n")
     assert _run(_repo(tmp_path, guide, shim)) == [
-        Prose(f"{GUIDE}: names aletheia_old, which {SHIM} does not export")
+        Prose(f"{BUILDING_GUIDE}: names aletheia_old, which {SHIM} does not export")
     ]
 
 
 def test_guide_naming_no_symbol_is_a_finding(tmp_path: Path) -> None:
     """A guide naming no symbol gives the arm nothing to hold, which it reports."""
     assert _run(_repo(tmp_path, _SILENT_GUIDE, _SHIM_TEXT)) == [
-        Prose(f"{GUIDE}: names no aletheia_<name> symbol; the arm has nothing to hold")
+        Prose(f"{BUILDING_GUIDE}: names no aletheia_<name> symbol; the arm has nothing to hold")
     ]
 
 
 def test_untracked_guide_is_a_finding(tmp_path: Path) -> None:
     """A tree without the guide is reported rather than passed."""
     assert _run(_repo(tmp_path, None, _SHIM_TEXT)) == [
-        Prose(f"{GUIDE}: not tracked, so the arm has no guide to read")
+        Prose(f"{BUILDING_GUIDE}: not tracked, so the arm has no guide to read")
     ]
 
 
@@ -115,7 +116,7 @@ def test_unexported_symbols_are_reported_in_name_order(tmp_path: Path) -> None:
         + "\nRetired: `aletheia_delta`, `aletheia_alpha`, `aletheia_charlie`, `aletheia_bravo`.\n"
     )
     assert _run(_repo(tmp_path, guide, _SHIM_TEXT)) == [
-        Prose(f"{GUIDE}: names aletheia_{name}, which {SHIM} does not export")
+        Prose(f"{BUILDING_GUIDE}: names aletheia_{name}, which {SHIM} does not export")
         for name in ("alpha", "bravo", "charlie", "delta")
     ]
 
@@ -129,15 +130,17 @@ def test_a_shim_byte_that_is_not_utf8_does_not_stop_the_read(tmp_path: Path) -> 
         + b"foreign export ccall aletheia_proc\xe9ess :: IO ()\n"
         + b"foreign export ccall aletheia_send_frame :: IO ()\n"
     )
-    assert _run(repo) == [Prose(f"{GUIDE}: names aletheia_process, which {SHIM} does not export")]
+    assert _run(repo) == [
+        Prose(f"{BUILDING_GUIDE}: names aletheia_process, which {SHIM} does not export")
+    ]
 
 
 def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
     """A guide git tracks and the work tree lacks is named as unread, never as untracked."""
     repo = _repo(tmp_path, None, _SHIM_TEXT)
-    assert run_planted(findings, repo, absent={GUIDE}) == [
-        Prose(f"{GUIDE}: could not be read, so what it says is unchecked"),
-        Prose(f"{GUIDE}: could not be read, so the arm has no guide to read"),
+    assert run_planted(findings, repo, absent={BUILDING_GUIDE}) == [
+        Prose(f"{BUILDING_GUIDE}: could not be read, so what it says is unchecked"),
+        Prose(f"{BUILDING_GUIDE}: could not be read, so the arm has no guide to read"),
     ]
 
 

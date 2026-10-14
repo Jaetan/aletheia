@@ -21,10 +21,17 @@ module, and each holds one claim:
   sanctioned one is;
 * ``index_coverage``: ``docs/INDEX.md`` names every tracked document under
   ``docs/`` and ``AGENTS/`` and the root ``AGENTS.md``;
+* ``ledger_licences``: every Python row of the building guide's dependency
+  ledger names the licence its installed distribution records;
+* ``ledger_packages``: every table of that ledger names what the tree's
+  manifests declare, and no other;
+* ``ledger_versions``: the ledger states no version, and says where they are;
 * ``one_line_paragraphs``: every paragraph, list item and blockquote of the
   building guide is one line;
 * ``phase_word``: the phase table names one current phase, and every
   document uses the table's word for it;
+* ``prerequisite_pins``: the toolchain pins the building guide's
+  prerequisites state are the tree's own;
 * ``readme_extras``: every pip extra a README names is one
   ``python/pyproject.toml`` defines;
 * ``readme_tree``: the project tree ``README.md`` prints names exactly the
@@ -63,9 +70,13 @@ from tools.docs_arms import (
     ignored_build_trees,
     index_coverage,
     labels,
+    ledger_licences,
+    ledger_packages,
+    ledger_versions,
     links,
     one_line_paragraphs,
     phase_word,
+    prerequisite_pins,
     read_tracked,
     readme_extras,
     readme_tree,
@@ -95,8 +106,12 @@ ARMS: tuple[Arm, ...] = (
     fuzz_targets.findings,
     ignored_build_trees.findings,
     index_coverage.findings,
+    ledger_licences.findings,
+    ledger_packages.findings,
+    ledger_versions.findings,
     one_line_paragraphs.findings,
     phase_word.findings,
+    prerequisite_pins.findings,
     readme_extras.findings,
     readme_tree.findings,
     retired_document.findings,

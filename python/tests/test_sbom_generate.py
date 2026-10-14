@@ -31,15 +31,22 @@ from _sbom_fixtures import (
     make_bindings_tree,
 )
 
+from tools._manifests import ManifestError
 from tools.sbom_generate import (
-    SbomManifestError,
+    GhcPackage,
+    GhcVersion,
+    SbomOptions,
     binding_components,
+    build_sbom,
+    ghc_library,
     main,
     parse_binding_components,
 )
 
 if TYPE_CHECKING:
     from tools.sbom_generate import Component
+
+    from aletheia.common_types import Prose
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -95,7 +102,7 @@ def test_python_unparseable_requirement_fails(tmp_path: Path) -> None:
     doctored = PYPROJECT.replace('"python-can>=4.6.1"', '"???bogus"')
     assert doctored != PYPROJECT  # the replace really rewrote the fixture
     _ = (tree / "python" / "pyproject.toml").write_text(doctored, encoding="utf-8")
-    with pytest.raises(SbomManifestError, match="'can'"):
+    with pytest.raises(ManifestError, match="'can'"):
         _ = parse_binding_components(tree)
 
 
@@ -136,7 +143,7 @@ def test_go_missing_gosum_entry_fails(tmp_path: Path) -> None:
     )
     assert doctored != GO_SUM.rstrip("\n")  # the filter really dropped the h1 line
     _ = (tree / "go" / "go.sum").write_text(doctored + "\n", encoding="utf-8")
-    with pytest.raises(SbomManifestError, match="stale"):
+    with pytest.raises(ManifestError, match="stale"):
         _ = parse_binding_components(tree)
 
 
@@ -175,7 +182,7 @@ def test_rust_direct_dep_missing_from_lock_fails(tmp_path: Path) -> None:
     doctored = "\n[[package]]\n".join(block for block in blocks if '"libloading"' not in block)
     assert doctored != original  # the filter really dropped the lock entry
     _ = lock_path.write_text(doctored, encoding="utf-8")
-    with pytest.raises(SbomManifestError, match="libloading"):
+    with pytest.raises(ManifestError, match="libloading"):
         _ = parse_binding_components(tree)
 
 
@@ -239,8 +246,45 @@ def test_cpp_unparsed_declare_fails(tmp_path: Path) -> None:
     tree = make_bindings_tree(tmp_path)
     doctored = CMAKELISTS + "\nFetchContent_Declare(weird GIT_REPOSITORY https://example.com/w)\n"
     _ = (tree / "cpp" / "CMakeLists.txt").write_text(doctored, encoding="utf-8")
-    with pytest.raises(SbomManifestError, match="FetchContent_Declare"):
+    with pytest.raises(ManifestError, match="FetchContent_Declare"):
         _ = parse_binding_components(tree)
+
+
+@pytest.mark.parametrize(
+    ("file_name", "expected"),
+    [
+        ("libHStext-2.1.1-787c-ghc9.8.4.so", ("text", "2.1.1")),
+        ("libHSghc-boot-th-9.8.4-ea58-ghc9.8.4.so", ("ghc-boot-th", "9.8.4")),
+        ("libHScontainers-0.6.8-b1e0a2c4-ghc9.10.1.so", ("containers", "0.6.8")),
+        ("libHSrts-1.0.2_thr-ghc9.8.4.so", ("rts", "1.0.2_thr")),
+        ("libHSbase-4.18.3.0-ghc9.6.7.so", ("base", "4.18.3.0")),
+        ("libffi.so.8", None),
+    ],
+)
+def test_a_ghc_library_names_its_package_and_version(
+    file_name: Prose, expected: tuple[GhcPackage, GhcVersion] | None
+) -> None:
+    """A runtime library's file name gives its package and version, however its unit is hashed."""
+    found = ghc_library(Path("/ghc/lib") / file_name)
+    assert (None if found is None else (found.package, found.version)) == expected
+
+
+def test_each_ghc_runtime_library_bills_its_package_or_its_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A GHC package library bills the package at its version; another library its file."""
+    monkeypatch.setattr("tools.sbom_generate._probe", _probe_answer)
+    monkeypatch.setattr("tools.sbom_generate._git_commit", _head_commit)
+    deps = [tmp_path / "libHSbase-4.19.2.0-9f38-ghc9.8.4.so", tmp_path / "libffi.so.8"]
+    for dep in deps:
+        _ = dep.write_bytes(b"\x7fELF")
+    sbom = build_sbom(REPO_ROOT, deps, None, SbomOptions(source_epoch=1700000000))
+    runtime = {
+        component["name"]: component["version"]
+        for component in sbom["components"]
+        if component["name"].startswith("haskell-runtime/")
+    }
+    assert runtime == {"haskell-runtime/base": "4.19.2.0", "haskell-runtime/libffi.so": "unknown"}
 
 
 def test_vacuously_empty_binding_refused(tmp_path: Path) -> None:
@@ -249,7 +293,7 @@ def test_vacuously_empty_binding_refused(tmp_path: Path) -> None:
     no_extras = '[project]\nname = "aletheia"\nversion = "1.2.3"\n'
     no_extras += "\n[project.optional-dependencies]\n"
     _ = (tree / "python" / "pyproject.toml").write_text(no_extras, encoding="utf-8")
-    with pytest.raises(SbomManifestError, match="python"):
+    with pytest.raises(ManifestError, match="python"):
         _ = binding_components(tree)
 
 

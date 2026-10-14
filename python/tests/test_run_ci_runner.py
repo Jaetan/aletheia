@@ -62,7 +62,7 @@ from aletheia.common_types import ExitStatus, Prose
 # AGDA_SHAKE_TARGETS quietly stops running on every PR.  Guard it by invariants
 # rather than a mirror copy of the tuple (DRY) — the count tripwire turns any
 # add/drop into a conscious edit, and the named checks pin the load-bearing gates.
-_EXPECTED_GATE_COUNT = 15
+_EXPECTED_GATE_COUNT = 16
 
 # The status of a command that succeeded.
 _SUCCEEDED = ExitStatus(0)
@@ -376,6 +376,39 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
     cpp = [step.name for step in runner.registered_steps if step.lane == "cpp"]
     assert "ctest" in cpp
     assert not set(gates) & set(cpp)
+
+
+def test_a_step_below_a_toolchain_directory_runs_in_its_lane(tmp_path: Path) -> None:
+    """The lane is the toolchain directory the step's cwd lies in, however deep, not its name.
+
+    The Rust excel crate's steps run in ``rust/excel``; read by its last name the
+    directory is no toolchain's, and its steps would run beside the Rust ones
+    rather than after them.
+    """
+    runner = ci_runner(tmp_path)
+    runner.step("deep", ["true"], cwd=tmp_path / "rust" / "excel")
+    runner.step("top", ["true"], cwd=tmp_path / "go")
+    runner.step("docs", ["true"], cwd=tmp_path / "docs")
+    runner.step("root", ["true"], cwd=tmp_path)
+    runner.step("outside", ["true"], cwd=tmp_path.parent)
+    lanes = [step.lane for step in runner.registered_steps]
+    assert lanes == ["rust", "go", "misc", "misc", "misc"]
+
+
+def test_the_rust_licences_are_read_after_both_crates_tests(tmp_path: Path) -> None:
+    """The licence check reads the registry both crates' tests fill, so it runs after them.
+
+    Steps of one lane run in order and lanes run at once, so a check in another
+    lane, or before a test, could read the registry before that test fetched
+    the crates it resolves.  It runs from the root, where ``-m tools.*`` imports.
+    """
+    runner = ci_runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    rust = [step for step in runner.registered_steps if step.lane == "rust"]
+    names = [step.name for step in rust]
+    tests = [names.index("cargo test"), names.index("cargo test (excel crate)")]
+    assert names.index("check-rust-licences") > max(tests)
+    assert rust[names.index("check-rust-licences")].cwd == tmp_path
 
 
 def test_clang_tidy_is_told_the_step_budget(tmp_path: Path) -> None:

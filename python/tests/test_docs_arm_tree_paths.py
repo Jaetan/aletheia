@@ -16,7 +16,8 @@ import pytest
 from _planted_tree import run_planted
 
 from tools._common import RelPath
-from tools.docs_arms.tree_paths import GUIDE, findings, tree_paths
+from tools.docs_arms import BUILDING_GUIDE
+from tools.docs_arms.tree_paths import findings, tree_paths
 
 from aletheia.common_types import Prose
 
@@ -38,10 +39,10 @@ def _repo(tmp_path: Path, guide: Prose | None, *, extra: Sequence[RelPath] = ())
     """Return a planted tree tracking ``_TRACKED``, ``extra`` and, when given, the guide."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    for rel in (*_TRACKED, *extra, *([GUIDE] if guide is not None else [])):
+    for rel in (*_TRACKED, *extra, *([BUILDING_GUIDE] if guide is not None else [])):
         path = repo / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        text = guide if rel == GUIDE and guide is not None else "x\n"
+        text = guide if rel == BUILDING_GUIDE and guide is not None else "x\n"
         _ = path.write_text(text, encoding="utf-8")
     return repo.resolve()
 
@@ -71,8 +72,8 @@ def test_untracked_paths_are_findings(tmp_path: Path) -> None:
     ]
     guide = Prose("\n".join(lines))
     assert _findings(_repo(tmp_path, guide)) == [
-        Prose(f"{GUIDE}: not tracked: Dockerfile.ci"),
-        Prose(f"{GUIDE}: not tracked: tools/gone.py"),
+        Prose(f"{BUILDING_GUIDE}: not tracked: Dockerfile.ci"),
+        Prose(f"{BUILDING_GUIDE}: not tracked: tools/gone.py"),
     ]
 
 
@@ -97,7 +98,7 @@ def test_a_path_under_every_source_directory_is_checked(tmp_path: Path) -> None:
     ]
     guide = Prose(" ".join(f"`{path}`" for path in (*gone, ".github/workflows/gone.yml")) + "\n")
     assert _findings(_repo(tmp_path, guide)) == [
-        Prose(f"{GUIDE}: not tracked: {path}") for path in gone
+        Prose(f"{BUILDING_GUIDE}: not tracked: {path}") for path in gone
     ]
 
 
@@ -105,7 +106,7 @@ def test_bare_name_resolves_only_on_a_tracked_base_name(tmp_path: Path) -> None:
     """A bare Cabal name resolves through any tracked file's base name; another does not."""
     guide = Prose("Edit `shim.cabal`, not `other.cabal`.\n")
     repo = _repo(tmp_path, guide, extra=(RelPath("haskell-shim/shim.cabal"),))
-    assert _findings(repo) == [Prose(f"{GUIDE}: not tracked: other.cabal")]
+    assert _findings(repo) == [Prose(f"{BUILDING_GUIDE}: not tracked: other.cabal")]
 
 
 def test_an_untracked_file_in_the_worktree_is_a_finding(tmp_path: Path) -> None:
@@ -114,7 +115,7 @@ def test_an_untracked_file_in_the_worktree_is_a_finding(tmp_path: Path) -> None:
     _ = (repo / "tools" / "local.py").write_text("x\n", encoding="utf-8")
     untracked = {RelPath("tools/local.py")}
     assert run_planted(findings, repo, untracked=untracked) == [
-        Prose(f"{GUIDE}: not tracked: tools/local.py")
+        Prose(f"{BUILDING_GUIDE}: not tracked: tools/local.py")
     ]
 
 
@@ -122,7 +123,7 @@ def test_guide_naming_no_path_is_a_finding(tmp_path: Path) -> None:
     """A guide with no tree path in backticks would pass vacuously; the arm says so."""
     repo = _repo(tmp_path, Prose("Run `make` and `cabal build`; nothing here is a path.\n"))
     assert _findings(repo) == [
-        Prose(f"{GUIDE}: names no tree path in backticks; the arm checks nothing")
+        Prose(f"{BUILDING_GUIDE}: names no tree path in backticks; the arm checks nothing")
     ]
 
 
@@ -130,7 +131,7 @@ def test_guide_absent_is_a_finding(tmp_path: Path) -> None:
     """A tree without the guide gives the arm nothing to check, which it reports."""
     repo = _repo(tmp_path, None)
     assert _findings(repo) == [
-        Prose(f"{GUIDE}: not tracked, so the tree paths it names are unchecked")
+        Prose(f"{BUILDING_GUIDE}: not tracked, so the tree paths it names are unchecked")
     ]
 
 
@@ -157,7 +158,9 @@ def test_tree_paths_keeps_order_and_drops_build_outputs() -> None:
 def test_the_project_agda_lib_is_a_tree_path(tmp_path: Path) -> None:
     """The project's ``aletheia.agda-lib`` is checked; another library's is no tree path."""
     guide = Prose("Pin `standard-library.agda-lib` or `stdlib.agda-lib` in `aletheia.agda-lib`.\n")
-    assert _findings(_repo(tmp_path, guide)) == [Prose(f"{GUIDE}: not tracked: aletheia.agda-lib")]
+    assert _findings(_repo(tmp_path, guide)) == [
+        Prose(f"{BUILDING_GUIDE}: not tracked: aletheia.agda-lib")
+    ]
 
 
 def test_a_span_running_past_its_line_is_not_read() -> None:
@@ -215,9 +218,9 @@ def test_only_a_directory_named_build_is_a_build_output() -> None:
 
 def test_a_tracked_guide_the_work_tree_lacks_is_a_finding(tmp_path: Path) -> None:
     """A guide git tracks and the work tree lacks is named as unread, never as untracked."""
-    assert run_planted(findings, _repo(tmp_path, None), absent={GUIDE}) == [
-        Prose(f"{GUIDE}: could not be read, so what it says is unchecked"),
-        Prose(f"{GUIDE}: could not be read, so the tree paths it names are unchecked"),
+    assert run_planted(findings, _repo(tmp_path, None), absent={BUILDING_GUIDE}) == [
+        Prose(f"{BUILDING_GUIDE}: could not be read, so what it says is unchecked"),
+        Prose(f"{BUILDING_GUIDE}: could not be read, so the tree paths it names are unchecked"),
     ]
 
 

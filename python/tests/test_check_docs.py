@@ -28,6 +28,7 @@ from tools.docs_arms import (
     missing,
     read_tracked,
     read_tracked_bytes,
+    section_rows,
     slug,
     tracked_dirs,
 )
@@ -39,6 +40,14 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from tools.docs_arms import Arm
+
+
+def test_section_rows_lists_the_body_rows_of_a_table_right_under_its_heading() -> None:
+    """A table on the line after the heading is the section's, its header left out."""
+    text = Prose("## A\n| x |\n|---|\n| y |\n\n## B\n\n| z |\n|---|\n| w |\n")
+    found = section_rows(text, Prose("## A"))
+    assert (None if found is None else [row.shown for row in found]) == [(Prose("y"),)]
+    assert section_rows(text, Prose("## C")) is None
 
 
 def test_slug_turns_each_whitespace_character_into_one_hyphen() -> None:

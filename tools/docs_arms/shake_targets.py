@@ -20,7 +20,7 @@ import re
 from typing import TYPE_CHECKING
 
 from tools._common import SHAKEFILE, GateName, RelPath, is_shake_source
-from tools.docs_arms import Unread, missing, read_tracked
+from tools.docs_arms import BUILDING_GUIDE, Unread, missing, read_tracked
 
 from aletheia.common_types import Prose
 
@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-BUILDING_GUIDE = RelPath("docs/development/BUILDING.md")
 
 # A declaration opens its line; a comment that spells one declares nothing.
 _PHONY = re.compile(r'^\s*phony\s+"([a-z][a-z0-9-]*)"', re.MULTILINE)
