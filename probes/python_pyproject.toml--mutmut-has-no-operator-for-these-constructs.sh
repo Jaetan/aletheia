@@ -13,13 +13,13 @@
 # alone and counting the mutations it yields, which must be zero, while the
 # same table over a comparison yields one, so the table is the one the lane
 # runs. Non-zero exit: mutmut now mutates one of them, which re-opens the
-# refusal, or the control yields nothing. Exits 0 with a note without the
+# refusal, or the control yields nothing. Exits 2 without the
 # venv's mutmut, the claim being untestable then.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 py=$PWD/python/.venv/bin/python
 [ -x "$py" ] || exit 2
-"$py" -c 'import mutmut' 2> /dev/null || { echo "mutmut not installed in the venv, claim untestable"; exit 0; }
+"$py" -c 'import mutmut' 2> /dev/null || { echo "mutmut not installed in the venv, claim untestable"; exit 2; }
 cd python && "$py" - <<'PY'
 import libcst as cst
 from libcst.metadata import MetadataWrapper

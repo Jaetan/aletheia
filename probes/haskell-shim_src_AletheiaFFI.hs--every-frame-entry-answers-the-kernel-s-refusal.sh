@@ -17,13 +17,13 @@
 # calling each entry through the library itself, every buffer byte set, and
 # by sending an accepted frame with an earlier timestamp after each refusal.
 # Non-zero exit: an entry accepts such a frame, refuses it with another code,
-# writes while refusing, or moves the clock. Exits 0 with a note when the
+# writes while refusing, or moves the clock. Exits 2 when the
 # library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes

@@ -567,9 +567,10 @@ pytest_add_cli_args = [
     # package).  Infra coverage, not hot-path.
     "--ignore=tests/test_runnable_files_parse_their_arguments.py",
     "--ignore=tests/test_iwyu_arguments.py",
-    # The probe store's runner test runs the repo-root probes/run_all.sh.
-    # Infra coverage, not hot-path.
+    # The probe store's tests run the repo-root probes/run_all.sh and read
+    # the probes beside it.  Infra coverage, not hot-path.
     "--ignore=tests/test_probes_run_all.py",
+    "--ignore=tests/test_probe_stops.py",
     # Two excel-loader tests resolve the SHARED cross-binding fixture via
     # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /
     # "demo_workbook.xlsx"`` — repo-root from python/tests/, but python/ from

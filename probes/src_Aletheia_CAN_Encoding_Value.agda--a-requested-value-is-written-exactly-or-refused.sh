@@ -15,12 +15,12 @@
 # the library itself. Non-zero exit: a value is written that should be
 # refused, refused that should be written, refused with another code or
 # message, a refusal writes, or a written frame reads back another value.
-# Exits 0 with a note when the library is not built.
+# Exits 2 when the library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes

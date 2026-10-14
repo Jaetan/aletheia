@@ -22,14 +22,14 @@
 # than a tracked C++ source is refused, and the lane rebuilds it.
 # Non-zero exit: a dry run writes no report, a slice shares an identifier
 # with another, or the union is not the unsliced census. Exits 2 when a
-# leg's build is absent or stale, and 0 with a note when Mull, clang-23,
+# leg's build is absent or stale, and when Mull, clang-23,
 # clang++-23 or the plugin is absent.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
-command -v clang-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }
-command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim untestable"; exit 0; }
-[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "plugin not installed, claim untestable"; exit 0; }
+command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 2; }
+command -v clang-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 2; }
+command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim untestable"; exit 2; }
+[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "plugin not installed, claim untestable"; exit 2; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
 

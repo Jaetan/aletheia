@@ -9,13 +9,13 @@
 # firing. Shown from the IR the plugin emits for the client: every site of a
 # cxx_replace_bool_call_true mutant is also the site of a
 # cxx_replace_scalar_call mutant, and there are such sites. Non-zero exit: a
-# true site has no false twin, or the unit has no bool site. Exits 0 with a
-# note when the toolchain or the mutation tree is not available.
+# true site has no false twin, or the unit has no bool site. Exits 2
+# when the toolchain or the mutation tree is not available.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }
-[ -f cpp/build-mutation/compile_commands.json ] || { echo "no mutation tree configured, claim untestable"; exit 0; }
-[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "Mull plugin not installed, claim untestable"; exit 0; }
+command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 2; }
+[ -f cpp/build-mutation/compile_commands.json ] || { echo "no mutation tree configured, claim untestable"; exit 2; }
+[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "Mull plugin not installed, claim untestable"; exit 2; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
 scratch=$(mktemp -d) || exit 2

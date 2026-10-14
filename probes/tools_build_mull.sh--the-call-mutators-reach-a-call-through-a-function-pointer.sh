@@ -11,13 +11,13 @@
 # that builds a frame through build_frame_bin_fn_, and the pointer-call
 # mutator one on the line that processes a command through process_fn_.
 # Non-zero exit: one of those lines carries no such mutant, so the plugin in
-# PATH refuses indirect calls. Exits 0 with a note when the toolchain or the
+# PATH refuses indirect calls. Exits 2 when the toolchain or the
 # mutation tree is not available.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }
-[ -f cpp/build-mutation/compile_commands.json ] || { echo "no mutation tree configured, claim untestable"; exit 0; }
-[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "Mull plugin not installed, claim untestable"; exit 0; }
+command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 2; }
+[ -f cpp/build-mutation/compile_commands.json ] || { echo "no mutation tree configured, claim untestable"; exit 2; }
+[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "Mull plugin not installed, claim untestable"; exit 2; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
 scratch=$(mktemp -d) || exit 2

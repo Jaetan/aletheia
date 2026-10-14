@@ -22,14 +22,14 @@
 # ccache reports no size for it, the cap is under three of the slice, or the
 # slice's fresh cache is outside the recorded figure's tolerance; 2 when the
 # repository root cannot be entered or the scratch directory cannot be made.
-# Skipped (exit 0) when ccache, clang++-23, the plugin or python/.venv is
+# Exits 2 when ccache, clang++-23, the plugin or python/.venv is
 # missing, since the claim is then untestable.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v ccache > /dev/null || { echo "ccache not installed, claim untestable"; exit 0; }
-command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim untestable"; exit 0; }
-[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "plugin not installed, claim untestable"; exit 0; }
-[ -x python/.venv/bin/python ] || { echo "python/.venv missing, claim untestable"; exit 0; }
+command -v ccache > /dev/null || { echo "ccache not installed, claim untestable"; exit 2; }
+command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim untestable"; exit 2; }
+[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "plugin not installed, claim untestable"; exit 2; }
+[ -x python/.venv/bin/python ] || { echo "python/.venv missing, claim untestable"; exit 2; }
 
 workflow=.github/workflows/pr-heavy-lanes.yml
 # Recorded, KiB as `ccache --print-stats` counts cache_size_kibibyte, slice 1 of

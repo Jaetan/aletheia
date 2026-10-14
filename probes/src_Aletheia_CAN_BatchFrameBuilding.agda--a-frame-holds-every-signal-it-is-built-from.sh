@@ -13,13 +13,13 @@
 # up builds a frame of that many bytes, and every DLC below it is refused,
 # naming the first signal that does not fit, with nothing written. Non-zero
 # exit: a frame is built at a DLC that cannot hold its signals, a DLC that can
-# is refused, or a refusal writes. Exits 0 with a note when the library is not
+# is refused, or a refusal writes. Exits 2 when the library is not
 # built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes

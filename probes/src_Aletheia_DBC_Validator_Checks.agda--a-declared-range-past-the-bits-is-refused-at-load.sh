@@ -13,13 +13,13 @@
 # end gives which physical end, so the cases run at a positive and a negative
 # factor, signed and unsigned, past each end. Shown through the library
 # itself. Non-zero exit: a range past the bits loads, an exact one is refused
-# or warned, an issue names the wrong end, or the routes disagree. Exits 0
-# with a note when the library is not built.
+# or warned, an issue names the wrong end, or the routes disagree. Exits 2
+# when the library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes

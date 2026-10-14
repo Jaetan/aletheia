@@ -12,14 +12,14 @@
 # release of the tool that deals shards another way would fail every sweep;
 # this probe says so before one runs.
 # Non-zero exit: a shard count whose shards miss, repeat or add a mutant, or
-# a listing that does not parse. Exits 0 with a note when cargo-mutants is not
+# a listing that does not parse. Exits 2 when cargo-mutants is not
 # installed, the claim being untestable then.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-command -v cargo > /dev/null || { echo "cargo not installed, claim untestable"; exit 0; }
-cargo mutants --version > /dev/null 2>&1 || { echo "cargo-mutants not installed, claim untestable"; exit 0; }
+command -v cargo > /dev/null || { echo "cargo not installed, claim untestable"; exit 2; }
+cargo mutants --version > /dev/null 2>&1 || { echo "cargo-mutants not installed, claim untestable"; exit 2; }
 
 exec "$py" - <<'PY'
 import collections

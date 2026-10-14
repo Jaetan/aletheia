@@ -12,7 +12,7 @@
 # dry run of the lane's own command, in the lane's environment and directory,
 # its report in scratch. Non-zero exit: the dry run lists a mutant under
 # cpp/tests, or none in cpp/src/detail/loader_utils.hpp, or writes no report.
-# Exits 0 with a note when Mull or the mutation tree is not available, since
+# Exits 2 when Mull or the mutation tree is not available, since
 # the claim is untestable then.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -32,10 +32,10 @@ from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, lane_binary
 
 if shutil.which(MULL_RUNNER) is None:
     print("Mull not installed, claim untestable")
-    sys.exit(0)
+    sys.exit(2)
 if not os.access(lane_binary(), os.X_OK):
     print("no mutation tree built, claim untestable")
-    sys.exit(0)
+    sys.exit(2)
 with tempfile.TemporaryDirectory(prefix="dry-run-") as scratch:
     report = dry_run_report(CppLeg(), Path(scratch))
     if isinstance(report, str):

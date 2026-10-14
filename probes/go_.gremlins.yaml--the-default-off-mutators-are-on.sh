@@ -11,11 +11,11 @@
 # which gremlins reads ahead of the file, lists none of that kind, which is
 # what shows the file is doing the turning on. Non-zero exit: a kind has no
 # mutant with the file in force, or the overridden kind still has one. Exits
-# 0 with a note when gremlins is not installed, the claim being untestable.
+# 2 when gremlins is not installed, the claim being untestable.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 export PATH="$PATH:$HOME/go/bin"
-command -v gremlins > /dev/null || { echo "gremlins not installed, claim untestable"; exit 0; }
+command -v gremlins > /dev/null || { echo "gremlins not installed, claim untestable"; exit 2; }
 lib="$PWD/build/libaletheia-ffi.so"
 [ -f "$lib" ] || exit 2
 with=$(cd go && ALETHEIA_LIB="$lib" gremlins unleash --dry-run ./aletheia 2>&1) || {

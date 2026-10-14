@@ -13,12 +13,12 @@
 # The path may carry a major-version suffix after the directory, which is how
 # Go spells a major above the first, and that is checked elsewhere.
 # Non-zero exit: a module is named somewhere other than where it is. Exits 2
-# without Go, or when the workspace lists no module.
+# without Go or an origin remote, or when the workspace lists no module.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v go > /dev/null || exit 2
 url=$(git config --get remote.origin.url 2>/dev/null) || url=""
-[ -n "$url" ] || { echo "this checkout has no origin remote, claim untestable"; exit 0; }
+[ -n "$url" ] || { echo "this checkout has no origin remote, claim untestable"; exit 2; }
 
 # git@host:owner/repo.git and https://host/owner/repo.git both name the same
 # module prefix, which is host/owner/repo.

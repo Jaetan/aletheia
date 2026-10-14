@@ -16,13 +16,13 @@
 # and in one whose locale is C.UTF-8, and the two must answer alike. Non-zero
 # exit: a disagreement with Python, bytes read without the ones that are not
 # UTF-8, a unit changed on the way back, a child that did not get the locale it
-# was given, or two locales answering differently. Exits 0 with a note when the
+# was given, or two locales answering differently. Exits 2 when the
 # library is not built. PROBE_LIB points it at another build of the library.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=${PROBE_LIB:-build/libaletheia-ffi.so}
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 
 # One child under the locale named by $1: every check, one line per answer,
