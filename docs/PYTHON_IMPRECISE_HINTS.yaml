@@ -1129,29 +1129,14 @@ hints:
     text: "dict[str, dict[str, float]]"
     count: 3
   - file: python/tests/test_benchmark_gate.py
-    text: "dict[str, dict[str, list[str]]]"
-    count: 1
-  - file: python/tests/test_benchmark_gate.py
-    text: "dict[str, list[str]]"
-    count: 1
-  - file: python/tests/test_benchmark_gate.py
-    text: "dict[str, object]"
-    count: 2
-  - file: python/tests/test_benchmark_gate.py
     text: "float"
     count: 2
   - file: python/tests/test_benchmark_gate.py
     text: "int"
     count: 1
   - file: python/tests/test_benchmark_gate.py
-    text: "list[str]"
-    count: 1
-  - file: python/tests/test_benchmark_gate.py
     text: "pytest.CaptureFixture[str]"
     count: 2
-  - file: python/tests/test_benchmark_gate.py
-    text: "set[str]"
-    count: 1
   - file: python/tests/test_benchmark_gate.py
     text: "str"
     count: 2

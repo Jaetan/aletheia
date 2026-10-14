@@ -167,7 +167,7 @@ grep -qE "^FAIL probes/c--crashes.sh $time exit 1, " <<< "$out" || fail "the cra
 grep -q "^    .*No module named 'no_such_module_c'" <<< "$out" || fail "the crash's last line is not inline"
 grep -q 'unreached' <<< "$out" && fail "the crashing probe ran past its crash"
 
-grep -qE "^FAIL probes/d--talks-then-refuses.sh $time exit 2, 41 lines kept in " <<< "$out" || fail "the talkative probe's line does not carry its exit status and line count"
+grep -qE "^UNRUN probes/d--talks-then-refuses.sh $time exit 2, 41 lines kept in " <<< "$out" || fail "the talkative probe's line does not carry its exit status and line count"
 grep -qx '    the last word: reason-d' <<< "$out" || fail "the talkative probe's last line is not inline"
 grep -qx '    line 1' <<< "$out" && fail "the talkative probe's whole output reached the record"
 grep -qx 'line 1' "$logs/d--talks-then-refuses.log" 2> /dev/null || fail "the talkative probe's whole output is not in the named file"
@@ -194,7 +194,7 @@ if [ -n "$slept" ] && ! awk -v s="$slept" 'BEGIN { exit !(s >= 0.3) }'; then
     fail "the sleeping probe's time $slept s is shorter than its sleep"
 fi
 grep -q 'z--gone' "$logs/timings.tsv" 2> /dev/null && fail "a time from an earlier run survived"
-expected=$(printf 'probe\tverdict\tseconds\n'; while read -r verdict path seconds _; do printf '%s\t%s\t%s\n' "$path" "$verdict" "${seconds%s}"; done < <(grep -E '^(PASS|FAIL) ' <<< "$out"))
+expected=$(printf 'probe\tverdict\tseconds\n'; while read -r verdict path seconds _; do printf '%s\t%s\t%s\n' "$path" "$verdict" "${seconds%s}"; done < <(grep -E '^(PASS|FAIL|UNRUN) ' <<< "$out"))
 [ "$(cat "$logs/timings.tsv" 2> /dev/null)" = "$expected" ] || fail "the kept times are not the run's, one row per probe in its order"
 
 # The two runs' records, their times taken out.
