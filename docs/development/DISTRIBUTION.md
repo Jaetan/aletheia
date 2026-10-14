@@ -434,7 +434,7 @@ docker run --rm ghcr.io/jaetan/aletheia:X.Y.Z python3 -c \
   "from aletheia import AletheiaClient; print('OK')"
 ~~~
 
-Every image build is gated by throwaway verify stages: the bundled Rust crate and C++ binding (clang-23, the enforced toolchain) must build, and a Go consumer must build **and run** a real LTL scenario, against the image's own `/opt/aletheia`, and every third-party package the image ships (each Debian package, each Python distribution, CPython, the bundle) must carry its license text in it, or the build fails. The stages ship nothing; the image stays slim.
+Every image build is gated by throwaway verify stages: the bundled Rust crate and C++ binding (clang-23, the enforced toolchain) must build, and a Go consumer must build **and run** a real LTL scenario, against the image's own `/opt/aletheia`, and every third-party package the image ships (each Debian package, each Python distribution and each package it vendors, CPython and the software it compiles in, the bundle) must carry its license text in it, or the build fails. The stages ship nothing; the image stays slim.
 
 #### C++ / Go / Rust consumer images (`COPY --from`)
 

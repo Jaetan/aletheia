@@ -8,7 +8,8 @@
 # separately licensed work compiled into it, each text taken from the
 # source tarball of the GHC the bundle is built with or from the upstream
 # source its `source:` names; base's NOTICE says which of base's code its
-# source credits to HBC and to nhc.  That GHC's install holds only its own
+# source credits to HBC and to nhc, rts's NOTICE which of its code it
+# credits to HBC.  That GHC's install holds only its own
 # licence, a copy in each package's documentation directory, which is the
 # runtime system's and ghc-boot-th's text and no other library's.  The
 # dist rule copies each library's folders into the bundle's licenses/.
@@ -146,6 +147,9 @@ texts:
   rts-1.0.2/LICENSE-xxHash:
     from: rts/xxhash.h, its opening comment (lines 1 to 34)
     sha256: "20bf2c9b132fe78c4256abb204159403d987af7a45345f1bdde07ecc094bed7f"
+  rts-1.0.2/NOTICE:
+    from: written from rts/StgPrimFloat.c, whose comment credits HBC
+    sha256: "9598db4e0734a5250e4e145584746beb23240845c5564fb5847487e91b6ac9ff"
   standard-library-2.4/LICENCE:
     source: agda-stdlib-2.4
     from: agda-stdlib-2.4/LICENCE

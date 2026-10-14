@@ -1,0 +1,5 @@
+rts-1.0.2 compiles code that its source credits to another work.
+
+HBC: in rts/StgPrimFloat.c, the encoding and decoding of Doubles ("Code
+based on the HBC code (lib/fltcode.c)").  The runtime system's source
+names no licence for this code.  Copyright in it stays with HBC's authors.

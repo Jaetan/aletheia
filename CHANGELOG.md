@@ -2022,8 +2022,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   ELF relocation tables and musl's `strndup` in the runtime system; the
   ucd2haskell Unicode tables, primitive, foldable1-classes-compat, singletons
   and nhc98 in `base`, with a notice naming the functions `base` credits to
-  HBC; lens in `containers`; cereal in `binary`; integer-gmp in `ghc-bignum`;
-  filepath in `template-haskell`; blaze-textual in `bytestring`). GHC's
+  HBC, and the runtime system's own such notice; lens in `containers`;
+  cereal in `binary`; integer-gmp in `ghc-bignum`; filepath in
+  `template-haskell`; blaze-textual in `bytestring`). GHC's
   install holds only GHC's own license (a copy in each package's
   documentation directory), so the tree keeps the texts in
   `packaging/licenses/`, recorded with their sources and hashes in
@@ -2031,14 +2032,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   proof gates, fails when the kept texts disagree with the libraries the
   bundle carries, with their record, or with the GHC, Agda or Agda library
   the kernel is built with, and the dist rule refuses a staged bundle in which
-  a library lacks its license. The works a library takes code from are found
-  by `tools/licence_audit.py`, which reads the source tarballs and holds each
-  license notice and each line saying where code came from to a verdict in
-  `audit.yaml`; it runs on a pull request that changes the texts, the tools
-  or its workflow, and weekly, and the check holds the verdicts to the record
-  without a download. The `.deb`, `.rpm` and image carry the folder, the
-  bundle being their payload, and the image build refuses an image in which
-  a Debian package, a Python distribution or CPython lacks its license text.
+  a library lacks its license. `tools/licence_audit.py` reads the source
+  tarballs for the works a library takes code from, holding each license
+  notice and each line saying in a wording it knows where code came from to
+  a verdict in `audit.yaml`; it runs on a pull request that changes the
+  texts, the tools or its workflow, and weekly, the check holds the verdicts
+  to the record without a download, and a GHC bump also reads the sources'
+  diff for wordings the scan does not know. The `.deb`, `.rpm` and image
+  carry the folder, the bundle being their payload. The image also carries
+  the notices of the software its CPython compiles in (mimalloc, libmpdec,
+  expat, HACL* and more), which CPython's `LICENSE.txt` omits, and its build
+  refuses an image in which a Debian package, a Python distribution or a
+  package it vendors, or CPython lacks its license text.
   Each binding's source, and so the Python wheel, carries `LICENSE.md`; the
   wheel's `License ::` classifier, which its PEP 639 license expression
   supersedes, is gone, and `tools/run_ci.py` builds the wheel offline from

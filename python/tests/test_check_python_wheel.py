@@ -186,8 +186,13 @@ def test_build_wheel_asks_pip_for_an_offline_build_with_this_python(
     assert build_wheel(source, out) == Built(ok=False, said=Prose("refused\n"))
     command = asked[0]
     assert command[:4] == [sys.executable, "-m", "pip", "wheel"]
-    offline = {"--no-build-isolation", "--no-deps", "--no-index", "--no-cache-dir"}
-    assert set(command[4:-3]) == offline
+    assert sorted(command[4:-3]) == [
+        "--check-build-dependencies",
+        "--no-build-isolation",
+        "--no-cache-dir",
+        "--no-deps",
+        "--no-index",
+    ]
     assert command[-3:] == ["--wheel-dir", str(out), str(source)]
 
 

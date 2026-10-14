@@ -77,6 +77,10 @@ RUN sed -i "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/a
 # scripts, MANIFEST, SBOM, license.
 COPY dist/aletheia /opt/aletheia
 
+# The notices of the software CPython compiles in, which its LICENSE.txt does
+# not carry; packaging/image-licenses/sources.yaml records where they come from.
+COPY packaging/image-licenses/cpython-3.14.6 /usr/local/share/licenses/cpython-3.14.6
+
 # Install the Python binding FROM THE BUNDLE — not from the worktree — so the
 # image's installed package is byte-identical to what /opt/aletheia/bindings
 # ships (and to what a tarball/.deb/.rpm consumer installs).
@@ -165,8 +169,9 @@ RUN cmake -S /opt/aletheia/bindings/cpp -B /build \
 
 # Licences: the image is redistributed whole, so every package in it owes its
 # notice there: each Debian package its copyright file, each Python
-# distribution a licence file in its dist-info, CPython its LICENSE.txt, the
-# bundle its licenses/ folder.  Run with the image's own python3.
+# distribution and each package it vendors a licence file in its dist-info,
+# CPython its LICENSE.txt and the notices of what it compiles in, the bundle
+# its licenses/ folder.  Run with the image's own python3.
 FROM runtime AS verify-licences
 COPY tools/check_image_licences.py /verify/check_image_licences.py
 RUN python3 -I /verify/check_image_licences.py && \

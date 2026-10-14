@@ -9,9 +9,11 @@ installed once, so nothing in it rebuilds the package: an edit to
 ``python/pyproject.toml`` that a build backend refuses passes it.  This writes
 the files those pathspecs name, as the index holds them, into a scratch
 directory, builds the wheel there with this Python's own setuptools and no
-network (``pip wheel --no-build-isolation --no-deps --no-index``), and holds
-the wheel's ``.dist-info`` to carrying ``licenses/LICENSE.md``, byte for byte
-the binding's ``LICENSE.md``.
+network (``pip wheel --no-build-isolation --no-deps --no-index``), holding the
+build system's requirements to what this Python has installed
+(``--check-build-dependencies``, which an isolated build would install), and
+holds the wheel's ``.dist-info`` to carrying ``licenses/LICENSE.md``, byte for
+byte the binding's ``LICENSE.md``.
 
 Exit 0 when held; 1 when the wheel does not build, or builds without the
 binding's licence; 2 when it cannot check: this Python has no setuptools, the
@@ -92,6 +94,7 @@ def build_wheel(source: Path, out: Path) -> Built:
             "pip",
             "wheel",
             "--no-build-isolation",
+            "--check-build-dependencies",
             "--no-deps",
             "--no-index",
             "--no-cache-dir",

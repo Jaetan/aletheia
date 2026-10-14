@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# The notices of the software the runtime image's CPython compiles in, which
+# its LICENSE.txt does not carry: one folder cpython-<version> for the CPython
+# the image runs, its texts taken from that version's source tarball (its
+# SHA-256 the PYTHON_SHA256 the base image records). Dockerfile.runtime copies
+# the folder to /usr/local/share/licenses/, and its verify-licences stage
+# refuses an image whose CPython has no such folder, so a base image bump
+# fails until the texts are taken from the new version.
+cpython: "3.14.6"
+tarball:
+  url: https://www.python.org/ftp/python/3.14.6/Python-3.14.6.tar.xz
+  sha256: "143b1dddefaec3bd2e21e3b839b34a2b7fb9842272883c576420d605e9f30c63"
+texts:
+  cpython-3.14.6/LICENSE-hacl-star:
+    from: Modules/_hacl/Hacl_Hash_SHA2.c, its opening comment (lines 1 to 23), the notice every licensed HACL* file carries
+    sha256: "998ce04fb8ad9dedb0bc1b44938f8c3dcf1089780fa105ce1c8c30fb5554d78c"
+  cpython-3.14.6/incorporated-software.rst:
+    from: Doc/license.rst, its section Licenses and Acknowledgements for Incorporated Software (lines 298 to 1171)
+    sha256: "10786818efccbce61d0540cc253fa9b256f18cda42e173c8439750545570bd8b"

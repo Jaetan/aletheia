@@ -19,7 +19,8 @@ libffi, the release named by the ``ffi.h`` of the GHC on the search path.
 Each folder holds the licence the work declares (a package's
 ``license-file``; for the runtime system, which declares none, GHC's own) and
 that of each work whose code is compiled into it, since GHC's install carries
-none of those texts; where the work's source credits code to a work that
+none of those texts, unless that work is itself bundled and its own folder
+covers the code; where the work's source credits code to a work that
 publishes no licence for it, a ``NOTICE`` names that code.
 ``packaging/licenses/sources.yaml`` records the GHC the texts were taken from,
 its source tarball, any other upstream source a text was taken from (its
@@ -38,9 +39,10 @@ The commands:
   them, both ways, the record to the GHC on the search path, and the
   verdicts to the record and the kept texts: every tarball the audit reads
   scanned, every tarball scanned one the record names at the SHA-256 it
-  records, and each verdict one kept text covering its hit or one reason it
-  owes none.  The Shake target ``check-bundle-licences`` runs it over the
-  libraries the dist rule bundles, and the dist rule needs that target.
+  records, and each verdict, one per hit and on a tarball scanned, one kept
+  text covering its hit or one reason it owes none.  The Shake target
+  ``check-bundle-licences`` runs it over the libraries the dist rule bundles,
+  and the dist rule needs that target.
 * ``stage BUNDLE LIBRARY...`` writes each library's kept texts into a fresh
   ``BUNDLE/licenses/``, mode 0644, and writes nothing when a library has none,
   naming it, or when ``BUNDLE/licenses/`` is already there.
@@ -68,6 +70,7 @@ from pathlib import Path
 from typing import Literal, NamedTuple, NewType, NotRequired, TypedDict, cast
 
 import yaml
+from yaml import MappingNode, Node, SafeLoader, SequenceNode
 from yaml.error import YAMLError
 
 from tools._common import emit, find_executable, run_capture
@@ -106,6 +109,9 @@ SourcePath = NewType("SourcePath", str)
 GHC_TARBALL = TarballName("ghc")
 # The line a hit that is a licence file carries in place of a line of text.
 LICENCE_FILE_LINE = Prose("(licence file)")
+# The keys an audit holds, and those a verdict may hold.
+_AUDIT_KEYS = frozenset({"tarballs", "verdicts"})
+_VERDICT_KEYS = frozenset({"tarball", "path", "line", "covered_by", "dismissed"})
 Command = Literal["check", "stage", "check-bundle"]
 
 # The runtime system's library names its way after its version: ``libHSrts-1.0.2_thr``.
@@ -207,9 +213,41 @@ def libffi_release(header: Prose) -> LibffiRelease | None:
     return None if found is None else LibffiRelease(found[1])
 
 
+def _repeated_key(node: Node) -> Prose | None:
+    """Return the first key a mapping under ``node`` holds twice, or None."""
+    children: list[Node] = []
+    if isinstance(node, MappingNode):
+        keys = [Prose(str(key.value)) for key, _ in node.value]
+        repeated = next((key for at, key in enumerate(keys) if key in keys[:at]), None)
+        if repeated is not None:
+            return repeated
+        children = [value for _, value in node.value]
+    elif isinstance(node, SequenceNode):
+        children = node.value
+    return next((key for child in children if (key := _repeated_key(child)) is not None), None)
+
+
+def _load(text: Prose, where: Path) -> Record | Audit:
+    """Return what the YAML ``text`` holds, refusing a mapping that names one key twice.
+
+    ``yaml.safe_load`` keeps the last of two equal keys without a word, so an
+    earlier, wrong value would be read past.
+    """
+    loader = SafeLoader(text)
+    try:
+        node = loader.get_single_node()
+    finally:
+        loader.dispose()
+    repeated = None if node is None else _repeated_key(node)
+    if repeated is not None:
+        message = f"{where} repeats the key {repeated!r}"
+        raise LicenceUnreadError(message)
+    return cast("Record | Audit", yaml.safe_load(text))
+
+
 def read_record(text: Prose) -> Record:
     """Return the record ``text`` holds, raising ``LicenceUnreadError`` on a value not shaped."""
-    record = cast("Record", yaml.safe_load(text))
+    record = cast("Record", _load(text, KEPT / RECORD))
     try:
         tarballs = [record["tarball"], *record["sources"].values()]
         shaped = [
@@ -236,17 +274,32 @@ def read_record(text: Prose) -> Record:
 
 
 def read_audit(text: Prose) -> Audit:
-    """Return the audit ``text`` holds, raising ``LicenceUnreadError`` on a missing value."""
-    audit = cast("Audit", yaml.safe_load(text))
+    """Return the audit ``text`` holds, raising ``LicenceUnreadError`` on a value not shaped.
+
+    The tarballs are a mapping of names to digests, the verdicts a list, each
+    verdict's places text and among the five a verdict has.
+    """
+    audit = cast("Audit", _load(text, KEPT / AUDIT))
     try:
-        _ = [v["tarball"] + v["path"] + v["line"] for v in audit["verdicts"]]
-        malformed = [d for d in audit["tarballs"].values() if not _DIGEST.fullmatch(d)]
+        # Each operation raises on a value of another type than the audit's own.
+        tarballs = list(audit["tarballs"].items())
+        verdicts = audit["verdicts"] + []
+        _ = [name.strip() + digest.strip() for name, digest in tarballs]
+        _ = [v["tarball"].strip() + v["path"].strip() + v["line"].strip() for v in verdicts]
+        _ = [v.get("covered_by", "").strip() + v.get("dismissed", "").strip() for v in verdicts]
+        extra = sorted(set(audit) - _AUDIT_KEYS) + sorted(
+            key for verdict in verdicts for key in set(verdict) - _VERDICT_KEYS
+        )
+        malformed = [digest for _, digest in tarballs if not _DIGEST.fullmatch(digest)]
     except KeyError as exc:
         message = f"{KEPT / AUDIT} lacks the key {exc}"
         raise LicenceUnreadError(message) from exc
     except (TypeError, AttributeError) as exc:
         message = f"{KEPT / AUDIT} is not shaped as an audit: {exc}"
         raise LicenceUnreadError(message) from exc
+    if extra:
+        message = f"{KEPT / AUDIT} is not shaped as an audit: it holds the key {extra[0]!r}"
+        raise LicenceUnreadError(message)
     if malformed:
         message = f"{KEPT / AUDIT}: {malformed[0]!r} is not a SHA-256 digest"
         raise LicenceUnreadError(message)
@@ -280,9 +333,19 @@ def audit_findings(record: Record, audit: Audit, kept: Path) -> list[Prose]:
         if name not in audit["tarballs"]
     )
     texts = _texts(kept)
+    judged: set[tuple[TarballName, SourcePath, Prose]] = set()
     for verdict in audit["verdicts"]:
         where = f"{KEPT / AUDIT}: {verdict['tarball']}:{verdict['path']}"
-        covered, dismissed = verdict.get("covered_by", ""), verdict.get("dismissed", "")
+        hit = (verdict["tarball"], verdict["path"], verdict["line"])
+        if hit in judged:
+            out.append(Prose(f"{where}: a second verdict for {verdict['line']!r}"))
+        judged.add(hit)
+        if verdict["tarball"] not in audit["tarballs"]:
+            out.append(
+                Prose(f"{where}: judges a hit in {verdict['tarball']}, which it never scanned")
+            )
+        covered = verdict.get("covered_by", "").strip()
+        dismissed = verdict.get("dismissed", "").strip()
         if bool(covered) == bool(dismissed):
             out.append(
                 Prose(f"{where}: its verdict needs one of covered_by and dismissed, not both")

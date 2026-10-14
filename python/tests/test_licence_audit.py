@@ -340,10 +340,93 @@ def test_file_hits_reads_a_grant_with_the_two_lines_after_it() -> None:
     assert not list(file_hits(text, own))
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "-- The code in this module has been ripped from containers almost verbatim",
+        "-- n.b., these cases are cribbed from gcc",
+        "-- The current implementation is inspired by the code in base64-bytestring.",
+        "-- It is essentially a Haskell port of the GNU getopt library.",
+        " * Encoding and decoding Doubles.  Code based on the HBC code",
+        "-- | This module was written based on",
+        "-- An optimized version of the integer serialization code",
+        " * Source: https://github.com/google/highwayhash/blob/0aaf66b/hh_avx2.h",
+        "/* From: https://example.org/simd.h */",
+        " * Permission to use, copy, modify, and distribute this software is hereby granted",
+        " * Permission is granted to anyone to use this software for any purpose",
+        "// Distributed under the Boost Software License, Version 1.0.",
+        "// Use of this source code is governed by a BSD-style license",
+        "-- The original code is BSD-licensed and copyrighted by Daan Leijen.",
+        "-- Redistribution and use in source and binary forms, with or without",
+        "-- Distributed under the ISC licence.",
+        "-- Released under the MIT license.",
+    ],
+)
+def test_file_hits_reads_each_phrasing_found_in_the_sources(line: Prose) -> None:
+    """Each wording the sources use to name borrowed code, or another licence, is a hit."""
+    assert list(file_hits(Prose(f"{line}\n"), Prose("another licence"))) == [
+        Prose(" ".join(line.split()))
+    ]
+
+
+# The words of ``_MIT``, as the scan reads a package's own licence.
+_MIT_WORDS = Prose(
+    "permission is hereby granted free of charge to any person obtaining a copy of this "
+    + "software and associated documentation files the software to deal in the software "
+    + "without restriction"
+)
+_BSD_OWN = Prose(
+    "copyright the authors redistribution and use in source and binary forms with or without "
+    + "modification are permitted"
+)
+
+
+@pytest.mark.parametrize(
+    ("line", "own", "hit"),
+    [
+        ("-- License : BSD-style (see the file libraries/base/LICENSE)", Prose("mit"), False),
+        ("-- License : BSD-style", _BSD_OWN, False),
+        ("-- License : BSD-style", Prose("permission is hereby granted"), True),
+        (
+            "// Licensed under the Apache License 2.0; see LICENSE-APACHE for details.",
+            _BSD_OWN,
+            True,
+        ),
+        ("-- License : MIT (see the file LICENSE-other)", _BSD_OWN, True),
+    ],
+)
+def test_file_hits_exempts_only_the_packages_own_licence_field(
+    line: Prose, own: Prose, *, hit: bool
+) -> None:
+    """A pointer at the own LICENSE, or a BSD package's BSD-style field, is no hit; others are."""
+    assert bool(list(file_hits(Prose(f"{line}\n"), own))) is hit
+
+
+def test_file_hits_reads_a_lone_grant_line_as_a_hit() -> None:
+    """A grant with fewer than two worded lines after it cannot restate the own licence."""
+    own = _MIT_WORDS
+    lone = Prose("-- Permission is hereby granted, free of charge, to any person obtaining\n--\n")
+    assert list(file_hits(lone, own)) == [
+        Prose("-- Permission is hereby granted, free of charge, to any person obtaining")
+    ]
+
+
+def test_file_hits_reads_past_blank_lines_in_a_restatement() -> None:
+    """Blank comment lines between a grant and the lines after it do not break a restatement."""
+    own = _MIT_WORDS
+    spaced = Prose(
+        "/* Permission is hereby granted, free of charge, to any person obtaining\n *\n"
+        + " * a copy of this software and associated documentation files (the\n *\n"
+        + ' * "Software"), to deal in the Software without restriction. */\n'
+    )
+    assert not list(file_hits(spaced, own))
+
+
 def test_restates_needs_words_in_the_window() -> None:
-    """An empty window restates nothing; a window's words inside the licence restate it."""
+    """Three worded lines inside the licence restate it; fewer, or other words, do not."""
     assert not restates([Prose("---"), Prose("")], Prose("a b"))
-    assert restates([Prose("A,"), Prose("b!")], Prose("x a b y"))
+    assert restates([Prose("A,"), Prose("--"), Prose("b!"), Prose("c")], Prose("x a b c y"))
+    assert not restates([Prose("A,"), Prose("b!")], Prose("x a b y"))
     assert not restates([Prose("a c")], Prose("x a b y"))
 
 

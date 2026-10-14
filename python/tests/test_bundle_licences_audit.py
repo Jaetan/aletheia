@@ -12,7 +12,7 @@ reason.
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 from _licence_fixtures import KEPT_TEXTS, Texts, plant
@@ -155,9 +155,18 @@ def test_read_audit_reads_the_tarballs_and_the_verdicts() -> None:
     text = Prose(
         f'tarballs:\n  ghc: "{_GHC_DIGEST}"\nverdicts:\n'
         + "- tarball: ghc\n  path: rts/RtsUtils.c\n  line: x\n  dismissed: prose\n"
+        + "- tarball: ghc\n  path: rts/Hash.c\n  line: y\n  covered_by: rts-1.0.2/LICENSE\n"
     )
     assert read_audit(text) == _audit(
-        [Verdict(tarball=GHC_TARBALL, path=_RTS, line=Prose("x"), dismissed=Prose("prose"))],
+        [
+            Verdict(tarball=GHC_TARBALL, path=_RTS, line=Prose("x"), dismissed=Prose("prose")),
+            Verdict(
+                tarball=GHC_TARBALL,
+                path=SourcePath("rts/Hash.c"),
+                line=Prose("y"),
+                covered_by=TextPath("rts-1.0.2/LICENSE"),
+            ),
+        ],
         {GHC_TARBALL: _GHC_DIGEST},
     )
 
@@ -188,3 +197,75 @@ def test_read_audit_refuses_a_tarball_digest_not_a_sha256() -> None:
     """A tarball scanned at a value that is no SHA-256 digest is unread."""
     with pytest.raises(LicenceUnreadError, match=f"^{_WHERE}: 'short' is not a SHA-256 digest$"):
         _ = read_audit(Prose('tarballs:\n  ghc: "short"\nverdicts: []\n'))
+
+
+_DIGEST_TEXT = f'"{_GHC_DIGEST}"'
+
+
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        (Prose(f"tarballs:\n  ghc: {_DIGEST_TEXT}\n  ghc: {_DIGEST_TEXT}\nverdicts: []\n"), "ghc"),
+        (Prose(f"tarballs:\n  ghc: {_DIGEST_TEXT}\nverdicts: []\nverdicts: []\n"), "verdicts"),
+        (
+            Prose(
+                f"{_SCANNED}verdicts:\n- tarball: ghc\n  path: p\n  line: l\n"
+                + "  covered_by: gone-1.0/LICENSE\n  covered_by: rts-1.0.2/LICENSE\n"
+            ),
+            "covered_by",
+        ),
+    ],
+)
+def test_read_audit_refuses_a_repeated_key(
+    text: Prose, key: Literal["ghc", "verdicts", "covered_by"]
+) -> None:
+    """YAML keeps the last of two equal keys, so an earlier wrong value would be read past."""
+    with pytest.raises(LicenceUnreadError, match=f"^{_WHERE} repeats the key '{key}'$"):
+        _ = read_audit(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        Prose(f"{_SCANNED}verdicts: {{}}\n"),
+        Prose(f"{_SCANNED}verdicts: ''\n"),
+        Prose("tarballs:\nverdicts: []\n"),
+        Prose("tarballs:\n  ghc: 1\nverdicts: []\n"),
+        Prose(f"tarballs:\n  1: {_DIGEST_TEXT}\nverdicts: []\n"),
+        Prose(f"{_SCANNED}verdicts:\n- tarball: ghc\n  path: p\n  line: 1\n  dismissed: r\n"),
+        Prose(f"{_SCANNED}verdicts:\n- tarball: ghc\n  path: p\n  line: l\n  covered_by: [a]\n"),
+        Prose(f"{_SCANNED}verdicts:\n- tarball: ghc\n  path: p\n  line: l\n  dismissed: true\n"),
+        Prose(f"{_SCANNED}verdicts: []\nnotes: x\n"),
+        Prose(f"{_SCANNED}verdicts:\n- tarball: ghc\n  path: p\n  line: l\n  covred_by: x\n"),
+    ],
+)
+def test_read_audit_refuses_a_value_out_of_shape(text: Prose) -> None:
+    """Verdicts not a list, tarballs not a mapping, a place not text, or a key no audit has."""
+    with pytest.raises(LicenceUnreadError, match=f"^{_WHERE} is not shaped as an audit: "):
+        _ = read_audit(text)
+
+
+def test_audit_findings_reads_a_blank_judgement_as_none(tmp_path: Path) -> None:
+    """A reason or a covering text of spaces judges nothing."""
+    for verdict in (_hit(dismissed=Prose("   ")), _hit(covered_by=TextPath("  "))):
+        assert _findings(tmp_path / str(id(verdict)), _audit([verdict])) == [
+            Prose(
+                f"{_WHERE}: ghc:{_RTS}: its verdict needs one of covered_by and dismissed, not both"
+            )
+        ]
+
+
+def test_audit_findings_names_a_verdict_on_a_tarball_never_scanned(tmp_path: Path) -> None:
+    """A verdict judges a hit of a scanned tarball, or it judges nothing."""
+    verdict = Verdict(tarball=TarballName("zlib"), path=_RTS, line=Prose("x"), dismissed=Prose("r"))
+    assert _findings(tmp_path, _audit([verdict])) == [
+        Prose(f"{_WHERE}: zlib:{_RTS}: judges a hit in zlib, which it never scanned")
+    ]
+
+
+def test_audit_findings_names_a_second_verdict_for_one_hit(tmp_path: Path) -> None:
+    """Two verdicts on one hit, even agreeing, leave its judgement two ways to read."""
+    verdicts = [_hit(dismissed=Prose("r")), _hit(covered_by=TextPath("rts-1.0.2/LICENSE"))]
+    assert _findings(tmp_path, _audit(verdicts)) == [
+        Prose(f"{_WHERE}: ghc:{_RTS}: a second verdict for '/* borrowed */'")
+    ]

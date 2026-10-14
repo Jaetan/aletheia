@@ -24,12 +24,16 @@ compiled in and are not read, nor are package descriptions, whose licence field
 is the package's own.
 
 A line is a hit when it says where code came from (borrowed, vendored, taken,
-copied, adapted, ported, lifted or stolen from something; derived from a named
-package, library, project or code; originally written or contributed; based on
-code; stolen), or when it grants a licence (a licence's
-opening words, an SPDX identifier, a ``License:`` field), unless it points at
-the package's own licence file or, with the lines after it, restates the
-package's own licence text, which contributors' files do.
+copied, adapted, ported, lifted, stolen, ripped or cribbed from something;
+derived from a named package, library, project or code; originally written or
+contributed; based on someone's code; written based on; inspired by; a port
+of; a version of someone's code; a ``Source:`` or ``From:`` URL; stolen), or
+when it grants a licence (a licence's grant sentence, an SPDX identifier, a
+``License:`` field, a work said to be under a licence or copyrighted by
+someone), unless it points at the package's own licence file (``see the file
+LICENSE``, not ``LICENSE-x``), is a BSD package's own ``License: BSD-style``
+field, or, with the next two worded lines, restates the package's own licence
+text, which contributors' files do.
 
 ``wanted DIR`` prints, per tarball, its URL and the path in DIR the scan reads
 it from (``<name><suffix>``, ``ghc`` for GHC's), for a download to fill.
@@ -95,18 +99,27 @@ _LICENCE_NAME = re.compile(r"(?i)^(licen[cs]e|copying|notice|copyright)")
 _PRIMARY = re.compile(r"^LICEN[CS]E$")
 _SOURCE = re.compile(r"\.(hs|lhs|hsc|hs-boot|c|h|S|s|cmm|def|agda|lagda)$")
 _GRANT = re.compile(
-    r"(?i)(permission is hereby granted|redistribution and use in source|spdx-license-identifier"
-    + r"|licen[cs]ed under|under the terms of|public domain|apache licen|mozilla public licen"
-    + r"|general public licen|\bbsd[- ]?[23][- ]clause|\bmit licen|\bncsa\b|^\W*licen[cs]e\s*:)"
+    r"(?i)(is hereby granted|permission is granted|redistribution and use in source"
+    + r"|spdx-license-identifier|licen[cs]ed under|under the terms of|distributed under the"
+    + r"|governed by an? .{0,40}licen|public domain|apache licen|mozilla public licen"
+    + r"|general public licen|boost software licen|\bbsd[- ]?[23][- ]clause|\bmit licen"
+    + r"|\b(bsd|mit|gpl|apache)-licen[cs]ed\b|copyrighted by|\bncsa\b|^\W*licen[cs]e\s*:)"
 )
-_OWN = re.compile(r"(?i)see (the )?(file )?\S*licen[cs]e|bsd-?style|bsd3-style")
+# A line pointing at the package's own licence file: ``see the file LICENSE``, not ``LICENSE-x``.
+_OWN = re.compile(r"(?i)see (the )?(file )?(\S*/)?licen[cs]e(\.\w+)?(?![\w-])")
+# A BSD package's header field naming its own licence: ``License : BSD-style``.
+_OWN_BSD = re.compile(r"(?i)^\W*licen[cs]e\s*:\s*(bsd-?style|bsd3-style)\W*$")
+# The words every BSD licence opens its conditions with, which mark a BSD package's own text.
+_BSD_WORDS = Prose("redistribution and use in source and binary forms")
 _PROVENANCE = re.compile(
-    r"(?i)\b(borrowed|vendored|taken|copied|adapted|ported|lifted|stolen) from\b"
+    r"(?i)\b(borrowed|vendored|taken|copied|adapted|ported|lifted|stolen|ripped|cribbed) from\b"
     + r"|\bderived from (the )?[`'\"@]?[\w.-]+[`'\"@]? (package|library|project|code)\b"
-    + r"|\boriginally (written|contributed)\b|\bbased on (the )?code\b|\(stolen\)"
+    + r"|\boriginally (written|contributed)\b|\bbased on (the )?([\w.-]+ )?code\b"
+    + r"|\bwritten based on\b|\binspired by\b|\ban? (\w+ )?port of\b"
+    + r"|\bversion of the (\w+ ){0,3}code\b|^\W*(source|from)\s*:?\s*https?://|\(stolen\)"
 )
 _WORDS = re.compile(r"[^a-z0-9]+")
-# A grant line and the lines after it, read together to see whether they restate a licence.
+# A grant line and the worded lines after it, read together to see whether they restate a licence.
 _WINDOW = 3
 # The parts of Agda compiled into a program: its runtime support and its builtins.
 _AGDA_ROOTS = [SourcePath("src/data/MAlonzo/"), SourcePath("src/data/lib/prim/")]
@@ -190,9 +203,18 @@ def package_root(names: Iterable[SourcePath], package: Prose) -> SourcePath | No
 
 
 def restates(window: list[Prose], own: Prose) -> bool:
-    """Say whether ``window``, a grant line and the lines after it, restates the licence ``own``."""
-    words = _words(Prose(" ".join(window)))
-    return bool(words) and words in own
+    """Say whether ``window``, a grant line and the lines after it, restates the licence ``own``.
+
+    A window holding fewer than ``_WINDOW`` worded lines restates nothing: a lone
+    grant line's few words fall inside any licence that opens the same way.
+    """
+    worded = [line for line in window if _words(line)][:_WINDOW]
+    return len(worded) == _WINDOW and _words(Prose(" ".join(worded))) in own
+
+
+def owns(line: Prose, own: Prose) -> bool:
+    """Say whether ``line`` points at the package's own licence rather than granting another."""
+    return bool(_OWN.search(line)) or (bool(_OWN_BSD.search(line)) and _BSD_WORDS in own)
 
 
 def file_hits(text: Prose, own: Prose) -> Iterator[Prose]:
@@ -200,9 +222,7 @@ def file_hits(text: Prose, own: Prose) -> Iterator[Prose]:
     lines = [Prose(line) for line in text.splitlines()]
     for at, line in enumerate(lines):
         if _PROVENANCE.search(line) or (
-            _GRANT.search(line)
-            and not _OWN.search(line)
-            and not restates(lines[at : at + _WINDOW], own)
+            _GRANT.search(line) and not owns(line, own) and not restates(lines[at:], own)
         ):
             yield Prose(" ".join(line.split()))
 

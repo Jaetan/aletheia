@@ -337,6 +337,14 @@ def test_read_record_refuses_a_record_lacking_a_value(text: Prose, reason: Prose
         _ = read_record(text)
 
 
+def test_read_record_refuses_a_repeated_key() -> None:
+    """A record naming one key twice is unread: YAML would keep the second without a word."""
+    record = str(_record_text(KEPT_TEXTS))
+    text = Prose(record.replace('ghc: "9.8.4"\n', 'ghc: "9.8.3"\nghc: "9.8.4"\n'))
+    with pytest.raises(LicenceUnreadError, match=f"^{_WHERE} repeats the key 'ghc'$"):
+        _ = read_record(text)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "kind"),
     [
