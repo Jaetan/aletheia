@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-import yaml
+from _bench_schema import schema
 
 from tools.benchmark_gate import BINDINGS, MAX_DOUBLING, MessageCount, Seconds, main
 
@@ -33,27 +33,9 @@ if TYPE_CHECKING:
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _BASELINE = _REPO_ROOT / "benchmarks" / "gha_baseline.json"
-_SCHEMA = _REPO_ROOT / "benchmarks" / "SCHEMA.yaml"
 
 LANE = "CAN 2.0B: Frame Building"
 BASE_FPS = 1000.0
-
-
-def _schema() -> dict[str, object]:
-    """Load the cross-binding benchmark schema."""
-    return cast("dict[str, object]", yaml.safe_load(_SCHEMA.read_text(encoding="utf-8")))
-
-
-def _schema_languages() -> set[str]:
-    """Return the languages the schema's envelope names."""
-    envelope = cast("dict[str, list[str]]", _schema()["envelope"])
-    return set(envelope["languages"])
-
-
-def _schema_throughput_lanes() -> list[str]:
-    """Return the throughput lane names the schema pins, in order."""
-    modes = cast("dict[str, dict[str, list[str]]]", _schema()["modes"])
-    return modes["throughput"]["lane_names"]
 
 
 def _write_results(results_dir: Path, binding: str, fps: float, lane: str = LANE) -> None:
@@ -85,7 +67,7 @@ def _gate(results_dir: Path, baseline: Path, threshold_pct: float = 30.0) -> int
 
 def test_the_gate_reads_every_language_the_schema_names() -> None:
     """The bindings the gate compares are exactly the schema's languages."""
-    assert set(BINDINGS) == _schema_languages()
+    assert set(BINDINGS) == set(schema()["envelope"]["languages"])
 
 
 def test_the_committed_baseline_carries_a_bar_for_every_lane() -> None:
@@ -93,7 +75,7 @@ def test_the_committed_baseline_carries_a_bar_for_every_lane() -> None:
     text = _BASELINE.read_text(encoding="utf-8")
     baseline = cast("dict[str, dict[str, float]]", json.loads(text))
     assert set(baseline) == set(BINDINGS)
-    lanes = _schema_throughput_lanes()
+    lanes = schema()["modes"]["throughput"]["lane_names"]
     for binding in BINDINGS:
         assert set(baseline[binding]) == set(lanes), binding
         for lane, fps in baseline[binding].items():

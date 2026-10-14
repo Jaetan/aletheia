@@ -9,11 +9,17 @@
 # status, then the last lines of its own output indented beneath, and the
 # whole output is kept in tools/ci-output/probes/, in a file the FAIL line
 # names, so a probe that crashed reads differently from one that refused its
-# claim. Every line carries the probe's wall time after its path, and the
+# claim. A probe that exits 2, which is how a probe says it cannot reach its
+# claim here (a build, a tool or a library it needs is missing or stale),
+# prints UNRUN where a failing one prints FAIL, and is kept the same way: it
+# is no pass. Every line carries the probe's wall time after its path, and the
 # run's times are kept in timings.tsv beside the failures, one row per probe
-# with its verdict. Lines and rows are in path order whatever order the
+# with its verdict, PASS, FAIL or UNRUN. The run ends with the count of each
+# verdict, then the count of probes run and the exit status. Lines and rows are in path order whatever order the
 # probes finish in, so two runs' records compare line by line. The directory
-# holds only the failures and the times of the latest run.
+# holds only the failures of the latest run and the times of the latest run
+# to finish: the record is written aside and moved into place when the run
+# ends, so a reader during a run sees the previous run's record, or none.
 # Probes share nothing they write. Each runs under a Landlock ruleset that
 # lets it read the whole file system and write only beneath a directory of
 # its own outside the tree, which is its TMPDIR and is removed when it ends,
@@ -33,7 +39,7 @@
 # makes the probes running since the previous reading suspects; each suspect
 # runs again alone, and the one that moves a file then fails whatever it
 # exited, its line naming the count and its log the paths.
-# Exits non-zero when any probe fails, and 2 where the tracked files cannot be
+# Exits non-zero when any probe fails or does not run, and 2 where the tracked files cannot be
 # listed, the shell cannot read its clock to the microsecond or wait on one
 # probe at a time (bash 5.1), Landlock is not to be had, or PROBE_WORKERS is
 # not a positive count. A probe is a bash script named
@@ -45,6 +51,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
 logs=tools/ci-output/probes
 timings=$logs/timings.tsv
+partial=$timings.partial
 shown=12
 workers=${PROBE_WORKERS:-4}
 case $workers in
@@ -62,7 +69,7 @@ mkdir -p "$logs" || exit 2
 rm -f "$logs"/*.log "$logs"/*.result "$logs"/*.reading
 own_root=$(mktemp -d -t probes.XXXXXX) || exit 2
 trap 'chmod -R u+rwx "$own_root" 2> /dev/null; rm -rf "$own_root"' EXIT
-printf 'probe\tverdict\tseconds\n' > "$timings" || exit 2
+printf 'probe\tverdict\tseconds\n' > "$partial" || exit 2
 # Microseconds since the epoch, whatever separator the locale puts in the clock.
 now() { echo "${EPOCHREALTIME//[^0-9]/}"; }
 tracked() { git ls-files -z | xargs -0 stat -c '%n %.9Y %s %a' 2> /dev/null; }
@@ -108,6 +115,9 @@ run_one() {
 # named in $2 are the tracked files it moved.
 status=0
 count=0
+passed=0
+failed=0
+unrun=0
 report() {
     local probe=${probes[$1]} moved=$2 name log rc took lines verdict
     name=$(basename "$probe" .sh)
@@ -130,13 +140,19 @@ report() {
         rm -f "$log"
         verdict=PASS
     else
+        verdict=FAIL
+        [ "$rc" -eq 2 ] && verdict=UNRUN
         lines=$(grep -c '' "$log")
-        echo "FAIL $probe ${took}s exit $rc, $lines lines kept in $log"
+        echo "$verdict $probe ${took}s exit $rc, $lines lines kept in $log"
         tail -n "$shown" "$log" | sed 's/^/    /'
         status=1
-        verdict=FAIL
     fi
-    printf '%s\t%s\t%s\n' "$probe" "$verdict" "$took" >> "$timings"
+    case $verdict in
+        PASS) passed=$((passed + 1)) ;;
+        FAIL) failed=$((failed + 1)) ;;
+        UNRUN) unrun=$((unrun + 1)) ;;
+    esac
+    printf '%s\t%s\t%s\n' "$probe" "$verdict" "$took" >> "$partial"
 }
 
 # Read the tracked files again; on a change since the last reading, every
@@ -215,5 +231,7 @@ if [ -n "$unnamed" ]; then
     status=1
 fi
 rm -f "$logs/last.reading" "$logs/now.reading"
+mv "$partial" "$timings" || exit 2
+echo "probes: $passed passed, $failed failed, $unrun did not reach their claim"
 echo "probes: $count run, exit $status"
 exit $status
