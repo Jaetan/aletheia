@@ -1,0 +1,11 @@
+base-4.19.2.0 compiles code that its source credits to two other works.
+
+HBC: in Data.OldList, nubBy ("stolen from HBC") and unlines ("HBC version
+(stolen)"); in GHC.List, break ("HBC version (stolen)").  base's source
+names no licence for this code.  Copyright in it stays with HBC's authors.
+
+nhc: in Data.OldList, the merge sort behind sort and sortBy, "originally
+contributed to the nhc12 compiler by Thomas Nordin in 2002".  nhc98's
+licence, whose copyright notice names Thomas Nordin among nhc98's
+contributors, is LICENSE-nhc98 beside this file; nhc98 is published at
+http://www.haskell.org/nhc98/.

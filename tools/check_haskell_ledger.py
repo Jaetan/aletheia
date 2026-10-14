@@ -65,7 +65,7 @@ _TABLES = 3
 _LICENCE_CELL = 1
 # ``libgmp.so.10 => /usr/lib/.../libgmp.so.10 (0x...)``: the name and what it resolves to.
 _RESOLVED = re.compile(r"^\s*(\S+)\s+=>\s+(\S+)", re.MULTILINE)
-_FILE = re.compile(r"^lib(.+?)\.so")
+_FILE = re.compile(r"^lib(.+?)\.so(?:\.\d+)*$")
 _NAMED = re.compile(r"\blib([A-Za-z0-9_+-]+)")
 
 

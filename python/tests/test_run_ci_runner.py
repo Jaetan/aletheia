@@ -62,7 +62,7 @@ from aletheia.common_types import ExitStatus, Prose
 # AGDA_SHAKE_TARGETS quietly stops running on every PR.  Guard it by invariants
 # rather than a mirror copy of the tuple (DRY) — the count tripwire turns any
 # add/drop into a conscious edit, and the named checks pin the load-bearing gates.
-_EXPECTED_GATE_COUNT = 16
+_EXPECTED_GATE_COUNT = 17
 
 # The status of a command that succeeded.
 _SUCCEEDED = ExitStatus(0)

@@ -121,6 +121,20 @@ gateRules = do
         ghcDeps <- getGhcDeps "build/libaletheia-ffi.so"
         cmd_ pythonBin "-m" "tools.check_haskell_ledger" "build/libaletheia-ffi.so" ghcDeps
 
+    phony "check-bundle-licences" $ do
+        -- The tree keeps the licence texts of every library the dist rule
+        -- bundles, the kernel library (with the Agda code compiled into it)
+        -- and its GHC dependencies (getGhcDeps), recorded with their hashes,
+        -- the tarballs they were taken from and the GHC whose source tarball
+        -- is one of them, so a GHC, Agda or Agda library bump fails here, on
+        -- the change that makes it, not at a release.  The source audit's
+        -- verdicts (packaging/licenses/audit.yaml) are held to the same
+        -- record, so the bump also fails until its tarballs are scanned again.
+        -- The dist rule needs this target before it stages the texts.
+        need ["build/libaletheia-ffi.so"]
+        ghcDeps <- getGhcDeps "build/libaletheia-ffi.so"
+        cmd_ pythonBin "-m" "tools.bundle_licences" "check" ("build/libaletheia-ffi.so" : ghcDeps)
+
     phony "check-runbook" $ do
         -- Runbook coverage gate.  AGENTS.md cat 22 mandates
         -- that every structured log event the bindings emit has a matching

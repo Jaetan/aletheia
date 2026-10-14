@@ -28,7 +28,12 @@ index, which is exactly the staged content the pre-commit FAST tier checks):
   a missing fish is a runner misconfiguration and fails closed; locally an
   absent fish skips only the ``.fish`` syntax checks, with a printed notice;
 * ``LICENSE.md`` must be git-tracked (dist ships it with the bundle — BSD-2
-  requires the notice to travel with redistributions).
+  requires the notice to travel with redistributions), and each binding must
+  stage a byte-identical copy of it, since a binding is redistributed on its
+  own;
+* the licence record ``packaging/licenses/sources.yaml`` and every text it
+  names must be git-tracked, since dist stages those texts into the bundle's
+  ``licenses/`` (``tools/bundle_licences.py`` holds them to the libraries).
 
 The pathspec lists are parsed out of the build program (``Shakefile.hs`` and
 the modules under ``shake/``) as literal Haskell list-of-string arguments.
@@ -42,7 +47,8 @@ block was captured.
 Exit codes:
   0 — all staging inputs resolve.
   1 — at least one broken input (dead pathspec, leaked go.work, untracked or
-      syntax-broken packaging script), each named with a remedy.
+      syntax-broken packaging script, binding licence not the root's,
+      untracked licence text), each named with a remedy.
   2 — could not check: an unparseable or absent build program, a missing
       input, or a required tool absent on a CI runner (a vacuous pass is
       refused).
@@ -58,7 +64,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from yaml.error import YAMLError
+
 from tools._common import emit, find_executable, read_shake_program, run_capture
+from tools.bundle_licences import KEPT, RECORD, LicenceUnreadError, read_record
+
+from aletheia.common_types import Prose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -350,6 +361,47 @@ def check_license_tracked(repo_root: Path) -> list[str]:
     return []
 
 
+def check_binding_licences(repo_root: Path, bindings: list[BindingSpec]) -> list[Prose]:
+    """Return a failure per binding whose ``LICENSE.md`` is unstaged or not the root's.
+
+    Each binding is redistributed on its own (pip installs one, a Go module or
+    a crate is copied whole), so it carries its own copy of the licence: one
+    its pathspecs stage, byte-identical to the root's.
+    """
+    root = (repo_root / LICENSE_FILE).read_bytes() if (repo_root / LICENSE_FILE).is_file() else None
+    out: list[Prose] = []
+    for spec in bindings:
+        copy = f"{spec.name}/{LICENSE_FILE}"
+        if copy not in spec.positives:
+            out.append(
+                Prose(f"binding '{spec.name}' does not stage {copy}; add it to its pathspecs")
+            )
+        elif not (repo_root / copy).is_file() or (repo_root / copy).read_bytes() != root:
+            out.append(Prose(f"'{copy}' is not a copy of {LICENSE_FILE}; copy the root's over it"))
+    return out
+
+
+def check_licence_texts_tracked(repo_root: Path) -> list[Prose]:
+    """Return a failure per licence text the record names, or the record, git does not track.
+
+    Raises :class:`DistStagingError` when the record cannot be read.
+    """
+    try:
+        record = read_record(Prose((repo_root / KEPT / RECORD).read_text(encoding="utf-8")))
+    except (OSError, YAMLError, LicenceUnreadError) as exc:
+        message = f"the licence record is not read: {exc}"
+        raise DistStagingError(message) from exc
+    wanted = [(KEPT / RECORD).as_posix(), *((KEPT / text).as_posix() for text in record["texts"])]
+    tracked = set(git_ls_files(repo_root, tuple(wanted)))
+    return [
+        Prose(
+            f"'{path}' is not git-tracked: dist stages it into the bundle's licenses/; git add it"
+        )
+        for path in wanted
+        if path not in tracked
+    ]
+
+
 def _read_build_program(root: Path) -> str:
     """Return the build program's text under ``root``, raising the could-not-check class."""
     try:
@@ -414,6 +466,8 @@ def main() -> int:
         failures += check_go_work_not_staged(repo_root, bindings)
         failures += check_packaging_scripts(repo_root, fish)
         failures += check_license_tracked(repo_root)
+        failures += check_binding_licences(repo_root, bindings)
+        failures += check_licence_texts_tracked(repo_root)
     except (DistStagingError, RuntimeError) as exc:
         _ = sys.stderr.write(f"check-dist-staging: COULD NOT CHECK — {exc}\n")
         return COULD_NOT_CHECK
@@ -436,7 +490,7 @@ def main() -> int:
     emit(
         f"check-dist-staging: {len(bindings)} bindings, {n_pos} positive + {n_exc} exclude "
         + f"pathspecs all resolve; {GO_WORK} stays out; packaging scripts tracked, "
-        + f"{fish_note}; {LICENSE_FILE} tracked"
+        + f"{fish_note}; {LICENSE_FILE}, its binding copies and the licence texts tracked"
     )
     return 0
 

@@ -134,6 +134,19 @@ def test_library_name_keeps_a_ghc_library_s_package_version_and_compiler() -> No
     assert library_name(_RTS_SO) == LibraryName("HSrts-1.0.2_thr-ghc9.8.4")
 
 
+def test_library_name_reads_up_to_the_so_suffix_that_ends_the_name() -> None:
+    """A name runs up to the ``.so`` ending it, a version aside: libffi.sound.so is ffi.sound."""
+    assert library_name(Path("libffi.sound.so")) == LibraryName("ffi.sound")
+    assert library_name(Path("libffi.solver.so.1")) == LibraryName("ffi.solver")
+    assert library_name(Path("libffi.so.8.1.4")) == LibraryName("ffi")
+
+
+def test_library_name_is_none_for_a_name_going_on_past_its_so() -> None:
+    """A file whose ``.so`` is followed by anything but a version is no shared library."""
+    assert library_name(Path("libffi.solid")) is None
+    assert library_name(Path("libfoo.so.x")) is None
+
+
 def test_library_name_is_none_for_a_file_not_named_lib() -> None:
     """The dynamic loader, whose name does not open on ``lib``, has no library name."""
     assert library_name(Path("/usr/lib/ld-linux-x86-64.so.2")) is None

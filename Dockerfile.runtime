@@ -21,11 +21,15 @@
 #   verify-rust  — throwaway: cargo-builds the bundled Rust crate.
 #   verify-cpp   — throwaway: CMake-builds the bundled C++ binding with
 #                  clang-23 (the enforced toolchain, from apt.llvm.org).
+#   verify-licences — throwaway, FROM runtime: every third-party package the
+#                  image ships carries its licence text in it
+#                  (tools/check_image_licences.py).
 #   final        — FROM runtime; force-depends on every verify stage via
 #                  ephemeral bind mounts, so a plain `docker build` FAILS
 #                  unless all three compiled bindings build/load against the
-#                  image's .so — while the shipped image COPYs nothing from
-#                  them and stays slim.
+#                  image's .so and every package's licence is in the image —
+#                  while the shipped image COPYs nothing from them and stays
+#                  slim.
 
 #
 # CICD-5.5: base image pinned by SHA-256 digest, not floating tag.  The tag
@@ -159,12 +163,22 @@ RUN cmake -S /opt/aletheia/bindings/cpp -B /build \
     cmake --build /build --parallel && \
     echo cpp > /verified
 
+# Licences: the image is redistributed whole, so every package in it owes its
+# notice there: each Debian package its copyright file, each Python
+# distribution a licence file in its dist-info, CPython its LICENSE.txt, the
+# bundle its licenses/ folder.  Run with the image's own python3.
+FROM runtime AS verify-licences
+COPY tools/check_image_licences.py /verify/check_image_licences.py
+RUN python3 -I /verify/check_image_licences.py && \
+    echo licences > /verified
+
 # ── Final image ─────────────────────────────────────────────────────────────
 # FROM runtime, plus an ephemeral bind mount per verify stage: the mounts
-# force BuildKit to BUILD all three stages (their failures fail this build)
+# force BuildKit to BUILD every verify stage (their failures fail this build)
 # while copying zero bytes into the shipped image.
 FROM runtime
 RUN --mount=type=bind,from=verify-go,source=/verified,target=/tmp/verified-go \
     --mount=type=bind,from=verify-rust,source=/verified,target=/tmp/verified-rust \
     --mount=type=bind,from=verify-cpp,source=/verified,target=/tmp/verified-cpp \
-    cat /tmp/verified-go /tmp/verified-rust /tmp/verified-cpp
+    --mount=type=bind,from=verify-licences,source=/verified,target=/tmp/verified-licences \
+    cat /tmp/verified-go /tmp/verified-rust /tmp/verified-cpp /tmp/verified-licences

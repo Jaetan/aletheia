@@ -2010,6 +2010,41 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The release bundle carries the license text of every library it ships.**
+  The bundle's `lib/` ships the kernel library, into which Agda compiles its
+  runtime support and the Agda standard library, and beside it the GHC
+  runtime's libraries and libffi. Their licenses ask that their notices travel
+  with a binary, and the bundle carried only Aletheia's `LICENSE.md`. Its
+  `licenses/` folder now holds one folder per work, `<name>-<version>`: Agda's
+  and the standard library's for the kernel, each GHC package's own, GHC's for
+  the runtime system, libffi's, and, the obligation being transitive, the
+  license of each work whose code is compiled into one of them (xxHash, LLVM's
+  ELF relocation tables and musl's `strndup` in the runtime system; the
+  ucd2haskell Unicode tables, primitive, foldable1-classes-compat, singletons
+  and nhc98 in `base`, with a notice naming the functions `base` credits to
+  HBC; lens in `containers`; cereal in `binary`; integer-gmp in `ghc-bignum`;
+  filepath in `template-haskell`; blaze-textual in `bytestring`). GHC's
+  install holds only GHC's own license (a copy in each package's
+  documentation directory), so the tree keeps the texts in
+  `packaging/licenses/`, recorded with their sources and hashes in
+  `sources.yaml`. `cabal run shake -- check-bundle-licences`, run with the
+  proof gates, fails when the kept texts disagree with the libraries the
+  bundle carries, with their record, or with the GHC, Agda or Agda library
+  the kernel is built with, and the dist rule refuses a staged bundle in which
+  a library lacks its license. The works a library takes code from are found
+  by `tools/licence_audit.py`, which reads the source tarballs and holds each
+  license notice and each line saying where code came from to a verdict in
+  `audit.yaml`; it runs on a pull request that changes the texts, the tools
+  or its workflow, and weekly, and the check holds the verdicts to the record
+  without a download. The `.deb`, `.rpm` and image carry the folder, the
+  bundle being their payload, and the image build refuses an image in which
+  a Debian package, a Python distribution or CPython lacks its license text.
+  Each binding's source, and so the Python wheel, carries `LICENSE.md`; the
+  wheel's `License ::` classifier, which its PEP 639 license expression
+  supersedes, is gone, and `tools/run_ci.py` builds the wheel offline from
+  what the bundle stages, so an edit that breaks the package or drops its
+  license fails the local sweep too.
+
 - **The release's SBOM names each GHC runtime library at its version.** With
   GHC 9.8, whose library file names carry a four-character unit hash
   (`libHSbase-4.19.2.0-9f38-ghc9.8.4.so`), the hash was read into the version,

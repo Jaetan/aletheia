@@ -26,7 +26,8 @@
 # builds + runs a real consumer per compiled binding from the recipes the
 # bundled installers print), a real `dpkg -i` install smoke of the .deb, and
 # the runtime-image build (whose in-Dockerfile verify stages build/load every
-# compiled binding against the image's own /opt/aletheia).  Each matches the
+# compiled binding against the image's own /opt/aletheia and check every
+# package in the image carries its licence text).  Each matches the
 # repo rule that a gate which cannot fail has a bug.
 #
 # Ordering: every artifact — tarball, packages, image — is built AND verified
@@ -57,7 +58,7 @@ jobs:
     name: build + keyless-sign + publish
     runs-on: ubuntu-24.04
     # The runtime-image build (in-Dockerfile verify stages: Go + Rust + C++
-    # with clang-23) and the native-package build sit on top of the ~35 min
+    # with clang-23, and every package's licence text) and the native-package build sit on top of the ~35 min
     # dist + validation pipeline, so this lane needs more headroom than the
     # PR lanes.
     timeout-minutes: 90
@@ -420,8 +421,9 @@ jobs:
       # ── Runtime container image (built + verified BEFORE any publish) ───────
       # The Dockerfile's throwaway verify stages make this build the gate:
       # it fails unless the bundled Go consumer builds AND runs (dlopens the
-      # image's kernel), and the bundled Rust crate + C++ binding (clang-23)
-      # build against the image's own /opt/aletheia.  The push to GHCR
+      # image's kernel), the bundled Rust crate + C++ binding (clang-23)
+      # build against the image's own /opt/aletheia, and every package in
+      # the image carries its licence text.  The push to GHCR
       # happens only after the Release publish succeeds, further below.
       - name: Build the runtime image (in-build cross-binding verification)
         run: docker build -t aletheia:release -f Dockerfile.runtime .
