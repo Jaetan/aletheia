@@ -12,13 +12,13 @@
 # identifier a trampoline stores is checked for its shape, and the set of
 # trampolines storing it must be one. Non-zero exit: an identifier lacks the
 # seventh part or two trampolines share one, so the plugin in PATH is not the
-# one this script builds. Exits 0 with a note when the toolchain or the
+# one this script builds. Exits 2 when the toolchain or the
 # mutation tree is not available.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }
-[ -f cpp/build-mutation/compile_commands.json ] || { echo "no mutation tree configured, claim untestable"; exit 0; }
-[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "Mull plugin not installed, claim untestable"; exit 0; }
+command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 2; }
+[ -f cpp/build-mutation/compile_commands.json ] || { echo "no mutation tree configured, claim untestable"; exit 2; }
+[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "Mull plugin not installed, claim untestable"; exit 2; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
 scratch=$(mktemp -d) || exit 2

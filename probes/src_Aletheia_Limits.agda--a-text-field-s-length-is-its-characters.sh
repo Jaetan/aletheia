@@ -8,7 +8,7 @@
 # characters (131,072 UTF-8 bytes) is within it; one of 65,537 is refused with
 # string_length, observed 65,537. Shown through the library itself (validateDBC).
 # Non-zero exit: the constant is absent from the kernel, or the bound counts
-# anything but characters. Exits 0 with a note when the library is not built.
+# anything but characters. Exits 2 when the library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 grep -q '^max-string-length-characters = 65536$' src/Aletheia/Limits.agda || {
@@ -17,7 +17,7 @@ grep -q '^max-string-length-characters = 65536$' src/Aletheia/Limits.agda || {
 }
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes

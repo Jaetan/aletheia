@@ -16,7 +16,7 @@ status=0
 
 command -v clang-23 > /dev/null && command -v clang++-23 > /dev/null || {
     echo "clang not installed, recipe untestable"
-    exit 0
+    exit 2
 }
 
 grep -qE 'cmake (-B|--build).*(ALETHEIA_FUZZ|build-fuzz)' cpp/CMakeLists.txt && {

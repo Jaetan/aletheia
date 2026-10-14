@@ -18,15 +18,15 @@
 # on the line.
 # Non-zero exit: a C++ unit of the tree compiles without the define, or under
 # the tree's defines the program exits zero or dies without the check's
-# message, or without the define it does not run to its end. Exits 0 with a
-# note when clang-23 or the tree is absent.
+# message, or without the define it does not run to its end. Exits 2
+# when clang-23 or the tree is absent.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }
+command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 2; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
 tree=build-mutation
-[ -f "cpp/$tree/compile_commands.json" ] || { echo "no mutation tree configured, claim untestable"; exit 0; }
+[ -f "cpp/$tree/compile_commands.json" ] || { echo "no mutation tree configured, claim untestable"; exit 2; }
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/past_the_end.cpp" <<'CPP'

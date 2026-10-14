@@ -12,13 +12,13 @@
 # command takes, the least of three, the two sizes sent in turn: what else
 # the machine runs moves wall time and leaves this nearly alone, and what
 # still moves it falls on both sizes alike. Shown through the library itself.
-# Non-zero exit: another answer, or the growth passes 9. Exits 0 with a note
+# Non-zero exit: another answer, or the growth passes 9. Exits 2
 # when the library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes

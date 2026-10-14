@@ -10,13 +10,13 @@
 # observed its byte count; nothing of it is parsed. The command goes straight
 # to aletheia_process, past the binding's own byte check. Shown through the
 # library itself, under a 6 GiB heap. Non-zero exit: the command is accepted,
-# refused another way, or observed its character count. Exits 0 with a note
+# refused another way, or observed its character count. Exits 2
 # when the library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 ALETHEIA_RTS_OPTS=-M6G "$py" - "$lib" <<'PY'
 import ctypes

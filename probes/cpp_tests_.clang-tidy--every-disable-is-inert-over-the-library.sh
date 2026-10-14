@@ -10,7 +10,7 @@
 # checks reports over cpp/src.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v run-clang-tidy-23 > /dev/null || { echo "run-clang-tidy-23 not installed"; exit 0; }
+command -v run-clang-tidy-23 > /dev/null || { echo "run-clang-tidy-23 not installed"; exit 2; }
 [ -f cpp/build/compile_commands.json ] || { echo "no compile database; configure cpp/build"; exit 2; }
 checks=$(sed -n '/^Checks: >/,/^$/p' cpp/tests/.clang-tidy \
     | grep -oE '^\s*-[a-z][A-Za-z0-9*.-]*' | sed 's/^ *-//' | paste -sd, -)

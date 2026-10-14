@@ -13,7 +13,8 @@
 # every mutant the binary carries without running one.
 # Non-zero exit: the mutation configuration no longer pins the static form,
 # the census records no count, the tree carries fewer mutants than the census
-# records, or the dry run writes no report.
+# records, or the dry run writes no report. Exits 2 when Mull or the lane's
+# build is absent, the count then unchecked.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 cmake=cpp/CMakeLists.txt
@@ -44,8 +45,8 @@ from tools.mutation_cpp_legs import CppLeg
 from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, lane_binary
 
 if shutil.which(MULL_RUNNER) is None or not os.access(lane_binary(), os.X_OK):
-    print("PASS: the mutation lane pins the static link form (lane not built, count not checked)")
-    sys.exit(0)
+    print("the mutation lane pins the static link form; Mull or the lane is not built, count not checked")
+    sys.exit(2)
 recorded = recorded_total_mutants()
 if recorded is None:
     print("FAIL: the census records no mutant count")

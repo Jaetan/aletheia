@@ -17,14 +17,14 @@
 # same change hits and the earlier configuration's object is served. Without
 # that second arm the first proves only that a string is present.
 # Non-zero exit: the rules do not name them, or a change that must miss hits.
-# Skipped (exit 0) when ccache or the plugin is not installed, since the claim
-# is then untestable.
+# Exits 2 when ccache, clang++-23 or the plugin is not installed, since the
+# claim is then untestable.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v ccache > /dev/null || { echo "ccache not installed, claim untestable"; exit 0; }
-command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim untestable"; exit 0; }
+command -v ccache > /dev/null || { echo "ccache not installed, claim untestable"; exit 2; }
+command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim untestable"; exit 2; }
 plugin="$HOME/.local/bin/mull-ir-frontend-23"
-[ -x "$plugin" ] || { echo "plugin not installed, claim untestable"; exit 0; }
+[ -x "$plugin" ] || { echo "plugin not installed, claim untestable"; exit 2; }
 
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT

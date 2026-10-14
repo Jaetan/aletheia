@@ -11,7 +11,7 @@
 # fuzz tree cannot be configured.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v run-clang-tidy-23 > /dev/null || { echo "run-clang-tidy-23 not installed"; exit 0; }
+command -v run-clang-tidy-23 > /dev/null || { echo "run-clang-tidy-23 not installed"; exit 2; }
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
 tools/private_cpp_tree.sh "$scratch/build-fuzz" -- -DALETHEIA_FUZZ=ON || {

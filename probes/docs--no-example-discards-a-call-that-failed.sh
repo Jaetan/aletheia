@@ -14,7 +14,7 @@
 # call made without `?`.
 # Non-zero exit: an example discards a call that failed, or a harness file
 # could not be read. A half whose toolchain or built library is missing is
-# reported and skipped, the claim being untestable for it.
+# reported and skipped, and the probe exits 2 unless another half failed.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 py=python/.venv/bin/python
@@ -37,6 +37,7 @@ WORK = Path(sys.argv[1])
 KERNEL = ROOT / "build/libaletheia-ffi.so"
 EXCEL = ROOT / "examples/demo/demo_workbook.xlsx"
 failed = []
+unreached = []
 
 
 def fences(doc, lang):
@@ -112,7 +113,7 @@ if shutil.which("clang++-23") and libcpp.is_file() and KERNEL.is_file():
         ran = run([str(WORK / f"cpp{i}")], env={**os.environ, "ALETHEIA_LIB": str(KERNEL)})
         failed += [f"C++ {line}" for line in ran.stdout.splitlines() if line.startswith(doc)]
 else:
-    print("no clang++-23, built binding or kernel: the C++ half is untestable")
+    unreached.append("no clang++-23, built binding or kernel: the C++ half is untestable")
 
 # Go: every line discarding an error, inside the harness's own template.
 if shutil.which("go") and KERNEL.is_file():
@@ -162,7 +163,7 @@ if shutil.which("go") and KERNEL.is_file():
             failed.append(f"Go {doc}:{start}: does not run\n{(ran.stdout + ran.stderr)[-600:]}")
         failed += [f"Go {line}" for line in ran.stdout.splitlines() if line.startswith(doc)]
 else:
-    print("no go toolchain or kernel: the Go half is untestable")
+    unreached.append("no go toolchain or kernel: the Go half is untestable")
 
 # Python: every fence the plugin extracts, run in the repo-root conftest's globals; a top-level call
 # made as a statement, or assigned to a name the fence never reads, is reported when it answers an error.
@@ -217,7 +218,7 @@ if KERNEL.is_file():
                 if isinstance(answer, dict) and answer.get("status") == "error":
                     failed.append(f"Python {doc}:{line}: {answer.get('message')}")
 else:
-    print("no built kernel: the Python half is untestable")
+    unreached.append("no built kernel: the Python half is untestable")
 
 # Rust: a binding of a call made without `?` keeps a Result nobody reads.
 rust_call = re.compile(r"\s*let\s+_\w*\s*=\s*[^;]*\w\([^;]*;")
@@ -226,7 +227,7 @@ for doc in listed("rust/tests/doc_examples.rs", r"DOC_FILES: \[&str; \d+\] = \[(
         failed += [f"Rust {doc}:{start + k + 1}: {line.strip()}" for k, line in enumerate(body)
                    if rust_call.match(line) and "?" not in line]
 
-for line in failed:
+for line in [*unreached, *failed]:
     print(line)
-raise SystemExit(1 if failed else 0)
+raise SystemExit(1 if failed else 2 if unreached else 0)
 PY

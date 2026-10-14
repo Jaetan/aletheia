@@ -38,9 +38,9 @@
 # after the script is not the one the arm names. Exits 2 when the repository
 # root cannot be entered or the scratch directory cannot be made. The
 # workflow's conditions are skipped when python/.venv is missing, and the
-# real-ccache part, with the first two parts' verdict kept, when ccache,
-# clang++-23, the plugin or python/.venv is missing, since each is then
-# untestable.
+# real-ccache part when ccache, clang++-23, the plugin or python/.venv is
+# missing, since each is then untestable; a run stopped there exits 1 when a
+# part that ran is red, and 2 otherwise.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 
@@ -126,6 +126,11 @@ report() {
     echo "$2"
     [ "$1" = ok ] || status=1
 }
+# Stop where a part cannot run: red when a part that ran is, unrun otherwise.
+unrun() {
+    [ "$status" -eq 0 ] || exit "$status"
+    exit 2
+}
 
 # The stand-ins: ccache reports the counters in STUB_STATS, names STUB_DIR as
 # its cache, and records the age it is asked to evict at without evicting;
@@ -197,10 +202,10 @@ else
 fi
 
 for tool in ccache clang++-23; do
-    command -v "$tool" > /dev/null || { echo "$tool not installed, the real-ccache part is untestable"; exit "$status"; }
+    command -v "$tool" > /dev/null || { echo "$tool not installed, the real-ccache part is untestable"; unrun; }
 done
-[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "plugin not installed, the real-ccache part is untestable"; exit "$status"; }
-[ -x python/.venv/bin/python ] || { echo "python/.venv missing, the real-ccache part is untestable"; exit "$status"; }
+[ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "plugin not installed, the real-ccache part is untestable"; unrun; }
+[ -x python/.venv/bin/python ] || { echo "python/.venv missing, the real-ccache part is untestable"; unrun; }
 
 export CCACHE_DIR="$scratch/ccache" CCACHE_MAXSIZE=1G
 echo "with $(ccache --version | head -n 1)"

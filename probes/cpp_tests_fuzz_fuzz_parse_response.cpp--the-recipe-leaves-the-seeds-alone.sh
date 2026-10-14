@@ -18,7 +18,7 @@ owner=cpp/tests/fuzz/fuzz_parse_response.cpp
 
 command -v clang-23 > /dev/null && command -v clang++-23 > /dev/null || {
     echo "clang not installed, recipe untestable"
-    exit 0
+    exit 2
 }
 
 # The arguments are the comment's own: the line continuing the run command.

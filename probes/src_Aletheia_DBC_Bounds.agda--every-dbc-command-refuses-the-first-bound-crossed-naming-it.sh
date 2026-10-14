@@ -16,13 +16,13 @@
 # reaching it takes a million entries, whose JSON alone exhausts the default
 # heap. Shown through the library itself. Non-zero exit: a DBC past a bound is
 # accepted, refused with another code, kind, count, field or message, or a DBC
-# within its bounds is refused. Exits 0 with a note when the library is not
+# within its bounds is refused. Exits 2 when the library is not
 # built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes

@@ -13,13 +13,13 @@
 # validity theorem and its parts (Aletheia.DBC.Validity.Theorem, Composition,
 # ErrorChecks, WarningChecks). Read from build/MAlonzo, which the build
 # writes. Non-zero exit: 1 when a proof module is reached or the encoding
-# layer is not; 2 when the generated code cannot be read. Exits 0 with a note
+# layer is not; 2 when the generated code cannot be read. Exits 2
 # when the build has not run.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-[ -d build/MAlonzo/Code/Aletheia ] || { echo "no generated Haskell, claim untestable"; exit 0; }
+[ -d build/MAlonzo/Code/Aletheia ] || { echo "no generated Haskell, claim untestable"; exit 2; }
 "$py" - <<'PY'
 import os
 import re

@@ -8,14 +8,14 @@
 # generated Bounds and Targets modules import neither the bounds' proofs
 # (Aletheia.DBC.Bounds.Properties) nor the AVL membership proofs
 # (Data.Tree.AVL.Sets.Membership.Properties) that the lookups' evidence comes
-# from. Non-zero exit: a generated module imports one of them. Exits 0 with a
-# note when the kernel is not built.
+# from. Non-zero exit: a generated module imports one of them. Exits 2
+# when the kernel is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 status=0
 for module in Bounds Validator/Targets; do
 	generated=build/MAlonzo/Code/Aletheia/DBC/$module.hs
-	[ -f "$generated" ] || { echo "kernel not built, claim untestable"; exit 0; }
+	[ -f "$generated" ] || { echo "kernel not built, claim untestable"; exit 2; }
 	if grep -nE '^import qualified MAlonzo\.Code\.(Aletheia\.DBC\.Bounds\.Properties|Data\.Tree\.AVL\.Sets\.Membership\.Properties)$' "$generated"; then
 		echo "$generated imports a proof module"
 		status=1

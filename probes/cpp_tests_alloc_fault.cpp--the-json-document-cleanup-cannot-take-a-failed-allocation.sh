@@ -12,13 +12,13 @@
 # harness does, and fails one allocation of a document's destruction: it dies
 # on SIGABRT. Sparing the library's own sites, the same program runs to the
 # end. Non-zero exit: the failure unwinds, so the harness is sparing sites it
-# no longer needs to. Exits 0 with a note when the toolchain or the JSON
+# no longer needs to. Exits 2 when the toolchain or the JSON
 # headers are not available.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }
+command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 2; }
 json_include=cpp/build/_deps/json-src/include
-[ -d "$json_include" ] || { echo "no JSON headers in the build tree, claim untestable"; exit 0; }
+[ -d "$json_include" ] || { echo "no JSON headers in the build tree, claim untestable"; exit 2; }
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'

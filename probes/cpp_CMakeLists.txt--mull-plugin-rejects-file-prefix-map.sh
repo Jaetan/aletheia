@@ -10,12 +10,12 @@
 # holds while that is still so: it compiles one library source from a scratch
 # directory with the plugin and the flag and passes when clang fails that way.
 # Non-zero exit: the compile succeeded, so the plugin no longer crashes and
-# CMakeLists.txt can apply the flag to the mutation build too. Skipped (exit 0)
+# CMakeLists.txt can apply the flag to the mutation build too. Exits 2
 # when the plugin is not installed, since the claim is then untestable here.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 plugin=$HOME/.local/bin/mull-ir-frontend-23
-[ -x "$plugin" ] || { echo "plugin not installed, claim untestable"; exit 0; }
+[ -x "$plugin" ] || { echo "plugin not installed, claim untestable"; exit 2; }
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
 root=$(pwd)

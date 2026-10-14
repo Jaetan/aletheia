@@ -12,12 +12,12 @@
 # bytes and above both read, at two only the first reads and the second is an
 # error, at one both are errors and no value is reported. Non-zero exit: a
 # signal the frame does not carry is given a value, or one it carries is
-# refused. Exits 0 with a note when the library is not built.
+# refused. Exits 2 when the library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes

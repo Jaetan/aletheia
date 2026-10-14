@@ -10,13 +10,13 @@
 # alone is written. Shown through the library itself, on a message whose
 # PayloadA (Mode 0) and PayloadB (Mode 1) both occupy bits 8 to 23. Non-zero
 # exit: an entry accepts an overlapping request, refuses it with another code,
-# writes while refusing, or refuses a single signal. Exits 0 with a note when
+# writes while refusing, or refuses a single signal. Exits 2 when
 # the library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
 py=python/.venv/bin/python
-[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 0; }
+[ -f "$lib" ] || { echo "kernel not built, claim untestable"; exit 2; }
 [ -x "$py" ] || exit 2
 "$py" - "$lib" <<'PY'
 import ctypes
