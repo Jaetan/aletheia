@@ -4,9 +4,10 @@
 
 ``tools/check_mutmut_operators.py`` hands mutmut's operator table a function of
 the constructs the Python lane's record calls refusals and a comparison, and
-judges what it mutates in each.  The judge is held over planted answers, the
-table over the two sources in process, and the venv without mutmut by refusing
-the gate's import of it.
+judges what it mutates in each.  The judge is held over planted answers, and
+the venv without mutmut by refusing the gate's import of it; what the pinned
+mutmut itself answers is the gate's own run in the mutation lane, the one lane
+that installs it, as the sibling gates' tools are theirs.
 """
 
 from __future__ import annotations
@@ -22,14 +23,15 @@ from tools.check_mutmut_operators import (
     INSTALL_HINT,
     REFUSED_SOURCE,
     MutantNodeText,
+    PythonSource,
     check,
-    mutations_of,
     operator_refusal,
 )
 
 from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
     from types import ModuleType
 
@@ -62,16 +64,36 @@ def test_a_mutated_control_beside_an_untouched_refusal_set_passes() -> None:
     assert operator_refusal([], [A_COMPARISON]) is None
 
 
-def test_the_pinned_mutmut_mutates_the_comparison_and_none_of_the_refused_constructs() -> None:
-    """The installed mutmut's own table yields nothing for the refused source and one comparison."""
-    assert mutations_of(REFUSED_SOURCE) == []
-    assert mutations_of(CONTROL_SOURCE) == [A_COMPARISON]
+def _planted(
+    refused: list[MutantNodeText], control: list[MutantNodeText]
+) -> Callable[[PythonSource], list[MutantNodeText]]:
+    """Answer the gate's two sources with ``refused`` and ``control``, and no other source."""
+
+    def answer(source: PythonSource) -> list[MutantNodeText]:
+        return {REFUSED_SOURCE: refused, CONTROL_SOURCE: control}[source]
+
+    return answer
 
 
-def test_the_gate_passes_on_the_pinned_mutmut(capsys: pytest.CaptureFixture[Prose]) -> None:
-    """With the pinned mutmut in the venv, the check passes and says nothing."""
+def test_a_table_leaving_the_refused_constructs_alone_passes_silently(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Nothing for the refused source and one comparison is the fact: the check passes silently."""
+    monkeypatch.setattr(check_mutmut_operators, "mutations_of", _planted([], [A_COMPARISON]))
     assert check() == ExitStatus(0)
     assert capsys.readouterr().out == ""
+
+
+def test_a_table_that_cannot_mutate_the_comparison_refuses(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A control the table leaves alone is named as a table that is not the lane's."""
+    monkeypatch.setattr(check_mutmut_operators, "mutations_of", _planted([], []))
+    assert check() == ExitStatus(1)
+    assert capsys.readouterr().out == (
+        "check-mutmut-operators: the control comparison yields no mutation,"
+        " so the table is not the one the lane runs\n"
+    )
 
 
 def _refusing(missing: ModuleName) -> ModuleType:
@@ -112,13 +134,11 @@ def test_a_table_that_mutates_a_refused_construct_refuses(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
     """A mutmut that gained an operator for a refused construct re-opens the record's row."""
-
-    def gained(source: check_mutmut_operators.PythonSource) -> list[MutantNodeText]:
-        if source == REFUSED_SOURCE:
-            return [MutantNodeText("raise error")]
-        return [A_COMPARISON]
-
-    monkeypatch.setattr(check_mutmut_operators, "mutations_of", gained)
+    monkeypatch.setattr(
+        check_mutmut_operators,
+        "mutations_of",
+        _planted([MutantNodeText("raise error")], [A_COMPARISON]),
+    )
     assert check() == ExitStatus(1)
     assert capsys.readouterr().out == "check-mutmut-operators: mutmut now mutates: raise error\n"
 
