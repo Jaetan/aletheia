@@ -73,7 +73,7 @@ Run as `python3 -m benchmarks.<name>` from `python/`. `throughput`, `latency` an
 
 ### One binary each, for C++, Go and Rust
 
-`cpp/build/benchmark`, `go/benchmarks/benchmark` and `rust/target/release/examples/benchmark` take a mode and the flags `benchmarks/SCHEMA.yaml` pins for it. `tools/check_bench_schema.py` drives all four bindings through all three modes with those flags on every CI run, so a renamed or dropped flag fails instead of falling back on a default.
+`cpp/build/benchmark`, `go/benchmarks/benchmark` and `rust/target/release/examples/benchmark` take a mode and the flags `benchmarks/SCHEMA.yaml` pins for it. `tools/check_bench_schema.py` drives all four bindings through all three modes with those flags on every CI run, so a renamed or dropped flag fails instead of falling back on a default, and reads the runner's latency lanes for every flag the schema pins, so no lane warms by its harness's own default.
 
 ~~~bash
 ./cpp/build/benchmark throughput --frames 10000 --runs 5 --json

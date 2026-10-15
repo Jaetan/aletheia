@@ -309,8 +309,10 @@ def _run_binding_tests(runner: Runner) -> None:
     # binaries, and an on-disk compiled binary may be STALE against the current
     # source (mtime is unreliable across git checkouts/merges), so running it
     # would be a false signal. The full four-binding check runs in the benchmark
-    # workflow with --built, which builds all four fresh in the same job. Pinned to
-    # the python lane so it runs after the .so build, like the pytest steps.
+    # workflow with --built, which builds all four fresh in the same job. The gate
+    # also reads benchmarks/run_all.sh: every latency lane is told every flag the
+    # schema pins. Pinned to the python lane so it runs after the .so build, like
+    # the pytest steps.
     runner.step(
         "check-bench-schema",
         [runner.python, "-m", "tools.check_bench_schema"],
