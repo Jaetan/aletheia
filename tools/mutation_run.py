@@ -188,9 +188,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NewType
 
+from tools._branch_diff import branch_changes
 from tools._common import (
     RelPath,
-    find_executable,
     prepare_artifact_dir,
     run_capture,
     run_streaming,
@@ -562,8 +562,8 @@ def go_mutant_rows(
 # changed (the .so they all dlopen, this harness / the Mull build / the baselines).  So on a
 # PR we run only the affected engine(s); an unchanged binding's survivor count
 # is definitionally unchanged from its baseline, so skipping it is coverage-
-# neutral.  Mirrors ``tools/_ci_steps.build_graph_touched``'s fail-safe
-# ``git diff main...HEAD`` precedent.
+# neutral.  The diff is read through ``tools/_branch_diff.py``, as every gate
+# scoped by the branch reads it.
 #
 # Per-binding paths map to the WHOLE binding directory, not just its source:
 # mutmut / Mull kill mutants by RUNNING that binding's tests, so a test-only or
@@ -601,6 +601,7 @@ _GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
     # own pull request.
     "tools/mutation_",
     "tools/cpp_scratch.py",  # the C++ lane's scratch-directory reaping
+    "tools/_branch_diff.py",  # how the runner reads what the branch changed
     "tools/mull/",  # the patches the Mull plugin is built with, which decide its mutants
     "tools/build_mull.sh",  # the Mull release the plugin is built from, and how
     "tools/_common.py",  # the harness's shared helpers
@@ -644,18 +645,11 @@ def bindings_in_scope(
         binding_dirs = BINDING_DIRS
     if os.environ.get(no_scope_env) == "1":
         return None
-    try:
-        git = find_executable("git")
-    except RuntimeError:
-        return None  # no `git` binary on PATH: fail safe to the full run
-    result = run_capture(
-        [git, "-C", str(repo_root), "diff", "--name-only", "main...HEAD"],
-    )
-    if result.returncode != 0:
-        return None  # no `main` ref / git error: fail safe to the full run
-    changed = [line for line in result.stdout.splitlines() if line]
+    changed = branch_changes(repo_root)
     if not changed:
-        return None  # push:main / no diff: run the full backstop
+        # None: no `git`, no `main` ref, a git error, so fail safe to the full
+        # run; empty: push:main or no diff, so run the full backstop.
+        return None
     if any(line.startswith(global_paths) for line in changed):
         return None
     return {

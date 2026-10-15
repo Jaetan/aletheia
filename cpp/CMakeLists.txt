@@ -612,6 +612,14 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         target_sources(unit_tests PRIVATE tests/alloc_fault.cpp tests/unit_tests_alloc_fault.cpp)
         target_compile_definitions(unit_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
         set_target_properties(unit_tests PROPERTIES ENABLE_EXPORTS ON)
+        # Why those sweeps spare the JSON library: a program of its own, out of
+        # the default build, that tools/check_json_cleanup_abort.py builds and
+        # runs when the library's release moves.  It replaces the allocation
+        # functions and reads its own symbols back, as the sweeps do.
+        add_executable(json_cleanup_abort EXCLUDE_FROM_ALL tests/json_cleanup_abort.cpp)
+        target_compile_features(json_cleanup_abort PRIVATE cxx_std_23)
+        target_link_libraries(json_cleanup_abort PRIVATE nlohmann_json::nlohmann_json)
+        set_target_properties(json_cleanup_abort PROPERTIES ENABLE_EXPORTS ON)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 

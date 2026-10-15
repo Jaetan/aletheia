@@ -378,9 +378,9 @@ lanes that run without a sanitizer, because a sanitizer runtime carries the
 same allocation functions and the two cannot be linked together, and they
 leave the JSON library's own allocations alone, since that library flattens a
 document onto a heap-allocated stack from a destructor and an exception
-leaving a destructor ends the program. The probe
-`probes/cpp_tests_alloc_fault.cpp--the-json-document-cleanup-cannot-take-a-failed-allocation.sh`
-holds both halves of that.
+leaving a destructor ends the program. `tools/check_json_cleanup_abort.py`
+holds both halves of that, with a program of its own
+(`cpp/tests/json_cleanup_abort.cpp`), whenever the library's release moves.
 
 ~~~bash
 # System LLVM-23 + clang-23 (one-time; apt.llvm.org on Ubuntu, the archive on Debian).

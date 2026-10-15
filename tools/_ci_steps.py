@@ -24,7 +24,9 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tools._common import CPP_LINT_TREE, find_executable, run_capture
+from tools._branch_diff import branch_changes
+from tools._ci_tool_fact_steps import register_tool_fact_steps
+from tools._common import CPP_LINT_LANE, CPP_LINT_TREE
 from tools._resources import cpu_budget
 
 if TYPE_CHECKING:
@@ -96,7 +98,9 @@ HEAVY_STEPS: frozenset[str] = frozenset(
 # ``go vet``/``clippy`` partners exists to make this allowlist expressible.
 # ``check-dist-staging`` qualifies too: it only parses the build program and runs
 # ``git ls-files`` / shell syntax checks, and ``git ls-files`` reads the INDEX —
-# exactly the staged content the pre-commit tier is defined over.
+# exactly the staged content the pre-commit tier is defined over.  So does
+# ``check-clang-format-config``: two dumps of the pinned clang-format's
+# configuration and a read of ``cpp/.clang-format``.
 FAST_STEPS: frozenset[str] = frozenset(
     {
         "check-spdx-headers",
@@ -111,6 +115,7 @@ FAST_STEPS: frozenset[str] = frozenset(
         "check-test-determinism",
         "check-dist-staging",
         "clang-format",
+        "check-clang-format-config",
         "cmake-lint",
         "gofmt",
         "cargo fmt",
@@ -120,10 +125,6 @@ FAST_STEPS: frozenset[str] = frozenset(
     }
 )
 
-
-# The lane of the gates that read the lint tree's compile database: clang-tidy
-# first, which configures the tree, then the two checks that read it.
-CPP_LINT_LANE = "cpp-lint"
 
 # The compilers every C++ tree of the sweep is configured with: clang-23, the
 # supported toolchain, pinned rather than left to whatever cc resolves to.
@@ -209,21 +210,13 @@ _BUILD_GRAPH_PATHS: tuple[str, ...] = (
 
 
 def build_graph_touched(repo_root: Path) -> bool:
-    """Return True iff the diff vs ``main`` touches a build-graph file.
+    """Return True iff the branch's diff vs ``main`` touches a build-graph file.
 
-    Diffs the local ``main`` ref — the repo convention (``tools/_warm.py``'s IWYU
-    scope uses ``main...HEAD``; CI's workflow has an "Ensure a local ``main`` ref"
-    step for exactly this), not ``origin/main`` (a remote-tracking ref that
-    ``actions/checkout`` is not guaranteed to create).  Fails SAFE: if the diff
-    can't be computed (e.g. no ``main`` ref), run the staleness gate rather than
-    silently skip a safety check.
+    Fails SAFE: where git cannot give the diff (``tools/_branch_diff.py``), the
+    staleness gate runs rather than a safety check being skipped unseen.
     """
-    result = run_capture(
-        [find_executable("git"), "-C", str(repo_root), "diff", "--name-only", "main...HEAD"],
-    )
-    if result.returncode != 0:
-        return True
-    return any(line.startswith(_BUILD_GRAPH_PATHS) for line in result.stdout.splitlines())
+    changed = branch_changes(repo_root)
+    return changed is None or any(line.startswith(_BUILD_GRAPH_PATHS) for line in changed)
 
 
 def should_run_staleness(mode: str, *, build_graph_changed: bool) -> bool:
@@ -968,4 +961,5 @@ def register_all_steps(runner: Runner, cabal: list[str], opts: OptInOptions) -> 
     _run_binding_tests(runner)
     _run_lints(runner)
     _run_gha_checks(runner)
+    register_tool_fact_steps(runner)
     _run_opt_in_lanes(runner, opts)
