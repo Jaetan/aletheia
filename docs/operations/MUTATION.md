@@ -30,6 +30,8 @@ tools/mutation_cpp_runs.py         What the C++ sweep spends on each file, and h
 tools/mutation_cpp_order.py        The order the C++ mutation binary runs its tests in: the costly ones last, held before each leg's runner
 tools/mutation_routes.py           The C++ kill-route census
 tools/mutation_cpp_pointer_calls.py The C++ census held to the pointer-call rule cpp/mull.yml states
+tools/mutation_cpp_elements.py     The Elements report's shape, as the C++ census rules read it
+tools/mutation_cpp_census.py       The C++ census held to the bool-call twin and the identifier shape, on every sweep
 tools/mutation_ccache_evict.sh     The C++ lane's compiler cache cut to its run's working set before the save
 tools/mutation_cpp_dry_run.py      A dry run of one C++ leg over the tree the lane built: the mutants a sweep of it would run
 tools/build_mull.sh                Mull built from source against LLVM 23, with the patches in tools/mull/
@@ -237,10 +239,9 @@ so what it cannot mutate is a refusal the lane carries whole: a `return`, a
 `raise`, a condition that is a bare name or call, an f-string, a `for` or a
 `with`, and any function under a decorator other than `staticmethod` or
 `classmethod`, which it skips entire. A defect in one of those is one the
-Python lane cannot see, and the probe
-`probes/python_pyproject.toml--mutmut-has-no-operator-for-these-constructs.sh`
-holds the pinned version to that list, so a release that gains an operator
-re-opens the row rather than counting silently.
+Python lane cannot see, and `tools/check_mutmut_operators.py`, which runs when
+the mutmut pin moves, holds the pinned version to that list, so a release that
+gains an operator re-opens the row rather than counting silently.
 
 ### Go: `gremlins`
 
@@ -314,9 +315,10 @@ of one template shared a name, and the trampoline ran only the last clone it
 registered while the report counted the others under it. The identifier gains a
 seventh part, a hash of the function's mangled name and an ordinal among that
 function's mutants of the same range, so every clone runs and is reported on
-its own; the probe
-`probes/tools_build_mull.sh--every-mutant-identifier-names-one-clone.sh`
-holds the installed plugin to that patch. The same build teaches the two
+its own; `tools/check_mull_plugin_facts.py` holds the installed plugin to that
+patch when the Mull pin or its patches move, and the census of every sweep is
+held to the identifiers' shape by `tools/mutation_cpp_census.py`. The same
+build teaches the two
 call mutators the `invoke` instruction
 (`tools/mull/libirm-void-call-mutator.patch`,
 `tools/mull/libirm-scalar-call-invoke.patch`): at `-O0` with exceptions on, a

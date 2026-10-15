@@ -4,7 +4,9 @@
 
 Some gates hold a fact about a tool rather than about the tree: that Agda reuses
 an interface whatever its date, what clang-tidy diagnoses under an option, how
-the JSON library frees a document.  Such a fact moves only when the tool does,
+the JSON library frees a document, what Mull's plugin emits, how cargo-mutants
+deals its shards, what mutmut cannot mutate.  Such a fact moves only when the
+tool does,
 and the tree says when, since each of these tools is pinned to one release on a
 line of its own.  So the gate runs on a branch whose diff moves that line, the
 configuration or harness the fact is about, the gate itself or this module, and
@@ -48,8 +50,12 @@ class PinGate(StrEnum):
     """A gate holding a fact about an exactly pinned tool, by the name its log line gives."""
 
     AGDA_INTERFACE_REUSE = "agda-interface-reuse"
+    CARGO_MUTANTS_SHARDS = "cargo-mutants-shards"
     CLANG_TIDY_FACTS = "clang-tidy-facts"
+    CPP_SLICES_CENSUS = "cpp-slices-census"
     JSON_CLEANUP_ABORT = "json-cleanup-abort"
+    MULL_PLUGIN_FACTS = "mull-plugin-facts"
+    MUTMUT_OPERATORS = "mutmut-operators"
 
 
 class PinScope(NamedTuple):
@@ -72,11 +78,35 @@ PIN_SCOPES: Mapping[PinGate, tuple[PinScope, ...]] = {
         PinScope(RelPath(".github/workflows/"), PinLine(r"^\s*AGDA_VERSION:")),
         PinScope(RelPath("tools/check_agda_interface_reuse.py")),
     ),
+    # The cargo-mutants release the runner refuses to run without, and the
+    # shard counts it deals.
+    PinGate.CARGO_MUTANTS_SHARDS: (
+        PinScope(
+            RelPath("docs/MUTATION_BENCH.yaml"), PinLine(r'^\s*version:\s*"\d+\.\d+\.\d+"\s*$')
+        ),
+        PinScope(
+            RelPath(".github/workflows/pr-heavy-lanes.yml"),
+            PinLine(r"cargo-mutants-\d|cargo install cargo-mutants"),
+        ),
+        PinScope(RelPath("tools/mutation_rust.py")),
+        PinScope(RelPath("tools/check_cargo_mutants_shards.py")),
+    ),
     # The clang-tidy of the toolchain, and the configuration whose comments state the facts.
     PinGate.CLANG_TIDY_FACTS: (
         _CLANG_TOOLCHAIN,
         PinScope(RelPath("cpp/.clang-tidy")),
         PinScope(RelPath("tools/check_clang_tidy_facts.py")),
+    ),
+    # What decides which mutants a slice carries and how they are named: the
+    # plugin's release and patches, the configuration, the slicing and its
+    # generated configurations.
+    PinGate.CPP_SLICES_CENSUS: (
+        PinScope(RelPath("tools/build_mull.sh")),
+        PinScope(RelPath("tools/mull/")),
+        PinScope(RelPath("cpp/mull.yml")),
+        PinScope(RelPath("tools/mutation_cpp_slices.py")),
+        PinScope(RelPath("tools/mutation_cpp_config.py")),
+        PinScope(RelPath("tools/check_cpp_slices_census.py")),
     ),
     # The JSON library's release, the program showing the fact, and the harness it justifies.
     PinGate.JSON_CLEANUP_ABORT: (
@@ -85,6 +115,22 @@ PIN_SCOPES: Mapping[PinGate, tuple[PinScope, ...]] = {
         PinScope(RelPath("cpp/tests/json_cleanup_abort.cpp")),
         PinScope(RelPath("cpp/tests/alloc_fault.cpp")),
         PinScope(RelPath("tools/check_json_cleanup_abort.py")),
+    ),
+    # The Mull release and patches the plugin is built from, the configuration
+    # naming its mutators, the flag the build withholds from it, and the toolchain.
+    PinGate.MULL_PLUGIN_FACTS: (
+        PinScope(RelPath("tools/build_mull.sh")),
+        PinScope(RelPath("tools/mull/")),
+        PinScope(RelPath("cpp/mull.yml")),
+        PinScope(RelPath("cpp/CMakeLists.txt"), PinLine(r"ffile-prefix-map")),
+        _CLANG_TOOLCHAIN,
+        PinScope(RelPath("tools/check_mull_plugin_facts.py")),
+    ),
+    # The mutmut release the Python lane sweeps with, pinned exactly in the
+    # [mutation] extra.
+    PinGate.MUTMUT_OPERATORS: (
+        PinScope(RelPath("python/pyproject.toml"), PinLine(r"mutmut==")),
+        PinScope(RelPath("tools/check_mutmut_operators.py")),
     ),
 }
 

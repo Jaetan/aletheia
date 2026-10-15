@@ -42,6 +42,7 @@ from tools._ci_steps import (
     register_all_steps,
     should_run_staleness,
 )
+from tools._ci_tool_fact_steps import MUTATION_STEP, register_mutation_fact_steps
 from tools._common import (
     CPP_LINT_TREE,
     GateName,
@@ -424,6 +425,97 @@ def test_each_tool_fact_gate_runs_its_module_after_what_it_reads(tmp_path: Path)
     )
     cpp = order(LaneName("cpp"))
     assert cpp.index(GateName("check-json-cleanup-abort")) > cpp.index(GateName("ctest"))
+
+
+# Each gate on a mutation tool's fact that runs as one step: the lane holding
+# its tool, and its module.
+_MUTATION_FACT_GATES = {
+    "check-mull-plugin-facts": (LaneName("cpp"), "tools.check_mull_plugin_facts"),
+    "check-cargo-mutants-shards": (LaneName("rust"), "tools.check_cargo_mutants_shards"),
+    "check-mutmut-operators": (LaneName("python"), "tools.check_mutmut_operators"),
+}
+# The two steps of the census gate, which follow the sweep in its lane.
+_CENSUS_STEPS = ("check-cpp-slices-census-build", "check-cpp-slices-census")
+
+
+def _sweeping(runner: Runner) -> Runner:
+    """Return a runner like ``runner`` with the mutation lane on."""
+    lanes = replace(runner.opts.lanes, mutation=True)
+    return Runner(replace(runner.opts, lanes=lanes), runner.ctx)
+
+
+def test_the_mutation_tool_fact_gates_register_only_with_the_mutation_lane(
+    tmp_path: Path,
+) -> None:
+    """Each needs the tool its lane installs, so a sweep without the lane has none of them."""
+    runner = ci_runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    gates = {*_MUTATION_FACT_GATES, *_CENSUS_STEPS}
+    assert not gates & set(runner.registered_step_names)
+    sweeping = _sweeping(ci_runner(tmp_path))
+    register_all_steps(sweeping, ["cabal", "run", "shake", "--"], sweeping.opts)
+    assert gates <= set(sweeping.registered_step_names)
+
+
+def test_each_mutation_tool_fact_gate_runs_its_module_from_the_root_in_its_tool_s_lane(
+    tmp_path: Path,
+) -> None:
+    """A gate on a mutation tool runs its module from the root, in the lane holding the tool."""
+    runner = _sweeping(ci_runner(tmp_path))
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    steps = {step.name: step for step in runner.registered_steps}
+    for name, (lane, module) in _MUTATION_FACT_GATES.items():
+        step = steps[name]
+        assert (step.lane, step.cmd, step.cwd) == (
+            lane,
+            [runner.python, "-m", module],
+            runner.repo_root,
+        ), name
+
+
+def test_each_mutation_tool_fact_gate_names_a_module_the_tree_has() -> None:
+    """A registered step naming a module the tree lacks fails every sweep it joins."""
+    for module in (
+        *(module for _lane, module in _MUTATION_FACT_GATES.values()),
+        "tools.check_cpp_slices_census",
+    ):
+        assert importlib.util.find_spec(module) is not None, module
+
+
+def test_the_census_gate_s_steps_follow_the_sweep_in_its_lane(tmp_path: Path) -> None:
+    """The census is written beside the slice reports and compared with them.
+
+    The sweep empties the commit's artifact directory before it writes the
+    slice reports, so a census written before it is gone when the comparison
+    reads it, and a comparison in another lane could read the directory before
+    the sweep filled it.  Both steps name the directory as the sweep does, by
+    the short hash of HEAD.
+    """
+    runner = _sweeping(ci_runner(tmp_path))
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    steps = {step.name: step for step in runner.registered_steps}
+    sweep = steps[MUTATION_STEP]
+    names = list(runner.registered_step_names)
+    lane = [name for name in names if steps[name].lane == sweep.lane]
+    build, compare = (steps[name] for name in _CENSUS_STEPS)
+    assert lane.index(_CENSUS_STEPS[0]) > lane.index(MUTATION_STEP)
+    assert lane.index(_CENSUS_STEPS[1]) > lane.index(_CENSUS_STEPS[0])
+    assert (build.cmd, build.cwd) == (
+        [runner.python, "-m", "tools.check_cpp_slices_census", "--census"],
+        runner.repo_root,
+    )
+    assert compare.cmd == (
+        f"{runner.python} -m tools.check_cpp_slices_census"
+        + " --compare benchmarks/mutation/$(git rev-parse --short HEAD)"
+    )
+    assert compare.cwd == runner.repo_root
+
+
+def test_the_census_gate_refuses_a_catalog_without_the_sweep(tmp_path: Path) -> None:
+    """Registered ahead of the sweep, the census steps would run before it; that is refused."""
+    runner = _sweeping(ci_runner(tmp_path))
+    with pytest.raises(RuntimeError, match=f"{MUTATION_STEP!r} must be registered exactly once"):
+        register_mutation_fact_steps(runner)
 
 
 def test_a_step_below_a_toolchain_directory_runs_in_its_lane(tmp_path: Path) -> None:

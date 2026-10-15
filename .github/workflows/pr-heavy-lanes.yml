@@ -255,6 +255,15 @@ jobs:
       - name: Does this lane's binding sweep on this diff?
         run: python/.venv/bin/python3 -m tools.mutation_scope --binding "${{ matrix.binding }}"
 
+      # What the pinned mutmut has no operator for, which the Python record
+      # carries as refusals the lane cannot see.  The gate reads the branch's
+      # diff against `main` and runs only where it moved the pin, the gate or
+      # the scoping, logging which; the venv above holds the mutmut it reads,
+      # so it costs the lane nothing to install.
+      - name: mutmut operator facts (when its pin moved)
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'python'
+        run: python/.venv/bin/python3 -m tools.check_mutmut_operators
+
       - name: Set up GHC + cabal
         if: env.LANE_SWEEPS != '0'
         run: |
@@ -395,6 +404,15 @@ jobs:
       - name: Install cargo-mutants (cache miss)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && steps.cargo-mutants.outputs.cache-hit != 'true'
         run: cargo install cargo-mutants --version 27.1.0 --locked
+      # Every shard count the Rust runner deals partitions the listing the
+      # pinned cargo-mutants gives, so the two jobs' shards are the whole
+      # surface once.  The gate reads the branch's diff against `main` and runs
+      # only where it moved the pin, the runner, the gate or the scoping,
+      # logging which; one job asks, since the listing is one.  Its cost is a
+      # listing, no sweep, in the budget above.
+      - name: cargo-mutants shard facts (when its pin moved)
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && matrix.rust_job == '1'
+        run: python/.venv/bin/python3 -m tools.check_cargo_mutants_shards
 
       - name: Cache clang-23 + LLVM-23-dev .debs (large download)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
@@ -584,6 +602,30 @@ jobs:
           ALETHEIA_MUTATION_RUST_STAGE: ${{ matrix.rust_job }}
         run: python/.venv/bin/python3 -m tools.mutation_run
 
+      # What the plugin built from the pinned Mull emits and withholds: the
+      # mutators the configuration names, the clone each identifier names, the
+      # call a function pointer reaches, the flag the build keeps from it.
+      # The gate reads the branch's diff against `main` and runs only where it
+      # moved the Mull pin, a patch, the configuration, that flag, the
+      # toolchain, the gate or the scoping, logging which.  Its cost is the
+      # gate's own compiles, in every leg's budget; `!cancelled()`, so a leg
+      # whose sweep failed still reports the plugin's facts.
+      - name: Mull plugin facts (when its pin moved)
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' }}
+        run: python/.venv/bin/python3 -m tools.check_mull_plugin_facts
+
+      # The whole tree's census, taken on the first leg once its slice is
+      # swept: the `mutation merge` job below holds the three slices' union to
+      # it.  The gate reads the branch's diff against `main` and runs only
+      # where it moved what decides which mutants a slice carries and how they
+      # are named, the Mull pin, a patch, the configuration, the slicing or the
+      # gate, logging which.  Its cost is the unsliced tree's build, on this
+      # leg alone, inside its budget; the census leaves with the leg's reports
+      # in the upload below.
+      - name: Whole-tree census for the slices check (when its pin moved)
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && matrix.stage == '1' }}
+        run: python/.venv/bin/python3 -m tools.check_cpp_slices_census --census
+
       # Every lane's reports leave the runner whatever ended the lane: a C++
       # leg's or a Go shard's reports are what the `mutation merge` job
       # merges, and a lane its clock killed leaves the partial directory that
@@ -701,6 +743,14 @@ jobs:
           ALETHEIA_MUTATION_RUST_STAGE: merge
           ALETHEIA_MUTATION_RUST_JOBS: rust-jobs
         run: python/.venv/bin/python3 -m tools.mutation_run
+
+      # The three slices lose no mutant and rename none: their union is the
+      # census the first leg took of the whole tree, which arrived among the
+      # legs' reports.  The gate reads the branch's diff against `main` and
+      # runs only where it moved what decides a slice's mutants, logging which;
+      # it reads reports alone, so this job needs no compiler for it.
+      - name: Slices union against the whole-tree census (when its pin moved)
+        run: python/.venv/bin/python3 -m tools.check_cpp_slices_census --compare mutation-legs
 
       - name: Upload the merged reports
         if: ${{ always() }}

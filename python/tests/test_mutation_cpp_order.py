@@ -275,7 +275,7 @@ def test_the_lane_lists_the_binary_before_its_runner_starts(
         steps.append(Prose("run"))
         return BuildLog("")
 
-    monkeypatch.setattr(mutation_cpp, "_check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
+    monkeypatch.setattr(mutation_cpp, "check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
     monkeypatch.setattr(mutation_cpp, "build_cpp_mutation_tree", built)
     monkeypatch.setattr(mutation_cpp, "order_refusal", refused)
     monkeypatch.setattr(mutation_cpp, "_run_cpp_lane", runner)

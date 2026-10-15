@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING
 
 from tools import mutation_cpp, mutation_run
 from tools.mutation_cpp import cpp_survivor_rows, elements_survivor_rows
+from tools.mutation_cpp_elements import SourceLine
 from tools.mutation_cpp_legs import CPP_ELEMENTS_REPORT
-from tools.mutation_cpp_pointer_calls import SourceLine
 from tools.mutation_report import (
     Baseline,
     BindingSpec,

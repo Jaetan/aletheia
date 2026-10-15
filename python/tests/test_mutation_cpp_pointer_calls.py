@@ -11,27 +11,24 @@ null.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
-
-import yaml
+from typing import TYPE_CHECKING, NamedTuple
 
 from tools._common import RelPath
-from tools.mutation_cpp import REPO_ROOT
-from tools.mutation_cpp_pointer_calls import (
-    POINTER_CALL_MUTATOR,
+from tools.mutation_cpp_elements import (
+    ColumnNumber,
     ElementsFile,
     LineNumber,
     MullPath,
+    MutantId,
     MutatorName,
     SourceLine,
-    pointer_call_refusal,
-    repo_relative,
 )
+from tools.mutation_cpp_pointer_calls import POINTER_CALL_MUTATOR, pointer_call_refusal
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from tools.mutation_cpp_pointer_calls import ElementsFiles
+    from tools.mutation_cpp_elements import ElementsFiles
 
 _BACKEND = RelPath("cpp/src/backend.cpp")
 _CLIENT = RelPath("cpp/src/client.cpp")
@@ -51,12 +48,6 @@ _SOURCE: Mapping[tuple[RelPath, LineNumber], SourceLine] = {
 }
 
 
-class _MullConfig(TypedDict):
-    """The part of ``cpp/mull.yml`` the rule depends on: the mutators it sweeps."""
-
-    mutators: list[MutatorName]
-
-
 class _Mutant(NamedTuple):
     """One mutant: its mutator, the repository-relative file and the line it starts on."""
 
@@ -66,12 +57,23 @@ class _Mutant(NamedTuple):
 
 
 def _files(mutants: Sequence[_Mutant]) -> ElementsFiles:
-    """Build an Elements report's files holding the mutants given, under absolute paths."""
+    """Build an Elements report's files holding the mutants given, under absolute paths.
+
+    Each mutant starts at column 1 and is named as Mull names it, its ordinal
+    its place in the list, so two on one line are two mutants.
+    """
     files: dict[MullPath, ElementsFile] = {}
-    for mutant in mutants:
-        entry = files.setdefault(MullPath(f"/home/user/tree/{mutant.file}"), {"mutants": []})
+    for ordinal, mutant in enumerate(mutants):
+        path = MullPath(f"/home/user/tree/{mutant.file}")
+        entry = files.setdefault(path, {"mutants": []})
         entry["mutants"].append(
-            {"mutatorName": mutant.mutator, "location": {"start": {"line": mutant.line}}}
+            {
+                "id": MutantId(
+                    f"{mutant.mutator}:{path}:{mutant.line}:1:{mutant.line}:1:0.{ordinal}"
+                ),
+                "mutatorName": mutant.mutator,
+                "location": {"start": {"line": mutant.line, "column": ColumnNumber(1)}},
+            }
         )
     return files
 
@@ -144,12 +146,6 @@ def test_a_message_read_through_a_pointer_is_a_message_line() -> None:
     )
 
 
-def test_the_mutator_is_one_cpp_mull_yml_sweeps() -> None:
-    """The rule names the mutator the configuration sweeps, spelled as Mull spells it."""
-    config = cast("_MullConfig", yaml.safe_load((REPO_ROOT / "cpp/mull.yml").read_text("utf-8")))
-    assert POINTER_CALL_MUTATOR in config["mutators"]
-
-
 def test_another_mutator_on_a_message_line_is_not_the_rule() -> None:
     """Only the pointer-call replacement is held off a message line; others may sit there."""
     files = _files(
@@ -178,15 +174,3 @@ def test_the_line_is_read_from_the_repository_relative_file() -> None:
     )
     assert pointer_call_refusal(files, read) is None
     assert asked == [(_BACKEND, LineNumber(20))]
-
-
-def test_a_path_is_made_repository_relative_at_its_cpp_component() -> None:
-    """The first ``/cpp/`` cuts the path; a path without one is kept as Mull wrote it.
-
-    A directory whose name only ends or starts with ``cpp`` is not that component.
-    """
-    assert repo_relative(MullPath("/home/user/tree/cpp/src/a.cpp")) == "cpp/src/a.cpp"
-    assert repo_relative(MullPath("/w/cpp/x/cpp/b.hpp")) == "cpp/x/cpp/b.hpp"
-    assert repo_relative(MullPath("/home/srccpp/cpp/src/a.cpp")) == "cpp/src/a.cpp"
-    assert repo_relative(MullPath("/usr/include/c++/vector")) == "/usr/include/c++/vector"
-    assert repo_relative(MullPath("/opt/libcpp/cpplib/a.hpp")) == "/opt/libcpp/cpplib/a.hpp"

@@ -35,7 +35,9 @@ from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, cast
 from tools._common import RelPath, run_streaming, short_sha
 from tools._resources import detect_cpus
 from tools.cpp_scratch import reap_dead_scratch_dirs, scratch_root
+from tools.mutation_cpp_census import bool_call_refusal, identifier_refusal
 from tools.mutation_cpp_config import leg_config, leg_config_path
+from tools.mutation_cpp_elements import LineNumber, MullPath, SourceLine, repo_relative
 from tools.mutation_cpp_legs import (
     CPP_ELEMENTS_REPORT,
     CPP_LEGS_ENV,
@@ -47,13 +49,7 @@ from tools.mutation_cpp_legs import (
     sliced_legs,
 )
 from tools.mutation_cpp_order import order_refusal
-from tools.mutation_cpp_pointer_calls import (
-    LineNumber,
-    MullPath,
-    SourceLine,
-    pointer_call_refusal,
-    repo_relative,
-)
+from tools.mutation_cpp_pointer_calls import pointer_call_refusal
 from tools.mutation_cpp_runs import (
     CPP_LEG_RUNS_SUFFIX,
     CPP_RUNS_REPORT,
@@ -80,7 +76,9 @@ from tools.mutation_routes import KILL_ROUTES, Ending, lane_endings, merge_endin
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from tools.mutation_cpp_pointer_calls import ElementsFiles, LineReader
+    from tools.mutation_cpp_elements import ElementsFiles, LineReader
+
+    from aletheia.common_types import Prose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -165,7 +163,7 @@ def cpp_survivor_rows(artifact_dir: Path) -> dict[SurvivorKey, int] | None:
     return elements_survivor_rows(elements, _repo_line)
 
 
-def _check_cpp_tools() -> tuple[str, str] | str:
+def check_cpp_tools() -> tuple[str, str] | str:
     """Return ``(cmake, mull_runner)`` paths when C++ can run, else an error string."""
     cmake = shutil.which("cmake")
     if cmake is None:
@@ -624,7 +622,7 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     # never reached its sweep says which leg it was.
     legs = [CppLeg()] if stage is None else [stage]
     binding = "cpp" if stage is None else stage.binding
-    checked = _check_cpp_tools()
+    checked = check_cpp_tools()
     if isinstance(checked, str):
         return MutationReport(binding, "mull", 0, 0, "", error=checked)
     raw, swept = _sweep_legs(checked, artifact_dir, legs)
@@ -757,10 +755,12 @@ def _legs_elapsed(legs_dir: Path) -> dict[CppLeg, float] | str:
 def _finish_cpp(
     artifact_dir: Path, raw: str, report: dict[str, object], legs: Sequence[CppLeg]
 ) -> MutationReport:
-    """Write the lane's reports and log, and refuse a census that breaks the pointer-call rule.
+    """Write the lane's reports and log, and refuse a census that breaks a census rule.
 
-    The kill routes and the surface are counted, and the census is held to the
-    rule ``tools/mutation_cpp_pointer_calls.py`` states once every report is written.
+    The kill routes and the surface are counted, and the census is held to
+    the three rules of ``tools/mutation_cpp_pointer_calls.py`` and
+    ``tools/mutation_cpp_census.py`` once every report is written; every rule
+    it breaks is a line of the error.
 
     The report is written scored over its own mutants, here as well as at the
     union, so the whole tree's report and the merged slices' carry the one
@@ -786,11 +786,10 @@ def _finish_cpp(
     runs = lane_runs(artifact_dir, legs)
     (artifact_dir / CPP_RUNS_REPORT).write_text(json.dumps(runs, indent=2))
     raw += weight_drift(runs)
-    # The census is held to the pointer-call rule once its reports are written,
-    # so a refused census can still be read.
-    refused = pointer_call_refusal(cast("ElementsFiles", scored.get("files", {})), _repo_line)
-    if refused is not None:
-        raw += f"{refused}\n"
+    # The census is held to its rules once its reports are written, so a
+    # refused census can still be read.
+    refusals = _census_refusals(cast("ElementsFiles", scored.get("files", {})))
+    raw += "".join(f"{refused}\n" for refused in refusals)
     (artifact_dir / "cpp.raw.txt").write_text(raw)
     census = None if routes is None else {KillRoute(r): MutantCount(c) for r, c in routes.items()}
     return MutationReport(
@@ -799,11 +798,21 @@ def _finish_cpp(
         killed,
         survived,
         raw,
-        error=refused,
+        error="\n".join(refusals) if refusals else None,
         # Every mutant the runner made has a row, so a file with runs is a file
         # holding a mutant, whatever became of it.
         observed=Observed(timeouts, routes=census, mutated_files=frozenset(runs)),
     )
+
+
+def _census_refusals(files: ElementsFiles) -> list[Prose]:
+    """Hold the census to its three rules, and collect what each one refuses."""
+    rulings = (
+        pointer_call_refusal(files, _repo_line),
+        bool_call_refusal(files),
+        identifier_refusal(files),
+    )
+    return [refused for refused in rulings if refused is not None]
 
 
 def unobserved_summary(unobserved: Sequence[UnobservedRow]) -> str:

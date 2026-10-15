@@ -12,7 +12,8 @@ one-process run over the tree.
 Two refusals belong to slicing alone, and both stand for a file the partition
 never claimed: two slices carrying one identifier, which is that file mutated
 by every slice, and a union short of the recorded census, which is that file
-mutated by none.
+mutated by none.  The census rules are held on the whole tree's census and
+on the union alike, never on one leg's.
 """
 
 from __future__ import annotations
@@ -20,13 +21,22 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, NewType
 
 import pytest
 
 from tools import mutation_cpp, mutation_cpp_runs, mutation_run
 from tools._common import RelPath
 from tools.mutation_cpp import elements_counts, run_cpp, union_slices
+from tools.mutation_cpp_census import BOOL_CALL_MUTATOR, SCALAR_CALL_MUTATOR
+from tools.mutation_cpp_elements import (
+    ColumnNumber,
+    LineNumber,
+    MullPath,
+    MutantId,
+    MutatorName,
+    SourceLine,
+)
 from tools.mutation_cpp_legs import (
     CPP_LEGS_ENV,
     CPP_MERGE_STAGE,
@@ -35,7 +45,7 @@ from tools.mutation_cpp_legs import (
     is_cpp_leg,
     sliced_legs,
 )
-from tools.mutation_cpp_pointer_calls import POINTER_CALL_MUTATOR, LineNumber, SourceLine
+from tools.mutation_cpp_pointer_calls import POINTER_CALL_MUTATOR
 from tools.mutation_cpp_runs import CPP_LEG_RUNS_SUFFIX, CPP_RUNS_REPORT
 from tools.mutation_cpp_slices import CPP_SLICES, SuiteRuns
 from tools.mutation_report import MutantCount
@@ -47,33 +57,87 @@ if TYPE_CHECKING:
 
 _SHA = "testsha"
 
+# The fixture's one file, as Mull names it, every mutant on its first line.
+_FILE = MullPath("/tree/cpp/src/a.cpp")
+# A slice's number, as the stage variable names it.
+_SliceNo = NewType("_SliceNo", int)
+
+
+def _ident(mutator: MutatorName, column: ColumnNumber) -> MutantId:
+    """Name a mutant as the plugin does, at the column given on the fixture's line."""
+    return MutantId(f"{mutator}:{_FILE}:1:{column}:1:{column}:{column:x}.0")
+
+
+def _mutator_of(ident: MutantId) -> MutatorName:
+    return MutatorName(ident.partition(":")[0])
+
+
+def _column_of(ident: MutantId) -> ColumnNumber:
+    return ColumnNumber(int(ident.split(":")[3]))
+
+
+def _six_part(ident: MutantId) -> MutantId:
+    """Cut a name to six parts, as a plugin built without its unique identifiers writes it."""
+    return MutantId(ident.rsplit(":", 1)[0])
+
+
+def _slice_mutants(base: ColumnNumber) -> tuple[MutantId, ...]:
+    """Plant the three mutants of one slice, at columns from ``base``.
+
+    A bool-call site and its scalar twin at one start, as the census rules
+    want, and a pointer-call mutant on a call that can answer null.
+    """
+    site = ColumnNumber(base + 1)
+    return (
+        _ident(BOOL_CALL_MUTATOR, site),
+        _ident(SCALAR_CALL_MUTATOR, site),
+        _ident(POINTER_CALL_MUTATOR, ColumnNumber(base + 3)),
+    )
+
+
 # What each slice carries. The slices partition the files, so no
 # identifier is in two of them; that is the property the merge checks, and the
 # fixture is built to have it so that breaking it is a test of its own.
-_SLICE_MUTANTS: Mapping[int, tuple[str, ...]] = {
-    number: tuple(f"m{number}{which}" for which in (1, 2, 3)) for number in range(1, CPP_SLICES + 1)
+_SLICE_MUTANTS: Mapping[_SliceNo, tuple[MutantId, ...]] = {
+    _SliceNo(number): _slice_mutants(ColumnNumber(number * 10))
+    for number in range(1, CPP_SLICES + 1)
 }
 _ALL_MUTANTS = tuple(mutant for mutants in _SLICE_MUTANTS.values() for mutant in mutants)
 
 # What the sweep lets live, whichever leg reads it.
-_SURVIVORS = {"m11"}
-
-# The fixture's one pointer-call mutant, on a call that can answer null: the
-# lane refuses a census carrying none.
-_POINTER_CALL = "m13"
+_SURVIVORS = {_SLICE_MUTANTS[_SliceNo(1)][0]}
 
 
-def _elements(mutants: Sequence[str], survivors: set[str]) -> dict[str, object]:
-    """Build an Elements report over the mutants given, those named surviving."""
+# The first slice's bool-call site and its twin: a broken census moves the
+# twin off the site and cuts the site's name to six parts.
+_BOOL_CALL = _SLICE_MUTANTS[_SliceNo(1)][0]
+_SCALAR_TWIN = _SLICE_MUTANTS[_SliceNo(1)][1]
+
+
+def _elements(
+    mutants: Sequence[MutantId], survivors: set[MutantId], *, broken: bool = False
+) -> dict[str, object]:
+    """Build an Elements report over the mutants given, those named surviving.
+
+    Broken, the report breaks every census rule a leg's report can: the
+    first slice's scalar twin starts one column past its bool-call site, and
+    that site's name lacks its seventh part.
+    """
     return {
         "files": {
-            "/tree/cpp/src/a.cpp": {
+            _FILE: {
                 "mutants": [
                     {
-                        "id": mutant,
+                        "id": _six_part(mutant) if broken and mutant == _BOOL_CALL else mutant,
                         "status": "Survived" if mutant in survivors else "Killed",
-                        "mutatorName": POINTER_CALL_MUTATOR if mutant == _POINTER_CALL else "m",
-                        "location": {"start": {"line": 1}},
+                        "mutatorName": _mutator_of(mutant),
+                        "location": {
+                            "start": {
+                                "line": 1,
+                                "column": _column_of(mutant)
+                                + (1 if broken and mutant == _SCALAR_TWIN else 0),
+                            }
+                        },
                     }
                     for mutant in mutants
                 ]
@@ -82,18 +146,20 @@ def _elements(mutants: Sequence[str], survivors: set[str]) -> dict[str, object]:
     }
 
 
-def _leg_mutants(leg: CppLeg) -> tuple[str, ...]:
+def _leg_mutants(leg: CppLeg) -> tuple[MutantId, ...]:
     """Name the mutants a leg's build carries: its slice's, or the whole surface."""
-    return _ALL_MUTANTS if leg.slice_no is None else _SLICE_MUTANTS[leg.slice_no]
+    return _ALL_MUTANTS if leg.slice_no is None else _SLICE_MUTANTS[_SliceNo(leg.slice_no)]
 
 
-def _write_leg_reports(artifact_dir: Path, leg: CppLeg) -> Mapping[str, object]:
+def _write_leg_reports(
+    artifact_dir: Path, leg: CppLeg, *, broken: bool = False
+) -> Mapping[str, object]:
     """Write the three reports Mull writes for one leg and the runs it writes, return its Elements.
 
     Every mutant costs one suite run, so the slices sum to what the whole
     sweep costs.
     """
-    elements = _elements(_leg_mutants(leg), _SURVIVORS)
+    elements = _elements(_leg_mutants(leg), _SURVIVORS, broken=broken)
     _ = (artifact_dir / f"{leg.report_name}.json").write_text(json.dumps(elements))
     _ = (artifact_dir / f"{leg.report_name}.txt").write_text("[info] Mutation score: 66%\n")
     runs = {RelPath("cpp/src/a.cpp"): SuiteRuns(len(_leg_mutants(leg)))}
@@ -135,7 +201,7 @@ def _fixture_domain(_root: Path, _config: Path) -> list[RelPath]:
 
 
 # The mutant a sweep can be told the runner ended at its cap.
-_TIMED_OUT_MUTANT = "m12"
+_TIMED_OUT_MUTANT = _SCALAR_TWIN
 
 
 def _time_out(sqlite_path: Path) -> None:
@@ -149,7 +215,11 @@ def _time_out(sqlite_path: Path) -> None:
 
 
 def _fake_sweeps(
-    monkeypatch: pytest.MonkeyPatch, swept: list[str], *, timed_out: bool = False
+    monkeypatch: pytest.MonkeyPatch,
+    swept: list[str],
+    *,
+    timed_out: bool = False,
+    broken: bool = False,
 ) -> None:
     """Replace the build-and-sweep of a leg by writing its reports, recording which ran."""
 
@@ -157,12 +227,12 @@ def _fake_sweeps(
         _cmake: str, _mull: str, _build_dir: Path, artifact_dir: Path, leg: CppLeg
     ) -> tuple[str, Mapping[str, object]]:
         swept.append(str(leg))
-        elements = _write_leg_reports(artifact_dir, leg)
+        elements = _write_leg_reports(artifact_dir, leg, broken=broken)
         if timed_out and _TIMED_OUT_MUTANT in _leg_mutants(leg):
             _time_out(artifact_dir / f"{leg.report_name}.sqlite")
         return f"=== {leg} leg ===\n", elements
 
-    monkeypatch.setattr(mutation_cpp, "_check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
+    monkeypatch.setattr(mutation_cpp, "check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
     monkeypatch.setattr(mutation_cpp, "_sweep_cpp_lane", sweep)
     monkeypatch.setattr(mutation_cpp, "short_sha", _fixed_sha)
     # The fixture's surface is nine mutants, not the repository's census, so
@@ -192,9 +262,9 @@ def test_unset_stage_sweeps_the_tree_whole(monkeypatch: pytest.MonkeyPatch, tmp_
     assert report.binding == "cpp"
     assert (report.total_mutants, report.survived) == (len(_ALL_MUTANTS), 1)
     merged = json.loads((tmp_path / "cpp-mull.json").read_text())
-    statuses = {m["id"]: m["status"] for m in merged["files"]["/tree/cpp/src/a.cpp"]["mutants"]}
-    assert statuses["m11"] == "Survived"
-    assert statuses["m21"] == "Killed"
+    statuses = {m["id"]: m["status"] for m in merged["files"][_FILE]["mutants"]}
+    assert statuses[_SLICE_MUTANTS[_SliceNo(1)][0]] == "Survived"
+    assert statuses[_SLICE_MUTANTS[_SliceNo(2)][0]] == "Killed"
 
 
 def test_a_mutant_that_timed_out_is_neither_killed_nor_survived(
@@ -232,7 +302,7 @@ def test_a_leg_sweeps_its_slice_alone_and_is_its_own_binding(
     assert swept == [str(leg)]
     assert report.error is None
     assert report.binding == leg.binding
-    assert report.total_mutants == len(_SLICE_MUTANTS[leg.slice_no or 1])
+    assert report.total_mutants == len(_SLICE_MUTANTS[_SliceNo(leg.slice_no or 1)])
     assert not (tmp_path / "cpp-mull.json").exists()
     assert (tmp_path / f"{leg.report_name}.json").is_file()
 
@@ -262,7 +332,7 @@ def test_a_leg_that_never_swept_reports_under_its_own_name(
     """A leg missing its tools fails under ``cpp-<leg>``, so the report says which leg."""
     leg = sliced_legs()[0]
     _fake_sweeps(monkeypatch, [])
-    monkeypatch.setattr(mutation_cpp, "_check_cpp_tools", lambda: "mull-runner-23 not in PATH")
+    monkeypatch.setattr(mutation_cpp, "check_cpp_tools", lambda: "mull-runner-23 not in PATH")
     _stage(monkeypatch, str(leg.slice_no))
     report = run_cpp(tmp_path)
     assert report.binding == leg.binding
@@ -423,7 +493,7 @@ def test_the_merge_refuses_two_slices_carrying_one_mutant(
     doubled = legs[1]
     leg_dir = tmp_path / "legs" / f"mutation-{doubled.binding}" / _SHA
     report = leg_dir / f"{doubled.report_name}.json"
-    shared = _SLICE_MUTANTS[1][0]
+    shared = _SLICE_MUTANTS[_SliceNo(1)][0]
     _ = report.write_text(json.dumps(_elements((*_leg_mutants(doubled), shared), _SURVIVORS)))
     merged = _merge(monkeypatch, tmp_path)
     assert merged.error is not None
@@ -469,8 +539,10 @@ def test_a_unioned_report_carries_the_score_of_its_own_mutants() -> None:
     nothing measured.
     """
     # One slice killed its only mutant, the other let its own live.
-    first = {**_elements(("m1",), set()), "mutationScore": 100.0}
-    second = {**_elements(("m2",), {"m2"}), "mutationScore": 0.0}
+    one = _ident(BOOL_CALL_MUTATOR, ColumnNumber(91))
+    other = _ident(BOOL_CALL_MUTATOR, ColumnNumber(92))
+    first = {**_elements((one,), set()), "mutationScore": 100.0}
+    second = {**_elements((other,), {other}), "mutationScore": 0.0}
     unioned = union_slices([first, second])
     assert not isinstance(unioned, str)
     assert elements_counts(unioned) == (2, 1)
@@ -514,3 +586,33 @@ def test_the_lane_refuses_a_pointer_call_on_a_message_line(
     assert (out / "cpp-mull.json").is_file()
     verdict = mutation_run.drift_for(report, {"cpp": {"baseline": {"survivors": 1}}})
     assert verdict["status"] == "error"
+
+
+def test_every_census_rule_broken_is_a_line_of_the_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The three rules are held together: each one broken is its own line of the error.
+
+    The pointer-call rule on the source line, the bool-call twin on the
+    mutants' starts and the identifier on their names, in that order, and the
+    reports are written all the same.
+    """
+    _fake_sweeps(monkeypatch, [], broken=True)
+    monkeypatch.setattr(mutation_cpp, "_repo_line", _message_line)
+    _stage(monkeypatch, None)
+    report = run_cpp(tmp_path)
+    site = f"cpp/src/a.cpp:1:{_column_of(_BOOL_CALL)}"
+    refusals = [
+        f"{POINTER_CALL_MUTATOR} mutants on lines reading an exception's message, which "
+        + "never answers null: cpp/src/a.cpp:1",
+        f"1 {BOOL_CALL_MUTATOR} sites with no {SCALAR_CALL_MUTATOR} twin, each a bool-returning "
+        + f"call tested for one answer only: {site}",
+        "1 identifiers with no seventh part, the plugin built without its unique identifiers: "
+        + f"{BOOL_CALL_MUTATOR}:{site}:1:{_column_of(_BOOL_CALL)}",
+    ]
+    assert report.error == "\n".join(refusals)
+    assert (tmp_path / "cpp.raw.txt").read_text().endswith("\n".join(refusals) + "\n")
+    assert (tmp_path / "cpp-mull.json").is_file()
+    assert (
+        mutation_run.drift_for(report, {"cpp": {"baseline": {"survivors": 1}}})["status"] == "error"
+    )

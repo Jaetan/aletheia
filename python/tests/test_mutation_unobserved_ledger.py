@@ -20,7 +20,7 @@ import yaml
 from tools import mutation_run
 from tools.check_mutation_setup import ledger_rows_still_name_their_line
 from tools.mutation_cpp import unobserved_kill_rows
-from tools.mutation_cpp_pointer_calls import LineNumber, SourceLine
+from tools.mutation_cpp_elements import LineNumber, SourceLine
 from tools.mutation_report import (
     SPEC_PATH,
     Baseline,

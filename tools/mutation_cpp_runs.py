@@ -20,7 +20,7 @@ import sqlite3
 from typing import TYPE_CHECKING, NewType, cast
 
 from tools.mutation_cpp_config import recorded_runs
-from tools.mutation_cpp_pointer_calls import MullPath, repo_relative
+from tools.mutation_cpp_elements import MullPath, repo_relative
 from tools.mutation_cpp_slices import FileRuns, Slice, SuiteRuns, partition, slice_domain
 from tools.mutation_report import REPO_ROOT
 

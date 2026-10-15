@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tools._branch_diff import branch_changes
-from tools._ci_tool_fact_steps import register_tool_fact_steps
+from tools._ci_tool_fact_steps import register_mutation_fact_steps, register_tool_fact_steps
 from tools._common import CPP_LINT_LANE, CPP_LINT_TREE
 from tools._resources import cpu_budget
 
@@ -963,3 +963,4 @@ def register_all_steps(runner: Runner, cabal: list[str], opts: OptInOptions) -> 
     _run_gha_checks(runner)
     register_tool_fact_steps(runner)
     _run_opt_in_lanes(runner, opts)
+    register_mutation_fact_steps(runner)

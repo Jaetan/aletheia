@@ -67,6 +67,24 @@ _OTHER_BUMP = _hunk(
     Prose("    URL https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz"),
     Prose("    URL https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.9.0.tar.gz"),
 )
+_PREFIX_MAP_MOVE = _hunk(
+    _CMAKE,
+    Prose('        "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")'),
+    Prose('        "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=src")'),
+)
+_BENCH = RelPath("docs/MUTATION_BENCH.yaml")
+_CARGO_MUTANTS_BUMP = _hunk(_BENCH, Prose('    version: "27.1.0"'), Prose('    version: "27.2.0"'))
+# The other two tools' releases in the same record: mutmut's carries its `==`,
+# Mull's the LLVM it is built against.
+_OTHER_RELEASE_BUMPS = DiffText(
+    _hunk(_BENCH, Prose('    version: "==3.8.0"'), Prose('    version: "==3.9.0"'))
+    + _hunk(_BENCH, Prose('    version: "0.34.1 LLVM-23"'), Prose('    version: "0.35.0 LLVM-23"'))
+)
+_PYPROJECT = RelPath("python/pyproject.toml")
+_MUTMUT_BUMP = _hunk(
+    _PYPROJECT, Prose('mutation = ["mutmut==3.8.0"]'), Prose('mutation = ["mutmut==3.9.0"]')
+)
+_PLUGIN_PATCH = RelPath("tools/mull/libirm-void-call-mutator.patch")
 
 
 def _branch(
@@ -129,6 +147,43 @@ def test_the_json_library_s_release_line_runs_its_gate(monkeypatch: pytest.Monke
     assert pin_change(PinGate.JSON_CLEANUP_ABORT, _ROOT) is not None
     _ = _branch(monkeypatch, [_CMAKE], {_CMAKE: _OTHER_BUMP})
     assert pin_change(PinGate.JSON_CLEANUP_ABORT, _ROOT) is None
+
+
+def test_the_cargo_mutants_release_line_runs_its_gate_and_the_other_releases_do_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Of the three releases the bench record pins, only cargo-mutants' is a bare version."""
+    _ = _branch(monkeypatch, [_BENCH], {_BENCH: _CARGO_MUTANTS_BUMP})
+    assert pin_change(PinGate.CARGO_MUTANTS_SHARDS, _ROOT) == Prose(
+        "the branch moves 'version: \"27.1.0\"' in docs/MUTATION_BENCH.yaml"
+    )
+    _ = _branch(monkeypatch, [_BENCH], {_BENCH: _OTHER_RELEASE_BUMPS})
+    assert pin_change(PinGate.CARGO_MUTANTS_SHARDS, _ROOT) is None
+
+
+def test_the_mutmut_pin_runs_its_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The [mutation] extra's exact pin moving re-arms the mutmut gate."""
+    _ = _branch(monkeypatch, [_PYPROJECT], {_PYPROJECT: _MUTMUT_BUMP})
+    assert pin_change(PinGate.MUTMUT_OPERATORS, _ROOT) == Prose(
+        "the branch moves 'mutation = [\"mutmut==3.8.0\"]' in python/pyproject.toml"
+    )
+
+
+def test_the_prefix_map_line_runs_the_plugin_gate_and_another_line_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flag the build withholds from the plugin is the plugin gate's line in the build file."""
+    _ = _branch(monkeypatch, [_CMAKE], {_CMAKE: _PREFIX_MAP_MOVE})
+    assert pin_change(PinGate.MULL_PLUGIN_FACTS, _ROOT) is not None
+    _ = _branch(monkeypatch, [_CMAKE], {_CMAKE: _OTHER_BUMP})
+    assert pin_change(PinGate.MULL_PLUGIN_FACTS, _ROOT) is None
+
+
+def test_a_plugin_patch_runs_both_gates_on_the_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What the plugin emits and which mutants a slice carries both rest on its patches."""
+    _ = _branch(monkeypatch, [_PLUGIN_PATCH])
+    for gate in (PinGate.MULL_PLUGIN_FACTS, PinGate.CPP_SLICES_CENSUS):
+        assert pin_change(gate, _ROOT) == Prose(f"the branch changes {_PLUGIN_PATCH}")
 
 
 def test_lines_git_cannot_give_run_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -212,8 +267,12 @@ def test_each_gate_is_named_in_the_log_as_its_step_is() -> None:
     """A gate's log name is its run_ci step's name without the ``check-`` prefix."""
     assert [gate.value for gate in PinGate] == [
         "agda-interface-reuse",
+        "cargo-mutants-shards",
         "clang-tidy-facts",
+        "cpp-slices-census",
         "json-cleanup-abort",
+        "mull-plugin-facts",
+        "mutmut-operators",
     ]
 
 
@@ -233,7 +292,8 @@ def test_every_scope_names_a_tracked_path() -> None:
         return path in tracked
 
     scoped = {scope.path for scopes in PIN_SCOPES.values() for scope in scopes}
-    assert sorted(path for path in scoped if not is_tracked(path)) == []
+    untracked = {path for path in scoped if not is_tracked(path)}
+    assert sorted(untracked) == []
 
 
 def test_a_line_before_any_hunk_is_not_content() -> None:

@@ -113,6 +113,9 @@ ShardCount = NewType("ShardCount", int)
 # What ``cargo mutants --list --json`` printed.
 CargoListing = NewType("CargoListing", str)
 
+# A release of cargo-mutants, as ``cargo mutants --version`` and the record spell it.
+CargoMutantsVersion = NewType("CargoMutantsVersion", str)
+
 # A mutant's identity, as the listing and an outcome both spell it.
 MutantKey = NewType("MutantKey", str)
 
@@ -192,35 +195,43 @@ _VERSION_RE = re.compile(r"cargo-mutants\s+(\d+\.\d+\.\d+)")
 _POSITION_RE = re.compile(r"^[^:]+:\d+:\d+:\s*")
 
 
-def cargo_mutants_version(text: str) -> str | None:
+def cargo_mutants_version(text: str) -> CargoMutantsVersion | None:
     """Read the version out of ``cargo mutants --version``, or None where it is not one."""
     match = _VERSION_RE.search(text)
-    return match.group(1) if match else None
+    return CargoMutantsVersion(match.group(1)) if match else None
 
 
-def _check_rust_tools(pinned: str | None) -> tuple[str, Path] | str:
-    """Return ``(cargo, lib)`` when the Rust lane can run, else an error string."""
+def check_cargo_mutants(pinned: CargoMutantsVersion | None) -> Path | Prose:
+    """Return cargo's path when cargo-mutants is installed at ``pinned``, else why it is not."""
     try:
         cargo = find_executable("cargo")
     except RuntimeError as exc:
-        return str(exc)
+        return Prose(str(exc))
     version = run_capture([cargo, "mutants", "--version"])
     found = cargo_mutants_version(version.stdout) if version.returncode == 0 else None
     if found is None:
-        return "cargo-mutants is not installed: cargo install cargo-mutants --locked"
+        return Prose("cargo-mutants is not installed: cargo install cargo-mutants --locked")
     if pinned is not None and found != pinned:
-        return f"cargo-mutants {found} is installed where the record pins {pinned}"
+        return Prose(f"cargo-mutants {found} is installed where the record pins {pinned}")
+    return Path(cargo)
+
+
+def _check_rust_tools(pinned: CargoMutantsVersion | None) -> tuple[str, Path] | str:
+    """Return ``(cargo, lib)`` when the Rust lane can run, else an error string."""
+    cargo = check_cargo_mutants(pinned)
+    if isinstance(cargo, str):
+        return cargo
     lib = REPO_ROOT / "build" / "libaletheia-ffi.so"
     if not lib.is_file():
         return f"libaletheia-ffi.so not found at {lib}; run `cabal run shake -- build` first"
-    return (cargo, lib)
+    return (str(cargo), lib)
 
 
-def _pinned_version() -> str | None:
+def pinned_version() -> CargoMutantsVersion | None:
     """Read the cargo-mutants version the record pins, or None where it pins none."""
     spec = load_spec().get("bindings", {}).get("rust", {})
     version = cast("Mapping[str, object]", spec).get("version")
-    return version if isinstance(version, str) else None
+    return CargoMutantsVersion(version) if isinstance(version, str) else None
 
 
 def rust_shards() -> ShardCount:
@@ -308,7 +319,7 @@ def run_rust(
     if stage == RUST_MERGE_STAGE:
         return merge_rust_jobs(artifact_dir)
     binding = RUST_LANE if stage is None else job_binding(stage)
-    checked = _check_rust_tools(_pinned_version())
+    checked = _check_rust_tools(pinned_version())
     if isinstance(checked, str):
         return MutationReport(binding, "cargo-mutants", 0, 0, "", error=checked)
     cargo, lib = checked
