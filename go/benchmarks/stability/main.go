@@ -230,21 +230,56 @@ func runCycle(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DB
 // envCount reads a positive whole number from the environment, answering the
 // default when the variable is unset. Anything else is refused: a run that
 // quietly measured the default would report it as the answer to what was asked.
-func envCount(name string, defaultValue int) int {
+func envCount(name string, defaultValue int) (int, error) {
 	raw, ok := os.LookupEnv(name)
 	if !ok {
-		return defaultValue
+		return defaultValue, nil
 	}
 	n, err := strconv.Atoi(raw)
 	if err != nil || n < 1 {
-		die("%s must be a positive whole number, got %q", name, raw)
+		return 0, fmt.Errorf("%s must be a positive whole number, got %q", name, raw)
 	}
-	return n
+	return n, nil
+}
+
+// cycle is the cycle main measures, a variable so that a test can run main
+// with one that leaks.
+var cycle = runCycle
+
+// gates compares the two snapshots. An exact gate passes only when they
+// agree, so it carries no threshold. The names and gate words are
+// docs/STABILITY_BENCH.yaml's.
+func gates(start, end snapshot) []subCheck {
+	exact := func(name string, from, to int64) subCheck {
+		return subCheck{Name: name, Gate: "hard_zero", Start: from, End: to, Delta: to - from, Passed: to == from}
+	}
+	return []subCheck{
+		{
+			Name: "rss", Gate: "soft_threshold",
+			Start: start.RSS, End: end.RSS, Delta: end.RSS - start.RSS,
+			Threshold: rssDeltaBytesCap,
+			Passed:    abs(end.RSS-start.RSS) <= rssDeltaBytesCap,
+		},
+		exact("fd_count", start.NumFDs, end.NumFDs),
+		exact("goroutines", start.Goroutines, end.Goroutines),
+		exact("stableptr", start.StablePtrCount, end.StablePtrCount),
+	}
+}
+
+// passed is the verdict: every gate passed.
+func passed(checks []subCheck) bool {
+	return !slices.ContainsFunc(checks, func(c subCheck) bool { return !c.Passed })
 }
 
 func main() {
-	cycles := envCount("ALETHEIA_STABILITY_CYCLES", 10)
-	frames := envCount("ALETHEIA_STABILITY_FRAMES", 100000)
+	cycles, err := envCount("ALETHEIA_STABILITY_CYCLES", 10)
+	if err != nil {
+		die("%v", err)
+	}
+	frames, err := envCount("ALETHEIA_STABILITY_FRAMES", 100000)
+	if err != nil {
+		die("%v", err)
+	}
 	ctx := context.Background()
 
 	libPath := findLibrary()
@@ -268,7 +303,7 @@ func main() {
 	t0 := time.Now()
 
 	for i := 0; i < cycles; i++ {
-		if err := runCycle(ctx, backend, dbc, frames); err != nil {
+		if err := cycle(ctx, backend, dbc, frames); err != nil {
 			die("cycle %d of %d failed: %v", i+1, cycles, err)
 		}
 		runtime.GC()
@@ -280,24 +315,8 @@ func main() {
 	}
 	elapsed := time.Since(t0).Seconds()
 
-	// An exact gate passes only when the two snapshots agree, so it carries no
-	// threshold. The names and gate words are docs/STABILITY_BENCH.yaml's.
-	exact := func(name string, from, to int64) subCheck {
-		return subCheck{Name: name, Gate: "hard_zero", Start: from, End: to, Delta: to - from, Passed: to == from}
-	}
-	subChecks := []subCheck{
-		{
-			Name: "rss", Gate: "soft_threshold",
-			Start: start.RSS, End: end.RSS, Delta: end.RSS - start.RSS,
-			Threshold: rssDeltaBytesCap,
-			Passed:    abs(end.RSS-start.RSS) <= rssDeltaBytesCap,
-		},
-		exact("fd_count", start.NumFDs, end.NumFDs),
-		exact("goroutines", start.Goroutines, end.Goroutines),
-		exact("stableptr", start.StablePtrCount, end.StablePtrCount),
-	}
-
-	allPassed := !slices.ContainsFunc(subChecks, func(c subCheck) bool { return !c.Passed })
+	subChecks := gates(start, end)
+	allPassed := passed(subChecks)
 
 	r := report{
 		Binding:        "go",

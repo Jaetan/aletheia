@@ -16,8 +16,10 @@
 # through its own guard, which asks whether the binding can load a library
 # rather than only whether one was built: the tests that drive the real
 # interface skip, and the rest run, the template tests among them, since the
-# workbook is written without the kernel. The harness's tests drive its lane
-# with an operation of their own and need no kernel at all.
+# workbook is written without the kernel. The two benchmark harnesses answer
+# through a guard of their own: the cases that load the kernel skip, and the
+# rest, which drive a lane with an operation of their own or run the program
+# to a refusal before it loads anything, run.
 #
 # The count is asserted, not just the exit: a tag added to a file that did not
 # need one would quietly shrink what runs, and that is the failure this is for.
@@ -28,7 +30,7 @@
 set -u
 cd "$(dirname "$0")/../go" || exit 2
 command -v go > /dev/null || exit 2
-expected=110
+expected=118
 modules=$(go list -m -f '{{.Dir}}') || exit 2
 [ -n "$modules" ] || exit 2
 excel=$(go list -m -f '{{.Dir}}' github.com/Jaetan/aletheia/go/excel) || exit 2

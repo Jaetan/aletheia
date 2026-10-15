@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -482,6 +483,118 @@ func TestCLIClosesEveryClientItOpens(t *testing.T) {
 		run(argv)
 		if held := aletheia.StablePtrCount(); held != before {
 			t.Errorf("after %v the binding holds %d handles, want %d", argv, held, before)
+		}
+	}
+}
+
+// TestCLIReportThatCannotBeWrittenIsAnError: a subcommand whose JSON report,
+// or the template's confirmation line, cannot be written exits with the error
+// code and says so, since a caller redirecting the stream into a file would
+// otherwise read a truncated report from a run that succeeded. Each reaches
+// the writer by its own path, validate by two, so each is run, stdout being
+// /dev/full, which takes an open and refuses every write.
+func TestCLIReportThatCannotBeWrittenIsAnError(t *testing.T) {
+	ensureLib(t)
+	dbc := repoPath("python", "tests", "fixtures", "dbc_corpus", "minimal.dbc")
+	mux := repoPath("python", "tests", "fixtures", "dbc_corpus", "multiplexing.dbc")
+	// The minimal fixture with a signal name duplicated, which validation fails.
+	src, err := os.ReadFile(dbc)
+	if err != nil {
+		t.Fatalf("read minimal.dbc fixture: %v", err)
+	}
+	failing := filepath.Join(t.TempDir(), "failing.dbc")
+	if err := os.WriteFile(failing, []byte(strings.Replace(string(src), "EngineTemp", "EngineSpeed", 1)), 0o600); err != nil {
+		t.Fatalf("write dbc: %v", err)
+	}
+	for _, argv := range [][]string{
+		{"validate", "--dbc", dbc, "--json"},
+		{"validate", "--dbc", failing, "--json"},
+		{"signals", "--dbc", dbc, "--json"},
+		{"format-dbc", "--dbc", dbc},
+		{"extract", "--dbc", dbc, "0x100", "0000000000000000", "--json"},
+		{"mux-query", "--dbc", mux, "0x64", "--json"},
+		{"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1", "--json"},
+		{"template", filepath.Join(t.TempDir(), "template.xlsx")},
+	} {
+		var code int
+		stderr := captureStderr(t, func() {
+			withStdout(t, "/dev/full", func() { code = run(argv) })
+		})
+		if code != exitError || !strings.Contains(stderr, "writing the report") {
+			t.Errorf("run(%v) with nowhere to write = %d, stderr %q; want %d and the write named",
+				argv, code, stderr, exitError)
+		}
+	}
+}
+
+// withStdout runs fn with os.Stdout opened on path for writing.
+func withStdout(t *testing.T, path string, fn func()) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	old := os.Stdout
+	os.Stdout = f
+	defer func() { os.Stdout = old }()
+	fn()
+}
+
+// TestGoAPIShellLineRunsAsWritten: the shell line docs/reference/GO_API.md
+// prints runs from go/, the directory the guide names, with ALETHEIA_LIB
+// unset or empty, and lists the messages of the DBC it names. No harness runs a
+// shell fence, so the line is read out of the guide and a guide changed
+// without running it fails here. The line is data, split on spaces and never
+// handed to a shell, so a character a shell would read otherwise is refused.
+func TestGoAPIShellLineRunsAsWritten(t *testing.T) {
+	if !cgoEnabled {
+		t.Skip("built without cgo; the binding cannot load the library")
+	}
+	// Absolute, since the test changes directory before it runs the line.
+	goDir, err := filepath.Abs(repoPath("go"))
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(goDir, "..", "build", "libaletheia-ffi.so")); err != nil {
+		t.Skip("libaletheia-ffi.so not built; run 'cabal run shake -- build'")
+	}
+	guide, err := os.ReadFile(repoPath("docs", "reference", "GO_API.md"))
+	if err != nil {
+		t.Fatalf("reading the guide: %v", err)
+	}
+	const prefix = "go run ./cmd/aletheia "
+	line := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(prefix) + `.*$`).Find(guide)
+	if line == nil {
+		t.Fatalf("the guide no longer prints a line starting with %q", prefix)
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9./_ -]+$`).Match(line) {
+		t.Fatalf("the guide's line %q carries a character a shell reads, which this test does not run", line)
+	}
+	fields := strings.Fields(string(line))
+	here, err := os.Stat(".")
+	if err != nil {
+		t.Fatalf("os.Stat: %v", err)
+	}
+	if pkg, err := os.Stat(filepath.Join(goDir, fields[2])); err != nil || !os.SameFile(pkg, here) {
+		t.Fatalf("from go/, %s is not this package", fields[2])
+	}
+
+	t.Chdir(goDir)
+	for _, unset := range []bool{true, false} {
+		t.Setenv("ALETHEIA_LIB", "")
+		if unset {
+			if err := os.Unsetenv("ALETHEIA_LIB"); err != nil {
+				t.Fatalf("os.Unsetenv: %v", err)
+			}
+		}
+		var code int
+		out := captureStdout(t, func() { code = run(fields[3:]) })
+		if code != exitOK {
+			t.Fatalf("the guide's line %q exits %d from go/, ALETHEIA_LIB unset %v; want %d", line, code, unset, exitOK)
+		}
+		if !regexp.MustCompile(`(?m)^Message `).MatchString(out) {
+			t.Errorf("the guide's line ran and listed no message, ALETHEIA_LIB unset %v:\n%s", unset, out)
 		}
 	}
 }

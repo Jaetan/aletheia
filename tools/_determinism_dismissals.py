@@ -45,6 +45,7 @@ _LOCALE = Prose(
 )
 _FENCES = Prose("each fence of the documents is built and run as the program a reader would run")
 _TRACKED = Prose("the claim is over git's tracked files, which only git answers")
+_EXIT_STATUS = Prose("the claim is the program's exit status, which only a process of its own has")
 
 DISMISSED: Mapping[Dismissal, Prose] = {
     Dismissal(GO, NetWord("runtime.Caller"), None): (
@@ -62,6 +63,10 @@ DISMISSED: Mapping[Dismissal, Prose] = {
     Dismissal(GO, NetWord("exec.Command"), RelPath("go/aletheia/main_test.go")): _FRESH_RUNTIME,
     Dismissal(GO, NetWord("exec.Command"), RelPath("go/aletheia/rts_heap_cap_test.go")): (
         _CAP_ENDS_PROCESS
+    ),
+    Dismissal(GO, NetWord("exec.Command"), RelPath("go/benchmarks/main_test.go")): _EXIT_STATUS,
+    Dismissal(GO, NetWord("exec.Command"), RelPath("go/benchmarks/stability/main_test.go")): (
+        _EXIT_STATUS
     ),
     Dismissal(PYTHON, NetWord("asyncio.CancelledError"), None): Prose("an exception type"),
     Dismissal(PYTHON, NetWord("asyncio.Task"), None): Prose("a type annotation"),
