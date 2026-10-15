@@ -13,6 +13,10 @@ never the measured values, which are host-dependent.  The one set of values it
 does check is ``parameters``: the flags it passed must come back as the report
 records them, so a report states what it ran.
 
+It also reads ``benchmarks/run_all.sh`` as text, for the latency mode: every
+lane is told every flag the schema pins, from one word, with a recorded
+default, and its arguments reach the harness.
+
 Binding availability:
   * Python is REQUIRED and always checked (the schema reference; interpreted, so
     its source IS what runs). Its absence is a hard failure — the gate is never
@@ -34,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -42,10 +47,11 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, cast
 import yaml
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 REPO = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO / "benchmarks" / "SCHEMA.yaml"
+RUNNER_PATH = REPO / "benchmarks" / "run_all.sh"
 
 # Per-mode tiny workloads -- enough to emit one row per lane/sweep, fast to run.
 # Every CLI flag the SCHEMA pins for a mode is passed here (``--warmup 0`` keeps
@@ -76,6 +82,108 @@ MODE_PARAMETERS = {
     }
     for mode, args in MODE_ARGS.items()
 }
+
+
+# A shell variable a lane of the runner fills, a binding as the schema names
+# it, a benchmark mode, a flag a harness takes, the runner's text, the word a
+# lane passes after a flag (a count or a variable) and a line of the gate's
+# verdict.
+LaneVariable = NewType("LaneVariable", str)
+BindingName = NewType("BindingName", str)
+ModeName = NewType("ModeName", str)
+Flag = NewType("Flag", str)
+ShellText = NewType("ShellText", str)
+CountWord = NewType("CountWord", str)
+Finding = NewType("Finding", str)
+
+# The runner's lanes, each a variable its case arm on the mode fills, and the
+# binding whose harness reads it.
+LANE_VARIABLES: dict[LaneVariable, BindingName] = {
+    LaneVariable("PYTHON_ARGS"): BindingName("python"),
+    LaneVariable("CPP_ARGS"): BindingName("cpp"),
+    LaneVariable("GO_ARGS"): BindingName("go"),
+    LaneVariable("RUST_ARGS"): BindingName("rust"),
+}
+# The modes whose lanes are held to every flag the schema pins. The throughput
+# lanes pass no --warmup, which the schema pins for that mode, so they are not
+# read.
+RUNNER_MODES_HELD = (ModeName("latency"),)
+
+
+def _told(arm: ShellText) -> dict[Flag, CountWord]:
+    """Return each flag a case arm passes and the word after it: a count, a variable, or empty.
+
+    Comments are set aside first, so a flag a comment names is not one the
+    lane is told.
+    """
+    words = re.sub(r"#[^\n]*", "", arm)
+    told: dict[Flag, CountWord] = {}
+    for flag, count in re.findall(
+        r'(--[a-z][a-z0-9-]*)(?:\s+("?\$\{?[A-Z][A-Z0-9_]*\}?"?|[0-9]+))?', words
+    ):
+        word = count.strip('"')
+        # One spelling for a variable, braced or not: the word is what it names.
+        if word.startswith("$"):
+            word = "$" + word.strip("${}")
+        told[Flag(flag)] = CountWord(word)
+    return told
+
+
+def lanes_missing_pinned_flags(
+    runner: ShellText, mode: ModeName, pinned: Sequence[Flag]
+) -> list[Finding]:
+    """Return one line per lane of ``mode`` not told a pinned flag, or not told it alike.
+
+    A harness run by hand warms and counts by its own defaults, and the four
+    defaults do not agree, so a published number is one the runner's lane was
+    told: every case arm of the mode that fills the lane's variable carries
+    the flag, the variable is handed to the harness, a count passed from a
+    variable, ``--warmup "$WARMUP"``, has a recorded default, ``WARMUP=500``,
+    and the four lanes pass each flag from the one word, so a run that passes
+    no flag still tells every lane the same number.
+    """
+    findings: list[Finding] = []
+    counts: dict[Flag, set[CountWord]] = {}
+    for variable, binding in LANE_VARIABLES.items():
+        arms = [
+            ShellText(found.group(1))
+            for found in re.finditer(
+                rf"^\s*{mode}\)\s+{variable}\b(.*?);;", runner, re.MULTILINE | re.DOTALL
+            )
+        ]
+        if not arms:
+            findings.append(
+                Finding(f"[{binding} / {mode}] the runner has no lane arm for the mode")
+            )
+            continue
+        if re.search(rf'"\$\{{{variable}\[@\]\}}"', runner) is None:
+            findings.append(
+                Finding(f"[{binding} / {mode}] {variable} is never handed to the harness")
+            )
+        for arm in arms:
+            told = _told(arm)
+            findings.extend(
+                Finding(f"[{binding} / {mode}] the lane is not told {flag}, which the schema pins")
+                for flag in pinned
+                if flag not in told
+            )
+            for flag, count in told.items():
+                if not count:
+                    continue
+                counts.setdefault(flag, set()).add(count)
+                default = re.search(rf"^{count[1:]}=\d+$", runner, re.MULTILINE)
+                if count.startswith("$") and default is None:
+                    findings.append(
+                        Finding(f"[{binding} / {mode}] {flag} passes {count}, which has no default")
+                    )
+    findings.extend(
+        Finding(
+            f"[{mode}] the lanes are told {flag} from different words: {', '.join(sorted(words))}"
+        )
+        for flag, words in counts.items()
+        if flag in pinned and len(words) > 1
+    )
+    return findings
 
 
 class Envelope(NamedTuple):
@@ -413,7 +521,22 @@ def main() -> int:
     if bool(args.self_test):
         return _self_test(schema)
 
-    errors, notices = check_all(schema, built=bool(args.built))
+    lane_findings: list[Finding] = []
+    for mode in RUNNER_MODES_HELD:
+        # --json is passed outside the mode's arm by every lane alike, and the
+        # run below reads the report it asks for.
+        pinned = [
+            Flag(flag)
+            for flag in _strs(_obj_map(_obj_map(schema["modes"])[mode])["flags"])
+            if flag != "--json"
+        ]
+        lane_findings.extend(
+            lanes_missing_pinned_flags(
+                ShellText(RUNNER_PATH.read_text(encoding="utf-8")), mode, pinned
+            )
+        )
+    run_errors, notices = check_all(schema, built=bool(args.built))
+    errors = [*lane_findings, *run_errors]
     for notice in notices:
         _out(f"  {notice}")
     if errors:
