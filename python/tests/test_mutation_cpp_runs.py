@@ -199,7 +199,7 @@ def _swept_leg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, log: MullLog) ->
     _ = (artifact_dir / f"{leg.report_name}.json").write_text(json.dumps({"files": {}}))
     _ = _report(artifact_dir / f"{leg.report_name}.sqlite", [(tmp_path / _A, Millis(4000))])
     monkeypatch.setenv(CPP_STAGE_ENV, "1")
-    monkeypatch.setattr(mutation_cpp, "_check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
+    monkeypatch.setattr(mutation_cpp, "check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
     monkeypatch.setattr(mutation_cpp, "build_cpp_mutation_tree", Mock(return_value=""))
     # The binary the lane would list before its runner is not built here; the
     # order rule has its own tests.

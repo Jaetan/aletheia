@@ -196,6 +196,11 @@ impossible on `main`.
   non-zero, unable to read the diff, and the others run whole. On a
   `push`-to-`main` run the branch's diff is empty, so only `iwyu --self-test`
   gates there, which is fine because the PR trigger is where it gates the diff.
+  A pin gate holds a fact about an exactly pinned tool and logs whether the
+  branch moved its pin: what the mutation lane adds is what Mull's plugin
+  emits and withholds, that the three C++ slices union to the whole tree's
+  census, how cargo-mutants deals its shards, and what mutmut has no operator
+  for.
 - **Cache key** = `{os, GHC 9.8.4, Agda 2.8.0, stdlib v2.4}`; accept a full
   rebuild on miss.
 

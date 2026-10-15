@@ -209,12 +209,15 @@ jobs:
           cache: pip
           cache-dependency-path: python/pyproject.toml
 
-      - name: Create the dev venv (python/.venv)
+      - name: Create the dev venv with the [mutation] extra (python/.venv)
+        # The type check reads tools/ against this venv, and the mutmut
+        # operators gate there is typed against the pinned mutmut, so the venv
+        # carries it, as the mutation jobs' venv and a contributor's do.
         run: |
           set -euo pipefail
           python3.14 -m venv python/.venv
           python/.venv/bin/pip install --upgrade pip
-          python/.venv/bin/pip install -e 'python/.[dev]'
+          python/.venv/bin/pip install -e 'python/.[dev,mutation]'
 
       - name: Set up Go
         uses: actions/setup-go@v7

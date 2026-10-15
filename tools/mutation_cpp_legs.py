@@ -19,6 +19,10 @@ from tools.mutation_cpp_slices import CPP_SLICES
 # The Elements report the C++ runner asks Mull for, beside ``cpp.json``.
 CPP_ELEMENTS_REPORT = "cpp-mull.json"
 
+# The census of the whole tree, a dry run's Elements report written beside the
+# first leg's reports, which the slices' union is held to.
+CPP_WHOLE_CENSUS = "cpp-mull-whole.json"
+
 # Where the tree is configured, under ``cpp/``.  The name is the one the
 # documented recipe and the build-tree ignore rules already carry, so a tree a
 # reader configures by hand is the tree the lane sweeps.

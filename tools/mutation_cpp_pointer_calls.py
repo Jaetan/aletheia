@@ -15,61 +15,18 @@ than a test.  The lane refuses both, whatever the record says.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, NewType, TypedDict
+from typing import TYPE_CHECKING
 
-from tools._common import RelPath
+from tools.mutation_cpp_elements import MutatorName, repo_relative
 
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
-
-MutatorName = NewType("MutatorName", str)
-# A path as Mull names it: absolute, under the tree it swept.
-MullPath = NewType("MullPath", str)
-# A line's number in a source file, counted from 1, and the text of that line.
-LineNumber = NewType("LineNumber", int)
-SourceLine = NewType("SourceLine", str)
-# Reads a line of a repository-relative file.
-type LineReader = Callable[[RelPath, LineNumber], SourceLine]
+    from tools.mutation_cpp_elements import ElementsFiles, LineReader
 
 POINTER_CALL_MUTATOR = MutatorName("cxx_replace_pointer_call_null")
 # What a line reading an exception's message spells: its ``what()``, through an object or a pointer.
 _EXCEPTION_MESSAGE = re.compile(r"(?:\.|->)what\(\)")
-
-
-class MutantStart(TypedDict):
-    """Where a mutant starts in its file."""
-
-    line: LineNumber
-
-
-class MutantLocation(TypedDict):
-    """The span a mutant covers in its file, of which the rule reads the start."""
-
-    start: MutantStart
-
-
-class ElementsMutant(TypedDict):
-    """The fields of a mutant in Mull's Elements report that the rule reads."""
-
-    mutatorName: MutatorName
-    location: MutantLocation
-
-
-class ElementsFile(TypedDict):
-    """One file's entry in the Elements report: the mutants made in it."""
-
-    mutants: list[ElementsMutant]
-
-
-# The Elements report's ``files``: each mutated file, as Mull names it, with its mutants.
-type ElementsFiles = Mapping[MullPath, ElementsFile]
-
-
-def repo_relative(path: MullPath) -> RelPath:
-    """Cut a path Mull names at its first ``/cpp/``, keeping a path that has none as it is."""
-    return RelPath("cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path)
 
 
 def pointer_call_refusal(files: ElementsFiles, read_line: LineReader) -> Prose | None:
