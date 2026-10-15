@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -383,11 +384,41 @@ func emitJSON(benchmark string, parameters, results any) {
 		Parameters: parameters,
 		Results:    results,
 	}
-	enc := json.NewEncoder(os.Stdout)
+	if err := writeReport(os.Stdout, out); err != nil {
+		die("%v", err)
+	}
+}
+
+// writeReport encodes one report to w. A write that fails is an error naming
+// the report, so the run exits non-zero and says why: benchmarks/run_all.sh
+// would otherwise read a clean exit over a report it cannot parse, with no
+// line naming the write.
+func writeReport(w io.Writer, out jsonOutput) error {
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(out); err != nil {
-		die("writing the %s report failed: %v", benchmark, err)
+		return fmt.Errorf("writing the %s report failed: %w", out.Benchmark, err)
 	}
+	return nil
+}
+
+// checkCounts refuses a count that measures nothing, since a row computed
+// from nothing reads as a rate of zero rather than as a failure. Every count
+// is checked whichever mode is running, so the refusal does not depend on
+// which flag that mode reads.
+func checkCounts(frames, runs, ops, warmup int) error {
+	for _, count := range []struct {
+		flag  string
+		value int
+	}{{"--frames", frames}, {"--runs", runs}, {"--ops", ops}} {
+		if count.value < 1 {
+			return fmt.Errorf("%s must be at least 1, got %d", count.flag, count.value)
+		}
+	}
+	if warmup < 0 {
+		return fmt.Errorf("--warmup must not be negative, got %d", warmup)
+	}
+	return nil
 }
 
 // A mode run without --warmup warms as the other bindings' harnesses do: two
@@ -422,19 +453,9 @@ func main() {
 		*warmup = latencyWarmupOps
 	}
 
-	// A count of zero measures nothing, and a row computed from nothing reads as
-	// a rate of zero rather than as a failure. Each is checked whichever mode is
-	// running, so the refusal does not depend on which flag that mode reads.
-	for _, count := range []struct {
-		flag  string
-		value int
-	}{{"--frames", *frames}, {"--runs", *runs}, {"--ops", *ops}} {
-		if count.value < 1 {
-			die("%s must be at least 1, got %d", count.flag, count.value)
-		}
-	}
-	if *warmup < 0 {
-		die("--warmup must not be negative, got %d", *warmup)
+	// Before the kernel loads, so a refused run measures nothing.
+	if err := checkCounts(*frames, *runs, *ops, *warmup); err != nil {
+		die("%v", err)
 	}
 
 	out := os.Stdout
