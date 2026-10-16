@@ -46,6 +46,10 @@ _LOCALE = Prose(
 _FENCES = Prose("each fence of the documents is built and run as the program a reader would run")
 _TRACKED = Prose("the claim is over git's tracked files, which only git answers")
 _EXIT_STATUS = Prose("the claim is the program's exit status, which only a process of its own has")
+_LITERAL_ECHO = Prose(
+    "a kernel that echoes this literal whole ends its process, so the call runs in a child"
+    + " and the parent reads the refusal the child received"
+)
 
 DISMISSED: Mapping[Dismissal, Prose] = {
     Dismissal(GO, NetWord("runtime.Caller"), None): (
@@ -56,6 +60,9 @@ DISMISSED: Mapping[Dismissal, Prose] = {
     ),
     Dismissal(GO, NetWord("exec.Command"), RelPath("go/aletheia/doc_examples_test.go")): _FENCES,
     Dismissal(GO, NetWord("exec.Command"), RelPath("go/aletheia/doc_files_test.go")): _TRACKED,
+    Dismissal(GO, NetWord("exec.Command"), RelPath("go/aletheia/literal_bound_test.go")): (
+        _LITERAL_ECHO
+    ),
     Dismissal(GO, NetWord("exec.Command"), RelPath("go/aletheia/loader_failures_test.go")): (
         Prose("a library is opened once per process")
     ),
@@ -139,8 +146,9 @@ DISMISSED: Mapping[Dismissal, Prose] = {
     Dismissal(CPP, NetWord("fork("), RelPath("cpp/tests/fresh_process_tests.cpp")): Prose(
         "each suite it starts claims what holds only in a process of its own: the renderer "
         + "refusing where no runtime was ever started, its library search kept once per "
-        + "process, the heap cap ending its process; the mutation binary folds them in, so "
-        + "they run as its children"
+        + "process, the heap cap ending its process, a long literal's refusal where a kernel "
+        + "that echoes the literal whole ends its process; the mutation binary folds them in, "
+        + "so they run as its children"
     ),
     Dismissal(CPP, NetWord("fork("), RelPath("cpp/tests/test_rts_heap_cap.cpp")): _CAP_ENDS_PROCESS,
     Dismissal(CPP, NetWord("run_program("), RelPath("cpp/tests/benchmark_program_tests.cpp")): (
@@ -158,6 +166,7 @@ DISMISSED: Mapping[Dismissal, Prose] = {
     Dismissal(RUST, NetWord("Command"), RelPath("rust/tests/doc_examples.rs")): (
         Prose(f"{_FENCES}; {_TRACKED}")
     ),
+    Dismissal(RUST, NetWord("Command"), RelPath("rust/tests/literal_bound.rs")): _LITERAL_ECHO,
     Dismissal(RUST, NetWord("Command"), RelPath("rust/tests/locale.rs")): _LOCALE,
     Dismissal(RUST, NetWord("Command"), RelPath("rust/tests/rts_heap_cap.rs")): _CAP_ENDS_PROCESS,
 }

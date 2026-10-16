@@ -142,9 +142,9 @@ withIndices (x ∷ xs) = (fzero , x) ∷ map (λ p → fsuc (Data.Product.proj�
 --     `HandlerErr (PropertyParseFailed idx)` (code
 --     `handler_property_parse_failed`).
 --   * Shape OK but atom count > `max-atom-count-per-property` (1024):
---     emit typed `ParseErr (InputBoundExceeded AtomCount observed limit)`
---     (code `parse_input_bound_exceeded` + structured `bound_kind /
---     observed / limit`).  This mirrors the handler-boundary placement
+--     emit typed `WithContext "SetProperties" (InputBoundExceeded AtomCount
+--     observed limit)` (code `input_bound_exceeded` + structured
+--     `bound_kind / observed / limit`).  This mirrors the handler-boundary placement
 --     pattern used for NestingDepth.
 --
 -- The `Fin n` index threaded through the JSON list is the static

@@ -230,6 +230,24 @@ fn parse_object_lifts_the_field_a_dbc_size_refusal_names() {
 }
 
 #[test]
+fn parse_object_lifts_an_observed_at_the_ceiling_the_kernel_reports() {
+    // The kernel reports a measured value past 2^64 - 1 as 2^64 - 1, its
+    // message saying "at least": the typed observed holds it exactly.
+    let kernel =
+        "rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807";
+    let err = parse_object(&format!(
+        r#"{{"status":"error","code":"input_bound_exceeded","message":"{kernel}","bound_kind":"rational_component_magnitude","observed":18446744073709551615,"limit":9223372036854775807}}"#
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(&err, Error::InputBoundExceeded { message, field: None, observed: u64::MAX, limit: 9_223_372_036_854_775_807, .. }
+            if message == kernel),
+        "got: {err:?}"
+    );
+    assert_eq!(err.to_string(), kernel);
+}
+
+#[test]
 fn parse_object_degrades_a_message_missing_or_not_a_string_to_core() {
     for member in [
         "",

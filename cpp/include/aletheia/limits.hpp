@@ -125,7 +125,8 @@ inline constexpr std::uint64_t max_rational_component_magnitude = 9'223'372'036'
 /// the error path use the `AletheiaError` itself.
 struct InputBoundExceededError {
     std::string bound_kind; // wire code (one of `bound_kind_*` above)
-    std::uint64_t observed; // input value that exceeded the limit
+    std::uint64_t observed; // measured value past the limit; UINT64_MAX when the kernel
+                            // measured more, its message then saying "at least"
     std::uint64_t limit;    // canonical bound from `Aletheia.Limits`
     // The part of the DBC that crossed the bound, as the kernel names it
     // (e.g. "senders array"): present on a DBC size bound (`array_cardinality`,

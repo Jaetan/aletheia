@@ -318,7 +318,8 @@ bindings:
       # loader object nothing references. The suites that need a
       # process of their own for the renderer and the runtime, the renderer
       # with the runtime down, with no library to find or releasing the kernel's
-      # strings, and the runtime's heap cap,
+      # strings, the runtime's heap cap, and a command holding one long number,
+      # which a kernel that echoes it whole answers by ending its process,
       # run as the binary's children
       # (cpp/tests/fresh_process_tests.cpp), each under the mutant it inherits,
       # since a process starts the runtime and searches for the library once.

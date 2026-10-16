@@ -24,7 +24,7 @@ open import Aletheia.Protocol.Message using (Response; Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
 import Aletheia.Error as Err
-open import Aletheia.Limits using (BoundKind; boundKindCode)
+open import Aletheia.Limits using (BoundKind; boundKindCode; saturateObserved)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData; Warning; WarningKind; UncachedAtom)
 open import Aletheia.LTL.Incremental using (formatLTLReason)
 open import Aletheia.Trace.Time using (tsValue)
@@ -145,9 +145,10 @@ formatValidationIssue issue =
 --   * parse / dispatch failures expose `line` + `column`; `TrailingInput`
 --     additionally exposes `statement_line` + `statement_column`.
 --   * `Error.InputBoundExceeded kind observed limit` (a top-level error
---     consolidating the bound checks) exposes `bound_kind` + `observed` +
---     `limit` (typed wire-error refinement; the C++ / Go / Python bindings
---     dispatch on `bound_kind` from this structured payload);
+--     consolidating the bound checks) exposes `bound_kind` + `observed`
+--     (the measured value, or `observed-ceiling` past it) + `limit` (typed
+--     wire-error refinement: every binding lifts the three into its typed
+--     bound error);
 --     `InputBoundExceededAt field …` adds `field`, the part of the input
 --     that crossed the bound.
 --   * `ValidationFailed` / `TextRoundTripFailed` expose `has_errors` + `issues`.
@@ -156,7 +157,7 @@ private
   boundInfoFields : BoundKind → ℕ → ℕ → List (String × JSON)
   boundInfoFields kind observed limit =
     ("bound_kind" , JStringS (boundKindCode kind)) ∷
-    ("observed"   , JNumber (ℕtoℚ observed)) ∷
+    ("observed"   , JNumber (ℕtoℚ (saturateObserved observed))) ∷
     ("limit"      , JNumber (ℕtoℚ limit)) ∷
     []
 

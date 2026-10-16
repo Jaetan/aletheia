@@ -788,6 +788,13 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     add_executable(rts_heap_cap_workload tests/rts_heap_cap_workload.cpp)
     target_link_libraries(rts_heap_cap_workload PRIVATE aletheia-cpp)
 
+    # A command holding one long number, sent through the real FFI: a kernel
+    # that echoes the number whole ends the process that called it, so the
+    # suite runs as a child of fresh_process_tests, below.
+    add_executable(literal_bound_tests tests/literal_bound_tests.cpp)
+    target_include_directories(literal_bound_tests PRIVATE src)
+    target_link_libraries(literal_bound_tests PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+
     add_executable(rts_heap_cap_tests tests/test_rts_heap_cap.cpp)
     target_compile_features(rts_heap_cap_tests PRIVATE cxx_std_23)
     target_link_libraries(rts_heap_cap_tests PRIVATE Catch2::Catch2WithMain)
@@ -802,12 +809,13 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # with the mutant each child inherits.
     set(ALETHEIA_FRESH_PROCESS_BINARIES rts_init_renderer_uninitialized_tests
         renderer_missing_library_tests renderer_frees_kernel_strings_tests rts_heap_cap_tests
-        rts_heap_cap_workload)
+        rts_heap_cap_workload literal_bound_tests)
     set(ALETHEIA_FRESH_PROCESS_DEFINITIONS
         ALETHEIA_RUNTIME_DOWN_TESTS="$<TARGET_FILE:rts_init_renderer_uninitialized_tests>"
         ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS="$<TARGET_FILE:renderer_missing_library_tests>"
         ALETHEIA_RENDERER_FREES_TESTS="$<TARGET_FILE:renderer_frees_kernel_strings_tests>"
-        ALETHEIA_RTS_HEAP_CAP_TESTS="$<TARGET_FILE:rts_heap_cap_tests>")
+        ALETHEIA_RTS_HEAP_CAP_TESTS="$<TARGET_FILE:rts_heap_cap_tests>"
+        ALETHEIA_LITERAL_BOUND_TESTS="$<TARGET_FILE:literal_bound_tests>")
     add_executable(fresh_process_tests tests/fresh_process_tests.cpp)
     target_compile_features(fresh_process_tests PRIVATE cxx_std_23)
     target_link_libraries(fresh_process_tests PRIVATE Catch2::Catch2WithMain)
@@ -822,8 +830,9 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     endif()
 
     # The tests whose cost is the input's, a DBC with one list past a size
-    # bound or text at the cap through the kernel, are the last units of
-    # unit_tests: the mutation lane runs the binary in link order
+    # bound or text at the cap through the kernel, are the last tests of
+    # unit_tests, after the long-number case that closes
+    # tests/fresh_process_tests.cpp: the mutation lane runs the binary in link order
     # (--order decl) and ends a run at its first failing assertion (--abort),
     # so every mutant a later test kills pays for the tests ahead of it. The
     # lane refuses a binary that lists a [costly] test ahead of an untagged one

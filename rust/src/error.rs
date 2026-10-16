@@ -85,7 +85,8 @@ pub enum Error {
         message: String,
         /// Which bound was crossed (a `BoundKind` name, e.g. `nesting_depth`).
         bound_kind: String,
-        /// The observed value that exceeded the limit.
+        /// The measured value that exceeded the limit, or `u64::MAX` when the
+        /// kernel measured more, its message then saying "at least".
         observed: u64,
         /// The canonical limit that was exceeded.
         limit: u64,

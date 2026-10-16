@@ -259,6 +259,19 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # the .so is absent.
         ("test_rts_heap_cap.py", "aletheia.client._ffi", "RTS_OVERRIDE_ENV"),
         ("test_rts_heap_cap.py", "aletheia.client._ffi", "find_ffi_library"),
+        # A long literal is a raw command no typed method sends, so its child's
+        # reply is read through the reader and the bound-refusal lift the typed
+        # commands use; the locator skips the test when the .so is absent, and
+        # the override variable is removed from the child's environment.
+        ("test_literal_bound.py", "aletheia.client._ffi", "find_ffi_library"),
+        ("test_literal_bound.py", "aletheia.client._ffi", "RTS_OVERRIDE_ENV"),
+        ("test_literal_bound.py", "aletheia.client._ffi", "KernelResponse"),
+        ("test_literal_bound.py", "aletheia.client._ffi", "parse_json_object"),
+        (
+            "test_literal_bound.py",
+            "aletheia.client._response_parsers",
+            "raise_if_input_bound_exceeded",
+        ),
         # The ctypes mirrors of the kernel's C structures: the layout test holds
         # them to haskell-shim/include/aletheia.h, and the entry tests call the kernel raw
         # with a NULL or undersized structure, or bytes no binding ever passes, and
