@@ -149,7 +149,7 @@ rather than silently skipping.
 from __future__ import annotations
 
 import argparse
-import datetime
+import datetime as dt
 import os
 import re
 import subprocess
@@ -489,9 +489,9 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
     )
 
 
-def _now_utc() -> datetime.datetime:
+def _now_utc() -> dt.datetime:
     """Return the current timezone-aware UTC moment."""
-    return datetime.datetime.now(datetime.UTC)
+    return dt.datetime.now(dt.UTC)
 
 
 @dataclass(frozen=True)

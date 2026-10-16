@@ -38,7 +38,7 @@ field for downstream verifiers.
 from __future__ import annotations
 
 import argparse
-import datetime
+import datetime as dt
 import json
 import re
 import shutil
@@ -803,10 +803,8 @@ def build_sbom(
 
     source_epoch = opts.source_epoch
     if source_epoch is None:
-        source_epoch = int(datetime.datetime.now(datetime.UTC).timestamp())
-    timestamp = datetime.datetime.fromtimestamp(source_epoch, datetime.UTC).isoformat(
-        timespec="seconds"
-    )
+        source_epoch = int(dt.datetime.now(dt.UTC).timestamp())
+    timestamp = dt.datetime.fromtimestamp(source_epoch, dt.UTC).isoformat(timespec="seconds")
 
     components = _toolchain_components(repo) + _ghc_dep_components(ghc_deps)
     if opts.bindings_dir is not None:

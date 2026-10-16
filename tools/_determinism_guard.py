@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import _thread
 import asyncio
-import datetime
+import datetime as dt
 import select
 import signal
 import subprocess
@@ -177,18 +177,18 @@ def _strftime(fmt: TimeFormat, t: time.struct_time | None = None) -> TimeText:
     return TimeText(_real_strftime(fmt, _real_localtime(CLOCK.seconds()) if t is None else t))
 
 
-class _DateTime(datetime.datetime):
+class _DateTime(dt.datetime):
     """``datetime.datetime`` whose current instant is the clock's."""
 
     @classmethod
-    def now(cls, tz: datetime.tzinfo | None = None) -> Self:
+    def now(cls, tz: dt.tzinfo | None = None) -> Self:
         """Read the clock as a date and time, in ``tz`` or in local time."""
         return cls.fromtimestamp(CLOCK.seconds(), tz)
 
     @classmethod
     def utcnow(cls) -> Self:
         """Read the clock as a naive UTC date and time."""
-        return cls.fromtimestamp(CLOCK.seconds(), datetime.UTC).replace(tzinfo=None)
+        return cls.fromtimestamp(CLOCK.seconds(), dt.UTC).replace(tzinfo=None)
 
 
 # --- Waits and threads.
@@ -411,7 +411,7 @@ def _install() -> None:
     _REPLACED.setattr(time, "asctime", _asctime)
     _REPLACED.setattr(time, "strftime", _strftime)
     _REPLACED.setattr(time, "sleep", _sleep)
-    _REPLACED.setattr(datetime, "datetime", _DateTime)
+    _REPLACED.setattr(dt, "datetime", _DateTime)
     _REPLACED.setattr(threading.Thread, "start", _thread_start)
     _REPLACED.setattr(_thread, "start_new_thread", _start_thread)
     _REPLACED.setattr(_thread, "start_joinable_thread", _start_thread)
