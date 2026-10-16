@@ -96,17 +96,17 @@ dev = [
     # ``pytest --random-order --random-order-bucket=package`` alongside the
     # deterministic lane.  Both must stay green.
     "pytest-random-order>=1.2.0,<2",
-    # AGENTS.md Python cat 34(b) — hypothesis-driven property
-    # tests for every wire-format encode/decode pair.  Profiles pinned in
-    # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
-    "hypothesis>=6.168.5,<7",
-    "pylint>=4.1.2,<5",
+    # AGENTS.md Python cat 34(b): hypothesis drives the property tests in
+    # ``python/tests/test_property_hypothesis.py``, which also registers the
+    # profiles they draw under.
+    "hypothesis>=6.169.0,<7",
+    "pylint>=4.1.3,<5",
     "basedpyright>=1.40.2,<2",
     # ruff drives the ruff(ALL) lint + format gate; minor-level pin, because
     # ruff is pre-1.0 and new rules land in minor bumps, so a minor bump is a
     # deliberate act that reads the new findings.  The floor also carries STABLE
     # py314 lint-target support, which ruff has had since 0.15.
-    "ruff>=0.16.10,<0.17",
+    "ruff>=0.17.0,<0.18",
     # AGENTS.md Python cat 25 long-run sub-check — psutil drives
     # ``python/benchmarks/stability.py`` (the RSS, and the process filesystem
     # whose descriptor directory the fd count lists).  Keep in [dev] so the

@@ -29,7 +29,7 @@ Reference: AGENTS.md § Universal Rules → "Reproducible build verification".
 from __future__ import annotations
 
 import argparse
-import datetime
+import datetime as dt
 import os
 import shutil
 import sys
@@ -152,16 +152,16 @@ def _emit_failure(hash1: str, hash2: str, work_dir: Path, *, keep: bool) -> None
 
 def _run_two_builds(work_dir: Path) -> tuple[str, str]:
     """Run two clean builds and return their .so hashes, emitting timing lines."""
-    start = datetime.datetime.now(datetime.UTC)
+    start = dt.datetime.now(dt.UTC)
     hash1 = _run_clean_build(1, work_dir, work_dir / "lib1.so")
-    mid = datetime.datetime.now(datetime.UTC)
+    mid = dt.datetime.now(dt.UTC)
     emit(
         f"check-reproducible-build: build 1 sha256 {hash1} "
         + f"({(mid - start).total_seconds():.0f}s)",
     )
 
     hash2 = _run_clean_build(2, work_dir, work_dir / "lib2.so")
-    end = datetime.datetime.now(datetime.UTC)
+    end = dt.datetime.now(dt.UTC)
     emit(
         f"check-reproducible-build: build 2 sha256 {hash2} "
         + f"({(end - mid).total_seconds():.0f}s; "
