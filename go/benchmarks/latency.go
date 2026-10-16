@@ -5,7 +5,7 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"slices"
 	"strings"
 	"time"
@@ -110,7 +110,7 @@ func analyzeLatencies(name string, raw []float64) latencyStats {
 	}
 }
 
-func printLatencyStats(out *os.File, s latencyStats) {
+func printLatencyStats(out io.Writer, s latencyStats) {
 	fmt.Fprintf(out, "\n%s:\n", s.Name)
 	fmt.Fprintf(out, "%s\n", strings.Repeat("-", 50))
 	fmt.Fprintf(out, "  Count:    %d operations\n", s.Count)
@@ -127,7 +127,7 @@ func printLatencyStats(out *os.File, s latencyStats) {
 }
 
 // latencyLane turns one measured lane into its stats row and prints it.
-func latencyLane(out *os.File, name string, lat []float64, err error) latencyStats {
+func latencyLane(out io.Writer, name string, lat []float64, err error) latencyStats {
 	if err != nil {
 		die("latency lane %q failed: %v", name, err)
 	}
@@ -136,7 +136,7 @@ func latencyLane(out *os.File, name string, lat []float64, err error) latencySta
 	return s
 }
 
-func runLatencySuite(backend *aletheia.FFIBackend, out *os.File, f frameFamily, numOps, warmup int) []latencyStats {
+func runLatencySuite(backend *aletheia.FFIBackend, out io.Writer, f frameFamily, numOps, warmup int) []latencyStats {
 	// The lane names are a different spelling from the throughput ones, and
 	// benchmarks/SCHEMA.yaml pins both across the four bindings.
 	lanes := []struct {
@@ -164,7 +164,7 @@ func runLatencySuite(backend *aletheia.FFIBackend, out *os.File, f frameFamily, 
 	return stats
 }
 
-func runLatency(backend *aletheia.FFIBackend, out *os.File, numOps, warmup int) []latencyStats {
+func runLatency(backend *aletheia.FFIBackend, out io.Writer, numOps, warmup int) []latencyStats {
 	var stats []latencyStats
 	for _, f := range families() {
 		stats = append(stats, runLatencySuite(backend, out, f, numOps, warmup)...)

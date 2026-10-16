@@ -38,6 +38,7 @@ from benchmarks._common import (
     emit_json_report,
     get_rss_mb,
     load_dbc,
+    run_mode,
 )
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
@@ -48,6 +49,7 @@ from aletheia.dsl import eventually_always, infinitely_often
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from aletheia.common_types import ExitStatus
     from aletheia.types import (
         DBCDefinition,
         LTLFormula,
@@ -310,8 +312,8 @@ def _run_one_formula(
     }
 
 
-def main() -> int:
-    """CLI entry point — sweep every FORMULAS row across trace sizes."""
+def _run() -> None:
+    """Parse args, sweep every FORMULAS row across trace sizes."""
     parser = argparse.ArgumentParser(description="Simplification stress benchmark")
     parser.add_argument("--quick", action="store_true", help="Fewer frames")
     parser.add_argument("--json", action="store_true", help="Emit JSON to stdout")
@@ -352,7 +354,10 @@ def main() -> int:
         parameters: SimplificationParameters = {"quick": args.quick}
         emit_json_report("simplification", parameters, report)
 
-    return 0
+
+def main() -> ExitStatus:
+    """CLI entry point: run the simplification benchmark, its report on stdout."""
+    return run_mode("simplification", _run)
 
 
 if __name__ == "__main__":

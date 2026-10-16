@@ -34,6 +34,7 @@ from benchmarks._common import (
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
+    run_mode,
     run_streaming_benchmark,
 )
 
@@ -46,6 +47,7 @@ from aletheia.types import DLCByteCount
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from aletheia.common_types import ExitStatus
     from aletheia.dsl import Property
     from aletheia.types import DBCDefinition, LTLFormula
 
@@ -479,8 +481,8 @@ def benchmark_dbc_size_scaling(
     return results
 
 
-def main() -> int:
-    """CLI entry point — parse args, run all scaling sweeps, emit summary."""
+def _run() -> None:
+    """Parse args, run all scaling sweeps, emit summary."""
     parser = argparse.ArgumentParser(description="Scaling benchmark")
     parser.add_argument("--quick", action="store_true", help="Run faster with fewer iterations")
     parser.add_argument(
@@ -535,7 +537,10 @@ def main() -> int:
         parameters: ScalingParameters = {"runs": RunCount(args.runs), "quick": args.quick}
         emit_json_report("scaling", parameters, results)
 
-    return 0
+
+def main() -> ExitStatus:
+    """CLI entry point: run the scaling benchmark, its report on stdout."""
+    return run_mode("scaling", _run)
 
 
 if __name__ == "__main__":

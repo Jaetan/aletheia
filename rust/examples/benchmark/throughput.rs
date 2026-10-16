@@ -3,6 +3,7 @@
 
 //! The client, the per-operation kernels and the throughput mode.
 
+use std::io;
 use std::time::Instant;
 
 use aletheia::{CanId, Client, Dbc, Dlc, Formula, SignalValue, Timestamp};
@@ -12,8 +13,8 @@ use crate::fixtures::{
     can20_dbc, can20_frame, can20_properties, can20_signals, canfd_dbc, canfd_frame,
     canfd_properties, canfd_signals,
 };
-use crate::log_line;
 use crate::stats::{max_of, mean, min_of, round1, sample_stdev};
+use crate::Output;
 
 // ---------------------------------------------------------------------------
 // Per-lane workloads — each owns a fresh Client (fresh StreamState); the core
@@ -82,7 +83,12 @@ fn bench_building(dbc: &Dbc, dlc: Dlc, signals: &[SignalValue], num_frames: u64)
 /// One throughput lane: its wire name and a `frames -> fps` runner.
 type Lane<'a> = (&'static str, Box<dyn Fn(u64) -> f64 + 'a>);
 
-pub(crate) fn run_throughput(frames: u64, runs: usize, warmup: usize, json: bool) -> Vec<Value> {
+pub(crate) fn run_throughput(
+    out: &mut Output<'_>,
+    frames: u64,
+    runs: usize,
+    warmup: usize,
+) -> io::Result<Vec<Value>> {
     let dbc20 = can20_dbc();
     let dbcfd = canfd_dbc();
     let f20 = can20_frame();
@@ -126,17 +132,14 @@ pub(crate) fn run_throughput(frames: u64, runs: usize, warmup: usize, json: bool
     let mut results = Vec::new();
     for (name, run) in &lanes {
         let name: &str = name;
-        log_line(json, &format!("\n{name}:"));
+        out.line(&format!("\n{name}:"))?;
         for _ in 0..warmup {
             let _ = run(frames / 10);
         }
         let mut fps_list = Vec::new();
         for idx in 0..runs {
             let fps = run(frames);
-            log_line(
-                json,
-                &format!("  Run {}/{}: {fps:.0} ops/sec", idx + 1, runs),
-            );
+            out.line(&format!("  Run {}/{}: {fps:.0} ops/sec", idx + 1, runs))?;
             fps_list.push(fps);
         }
         // A lane with no measurement is a hard error, never an omitted row: an
@@ -161,5 +164,5 @@ pub(crate) fn run_throughput(frames: u64, runs: usize, warmup: usize, json: bool
             "us_per_frame": round1(us_per_frame),
         }));
     }
-    results
+    Ok(results)
 }

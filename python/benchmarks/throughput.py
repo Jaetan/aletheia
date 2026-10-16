@@ -35,6 +35,7 @@ from benchmarks._common import (
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
+    run_mode,
     run_streaming_benchmark,
 )
 
@@ -47,6 +48,7 @@ from aletheia import AletheiaClient
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from aletheia.common_types import ExitStatus
     from aletheia.types import DBCDefinition, LTLFormula
 
 
@@ -224,8 +226,8 @@ def _to_json_payload(r: _BenchResult) -> _JsonPayload:
     }
 
 
-def main() -> int:
-    """CLI entry point — parse args, run the benchmark suite, emit summary."""
+def _run() -> None:
+    """Parse args, run the benchmark suite, emit summary."""
     parser = argparse.ArgumentParser(description="Throughput benchmark")
     parser.add_argument("--frames", type=int, default=10000, help="Frames per run")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs")
@@ -269,7 +271,10 @@ def main() -> int:
         }
         emit_json_report("throughput", parameters, [_to_json_payload(r) for r in results])
 
-    return 0
+
+def main() -> ExitStatus:
+    """CLI entry point: run the throughput benchmark, its report on stdout."""
+    return run_mode("throughput", _run)
 
 
 if __name__ == "__main__":

@@ -68,9 +68,26 @@ def _words(repo: Path, rel: RelPath, source: SourceText) -> set[NetWord]:
             ("cpp/tests/x.cpp", "void f() { vfork(); }\n", "// vfork()\n", "vfork("),
             ("cpp/tests/x.cpp", "void f() { time(&t); }\n", "// time()\n", "time("),
             ("rust/tests/x.rs", "let f = libc::fork;\n", "// libc::fork\n", "libc::fork"),
+            (
+                "cpp/tests/x.cpp",
+                "auto c = aletheia::test::run_program(w, e, d, o, r);\n",
+                "// run_program()\n",
+                "run_program(",
+            ),
         )
     ],
-    ids=["go", "python", "cpp", "rust", "go-fork", "python-system", "vfork", "time", "libc"],
+    ids=[
+        "go",
+        "python",
+        "cpp",
+        "rust",
+        "go-fork",
+        "python-system",
+        "vfork",
+        "time",
+        "libc",
+        "launcher",
+    ],
 )
 def test_a_word_the_catalogue_does_not_count_is_a_net_site_and_its_prose_is_not(
     tmp_path: Path, rel: RelPath, code: SourceText, prose: SourceText, word: NetWord
@@ -79,6 +96,15 @@ def test_a_word_the_catalogue_does_not_count_is_a_net_site_and_its_prose_is_not(
     assert _words(tmp_path, rel, code) == {word}
     assert not _words(tmp_path, rel, prose)
     assert not _words(tmp_path, RelPath("docs/x.md"), code)
+
+
+def test_the_cpp_launcher_s_definition_is_not_a_call_of_it(tmp_path: Path) -> None:
+    """A C++ test starts a process where it calls the tests' launcher, not where it is defined."""
+    rel = RelPath("cpp/tests/x.hpp")
+    definition = SourceText("[[nodiscard]] inline auto run_program(int words) -> int {\n")
+    assert not _words(tmp_path, rel, definition)
+    call = SourceText("int const code = run_program(words, e, d, o, r);\n")
+    assert _words(tmp_path, rel, call) == {NetWord("run_program(")}
 
 
 @pytest.mark.parametrize(

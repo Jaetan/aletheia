@@ -872,7 +872,7 @@ hints:
     count: 16
   - file: python/benchmarks/latency.py
     text: "int"
-    count: 8
+    count: 7
   - file: python/benchmarks/latency.py
     text: "list[float]"
     count: 8
@@ -893,7 +893,7 @@ hints:
     count: 3
   - file: python/benchmarks/scaling.py
     text: "int"
-    count: 11
+    count: 10
   - file: python/benchmarks/scaling.py
     text: "list[int]"
     count: 2
@@ -914,7 +914,7 @@ hints:
     count: 3
   - file: python/benchmarks/simplification.py
     text: "int"
-    count: 2
+    count: 1
   - file: python/benchmarks/simplification.py
     text: "list[int]"
     count: 2
@@ -926,7 +926,7 @@ hints:
     count: 3
   - file: python/benchmarks/stability.py
     text: "int"
-    count: 3
+    count: 2
   - file: python/benchmarks/stability.py
     text: "list[dict[str, object]]"
     count: 1
@@ -944,7 +944,7 @@ hints:
     count: 12
   - file: python/benchmarks/throughput.py
     text: "int"
-    count: 8
+    count: 7
   - file: python/benchmarks/throughput.py
     text: "list[float]"
     count: 1
@@ -965,7 +965,7 @@ hints:
     count: 11
   - file: python/benchmarks/violations.py
     text: "int"
-    count: 17
+    count: 16
   - file: python/benchmarks/violations.py
     text: "list[float]"
     count: 1

@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -80,7 +79,7 @@ type throughputResult struct {
 	USPerFrame float64 `json:"us_per_frame"`
 }
 
-func runThroughput(backend *aletheia.FFIBackend, out *os.File, numFrames, numRuns, warmupRuns int) []throughputResult {
+func runThroughput(backend *aletheia.FFIBackend, out io.Writer, numFrames, numRuns, warmupRuns int) []throughputResult {
 	type lane struct {
 		name string
 		run  func(int) (float64, error)

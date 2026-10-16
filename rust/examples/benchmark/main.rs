@@ -29,6 +29,7 @@ mod scaling;
 mod stats;
 mod throughput;
 
+use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
@@ -93,13 +94,38 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// Progress/diagnostic line: stderr under `--json` (so stdout carries only the
-/// JSON report), stdout otherwise.
-fn log_line(json: bool, line: &str) {
-    if json {
-        eprintln!("{line}");
-    } else {
-        println!("{line}");
+/// Where a run writes. Without `--json` its text is the report, on `stdout`;
+/// under `--json` the text is progress on `stderr`, and the report is the JSON
+/// written to `stdout` once the lanes are done. A write to `stdout` that fails
+/// returns its error, which fails the run; progress `stderr` cannot take is
+/// lost, and the run goes on.
+pub(crate) struct Output<'a> {
+    stdout: &'a mut dyn Write,
+    stderr: &'a mut dyn Write,
+    json: bool,
+}
+
+impl Output<'_> {
+    /// One line of the run's text.
+    pub(crate) fn line(&mut self, line: &str) -> io::Result<()> {
+        if self.json {
+            let _ = writeln!(self.stderr, "{line}");
+            Ok(())
+        } else {
+            self.write(line)
+        }
+    }
+
+    /// The JSON report, under `--json`.
+    fn json_report(&mut self, report: &str) -> io::Result<()> {
+        self.write(report)
+    }
+
+    /// Write `text` as a line and flush it, so a writer that holds what it is
+    /// given fails here rather than when dropped, where its error is lost.
+    fn write(&mut self, text: &str) -> io::Result<()> {
+        writeln!(self.stdout, "{text}")?;
+        self.stdout.flush()
     }
 }
 
@@ -107,8 +133,41 @@ fn log_line(json: bool, line: &str) {
 // CLI
 // ---------------------------------------------------------------------------
 
+/// The benchmark a run measures, named by its first argument.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Throughput,
+    Latency,
+    Scaling,
+}
+
+impl Mode {
+    fn name(self) -> &'static str {
+        match self {
+            Mode::Throughput => "throughput",
+            Mode::Latency => "latency",
+            Mode::Scaling => "scaling",
+        }
+    }
+}
+
+impl std::str::FromStr for Mode {
+    type Err = String;
+
+    fn from_str(name: &str) -> Result<Self, String> {
+        match name {
+            "throughput" => Ok(Mode::Throughput),
+            "latency" => Ok(Mode::Latency),
+            "scaling" => Ok(Mode::Scaling),
+            other => Err(format!(
+                "Unknown mode: {other} (use throughput, latency, or scaling)"
+            )),
+        }
+    }
+}
+
 struct Args {
-    mode: String,
+    mode: Mode,
     frames: u64,
     runs: usize,
     warmup: usize,
@@ -117,22 +176,21 @@ struct Args {
     quick: bool,
 }
 
-fn parse_num<T: std::str::FromStr>(argv: &[String], i: usize, flag: &str) -> T {
-    argv.get(i).and_then(|s| s.parse().ok()).unwrap_or_else(|| {
-        eprintln!("{flag} requires a numeric argument");
-        std::process::exit(1);
-    })
+fn parse_num<T: std::str::FromStr>(argv: &[String], i: usize, flag: &str) -> Result<T, String> {
+    argv.get(i)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| format!("{flag} requires a numeric argument"))
 }
 
-fn parse_args() -> Args {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-
+/// The run `argv` asks for, or the line it is refused with. Every refusal
+/// comes before the run writes anything.
+fn parse_args(argv: &[String]) -> Result<Args, String> {
     // First positional argument (not a flag) selects the mode.
     let mut i = 0;
-    let mut mode = "throughput".to_string();
+    let mut mode = Mode::Throughput;
     if let Some(first) = argv.first() {
         if !first.starts_with('-') {
-            mode = first.clone();
+            mode = first.parse()?;
             i = 1;
         }
     }
@@ -150,24 +208,21 @@ fn parse_args() -> Args {
             "--quick" => quick = true,
             "--frames" => {
                 i += 1;
-                frames = Some(parse_num(&argv, i, "--frames"));
+                frames = Some(parse_num(argv, i, "--frames")?);
             }
             "--runs" => {
                 i += 1;
-                runs = Some(parse_num(&argv, i, "--runs"));
+                runs = Some(parse_num(argv, i, "--runs")?);
             }
             "--warmup" => {
                 i += 1;
-                warmup = Some(parse_num(&argv, i, "--warmup"));
+                warmup = Some(parse_num(argv, i, "--warmup")?);
             }
             "--ops" => {
                 i += 1;
-                ops = Some(parse_num(&argv, i, "--ops"));
+                ops = Some(parse_num(argv, i, "--ops")?);
             }
-            other => {
-                eprintln!("Unknown option: {other}");
-                std::process::exit(1);
-            }
+            other => return Err(format!("Unknown option: {other}")),
         }
         i += 1;
     }
@@ -185,9 +240,9 @@ fn parse_args() -> Args {
     // A mode run without `--warmup` warms as the other bindings' harnesses do:
     // two untimed passes before a throughput lane, five hundred untimed
     // operations before a latency lane.
-    let def_warmup = if mode == "latency" { 500 } else { 2 };
+    let def_warmup = if mode == Mode::Latency { 500 } else { 2 };
 
-    Args {
+    Ok(Args {
         mode,
         frames: frames.unwrap_or(def_frames),
         runs: runs.unwrap_or(def_runs),
@@ -195,13 +250,13 @@ fn parse_args() -> Args {
         ops: ops.unwrap_or(def_ops),
         json,
         quick,
-    }
+    })
 }
 
-/// Emit the JSON report for a list-container mode (throughput / latency).
+/// The JSON report of a list-container mode (throughput / latency).
 /// `parameters` holds the flags the mode read, `--json` aside, under the
 /// flag's name (`parameters` in `benchmarks/SCHEMA.yaml`).
-fn emit_list_report(mode: &str, parameters: Value, results: Vec<Value>) {
+fn list_report(mode: &str, parameters: Value, results: Vec<Value>) -> String {
     let output = json!({
         "benchmark": mode,
         "language": "rust",
@@ -210,17 +265,14 @@ fn emit_list_report(mode: &str, parameters: Value, results: Vec<Value>) {
         "parameters": parameters,
         "results": results,
     });
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&output).expect("serialize benchmark JSON")
-    );
+    serde_json::to_string_pretty(&output).expect("serialize benchmark JSON")
 }
 
-/// Emit the scaling report: a dict-container mode whose `results` object keys
+/// The scaling report: a dict-container mode whose `results` object keys
 /// MUST appear in schema order. `serde_json::Value` objects (a `BTreeMap`
 /// without the `preserve_order` feature) would sort the keys, so the results
 /// object is assembled by hand to pin the sub-benchmark order the gate checks.
-fn emit_scaling_report(mode: &str, parameters: &Value, sweeps: &[(&str, Value)]) {
+fn scaling_report(mode: &str, parameters: &Value, sweeps: &[(&str, Value)]) -> String {
     let inner: Vec<String> = sweeps
         .iter()
         .map(|(key, rows)| {
@@ -237,7 +289,7 @@ fn emit_scaling_report(mode: &str, parameters: &Value, sweeps: &[(&str, Value)])
     let parameters =
         serde_json::to_string_pretty(parameters).expect("serialize scaling parameters");
     let parameters_indented = parameters.replace('\n', "\n  ");
-    println!(
+    format!(
         "{{\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {{\n{results_body}\n  }}\n}}",
         Value::String("benchmark".to_string()),
         Value::String(mode.to_string()),
@@ -250,49 +302,78 @@ fn emit_scaling_report(mode: &str, parameters: &Value, sweeps: &[(&str, Value)])
         Value::String("parameters".to_string()),
         parameters_indented,
         Value::String("results".to_string()),
-    );
+    )
 }
 
-fn main() {
-    let args = parse_args();
-    let lib = std::env::var("ALETHEIA_LIB").unwrap_or_else(|_| "libaletheia-ffi.so".to_string());
-    log_line(
-        args.json,
-        &format!("Aletheia Rust Benchmark ({})", args.mode),
-    );
-    log_line(args.json, &format!("Library: {lib}"));
+/// Measure the mode `args` selects and write what it reports to `out`. The
+/// first lane loads the kernel, after the banner.
+fn measure(args: &Args, lib: &str, out: &mut Output<'_>) -> io::Result<()> {
+    let mode = args.mode.name();
+    out.line(&format!("Aletheia Rust Benchmark ({mode})"))?;
+    out.line(&format!("Library: {lib}"))?;
 
-    match args.mode.as_str() {
-        "throughput" => {
-            log_line(args.json, &format!("Frames per run: {}", args.frames));
-            log_line(args.json, &format!("Runs: {}", args.runs));
-            let results = run_throughput(args.frames, args.runs, args.warmup, args.json);
+    match args.mode {
+        Mode::Throughput => {
+            out.line(&format!("Frames per run: {}", args.frames))?;
+            out.line(&format!("Runs: {}", args.runs))?;
+            let results = run_throughput(out, args.frames, args.runs, args.warmup)?;
             if args.json {
                 let parameters =
                     json!({"frames": args.frames, "runs": args.runs, "warmup": args.warmup});
-                emit_list_report(&args.mode, parameters, results);
+                out.json_report(&list_report(mode, parameters, results))?;
             }
         }
-        "latency" => {
-            log_line(args.json, &format!("Operations: {}", args.ops));
-            let results = run_latency(args.ops, args.warmup, args.json);
+        Mode::Latency => {
+            out.line(&format!("Operations: {}", args.ops))?;
+            let results = run_latency(out, args.ops, args.warmup)?;
             if args.json {
                 let parameters = json!({"ops": args.ops, "warmup": args.warmup});
-                emit_list_report(&args.mode, parameters, results);
+                out.json_report(&list_report(mode, parameters, results))?;
             }
         }
-        "scaling" => {
-            log_line(args.json, &format!("Runs: {}", args.runs));
-            log_line(args.json, &format!("Quick: {}", args.quick));
-            let sweeps = run_scaling(args.runs, args.quick, args.json);
+        Mode::Scaling => {
+            out.line(&format!("Runs: {}", args.runs))?;
+            out.line(&format!("Quick: {}", args.quick))?;
+            let sweeps = run_scaling(out, args.runs, args.quick)?;
             if args.json {
                 let parameters = json!({"runs": args.runs, "quick": args.quick});
-                emit_scaling_report(&args.mode, &parameters, &sweeps);
+                out.json_report(&scaling_report(mode, &parameters, &sweeps))?;
             }
         }
-        other => {
-            eprintln!("Unknown mode: {other} (use throughput, latency, or scaling)");
-            std::process::exit(1);
-        }
+    }
+    Ok(())
+}
+
+/// Run the benchmark `argv` asks for, writing to `stdout` and `stderr`. The
+/// error is the line the program exits 1 on: an argument refused, or a report
+/// write that failed, naming the mode's report.
+fn run(
+    argv: &[String],
+    lib: &str,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<(), String> {
+    let args = parse_args(argv)?;
+    let mut out = Output {
+        stdout,
+        stderr,
+        json: args.json,
+    };
+    measure(&args, lib, &mut out)
+        .map_err(|err| format!("writing the {} report failed: {err}", args.mode.name()))
+}
+
+fn main() {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let lib = std::env::var("ALETHEIA_LIB").unwrap_or_else(|_| "libaletheia-ffi.so".to_string());
+    let mut stderr = io::stderr().lock();
+    let outcome = run(&argv, &lib, &mut io::stdout().lock(), &mut stderr);
+    if let Err(message) = outcome {
+        // A line stderr cannot take is lost; the exit status still tells.
+        let _ = writeln!(stderr, "{message}");
+        std::process::exit(1);
     }
 }
+
+#[cfg(test)]
+mod tests;

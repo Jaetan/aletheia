@@ -43,9 +43,9 @@ func die(format string, args ...any) {
 var ctx = context.Background()
 
 // findLibrary answers the path the kernel is loaded from: what ALETHEIA_LIB
-// names, else the build tree as seen from the executable or from the working
-// directory. Every candidate is checked; the last is returned unchecked, so a
-// benchmark that cannot load names a path rather than nothing.
+// names, else the build tree as seen from the working directory. Every
+// candidate is checked; the last is returned unchecked, so a benchmark that
+// cannot load names a path rather than nothing.
 func findLibrary() string {
 	if path := os.Getenv("ALETHEIA_LIB"); path != "" {
 		return path
@@ -57,11 +57,6 @@ func findLibrary() string {
 		filepath.Join("build", soName),
 		filepath.Join("..", "build", soName),
 		filepath.Join("..", "..", "build", soName),
-	}
-	// A built binary sits in go/benchmarks/, two levels under the repo root.
-	if exe, err := os.Executable(); err == nil {
-		fromExe := filepath.Join(filepath.Dir(exe), "..", "..", "build", soName)
-		candidates = append([]string{fromExe}, candidates...)
 	}
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {
@@ -397,9 +392,40 @@ func writeReport(w io.Writer, out jsonOutput) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(out); err != nil {
-		return fmt.Errorf("writing the %s report failed: %w", out.Benchmark, err)
+		return reportFailed(out.Benchmark, err)
 	}
 	return nil
+}
+
+// reportFailed names the report a write failed on and wraps the write's error.
+func reportFailed(benchmark string, err error) error {
+	return fmt.Errorf("writing the %s report failed: %w", benchmark, err)
+}
+
+// reportWriter is the text report's writer. It keeps the first error a write
+// returns and makes every later write a no-op, so the lanes print as they go
+// and main checks the report once they are done.
+type reportWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (r *reportWriter) Write(p []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	n, err := r.w.Write(p)
+	r.err = err
+	return n, err
+}
+
+// check answers the first failed write's error as the benchmark's report
+// failing, or nil when every write reached the stream.
+func (r *reportWriter) check(benchmark string) error {
+	if r.err == nil {
+		return nil
+	}
+	return reportFailed(benchmark, r.err)
 }
 
 // checkCounts refuses a count that measures nothing, since a row computed
@@ -417,6 +443,22 @@ func checkCounts(frames, runs, ops, warmup int) error {
 	}
 	if warmup < 0 {
 		return fmt.Errorf("--warmup must not be negative, got %d", warmup)
+	}
+	return nil
+}
+
+// checkMode refuses a mode this program does not run, and an argument the
+// flags leave over: flag parsing stops at the first argument that is not a
+// flag, so a mode written after a flag would run the default mode and drop
+// every flag after it.
+func checkMode(mode string, leftover []string) error {
+	switch mode {
+	case "throughput", "latency", "scaling":
+	default:
+		return fmt.Errorf("unknown mode %q, expected throughput, latency or scaling", mode)
+	}
+	if len(leftover) > 0 {
+		return fmt.Errorf("unexpected argument %q: the mode is the first argument, and only flags follow it", leftover[0])
 	}
 	return nil
 }
@@ -454,11 +496,18 @@ func main() {
 	}
 
 	// Before the kernel loads, so a refused run measures nothing.
+	if err := checkMode(mode, fs.Args()); err != nil {
+		die("%v", err)
+	}
 	if err := checkCounts(*frames, *runs, *ops, *warmup); err != nil {
 		die("%v", err)
 	}
 
-	out := os.Stdout
+	// Without --json the text is the report, and a failed write fails the
+	// run. With --json the report is the JSON on stdout and the text is
+	// progress on stderr, whose writes go unchecked as die's own message does.
+	report := &reportWriter{w: os.Stdout}
+	var out io.Writer = report
 	if *jsonFlag {
 		out = os.Stderr
 	}
@@ -500,8 +549,8 @@ func main() {
 		if *jsonFlag {
 			emitJSON("scaling", scalingParameters{Runs: *runs, Quick: *quick}, results)
 		}
-
-	default:
-		die("unknown mode %q, expected throughput, latency or scaling", mode)
+	}
+	if err := report.check(mode); err != nil {
+		die("%v", err)
 	}
 }

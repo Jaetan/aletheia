@@ -43,3 +43,9 @@ async = ["dep:futures-channel", "dep:futures-util"]
 [lib]
 name = "aletheia"
 path = "src/lib.rs"
+
+# The benchmark example's own tests, of its argument refusals and its report
+# writes, run with the crate's under `cargo test`.
+[[example]]
+name = "benchmark"
+test = true

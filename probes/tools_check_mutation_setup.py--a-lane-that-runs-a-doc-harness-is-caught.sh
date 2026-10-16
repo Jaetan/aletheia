@@ -103,13 +103,13 @@ arm go/aletheia/doc_examples_test.go 'func TestDocExamples(t *testing.T)' 'func 
 	"the Go harness renamed" \
 	"[go/doc-harness] TestDocExamples is defined 0 times" || exit 1
 
-arm rust/.cargo/mutants.toml "[\"--\", \"--skip\", \"$harness\"]" '["--"]' \
-	"no --skip" \
+arm rust/.cargo/mutants.toml "\"--skip\", \"$harness\"," '' \
+	"no --skip for the harness" \
 	"[rust/doc-harness] every mutant's run reaches $harness" || exit 1
-arm rust/.cargo/mutants.toml "[\"--\", \"--skip\", \"$harness\"]" "[\"--skip\", \"$harness\"]" \
+arm rust/.cargo/mutants.toml '"--",' '' \
 	"--skip handed to cargo rather than the test binaries" \
 	"[rust/doc-harness] every mutant's run reaches $harness" || exit 1
-arm rust/.cargo/mutants.toml "\"$harness\"]" '"every_"]' \
+arm rust/.cargo/mutants.toml "\"--skip\", \"$harness\"," '"--skip", "every_",' \
 	"a filter matching every test sharing its prefix" \
 	"[rust/doc-harness] the lane's skip also drops every_listed_document_is_tracked_and_carries_a_rust_fence" || exit 1
 arm rust/tests/doc_examples.rs "fn $harness()" 'fn every_rust_fence_runs()' \

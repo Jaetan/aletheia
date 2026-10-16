@@ -55,7 +55,10 @@ Always-on invariants, checked without running the mutation tools (which take
    skips by name, and the skip must reach that test and no other; C++'s is its
    own binary's source, which the binary the Mull runner runs must not
    compile.  Each harness is first found where it is defined, so a rename is a
-   failure here rather than a check that names nothing.
+   failure here rather than a check that names nothing.  The Rust lane also
+   skips the benchmark program's tests, every test of
+   ``rust/tests/benchmark_program.rs``, which build the benchmark example
+   with a cargo of their own, and the skip must reach each of them.
 
 The dynamic counterpart is ``tools/mutation_run.py``, which actually drives
 each binding's mutation tool against this list and writes per-binding
@@ -364,6 +367,9 @@ TestName = NewType("TestName", str)
 PYTHON_DOC_HARNESS = PytestArg("--markdown-docs")
 RUST_DOC_HARNESS = TestName("every_rust_fence_of_the_listed_documents_builds_and_runs")
 CPP_DOC_HARNESS = "tests/doc_example_tests.cpp"
+# The tests that build the benchmark example with a cargo of their own and run
+# it, every test of this file; the Rust lane skips them beside its harness.
+RUST_PROGRAM_TESTS = REPO_ROOT / "rust" / "tests" / "benchmark_program.rs"
 
 MUTANTS_TOML_PATH = REPO_ROOT / "rust" / ".cargo" / "mutants.toml"
 CMAKE_PATH = REPO_ROOT / "cpp" / "CMakeLists.txt"
@@ -475,11 +481,12 @@ def go_lane_runs_no_doc_harness() -> list[Prose]:
 
 
 def rust_lane_runs_no_doc_harness() -> list[Prose]:
-    """Hold the Rust lane's ``--skip`` filters to the doc-example harness and nothing else.
+    """Hold the Rust lane's ``--skip`` filters to the harness and the program's tests alone.
 
     cargo-mutants appends the configuration's test arguments to ``cargo
-    test``, where those after ``--`` reach the test binaries; libtest skips a
-    test whose name contains a filter, or equals it under ``--exact``.
+    test``, where those after ``--`` reach the test binaries, an example's
+    tests among them; libtest skips a test whose name contains a filter, or
+    equals it under ``--exact``.
     """
     config = cast("_MutantsToml", tomllib.loads(MUTANTS_TOML_PATH.read_text(encoding="utf-8")))
     args = config.get("additional_cargo_test_args", [])
@@ -492,12 +499,28 @@ def rust_lane_runs_no_doc_harness() -> list[Prose]:
     exact = "--exact" in binary_args
     names = [
         TestName(match.group(1))
-        for directory in ("src", "tests")
+        for directory in ("src", "tests", "examples")
         for path in sorted((REPO_ROOT / "rust" / directory).rglob("*.rs"))
         for match in _RUST_TEST_RE.finditer(path.read_text(encoding="utf-8"))
     ]
     skipped = [name for name in names if any(name == f if exact else f in name for f in filters)]
-    return _skips_the_harness_alone("rust", RUST_DOC_HARNESS, names, skipped)
+    program = [
+        TestName(match.group(1))
+        for match in _RUST_TEST_RE.finditer(RUST_PROGRAM_TESTS.read_text(encoding="utf-8"))
+    ]
+    return [
+        *_skips_the_harness_alone(
+            "rust", RUST_DOC_HARNESS, names, [name for name in skipped if name not in program]
+        ),
+        *(
+            Prose(
+                f"[rust/program-tests] every mutant's run reaches {name}, which builds the "
+                + "benchmark example with a cargo of its own: the lane's skip does not match it"
+            )
+            for name in program
+            if name not in skipped
+        ),
+    ]
 
 
 def _skips_the_harness_alone(
@@ -615,7 +638,8 @@ def main() -> int:
             + "the rename (AGENTS.md cat 14(g) has the canonical lists).  For a "
             + "test that the mutated tree cannot satisfy: add its `--ignore=` to "
             + "[tool.mutmut], or let it skip.  For a doc-example harness a lane "
-            + "reaches: skip it in that lane's per-mutant run, and it alone.\n",
+            + "reaches: skip it in that lane's per-mutant run, and it alone, the Rust "
+            + "lane the benchmark program's tests beside it.\n",
         )
         return 1
 

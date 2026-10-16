@@ -31,6 +31,7 @@ from benchmarks._common import (
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
+    run_mode,
 )
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
@@ -38,6 +39,7 @@ from benchmarks._common import (
 from aletheia import AletheiaClient
 
 if TYPE_CHECKING:
+    from aletheia.common_types import ExitStatus
     from aletheia.types import DBCDefinition, LTLFormula
 
 
@@ -257,8 +259,8 @@ def _to_json_payload(name: str, stats: _LatencyStats) -> _JsonStatsRow:
     }
 
 
-def main() -> int:
-    """CLI entry point — parse args, run latency suites, emit summary."""
+def _run() -> None:
+    """Parse args, run latency suites, emit summary."""
     parser = argparse.ArgumentParser(description="Latency benchmark")
     parser.add_argument("--ops", type=int, default=5000, help="Operations to measure")
     parser.add_argument("--warmup", type=int, default=500, help="Warmup operations")
@@ -305,7 +307,10 @@ def main() -> int:
         }
         emit_json_report("latency", parameters, [_to_json_payload(n, s) for n, s in all_stats])
 
-    return 0
+
+def main() -> ExitStatus:
+    """CLI entry point: run the latency benchmark, its report on stdout."""
+    return run_mode("latency", _run)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 
 //! Scaling mode: the sweeps the report carries under its dict-shaped results.
 
+use std::io;
 use std::time::Instant;
 
 use aletheia::{CanId, Dbc, Dlc, Formula, Predicate, Rational};
@@ -12,9 +13,9 @@ use crate::fixtures::{
     always_between, always_less_than, can20_dbc, can20_frame, canfd_dbc, canfd_frame,
     make_properties, r, sized_dbc,
 };
-use crate::log_line;
 use crate::stats::{mean, min_of, round1, round3, round4};
 use crate::throughput::{bench_streaming, new_client};
+use crate::Output;
 
 // ---------------------------------------------------------------------------
 // Scaling mode: the sweeps under one dict-shaped payload, in the order the
@@ -66,6 +67,7 @@ fn trace_sizes(quick: bool) -> Vec<u64> {
 /// Sweep one frame type over trace sizes; rows carry `{frames, fps, relative}`.
 #[allow(clippy::too_many_arguments)]
 fn scan_trace_size(
+    out: &mut Output<'_>,
     dbc: &Dbc,
     id: CanId,
     dlc: Dlc,
@@ -73,26 +75,24 @@ fn scan_trace_size(
     props: &[Formula],
     sizes: &[u64],
     runs: usize,
-    json: bool,
     label: &str,
-) -> Vec<Value> {
+) -> io::Result<Vec<Value>> {
     let mut rows = Vec::new();
     let mut baseline: Option<f64> = None;
     for &size in sizes {
         let m = mean_fps(dbc, id, dlc, frame, props, size, runs);
         let base = *baseline.get_or_insert(m);
         let relative = if base > 0.0 { m / base } else { 0.0 };
-        log_line(
-            json,
-            &format!("  {label} {size} frames: {m:.0} fps ({relative:.2}x)"),
-        );
+        out.line(&format!(
+            "  {label} {size} frames: {m:.0} fps ({relative:.2}x)"
+        ))?;
         rows.push(json!({
             "frames": size,
             "fps": round1(m),
             "relative": round3(relative),
         }));
     }
-    rows
+    Ok(rows)
 }
 
 /// The five property-complexity levels (verbatim labels, CAN 2.0B), in order.
@@ -169,7 +169,7 @@ fn min_load_seconds(dbc: &Dbc, runs: usize) -> f64 {
 }
 
 /// Sweep DBC sizes; rows carry `{messages, seconds, messages_per_sec, relative}`.
-fn scan_dbc_size(sizes: &[u32], runs: usize, json: bool) -> Vec<Value> {
+fn scan_dbc_size(out: &mut Output<'_>, sizes: &[u32], runs: usize) -> io::Result<Vec<Value>> {
     let mut rows = Vec::new();
     let mut baseline: Option<f64> = None;
     for &size in sizes {
@@ -177,10 +177,9 @@ fn scan_dbc_size(sizes: &[u32], runs: usize, json: bool) -> Vec<Value> {
         let per_sec = f64::from(size) / secs;
         let base = *baseline.get_or_insert(per_sec);
         let relative = if base > 0.0 { per_sec / base } else { 0.0 };
-        log_line(
-            json,
-            &format!("  {size} messages: {secs:.4} s, {per_sec:.0} messages/sec ({relative:.2}x)"),
-        );
+        out.line(&format!(
+            "  {size} messages: {secs:.4} s, {per_sec:.0} messages/sec ({relative:.2}x)"
+        ))?;
         rows.push(json!({
             "messages": size,
             "seconds": round4(secs),
@@ -188,12 +187,16 @@ fn scan_dbc_size(sizes: &[u32], runs: usize, json: bool) -> Vec<Value> {
             "relative": round3(relative),
         }));
     }
-    rows
+    Ok(rows)
 }
 
 /// Run the scaling sweeps and return them as ordered `(key, rows)` pairs
 /// (the caller emits them in this order — the schema pins it).
-pub(crate) fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static str, Value)> {
+pub(crate) fn run_scaling(
+    out: &mut Output<'_>,
+    runs: usize,
+    quick: bool,
+) -> io::Result<Vec<(&'static str, Value)>> {
     let dbc20 = can20_dbc();
     let dbcfd = canfd_dbc();
     let f20 = can20_frame();
@@ -209,8 +212,9 @@ pub(crate) fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static
     let _ = bench_streaming(&dbc20, id20, dlc20, &f20, &make_properties(1), 1000);
 
     // 1 & 2: trace-size sweeps (CAN 2.0B then CAN-FD).
-    log_line(json, "\nTrace size scaling (CAN 2.0B):");
+    out.line("\nTrace size scaling (CAN 2.0B):")?;
     let trace20 = scan_trace_size(
+        out,
         &dbc20,
         id20,
         dlc20,
@@ -218,11 +222,11 @@ pub(crate) fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static
         &[always_between("EngineSpeed", 0, 8000)],
         &sizes,
         runs,
-        json,
         "CAN 2.0B",
-    );
-    log_line(json, "\nTrace size scaling (CAN-FD):");
+    )?;
+    out.line("\nTrace size scaling (CAN-FD):")?;
     let tracefd = scan_trace_size(
+        out,
         &dbcfd,
         idfd,
         dlcfd,
@@ -230,12 +234,11 @@ pub(crate) fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static
         &[always_between("GPSSpeed", 0, 655)],
         &sizes,
         runs,
-        json,
         "CAN-FD",
-    );
+    )?;
 
     // 3: property-count sweep (10 templates cycled by i mod 10), CAN 2.0B.
-    log_line(json, "\nProperty count scaling (CAN 2.0B):");
+    out.line("\nProperty count scaling (CAN 2.0B):")?;
     let counts = [1usize, 2, 3, 5, 7, 10];
     let mut pc_rows = Vec::new();
     let mut pc_baseline: Option<f64> = None;
@@ -245,10 +248,7 @@ pub(crate) fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static
         let base = *pc_baseline.get_or_insert(m);
         let relative = if base > 0.0 { m / base } else { 0.0 };
         let us_per_frame = if m > 0.0 { 1_000_000.0 / m } else { 0.0 };
-        log_line(
-            json,
-            &format!("  {count} props: {m:.0} fps ({relative:.2}x)"),
-        );
+        out.line(&format!("  {count} props: {m:.0} fps ({relative:.2}x)"))?;
         pc_rows.push(json!({
             "properties": count,
             "fps": round1(m),
@@ -258,7 +258,7 @@ pub(crate) fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static
     }
 
     // 4: property-complexity sweep, CAN 2.0B.
-    log_line(json, "\nProperty complexity scaling (CAN 2.0B):");
+    out.line("\nProperty complexity scaling (CAN 2.0B):")?;
     let mut cx_rows = Vec::new();
     let mut cx_baseline: Option<f64> = None;
     for (label, props) in complexity_levels() {
@@ -266,7 +266,7 @@ pub(crate) fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static
         let base = *cx_baseline.get_or_insert(m);
         let relative = if base > 0.0 { m / base } else { 0.0 };
         let us_per_frame = if m > 0.0 { 1_000_000.0 / m } else { 0.0 };
-        log_line(json, &format!("  {label}: {m:.0} fps ({relative:.2}x)"));
+        out.line(&format!("  {label}: {m:.0} fps ({relative:.2}x)"))?;
         cx_rows.push(json!({
             "complexity": label,
             "fps": round1(m),
@@ -277,14 +277,14 @@ pub(crate) fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static
 
     // 5: DBC-size sweep, after one untimed warm-up load of a 500-message DBC.
     let _ = load_seconds(&sized_dbc(500));
-    log_line(json, "\nDBC size scaling:");
-    let dbc_rows = scan_dbc_size(&dbc_sizes(quick), runs, json);
+    out.line("\nDBC size scaling:")?;
+    let dbc_rows = scan_dbc_size(out, &dbc_sizes(quick), runs)?;
 
-    vec![
+    Ok(vec![
         ("trace_size_can20", Value::Array(trace20)),
         ("trace_size_canfd", Value::Array(tracefd)),
         ("property_count", Value::Array(pc_rows)),
         ("property_complexity", Value::Array(cx_rows)),
         ("dbc_size", Value::Array(dbc_rows)),
-    ]
+    ])
 }

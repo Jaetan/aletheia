@@ -3,10 +3,10 @@
 """Static stability-bench coverage gate.
 
 Parses ``docs/STABILITY_BENCH.yaml`` and verifies, for every
-``(binding, sub_check)`` pair, that the binding's harness source file
-contains the declared ``source_marker`` substring.  Lightweight grep-based
-gate -- catches silent removal or rename of a sub-check assertion without
-running the harness.
+``(binding, sub_check)`` pair, that the file the row names in ``source_file``,
+or the binding's harness when it names none, contains the declared
+``source_marker`` substring.  Lightweight grep-based gate -- catches silent
+removal or rename of a sub-check's read without running the harness.
 
 The dynamic counterpart is ``tools/stability_run.py``, which actually
 executes the harnesses against >=1M frames and writes per-binding verdicts.
@@ -17,9 +17,14 @@ Usage:
 Exits 0 if every declared marker is present, 1 otherwise (with a precise
 diagnostic naming the missing entries).
 
-Forward-revert verified 2026-05-08: commenting out one sub-check call
-(e.g., the ``num_fds()`` line in ``python/benchmarks/stability.py``) fires
-this gate with a precise diagnostic; restoring brings it back to clean.
+Removing a sub-check's read from its harness (e.g. the descriptor
+directory's path in ``python/benchmarks/stability.py``) fires this gate with
+a diagnostic naming the binding, the sub-check and the missing marker.
+
+A marker is a substring, so a comment that carries it satisfies the gate as
+well as the read does: a deleted read fails its row only because every row's
+marker is spelled once in its file, as the code spells the read, which the
+gate's tests hold.
 """
 
 from __future__ import annotations
@@ -73,13 +78,11 @@ def _check_binding(binding_name: str, binding_spec: dict[str, object]) -> list[s
     if not isinstance(harness_rel, str) or not harness_rel:
         failures.append(f"[{binding_name}] missing 'harness' field in spec")
         return failures
-    harness_path = REPO_ROOT / harness_rel
-    if not harness_path.is_file():
+    if not (REPO_ROOT / harness_rel).is_file():
         failures.append(
             f"[{binding_name}] harness file does not exist: {harness_rel}",
         )
         return failures
-    source = harness_path.read_text()
     for entry in _sub_checks(binding_spec):
         if not isinstance(entry, dict):
             continue
@@ -91,9 +94,19 @@ def _check_binding(binding_name: str, binding_spec: dict[str, object]) -> list[s
                 f"[{binding_name}/{name}] missing 'source_marker' field in spec",
             )
             continue
-        if marker not in source:
+        source_rel = sc.get("source_file", harness_rel)
+        if not isinstance(source_rel, str) or not source_rel:
+            failures.append(f"[{binding_name}/{name}] 'source_file' must name a file")
+            continue
+        source_path = REPO_ROOT / source_rel
+        if not source_path.is_file():
             failures.append(
-                f"[{binding_name}/{name}] marker {marker!r} not found in {harness_rel}",
+                f"[{binding_name}/{name}] source file does not exist: {source_rel}",
+            )
+            continue
+        if marker not in source_path.read_text():
+            failures.append(
+                f"[{binding_name}/{name}] marker {marker!r} not found in {source_rel}",
             )
     return failures
 
@@ -105,7 +118,7 @@ def _report_failures(failures: list[str]) -> None:
         _ = sys.stderr.write(f"  - {failure}\n")
     _ = sys.stderr.write(
         f"\n{len(failures)} marker(s) missing.  Either add the sub-check to "
-        + "the harness source, or update "
+        + "the file its row reads, or update "
         + f"{SPEC_PATH.relative_to(REPO_ROOT)} to "
         + "reflect the intended coverage.\n",
     )

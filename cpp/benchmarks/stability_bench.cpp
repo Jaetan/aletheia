@@ -5,57 +5,49 @@
 // Exercises the FFI surface for cycles × frames (default 10 × 100_000 = 1M
 // total frames) and asserts no per-iteration drift on:
 //
-//   - RSS (soft threshold)         — /proc/self/status VmRSS
-//   - FD count (hard zero)         — /proc/self/fd, anon_inode filtered
-//   - active_thread_count (hard zero)
-//                                  — /proc/self/status Threads
-//   - malloc_info (soft threshold) — glibc malloc_info(0, FILE*) total bytes
+//   - RSS (soft threshold): /proc/self/status VmRSS
+//   - FD count (hard zero): /proc/self/fd, anon_inode filtered
+//   - active_thread_count (hard zero): /proc/self/status Threads
+//   - malloc_info (soft threshold): glibc malloc_info(0, FILE*) total bytes
 //
 // Per the long-run resource-leakage sub-checks in AGENTS/cpp.md, drift on any
 // sub-check is a finding.  Hard-zero gates are exact equality (no noise
 // tolerance allowed); soft-threshold gates carry an empirically-tuned cap
-// inline below, so changing the value makes the diff visible.  A probe under
-// probes/ compiles a variant that leaks one descriptor per cycle and checks
-// that the FD gate fails on it.
+// beside the gate in stability_report.hpp, so changing the value makes the
+// diff visible.  The reads live in stability_snapshot.hpp.  The process tests
+// in cpp/tests/stability_bench_tests.cpp hold the exit statuses below, among
+// them a run that leaks a descriptor between the snapshots failing the FD gate.
 //
 // Output: JSON to stdout (and optionally
 // benchmarks/stability/<commit>/cpp.json when invoked through
-// tools/stability_run.py).
+// tools/stability_run.py).  The exit status is that runner's contract: 0 when
+// every gate passed, 1 when one failed and the verdict is in the report, and 2
+// for a run with no verdict, such as a refused count, a failed warm-up, cycle
+// or snapshot, or a report that cannot be written.
 //
 // Linux-specific (relies on /proc and glibc malloc_info).
 
 #include "measure.hpp"
+#include "stability_report.hpp"
+#include "stability_snapshot.hpp"
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 
 #include <algorithm>
-#include <charconv>
 #include <chrono>
 #include <cstddef>
-#include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <expected>
 #include <filesystem>
-#include <format>
-#include <fstream>
-#include <malloc.h>
-#include <memory>
 #include <print>
 #include <ranges>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
-#include <string_view>
-#include <system_error>
-#include <vector>
 
 namespace {
-
-// Soft-threshold caps, established empirically on a quiet WSL2 host; revise
-// inline if a host rejects them as too tight or too loose.
-constexpr std::int64_t k_rss_delta_bytes_cap = 50LL * 1024 * 1024;    // 50 MiB
-constexpr std::int64_t k_malloc_delta_bytes_cap = 50LL * 1024 * 1024; // 50 MiB
 
 // Warmup cycles before the measurement window opens.  The GHC RTS heap,
 // MAlonzo dictionaries and lazy Agda structures need a substantial workload
@@ -66,129 +58,17 @@ constexpr std::int64_t k_malloc_delta_bytes_cap = 50LL * 1024 * 1024; // 50 MiB
 // the bench beyond a few seconds of wall time.
 constexpr int k_warmup_cycles = 7;
 
-struct Snapshot {
-    std::int64_t rss_bytes;
-    std::int64_t fd_count;
-    std::int64_t active_thread_count;
-    std::int64_t malloc_info_bytes;
-};
-
-struct SubCheck {
-    std::string name;
-    std::string gate; // "hard_zero" or "soft_threshold"
-    std::int64_t start;
-    std::int64_t end;
-    std::int64_t delta;
-    std::int64_t threshold;
-    bool passed;
-};
-
 } // namespace
 
-// Parse a /proc/self/status field (e.g., "VmRSS:" or "Threads:"): the number
-// that follows the label.
-static auto parse_status_field(std::string_view field) -> std::int64_t {
-    std::ifstream status("/proc/self/status");
-    for (std::string line; std::getline(status, line);) {
-        if (!line.starts_with(field))
-            continue;
-        auto digits = std::string_view{line}.substr(field.size());
-        digits.remove_prefix(std::min(digits.find_first_not_of(" \t"), digits.size()));
-        std::int64_t value = 0;
-        [[maybe_unused]] auto const read =
-            std::from_chars(std::to_address(digits.begin()), std::to_address(digits.end()), value);
-        return value;
-    }
-    return 0;
-}
+using aletheia::bench::all_passed;
+using aletheia::bench::build_sub_checks;
+using aletheia::bench::report_text;
+using aletheia::bench::Snapshot;
+using aletheia::bench::write_report_text;
 
-static auto vm_rss_bytes() -> std::int64_t {
-    return parse_status_field("VmRSS:") * 1024; // VmRSS is in kB
-}
-
-static auto threads_count() -> std::int64_t {
-    return parse_status_field("Threads:");
-}
-
-// Count /proc/self/fd entries that point to real resources (regular files,
-// pipes, sockets) — the things a forgotten Close can leak.  Excludes
-// anon_inode targets (eventfd/eventpoll/timerfd/signalfd) which are runtime
-// I/O multiplexer machinery the GHC RTS / glibc allocate lazily based on
-// workload.  Counting them defeats hard-zero gating.
-static auto fd_count() -> std::int64_t {
-    std::int64_t count = 0;
-    std::error_code ec;
-    for (auto const& entry : std::filesystem::directory_iterator("/proc/self/fd", ec)) {
-        if (ec) {
-            continue;
-        }
-        std::error_code link_ec;
-        auto const target = std::filesystem::read_symlink(entry, link_ec);
-        if (link_ec) {
-            continue;
-        }
-        auto const target_str = target.string();
-        if (target_str.starts_with("anon_inode:")) {
-            continue;
-        }
-        ++count;
-    }
-    return count;
-}
-
-// glibc malloc_info emits XML to a FILE*: one <heap> element per arena, each
-// with its own <total type="fast"/> and <total type="rest"/>, followed by the
-// process-wide aggregate (<total> entries for fast, rest and mmap) after the
-// last </heap>.  Only the aggregate is summed; summing every <total> would
-// count the arena bytes twice.  Imperfect but stable enough to gate
-// fragmentation drift.
-static auto malloc_info_bytes() -> std::int64_t {
-    char* raw = nullptr;
-    std::size_t raw_size = 0;
-    const std::unique_ptr<char, decltype(&std::free)> buf_owner(nullptr, &std::free);
-    std::string xml;
-    {
-        const std::unique_ptr<FILE, decltype(&std::fclose)> stream(open_memstream(&raw, &raw_size),
-                                                                   &std::fclose);
-        if (stream == nullptr)
-            return 0;
-        if (malloc_info(0, stream.get()) != 0)
-            return 0;
-        // open_memstream publishes raw/raw_size only once the stream is closed,
-        // which the unique_ptr does at the end of this block.
-    }
-    const std::unique_ptr<char, decltype(&std::free)> raw_owner(raw, &std::free);
-    xml.assign(raw, raw_size);
-
-    const std::string_view view{xml};
-    auto const last_heap = view.rfind("</heap>");
-    std::int64_t total_bytes = 0;
-    for (auto pos = last_heap == std::string_view::npos ? 0 : last_heap;
-         (pos = view.find("<total type=", pos)) != std::string_view::npos;) {
-        auto const size_attr = view.find("size=\"", pos);
-        if (size_attr == std::string_view::npos)
-            break;
-        auto const value_start = size_attr + 6;
-        auto const value_end = view.find('"', value_start);
-        if (value_end == std::string_view::npos)
-            break;
-        std::int64_t value = 0;
-        auto const digits = view.substr(value_start, value_end - value_start);
-        [[maybe_unused]] auto const read =
-            std::from_chars(std::to_address(digits.begin()), std::to_address(digits.end()), value);
-        total_bytes += value;
-        pos = value_end;
-    }
-    return total_bytes;
-}
-
-static auto take_snapshot() -> Snapshot {
-    return Snapshot{
-        .rss_bytes = vm_rss_bytes(),
-        .fd_count = fd_count(),
-        .active_thread_count = threads_count(),
-        .malloc_info_bytes = malloc_info_bytes(),
-    };
+// The snapshot of this process the gates judge, or the read that refused it.
+static auto snapshot_self() -> std::expected<Snapshot, std::string> {
+    return aletheia::bench::take_snapshot("/proc/self/status", "/proc/self/fd");
 }
 
 // minimal_dbc constructs a single-message DBC sufficient for parse_dbc +
@@ -244,75 +124,17 @@ static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefin
     // the last reference.
 }
 
-// The binding's one search. This used to return a single relative path without
-// checking it exists, so a run from the wrong directory failed at the load
-// rather than at the search.
-static auto find_library() -> std::filesystem::path {
-    return aletheia::find_ffi_library();
-}
-
-// A count variable is unset (default applies) or a positive whole number;
-// anything else is a setup error, never a silent fallback to the default.
+// A count variable is unset, and its default applies, or sets a count as
+// count_setting reads one; anything else is a setup error, never a silent
+// fallback to the default.
 static auto env_count(const char* name, int default_value) -> int {
-    const char* env = std::getenv(name);
+    const char* const env = std::getenv(name);
     if (env == nullptr)
         return default_value;
-    const std::string_view text{env};
-    int value = 0;
-    auto const* const last = std::to_address(text.end());
-    auto const [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
-    if (ec != std::errc{} || end != last || value <= 0)
-        throw std::runtime_error(
-            std::format("{} must be a positive whole number, got '{}'", name, text));
-    return value;
-}
-
-static void emit_sub_check_json(const SubCheck& c, bool first) {
-    std::print("{}    {{\n"
-               "      \"name\": \"{}\",\n"
-               "      \"gate\": \"{}\",\n"
-               "      \"start\": {},\n"
-               "      \"end\": {},\n"
-               "      \"delta\": {},\n"
-               "      \"threshold\": {},\n"
-               "      \"passed\": {}\n"
-               "    }}",
-               first ? "" : ",\n", c.name, c.gate, c.start, c.end, c.delta, c.threshold, c.passed);
-}
-
-// Each resource the harness watches, as the pair of snapshots it is judged on.
-static auto build_sub_checks(const Snapshot& start, const Snapshot& end) -> std::vector<SubCheck> {
-    return {
-        {.name = "rss",
-         .gate = "soft_threshold",
-         .start = start.rss_bytes,
-         .end = end.rss_bytes,
-         .delta = end.rss_bytes - start.rss_bytes,
-         .threshold = k_rss_delta_bytes_cap,
-         .passed = std::abs(end.rss_bytes - start.rss_bytes) <= k_rss_delta_bytes_cap},
-        {.name = "fd_count",
-         .gate = "hard_zero",
-         .start = start.fd_count,
-         .end = end.fd_count,
-         .delta = end.fd_count - start.fd_count,
-         .threshold = 0,
-         .passed = end.fd_count == start.fd_count},
-        {.name = "active_thread_count",
-         .gate = "hard_zero",
-         .start = start.active_thread_count,
-         .end = end.active_thread_count,
-         .delta = end.active_thread_count - start.active_thread_count,
-         .threshold = 0,
-         .passed = end.active_thread_count == start.active_thread_count},
-        {.name = "malloc_info",
-         .gate = "soft_threshold",
-         .start = start.malloc_info_bytes,
-         .end = end.malloc_info_bytes,
-         .delta = end.malloc_info_bytes - start.malloc_info_bytes,
-         .threshold = k_malloc_delta_bytes_cap,
-         .passed =
-             std::abs(end.malloc_info_bytes - start.malloc_info_bytes) <= k_malloc_delta_bytes_cap},
-    };
+    auto const count = aletheia::bench::count_setting(name, env);
+    if (!count)
+        throw std::runtime_error(aletheia::detail::error_of(count));
+    return count.value();
 }
 
 static auto run() -> int {
@@ -325,7 +147,7 @@ static auto run() -> int {
         std::println(stderr, "setup: {}", e.what());
         return 2;
     }
-    auto const lib = find_library();
+    auto const lib = aletheia::find_ffi_library();
     auto const dbc = minimal_dbc();
 
     // Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /
@@ -338,7 +160,11 @@ static auto run() -> int {
         return 2;
     }
 
-    auto const start = take_snapshot();
+    auto const start = snapshot_self();
+    if (!start) {
+        std::println(stderr, "the opening snapshot failed: {}", aletheia::detail::error_of(start));
+        return 2;
+    }
     auto const t0 = std::chrono::steady_clock::now();
 
     for (auto const i : std::views::iota(0, cycles)) {
@@ -350,29 +176,22 @@ static auto run() -> int {
         }
     }
 
-    auto const end = take_snapshot();
+    auto const end = snapshot_self();
+    if (!end) {
+        std::println(stderr, "the closing snapshot failed: {}", aletheia::detail::error_of(end));
+        return 2;
+    }
     auto const elapsed =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
-    auto const sub_checks = build_sub_checks(start, end);
-    auto const all_passed = std::ranges::all_of(sub_checks, &SubCheck::passed);
-
-    std::print("{{\n"
-               "  \"binding\": \"cpp\",\n"
-               "  \"cycles\": {},\n"
-               "  \"frames_per_cycle\": {},\n"
-               "  \"total_frames\": {},\n"
-               "  \"elapsed_seconds\": {},\n"
-               "  \"sub_checks\": [\n",
-               cycles, frames, static_cast<std::int64_t>(cycles) * frames, elapsed);
-    for (auto const [i, sub_check] : std::views::enumerate(sub_checks))
-        emit_sub_check_json(sub_check, i == 0);
-    std::print("\n  ],\n"
-               "  \"passed\": {}\n"
-               "}}\n",
-               all_passed);
-
-    return all_passed ? 0 : 1;
+    auto const sub_checks = build_sub_checks(start.value(), end.value());
+    if (auto const written =
+            write_report_text(stdout, report_text(cycles, frames, elapsed, sub_checks));
+        !written) {
+        std::println(stderr, "writing the report failed: {}", aletheia::detail::error_of(written));
+        return 2;
+    }
+    return all_passed(sub_checks) ? 0 : 1;
 }
 
 // Nothing leaves main: the lane that drives this binary reads its exit code,

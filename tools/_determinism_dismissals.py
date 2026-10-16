@@ -135,6 +135,7 @@ DISMISSED: Mapping[Dismissal, Prose] = {
         Prose("a blocking lock wait with no duration")
     ),
     Dismissal(CPP, NetWord("waitpid("), None): Prose("a wait for a child's exit, with no duration"),
+    Dismissal(CPP, NetWord("fork("), RelPath("cpp/tests/child_process.hpp")): _EXIT_STATUS,
     Dismissal(CPP, NetWord("fork("), RelPath("cpp/tests/fresh_process_tests.cpp")): Prose(
         "each suite it starts claims what holds only in a process of its own: the renderer "
         + "refusing where no runtime was ever started, its library search kept once per "
@@ -142,11 +143,18 @@ DISMISSED: Mapping[Dismissal, Prose] = {
         + "they run as its children"
     ),
     Dismissal(CPP, NetWord("fork("), RelPath("cpp/tests/test_rts_heap_cap.cpp")): _CAP_ENDS_PROCESS,
+    Dismissal(CPP, NetWord("run_program("), RelPath("cpp/tests/benchmark_program_tests.cpp")): (
+        _EXIT_STATUS
+    ),
+    Dismissal(CPP, NetWord("run_program("), RelPath("cpp/tests/stability_bench_tests.cpp")): (
+        _EXIT_STATUS
+    ),
     Dismissal(CPP, NetWord("popen("), RelPath("cpp/tests/doc_example_tests.cpp")): _FENCES,
     Dismissal(RUST, NetWord("Mutex"), None): Prose("a lock no second thread contends"),
     Dismissal(RUST, NetWord("block_on"), None): (
         Prose("the turn executor's driver, on the test's own thread")
     ),
+    Dismissal(RUST, NetWord("Command"), RelPath("rust/tests/benchmark_program.rs")): _EXIT_STATUS,
     Dismissal(RUST, NetWord("Command"), RelPath("rust/tests/doc_examples.rs")): (
         Prose(f"{_FENCES}; {_TRACKED}")
     ),

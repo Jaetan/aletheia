@@ -47,7 +47,8 @@ source file is renamed or deleted without updating the YAML, and when a
 lane's per-mutant run reaches its binding's doc-example harness, which holds
 the documents to the binding and costs its whole run once per mutant: the Go
 and Rust lanes skip theirs by name, and the gate holds each skip to that test
-alone.  The dynamic runner is opt-in via
+alone, the Rust lane's to it and the benchmark program's tests, which build the
+example with a cargo of their own.  The dynamic runner is opt-in via
 `ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
 
 In CI the runner is invoked once per binding, in parallel lanes with their own
@@ -586,8 +587,9 @@ drift gate reads.
 **Nothing keeps a list of which file is in which slice.**  The set a slice can
 claim is derived: every tracked file under `cpp/src`, `cpp/include` and
 `cpp/benchmarks` that `cpp/mull.yml` does not already hold out, the last for
-the header the benchmark harness keeps its timed loops in, which the unit tests
-instantiate.  A file added to the library is in that set the moment it is
+the harnesses' code the unit tests build: the benchmark's timed loops and its
+report's destination, rules and write check, and the stability harness's reads
+and report.  A file added to the library is in that set the moment it is
 tracked, and `tools/mutation_cpp_slices.py` computes the partition from it.
 The slices state what they *hold out* rather than what they claim, which
 decides how a mistake surfaces: a file no slice claims is

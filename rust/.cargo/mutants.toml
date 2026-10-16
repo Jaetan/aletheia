@@ -32,10 +32,21 @@ all_features = true
 # one the decoders themselves raise, so a test asserting on the message text
 # still tells the mutant from the code's own refusal.
 error_values = ["crate::Error::Protocol(String::new())"]
-# The doc-example harness builds and runs every Rust fence of the documents as
-# a program of its own.  It holds the documents to the crate, and a sweep with
-# it and one without gave the same verdict on every mutant, so the sweep runs
-# every test but that one.  cargo-mutants appends these to `cargo test`
-# without reading the separator, and the runner passes no test argument of
-# its own, so this `--` is the one that hands `--skip` to the test binaries.
-additional_cargo_test_args = ["--", "--skip", "every_rust_fence_of_the_listed_documents_builds_and_runs"]
+# Two suites build programs with a cargo of their own and run them: the
+# doc-example harness every Rust fence of the documents, and the benchmark
+# program's tests the benchmark example.  They hold the documents and the
+# example to the crate, and a sweep with them and one without gave the same
+# verdict on every mutant, so the sweep runs every test but theirs.
+# cargo-mutants appends these to `cargo test` without reading the separator,
+# and the runner passes no test argument of its own, so this `--` is the one
+# that hands `--skip` to the test binaries.
+additional_cargo_test_args = [
+    "--",
+    "--skip", "every_rust_fence_of_the_listed_documents_builds_and_runs",
+    "--skip", "an_unknown_mode_exits_1_before_the_banner",
+    "--skip", "a_refusal_exits_1_when_stderr_takes_no_write",
+    "--skip", "a_text_report_that_cannot_be_written_exits_1",
+    "--skip", "a_json_report_that_cannot_be_written_exits_1",
+    "--skip", "a_json_report_goes_to_stdout_and_its_progress_to_stderr",
+    "--skip", "progress_that_cannot_be_written_neither_panics_nor_fails_the_run",
+]

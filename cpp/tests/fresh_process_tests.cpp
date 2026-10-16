@@ -21,17 +21,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
-#include <fstream>
-#include <ios>
 #include <string>
-#include <string_view>
-#include <utility>
 #include <vector>
 
+#include "child_process.hpp"
 #include "repo_root.hpp"
 
 #if !defined(ALETHEIA_RUNTIME_DOWN_TESTS) || !defined(ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS) ||  \
@@ -39,40 +35,17 @@
 #error "the fresh-process suites' paths are compile definitions of the build"
 #endif
 
-// The environment this process was started with, where the runner names the
-// mutant, one `NAME=value` entry each.
-static auto started_environment() -> std::vector<std::string> {
-    std::ifstream in{"/proc/self/environ", std::ios::binary};
-    std::vector<std::string> entries;
-    for (std::string entry; std::getline(in, entry, '\0');)
-        entries.push_back(std::move(entry));
-    return entries;
-}
-
 // Starts `binary` under the order the lane pins, with the environment this
-// process was started with, each `NAME=value` of `extra` in place of any NAME
-// it holds, and returns its wait status. The child dies with the thread that
-// started it: the mutation runner ends a run by killing this process alone and
-// then waits for its pipes to close, which a child left running would hold.
-static auto run_child(std::string binary, const std::vector<std::string>& extra) -> int {
-    for (auto const& set : extra)
-        REQUIRE(set.contains('='));
-    auto const replaced = [&extra](std::string_view entry) {
-        return std::ranges::any_of(extra, [entry](std::string_view set) {
-            return entry.starts_with(set.substr(0, set.find('=') + 1));
-        });
-    };
-    auto environment = started_environment();
-    std::erase_if(environment, replaced);
-    environment.insert(environment.end(), extra.begin(), extra.end());
-    std::vector<char*> envp;
-    envp.reserve(environment.size() + 1);
-    for (auto& entry : environment)
-        envp.push_back(entry.data());
-    envp.push_back(nullptr);
-    std::string order{"--order"};
-    std::string decl{"decl"};
-    const std::vector<char*> argv{binary.data(), order.data(), decl.data(), nullptr};
+// process was started with, where the runner names the mutant, each
+// `NAME=value` of `extra` in place of any NAME it holds, and returns its wait
+// status. The child dies with the thread that started it: the mutation runner
+// ends a run by killing this process alone and then waits for its pipes to
+// close, which a child left running would hold.
+static auto run_child(const std::string& binary, const std::vector<std::string>& extra) -> int {
+    auto environment = aletheia::test::environment_with(extra);
+    auto const envp = aletheia::test::exec_array(environment);
+    std::vector<std::string> arguments{binary, "--order", "decl"};
+    auto const argv = aletheia::test::exec_array(arguments);
     static_cast<void>(std::fflush(nullptr));
     auto const parent = ::getpid();
     auto const pid = ::fork();
@@ -95,8 +68,8 @@ static auto run_child(std::string binary, const std::vector<std::string>& extra)
 // ended, which no assertion here could report as faithfully. Catch2 ends a run
 // in which every case skipped with 4, so a child that found nothing to run
 // does not pass.
-static void require_passes(std::string binary, const std::vector<std::string>& extra = {}) {
-    auto const status = run_child(std::move(binary), extra);
+static void require_passes(const std::string& binary, const std::vector<std::string>& extra = {}) {
+    auto const status = run_child(binary, extra);
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
         SUCCEED();
         return;

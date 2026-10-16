@@ -409,8 +409,8 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 4
-      total_mutants: 1445
+      survivors: 6
+      total_mutants: 1547
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -468,8 +468,8 @@ bindings:
         cpp/src/types.cpp: 0.1
         cpp/src/yaml.cpp: 28.0
       timeouts: 0
-      score_pct: 99.7
-      run_at: "2026-10-12"
+      score_pct: 99.6
+      run_at: "2026-10-15"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -478,12 +478,12 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1415
+        test: 1515
         kernel: 2
         check: 14
         fault: 10
         timeout: 0
-        survived: 4
+        survived: 6
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
       # survivor not named here even at an unchanged count, and a row that no
@@ -507,16 +507,25 @@ bindings:
           file: cpp/src/client.cpp
           text: if (!inj)
           count: 2
-        # an out-parameter the callee writes, 1 mutant, an irreducible C++23
+        # an out-parameter the callee writes, 3 mutants, an irreducible C++23
         # equivalent:
-        # from_chars writes its result through a reference on success and
-        # nothing reads it on failure, and the mutator rewrites the compiled
-        # store whether the source spells `= 0` or `{}`. Left unset the object
-        # is indeterminate, which ES.20 refuses, and `[[indeterminate]]`, the
-        # attribute that would say so, is C++26.
+        # from_chars writes its result through a reference, and open_memstream
+        # its size through a pointer, on success, and nothing reads either on
+        # failure, and the mutator rewrites the compiled store whether the
+        # source spells `= 0` or `{}`. Left unset the object is indeterminate,
+        # which ES.20 refuses, and `[[indeterminate]]`, the attribute that
+        # would say so, is C++26.
         - mutator: cxx_init_const
           file: cpp/src/excel.cpp
           text: std::uint32_t result = 0;
+          count: 1
+        - mutator: cxx_init_const
+          file: cpp/benchmarks/stability_snapshot.hpp
+          text: std::int64_t value = 0;
+          count: 1
+        - mutator: cxx_init_const
+          file: cpp/benchmarks/stability_snapshot.hpp
+          text: std::size_t size = 0;
           count: 1
       # Every kill no test observes by behaviour, by mutator, repository-relative
       # file, the text of its source line, the route it took and what refused

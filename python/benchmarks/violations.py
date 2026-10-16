@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 import can
+from benchmarks._common import run_mode
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
@@ -41,6 +42,8 @@ from aletheia.types import DBCDefinition, DLCCode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from aletheia.common_types import ExitStatus
 
 _TARGET_FPS = 8000
 _DBC_PATH = Path(__file__).parent.parent.parent / "examples" / "demo" / "vehicle.dbc"
@@ -314,8 +317,8 @@ def _run_cli_layer(
     return results, paths
 
 
-def main() -> int:
-    """CLI entry point — run client + CLI violation benchmark layers."""
+def _run() -> None:
+    """Parse args, run client + CLI violation benchmark layers."""
     parser = argparse.ArgumentParser(description="Violation enrichment benchmark")
     parser.add_argument("--frames", type=int, default=10000, help="Frames per run")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs")
@@ -341,7 +344,10 @@ def main() -> int:
         Path(path).unlink()
     Path(tmpdir).rmdir()
 
-    return 0
+
+def main() -> ExitStatus:
+    """CLI entry point: run the violations benchmark, its report on stdout."""
+    return run_mode("violations", _run)
 
 
 if __name__ == "__main__":
