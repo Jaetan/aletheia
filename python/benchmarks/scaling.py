@@ -24,7 +24,13 @@ from fractions import Fraction
 from statistics import fmean
 from typing import IO, TYPE_CHECKING, NamedTuple, NewType, TextIO, TypedDict
 
-# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+# See ``throughput.py`` — benchmarks import the installed package to keep
+# the wheel / setuptools shim cost inside the measurement.
+from aletheia import AletheiaClient, Signal
+from aletheia._dbc_types import BitLength, SignalName, raw_unsigned_signal
+from aletheia.types import DLCByteCount
+
+# Shared vocabulary lives in ``_common``.
 from benchmarks._common import (
     CAN20_SPEC,
     CANFD_SPEC,
@@ -37,12 +43,6 @@ from benchmarks._common import (
     run_mode,
     run_streaming_benchmark,
 )
-
-# See ``throughput.py`` — benchmarks import the installed package to keep
-# the wheel / setuptools shim cost inside the measurement.
-from aletheia import AletheiaClient, Signal
-from aletheia._dbc_types import BitLength, SignalName, raw_unsigned_signal
-from aletheia.types import DLCByteCount
 
 if TYPE_CHECKING:
     from collections.abc import Callable

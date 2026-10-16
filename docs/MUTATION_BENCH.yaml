@@ -423,7 +423,7 @@ bindings:
       # the CI one, so the figures are taken from CI.  Dividing by the leg's
       # own unmutated run takes out the runner's speed, a mutant's cost
       # varying by file, a killed run ending at its first failed assertion.
-      # Taken from the legs of heavy lanes run 38193540468 by the merge's own
+      # Taken from the legs of heavy lanes run 38830396017 by the merge's own
       # computation, which writes the same figures to cpp-runs.json.
       #
       # They are a measurement and they age in one direction: adding code adds
@@ -437,36 +437,40 @@ bindings:
       # a slice, because the partition is computed over every tracked file of
       # the library and not over this list.
       runs_by_file:
-        cpp/benchmarks/measure.hpp: 0.2
+        cpp/benchmarks/benchmark_output.cpp: 0.2
+        cpp/benchmarks/measure.hpp: 0.3
+        cpp/benchmarks/report_flush.hpp: 0.1
+        cpp/benchmarks/stability_report.hpp: 1.0
+        cpp/benchmarks/stability_snapshot.hpp: 5.4
         cpp/include/aletheia/backend.hpp: 0.0
-        cpp/include/aletheia/check.hpp: 0.2
-        cpp/include/aletheia/client.hpp: 0.0
-        cpp/include/aletheia/detail/cache_keys.hpp: 0.2
+        cpp/include/aletheia/check.hpp: 0.4
+        cpp/include/aletheia/client.hpp: 0.1
+        cpp/include/aletheia/detail/cache_keys.hpp: 0.3
         cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
-        cpp/include/aletheia/log.hpp: 0.3
+        cpp/include/aletheia/log.hpp: 0.4
         cpp/include/aletheia/ltl.hpp: 0.1
         cpp/include/aletheia/response.hpp: 0.1
-        cpp/include/aletheia/types.hpp: 0.3
-        cpp/src/backend.cpp: 0.2
-        cpp/src/checked.cpp: 0.1
-        cpp/src/client.cpp: 10.8
-        cpp/src/client_stream.cpp: 2.1
-        cpp/src/dbc.cpp: 0.7
-        cpp/src/detail/dl_symbol.cpp: 0.0
+        cpp/include/aletheia/types.hpp: 0.4
+        cpp/src/backend.cpp: 0.3
+        cpp/src/checked.cpp: 0.2
+        cpp/src/client.cpp: 14.3
+        cpp/src/client_stream.cpp: 2.7
+        cpp/src/dbc.cpp: 1.0
+        cpp/src/detail/dl_symbol.cpp: 0.1
         cpp/src/detail/ffi_abi.hpp: 0.0
-        cpp/src/detail/ffi_logic.cpp: 0.9
+        cpp/src/detail/ffi_logic.cpp: 1.2
         cpp/src/detail/json_parse_helpers.hpp: 0.1
-        cpp/src/detail/loader_utils.cpp: 2.7
-        cpp/src/detail/loader_utils.hpp: 1.3
+        cpp/src/detail/loader_utils.cpp: 3.9
+        cpp/src/detail/loader_utils.hpp: 1.6
         cpp/src/enrich.cpp: 0.1
-        cpp/src/excel.cpp: 22.9
-        cpp/src/ffi_backend.cpp: 4.7
-        cpp/src/json_parse.cpp: 2.4
-        cpp/src/json_parse_dbc.cpp: 0.5
-        cpp/src/json_serialize.cpp: 0.4
-        cpp/src/rational_renderer.cpp: 2.6
+        cpp/src/excel.cpp: 22.7
+        cpp/src/ffi_backend.cpp: 5.9
+        cpp/src/json_parse.cpp: 2.9
+        cpp/src/json_parse_dbc.cpp: 0.8
+        cpp/src/json_serialize.cpp: 0.5
+        cpp/src/rational_renderer.cpp: 3.3
         cpp/src/types.cpp: 0.1
-        cpp/src/yaml.cpp: 28.0
+        cpp/src/yaml.cpp: 33.4
       timeouts: 0
       score_pct: 99.6
       run_at: "2026-10-15"

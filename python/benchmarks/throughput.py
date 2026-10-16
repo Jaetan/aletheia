@@ -19,9 +19,15 @@ import sys
 import time
 from typing import TYPE_CHECKING, NamedTuple, TextIO, TypedDict
 
+# Benchmarks import the *installed* package (``pip install -e .[dev]``) so
+# that any wheel/setuptools shim overhead shows up in the numbers — matches
+# how end users measure Aletheia in production.  Do not reintroduce
+# ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
+from aletheia import AletheiaClient
+
 # Shared benchmark vocabulary — frame specs, default property bundles, JSON
 # envelope, system info.  Consolidated in ``_common.py`` to keep the suite
-# files thin; see PY-31-1.
+# files thin.
 from benchmarks._common import (
     CAN20_SPEC,
     CANFD_SPEC,
@@ -38,12 +44,6 @@ from benchmarks._common import (
     run_mode,
     run_streaming_benchmark,
 )
-
-# Benchmarks import the *installed* package (``pip install -e .[dev]``) so
-# that any wheel/setuptools shim overhead shows up in the numbers — matches
-# how end users measure Aletheia in production.  Do not reintroduce
-# ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
-from aletheia import AletheiaClient
 
 if TYPE_CHECKING:
     from collections.abc import Callable

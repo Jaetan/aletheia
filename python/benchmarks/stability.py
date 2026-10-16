@@ -34,11 +34,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import psutil
-from benchmarks._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc, run_report
 
 from aletheia import AletheiaClient
 from aletheia.client._ffi import RTSState
 from aletheia.common_types import ExitStatus, PositiveInt, Prose
+from benchmarks._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc, run_report
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -38,11 +38,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from tests._dbc_helpers import dbc as build_dbc
-from tests._dbc_helpers import message, signal
-
 from aletheia import AletheiaClient, Signal
 from aletheia.types import DLCCode
+from tests._dbc_helpers import dbc as build_dbc
+from tests._dbc_helpers import message, signal
 
 # Streaming golden tests share an inherent scaffold — the JSON normalizer, the
 # send loop, and the property_batch "fails" enrichment shape — with

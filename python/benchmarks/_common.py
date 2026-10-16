@@ -11,7 +11,7 @@ baseline) only has to be fixed in one place.
 Keep the module-level constants ``bytes`` (not ``bytearray``) so a stray
 mutation between runs cannot silently skew the numbers.
 
-Per PY-31-1: this module is deliberately thin — each constant / function
+This module is deliberately thin — each constant / function
 has exactly one authoritative definition, and benchmark scripts import
 what they need by name.  No re-export hoop, no star-imports; basedpyright
 and pylint see a straight dependency.

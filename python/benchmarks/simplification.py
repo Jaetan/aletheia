@@ -31,7 +31,12 @@ import sys
 import time
 from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
 
-# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+# See ``throughput.py`` — benchmarks import the installed package to keep
+# the wheel / setuptools shim cost inside the measurement.
+from aletheia import AletheiaClient, Signal
+from aletheia.dsl import eventually_always, infinitely_often
+
+# Shared vocabulary lives in ``_common``.
 from benchmarks._common import (
     CAN20_SPEC,
     SimplificationParameters,
@@ -40,11 +45,6 @@ from benchmarks._common import (
     load_dbc,
     run_mode,
 )
-
-# See ``throughput.py`` — benchmarks import the installed package to keep
-# the wheel / setuptools shim cost inside the measurement.
-from aletheia import AletheiaClient, Signal
-from aletheia.dsl import eventually_always, infinitely_often
 
 if TYPE_CHECKING:
     from collections.abc import Callable

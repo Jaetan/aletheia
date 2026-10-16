@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 import can
-from benchmarks._common import run_mode
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
@@ -39,6 +38,7 @@ from aletheia.checks import CheckResult, signal
 from aletheia.dbc import dbc_to_json
 from aletheia.testing import run_checks
 from aletheia.types import DBCDefinition, DLCCode
+from benchmarks._common import run_mode
 
 if TYPE_CHECKING:
     from collections.abc import Callable

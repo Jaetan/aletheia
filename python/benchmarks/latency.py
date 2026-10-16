@@ -19,7 +19,11 @@ import time
 from dataclasses import dataclass
 from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
 
-# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+# See ``throughput.py`` — benchmarks import the installed package to keep
+# the wheel / setuptools shim cost inside the measurement.
+from aletheia import AletheiaClient
+
+# Shared vocabulary lives in ``_common``.
 from benchmarks._common import (
     CAN20_SPEC,
     CANFD_SPEC,
@@ -33,10 +37,6 @@ from benchmarks._common import (
     load_dbc,
     run_mode,
 )
-
-# See ``throughput.py`` — benchmarks import the installed package to keep
-# the wheel / setuptools shim cost inside the measurement.
-from aletheia import AletheiaClient
 
 if TYPE_CHECKING:
     from aletheia.common_types import ExitStatus

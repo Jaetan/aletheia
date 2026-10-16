@@ -54,13 +54,15 @@ ignore = [
 ban-relative-imports = "all"
 
 [lint.isort]
-# Classify `aletheia` as first-party so ruff's import-sorter (I001) groups it
-# in the first-party block — matching pylint's import-order check (C0411).
-# Without this, ruff infers `aletheia` as third-party (the package lives at
-# python/aletheia/ while this config and the tests sit elsewhere), so the two
-# tools demand different orderings and I001 / C0411 cannot both be satisfied.
+# Classify every package under python/ as first-party by name, so ruff's
+# import-sorter (I001) groups it in the first-party block — matching pylint's
+# import-order check (C0411).  ruff otherwise looks for a directory of the
+# import's dotted name beside this file, not under python/: it infers
+# `aletheia` as third-party, and `benchmarks.stability` as first-party only
+# where a run has left the git-ignored benchmarks/stability/, so the order one
+# tree passes another fails.  test_run_ci_runner.py holds the list whole.
 # This is a classification hint, NOT a suppression: I001 stays fully enforced.
-known-first-party = ["aletheia"]
+known-first-party = ["aletheia", "benchmarks", "tests"]
 # The repo-root `tools` package is a section of its own, between third-party
 # and first-party, for the same reason: pylint places it with third-party code,
 # before the library, so a module importing both satisfies both checks.
