@@ -16,12 +16,17 @@ import subprocess
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from _hypothesis_profiles import CI_PROFILE
 
 from tools import _branch_diff, coverage_run
 from tools.coverage_run import CoverageReport, Figure
 
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from _processes import CommandWord
 
 
 def _fake_diff(monkeypatch: pytest.MonkeyPatch, *, files: list[str], returncode: int = 0) -> None:
@@ -186,6 +191,27 @@ def test_the_ctest_listing_is_where_the_objects_come_from(monkeypatch: pytest.Mo
         "/b/cli_tests",
         "/b/unit_tests",
     ]
+
+
+def test_the_python_measurement_draws_the_ci_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The coverage lane runs the Python suite under the ``ci`` profile, as run_ci does."""
+    venv_python = tmp_path / "python"
+    venv_python.touch()
+    commands: list[list[CommandWord]] = []
+
+    def stopped(cmd: list[CommandWord], *, cwd: Path, label: Prose) -> Prose:
+        del label
+        assert cwd == coverage_run.REPO_ROOT / "python"
+        commands.append(cmd)
+        return Prose("stopped before the suite ran")
+
+    monkeypatch.setattr(coverage_run, "VENV_PYTHON", venv_python)
+    monkeypatch.setattr(coverage_run, "_run", stopped)
+    assert coverage_run.run_python(tmp_path).error == "stopped before the suite ran"
+    assert len(commands) == 1
+    assert f"--hypothesis-profile={CI_PROFILE}" in commands[0]
 
 
 def test_a_ctest_listing_that_fails_is_an_error_not_an_empty_object_list(

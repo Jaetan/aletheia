@@ -97,8 +97,8 @@ dev = [
     # deterministic lane.  Both must stay green.
     "pytest-random-order>=1.2.0,<2",
     # AGENTS.md Python cat 34(b): hypothesis drives the property tests in
-    # ``python/tests/test_property_hypothesis.py``, which also registers the
-    # profiles they draw under.
+    # ``python/tests/test_property_hypothesis.py``, under the profiles that
+    # ``python/tests/_hypothesis_profiles.py`` registers.
     "hypothesis>=6.169.0,<7",
     "pylint>=4.1.3,<5",
     "basedpyright>=1.40.2,<2",

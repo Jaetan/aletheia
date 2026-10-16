@@ -60,6 +60,7 @@ from typing import TYPE_CHECKING, cast
 import yaml
 
 from tools._common import (
+    PYTEST_SUITE_ARGS,
     emit,
     find_executable,
     prepare_artifact_dir,
@@ -211,14 +212,11 @@ def run_python(artifact_dir: Path) -> CoverageReport:
         rep.error = f"venv python missing at {VENV_PYTHON}"
         return rep
     out = artifact_dir / "python-coverage.json"
-    # The cross-CLI parity harness needs the C++ CLI binary, so it is left out
-    # here as it is in every python-lane pytest step.
     cmd = [
         str(VENV_PYTHON),
         "-m",
         "pytest",
-        "tests/",
-        "--ignore=tests/test_cli_parity.py",
+        *PYTEST_SUITE_ARGS,
         "-q",
         "-p",
         "no:cacheprovider",

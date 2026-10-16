@@ -24,6 +24,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 from _ci_runner import EXIT_0, ci_runner, exits
+from _hypothesis_profiles import CI_PROFILE
 from _processes import CommandWord
 
 from tools import _branch_diff
@@ -408,6 +409,21 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
     cpp = [step.name for step in runner.registered_steps if step.lane == "cpp"]
     assert "ctest" in cpp
     assert not set(gates) & set(cpp)
+
+
+def test_every_python_suite_step_draws_the_ci_profile(tmp_path: Path) -> None:
+    """The three steps that run the whole Python suite select the ``ci`` hypothesis profile.
+
+    A bare pytest run draws the default profile's examples; the gates draw
+    ``ci``'s, which the option loads from the profiles the suite's conftest
+    registers, so each step runs from ``python/``.
+    """
+    runner = ci_runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    steps = {step.name: step for step in runner.registered_steps}
+    for name in ("pytest", "pytest -X dev", "pytest --random-order"):
+        assert f"--hypothesis-profile={CI_PROFILE}" in list(steps[name].cmd), name
+        assert steps[name].cwd == runner.repo_root / "python", name
 
 
 # Each gate on a tool fact: the lane holding what it reads, and its module.

@@ -1838,7 +1838,7 @@ hints:
     count: 3
   - file: python/tests/test_property_hypothesis.py
     text: "int"
-    count: 9
+    count: 7
   - file: python/tests/test_property_hypothesis.py
     text: "str"
     count: 2
