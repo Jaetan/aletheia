@@ -104,6 +104,7 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ),
         # The properties Go and C++ hold of the response reader and the CAN ID check.
         ("test_property_hypothesis.py", "aletheia.client._ffi", "parse_json_object"),
+        ("test_property_hypothesis.py", "aletheia.client._ffi", "KernelResponse"),
         ("test_property_hypothesis.py", "aletheia.client._types", "validate_can_id"),
         (
             "test_types_and_conditions.py",
@@ -275,6 +276,7 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaText"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "configure_ffi_signatures"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "find_ffi_library"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "KernelResponse"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "parse_json_object"),
         # The binding's ABI version, which the version test holds to the header's.
         ("test_ffi_abi_version.py", "aletheia.client._ffi", "ABI_VERSION"),

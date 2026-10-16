@@ -9,7 +9,13 @@ from fractions import Fraction
 from typing import TYPE_CHECKING, TypeGuard
 
 from aletheia.client._enrichment import get_renderer_lib
-from aletheia.client._ffi import AletheiaDecimal, AletheiaText, hs_initialized, parse_json_object
+from aletheia.client._ffi import (
+    AletheiaDecimal,
+    AletheiaText,
+    KernelResponse,
+    hs_initialized,
+    parse_json_object,
+)
 from aletheia.client._types import FFIError, ProtocolError, ValidationError
 from aletheia.types import is_str_dict
 
@@ -84,12 +90,12 @@ def from_decimal(s: str) -> Fraction:
             msg = "aletheia_parse_decimal failed without an error"
             raise FFIError(msg)
         try:
-            envelope = ctypes.string_at(err).decode()
+            envelope = parse_json_object(KernelResponse(ctypes.string_at(err)))
         finally:
             lib.aletheia_free_str(err)
         # A failure is user input (ValidationError), not a wire fault: the
         # envelope names the decimal_parse_failed / decimal_overflow reason.
-        message = parse_json_object(envelope).get("message", "invalid decimal literal")
+        message = envelope.get("message", "invalid decimal literal")
         raise ValidationError(str(message))
     numerator: int = out.value.numerator
     denominator: int = out.value.denominator

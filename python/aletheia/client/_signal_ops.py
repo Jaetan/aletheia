@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, cast
 
 from aletheia.client._backend import Backend, BinaryPathUnsupportedError
 from aletheia.client._client_bin import parse_extraction_buffer
-from aletheia.client._ffi import parse_json_object
+from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.client._helpers.json_codec import (
     parse_absent_list,
     parse_errors_list,
@@ -137,7 +137,7 @@ class SignalOpsMixin(ClientHostState):
                     dlc=dlc,
                     data=data,
                 )
-                response = cast("Response", parse_json_object(response_bytes.decode("utf-8")))
+                response = cast("Response", parse_json_object(KernelResponse(response_bytes)))
             except ProtocolError as exc:
                 log_event(
                     _logger,

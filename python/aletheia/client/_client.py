@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Self, cast, override
 
 from aletheia.client._backend import Backend, FFIBackend
 from aletheia.client._enrichment import build_diagnostic
-from aletheia.client._ffi import parse_json_object
+from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.client._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
 from aletheia.client._helpers.rational import (
     fraction_to_wire_pair,
@@ -308,10 +308,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             if self._backend is None or self._state is None:
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
-            result_bytes = self._backend.process(self._state, json_bytes)
-        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour
-        # (the bytes.decode default is utf-8, so no explicit codec to mutate).
-        return cast("Response", parse_json_object(result_bytes.decode()))  # pragma: no mutate
+            result_bytes = KernelResponse(self._backend.process(self._state, json_bytes))
+        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
+        return cast("Response", parse_json_object(result_bytes))  # pragma: no mutate
 
     def _resolve_signal_indices(
         self,
@@ -502,10 +501,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             if self._backend is None or self._state is None:
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
-            response_bytes = self._backend.format_dbc_binary(self._state)
-        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour
-        # (the bytes.decode default is utf-8, so no explicit codec to mutate).
-        response = cast("Response", parse_json_object(response_bytes.decode()))  # pragma: no mutate
+            response_bytes = KernelResponse(self._backend.format_dbc_binary(self._state))
+        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
+        response = cast("Response", parse_json_object(response_bytes))  # pragma: no mutate
         status = response.get("status")
 
         if status == "success":

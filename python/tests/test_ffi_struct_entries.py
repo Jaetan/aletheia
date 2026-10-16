@@ -24,6 +24,7 @@ from aletheia.client._ffi import (
     AletheiaFrame,
     AletheiaSignalValues,
     AletheiaText,
+    KernelResponse,
     configure_ffi_signatures,
     find_ffi_library,
     parse_json_object,
@@ -57,17 +58,17 @@ def _state() -> Iterator[StateHandle]:
     """Open a session with the two-signal DBC loaded, and close it after."""
     state = StateHandle(_LIB.aletheia_init())
     command = dump_json(_PARSE_DBC).encode()
-    _take_string(_LIB.aletheia_process(state, ctypes.byref(AletheiaText(command, len(command)))))
+    _take_response(_LIB.aletheia_process(state, ctypes.byref(AletheiaText(command, len(command)))))
     try:
         yield state
     finally:
         _LIB.aletheia_close(state)
 
 
-def _take_string(pointer: int) -> str:
-    """Read a string the kernel allocated, and free it."""
+def _take_response(pointer: int) -> KernelResponse:
+    """Read the bytes of a string the kernel allocated, and free it."""
     try:
-        return ctypes.string_at(pointer).decode()
+        return KernelResponse(ctypes.string_at(pointer))
     finally:
         _LIB.aletheia_free_str(pointer)
 
@@ -80,7 +81,7 @@ def _error(buffer: AletheiaBuffer) -> str:
     """
     err: int | None = buffer.err
     assert err is not None
-    envelope = parse_json_object(_take_string(err))
+    envelope = parse_json_object(_take_response(err))
     assert envelope["status"] == "error"
     assert envelope["code"] == "ffi_validation_error"
     reason = envelope["message"]
@@ -109,7 +110,8 @@ def _filled() -> ctypes.Array[ctypes.c_uint8]:
 def test_a_null_frame_is_refused_by_every_entry_that_takes_one(state: StateHandle) -> None:
     """Every frame-taking entry answers a NULL frame with an error, not a crash."""
     for entry in (_LIB.aletheia_send_frame, _LIB.aletheia_extract_signals):
-        assert "null frame" in _take_string(entry(state, None))
+        envelope = parse_json_object(_take_response(entry(state, None)))
+        assert "null frame" in str(envelope["message"])
     values = _values()
     for entry in (_LIB.aletheia_build_frame_bin, _LIB.aletheia_update_frame_bin):
         out = AletheiaBuffer(data=_filled(), size=_CAPACITY)
@@ -180,16 +182,16 @@ def test_a_text_the_header_refuses_is_refused_by_both_entries(state: StateHandle
         (AletheiaText(None, 2**63), "input size is out of range"),
     ):
         argument = None if text is None else ctypes.byref(text)
-        response = json.loads(_take_string(_LIB.aletheia_process(state, argument)))
+        response = json.loads(_take_response(_LIB.aletheia_process(state, argument)))
         assert response == {"status": "error", "code": "ffi_validation_error", "message": reason}
         decimal = AletheiaDecimal()
         assert _LIB.aletheia_parse_decimal(argument, ctypes.byref(decimal)) == 1
-        envelope = json.loads(_take_string(decimal.err))
+        envelope = json.loads(_take_response(decimal.err))
         assert (envelope["code"], envelope["message"], envelope["input"]) == (
             "decimal_parse_failed",
             reason,
             "",
         )
     empty_text = ctypes.byref(AletheiaText(None, 0))
-    empty = json.loads(_take_string(_LIB.aletheia_process(state, empty_text)))
+    empty = json.loads(_take_response(_LIB.aletheia_process(state, empty_text)))
     assert empty["code"] == "dispatch_invalid_json"
