@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 from tools._branch_diff import branch_changes
 from tools._ci_tool_fact_steps import register_mutation_fact_steps, register_tool_fact_steps
-from tools._common import CPP_LINT_LANE, CPP_LINT_TREE
+from tools._common import CPP_LINT_LANE, CPP_LINT_TREE, PYTEST_SUITE_ARGS
 from tools._resources import cpu_budget
 
 if TYPE_CHECKING:
@@ -299,7 +299,7 @@ def _run_binding_tests(runner: Runner) -> None:
     # lane, after ctest (see below), where lane serialism guarantees the binary.
     runner.step(
         "pytest",
-        [runner.python, "-m", "pytest", "tests/", "--ignore=tests/test_cli_parity.py"],
+        [runner.python, "-m", "pytest", *PYTEST_SUITE_ARGS],
         cwd=runner.repo_root / "python",
     )
     # Cross-binding benchmark-schema conformance (benchmarks/SCHEMA.yaml): drives
@@ -351,8 +351,7 @@ def _run_binding_tests(runner: Runner) -> None:
             "dev",
             "-m",
             "pytest",
-            "tests/",
-            "--ignore=tests/test_cli_parity.py",
+            *PYTEST_SUITE_ARGS,
         ],
         cwd=runner.repo_root / "python",
     )
@@ -365,8 +364,7 @@ def _run_binding_tests(runner: Runner) -> None:
             "pytest",
             "--random-order",
             "--random-order-bucket=package",
-            "tests/",
-            "--ignore=tests/test_cli_parity.py",
+            *PYTEST_SUITE_ARGS,
         ],
         cwd=runner.repo_root / "python",
     )

@@ -67,6 +67,11 @@ CPP_LINT_TREE = "build-tidy"
 # first, which configures the tree, then the checks that read it, then the
 # gate on what the toolchain's clang-tidy does, which reads none.
 CPP_LINT_LANE = "cpp-lint"
+# What every run of the whole Python suite passes pytest, from python/: the
+# cross-CLI parity harness is left out, since run_ci runs it in the cpp lane
+# once the C++ CLI it needs is built, and the property tests draw the ``ci``
+# hypothesis profile that python/tests/_hypothesis_profiles.py registers.
+PYTEST_SUITE_ARGS = ("tests/", "--ignore=tests/test_cli_parity.py", "--hypothesis-profile=ci")
 
 
 def match_paren_content(text: str, start: int) -> str | None:

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from _canonical_dbc import CANONICAL_DBC, make_dbc
+from _hypothesis_profiles import register_profiles
 
 from aletheia import FFIBackend, Signal
 from aletheia.client._ffi import RTSState
@@ -35,6 +36,10 @@ if str(_REPO_ROOT) not in sys.path:
 # the test advances it, and no thread, sleep or timed wait.  ``pytester`` runs
 # the guard's own tests as sessions inside the suite's process.
 pytest_plugins = ["tools._determinism_guard", "pytester"]
+
+# The property tests' hypothesis profiles exist before pytest configures, which
+# is when ``--hypothesis-profile`` loads the one it names.
+register_profiles()
 
 
 @dataclass(frozen=True)

@@ -3,36 +3,33 @@
 """Hypothesis-driven property tests.
 
 Counterpart of go/aletheia/property_test.go and
-cpp/tests/unit_tests_property.cpp.  One @composite strategy per
-wire-format encode/decode pair the Python binding owns; properties
-assert round-trip + structural invariants under randomly-generated input.
+cpp/tests/unit_tests_property.cpp: properties of the wire-format encoders,
+decoders and checks the Python binding owns, over every input a run draws.
 
-Profiles per AGENTS.md cat 34b: ``ci`` draws 200 examples a test, ``dev``
-(the default) 20.  Every run draws the same sample, in every profile and lane:
-each test is seeded with the seed every binding's property tests share
-(``fixtures/property_seed``), and no example a run before it saved is
-replayed.  No deadline or speed check decides an outcome either, since a test
-reads no clock (AGENTS.md, Universal Rules).
+The tests draw under the profiles ``_hypothesis_profiles.py`` registers, and
+every run draws the same sample in every profile and lane: each test is seeded
+with the seed every binding's property tests share (``fixtures/property_seed``).
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 from fractions import Fraction
 from pathlib import Path
-from typing import Literal, NewType
+from typing import TYPE_CHECKING, NewType, cast
 
-import hypothesis
 import pytest
 from _canonical_dbc import CANONICAL_SIGNAL
-from hypothesis import HealthCheck, given, seed, settings
+from _hypothesis_profiles import DEFAULT_PROFILE
+from hypothesis import given, seed, settings
 from hypothesis import strategies as st
 
-from aletheia import ProtocolError
+from aletheia import ProtocolError, ValidationError
 from aletheia._dbc_types import empty_dbc_tier2
+from aletheia.client._ffi import parse_json_object
 from aletheia.client._helpers.json_codec import parse_values_list
 from aletheia.client._helpers.rational import decode_wire_rational
+from aletheia.client._types import validate_can_id
 from aletheia.types import (
     ByteOrder,
     DBCDefinition,
@@ -43,30 +40,24 @@ from aletheia.types import (
     dump_json,
 )
 
+if TYPE_CHECKING:
+    from _hypothesis_profiles import ProfileName
+
 # The seed every binding's property tests draw their sample from.
 PropertySeed = NewType("PropertySeed", int)
 PROPERTY_SEED = PropertySeed(
     int((Path(__file__).parent / "fixtures" / "property_seed").read_text(encoding="utf-8"))
 )
-# How many examples a profile draws for a test, and the profiles there are.
-ExampleCount = NewType("ExampleCount", int)
-type ProfileName = Literal["ci", "dev"]
-
-
-def _register_profile(name: ProfileName, examples: ExampleCount) -> None:
-    """Register a profile that draws ``examples`` a test and nothing a run before it saved."""
-    hypothesis.settings.register_profile(
-        name,
-        max_examples=examples,
-        database=None,
-        deadline=None,
-        suppress_health_check=[HealthCheck.too_slow],
-    )
-
-
-_register_profile("ci", ExampleCount(200))
-_register_profile("dev", ExampleCount(20))
-hypothesis.settings.load_profile("dev")
+# The largest identifier each kind of CAN ID carries, keyed by whether it is
+# extended: 11 bits for a standard identifier, 29 for an extended one.
+_LARGEST_CAN_ID = {False: 0x7FF, True: 0x1FFFFFFF}
+# Printable ASCII, the shape a wire error takes.
+_PRINTABLE = st.characters(min_codepoint=32, max_codepoint=126)
+# JSON values of every shape, as a response spells them.
+_JSON_VALUES = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.text(_PRINTABLE),
+    lambda children: st.lists(children) | st.dictionaries(st.text(_PRINTABLE), children),
+)
 
 
 # -----------------------------------------------------------------------------
@@ -145,19 +136,23 @@ def dbc_strategy(draw: st.DrawFn) -> DBCDefinition:
 
 
 @seed(PROPERTY_SEED)
-@given(payload=st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126)))
-@settings(max_examples=200)
-def test_load_json_total_on_printable_ascii(payload: str) -> None:
-    """``load_json`` is total over printable ASCII inputs.
+@given(payload=st.text(_PRINTABLE) | _JSON_VALUES.map(json.dumps))
+def test_response_reader_answers_an_object_or_a_protocol_error(payload: str) -> None:
+    """``parse_json_object`` returns the object a payload spells, else ``ProtocolError``.
 
-    Catches: parser panics on adversarial-but-printable input; assertion
-    failures inside the JSON decoder; resource leaks on partial parse.
-    Errors are expected (not all printable ASCII is valid JSON); the
-    contract is "no exception escape past the documented error types".
+    Counterpart of Go's ``TestProperty_ParseResponseTotal``: the reader every
+    kernel response goes through lets no other exception escape on a printable
+    payload a run draws, whether arbitrary text or a JSON value of any shape.
     """
-    # documented error path, not a property failure
-    with contextlib.suppress(ValueError, TypeError, RuntimeError):
-        json.loads(payload)
+    try:
+        spells_an_object = isinstance(json.loads(payload), dict)
+    except json.JSONDecodeError:
+        spells_an_object = False
+    if spells_an_object:
+        assert parse_json_object(payload) == json.loads(payload)
+    else:
+        with pytest.raises(ProtocolError):
+            parse_json_object(payload)
 
 
 @seed(PROPERTY_SEED)
@@ -278,22 +273,47 @@ def test_dbc_serialization_round_trips(dbc: DBCDefinition) -> None:
 
 
 @seed(PROPERTY_SEED)
-@given(can_id=can_id_strategy())
-def test_can_id_within_standard_range(can_id: int) -> None:
-    """Generated CAN IDs fit in 11 bits.  Sanity check on the strategy."""
-    assert 0 <= can_id <= 0x7FF
+@given(extended=st.booleans(), data=st.data())
+def test_can_id_check_accepts_every_identifier_its_kind_carries(
+    *,
+    extended: bool,
+    data: st.DataObject,
+) -> None:
+    """``validate_can_id`` accepts every identifier from 0 to its kind's largest.
 
-
-@pytest.mark.parametrize("invalid_id", [0x800, 0x801, 0xFFFF, 0x20000000])
-def test_invalid_can_id_rejected_at_type_boundary(invalid_id: int) -> None:
-    """Out-of-range standard CAN IDs are rejected by the type boundary.
-
-    Mirrors the cross-binding test
-    ``test_send_frame_error_response_shape``.  The Python binding raises
-    or returns an error response; the structural invariant is "invalid
-    CAN ID never silently succeeds".
+    Counterpart of the C++ standard CAN ID factory's acceptance property, for
+    both kinds of identifier.
     """
-    # Hypothesis-style assertion: the binding must not produce an Ack on
-    # an out-of-range ID.  Confirmed via the cross-binding test; this
-    # restates the parameterized boundary case for grep-ability.
-    assert invalid_id > 0x7FF
+    can_id = data.draw(st.integers(min_value=0, max_value=_LARGEST_CAN_ID[extended]))
+    validate_can_id(can_id, extended=extended)
+
+
+@seed(PROPERTY_SEED)
+@given(extended=st.booleans(), data=st.data())
+def test_can_id_check_refuses_every_identifier_its_kind_does_not_carry(
+    *,
+    extended: bool,
+    data: st.DataObject,
+) -> None:
+    """``validate_can_id`` refuses a negative identifier and one past its kind's largest.
+
+    Counterpart of the C++ standard CAN ID factory's refusal property, for
+    both kinds of identifier.
+    """
+    largest = _LARGEST_CAN_ID[extended]
+    can_id = data.draw(st.integers(max_value=-1) | st.integers(min_value=largest + 1))
+    with pytest.raises(ValidationError):
+        validate_can_id(can_id, extended=extended)
+
+
+# The profile the tests above draw under: ``@given`` keeps the profile in force
+# when it decorates, so this is read after the last of them.  The plugin's
+# ``--hypothesis-verbosity`` and ``--hypothesis-explain`` load a copy of the
+# selected profile named after it with a ``-with-`` suffix.
+_DECORATED_PROFILE, _, _ = settings.get_current_profile_name().partition("-with-")
+
+
+def test_property_tests_draw_the_profile_the_run_selected(request: pytest.FixtureRequest) -> None:
+    """The tests above draw under what ``--hypothesis-profile`` selects, the default without it."""
+    selected = cast("ProfileName | None", request.config.getoption("--hypothesis-profile"))
+    assert (selected or DEFAULT_PROFILE) == _DECORATED_PROFILE

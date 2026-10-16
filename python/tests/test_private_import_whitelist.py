@@ -102,6 +102,9 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._helpers.json_codec",
             "parse_values_list",
         ),
+        # The properties Go and C++ hold of the response reader and the CAN ID check.
+        ("test_property_hypothesis.py", "aletheia.client._ffi", "parse_json_object"),
+        ("test_property_hypothesis.py", "aletheia.client._types", "validate_can_id"),
         (
             "test_types_and_conditions.py",
             "aletheia.client._types",
