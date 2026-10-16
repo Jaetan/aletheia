@@ -12,16 +12,23 @@
 #include <aletheia/cli.hpp>
 #include <aletheia/excel.hpp>
 
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <array>
+#include <cerrno>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <ios>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <streambuf>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -66,8 +73,57 @@ static auto run_capture_err(std::vector<std::string> args) -> std::pair<int, std
     return {code, std::move(oss).str()};
 }
 
-// A DBC written into the temp directory for one test and removed by its own
-// destructor, so no test repeats the removal by hand or leaves a file behind.
+namespace {
+
+// Where stdout at /dev/full refuses a report: at the write for a report larger
+// than the stream's buffer, at the flush for one it holds whole.
+enum class Refusal : std::uint8_t { AtWrite, AtFlush };
+
+// A stream buffer refusing as a full device does, setting errno to ENOSPC, at
+// the write or only at the flush.
+class FullDeviceBuf : public std::streambuf {
+public:
+    explicit FullDeviceBuf(Refusal where) : where_{where} {}
+
+protected:
+    auto overflow(int_type ch) -> int_type override {
+        if (where_ == Refusal::AtFlush)
+            return traits_type::not_eof(ch);
+        errno = ENOSPC;
+        return traits_type::eof();
+    }
+    auto sync() -> int override {
+        errno = ENOSPC;
+        return -1;
+    }
+
+private:
+    Refusal where_;
+};
+
+// Both places a full device refuses a report.
+constexpr std::array k_refusals{Refusal::AtWrite, Refusal::AtFlush};
+
+} // namespace
+
+// Run a subcommand with stdout on a full device refusing at `where`, capturing
+// stderr.
+static auto run_unwritable(std::vector<std::string> args, Refusal where)
+    -> std::pair<int, std::string> {
+    FullDeviceBuf full{where};
+    std::ostringstream err;
+    auto* old_out = std::cout.rdbuf(&full);
+    auto* old_err = std::cerr.rdbuf(err.rdbuf());
+    auto const code = aletheia::run_cli(std::move(args));
+    std::cerr.rdbuf(old_err);
+    std::cout.rdbuf(old_out);
+    return {code, std::move(err).str()};
+}
+
+// The line a report that cannot be written exits with on a full device.
+static auto unwritable_line() -> std::string {
+    return "Error: writing the report: " + std::generic_category().message(ENOSPC) + "\n";
+}
 
 // An invalid DBC derived from the minimal.dbc fixture by renaming EngineTemp
 // to EngineSpeed — a duplicate signal name, which the verified parser rejects
@@ -223,6 +279,205 @@ TEST_CASE("rejected and unparseable DBCs stay fatal outside the validate report 
     CHECK(run({"validate", "--dbc", garbage.string()}) == 2);
 }
 
+TEST_CASE("each text report prints its lines exactly", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found: run 'cabal run shake -- build' first");
+    }
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
+    auto const mux =
+        (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "multiplexing.dbc")
+            .string();
+    const std::string header = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n";
+    const TempPath clean{"aletheia_cli_clean.dbc",
+                         header + "BO_ 256 Clean: 1 ECU\n"
+                                  " SG_ Level : 0|8@1+ (1,0) [0|255] \"%\" Vector__XXX\n"};
+    // Every value Small's bits carry above 100 is out of bounds, so a frame of
+    // 0xFF decodes no value and one error.
+    const TempPath narrow{"aletheia_cli_narrow.dbc",
+                          header + "BO_ 512 Narrow: 1 ECU\n"
+                                   " SG_ Small : 0|8@1+ (1,0) [0|100] \"\" Vector__XXX\n"};
+    const TempPath dup{"aletheia_cli_text_duplicate.dbc", duplicate_signal_dbc()};
+    struct Row {
+        std::vector<std::string> args;
+        std::string text;
+        int code = 0;
+    };
+    const std::vector<Row> rows{
+        {.args = {"validate", "--dbc", clean.string()},
+         .text = "Validation passed: no issues found\n"},
+        {.args = {"validate", "--dbc", dbc},
+         .text =
+             "Validation passed with warnings (2 issues)\n\n"
+             "  1. [WARNING] offset_scale_range: Message 'EngineStatus', signal 'EngineSpeed': its "
+             "bits carry values above the declared maximum\n"
+             "  2. [WARNING] offset_scale_range: Message 'SteeringData', signal 'SteeringAngle': "
+             "its bits carry values above the declared maximum\n"},
+        {.args = {"validate", "--dbc", dup.string()},
+         .text =
+             "Validation FAILED (2 issues)\n\n"
+             "  1. [ERROR] duplicate_signal_name: Message 'EngineStatus': duplicate signal name "
+             "'EngineSpeed'\n"
+             "  2. [WARNING] offset_scale_range: Message 'EngineStatus', signal 'EngineSpeed': its "
+             "bits carry values above the declared maximum\n",
+         .code = 1},
+        {.args = {"extract", "--dbc", dbc, "0x100", "102700000A000000"},
+         .text = "CAN ID 0x100 (EngineStatus):\n\n  EngineSpeed = 2500\n  EngineTemp = -40\n"},
+        {.args = {"extract", "--dbc", narrow.string(), "0x200", "FF"},
+         .text = "CAN ID 0x200 (Narrow):\n\n  (no signals)\n"
+                 "  error Small: value out of bounds: 255 not in [0, 100]\n"},
+        {.args = {"signals", "--dbc", clean.string()},
+         .text = "Message 0x100 Clean\n  Level bits[0:8] LE unsigned x1 0 %\n\n"
+                 "1 messages, 1 signals\n"},
+        {.args = {"mux-query", "--dbc", mux, "0x64"},
+         .text = "Message 0x64 BasicMux (DLC 8)\n  Mode:\n"
+                 "    value 0: 3 signals (Mode, PayloadA, CommonCounter)\n"
+                 "    value 1: 3 signals (Mode, PayloadB, CommonCounter)\n"
+                 "    value 2: 3 signals (Mode, PayloadC, CommonCounter)\n"},
+        {.args = {"mux-query", "--dbc", dbc, "0x100"},
+         .text = "Message 0x100 EngineStatus (DLC 8)\n"
+                 "  Not multiplexed: all 2 signals are always present.\n"},
+        {.args = {"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1"},
+         .text = "Message 0x64 BasicMux (DLC 8)\nMultiplexor Mode = 1: 3 signals present\n"
+                 "  Mode\n  PayloadB\n  CommonCounter\n"},
+    };
+    for (auto const& row : rows) {
+        CAPTURE(row.args);
+        auto const [code, out] = run_capture(row.args);
+        CHECK(code == row.code);
+        CHECK(out == row.text);
+    }
+}
+
+TEST_CASE("a report that cannot be written exits 2 naming the reason", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found: run 'cabal run shake -- build' first");
+    }
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
+    auto const mux =
+        (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "multiplexing.dbc")
+            .string();
+    // The duplicate-signal rows exit 1 when their report is written, so they
+    // show a failed write outranks the validation outcome.
+    const TempPath dup{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    const std::vector<std::vector<std::string>> reports{
+        {"validate", "--dbc", dbc},
+        {"validate", "--dbc", dbc, "--json"},
+        {"validate", "--dbc", dup.string()},
+        {"validate", "--dbc", dup.string(), "--json"},
+        {"signals", "--dbc", dbc},
+        {"signals", "--dbc", dbc, "--json"},
+        {"format-dbc", "--dbc", dbc},
+        {"extract", "--dbc", dbc, "0x100", "102700000A000000"},
+        {"extract", "--dbc", dbc, "0x100", "102700000A000000", "--json"},
+        {"mux-query", "--dbc", dbc, "0x100"},
+        {"mux-query", "--dbc", mux, "0x64"},
+        {"mux-query", "--dbc", mux, "0x64", "--json"},
+        {"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1"},
+        {"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1", "--json"},
+    };
+    for (auto const& args : reports) {
+        for (auto const where : k_refusals) {
+            CAPTURE(args, where == Refusal::AtWrite);
+            auto const [code, err] = run_unwritable(args, where);
+            CHECK(code == 2);
+            CHECK(err == unwritable_line());
+        }
+    }
+}
+
+TEST_CASE("a subcommand refuses a positional it does not take", "[cli]") {
+    // The refusal comes before any DBC is read, so it needs no .so, and a DBC
+    // path that resolves nowhere is still refused for its stray.
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
+    auto const missing = (repo_root() / "examples" / "missing.dbc").string();
+    const std::vector<std::pair<std::vector<std::string>, std::string>> rows{
+        {{"validate", "--dbc", dbc, "stray"}, "Error: unrecognized arguments: stray\n"},
+        {{"validate", "stray", "--dbc", dbc, "--json"}, "Error: unrecognized arguments: stray\n"},
+        {{"validate", "--dbc", missing, "stray"}, "Error: unrecognized arguments: stray\n"},
+        {{"signals", "--dbc", dbc, "stray"}, "Error: unrecognized arguments: stray\n"},
+        {{"format-dbc", "--dbc", dbc, "a", "b"}, "Error: unrecognized arguments: a b\n"},
+    };
+    for (auto const& [args, line] : rows) {
+        CAPTURE(args);
+        auto const [code, err] = run_capture_err(args);
+        CHECK(code == 2);
+        CHECK(err == line);
+    }
+}
+
+TEST_CASE("a subcommand that takes a fixed count names its extras apart from a shortfall",
+          "[cli]") {
+    // Both refusals come before any DBC is read or any workbook written, so
+    // they need no .so and a DBC path that resolves nowhere is refused for its
+    // count.
+    auto const missing = (repo_root() / "examples" / "missing.dbc").string();
+    const TempPath book{"aletheia_cli_template_extra.xlsx"};
+    const std::vector<std::pair<std::vector<std::string>, std::string>> rows{
+        {{"extract", "--dbc", missing, "0x100", "102700000A000000", "stray"},
+         "Error: unrecognized arguments: stray\n"},
+        {{"extract", "--dbc", missing, "0x100", "102700000A000000", "a", "--json", "b"},
+         "Error: unrecognized arguments: a b\n"},
+        {{"mux-query", "--dbc", missing, "0x100", "stray"},
+         "Error: unrecognized arguments: stray\n"},
+        {{"mux-query", "--dbc", missing, "--", "0x100", "--json"},
+         "Error: unrecognized arguments: --json\n"},
+        {{"template", book.string(), "stray"}, "Error: unrecognized arguments: stray\n"},
+        {{"extract", "--dbc", missing, "0x100"},
+         "Error: extract requires <can_id> <data> positional arguments\n"},
+        {{"mux-query", "--dbc", missing},
+         "Error: mux-query requires a <message> positional argument (CAN ID or name)\n"},
+        {{"template"}, "Error: template requires one <path> positional argument\n"},
+    };
+    for (auto const& [args, line] : rows) {
+        CAPTURE(args);
+        auto const [code, err] = run_capture_err(args);
+        CHECK(code == 2);
+        CHECK(err == line);
+    }
+    CHECK_FALSE(std::filesystem::exists(book.path));
+}
+
+TEST_CASE("a positional after -- is taken", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found: run 'cabal run shake -- build' first");
+    }
+    auto const mux =
+        (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "multiplexing.dbc")
+            .string();
+    auto const escaped = run_capture({"mux-query", "--dbc", mux, "--", "0x64"});
+    CHECK(escaped.first == 0);
+    CHECK(escaped == run_capture({"mux-query", "--dbc", mux, "0x64"}));
+}
+
+TEST_CASE("a value flag before -- is still read", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found: run 'cabal run shake -- build' first");
+    }
+    auto const mux =
+        (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "multiplexing.dbc")
+            .string();
+    auto const escaped =
+        run_capture({"mux-query", "--dbc", mux, "--mux", "Mode", "--value", "1", "--", "0x64"});
+    CHECK(escaped.first == 0);
+    CHECK(escaped ==
+          run_capture({"mux-query", "--dbc", mux, "--mux", "Mode", "--value", "1", "0x64"}));
+}
+
+TEST_CASE("a token after -- spelled like a flag is a stray positional", "[cli]") {
+    // The refusal comes before any DBC is read, so it needs no .so.
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
+    const std::vector<std::pair<std::vector<std::string>, std::string>> rows{
+        {{"validate", "--dbc", dbc, "--", "--json"}, "Error: unrecognized arguments: --json\n"},
+        {{"validate", "--", "--dbc", dbc}, "Error: unrecognized arguments: --dbc " + dbc + "\n"},
+    };
+    for (auto const& [args, line] : rows) {
+        CAPTURE(args);
+        auto const [code, err] = run_capture_err(args);
+        CHECK(code == 2);
+        CHECK(err == line);
+    }
+}
+
 TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]") {
     // These fail before touching the FFI core, so they need no .so.
     CHECK(run({"check"}) == 2); // deferred — needs a verified CAN-log reader
@@ -259,15 +514,39 @@ TEST_CASE("template exits 2 on a missing parent and on a wrong argument count", 
     CHECK(run({"template", target.string()}) == 2);
     CHECK_FALSE(std::filesystem::exists(parent.path));
     CHECK(run({"template"}) == 2);
-    CHECK(run({"template", "a.xlsx", "b.xlsx"}) == 2);
     CHECK(run({"template", "--json", "a.xlsx"}) == 2);
     CHECK_FALSE(std::filesystem::exists("a.xlsx"));
 }
 
-TEST_CASE("template whose report cannot be written is not a success", "[cli][template]") {
-    const TempPath out{"aletheia_cli_template_unreported.xlsx"};
+TEST_CASE("template takes its path after --, which is not a positional itself", "[cli][template]") {
+    const TempPath out{"aletheia_cli_template_escaped.xlsx"};
+    auto const [code, text] = run_capture({"template", "--", out.string()});
+    CHECK(code == 0);
+    CHECK(text == "Template written to " + out.string() + "\n");
+    CHECK(std::filesystem::exists(out.path));
+}
+
+TEST_CASE("template whose confirmation cannot be written exits 2 naming the reason",
+          "[cli][template]") {
+    for (auto const where : k_refusals) {
+        CAPTURE(where == Refusal::AtWrite);
+        const TempPath out{"aletheia_cli_template_unreported.xlsx"};
+        auto const [code, err] = run_unwritable({"template", out.string()}, where);
+        CHECK(code == 2);
+        CHECK(err == unwritable_line());
+    }
+}
+
+TEST_CASE("a report on a stream that failed before it names the stream's error",
+          "[cli][template]") {
+    // A stream already failed takes nothing and sets no errno, so the reason
+    // is the stream's own, never an errno an earlier call left behind.
+    const TempPath out{"aletheia_cli_template_failed_stream.xlsx"};
     std::cout.setstate(std::ios_base::badbit);
-    auto const code = run({"template", out.string()});
+    errno = EACCES;
+    auto const [code, err] = run_capture_err({"template", out.string()});
     std::cout.clear();
     CHECK(code == 2);
+    CHECK(err == "Error: writing the report: " +
+                     std::make_error_code(std::io_errc::stream).message() + "\n");
 }

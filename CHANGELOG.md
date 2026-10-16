@@ -2010,6 +2010,35 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The Go, C++ and Python CLIs refuse alike what they used to drop.** A
+  positional a subcommand does not take is refused before any DBC is read, with
+  exit code 2 and, when nothing else is missing, `unrecognized arguments: <the
+  positionals>`: the Go CLI ignored one given to `validate`, `signals` or
+  `format-dbc` together with every flag written after it, and the C++ CLI
+  ignored the positional itself; both now name an extra one on `extract`,
+  `mux-query` or `template` as the Python CLI does, too few keeping each
+  command's `requires` line. A bare `--` ends the flags in all three, every
+  token after it a positional: the Go CLI's `extract` and `mux-query` dropped it
+  and went on reading flags, the C++ CLI refused it as an unknown flag, and the
+  Python CLI refused it as an unrecognized argument on a subcommand that takes
+  no positional and ran a subcommand written after a leading `--`. A report that
+  cannot be written, text or JSON, exits 2 with `writing the report: <the
+  system's message>` in all three, the message the C library gives where the Go
+  CLI spelled the error its own way: on a full device, where the Go CLI's text
+  reports other than `template`'s and every C++ report exited as if written and
+  the Python CLI exited 120 with the interpreter's warning, or 2 with the bare
+  errno when one write outgrew its buffer; on a pipe whose reader is gone, which
+  killed the Go CLI and the C++ `template` by SIGPIPE; past a file-size limit,
+  which killed the C++ CLI by SIGXFSZ; and on a standard output closed at start,
+  which the Go runtime put on /dev/null (exit 0), the C++ CLI handed to the next
+  file it opened, and the Python CLI crashed on with exit 1. The Go CLI finds
+  the kernel when run from `go/cmd/aletheia`, where its candidate named
+  `go/build`, and the CLI reference's Go line, which set `ALETHEIA_LIB` to a
+  path missing from `go/`, runs as written. `docs/CLI_SCENARIOS.yaml` holds each
+  refusal for the three CLIs, a scenario now able to give the run a full device,
+  a closed standard output, a pipe with no reader or a file under a size limit
+  as its standard output.
+
 - **The release bundle carries the license text of every library it ships.**
   The bundle's `lib/` ships the kernel library, into which Agda compiles its
   runtime support and the Agda standard library, and beside it the GHC

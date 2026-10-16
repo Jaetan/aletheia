@@ -2,15 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Unit tests for the CLI module.
 
-Tests cover:
-- Hex data parsing: various formats -> bytearray
-- CAN ID parsing: hex/decimal, error cases
-- Timestamp formatting: microseconds -> human-readable
-- Rational number conversion: {numerator, denominator} -> int
-- Signals subcommand: text and JSON output from sample DBC
-- Extract subcommand: signal decoding via FFI
-- Check subcommand: streaming LTL checking via FFI
-- Error handling: missing files, bad arguments, exit codes
+Tests cover the hex data, CAN ID and timestamp helpers; the signals, validate,
+extract, check, mux-query and format-dbc subcommands, their reports and their
+refusals; and the exit codes. A report stdout refuses is
+``test_cli_unwritable_report.py``'s.
 """
 
 import json

@@ -17,7 +17,10 @@
 #   2 = operational error (bad arguments, missing file, parse failure,
 #       backend failure)
 #
-# Schema:
+# Schema. The harness checks each scenario against it as it loads this file and
+# refuses a key it does not name, a value of another type or outside the set
+# given here, an empty id, subcommand, fixture, workbook path or substring, and
+# fixture_exists without a fixture.
 #   meta:
 #     subcommands: the subcommands every CLI must expose; the harness
 #       asserts each has >= 1 scenario below AND appears in each CLI's
@@ -37,6 +40,14 @@
 #                 existence (or intentional absence) either way, so a typo'd
 #                 fixture name cannot silently turn a scenario into a
 #                 missing-file test.
+#     stdout:     optional; a standard output in place of the capture, each
+#                 refusing a write: "full" is /dev/full (no space left on
+#                 device), "closed" starts the program with descriptor 1 closed
+#                 (bad file descriptor), "broken-pipe" is a pipe whose reader
+#                 is gone (broken pipe), and "over-limit" a file under a
+#                 one-block file-size limit (file too large). Such a run has
+#                 nothing to read back, so neither its `expect` nor an
+#                 override's pins stdout_contains or json.
 #     expect:
 #       exit:            required exact exit code (see contract above)
 #       stdout_contains: optional substrings that must appear on stdout
@@ -152,6 +163,127 @@ scenarios:
       stderr_contains:
         - "Error:"
 
+  # A positional the subcommand does not take is an operational error naming
+  # it, whether a flag follows it or not.
+  - id: validate-stray-positional
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "stray"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: validate-stray-positional-json
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "stray", "--json"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  # "--" ends the flags: alone it leaves nothing to refuse, a token after it
+  # is a positional, and validate takes none.
+  - id: validate-double-dash-alone
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "--"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "Validation passed"
+
+  - id: validate-stray-after-double-dash
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "--", "stray"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  # A token spelled like a flag after "--" is a positional too, so a CLI that
+  # drops the "--" and goes on reading flags is caught here.
+  - id: validate-flag-after-double-dash
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "--", "--json"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: --json"
+
+  # A stray is refused before the DBC is read: a CLI reading it first would
+  # report the missing file instead.
+  - id: validate-stray-positional-missing-file
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "stray"]
+    fixture: dbc_broken/no_such_file.dbc
+    fixture_exists: false
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  # A report that cannot be written, text or --json, is an operational error
+  # naming the write, here and in every subcommand that prints one.
+  - id: validate-stdout-full
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  - id: validate-stdout-full-json
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "--json"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  # A report that cannot be written outranks the validation's verdict: a
+  # failing validation whose report is lost exits 2, not 1.
+  - id: validate-duplicate-signal-json-stdout-full
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "--json"]
+    fixture: dbc_broken/dupsig.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  # A stdout closed when the program starts takes no report: the program does
+  # not hand descriptor 1 to the next file it opens.
+  - id: validate-stdout-closed
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: closed
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: Bad file descriptor"
+
+  # A pipe whose reader is gone refuses the report like a full device: the
+  # write fails and is named, no signal ending the program first.
+  - id: validate-stdout-broken-pipe-json
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "--json"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: broken-pipe
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: Broken pipe"
+
   # -- signals ---------------------------------------------------------------
 
   - id: signals-valid
@@ -174,6 +306,73 @@ scenarios:
       stderr_contains:
         - "validation failed"
 
+  - id: signals-stray-positional
+    subcommand: signals
+    args: ["--dbc", "{dbc}", "stray"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: signals-stdout-full
+    subcommand: signals
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  - id: signals-stray-after-double-dash
+    subcommand: signals
+    args: ["--dbc", "{dbc}", "--", "stray"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: signals-flag-after-double-dash
+    subcommand: signals
+    args: ["--dbc", "{dbc}", "--", "--json"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: --json"
+
+  - id: signals-stray-positional-missing-file
+    subcommand: signals
+    args: ["--dbc", "{dbc}", "stray"]
+    fixture: dbc_broken/no_such_file.dbc
+    fixture_exists: false
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: signals-stdout-full-json
+    subcommand: signals
+    args: ["--dbc", "{dbc}", "--json"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  - id: signals-stdout-broken-pipe
+    subcommand: signals
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: broken-pipe
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: Broken pipe"
+
   # -- format-dbc ------------------------------------------------------------
 
   # Canonical JSON re-export via the Agda core: message name + id 256 must
@@ -188,6 +387,56 @@ scenarios:
       stdout_contains:
         - "EngineStatus"
         - "256"
+
+  - id: format-dbc-stray-positional
+    subcommand: format-dbc
+    args: ["--dbc", "{dbc}", "stray"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: format-dbc-stdout-full
+    subcommand: format-dbc
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  - id: format-dbc-stray-after-double-dash
+    subcommand: format-dbc
+    args: ["--dbc", "{dbc}", "--", "stray"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: format-dbc-stray-positional-missing-file
+    subcommand: format-dbc
+    args: ["--dbc", "{dbc}", "stray"]
+    fixture: dbc_broken/no_such_file.dbc
+    fixture_exists: false
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  # A report past the file-size limit is refused like a full device: the
+  # write fails and is named, no signal ending the program first.
+  - id: format-dbc-stdout-over-limit
+    subcommand: format-dbc
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: over-limit
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: File too large"
 
   # -- extract ---------------------------------------------------------------
 
@@ -204,6 +453,92 @@ scenarios:
         - "EngineSpeed"
         - "1088"
 
+  # A positional past the ones the subcommand takes is an operational error
+  # naming it, here and in mux-query and template.
+  - id: extract-stray-positional
+    subcommand: extract
+    args: ["256", "0011223344556677", "--dbc", "{dbc}", "stray"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: extract-stdout-full
+    subcommand: extract
+    args: ["256", "0011223344556677", "--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  # "--" ends the flags: the positionals after it are the frame, and a token
+  # spelled like a flag after them is one positional too many.
+  - id: extract-after-double-dash
+    subcommand: extract
+    args: ["--dbc", "{dbc}", "--", "256", "0011223344556677"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "EngineSpeed"
+        - "1088"
+
+  - id: extract-flag-after-double-dash
+    subcommand: extract
+    args: ["--dbc", "{dbc}", "--", "256", "0011223344556677", "--json"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: --json"
+
+  # Only the first "--" ends the flags; a second one is a positional, here one
+  # too many.
+  - id: extract-second-double-dash
+    subcommand: extract
+    args: ["--dbc", "{dbc}", "--", "256", "0011223344556677", "--"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: --"
+
+  # Too few positionals is an operational error naming what the subcommand
+  # requires, here and in mux-query and template. Go and C++ print the
+  # command's own line, the Python CLI its argument parser's, so the shared
+  # word is what is pinned.
+  - id: extract-too-few
+    subcommand: extract
+    args: ["--dbc", "{dbc}", "256"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "require"
+
+  - id: extract-stray-positional-missing-file
+    subcommand: extract
+    args: ["256", "0011223344556677", "--dbc", "{dbc}", "stray"]
+    fixture: dbc_broken/no_such_file.dbc
+    fixture_exists: false
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: extract-stdout-full-json
+    subcommand: extract
+    args: ["256", "0011223344556677", "--dbc", "{dbc}", "--json"]
+    fixture: dbc_corpus/minimal.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
   # -- mux-query -------------------------------------------------------------
 
   # Summary mode (no --mux/--value): message resolved by CAN ID 100, the
@@ -217,6 +552,66 @@ scenarios:
       stdout_contains:
         - "BasicMux"
         - "Mode:"
+
+  # "--" ends the flags: the message after it is the positional, and the
+  # summary is the one mux-query-valid pins.
+  - id: mux-query-after-double-dash
+    subcommand: mux-query
+    args: ["--dbc", "{dbc}", "--", "100"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "BasicMux"
+        - "Mode:"
+
+  - id: mux-query-stray-positional
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "stray"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: mux-query-stdout-full
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}"]
+    fixture: dbc_corpus/multiplexing.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  - id: mux-query-too-few
+    subcommand: mux-query
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "require"
+
+  - id: mux-query-stray-positional-missing-file
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "stray"]
+    fixture: dbc_broken/no_such_file.dbc
+    fixture_exists: false
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: mux-query-stdout-full-json
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "--json"]
+    fixture: dbc_corpus/multiplexing.dbc
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
 
   # -- template --------------------------------------------------------------
 
@@ -253,3 +648,77 @@ scenarios:
       exit: 2
       stderr_contains:
         - "Error:"
+
+  - id: template-stray-positional
+    subcommand: template
+    args: ["{tmp}/checks.xlsx", "stray"]
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  # "--" ends the flags wherever it stands: ahead of the path, after it, or
+  # ahead of a stray.
+  - id: template-after-double-dash
+    subcommand: template
+    args: ["--", "{tmp}/checks.xlsx"]
+    expect:
+      exit: 0
+      stdout_contains:
+        - "Template written to "
+      writes_template: "{tmp}/checks.xlsx"
+
+  - id: template-double-dash-after-path
+    subcommand: template
+    args: ["{tmp}/checks.xlsx", "--"]
+    expect:
+      exit: 0
+      stdout_contains:
+        - "Template written to "
+      writes_template: "{tmp}/checks.xlsx"
+
+  - id: template-stray-after-double-dash
+    subcommand: template
+    args: ["{tmp}/checks.xlsx", "--", "stray"]
+    expect:
+      exit: 2
+      stderr_contains:
+        - "unrecognized arguments: stray"
+
+  - id: template-too-few
+    subcommand: template
+    args: []
+    expect:
+      exit: 2
+      stderr_contains:
+        - "require"
+
+  # The confirmation line is the template's report.
+  - id: template-stdout-full
+    subcommand: template
+    args: ["{tmp}/checks.xlsx"]
+    stdout: full
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: No space left on device"
+
+  # Template loads no kernel, so nothing but the program itself decides what a
+  # closed stdout or a pipe whose reader is gone does to its confirmation.
+  - id: template-stdout-closed
+    subcommand: template
+    args: ["{tmp}/checks.xlsx"]
+    stdout: closed
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: Bad file descriptor"
+
+  - id: template-stdout-broken-pipe
+    subcommand: template
+    args: ["{tmp}/checks.xlsx"]
+    stdout: broken-pipe
+    expect:
+      exit: 2
+      stderr_contains:
+        - "writing the report: Broken pipe"

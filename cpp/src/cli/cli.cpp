@@ -13,11 +13,13 @@
 // There is no `check` subcommand (LTL over a CAN log file): it needs a
 // CAN-log reader the C++ binding does not provide. DBC sources are `.dbc`
 // text files parsed by the verified text parser; canonical-JSON and `.xlsx`
-// inputs are not accepted. Flags may appear before or after positionals.
+// inputs are not accepted. Flags may appear before or after positionals, and
+// a bare "--" ends them: every token after it is a positional.
 //
 // Output goes through std::cout and std::cerr so a host that embeds run_cli
-// (the CLI tests do) can redirect it. The library path is resolved from
-// $ALETHEIA_LIB, else common build/install locations. Exit codes: 0 ok,
+// (the CLI tests do) can redirect it; a report that cannot be written is an
+// error. The library path is $ALETHEIA_LIB when it names a file, else the
+// repository's build/ as seen from the working directory. Exit codes: 0 ok,
 // 1 validation failed, 2 error.
 
 #include <aletheia/backend.hpp>
@@ -36,6 +38,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
@@ -102,11 +105,31 @@ static auto die(std::string_view msg) -> int {
     return cli_exit_error;
 }
 
-// Reports a stream failure as an error exit, so a broken pipe is not masked
-// by a subcommand's own outcome.
-static auto emit_json(const Json& j) -> int {
-    std::cout << j.dump(k_json_indent) << '\n';
-    return std::cout ? cli_exit_ok : cli_exit_error;
+// Refuses the positionals a subcommand does not take, in the words the Python
+// CLI's argument parser uses for them.
+static auto refuse_unrecognized(std::span<const std::string> extras) -> int {
+    return die("unrecognized arguments: " +
+               (extras | std::views::join_with(' ') | std::ranges::to<std::string>()));
+}
+
+// Writes a whole report to std::cout in one insertion and flushes it, answering
+// `outcome` once the stream has taken it. A refusal, at the write or at the
+// flush where a full device first fails, is read with the errno it set and
+// outranks the outcome: the error exit names the system's reason, or the
+// stream's own when the failure set none.
+static auto emit_report(std::string_view report, int outcome) -> int {
+    errno = 0;
+    std::cout << report << std::flush;
+    if (std::cout)
+        return outcome;
+    auto const err = errno;
+    return die("writing the report: " +
+               (err != 0 ? std::generic_category().message(err)
+                         : std::make_error_code(std::io_errc::stream).message()));
+}
+
+static auto emit_json(const Json& j, int outcome = cli_exit_ok) -> int {
+    return emit_report(j.dump(k_json_indent) + '\n', outcome);
 }
 
 // --- client / DBC loading -------------------------------------------------
@@ -229,7 +252,9 @@ static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std:
 
 // Classifies argv into value-flags, bool-flags, and positionals. Flags may
 // appear in any position (matching the Python argparse UX); "--flag value"
-// and "--flag=value" are both accepted.
+// and "--flag=value" are both accepted. The first bare "--" ends the flags:
+// it is neither a flag nor a positional, and every token after it is a
+// positional, one spelled like a flag included.
 static auto parse_args(std::span<const std::string> args, const std::set<std::string>& value_flags,
                        const std::set<std::string>& bool_flags)
     -> std::expected<Args, std::string> {
@@ -240,6 +265,10 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
     while (!args.empty()) {
         const std::string& a = args.front();
         args = aletheia::detail::subspan_at(args, 1);
+        if (a == "--") {
+            out.positionals.append_range(args);
+            break;
+        }
         if (!a.starts_with("--")) {
             out.positionals.push_back(a);
             continue;
@@ -275,45 +304,47 @@ static auto opt_or(const Args& a, const std::string& key) -> std::string {
 
 // --- subcommands ----------------------------------------------------------
 
-// Renders a validation outcome in both the --json and human-readable forms;
-// shared by the parse-success path (the parse warnings, has_errors=false)
-// and the rejected-parse path (a handler_validation_failed error carrying
-// issues), so both print the identical report shape.
-static auto render_validation(bool has_errors, const std::vector<aletheia::ValidationIssue>& issues,
-                              bool as_json) -> int {
-    if (as_json) {
-        auto arr = Json::array();
-        for (auto const& i : issues)
-            arr.push_back({{"severity", std::string{aletheia::to_string(i.severity)}},
-                           {"code", std::string{aletheia::issue_code_label(i)}},
-                           {"detail", i.detail}});
-        auto const code = emit_json({{"status", has_errors ? "fail" : "pass"},
-                                     {"has_errors", has_errors},
-                                     {"total_issues", issues.size()},
-                                     {"issues", arr}});
-        // An emit failure is an operational error and must not be masked
-        // by the validation outcome.
-        if (code != cli_exit_ok)
-            return code;
-        // The exit code reflects the validation outcome in both output
-        // modes — a pipeline running --json still needs exit 1 on failure.
-        return has_errors ? cli_exit_validation_failed : cli_exit_ok;
-    }
-    if (issues.empty()) {
-        std::cout << "Validation passed: no issues found\n";
-        return cli_exit_ok;
-    }
-    std::cout << (has_errors ? "Validation FAILED" : "Validation passed with warnings") << " ("
-              << issues.size() << " issues)\n\n";
+// The human-readable validation report: a one-line verdict, then the
+// numbered issue list when there is one.
+static auto validation_text(bool has_errors, const std::vector<aletheia::ValidationIssue>& issues)
+    -> std::string {
+    if (issues.empty())
+        return "Validation passed: no issues found\n";
+    std::ostringstream out;
+    out << (has_errors ? "Validation FAILED" : "Validation passed with warnings") << " ("
+        << issues.size() << " issues)\n\n";
     int n = 1;
     for (auto const& i : issues) {
         std::string sev{aletheia::to_string(i.severity)};
         std::ranges::transform(sev, sev.begin(),
                                [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-        std::cout << "  " << n++ << ". [" << sev << "] " << aletheia::issue_code_label(i) << ": "
-                  << i.detail << '\n';
+        out << "  " << n++ << ". [" << sev << "] " << aletheia::issue_code_label(i) << ": "
+            << i.detail << '\n';
     }
-    return has_errors ? cli_exit_validation_failed : cli_exit_ok;
+    return std::move(out).str();
+}
+
+// Renders a validation outcome in both the --json and human-readable forms;
+// shared by the parse-success path (the parse warnings, has_errors=false)
+// and the rejected-parse path (a handler_validation_failed error carrying
+// issues), so both print the identical report shape. The exit code reflects
+// the validation outcome in both output modes: a pipeline running --json
+// still needs exit 1 on failure.
+static auto render_validation(bool has_errors, const std::vector<aletheia::ValidationIssue>& issues,
+                              bool as_json) -> int {
+    auto const outcome = has_errors ? cli_exit_validation_failed : cli_exit_ok;
+    if (!as_json)
+        return emit_report(validation_text(has_errors, issues), outcome);
+    auto arr = Json::array();
+    for (auto const& i : issues)
+        arr.push_back({{"severity", std::string{aletheia::to_string(i.severity)}},
+                       {"code", std::string{aletheia::issue_code_label(i)}},
+                       {"detail", i.detail}});
+    return emit_json({{"status", has_errors ? "fail" : "pass"},
+                      {"has_errors", has_errors},
+                      {"total_issues", issues.size()},
+                      {"issues", arr}},
+                     outcome);
 }
 
 // `has_errors` for a rejected parse is derived from the decoded issue
@@ -356,7 +387,7 @@ static auto cmd_validate(const Args& a) -> int {
 // map, so keys emit alphabetically — `denominator` before `numerator` — whereas
 // Python emits insertion order).  The float principle bars a lossy conversion to
 // double here (this is machine-readable output a consumer parses), and the type
-// no longer offers one.  Extraction values
+// offers none.  Extraction values
 // are kernel-canonical (reduced, positive denominator), so no gcd / INT64_MIN
 // normalisation is needed (unlike `rational_to_json`, which guards arbitrary
 // caller-built rationals on the DBC-serialize path).
@@ -377,8 +408,10 @@ static auto render_rational(const aletheia::Rational& r) -> std::string {
 }
 
 static auto cmd_extract(const Args& a) -> int {
-    if (a.positionals.size() != 2)
+    if (a.positionals.size() < 2)
         return die("extract requires <can_id> <data> positional arguments");
+    if (a.positionals.size() > 2)
+        return refuse_unrecognized(a.positionals | std::views::drop(2));
     auto const can_id = parse_can_id(a.positionals.at(0));
     if (!can_id)
         return die("invalid CAN ID: " + a.positionals.at(0));
@@ -419,25 +452,26 @@ static auto cmd_extract(const Args& a) -> int {
                           {"errors", errors},
                           {"absent", absent}});
     }
-    std::cout << "CAN ID 0x" << std::hex << can_id.value() << std::dec << " (" << msg->name.get()
-              << "):\n\n";
+    std::ostringstream out;
+    out << "CAN ID 0x" << std::hex << can_id.value() << std::dec << " (" << msg->name.get()
+        << "):\n\n";
     if (res.value().values.empty())
-        std::cout << "  (no signals)\n";
+        out << "  (no signals)\n";
     for (auto const& v : res.value().values)
-        std::cout << "  " << v.name.get() << " = " << render_rational(v.value.get()) << '\n';
+        out << "  " << v.name.get() << " = " << render_rational(v.value.get()) << '\n';
     for (auto const& e : res.value().errors)
-        std::cout << "  error " << e.name.get() << ": " << e.reason << '\n';
-    return cli_exit_ok;
+        out << "  error " << e.name.get() << ": " << e.reason << '\n';
+    return emit_report(std::move(out).str(), cli_exit_ok);
 }
 
-static void print_signal_line(const aletheia::DbcSignal& sig) {
+static void print_signal_line(std::ostream& out, const aletheia::DbcSignal& sig) {
     const std::string_view order =
         sig.byte_order == aletheia::ByteOrder::LittleEndian ? "LE" : "BE";
     const std::string_view sign = sig.is_signed ? "signed" : "unsigned";
-    std::cout << "  " << sig.name.get() << " bits[" << sig.start_bit.get() << ":"
-              << static_cast<unsigned>(sig.bit_length.get()) << "] " << order << " " << sign << " x"
-              << render_rational(sig.factor.get()) << " " << render_rational(sig.offset.get())
-              << " " << sig.unit.get() << '\n';
+    out << "  " << sig.name.get() << " bits[" << sig.start_bit.get() << ":"
+        << static_cast<unsigned>(sig.bit_length.get()) << "] " << order << " " << sign << " x"
+        << render_rational(sig.factor.get()) << " " << render_rational(sig.offset.get()) << " "
+        << sig.unit.get() << '\n';
 }
 
 static auto cmd_signals(const Args& a) -> int {
@@ -447,21 +481,20 @@ static auto cmd_signals(const Args& a) -> int {
     auto const def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
         return die(aletheia::detail::error_of(def).message);
-    if (a.flags.contains("json")) {
-        std::cout << aletheia::to_canonical_json(def.value().dbc) << '\n';
-        return cli_exit_ok;
-    }
+    if (a.flags.contains("json"))
+        return emit_report(aletheia::to_canonical_json(def.value().dbc) + '\n', cli_exit_ok);
+    std::ostringstream out;
     std::size_t total = 0;
     for (auto const& msg : def.value().dbc.messages) {
-        std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
-                  << msg.name.get() << '\n';
+        out << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
+            << msg.name.get() << '\n';
         for (auto const& sig : msg.signals) {
             ++total;
-            print_signal_line(sig);
+            print_signal_line(out, sig);
         }
     }
-    std::cout << '\n' << def.value().dbc.messages.size() << " messages, " << total << " signals\n";
-    return cli_exit_ok;
+    out << '\n' << def.value().dbc.messages.size() << " messages, " << total << " signals\n";
+    return emit_report(std::move(out).str(), cli_exit_ok);
 }
 
 static auto cmd_format_dbc(const Args& a) -> int {
@@ -474,8 +507,7 @@ static auto cmd_format_dbc(const Args& a) -> int {
     auto const canonical = client.value().format_dbc(std::stop_token{});
     if (!canonical)
         return die(aletheia::detail::error_of(canonical).message());
-    std::cout << aletheia::to_canonical_json(canonical.value()) << '\n';
-    return cli_exit_ok;
+    return emit_report(aletheia::to_canonical_json(canonical.value()) + '\n', cli_exit_ok);
 }
 
 static auto resolve_mux_message(const DbcDefinition& def, const std::string& ident, bool extended)
@@ -489,9 +521,9 @@ static auto resolve_mux_message(const DbcDefinition& def, const std::string& ide
 
 // The line both mux-query modes open with, and the one the Go and Python
 // interfaces print: the identifier, the name and the payload length.
-static void print_message_header(const DbcMessage& msg) {
-    std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
-              << msg.name.get() << " (DLC " << aletheia::dlc_to_bytes(msg.dlc) << ")\n";
+static void print_message_header(std::ostream& out, const DbcMessage& msg) {
+    out << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
+        << msg.name.get() << " (DLC " << aletheia::dlc_to_bytes(msg.dlc) << ")\n";
 }
 
 // The signal names of one mux value, comma-separated, as the other two
@@ -521,12 +553,12 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
                           {"value", value},
                           {"signals", names}});
     }
-    print_message_header(msg);
-    std::cout << "Multiplexor " << mux << " = " << value << ": " << sigs.size()
-              << " signals present\n";
+    std::ostringstream out;
+    print_message_header(out, msg);
+    out << "Multiplexor " << mux << " = " << value << ": " << sigs.size() << " signals present\n";
     for (auto const& s : sigs)
-        std::cout << "  " << s.name.get() << '\n';
-    return cli_exit_ok;
+        out << "  " << s.name.get() << '\n';
+    return emit_report(std::move(out).str(), cli_exit_ok);
 }
 
 // mux-query summary mode: every multiplexor, its values, and their signals.
@@ -548,26 +580,28 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
                           {"is_multiplexed", msg.is_multiplexed()},
                           {"multiplexors", muxes}});
     }
-    print_message_header(msg);
-    if (!msg.is_multiplexed()) {
-        std::cout << "  Not multiplexed: all " << msg.signals.size()
-                  << " signals are always present.\n";
-        return cli_exit_ok;
-    }
+    std::ostringstream out;
+    print_message_header(out, msg);
+    // A message that is not multiplexed names no multiplexor, so the loop
+    // adds nothing after its line.
+    if (!msg.is_multiplexed())
+        out << "  Not multiplexed: all " << msg.signals.size() << " signals are always present.\n";
     for (auto const& name : msg.multiplexor_names()) {
-        std::cout << "  " << name.get() << ":\n";
+        out << "  " << name.get() << ":\n";
         for (auto const v : msg.multiplex_values(name)) {
             auto const sigs = msg.signals_for_mux_value(name, v);
-            std::cout << "    value " << v.get() << ": " << sigs.size() << " signals ("
-                      << join_signal_names(sigs) << ")\n";
+            out << "    value " << v.get() << ": " << sigs.size() << " signals ("
+                << join_signal_names(sigs) << ")\n";
         }
     }
-    return cli_exit_ok;
+    return emit_report(std::move(out).str(), cli_exit_ok);
 }
 
 static auto cmd_mux_query(const Args& a) -> int {
-    if (a.positionals.size() != 1)
+    if (a.positionals.empty())
         return die("mux-query requires a <message> positional argument (CAN ID or name)");
+    if (a.positionals.size() > 1)
+        return refuse_unrecognized(a.positionals | std::views::drop(1));
     auto client = make_client();
     if (!client)
         return die(aletheia::detail::error_of(client));
@@ -601,13 +635,14 @@ static auto cmd_mux_query(const Args& a) -> int {
 // Writes the blank workbook the Excel loaders read; a path that exists is
 // refused and left as it was.
 static auto cmd_template(const Args& a) -> int {
-    if (a.positionals.size() != 1)
+    if (a.positionals.empty())
         return die("template requires one <path> positional argument");
+    if (a.positionals.size() > 1)
+        return refuse_unrecognized(a.positionals | std::views::drop(1));
     auto const& path = a.positionals.at(0);
     if (auto const made = aletheia::create_excel_template(path); !made)
         return die(aletheia::detail::error_of(made).message());
-    std::cout << "Template written to " << path << '\n';
-    return std::cout ? cli_exit_ok : cli_exit_error;
+    return emit_report("Template written to " + path + '\n', cli_exit_ok);
 }
 
 constexpr std::string_view k_usage =
@@ -622,9 +657,9 @@ constexpr std::string_view k_usage =
     "  template    write a blank Excel workbook to fill in with a DBC and checks\n\n"
     "DBC source: --dbc <file>.dbc (verified text parser). Flags may go before or after "
     "positionals.\n"
-    "Library path: $ALETHEIA_LIB or a build/install default.";
+    "Library path: $ALETHEIA_LIB or a default location.";
 
-// Dispatch the parsed command; separated from main() so main() stays
+// Dispatch the parsed command; separated from run_cli so run_cli stays
 // exception-free (bugprone-exception-escape) via a single try/catch.
 static auto dispatch(const std::string& cmd, std::span<const std::string> rest) -> int {
     const std::set<std::string> bool_flags{"json", "extended"};
@@ -632,6 +667,10 @@ static auto dispatch(const std::string& cmd, std::span<const std::string> rest) 
         auto const parsed = parse_args(rest, {"dbc"}, bool_flags);
         if (!parsed)
             return die(aletheia::detail::error_of(parsed));
+        // None of the three takes a positional: one given is refused before
+        // any DBC is read.
+        if (auto const& extra = parsed.value().positionals; !extra.empty())
+            return refuse_unrecognized(extra);
         if (cmd == "validate")
             return cmd_validate(parsed.value());
         if (cmd == "signals")
