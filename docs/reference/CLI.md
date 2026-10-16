@@ -22,7 +22,7 @@ Subcommands: `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query
 **Exit codes** (all subcommands):
 - `0` — success (or all checks passed)
 - `1` — violations found (`check`) or validation failed (`validate`)
-- `2` — error (bad arguments, missing files, parse failures)
+- `2` — error (bad arguments, missing files, parse failures, a report that cannot be written)
 
 ---
 
@@ -186,6 +186,7 @@ Validation passed: no issues found
 **Exit codes**:
 - `0` — validation passed (no errors; warnings are OK)
 - `1` — validation failed (at least one error)
+- `2` — error, as for every subcommand
 
 ---
 
@@ -493,32 +494,46 @@ Error frames and remote frames are skipped by default. Frame data is normalized 
 
 The C++ and Go bindings ship the **same subcommand surface** as a thin host
 binary over their client — `validate`, `extract`, `signals`, `format-dbc`,
-`mux-query`, `template` — with identical exit codes and JSON output shapes. Two
-scope differences from the Python CLI above:
+`mux-query`, `template` — with the JSON output shapes of the Python CLI and its
+exit code on every input the parity contract in `docs/CLI_SCENARIOS.yaml` pins.
+Outside it some flag spellings are read differently, so the exit code can
+differ: the C++ tool takes `--json` and `--extended` on `validate`, `signals`
+and `format-dbc` alike; an inline value on a flag that takes none
+(`--json=false`) turns the flag on in the C++ tool, sets it in the Go tool and
+is refused by the Python tool; the Go tool takes a flag written with one dash;
+the Python tool takes an unambiguous abbreviation of a flag. Two scope
+differences from the Python CLI above:
 
 - **`check` is not yet available** in the C++/Go CLIs: it needs a verified
   CAN-log reader (a Phase 6 item). Use the Python CLI for log-file checking.
 - **`--dbc` reads `.dbc` text** (the verified Agda text parser);
   canonical-JSON and `.xlsx` DBC inputs remain Python-only for now.
 
-Both resolve `libaletheia-ffi.so` from `$ALETHEIA_LIB` first, treating an empty
-value as unset. The C++ tool then searches the build directories the rest of the
-C++ binding searches and nothing else, so that it and the value renderer always
-load the same library; the Go tool also falls back to `/usr/local/lib`. Flags
-may appear before or after positionals.
+Both take `libaletheia-ffi.so` from `$ALETHEIA_LIB` first, an empty value
+counting as unset. The Go tool loads a set value as given and fails when it
+names no library; with none set, it searches the build directory and then
+`/usr/local/lib`. The C++ tool passes over a value that names no file and
+searches the build directories the rest of the C++ binding searches and
+nothing else, so that it and the value renderer always load the same library. Flags may appear before or
+after positionals, and a bare `--` ends them: every token after it is a
+positional, as in the Python CLI. A positional a subcommand does not take is
+refused with exit code 2, naming it. A report that cannot be written, to a full
+device, a closed standard output, a pipe whose reader is gone or past a
+file-size limit, exits 2 with `writing the report: <the system's message>`, in
+all three CLIs.
 
 **C++** — the `aletheia-cli` binary:
 
 ~~~bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
-ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehicle.dbc
+ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc examples/demo/vehicle.dbc
 ~~~
 
 **Go** — the `cmd/aletheia` package:
 
 ~~~bash
-ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
-# or build a standalone binary: (cd go && go build -o aletheia-cli ./cmd/aletheia)
+go run ./cmd/aletheia signals --dbc ../examples/demo/vehicle.dbc
+# or build a standalone binary: go build -o aletheia-cli ./cmd/aletheia
 # cmd/aletheia is a module of its own in the go/ workspace, so both run from go/
 ~~~
 

@@ -23,13 +23,15 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
+import contextlib
+import errno
 import importlib
+import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn, cast
+from typing import TYPE_CHECKING, NoReturn, TextIO, cast
 
-from aletheia import __version__
+from aletheia._cli_parser import build_parser
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
 from aletheia.checks_runner import CheckRunResult, Violation, run_checks
 from aletheia.client._backend import FFIBackend
@@ -66,6 +68,7 @@ from aletheia.types import (
 if TYPE_CHECKING:
     # Type-only imports for the lazy helpers below — these are not available
     # at runtime when the corresponding optional dependency is not installed.
+    import argparse
     from collections.abc import Callable
 
     from aletheia.checks import CheckResult
@@ -113,13 +116,14 @@ _EXIT_ERROR = 2
 
 
 def _emit(text: str = "") -> None:
-    """Write a single line to stdout (CLI text output channel).
-
-    Routes through ``sys.stdout.write`` so the static gate (ruff T201)
-    treats this as the single sanctioned text-output entry-point.  All
-    human-readable CLI output flows through this helper.
-    """
-    sys.stdout.write(f"{text}\n")
+    """Write a line to stdout: all CLI text goes through here, ruff T201 banning print."""
+    stdout: TextIO | None = sys.stdout
+    if stdout is None:  # the interpreter found descriptor 1 closed
+        _die(f"writing the report: {os.strerror(errno.EBADF)}")
+    try:
+        stdout.write(f"{text}\n")
+    except (OSError, ValueError) as exc:  # ValueError: text it cannot encode, or stdout closed
+        _refuse_report(exc)
 
 
 def _die(msg: str) -> NoReturn:
@@ -133,6 +137,14 @@ def _die(msg: str) -> NoReturn:
     """
     sys.stderr.write(f"Error: {msg}\n")
     sys.exit(_EXIT_ERROR)
+
+
+def _refuse_report(exc: OSError | ValueError) -> NoReturn:
+    """Exit 2 naming the refusal; a closed stdout leaves the exit flush nothing to refuse."""
+    with contextlib.suppress(OSError):  # its closing flush is refused the same way
+        sys.stdout.close()
+    reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else str(exc)
+    _die(f"writing the report: {reason}")
 
 
 def _require_existing_path(p: Path, label: str, source: str) -> None:
@@ -831,114 +843,6 @@ def _cmd_template(args: argparse.Namespace) -> int:
 
 
 # ============================================================================
-# Argument parser
-# ============================================================================
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    """Build the top-level argument parser with subcommands."""
-    parser = argparse.ArgumentParser(
-        prog="aletheia",
-        description="Formally verified CAN signal analysis",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # -- check ---------------------------------------------------------------
-    p_check = subparsers.add_parser(
-        "check",
-        help="run LTL checks against a CAN log file",
-    )
-    p_check.add_argument("logfile", help="CAN log file (.asc, .blf, .csv, .db, .log, .mf4, .trc)")
-    p_check.add_argument("--dbc", help=".dbc file for signal definitions")
-    p_check.add_argument("--checks", help=".yaml or .xlsx file with check definitions")
-    p_check.add_argument("--defaults", help=".yaml or .xlsx file with default checks (prepended)")
-    p_check.add_argument("--excel", help=".xlsx workbook with DBC + Checks sheets")
-    p_check.add_argument("--json", action="store_true", help="output as JSON")
-
-    # -- validate ------------------------------------------------------------
-    p_validate = subparsers.add_parser(
-        "validate",
-        help="validate a DBC definition for structural issues",
-    )
-    p_validate.add_argument("--dbc", help=".dbc file for signal definitions")
-    p_validate.add_argument("--excel", help=".xlsx workbook with DBC sheet")
-    p_validate.add_argument("--json", action="store_true", help="output as JSON")
-
-    # -- extract -------------------------------------------------------------
-    p_extract = subparsers.add_parser(
-        "extract",
-        help="decode signals from a single CAN frame",
-    )
-    p_extract.add_argument("can_id", help="CAN ID (hex 0x100 or decimal 256)")
-    p_extract.add_argument("data", help="frame data as hex bytes")
-    p_extract.add_argument("--dbc", required=True, help=".dbc or .xlsx file")
-    p_extract.add_argument(
-        "--extended",
-        action="store_true",
-        help="treat CAN ID as 29-bit extended (default: 11-bit standard)",
-    )
-    p_extract.add_argument("--json", action="store_true", help="output as JSON")
-
-    # -- signals -------------------------------------------------------------
-    p_signals = subparsers.add_parser(
-        "signals",
-        help="list signals defined in a DBC file",
-    )
-    p_signals.add_argument("--dbc", help=".dbc file")
-    p_signals.add_argument("--excel", help=".xlsx workbook with DBC sheet")
-    p_signals.add_argument("--json", action="store_true", help="output as JSON")
-
-    # -- format-dbc ----------------------------------------------------------
-    p_format = subparsers.add_parser(
-        "format-dbc",
-        help="re-export a DBC as canonical JSON via the Agda core",
-    )
-    p_format.add_argument("--dbc", help=".dbc file")
-    p_format.add_argument("--excel", help=".xlsx workbook with DBC sheet")
-
-    # -- mux-query -----------------------------------------------------------
-    p_mux = subparsers.add_parser(
-        "mux-query",
-        help="inspect multiplexor structure of a DBC message",
-    )
-    p_mux.add_argument(
-        "message",
-        help="message CAN ID (hex 0x100 or decimal 256) or message name",
-    )
-    p_mux.add_argument("--dbc", help=".dbc file")
-    p_mux.add_argument("--excel", help=".xlsx workbook with DBC sheet")
-    p_mux.add_argument(
-        "--extended",
-        action="store_true",
-        help="treat CAN ID as 29-bit extended (default: 11-bit standard)",
-    )
-    p_mux.add_argument(
-        "--mux",
-        help="multiplexor signal name (used with --value to list active signals)",
-    )
-    p_mux.add_argument(
-        "--value",
-        type=int,
-        help="multiplexor value (used with --mux to list active signals)",
-    )
-    p_mux.add_argument("--json", action="store_true", help="output as JSON")
-
-    # -- template ------------------------------------------------------------
-    p_template = subparsers.add_parser(
-        "template",
-        help="write a blank Excel workbook to fill in with a DBC and checks",
-    )
-    p_template.add_argument("path", help=".xlsx file to create; an existing file is refused")
-
-    return parser
-
-
-# ============================================================================
 # Entry point
 # ============================================================================
 
@@ -963,13 +867,30 @@ _OPTIONAL_EXTRAS = {
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point. Returns exit code."""
-    parser = _build_parser()
+    """CLI entry point. Returns exit code.
 
+    A bare ``--`` ends the flags, as in the Go and C++ CLIs. argparse keeps a
+    ``--`` it had no positional to give to among the arguments it could not
+    place, as on a subcommand that takes none, and that one is the terminator,
+    not an argument. A ``--`` before the subcommand is refused, the subcommand
+    coming first.
+    """
+    tokens = sys.argv[1:] if argv is None else argv
     try:
-        args = parser.parse_args(argv)
+        parser = build_parser()
+        if tokens[:1] == ["--"]:
+            parser.error("argument command: invalid choice: '--'")
+        args, extras = parser.parse_known_args(tokens)
+        if "--" in extras and extras.count("--") == tokens.count("--"):
+            extras.remove("--")
+        if extras:
+            parser.error(f"unrecognized arguments: {' '.join(extras)}")
         handler = _COMMANDS[args.command]
-        return handler(args)
+        code = handler(args)
+        try:
+            sys.stdout.flush()
+        except OSError as exc:
+            _refuse_report(exc)
     except SystemExit as e:
         return e.code if isinstance(e.code, int) else _EXIT_ERROR
     except (AletheiaError, OSError, ValueError) as e:
@@ -985,3 +906,4 @@ def main(argv: list[str] | None = None) -> int:
             + f"pip install 'aletheia[{extra}]'\n"
         )
         return _EXIT_ERROR
+    return code

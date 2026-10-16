@@ -30,8 +30,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/Jaetan/aletheia/go/excel"
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
@@ -44,6 +48,10 @@ const (
 )
 
 func main() {
+	// The runtime kills a program whose write to descriptor 1 meets a pipe with
+	// no reader, unless SIGPIPE is ignored; ignored, the write returns EPIPE,
+	// which emitReport refuses as any other failed write.
+	signal.Ignore(syscall.SIGPIPE)
 	os.Exit(run(os.Args[1:]))
 }
 
@@ -92,13 +100,33 @@ Commands:
   template    write a blank Excel workbook to fill in with a DBC and checks
 
 DBC source: --dbc <file>.dbc (verified text parser). Flags may go before or after positionals.
-Library path: $ALETHEIA_LIB or a build/install default.`
+Library path: $ALETHEIA_LIB or a default location.`
 
 // --- shared helpers -------------------------------------------------------
 
 func die(msg string) int {
 	fmt.Fprintf(os.Stderr, "Error: %s\n", msg)
 	return exitError
+}
+
+// refuseUnrecognized refuses the positionals a subcommand does not take, in
+// the words the Python CLI's argument parser uses.
+func refuseUnrecognized(args []string) int {
+	return die("unrecognized arguments: " + strings.Join(args, " "))
+}
+
+// positionals answers whether fs holds the n positionals a subcommand takes,
+// and the exit code when it does not: too few are refused with the
+// subcommand's own line naming what it takes, and the extras alone through
+// refuseUnrecognized.
+func positionals(fs *flag.FlagSet, n int, requires string) (code int, ok bool) {
+	switch {
+	case fs.NArg() < n:
+		return die(requires), false
+	case fs.NArg() > n:
+		return refuseUnrecognized(fs.Args()[n:]), false
+	}
+	return exitOK, true
 }
 
 // newFlagSet builds a flag set that hands a parse error back rather than
@@ -117,8 +145,9 @@ func reorderArgs(argv []string, boolFlags map[string]bool) []string {
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
 		if a == "--" {
-			pos = append(pos, argv[i+1:]...)
-			break
+			// The escape stays ahead of every positional, so the flag package
+			// reads nothing after it as a flag.
+			return slices.Concat(flags, []string{a}, pos, argv[i+1:])
 		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			pos = append(pos, a)
@@ -136,17 +165,20 @@ func reorderArgs(argv []string, boolFlags map[string]bool) []string {
 	return append(flags, pos...)
 }
 
-// resolveLib finds libaletheia-ffi.so: $ALETHEIA_LIB, then common
-// build/install locations. Returns "" if none exist.
-func resolveLib() string {
+// resolveLib finds libaletheia-ffi.so: $ALETHEIA_LIB, an empty value read as
+// unset, else the repository's build/ as seen from the directories the CLI runs
+// from (the repository root, go/ where the workspace is, and go/cmd/aletheia
+// where its tests run), else usr/local/lib under sysRoot, which newClient
+// passes as /. Returns "" if none exist.
+func resolveLib(sysRoot string) string {
 	if env := os.Getenv("ALETHEIA_LIB"); env != "" {
 		return env
 	}
 	for _, p := range []string{
 		"build/libaletheia-ffi.so",
 		"../build/libaletheia-ffi.so",
-		"../../build/libaletheia-ffi.so",
-		"/usr/local/lib/libaletheia-ffi.so",
+		"../../../build/libaletheia-ffi.so",
+		filepath.Join(sysRoot, "usr/local/lib/libaletheia-ffi.so"),
 	} {
 		if _, err := os.Stat(p); err == nil {
 			return p
@@ -173,7 +205,7 @@ func openDBC(path string) (*aletheia.Client, aletheia.DBCDefinition, []aletheia.
 
 // newClient builds a client over the real FFI backend.
 func newClient() (*aletheia.Client, error) {
-	lib := resolveLib()
+	lib := resolveLib("/")
 	if lib == "" {
 		return nil, fmt.Errorf("libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'")
 	}
@@ -245,18 +277,24 @@ func parseHexData(s string) ([]byte, error) {
 	return out, nil
 }
 
-// emitJSON writes one report and answers the exit code for having written it.
-// A write that fails is fatal: a caller reading this stream would otherwise
-// take a truncated report from a process that reported success.
+// emitReport writes one report, rendered whole beforehand, and answers the
+// exit code for having written it. A write that fails is fatal: a caller
+// reading this stream would otherwise take a truncated report from a process
+// that reported success.
+func emitReport(report string) int {
+	if _, err := fmt.Print(report); err != nil {
+		return die("writing the report: " + systemMessage(err))
+	}
+	return exitOK
+}
+
+// emitJSON writes one report as indented JSON through emitReport.
 func emitJSON(v any) int {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return die(fmt.Sprintf("encoding JSON: %v", err))
 	}
-	if _, err := fmt.Println(string(b)); err != nil {
-		return die(fmt.Sprintf("writing the report: %v", err))
-	}
-	return exitOK
+	return emitReport(string(b) + "\n")
 }
 
 // --- validate -------------------------------------------------------------
@@ -265,8 +303,11 @@ func cmdValidate(argv []string) int {
 	fs := newFlagSet("validate")
 	dbc := fs.String("dbc", "", ".dbc file for signal definitions")
 	asJSON := fs.Bool("json", false, "output as JSON")
-	if err := fs.Parse(argv); err != nil {
+	if err := fs.Parse(reorderArgs(argv, map[string]bool{"json": true})); err != nil {
 		return exitError
+	}
+	if fs.NArg() != 0 {
+		return refuseUnrecognized(fs.Args())
 	}
 	client, _, warnings, err := openDBC(*dbc)
 	if err != nil {
@@ -302,34 +343,35 @@ func renderValidation(hasErrors bool, resIssues []aletheia.ValidationIssue, asJS
 		if hasErrors {
 			status = "fail"
 		}
-		code := emitJSON(map[string]any{
+		return validationOutcome(emitJSON(map[string]any{
 			"status":       status,
 			"has_errors":   hasErrors,
 			"total_issues": len(resIssues),
 			"issues":       issues,
-		})
-		// A failure to write is this run's outcome, not the DBC's.
-		if code != exitOK {
-			return code
-		}
-		// The exit code carries the outcome in both output modes, a pipeline
-		// reading the JSON needing it as much as a person reading the text.
-		if hasErrors {
-			return exitViolations
-		}
-		return exitOK
+		}), hasErrors)
 	}
 	if len(resIssues) == 0 {
-		fmt.Println("Validation passed: no issues found")
-		return exitOK
+		return emitReport("Validation passed: no issues found\n")
 	}
+	var report strings.Builder
 	if hasErrors {
-		fmt.Printf("Validation FAILED (%d issues)\n\n", len(resIssues))
+		fmt.Fprintf(&report, "Validation FAILED (%d issues)\n\n", len(resIssues))
 	} else {
-		fmt.Printf("Validation passed with %d warnings\n\n", len(resIssues))
+		fmt.Fprintf(&report, "Validation passed with %d warnings\n\n", len(resIssues))
 	}
 	for n, i := range resIssues {
-		fmt.Printf("  %d. [%s] %s: %s\n", n+1, strings.ToUpper(i.Severity.String()), string(i.Code), i.Detail)
+		fmt.Fprintf(&report, "  %d. [%s] %s: %s\n", n+1, strings.ToUpper(i.Severity.String()), string(i.Code), i.Detail)
+	}
+	return validationOutcome(emitReport(report.String()), hasErrors)
+}
+
+// validationOutcome answers validate's exit code from the code for writing its
+// report. A failure to write is this run's outcome, not the DBC's; past it the
+// code carries the DBC's outcome in both output modes, a pipeline reading the
+// JSON needing it as much as a person reading the text.
+func validationOutcome(written int, hasErrors bool) int {
+	if written != exitOK {
+		return written
 	}
 	if hasErrors {
 		return exitViolations
@@ -347,8 +389,8 @@ func cmdExtract(argv []string) int {
 	if err := fs.Parse(reorderArgs(argv, map[string]bool{"extended": true, "json": true})); err != nil {
 		return exitError
 	}
-	if fs.NArg() != 2 {
-		return die("extract requires <can_id> <data> positional arguments")
+	if code, ok := positionals(fs, 2, "extract requires <can_id> <data> positional arguments"); !ok {
+		return code
 	}
 	canID, err := parseCANID(fs.Arg(0))
 	if err != nil {
@@ -407,9 +449,10 @@ func cmdExtract(argv []string) int {
 	for _, sig := range msg.Signals {
 		units[string(sig.Name)] = string(sig.Unit)
 	}
-	fmt.Printf("CAN ID 0x%X (%s):\n\n", canID, msg.Name)
+	var report strings.Builder
+	fmt.Fprintf(&report, "CAN ID 0x%X (%s):\n\n", canID, msg.Name)
 	if len(res.Values) == 0 {
-		fmt.Println("  (no signals)")
+		fmt.Fprintln(&report, "  (no signals)")
 	}
 	for _, v := range res.Values {
 		unit := units[string(v.Name)]
@@ -421,12 +464,12 @@ func cmdExtract(argv []string) int {
 		if err != nil {
 			return die(err.Error())
 		}
-		fmt.Printf("  %-20s = %s%s\n", string(v.Name), valStr, unit)
+		fmt.Fprintf(&report, "  %-20s = %s%s\n", string(v.Name), valStr, unit)
 	}
 	if len(res.Errors) > 0 {
-		fmt.Println("\nErrors:")
+		fmt.Fprintln(&report, "\nErrors:")
 		for _, e := range res.Errors {
-			fmt.Printf("  %s: %s\n", string(e.Name), e.Error)
+			fmt.Fprintf(&report, "  %s: %s\n", string(e.Name), e.Error)
 		}
 	}
 	if len(res.Absent) > 0 {
@@ -434,9 +477,9 @@ func cmdExtract(argv []string) int {
 		for _, a := range res.Absent {
 			names = append(names, string(a))
 		}
-		fmt.Printf("Absent: %s\n", strings.Join(names, ", "))
+		fmt.Fprintf(&report, "Absent: %s\n", strings.Join(names, ", "))
 	}
-	return exitOK
+	return emitReport(report.String())
 }
 
 // rationalJSON renders an extracted Rational for the --json output, matching the
@@ -457,8 +500,11 @@ func cmdSignals(argv []string) int {
 	fs := newFlagSet("signals")
 	dbc := fs.String("dbc", "", ".dbc file")
 	asJSON := fs.Bool("json", false, "output as JSON")
-	if err := fs.Parse(argv); err != nil {
+	if err := fs.Parse(reorderArgs(argv, map[string]bool{"json": true})); err != nil {
 		return exitError
+	}
+	if fs.NArg() != 0 {
+		return refuseUnrecognized(fs.Args())
 	}
 	client, def, _, err := openDBC(*dbc)
 	if err != nil {
@@ -468,9 +514,10 @@ func cmdSignals(argv []string) int {
 	if *asJSON {
 		return emitJSON(def) // canonical via DBCDefinition.MarshalJSON
 	}
+	var report strings.Builder
 	total := 0
 	for _, msg := range def.Messages {
-		fmt.Printf("Message 0x%X %s (DLC %d)\n", msg.ID.Value(), msg.Name, msg.DLC.ToBytes())
+		fmt.Fprintf(&report, "Message 0x%X %s (DLC %d)\n", msg.ID.Value(), msg.Name, msg.DLC.ToBytes())
 		for _, sig := range msg.Signals {
 			total++
 			order := "BE"
@@ -494,13 +541,13 @@ func cmdSignals(argv []string) int {
 			if sig.Offset.Numerator >= 0 {
 				offsetStr = "+" + offsetStr
 			}
-			fmt.Printf("  %-20s bits[%d:%d] %s %-8s x%s %s %s\n",
+			fmt.Fprintf(&report, "  %-20s bits[%d:%d] %s %-8s x%s %s %s\n",
 				string(sig.Name), uint16(sig.StartBit), uint16(sig.BitLength),
 				order, sign, factorStr, offsetStr, string(sig.Unit))
 		}
 	}
-	fmt.Printf("\n%d messages, %d signals\n", len(def.Messages), total)
-	return exitOK
+	fmt.Fprintf(&report, "\n%d messages, %d signals\n", len(def.Messages), total)
+	return emitReport(report.String())
 }
 
 // --- format-dbc -----------------------------------------------------------
@@ -508,8 +555,11 @@ func cmdSignals(argv []string) int {
 func cmdFormatDBC(argv []string) int {
 	fs := newFlagSet("format-dbc")
 	dbc := fs.String("dbc", "", ".dbc file")
-	if err := fs.Parse(argv); err != nil {
+	if err := fs.Parse(reorderArgs(argv, nil)); err != nil {
 		return exitError
+	}
+	if fs.NArg() != 0 {
+		return refuseUnrecognized(fs.Args())
 	}
 	client, _, _, err := openDBC(*dbc)
 	if err != nil {
@@ -529,20 +579,17 @@ func cmdFormatDBC(argv []string) int {
 // exists is refused and left as it was.
 func cmdTemplate(argv []string) int {
 	fs := newFlagSet("template")
-	if err := fs.Parse(argv); err != nil {
+	if err := fs.Parse(reorderArgs(argv, nil)); err != nil {
 		return exitError
 	}
-	if fs.NArg() != 1 {
-		return die("template requires one <path> positional argument")
+	if code, ok := positionals(fs, 1, "template requires one <path> positional argument"); !ok {
+		return code
 	}
 	path := fs.Arg(0)
 	if err := excel.CreateTemplate(path); err != nil {
 		return die(err.Error())
 	}
-	if _, err := fmt.Printf("Template written to %s\n", path); err != nil {
-		return die(fmt.Sprintf("writing the report: %v", err))
-	}
-	return exitOK
+	return emitReport(fmt.Sprintf("Template written to %s\n", path))
 }
 
 // --- mux-query ------------------------------------------------------------
@@ -557,8 +604,8 @@ func cmdMuxQuery(argv []string) int {
 	if err := fs.Parse(reorderArgs(argv, map[string]bool{"extended": true, "json": true})); err != nil {
 		return exitError
 	}
-	if fs.NArg() != 1 {
-		return die("mux-query requires a <message> positional argument (CAN ID or name)")
+	if code, ok := positionals(fs, 1, "mux-query requires a <message> positional argument (CAN ID or name)"); !ok {
+		return code
 	}
 	client, def, _, err := openDBC(*dbc)
 	if err != nil {
@@ -587,12 +634,13 @@ func cmdMuxQuery(argv []string) int {
 				"signals":      names,
 			})
 		}
-		printMessageHeader(msg)
-		fmt.Printf("Multiplexor %s = %d: %d signals present\n", *muxName, *value, len(names))
+		var report strings.Builder
+		writeMessageHeader(&report, msg)
+		fmt.Fprintf(&report, "Multiplexor %s = %d: %d signals present\n", *muxName, *value, len(names))
 		for _, n := range names {
-			fmt.Printf("  %s\n", n)
+			fmt.Fprintf(&report, "  %s\n", n)
 		}
-		return exitOK
+		return emitReport(report.String())
 	}
 	if *asJSON {
 		muxes := make([]map[string]any, 0)
@@ -613,26 +661,27 @@ func cmdMuxQuery(argv []string) int {
 			"multiplexors":   muxes,
 		})
 	}
-	printMessageHeader(msg)
+	var report strings.Builder
+	writeMessageHeader(&report, msg)
 	if !msg.IsMultiplexed() {
-		fmt.Printf("  Not multiplexed: all %d signals are always present.\n", len(msg.Signals))
-		return exitOK
+		fmt.Fprintf(&report, "  Not multiplexed: all %d signals are always present.\n", len(msg.Signals))
+		return emitReport(report.String())
 	}
 	for _, name := range msg.MultiplexorNames() {
-		fmt.Printf("  %s:\n", string(name))
+		fmt.Fprintf(&report, "  %s:\n", string(name))
 		for _, v := range msg.MultiplexValues(name) {
 			names := signalNames(msg.SignalsForMuxValue(name, v))
-			fmt.Printf("    value %d: %d signals (%s)\n", uint32(v), len(names), strings.Join(names, ", "))
+			fmt.Fprintf(&report, "    value %d: %d signals (%s)\n", uint32(v), len(names), strings.Join(names, ", "))
 		}
 	}
-	return exitOK
+	return emitReport(report.String())
 }
 
-// printMessageHeader is the line both mux-query modes open with, and the one
-// the C++ and Python interfaces print: the identifier, the name and the
-// payload length.
-func printMessageHeader(msg *aletheia.DBCMessage) {
-	fmt.Printf("Message 0x%X %s (DLC %d)\n", msg.ID.Value(), msg.Name, msg.DLC.ToBytes())
+// writeMessageHeader writes the line both mux-query text reports open with,
+// and the one the C++ and Python interfaces print: the identifier, the name
+// and the payload length.
+func writeMessageHeader(report *strings.Builder, msg *aletheia.DBCMessage) {
+	fmt.Fprintf(report, "Message 0x%X %s (DLC %d)\n", msg.ID.Value(), msg.Name, msg.DLC.ToBytes())
 }
 
 func resolveMuxMessage(def aletheia.DBCDefinition, ident string, extended bool) *aletheia.DBCMessage {

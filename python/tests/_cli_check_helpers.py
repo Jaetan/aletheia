@@ -20,7 +20,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, NewType
 
 import pytest
 from _processes import CommandWord
@@ -67,16 +67,35 @@ def skip_without_ffi() -> None:
         pytest.skip(f"libaletheia-ffi.so missing at {FFI_LIB} — run 'cabal run shake -- build'")
 
 
+# A descriptor a run's standard output is handed, such as a pipe's write end.
+StdoutFd = NewType("StdoutFd", int)
+
+
 def run_captured(
-    argv: list[str], env: dict[str, str], *, cwd: Path
+    argv: list[str], env: dict[str, str], *, cwd: Path, stdout_to: Path | StdoutFd | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Run ``argv`` as a captured-output text subprocess (the shared CLI-drive primitive).
 
     The single ``subprocess.run`` invocation the CLI regression harnesses share,
     so no test file re-spells the capture/text/no-raise options.  No timeout: a
     test waits on no duration, and a hang is the test run's own limit to report.
+    A ``stdout_to`` file or descriptor takes the standard output in place of the
+    capture, and the result's ``stdout`` is then empty.
     """
-    return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, check=False)
+    with contextlib.ExitStack() as stack:
+        match stdout_to:
+            case None:
+                sink = subprocess.PIPE
+            case Path():
+                sink = stack.enter_context(stdout_to.open("wb"))
+            case _:
+                sink = stdout_to
+        done = subprocess.run(
+            argv, cwd=cwd, env=env, stdout=sink, stderr=subprocess.PIPE, text=True, check=False
+        )
+    if stdout_to is None:
+        return done
+    return subprocess.CompletedProcess(done.args, done.returncode, "", done.stderr)
 
 
 def run_check(inputs: CheckInputs, monkeypatch: pytest.MonkeyPatch) -> CliRun:

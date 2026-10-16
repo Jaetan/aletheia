@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes go/cmd/aletheia/main.go.
+# Probes go/cmd/aletheia/main.go and python/aletheia/_cli_parser.py.
 # Claim: the Go interface answers every subcommand `python -m aletheia` answers.
 # Its own header says so, and the one it does not carry out, check, it refuses by
 # name rather than reporting an unknown command, which is what tells a user that
@@ -22,7 +22,7 @@ lib=$PWD/build/libaletheia-ffi.so
 # names each on a case of the dispatch. The three spellings of help are the one
 # thing neither takes from the other, so they are left out of the comparison.
 python_commands() {
-	grep -A1 'subparsers.add_parser($' python/aletheia/cli.py |
+	grep -A1 'subparsers.add_parser($' python/aletheia/_cli_parser.py |
 		grep -oE '"[a-z-]+"' | tr -d '"' | sort -u
 }
 go_commands() {
