@@ -2010,6 +2010,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The Python binding answers a JSON reply it cannot read with `ProtocolError`.**
+  A JSON reply from the kernel that is not UTF-8, holds an integer longer than
+  CPython converts (4300 digits by default) or nests deeper than the JSON
+  decoder's stack holds raised `UnicodeDecodeError`, `ValueError` or
+  `RecursionError` from the call that read it; each now raises `ProtocolError`
+  with the decoder's reason, as a reply that is not JSON already did.
+
 - **The Go, C++ and Python CLIs refuse alike what they used to drop.** A
   positional a subcommand does not take is refused before any DBC is read, with
   exit code 2 and, when nothing else is missing, `unrecognized arguments: <the

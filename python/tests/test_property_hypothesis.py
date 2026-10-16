@@ -26,7 +26,7 @@ from hypothesis import strategies as st
 
 from aletheia import ProtocolError, ValidationError
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.client._ffi import parse_json_object
+from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.client._helpers.json_codec import parse_values_list
 from aletheia.client._helpers.rational import decode_wire_rational
 from aletheia.client._types import validate_can_id
@@ -144,15 +144,16 @@ def test_response_reader_answers_an_object_or_a_protocol_error(payload: str) -> 
     kernel response goes through lets no other exception escape on a printable
     payload a run draws, whether arbitrary text or a JSON value of any shape.
     """
+    response = KernelResponse(payload.encode("utf-8"))
     try:
         spells_an_object = isinstance(json.loads(payload), dict)
     except json.JSONDecodeError:
         spells_an_object = False
     if spells_an_object:
-        assert parse_json_object(payload) == json.loads(payload)
+        assert parse_json_object(response) == json.loads(payload)
     else:
         with pytest.raises(ProtocolError):
-            parse_json_object(payload)
+            parse_json_object(response)
 
 
 @seed(PROPERTY_SEED)

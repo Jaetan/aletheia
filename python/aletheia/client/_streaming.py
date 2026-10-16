@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 
 from aletheia.client._client_bin import FrameIdentity
 from aletheia.client._enrichment import format_enriched_reason
-from aletheia.client._ffi import parse_json_object
+from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
 from aletheia.client._response_parsers import (
@@ -125,7 +125,7 @@ class StreamingMixin(ClientHostState):
                 raise StateError(msg)
             response_bytes = self._backend.start_stream_binary(self._state)
         response = parse_success_or_error(
-            cast("Response", parse_json_object(response_bytes.decode("utf-8"))),
+            cast("Response", parse_json_object(KernelResponse(response_bytes))),
         )
         if response["status"] == "success":
             self._caches.clear()
@@ -316,7 +316,7 @@ class StreamingMixin(ClientHostState):
         # Slow path: batched events / errors — full JSON parse.
         # Streaming PropertyResponse is a batch envelope
         # (type=property_batch + results[]); enrich each fails entry.
-        response = cast("Response", parse_json_object(result_bytes.decode("utf-8")))
+        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
         result = parse_frame_response(response)
         if result.get("type") == "property_batch":
             batch = cast("PropertyBatchResponse", result)
@@ -467,7 +467,7 @@ class StreamingMixin(ClientHostState):
                 response="ack",
             )
             return {"status": "ack"}
-        response = cast("Response", parse_json_object(result_bytes.decode("utf-8")))
+        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
         return parse_event_response(response, "error_event", timestamp)
 
     def send_remote(
@@ -519,7 +519,7 @@ class StreamingMixin(ClientHostState):
                 response="ack",
             )
             return {"status": "ack"}
-        response = cast("Response", parse_json_object(result_bytes.decode("utf-8")))
+        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
         return parse_event_response(response, "remote_event", timestamp)
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
@@ -546,7 +546,7 @@ class StreamingMixin(ClientHostState):
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             response_bytes = self._backend.end_stream_binary(self._state)
-        response = cast("Response", parse_json_object(response_bytes.decode("utf-8")))
+        response = cast("Response", parse_json_object(KernelResponse(response_bytes)))
         status = response.get("status")
 
         if status == "complete":

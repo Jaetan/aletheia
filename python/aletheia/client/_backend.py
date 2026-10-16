@@ -31,6 +31,7 @@ from aletheia.client._ffi import (
     AletheiaFrame,
     AletheiaSignalValues,
     AletheiaText,
+    KernelResponse,
     RTSState,
     check_abi_version,
     configure_ffi_signatures,
@@ -250,7 +251,7 @@ def _decode_out_err(
     if err is None:
         return ProtocolError(f"{prefix}: Unknown error")
     try:
-        envelope = parse_json_object(ctypes.string_at(err).decode("utf-8"))
+        envelope = parse_json_object(KernelResponse(ctypes.string_at(err)))
     finally:
         lib.aletheia_free_str(err)
     code = envelope.get("code")

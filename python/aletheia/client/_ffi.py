@@ -10,21 +10,28 @@ import os
 import stat
 import threading
 from pathlib import Path
+from typing import NewType
 
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import FFIError, ProtocolError
 from aletheia.types import JSONValue, is_str_dict
 
+# The reply of a kernel entry that answers in JSON, as the bytes it returned.
+KernelResponse = NewType("KernelResponse", bytes)
 
-def parse_json_object(s: str) -> dict[str, JSONValue]:
-    """Parse a JSON string that is expected to be an object.
+
+def parse_json_object(raw: KernelResponse) -> dict[str, JSONValue]:
+    """Read a kernel response as the JSON object it should spell.
 
     Wraps ``json.loads`` with validation and proper typing so
     callers get ``dict[str, JSONValue]`` instead of ``dict[Unknown, Unknown]``.
+    A response that is not UTF-8, is not JSON, holds an integer longer than
+    the interpreter converts or nests deeper than the decoder's recursion
+    holds raises ``ProtocolError``, never the decoder's own error.
     """
     try:
-        parsed: object = json.loads(s)
-    except json.JSONDecodeError as exc:
+        parsed: object = json.loads(raw.decode("utf-8"))
+    except (ValueError, RecursionError) as exc:
         msg = f"FFI returned invalid JSON: {exc}"
         raise ProtocolError(msg) from exc
     if not is_str_dict(parsed):

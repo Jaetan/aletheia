@@ -530,7 +530,7 @@ hints:
     count: 1
   - file: python/aletheia/client/_ffi.py
     text: "str"
-    count: 2
+    count: 1
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "Callable[[Mapping[str, JSONValue]], T]"
     count: 1
@@ -1425,6 +1425,10 @@ hints:
   - file: python/tests/test_client_protocol_errors.py
     text: "dict[str, JSONValue]"
     count: 1
+  - file: python/tests/test_client_protocol_errors.py
+    text: "str"
+    count: 1
+    reason: "the overflow stub stands in for json.loads, typed (s: str | bytes | bytearray, ...) in typeshed; the response reader hands it the reply's decoded text, a str, which the stub takes unread"
   - file: python/tests/test_coverage_run.py
     text: "dict[str, object]"
     count: 3
@@ -1586,7 +1590,7 @@ hints:
     count: 1
   - file: python/tests/test_ffi_struct_entries.py
     text: "str"
-    count: 2
+    count: 1
   - file: python/tests/test_from_decimal.py
     text: "int"
     count: 2

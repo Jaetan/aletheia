@@ -15,6 +15,8 @@ path.  Drive each branch via ``MockBackend`` canned responses, asserting the
 from __future__ import annotations
 
 import json
+import sys
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -32,6 +34,8 @@ from aletheia import (
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES
 
 if TYPE_CHECKING:
+    from typing import NoReturn
+
     from aletheia.types import DBCDefinition, JSONValue
 
 _UNEXPECTED_SUCCESS = "Unexpected response status: 'weird' (expected 'success' or 'error')"
@@ -378,3 +382,70 @@ class TestSendCommandGuards:
             result = client.validate_dbc(sample)
         assert result["status"] == "validation"
         assert len(backend.inputs) == 2  # the boundary command DID reach the backend
+
+
+# Deeper than the decoder's C stack holds under an 8 MiB stack limit, which a
+# nesting of 100000 already exhausts; a host whose stack holds it reads a list
+# or an unclosed array instead, which the reader refuses with ProtocolError
+# too, so the outcome does not hang on the host's stack.
+_DEPTH_PAST_THE_STACK = 10**6
+
+
+class TestMalformedResponse:
+    """A response the reader cannot decode raises ProtocolError, never the decoder's error."""
+
+    def test_nesting_past_the_stack_raises_protocol_error(self) -> None:
+        """Refuse arrays nested past what the decoder's recursion can hold, closed or not."""
+        unclosed = b"[" * _DEPTH_PAST_THE_STACK
+        for response in (unclosed, unclosed + b"]" * _DEPTH_PAST_THE_STACK):
+            with (
+                AletheiaClient(backend=MockBackend([response])) as client,
+                pytest.raises(ProtocolError),
+            ):
+                client.format_dbc()
+
+    def test_decoder_overflow_raises_protocol_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Refuse a reply whose decoding overflows the stack, whatever stack the host gives.
+
+        The replies above overflow the decoder only where the stack is too small
+        to hold them; here the decoder overflows on any host.
+        """
+
+        def overflow(_text: str) -> NoReturn:
+            msg = "Stack overflow while decoding a JSON array"
+            raise RecursionError(msg)
+
+        monkeypatch.setattr("aletheia.client._ffi.json", SimpleNamespace(loads=overflow))
+        with (
+            AletheiaClient(backend=MockBackend([b"[]"])) as client,
+            pytest.raises(ProtocolError) as excinfo,
+        ):
+            client.format_dbc()
+        assert str(excinfo.value) == (
+            "FFI returned invalid JSON: Stack overflow while decoding a JSON array"
+        )
+
+    def test_integer_past_the_digit_limit_raises_protocol_error(self) -> None:
+        """Refuse an integer longer than the interpreter converts, under its default limit."""
+        response = b'{"status":"success","dbc":' + b"1" * 4301 + b"}"
+        previous = sys.get_int_max_str_digits()
+        sys.set_int_max_str_digits(4300)
+        try:
+            with (
+                AletheiaClient(backend=MockBackend([response])) as client,
+                pytest.raises(ProtocolError) as excinfo,
+            ):
+                client.format_dbc()
+        finally:
+            sys.set_int_max_str_digits(previous)
+        assert str(excinfo.value).startswith("FFI returned invalid JSON: Exceeds the limit")
+
+    def test_bytes_not_utf8_raise_protocol_error(self) -> None:
+        """Refuse a response that is not UTF-8."""
+        response = b'{"status":"success","dbc":"\xff"}'
+        with (
+            AletheiaClient(backend=MockBackend([response])) as client,
+            pytest.raises(ProtocolError) as excinfo,
+        ):
+            client.format_dbc()
+        assert str(excinfo.value).startswith("FFI returned invalid JSON: 'utf-8' codec")
