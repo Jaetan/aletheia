@@ -4,13 +4,14 @@
 
 Every benchmark script in this directory pulls DBC loaders, frame byte
 arrays, ``get_system_info`` / ``get_rss_mb``, the canonical ``FrameSpec`` /
-``BenchmarkConfig`` bundles, and the default LTL property sets from this
-module so that a drift (e.g. a signal layout change for the CAN-FD frame
-or a refactor of the property baseline) only has to be fixed in one place.
+``BenchmarkConfig`` bundles, the default LTL property sets, and the route of
+the report it writes to stdout from this module so that a drift (e.g. a
+signal layout change for the CAN-FD frame or a refactor of the property
+baseline) only has to be fixed in one place.
 Keep the module-level constants ``bytes`` (not ``bytearray``) so a stray
 mutation between runs cannot silently skew the numbers.
 
-Per PY-31-1: this module is deliberately thin — each constant / function
+This module is deliberately thin — each constant / function
 has exactly one authoritative definition, and benchmark scripts import
 what they need by name.  No re-export hoop, no star-imports; basedpyright
 and pylint see a straight dependency.
@@ -18,22 +19,28 @@ and pylint see a straight dependency.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import platform
 import resource
+import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType, TypedDict
+from typing import TYPE_CHECKING, Literal, NewType, TypedDict, override
 
 from aletheia import AletheiaClient, Signal
+from aletheia.common_types import ExitStatus, Prose
 from aletheia.dbc import dbc_to_json
 from aletheia.types import DBCDefinition, DLCCode, LTLFormula
 
 if TYPE_CHECKING:
+    from collections.abc import Buffer, Callable, Generator
     from fractions import Fraction
+    from typing import BinaryIO, TextIO
 
 # ``benchmarks/`` sits two levels below the repo root: python/benchmarks/X.py
 # → ../../examples/.  Path is resolved once so re-importing this module
@@ -290,6 +297,123 @@ def emit_json_report(name: str, parameters: ReportParameters, results: object) -
         "results": results,
     }
     print(json.dumps(output, indent=2))
+
+
+# The modes whose report a run writes to stdout, as a refused report names them.
+BenchmarkMode = Literal["throughput", "latency", "scaling", "simplification", "violations"]
+# A stream's name, as ``open`` gives one: the path opened, or ``<stdout>``.
+StreamName = NewType("StreamName", str)
+# How many bytes a write took.
+ByteCount = NewType("ByteCount", int)
+
+
+class ReportWriteError(Exception):
+    """Stdout refused a write of the report; the message is the system's reason."""
+
+
+class _ReportBuffer(io.BufferedIOBase):
+    """Stdout's buffer as the report reaches it.
+
+    Writes and flushes pass to stdout's own buffer, and one it refuses raises
+    ``ReportWriteError`` in place of the ``OSError``, so a run tells the report's
+    failure from any other.  Closing leaves stdout's buffer open.
+    """
+
+    def __init__(self, target: BinaryIO) -> None:
+        self._target = target
+
+    @property
+    def name(self) -> StreamName:
+        """Answer stdout's name, which the text layer reports as its own."""
+        return StreamName(str(self._target.name))
+
+    @override
+    def writable(self) -> bool:
+        return True
+
+    @override
+    def write(self, buffer: Buffer, /) -> ByteCount:
+        try:
+            return ByteCount(self._target.write(buffer))
+        except OSError as err:
+            raise ReportWriteError(err) from err
+
+    @override
+    def flush(self) -> None:
+        try:
+            self._target.flush()
+        except OSError as err:
+            raise ReportWriteError(err) from err
+
+
+@contextlib.contextmanager
+def _report_stream(stdout: TextIO) -> Generator[io.TextIOWrapper[_ReportBuffer]]:
+    """Answer a text stream over ``_ReportBuffer``, encoded and buffered as ``stdout`` is.
+
+    Leaving the block flushes it, so a report stdout refuses at the end raises
+    ``ReportWriteError`` there, and closes it in every case.  A close that
+    stdout refuses closes stdout too, so an error passing through the block
+    leaves no refused byte in stdout's buffer for the interpreter's exit flush
+    to fail on.
+    """
+    report = io.TextIOWrapper(
+        _ReportBuffer(stdout.buffer),
+        encoding=stdout.encoding,
+        errors=stdout.errors,
+        line_buffering=bool(stdout.line_buffering),
+    )
+    try:
+        yield report
+        report.flush()
+    finally:
+        # Closing flushes again, fails as the flush did, and closes regardless.
+        try:
+            report.close()
+        except ReportWriteError:
+            with contextlib.suppress(OSError):
+                stdout.close()
+
+
+def run_report(run: Callable[[], ExitStatus], refusal: Prose, refused: ExitStatus) -> ExitStatus:
+    """Answer ``run``'s exit status, every write it makes to stdout being the report.
+
+    The report reaches stdout after what stdout already held.  A write of it
+    stdout refuses, at whichever print first reaches the system or at the flush
+    that ends the run, prints ``<refusal>: <reason>`` on stderr and answers
+    ``refused`` in place of ``run``'s status; stdout is then closed, so the
+    interpreter's exit flush has nothing left to fail on, which would turn the
+    status into 120.  Any other error, a file load's ``OSError`` among them,
+    passes through.
+    """
+    stdout = sys.stdout
+    stdout.flush()
+    try:
+        with _report_stream(stdout) as report, contextlib.redirect_stdout(report):
+            return run()
+    except ReportWriteError as err:
+        print(f"{refusal}: {err}", file=sys.stderr)
+        # Closing flushes what stdout's buffer still holds, fails the same way,
+        # and closes regardless.
+        with contextlib.suppress(OSError):
+            stdout.close()
+        return refused
+
+
+def run_mode(mode: BenchmarkMode, run: Callable[[], None]) -> ExitStatus:
+    """Run the benchmark ``mode``, its report on stdout, and answer the run's exit status.
+
+    The report is what ``run`` writes to stdout: the text tables, or the JSON
+    report under ``--json``.  A run that ends exits 0, and one whose report
+    stdout refuses exits 1 with ``benchmark: writing the <mode> report failed:
+    <reason>`` on stderr, as ``run_report`` says.
+    """
+
+    def run_to_the_end() -> ExitStatus:
+        run()
+        return ExitStatus(0)
+
+    refusal = Prose(f"benchmark: writing the {mode} report failed")
+    return run_report(run_to_the_end, refusal, ExitStatus(1))
 
 
 # ============================================================================

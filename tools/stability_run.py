@@ -33,7 +33,7 @@ makes per-commit comparisons natural while keeping the local artifact tree
 small.
 
 Usage:
-  ALETHEIA_STABILITY_CHECK=1 python3 tools/stability_run.py
+  ALETHEIA_STABILITY_CHECK=1 python/.venv/bin/python -m tools.stability_run
 
 The static counterpart is ``tools/check_stability_bench.py``, which gates on
 each binding's harness *containing* the required sub-check markers per
@@ -47,6 +47,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict, cast
@@ -58,6 +59,8 @@ from tools._common import (
     write_and_report_summary,
 )
 
+from aletheia.common_types import ExitStatus, Prose
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARTIFACT_BASE = REPO_ROOT / "benchmarks" / "stability"
 
@@ -65,7 +68,7 @@ ARTIFACT_BASE = REPO_ROOT / "benchmarks" / "stability"
 # any other code is an environment failure that did not produce a verdict.
 _VERDICT_EXIT_CODES = (0, 1)
 # Cap on harness stderr echoed into an error string, to keep summaries small.
-_STDERR_SNIPPET_LEN = 300
+STDERR_SNIPPET_LEN = 300
 
 
 class _HarnessReport(TypedDict, total=False):
@@ -120,27 +123,49 @@ def _finalize_lane(binding: str, proc: subprocess.CompletedProcess[str], out_pat
                 error=f"{binding} harness emitted invalid JSON",
             )
         return Run(binding=binding, artifact_path=out_path, passed=passed)
-    stderr_tail = proc.stderr.strip()[:_STDERR_SNIPPET_LEN]
-    return Run(
-        binding=binding,
-        artifact_path=out_path,
-        passed=False,
-        error=f"{binding} harness exited {proc.returncode}: {stderr_tail}",
-    )
+    harness = Prose(f"{binding} harness")
+    error = _exit_error(harness, ExitStatus(proc.returncode), Prose(proc.stderr))
+    return Run(binding=binding, artifact_path=out_path, passed=False, error=error)
+
+
+def _exit_error(what: Prose, code: ExitStatus, stderr: Prose) -> Prose:
+    """Name a run with no verdict: ``what`` exited ``code``, its stderr quoted to the cap."""
+    return Prose(f"{what} exited {code}: {stderr.strip()[:STDERR_SNIPPET_LEN]}")
 
 
 def run_go(artifact_dir: Path, env: dict[str, str]) -> Run:
-    """Run the Go stability harness and capture its verdict."""
-    cmd = [find_executable("go"), "run", "./benchmarks/stability/"]
-    proc = subprocess.run(
-        cmd,
-        cwd=REPO_ROOT / "go",
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return _finalize_lane("go", proc, artifact_dir / "go.json")
+    """Build the Go stability harness in a directory of its own, run it and capture its verdict.
+
+    The harness runs as a built binary because ``go run`` reports a program's
+    non-zero exit as its own exit 1, which would read a run with no verdict as
+    one.  The binary is built outside ``artifact_dir``, which CI uploads, and is
+    removed with its directory.  A build that fails is a run with no verdict,
+    quoting the build's stderr.
+    """
+    out_path = artifact_dir / "go.json"
+    with tempfile.TemporaryDirectory(prefix="stability-go-") as build_dir:
+        binary = Path(build_dir) / "stability-go"
+        build = subprocess.run(
+            [find_executable("go"), "build", "-o", str(binary), "./benchmarks/stability/"],
+            cwd=REPO_ROOT / "go",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if build.returncode != 0:
+            builder = Prose("go harness build")
+            error = _exit_error(builder, ExitStatus(build.returncode), Prose(build.stderr))
+            return Run(binding="go", artifact_path=out_path, passed=False, error=error)
+        proc = subprocess.run(
+            [str(binary)],
+            cwd=REPO_ROOT / "go",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    return _finalize_lane("go", proc, out_path)
 
 
 def run_cpp(artifact_dir: Path, env: dict[str, str]) -> Run:

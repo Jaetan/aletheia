@@ -5,7 +5,7 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"slices"
 	"strings"
 	"time"
@@ -202,7 +202,7 @@ func minLoadSeconds(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, nu
 	return slices.Min(times)
 }
 
-func runScaling(backend *aletheia.FFIBackend, out *os.File, numRuns int, quick bool) scalingResults {
+func runScaling(backend *aletheia.FFIBackend, out io.Writer, numRuns int, quick bool) scalingResults {
 	fams := families()
 	can20, canfd := fams[0], fams[1]
 	numFrames := 10000

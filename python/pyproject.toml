@@ -108,7 +108,8 @@ dev = [
     # py314 lint-target support, which ruff has had since 0.15.
     "ruff>=0.16.10,<0.17",
     # AGENTS.md Python cat 25 long-run sub-check — psutil drives
-    # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
+    # ``python/benchmarks/stability.py`` (the RSS, and the process filesystem
+    # whose descriptor directory the fd count lists).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
     # opt-in via ``ALETHEIA_STABILITY_CHECK=1`` so the dependency only
     # surfaces in dev environments.
@@ -397,6 +398,15 @@ pytest_add_cli_args = [
     # package) and reads benchmark.yml above python/.  Infra coverage, not
     # hot-path.
     "--ignore=tests/test_benchmark_lane_scope.py",
+    # Same shape: covers the stability spec gate (repo-root `tools` package)
+    # and reads the spec above python/.  Infra coverage, not hot-path.
+    "--ignore=tests/test_check_stability_bench.py",
+    # Same shape: covers the stability runner (repo-root `tools` package).
+    # Infra coverage, not hot-path.
+    "--ignore=tests/test_stability_run.py",
+    # Same shape: covers the mutation-setup gate (repo-root `tools` package).
+    # Infra coverage, not hot-path.
+    "--ignore=tests/test_check_mutation_setup.py",
     # Same shape, by reading rather than importing: it holds every build-tree
     # cache save to asking whether there is a tree, and the workflows it reads
     # are above python/, which the relocated mutants/ tree does not carry.

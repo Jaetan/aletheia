@@ -41,7 +41,8 @@ What is a test file, per binding: ``*_test.go`` under ``go/``; every Python file
 under ``python/tests/`` and the repository's ``conftest.py``; every C++ source
 under ``cpp/tests/``; every Rust file under a crate's ``tests/`` or holding a
 module declared under ``#[cfg(test)]``, or one below such a module, and the
-``#[cfg(test)] mod`` blocks of the crates' other sources.  Comments and string
+``#[cfg(test)] mod`` blocks of the crates' other sources, an example's
+included.  Comments and string
 literals are blanked before the scan, so a primitive named in prose is not a
 site, and a name bound by an import, a ``use`` or a using-declaration is read
 as the qualified name it stands for, so no spelling of an import hides one.  A
@@ -53,7 +54,8 @@ feed what they test.
 
 An example is not a test: a documentation fence and a file under
 ``examples/`` show production use, and keep the threads and timers that use
-needs.  The harness that runs one is a test file like any other.
+needs.  The harness that runs one is a test file like any other, a Rust
+example's own ``#[cfg(test)]`` modules included.
 
 Rows are keyed by file and by the primitive's label, the kind first (``time:``,
 ``thread:``, or ``random:`` for a property test whose sample no seed fixes),
@@ -89,6 +91,7 @@ from tools._common import RelPath, emit, git_ls_files, git_toplevel
 from tools._determinism_dismissals import DISMISSED, Dismissal
 from tools._determinism_reading import (
     BlankedCode,
+    PathSegment,
     blank_cpp,
     blank_go,
     blank_python,
@@ -327,12 +330,15 @@ _PYTHON_NET = RegexSource(
     + r"|\bsleep\b|\bmonotonic\b|\bperf_counter\b|\bwait\s*\(|\bas_completed\b|\banyio\b|\btrio\b"
     + r"|\bfreezegun\b|\bqueue\.\w+|\bBarrier\b|\bCondition\b|\bSemaphore\b"
 )
+# The C++ net reads a call of the tests' launcher, run_program, as the process
+# start it makes, and not its definition, so each file that calls it carries a
+# row of its own.
 _CPP_NET = RegexSource(
     r"\bchrono\b|\b\w*_clock\b|\bj?thread\b|\bthis_thread::\w+|\basync\b|\bfuture\b|\bpromise\b"
     + r"|\bpackaged_task\b|\bcondition_variable\w*|\bclock\s*\(|\bfork\s*\(|\bposix_spawn\w*"
     + r"|\bpopen\s*\(|\bsystem\s*\(|\blatch\b|\bbarrier\b|\bsemaphore\b|\batomic\w*|\bpoll\s*\("
     + r"|\bselect\s*\(|\bepoll\w*|\bpthread_\w+|\bwait\w*\s*\(|\bstop_token\b|\bstop_source\b"
-    + r"|\bvfork\s*\(|\btime\s*\("
+    + r"|\bvfork\s*\(|\btime\s*\(|(?<!auto )\brun_program\s*\("
 )
 _RUST_NET = RegexSource(
     r"\bstd::time\b|\bDuration\b|\bInstant\b|\bSystemTime\b|\bUNIX_EPOCH\b|\bthread\b"
@@ -373,23 +379,49 @@ def rust_test_modules(code: BlankedCode) -> BlankedCode:
     return BlankedCode("".join(kept))
 
 
+class _RustModulePath(NamedTuple):
+    """Where a Rust file's module path starts, the crate roots there, and its modules."""
+
+    top: RelPath
+    roots: tuple[RelPath, ...]
+    names: list[PathSegment]
+
+
+def _rust_module_path(rel: RelPath) -> _RustModulePath:
+    """Read where a Rust source's module path starts: at ``src/``, or at an example's directory.
+
+    ``crate/src/a/b.rs`` starts at ``crate/src``, whose root is ``lib.rs`` or
+    ``main.rs``, and ``crate/examples/e/a/b.rs`` at ``crate/examples/e``, whose
+    root is ``main.rs``; both name modules ``a`` and ``b``.  A one-file example,
+    or a file in neither tree, names only the empty module, which no root
+    declares.
+    """
+    crate, src, below = rel.partition("/src/")
+    if src:
+        top = RelPath(f"{crate}/src")
+        roots = (RelPath(f"{top}/lib.rs"), RelPath(f"{top}/main.rs"))
+    else:
+        crate, _, inner = rel.partition("/examples/")
+        example, _, below = inner.partition("/")
+        top = RelPath(f"{crate}/examples/{example}")
+        roots = (RelPath(f"{top}/main.rs"),)
+    names = [PathSegment(name) for name in below.removesuffix(".rs").split("/")]
+    return _RustModulePath(top, roots, names)
+
+
 def rust_test_file(repo: Path, rel: RelPath) -> bool:
     """Say whether a Rust source file is test code whole.
 
     It is when its module, or a module above it, is declared under
     ``#[cfg(test)]``: ``src/a/b.rs`` holds module ``b``, which ``src/a.rs`` or
     ``src/a/mod.rs`` declares, and ``a`` is declared by ``src/lib.rs`` or
-    ``src/main.rs``.
+    ``src/main.rs``; an example's ``examples/e/a.rs`` holds module ``a``, which
+    ``examples/e/main.rs`` declares.
     """
-    crate, _, inner = rel.partition("/src/")
-    names = inner.removesuffix(".rs").split("/")
+    top, roots, names = _rust_module_path(rel)
     for depth, name in enumerate(names):
-        above = "/".join([crate, "src", *names[:depth]])
-        declaring = (
-            (f"{above}/lib.rs", f"{above}/main.rs")
-            if depth == 0
-            else (f"{above}.rs", f"{above}/mod.rs")
-        )
+        above = "/".join([top, *names[:depth]])
+        declaring = roots if depth == 0 else (f"{above}.rs", f"{above}/mod.rs")
         for path in declaring:
             try:
                 text = SourceText((repo / path).read_text(encoding="utf-8"))
@@ -435,7 +467,11 @@ def _is_cpp_test(rel: RelPath) -> bool:
 
 
 def _is_rust_test(rel: RelPath) -> bool:
-    return rel.startswith("rust/") and rel.endswith(".rs") and ("/tests/" in rel or "/src/" in rel)
+    return (
+        rel.startswith("rust/")
+        and rel.endswith(".rs")
+        and any(tree in rel for tree in ("/tests/", "/src/", "/examples/"))
+    )
 
 
 def _go_code(_repo: Path, _rel: RelPath, text: SourceText) -> BlankedCode:

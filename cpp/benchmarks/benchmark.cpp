@@ -41,7 +41,7 @@
 // The names this harness uses, declared rather than pulled in wholesale, so a
 // reader sees which part of the API a benchmark touches.
 using aletheia::bench::out_file, aletheia::bench::run_latency, aletheia::bench::run_scaling,
-    aletheia::bench::run_throughput;
+    aletheia::bench::run_throughput, aletheia::bench::write_mode_report;
 using aletheia::CanId, aletheia::FramePayload;
 using Json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -246,12 +246,16 @@ static auto run(std::span<char* const> argv) -> int try {
 
     auto const lib = find_lib();
 
-    if (args.mode == "throughput")
-        run_throughput(lib, args.frames, args.runs, args.warmup, args.json_output);
-    else if (args.mode == "latency")
-        run_latency(lib, args.ops, args.warmup_ops, args.json_output);
-    else if (args.mode == "scaling")
-        run_scaling(lib, args.runs, args.quick, args.json_output);
+    // Every mode's report is on stdout: the text tables, or the JSON report
+    // under --json.
+    write_mode_report(stdout, args.mode, [&] {
+        if (args.mode == "throughput")
+            run_throughput(lib, args.frames, args.runs, args.warmup, args.json_output);
+        else if (args.mode == "latency")
+            run_latency(lib, args.ops, args.warmup_ops, args.json_output);
+        else if (args.mode == "scaling")
+            run_scaling(lib, args.runs, args.quick, args.json_output);
+    });
 
     return 0;
 } catch (const std::exception& e) {

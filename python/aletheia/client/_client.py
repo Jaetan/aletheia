@@ -273,9 +273,8 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
         Mirrors the stdlib convention (``socket.socket`` / ``mmap.mmap``)
         of exposing a public predicate over the post-close invariant
-        (state pointer cleared).  Lets stability / leak harnesses verify
-        the cleanup pathway without reaching for the underlying ``_state``
-        handle.
+        (state pointer cleared).  Lets a caller verify the cleanup pathway
+        without reaching for the underlying ``_state`` handle.
         """
         return self._state is None
 

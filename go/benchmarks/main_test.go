@@ -171,6 +171,33 @@ func TestReportWriteFailureIsAnError(t *testing.T) {
 	}
 }
 
+// The text report's writer passes writes through until one fails, keeps that
+// error, and lets no later write reach the stream, so the report it names as
+// failed carries the first failed write's error.
+func TestReportWriterKeepsTheFirstError(t *testing.T) {
+	var before, after bytes.Buffer
+	w := &reportWriter{w: &before}
+	if _, err := fmt.Fprint(w, "written"); err != nil || w.check("latency") != nil {
+		t.Fatalf("a write to a buffer failed: %v, %v", err, w.check("latency"))
+	}
+	w.w = fullWriter{}
+	if _, err := fmt.Fprint(w, "refused"); !errors.Is(err, errFull) {
+		t.Errorf("a refused write answered %v, want the stream's error", err)
+	}
+	w.w = &after
+	if _, err := fmt.Fprint(w, "dropped"); !errors.Is(err, errFull) {
+		t.Errorf("a write after the refused one answered %v, want the first error", err)
+	}
+	if before.String() != "written" || after.Len() != 0 {
+		t.Errorf("the streams hold %q and %q, want the write before the failure and nothing after it",
+			before.String(), after.String())
+	}
+	err := w.check("latency")
+	if err == nil || !strings.Contains(err.Error(), "writing the latency report failed") || !errors.Is(err, errFull) {
+		t.Errorf("error %v does not name the report and wrap the write's", err)
+	}
+}
+
 // With ALETHEIA_LIB unset or empty, the kernel is found from each directory
 // the benchmark is run from: the repo root, its own, and the one the usage
 // line in main.go names. The tree is planted, so the answer is the search's
@@ -227,11 +254,19 @@ func TestFindLibraryFromEveryDocumentedDirectory(t *testing.T) {
 	}
 }
 
-// runProgram runs main in a process of its own, stdout written to the file at
-// stdoutPath and env added to this process's environment, and answers its exit
-// status and its stderr. Both streams are files the child writes itself, so
-// nothing copies them beside the test.
+// runProgram runs main from this test binary, in this process's working
+// directory.
 func runProgram(t *testing.T, stdoutPath string, env []string, args ...string) (int, string) {
+	t.Helper()
+	return runBinary(t, os.Args[0], "", stdoutPath, env, args...)
+}
+
+// runBinary runs main in a process of its own from binary, this test binary or
+// a copy of it, in the working directory dir ("" for this process's own),
+// stdout written to the file at stdoutPath and env added to this process's
+// environment, and answers its exit status and its stderr. Both streams are
+// files the child writes itself, so nothing copies them beside the test.
+func runBinary(t *testing.T, binary, dir, stdoutPath string, env []string, args ...string) (int, string) {
 	t.Helper()
 	stdout, err := os.OpenFile(stdoutPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -244,7 +279,8 @@ func runProgram(t *testing.T, stdoutPath string, env []string, args ...string) (
 		t.Fatalf("os.Create: %v", err)
 	}
 	defer func() { _ = stderr.Close() }()
-	cmd := exec.Command(os.Args[0], args...)
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = dir
 	cmd.Env = append(append(os.Environ(), runMainEnv+"=1"), env...)
 	// The race runtime waits a second before a clean exit; nothing here needs it.
 	cmd.Env = append(cmd.Env, "GORACE="+os.Getenv("GORACE")+" atexit_sleep_ms=0")
@@ -264,6 +300,23 @@ func runProgram(t *testing.T, stdoutPath string, env []string, args ...string) (
 	return code, string(written)
 }
 
+// copyTestBinary copies this test binary to path, creating its directory. A
+// copy rather than a link, since os.Executable answers the file a link
+// resolves to.
+func copyTestBinary(t *testing.T, path string) {
+	t.Helper()
+	binary, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatalf("reading the test binary: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("os.MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, binary, 0o700); err != nil {
+		t.Fatalf("os.WriteFile: %v", err)
+	}
+}
+
 // requireKernel skips the rest of a test when this build cannot load the
 // kernel or there is none to load.
 func requireKernel(t *testing.T) {
@@ -277,13 +330,18 @@ func requireKernel(t *testing.T) {
 }
 
 // The exit status is what benchmarks/run_all.sh reads to tell a run from a
-// failure. Each count that measures nothing exits 1 before the kernel loads,
-// whichever mode reads it, the library pointed at nothing so a check moved
-// after the load names the load instead. Against the kernel, found by main's
-// own search with ALETHEIA_LIB empty, a report that cannot be written exits 1
-// naming it, and one that can is written and exits 0.
+// failure. Each count that measures nothing, whichever mode reads it, an
+// unknown mode and an argument the flags leave over exit 1 before the kernel
+// loads, the library pointed at nothing so a check moved after the load names
+// the load instead. A kernel that does not load exits 1 naming the path, and
+// with ALETHEIA_LIB empty that path is the working directory's candidate even
+// where the binary sits beside a build tree; neither writes a report. Against
+// the kernel, found by main's own search with ALETHEIA_LIB empty, a report
+// that cannot be written, JSON or text, exits 1 naming it, and one that can
+// is written and exits 0.
 func TestProgramExitStatus(t *testing.T) {
 	dir := t.TempDir()
+	absent := filepath.Join(dir, "absent.so")
 	for i, refused := range []struct {
 		args []string
 		want string
@@ -294,10 +352,13 @@ func TestProgramExitStatus(t *testing.T) {
 		{[]string{"latency", "--ops", "0", "--warmup", "0"}, "--ops must be at least 1, got 0"},
 		{[]string{"scaling", "--quick", "--runs", "0"}, "--runs must be at least 1, got 0"},
 		{[]string{"throughput", "--frames", "100", "--runs", "1", "--warmup", "-1"}, "--warmup must not be negative, got -1"},
+		{[]string{"thruput", "--frames", "10", "--runs", "1"}, `unknown mode "thruput", expected throughput, latency or scaling`},
+		{[]string{"--frames", "10", "latency"}, `unexpected argument "latency"`},
+		{[]string{"latency", "--ops", "10", "--"}, `unexpected argument "--json"`},
 	} {
 		t.Run(strings.Join(refused.args, " "), func(t *testing.T) {
 			out := filepath.Join(dir, fmt.Sprintf("refused-%d.json", i))
-			code, stderr := runProgram(t, out, []string{"ALETHEIA_LIB=" + filepath.Join(dir, "absent.so")},
+			code, stderr := runProgram(t, out, []string{"ALETHEIA_LIB=" + absent},
 				append(refused.args, "--json")...)
 			if code != 1 || !strings.Contains(stderr, refused.want) {
 				t.Errorf("%v exits %d with stderr %q; want 1 and %q", refused.args, code, stderr, refused.want)
@@ -307,13 +368,58 @@ func TestProgramExitStatus(t *testing.T) {
 			}
 		})
 	}
-	args := []string{"throughput", "--frames", "10", "--runs", "1", "--warmup", "0", "--json"}
+	text := []string{"throughput", "--frames", "10", "--runs", "1", "--warmup", "0"}
+	args := slices.Concat(text, []string{"--json"})
+	t.Run("a kernel that does not load", func(t *testing.T) {
+		out := filepath.Join(dir, "unloaded.json")
+		code, stderr := runProgram(t, out, []string{"ALETHEIA_LIB=" + absent}, args...)
+		if want := "benchmark: loading " + absent + " failed: "; code != 1 || !strings.Contains(stderr, want) {
+			t.Errorf("a run against %s exits %d with stderr %q; want 1 and %q", absent, code, stderr, want)
+		}
+		if written, err := os.ReadFile(out); err != nil || len(written) != 0 {
+			t.Errorf("a run whose kernel did not load wrote %q (%v), want nothing", written, err)
+		}
+	})
+	t.Run("the search starts from the working directory, not the binary", func(t *testing.T) {
+		root := t.TempDir()
+		binary := filepath.Join(root, "go", "benchmarks", "benchmarks")
+		copyTestBinary(t, binary)
+		planted := filepath.Join(root, "build", "libaletheia-ffi.so")
+		if err := os.MkdirAll(filepath.Dir(planted), 0o755); err != nil {
+			t.Fatalf("os.MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(planted, nil, 0o600); err != nil {
+			t.Fatalf("os.WriteFile: %v", err)
+		}
+		// Two levels deep, so every candidate the search reads lies under a
+		// directory of this test's own, with no build tree in it.
+		elsewhere := filepath.Join(t.TempDir(), "a", "b")
+		if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+			t.Fatalf("os.MkdirAll: %v", err)
+		}
+		out := filepath.Join(dir, "elsewhere.json")
+		code, stderr := runBinary(t, binary, elsewhere, out, []string{"ALETHEIA_LIB="}, args...)
+		want := "benchmark: loading " + filepath.Join("..", "..", "build", "libaletheia-ffi.so") + " failed: "
+		if code != 1 || !strings.Contains(stderr, want) || strings.Contains(stderr, root) {
+			t.Errorf("a binary beside %s run from %s exits %d with stderr %q; want 1 and %q", planted, elsewhere, code, stderr, want)
+		}
+		if written, err := os.ReadFile(out); err != nil || len(written) != 0 {
+			t.Errorf("a run whose kernel did not load wrote %q (%v), want nothing", written, err)
+		}
+	})
 	searched := []string{"ALETHEIA_LIB="}
 	t.Run("a report that cannot be written", func(t *testing.T) {
 		requireKernel(t)
 		code, stderr := runProgram(t, "/dev/full", searched, args...)
 		if code != 1 || !strings.Contains(stderr, "writing the throughput report failed") {
 			t.Errorf("a report to /dev/full exits %d with stderr %q; want 1 and the write named", code, stderr)
+		}
+	})
+	t.Run("a text report that cannot be written", func(t *testing.T) {
+		requireKernel(t)
+		code, stderr := runProgram(t, "/dev/full", searched, text...)
+		if code != 1 || !strings.Contains(stderr, "writing the throughput report failed: write /dev/stdout: no space left on device") {
+			t.Errorf("a text report to /dev/full exits %d with stderr %q; want 1 and the write named", code, stderr)
 		}
 	})
 	t.Run("a report written", func(t *testing.T) {

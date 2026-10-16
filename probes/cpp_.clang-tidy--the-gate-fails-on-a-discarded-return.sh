@@ -49,7 +49,7 @@ INJECTIONS = (
      "\n\nvoid probe_discard() { Dlc::create(8); }\n"),
     (tree / "cpp/tests/unit_tests_dbc.cpp", "using namespace aletheia;",
      "\n\nstatic void probe_discard_in_test() { Dlc::create(8); }\n"),
-    (tree / "cpp/benchmarks/stability_bench.cpp", "static auto find_library() -> std::filesystem::path {",
+    (tree / "cpp/benchmarks/stability_bench.cpp", "static auto minimal_dbc() -> aletheia::DbcDefinition {",
      "\n    aletheia::Dlc::create(8);"),
 )
 

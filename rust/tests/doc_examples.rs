@@ -24,8 +24,9 @@
 //! temporary directory, built by a cargo of their own that inherits none of
 //! the instrumentation a coverage run sets.
 
+mod instrumentation;
+
 use std::env;
-use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -282,29 +283,10 @@ fn program(fence: &RustFence) -> String {
     )
 }
 
-/// The variables through which a coverage run instruments what cargo builds,
-/// and the prefixes of the ones cargo-llvm-cov adds: the nested build and the
-/// programs it makes carry none of them.
-const INSTRUMENTATION: [&str; 6] = [
-    "RUSTFLAGS",
-    "CARGO_ENCODED_RUSTFLAGS",
-    "RUSTDOCFLAGS",
-    "RUSTC_WRAPPER",
-    "RUSTC_WORKSPACE_WRAPPER",
-    "LLVM_PROFILE_FILE",
-];
-const INSTRUMENTATION_PREFIXES: [&str; 2] = ["CARGO_LLVM_COV", "__CARGO_LLVM_COV"];
-
-fn is_instrumentation(key: &OsString) -> bool {
-    let key = key.to_string_lossy();
-    INSTRUMENTATION.contains(&key.as_ref())
-        || INSTRUMENTATION_PREFIXES
-            .iter()
-            .any(|prefix| key.starts_with(prefix))
-}
-
+/// `command` with none of the instrumentation a coverage run sets: the nested
+/// build and the programs it makes carry none of it.
 fn uninstrumented(mut command: Command) -> Command {
-    for (key, _) in env::vars_os().filter(|(key, _)| is_instrumentation(key)) {
+    for key in instrumentation::variables() {
         command.env_remove(key);
     }
     command

@@ -19,9 +19,15 @@ import sys
 import time
 from typing import TYPE_CHECKING, NamedTuple, TextIO, TypedDict
 
+# Benchmarks import the *installed* package (``pip install -e .[dev]``) so
+# that any wheel/setuptools shim overhead shows up in the numbers — matches
+# how end users measure Aletheia in production.  Do not reintroduce
+# ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
+from aletheia import AletheiaClient
+
 # Shared benchmark vocabulary — frame specs, default property bundles, JSON
 # envelope, system info.  Consolidated in ``_common.py`` to keep the suite
-# files thin; see PY-31-1.
+# files thin.
 from benchmarks._common import (
     CAN20_SPEC,
     CANFD_SPEC,
@@ -35,18 +41,14 @@ from benchmarks._common import (
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
+    run_mode,
     run_streaming_benchmark,
 )
-
-# Benchmarks import the *installed* package (``pip install -e .[dev]``) so
-# that any wheel/setuptools shim overhead shows up in the numbers — matches
-# how end users measure Aletheia in production.  Do not reintroduce
-# ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
-from aletheia import AletheiaClient
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from aletheia.common_types import ExitStatus
     from aletheia.types import DBCDefinition, LTLFormula
 
 
@@ -224,8 +226,8 @@ def _to_json_payload(r: _BenchResult) -> _JsonPayload:
     }
 
 
-def main() -> int:
-    """CLI entry point — parse args, run the benchmark suite, emit summary."""
+def _run() -> None:
+    """Parse args, run the benchmark suite, emit summary."""
     parser = argparse.ArgumentParser(description="Throughput benchmark")
     parser.add_argument("--frames", type=int, default=10000, help="Frames per run")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs")
@@ -269,7 +271,10 @@ def main() -> int:
         }
         emit_json_report("throughput", parameters, [_to_json_payload(r) for r in results])
 
-    return 0
+
+def main() -> ExitStatus:
+    """CLI entry point: run the throughput benchmark, its report on stdout."""
+    return run_mode("throughput", _run)
 
 
 if __name__ == "__main__":

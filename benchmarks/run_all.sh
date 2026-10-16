@@ -275,10 +275,9 @@ if [[ -f "$PROJECT_DIR/python/.venv/bin/activate" ]]; then
     source "$PROJECT_DIR/python/.venv/bin/activate"
 fi
 
-# ``python3 -m benchmarks.<name>`` — matches how an installed-package user
-# would run the benchmark (post ``pip install -e .[dev]``).  Dropping the
-# previous ``sys.path.insert`` trick folds wheel / setuptools shim overhead
-# back into the measurement, see PY-31-2.
+# ``python3 -m benchmarks.<name>`` runs the benchmark as an installed-package
+# user would (after ``pip install -e .[dev]``), so the wheel / setuptools shim
+# overhead stays inside the measurement.
 if run_benchmark "Python" "$RESULTS_DIR/python_${BENCH}.json" \
     python3 -m "benchmarks.$BENCH" "${PYTHON_ARGS[@]}"; then
     SUCCEEDED+=(Python)

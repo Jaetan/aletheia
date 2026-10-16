@@ -335,6 +335,28 @@ def test_a_tracked_python_file_has_a_shebang_exactly_when_git_marks_it_executabl
     assert not mismatched, f"shebang and executable bit disagree: {mismatched}"
 
 
+@pytest.mark.process("which Python files the repository tracks is git's own answer")
+def test_ruff_names_every_package_under_python_first_party() -> None:
+    """``known-first-party`` names every directory of ``python/`` holding tracked Python.
+
+    ruff decides that an import is first-party by finding a directory or module
+    of its dotted name beside ``ruff.toml``, at the root, not under ``python/``.
+    The root's ``benchmarks/`` holds git-ignored output, so where a stability
+    run has left ``benchmarks/stability/``, ``benchmarks.stability`` reads
+    first-party, and on a fresh checkout third-party: the import order a local
+    sweep passes, CI fails. A package the list names is classified by name.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    config = tomllib.loads((repo / "ruff.toml").read_text(encoding="utf-8"))
+    named = set(config["lint"]["isort"]["known-first-party"])
+    packages = {
+        PurePosixPath(rel).parts[1]
+        for rel in git_ls_files(repo, "python/*.py")
+        if len(PurePosixPath(rel).parts) > 2
+    }
+    assert packages - named == set(), f"ruff classifies by the tree: {sorted(packages - named)}"
+
+
 def test_each_sanitizer_lane_owns_its_tree_and_its_lane(tmp_path: Path) -> None:
     """The two sanitizer ctest steps share neither a build tree nor a lane.
 

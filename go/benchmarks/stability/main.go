@@ -25,7 +25,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -75,23 +77,46 @@ type report struct {
 	Passed         bool       `json:"passed"`
 }
 
-// readHeapBytes returns runtime/metrics /memory/classes/heap/objects:bytes.
-// Forces a GC first so the read reflects steady-state heap rather than
-// uncollected garbage.
-func readHeapBytes() int64 {
+// heapMetric is the runtime/metrics count of bytes the rss gate compares.
+const heapMetric = "/memory/classes/heap/objects:bytes"
+
+// kindNames names the kinds of runtime/metrics value, to which the package
+// gives no String method.
+var kindNames = map[metrics.ValueKind]string{
+	metrics.KindUint64:           "uint64",
+	metrics.KindFloat64:          "float64",
+	metrics.KindFloat64Histogram: "float64 histogram",
+}
+
+// readHeapBytes reads the runtime/metrics count of bytes called name. Forces a
+// GC first so the read reflects steady-state heap rather than uncollected
+// garbage. A name this Go does not support and a metric of another kind are
+// errors, never a zero both snapshots would agree on.
+func readHeapBytes(name string) (int64, error) {
 	runtime.GC()
 	samples := []metrics.Sample{
-		{Name: "/memory/classes/heap/objects:bytes"},
+		{Name: name},
 	}
 	metrics.Read(samples)
-	if samples[0].Value.Kind() != metrics.KindUint64 {
-		return 0
+	switch kind := samples[0].Value.Kind(); kind {
+	case metrics.KindUint64:
+		return byteCount(samples[0].Value.Uint64())
+	case metrics.KindBad:
+		return 0, errors.New("not a metric this Go supports")
+	default:
+		return 0, fmt.Errorf("a %s, not a count of bytes", kindNames[kind])
 	}
-	v := samples[0].Value.Uint64()
-	if v > 1<<62 {
-		return 0
+}
+
+// byteCount converts a count of bytes to the int64 the gates compare. Every
+// count up to math.MaxInt64 converts exactly, and the difference of two such
+// counts cannot overflow; a larger one would convert negative, so it is an
+// error.
+func byteCount(v uint64) (int64, error) {
+	if v > math.MaxInt64 {
+		return 0, fmt.Errorf("%d bytes, past the int64 the gates compare", v)
 	}
-	return int64(v)
+	return int64(v), nil
 }
 
 // fdCount counts the entries of /proc/self/fd that name a real resource, a
@@ -124,13 +149,17 @@ func fdCount() (int64, error) {
 	return count, nil
 }
 
-func takeSnapshot() (snapshot, error) {
+func takeSnapshot(metric string) (snapshot, error) {
 	fds, err := fdCount()
 	if err != nil {
 		return snapshot{}, err
 	}
+	heap, err := readHeapBytes(metric)
+	if err != nil {
+		return snapshot{}, fmt.Errorf("reading runtime/metrics %s: %w", metric, err)
+	}
 	return snapshot{
-		RSS:            readHeapBytes(),
+		RSS:            heap,
 		NumFDs:         fds,
 		Goroutines:     int64(runtime.NumGoroutine()),
 		StablePtrCount: aletheia.StablePtrCount(),
@@ -138,9 +167,9 @@ func takeSnapshot() (snapshot, error) {
 }
 
 // findLibrary answers the path the kernel is loaded from: what ALETHEIA_LIB
-// names, else the build tree as seen from the executable or from the working
-// directory. Every candidate is checked; the last is returned unchecked, so a
-// harness that cannot load names a path rather than nothing.
+// names, else the build tree as seen from the working directory. Every
+// candidate is checked; the last is returned unchecked, so a harness that
+// cannot load names a path rather than nothing.
 func findLibrary() string {
 	if path := os.Getenv("ALETHEIA_LIB"); path != "" {
 		return path
@@ -152,11 +181,6 @@ func findLibrary() string {
 		filepath.Join("build", soName),
 		filepath.Join("..", "build", soName),
 		filepath.Join("..", "..", "..", "build", soName),
-	}
-	// A built binary sits in that last directory.
-	if exe, err := os.Executable(); err == nil {
-		fromExe := filepath.Join(filepath.Dir(exe), "..", "..", "..", "build", soName)
-		candidates = append([]string{fromExe}, candidates...)
 	}
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {
@@ -227,24 +251,29 @@ func runCycle(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DB
 	return nil
 }
 
-// envCount reads a positive whole number from the environment, answering the
-// default when the variable is unset. Anything else is refused: a run that
-// quietly measured the default would report it as the answer to what was asked.
+// envCount reads a count from the environment, answering the default when the
+// variable is unset. A count is ASCII digits only, from 1 to math.MaxInt32, and
+// anything else is refused: a run that quietly measured the default would
+// report it as the answer to what was asked.
 func envCount(name string, defaultValue int) (int, error) {
 	raw, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue, nil
 	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 {
-		return 0, fmt.Errorf("%s must be a positive whole number, got %q", name, raw)
+	n, err := strconv.ParseInt(raw, 10, 32)
+	if strings.TrimLeft(raw, "0123456789") != "" || err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a whole number from 1 to %d, got %q", name, math.MaxInt32, raw)
 	}
-	return n, nil
+	return int(n), nil
 }
 
-// cycle is the cycle main measures, a variable so that a test can run main
-// with one that leaks.
+// cycle is the cycle main runs, the warm-up included, a variable so that a
+// test can run main with one that leaks or fails.
 var cycle = runCycle
+
+// snapshotOf is the snapshot main takes before the cycles and after them, a
+// variable so that a test can run main with one that fails.
+var snapshotOf = takeSnapshot
 
 // gates compares the two snapshots. An exact gate passes only when they
 // agree, so it carries no threshold. The names and gate words are
@@ -291,12 +320,12 @@ func main() {
 
 	// One cycle before the window opens, so the first initialisation's own
 	// memory is inside neither snapshot.
-	if err := runCycle(ctx, backend, dbc, 100); err != nil {
+	if err := cycle(ctx, backend, dbc, 100); err != nil {
 		die("the warm-up cycle failed: %v", err)
 	}
 	runtime.GC()
 
-	start, err := takeSnapshot()
+	start, err := snapshotOf(heapMetric)
 	if err != nil {
 		die("the opening snapshot failed: %v", err)
 	}
@@ -309,7 +338,7 @@ func main() {
 		runtime.GC()
 	}
 
-	end, err := takeSnapshot()
+	end, err := snapshotOf(heapMetric)
 	if err != nil {
 		die("the closing snapshot failed: %v", err)
 	}

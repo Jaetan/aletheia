@@ -4,6 +4,7 @@
 //! Latency mode: each operation timed on its own, every lane reported by its
 //! mean, its extremes and its percentiles.
 
+use std::io;
 use std::time::Instant;
 
 use aletheia::{CanId, Dbc, Dlc, Formula, SignalValue, Timestamp};
@@ -13,9 +14,9 @@ use crate::fixtures::{
     can20_dbc, can20_frame, can20_properties, can20_signals, canfd_dbc, canfd_frame,
     canfd_properties, canfd_signals,
 };
-use crate::log_line;
 use crate::stats::{max_of, mean, min_of, percentile, round1};
 use crate::throughput::new_client;
+use crate::Output;
 
 // ---------------------------------------------------------------------------
 // Latency mode
@@ -153,7 +154,11 @@ fn run_latency_suite(s: &LatSuite) -> Vec<Value> {
     ]
 }
 
-pub(crate) fn run_latency(ops: usize, warmup: usize, json: bool) -> Vec<Value> {
+pub(crate) fn run_latency(
+    out: &mut Output<'_>,
+    ops: usize,
+    warmup: usize,
+) -> io::Result<Vec<Value>> {
     let dbc20 = can20_dbc();
     let dbcfd = canfd_dbc();
     let f20 = can20_frame();
@@ -163,7 +168,7 @@ pub(crate) fn run_latency(ops: usize, warmup: usize, json: bool) -> Vec<Value> {
     let s20 = can20_signals();
     let sfd = canfd_signals();
 
-    log_line(json, "\nMeasuring CAN 2.0B latency...");
+    out.line("\nMeasuring CAN 2.0B latency...")?;
     let mut results = run_latency_suite(&LatSuite {
         label: "CAN 2.0B",
         dbc: &dbc20,
@@ -175,7 +180,7 @@ pub(crate) fn run_latency(ops: usize, warmup: usize, json: bool) -> Vec<Value> {
         ops,
         warmup,
     });
-    log_line(json, "\nMeasuring CAN-FD latency...");
+    out.line("\nMeasuring CAN-FD latency...")?;
     results.extend(run_latency_suite(&LatSuite {
         label: "CAN-FD",
         dbc: &dbcfd,
@@ -187,5 +192,5 @@ pub(crate) fn run_latency(ops: usize, warmup: usize, json: bool) -> Vec<Value> {
         ops,
         warmup,
     }));
-    results
+    Ok(results)
 }

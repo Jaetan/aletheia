@@ -751,6 +751,36 @@ def test_a_module_declared_under_cfg_test_is_read_whole_in_its_own_file(tmp_path
     assert not rows_of(tmp_path, RelPath("rust/src/a/u.rs"), sleep)
 
 
+def test_an_examples_test_modules_are_test_code_and_its_own_code_is_not(tmp_path: Path) -> None:
+    """An example's ``#[cfg(test)]`` modules are read as a library's are, and nothing else of it.
+
+    A program under ``examples/<name>/`` is rooted at its ``main.rs`` alone, so a
+    module declared under ``#[cfg(test)]`` there, or below such a module, is test
+    code whole; the threads and timers the example itself needs are no test's.
+    """
+    sources = {
+        "rust/examples/bench/main.rs": "#[cfg(test)]\nmod tests;\nmod lib;\n",
+        "rust/examples/bench/lib.rs": "#[cfg(test)]\nmod t;\n",
+    }
+    for rel, source in sources.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        _ = (tmp_path / rel).write_text(source, encoding="utf-8")
+    for name in ["bench/tests", "bench/lib/t"]:
+        assert rust_test_file(tmp_path, RelPath(f"rust/examples/{name}.rs")), name
+    for name in ["bench/main", "bench/lib", "bench/t", "demo", "tests"]:
+        assert not rust_test_file(tmp_path, RelPath(f"rust/examples/{name}.rs")), name
+    sleep = SourceText("fn f() { std::thread::sleep(d); }\n")
+    tests = RowKey(RelPath("rust/examples/bench/tests.rs"), CanonicalText("time: a sleep"))
+    assert rows_of(tmp_path, tests.file, sleep) == {tests: 1}
+    assert not rows_of(tmp_path, RelPath("rust/examples/bench/lib.rs"), sleep)
+    inline = SourceText(
+        "fn main() { std::thread::spawn(|| {}); }\n"
+        + "#[cfg(test)]\nmod tests {\n    fn t() { std::thread::sleep(d); }\n}\n"
+    )
+    demo = RowKey(RelPath("rust/examples/demo.rs"), CanonicalText("time: a sleep"))
+    assert rows_of(tmp_path, demo.file, inline) == {demo: 1}
+
+
 def test_every_rust_test_binary_is_held_to_one_test_at_a_time(tmp_path: Path) -> None:
     """Cargo's configuration must force one test thread; unforced, other or absent fails."""
     assert rust_tests_run_alone(_REPO_ROOT)
@@ -843,4 +873,6 @@ def test_every_test_tree_of_every_binding_is_read() -> None:
     assert RUST.is_test(RelPath("rust/tests/async_client.rs"))
     assert RUST.is_test(RelPath("rust/excel/tests/load.rs"))
     assert RUST.is_test(RelPath("rust/src/backend.rs"))
-    assert not RUST.is_test(RelPath("rust/examples/demo.rs"))
+    assert RUST.is_test(RelPath("rust/examples/benchmark/tests.rs"))
+    assert RUST.is_test(RelPath("rust/examples/demo.rs"))
+    assert not RUST.is_test(RelPath("rust/build.rs"))

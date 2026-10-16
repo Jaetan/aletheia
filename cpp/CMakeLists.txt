@@ -537,10 +537,19 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/unit_tests_decimal.cpp
         tests/unit_tests_loader_utils.cpp
         tests/unit_tests_benchmark_measure.cpp
+        tests/unit_tests_benchmark_output.cpp
+        benchmarks/benchmark_output.cpp
+        tests/unit_tests_stability_snapshot.cpp
+        tests/unit_tests_stability_report.cpp
         tests/unit_tests_checked.cpp
         tests/rts_setup_listener.cpp)
-    # benchmarks: the benchmark harness's timed loops live there as a header,
-    # and their test drives them under a clock of its own.
+    # benchmarks: the benchmark harness's timed loops, the stability harness's
+    # reads and report, and the flush both reports end with live there as
+    # headers, and the source of the benchmark report's destination, rules and
+    # report check is compiled in beside them, so the mutation lane sweeps them
+    # with the library. The loops' test drives them under a clock of its own,
+    # the reports' tests write into streams they open, and the reads' test
+    # points them at planted files, the default malloc_info calls apart.
     target_include_directories(unit_tests PRIVATE src benchmarks)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
@@ -915,7 +924,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         endforeach()
     endif()
 
-    # Benchmark (uses real FFI backend — requires libaletheia-ffi.so at runtime,
+    # Benchmark (uses real FFI backend, requires libaletheia-ffi.so at runtime,
     # loaded via dlopen. The CMake build will succeed without the .so, but the
     # resulting binary will fail at startup with a dlopen error. Build the
     # Haskell shim first with `cabal run shake -- build` from the repo root.)
@@ -929,12 +938,50 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         benchmarks/benchmark_scaling.cpp)
     target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
 
+    # The benchmark program's exit status, held by running the built program:
+    # an argument it refuses, refused before the kernel is searched for, and a
+    # report its stdout refuses. The run that writes a report loads the kernel.
+    add_executable(benchmark_program_tests tests/benchmark_program_tests.cpp)
+    target_compile_features(benchmark_program_tests PRIVATE cxx_std_23)
+    target_link_libraries(benchmark_program_tests PRIVATE Catch2::Catch2WithMain)
+    target_compile_definitions(benchmark_program_tests
+        PRIVATE ALETHEIA_BENCHMARK_BIN="$<TARGET_FILE:benchmark>")
+    add_dependencies(benchmark_program_tests benchmark)
+    add_test(NAME benchmark_program_tests COMMAND benchmark_program_tests)
+    set_tests_properties(benchmark_program_tests PROPERTIES
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
+
     # Stability benchmark (long-run leak detection).
     # Same dlopen/.so requirement as `benchmark`.  Output is JSON to stdout.
     add_executable(stability_bench benchmarks/stability_bench.cpp)
     target_link_libraries(stability_bench PRIVATE aletheia-cpp)
 
+    # The stability harness's exit paths, each held by a run of the built
+    # harness in a process of its own. A snapshot fails, a descriptor leaks
+    # between the snapshots, or a measured cycle cannot load the kernel,
+    # through status_open_fault, a library the test preloads into the harness
+    # alone, so no case needs privilege. The harness loads the kernel the test
+    # names, or the stand-in that refuses every call.
+    add_library(status_open_fault SHARED tests/status_open_fault.cpp)
+    target_compile_features(status_open_fault PRIVATE cxx_std_23)
+    # The preload reads its counts with the harness's whole-number read, an
+    # inline function of the snapshot header, whose includes reach the
+    # library's headers; it links nothing of the library.
+    target_include_directories(status_open_fault PRIVATE src benchmarks include)
+    target_link_libraries(status_open_fault PRIVATE ${CMAKE_DL_LIBS})
+    add_executable(stability_bench_tests tests/stability_bench_tests.cpp)
+    target_compile_features(stability_bench_tests PRIVATE cxx_std_23)
+    target_link_libraries(stability_bench_tests
+        PRIVATE nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
+    target_compile_definitions(stability_bench_tests PRIVATE
+        ALETHEIA_STABILITY_BENCH="$<TARGET_FILE:stability_bench>"
+        ALETHEIA_STATUS_OPEN_FAULT="$<TARGET_FILE:status_open_fault>"
+        ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
+    add_dependencies(stability_bench_tests stability_bench status_open_fault)
+    add_test(NAME stability_bench_tests COMMAND stability_bench_tests)
+    set_tests_properties(stability_bench_tests PROPERTIES ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
+
     message(STATUS
-        "benchmark + stability_bench targets require libaletheia-ffi.so at runtime — "
+        "benchmark + stability_bench targets require libaletheia-ffi.so at runtime: "
         "build the Haskell shim first with `cabal run shake -- build`")
 endif()

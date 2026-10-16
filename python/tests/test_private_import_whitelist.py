@@ -246,6 +246,9 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._client",
             "reject_formula_inexact",
         ),
+        # The stability harness's ctypes_handles gate reads RTSState.refcount;
+        # the leak test raises it as a cycle that never releases would.
+        ("test_stability_harness.py", "aletheia.client._ffi", "RTSState"),
         # The override variable and the FFI-lib locator: RTS-init implementation
         # detail, private by design like the peer bindings' mirrors; the
         # containment tests reach through to set the override and to skip when
