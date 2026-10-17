@@ -24,6 +24,7 @@ open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
+open import Aletheia.DBC.Bounds using (SmallKeys)
 open import Aletheia.Parser.Combinators using
   (Position; ParseResult; mkResult; advancePositions;
    _>>=_; pure)
@@ -53,11 +54,12 @@ parseTopStmt-on-emit-TVT-eq :
     ∀ (pos : Position) (vt : ValueTable) (outer : List Char)
   → ValueTableNameStop vt
   → SuffixStops isNewlineStart outer
+  → SmallKeys (ValueTable.entries vt)
   → proj₂ (parseTopStmt pos (emitValueTable-chars vt ++ₗ outer))
     ≡ just (mkResult (TSValueTable vt)
                      (advancePositions pos (emitValueTable-chars vt))
                      outer)
-parseTopStmt-on-emit-TVT-eq pos vt outer name-stop nl-stop =
+parseTopStmt-on-emit-TVT-eq pos vt outer name-stop nl-stop keys-small =
   alt-left-just (parseValueTable       >>= λ vt  → pure (TSValueTable vt))
                 (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd))
                 pos input result
@@ -73,7 +75,7 @@ parseTopStmt-on-emit-TVT-eq pos vt outer name-stop nl-stop =
     result = mkResult (TSValueTable vt) pos-vt outer
 
     p-vt-eq : proj₂ (parseValueTable pos input) ≡ just (mkResult vt pos-vt outer)
-    p-vt-eq = parseValueTable-roundtrip pos vt outer name-stop nl-stop
+    p-vt-eq = parseValueTable-roundtrip pos vt outer name-stop nl-stop keys-small
 
     alt-vt-eq : proj₂ ((parseValueTable >>= λ vt → pure (TSValueTable vt)) pos input)
                 ≡ just result

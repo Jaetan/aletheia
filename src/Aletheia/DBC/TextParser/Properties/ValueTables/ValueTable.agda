@@ -38,6 +38,7 @@ open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
+open import Aletheia.DBC.Bounds using (SmallKeys)
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePositions;
    pure; _>>=_; many)
@@ -131,11 +132,12 @@ parseValueTable-roundtrip :
     ∀ (pos : Position) (vt : ValueTable) (suffix : List Char)
   → ValueTableNameStop vt
   → SuffixStops isNewlineStart suffix
+  → SmallKeys (ValueTable.entries vt)
   → proj₂ (parseValueTable pos (emitValueTable-chars vt ++ₗ suffix))
     ≡ just (mkResult vt
              (advancePositions pos (emitValueTable-chars vt))
              suffix)
-parseValueTable-roundtrip pos vt suffix nameStop nl-stop =
+parseValueTable-roundtrip pos vt suffix nameStop nl-stop keys-small =
   trans (cong (λ inp → proj₂ (parseValueTable pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-format
@@ -164,7 +166,7 @@ parseValueTable-roundtrip pos vt suffix nameStop nl-stop =
                      pos (emit ValueTable-format vt ++ₗ suffix)
                      vt pos-line suffix
                      (FmtVT.parseValueTable-format-roundtrip
-                       pos vt suffix nameStop)
+                       pos vt suffix nameStop keys-small)
 
     -- Step 2: many parseNewline consumes zero from `suffix`.
     step-many-newline :
@@ -212,7 +214,7 @@ emitValueTable-chars-head-not-newline _ _ = ∷-stop refl
 
 parseValueTables-roundtrip :
     ∀ (pos : Position) (vts : List ValueTable) (outer-suffix : List Char)
-  → All ValueTableNameStop vts
+  → All (λ vt → ValueTableNameStop vt × SmallKeys (ValueTable.entries vt)) vts
   → SuffixStops isNewlineStart outer-suffix
   → (∀ (pos' : Position) → proj₂ (parseValueTable pos' outer-suffix) ≡ nothing)
   → proj₂ (many parseValueTable pos
@@ -225,9 +227,9 @@ parseValueTables-roundtrip pos vts outer-suffix vts-stops os pf =
   many-η-roundtrip
     parseValueTable
     emitValueTable-chars
-    ValueTableNameStop
-    (λ pos₁ vt suffix nameStop nl-stop →
-       parseValueTable-roundtrip pos₁ vt suffix nameStop nl-stop)
+    (λ vt → ValueTableNameStop vt × SmallKeys (ValueTable.entries vt))
+    (λ pos₁ vt suffix (nameStop , keys-small) nl-stop →
+       parseValueTable-roundtrip pos₁ vt suffix nameStop nl-stop keys-small)
     emitValueTable-chars-nonzero
     emitValueTable-chars-head-not-newline
     pos vts outer-suffix vts-stops os pf

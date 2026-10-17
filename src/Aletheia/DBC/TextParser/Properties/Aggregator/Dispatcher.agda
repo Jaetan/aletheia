@@ -4,8 +4,8 @@
 
 -- Combined per-section dispatcher.
 --
--- Bundles the six per-section parseTopStmt-on-emit-* slims (5 simple +
--- TAT) into one universal lemma over the typed shadow `TopStmtTyped`,
+-- Bundles the per-section parseTopStmt-on-emit-* slims (the simple
+-- sections and TAT) into one universal lemma over the typed shadow `TopStmtTyped`,
 -- gated by the `TopStmtTypedWF defs` predicate that bundles each
 -- section's per-element precondition.
 --
@@ -26,6 +26,10 @@ open import Data.Product using (proj₁; proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
 
+open import Aletheia.DBC.Bounds using (SmallKeys; SignalMagnitudes; EnvVarMagnitudes; AttributeMagnitudes)
+open import Data.List.Relation.Unary.All using (All)
+open import Aletheia.DBC.Types using (ValueTable; DBCMessage)
+open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
@@ -97,33 +101,30 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.P
 -- WF PREDICATE FOR TYPED SHADOW
 -- ============================================================================
 --
--- One ctor per `TopStmtTyped` constructor, carrying that section's slim
--- precondition.  Indexed on `defs` because the TAT case's `WFAttribute`
--- depends on `defs`.
-
--- 7-ctor predicate; one per `TopStmtTyped` constructor,
--- carrying that section's slim precondition.  Indexed on `defs` because
--- the TAT case's `WFAttribute` depends on `defs`.
+-- One constructor per `TopStmtTyped` constructor, carrying that
+-- section's slim precondition and, where the section prints numbers,
+-- their magnitudes.  Indexed on `defs` because the TAT case's
+-- `WFAttribute` depends on `defs`.
 --
 -- The `wfTVD` ctor carries a real per-section roundtrip via
 -- `parseTopStmt-on-emit-TVD-eq` (rather than a TVD-case absurd-elim);
 -- the dispatcher and WF predicate support the typed-shadow walk over
 -- `TVD`.
 data TopStmtTypedWF (defs : List AttrDef) : TopStmtTyped → Set where
-  wfTVT : ∀ vt  → ValueTableNameStop vt → TopStmtTypedWF defs (TVT vt)
-  wfTM  : ∀ msg → MessageWF msg         → TopStmtTypedWF defs (TM  msg)
-  wfTEV : ∀ ev  → EnvVarNameStop ev     → TopStmtTypedWF defs (TEV ev)
+  wfTVT : ∀ vt  → ValueTableNameStop vt → SmallKeys (ValueTable.entries vt) → TopStmtTypedWF defs (TVT vt)
+  wfTM  : ∀ msg → MessageWF msg → All SignalMagnitudes (DBCMessage.signals msg) → TopStmtTypedWF defs (TM  msg)
+  wfTEV : ∀ ev  → EnvVarNameStop ev → EnvVarMagnitudes ev → TopStmtTypedWF defs (TEV ev)
   wfTCM : ∀ cm  → CommentTargetStop cm  → TopStmtTypedWF defs (TCM cm)
-  wfTAT : ∀ a   → WFAttribute defs a    → TopStmtTypedWF defs (TAT a)
+  wfTAT : ∀ a   → WFAttribute defs a → AttributeMagnitudes a → TopStmtTypedWF defs (TAT a)
   wfTSG : ∀ sg  → SignalGroupWF sg      → TopStmtTypedWF defs (TSG sg)
-  wfTVD : ∀ rvd → RawValueDescStop rvd  → TopStmtTypedWF defs (TVD rvd)
+  wfTVD : ∀ rvd → RawValueDescStop rvd → SmallKeys (RawValueDesc.entries rvd) → TopStmtTypedWF defs (TVD rvd)
   wfTBO : ∀ rms → RawMsgSendersStop rms → TopStmtTypedWF defs (TBO rms)
 
 -- ============================================================================
 -- COMBINED PER-SECTION DISPATCHER
 -- ============================================================================
 --
--- 6-way dispatch on the `TopStmtTyped` constructor.  Each case routes
+-- One clause per `TopStmtTyped` constructor.  Each case routes
 -- to the existing per-section slim under its WF witness.
 
 parseTopStmt-on-emitTopStmt-chars :
@@ -135,24 +136,24 @@ parseTopStmt-on-emitTopStmt-chars :
     ≡ just (mkResult (liftTopStmt defs t)
                      (advancePositions pos (emitTopStmt-chars defs t))
                      outer)
-parseTopStmt-on-emitTopStmt-chars defs pos (TVT vt)  outer (wfTVT _ ns)  ss-NL =
-  parseTopStmt-on-emit-TVT-eq pos vt outer ns ss-NL
-parseTopStmt-on-emitTopStmt-chars defs pos (TM  msg) outer (wfTM  _ wf)  ss-NL =
-  parseTopStmt-on-emit-TM-eq pos msg outer wf ss-NL
-parseTopStmt-on-emitTopStmt-chars defs pos (TEV ev)  outer (wfTEV _ ns)  ss-NL =
-  parseTopStmt-on-emit-TEV-eq pos ev outer ns ss-NL
+parseTopStmt-on-emitTopStmt-chars defs pos (TVT vt)  outer (wfTVT _ ns ks)  ss-NL =
+  parseTopStmt-on-emit-TVT-eq pos vt outer ns ss-NL ks
+parseTopStmt-on-emitTopStmt-chars defs pos (TM  msg) outer (wfTM  _ wf mags)  ss-NL =
+  parseTopStmt-on-emit-TM-eq pos msg outer wf ss-NL mags
+parseTopStmt-on-emitTopStmt-chars defs pos (TEV ev)  outer (wfTEV _ ns mags)  ss-NL =
+  parseTopStmt-on-emit-TEV-eq pos ev outer ns ss-NL mags
 parseTopStmt-on-emitTopStmt-chars defs pos (TCM cm)  outer (wfTCM _ ts)  ss-NL =
   parseTopStmt-on-emit-TCM-eq pos cm outer ts ss-NL
-parseTopStmt-on-emitTopStmt-chars defs pos (TAT a)   outer (wfTAT _ wfa) ss-NL =
-  parseTopStmt-on-emit-typed-TAT defs pos a outer wfa ss-NL
+parseTopStmt-on-emitTopStmt-chars defs pos (TAT a)   outer (wfTAT _ wfa small) ss-NL =
+  parseTopStmt-on-emit-typed-TAT defs pos a outer wfa ss-NL small
 parseTopStmt-on-emitTopStmt-chars defs pos (TSG sg)  outer (wfTSG _ wf)  ss-NL =
   parseTopStmt-on-emit-TSG-eq pos sg outer wf ss-NL
 -- Real TVD dispatcher proof via `parseTopStmt-on-emit-TVD-
 -- eq` (V-bucket right arm; LEFT arm parseValueTable fails on VAL_-
 -- prefix input via `alt-right-nothing`, RIGHT arm succeeds via the
 -- slim parseValueDescription-roundtrip).  Replaces the earlier absurd-elim.
-parseTopStmt-on-emitTopStmt-chars defs pos (TVD rvd) outer (wfTVD _ rs) ss-NL =
-  parseTopStmt-on-emit-TVD-eq pos rvd outer rs ss-NL
+parseTopStmt-on-emitTopStmt-chars defs pos (TVD rvd) outer (wfTVD _ rs ks) ss-NL =
+  parseTopStmt-on-emit-TVD-eq pos rvd outer rs ss-NL ks
 parseTopStmt-on-emitTopStmt-chars defs pos (TBO rms) outer (wfTBO _ st) ss-NL =
   parseTopStmt-on-emit-TBO-eq pos rms outer st ss-NL
 

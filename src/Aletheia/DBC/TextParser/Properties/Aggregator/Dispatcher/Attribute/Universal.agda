@@ -19,6 +19,7 @@ open import Data.Maybe using (just)
 open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 
+open import Aletheia.DBC.Bounds using (AttributeMagnitudes)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
@@ -61,16 +62,17 @@ parseAttrLine-on-emit-Attribute :
       (a : DBCAttribute) (outer : List Char)
   → WFAttribute defs a
   → SuffixStops isNewlineStart outer
+  → AttributeMagnitudes a
   → proj₂ (parseAttrLine pos (emitAttribute-chars defs a ++ₗ outer))
     ≡ just (mkResult
               (rawOf defs a)
               (advancePositions pos (emitAttribute-chars defs a))
               outer)
-parseAttrLine-on-emit-Attribute defs pos (DBCAttrDef d) outer wf ss-NL =
-  parseAttrLine-on-emit-RawDef defs pos d outer wf ss-NL
-parseAttrLine-on-emit-Attribute defs pos (DBCAttrDefault d) outer wf ss-NL =
-  parseAttrLine-on-emit-RawDefault defs pos d outer wf ss-NL
+parseAttrLine-on-emit-Attribute defs pos (DBCAttrDef d) outer wf ss-NL small =
+  parseAttrLine-on-emit-RawDef defs pos d outer wf ss-NL small
+parseAttrLine-on-emit-Attribute defs pos (DBCAttrDefault d) outer wf ss-NL small =
+  parseAttrLine-on-emit-RawDefault defs pos d outer wf ss-NL small
 parseAttrLine-on-emit-Attribute defs pos
-  (DBCAttrAssign (mkAttrAssign name target value)) outer _ ss-NL =
+  (DBCAttrAssign (mkAttrAssign name target value)) outer _ ss-NL small =
     parseAttrLine-on-emit-RawAssign defs pos name target value outer
-      (identifier-name-stop-of target) ss-NL
+      (identifier-name-stop-of target) ss-NL small

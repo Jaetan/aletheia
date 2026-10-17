@@ -63,6 +63,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node using
 
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOK)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; fromℤ-small)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;
@@ -265,6 +266,7 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac :
   ∀ pos (name : List Char) (ev : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
@@ -273,7 +275,7 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac :
               (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat d))
               (TraceEnvVar.pos9 pos name ev (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix ident-stop ss-NL =
+parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix ident-stop ss-NL small =
   trans
     (cong (λ input → proj₂ (parseRawAttrAssign pos input))
           (sym (bridge-EnvVar-emit name ev (RavwFrac d) outer-suffix)))
@@ -281,7 +283,7 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix
       (parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev
         (RavwFrac d) outer-suffix ident-stop ss-NL
         (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
-        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)))
+        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) small (∷-stop refl)))
       result-eq)
   where
     result-eq :
@@ -305,6 +307,7 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt :
   ∀ pos (name : List Char) (ev : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
@@ -313,14 +316,14 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt :
               (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z)))
               (TraceEnvVar.pos9 pos name ev (showInt-chars z) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suffix ident-stop ss-NL =
+parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suffix ident-stop ss-NL small =
   trans
     (cong (λ input → proj₂ (parseRawAttrAssign pos input)) reshape-input)
     (trans
       (parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev
         (RavwBareInt z') outer-suffix ident-stop ss-NL
         l4-rebuilt
-        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())))
+        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (fromℤ-small z small) (∷-stop refl) (λ ())))
       result-eq)
   where
     z' : IntDecRat

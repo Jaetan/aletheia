@@ -35,6 +35,10 @@ open import Aletheia.DBC.Bounds using
   ; IsBoundedDBC; BoundedDBC; bounded; isBounded?; checkBounds; withNodes
   ; selectorCount; signalCounts; messageCounts; labelCount; attributeCounts; dbcCounts
   ; shortLabels; signalTexts; shortType; shortValue; attributeTexts; dbcTexts
+  ; SmallSelectors; SignalMagnitudes; EnvVarMagnitudes; SmallType; SmallValue
+  ; AttributeMagnitudes; DBCMagnitudes
+  ; smallSelectors; signalMagnitudes; envVarMagnitudes; smallType; smallValue
+  ; attributeMagnitudes; dbcMagnitudes
   )
 open import Aletheia.Limits using (ArrayCardinality; max-nodes-per-file)
 
@@ -160,10 +164,59 @@ dbcTexts-accepts dbc t =
 -- THE BOUNDED DBC
 -- ============================================================================
 
+smallSelectors-accepts : ∀ p → SmallSelectors p → Accepted (smallSelectors p)
+smallSelectors-accepts Always      _ = tt
+smallSelectors-accepts (When _ _)  s = every-accepts (λ _ → bound-accepts) s
+
+signalMagnitudes-accepts : ∀ sig → SignalMagnitudes sig → Accepted (signalMagnitudes sig)
+signalMagnitudes-accepts sig m =
+  bind-accepts (bound-accepts (SignalMagnitudes.factor m)) λ _ →
+  bind-accepts (bound-accepts (SignalMagnitudes.offset m)) λ _ →
+  bind-accepts (bound-accepts (SignalMagnitudes.minimum m)) λ _ →
+  bind-accepts (bound-accepts (SignalMagnitudes.maximum m)) λ _ →
+  bind-accepts (bound-accepts (SignalMagnitudes.startBit m)) λ _ →
+  bind-accepts (bound-accepts (SignalMagnitudes.bitLength m)) λ _ →
+  bind-accepts (smallSelectors-accepts (DBCSignal.presence sig) (SignalMagnitudes.selectors m)) λ _ →
+  bind-accepts (every-accepts (λ _ → bound-accepts) (SignalMagnitudes.keys m)) λ _ → tt
+
+envVarMagnitudes-accepts : ∀ e → EnvVarMagnitudes e → Accepted (envVarMagnitudes e)
+envVarMagnitudes-accepts e m =
+  bind-accepts (bound-accepts (EnvVarMagnitudes.initial m)) λ _ →
+  bind-accepts (bound-accepts (EnvVarMagnitudes.minimum m)) λ _ →
+  bind-accepts (bound-accepts (EnvVarMagnitudes.maximum m)) λ _ → tt
+
+smallType-accepts : ∀ t → SmallType t → Accepted (smallType t)
+smallType-accepts (ATInt _ _)   (l , h) = bind-accepts (bound-accepts l) λ _ → bind-accepts (bound-accepts h) λ _ → tt
+smallType-accepts (ATFloat _ _) (l , h) = bind-accepts (bound-accepts l) λ _ → bind-accepts (bound-accepts h) λ _ → tt
+smallType-accepts ATString      _       = tt
+smallType-accepts (ATEnum _)    _       = tt
+smallType-accepts (ATHex _ _)   (l , h) = bind-accepts (bound-accepts l) λ _ → bind-accepts (bound-accepts h) λ _ → tt
+
+smallValue-accepts : ∀ v → SmallValue v → Accepted (smallValue v)
+smallValue-accepts (AVInt _)    s = bound-accepts s
+smallValue-accepts (AVFloat _)  s = bound-accepts s
+smallValue-accepts (AVString _) _ = tt
+smallValue-accepts (AVEnum _)   s = bound-accepts s
+smallValue-accepts (AVHex _)    s = bound-accepts s
+
+attributeMagnitudes-accepts : ∀ a → AttributeMagnitudes a → Accepted (attributeMagnitudes a)
+attributeMagnitudes-accepts (DBCAttrDef d)     m = smallType-accepts (AttrDef.attrType d) m
+attributeMagnitudes-accepts (DBCAttrDefault d) m = smallValue-accepts (AttrDefault.value d) m
+attributeMagnitudes-accepts (DBCAttrAssign a)  m = smallValue-accepts (AttrAssign.value a) m
+
+dbcMagnitudes-accepts : ∀ dbc → DBCMagnitudes dbc → Accepted (dbcMagnitudes dbc)
+dbcMagnitudes-accepts dbc m =
+  bind-accepts (every-accepts (λ _ → every-accepts signalMagnitudes-accepts) (DBCMagnitudes.signals m)) λ _ →
+  bind-accepts (every-accepts envVarMagnitudes-accepts (DBCMagnitudes.environmentVars m)) λ _ →
+  bind-accepts (every-accepts attributeMagnitudes-accepts (DBCMagnitudes.attributes m)) λ _ →
+  bind-accepts (every-accepts (λ _ → every-accepts (λ _ → bound-accepts)) (DBCMagnitudes.valueTables m)) λ _ →
+  bind-accepts (every-accepts (λ _ → every-accepts (λ _ → bound-accepts)) (DBCMagnitudes.unresolvedValueDescs m)) λ _ → tt
+
 isBounded?-accepts : ∀ dbc → IsBoundedDBC dbc → Accepted (isBounded? dbc)
 isBounded?-accepts dbc p =
   bind-accepts (dbcCounts-accepts dbc (IsBoundedDBC.counts p)) λ _ →
-  bind-accepts (dbcTexts-accepts dbc (IsBoundedDBC.texts p)) λ _ → tt
+  bind-accepts (dbcTexts-accepts dbc (IsBoundedDBC.texts p)) λ _ →
+  bind-accepts (dbcMagnitudes-accepts dbc (IsBoundedDBC.magnitudes p)) λ _ → tt
 
 -- Completeness: a DBC within every bound is accepted, as itself.
 checkBounds-accepts : ∀ dbc → IsBoundedDBC dbc

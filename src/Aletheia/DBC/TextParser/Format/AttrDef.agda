@@ -35,7 +35,7 @@ open import Data.Integer using ()
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Nat using ()
-open import Data.Product using (_×_; _,_; proj₂)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
@@ -58,6 +58,7 @@ open import Aletheia.DBC.TextFormatter.Emitter
          quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop)
+open import Aletheia.DBC.Bounds using (SmallType)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; stringLit; pair; iso; many;
          altSum; ws; wsOpt; wsCanonOne; decRat; intDecRat; natDecRat;
@@ -439,9 +440,10 @@ build-EmitsOK-relScopeFmt RrsNodeSig _ = tt , (λ _ → refl)
 -- `SuffixStops isHSpace`.
 build-EmitsOK-attrTypeFmt :
   ∀ (rt : RawAttrType) (rest : List Char)
+  → SmallType (liftAttrType rt)
   → EmitsOK attrTypeFmt rt (' ' ∷ rest)
-build-EmitsOK-attrTypeFmt RatString rest = tt
-build-EmitsOK-attrTypeFmt (RatInt mn mx) rest =
+build-EmitsOK-attrTypeFmt RatString rest _ = tt
+build-EmitsOK-attrTypeFmt (RatInt mn mx) rest small =
     inner , (λ _ → refl)
   where
     zmn = intDecRatToℤ mn
@@ -449,7 +451,7 @@ build-EmitsOK-attrTypeFmt (RatInt mn mx) rest =
     -- Innermost: `intDecRat mx` with suffix `' ' ∷ rest`.  Both witnesses
     -- close: head `' '` is non-digit; `'.' ≢ ' '`.
     mx-emits : EmitsOK intDecRat mx (' ' ∷ rest)
-    mx-emits = ∷-stop refl , (λ ())
+    mx-emits = proj₂ small , ∷-stop refl , (λ ())
     -- Leading ws of `withWS intDecRat` (between mn and mx) requires
     -- `SuffixStops isHSpace (showInt-chars zmx ++ ' ' ∷ rest)` — head
     -- of `showInt-chars zmx` is non-hspace.
@@ -462,7 +464,7 @@ build-EmitsOK-attrTypeFmt (RatInt mn mx) rest =
     -- `' ' ∷ (showInt-chars zmx ++ ' ' ∷ rest)` — head `' '`, both
     -- witnesses close as for mx-emits.
     mn-emits : EmitsOK intDecRat mn ((' ' ∷ showInt-chars zmx) ++ₗ (' ' ∷ rest))
-    mn-emits = ∷-stop refl , (λ ())
+    mn-emits = proj₁ small , ∷-stop refl , (λ ())
     pair-emits : EmitsOK (pair intDecRat (withWS intDecRat))
                           (mn , mx) (' ' ∷ rest)
     pair-emits = mn-emits , mx-withws
@@ -478,18 +480,18 @@ build-EmitsOK-attrTypeFmt (RatInt mn mx) rest =
     body-emits = ws-leading , pair-emits
     inner : EmitsOK intArm (mn , mx) (' ' ∷ rest)
     inner = tt , body-emits
-build-EmitsOK-attrTypeFmt (RatFloat mn mx) rest =
+build-EmitsOK-attrTypeFmt (RatFloat mn mx) rest small =
     (inner , (λ _ → refl)) , (λ _ → refl)
   where
     mx-emits : EmitsOK decRat mx (' ' ∷ rest)
-    mx-emits = ∷-stop refl
+    mx-emits = proj₂ small , ∷-stop refl
     ws-mid : SuffixStops isHSpace (showDecRat-dec-chars mx ++ₗ (' ' ∷ rest))
     ws-mid = showDecRat-chars-head-stop mx (' ' ∷ rest)
     mx-withws : EmitsOK (withWS decRat) mx (' ' ∷ rest)
     mx-withws = ws-mid , mx-emits
     mn-emits : EmitsOK decRat mn
                  ((' ' ∷ showDecRat-dec-chars mx) ++ₗ (' ' ∷ rest))
-    mn-emits = ∷-stop refl
+    mn-emits = proj₁ small , ∷-stop refl
     pair-emits : EmitsOK (pair decRat (withWS decRat))
                           (mn , mx) (' ' ∷ rest)
     pair-emits = mn-emits , mx-withws
@@ -503,7 +505,7 @@ build-EmitsOK-attrTypeFmt (RatFloat mn mx) rest =
     body-emits = ws-leading , pair-emits
     inner : EmitsOK floatArm (mn , mx) (' ' ∷ rest)
     inner = tt , body-emits
-build-EmitsOK-attrTypeFmt (RatEnum h t) rest =
+build-EmitsOK-attrTypeFmt (RatEnum h t) rest _ =
     ((enumArm-OK , (λ _ → refl)) , (λ _ → refl)) , (λ _ → refl)
   where
     -- The trailing element-fail witness for the empty case of `many`:
@@ -573,20 +575,20 @@ build-EmitsOK-attrTypeFmt (RatEnum h t) rest =
 
     enumArm-OK : EmitsOK enumArm (h , t) (' ' ∷ rest)
     enumArm-OK = tt , (enum-leading-ws , enumBody-OK)
-build-EmitsOK-attrTypeFmt (RatHex mn mx) rest =
+build-EmitsOK-attrTypeFmt (RatHex mn mx) rest small =
     (((inner , (λ _ → refl)) , (λ _ → refl)) , (λ _ → refl)) , (λ _ → refl)
   where
     nmn = natDecRatToℕ mn
     nmx = natDecRatToℕ mx
     mx-emits : EmitsOK natDecRat mx (' ' ∷ rest)
-    mx-emits = ∷-stop refl , (λ ())
+    mx-emits = proj₂ small , ∷-stop refl , (λ ())
     ws-mid : SuffixStops isHSpace (showNat-chars nmx ++ₗ (' ' ∷ rest))
     ws-mid = showNat-chars-head-stop nmx (' ' ∷ rest)
     mx-withws : EmitsOK (withWS natDecRat) mx (' ' ∷ rest)
     mx-withws = ws-mid , mx-emits
     mn-emits : EmitsOK natDecRat mn
                  ((' ' ∷ showNat-chars nmx) ++ₗ (' ' ∷ rest))
-    mn-emits = ∷-stop refl , (λ ())
+    mn-emits = proj₁ small , ∷-stop refl , (λ ())
     pair-emits : EmitsOK (pair natDecRat (withWS natDecRat))
                           (mn , mx) (' ' ∷ rest)
     pair-emits = mn-emits , mx-withws
@@ -648,8 +650,9 @@ private
 -- helpers.  `outer-suffix` and all four record fields are universal.
 build-EmitsOK-attrDefFmt :
   ∀ (s : RawStdScope) (n : List Char) (rt : RawAttrType) (outer-suffix : List Char)
+  → SmallType (liftAttrType rt)
   → EmitsOK attrDefFmt (s , n , rt , tt) outer-suffix
-build-EmitsOK-attrDefFmt s n rt outer-suffix =
+build-EmitsOK-attrDefFmt s n rt outer-suffix small =
   -- L1: literal "BA_DEF_" — vacuous.
     tt
   -- L2: leading withWS after "BA_DEF_": SuffixStops isHSpace on
@@ -666,7 +669,7 @@ build-EmitsOK-attrDefFmt s n rt outer-suffix =
   , attrType-emit-leading-non-hspace rt
       (' ' ∷ ';' ∷ '\n' ∷ []) outer-suffix
   -- L6: attrTypeFmt EmitsOK — sub-builder, suffix `' ' ∷ ';' ∷ '\n' ∷ os`.
-  , build-EmitsOK-attrTypeFmt rt (';' ∷ '\n' ∷ outer-suffix)
+  , build-EmitsOK-attrTypeFmt rt (';' ∷ '\n' ∷ outer-suffix) small
   -- L7: leading withWSCanonOne: SuffixStops isHSpace on `';' ∷ '\n' ∷ os`.
   , ∷-stop refl
   -- L8: literal ";" — vacuous.
@@ -689,8 +692,9 @@ build-EmitsOK-attrDefFmt s n rt outer-suffix =
 -- (one extra leading-ws slot vs std).
 build-EmitsOK-attrDefRelFmt :
   ∀ (s : RawRelScope) (n : List Char) (rt : RawAttrType) (outer-suffix : List Char)
+  → SmallType (liftAttrType rt)
   → EmitsOK attrDefRelFmt (s , n , rt , tt) outer-suffix
-build-EmitsOK-attrDefRelFmt s n rt outer-suffix =
+build-EmitsOK-attrDefRelFmt s n rt outer-suffix small =
   -- L1: literal "BA_DEF_REL_" — vacuous.
     tt
   -- L2: leading withWS after "BA_DEF_REL_": SuffixStops on
@@ -709,7 +713,7 @@ build-EmitsOK-attrDefRelFmt s n rt outer-suffix =
   , attrType-emit-leading-non-hspace rt
       (' ' ∷ ';' ∷ '\n' ∷ []) outer-suffix
   -- L7: attrTypeFmt EmitsOK.
-  , build-EmitsOK-attrTypeFmt rt (';' ∷ '\n' ∷ outer-suffix)
+  , build-EmitsOK-attrTypeFmt rt (';' ∷ '\n' ∷ outer-suffix) small
   -- L8: leading withWSCanonOne.
   , ∷-stop refl
   -- L9: literal ";".
@@ -733,26 +737,28 @@ build-EmitsOK-attrDefRelFmt s n rt outer-suffix =
 parseAttrDef-format-roundtrip :
   ∀ (pos : Position) (s : RawStdScope) (n : List Char) (rt : RawAttrType)
     (outer-suffix : List Char)
+  → SmallType (liftAttrType rt)
   → proj₂ (parse attrDefFmt pos
       (emit attrDefFmt (s , n , rt , tt) ++ₗ outer-suffix))
     ≡ just (mkResult (s , n , rt , tt)
               (advancePositions pos
                 (emit attrDefFmt (s , n , rt , tt)))
               outer-suffix)
-parseAttrDef-format-roundtrip pos s n rt outer-suffix =
+parseAttrDef-format-roundtrip pos s n rt outer-suffix small =
   roundtrip attrDefFmt pos (s , n , rt , tt) outer-suffix
-            (build-EmitsOK-attrDefFmt s n rt outer-suffix)
+            (build-EmitsOK-attrDefFmt s n rt outer-suffix small)
 
 -- Mirror for BA_DEF_REL_.
 parseAttrDefRel-format-roundtrip :
   ∀ (pos : Position) (s : RawRelScope) (n : List Char) (rt : RawAttrType)
     (outer-suffix : List Char)
+  → SmallType (liftAttrType rt)
   → proj₂ (parse attrDefRelFmt pos
       (emit attrDefRelFmt (s , n , rt , tt) ++ₗ outer-suffix))
     ≡ just (mkResult (s , n , rt , tt)
               (advancePositions pos
                 (emit attrDefRelFmt (s , n , rt , tt)))
               outer-suffix)
-parseAttrDefRel-format-roundtrip pos s n rt outer-suffix =
+parseAttrDefRel-format-roundtrip pos s n rt outer-suffix small =
   roundtrip attrDefRelFmt pos (s , n , rt , tt) outer-suffix
-            (build-EmitsOK-attrDefRelFmt s n rt outer-suffix)
+            (build-EmitsOK-attrDefRelFmt s n rt outer-suffix small)

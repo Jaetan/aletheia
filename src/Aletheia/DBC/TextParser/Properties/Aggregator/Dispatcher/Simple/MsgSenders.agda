@@ -45,7 +45,7 @@ open import Aletheia.DBC.TextParser.Senders using
 open import Aletheia.DBC.TextParser.TopLevel using
   (TopStmt; TSBOTxBu; foldMessage; parseTopStmt; parseBOTxBu; buildSendersResult)
 open import Aletheia.DBC.TextParser.Topology using (parseMessage)
-open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
+open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ; canId-small)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 open import Aletheia.DBC.TextFormatter.MessageSenders using (emitMsgSenders-line-chars)
 
@@ -135,7 +135,7 @@ parseBOTxBu-roundtrip-explicit pos cid h t suffix nameStop nl-stop =
                      pos (emit MsgSenders-format triple ++ₗ suffix)
                      triple pos-line suffix
                      (FmtMS.parseMsgSenders-format-roundtrip
-                       pos (rawCanIdℕ cid) h t suffix nameStop)
+                       pos (rawCanIdℕ cid) h t suffix nameStop (canId-small cid))
 
     cont-blanks : List Char → Parser RawMsgSenders
     cont-blanks _ =

@@ -49,7 +49,7 @@ open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
 
 -- Canonical digit character for a value in {0..9}.  Out-of-range inputs
 -- (≥ 10) return `'0'`; callers rely on the `_%_` bound to stay in range.
--- Ten explicit clauses keep `charToDigit (digitChar d) ≡ d` reducing to
+-- Ten explicit clauses keep `digitValue (digitChar d) ≡ d` reducing to
 -- `refl` on each `d < 10` branch in the roundtrip proof (closed-term
 -- reduction of `primCharToNat '0' = 48` etc.).
 digitChar : ℕ → Char
@@ -82,7 +82,7 @@ showℕ-padded-chars (suc w) n =
 -- substitute for stdlib's `Data.Nat.Show.toDecimalChars` (which uses
 -- well-founded recursion via `<-wellFounded-fast` and is difficult to
 -- reason about directly).  Produces identical output for all ℕ inputs.
--- `DecRatParse/Properties` closes the roundtrip against `parseDigitList`.
+-- `DecRatParse/Properties` closes the roundtrip against `foldDigits`.
 --
 -- Fuel-bound structural recursion: `fuel = suc n` is sufficient because
 -- the number of decimal digits of `n` is at most `suc n` (loose bound,

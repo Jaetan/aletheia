@@ -37,6 +37,7 @@ open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; sym; trans; cong)
 
+open import Aletheia.DBC.Bounds using (SmallKeys)
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePositions;
    _>>=_; many)
@@ -46,7 +47,7 @@ open import Aletheia.DBC.TextParser.ValueTables using
   (RawValueDesc; parseValueDescription; buildResultP)
 open import Aletheia.DBC.TextFormatter.ValueTables using
   (emitValueDescription-chars)
-open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
+open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ; canId-small)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; bind-just-step)
@@ -131,12 +132,13 @@ parseValueDescription-roundtrip :
     ∀ (pos : Position) (rvd : RawValueDesc) (suffix : List Char)
   → RawValueDescStop rvd
   → SuffixStops isNewlineStart suffix
+  → SmallKeys (RawValueDesc.entries rvd)
   → proj₂ (parseValueDescription pos
              (emitValueDescription-chars rvd ++ₗ suffix))
     ≡ just (mkResult rvd
              (advancePositions pos (emitValueDescription-chars rvd))
              suffix)
-parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop =
+parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop keys-small =
   trans (cong (λ inp → proj₂ (parseValueDescription pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-format
@@ -184,7 +186,9 @@ parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop =
                        (RawValueDesc.signalName rvd)
                        (RawValueDesc.entries rvd)
                        suffix
-                       nameStop)
+                       nameStop
+                       (canId-small (RawValueDesc.canId rvd))
+                       keys-small)
 
     -- Step 2: many parseNewline consumes zero from `suffix`.
     cont-blanks : List Char → Parser RawValueDesc

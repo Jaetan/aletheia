@@ -50,7 +50,7 @@ open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars;
          showℕ-dec-chars)
-open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
+open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ; canId-small)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   ( bind-just-step
@@ -67,6 +67,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
 
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOK; nat)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; fromℤ-small)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;
@@ -165,7 +166,7 @@ private
       l5 : EmitsOK stdTargetWireFmt (RatwMsg raw)
             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
       l5 = build-EmitsOK-stdTargetWireFmt-RatwMsg raw
-            (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix) val-stop
+            (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix) (canId-small cid) val-stop
 
       step-format :
         proj₂ (parseRawAttrAssign pos
@@ -246,6 +247,7 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavString pos name cid s outer-suffix s
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac :
   ∀ pos (name : List Char) (cid : CANId) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -254,7 +256,7 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac :
               (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat d))
               (TraceMessage.pos9 pos name cid (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac pos name cid d outer-suffix ss-NL =
+parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac pos name cid d outer-suffix ss-NL small =
   trans
     (cong (λ chars → proj₂ (parseRawAttrAssign pos chars))
           (sym (bridge-Message-emit name (rawCanIdℕ cid) (RavwFrac d) outer-suffix)))
@@ -262,7 +264,7 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac pos name cid d outer-suff
       (parseRawAttrAssign-format-roundtrip-Message-raw pos name cid
         (RavwFrac d) outer-suffix ss-NL
         (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
-        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)))
+        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) small (∷-stop refl)))
       result-eq)
   where
     result-eq :
@@ -289,6 +291,7 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac pos name cid d outer-suff
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt :
   ∀ pos (name : List Char) (cid : CANId) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -297,14 +300,14 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt :
               (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat (fromℤ z)))
               (TraceMessage.pos9 pos name cid (showInt-chars z) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt pos name cid z outer-suffix ss-NL =
+parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt pos name cid z outer-suffix ss-NL small =
   trans
     (cong (λ chars → proj₂ (parseRawAttrAssign pos chars)) reshape-input)
     (trans
       (parseRawAttrAssign-format-roundtrip-Message-raw pos name cid
         (RavwBareInt z') outer-suffix ss-NL
         l4-rebuilt
-        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())))
+        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (fromℤ-small z small) (∷-stop refl) (λ ())))
       result-eq)
   where
     z' : IntDecRat

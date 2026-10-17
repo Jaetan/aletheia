@@ -56,6 +56,7 @@ open import Relation.Binary.PropositionalEquality
 open import Aletheia.Parser.Combinators
   using (Position; mkResult; advancePositions)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; intDecRatToℤ)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
@@ -312,28 +313,30 @@ build-EmitsOK-RavwString s suffix ss = ss
 -- actually inj₂ inj₁ = inj₁ inside the inner altSum; no extra disjointness
 -- needed (left arm of inner altSum).
 build-EmitsOK-RavwFrac : ∀ (d : DecRat) (suffix : List Char)
+  → SmallDecRat d
   → SuffixStops isDigit suffix
   → EmitsOK attrValueWireFmt (RavwFrac d) suffix
-build-EmitsOK-RavwFrac d suffix ss-digit =
+build-EmitsOK-RavwFrac d suffix small ss-digit =
     -- Outer altSum (inj₂): inner EmitsOK + outer disjointness witness.
     inner-emit , (λ pos → parse-stringLit-fail-on-decRat pos d suffix)
   where
     -- Inner altSum (inj₁): just `EmitsOK decRatFrac d suffix`.
     inner-emit : EmitsOK (altSum decRatFrac intDecRat) (inj₁ d) suffix
-    inner-emit = ss-digit
+    inner-emit = small , ss-digit
 
 -- For shape RavwBareInt z: outer altSum's inj₂ inj₂ — need:
 --   1. inner EmitsOK intDecRat z suffix = SuffixStops isDigit × ('.' ≢ head)
 --   2. inner altSum disjointness: parse decRatFrac fails on intDecRat emit
 --   3. outer altSum disjointness: parse stringLit fails on intDecRat emit
 build-EmitsOK-RavwBareInt : ∀ (z : IntDecRat) (suffix : List Char)
+  → SmallDecRat (IntDecRat.value z)
   → SuffixStops isDigit suffix
   → '.' ≢ headOr suffix '_'
   → EmitsOK attrValueWireFmt (RavwBareInt z) suffix
-build-EmitsOK-RavwBareInt z suffix ss-digit not-dot =
+build-EmitsOK-RavwBareInt z suffix small ss-digit not-dot =
     -- Outer altSum (inj₂): (inner EmitsOK + inner disjointness) +
     --                      outer disjointness witness.
-      ((ss-digit , not-dot)
+      ((small , ss-digit , not-dot)
       , (λ pos → parse-decRatFrac-fail-on-bareInt pos
                    (intDecRatToℤ z) suffix ss-digit not-dot))
     , (λ pos → parse-stringLit-fail-on-int pos (intDecRatToℤ z) suffix)

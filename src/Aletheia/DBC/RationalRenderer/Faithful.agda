@@ -11,12 +11,12 @@
 --
 -- This module closes that gap.  `Represents : List Char → ℚ → Set` is an
 -- independent standard-numeral semantics (digit runs decoded by the existing
--- `parseDigitList` Horner fold; decimal `is.fs`; fraction `n/d`; leading `-`),
+-- `foldDigits` Horner fold; decimal `is.fs`; fraction `n/d`; leading `-`),
 -- and `formatℚ-chars-represents` proves `Represents (formatℚ-chars q) q` for
 -- every `q` — i.e. the renderer never misrepresents a value.
 --
 -- Reuse: digit faithfulness from `DecRatParse.Properties.Phase1Digits`
--- (`parseDigitList-show{Nat,ℕ-padded}-chars`), the `fromℚ?` soundness linchpin
+-- (`foldDigits-show{Nat,ℕ-padded}-chars`), the `fromℚ?` soundness linchpin
 -- (`RationalSoundness.toℚ-fromℚ?-sound`) for the decimal / k>18 branches, and
 -- stdlib `↥p/↧p≡p` as the uniform value bridge.
 --
@@ -63,9 +63,9 @@ open import Relation.Nullary using (yes; no; ¬_)
 
 open import Aletheia.DBC.TextFormatter.Emitter using
   (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars)
-open import Aletheia.DBC.TextParser.DecRatParse using (parseDigitList; charToDigit)
+open import Aletheia.DBC.DecRat.Literal using (foldDigits; digitValue)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits using
-  (parseDigitList-showNat-chars; parseDigitList-showℕ-padded-chars; charToDigit-digitChar)
+  (foldDigits-showNat-chars; foldDigits-showℕ-padded-chars; digitValue-digitChar)
 open import Aletheia.DBC.RationalRenderer using
   (formatℚ-chars; emitNbyD-chars; emitDecimal-trimmed-chars;
    emitMagnitude-trimmed-chars; joinIntFrac; maxDecimalPlaces;
@@ -89,20 +89,20 @@ AllDigits = All DigitChar
 
 -- `Represents cs q`: the character list `cs`, read under standard decimal /
 -- fraction numeral semantics, denotes the rational `q`.  Each clause pins the
--- value as a function of the digit runs' `parseDigitList` values, so the
+-- value as a function of the digit runs' `foldDigits` values, so the
 -- relation is emitter-independent (not a restatement of `formatℚ`).
 data Represents : List Char → ℚ → Set where
   rep-int  : (ds : List Char) → AllDigits ds →
-             Represents ds ((+ parseDigitList ds) / 1)
+             Represents ds ((+ foldDigits ds) / 1)
   rep-dec  : (is fs : List Char) → AllDigits is → AllDigits fs → fs ≢ [] →
              ⦃ _ : NonZero (10 ^ length fs) ⦄ →
              Represents (is ++ₗ '.' ∷ fs)
-               ((+ (parseDigitList is * 10 ^ length fs + parseDigitList fs))
+               ((+ (foldDigits is * 10 ^ length fs + foldDigits fs))
                   / (10 ^ length fs))
   rep-frac : (ns ds : List Char) → AllDigits ns → AllDigits ds →
-             ⦃ _ : NonZero (parseDigitList ds) ⦄ →
+             ⦃ _ : NonZero (foldDigits ds) ⦄ →
              Represents (ns ++ₗ '/' ∷ ds)
-               ((+ parseDigitList ns) / parseDigitList ds)
+               ((+ foldDigits ns) / foldDigits ds)
   rep-neg  : (cs : List Char) (q : ℚ) → Represents cs q →
              Represents ('-' ∷ cs) (- q)
 
@@ -206,16 +206,16 @@ trim-length xs with trim-decomp xs
 ------------------------------------------------------------------------
 
 private
-  charToDigit-0 : charToDigit '0' ≡ 0
-  charToDigit-0 = charToDigit-digitChar 0 (s≤s z≤n)
+  digitValue-0 : digitValue '0' ≡ 0
+  digitValue-0 = digitValue-digitChar 0 (s≤s z≤n)
 
   foldl-zeros : ∀ acc t →
-    foldl (λ a e → a * 10 + charToDigit e) acc (replicate t '0')
+    foldl (λ a e → a * 10 + digitValue e) acc (replicate t '0')
       ≡ acc * 10 ^ t
   foldl-zeros acc zero    = sym (*-identityʳ acc)
   foldl-zeros acc (suc t) = begin
-    foldl step (acc * 10 + charToDigit '0') (replicate t '0')
-      ≡⟨ cong (λ k → foldl step (acc * 10 + k) (replicate t '0')) charToDigit-0 ⟩
+    foldl step (acc * 10 + digitValue '0') (replicate t '0')
+      ≡⟨ cong (λ k → foldl step (acc * 10 + k) (replicate t '0')) digitValue-0 ⟩
     foldl step (acc * 10 + 0) (replicate t '0')
       ≡⟨ cong (λ k → foldl step k (replicate t '0')) (+-identityʳ (acc * 10)) ⟩
     foldl step (acc * 10) (replicate t '0')
@@ -227,11 +227,11 @@ private
     where
       open ≡-Reasoning
       step : ℕ → Char → ℕ
-      step a e = a * 10 + charToDigit e
+      step a e = a * 10 + digitValue e
 
-parseDigitList-append-zeros : ∀ xs t →
-  parseDigitList (xs ++ₗ replicate t '0') ≡ parseDigitList xs * 10 ^ t
-parseDigitList-append-zeros xs t = begin
+foldDigits-append-zeros : ∀ xs t →
+  foldDigits (xs ++ₗ replicate t '0') ≡ foldDigits xs * 10 ^ t
+foldDigits-append-zeros xs t = begin
   foldl step 0 (xs ++ₗ replicate t '0')
     ≡⟨ foldl-++ step 0 xs (replicate t '0') ⟩
   foldl step (foldl step 0 xs) (replicate t '0')
@@ -240,7 +240,7 @@ parseDigitList-append-zeros xs t = begin
   where
     open ≡-Reasoning
     step : ℕ → Char → ℕ
-    step a e = a * 10 + charToDigit e
+    step a e = a * 10 + digitValue e
 
 ------------------------------------------------------------------------
 -- Foundational arithmetic for the value bridges.
@@ -343,7 +343,7 @@ private
 
 private
   -- Positive numerator: a bare `rep-frac`, with the value reconciled from
-  -- the digit-faithfulness of both runs (`parseDigitList ∘ showNat ≡ id`).
+  -- the digit-faithfulness of both runs (`foldDigits ∘ showNat ≡ id`).
   emitNbyD-represents⁺ : ∀ (n denom : ℕ) ⦃ nz : NonZero denom ⦄ →
     Represents (showNat-chars n ++ₗ '/' ∷ showNat-chars denom) ((+ n) / denom)
   emitNbyD-represents⁺ n denom ⦃ nz ⦄ =
@@ -352,17 +352,17 @@ private
                 (showNat-AllDigits n) (showNat-AllDigits denom) ⦃ nz' ⦄)
     where
       instance
-        nz' : NonZero (parseDigitList (showNat-chars denom))
-        nz' = subst NonZero (sym (parseDigitList-showNat-chars denom)) nz
-      cross : parseDigitList (showNat-chars n) * denom
-            ≡ n * parseDigitList (showNat-chars denom)
-      cross = trans (cong (_* denom) (parseDigitList-showNat-chars n))
-                    (cong (n *_) (sym (parseDigitList-showNat-chars denom)))
+        nz' : NonZero (foldDigits (showNat-chars denom))
+        nz' = subst NonZero (sym (foldDigits-showNat-chars denom)) nz
+      cross : foldDigits (showNat-chars n) * denom
+            ≡ n * foldDigits (showNat-chars denom)
+      cross = trans (cong (_* denom) (foldDigits-showNat-chars n))
+                    (cong (n *_) (sym (foldDigits-showNat-chars denom)))
       value-eq :
-        (+ parseDigitList (showNat-chars n)) / parseDigitList (showNat-chars denom)
+        (+ foldDigits (showNat-chars n)) / foldDigits (showNat-chars denom)
           ≡ (+ n) / denom
-      value-eq = /-fromℕ-cross (parseDigitList (showNat-chars n))
-                               (parseDigitList (showNat-chars denom))
+      value-eq = /-fromℕ-cross (foldDigits (showNat-chars n))
+                               (foldDigits (showNat-chars denom))
                                n denom ⦃ nz' ⦄ ⦃ nz ⦄ cross
 
 -- `emitNbyD-chars num denom` denotes `num / denom`.  Negative numerators
@@ -397,27 +397,27 @@ private
 -- run `fr`) denotes `(ip · 10^|fr| + ⟦fr⟧) / 10^|fr|` — i.e. it splices the
 -- two digit runs at the decimal point.  `fr = []` collapses to a `rep-int`
 -- (`ip / 1`); a non-empty `fr` is a `rep-dec`.  Both cases reconcile the
--- integer part via `parseDigitList ∘ showNat ≡ id`.
+-- integer part via `foldDigits ∘ showNat ≡ id`.
 joinIntFrac-represents :
   ∀ (ip : ℕ) (fr : List Char) → AllDigits fr →
     Represents (joinIntFrac (showNat-chars ip) fr)
-               (_/_ (+ (ip * 10 ^ length fr + parseDigitList fr))
+               (_/_ (+ (ip * 10 ^ length fr + foldDigits fr))
                     (10 ^ length fr) ⦃ m^n≢0 10 (length fr) ⦄)
 joinIntFrac-represents ip [] _ =
   subst (λ v → Represents (showNat-chars ip) v) value-eq
         (rep-int (showNat-chars ip) (showNat-AllDigits ip))
   where
-    num-eq : parseDigitList (showNat-chars ip) ≡ ip * 1 + 0
-    num-eq = trans (parseDigitList-showNat-chars ip)
+    num-eq : foldDigits (showNat-chars ip) ≡ ip * 1 + 0
+    num-eq = trans (foldDigits-showNat-chars ip)
                    (sym (trans (+-identityʳ (ip * 1)) (*-identityʳ ip)))
-    value-eq : _/_ (+ parseDigitList (showNat-chars ip)) 1 ⦃ m^n≢0 10 0 ⦄
+    value-eq : _/_ (+ foldDigits (showNat-chars ip)) 1 ⦃ m^n≢0 10 0 ⦄
              ≡ _/_ (+ (ip * 1 + 0)) 1 ⦃ m^n≢0 10 0 ⦄
     value-eq = cong (λ z → _/_ (+ z) 1 ⦃ m^n≢0 10 0 ⦄) num-eq
 joinIntFrac-represents ip (c ∷ cs) all-cs =
   subst (λ z → Represents (showNat-chars ip ++ₗ '.' ∷ c ∷ cs)
-                 (_/_ (+ (z * 10 ^ length (c ∷ cs) + parseDigitList (c ∷ cs)))
+                 (_/_ (+ (z * 10 ^ length (c ∷ cs) + foldDigits (c ∷ cs)))
                       (10 ^ length (c ∷ cs)) ⦃ m^n≢0 10 (length (c ∷ cs)) ⦄))
-        (parseDigitList-showNat-chars ip)
+        (foldDigits-showNat-chars ip)
         (rep-dec (showNat-chars ip) (c ∷ cs)
                  (showNat-AllDigits ip) all-cs (λ ())
                  ⦃ m^n≢0 10 (length (c ∷ cs)) ⦄)
@@ -440,10 +440,10 @@ emitMagnitude-represents absNum a b with a ⊔ b in eq
         a≡0 = n≤0⇒n≡0 (subst (a ≤_) eq (m≤m⊔n a b))
         b≡0 : b ≡ 0
         b≡0 = n≤0⇒n≡0 (subst (b ≤_) eq (m≤n⊔m a b))
-        cross : parseDigitList (showNat-chars absNum) * (2 ^ a * 5 ^ b) ≡ absNum * 1
+        cross : foldDigits (showNat-chars absNum) * (2 ^ a * 5 ^ b) ≡ absNum * 1
         cross = begin
-          parseDigitList (showNat-chars absNum) * (2 ^ a * 5 ^ b)
-            ≡⟨ cong (_* (2 ^ a * 5 ^ b)) (parseDigitList-showNat-chars absNum) ⟩
+          foldDigits (showNat-chars absNum) * (2 ^ a * 5 ^ b)
+            ≡⟨ cong (_* (2 ^ a * 5 ^ b)) (foldDigits-showNat-chars absNum) ⟩
           absNum * (2 ^ a * 5 ^ b)
             ≡⟨ cong (λ k → absNum * (2 ^ k * 5 ^ b)) a≡0 ⟩
           absNum * (2 ^ 0 * 5 ^ b)
@@ -451,9 +451,9 @@ emitMagnitude-represents absNum a b with a ⊔ b in eq
           absNum * (2 ^ 0 * 5 ^ 0)
             ≡⟨⟩
           absNum * 1 ∎
-        value-eq : _/_ (+ parseDigitList (showNat-chars absNum)) 1 ⦃ m^n≢0 10 0 ⦄
+        value-eq : _/_ (+ foldDigits (showNat-chars absNum)) 1 ⦃ m^n≢0 10 0 ⦄
                  ≡ _/_ (+ absNum) (2 ^ a * 5 ^ b) ⦃ 2^a·5^b-NonZero a b ⦄
-        value-eq = /-fromℕ-cross (parseDigitList (showNat-chars absNum)) 1
+        value-eq = /-fromℕ-cross (foldDigits (showNat-chars absNum)) 1
                                  absNum (2 ^ a * 5 ^ b)
                                  ⦃ m^n≢0 10 0 ⦄ ⦃ 2^a·5^b-NonZero a b ⦄ cross
 ... | suc m-1 =
@@ -481,7 +481,7 @@ emitMagnitude-represents absNum a b with a ⊔ b in eq
         L : ℕ
         L = length fr
         pfr : ℕ
-        pfr = parseDigitList fr
+        pfr = foldDigits fr
         D : ℕ
         D = 2 ^ a * 5 ^ b
         a≤m : a ≤ m
@@ -505,9 +505,9 @@ emitMagnitude-represents absNum a b with a ⊔ b in eq
         r<10^m = m%n<n scaledNum (10 ^ m)
         r≡pfr*10^t : r ≡ pfr * 10 ^ t
         r≡pfr*10^t = begin
-          r                                       ≡⟨ sym (parseDigitList-showℕ-padded-chars m r r<10^m) ⟩
-          parseDigitList fracDigits               ≡⟨ cong parseDigitList fr-eq ⟩
-          parseDigitList (fr ++ₗ replicate t '0') ≡⟨ parseDigitList-append-zeros fr t ⟩
+          r                                       ≡⟨ sym (foldDigits-showℕ-padded-chars m r r<10^m) ⟩
+          foldDigits fracDigits               ≡⟨ cong foldDigits fr-eq ⟩
+          foldDigits (fr ++ₗ replicate t '0') ≡⟨ foldDigits-append-zeros fr t ⟩
           pfr * 10 ^ t ∎
         divmod : scaledNum ≡ r + intPart-val * 10 ^ m
         divmod = m≡m%n+[m/n]*n scaledNum (10 ^ m)

@@ -39,21 +39,22 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase2Many using ([]-
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase6Suffix using
   (parseDecRat-roundtrip-suffix; parseDecRat-bareInt-roundtrip-suffix)
 open import Aletheia.DBC.TextFormatter.Emitter using (showDecRat-dec-chars; showInt-chars)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt)
 open import Aletheia.DBC.DecRat using (toℚ; fromℤ)
 open import Aletheia.DBC.TextParser.DecimalEntry using (fromResult; parseDecimal-chars)
 
 -- The parser recovers every DecRat from its canonical decimal text.
-parseDecimal-chars-roundtrip : ∀ d → parseDecimal-chars (showDecRat-dec-chars d) ≡ just d
-parseDecimal-chars-roundtrip d =
+parseDecimal-chars-roundtrip : ∀ d → SmallDecRat d → parseDecimal-chars (showDecRat-dec-chars d) ≡ just d
+parseDecimal-chars-roundtrip d small =
   trans (cong (λ x → fromResult (proj₂ (runParserPartial parseDecRat x)))
               (sym (++-identityʳ (showDecRat-dec-chars d))))
         (cong fromResult
-              (parseDecRat-roundtrip-suffix d initialPosition [] []-stop))
+              (parseDecRat-roundtrip-suffix d initialPosition [] small []-stop))
 
 -- The ℚ layer the FFI actually returns: parse-of-emit yields toℚ d.
 parseDecimal-chars-toℚ-roundtrip :
-  ∀ d → map toℚ (parseDecimal-chars (showDecRat-dec-chars d)) ≡ just (toℚ d)
-parseDecimal-chars-toℚ-roundtrip d = cong (map toℚ) (parseDecimal-chars-roundtrip d)
+  ∀ d → SmallDecRat d → map toℚ (parseDecimal-chars (showDecRat-dec-chars d)) ≡ just (toℚ d)
+parseDecimal-chars-toℚ-roundtrip d small = cong (map toℚ) (parseDecimal-chars-roundtrip d small)
 
 -- '.' ≢ '_' discharges the bare-int roundtrip's side condition at suffix ≡ []
 -- (headOr [] '_' reduces to '_').
@@ -63,9 +64,9 @@ dot≢us ()
 -- The parser also recovers a bare integer from its plain printed form — the
 -- common "42" a user types, which the DecRat emitter never produces ("42.0").
 parseDecimal-chars-bareInt-roundtrip :
-  ∀ z → parseDecimal-chars (showInt-chars z) ≡ just (fromℤ z)
-parseDecimal-chars-bareInt-roundtrip z =
+  ∀ z → SmallInt z → parseDecimal-chars (showInt-chars z) ≡ just (fromℤ z)
+parseDecimal-chars-bareInt-roundtrip z small =
   trans (cong (λ x → fromResult (proj₂ (runParserPartial parseDecRat x)))
               (sym (++-identityʳ (showInt-chars z))))
         (cong fromResult
-              (parseDecRat-bareInt-roundtrip-suffix z initialPosition [] []-stop dot≢us))
+              (parseDecRat-bareInt-roundtrip-suffix z initialPosition [] small []-stop dot≢us))

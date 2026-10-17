@@ -331,8 +331,8 @@ parseRelTarget = parseNodeMsgTgt <|> parseNodeSigTgt
 -- numeric form.  All numeric forms — decimal-fraction (`42.5`) and bare
 -- integer (`50`) — go through `parseDecRat`, which internally tries
 -- `parseDecRatFrac` first and falls through to `parseDecRatBareInt`.
--- Both branches yield a `DecRat`; the bare-int branch fixes the
--- denominator at 1 via `buildDecRat ... []`.  Refinement against the
+-- Both branches yield a `DecRat`; the bare-int branch reads a
+-- denominator of 1.  Refinement against the
 -- declared `AttrType` (e.g., reject a `42.5` payload for an INT slot)
 -- happens later in `refineAttributes` over `RawDBCAttribute`, not in
 -- this lexer.

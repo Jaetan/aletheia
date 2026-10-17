@@ -35,6 +35,8 @@ open import Data.Maybe using (just)
 open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 
+open import Aletheia.DBC.Bounds using (SmallValue)
+open import Aletheia.DBC.DecRat.Magnitude using (intDecRat-small; natDecRat-small)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
@@ -101,6 +103,7 @@ parseAttrLine-on-emit-RawAssign :
       (outer : List Char)
   → IdentNameStop-of target
   → SuffixStops isNewlineStart outer
+  → SmallValue value
   → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name target value))
@@ -112,49 +115,49 @@ parseAttrLine-on-emit-RawAssign :
                  (emitAttribute-chars defs
                     (DBCAttrAssign (mkAttrAssign name target value))))
               outer)
-parseAttrLine-on-emit-RawAssign defs pos name target (AVString s) outer t-stop ss-NL =
+parseAttrLine-on-emit-RawAssign defs pos name target (AVString s) outer t-stop ss-NL small =
   parseAttrLine-on-emit-RawAssign-AVString defs pos name target s outer t-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name target (AVFloat d) outer t-stop ss-NL =
-  parseAttrLine-on-emit-RawAssign-AVFloat defs pos name target d outer t-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name ATgtNetwork (AVInt z') outer _ ss-NL =
-  on-AVInt-Network defs pos name z' outer ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNode n) (AVInt z') outer n-stop ss-NL =
-  on-AVInt-Node defs pos name n z' outer n-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtMessage cid) (AVInt z') outer _ ss-NL =
-  on-AVInt-Message defs pos name cid z' outer ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtSignal cid sig) (AVInt z') outer sig-stop ss-NL =
-  on-AVInt-Signal defs pos name cid sig z' outer sig-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtEnvVar ev) (AVInt z') outer ev-stop ss-NL =
-  on-AVInt-EnvVar defs pos name ev z' outer ev-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeMsg n cid) (AVInt z') outer n-stop ss-NL =
-  on-AVInt-NodeMsg defs pos name n cid z' outer n-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeSig n cid sig) (AVInt z') outer stops ss-NL =
-  on-AVInt-NodeSig defs pos name n cid sig z' outer stops ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name ATgtNetwork (AVHex n) outer _ ss-NL =
-  on-AVHex-Network defs pos name n outer ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNode nd) (AVHex n) outer n-stop ss-NL =
-  on-AVHex-Node defs pos name nd n outer n-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtMessage cid) (AVHex n) outer _ ss-NL =
-  on-AVHex-Message defs pos name cid n outer ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtSignal cid sig) (AVHex n) outer sig-stop ss-NL =
-  on-AVHex-Signal defs pos name cid sig n outer sig-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtEnvVar ev) (AVHex n) outer ev-stop ss-NL =
-  on-AVHex-EnvVar defs pos name ev n outer ev-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeMsg nd cid) (AVHex n) outer n-stop ss-NL =
-  on-AVHex-NodeMsg defs pos name nd cid n outer n-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeSig nd cid sig) (AVHex n) outer stops ss-NL =
-  on-AVHex-NodeSig defs pos name nd cid sig n outer stops ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name ATgtNetwork (AVEnum n) outer _ ss-NL =
-  on-AVEnum-Network defs pos name n outer ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNode nd) (AVEnum n) outer n-stop ss-NL =
-  on-AVEnum-Node defs pos name nd n outer n-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtMessage cid) (AVEnum n) outer _ ss-NL =
-  on-AVEnum-Message defs pos name cid n outer ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtSignal cid sig) (AVEnum n) outer sig-stop ss-NL =
-  on-AVEnum-Signal defs pos name cid sig n outer sig-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtEnvVar ev) (AVEnum n) outer ev-stop ss-NL =
-  on-AVEnum-EnvVar defs pos name ev n outer ev-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeMsg nd cid) (AVEnum n) outer n-stop ss-NL =
-  on-AVEnum-NodeMsg defs pos name nd cid n outer n-stop ss-NL
-parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeSig nd cid sig) (AVEnum n) outer stops ss-NL =
-  on-AVEnum-NodeSig defs pos name nd cid sig n outer stops ss-NL
+parseAttrLine-on-emit-RawAssign defs pos name target (AVFloat d) outer t-stop ss-NL small =
+  parseAttrLine-on-emit-RawAssign-AVFloat defs pos name target d outer t-stop ss-NL small
+parseAttrLine-on-emit-RawAssign defs pos name ATgtNetwork (AVInt z') outer _ ss-NL small =
+  on-AVInt-Network defs pos name z' outer ss-NL (intDecRat-small z' small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNode n) (AVInt z') outer n-stop ss-NL small =
+  on-AVInt-Node defs pos name n z' outer n-stop ss-NL (intDecRat-small z' small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtMessage cid) (AVInt z') outer _ ss-NL small =
+  on-AVInt-Message defs pos name cid z' outer ss-NL (intDecRat-small z' small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtSignal cid sig) (AVInt z') outer sig-stop ss-NL small =
+  on-AVInt-Signal defs pos name cid sig z' outer sig-stop ss-NL (intDecRat-small z' small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtEnvVar ev) (AVInt z') outer ev-stop ss-NL small =
+  on-AVInt-EnvVar defs pos name ev z' outer ev-stop ss-NL (intDecRat-small z' small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeMsg n cid) (AVInt z') outer n-stop ss-NL small =
+  on-AVInt-NodeMsg defs pos name n cid z' outer n-stop ss-NL (intDecRat-small z' small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeSig n cid sig) (AVInt z') outer stops ss-NL small =
+  on-AVInt-NodeSig defs pos name n cid sig z' outer stops ss-NL (intDecRat-small z' small)
+parseAttrLine-on-emit-RawAssign defs pos name ATgtNetwork (AVHex n) outer _ ss-NL small =
+  on-AVHex-Network defs pos name n outer ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNode nd) (AVHex n) outer n-stop ss-NL small =
+  on-AVHex-Node defs pos name nd n outer n-stop ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtMessage cid) (AVHex n) outer _ ss-NL small =
+  on-AVHex-Message defs pos name cid n outer ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtSignal cid sig) (AVHex n) outer sig-stop ss-NL small =
+  on-AVHex-Signal defs pos name cid sig n outer sig-stop ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtEnvVar ev) (AVHex n) outer ev-stop ss-NL small =
+  on-AVHex-EnvVar defs pos name ev n outer ev-stop ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeMsg nd cid) (AVHex n) outer n-stop ss-NL small =
+  on-AVHex-NodeMsg defs pos name nd cid n outer n-stop ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeSig nd cid sig) (AVHex n) outer stops ss-NL small =
+  on-AVHex-NodeSig defs pos name nd cid sig n outer stops ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name ATgtNetwork (AVEnum n) outer _ ss-NL small =
+  on-AVEnum-Network defs pos name n outer ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNode nd) (AVEnum n) outer n-stop ss-NL small =
+  on-AVEnum-Node defs pos name nd n outer n-stop ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtMessage cid) (AVEnum n) outer _ ss-NL small =
+  on-AVEnum-Message defs pos name cid n outer ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtSignal cid sig) (AVEnum n) outer sig-stop ss-NL small =
+  on-AVEnum-Signal defs pos name cid sig n outer sig-stop ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtEnvVar ev) (AVEnum n) outer ev-stop ss-NL small =
+  on-AVEnum-EnvVar defs pos name ev n outer ev-stop ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeMsg nd cid) (AVEnum n) outer n-stop ss-NL small =
+  on-AVEnum-NodeMsg defs pos name nd cid n outer n-stop ss-NL (natDecRat-small n small)
+parseAttrLine-on-emit-RawAssign defs pos name (ATgtNodeSig nd cid sig) (AVEnum n) outer stops ss-NL small =
+  on-AVEnum-NodeSig defs pos name nd cid sig n outer stops ss-NL (natDecRat-small n small)

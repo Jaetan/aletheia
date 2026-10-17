@@ -3,15 +3,16 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// A command holding one long number is refused, and the process that sent it
-// lives. The kernel refuses a JSON number whose rational components pass the
-// signed 64-bit range, and its refusal reports the measured magnitude up to
-// 2^64-1 and that ceiling past it, with "at least" before the ceiling in the
-// message. A command of about 100 KB whose one number has 100,001 digits gets
-// that refusal. The command is sent from a child, this same binary run again
-// with a variable set: a kernel that echoes the number whole ends the process
-// that called it, so the parent reads the child's reply and exit status
-// rather than sharing its end.
+// A command or a DBC text holding one long number is refused, and the process
+// that sent it lives. The kernel refuses a number whose rational components
+// pass the signed 64-bit range, and its refusal reports the measured magnitude
+// up to 2^64-1 and that ceiling past it, with "at least" before the ceiling in
+// the message. A command of about 100 KB whose one number has 100,001 digits
+// gets that refusal, and so does a DBC text whose one VAL_ key has 100,000
+// digits, naming the field. Each is sent from a child, this same binary run
+// again with a variable set: a kernel that echoes or folds the number whole
+// ends the process that called it, so the parent reads the child's reply and
+// exit status rather than sharing its end.
 
 package aletheia
 
@@ -103,6 +104,82 @@ func TestLongLiteralRefusedAtTheCeiling(t *testing.T) {
 		Limit:     MaxRationalComponentMagnitude,
 		Code:      CodeInputBoundExceeded,
 		Message: fmt.Sprintf("rational component magnitude at least %d exceeds limit %d",
+			uint64(math.MaxUint64), MaxRationalComponentMagnitude),
+	}
+	if *bex != want {
+		t.Fatalf("refusal = %+v, want %+v", *bex, want)
+	}
+}
+
+const (
+	textChildValue = "text"
+	textChildTest  = "^TestLongDBCTextKeyRefusedAtTheCeiling$"
+	// keyDigits is the digits of the DBC text's one VAL_ key.
+	keyDigits = 100000
+)
+
+// runTextChild is the child for the DBC text case: load the text through the
+// raw entry and write the reply to stdout. It always exits.
+func runTextChild() {
+	backend, err := NewFFIBackend(os.Getenv("ALETHEIA_LIB"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "child backend:", err)
+		os.Exit(literalSetupFailed)
+	}
+	state, err := backend.Init()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "child state:", err)
+		os.Exit(literalSetupFailed)
+	}
+	text := `VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n` +
+		`BO_ 200 Msg: 8 ECU\n SG_ Sel : 0|8@1+ (1,0) [0|255] \"\" ECU\n\n` +
+		`VAL_ 200 Sel ` + strings.Repeat("9", keyDigits) + ` \"Big\" 1 \"On\" ;\n`
+	command := `{"type": "command", "command": "parseDBCText", "text": "` + text + `"}`
+	reply, err := backend.Process(state, command)
+	backend.Close(state)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "child call:", err)
+		os.Exit(literalCallFailed)
+	}
+	fmt.Print(reply)
+	os.Exit(0)
+}
+
+func TestLongDBCTextKeyRefusedAtTheCeiling(t *testing.T) {
+	if os.Getenv(literalChildEnv) == textChildValue {
+		runTextChild()
+		return // unreachable: runTextChild always exits
+	}
+	lib := findFFILibrary()
+	if lib == "" {
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
+	}
+	absLib, err := filepath.Abs(lib)
+	if err != nil {
+		t.Fatalf("abs lib path: %v", err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run="+textChildTest)
+	// The runtime flags are emptied rather than left alone, so a shell that
+	// set them does not decide what the child runs under.
+	cmd.Env = append(os.Environ(), literalChildEnv+"="+textChildValue, "ALETHEIA_LIB="+absLib, rtsOverrideEnv+"=")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("the child ended with %v:\n%s", err, stderr.String())
+	}
+	_, err = decodeResponse(stdout.String(), "success")
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("the reply is not a bound refusal: %v", err)
+	}
+	want := InputBoundExceededError{
+		BoundKind: BoundKindRationalComponentMagnitude,
+		Observed:  math.MaxUint64,
+		Limit:     MaxRationalComponentMagnitude,
+		Code:      CodeInputBoundExceeded,
+		Field:     "value description key",
+		Message: fmt.Sprintf("ParseDBCText: value description key: rational component magnitude at least %d exceeds limit %d",
 			uint64(math.MaxUint64), MaxRationalComponentMagnitude),
 	}
 	if *bex != want {
