@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tools._warm import read_load
+from tools._warm import describe_exit, read_load
+
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -48,3 +50,42 @@ def test_eof_mid_load_raises() -> None:
     """A process that exits before its terminal is an error, not a quiet failure."""
     with pytest.raises(RuntimeError, match="exited unexpectedly"):
         _ = read_load(lambda: None)
+
+
+def test_eof_mid_load_says_how_agda_ended() -> None:
+    """The error carries what the process left: a heap cap reached reads as one."""
+    ended = describe_exit(ExitStatus(251), _HEAP_EXHAUSTED)
+    expected = r"exited unexpectedly: exit status 251; .*Heap exhausted"
+    with pytest.raises(RuntimeError, match=expected):
+        _ = read_load(lambda: None, exit_reason=lambda: ended)
+
+
+# What agda's runtime writes when its heap cap is reached, as it wrote it under the warm cap.
+_HEAP_EXHAUSTED = Prose(
+    "agda: Heap exhausted;\n"
+    + "agda: Current maximum heap size is 8589934592 bytes (8192 MB).\n"
+    + "agda: Use `+RTS -M<size>' to increase it.\n"
+)
+
+
+def test_describe_exit_names_the_status_and_the_last_error_lines() -> None:
+    """The status leads, then the error output's last non-blank lines in order."""
+    assert describe_exit(ExitStatus(251), _HEAP_EXHAUSTED) == (
+        "exit status 251; its error output ends: agda: Heap exhausted; | "
+        + "agda: Current maximum heap size is 8589934592 bytes (8192 MB). | "
+        + "agda: Use `+RTS -M<size>' to increase it."
+    )
+
+
+def test_describe_exit_keeps_the_last_five_lines() -> None:
+    """A long error output is cut to its end, where agda states why it stopped."""
+    output = Prose("\n".join(f"line {n}" for n in range(1, 9)) + "\n\n")
+    assert describe_exit(ExitStatus(1), output) == (
+        "exit status 1; its error output ends: line 4 | line 5 | line 6 | line 7 | line 8"
+    )
+
+
+def test_describe_exit_without_error_output_names_the_status_alone() -> None:
+    """A process that wrote nothing is reported by its status, and one not yet ended says so."""
+    assert describe_exit(ExitStatus(9), Prose("  \n")) == "exit status 9"
+    assert describe_exit(None, Prose("")) == "still running"

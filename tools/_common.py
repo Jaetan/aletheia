@@ -555,8 +555,8 @@ def install_restore_handlers() -> None:
 # Every Agda-invoking tool acquires this one exclusive lock before it touches
 # Agda over the source tree: the check-properties driver, the warm IWYU
 # process (whose `--apply` rewrites sources) and the staleness gate (which
-# edits and reverts them).  It enforces the project's standing
-# "one agda -M16G at a time" rule and closes the read-during-write race: a
+# edits and reverts them).  It enforces the project's standing "one agda at a
+# time, under its heap cap" rule and closes the read-during-write race: a
 # second Agda operation must not read a file another holds rewritten and draw
 # a verdict from it.
 #
