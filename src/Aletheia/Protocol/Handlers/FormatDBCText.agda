@@ -98,8 +98,9 @@ deriveNodesIfEmpty b with DBC.nodes (BoundedDBC.dbc b)
 -- `DBCTextResponse txt` satisfies `parseText txt ≡ inj₂ d′` — the guarantee is
 -- verified, not merely definitional.
 --
--- `wfTextIssues` decides `WellFormedTextDBCAgg d′`, which is SUFFICIENT-but-not-
--- necessary for the round-trip: an empty list implies the text round-trips, but a
+-- `wfTextIssues`, with the bounded proof `b` carries, decides
+-- `WellFormedTextDBCAgg d′`, which is SUFFICIENT-but-not-necessary for the
+-- round-trip: an empty list implies the text round-trips, but a
 -- non-empty one means only "outside the PROVEN envelope" — such a DBC may still
 -- round-trip, and when it does its text IS emitted with these issues attached.
 -- They are diagnostics; the guarantee is the exact round-trip verdict alone.

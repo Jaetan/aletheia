@@ -129,6 +129,10 @@ parseSignFlag =
 -- `Format.SignalLine.signalLineFmt`'s receivers field can use the iso
 -- `canonicalReceiversFmt : Format CanonicalReceivers` directly without
 -- a partial-bijection workaround).
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; SmallDecRat)
+open import Data.Unit using (⊤)
+open import Data.Product using (_×_)
+
 record RawSignal : Set where
   constructor mkRawSignal
   field
@@ -144,3 +148,18 @@ record RawSignal : Set where
     maximum   : DecRat
     unit      : List Char
     receivers : CanonicalReceivers
+
+-- A multiplex marker's selector within the component bound.
+MuxSmall : MuxMarker → Set
+MuxSmall NotMux      = ⊤
+MuxSmall IsMux       = ⊤
+MuxSmall (BothMux n) = SmallNat n
+MuxSmall (SelBy n)   = SmallNat n
+
+-- Every number of a raw signal line within the component bound: the
+-- premise under which the line reads back from its own text.
+RawSignalSmall : RawSignal → Set
+RawSignalSmall rs =
+  MuxSmall (RawSignal.muxMarker rs) × SmallNat (RawSignal.startBit rs) × SmallNat (RawSignal.bitLength rs)
+  × SmallDecRat (RawSignal.factor rs) × SmallDecRat (RawSignal.offset rs)
+  × SmallDecRat (RawSignal.minimum rs) × SmallDecRat (RawSignal.maximum rs)

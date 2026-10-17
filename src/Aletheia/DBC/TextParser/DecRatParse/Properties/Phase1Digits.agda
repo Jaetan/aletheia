@@ -35,60 +35,29 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.DBC.TextFormatter.Emitter
   using (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars)
-open import Aletheia.DBC.TextParser.DecRatParse
-  using (charToDigit; parseDigitList)
-open import Aletheia.Protocol.JSON.Parse using (digitToNat)
+open import Aletheia.DBC.DecRat.Literal using (digitValue; foldDigits)
 
 -- ============================================================================
 -- Phase 1.1: Digit-character roundtrip (concrete 0..9 reductions)
 -- ============================================================================
 
--- `digitToNat ∘ digitChar ≡ id` on [0..9].  Used by `parseNatural`'s
--- foldl-side reasoning on the integer part: `parseNatural` calls
--- `foldl (λ acc d → acc * 10 + digitToNat d) 0 digits`, and Phase 3
--- needs this lemma (instantiated as `f-digitChar`) to discharge
--- `digitToNat (digitChar k) ≡ k` for each emitted digit `k = x % 10 <
--- 10`.
---
--- Ten concrete reductions: each side reduces to `k` via
--- `primCharToNat '0'..'9' ≡ 48..57` and `digitToNat`'s explicit case
--- list.  The catch-all absurd branch forces the `d < 10` precondition
--- to do work (without it the emitter's `digitChar d` for `d ≥ 10`
--- would collapse to `'0'` silently).
-digitToNat-digitChar : ∀ d → d < 10 → digitToNat (digitChar d) ≡ d
-digitToNat-digitChar 0 _ = refl
-digitToNat-digitChar 1 _ = refl
-digitToNat-digitChar 2 _ = refl
-digitToNat-digitChar 3 _ = refl
-digitToNat-digitChar 4 _ = refl
-digitToNat-digitChar 5 _ = refl
-digitToNat-digitChar 6 _ = refl
-digitToNat-digitChar 7 _ = refl
-digitToNat-digitChar 8 _ = refl
-digitToNat-digitChar 9 _ = refl
-digitToNat-digitChar (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
-  (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s ()))))))))))
-
--- `charToDigit ∘ digitChar ≡ id` on [0..9].  Used by `parseDigitList`'s
--- foldl-side reasoning on the fractional part.  `charToDigit` is
--- defined as `toℕ c ∸ 48`, so this reduces via the built-in
--- `primCharToNat '0'..'9' ≡ 48..57` on each branch.  Separate lemma
--- from `digitToNat-digitChar` because DBC's DecRatParse uses a
--- different digit-to-ℕ converter from Protocol/JSON/Parse's
--- parseNatural (`digitToNat`), and the roundtrip proof goes through
--- both.
-charToDigit-digitChar : ∀ d → d < 10 → charToDigit (digitChar d) ≡ d
-charToDigit-digitChar 0 _ = refl
-charToDigit-digitChar 1 _ = refl
-charToDigit-digitChar 2 _ = refl
-charToDigit-digitChar 3 _ = refl
-charToDigit-digitChar 4 _ = refl
-charToDigit-digitChar 5 _ = refl
-charToDigit-digitChar 6 _ = refl
-charToDigit-digitChar 7 _ = refl
-charToDigit-digitChar 8 _ = refl
-charToDigit-digitChar 9 _ = refl
-charToDigit-digitChar (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
+-- `digitValue ∘ digitChar ≡ id` on [0..9]: ten concrete reductions
+-- through the built-in `primCharToNat '0'..'9' ≡ 48..57`.  The
+-- catch-all absurd branch forces the `d < 10` precondition to do work
+-- (without it the emitter's `digitChar d` for `d ≥ 10` would collapse
+-- to `'0'` silently).
+digitValue-digitChar : ∀ d → d < 10 → digitValue (digitChar d) ≡ d
+digitValue-digitChar 0 _ = refl
+digitValue-digitChar 1 _ = refl
+digitValue-digitChar 2 _ = refl
+digitValue-digitChar 3 _ = refl
+digitValue-digitChar 4 _ = refl
+digitValue-digitChar 5 _ = refl
+digitValue-digitChar 6 _ = refl
+digitValue-digitChar 7 _ = refl
+digitValue-digitChar 8 _ = refl
+digitValue-digitChar 9 _ = refl
+digitValue-digitChar (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
   (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s ()))))))))))
 
 -- ============================================================================
@@ -100,9 +69,8 @@ charToDigit-digitChar (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))
 -- one more step `* 10 + f d`.  `acc` must vary in the statement for
 -- the induction step to type-check (the recursive call threads
 -- `acc * 10 + f x` through).  Parameterised over the digit converter
--- `f : Char → ℕ` so the same proof serves both `parseDigitList`
--- (`f = charToDigit`) and `parseNatural`'s inner foldl
--- (`f = digitToNat`).  Pure list-level fact independent of parsing.
+-- `f : Char → ℕ`; `foldDigits` is the instance at `f = digitValue`.
+-- Pure list-level fact independent of parsing.
 foldl-digit-++-snoc : (f : Char → ℕ) → ∀ xs d (acc : ℕ) →
   foldl (λ a e → a * 10 + f e) acc (xs ++ₗ d ∷ []) ≡
   foldl (λ a e → a * 10 + f e) acc xs * 10 + f d
@@ -110,11 +78,11 @@ foldl-digit-++-snoc f []       d acc = refl
 foldl-digit-++-snoc f (x ∷ xs) d acc =
   foldl-digit-++-snoc f xs d (acc * 10 + f x)
 
--- Specialisation to `parseDigitList = foldl charToDigit 0`.  Used by
--- the fractional-part roundtrip in `parseDigitList-showℕ-padded-chars`.
-parseDigitList-++-snoc : ∀ xs d →
-  parseDigitList (xs ++ₗ d ∷ []) ≡ parseDigitList xs * 10 + charToDigit d
-parseDigitList-++-snoc xs d = foldl-digit-++-snoc charToDigit xs d 0
+-- Specialisation to `foldDigits = foldl digitValue 0`.  Used by
+-- the fractional-part roundtrip in `foldDigits-showℕ-padded-chars`.
+foldDigits-++-snoc : ∀ xs d →
+  foldDigits (xs ++ₗ d ∷ []) ≡ foldDigits xs * 10 + digitValue d
+foldDigits-++-snoc xs d = foldl-digit-++-snoc digitValue xs d 0
 
 -- ============================================================================
 -- Phase 1.3: showNat-chars fuel bound
@@ -232,24 +200,11 @@ foldl-digit-showNat-chars-fuel f f-digitChar (suc f') n n<10^[1+f'] with n / 10 
 
 -- Specialisations: pin `f` to each concrete digit converter.
 
--- `parseDigitList ∘ showNat-chars ≡ id`.  Not directly consumed by
--- the top-level DecRat roundtrip (the integer part is parsed by
--- `parseNatural`, not `parseDigitList`), but free from the
--- abstraction and exported for sibling per-primitive lemmas.
-parseDigitList-showNat-chars : ∀ n → parseDigitList (showNat-chars n) ≡ n
-parseDigitList-showNat-chars n =
-  foldl-digit-showNat-chars-fuel charToDigit charToDigit-digitChar
-    (suc n) n (n<10^suc-n n)
-
--- Parser-ready form for `parseNatural`.  `parseNatural` extracts the
--- digit list via `some (satisfy isDigit)` then applies
--- `foldl (λ acc d → acc * 10 + digitToNat d) 0`.  Phase 3 composes
--- this lemma with `manyHelper-satisfy-prefix` (Phase 2) to close
--- `parseNatural (showNat-chars n) ≡ (n , _)`.
-foldl-digitToNat-showNat-chars : ∀ n →
-  foldl (λ acc d → acc * 10 + digitToNat d) 0 (showNat-chars n) ≡ n
-foldl-digitToNat-showNat-chars n =
-  foldl-digit-showNat-chars-fuel digitToNat digitToNat-digitChar
+-- `foldDigits ∘ showNat-chars ≡ id`: the integer part of every
+-- emitted number reads back to itself.
+foldDigits-showNat-chars : ∀ n → foldDigits (showNat-chars n) ≡ n
+foldDigits-showNat-chars n =
+  foldl-digit-showNat-chars-fuel digitValue digitValue-digitChar
     (suc n) n (n<10^suc-n n)
 
 -- ============================================================================
@@ -296,8 +251,8 @@ foldl-digit-showℕ-padded-chars f f-digitChar (suc w) n n<10^[1+w] =
 
 -- Specialisation used by the fractional-part roundtrip: the
 -- fractional digits are emitted by `showℕ-padded-chars m (scaledNum %
--- 10^m)` and consumed by `parseDigitList` inside `buildDecRat`.
-parseDigitList-showℕ-padded-chars : ∀ w n → n < 10 ^ w →
-  parseDigitList (showℕ-padded-chars w n) ≡ n
-parseDigitList-showℕ-padded-chars =
-  foldl-digit-showℕ-padded-chars charToDigit charToDigit-digitChar
+-- 10^m)` and read back by `foldDigits`.
+foldDigits-showℕ-padded-chars : ∀ w n → n < 10 ^ w →
+  foldDigits (showℕ-padded-chars w n) ≡ n
+foldDigits-showℕ-padded-chars =
+  foldl-digit-showℕ-padded-chars digitValue digitValue-digitChar

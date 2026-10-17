@@ -31,6 +31,7 @@ open import Data.Product using (proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
 
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat)
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;
    pure; _>>=_; _<|>_; _*>_; char)
@@ -122,6 +123,7 @@ parseMuxMarker-NotMux-roundtrip pos suffix eq =
 --     fire (suffix doesn't begin with `'M'`).
 
 parseMuxMarker-SelBy-roundtrip : ∀ (pos : Position) (v : ℕ) (suffix : List Char)
+  → SmallNat v
   → SuffixStops isDigit suffix
   → SuffixStops (λ c → c ≈ᵇ 'M') suffix
   → proj₂ (parseMuxMarker pos
@@ -130,7 +132,7 @@ parseMuxMarker-SelBy-roundtrip : ∀ (pos : Position) (v : ℕ) (suffix : List C
              (advancePositions pos
                 (toList " m" ++ₗ showℕ-dec-chars v))
              suffix)
-parseMuxMarker-SelBy-roundtrip pos v suffix digit-stop m-stop =
+parseMuxMarker-SelBy-roundtrip pos v suffix v-small digit-stop m-stop =
   alt-left-just left-branch (pure NotMux) pos
     (' ' ∷ 'm' ∷ showℕ-dec-chars v ++ₗ suffix)
     _ step-left
@@ -206,7 +208,7 @@ parseMuxMarker-SelBy-roundtrip pos v suffix digit-stop m-stop =
       trans (bind-just-step (char 'm') (λ _ → parseNatural)
                pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix)
                'm' pos2 (showℕ-dec-chars v ++ₗ suffix) refl)
-            (parseNatural-showNat-chars pos2 v suffix digit-stop)
+            (parseNatural-showNat-chars pos2 v suffix v-small digit-stop)
 
     step-parseNat :
       proj₂ ((char 'm' *> parseNatural >>= λ n →

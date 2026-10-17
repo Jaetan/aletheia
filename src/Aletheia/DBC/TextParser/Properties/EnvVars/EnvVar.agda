@@ -35,10 +35,11 @@ open import Data.List using (List; []; foldr; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (_<_; s≤s; z≤n)
-open import Data.Product using (proj₂)
+open import Data.Product using (_×_; _,_; proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
+open import Aletheia.DBC.Bounds using (EnvVarMagnitudes)
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePositions;
    pure; _>>=_; many)
@@ -106,11 +107,12 @@ parseEnvVar-roundtrip :
     ∀ (pos : Position) (ev : EnvironmentVar) (suffix : List Char)
   → EnvVarNameStop ev
   → SuffixStops isNewlineStart suffix
+  → EnvVarMagnitudes ev
   → proj₂ (parseEnvVar pos (emitEnvVar-chars ev ++ₗ suffix))
     ≡ just (mkResult ev
              (advancePositions pos (emitEnvVar-chars ev))
              suffix)
-parseEnvVar-roundtrip pos ev suffix nameStop nl-stop =
+parseEnvVar-roundtrip pos ev suffix nameStop nl-stop mags =
   trans (cong (λ inp → proj₂ (parseEnvVar pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-format
@@ -138,7 +140,7 @@ parseEnvVar-roundtrip pos ev suffix nameStop nl-stop =
                      cont-line
                      pos (emit envVarFmt ev ++ₗ suffix)
                      ev pos-line suffix
-                     (parseEnvVar-format-roundtrip pos ev suffix nameStop)
+                     (parseEnvVar-format-roundtrip pos ev suffix nameStop mags)
 
     -- Step 2: many parseNewline consumes zero from `suffix`.
     step-many-newline :
@@ -184,7 +186,7 @@ emitEnvVar-chars-head-not-newline _ _ = ∷-stop refl
 
 parseEnvVars-roundtrip :
     ∀ (pos : Position) (evs : List EnvironmentVar) (outer-suffix : List Char)
-  → All EnvVarNameStop evs
+  → All (λ ev → EnvVarNameStop ev × EnvVarMagnitudes ev) evs
   → SuffixStops isNewlineStart outer-suffix
   → (∀ (pos' : Position) → proj₂ (parseEnvVar pos' outer-suffix) ≡ nothing)
   → proj₂ (many parseEnvVar pos
@@ -197,9 +199,9 @@ parseEnvVars-roundtrip pos evs outer-suffix evs-stops os pf =
   many-η-roundtrip
     parseEnvVar
     emitEnvVar-chars
-    EnvVarNameStop
-    (λ pos₁ ev suffix nameStop nl-stop →
-       parseEnvVar-roundtrip pos₁ ev suffix nameStop nl-stop)
+    (λ ev → EnvVarNameStop ev × EnvVarMagnitudes ev)
+    (λ pos₁ ev suffix (nameStop , mags) nl-stop →
+       parseEnvVar-roundtrip pos₁ ev suffix nameStop nl-stop mags)
     emitEnvVar-chars-nonzero
     emitEnvVar-chars-head-not-newline
     pos evs outer-suffix evs-stops os pf

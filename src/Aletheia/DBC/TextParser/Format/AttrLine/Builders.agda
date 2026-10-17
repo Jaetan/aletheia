@@ -37,6 +37,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop; showNat-chars-head)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (digitChar; quoteStringLit-chars)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat)
 open import Aletheia.DBC.TextParser.Format
   using (nat; emit; parse; EmitsOK)
 open import Aletheia.DBC.TextParser.Format.AttrValue
@@ -464,10 +465,11 @@ build-EmitsOK-stdTargetWireFmt-RatwEv ev suffix name-stop val-stop =
 -- Disjointness against nodeArm closes by `λ _ → refl` (BO_ vs BU_ on 2nd char).
 build-EmitsOK-stdTargetWireFmt-RatwMsg :
   ∀ (raw : ℕ) (suffix : List Char)
+  → SmallNat raw
   → SuffixStops isHSpace suffix
   → EmitsOK stdTargetWireFmt (RatwMsg raw) suffix
-build-EmitsOK-stdTargetWireFmt-RatwMsg raw suffix val-stop =
-  ((tt , raw-stop , ∷-stop refl , val-stop) , λ _ → refl)
+build-EmitsOK-stdTargetWireFmt-RatwMsg raw suffix raw-small val-stop =
+  ((tt , raw-stop , (raw-small , ∷-stop refl) , val-stop) , λ _ → refl)
   where
     raw-stop : SuffixStops isHSpace ((emit nat raw ++ₗ ' ' ∷ []) ++ₗ suffix)
     raw-stop with showNat-chars-head raw
@@ -480,12 +482,13 @@ build-EmitsOK-stdTargetWireFmt-RatwMsg raw suffix val-stop =
 -- refl` (SG_ vs B*_ on first char).
 build-EmitsOK-stdTargetWireFmt-RatwSig :
   ∀ (raw : ℕ) (sig : Identifier) (suffix : List Char)
+  → SmallNat raw
   → SuffixStops isHSpace ((Identifier.name sig ++ₗ ' ' ∷ []) ++ₗ suffix)
   → SuffixStops isHSpace suffix
   → EmitsOK stdTargetWireFmt (RatwSig raw sig) suffix
-build-EmitsOK-stdTargetWireFmt-RatwSig raw sig suffix sig-stop val-stop =
+build-EmitsOK-stdTargetWireFmt-RatwSig raw sig suffix raw-small sig-stop val-stop =
   ((tt , raw-stop ,
-    (∷-stop refl , (sig-stop , (∷-stop refl , val-stop)))) ,
+    ((raw-small , ∷-stop refl) , (sig-stop , (∷-stop refl , val-stop)))) ,
    λ _ → refl)
   where
     raw-stop : SuffixStops isHSpace
@@ -503,12 +506,13 @@ build-EmitsOK-stdTargetWireFmt-RatwSig raw sig suffix sig-stop val-stop =
 -- raw via showNat, val-stop.
 build-EmitsOK-relTargetWireFmt-RrtNodeMsg :
   ∀ (idn : Identifier) (raw : ℕ) (suffix : List Char)
+  → SmallNat raw
   → SuffixStops isHSpace
       ((Identifier.name idn ++ₗ ' ' ∷ ((emit nat raw ++ₗ ' ' ∷ []))) ++ₗ suffix)
   → SuffixStops isHSpace suffix
   → EmitsOK relTargetWireFmt (RrtNodeMsg idn raw) suffix
-build-EmitsOK-relTargetWireFmt-RrtNodeMsg idn raw suffix idn-stop val-stop =
-  tt , idn-stop , (∷-stop refl , (raw-stop , (∷-stop refl , val-stop)))
+build-EmitsOK-relTargetWireFmt-RrtNodeMsg idn raw suffix raw-small idn-stop val-stop =
+  tt , idn-stop , (∷-stop refl , (raw-stop , ((raw-small , ∷-stop refl) , val-stop)))
   where
     raw-stop : SuffixStops isHSpace ((emit nat raw ++ₗ ' ' ∷ []) ++ₗ suffix)
     raw-stop with showNat-chars-head raw
@@ -527,13 +531,14 @@ build-EmitsOK-relTargetWireFmt-RrtNodeSig :
       ((Identifier.name idn ++ₗ ' ' ∷
         ((toList "SG_" ++ₗ ' ' ∷ ((emit nat raw ++ₗ
           ' ' ∷ ((Identifier.name sig ++ₗ ' ' ∷ []))))))) ++ₗ suffix)
+  → SmallNat raw
   → SuffixStops isHSpace ((Identifier.name sig ++ₗ ' ' ∷ []) ++ₗ suffix)
   → SuffixStops isHSpace suffix
   → EmitsOK relTargetWireFmt (RrtNodeSig idn raw sig) suffix
-build-EmitsOK-relTargetWireFmt-RrtNodeSig idn raw sig suffix idn-stop sig-stop val-stop =
+build-EmitsOK-relTargetWireFmt-RrtNodeSig idn raw sig suffix idn-stop raw-small sig-stop val-stop =
   ((tt , idn-stop , (∷-stop refl ,
     (∷-stop refl ,
-     (tt , (raw-stop , (∷-stop refl , (sig-stop , (∷-stop refl , val-stop))))))))
+     (tt , (raw-stop , ((raw-small , ∷-stop refl) , (sig-stop , (∷-stop refl , val-stop))))))))
    , λ _ → refl)
   where
     raw-stop : SuffixStops isHSpace

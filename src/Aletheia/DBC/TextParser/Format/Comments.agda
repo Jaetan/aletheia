@@ -60,11 +60,12 @@ open import Aletheia.CAN.Frame using ()
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (showℕ-dec-chars; quoteStringLit-chars)
-open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
+open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ; canId-small)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop; showNat-chars-head)
 open import Aletheia.DBC.TextParser.Properties.Primitives
   using (quoteStringLit-chars-shape)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; stringLit; pair; iso; altSum;
          wsOpt; ws; withPrefix;
@@ -391,19 +392,21 @@ private
     , outer-stop
 
   build-boMsgFmt-EmitsOK : ∀ (r : ℕ) (outer-suffix : List Char)
+    → SmallNat r
     → SuffixStops isHSpace outer-suffix
     → EmitsOK boMsgFmt r outer-suffix
-  build-boMsgFmt-EmitsOK r outer-suffix outer-stop =
+  build-boMsgFmt-EmitsOK r outer-suffix r-small outer-stop =
       tt
     , showNat-chars-head-non-hspace r (' ' ∷ []) outer-suffix
-    , ∷-stop refl
+    , (r-small , ∷-stop refl)
     , outer-stop
 
   build-sgSigFmt-EmitsOK : ∀ (r : ℕ) (s : Identifier) (outer-suffix : List Char)
+    → SmallNat r
     → NameStop s
     → SuffixStops isHSpace outer-suffix
     → EmitsOK sgSigFmt (r , s) outer-suffix
-  build-sgSigFmt-EmitsOK r s outer-suffix sigStop outer-stop =
+  build-sgSigFmt-EmitsOK r s outer-suffix r-small sigStop outer-stop =
       -- L1 (literal "SG_"): vacuous.
       tt
       -- L2 (outer withWS — ws between "SG_" and nat): SuffixStops isHSpace
@@ -411,9 +414,9 @@ private
       -- digit.
     , showNat-chars-head-non-hspace r
         (' ' ∷ Identifier.name s ++ₗ ' ' ∷ []) outer-suffix
-      -- L3 (nat slot — SuffixStops isDigit): head of post-nat is ' ',
-      -- non-digit.
-    , ∷-stop refl
+      -- L3 (nat slot — within the bound; SuffixStops isDigit): head of
+      -- post-nat is ' ', non-digit.
+    , (r-small , ∷-stop refl)
       -- L4 (inner withWS — ws between nat and ident): SuffixStops isHSpace
       -- ((name ++ ' ' ∷ []) ++ outer-suffix); head of name is non-hspace
       -- via NameStop.
@@ -491,6 +494,7 @@ build-emits-ok (mkComment (CTMessage cid) text) outer-suffix _ =
        (emit (pair stringLit (withWSOpt (withPrefix (';' ∷ []) newlineFmt)))
              (text , tt)
         ++ₗ outer-suffix)
+       (canId-small cid)
        (∷-stop refl)
      , (λ _ → refl))
   , ∷-stop refl
@@ -510,6 +514,7 @@ build-emits-ok (mkComment (CTSignal cid s) text) outer-suffix sigStop =
        (emit (pair stringLit (withWSOpt (withPrefix (';' ∷ []) newlineFmt)))
              (text , tt)
         ++ₗ outer-suffix)
+       (canId-small cid)
        sigStop
        (∷-stop refl)
      , (λ _ → refl))

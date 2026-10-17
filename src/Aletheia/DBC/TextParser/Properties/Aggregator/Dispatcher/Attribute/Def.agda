@@ -28,6 +28,7 @@ open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
+open import Aletheia.DBC.Bounds using (SmallType)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
@@ -71,6 +72,7 @@ parseAttrLine-on-emit-RawDef :
       (d : AttrDef) (outer : List Char)
   → WFAttribute defs (DBCAttrDef d)
   → SuffixStops isNewlineStart outer
+  → SmallType (AttrDef.attrType d)
   → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs (DBCAttrDef d) ++ₗ outer))
     ≡ just (mkResult
@@ -79,23 +81,23 @@ parseAttrLine-on-emit-RawDef :
                  (emitAttribute-chars defs (DBCAttrDef d)))
               outer)
 parseAttrLine-on-emit-RawDef defs pos
-  (mkAttrDef name ASNetwork ty) outer (wfDef _ wf-ty) ss-NL =
-    parseAttrLine-roundtrip-RawDef-NotRel-Network pos name ty outer wf-ty ss-NL
+  (mkAttrDef name ASNetwork ty) outer (wfDef _ wf-ty) ss-NL small =
+    parseAttrLine-roundtrip-RawDef-NotRel-Network pos name ty outer wf-ty ss-NL small
 parseAttrLine-on-emit-RawDef defs pos
-  (mkAttrDef name ASNode ty) outer (wfDef _ wf-ty) ss-NL =
-    parseAttrLine-roundtrip-RawDef-NotRel-Node pos name ty outer wf-ty ss-NL
+  (mkAttrDef name ASNode ty) outer (wfDef _ wf-ty) ss-NL small =
+    parseAttrLine-roundtrip-RawDef-NotRel-Node pos name ty outer wf-ty ss-NL small
 parseAttrLine-on-emit-RawDef defs pos
-  (mkAttrDef name ASMessage ty) outer (wfDef _ wf-ty) ss-NL =
-    parseAttrLine-roundtrip-RawDef-NotRel-Message pos name ty outer wf-ty ss-NL
+  (mkAttrDef name ASMessage ty) outer (wfDef _ wf-ty) ss-NL small =
+    parseAttrLine-roundtrip-RawDef-NotRel-Message pos name ty outer wf-ty ss-NL small
 parseAttrLine-on-emit-RawDef defs pos
-  (mkAttrDef name ASSignal ty) outer (wfDef _ wf-ty) ss-NL =
-    parseAttrLine-roundtrip-RawDef-NotRel-Signal pos name ty outer wf-ty ss-NL
+  (mkAttrDef name ASSignal ty) outer (wfDef _ wf-ty) ss-NL small =
+    parseAttrLine-roundtrip-RawDef-NotRel-Signal pos name ty outer wf-ty ss-NL small
 parseAttrLine-on-emit-RawDef defs pos
-  (mkAttrDef name ASEnvVar ty) outer (wfDef _ wf-ty) ss-NL =
-    parseAttrLine-roundtrip-RawDef-NotRel-EnvVar pos name ty outer wf-ty ss-NL
+  (mkAttrDef name ASEnvVar ty) outer (wfDef _ wf-ty) ss-NL small =
+    parseAttrLine-roundtrip-RawDef-NotRel-EnvVar pos name ty outer wf-ty ss-NL small
 parseAttrLine-on-emit-RawDef defs pos
-  (mkAttrDef name ASNodeMsg ty) outer (wfDef _ wf-ty) ss-NL =
-    parseAttrLine-roundtrip-RawDef-Rel-NodeMsg pos name ty outer wf-ty ss-NL
+  (mkAttrDef name ASNodeMsg ty) outer (wfDef _ wf-ty) ss-NL small =
+    parseAttrLine-roundtrip-RawDef-Rel-NodeMsg pos name ty outer wf-ty ss-NL small
 parseAttrLine-on-emit-RawDef defs pos
-  (mkAttrDef name ASNodeSig ty) outer (wfDef _ wf-ty) ss-NL =
-    parseAttrLine-roundtrip-RawDef-Rel-NodeSig pos name ty outer wf-ty ss-NL
+  (mkAttrDef name ASNodeSig ty) outer (wfDef _ wf-ty) ss-NL small =
+    parseAttrLine-roundtrip-RawDef-Rel-NodeSig pos name ty outer wf-ty ss-NL small

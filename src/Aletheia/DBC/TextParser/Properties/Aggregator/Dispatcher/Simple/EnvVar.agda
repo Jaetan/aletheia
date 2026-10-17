@@ -18,6 +18,7 @@ open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
+open import Aletheia.DBC.Bounds using (EnvVarMagnitudes)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions;
    pure)
@@ -44,11 +45,12 @@ parseTopStmt-on-emit-TEV-eq :
     ∀ (pos : Position) (ev : EnvironmentVar) (outer : List Char)
   → EnvVarNameStop ev
   → SuffixStops isNewlineStart outer
+  → EnvVarMagnitudes ev
   → proj₂ (parseTopStmt pos (emitEnvVar-chars ev ++ₗ outer))
     ≡ just (mkResult (TSEnvVar ev)
                      (advancePositions pos (emitEnvVar-chars ev))
                      outer)
-parseTopStmt-on-emit-TEV-eq pos ev outer name-stop nl-stop =
+parseTopStmt-on-emit-TEV-eq pos ev outer name-stop nl-stop mags =
   bind-just-step parseEnvVar (λ e → pure (TSEnvVar e))
     pos input ev pos-ev outer p-ev-eq
   where
@@ -59,4 +61,4 @@ parseTopStmt-on-emit-TEV-eq pos ev outer name-stop nl-stop =
     pos-ev = advancePositions pos (emitEnvVar-chars ev)
 
     p-ev-eq : proj₂ (parseEnvVar pos input) ≡ just (mkResult ev pos-ev outer)
-    p-ev-eq = parseEnvVar-roundtrip pos ev outer name-stop nl-stop
+    p-ev-eq = parseEnvVar-roundtrip pos ev outer name-stop nl-stop mags

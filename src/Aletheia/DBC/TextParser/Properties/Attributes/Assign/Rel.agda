@@ -50,7 +50,7 @@ open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars;
          showℕ-dec-chars)
-open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
+open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ; canId-small)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   ( bind-just-step
@@ -69,6 +69,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node using
 
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOK; nat)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; fromℤ-small)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;
@@ -218,7 +219,7 @@ private
             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
       l5 = build-EmitsOK-relTargetWireFmt-RrtNodeMsg idn raw
             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-            idn-stop val-stop
+            (canId-small cid) idn-stop val-stop
 
       step-format :
         proj₂ (parseRawAttrRel pos
@@ -318,7 +319,7 @@ private
             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
       l5 = build-EmitsOK-relTargetWireFmt-RrtNodeSig idn raw sig
             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-            idn-stop sig-stop val-stop
+            idn-stop (canId-small cid) sig-stop val-stop
 
       step-format :
         proj₂ (parseRawAttrRel pos
@@ -465,6 +466,7 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac :
     (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseRawAttrRel pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -475,7 +477,7 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac :
               (TraceNodeMsg.pos9 pos name n cid (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac pos name n cid d outer-suffix
-                                                    ident-stop ss-NL =
+                                                    ident-stop ss-NL small =
   trans
     (cong (λ chars → proj₂ (parseRawAttrRel pos chars))
           (sym (bridge-NodeMsg-emit name n (rawCanIdℕ cid) (RavwFrac d) outer-suffix)))
@@ -483,7 +485,7 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac pos name n cid d outer-suffi
       (parseRawAttrRel-format-roundtrip-NodeMsg-raw pos name n cid
         (RavwFrac d) outer-suffix ident-stop ss-NL
         (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
-        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)))
+        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) small (∷-stop refl)))
       result-eq)
   where
     result-eq :
@@ -508,6 +510,7 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt :
     (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseRawAttrRel pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -518,14 +521,14 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt :
               (TraceNodeMsg.pos9 pos name n cid (showInt-chars z) outer-suffix)
               outer-suffix)
 parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt pos name n cid z outer-suffix
-                                                       ident-stop ss-NL =
+                                                       ident-stop ss-NL small =
   trans
     (cong (λ chars → proj₂ (parseRawAttrRel pos chars)) reshape-input)
     (trans
       (parseRawAttrRel-format-roundtrip-NodeMsg-raw pos name n cid
         (RavwBareInt z') outer-suffix ident-stop ss-NL
         l4-rebuilt
-        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())))
+        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (fromℤ-small z small) (∷-stop refl) (λ ())))
       result-eq)
   where
     z' : IntDecRat
@@ -642,6 +645,7 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac :
   → IdentNameStop n
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseRawAttrRel pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -653,7 +657,7 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac :
               (TraceNodeSig.pos9 pos name n cid sig (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac pos name n cid sig d outer-suffix
-                                                    idn-stop sig-stop ss-NL =
+                                                    idn-stop sig-stop ss-NL small =
   trans
     (cong (λ chars → proj₂ (parseRawAttrRel pos chars))
           (sym (bridge-NodeSig-emit name n (rawCanIdℕ cid) sig (RavwFrac d) outer-suffix)))
@@ -661,7 +665,7 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac pos name n cid sig d outer-s
       (parseRawAttrRel-format-roundtrip-NodeSig-raw pos name n cid sig
         (RavwFrac d) outer-suffix idn-stop sig-stop ss-NL
         (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
-        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)))
+        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) small (∷-stop refl)))
       result-eq)
   where
     result-eq :
@@ -687,6 +691,7 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt :
   → IdentNameStop n
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseRawAttrRel pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -698,14 +703,14 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt :
               (TraceNodeSig.pos9 pos name n cid sig (showInt-chars z) outer-suffix)
               outer-suffix)
 parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt pos name n cid sig z outer-suffix
-                                                       idn-stop sig-stop ss-NL =
+                                                       idn-stop sig-stop ss-NL small =
   trans
     (cong (λ chars → proj₂ (parseRawAttrRel pos chars)) reshape-input)
     (trans
       (parseRawAttrRel-format-roundtrip-NodeSig-raw pos name n cid sig
         (RavwBareInt z') outer-suffix idn-stop sig-stop ss-NL
         l4-rebuilt
-        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())))
+        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (fromℤ-small z small) (∷-stop refl) (λ ())))
       result-eq)
   where
     z' : IntDecRat

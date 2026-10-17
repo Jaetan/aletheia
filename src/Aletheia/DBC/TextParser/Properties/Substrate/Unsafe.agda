@@ -75,6 +75,7 @@ open import Aletheia.DBC.TextParser using (parseText; parseTextChars)
 open import Aletheia.DBC.TextFormatter using (formatText)
 open import Aletheia.DBC.TextFormatter.TopLevel using (formatChars)
 
+open import Aletheia.DBC.Bounds using (IsBoundedDBC)
 open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Universal using
   (parseTextChars-on-formatChars)
@@ -145,5 +146,5 @@ wf→roundTripsᵇ d wf =
 -- An empty `wfTextIssues` set implies `roundTripsᵇ` (modulo the Substrate axioms).
 -- Contrapositive — the product guarantee: every round-trip divergence ships at
 -- least one diagnostic.
-issues-empty→roundTrips : ∀ (d : DBC) → wfTextIssues d ≡ [] → roundTripsᵇ d ≡ true
-issues-empty→roundTrips d eq = wf→roundTripsᵇ d (wfTextIssues-sound d eq)
+issues-empty→roundTrips : ∀ (d : DBC) → wfTextIssues d ≡ [] → IsBoundedDBC d → roundTripsᵇ d ≡ true
+issues-empty→roundTrips d eq bd = wf→roundTripsᵇ d (wfTextIssues-sound d eq bd)

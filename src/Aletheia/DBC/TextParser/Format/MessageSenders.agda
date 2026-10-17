@@ -52,6 +52,7 @@ open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; pair; iso; many;
          altSum; ws; wsCanonOne; withPrefix;
@@ -190,14 +191,15 @@ RawMsgSendersNameStop h =
 build-emits-ok-mss : ∀ (rawId : ℕ) (h : Identifier) (t : List Identifier)
                        (outer : List Char)
   → RawMsgSendersNameStop h
+  → SmallNat rawId
   → EmitsOK MsgSenders-format (rawId , h , t) outer
-build-emits-ok-mss rawId h t outer (c , cs , name-eq , c-non-hs) =
+build-emits-ok-mss rawId h t outer (c , cs , name-eq , c-non-hs) id-small =
   -- "BO_TX_BU_" literal: vacuous (tt).
   tt ,
   -- (withWS nat rawId): ws head non-hspace via showNat; nat-digit slot
   -- head is the following ' ' (from the colon segment's leading withWS).
   ( showNat-chars-head-stop-isHSpace rawId _
-  , ∷-stop refl ) ,
+  , (id-small , ∷-stop refl) ) ,
   -- (withWS (":" (withWS senderListFmt))) , then (";" newline):
   ( ( -- outer withWS: leading ' ' before ':' — head ':' non-hspace.
       ∷-stop refl
@@ -227,11 +229,12 @@ parseMsgSenders-format-roundtrip :
     ∀ (pos : Position) (rawId : ℕ) (h : Identifier) (t : List Identifier)
       (outer : List Char)
   → RawMsgSendersNameStop h
+  → SmallNat rawId
   → proj₂ (parse MsgSenders-format pos
       (emit MsgSenders-format (rawId , h , t) ++ₗ outer))
     ≡ just (mkResult (rawId , h , t)
              (advancePositions pos (emit MsgSenders-format (rawId , h , t)))
              outer)
-parseMsgSenders-format-roundtrip pos rawId h t outer nameStop =
+parseMsgSenders-format-roundtrip pos rawId h t outer nameStop id-small =
   roundtrip MsgSenders-format pos (rawId , h , t) outer
-    (build-emits-ok-mss rawId h t outer nameStop)
+    (build-emits-ok-mss rawId h t outer nameStop id-small)

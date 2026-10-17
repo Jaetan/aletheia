@@ -60,9 +60,13 @@ open import Aletheia.DBC.TextFormatter.Topology using
 open import Aletheia.DBC.Formatter.WellFormedText using
   (WellFormedTextPresence; wftp-always; wftp-when-single)
 
+open import Aletheia.DBC.Bounds using (SignalMagnitudes)
+open import Aletheia.DBC.TextParser.Properties.Topology.Signal using (expectedRaw-small)
+open import Data.Nat using (_≤_)
+open import Data.Unit using (tt)
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (RawSignal; mkRawSignal;
-   MuxMarker; NotMux; IsMux; SelBy)
+   MuxMarker; NotMux; IsMux; SelBy; MuxSmall; RawSignalSmall)
 
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOKMany; []-fails; ∷-cons;
@@ -293,19 +297,38 @@ emit-signalLineFmt-nonzero
 -- `inter-signal-recv-stop` (or fall through to the outer recv-stop
 -- when this is the last signal), the nonzero-length witness, and
 -- recurse on the tail.
+-- The expected multiplex marker of a bounded signal is within the bound:
+-- a selector is the first of the signal's bounded selector values.
+expectedMux-small : ∀ master sig → SignalMagnitudes sig → MuxSmall (expectedMux master sig)
+expectedMux-small master sig m with DBCSignal.presence sig | SignalMagnitudes.selectors m
+... | When _ (v ∷ _) | v-small All.∷ _ = v-small
+... | Always         | _ with master
+...   | nothing = tt
+...   | just mst with nameEq? (Identifier.name (DBCSignal.name sig)) mst
+...     | true  = tt
+...     | false = tt
+
+-- The raw signal expected of a bounded DBC signal is within the bound.
+expectedRawOfDBC-small : ∀ master fb sig → fb ≤ 64 → SignalMagnitudes sig
+  → RawSignalSmall (expectedRawOfDBC master fb sig)
+expectedRawOfDBC-small master fb sig fb≤64 m =
+  expectedRaw-small (expectedMux master sig) sig fb (expectedMux-small master sig m) fb≤64 m
+
 build-emits-ok-many :
     ∀ (master : Maybe (List Char)) (fb : ℕ)
       (sigs : List DBCSignal) (outer-suffix : List Char)
   → All SignalLineWF sigs
   → ParseFailsAt signalLineFmt outer-suffix
   → SuffixStops isReceiverCont outer-suffix
+  → fb ≤ 64
+  → All SignalMagnitudes sigs
   → EmitsOKMany signalLineFmt
                 (map (expectedRawOfDBC master fb) sigs)
                 outer-suffix
-build-emits-ok-many _ _ [] outer-suffix _ tf _ =
+build-emits-ok-many _ _ [] outer-suffix _ tf _ _ _ =
   []-fails tf
 build-emits-ok-many master fb (s ∷ rest) outer-suffix
-                    (item All.∷ rest-items) tf outer-recv-stop =
+                    (item All.∷ rest-items) tf outer-recv-stop fb≤64 (mag All.∷ rest-mags) =
   ∷-cons
     (build-emits-ok
        (expectedRawOfDBC master fb s)
@@ -314,10 +337,11 @@ build-emits-ok-many master fb (s ∷ rest) outer-suffix
        (sig-name-stop→name-stop master fb s (SignalLineWF.name-stop item))
        (sig-recv-head-stop→recv-head-stop master fb s
           (SignalLineWF.recv-head-stop item))
-       (recv-stop-for-this-signal rest))
+       (recv-stop-for-this-signal rest)
+       (expectedRawOfDBC-small master fb s fb≤64 mag))
     (emit-signalLineFmt-nonzero (expectedRawOfDBC master fb s))
     (build-emits-ok-many master fb rest outer-suffix rest-items tf
-                         outer-recv-stop)
+                         outer-recv-stop fb≤64 rest-mags)
   where
     -- For non-empty rest, the suffix to this signal is `' ' ∷ ...`
     -- (head of next signal's emit), so recv-stop is `∷-stop refl`.
@@ -351,6 +375,8 @@ parseSignalLines-roundtrip :
   → All SignalLineWF sigs
   → ParseFailsAt signalLineFmt outer-suffix
   → SuffixStops isReceiverCont outer-suffix
+  → fb ≤ 64
+  → All SignalMagnitudes sigs
   → proj₂ (parse (manyF signalLineFmt) pos
        (foldr (λ s acc → emitSignalLine-chars master fb s ++ₗ acc) []
               sigs
@@ -361,7 +387,7 @@ parseSignalLines-roundtrip :
                       [] sigs))
              outer-suffix)
 parseSignalLines-roundtrip pos master fb sigs outer-suffix
-                           items tf outer-recv-stop =
+                           items tf outer-recv-stop fb≤64 mags =
   trans
     (cong (λ inp → proj₂ (parse (manyF signalLineFmt) pos (inp ++ₗ outer-suffix)))
           (sym bridge))
@@ -370,7 +396,7 @@ parseSignalLines-roundtrip pos master fb sigs outer-suffix
                  (map (expectedRawOfDBC master fb) sigs)
                  outer-suffix
                  (build-emits-ok-many master fb sigs outer-suffix
-                                      items tf outer-recv-stop))
+                                      items tf outer-recv-stop fb≤64 mags))
       (cong (λ s → just (mkResult (map (expectedRawOfDBC master fb) sigs)
                                    (advancePositions pos s)
                                    outer-suffix))

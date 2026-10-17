@@ -76,6 +76,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOK)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; fromℤ-small)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;
@@ -139,6 +140,7 @@ parseRawAttrValue-roundtrip-RavString pos s suffix ss =
 -- parseDecRat (frac wrapper) succeeds.
 parseRawAttrValue-roundtrip-RavDecRatFrac :
   ∀ pos d suffix
+  → SmallDecRat d
   → SuffixStops isDigit suffix
   → ∀ c tail
   → showDecRat-dec-chars d ≡ c ∷ tail
@@ -147,7 +149,7 @@ parseRawAttrValue-roundtrip-RavDecRatFrac :
     ≡ just (mkResult (RavDecRat d)
               (advancePositions pos (showDecRat-dec-chars d))
               suffix)
-parseRawAttrValue-roundtrip-RavDecRatFrac pos d suffix ss-digit c tail head-eq c-not-quote =
+parseRawAttrValue-roundtrip-RavDecRatFrac pos d suffix small ss-digit c tail head-eq c-not-quote =
   trans
     (alt-right-nothing
        (parseStringLit >>= λ s₁ → pure (RavString s₁))
@@ -161,12 +163,13 @@ parseRawAttrValue-roundtrip-RavDecRatFrac pos d suffix ss-digit c tail head-eq c
     (bind-just-step parseDecRat (λ d₁ → pure (RavDecRat d₁))
        pos (showDecRat-dec-chars d ++ₗ suffix)
        d (advancePositions pos (showDecRat-dec-chars d)) suffix
-       (parseDecRat-roundtrip-suffix d pos suffix ss-digit))
+       (parseDecRat-roundtrip-suffix d pos suffix small ss-digit))
 
 -- RavDecRat (bare-int form, fromℤ z): parseStringLit fails, parseDecRat
 -- (bare-int wrapper) succeeds; result value is `fromℤ z`.
 parseRawAttrValue-roundtrip-RavDecRatBareInt :
   ∀ pos z suffix
+  → SmallInt z
   → SuffixStops isDigit suffix
   → '.' ≢ headOr suffix '_'
   → ∀ c tail
@@ -176,7 +179,7 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt :
     ≡ just (mkResult (RavDecRat (fromℤ z))
               (advancePositions pos (showInt-chars z))
               suffix)
-parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix ss-digit not-dot c tail head-eq c-not-quote =
+parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix small ss-digit not-dot c tail head-eq c-not-quote =
   trans
     (alt-right-nothing
        (parseStringLit >>= λ s₁ → pure (RavString s₁))
@@ -190,7 +193,7 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix ss-digit not-dot c tai
     (bind-just-step parseDecRat (λ d₁ → pure (RavDecRat d₁))
        pos (showInt-chars z ++ₗ suffix)
        (fromℤ z) (advancePositions pos (showInt-chars z)) suffix
-       (parseDecRat-bareInt-roundtrip-suffix z pos suffix ss-digit not-dot))
+       (parseDecRat-bareInt-roundtrip-suffix z pos suffix small ss-digit not-dot))
 
 -- ============================================================================
 -- TRACE MODULE — public for `Properties/Attributes/Line.agda` to
@@ -311,14 +314,16 @@ private
     build-EmitsOK-RavwString s (value-suffix outer-suffix) (∷-stop refl)
 
   ravwFrac-emit-OK : ∀ (d : DecRat) (outer-suffix : List Char)
+    → SmallDecRat d
     → EmitsOK attrValueWireFmt (RavwFrac d) (value-suffix outer-suffix)
-  ravwFrac-emit-OK d outer-suffix =
-    build-EmitsOK-RavwFrac d (value-suffix outer-suffix) (∷-stop refl)
+  ravwFrac-emit-OK d outer-suffix small =
+    build-EmitsOK-RavwFrac d (value-suffix outer-suffix) small (∷-stop refl)
 
   ravwBareInt-emit-OK : ∀ (z : IntDecRat) (outer-suffix : List Char)
+    → SmallDecRat (IntDecRat.value z)
     → EmitsOK attrValueWireFmt (RavwBareInt z) (value-suffix outer-suffix)
-  ravwBareInt-emit-OK z outer-suffix =
-    build-EmitsOK-RavwBareInt z (value-suffix outer-suffix)
+  ravwBareInt-emit-OK z outer-suffix small =
+    build-EmitsOK-RavwBareInt z (value-suffix outer-suffix) small
                                  (∷-stop refl) (λ ())
 
 -- ============================================================================
@@ -413,17 +418,18 @@ parseRawAttrDefault-roundtrip-RavString pos name s outer-suffix ss-NL =
 parseRawAttrDefault-roundtrip-RavDecRatFrac :
   ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseRawAttrDefault pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult (mkRawAttrDefault name (RavDecRat d))
               (Trace.pos8 pos name (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL =
+parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL small =
   trans (cong (λ input → proj₂ (parseRawAttrDefault pos input))
               (sym (bridge-RavwFrac name d outer-suffix)))
     (parseRawAttrDefault-format-roundtrip-raw pos name (RavwFrac d)
-       outer-suffix ss-NL (ravwFrac-emit-OK d outer-suffix))
+       outer-suffix ss-NL (ravwFrac-emit-OK d outer-suffix small))
 
 -- RavDecRat (bare-int form, fromℤ z): emit `showInt-chars z`.  Wire form
 -- goes through `RavwBareInt (mkIntDecRatFromℤ z)` which lifts to
@@ -432,20 +438,21 @@ parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL =
 parseRawAttrDefault-roundtrip-RavDecRatBareInt :
   ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseRawAttrDefault pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult (mkRawAttrDefault name (RavDecRat (fromℤ z)))
               (Trace.pos8 pos name (showInt-chars z) outer-suffix)
               outer-suffix)
-parseRawAttrDefault-roundtrip-RavDecRatBareInt pos name z outer-suffix ss-NL =
+parseRawAttrDefault-roundtrip-RavDecRatBareInt pos name z outer-suffix ss-NL small =
   -- For bareInt, the input shape uses `showInt-chars z` directly.  The
   -- bridge needs `showInt-chars z ≡ showInt-chars (intDecRatToℤ z')`
   -- where `z' = mkIntDecRatFromℤ z` — closes by
   -- `intDecRatToℤ-mkIntDecRatFromℤ z`.
   trans (cong (λ input → proj₂ (parseRawAttrDefault pos input)) reshape-input)
     (trans (parseRawAttrDefault-format-roundtrip-raw pos name (RavwBareInt z')
-              outer-suffix ss-NL (ravwBareInt-emit-OK z' outer-suffix))
+              outer-suffix ss-NL (ravwBareInt-emit-OK z' outer-suffix (fromℤ-small z small)))
       result-eq)
   where
     z' : IntDecRat

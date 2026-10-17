@@ -26,23 +26,9 @@
 --     `unresolvedValueDescs` entries.  Each lossy region is reflected
 --     here as an explicit field: section-level `*Stop` predicates,
 --     `MessageWF`, `WFAttribute`, `SignalGroupWF`, cross-message CAN-ID
---     uniqueness, and an `unresolvedValueDescs ≡ []` constraint.
---
--- Formerly defined inline in
--- `Aletheia.DBC.TextParser.Properties.Aggregator.Universal` under the
--- name `WellFormedDBC`.  It was extracted here:
---   * naming collision with the JSON-side `WellFormedDBC` resolved by
---     renaming this record to `WellFormedTextDBCAgg` (the suffix `Agg`
---     marks it as the universal-aggregator predicate, distinct from
---     the now-removed 1-field stub `Formatter.WellFormedText.
---     WellFormedTextDBC`);
---   * the type definition is now separated from the universal theorem
---     (`Aggregator.Universal.parseTextChars-on-formatChars`) per the
---     module-organisation guideline.
---
--- A companion obligation (the FormatDBCText FFI handler must discharge
--- `WellFormedTextDBCAgg` at runtime) is tracked separately as a
--- deferral.
+--     uniqueness, an `unresolvedValueDescs ≡ []` constraint, and the
+--     bounded proof every load makes (`IsBoundedDBC`), under which every
+--     number the text carries reads back exactly.
 module Aletheia.DBC.TextParser.WellFormed where
 
 open import Data.List using ([]; map)
@@ -50,6 +36,7 @@ open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_)
 
+open import Aletheia.DBC.Bounds using (IsBoundedDBC)
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage )
 
@@ -124,3 +111,6 @@ record WellFormedTextDBCAgg (d : DBC) : Set where
     -- `UnknownValueDescriptionTarget` warns at validation time when
     -- this field is non-empty (E.11).
     unresolved-empty : DBC.unresolvedValueDescs d ≡ []
+    -- Every number the text carries is within the component bound, so
+    -- the parser reads each one back exactly.
+    bounded : IsBoundedDBC d

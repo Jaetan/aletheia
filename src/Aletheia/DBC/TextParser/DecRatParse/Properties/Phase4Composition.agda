@@ -37,8 +37,10 @@ open import Aletheia.DBC.TextFormatter.Emitter
   using (showNat-chars;
          emitMagnitude-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.DecRatParse
-  using (parseDecRatFrac; buildDecRat)
-open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
+  using (parseDecRatFrac)
+open import Aletheia.DBC.TextParser.Lexer using (parseDigits)
+open import Aletheia.DBC.DecRat.Literal using (decimalLiteral)
+open import Aletheia.DBC.DecRat.Literal.Properties using (SmallTriple; SmallDecRat; smallTriple)
 open import Data.Integer using ()
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
@@ -57,14 +59,14 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase3Naturals public
 -- clause (`+ zero`, `+ suc n`, `-[1+ n ]`).  Pattern-match on the
 -- `mkDecRat` numerator at the top-level dispatcher (`parseDecRat-
 -- roundtrip`) to route to the right branch.  The parser trace is
--- shared: `optional dash → parseNatural → char '.' → some digit →
--- buildDecRat`; each branch differs only in the sign-specific
+-- shared: `optional dash → parseDigits → char '.' → some digit →
+-- decimalLiteral`; each branch differs only in the sign-specific
 -- `optional-dash-*` call and the `applySign` + canonicalisation
 -- arithmetic at the tail.
 --
 -- Arithmetic bridge (same for all three branches up to sign):
 --   * `length-showℕ-padded-chars`   collapses `length fracChars → m`.
---   * `parseDigitList-showℕ-padded-chars` + `m%n<n`   reconstructs
+--   * `foldDigits-showℕ-padded-chars` + `m%n<n`   reconstructs
 --     the fractional-part value as `scaledNum % 10^m`.
 --   * `rawAbs≡scaledNum`            glues `(q · 10^m + r) ≡ scaledNum`.
 --   * `canonicalizeDecRat-scale-pos` (+suc) or
@@ -82,7 +84,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase3Naturals public
 -- advance `parseDecRat`'s `_>>=_` chain without `rewrite`.  `rewrite` fails
 -- under `--without-K` here because the goal contains `div-helper` with-
 -- abstractions (via `advancePositions pos (showDecRat-dec-chars …)` in the
--- RHS and `parseNatural`/`some digit` in the LHS); the induced `refl`
+-- RHS and `parseDigits`/`some digit` in the LHS); the induced `refl`
 -- pattern-match on `X ≡ X` where `X` contains a with-abstracted subterm
 -- requires K to eliminate.  `bind-just-step` sidesteps this by performing
 -- the `with p pos input | eq` abstraction at a fresh variable, so the
@@ -110,15 +112,15 @@ bind-just-step p f pos input v p' i' eq
 -- tripping `div-helper` normalisation in the goal.  Kept generic in `neg`
 -- so both `-neg` and `-+suc` branches share it.
 past-dot-char-dot-eq :
-  ∀ (neg : Maybe Char) (nₚ : ℕ) (pos : Position) (fracChars : List Char) →
+  ∀ (neg : Maybe Char) (nₚ : List Char) (pos : Position) (fracChars : List Char) →
   proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-            pure (buildDecRat neg nₚ fd))
+            pure (decimalLiteral neg nₚ fd (ℤ+ 0)))
            pos ('.' ∷ fracChars))
   ≡ proj₂ ((some digit >>= λ fd →
-              pure (buildDecRat neg nₚ fd))
+              pure (decimalLiteral neg nₚ fd (ℤ+ 0)))
              (advancePosition pos '.') fracChars)
 past-dot-char-dot-eq neg nₚ pos fracChars
-  with (some digit >>= λ fd → pure (buildDecRat neg nₚ fd))
+  with (some digit >>= λ fd → pure (decimalLiteral neg nₚ fd (ℤ+ 0)))
          (advancePosition pos '.') fracChars
 ... | w , out = refl
 
@@ -126,7 +128,7 @@ past-dot-char-dot-eq neg nₚ pos fracChars
 -- Phase 4.1: `+ suc n` case
 -- ----------------------------------------------------------------------------
 parseDecRatFrac-roundtrip-+suc : ∀ n a b pos
-  .(cx : IsCanonical (suc n) a b) →
+  .(cx : IsCanonical (suc n) a b) → SmallTriple (suc n , a , b) →
   proj₂ (parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)))
     ≡ just (mkResult (mkDecRat (ℤ+ suc n) a b cx)
                      (advancePositions pos
@@ -136,16 +138,16 @@ parseDecRatFrac-roundtrip-+suc : ∀ n a b pos
 --   * Input has no `'-'` prefix, so `optional (char '-')` returns
 --     `just (mkResult nothing pos emag)` via `optional-dash-fail-on-showNat`
 --     (propositional equality, not `refl` — hence the `bind-just-step`).
---   * `neg = nothing` threads through `buildDecRat`; `build-eq-+suc` closes
+--   * `neg = nothing` threads through `decimalLiteral`; `build-eq-+suc` closes
 --     the canonicalisation arithmetic.
 --   * No `'-'` in position arithmetic — `advancePositions-++` needs only the
 --     two-piece split `showNat-chars ++ '.' ∷ mag-fracChars`.
-parseDecRatFrac-roundtrip-+suc n a b pos cx =
+parseDecRatFrac-roundtrip-+suc n a b pos cx small =
   trans step-dash-fail
     (trans step-parseNat
       (trans step-some-digit
         (cong₂ (λ v p → just (mkResult v p []))
-               (build-eq-+suc n a b cx)
+               (build-eq-+suc n a b cx small)
                pos-eq)))
   where
     posAfterNat : Position
@@ -159,14 +161,14 @@ parseDecRatFrac-roundtrip-+suc n a b pos cx =
 
     step-dash-fail :
       proj₂ (parseDecRatFrac pos (emitMagnitude-chars (suc n) a b))
-      ≡ proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat nothing nₚ fd))
+      ≡ proj₂ ((parseDigits >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                  pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                  pos (emitMagnitude-chars (suc n) a b))
     step-dash-fail =
       bind-just-step (optional (char '-'))
-                     (λ neg → parseNatural >>= λ nₚ → char '.' >>= λ _ →
+                     (λ neg → parseDigits >>= λ nₚ → char '.' >>= λ _ →
                               some digit >>= λ fd →
-                              pure (buildDecRat neg nₚ fd))
+                              pure (decimalLiteral neg nₚ fd (ℤ+ 0)))
                      pos (emitMagnitude-chars (suc n) a b)
                      nothing pos (emitMagnitude-chars (suc n) a b)
                      (optional-dash-fail-on-showNat pos
@@ -174,38 +176,36 @@ parseDecRatFrac-roundtrip-+suc n a b pos cx =
                         ('.' ∷ mag-fracChars (suc n) a b))
 
     step-parseNat :
-      proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                pure (buildDecRat nothing nₚ fd))
+      proj₂ ((parseDigits >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                pos (emitMagnitude-chars (suc n) a b))
       ≡ proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
+                  pure (decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                  posAfterNat ('.' ∷ mag-fracChars (suc n) a b))
     step-parseNat =
-      bind-just-step parseNatural
+      bind-just-step parseDigits
                      (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                              pure (buildDecRat nothing nₚ fd))
+                              pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                      pos (emitMagnitude-chars (suc n) a b)
-                     (mag-quot (suc n) a b) posAfterNat
+                     (showNat-chars (mag-quot (suc n) a b)) posAfterNat
                      ('.' ∷ mag-fracChars (suc n) a b)
-                     (parseNatural-showNat-chars pos
+                     (parseDigits-showNat-chars pos
                         (mag-quot (suc n) a b)
                         ('.' ∷ mag-fracChars (suc n) a b)
                         (∷-stop isDigit-dot-false))
 
     step-some-digit :
       proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
+                pure (decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                posAfterNat ('.' ∷ mag-fracChars (suc n) a b))
       ≡ just (mkResult
-                (buildDecRat nothing (mag-quot (suc n) a b)
-                              (mag-fracChars (suc n) a b))
+                (decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) (mag-fracChars (suc n) a b) (ℤ+ 0))
                 posAfterFrac [])
     step-some-digit =
-      trans (past-dot-char-dot-eq nothing (mag-quot (suc n) a b)
+      trans (past-dot-char-dot-eq nothing (showNat-chars (mag-quot (suc n) a b))
                posAfterNat (mag-fracChars (suc n) a b))
             (bind-just-step (some digit)
-                            (λ fd → pure (buildDecRat nothing
-                                                      (mag-quot (suc n) a b) fd))
+                            (λ fd → pure (decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                             posAfterDot (mag-fracChars (suc n) a b)
                             (mag-fracChars (suc n) a b) posAfterFrac []
                             (some-digit-showℕ-padded-chars-end (mag-m a b)
@@ -236,21 +236,21 @@ parseDecRatFrac-roundtrip-+suc n a b pos cx =
 --     `canonicalizeNat-scale-pos-max` composed via a `sym scaled-eq`
 --     rewrite on the magnitude argument.
 parseDecRatFrac-roundtrip-neg : ∀ n a b pos
-  .(cx : IsCanonical (suc n) a b) →
+  .(cx : IsCanonical (suc n) a b) → SmallTriple (suc n , a , b) →
   proj₂ (parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)))
     ≡ just (mkResult (mkDecRat ℤ-[1+ n ] a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)))
                      [])
-parseDecRatFrac-roundtrip-neg n a b pos cx =
+parseDecRatFrac-roundtrip-neg n a b pos cx small =
   trans step-parseNat
     (trans step-some-digit
       (cong₂ (λ v p → just (mkResult v p []))
-             (build-eq-neg n a b cx)
+             (build-eq-neg n a b cx small)
              pos-eq))
   where
     -- After `optional (char '-')` consumes the dash (definitional),
-    -- then `parseNatural` consumes `showNat-chars (mag-quot …)`.
+    -- then `parseDigits` consumes `showNat-chars (mag-quot …)`.
     posAfterDash : Position
     posAfterDash = advancePosition pos '-'
 
@@ -263,21 +263,21 @@ parseDecRatFrac-roundtrip-neg n a b pos cx =
     posAfterFrac : Position
     posAfterFrac = advancePositions posAfterDot (mag-fracChars (suc n) a b)
 
-    -- Step 2: `parseNatural posAfterDash emag` → `just (mkResult (mag-quot …) posAfterNat
+    -- Step 2: `parseDigits posAfterDash emag` → `just (mkResult (mag-quot …) posAfterNat
     -- ('.' ∷ mag-fracChars …))`, lifted through the remainder of the bind chain.
     step-parseNat :
       proj₂ (parseDecRatFrac pos ('-' ∷ emitMagnitude-chars (suc n) a b))
       ≡ proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
+                  pure (decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                  posAfterNat ('.' ∷ mag-fracChars (suc n) a b))
     step-parseNat =
-      bind-just-step parseNatural
+      bind-just-step parseDigits
                      (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                              pure (buildDecRat (just '-') nₚ fd))
+                              pure (decimalLiteral (just '-') nₚ fd (ℤ+ 0)))
                      posAfterDash (emitMagnitude-chars (suc n) a b)
-                     (mag-quot (suc n) a b) posAfterNat
+                     (showNat-chars (mag-quot (suc n) a b)) posAfterNat
                      ('.' ∷ mag-fracChars (suc n) a b)
-                     (parseNatural-showNat-chars posAfterDash
+                     (parseDigits-showNat-chars posAfterDash
                         (mag-quot (suc n) a b)
                         ('.' ∷ mag-fracChars (suc n) a b)
                         (∷-stop isDigit-dot-false))
@@ -286,18 +286,16 @@ parseDecRatFrac-roundtrip-neg n a b pos cx =
     -- `mag-fracChars …` via `some-digit-showℕ-padded-chars-end`.
     step-some-digit :
       proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
+                pure (decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                posAfterNat ('.' ∷ mag-fracChars (suc n) a b))
       ≡ just (mkResult
-                (buildDecRat (just '-') (mag-quot (suc n) a b)
-                              (mag-fracChars (suc n) a b))
+                (decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) (mag-fracChars (suc n) a b) (ℤ+ 0))
                 posAfterFrac [])
     step-some-digit =
-      trans (past-dot-char-dot-eq (just '-') (mag-quot (suc n) a b)
+      trans (past-dot-char-dot-eq (just '-') (showNat-chars (mag-quot (suc n) a b))
                posAfterNat (mag-fracChars (suc n) a b))
             (bind-just-step (some digit)
-                            (λ fd → pure (buildDecRat (just '-')
-                                                      (mag-quot (suc n) a b) fd))
+                            (λ fd → pure (decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                             posAfterDot (mag-fracChars (suc n) a b)
                             (mag-fracChars (suc n) a b) posAfterFrac []
                             (some-digit-showℕ-padded-chars-end (mag-m a b)
@@ -343,13 +341,13 @@ parseDecRatFrac-roundtrip-+zero (suc _) _       _   cx = EmptyI.⊥-elim cx
 -- `-[1+ n ]`) and route to the corresponding per-branch theorem.
 -- Each branch's theorem carries the same statement shape, so the
 -- dispatcher is three one-liners.
-parseDecRatFrac-roundtrip : ∀ d pos →
+parseDecRatFrac-roundtrip : ∀ d pos → SmallDecRat d →
   proj₂ (parseDecRatFrac pos (showDecRat-dec-chars d))
     ≡ just (mkResult d (advancePositions pos (showDecRat-dec-chars d)) [])
-parseDecRatFrac-roundtrip (mkDecRat (ℤ+ zero)  a b cx) pos =
+parseDecRatFrac-roundtrip (mkDecRat (ℤ+ zero)  a b cx) pos _ =
   parseDecRatFrac-roundtrip-+zero a b pos cx
-parseDecRatFrac-roundtrip (mkDecRat (ℤ+ suc n) a b cx) pos =
-  parseDecRatFrac-roundtrip-+suc n a b pos cx
-parseDecRatFrac-roundtrip (mkDecRat ℤ-[1+ n ]  a b cx) pos =
-  parseDecRatFrac-roundtrip-neg n a b pos cx
+parseDecRatFrac-roundtrip (mkDecRat (ℤ+ suc n) a b cx) pos small =
+  parseDecRatFrac-roundtrip-+suc n a b pos cx (smallTriple (mkDecRat (ℤ+ suc n) a b cx) small)
+parseDecRatFrac-roundtrip (mkDecRat ℤ-[1+ n ]  a b cx) pos small =
+  parseDecRatFrac-roundtrip-neg n a b pos cx (smallTriple (mkDecRat ℤ-[1+ n ] a b cx) small)
 

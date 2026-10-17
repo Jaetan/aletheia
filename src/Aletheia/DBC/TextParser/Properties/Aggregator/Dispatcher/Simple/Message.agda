@@ -23,6 +23,9 @@ open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
+open import Aletheia.DBC.Bounds using (SignalMagnitudes)
+open import Data.List.Relation.Unary.All using (All)
+open import Data.Product using (_,_)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions;
    _>>=_; pure)
@@ -56,11 +59,12 @@ parseTopStmt-on-emit-TM-eq :
     ∀ (pos : Position) (msg : DBCMessage) (outer : List Char)
   → MessageWF msg
   → SuffixStops isNewlineStart outer
+  → All SignalMagnitudes (DBCMessage.signals msg)
   → proj₂ (parseTopStmt pos (emitMessage-chars msg ++ₗ outer))
     ≡ just (mkResult (TSMessage (clearBothMsg msg))
                      (advancePositions pos (emitMessage-chars msg))
                      outer)
-parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
+parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop mags =
   trans (alt-right-nothing (parseBOTxBu >>= λ rms → pure (TSBOTxBu rms))
                             (parseMessage >>= λ em → pure (foldMessage em))
                             pos input
@@ -78,7 +82,7 @@ parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
 
     p-msg-eq : proj₂ (parseMessage pos input)
              ≡ just (mkResult (inj₂ (clearBothMsg msg)) pos-msg outer)
-    p-msg-eq = parseMessage-roundtrip-bundled pos msg outer wf nl-stop
+    p-msg-eq = parseMessage-roundtrip-bundled pos msg outer (wf , mags) nl-stop
 
     alt-msg-eq : proj₂ ((parseMessage >>= λ em → pure (foldMessage em)) pos input)
                  ≡ just (mkResult (TSMessage (clearBothMsg msg)) pos-msg outer)

@@ -24,6 +24,7 @@ open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; sym; trans; cong; subst)
 
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
@@ -267,6 +268,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat :
       (outer : List Char)
   → IdentNameStop-of target
   → SuffixStops isNewlineStart outer
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name target (AVFloat d)))
@@ -278,7 +280,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat :
                  (emitAttribute-chars defs
                     (DBCAttrAssign (mkAttrAssign name target (AVFloat d)))))
               outer)
-parseAttrLine-on-emit-RawAssign-AVFloat defs pos name ATgtNetwork d outer _ ss-NL =
+parseAttrLine-on-emit-RawAssign-AVFloat defs pos name ATgtNetwork d outer _ ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
@@ -287,8 +289,8 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name ATgtNetwork d outer _ ss-N
                      outer))
     (sym (network-input-bridge name d outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac
-       pos name d outer ss-NL)
-parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNode n) d outer n-stop ss-NL =
+       pos name d outer ss-NL small)
+parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNode n) d outer n-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
@@ -297,8 +299,8 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNode n) d outer n-sto
                      outer))
     (sym (node-input-bridge name n d outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatFrac
-       pos name n d outer n-stop ss-NL)
-parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtMessage cid) d outer _ ss-NL =
+       pos name n d outer n-stop ss-NL small)
+parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtMessage cid) d outer _ ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
@@ -307,8 +309,8 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtMessage cid) d outer 
                      outer))
     (sym (message-input-bridge name cid d outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac
-       pos name cid d outer ss-NL)
-parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtSignal cid sig) d outer sig-stop ss-NL =
+       pos name cid d outer ss-NL small)
+parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtSignal cid sig) d outer sig-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
@@ -317,8 +319,8 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtSignal cid sig) d out
                      outer))
     (sym (signal-input-bridge name cid sig d outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatFrac
-       pos name cid sig d outer sig-stop ss-NL)
-parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtEnvVar ev) d outer ev-stop ss-NL =
+       pos name cid sig d outer sig-stop ss-NL small)
+parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtEnvVar ev) d outer ev-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
@@ -327,8 +329,8 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtEnvVar ev) d outer ev
                      outer))
     (sym (envvar-input-bridge name ev d outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatFrac
-       pos name ev d outer ev-stop ss-NL)
-parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeMsg n cid) d outer n-stop ss-NL =
+       pos name ev d outer ev-stop ss-NL small)
+parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeMsg n cid) d outer n-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
@@ -337,8 +339,8 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeMsg n cid) d oute
                      outer))
     (sym (nodemsg-input-bridge name n cid d outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac
-       pos name n cid d outer n-stop ss-NL)
-parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeSig n cid sig) d outer stops ss-NL =
+       pos name n cid d outer n-stop ss-NL small)
+parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeSig n cid sig) d outer stops ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
@@ -347,4 +349,4 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeSig n cid sig) d 
                      outer))
     (sym (nodesig-input-bridge name n cid sig d outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac
-       pos name n cid sig d outer (proj₁ stops) (proj₂ stops) ss-NL)
+       pos name n cid sig d outer (proj₁ stops) (proj₂ stops) ss-NL small)

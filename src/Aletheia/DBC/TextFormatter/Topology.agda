@@ -50,7 +50,13 @@ import Data.List.Properties as ListProps
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
 open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _+_; _^_)
+open import Data.Nat using (ℕ; _+_; _^_; _<ᵇ_)
+open import Data.Nat.Properties using (≤-trans; <⇒≤; <ᵇ⇒<; +-monoˡ-≤)
+open import Data.Unit using (tt)
+open import Relation.Nullary.Decidable using (recompute)
+open import Data.Bool.Properties using (T?)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; smallNat-by-eval)
+open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Data.String using (toList)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
@@ -89,6 +95,15 @@ extFlagBit = 2 ^ 31
 rawCanIdℕ : CANId → ℕ
 rawCanIdℕ (Standard n _) = n
 rawCanIdℕ (Extended n _) = n + extFlagBit
+
+-- A raw CAN id is within the component bound: at most 2^29 + 2^31.
+canId-small : ∀ cid → SmallNat (rawCanIdℕ cid)
+canId-small (Standard n p) =
+  ≤-trans (<⇒≤ (<ᵇ⇒< n standard-can-id-max (recompute (T? (n <ᵇ standard-can-id-max)) p)))
+          (smallNat-by-eval standard-can-id-max tt)
+canId-small (Extended n p) =
+  ≤-trans (+-monoˡ-≤ extFlagBit (<⇒≤ (<ᵇ⇒< n extended-can-id-max (recompute (T? (n <ᵇ extended-can-id-max)) p))))
+          (smallNat-by-eval (extended-can-id-max + extFlagBit) tt)
 
 -- ============================================================================
 -- SG_ FIELD EMITTERS

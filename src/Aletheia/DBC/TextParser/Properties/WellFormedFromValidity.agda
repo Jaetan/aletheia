@@ -69,6 +69,7 @@ open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 
 open import Aletheia.DBC.Identifier using (Identifier; mkIdent)
+open import Aletheia.DBC.Bounds using (IsBoundedDBC)
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; Node; ValueTable; EnvironmentVar; DBCSignal; SignalGroup
   ; DBCComment; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar )
@@ -163,8 +164,9 @@ wellFormedFromValidity : ∀ (d : DBC)
   → All (WFAttribute (collectDefs (DBC.attributes d))) (DBC.attributes d)
   → AllPairs _≢_ (map DBCMessage.id (DBC.messages d))
   → DBC.unresolvedValueDescs d ≡ []
+  → IsBoundedDBC d
   → WellFormedTextDBCAgg d
-wellFormedFromValidity d msg-wfs attr-wfs ids unres = record
+wellFormedFromValidity d msg-wfs attr-wfs ids unres bd = record
   { node-stops       = All.universal nodeNameStop        (DBC.nodes           d)
   ; vt-stops         = All.universal valueTableNameStop  (DBC.valueTables     d)
   ; msg-wfs          = msg-wfs
@@ -174,4 +176,5 @@ wellFormedFromValidity d msg-wfs attr-wfs ids unres = record
   ; sg-wfs           = All.universal signalGroupWF       (DBC.signalGroups    d)
   ; msg-ids-unique   = ids
   ; unresolved-empty = unres
+  ; bounded          = bd
   }

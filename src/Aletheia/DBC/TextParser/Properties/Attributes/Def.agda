@@ -24,8 +24,9 @@ open import Data.Product using (_,_; proj₂)
 open import Data.String using ()
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst₂)
+  using (_≡_; refl; sym; trans; cong; subst; subst₂)
 
+open import Aletheia.DBC.Bounds using (SmallType)
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePositions;
          _>>=_; pure; many)
@@ -217,6 +218,7 @@ private
       ∀ (pos : Position) (s : RawStdScope) (n : List Char) (rt : RawAttrType)
         (outer-suffix : List Char)
     → SuffixStops isNewlineStart outer-suffix
+    → SmallType (liftAttrType rt)
     → proj₂ (parseAttrDef pos
         (emitAttrDef-chars (mkAttrDef n (liftStdScope s) (liftAttrType rt))
          ++ₗ outer-suffix))
@@ -225,7 +227,7 @@ private
                  (emitAttrDef-chars
                    (mkAttrDef n (liftStdScope s) (liftAttrType rt))))
                outer-suffix)
-  parseAttrDef-roundtrip-raw pos s n rt outer-suffix nl-stop =
+  parseAttrDef-roundtrip-raw pos s n rt outer-suffix nl-stop small =
     trans (cong (λ inp → proj₂ (parseAttrDef pos (inp ++ₗ outer-suffix)))
                 (sym bridge))
       (trans step-format
@@ -255,7 +257,7 @@ private
         bind-just-step (parse attrDefFmt) cont-line
                        pos (emit attrDefFmt (s , n , rt , tt) ++ₗ outer-suffix)
                        (s , n , rt , tt) pos-line outer-suffix
-                       (parseAttrDef-format-roundtrip pos s n rt outer-suffix)
+                       (parseAttrDef-format-roundtrip pos s n rt outer-suffix small)
 
       -- Step 2: many parseNewline consumes zero from outer-suffix.
       step-many-newline :
@@ -293,12 +295,13 @@ parseAttrDef-roundtrip :
     ∀ (d : AttrDef) (pos : Position) (outer-suffix : List Char)
   → WfAttrDef-NotRel d
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType (AttrDef.attrType d)
   → proj₂ (parseAttrDef pos (emitAttrDef-chars d ++ₗ outer-suffix))
     ≡ just (mkResult d
              (advancePositions pos (emitAttrDef-chars d))
              outer-suffix)
 parseAttrDef-roundtrip
-  (mkAttrDef n ASNetwork ty) pos outer-suffix (Wf-Network wf-ty) nl-stop =
+  (mkAttrDef n ASNetwork ty) pos outer-suffix (Wf-Network wf-ty) nl-stop small =
     subst₂ (λ sc ty' →
              proj₂ (parseAttrDef pos
                (emitAttrDef-chars (mkAttrDef n sc ty') ++ₗ outer-suffix))
@@ -309,12 +312,12 @@ parseAttrDef-roundtrip
            scope-eq
            (liftAttrType-rawAttrTypeOf wf-ty)
            (parseAttrDef-roundtrip-raw pos RssNet n (rawAttrTypeOf wf-ty)
-                                        outer-suffix nl-stop)
+                                        outer-suffix nl-stop (subst SmallType (sym (liftAttrType-rawAttrTypeOf wf-ty)) small))
     where
       scope-eq : liftStdScope RssNet ≡ ASNetwork
       scope-eq = refl
 parseAttrDef-roundtrip
-  (mkAttrDef n ASNode ty) pos outer-suffix (Wf-Node wf-ty) nl-stop =
+  (mkAttrDef n ASNode ty) pos outer-suffix (Wf-Node wf-ty) nl-stop small =
     subst₂ (λ sc ty' →
              proj₂ (parseAttrDef pos
                (emitAttrDef-chars (mkAttrDef n sc ty') ++ₗ outer-suffix))
@@ -325,12 +328,12 @@ parseAttrDef-roundtrip
            scope-eq
            (liftAttrType-rawAttrTypeOf wf-ty)
            (parseAttrDef-roundtrip-raw pos RssNode n (rawAttrTypeOf wf-ty)
-                                        outer-suffix nl-stop)
+                                        outer-suffix nl-stop (subst SmallType (sym (liftAttrType-rawAttrTypeOf wf-ty)) small))
     where
       scope-eq : liftStdScope RssNode ≡ ASNode
       scope-eq = refl
 parseAttrDef-roundtrip
-  (mkAttrDef n ASMessage ty) pos outer-suffix (Wf-Message wf-ty) nl-stop =
+  (mkAttrDef n ASMessage ty) pos outer-suffix (Wf-Message wf-ty) nl-stop small =
     subst₂ (λ sc ty' →
              proj₂ (parseAttrDef pos
                (emitAttrDef-chars (mkAttrDef n sc ty') ++ₗ outer-suffix))
@@ -341,12 +344,12 @@ parseAttrDef-roundtrip
            scope-eq
            (liftAttrType-rawAttrTypeOf wf-ty)
            (parseAttrDef-roundtrip-raw pos RssMsg n (rawAttrTypeOf wf-ty)
-                                        outer-suffix nl-stop)
+                                        outer-suffix nl-stop (subst SmallType (sym (liftAttrType-rawAttrTypeOf wf-ty)) small))
     where
       scope-eq : liftStdScope RssMsg ≡ ASMessage
       scope-eq = refl
 parseAttrDef-roundtrip
-  (mkAttrDef n ASSignal ty) pos outer-suffix (Wf-Signal wf-ty) nl-stop =
+  (mkAttrDef n ASSignal ty) pos outer-suffix (Wf-Signal wf-ty) nl-stop small =
     subst₂ (λ sc ty' →
              proj₂ (parseAttrDef pos
                (emitAttrDef-chars (mkAttrDef n sc ty') ++ₗ outer-suffix))
@@ -357,12 +360,12 @@ parseAttrDef-roundtrip
            scope-eq
            (liftAttrType-rawAttrTypeOf wf-ty)
            (parseAttrDef-roundtrip-raw pos RssSig n (rawAttrTypeOf wf-ty)
-                                        outer-suffix nl-stop)
+                                        outer-suffix nl-stop (subst SmallType (sym (liftAttrType-rawAttrTypeOf wf-ty)) small))
     where
       scope-eq : liftStdScope RssSig ≡ ASSignal
       scope-eq = refl
 parseAttrDef-roundtrip
-  (mkAttrDef n ASEnvVar ty) pos outer-suffix (Wf-EnvVar wf-ty) nl-stop =
+  (mkAttrDef n ASEnvVar ty) pos outer-suffix (Wf-EnvVar wf-ty) nl-stop small =
     subst₂ (λ sc ty' →
              proj₂ (parseAttrDef pos
                (emitAttrDef-chars (mkAttrDef n sc ty') ++ₗ outer-suffix))
@@ -373,7 +376,7 @@ parseAttrDef-roundtrip
            scope-eq
            (liftAttrType-rawAttrTypeOf wf-ty)
            (parseAttrDef-roundtrip-raw pos RssEnv n (rawAttrTypeOf wf-ty)
-                                        outer-suffix nl-stop)
+                                        outer-suffix nl-stop (subst SmallType (sym (liftAttrType-rawAttrTypeOf wf-ty)) small))
     where
       scope-eq : liftStdScope RssEnv ≡ ASEnvVar
       scope-eq = refl
@@ -387,6 +390,7 @@ private
       ∀ (pos : Position) (s : RawRelScope) (n : List Char) (rt : RawAttrType)
         (outer-suffix : List Char)
     → SuffixStops isNewlineStart outer-suffix
+    → SmallType (liftAttrType rt)
     → proj₂ (parseAttrDefRel pos
         (emitAttrDef-chars (mkAttrDef n (liftRelScope s) (liftAttrType rt))
          ++ₗ outer-suffix))
@@ -395,7 +399,7 @@ private
                  (emitAttrDef-chars
                    (mkAttrDef n (liftRelScope s) (liftAttrType rt))))
                outer-suffix)
-  parseAttrDefRel-roundtrip-raw pos s n rt outer-suffix nl-stop =
+  parseAttrDefRel-roundtrip-raw pos s n rt outer-suffix nl-stop small =
     trans (cong (λ inp → proj₂ (parseAttrDefRel pos (inp ++ₗ outer-suffix)))
                 (sym bridge))
       (trans step-format
@@ -424,7 +428,7 @@ private
         bind-just-step (parse attrDefRelFmt) cont-line
                        pos (emit attrDefRelFmt (s , n , rt , tt) ++ₗ outer-suffix)
                        (s , n , rt , tt) pos-line outer-suffix
-                       (parseAttrDefRel-format-roundtrip pos s n rt outer-suffix)
+                       (parseAttrDefRel-format-roundtrip pos s n rt outer-suffix small)
 
       step-many-newline :
         proj₂ (cont-line (s , n , rt , tt) pos-line outer-suffix)
@@ -449,12 +453,13 @@ parseAttrDefRel-roundtrip :
     ∀ (d : AttrDef) (pos : Position) (outer-suffix : List Char)
   → WfAttrDef-Rel d
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType (AttrDef.attrType d)
   → proj₂ (parseAttrDefRel pos (emitAttrDef-chars d ++ₗ outer-suffix))
     ≡ just (mkResult d
              (advancePositions pos (emitAttrDef-chars d))
              outer-suffix)
 parseAttrDefRel-roundtrip
-  (mkAttrDef n ASNodeMsg ty) pos outer-suffix (Wf-NodeMsg wf-ty) nl-stop =
+  (mkAttrDef n ASNodeMsg ty) pos outer-suffix (Wf-NodeMsg wf-ty) nl-stop small =
     subst₂ (λ sc ty' →
              proj₂ (parseAttrDefRel pos
                (emitAttrDef-chars (mkAttrDef n sc ty') ++ₗ outer-suffix))
@@ -466,12 +471,12 @@ parseAttrDefRel-roundtrip
            (liftAttrType-rawAttrTypeOf wf-ty)
            (parseAttrDefRel-roundtrip-raw pos RrsNodeMsg n
                                            (rawAttrTypeOf wf-ty)
-                                           outer-suffix nl-stop)
+                                           outer-suffix nl-stop (subst SmallType (sym (liftAttrType-rawAttrTypeOf wf-ty)) small))
     where
       scope-eq : liftRelScope RrsNodeMsg ≡ ASNodeMsg
       scope-eq = refl
 parseAttrDefRel-roundtrip
-  (mkAttrDef n ASNodeSig ty) pos outer-suffix (Wf-NodeSig wf-ty) nl-stop =
+  (mkAttrDef n ASNodeSig ty) pos outer-suffix (Wf-NodeSig wf-ty) nl-stop small =
     subst₂ (λ sc ty' →
              proj₂ (parseAttrDefRel pos
                (emitAttrDef-chars (mkAttrDef n sc ty') ++ₗ outer-suffix))
@@ -483,7 +488,7 @@ parseAttrDefRel-roundtrip
            (liftAttrType-rawAttrTypeOf wf-ty)
            (parseAttrDefRel-roundtrip-raw pos RrsNodeSig n
                                            (rawAttrTypeOf wf-ty)
-                                           outer-suffix nl-stop)
+                                           outer-suffix nl-stop (subst SmallType (sym (liftAttrType-rawAttrTypeOf wf-ty)) small))
     where
       scope-eq : liftRelScope RrsNodeSig ≡ ASNodeSig
       scope-eq = refl

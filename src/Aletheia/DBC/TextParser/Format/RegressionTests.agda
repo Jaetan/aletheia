@@ -38,6 +38,7 @@ open import Aletheia.DBC.TextFormatter.Emitter
   using (showNat-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using (SuffixStops)
 
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; SmallDecRat)
 open import Aletheia.DBC.TextParser.Format
   using (parse; literal; ident; nat; pair; refined; decRat; wsOpt; ws; altSum;
          roundtrip)
@@ -89,13 +90,14 @@ roundtrip-pair-ident-literal pos i ds suffix ss =
 -- and the witness slot closes via `T-irrelevant`.  If `refined`'s
 -- signature or `liftRefined-on-witness`'s shape drifts, this fails.
 roundtrip-refined-nat : ∀ pos (P : ℕ → Bool) (n : ℕ) (wit : T (P n)) suffix
+  → SmallNat n
   → SuffixStops isDigit suffix
   → proj₂ (parse (refined P nat) pos (showNat-chars n ++ₗ suffix))
     ≡ just (mkResult (n , wit)
              (advancePositions pos (showNat-chars n))
              suffix)
-roundtrip-refined-nat pos P n wit suffix ss =
-  roundtrip (refined P nat) pos (n , wit) suffix ss
+roundtrip-refined-nat pos P n wit suffix n-small ss =
+  roundtrip (refined P nat) pos (n , wit) suffix (n-small , ss)
 
 -- L6: altSum on the inj₁ branch — literal "X" lifted to `Format (⊤ ⊎ ℕ)`.
 -- Tests the left-branch path through `<|>`: `parse f` succeeds first, so
@@ -114,12 +116,13 @@ roundtrip-altSum-inj₁ pos suffix =
 -- `parseDecRat-roundtrip-suffix`.  Catches drift in the `decRat` clause
 -- of either `emit`/`parse`/`EmitsOK`/`roundtrip`.
 roundtrip-decRat : ∀ pos d suffix
+  → SmallDecRat d
   → SuffixStops isDigit suffix
   → proj₂ (parse decRat pos (showDecRat-dec-chars d ++ₗ suffix))
     ≡ just (mkResult d
              (advancePositions pos (showDecRat-dec-chars d))
              suffix)
-roundtrip-decRat pos d suffix ss = roundtrip decRat pos d suffix ss
+roundtrip-decRat pos d suffix small ss = roundtrip decRat pos d suffix (small , ss)
 
 -- L8: wsOpt — canonical `[]` emit means input reduces to `suffix` and
 -- output position to `pos`.  Catches `parseWSOpt`'s zero-consumption

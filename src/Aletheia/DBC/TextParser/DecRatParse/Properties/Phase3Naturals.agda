@@ -21,7 +21,7 @@
 --   * 3.11: Arithmetic bindings for Phase 4 (mag-* private defs,
 --           emitMagnitude-chars-mag, showDecRat-chars-head-*, build-eq-+suc/-neg).
 --
--- Depends on Phase 1 (foldl-digitToNat-showNat-chars) and Phase 2
+-- Depends on Phase 1 (foldDigits-showNat-chars) and Phase 2
 -- (some-satisfy-prefix, SuffixStops, isDigit predicate machinery).
 module Aletheia.DBC.TextParser.DecRatParse.Properties.Phase3Naturals where
 
@@ -31,7 +31,7 @@ open import Data.Char.Base using (isDigit; _≈ᵇ_)
 open import Data.Empty using (⊥-elim)
 import Data.Empty.Irrelevant as EmptyI
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using ()
+open import Data.List.Properties using (++-identityʳ)
   renaming (length-++ to length-++ₗ)
 open import Data.List.Relation.Unary.All using (All; _∷_)
 open import Data.Maybe using (just; nothing)
@@ -39,7 +39,7 @@ open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _/_; _%_; _^_; _⊔
          _<_; _≤_; z≤n; s≤s; NonZero)
 open import Data.Nat.Base using ()
 open import Data.Nat.Properties
-  using (+-comm;
+  using (+-comm; +-identityʳ; *-identityʳ;
          m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl)
 open import Data.Nat.DivMod
   using (m%n<n; m≡m%n+[m/n]*n)
@@ -47,20 +47,25 @@ open import Data.Nat.Divisibility using (_∣?_; _∤_)
 open import Data.Product using (_×_; _,_; ∃; ∃₂; proj₁; proj₂)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; cong₂)
+  using (_≡_; refl; sym; trans; cong; cong₂; subst)
 open import Relation.Nullary using (yes; no)
 
 open import Aletheia.Parser.Combinators
-  using (Position; mkResult;
+  using (Parser; Position; mkResult;
          advancePosition; advancePositions;
          satisfy; digit; some; manyHelper;
-         char; optional)
+         char; optional; _<$>_)
+open import Data.Maybe.Properties using (just-injective)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars;
          emitMagnitude-chars; showDecRat-dec-chars)
-open import Aletheia.DBC.TextParser.DecRatParse
-  using (parseDigitList; applySign; buildDecRat)
-open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
+open import Aletheia.DBC.DecRat.Literal
+  using (foldDigits; applySign; natLiteral; decimalLiteral; signedDecRat; rawLiteral)
+open import Aletheia.DBC.DecRat.Literal.Properties
+  using (canonical; exactTriple; SmallTriple; rawLiteral-exact; natLiteral-showNat-chars; foldDigits-++)
+open import Aletheia.DBC.TextParser.Lexer using (parseNatural; parseDigits)
+open import Aletheia.Limits using (max-rational-component-magnitude)
+open import Aletheia.DBC.DecRat.ScaleLemmas using (canonicalizeNat-zero)
 open import Data.Integer using (sign; _◃_; ∣_∣)
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
@@ -70,7 +75,7 @@ open import Aletheia.DBC.DecRat.ScaleLemmas using (canonicalizeNat-scale-pos)
 
 -- Phase 1 + Phase 2 lemmas consumed by Phase 3.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits
-  using (foldl-digitToNat-showNat-chars; parseDigitList-showℕ-padded-chars)
+  using (foldDigits-showNat-chars; foldDigits-showℕ-padded-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase2Many
   using (SuffixStops; some-satisfy-prefix;
          All-isDigit-showNat-chars; All-isDigit-showℕ-padded-chars)
@@ -135,32 +140,48 @@ showℕ-padded-chars-nonempty (suc w) n _ =
 -- Phase 3.2: parseNatural reads back showNat-chars
 -- ============================================================================
 --
--- Wraps `some-satisfy-prefix` (Phase 2) with `parseNatural`'s `do`-block
--- continuation `foldl (λ acc d → acc * 10 + digitToNat d) 0`.  The fold
--- result reduces to `n` via `foldl-digitToNat-showNat-chars` (Phase 1).
---
--- The four-term `with` abstracts `showNat-chars n` alongside the three
--- lemmas that mention it (`-nonempty`, `All-isDigit-`, `foldl-`).  The
--- `(x , xs' , refl)` pattern on `-nonempty` forces `showNat-chars n ≡
--- x ∷ xs'`, which flows through the other two via abstraction: `All-`
--- unifies as `px ∷ pxs`, and `foldl-` keeps its equation as `fold-eq`.
--- A second simultaneous `with` on the `some` call + the outcome-level
--- prefix lemma resolves the digits read (the lemma is `proj₂`-level,
--- so it cannot fire as a rewrite on the pair-typed scrutinee); the
--- final `rewrite fold-eq` closes the fold.
-parseNatural-showNat-chars : ∀ pos n (suffix : List Char) →
+-- `parseDigits` reads exactly the emitted digits of `n` and stops at the
+-- suffix: `some-satisfy-prefix` (Phase 2) on `showNat-chars n`, which is
+-- nonempty and all digits (Phase 2).  The three-term `with` abstracts
+-- `showNat-chars n` alongside the two lemmas that mention it; the
+-- `(x , xs' , refl)` pattern forces `showNat-chars n ≡ x ∷ xs'`.
+parseDigits-showNat-chars : ∀ pos n (suffix : List Char) →
   SuffixStops isDigit suffix →
-  proj₂ (parseNatural pos (showNat-chars n ++ₗ suffix))
-    ≡ just (mkResult n (advancePositions pos (showNat-chars n)) suffix)
-parseNatural-showNat-chars pos n suffix ss
+  proj₂ (parseDigits pos (showNat-chars n ++ₗ suffix))
+    ≡ just (mkResult (showNat-chars n) (advancePositions pos (showNat-chars n)) suffix)
+parseDigits-showNat-chars pos n suffix ss
   with showNat-chars n
      | showNat-chars-nonempty n
      | All-isDigit-showNat-chars n
-     | foldl-digitToNat-showNat-chars n
-... | .(x ∷ xs') | x , xs' , refl | px ∷ pxs | fold-eq
-  with some (satisfy isDigit) pos ((x ∷ xs') ++ₗ suffix)
-     | some-satisfy-prefix isDigit pos x xs' suffix px pxs ss
-...   | w , just r | refl rewrite fold-eq = refl
+... | .(x ∷ xs') | x , xs' , refl | px ∷ pxs =
+  some-satisfy-prefix isDigit pos x xs' suffix px pxs ss
+
+-- A mapped parser's reply is the map of the parser's reply.  Stated at
+-- the `proj₂` level, so a caller never abstracts a goal that mentions
+-- the mapped function: a `with` over such a goal normalises the
+-- function's body, and the literal core's is large.
+map-just : ∀ {A B : Set} (f : A → B) (p : Parser A) pos input {v pos′ rest} →
+  proj₂ (p pos input) ≡ just (mkResult v pos′ rest) →
+  proj₂ ((f <$> p) pos input) ≡ just (mkResult (f v) pos′ rest)
+map-just f p pos input eq with p pos input
+map-just f p pos input eq | w , just r with just-injective eq
+... | refl = refl
+map-just f p pos input () | w , nothing
+
+-- `parseNatural` reads back a natural within the component bound: the
+-- digits are read by `parseDigits-showNat-chars`, and the literal core
+-- reads them exactly (`natLiteral-showNat-chars`).  A larger natural is
+-- held at 2^64 by the core, so the bound is the premise.
+parseNatural-showNat-chars : ∀ pos n (suffix : List Char) →
+  n ≤ max-rational-component-magnitude →
+  SuffixStops isDigit suffix →
+  proj₂ (parseNatural pos (showNat-chars n ++ₗ suffix))
+    ≡ just (mkResult n (advancePositions pos (showNat-chars n)) suffix)
+parseNatural-showNat-chars pos n suffix n≤ ss =
+  trans (map-just natLiteral parseDigits pos (showNat-chars n ++ₗ suffix)
+           (parseDigits-showNat-chars pos n suffix ss))
+        (cong (λ v → just (mkResult v (advancePositions pos (showNat-chars n)) suffix))
+              (natLiteral-showNat-chars n n≤))
 
 -- ============================================================================
 -- Phase 3.3: canonicalizeDecRat-from-canonicalizeNat — sign-agnostic wrapper
@@ -688,108 +709,105 @@ showDecRat-chars-head-digit (suc n) a b _
       k , subtail ++ₗ '.' ∷ mag-fracChars (suc n) a b , k<10 ,
       cong (λ s → s ++ₗ '.' ∷ mag-fracChars (suc n) a b) eq
 
--- `build-eq-+suc` / `build-eq-neg` — `buildDecRat` on the emitter-shape
--- inputs reconstructs the original canonical record.  Lifted to module-
--- level (out of `parseDecRatFrac-roundtrip-+suc`'s / `-neg`'s `where` block)
--- because Agda 2.8 does not put `where`-bound names in scope for
--- `rewrite` clauses, and each appears as the last step in its branch's
--- outer rewrite chain.
---
--- Shared inner structure:
---   * `length-showℕ-padded-chars` folds `length fracChars → m`.
---   * `parseDigitList-showℕ-padded-chars m (… % 10^m) (m%n<n)` replays
---     the fractional parse to give back `scaledNum % 10^m`.
---   * `rawAbs≡scaledNum` glues `(q · 10^m + r) ≡ scaledNum`.
--- Then +suc closes via `canonicalizeDecRat-scale-pos`; neg closes via a
--- `sucn-scaled-suc`-witnessed `scaledNum ≡ suc k`, transporting through
--- `applySign (just '-')` and `canonicalizeDecRat-from-canonicalizeNat`.
--- Proof strategy: avoid top-level `rewrite` because its with-function
--- abstraction makes the instance resolution for `NonZero (10 ^ _)` in
--- the goal unsolvable (Agda unifier cannot invert `10 ^ _n = 10 ^ k`).
--- Instead, chain three `cong`s (folding `length fc → m`, `parseDigitList
--- fc → r`, `q * 10^m + r → scaledNum`) then close by `canonicalizeDecRat-
--- scale-pos`.  Each `cong` introduces a fresh lambda, so instance
--- resolution happens once per lemma at its call site.
-build-eq-+suc : ∀ n a b .(cx : IsCanonical (suc n) a b) →
-  buildDecRat nothing (mag-quot (suc n) a b) (mag-fracChars (suc n) a b)
+-- `build-eq-+suc` / `build-eq-neg` — `decimalLiteral` on the emitter-shape
+-- digit runs reads back the value, for a value within the component bound.
+-- The core reads the run exactly (`rawLiteral-exact`) to the canonical
+-- triple of the fold, which `canonicalizeNat-scale-pos-max` identifies
+-- with `(suc n , a , b)`; the sign is reattached by cases on the
+-- canonical magnitude, which is `suc n` and so never zero.
+
+-- The exact triple of the emitted runs is the value's own triple.
+exact-mag : ∀ n a b →
+  (h2 : 0 < a → 2 ∤ suc n) → (h5 : 0 < b → 5 ∤ suc n) →
+  exactTriple (showNat-chars (mag-quot (suc n) a b) ++ₗ mag-fracChars (suc n) a b)
+              (length (mag-fracChars (suc n) a b) + 0) 0
+    ≡ (suc n , a , b)
+exact-mag n a b h2 h5 =
+  trans (cong₂ (λ v k → canonicalizeNat (v * 10 ^ 0) k k) fold-eq
+               (trans (+-identityʳ _) len-eq))
+        (trans (cong (λ v → canonicalizeNat v (mag-m a b) (mag-m a b))
+                     (trans (*-identityʳ _) raw-eq))
+               (canonicalizeNat-scale-pos-max n a b h2 h5))
+  where
+    len-eq : length (mag-fracChars (suc n) a b) ≡ mag-m a b
+    len-eq = length-showℕ-padded-chars (mag-m a b) (mag-rem (suc n) a b)
+    pdl-eq : foldDigits (mag-fracChars (suc n) a b) ≡ mag-rem (suc n) a b
+    pdl-eq = foldDigits-showℕ-padded-chars (mag-m a b) (mag-rem (suc n) a b)
+               (m%n<n (mag-scaledNum (suc n) a b) (mag-scale a b) ⦃ 10^n≢0 (mag-m a b) ⦄)
+    fold-eq : foldDigits (showNat-chars (mag-quot (suc n) a b) ++ₗ mag-fracChars (suc n) a b)
+              ≡ mag-quot (suc n) a b * 10 ^ mag-m a b + mag-rem (suc n) a b
+    fold-eq = trans (foldDigits-++ (showNat-chars (mag-quot (suc n) a b)) (mag-fracChars (suc n) a b))
+                    (cong₂ (λ q r → q * 10 ^ length (mag-fracChars (suc n) a b) + r)
+                           (foldDigits-showNat-chars (mag-quot (suc n) a b)) pdl-eq
+                     ⟨trans⟩ cong (λ k → mag-quot (suc n) a b * 10 ^ k + mag-rem (suc n) a b) len-eq)
+      where
+        _⟨trans⟩_ = trans
+    raw-eq : mag-quot (suc n) a b * 10 ^ mag-m a b + mag-rem (suc n) a b
+             ≡ mag-scaledNum (suc n) a b
+    raw-eq = rawAbs≡scaledNum (mag-scaledNum (suc n) a b) (mag-m a b) ⦃ 10^n≢0 (mag-m a b) ⦄
+
+-- A raw triple whose canonical form is `(suc n , a , b)` is the signed value.
+signedDecRat-canon-+ : ∀ raw n a b .(cx : IsCanonical (suc n) a b) →
+  canonical raw ≡ (suc n , a , b) → signedDecRat nothing raw ≡ mkDecRat (ℤ+ suc n) a b cx
+signedDecRat-canon-+ (n′ , a′ , b′) n a b cx eq =
+  canonicalizeDecRat-from-canonicalizeNat (ℤ+ n′) a′ b′ (suc n) a b eq cx
+
+signedDecRat-canon-neg : ∀ raw c n a b .(cx : IsCanonical (suc n) a b) →
+  canonical raw ≡ (suc n , a , b) → signedDecRat (just c) raw ≡ mkDecRat ℤ-[1+ n ] a b cx
+signedDecRat-canon-neg (zero , a′ , b′) c n a b cx eq with trans (sym (canonicalizeNat-zero a′ b′)) eq
+... | ()
+signedDecRat-canon-neg (suc k , a′ , b′) c n a b cx eq =
+  canonicalizeDecRat-from-canonicalizeNat ℤ-[1+ k ] a′ b′ (suc n) a b eq cx
+
+-- The canonical value of a bare integer's run at no places.
+canon : ∀ k → suc k ≤ max-rational-component-magnitude →
+  canonical (rawLiteral (showNat-chars (suc k) ++ₗ []) 0 0) ≡ (suc k , 0 , 0)
+canon k n≤ = trans (rawLiteral-exact D 0 0 (subst SmallTriple (sym exact-eq) (n≤ , s≤s z≤n))) exact-eq
+  where
+    D = showNat-chars (suc k) ++ₗ []
+    exact-eq : exactTriple D 0 0 ≡ (suc k , 0 , 0)
+    exact-eq = cong (λ v → (v , 0 , 0))
+      (trans (*-identityʳ (foldDigits D))
+             (trans (cong foldDigits (++-identityʳ (showNat-chars (suc k))))
+                    (foldDigits-showNat-chars (suc k))))
+
+-- A bare integer's digits read back to the integer, within the bound.
+bareInt-eq : ∀ neg n → n ≤ max-rational-component-magnitude →
+  decimalLiteral neg (showNat-chars n) [] (ℤ+ 0) ≡ canonicalizeDecRat (applySign neg n) 0 0
+bareInt-eq nothing  zero    _  = refl
+bareInt-eq (just _) zero    _  = refl
+bareInt-eq nothing  (suc k) n≤ = signedDecRat-canon-+ (rawLiteral D 0 0) k 0 0 _ (canon k n≤)
+  where D = showNat-chars (suc k) ++ₗ []
+bareInt-eq (just c) (suc k) n≤ = signedDecRat-canon-neg (rawLiteral D 0 0) c k 0 0 _ (canon k n≤)
+  where D = showNat-chars (suc k) ++ₗ []
+
+-- The value's components within the bound, as the core's premise.
+small-mag : ∀ n a b → (h2 : 0 < a → 2 ∤ suc n) → (h5 : 0 < b → 5 ∤ suc n) →
+  SmallTriple (suc n , a , b) →
+  SmallTriple (exactTriple (showNat-chars (mag-quot (suc n) a b) ++ₗ mag-fracChars (suc n) a b)
+                           (length (mag-fracChars (suc n) a b) + 0) 0)
+small-mag n a b h2 h5 small = subst SmallTriple (sym (exact-mag n a b h2 h5)) small
+
+build-eq-+suc : ∀ n a b .(cx : IsCanonical (suc n) a b) → SmallTriple (suc n , a , b) →
+  decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) (mag-fracChars (suc n) a b) (ℤ+ 0)
   ≡ mkDecRat (ℤ+ suc n) a b cx
-build-eq-+suc n a b cx =
-  trans (cong (λ k → canonicalizeDecRat
-                       (ℤ+ (mag-quot (suc n) a b * 10 ^ k
-                              + parseDigitList (mag-fracChars (suc n) a b)))
-                       k k)
-              len-eq)
-    (trans (cong (λ v → canonicalizeDecRat
-                          (ℤ+ (mag-quot (suc n) a b * 10 ^ mag-m a b + v))
-                          (mag-m a b) (mag-m a b))
-                 pdl-eq)
-      (trans (cong (λ x → canonicalizeDecRat (ℤ+ x) (mag-m a b) (mag-m a b))
-                   raw-eq)
-             (canonicalizeDecRat-scale-pos n a b
-                (isCanonicalᵇ-pos-2∤ n a b cx)
-                (isCanonicalᵇ-pos-5∤ n a b cx)
-                cx)))
+build-eq-+suc n a b cx small =
+  signedDecRat-canon-+ (rawLiteral D P 0) n a b cx
+    (trans (rawLiteral-exact D P 0 (small-mag n a b h2 h5 small)) (exact-mag n a b h2 h5))
   where
-    len-eq : length (mag-fracChars (suc n) a b) ≡ mag-m a b
-    len-eq = length-showℕ-padded-chars (mag-m a b) (mag-rem (suc n) a b)
-    pdl-eq : parseDigitList (mag-fracChars (suc n) a b) ≡ mag-rem (suc n) a b
-    pdl-eq = parseDigitList-showℕ-padded-chars (mag-m a b) (mag-rem (suc n) a b)
-               (m%n<n (mag-scaledNum (suc n) a b) (mag-scale a b) ⦃ 10^n≢0 (mag-m a b) ⦄)
-    raw-eq : mag-quot (suc n) a b * 10 ^ mag-m a b + mag-rem (suc n) a b
-             ≡ mag-scaledNum (suc n) a b
-    raw-eq = rawAbs≡scaledNum (mag-scaledNum (suc n) a b) (mag-m a b) ⦃ 10^n≢0 (mag-m a b) ⦄
+    h2 = isCanonicalᵇ-pos-2∤ n a b cx
+    h5 = isCanonicalᵇ-pos-5∤ n a b cx
+    D = showNat-chars (mag-quot (suc n) a b) ++ₗ mag-fracChars (suc n) a b
+    P = length (mag-fracChars (suc n) a b) + 0
 
-build-eq-neg : ∀ n a b .(cx : IsCanonical (suc n) a b) →
-  buildDecRat (just '-') (mag-quot (suc n) a b) (mag-fracChars (suc n) a b)
+build-eq-neg : ∀ n a b .(cx : IsCanonical (suc n) a b) → SmallTriple (suc n , a , b) →
+  decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) (mag-fracChars (suc n) a b) (ℤ+ 0)
   ≡ mkDecRat ℤ-[1+ n ] a b cx
-build-eq-neg n a b cx =
-  trans (cong (λ k → canonicalizeDecRat
-                       (applySign (just '-')
-                          (mag-quot (suc n) a b * 10 ^ k
-                             + parseDigitList (mag-fracChars (suc n) a b)))
-                       k k)
-              len-eq)
-    (trans (cong (λ v → canonicalizeDecRat
-                          (applySign (just '-')
-                             (mag-quot (suc n) a b * 10 ^ mag-m a b + v))
-                          (mag-m a b) (mag-m a b))
-                 pdl-eq)
-      (trans (cong (λ x → canonicalizeDecRat
-                            (applySign (just '-') x)
-                            (mag-m a b) (mag-m a b))
-                   raw-eq)
-             (neg-helper (sucn-scaled-suc n (mag-m a b ∸ a) (mag-m a b ∸ b)))))
+build-eq-neg n a b cx small =
+  signedDecRat-canon-neg (rawLiteral D P 0) '-' n a b cx
+    (trans (rawLiteral-exact D P 0 (small-mag n a b h2 h5 small)) (exact-mag n a b h2 h5))
   where
-    len-eq : length (mag-fracChars (suc n) a b) ≡ mag-m a b
-    len-eq = length-showℕ-padded-chars (mag-m a b) (mag-rem (suc n) a b)
-    pdl-eq : parseDigitList (mag-fracChars (suc n) a b) ≡ mag-rem (suc n) a b
-    pdl-eq = parseDigitList-showℕ-padded-chars (mag-m a b) (mag-rem (suc n) a b)
-               (m%n<n (mag-scaledNum (suc n) a b) (mag-scale a b) ⦃ 10^n≢0 (mag-m a b) ⦄)
-    raw-eq : mag-quot (suc n) a b * 10 ^ mag-m a b + mag-rem (suc n) a b
-             ≡ mag-scaledNum (suc n) a b
-    raw-eq = rawAbs≡scaledNum (mag-scaledNum (suc n) a b) (mag-m a b) ⦃ 10^n≢0 (mag-m a b) ⦄
-
-    -- `applySign (just '-') scaledNum` doesn't reduce until `scaledNum
-    -- ≡ suc k` is witnessed.  `sucn-scaled-suc` supplies that witness;
-    -- `cong` transports through `applySign` to give `canonicalizeDecRat
-    -- -[1+ k ] m m` on the RHS.  The final step is `canonicalizeDecRat-
-    -- from-canonicalizeNat` with a proof obtained by rewriting
-    -- `canonicalizeNat-scale-pos-max` along `sym scaled-eq`.
-    neg-helper : (∃ λ k → mag-scaledNum (suc n) a b ≡ suc k) →
-                 canonicalizeDecRat
-                   (applySign (just '-') (mag-scaledNum (suc n) a b))
-                   (mag-m a b) (mag-m a b)
-                   ≡ mkDecRat ℤ-[1+ n ] a b cx
-    neg-helper (k , scaled-eq) =
-      trans (cong (λ x → canonicalizeDecRat (applySign (just '-') x)
-                                            (mag-m a b) (mag-m a b))
-                  scaled-eq)
-            (canonicalizeDecRat-from-canonicalizeNat
-              ℤ-[1+ k ] (mag-m a b) (mag-m a b) (suc n) a b
-              (trans (cong (λ x → canonicalizeNat x (mag-m a b) (mag-m a b))
-                           (sym scaled-eq))
-                     (canonicalizeNat-scale-pos-max n a b
-                       (isCanonicalᵇ-pos-2∤ n a b cx)
-                       (isCanonicalᵇ-pos-5∤ n a b cx)))
-              cx)
-
+    h2 = isCanonicalᵇ-pos-2∤ n a b cx
+    h5 = isCanonicalᵇ-pos-5∤ n a b cx
+    D = showNat-chars (mag-quot (suc n) a b) ++ₗ mag-fracChars (suc n) a b
+    P = length (mag-fracChars (suc n) a b) + 0

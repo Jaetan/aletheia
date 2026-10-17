@@ -37,7 +37,10 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _+_; _*_; _∸_; _/_; _≤_)
+open import Data.Nat.Properties using (≤-trans; +-mono-≤; *-monoˡ-≤; m∸n≤m; <⇒≤)
+open import Data.Nat.DivMod using (m%n<n)
+open import Data.Unit using (tt)
 open import Data.Product using (Σ-syntax; _×_; _,_; proj₂)
 open import Data.String using (toList)
 open import Data.Empty using (⊥-elim)
@@ -56,9 +59,12 @@ open import Aletheia.CAN.Signal using (SignalDef)
 
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextParser.Topology using (parseSignalLine)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; smallNat-by-eval)
+open import Aletheia.DBC.Bounds using (SignalMagnitudes)
+open import Aletheia.CAN.Endianness using (unconvertStartBit)
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (RawSignal; mkRawSignal;
-   MuxMarker; NotMux; IsMux; SelBy)
+   MuxMarker; NotMux; IsMux; SelBy; MuxSmall; RawSignalSmall)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (showNat-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextFormatter.Topology using
@@ -321,6 +327,30 @@ recvHeadStop (mkCanonical (mkIdent (c ∷ cs) v ∷ s ∷ rest) _) =
 --   3. Apply universal `signalLine-roundtrip` with translated preconditions.
 -- The trans chain reads: parser ∘ formatter ≡ parser ∘ DSL-emit ≡ just …
 
+-- A converted start bit is within the component bound: Intel keeps the
+-- start bit, Motorola places it inside the frame, below 8 times its bytes.
+unconvertStartBit-small : ∀ fb bo s l → SmallNat s → fb ≤ 64
+  → SmallNat (unconvertStartBit fb bo s l)
+unconvertStartBit-small fb LittleEndian s l s-small _ = s-small
+unconvertStartBit-small fb BigEndian s l _ fb≤64 =
+  ≤-trans (+-mono-≤ (*-monoˡ-≤ 8 (≤-trans (m∸n≤m (fb ∸ 1) (b / 8)) (≤-trans (m∸n≤m fb 1) fb≤64)))
+                    (<⇒≤ (m%n<n b 8)))
+          (smallNat-by-eval (64 * 8 + 8) tt)
+  where
+    b = s + l ∸ 1
+
+-- The raw signal built from a bounded DBC signal is within the bound.
+expectedRaw-small : ∀ mux sig fb → MuxSmall mux → fb ≤ 64 → SignalMagnitudes sig
+  → RawSignalSmall (expectedRaw mux sig fb)
+expectedRaw-small mux sig fb mux-small fb≤64 m =
+  mux-small
+  , unconvertStartBit-small fb (DBCSignal.byteOrder sig)
+      (SignalDef.startBit (DBCSignal.signalDef sig)) (SignalDef.bitLength (DBCSignal.signalDef sig))
+      (SignalMagnitudes.startBit m) fb≤64
+  , SignalMagnitudes.bitLength m
+  , SignalMagnitudes.factor m , SignalMagnitudes.offset m
+  , SignalMagnitudes.minimum m , SignalMagnitudes.maximum m
+
 parseSignalLine-roundtrip-NotMux :
     ∀ (pos : Position) (master : Maybe (List Char)) (fb : ℕ)
       (sig : DBCSignal) (suffix : List Char)
@@ -332,20 +362,23 @@ parseSignalLine-roundtrip-NotMux :
       (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
         ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
+  → fb ≤ 64
+  → SignalMagnitudes sig
   → proj₂ (parseSignalLine pos
       (emitSignalLine-chars master fb sig ++ₗ suffix))
     ≡ just (mkResult (expectedRaw NotMux sig fb)
              (advancePositions pos (emitSignalLine-chars master fb sig))
              suffix)
 parseSignalLine-roundtrip-NotMux pos master fb sig suffix
-                                    mux-eq name-stop hs-stop recv-cont-stop =
+                                    mux-eq name-stop hs-stop recv-cont-stop fb≤64 mags =
   trans
     (cong (λ s → proj₂ (parseSignalLine pos (s ++ₗ suffix))) (sym bridge))
     (trans
       (signalLine-roundtrip pos rs suffix
          (sig-name-stop→name-stop NotMux fb sig name-stop)
          (build-RecvHeadStop (DBCSignal.receivers sig) suffix hs-stop)
-         recv-cont-stop)
+         recv-cont-stop
+         (expectedRaw-small NotMux sig fb tt fb≤64 mags))
       (cong (λ s → just (mkResult rs (advancePositions pos s) suffix)) bridge))
   where
     rs : RawSignal
@@ -365,20 +398,23 @@ parseSignalLine-roundtrip-IsMux :
       (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
         ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
+  → fb ≤ 64
+  → SignalMagnitudes sig
   → proj₂ (parseSignalLine pos
       (emitSignalLine-chars master fb sig ++ₗ suffix))
     ≡ just (mkResult (expectedRaw IsMux sig fb)
              (advancePositions pos (emitSignalLine-chars master fb sig))
              suffix)
 parseSignalLine-roundtrip-IsMux pos master fb sig suffix
-                                   mux-eq name-stop hs-stop recv-cont-stop =
+                                   mux-eq name-stop hs-stop recv-cont-stop fb≤64 mags =
   trans
     (cong (λ s → proj₂ (parseSignalLine pos (s ++ₗ suffix))) (sym bridge))
     (trans
       (signalLine-roundtrip pos rs suffix
          (sig-name-stop→name-stop IsMux fb sig name-stop)
          (build-RecvHeadStop (DBCSignal.receivers sig) suffix hs-stop)
-         recv-cont-stop)
+         recv-cont-stop
+         (expectedRaw-small IsMux sig fb tt fb≤64 mags))
       (cong (λ s → just (mkResult rs (advancePositions pos s) suffix)) bridge))
   where
     rs : RawSignal
@@ -402,20 +438,24 @@ parseSignalLine-roundtrip-SelBy :
       (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
         ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
+  → SmallNat v
+  → fb ≤ 64
+  → SignalMagnitudes sig
   → proj₂ (parseSignalLine pos
       (emitSignalLine-chars master fb sig ++ₗ suffix))
     ≡ just (mkResult (expectedRaw (SelBy v) sig fb)
              (advancePositions pos (emitSignalLine-chars master fb sig))
              suffix)
 parseSignalLine-roundtrip-SelBy pos master fb sig v suffix
-                                   mux-eq name-stop hs-stop recv-cont-stop =
+                                   mux-eq name-stop hs-stop recv-cont-stop v-small fb≤64 mags =
   trans
     (cong (λ s → proj₂ (parseSignalLine pos (s ++ₗ suffix))) (sym bridge))
     (trans
       (signalLine-roundtrip pos rs suffix
          (sig-name-stop→name-stop (SelBy v) fb sig name-stop)
          (build-RecvHeadStop (DBCSignal.receivers sig) suffix hs-stop)
-         recv-cont-stop)
+         recv-cont-stop
+         (expectedRaw-small (SelBy v) sig fb v-small fb≤64 mags))
       (cong (λ s → just (mkResult rs (advancePositions pos s) suffix)) bridge))
   where
     rs : RawSignal

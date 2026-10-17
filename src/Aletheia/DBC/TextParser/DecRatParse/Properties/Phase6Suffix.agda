@@ -31,10 +31,8 @@ open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
 open import Data.List.Relation.Unary.All using ([])
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _+_)
+open import Data.Nat using (ℕ; zero; suc; _≤_)
 open import Data.Product using (_,_; proj₂)
-open import Data.Nat.Properties
-  using (+-identityʳ; *-identityʳ)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 
@@ -49,7 +47,7 @@ open import Aletheia.DBC.TextFormatter.Emitter
          emitMagnitude-chars; showDecRat-dec-chars; showInt-chars)
 open import Aletheia.DBC.TextParser.DecRatParse
   using (parseDecRat; parseDecRatFrac;
-         parseDecRatBareInt; buildDecRat;
+         parseDecRatBareInt;
          parseIntDecRat; parseNatDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
   (mkIntDecRat; intDecRatToℤ;
@@ -59,8 +57,11 @@ open import Aletheia.DBC.DecRat.Refinement using
    mkNatDecRatFromℕ-natDecRatToℕ;
    isNonNegIntegerᵇ; isNonNegIntegerᵇ-fromℕ)
 open import Aletheia.Prelude using (ifᵀ_then_else_; ifᵀ-witness)
-open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
-open import Data.Integer using (ℤ)
+open import Aletheia.DBC.TextParser.Lexer using (parseDigits)
+open import Aletheia.DBC.DecRat.Literal using (decimalLiteral)
+open import Aletheia.DBC.DecRat.Literal.Properties using (SmallTriple; SmallDecRat; smallTriple)
+open import Aletheia.Limits using (max-rational-component-magnitude)
+open import Data.Integer using (ℤ; ∣_∣)
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
   using (mkDecRat; IsCanonical;
@@ -88,7 +89,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase4Composition pub
 --     `_++_`'s left-grouping is `(showNat-chars _ ++ₗ '.' ∷ frac) ++ₗ
 --     suffix`.  An explicit `++-assoc` step re-groups it to `showNat-chars
 --     _ ++ₗ '.' ∷ (frac ++ₗ suffix)` so the `optional-dash-fail-on-showNat`
---     and `parseNatural-showNat-chars` lemmas can match.
+--     and `parseDigits-showNat-chars` lemmas can match.
 --   * The fractional `some digit` step takes `suffix` directly (via the
 --     existing `some-digit-showℕ-padded-chars`) rather than the
 --     closed-suffix `-end` variant.
@@ -118,7 +119,7 @@ emag-suffix-shape absNum a b suffix =
 -- gives `'0' ∷ '.' ∷ '0' ∷ suffix` (definitional via `_∷_` → `_++_`
 -- reduction).  parseDecRat then reduces step-by-step:
 --   * `optional (char '-')` on `'0' ∷ ...` falls to `nothing` branch (def).
---   * `parseNatural` on `'0' ∷ '.' ∷ '0' ∷ suffix` reads `'0'` and stops
+--   * `parseDigits` on `'0' ∷ '.' ∷ '0' ∷ suffix` reads `'0'` and stops
 --     at `'.'` (def — `manyHelper`'s outer `with satisfy isDigit` resolves
 --     definitionally on the concrete `'.'` head).
 --   * `char '.'` consumes (def).
@@ -153,7 +154,7 @@ parseDecRatFrac-roundtrip-+zero-suffix (suc _) _       _   _      cx _ = EmptyI.
 -- Phase 6.2: `+ suc n` case with suffix
 -- ----------------------------------------------------------------------------
 parseDecRatFrac-roundtrip-+suc-suffix : ∀ n a b pos suffix
-  .(cx : IsCanonical (suc n) a b) →
+  .(cx : IsCanonical (suc n) a b) → SmallTriple (suc n , a , b) →
   SuffixStops isDigit suffix →
   proj₂ (parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)
                             ++ₗ suffix))
@@ -161,14 +162,14 @@ parseDecRatFrac-roundtrip-+suc-suffix : ∀ n a b pos suffix
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)))
                      suffix)
-parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx ss =
+parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx small ss =
   trans (cong (λ cs → proj₂ (parseDecRatFrac pos cs))
               (emag-suffix-shape (suc n) a b suffix))
     (trans step-dash-fail
       (trans step-parseNat
         (trans step-some-digit
           (cong₂ (λ v p → just (mkResult v p suffix))
-                 (build-eq-+suc n a b cx)
+                 (build-eq-+suc n a b cx small)
                  pos-eq))))
   where
     posAfterNat : Position
@@ -186,14 +187,14 @@ parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx ss =
 
     step-dash-fail :
       proj₂ (parseDecRatFrac pos input-shape)
-      ≡ proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat nothing nₚ fd))
+      ≡ proj₂ ((parseDigits >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                  pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                  pos input-shape)
     step-dash-fail =
       bind-just-step (optional (char '-'))
-                     (λ neg → parseNatural >>= λ nₚ → char '.' >>= λ _ →
+                     (λ neg → parseDigits >>= λ nₚ → char '.' >>= λ _ →
                               some digit >>= λ fd →
-                              pure (buildDecRat neg nₚ fd))
+                              pure (decimalLiteral neg nₚ fd (ℤ+ 0)))
                      pos input-shape
                      nothing pos input-shape
                      (optional-dash-fail-on-showNat pos
@@ -201,38 +202,36 @@ parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx ss =
                         ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix))
 
     step-parseNat :
-      proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                pure (buildDecRat nothing nₚ fd))
+      proj₂ ((parseDigits >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                pos input-shape)
       ≡ proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
+                  pure (decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                  posAfterNat ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix))
     step-parseNat =
-      bind-just-step parseNatural
+      bind-just-step parseDigits
                      (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                              pure (buildDecRat nothing nₚ fd))
+                              pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                      pos input-shape
-                     (mag-quot (suc n) a b) posAfterNat
+                     (showNat-chars (mag-quot (suc n) a b)) posAfterNat
                      ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
-                     (parseNatural-showNat-chars pos
+                     (parseDigits-showNat-chars pos
                         (mag-quot (suc n) a b)
                         ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
                         (∷-stop isDigit-dot-false))
 
     step-some-digit :
       proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
+                pure (decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                posAfterNat ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix))
       ≡ just (mkResult
-                (buildDecRat nothing (mag-quot (suc n) a b)
-                              (mag-fracChars (suc n) a b))
+                (decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) (mag-fracChars (suc n) a b) (ℤ+ 0))
                 posAfterFrac suffix)
     step-some-digit =
-      trans (past-dot-char-dot-eq nothing (mag-quot (suc n) a b)
+      trans (past-dot-char-dot-eq nothing (showNat-chars (mag-quot (suc n) a b))
                posAfterNat (mag-fracChars (suc n) a b ++ₗ suffix))
             (bind-just-step (some digit)
-                            (λ fd → pure (buildDecRat nothing
-                                                      (mag-quot (suc n) a b) fd))
+                            (λ fd → pure (decimalLiteral nothing (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                             posAfterDot (mag-fracChars (suc n) a b ++ₗ suffix)
                             (mag-fracChars (suc n) a b) posAfterFrac suffix
                             (some-digit-showℕ-padded-chars (mag-m a b)
@@ -249,7 +248,7 @@ parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx ss =
 -- Phase 6.3: `-[1+ n ]` (neg) case with suffix
 -- ----------------------------------------------------------------------------
 parseDecRatFrac-roundtrip-neg-suffix : ∀ n a b pos suffix
-  .(cx : IsCanonical (suc n) a b) →
+  .(cx : IsCanonical (suc n) a b) → SmallTriple (suc n , a , b) →
   SuffixStops isDigit suffix →
   proj₂ (parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)
                             ++ₗ suffix))
@@ -257,13 +256,13 @@ parseDecRatFrac-roundtrip-neg-suffix : ∀ n a b pos suffix
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)))
                      suffix)
-parseDecRatFrac-roundtrip-neg-suffix n a b pos suffix cx ss =
+parseDecRatFrac-roundtrip-neg-suffix n a b pos suffix cx small ss =
   trans (cong (λ x → proj₂ (parseDecRatFrac pos ('-' ∷ x)))
               (emag-suffix-shape (suc n) a b suffix))
     (trans step-parseNat
       (trans step-some-digit
         (cong₂ (λ v p → just (mkResult v p suffix))
-               (build-eq-neg n a b cx)
+               (build-eq-neg n a b cx small)
                pos-eq)))
   where
     posAfterDash : Position
@@ -284,36 +283,34 @@ parseDecRatFrac-roundtrip-neg-suffix n a b pos suffix cx ss =
                ('-' ∷ showNat-chars (mag-quot (suc n) a b)
                         ++ₗ '.' ∷ mag-fracChars (suc n) a b ++ₗ suffix))
       ≡ proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
+                  pure (decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                  posAfterNat ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix))
     step-parseNat =
-      bind-just-step parseNatural
+      bind-just-step parseDigits
                      (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                              pure (buildDecRat (just '-') nₚ fd))
+                              pure (decimalLiteral (just '-') nₚ fd (ℤ+ 0)))
                      posAfterDash
                      (showNat-chars (mag-quot (suc n) a b)
                         ++ₗ '.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
-                     (mag-quot (suc n) a b) posAfterNat
+                     (showNat-chars (mag-quot (suc n) a b)) posAfterNat
                      ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
-                     (parseNatural-showNat-chars posAfterDash
+                     (parseDigits-showNat-chars posAfterDash
                         (mag-quot (suc n) a b)
                         ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
                         (∷-stop isDigit-dot-false))
 
     step-some-digit :
       proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
+                pure (decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                posAfterNat ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix))
       ≡ just (mkResult
-                (buildDecRat (just '-') (mag-quot (suc n) a b)
-                              (mag-fracChars (suc n) a b))
+                (decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) (mag-fracChars (suc n) a b) (ℤ+ 0))
                 posAfterFrac suffix)
     step-some-digit =
-      trans (past-dot-char-dot-eq (just '-') (mag-quot (suc n) a b)
+      trans (past-dot-char-dot-eq (just '-') (showNat-chars (mag-quot (suc n) a b))
                posAfterNat (mag-fracChars (suc n) a b ++ₗ suffix))
             (bind-just-step (some digit)
-                            (λ fd → pure (buildDecRat (just '-')
-                                                      (mag-quot (suc n) a b) fd))
+                            (λ fd → pure (decimalLiteral (just '-') (showNat-chars (mag-quot (suc n) a b)) fd (ℤ+ 0)))
                             posAfterDot (mag-fracChars (suc n) a b ++ₗ suffix)
                             (mag-fracChars (suc n) a b) posAfterFrac suffix
                             (some-digit-showℕ-padded-chars (mag-m a b)
@@ -329,16 +326,16 @@ parseDecRatFrac-roundtrip-neg-suffix n a b pos suffix cx ss =
 -- ----------------------------------------------------------------------------
 -- Phase 6.4: Top-level dispatcher with suffix
 -- ----------------------------------------------------------------------------
-parseDecRatFrac-roundtrip-suffix : ∀ d pos suffix →
+parseDecRatFrac-roundtrip-suffix : ∀ d pos suffix → SmallDecRat d →
   SuffixStops isDigit suffix →
   proj₂ (parseDecRatFrac pos (showDecRat-dec-chars d ++ₗ suffix))
     ≡ just (mkResult d (advancePositions pos (showDecRat-dec-chars d)) suffix)
-parseDecRatFrac-roundtrip-suffix (mkDecRat (ℤ+ zero)  a b cx) pos suffix ss =
+parseDecRatFrac-roundtrip-suffix (mkDecRat (ℤ+ zero)  a b cx) pos suffix _ ss =
   parseDecRatFrac-roundtrip-+zero-suffix a b pos suffix cx ss
-parseDecRatFrac-roundtrip-suffix (mkDecRat (ℤ+ suc n) a b cx) pos suffix ss =
-  parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx ss
-parseDecRatFrac-roundtrip-suffix (mkDecRat ℤ-[1+ n ]  a b cx) pos suffix ss =
-  parseDecRatFrac-roundtrip-neg-suffix n a b pos suffix cx ss
+parseDecRatFrac-roundtrip-suffix (mkDecRat (ℤ+ suc n) a b cx) pos suffix small ss =
+  parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx (smallTriple (mkDecRat (ℤ+ suc n) a b cx) small) ss
+parseDecRatFrac-roundtrip-suffix (mkDecRat ℤ-[1+ n ]  a b cx) pos suffix small ss =
+  parseDecRatFrac-roundtrip-neg-suffix n a b pos suffix cx (smallTriple (mkDecRat ℤ-[1+ n ] a b cx) small) ss
 
 -- ----------------------------------------------------------------------------
 -- Phase 6.5: Public `parseDecRat`-level roundtrip on the frac wire form
@@ -385,14 +382,14 @@ private
   alt-left-just-here p q pos input r eq with p pos input | eq
   ... | w , just .r | refl = refl
 
-parseDecRat-roundtrip-suffix : ∀ d pos suffix →
+parseDecRat-roundtrip-suffix : ∀ d pos suffix → SmallDecRat d →
   SuffixStops isDigit suffix →
   proj₂ (parseDecRat pos (showDecRat-dec-chars d ++ₗ suffix))
     ≡ just (mkResult d (advancePositions pos (showDecRat-dec-chars d)) suffix)
-parseDecRat-roundtrip-suffix d pos suffix ss =
+parseDecRat-roundtrip-suffix d pos suffix small ss =
   alt-left-just-here parseDecRatFrac parseDecRatBareInt pos
     (showDecRat-dec-chars d ++ₗ suffix) _
-    (parseDecRatFrac-roundtrip-suffix d pos suffix ss)
+    (parseDecRatFrac-roundtrip-suffix d pos suffix small ss)
 
 -- ============================================================================
 -- Phase 6.6: parseDecRat bareInt-form roundtrip with suffix
@@ -409,7 +406,7 @@ parseDecRat-roundtrip-suffix d pos suffix ss =
 --
 --   1. `parseDecRatFrac pos (showInt-chars z ++ suffix) ≡ nothing` —
 --      via `bind-just-step` through `optional (char '-')` (success or
---      fail depending on sign) and `parseNatural` (always succeeds on
+--      fail depending on sign) and `parseDigits` (always succeeds on
 --      `showNat-chars n` under `SuffixStops isDigit suffix`), then
 --      `bind-nothing` through `char '.'` (fails on a non-`'.'`
 --      suffix).
@@ -500,10 +497,10 @@ canonicalizeDecRat-zero-exp ℤ-[1+ _ ]  = refl
 -- already proved this for any rest).
 
 -- ----------------------------------------------------------------------------
--- Phase 6.6.4: parseNatural on showNat-chars n then `pure` (bare-int success)
+-- Phase 6.6.4: parseDigits on showNat-chars n then `pure` (bare-int success)
 -- ----------------------------------------------------------------------------
 --
--- The bare-int branch reads `optional (char '-') >>= parseNatural >>= pure`
+-- The bare-int branch reads `optional (char '-') >>= parseDigits >>= pure`
 -- with `pure (buildDecRat neg n [])` at the tail.  Each non-pure step
 -- reuses an existing lemma; `pure` is definitional `just`-injection.
 
@@ -525,42 +522,42 @@ private
 
       step-dash-fail :
         proj₂ (parseDecRatFrac pos (showNat-chars n ++ₗ suffix))
-        ≡ proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                    pure (buildDecRat nothing nₚ fd))
+        ≡ proj₂ ((parseDigits >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                    pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                    pos (showNat-chars n ++ₗ suffix))
       step-dash-fail =
         bind-just-step (optional (char '-'))
-                       (λ neg → parseNatural >>= λ nₚ → char '.' >>= λ _ →
+                       (λ neg → parseDigits >>= λ nₚ → char '.' >>= λ _ →
                                 some digit >>= λ fd →
-                                pure (buildDecRat neg nₚ fd))
+                                pure (decimalLiteral neg nₚ fd (ℤ+ 0)))
                        pos (showNat-chars n ++ₗ suffix)
                        nothing pos (showNat-chars n ++ₗ suffix)
                        (optional-dash-fail-on-showNat pos n suffix)
 
       step-parseNat :
-        proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat nothing nₚ fd))
+        proj₂ ((parseDigits >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                  pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                  pos (showNat-chars n ++ₗ suffix))
         ≡ proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                    pure (buildDecRat nothing n fd))
+                    pure (decimalLiteral nothing (showNat-chars n) fd (ℤ+ 0)))
                    posAfterNat suffix)
       step-parseNat =
-        bind-just-step parseNatural
+        bind-just-step parseDigits
                        (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                                pure (buildDecRat nothing nₚ fd))
+                                pure (decimalLiteral nothing nₚ fd (ℤ+ 0)))
                        pos (showNat-chars n ++ₗ suffix)
-                       n posAfterNat suffix
-                       (parseNatural-showNat-chars pos n suffix ss)
+                       (showNat-chars n) posAfterNat suffix
+                       (parseDigits-showNat-chars pos n suffix ss)
 
       step-dot-fails :
         proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat nothing n fd))
+                  pure (decimalLiteral nothing (showNat-chars n) fd (ℤ+ 0)))
                  posAfterNat suffix)
         ≡ nothing
       step-dot-fails =
         bind-nothing-here (char '.')
                      (λ _ → some digit >>= λ fd →
-                              pure (buildDecRat nothing n fd))
+                              pure (decimalLiteral nothing (showNat-chars n) fd (ℤ+ 0)))
                      posAfterNat suffix
                      (char-dot-fail-on-non-dot posAfterNat suffix not-dot)
 
@@ -585,14 +582,14 @@ private
 
       step-dash-succ :
         proj₂ (parseDecRatFrac pos ('-' ∷ showNat-chars (suc n) ++ₗ suffix))
-        ≡ proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                    pure (buildDecRat (just '-') nₚ fd))
+        ≡ proj₂ ((parseDigits >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                    pure (decimalLiteral (just '-') nₚ fd (ℤ+ 0)))
                    posAfterDash (showNat-chars (suc n) ++ₗ suffix))
       step-dash-succ =
         bind-just-step (optional (char '-'))
-                       (λ neg → parseNatural >>= λ nₚ → char '.' >>= λ _ →
+                       (λ neg → parseDigits >>= λ nₚ → char '.' >>= λ _ →
                                 some digit >>= λ fd →
-                                pure (buildDecRat neg nₚ fd))
+                                pure (decimalLiteral neg nₚ fd (ℤ+ 0)))
                        pos ('-' ∷ showNat-chars (suc n) ++ₗ suffix)
                        (just '-') posAfterDash
                        (showNat-chars (suc n) ++ₗ suffix)
@@ -600,29 +597,29 @@ private
                           (showNat-chars (suc n) ++ₗ suffix))
 
       step-parseNat :
-        proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat (just '-') nₚ fd))
+        proj₂ ((parseDigits >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                  pure (decimalLiteral (just '-') nₚ fd (ℤ+ 0)))
                  posAfterDash (showNat-chars (suc n) ++ₗ suffix))
         ≡ proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                    pure (buildDecRat (just '-') (suc n) fd))
+                    pure (decimalLiteral (just '-') (showNat-chars (suc n)) fd (ℤ+ 0)))
                    posAfterNat suffix)
       step-parseNat =
-        bind-just-step parseNatural
+        bind-just-step parseDigits
                        (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-                                pure (buildDecRat (just '-') nₚ fd))
+                                pure (decimalLiteral (just '-') nₚ fd (ℤ+ 0)))
                        posAfterDash (showNat-chars (suc n) ++ₗ suffix)
-                       (suc n) posAfterNat suffix
-                       (parseNatural-showNat-chars posAfterDash (suc n) suffix ss)
+                       (showNat-chars (suc n)) posAfterNat suffix
+                       (parseDigits-showNat-chars posAfterDash (suc n) suffix ss)
 
       step-dot-fails :
         proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
-                  pure (buildDecRat (just '-') (suc n) fd))
+                  pure (decimalLiteral (just '-') (showNat-chars (suc n)) fd (ℤ+ 0)))
                  posAfterNat suffix)
         ≡ nothing
       step-dot-fails =
         bind-nothing-here (char '.')
                      (λ _ → some digit >>= λ fd →
-                              pure (buildDecRat (just '-') (suc n) fd))
+                              pure (decimalLiteral (just '-') (showNat-chars (suc n)) fd (ℤ+ 0)))
                      posAfterNat suffix
                      (char-dot-fail-on-non-dot posAfterNat suffix not-dot)
 
@@ -647,12 +644,13 @@ parseDecRatFrac-fails-bareInt ℤ-[1+ n ]     pos suffix ss not-dot =
 
 private
   parseDecRatBareInt-roundtrip-+ : ∀ n pos suffix →
+    n ≤ max-rational-component-magnitude →
     SuffixStops isDigit suffix →
     proj₂ (parseDecRatBareInt pos (showNat-chars n ++ₗ suffix))
     ≡ just (mkResult (fromℤ (ℤ+ n))
                      (advancePositions pos (showNat-chars n))
                      suffix)
-  parseDecRatBareInt-roundtrip-+ n pos suffix ss =
+  parseDecRatBareInt-roundtrip-+ n pos suffix n≤ ss =
     trans step-dash-fail
       (trans step-parseNat
         step-build)
@@ -662,44 +660,42 @@ private
 
       step-dash-fail :
         proj₂ (parseDecRatBareInt pos (showNat-chars n ++ₗ suffix))
-        ≡ proj₂ ((parseNatural >>= λ nₚ →
-                    pure (buildDecRat nothing nₚ []))
+        ≡ proj₂ ((parseDigits >>= λ nₚ →
+                    pure (decimalLiteral nothing nₚ [] (ℤ+ 0)))
                    pos (showNat-chars n ++ₗ suffix))
       step-dash-fail =
         bind-just-step (optional (char '-'))
-                       (λ neg → parseNatural >>= λ nₚ →
-                                pure (buildDecRat neg nₚ []))
+                       (λ neg → parseDigits >>= λ nₚ →
+                                pure (decimalLiteral neg nₚ [] (ℤ+ 0)))
                        pos (showNat-chars n ++ₗ suffix)
                        nothing pos (showNat-chars n ++ₗ suffix)
                        (optional-dash-fail-on-showNat pos n suffix)
 
       step-parseNat :
-        proj₂ ((parseNatural >>= λ nₚ →
-                  pure (buildDecRat nothing nₚ []))
+        proj₂ ((parseDigits >>= λ nₚ →
+                  pure (decimalLiteral nothing nₚ [] (ℤ+ 0)))
                  pos (showNat-chars n ++ₗ suffix))
-        ≡ proj₂ (pure (buildDecRat nothing n [])
+        ≡ proj₂ (pure (decimalLiteral nothing (showNat-chars n) [] (ℤ+ 0))
                    posAfterNat suffix)
       step-parseNat =
-        bind-just-step parseNatural
-                       (λ nₚ → pure (buildDecRat nothing nₚ []))
+        bind-just-step parseDigits
+                       (λ nₚ → pure (decimalLiteral nothing nₚ [] (ℤ+ 0)))
                        pos (showNat-chars n ++ₗ suffix)
-                       n posAfterNat suffix
-                       (parseNatural-showNat-chars pos n suffix ss)
+                       (showNat-chars n) posAfterNat suffix
+                       (parseDigits-showNat-chars pos n suffix ss)
 
       -- `buildDecRat nothing n []` reduces in two steps:
       -- (1) `applySign nothing _ = + _` (definitional);
       -- (2) `n * 10^0 + 0 ≡ n` via `*-identityʳ` + `+-identityʳ`.
       -- Then `canonicalizeDecRat (+ n) 0 0 ≡ fromℤ (+ n)` by Phase 6.6.2.
       step-build :
-        proj₂ (pure (buildDecRat nothing n []) posAfterNat suffix)
+        proj₂ (pure (decimalLiteral nothing (showNat-chars n) [] (ℤ+ 0)) posAfterNat suffix)
         ≡ just (mkResult (fromℤ (ℤ+ n)) posAfterNat suffix)
       step-build = cong (λ d → just (mkResult d posAfterNat suffix))
                         (trans build-reduce (canonicalizeDecRat-zero-exp (ℤ+ n)))
         where
-          build-reduce : buildDecRat nothing n [] ≡ canonicalizeDecRat (ℤ+ n) 0 0
-          build-reduce =
-            cong (λ x → canonicalizeDecRat (ℤ+ x) 0 0)
-                 (trans (cong (_+ 0) (*-identityʳ n)) (+-identityʳ n))
+          build-reduce : decimalLiteral nothing (showNat-chars n) [] (ℤ+ 0) ≡ canonicalizeDecRat (ℤ+ n) 0 0
+          build-reduce = bareInt-eq nothing n n≤
 
 -- ----------------------------------------------------------------------------
 -- Phase 6.6.9: parseDecRatBareInt success on the negative wire form
@@ -707,13 +703,14 @@ private
 
 private
   parseDecRatBareInt-roundtrip-neg : ∀ n pos suffix →
+    suc n ≤ max-rational-component-magnitude →
     SuffixStops isDigit suffix →
     proj₂ (parseDecRatBareInt pos ('-' ∷ showNat-chars (suc n) ++ₗ suffix))
     ≡ just (mkResult (fromℤ ℤ-[1+ n ])
                      (advancePositions pos
                         ('-' ∷ showNat-chars (suc n)))
                      suffix)
-  parseDecRatBareInt-roundtrip-neg n pos suffix ss =
+  parseDecRatBareInt-roundtrip-neg n pos suffix n≤ ss =
     trans step-dash-succ
       (trans step-parseNat
         (trans step-build pos-eq))
@@ -726,13 +723,13 @@ private
 
       step-dash-succ :
         proj₂ (parseDecRatBareInt pos ('-' ∷ showNat-chars (suc n) ++ₗ suffix))
-        ≡ proj₂ ((parseNatural >>= λ nₚ →
-                    pure (buildDecRat (just '-') nₚ []))
+        ≡ proj₂ ((parseDigits >>= λ nₚ →
+                    pure (decimalLiteral (just '-') nₚ [] (ℤ+ 0)))
                    posAfterDash (showNat-chars (suc n) ++ₗ suffix))
       step-dash-succ =
         bind-just-step (optional (char '-'))
-                       (λ neg → parseNatural >>= λ nₚ →
-                                pure (buildDecRat neg nₚ []))
+                       (λ neg → parseDigits >>= λ nₚ →
+                                pure (decimalLiteral neg nₚ [] (ℤ+ 0)))
                        pos ('-' ∷ showNat-chars (suc n) ++ₗ suffix)
                        (just '-') posAfterDash
                        (showNat-chars (suc n) ++ₗ suffix)
@@ -740,17 +737,17 @@ private
                           (showNat-chars (suc n) ++ₗ suffix))
 
       step-parseNat :
-        proj₂ ((parseNatural >>= λ nₚ →
-                  pure (buildDecRat (just '-') nₚ []))
+        proj₂ ((parseDigits >>= λ nₚ →
+                  pure (decimalLiteral (just '-') nₚ [] (ℤ+ 0)))
                  posAfterDash (showNat-chars (suc n) ++ₗ suffix))
-        ≡ proj₂ (pure (buildDecRat (just '-') (suc n) [])
+        ≡ proj₂ (pure (decimalLiteral (just '-') (showNat-chars (suc n)) [] (ℤ+ 0))
                    posAfterNat suffix)
       step-parseNat =
-        bind-just-step parseNatural
-                       (λ nₚ → pure (buildDecRat (just '-') nₚ []))
+        bind-just-step parseDigits
+                       (λ nₚ → pure (decimalLiteral (just '-') nₚ [] (ℤ+ 0)))
                        posAfterDash (showNat-chars (suc n) ++ₗ suffix)
-                       (suc n) posAfterNat suffix
-                       (parseNatural-showNat-chars posAfterDash (suc n) suffix ss)
+                       (showNat-chars (suc n)) posAfterNat suffix
+                       (parseDigits-showNat-chars posAfterDash (suc n) suffix ss)
 
       -- Same reduction structure as the positive case but routed through
       -- `applySign (just _) (suc m) = -[1+ m ]`.  Definitional steps:
@@ -758,15 +755,13 @@ private
       -- → `applySign (just '-') (suc _) = -[1+ n * 1 + 0 ]`.  Then the
       -- ℕ-level identity bridges `n * 1 + 0 ≡ n`.
       step-build :
-        proj₂ (pure (buildDecRat (just '-') (suc n) []) posAfterNat suffix)
+        proj₂ (pure (decimalLiteral (just '-') (showNat-chars (suc n)) [] (ℤ+ 0)) posAfterNat suffix)
         ≡ just (mkResult (fromℤ ℤ-[1+ n ]) posAfterNat suffix)
       step-build = cong (λ d → just (mkResult d posAfterNat suffix))
                         (trans build-reduce (canonicalizeDecRat-zero-exp ℤ-[1+ n ]))
         where
-          build-reduce : buildDecRat (just '-') (suc n) [] ≡ canonicalizeDecRat ℤ-[1+ n ] 0 0
-          build-reduce =
-            cong (λ x → canonicalizeDecRat ℤ-[1+ x ] 0 0)
-                 (trans (cong (_+ 0) (*-identityʳ n)) (+-identityʳ n))
+          build-reduce : decimalLiteral (just '-') (showNat-chars (suc n)) [] (ℤ+ 0) ≡ canonicalizeDecRat ℤ-[1+ n ] 0 0
+          build-reduce = bareInt-eq (just '-') (suc n) n≤
 
       pos-eq :
         just (mkResult (fromℤ ℤ-[1+ n ]) posAfterNat suffix)
@@ -781,15 +776,16 @@ private
 
 private
   parseDecRatBareInt-roundtrip : ∀ z pos suffix →
+    ∣ z ∣ ≤ max-rational-component-magnitude →
     SuffixStops isDigit suffix →
     proj₂ (parseDecRatBareInt pos (showInt-chars z ++ₗ suffix))
     ≡ just (mkResult (fromℤ z)
                      (advancePositions pos (showInt-chars z))
                      suffix)
-  parseDecRatBareInt-roundtrip (ℤ+ n)        pos suffix ss =
-    parseDecRatBareInt-roundtrip-+ n pos suffix ss
-  parseDecRatBareInt-roundtrip ℤ-[1+ n ]     pos suffix ss =
-    parseDecRatBareInt-roundtrip-neg n pos suffix ss
+  parseDecRatBareInt-roundtrip (ℤ+ n)        pos suffix z≤ ss =
+    parseDecRatBareInt-roundtrip-+ n pos suffix z≤ ss
+  parseDecRatBareInt-roundtrip ℤ-[1+ n ]     pos suffix z≤ ss =
+    parseDecRatBareInt-roundtrip-neg n pos suffix z≤ ss
 
 -- ----------------------------------------------------------------------------
 -- Phase 6.6.11: Public composer
@@ -808,16 +804,17 @@ private
   ...   | w' , out = refl
 
 parseDecRat-bareInt-roundtrip-suffix : ∀ z pos suffix →
+  ∣ z ∣ ≤ max-rational-component-magnitude →
   SuffixStops isDigit suffix → '.' ≢ headOr suffix '_' →
   proj₂ (parseDecRat pos (showInt-chars z ++ₗ suffix))
     ≡ just (mkResult (fromℤ z)
                      (advancePositions pos (showInt-chars z))
                      suffix)
-parseDecRat-bareInt-roundtrip-suffix z pos suffix ss not-dot =
+parseDecRat-bareInt-roundtrip-suffix z pos suffix z≤ ss not-dot =
   trans (alt-right-nothing-here parseDecRatFrac parseDecRatBareInt
            pos (showInt-chars z ++ₗ suffix)
            (parseDecRatFrac-fails-bareInt z pos suffix ss not-dot))
-        (parseDecRatBareInt-roundtrip z pos suffix ss)
+        (parseDecRatBareInt-roundtrip z pos suffix z≤ ss)
 
 -- ============================================================================
 -- Phase 6.7: Refined-parser roundtrips — parseIntDecRat / parseNatDecRat
@@ -837,12 +834,13 @@ parseDecRat-bareInt-roundtrip-suffix z pos suffix ss not-dot =
 -- `mkNatDecRatFromℕ-natDecRatToℕ`.
 
 parseIntDecRat-roundtrip-suffix : ∀ v pos suffix
+  → ∣ intDecRatToℤ v ∣ ≤ max-rational-component-magnitude
   → SuffixStops isDigit suffix → '.' ≢ headOr suffix '_'
   → proj₂ (parseIntDecRat pos (showInt-chars (intDecRatToℤ v) ++ₗ suffix))
     ≡ just (mkResult v
               (advancePositions pos (showInt-chars (intDecRatToℤ v)))
               suffix)
-parseIntDecRat-roundtrip-suffix v pos suffix ss not-dot =
+parseIntDecRat-roundtrip-suffix v pos suffix z≤ ss not-dot =
   trans step-bind (trans step-ifT step-recover-v)
   where
     z : ℤ
@@ -868,7 +866,7 @@ parseIntDecRat-roundtrip-suffix v pos suffix ss not-dot =
                  else fail)
         pos (showInt-chars z ++ₗ suffix)
         (fromℤ z) pos' suffix
-        (parseDecRat-bareInt-roundtrip-suffix z pos suffix ss not-dot)
+        (parseDecRat-bareInt-roundtrip-suffix z pos suffix z≤ ss not-dot)
 
     -- ifᵀ step: pin the `T (isIntegerᵇ (fromℤ z))` witness via `pf`,
     -- collapsing the branch under `cong (_ pos' suffix)`.
@@ -895,12 +893,13 @@ parseIntDecRat-roundtrip-suffix v pos suffix ss not-dot =
 -- bareInt roundtrip via `(+ natDecRatToℕ v) : ℤ`.  Witness flips to
 -- `isNonNegIntegerᵇ-fromℕ`, recovery via `mkNatDecRatFromℕ-natDecRatToℕ`.
 parseNatDecRat-roundtrip-suffix : ∀ v pos suffix
+  → natDecRatToℕ v ≤ max-rational-component-magnitude
   → SuffixStops isDigit suffix → '.' ≢ headOr suffix '_'
   → proj₂ (parseNatDecRat pos (showNat-chars (natDecRatToℕ v) ++ₗ suffix))
     ≡ just (mkResult v
               (advancePositions pos (showNat-chars (natDecRatToℕ v)))
               suffix)
-parseNatDecRat-roundtrip-suffix v pos suffix ss not-dot =
+parseNatDecRat-roundtrip-suffix v pos suffix n≤ ss not-dot =
   trans step-bind (trans step-ifT step-recover-v)
   where
     n : ℕ
@@ -924,7 +923,7 @@ parseNatDecRat-roundtrip-suffix v pos suffix ss not-dot =
                  else fail)
         pos (showNat-chars n ++ₗ suffix)
         (fromℤ (ℤ+ n)) pos' suffix
-        (parseDecRat-bareInt-roundtrip-suffix (ℤ+ n) pos suffix ss not-dot)
+        (parseDecRat-bareInt-roundtrip-suffix (ℤ+ n) pos suffix n≤ ss not-dot)
 
     step-ifT :
       proj₂ ((ifᵀ isNonNegIntegerᵇ (fromℤ (ℤ+ n))

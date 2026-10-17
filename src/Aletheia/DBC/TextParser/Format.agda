@@ -58,6 +58,8 @@ open import Aletheia.Parser.Combinators
 open import Aletheia.Parser.Position.Properties using (samePosᵇ-advances)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; intDecRat-small; natDecRat-small)
+open import Aletheia.Limits using (max-rational-component-magnitude)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; intDecRatToℤ; NatDecRat; natDecRatToℕ)
 open import Aletheia.DBC.TextParser.Lexer
@@ -349,7 +351,8 @@ data EmitsOKMany {A : Set} (f : Format A) : List A → List Char → Set
 EmitsOK : ∀ {A} → Format A → A → List Char → Set
 EmitsOK (literal cs)   tt       _      = ⊤
 EmitsOK ident          _        suffix = SuffixStops isIdentCont suffix
-EmitsOK nat            _        suffix = SuffixStops isDigit suffix
+EmitsOK nat            n        suffix =
+  n ≤ max-rational-component-magnitude × SuffixStops isDigit suffix
 EmitsOK stringLit      _        suffix = SuffixStops (λ c → c ≈ᵇ '"') suffix
 EmitsOK (pair f g)     (a , b)  suffix =
   EmitsOK f a (emit g b ++ₗ suffix) × EmitsOK g b suffix
@@ -360,12 +363,12 @@ EmitsOK (altSum f g)   (inj₁ a) suffix = EmitsOK f a suffix
 EmitsOK (altSum f g)   (inj₂ b) suffix =
   EmitsOK g b suffix
   × (∀ pos → proj₂ (parse f pos (emit g b ++ₗ suffix)) ≡ nothing)
-EmitsOK decRat         _        suffix = SuffixStops isDigit suffix
-EmitsOK decRatFrac     _        suffix = SuffixStops isDigit suffix
-EmitsOK intDecRat      _        suffix =
-  SuffixStops isDigit suffix × ('.' ≢ headOr suffix '_')
-EmitsOK natDecRat      _        suffix =
-  SuffixStops isDigit suffix × ('.' ≢ headOr suffix '_')
+EmitsOK decRat         d        suffix = SmallDecRat d × SuffixStops isDigit suffix
+EmitsOK decRatFrac     d        suffix = SmallDecRat d × SuffixStops isDigit suffix
+EmitsOK intDecRat      v        suffix =
+  SmallDecRat (IntDecRat.value v) × SuffixStops isDigit suffix × ('.' ≢ headOr suffix '_')
+EmitsOK natDecRat      v        suffix =
+  SmallDecRat (NatDecRat.value v) × SuffixStops isDigit suffix × ('.' ≢ headOr suffix '_')
 EmitsOK wsOpt          tt       suffix = SuffixStops isHSpace suffix
 EmitsOK ws             tt       suffix = SuffixStops isHSpace suffix
 EmitsOK wsCanonOne     tt       suffix = SuffixStops isHSpace suffix
@@ -485,8 +488,8 @@ mutual
                    (parseCharsSeq-success pos cs suffix)
   roundtrip ident        pos i  suffix ss =
     parseIdentifier-roundtrip pos i suffix ss
-  roundtrip nat          pos n  suffix ss =
-    parseNatural-showNat-chars pos n suffix ss
+  roundtrip nat          pos n  suffix (n≤ , ss) =
+    parseNatural-showNat-chars pos n suffix n≤ ss
   roundtrip stringLit    pos cs suffix ss =
     parseStringLit-roundtrip pos cs suffix ss
   roundtrip (iso φ ψ φψ-id f) pos b suffix wf =
@@ -574,24 +577,24 @@ mutual
   -- DecRat: direct delegation.  `parseDecRat-roundtrip-suffix` already
   -- produces exactly the universal's RHS, so no `bind-just-step` plumbing
   -- is needed.
-  roundtrip decRat pos d suffix ss =
-    parseDecRat-roundtrip-suffix d pos suffix ss
+  roundtrip decRat pos d suffix (small , ss) =
+    parseDecRat-roundtrip-suffix d pos suffix small ss
   -- DecRatFrac: direct delegation to `parseDecRatFrac-roundtrip-suffix`.
   -- Same emit shape as `decRat` (`showDecRat-dec-chars d`) but the parser
   -- is the frac-only inner — for use by 3c-B's `attrValueWireFmt` 3-way
   -- altSum where the frac arm must reject bare-int input.
-  roundtrip decRatFrac pos d suffix ss =
-    parseDecRatFrac-roundtrip-suffix d pos suffix ss
+  roundtrip decRatFrac pos d suffix (small , ss) =
+    parseDecRatFrac-roundtrip-suffix d pos suffix small ss
   -- IntDecRat: direct delegation to `parseIntDecRat-roundtrip-suffix`.
   -- The two-component EmitsOK (`SuffixStops isDigit × '.' ≢ headOr`) maps
   -- to the lemma's two preconditions.  `emit intDecRat v = showInt-chars
   -- (intDecRatToℤ v)` matches the lemma's input shape exactly.
-  roundtrip intDecRat pos v suffix (ss , not-dot) =
-    parseIntDecRat-roundtrip-suffix v pos suffix ss not-dot
+  roundtrip intDecRat pos v suffix (small , ss , not-dot) =
+    parseIntDecRat-roundtrip-suffix v pos suffix (intDecRat-small v small) ss not-dot
   -- NatDecRat: mirror of `intDecRat`.  `emit natDecRat v = showNat-chars
   -- (natDecRatToℕ v)`; `parseNatDecRat-roundtrip-suffix` closes directly.
-  roundtrip natDecRat pos v suffix (ss , not-dot) =
-    parseNatDecRat-roundtrip-suffix v pos suffix ss not-dot
+  roundtrip natDecRat pos v suffix (small , ss , not-dot) =
+    parseNatDecRat-roundtrip-suffix v pos suffix (natDecRat-small v small) ss not-dot
   -- wsOpt: canonical emit is `[]`, so the universal's input reduces to
   -- `suffix` and its expected RHS to `mkResult tt pos suffix`.  Compose
   -- via `bind-just-step` over `parseWSOpt`'s zero-consume on a hspace-
