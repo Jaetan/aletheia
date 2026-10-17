@@ -34,13 +34,16 @@ if TYPE_CHECKING:
 
 # The combined Agda-gate step: every cabal-shake gate folded into ONE
 # `cabal run shake -- <targets>` invocation.  Shake (shakeThreads=0, all-core)
-# overlaps the two heavy proof checks — measured concurrent peak ~2.3 GiB, ~14%
-# of a 16 GB GHA runner, so memory does not bind and no Shake-internal gate is
-# needed — and the single process pays cabal/shake startup + build-graph
-# re-validation ONCE instead of once per gate (the dominant GHA cost).  `build`
-# stays a separate prereq (preserves the build-fail short-circuit); `iwyu` stays
-# separate (it reads the .agdai that check-properties writes).  Pinned as a
-# tuple so the regression test can assert no gate is silently dropped on edit.
+# overlaps the two heavy proof checks — measured concurrent peak ~2.3 GiB when
+# a few proof modules re-check; a change near the root of the import graph
+# re-checks the whole proof side, which the warm checker's heap cap
+# (`AGDA_HEAP_CAP`, tools/_warm.py) holds to 8 GiB of a 16 GB GHA runner, so
+# no Shake-internal gate is needed — and the single process pays cabal/shake
+# startup + build-graph re-validation ONCE instead of once per gate (the
+# dominant GHA cost).  `build` stays a separate prereq (preserves the
+# build-fail short-circuit); `iwyu` stays separate (it reads the .agdai that
+# check-properties writes).  Pinned as a tuple so the regression test can
+# assert no gate is silently dropped on edit.
 AGDA_GATES_STEP = "agda gates"
 AGDA_SHAKE_TARGETS: tuple[str, ...] = (
     "check-properties",
