@@ -274,7 +274,9 @@ func WrapValidationError(msg string, cause error) *Error {
 type InputBoundExceededError struct {
 	// BoundKind names the bound, one of the BoundKind constants in limits.go.
 	BoundKind string
-	// Observed is the input value that exceeded the limit.
+	// Observed is the measured value that exceeded the limit, or
+	// math.MaxUint64 when the kernel measured more, its message then saying
+	// "at least".
 	Observed uint64
 	// Limit is the bound itself, which limits.go mirrors from the kernel.
 	Limit uint64

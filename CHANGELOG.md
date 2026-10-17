@@ -2010,6 +2010,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A long JSON number in a command is refused, and the process that sent it
+  lives; a bound refusal's `observed` stops at 2^64 - 1 (BREAKING).** The
+  refusal of a JSON number past the rational-component bound echoed its
+  magnitude whole, in `observed` and in the message, and rendering a number of
+  100,001 digits exhausted the kernel's heap and ended the host process: a
+  command of about 100 KB was enough. Every bound refusal now reports the
+  measured value up to 18446744073709551615, the top of the unsigned 64-bit
+  range, and that value past it, the message printing `at least
+  18446744073709551615`; a refusal of `1e30000` shrinks from 60,221 bytes to
+  268. `Aletheia.Protocol.ResponseFormat.Properties` proves every `observed` an
+  error reply writes is at most the ceiling, exact below it. Each binding
+  holds the long command's refusal with a test that sends it from a child
+  process.
+
 - **The Python binding answers a JSON reply it cannot read with `ProtocolError`.**
   A JSON reply from the kernel that is not UTF-8, holds an integer longer than
   CPython converts (4300 digits by default) or nests deeper than the JSON

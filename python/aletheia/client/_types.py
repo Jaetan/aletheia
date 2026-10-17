@@ -128,13 +128,15 @@ class InputBoundExceededError(AletheiaError):
     """Raised when an input exceeds an adversarial-input bound.
 
     Mirrors the Agda ``Error.InputBoundExceeded`` constructor.  Attributes
-    carry the bound kind (e.g. ``"input_length_bytes"``), the observed
-    value, the canonical limit per :mod:`aletheia.limits`, and the part of a
-    DBC that crossed one of its size bounds (e.g. ``"senders array"``), or
-    ``None`` for a bound that names no field.  For a refusal the kernel sent,
-    ``refusal`` carries the kernel's message, which is the error's text, and
-    the field; a bound the binding checks before the call has no refusal, and
-    its text names the kind, the observed value and the limit.
+    carry the bound kind (e.g. ``"input_length_bytes"``), the observed value
+    (``2**64 - 1`` when the kernel measured more, its message then saying
+    "at least"), the canonical limit per :mod:`aletheia.limits`, and the
+    part of a DBC that crossed one of its size bounds
+    (e.g. ``"senders array"``), or ``None`` for a bound that names no field.
+    For a refusal the kernel sent, ``refusal`` carries the kernel's message,
+    which is the error's text, and the field; a bound the binding checks
+    before the call has no refusal, and its text names the kind, the observed
+    value and the limit.
 
     The Go, C++ and Rust bindings expose the equivalent type
     (``*aletheia.InputBoundExceededError`` / ``aletheia::InputBoundExceededError``

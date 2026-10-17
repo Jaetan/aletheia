@@ -31,7 +31,7 @@ from aletheia import (
 )
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.codes import ErrorCode
-from aletheia.common_types import Gt, PositiveInt
+from aletheia.common_types import Gt, PositiveInt, Prose
 from aletheia.dbc import dbc_to_json
 from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
 from aletheia.yaml_loader import load_checks
@@ -640,23 +640,50 @@ class TestRationalComponentMagnitudeBound:
         assert r.get("observed") == self._LIMIT + 1, r
         assert r.get("limit") == self._LIMIT, r
 
-    def _assert_parse_dbc_refuses(self, factor: Fraction) -> None:
-        """Assert ``parse_dbc`` raises the triple for a factor past the bound, naming no field."""
+    # The largest `observed` a refusal reports, `observed-ceiling` in Aletheia.Limits.
+    _CEILING = 2**64 - 1
+
+    def _assert_parse_dbc_reports(
+        self, factor: Fraction, observed: PositiveInt, shown: Prose
+    ) -> None:
+        """Assert ``parse_dbc`` refuses ``factor`` reporting ``observed``, printed as ``shown``."""
         with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
             client.parse_dbc(self._factor_dbc(factor))
         err = exc_info.value
         assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
             limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
-            self._LIMIT + 1,
+            observed,
             self._LIMIT,
             None,
             "input_bound_exceeded",
-            f"rational component magnitude {self._LIMIT + 1} exceeds limit {self._LIMIT}",
+            f"rational component magnitude {shown} exceeds limit {self._LIMIT}",
         )
+
+    def _assert_parse_dbc_refuses(self, factor: Fraction) -> None:
+        """Assert ``parse_dbc`` refuses a factor one past the bound, naming no field."""
+        past = self._LIMIT + 1
+        self._assert_parse_dbc_reports(factor, past, Prose(str(past)))
 
     def test_parse_dbc_component_one_past_int64_refused(self) -> None:
         """A factor numerator one past Int64 max refuses with the triple."""
         self._assert_parse_dbc_refuses(Fraction(self._LIMIT + 1))
+
+    def test_parse_dbc_component_at_the_ceiling_reported_as_it_is(self) -> None:
+        """A component of 2^64 - 1, the largest value a refusal reports, is reported exactly."""
+        self._assert_parse_dbc_reports(
+            Fraction(self._CEILING), self._CEILING, Prose(str(self._CEILING))
+        )
+
+    @pytest.mark.parametrize(
+        "factor",
+        [Fraction(2**64), Fraction(10**3999)],
+        ids=["two-to-the-64", "four-thousand-digits"],
+    )
+    def test_parse_dbc_component_past_the_ceiling_reported_as_at_least(
+        self, factor: Fraction
+    ) -> None:
+        """A component past 2^64 - 1 is reported as the ceiling, "at least" in the message."""
+        self._assert_parse_dbc_reports(factor, self._CEILING, Prose(f"at least {self._CEILING}"))
 
     def test_parse_dbc_component_at_int64_max_accepted(self) -> None:
         """The same position exactly at Int64 max is accepted (tightness)."""

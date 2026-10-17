@@ -34,7 +34,8 @@
 --   * 1024 atoms/property — LTL property atom complexity.
 module Aletheia.Limits where
 
-open import Data.Nat using (ℕ)
+open import Data.Bool using (Bool; if_then_else_)
+open import Data.Nat using (ℕ; _<ᵇ_)
 open import Data.String using (String)
 
 -- ============================================================================
@@ -196,3 +197,25 @@ max-properties-per-stream = 1024
 max-rational-component-magnitude : ℕ
 max-rational-component-magnitude = 9223372036854775807
 
+
+-- ============================================================================
+-- REPORTED OBSERVED VALUE
+-- ============================================================================
+
+-- The largest `observed` a bound refusal reports: 2^64 - 1, the top of the
+-- unsigned 64-bit range, which every binding's typed `observed` holds.  A
+-- measured value past it is reported as this ceiling, and the message puts
+-- "at least" before it, so a refusal never renders its measured value in
+-- more than twenty digits however long the input that crossed the bound.
+observed-ceiling : ℕ
+observed-ceiling = 18446744073709551615
+
+-- Whether a measured value is past the ceiling; the builtin comparison, so
+-- a measured value of any length costs one comparison.
+observedSaturates : ℕ → Bool
+observedSaturates o = observed-ceiling <ᵇ o
+
+-- The `observed` a refusal reports: the measured value, or the ceiling when
+-- the measured value is past it.
+saturateObserved : ℕ → ℕ
+saturateObserved o = if observedSaturates o then observed-ceiling else o

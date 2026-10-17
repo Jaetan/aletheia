@@ -26,7 +26,8 @@ open import Aletheia.CAN.DLC using (maxDLC-FD)
 open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.DBC.Validator.Formatting using (formatIssuesText; errorIssues)
 open import Aletheia.Parser.Position using (Position)
-open import Aletheia.Limits using (BoundKind; boundKindLabel)
+open import Data.Bool using (if_then_else_)
+open import Aletheia.Limits using (BoundKind; boundKindLabel; observed-ceiling; observedSaturates)
 
 -- ============================================================================
 -- PARSE ERRORS (DBC/JSONParser.agda, CAN/Frame/Parse.agda)
@@ -514,6 +515,12 @@ data Error : Set where
   -- array", its "version string"), which the payload carries as `field`.
   InputBoundExceededAt : String → BoundKind → ℕ → ℕ → Error
 
+-- A bound's measured value as a refusal's message prints it: the value
+-- itself, or "at least" and the ceiling when the value is past it.
+showObserved : ℕ → String
+showObserved o =
+  if observedSaturates o then "at least " ++ₛ showℕ observed-ceiling else showℕ o
+
 formatError : Error → String
 formatError (ParseErr pe)                       = formatParseError pe
 formatError (FrameErr fe)                       = formatFrameError fe
@@ -524,7 +531,7 @@ formatError (DispatchErr de)                    = formatDispatchError de
 formatError (DBCTextParseErr de)                = formatDBCTextParseError de
 formatError (WithContext ctx inner)             = ctx ++ₛ ": " ++ₛ formatError inner
 formatError (InputBoundExceeded kind obs limit) =
-  boundKindLabel kind ++ₛ " " ++ₛ showℕ obs ++ₛ " exceeds limit " ++ₛ showℕ limit
+  boundKindLabel kind ++ₛ " " ++ₛ showObserved obs ++ₛ " exceeds limit " ++ₛ showℕ limit
 formatError (InputBoundExceededAt part kind obs limit) =
   part ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit)
 

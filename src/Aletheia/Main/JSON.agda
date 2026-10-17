@@ -95,12 +95,12 @@ private
 --
 -- Adversarial-input bound: rejects inputs whose UTF-8 encoding is longer
 -- than `max-json-bytes` (`Aletheia.Limits`), the size of the buffer that
--- crossed the boundary, with a typed `ParseError.InputBoundExceeded` before
--- invoking the JSON parser, per AGENTS.md universal rule "Adversarial-input
--- bounds at parser surfaces".  Each binding additionally short-circuits at
--- the FFI entry to avoid marshaling oversize payloads.  Nesting-depth bound
--- enforced at `handleParsedJSON` on the parsed tree (typed `ParseError.
--- InputBoundExceeded NestingDepth …`).
+-- crossed the boundary, with the typed `InputBoundExceeded InputLengthBytes …`
+-- before invoking the JSON parser, per AGENTS.md universal rule
+-- "Adversarial-input bounds at parser surfaces".  Each binding additionally
+-- short-circuits at the FFI entry to avoid marshaling oversize payloads.
+-- Nesting-depth bound enforced at `handleParsedJSON` on the parsed tree
+-- (typed `InputBoundExceeded NestingDepth …`).
 processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
 processJSONLine state jsonLine =

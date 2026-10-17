@@ -3,8 +3,9 @@
 //
 // The suites that need a process of their own for the renderer and the
 // runtime, each run as a child of this one: the renderer with the runtime down,
-// with no library to find, or releasing the kernel's strings, and the runtime's
-// heap cap. ctest runs this file
+// with no library to find, or releasing the kernel's strings, the runtime's
+// heap cap, and a command holding one long number, which a kernel that echoes
+// it whole answers by ending its process. ctest runs this file
 // as a binary of its own, and the mutation build folds it into the mutation
 // binary, which the runner starts once per mutant with the mutant named in its
 // environment: a child inherits the environment, and it or the workload it
@@ -31,7 +32,8 @@
 #include "repo_root.hpp"
 
 #if !defined(ALETHEIA_RUNTIME_DOWN_TESTS) || !defined(ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS) ||  \
-    !defined(ALETHEIA_RENDERER_FREES_TESTS) || !defined(ALETHEIA_RTS_HEAP_CAP_TESTS)
+    !defined(ALETHEIA_RENDERER_FREES_TESTS) || !defined(ALETHEIA_RTS_HEAP_CAP_TESTS) ||            \
+    !defined(ALETHEIA_LITERAL_BOUND_TESTS)
 #error "the fresh-process suites' paths are compile definitions of the build"
 #endif
 
@@ -100,4 +102,19 @@ TEST_CASE("the runtime's heap cap contains", "[fresh_process]") {
     require_passes(ALETHEIA_RTS_HEAP_CAP_TESTS,
                    {"ALETHEIA_LIB=" +
                     (aletheia::test::repo_root() / "build" / "libaletheia-ffi.so").string()});
+}
+
+// The child's cost is its input's, a 100 KB number through the kernel, so the
+// mutation binary runs this case after every untagged test ([costly],
+// tools/mutation_cpp_order.py): it stays the file's last case, and this file
+// the last unit ahead of the costly ones.
+TEST_CASE("a command holding one long number is refused at the ceiling",
+          "[fresh_process][costly]") {
+    // The suite loads the kernel from the variable, which the sweep's
+    // environment does not carry; the runtime's flags are emptied, so a shell
+    // that set them does not decide what the child runs under.
+    require_passes(
+        ALETHEIA_LITERAL_BOUND_TESTS,
+        {"ALETHEIA_LIB=" + (aletheia::test::repo_root() / "build" / "libaletheia-ffi.so").string(),
+         "ALETHEIA_RTS_OPTS="});
 }

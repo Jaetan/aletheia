@@ -437,6 +437,8 @@ pytest_add_cli_args = [
     # Boots the real FFI in a subprocess to prove the heap cap fires (no .so
     # under mutants/).
     "--ignore=tests/test_rts_heap_cap.py",
+    # Same shape: sends a long literal to the real FFI from a subprocess.
+    "--ignore=tests/test_literal_bound.py",
     # Same shape: covers the dist bundle-staging gate (repo-root `tools`
     # package; also reads the build program at the repository root, outside
     # the relocated mutants/ tree).  Infra coverage, not hot-path.

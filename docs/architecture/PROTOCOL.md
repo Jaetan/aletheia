@@ -1081,6 +1081,12 @@ The `message` field embeds the kind label, observed value, and limit; the struct
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
 ~~~
 
+`observed` is the measured value up to 2⁶⁴ − 1, the top of the unsigned 64-bit range, which every binding's typed `observed` holds. A measured value past that is reported as 18446744073709551615, and the message prints `at least` before it, so neither renders the measured value in more than twenty digits however long the number that crossed the bound (kernel `Aletheia.Limits.saturateObserved`; `Aletheia.Protocol.ResponseFormat.Properties` proves every `observed` an error reply writes is at most the ceiling). A command whose `"x"` is `1e30`:
+
+~~~
+<<< {"status": "error", "code": "input_bound_exceeded", "message": "rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807", "bound_kind": "rational_component_magnitude", "observed": 18446744073709551615, "limit": 9223372036854775807}
+~~~
+
 The DBC bounds (`array_cardinality` and `string_length` on a parsed DBC) are one decision shared by the four DBC commands, `parseDBC`, `parseDBCText`, `validateDBC` and `formatDBCText` (kernel `Aletheia.DBC.Bounds.checkBounds`), made before the command does anything else with the DBC. It refuses the first bound crossed, every count before any text, and the `message` names the offending field after the command context, e.g. `ParseDBCText: version string: string length 65546 exceeds limit 65536`. The structured `bound_kind` / `observed` / `limit` fields are the same on every command, so a binding decodes them with one typed handler. A DBC every command accepts carries the proof that it meets every bound, and loading requires it.
 
 `handler_validation_failed` errors (a `parseDBC` / `parseDBCText` rejected because the DBC has error-level validation issues) carry the **full structured issue list** on the envelope — errors *and* warnings, in the same `{severity, code, detail}` element shape as the `validation` response, plus the same `has_errors` flag (trivially `true` on this path; included so both payloads decode with one issue decoder). The `message` field flattens only the error-level details. Example:
