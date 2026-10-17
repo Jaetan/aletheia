@@ -44,7 +44,9 @@ records no build-source digest.  The always-on steps, by lane:
     - agda gates      — every remaining cabal-shake gate folded into ONE
       `cabal run shake -- <targets>` call (AGDA_SHAKE_TARGETS).  Shake runs the
       independent phony rules concurrently (shakeThreads=0) — the two heavy proof
-      checks overlap at ~2.3 GiB peak — and pays the per-process cabal/shake
+      checks overlap at ~2.3 GiB peak when a few proof modules re-check, and a
+      whole-side re-check stays under the warm checker's heap cap
+      (`AGDA_HEAP_CAP`, tools/_warm.py) — and pays the per-process cabal/shake
       startup + build-graph re-validation once instead of once per gate.  The
       targets are `AGDA_SHAKE_TARGETS` in tools/_ci_steps.py, and
       `tools/check_gates_reached.py` holds every Shake check target to that list

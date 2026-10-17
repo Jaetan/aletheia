@@ -55,7 +55,7 @@ class Step:
 
     ``cmd`` is an argv list (run directly) or a string (run via ``/bin/sh -c``
     for the lanes that need pipes / globs / redirection).  ``heavy`` marks a
-    big-memory step (``-M16G`` Agda, sanitizer build, race detector) that must
+    big-memory step (heap-capped Agda, sanitizer build, race detector) that must
     contend for the memory semaphore.
     """
 

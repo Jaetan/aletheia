@@ -216,12 +216,12 @@ injectOne-roundtrip : ∀ {n} (dbc : DBC) (iv : IsValidDBC dbc) (msg : Found (DB
   → signalFits n (DBCSignal.signalDef (Found.item sig))
   → injectOne (validated dbc iv) msg frame (sig , v) ≡ inj₂ frame'
   → extractSignal frame' (DBCSignal.signalDef (Found.item sig)) (DBCSignal.byteOrder (Found.item sig)) ≡ just v
-injectOne-roundtrip dbc iv msg frame frame' sig v msg∈ sig∈ fits eq
-  with injectOne-written dbc iv msg frame frame' sig v eq
-... | e , checked , refl =
-  trans (cong (λ bits → extractSignal (withInjected (SignalDef.startBit sd) bits bo frame) sd bo)
-              (encodedBits-irrelevant e (signalFacts iv (Found.position msg) (Found.position sig)) facts))
-        (extractSignal-encodedBits sd _ v e checked facts bo frame fits)
+injectOne-roundtrip dbc iv msg frame frame' sig v msg∈ sig∈ fits eq =
+  let e , checked , frame'≡ = injectOne-written dbc iv msg frame frame' sig v eq
+  in subst (λ f → extractSignal f sd bo ≡ just v) (sym frame'≡)
+       (trans (cong (λ bits → extractSignal (withInjected (SignalDef.startBit sd) bits bo frame) sd bo)
+                    (encodedBits-irrelevant e (signalFacts iv (Found.position msg) (Found.position sig)) facts))
+              (extractSignal-encodedBits sd _ v e checked facts bo frame fits))
   where
     sd    = DBCSignal.signalDef (Found.item sig)
     bo    = DBCSignal.byteOrder (Found.item sig)

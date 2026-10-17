@@ -25,15 +25,20 @@ import json
 import os
 import queue
 import subprocess
+import tempfile
 import threading
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
 
 from tools._common import agda_tree_lock, emit, find_executable, git_toplevel, run_capture
 
+from aletheia.common_types import ExitStatus, Prose
+
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
+    from io import BufferedRandom
 
 
 def _find_repo_root() -> Path:
@@ -83,6 +88,18 @@ type RelPath = str
 # it must sit far above the slowest module on the slowest runner; the
 # workflow's job timeout bounds a true hang.
 _LOAD_SILENCE_S = 1800.0
+
+# The warm process's heap cap, which also bounds what one process may hold
+# across every module it checks: a proof whose check outgrows it stops with
+# agda's heap-exhausted error rather than taking the host's memory.  The whole
+# proof side re-checked in one process holds 3.5 GiB live and peaks at 7.5 GiB
+# under this cap.  A CI runner has 16 GB: the job that runs this check beside
+# a cold sanitizer build and the Python suites, on four CPUs, peaks at 11.1 GiB
+# with the whole proof side re-checked.
+AGDA_HEAP_CAP = "8G"
+
+# The lines of agda's error output an unexpected exit is reported with.
+_EXIT_TAIL_LINES = 5
 
 
 class DefSite(TypedDict):
@@ -155,14 +172,19 @@ class LoadResult(NamedTuple):
     warnings: list[str]
 
 
-def _spawn_agda() -> subprocess.Popen[str]:
-    """Spawn a warm `agda --interaction-json` process; ownership returns to caller."""
+def _spawn_agda(stderr: BufferedRandom) -> subprocess.Popen[str]:
+    """Spawn a warm `agda --interaction-json` process; ownership returns to caller.
+
+    Its error output goes to ``stderr``, a file rather than a pipe: nothing
+    drains a second pipe while the reader thread drains stdout, and a full one
+    would stop agda mid-load.
+    """
     return subprocess.Popen(
         [AGDA, "--interaction-json"],
         cwd=str(SRC),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=stderr,
         text=True,
         bufsize=1,
         # One capability: agda's checker is single-threaded, so -N only adds
@@ -170,8 +192,22 @@ def _spawn_agda() -> subprocess.Popen[str]:
         # Substrate/Unsafe.agda, 24-core host: 8.2s at -N1, 10.4s at -N4, 12.0s
         # at -N24 idle; 10.7s at -N1 and 11.6s at -N4 with every core held by
         # another process.
-        env={**os.environ, "GHCRTS": "-M16G -N1"},
+        env={**os.environ, "GHCRTS": f"-M{AGDA_HEAP_CAP} -N1"},
     )
+
+
+@contextmanager
+def _error_file() -> Generator[BufferedRandom]:
+    """Hold an anonymous file for agda's error output, removed when it closes."""
+    with tempfile.TemporaryFile() as file:
+        yield file
+
+
+def describe_exit(status: ExitStatus | None, stderr: Prose) -> Prose:
+    """Say how agda ended: its exit status and the last lines of its error output."""
+    ended = "still running" if status is None else f"exit status {status}"
+    tail = [line for line in stderr.splitlines() if line.strip()][-_EXIT_TAIL_LINES:]
+    return Prose(f"{ended}; its error output ends: {' | '.join(tail)}" if tail else ended)
 
 
 @dataclass
@@ -262,15 +298,17 @@ def _apply_load_response(payload: _Response, state: _LoadState) -> bool:
 
 
 def read_load(
-    read_line: Callable[[], str | None], silence_s: float = _LOAD_SILENCE_S
+    read_line: Callable[[], str | None],
+    silence_s: float = _LOAD_SILENCE_S,
+    exit_reason: Callable[[], Prose] | None = None,
 ) -> _LoadState:
     """Fold Cmd_load response lines (from `read_line`) into a _LoadState.
 
     `read_line` returns the next line, None at EOF, and raises `queue.Empty` on
     silence (a wedged process) — silence returns the partial state (`ok` False,
     `error` saying how long agda was silent) rather than hanging; EOF mid-load
-    raises.  Pure (no process), so the load-terminal logic is unit-testable
-    with a synthetic line source.
+    raises, with what `exit_reason` says of the exit.  Pure (no process), so the
+    load-terminal logic is unit-testable with a synthetic line source.
     """
     state = _LoadState()
     while True:
@@ -284,6 +322,8 @@ def read_load(
             return state  # silent past the load budget -> give up (ok False)
         if line is None:
             message = "agda --interaction-json exited unexpectedly"
+            if exit_reason is not None:
+                message += f": {exit_reason()}"
             raise RuntimeError(message)
         payload = _parse_response(line)
         if payload is not None and _apply_load_response(payload, state):
@@ -302,7 +342,9 @@ class WarmAgda:
 
     def __init__(self) -> None:
         """Spawn the warm agda process and start its stdout reader thread."""
-        self.proc: subprocess.Popen[str] = _spawn_agda()
+        self._files = ExitStack()
+        self._stderr = self._files.enter_context(_error_file())
+        self.proc: subprocess.Popen[str] = _spawn_agda(self._stderr)
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -329,6 +371,15 @@ class WarmAgda:
         """
         return self._lines.get(timeout=timeout)
 
+    def _exit_reason(self) -> Prose:
+        """Say how the process ended, once its stdout has closed."""
+        try:
+            status = ExitStatus(self.proc.wait(timeout=10))
+        except subprocess.TimeoutExpired:
+            status = None
+        _ = self._stderr.seek(0)
+        return describe_exit(status, Prose(self._stderr.read().decode(errors="replace")))
+
     def __enter__(self) -> Self:
         """Enter the context manager, returning this live process wrapper."""
         return self
@@ -351,7 +402,9 @@ class WarmAgda:
         cmd = f'IOTCM "{abspath}" NonInteractive Direct (Cmd_load "{abspath}" [])\n'
         _ = self.proc.stdin.write(cmd)
         self.proc.stdin.flush()
-        return read_load(lambda: self._next_line(_LOAD_SILENCE_S), _LOAD_SILENCE_S)
+        return read_load(
+            lambda: self._next_line(_LOAD_SILENCE_S), _LOAD_SILENCE_S, self._exit_reason
+        )
 
     def load(self, abspath: str) -> LoadResult:
         """Send Cmd_load; return the load's tokens, ok flag, and error message.
@@ -370,15 +423,16 @@ class WarmAgda:
         return LoadResult(list(by_range.values()), state.ok, state.error, state.warnings)
 
     def close(self) -> None:
-        """Close stdin and wait for the process to exit (kill on timeout)."""
-        if self.proc.stdin is None:
-            self.proc.kill()
-            return
-        try:
-            self.proc.stdin.close()
-            _ = self.proc.wait(timeout=10)
-        except OSError, subprocess.TimeoutExpired:
-            self.proc.kill()
+        """Close stdin and wait for the process to exit (kill on timeout), then its error file."""
+        with self._files:
+            if self.proc.stdin is None:
+                self.proc.kill()
+                return
+            try:
+                self.proc.stdin.close()
+                _ = self.proc.wait(timeout=10)
+            except OSError, subprocess.TimeoutExpired:
+                self.proc.kill()
 
 
 def all_agda_files() -> list[RelPath]:
