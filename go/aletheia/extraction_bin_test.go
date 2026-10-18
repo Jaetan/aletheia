@@ -19,7 +19,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"unsafe"
 )
 
 // binVal is one Values-segment entry: (idx:u16, num:i64, den:i64).
@@ -251,7 +250,7 @@ type corruptBinBackend struct {
 	err error
 }
 
-func (b *corruptBinBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
+func (b *corruptBinBackend) ExtractSignalsBin(_ State, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return b.buf, b.err
 }
 

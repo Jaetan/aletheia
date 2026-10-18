@@ -5,7 +5,6 @@ package aletheia
 
 import (
 	"log/slog"
-	"unsafe"
 )
 
 // FFIBackendOption configures optional [FFIBackend] behavior.
@@ -61,17 +60,25 @@ type SignalInjection struct {
 // the cross-binding ground truth; the binary send endpoints take binary input
 // and answer JSON; the binary endpoints carry raw bytes both ways with no JSON
 // allocation.
+// State is a kernel session as aletheia_init hands it back: an opaque handle
+// the kernel resolves, zero for no session. It is an integer and never an
+// unsafe.Pointer, because the value is not an address (the kernel's handle is
+// a GHC StablePtr, an index into a table) and the Go runtime ends the process
+// when it copies a goroutine stack holding a value below 4096 in a pointer
+// slot, which every such index is.
+type State uintptr
+
 type Backend interface {
 	backend() // sealed
 
 	// Group 1: session lifecycle and the JSON command bus.
 
 	// Init creates a session and returns its opaque state handle.
-	Init() (unsafe.Pointer, error)
+	Init() (State, error)
 	// Process sends one JSON command and returns the JSON response.
-	Process(state unsafe.Pointer, input string) (string, error)
+	Process(state State, input string) (string, error)
 	// Close finalizes and frees the session state.
-	Close(state unsafe.Pointer)
+	Close(state State)
 
 	// Group 2: binary input, JSON response.
 
@@ -80,7 +87,7 @@ type Backend interface {
 	// pass through: the kernel carries them in the trace without evaluating them.
 	// Precondition: ts.Microseconds >= 0, enforced by [Client.SendFrame].
 	SendFrameBinary(
-		state unsafe.Pointer, ts Timestamp,
+		state State, ts Timestamp,
 		id CANID, dlc DLC, data []byte,
 		brs *bool, esi *bool,
 	) (string, error)
@@ -88,27 +95,27 @@ type Backend interface {
 	// frames are acknowledged without LTL evaluation.
 	// Precondition: ts.Microseconds >= 0, enforced by [Client.SendError] and
 	// not checked here for direct callers.
-	SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string, error)
+	SendErrorBinary(state State, ts Timestamp) (string, error)
 	// SendRemoteBinary sends a CAN remote frame event (ID, no payload); remote
 	// frames are acknowledged without LTL evaluation.
 	// Precondition: ts.Microseconds >= 0, enforced by [Client.SendRemote] and
 	// not checked here for direct callers.
-	SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CANID) (string, error)
+	SendRemoteBinary(state State, ts Timestamp, id CANID) (string, error)
 	// StartStreamBinary begins streaming mode.
-	StartStreamBinary(state unsafe.Pointer) (string, error)
+	StartStreamBinary(state State) (string, error)
 	// EndStreamBinary ends streaming mode and returns the verdicts.
-	EndStreamBinary(state unsafe.Pointer) (string, error)
+	EndStreamBinary(state State) (string, error)
 	// FormatDBCBinary returns the loaded DBC as JSON.
-	FormatDBCBinary(state unsafe.Pointer) (string, error)
+	FormatDBCBinary(state State) (string, error)
 	// ExtractSignalsBinary extracts the signals of a binary CAN frame.
-	ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DLC, data []byte) (string, error)
+	ExtractSignalsBinary(state State, id CANID, dlc DLC, data []byte) (string, error)
 
 	// Group 3: raw bytes both ways.
 
 	// BuildFrameBin builds a CAN frame from signal values and returns its payload.
-	BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, signals []SignalInjection) ([]byte, error)
+	BuildFrameBin(state State, id CANID, dlc DLC, signals []SignalInjection) ([]byte, error)
 	// UpdateFrameBin rewrites signals in an existing payload and returns the new payload.
-	UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte, signals []SignalInjection) ([]byte, error)
+	UpdateFrameBin(state State, id CANID, dlc DLC, data []byte, signals []SignalInjection) ([]byte, error)
 	// ExtractSignalsBin extracts signals as the packed binary the caller parses.
-	ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte) ([]byte, error)
+	ExtractSignalsBin(state State, id CANID, dlc DLC, data []byte) ([]byte, error)
 }

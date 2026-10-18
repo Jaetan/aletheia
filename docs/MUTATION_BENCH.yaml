@@ -151,12 +151,12 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 711
+      generated: 710
       not_covered: 15
       timeouts: 0
-      total_mutants: 696
+      total_mutants: 695
       score_pct: 100.0
-      run_at: "2026-10-06"
+      run_at: "2026-10-17"
       # A mutant that times out is neither killed nor lived, and no verdict
       # may come from a clock: a survivor runs the whole suite, the slowest
       # run there is, so a cap it reached would hide it as a timeout. A mutant
