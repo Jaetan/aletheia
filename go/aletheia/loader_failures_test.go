@@ -216,7 +216,7 @@ func runLoaderScenario(scenario string) {
 		}
 		_, err = b.Init()
 		expect(err, "aletheia_init returned null", 32)
-		_, err = b.Process(nil, "{}")
+		_, err = b.Process(0, "{}")
 		expect(err, "aletheia_process returned null", 33)
 		_, err = formatRational(half)
 		expect(err, "aletheia_format_rational returned a null pointer", 34)

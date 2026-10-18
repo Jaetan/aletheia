@@ -353,6 +353,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The Go binding holds the kernel's session handle as an integer, so a
+  Go program using it no longer dies when the runtime copies a stack
+  (BREAKING for implementers of `Backend`).** The kernel's `aletheia_init`
+  returns a GHC stable pointer, an index into a table and not an address
+  (`0x30` for a process's first session), and the binding held it in an
+  `unsafe.Pointer`. The Go runtime ends the process with `fatal error:
+  invalid pointer found on stack` whenever it copies a goroutine stack, on
+  growth or on the collector's shrink, while a pointer slot holds a value
+  below 4096; the CLI tests hit it in CI inside `NewClient`, and a program
+  that grows its stack with a live handle hits it every run. The handle is
+  now `aletheia.State`, an integer newtype, across `Backend`, `MockBackend`,
+  `FFIBackend` and `Client`, the cgo trampolines take and return it as
+  `uintptr_t`, and a test grows the stack with a live handle and survives.
+
 - **No Go source file is over 1000 lines.** Each of the five that were is split
   along the seams it had, every part named for its subject and holding the
   declarations byte for byte as they were: `go/aletheia/json.go` keeps the

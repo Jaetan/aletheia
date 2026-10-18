@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"unsafe"
 )
 
 // The typed bound error, every entry point that refuses before the payload
@@ -148,7 +147,7 @@ func TestLimits_Constants(t *testing.T) {
 // so its text is the binding's own.
 func TestProcess_RejectsOversizeJSON(t *testing.T) {
 	backend := &FFIBackend{}
-	_, err := backend.Process(unsafe.Pointer(nil), strings.Repeat("x", MaxJSONBytes+1))
+	_, err := backend.Process(0, strings.Repeat("x", MaxJSONBytes+1))
 	bex := requireBoundExceeded(t, err, BoundKindInputLengthBytes, uint64(MaxJSONBytes)+1, uint64(MaxJSONBytes), "")
 	if bex.Message != "" {
 		t.Errorf("Message = %q, want none for a refusal the binding makes", bex.Message)

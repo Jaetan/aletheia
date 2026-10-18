@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"unsafe"
 )
 
 // MockResponse is a canned response paired with an optional error.
@@ -88,21 +87,21 @@ func RespondParseDBC(dbc DBCDefinition, warnings ...ValidationIssue) MockRespons
 	return MockResponse{JSON: string(raw)}
 }
 
-// mockSentinel is an address to hand back from Init, which must answer
-// something that is not nil. The mock keeps no state behind it, and the client
-// knows it is closed by its own flag rather than by this pointer.
-var mockSentinel byte
+// mockState is the handle Init hands back, which must not be zero. The mock
+// keeps no state behind it, and the client knows it is closed by its own flag
+// rather than by this handle.
+const mockState State = 1
 
-// Init answers the sentinel address.
-func (m *MockBackend) Init() (unsafe.Pointer, error) {
-	return unsafe.Pointer(&mockSentinel), nil
+// Init answers the mock's one handle.
+func (m *MockBackend) Init() (State, error) {
+	return mockState, nil
 }
 
 // NewMockError creates a simple error for use with [RespondErr].
 func NewMockError(msg string) error { return errors.New(msg) }
 
 // Process returns the next canned response, recording the input.
-func (m *MockBackend) Process(_ unsafe.Pointer, input string) (string, error) {
+func (m *MockBackend) Process(_ State, input string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.processLocked(input)
@@ -142,7 +141,7 @@ func (m *MockBackend) processLocked(input string) (string, error) {
 
 // SendFrameBinary records a frame.
 func (m *MockBackend) SendFrameBinary(
-	state unsafe.Pointer, _ Timestamp,
+	state State, _ Timestamp,
 	_ CANID, _ DLC, _ []byte,
 	_ *bool, _ *bool,
 ) (string, error) {
@@ -150,38 +149,38 @@ func (m *MockBackend) SendFrameBinary(
 }
 
 // SendErrorBinary records an error event.
-func (m *MockBackend) SendErrorBinary(state unsafe.Pointer, _ Timestamp) (string, error) {
+func (m *MockBackend) SendErrorBinary(state State, _ Timestamp) (string, error) {
 	return m.Process(state, "<binary:sendError>")
 }
 
 // SendRemoteBinary records a remote frame.
-func (m *MockBackend) SendRemoteBinary(state unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
+func (m *MockBackend) SendRemoteBinary(state State, _ Timestamp, _ CANID) (string, error) {
 	return m.Process(state, "<binary:sendRemote>")
 }
 
 // StartStreamBinary records the start of a stream.
-func (m *MockBackend) StartStreamBinary(state unsafe.Pointer) (string, error) {
+func (m *MockBackend) StartStreamBinary(state State) (string, error) {
 	return m.Process(state, "<binary:startStream>")
 }
 
 // EndStreamBinary records the end of one.
-func (m *MockBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
+func (m *MockBackend) EndStreamBinary(state State) (string, error) {
 	return m.Process(state, "<binary:endStream>")
 }
 
 // FormatDBCBinary records a request for the loaded definition.
-func (m *MockBackend) FormatDBCBinary(state unsafe.Pointer) (string, error) {
+func (m *MockBackend) FormatDBCBinary(state State) (string, error) {
 	return m.Process(state, "<binary:formatDBC>")
 }
 
 // ExtractSignalsBinary records an extraction.
-func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
+func (m *MockBackend) ExtractSignalsBinary(state State, _ CANID, _ DLC, _ []byte) (string, error) {
 	return m.Process(state, "<binary:extractAllSignals>")
 }
 
 // BuildFrameBin records a frame build and reads the payload out of the queued
 // response, which is how a test says what the kernel would have built.
-func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
+func (m *MockBackend) BuildFrameBin(state State, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
 	resp, err := m.Process(state, "<binary:buildFrameBin>")
 	if err != nil {
 		return nil, err
@@ -190,7 +189,7 @@ func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []Si
 }
 
 // UpdateFrameBin records a frame update and reads its payload the same way.
-func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
+func (m *MockBackend) UpdateFrameBin(state State, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
 	resp, err := m.Process(state, "<binary:updateFrameBin>")
 	if err != nil {
 		return nil, err
@@ -203,12 +202,12 @@ func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []b
 // that one error and asks again through the JSON path, which the mock does
 // answer; any other error it passes on, so a real decode failure is never read
 // as a reason to try the other path.
-func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
+func (m *MockBackend) ExtractSignalsBin(_ State, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, ErrBinaryPathUnsupported
 }
 
 // Close is a no-op for the mock backend.
-func (m *MockBackend) Close(_ unsafe.Pointer) {}
+func (m *MockBackend) Close(_ State) {}
 
 // The interface is satisfied here, so a drift in its signatures fails the
 // build rather than the first test that uses the mock.
