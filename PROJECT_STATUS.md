@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-10-17.
+**Last Updated**: 2026-10-18.
 
 Aletheia is a formally verified CAN-frame analysis system: a core written in Agda
 with machine-checked correctness proofs, compiled to Haskell and exposed through
@@ -139,6 +139,8 @@ crossed it, and a loaded DBC carries the proof that it is within every bound.
 Loading a DBC takes time linear in its length on both routes
 (JSON and `.dbc` text), and a check the main branch requires fails any change
 under which doubling a DBC's messages more than triples its load time.
+Every number a DBC or a command carries is held to one magnitude bound in the
+kernel, so a text holding one very long number is refused rather than read.
 
 Living detail and rationale for the above are tracked outside the tree, with
 the rest of the pending work.
