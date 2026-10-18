@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Machine-readable error codes mirroring Agda's ``Error`` ADT.
+"""Machine-readable error codes mirroring Agda's ``Error`` ADT and the shim's refusal.
 
 This module is the Python side of the cross-binding error-code contract.
 The wire values here correspond 1:1 to the strings emitted by
 ``errorCode`` / ``parseErrorCode`` / ``frameErrorCode`` / ``routeErrorCode``
 / ``handlerErrorCode`` / ``dispatchErrorCode`` / ``extractionErrorCode``
-in ``src/Aletheia/Error.agda``.
+in ``src/Aletheia/Error.agda``, plus the shared library's own refusal of an
+entry's arguments (``haskell-shim/src/AletheiaFFI/Marshal.hs``).
 
 Kept in its own module so the protocol TypedDicts and the enum don't all
 pile into one oversized file.  The wire values are pinned two ways:
@@ -22,7 +23,8 @@ from enum import StrEnum
 class ErrorCode(StrEnum):
     """Machine-readable error codes matching Agda Error ADT.
 
-    Each code maps 1:1 to an Agda error constructor via errorCode.
+    Each code maps 1:1 to an Agda error constructor via errorCode, except
+    ``FFI_VALIDATION_ERROR``, which the shared library writes itself.
     """
 
     # Parse errors
@@ -52,9 +54,10 @@ class ErrorCode(StrEnum):
     PARSE_PAYLOAD_BYTE_OUT_OF_RANGE = "parse_payload_byte_out_of_range"
     PARSE_NON_POSITIVE_DENOMINATOR = "parse_non_positive_denominator"
     PARSE_SIGNAL_ARRAY_LENGTH_MISMATCH = "parse_signal_array_length_mismatch"
-    # DBC text parse errors
-    DBC_TEXT_PARSE_FAILURE = "dbc_text_parse_failure"
-    DBC_TEXT_TRAILING_INPUT = "dbc_text_trailing_input"
+    # Text parse errors: a DBC text the parser refuses, and a decimal entered
+    # through the decimal entry, carry the first two
+    TEXT_PARSE_FAILURE = "text_parse_failure"
+    TEXT_TRAILING_INPUT = "text_trailing_input"
     DBC_TEXT_ATTRIBUTE_REFINEMENT_FAILED = "dbc_text_attribute_refinement_failed"
     # Frame errors
     FRAME_SIGNAL_NOT_FOUND = "frame_signal_not_found"
@@ -97,6 +100,9 @@ class ErrorCode(StrEnum):
     EXTRACTION_MUX_CHAIN_CYCLE = "extraction_mux_chain_cycle"
     EXTRACTION_MUX_EXTRACTION_FAILED = "extraction_mux_extraction_failed"
     EXTRACTION_VALUE_EXCEEDS_WIRE_RANGE = "extraction_value_exceeds_wire_range"
+
+    # The shared library's own refusal of an argument it cannot read or a buffer it cannot write to
+    FFI_VALIDATION_ERROR = "ffi_validation_error"
 
 
 __all__ = ["ErrorCode"]

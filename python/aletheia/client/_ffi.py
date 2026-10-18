@@ -10,14 +10,21 @@ import os
 import stat
 import threading
 from pathlib import Path
-from typing import NewType
+from typing import TYPE_CHECKING, NewType, cast
 
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import FFIError, ProtocolError
 from aletheia.types import JSONValue, is_str_dict
 
+if TYPE_CHECKING:
+    from aletheia.common_types import Prose
+    from aletheia.types import Response
+
 # The reply of a kernel entry that answers in JSON, as the bytes it returned.
 KernelResponse = NewType("KernelResponse", bytes)
+
+# The address of a string the library allocated, read and then freed.
+KernelString = NewType("KernelString", int)
 
 
 def parse_json_object(raw: KernelResponse) -> dict[str, JSONValue]:
@@ -261,6 +268,23 @@ class AletheiaDecimal(ctypes.Structure):  # pylint: disable=too-few-public-metho
         # A raw address, not ``c_char_p``, so the string can be freed after reading.
         ("err", ctypes.c_void_p),
     )
+
+
+def take_error_envelope(
+    lib: ctypes.CDLL, out: AletheiaBuffer | AletheiaDecimal, missing: Prose
+) -> Response:
+    """Read and free the error envelope a failed entry left in *out*.
+
+    A failure without one is a wire fault, raised as :class:`ProtocolError`
+    with *missing*.
+    """
+    err: KernelString | None = out.err
+    if err is None:
+        raise ProtocolError(missing)
+    try:
+        return cast("Response", parse_json_object(KernelResponse(ctypes.string_at(err))))
+    finally:
+        lib.aletheia_free_str(err)
 
 
 def configure_ffi_signatures(lib: ctypes.CDLL) -> None:

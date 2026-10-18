@@ -33,6 +33,7 @@ static void decimal_call_free_str(void *fn, char *ptr) {
 import "C"
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -74,10 +75,16 @@ func ensureDecimalLoaded() error {
 // starts; without one it fails before reaching the FFI rather than starting
 // the runtime with a default bus count.
 //
-// Errors: [ErrValidation] for a literal the kernel refuses or a rational past
-// int64 (the kernel's decimal_parse_failed and decimal_overflow); [ErrFFI]
-// when the runtime is down or the library or symbol is missing; [ErrProtocol]
-// on a null return or a malformed response, which no working kernel produces.
+// Errors: the kernel's refusal, read by the envelope reader the binary-output
+// entries share. The literal is the caller's own text, so a refused one is an
+// [*Error] of kind [ErrValidation] whose Code says how: [CodeTextParseFailure]
+// (nothing parsed) or [CodeTextTrailingInput] (a number parsed and characters
+// followed), its Message naming the line and column, or
+// [CodeFFIValidationError] when the shim refused the bytes (an interior NUL, bytes that are not UTF-8);
+// a numerator or denominator whose magnitude is past the kernel's component
+// bound is an [*InputBoundExceededError] with Field "decimal". [ErrFFI] when
+// the runtime is down or the library or symbol is missing; [ErrProtocol] on a
+// null return or a malformed response, which no working kernel produces.
 func FromDecimal(s string) (Rational, error) {
 	if err := ensureDecimalLoaded(); err != nil {
 		return Rational{}, err
@@ -97,23 +104,21 @@ func FromDecimal(s string) (Rational, error) {
 			return Rational{}, protocolError("aletheia_parse_decimal failed without an error")
 		}
 		defer C.decimal_call_free_str(decimalFreeFn, out.err)
-		return Rational{}, decimalRefusal(C.GoString(out.err))
+		return Rational{}, refusedLiteral(binaryRefusal("aletheia_parse_decimal", C.GoString(out.err)))
 	}
 	return decimalValue(int64(out.value.numerator), int64(out.value.denominator))
 }
 
-// decimalRefusal reads the parser's error envelope, so the kernel's reason
-// reaches the caller as a validation error: a refused literal is user input.
-func decimalRefusal(envelope string) error {
-	m, err := parseResponse(envelope)
-	if err != nil {
-		return err
+// refusedLiteral gives a coded refusal of the literal the kind of a caller's
+// own mistake: the envelope reader answers every well-formed refusal as
+// ErrProtocol with its Code, and the literal is the caller's text, not the
+// wire's. A typed bound error and a protocol fault (no Code) pass unchanged.
+func refusedLiteral(err error) error {
+	var e *Error
+	if errors.As(err, &e) && e.Kind == ErrProtocol && e.Code != "" {
+		return &Error{Kind: ErrValidation, Code: e.Code, Message: e.Message}
 	}
-	msg := getString(m, "message")
-	if msg == "" {
-		msg = "invalid decimal literal"
-	}
-	return NewValidationError(msg)
+	return err
 }
 
 // decimalValue is the parsed rational, whose denominator the kernel answers

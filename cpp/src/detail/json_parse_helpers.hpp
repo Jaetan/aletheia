@@ -58,7 +58,7 @@ using Json = nlohmann::json;
 // signed 64-bit maximum reads as the most negative one and the caller's sign
 // test calls it negative, a CAN id of 2^32 reads as a valid zero, a frame
 // byte of 256 reads as zero.  The refusal names the position's own range, as
-// the kernel names the Int64 wire range it refuses at its own entry.
+// the kernel names the bound it refuses at its own entry.
 template<typename T>
 auto out_of_range(const Json& j, std::string_view context) -> std::runtime_error {
     return std::runtime_error(std::string{context} + " is out of range (" +

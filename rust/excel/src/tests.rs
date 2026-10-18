@@ -304,6 +304,36 @@ fn extended_column_is_optional() {
 }
 
 #[test]
+fn whitespace_only_text_cell_is_absent() {
+    // A text cell holding only whitespace is an absent cell, as the Python,
+    // Go and C++ loaders read it, so the field's own refusal answers.
+    let path = temp("blank_value");
+    let _g = TempXlsx(path.clone());
+    write_book(
+        &path,
+        &[(
+            "Checks",
+            CHECKS_HDR,
+            &[&[
+                Cell::Empty,
+                Cell::Str("S"),
+                Cell::Str("never_exceeds"),
+                Cell::Str("  \t "),
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+            ]],
+        )],
+    );
+    let err = load_checks_from_excel(&path).unwrap_err();
+    assert!(
+        format!("{err}").contains("missing required 'Value'"),
+        "got: {err}"
+    );
+}
+
+#[test]
 fn strict_rejects_a_number_cell() {
     // THE LOCK for the all-text decimal contract: a numeric field stored
     // as a NUMBER cell holds a lossy IEEE-754 double, so it is rejected — the
@@ -360,6 +390,50 @@ fn strict_rejects_a_number_cell() {
     );
     let err = load_dbc_from_excel(&dpath).unwrap_err();
     assert!(format!("{err}").contains("format it as TEXT"), "got: {err}");
+}
+
+#[test]
+fn a_refused_whole_number_is_located_under_its_header() {
+    // A whole-number cell the kernel refuses keeps the kernel's code and
+    // message and gains the row and the column header, as a rational cell's
+    // refusal does.
+    let _rts = test_backend();
+    let path = temp("dlc_trailing");
+    let _g = TempXlsx(path.clone());
+    write_book(
+        &path,
+        &[(
+            "DBC",
+            DBC_HDR_MINIMAL,
+            &[&[
+                Cell::Str("256"),
+                Cell::Str("M"),
+                Cell::Str("8x"),
+                Cell::Str("Sig"),
+                Cell::Str("0"),
+                Cell::Str("8"),
+                Cell::Str("little_endian"),
+                Cell::Bool(false),
+                Cell::Str("1"),
+                Cell::Str("0"),
+                Cell::Str("0"),
+                Cell::Str("1"),
+                Cell::Empty,
+            ]],
+        )],
+    );
+    let err = load_dbc_from_excel(&path).unwrap_err();
+    let Error::Validation { code, .. } = &err else {
+        panic!("expected a validation refusal, got {err:?}");
+    };
+    assert_eq!(code.as_deref(), Some("text_trailing_input"), "{err:?}");
+    assert_eq!(err.location(), Some("Row 2"), "{err:?}");
+    assert_eq!(err.key(), Some("DLC"), "{err:?}");
+    assert_eq!(
+        err.to_string(),
+        "Row 2: invalid 'DLC': parse failed at line 1, column 2 \
+         (first unparseable statement starts at line 1, column 2)"
+    );
 }
 
 #[test]

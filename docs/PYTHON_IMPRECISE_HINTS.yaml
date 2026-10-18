@@ -289,11 +289,8 @@ hints:
     text: "str"
     count: 28
   - file: python/aletheia/_loader_utils.py
-    text: "Mapping[str, JSONValue | Fraction]"
-    count: 1
-  - file: python/aletheia/_loader_utils.py
     text: "Mapping[str, JSONValue]"
-    count: 7
+    count: 8
   - file: python/aletheia/_loader_utils.py
     text: "TypeGuard[str]"
     count: 1
@@ -402,9 +399,6 @@ hints:
   - file: python/aletheia/client/_backend.py
     text: "int"
     count: 93
-  - file: python/aletheia/client/_backend.py
-    text: "int | None"
-    count: 1
   - file: python/aletheia/client/_backend.py
     text: "list[bytes]"
     count: 2
@@ -589,9 +583,6 @@ hints:
     text: "int | Fraction"
     count: 1
   - file: python/aletheia/client/_helpers/rational.py
-    text: "int | None"
-    count: 1
-  - file: python/aletheia/client/_helpers/rational.py
     text: "object"
     count: 4
   - file: python/aletheia/client/_helpers/rational.py
@@ -644,7 +635,7 @@ hints:
     count: 1
   - file: python/aletheia/client/_signal_ops.py
     text: "str"
-    count: 2
+    count: 1
   - file: python/aletheia/client/_signal_ops.py
     text: "tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]"
     count: 1
@@ -1596,7 +1587,7 @@ hints:
     count: 2
   - file: python/tests/test_from_decimal.py
     text: "str"
-    count: 3
+    count: 1
   - file: python/tests/test_heavy_lanes_workflow.py
     text: "dict[str, Job]"
     count: 2
@@ -1833,7 +1824,7 @@ hints:
     count: 1
   - file: python/tests/test_parse_decimal_ffi.py
     text: "str"
-    count: 4
+    count: 2
   - file: python/tests/test_predicate_sync.py
     text: "set[str]"
     count: 1

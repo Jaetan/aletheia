@@ -21,6 +21,12 @@ Prose = NewType("Prose", str)
 # A process's exit status, as a command returns it and `sys.exit` takes it.
 ExitStatus = NewType("ExitStatus", int)
 
+# Where a loader read a value: a YAML document's check, an Excel sheet's row.
+Location = NewType("Location", str)
+
+# The key or the column header a loader read a value under.
+DocumentKey = NewType("DocumentKey", str)
+
 
 @dataclass(frozen=True)
 class Gt[T]:

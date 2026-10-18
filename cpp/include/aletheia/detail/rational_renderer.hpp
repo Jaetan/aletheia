@@ -39,12 +39,13 @@ namespace aletheia::detail {
 
 // Parse a decimal literal into an exact rational via the Agda kernel's
 // `aletheia_parse_decimal`: the rational, or the kernel's raw JSON error
-// envelope (`{"status":"error",...}` on a parse failure / int64 overflow).
+// envelope (`{"status":"error",...}` on a parse failure or a component past
+// the kernel's magnitude bound).
 // Symmetric with `format_rational_ffi`: it shares the renderer's lazy-load +
 // vocal-RTS contract — it does NOT initialise the GHC RTS (an FfiBackend is the
 // sole initialiser), so it throws `AletheiaException(Ffi)` when the runtime is
 // down rather than self-initialising.  The caller reads the envelope via
-// `detail::decimal_refusal` (in json.hpp) — this TU stays JSON-free.  Throws
+// `detail::binary_refusal` (in json.hpp) — this TU stays JSON-free.  Throws
 // `AletheiaException(Ffi)` if the library is not loadable or the runtime is
 // uninitialised, and `AletheiaException(Protocol)` if the kernel answers a
 // failure without an envelope or a non-positive denominator.

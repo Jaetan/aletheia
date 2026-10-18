@@ -122,11 +122,13 @@ fn assert_refused<T: std::fmt::Debug>(
             observed: o,
             limit: l,
             field: f,
+            located,
         } => {
             assert_eq!(code, "input_bound_exceeded");
             assert_eq!(m, message);
             assert_eq!((bound_kind.as_str(), *o, *l), (kind, observed, limit));
             assert_eq!(f.as_deref(), Some(field));
+            assert_eq!(located, &None, "no loader read the DBC");
         }
         other => panic!("expected Error::InputBoundExceeded, got {other:?}"),
     }

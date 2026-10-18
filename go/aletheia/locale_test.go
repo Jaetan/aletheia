@@ -64,7 +64,7 @@ func runLocaleChecks(t *testing.T) {
 	}
 	_, err := FromDecimal("1.5€")
 	var aErr *Error
-	if !errors.As(err, &aErr) || aErr.Kind != ErrValidation {
+	if !errors.As(err, &aErr) || aErr.Kind != ErrValidation || aErr.Code != CodeTextTrailingInput {
 		t.Errorf("FromDecimal accepted 1.5 and a euro sign, or refused it as %v", err)
 	}
 	parsed, err := newFFIClient(t).ParseDBCText(t.Context(), localeDBCText)

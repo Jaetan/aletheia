@@ -159,7 +159,7 @@ signals, `startBit` names the physical MSB and the descending run of `length`
 bits must stay inside the frame (`parse_signal_big_endian_overflow`
 otherwise); the textbook full-frame layout — MSB at bit 7 descending through
 the whole frame — is accepted. Both DBC entry routes (this command and
-[ParseDBCText](#dbc-text-parse-errors--parsedbctext--formatdbctext)) run the
+[ParseDBCText](#text-parse-errors-parsedbctext--formatdbctext--aletheia_parse_decimal)) run the
 same gate and emit the same codes; text-route refusals are anchored by the
 signal's name (`signal 'NAME': ...`) rather than a byte position, because the
 gate runs after the `SG_` line parses.
@@ -1063,7 +1063,7 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 | DBC text field length (version, unit, comment, attribute name or value, value label) | 65,536 characters | `string_length` |
 | Rational components of any number in a command or a DBC (\|numerator\| and denominator of the exact rational it denotes, reduced) | 9,223,372,036,854,775,807 (2⁶³ − 1) | `rational_component_magnitude` |
 
-The rational-component bound is measured on the parsed tree like the nesting-depth bound (reduction only shrinks component magnitudes, so a bounded submitted literal stays bounded). It pins the JSON wire to the same signed 64-bit range the binary FFI's rational slots and the typed decimal path (`aletheia_parse_decimal`) already enforce — one Int64 bound on every wire, so a bare JSON integer cannot smuggle a component the binary wire cannot represent. The limit is symmetric in magnitude: numerator −2⁶³ is refused even though a two's-complement slot could carry it, keeping the structured `observed` / `limit` pair a plain magnitude comparison.
+The rational-component bound is measured on the parsed tree like the nesting-depth bound (reduction only shrinks component magnitudes, so a bounded submitted literal stays bounded). It is one bound, decided in the kernel, for a JSON number, a DBC literal and a decimal entered through `aletheia_parse_decimal` alike, so none of these admits a component another refuses, and a bare JSON integer cannot smuggle a component the binary FFI's rational slots cannot represent. The limit is symmetric in magnitude: these routes refuse numerator −2⁶³ even though a two's-complement slot could carry it, keeping the structured `observed` / `limit` pair a plain magnitude comparison. The binary build and update entries take each signal value as an `int64_t` numerator and denominator and hold neither to this bound, refusing a denominator that is not positive, so numerator −2⁶³ reaches them.
 
 A frame has no bound kind: `data_len` is a `uint8_t`, and the kernel refuses any payload whose length is not its DLC's byte count with `parse_payload_length_mismatch` (see [Binary Entry Points](#binary-entry-points)).
 
@@ -1075,7 +1075,7 @@ A frame has no bound kind: `data_len` is a `uint8_t`, and the kernel refuses any
 |---|---|
 | `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `property_count` / `rational_component_magnitude` |
 
-The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`, and a DBC bound adds `field`, the part of the DBC that crossed it (`senders array`, `version string`). Example:
+The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`, and a bound decided on a DBC or on a decimal entered through `aletheia_parse_decimal` adds `field`, the part of the input that crossed it (`senders array`, `version string`, `decimal`). Example:
 
 ~~~
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
@@ -1097,10 +1097,10 @@ Every number in a DBC is held to the rational-component bound on both load route
 <<< {"status": "error", "code": "handler_validation_failed", "message": "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'", "has_errors": true, "issues": [{"severity": "error", "code": "duplicate_signal_name", "detail": "Message 'M': duplicate signal name 'S'"}, {"severity": "warning", "code": "offset_scale_range", "detail": "..."}]}
 ~~~
 
-DBC text parse errors carry **byte-exact failure positions** on the envelope. The parser tracks a *furthest-failure watermark*: the deepest position any parse attempt reached (`<|>` alternatives merge their failed arms' depths; `many` keeps the depth of the element attempt it swallowed), so the reported byte is the first character no grammar rule could accept — not merely the start of the offending statement.
+Text parse errors, of a `.dbc` text or of a decimal entered through `aletheia_parse_decimal`, carry **byte-exact failure positions** on the envelope. The parser tracks a *furthest-failure watermark*: the deepest position any parse attempt reached (`<|>` alternatives merge their failed arms' depths; `many` keeps the depth of the element attempt it swallowed), so the reported byte is the first character no grammar rule could accept, not merely the start of the offending statement.
 
-- `dbc_text_parse_failure` exposes structured `line` / `column` (the watermark).
-- `dbc_text_trailing_input` exposes `line` / `column` (the watermark, inside the first unparseable statement) **plus** `statement_line` / `statement_column` (where that statement starts — the first unconsumed byte).
+- `text_parse_failure` exposes structured `line` / `column` (the watermark).
+- `text_trailing_input` exposes `line` / `column` (the watermark, inside the first unparseable statement) **plus** `statement_line` / `statement_column` (where that statement starts, the first unconsumed byte).
 - `dispatch_invalid_json` exposes `line` / `column` (the JSON parser shares the same combinators and watermark).
 
 ### Two-layer enforcement
@@ -1154,9 +1154,9 @@ Bounds are intentionally generous (commercial automotive DBCs are 1-10 MiB, ~6×
 
 ### Error Code Reference
 
-Every error response carries a stable `code` field (in addition to the human-readable `message`) drawn from the Agda source of truth `src/Aletheia/Error.agda`. Tooling should switch on `code`, not `message` — the message text is localised/expanded over time, the code is not.
+Every error response carries a stable `code` field (in addition to the human-readable `message`) drawn from the Agda source of truth `src/Aletheia/Error.agda`, or, when the shared library refuses an argument it cannot read or a result it cannot write, its own `ffi_validation_error`. Tooling should switch on `code`, not `message`: the message text is localised/expanded over time, the code is not.
 
-Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signal extraction), `frame_*` (frame building/update), `route_*` (command dispatch), `handler_*` (stream state machine), `dispatch_*` (top-level request routing), `dbc_text_*` (DBC text parse/format). When an error is wrapped (e.g., a `ParseError` surfaces through `WrappedParse` inside a `HandlerError`), the emitted `code` is the innermost code, not the wrapping layer — so `parse_missing_field` during `parseDBC` and during `setProperties` both surface as `parse_missing_field`.
+Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signal extraction), `frame_*` (frame building/update), `route_*` (command dispatch), `handler_*` (stream state machine), `dispatch_*` (top-level request routing), `text_*` (parse of a `.dbc` text or of a decimal), `dbc_text_*` (DBC attribute refinement). When an error is wrapped (e.g., a `ParseError` surfaces through `WrappedParse` inside a `HandlerError`), the emitted `code` is the innermost code, not the wrapping layer, so `parse_missing_field` during `parseDBC` and during `setProperties` both surface as `parse_missing_field`.
 
 #### Parse errors — malformed DBC or property JSON, or a binary entry's frame
 
@@ -1246,12 +1246,12 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `dispatch_invalid_json` | Request was not valid JSON (structured `line`/`column` mark the first unparseable byte) | Validate the JSON before sending |
 | `dispatch_request_not_object` | Top-level value is not an object | Wrap in `{...}` |
 
-#### DBC text parse errors — `parseDBCText` / `formatDBCText`
+#### Text parse errors: `parseDBCText` / `formatDBCText` / `aletheia_parse_decimal`
 
 | Code | Meaning | Likely cause / fix |
 |---|---|---|
-| `dbc_text_parse_failure` | The `.dbc` text could not be parsed (structured `line`/`column` mark the deepest byte any parse attempt reached) | Check the file against the DBC grammar at the reported byte; run `validate` for structural issues |
-| `dbc_text_trailing_input` | The top-level parse stopped at the first unparseable statement — structured `line`/`column` mark the exact failing byte inside it, `statement_line`/`statement_column` where the statement starts | Fix the statement at the reported byte |
+| `text_parse_failure` | A text could not be parsed, a `.dbc` text or a decimal entered through `aletheia_parse_decimal` (structured `line`/`column` mark the deepest byte any parse attempt reached) | Check the file against the DBC grammar, or the literal against the decimal grammar, at the reported byte; run `validate` for structural issues |
+| `text_trailing_input` | The parse stopped at the first unparseable statement of a `.dbc` text, or at the unconsumed tail of a decimal: structured `line`/`column` mark the exact failing byte inside it, `statement_line`/`statement_column` where the statement starts | Fix the statement or the literal at the reported byte |
 | `dbc_text_attribute_refinement_failed` | A `BA_DEF_DEF_` / `BA_` / `BA_REL_` entry failed refinement — the message names the offending attribute and whether it is undeclared or its value does not fit the declared type | Declare the attribute via `BA_DEF_` first; keep values inside the declared type (e.g. `ENUM` indices in range) |
 
 Signal-geometry refusals on the text route reuse the JSON route's
@@ -1261,6 +1261,12 @@ name (`signal 'NAME': ...`) rather than the positioned `line`/`column`
 watermark: the gate runs after the `SG_` line parses, so the offending
 statement is already consumed. The positioned channel above remains for
 syntactic failures.
+
+#### The library's own refusal: an argument it cannot read, a result it cannot write
+
+| Code | Meaning | Likely cause / fix |
+|---|---|---|
+| `ffi_validation_error` | The shared library refused an argument it cannot read (a NULL pointer, a size past what the library can index, a text that is not UTF-8 or holds a NUL byte) or a result it cannot write (a buffer smaller than the frame the kernel built); the message names which | Pass what the entry's header documents: a text as its UTF-8 bytes without NUL, buffers at the frame's size |
 
 ---
 

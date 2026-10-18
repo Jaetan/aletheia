@@ -393,7 +393,7 @@ class TestIdentifierLengthBound:
     holds an identifier to ``max-identifier-length`` characters.  One at the
     limit parses; a longer name is no identifier, so the text parser stops in
     front of the statement holding it and refuses the text with
-    ``dbc_text_trailing_input``.
+    ``text_trailing_input``.
     """
 
     def test_identifier_at_max_length_accepted(self) -> None:
@@ -412,7 +412,7 @@ class TestIdentifierLengthBound:
         with AletheiaClient() as client:
             result = client.parse_dbc_text(dbc_text)
             assert result["status"] == "error", result
-            assert result["code"] == "dbc_text_trailing_input", result
+            assert result["code"] == "text_trailing_input", result
 
     def test_identifier_far_over_max_rejected(self) -> None:
         """A 500-char identifier is rejected (no length-dependent edge case)."""
@@ -421,7 +421,7 @@ class TestIdentifierLengthBound:
         with AletheiaClient() as client:
             result = client.parse_dbc_text(dbc_text)
             assert result["status"] == "error", result
-            assert result["code"] == "dbc_text_trailing_input", result
+            assert result["code"] == "text_trailing_input", result
 
 
 class TestNestingDepthBound:

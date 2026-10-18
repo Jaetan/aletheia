@@ -35,6 +35,7 @@ dependencies = [
  "aletheia",
  "calamine",
  "rust_xlsxwriter",
+ "yaml-rust2",
  "zip 8.6.0",
 ]
 

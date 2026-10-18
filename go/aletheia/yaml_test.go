@@ -280,20 +280,50 @@ func TestLoadYAML_Refusals(t *testing.T) {
 				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n",
 			"require 'within_ms'",
 		},
-		"a value that is not a number": {
-			"checks:\n  - signal: S\n    condition: never_exceeds\n    value: .nan\n", "not a valid decimal literal",
+		"a time that is not a whole number": {
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_ms: 1.5\n",
+			"check '<unnamed>': 'within_ms' must be a whole number, got \"1.5\"",
 		},
-		"a value past the wire range": {
-			"checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n", "Int64 wire range",
+		"a negative time": {
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_ms: -5\n",
+			"check '<unnamed>': 'within_ms' must be non-negative, got \"-5\"",
+		},
+		"a trigger and an obligation with a time that is not a number": {
+			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 0x64\n",
+			"Check '<unnamed>': invalid 'within_ms': parse failed at line 1, column 2",
+		},
+		"a trigger and an obligation with a time that is not a whole number": {
+			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 2.5\n",
+			"check '<unnamed>': 'within_ms' must be a whole number, got \"2.5\"",
+		},
+		"a trigger and an obligation with a negative time": {
+			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: -1\n",
+			"check '<unnamed>': 'within_ms' must be non-negative, got \"-1\"",
+		},
+		"a list where a time belongs": {
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_ms: [100]\n",
+			"expected a numeric scalar value",
+		},
+		"a value that is not a number": {
+			"checks:\n  - signal: S\n    condition: never_exceeds\n    value: .nan\n",
+			"Check '<unnamed>': invalid 'value': parse failed at line 1, column",
 		},
 		"a bound that is not a number": {
 			"checks:\n  - signal: S\n    condition: settles_between\n    min: 0\n    max: .inf\n    within_ms: 100\n",
-			"not a valid decimal literal",
+			"Check '<unnamed>': invalid 'max': parse failed at line 1, column",
 		},
 		"a trigger value that is not a number": {
 			"checks:\n  - when:\n      signal: A\n      condition: exceeds\n      value: .nan\n" +
 				"    then:\n      signal: B\n      condition: equals\n      value: 1\n    within_ms: 100\n",
-			"not a valid decimal literal",
+			"Check '<unnamed>': invalid 'value': parse failed at line 1, column",
+		},
+		"an obligation bound that is not a number": {
+			"checks:\n  - name: \"Lamp\"\n    when:\n      signal: A\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: B\n      condition: stays_between\n      min: .nan\n      max: 1\n    within_ms: 100\n",
+			"Check 'Lamp': invalid 'min': parse failed at line 1, column",
 		},
 		"a list where a value belongs": {
 			"checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: [1, 2]\n", "expected a numeric scalar value",
@@ -310,6 +340,18 @@ func TestLoadYAML_Refusals(t *testing.T) {
 			_, err := LoadChecksFromYAML(tc.document)
 			requireErrorContains(t, err, tc.says)
 		})
+	}
+}
+
+// A value whose numerator is past the kernel's component bound reaches the
+// caller as the kernel's typed bound refusal, unwrapped, the observed
+// magnitude saturated at the largest the kernel counts, and located at the
+// check and the key.
+func TestLoadYAML_ValuePastTheComponentBound(t *testing.T) {
+	_, err := LoadChecksFromYAML("checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n")
+	bound := requireBoundExceeded(t, err, BoundKindRationalComponentMagnitude, 18446744073709551615, 9223372036854775807, "decimal")
+	if bound.Location != "Check '<unnamed>'" || bound.Key != "value" {
+		t.Errorf("Location, Key = %q, %q, want %q, %q", bound.Location, bound.Key, "Check '<unnamed>'", "value")
 	}
 }
 

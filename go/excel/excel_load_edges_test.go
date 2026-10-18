@@ -4,6 +4,7 @@
 package excel
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,13 +52,12 @@ func TestLoadExcelRefusesARow(t *testing.T) {
 			says: "missing or invalid 'Value'",
 		},
 		{
-			// The value is a text cell carrying the literal, which no float
-			// could hold: the loader parses it exactly and refuses it for
-			// being past the wire's range, rather than clamping it.
-			name: "a value past the wire range",
+			// A text cell holding only whitespace is an absent cell, as the
+			// Python, C++ and Rust loaders read it.
+			name: "a comparison whose value is only whitespace",
 			load: checks,
-			row:  []any{nil, "Speed", "never_exceeds", "99999999999999999999.5", nil, nil, nil, nil},
-			says: "Int64 wire range",
+			row:  []any{nil, "Speed", "never_exceeds", "  \t ", nil, nil, nil, nil},
+			says: "missing or invalid 'Value'",
 		},
 		{
 			name: "a range with no minimum",
@@ -125,6 +125,33 @@ func TestLoadExcelRefusesARow(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			requireErrorContains(t, c.load(t, c.row), c.says)
 		})
+	}
+}
+
+// TestLoadExcelRefusesAValuePastTheWireRange: the value is a text cell carrying
+// the literal, which no float could hold. The kernel reads it as past its
+// component bound and refuses it, rather than clamping it, and the loader
+// answers with the kernel's typed bound error located at the row and the
+// column header.
+func TestLoadExcelRefusesAValuePastTheWireRange(t *testing.T) {
+	_, err := LoadChecks(makeChecksWorkbook(t, [][]any{
+		{nil, "Speed", "never_exceeds", "99999999999999999999.5", nil, nil, nil, nil},
+	}))
+	var bound *aletheia.InputBoundExceededError
+	if !errors.As(err, &bound) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bound.BoundKind != aletheia.BoundKindRationalComponentMagnitude {
+		t.Errorf("BoundKind: got %s, want %s", bound.BoundKind, aletheia.BoundKindRationalComponentMagnitude)
+	}
+	if bound.Field != "decimal" {
+		t.Errorf("Field: got %q, want %q", bound.Field, "decimal")
+	}
+	if bound.Location != "Row 2" || bound.Key != "Value" {
+		t.Errorf("Location, Key: got %q, %q, want %q, %q", bound.Location, bound.Key, "Row 2", "Value")
+	}
+	if want := "Row 2: invalid 'Value': decimal: rational component magnitude"; !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("Error(): got %q, want it to start with %q", err.Error(), want)
 	}
 }
 

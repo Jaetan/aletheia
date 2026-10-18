@@ -361,7 +361,7 @@ checks:
 client.add_checks(checks)
 ```
 
-**Type-based dispatch**: `load_checks()` distinguishes file vs. inline YAML by argument type. Pass a `pathlib.Path` to load from a file (`FileNotFoundError` if missing). Pass a `str` to parse inline YAML (`ValueError` on a malformed YAML body). The previous heuristic that auto-promoted a file-path-shaped string to a file load was removed to close a path-confusion vector. Static type checkers (pyright/mypy) catch non-(`str` | `Path`) arguments at check time.
+**Type-based dispatch**: `load_checks()` distinguishes file vs. inline YAML by argument type. Pass a `pathlib.Path` to load from a file (`FileNotFoundError` if missing). Pass a `str` to parse inline YAML (`ValidationError` reading `invalid YAML:` on a malformed YAML body). A file-path-shaped string is parsed as YAML, never opened, which closes a path-confusion vector. Static type checkers (pyright/mypy) catch non-(`str` | `Path`) arguments at check time.
 
 ### YAML Schema
 
@@ -475,6 +475,12 @@ Errors reference the check name (or `<unnamed>` if no name is set):
 Check 'Speed limit': missing or invalid 'value' (expected number)
 Check '<unnamed>': unknown condition 'bogus'
 Check 'Brake response': when/then checks require 'within_ms'
+~~~
+
+Every number, `within_ms` included, is read by the kernel from its text as the document spells it. A number the kernel refuses is the kernel's error, with its code and fields, carrying the check and the key it sat under (`location` and `key`), which lead its printed form; [`LOADER_SCENARIOS.yaml`](../LOADER_SCENARIOS.yaml) holds the four bindings' loaders to one answer per spelling:
+
+~~~
+Check 'Speed limit': invalid 'value': parse failed at line 1, column 4 (first unparseable statement starts at line 1, column 4)
 ~~~
 
 ---
@@ -617,6 +623,12 @@ Errors reference row numbers (1-indexed, counting from the header):
 Row 5: unknown condition 'bogus'
 Row 3: condition 'stays_between' requires 'Min' and 'Max'
 Row 7: invalid 'Message ID' — expected integer or hex string (e.g. 0x100)
+~~~
+
+A text cell under a number column whose text the kernel refuses is the kernel's error carrying the row and the column header, as a YAML number carries its check and key:
+
+~~~
+Row 2: invalid 'Factor': parse failed at line 1, column 4 (first unparseable statement starts at line 1, column 4)
 ~~~
 
 ### API Reference

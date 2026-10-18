@@ -11,12 +11,12 @@ build`` makes beside the library: in the directory ``ALETHEIA_LIB`` names, or
 the repository's ``build/``.
 """
 
-import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType
+from typing import TYPE_CHECKING
 
 import pytest
+from _stand_in import StandInName, stand_in_kernel
 
 from aletheia import FFIBackend, FFIError
 from aletheia.client._enrichment import get_renderer_lib
@@ -25,20 +25,7 @@ from aletheia.client._ffi import ABI_VERSION
 if TYPE_CHECKING:
     import ctypes
 
-# A stand-in kernel's name, the stem of its source under haskell-shim/test.
-StandInName = NewType("StandInName", str)
-
-_REPO = Path(__file__).resolve().parents[2]
-_SHIM = _REPO / "haskell-shim"
-
-
-def _stand_in(name: StandInName) -> Path:
-    """Return the stand-in kernel the build makes beside the library the tests run against."""
-    lib = os.environ.get("ALETHEIA_LIB")
-    built = Path(lib).parent if lib else _REPO / "build"
-    path = built / "stand-ins" / f"{name}.so"
-    assert path.exists(), f"stand-in {path} not built; run 'cabal run shake -- build'"
-    return path
+_SHIM = Path(__file__).resolve().parents[2] / "haskell-shim"
 
 
 def test_the_binding_version_is_the_header_s() -> None:
@@ -54,13 +41,13 @@ def test_a_library_at_another_version_is_refused() -> None:
     with pytest.raises(
         FFIError, match=f"ABI version {ABI_VERSION + 1}, and this binding needs {ABI_VERSION}"
     ):
-        FFIBackend(lib_path=_stand_in(StandInName("stale_abi_kernel")))
+        FFIBackend(lib_path=stand_in_kernel(StandInName("stale_abi_kernel")))
 
 
 def test_a_library_without_the_version_export_is_refused() -> None:
     """A loadable library with no version export predates the versioned ABI."""
     with pytest.raises(FFIError, match="predates the versioned ABI"):
-        FFIBackend(lib_path=_stand_in(StandInName("symbolless")))
+        FFIBackend(lib_path=stand_in_kernel(StandInName("symbolless")))
 
 
 def test_the_renderer_refuses_a_library_at_another_version(
@@ -70,7 +57,7 @@ def test_the_renderer_refuses_a_library_at_another_version(
 
     The refused library is never registered: the renderer's cell stays empty.
     """
-    stale = _stand_in(StandInName("stale_abi_kernel"))
+    stale = stand_in_kernel(StandInName("stale_abi_kernel"))
     cell: list[ctypes.CDLL | None] = [None]
     monkeypatch.setattr("aletheia.client._enrichment._RENDERER_LIB", cell)
     monkeypatch.setenv("ALETHEIA_LIB", str(stale))

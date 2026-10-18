@@ -40,10 +40,26 @@ pub enum Error {
     RtsNotInitialized,
     /// The core returned a null response pointer.
     NullResponse,
-    /// Caller-supplied input was structurally invalid before it reached the core
-    /// (e.g. a CAN ID out of range, a non-positive rational denominator, a
-    /// `between` predicate with `min > max`, or a formula nested past the limit).
-    Validation(String),
+    /// A caller-supplied input the binding or the kernel refused as the
+    /// caller's own mistake (e.g. a CAN ID out of range, a non-positive
+    /// rational denominator, a `between` predicate with `min > max`, a formula
+    /// nested past the limit, or a decimal literal the kernel's grammar
+    /// refuses). Its [`Display`](std::fmt::Display) text is `message`, the
+    /// kernel's when the kernel refused, after `<location>: invalid '<key>': `
+    /// when [`Error::located`] set the location and the key; the `code` is a
+    /// field, not text.
+    Validation {
+        /// What was refused and why.
+        message: String,
+        /// The kernel's wire code when the kernel refused the input
+        /// (`text_parse_failure` or `text_trailing_input` for a decimal the
+        /// grammar refuses, `ffi_validation_error` when the shim refused the
+        /// bytes); `None` when the binding refused it itself before any call.
+        code: Option<String>,
+        /// Where a loader read the refused number and the key it sat under;
+        /// `None` outside a loader.
+        located: Option<Box<Located>>,
+    },
     /// The core's JSON response could not be parsed or had an unexpected shape.
     Protocol(String),
     /// The core returned a structured error response. `code` is the machine-
@@ -69,11 +85,12 @@ pub enum Error {
     /// string, or a `field` that is not a string, degrades to [`Error::Core`]
     /// rather than surfacing here. The crate builds this variant only by that
     /// lift, so its text, rendered by [`Display`], is the kernel's message
-    /// exactly.
+    /// exactly, after `<location>: invalid '<key>': ` when [`Error::located`]
+    /// set the location and the key.
     ///
     /// A `match` that names every field of this variant without `..` must name
-    /// `message` and `field` too: `#[non_exhaustive]` covers the enum's
-    /// variants, not this variant's fields.
+    /// `message`, `field` and `located` too: `#[non_exhaustive]` covers the
+    /// enum's variants, not this variant's fields.
     ///
     /// [`Display`]: std::fmt::Display
     InputBoundExceeded {
@@ -90,12 +107,16 @@ pub enum Error {
         observed: u64,
         /// The canonical limit that was exceeded.
         limit: u64,
-        /// The part of the DBC that crossed a size bound, as the kernel names
-        /// it (e.g. `senders array`, `version string`), on a DBC size refusal
-        /// from `parse_dbc`, `parse_dbc_text`, `validate_dbc` or
-        /// `format_dbc_text`; `None` for a bound that names no field, such as
-        /// the input's length, its nesting depth or an identifier's length.
+        /// The part of the input that crossed the bound, as the kernel names
+        /// it: a DBC's `senders array` or `signal factor` on a refusal from
+        /// `parse_dbc`, `parse_dbc_text`, `validate_dbc` or `format_dbc_text`,
+        /// a decimal's `decimal` from `Rational::from_decimal`; `None` for a
+        /// bound that names no field, such as the input's length, its nesting
+        /// depth or an identifier's length.
         field: Option<String>,
+        /// Where a loader read the refused number and the key it sat under;
+        /// `None` outside a loader.
+        located: Option<Box<Located>>,
     },
     /// The core rejected a DBC because structural validation found errors. This
     /// is the typed lift of a `code == "handler_validation_failed"` error
@@ -154,7 +175,73 @@ pub enum Error {
     BinaryPathUnsupported,
 }
 
+/// The place a loader read a refused number, carried boxed by
+/// [`Error::Validation`] and [`Error::InputBoundExceeded`] so that every
+/// `Result<_, Error>` stays small.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    /// Where the loader read the number: `Check 'C'` for a YAML check named
+    /// `C`, `Row 2` for a spreadsheet row.
+    pub location: String,
+    /// The key or column header the number sat under (`value`, `Factor`).
+    pub key: String,
+}
+
 impl Error {
+    /// A refusal the binding makes itself, before any call reaches the kernel:
+    /// [`Error::Validation`] with `message`, no `code` and no location.
+    #[must_use]
+    pub fn validation(message: impl Into<String>) -> Self {
+        Error::Validation {
+            message: message.into(),
+            code: None,
+            located: None,
+        }
+    }
+
+    /// The same refusal with the place a loader read the refused number:
+    /// `location` (`Check 'C'`, `Row 2`) and `key`, the key or column header
+    /// it sat under. On [`Error::Validation`] and [`Error::InputBoundExceeded`]
+    /// it sets `located` and keeps the kernel's message, code and fields;
+    /// every other variant is returned unchanged.
+    #[must_use]
+    pub fn located(mut self, location: impl Into<String>, key: impl Into<String>) -> Self {
+        if let Error::Validation { located, .. } | Error::InputBoundExceeded { located, .. } =
+            &mut self
+        {
+            *located = Some(Box::new(Located {
+                location: location.into(),
+                key: key.into(),
+            }));
+        }
+        self
+    }
+
+    /// Where a loader read the refused number (`Check 'C'`, `Row 2`); `None`
+    /// for every variant but a located [`Error::Validation`] or
+    /// [`Error::InputBoundExceeded`].
+    #[must_use]
+    pub fn location(&self) -> Option<&str> {
+        self.place().map(|place| place.location.as_str())
+    }
+
+    /// The key or column header the refused number sat under (`value`,
+    /// `Factor`); `None` wherever [`Error::location`] is `None`.
+    #[must_use]
+    pub fn key(&self) -> Option<&str> {
+        self.place().map(|place| place.key.as_str())
+    }
+
+    /// The place [`Error::located`] set, if any.
+    fn place(&self) -> Option<&Located> {
+        match self {
+            Error::Validation { located, .. } | Error::InputBoundExceeded { located, .. } => {
+                located.as_deref()
+            }
+            _ => None,
+        }
+    }
+
     /// Tag a per-frame error with its 0-based batch index. Internal constructor
     /// for the batch-send paths; callers match on [`Error::Frame`].
     pub(crate) fn at_frame(index: usize, source: Error) -> Error {
@@ -180,33 +267,25 @@ impl fmt::Display for Error {
                 "GHC runtime not initialized: create a Client (FfiBackend) before rendering"
             ),
             Error::NullResponse => write!(f, "core returned a null response"),
-            Error::Validation(msg) => write!(f, "validation error: {msg}"),
-            Error::Protocol(msg) => write!(f, "protocol error: {msg}"),
+            Error::Validation {
+                message,
+                located: Some(place),
+                ..
+            }
+            | Error::InputBoundExceeded {
+                message,
+                located: Some(place),
+                ..
+            } => write!(f, "{}: invalid '{}': {message}", place.location, place.key),
+            Error::Validation { message, .. } => f.write_str(message),
+            Error::Protocol(msg) => f.write_str(msg),
             Error::BinaryPathUnsupported => {
                 write!(f, "binary extraction path not supported by this backend")
             }
-            Error::Core { code, message } => write!(f, "core error [{code}]: {message}"),
+            Error::Core { message, .. } => f.write_str(message),
             Error::InputBoundExceeded { message, .. } => f.write_str(message),
-            Error::ValidationFailed {
-                code,
-                message,
-                issues,
-                ..
-            } => write!(
-                f,
-                "core error [{code}]: {message} ({} validation issues)",
-                issues.len()
-            ),
-            Error::TextRoundtripFailed {
-                code,
-                message,
-                issues,
-                ..
-            } => write!(
-                f,
-                "core error [{code}]: {message} ({} round-trip issues)",
-                issues.len()
-            ),
+            Error::ValidationFailed { message, .. }
+            | Error::TextRoundtripFailed { message, .. } => f.write_str(message),
             Error::Frame { index, source } => write!(f, "frame {index}: {source}"),
         }
     }

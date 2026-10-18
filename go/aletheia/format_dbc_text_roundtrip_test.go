@@ -123,7 +123,7 @@ func TestFormatDBCText_RoundTripRefusalLifts(t *testing.T) {
 	if trte.Issues[1].Code != IssueMultiValueMuxSelector {
 		t.Errorf("Issues[1].Code = %q, want multi_value_mux_selector", trte.Issues[1].Code)
 	}
-	if want := "aletheia protocol error: " + msg; err.Error() != want {
+	if want := msg; err.Error() != want {
 		t.Errorf("Error() = %q, want the generic render %q", err.Error(), want)
 	}
 }

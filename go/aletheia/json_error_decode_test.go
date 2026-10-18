@@ -107,7 +107,7 @@ func TestValidationFailed_WellFormedEnvelopeLifts(t *testing.T) {
 	if vfe.Issues[0].Detail != "Message 'M': duplicate signal name 'S'" {
 		t.Errorf("Issues[0].Detail = %q, want the wire detail", vfe.Issues[0].Detail)
 	}
-	if want := "aletheia protocol error: " + msg; err.Error() != want {
+	if want := msg; err.Error() != want {
 		t.Errorf("Error() = %q, want the generic render %q", err.Error(), want)
 	}
 }

@@ -211,8 +211,7 @@ def _process_end_stream(
 ) -> tuple[list[Violation], list[Violation]]:
     """Split the end-stream finalization results into fails + unresolved."""
     if end_resp["status"] == "error":
-        msg = f"end stream failed: {end_resp['message']}"
-        raise AletheiaError(msg)
+        raise AletheiaError(end_resp["message"], code=end_resp["code"])
     violations: list[Violation] = []
     unresolved: list[Violation] = []
     for result in end_resp["results"]:
@@ -237,13 +236,11 @@ def _run_check_pipeline(
     """
     resp = client.add_checks(checks)
     if resp["status"] != "success":
-        msg = f"set properties failed: {resp['message']}"
-        raise AletheiaError(msg)
+        raise AletheiaError(resp["message"], code=resp["code"])
 
     resp = client.start_stream()
     if resp["status"] != "success":
-        msg = f"start stream failed: {resp['message']}"
-        raise AletheiaError(msg)
+        raise AletheiaError(resp["message"], code=resp["code"])
 
     violations, total_frames = _process_frames(client, logfile, all_checks)
     end_violations, unresolved = _process_end_stream(
@@ -278,8 +275,9 @@ def run_checks(
 
     Raises:
         FileNotFoundError: ``logfile`` does not exist.
-        AletheiaError:     DBC parse, add-checks, start-stream, or
-            end-stream failed at the FFI boundary.
+        AletheiaError:     the kernel refused the DBC parse, the checks,
+            the stream start or the stream end; its text is the kernel's
+            message and its ``code`` the kernel's.
 
     """
     all_checks = (default_checks or []) + checks
@@ -291,8 +289,7 @@ def run_checks(
     with AletheiaClient(default_checks=default_checks) as owned:
         resp = owned.parse_dbc(dbc)
         if resp["status"] != "success":
-            msg = f"DBC parse failed: {resp['message']}"
-            raise AletheiaError(msg)
+            raise AletheiaError(resp["message"], code=resp["code"])
         return _run_check_pipeline(owned, checks, logfile, all_checks)
 
 

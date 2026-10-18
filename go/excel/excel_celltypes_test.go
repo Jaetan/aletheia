@@ -117,15 +117,16 @@ func TestLoadExcelDBCSignedNativeBoolCell(t *testing.T) {
 }
 
 // TestLoadExcelDBCDecimalRefusalCarriesRowContext: a kernel decimal refusal
-// surfaced through xlsxRational must carry the loader's own "row N: 'Field'"
-// prefix so the operator can find the offending cell (the kernel knows the
-// literal, not the workbook position).
+// surfaced through xlsxRational is located at the row and the column header,
+// printed as "Row N: invalid 'Header': " before the kernel's message, so the
+// operator can find the offending cell (the kernel knows the literal, not the
+// workbook position).
 func TestLoadExcelDBCDecimalRefusalCarriesRowContext(t *testing.T) {
 	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
 		_ = f.SetCellValue("DBC", "J2", "abc") // Factor: text, not decimal grammar
 	})
 	_, err := LoadDbc(path)
-	requireErrorContains(t, err, "row 2: invalid 'Factor'")
+	requireErrorContains(t, err, "Row 2: invalid 'Factor': parse failed at line 1, column")
 }
 
 // TestLoadExcelDBCIntRefusalCarriesRowContext: same contract for the
@@ -135,7 +136,7 @@ func TestLoadExcelDBCIntRefusalCarriesRowContext(t *testing.T) {
 		_ = f.SetCellValue("DBC", "D2", "eight") // DLC: text, not decimal grammar
 	})
 	_, err := LoadDbc(path)
-	requireErrorContains(t, err, "row 2: invalid 'DLC'")
+	requireErrorContains(t, err, "Row 2: invalid 'DLC': parse failed at line 1, column")
 }
 
 // TestLoadExcelDemoWorkbookDBC is the cross-binding portability lock: the shared

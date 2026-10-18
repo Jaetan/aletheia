@@ -137,8 +137,8 @@ var goErrorCodes = []string{
 	aletheia.CodeParsePayloadByteOutOfRange,
 	aletheia.CodeParseNonPositiveDenominator,
 	aletheia.CodeParseSignalArrayLengthMismatch,
-	aletheia.CodeDBCTextParseFailure,
-	aletheia.CodeDBCTextTrailingInput,
+	aletheia.CodeTextParseFailure,
+	aletheia.CodeTextTrailingInput,
 	aletheia.CodeDBCTextAttributeRefinementFailed,
 	aletheia.CodeFrameSignalNotFound,
 	aletheia.CodeFrameSignalIndexOOB,
@@ -174,6 +174,7 @@ var goErrorCodes = []string{
 	aletheia.CodeExtractionMuxChainCycle,
 	aletheia.CodeExtractionMuxExtractionFailed,
 	aletheia.CodeExtractionValueExceedsWireRange,
+	aletheia.CodeFFIValidationError,
 }
 
 // Every row of both sections names a code once and says what it is for.

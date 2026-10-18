@@ -6,6 +6,13 @@
 // SSOT (aletheia_parse_decimal), never via a float64.  Mirrors the cross-binding
 // case set in python/tests/test_parse_decimal_ffi.py and the Rust/Go suites.
 //
+// A refusal is the kernel's own Error, decoded as every kernel refusal is, and
+// the literal is the caller's own text: a grammar refusal is Validation-kinded
+// with its code and its position in the message, a component past the kernel's
+// magnitude bound is InputBoundExceeded with the structured bound fields, and
+// the shim's refusal of text it cannot hand to the kernel (a NUL byte, bytes
+// that are not UTF-8) is Validation-kinded with the code FfiValidationError.
+//
 // from_decimal is RTS-gated; this lives in the unit_tests binary, which links
 // tests/rts_setup_listener.cpp (it brings the GHC RTS up once per process via a
 // throwaway FfiBackend), so the kernel call has a live runtime here.  The
@@ -13,6 +20,8 @@
 // rts_init_renderer_uninitialized_tests binary (no backend in-process).
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
 
@@ -24,6 +33,7 @@
 #include <string_view>
 
 using namespace aletheia;
+using Catch::Matchers::ContainsSubstring;
 
 namespace {
 struct DecimalCase {
@@ -31,10 +41,26 @@ struct DecimalCase {
     std::int64_t numerator;
     std::int64_t denominator;
 };
+
+// A literal the grammar refuses, with the code the kernel answers and the
+// column its message names (every refusal here is on line 1).
+struct GrammarRefusal {
+    std::string_view input;
+    ErrorCode code;
+    int column;
+};
+
+// A literal whose numerator or denominator is past the kernel's magnitude
+// bound, with the magnitude the kernel measured (saturated at UINT64_MAX when
+// it measured more).
+struct BoundRefusal {
+    std::string_view input;
+    std::uint64_t observed;
+};
 } // namespace
 
 // (input → exact, lowest-terms num/den).  Identical to the Python parity set.
-constexpr std::array<DecimalCase, 10> k_success_cases{{
+constexpr std::array<DecimalCase, 11> k_success_cases{{
     {.input = "3.14", .numerator = 157, .denominator = 50},
     {.input = "42", .numerator = 42, .denominator = 1},
     {.input = "0.1", .numerator = 1, .denominator = 10},
@@ -46,38 +72,87 @@ constexpr std::array<DecimalCase, 10> k_success_cases{{
     {.input = "00.1", .numerator = 1, .denominator = 10}, // leading zeros accepted
     {.input = "9223372036854775807",
      .numerator = 9223372036854775807,
-     .denominator = 1}, // Int64 max fits
+     .denominator = 1}, // the magnitude bound itself fits
+    {.input = "-9223372036854775807",
+     .numerator = -9223372036854775807,
+     .denominator = 1}, // and so does its negation
 }};
 
 // Malformed per the grammar -?digits[.digits+]: no '+', no leading/trailing '.',
 // no exponent, no fraction syntax, full consumption (trailing input rejected).
-constexpr std::array<std::string_view, 10> k_parse_fail_cases{{
-    "3.14xyz",
-    "1e3",
-    ".5",
-    "+1",
-    "1/2",
-    "1.",
-    "1 ",
-    " 1",
-    "",
-    "-",
+// A literal whose prefix parses but leaves input behind is a trailing-input
+// refusal; one no prefix of which parses is a parse failure at column 1, or at
+// the column where the digits the sign promised are missing.
+constexpr std::array<GrammarRefusal, 10> k_grammar_refusals{{
+    {.input = "3.14xyz", .code = ErrorCode::TextTrailingInput, .column = 5},
+    {.input = "1e3", .code = ErrorCode::TextTrailingInput, .column = 2},
+    {.input = ".5", .code = ErrorCode::TextParseFailure, .column = 1},
+    {.input = "+1", .code = ErrorCode::TextParseFailure, .column = 1},
+    {.input = "1/2", .code = ErrorCode::TextTrailingInput, .column = 2},
+    {.input = "1.", .code = ErrorCode::TextTrailingInput, .column = 3},
+    {.input = "1 ", .code = ErrorCode::TextTrailingInput, .column = 2},
+    {.input = " 1", .code = ErrorCode::TextParseFailure, .column = 1},
+    {.input = "", .code = ErrorCode::TextParseFailure, .column = 1},
+    {.input = "-", .code = ErrorCode::TextParseFailure, .column = 2},
 }};
 
-// A numerator or denominator beyond the Int64 wire range.
-constexpr std::array<std::string_view, 2> k_overflow_cases{{
-    "99999999999999999999.5",
-    "0.0000000000000000001",
+// A numerator or denominator past the kernel's magnitude bound.  The most
+// negative Int64 is refused: its magnitude is one past the bound, which the
+// kernel holds symmetrically.
+constexpr std::array<BoundRefusal, 3> k_bound_refusals{{
+    {.input = "99999999999999999999.5", .observed = 18446744073709551615ULL},
+    {.input = "0.0000000000000000001", .observed = 10000000000000000000ULL},
+    {.input = "-9223372036854775808", .observed = 9223372036854775808ULL},
 }};
 
-// Run from_decimal and assert it throws a Validation-kinded AletheiaException
-// (user-input fault — NOT Ffi / Protocol / Core).
-static void expect_validation_throw(std::string_view input) {
+constexpr std::uint64_t k_magnitude_limit = 9223372036854775807ULL;
+
+// Run from_decimal and assert the kernel refused the literal's grammar: a
+// Validation-kinded AletheiaException carrying the kernel's code and the
+// position its message names.
+static void expect_grammar_refusal(const GrammarRefusal& c) {
+    try {
+        static_cast<void>(Rational::from_decimal(c.input));
+        FAIL("expected Rational::from_decimal to throw for input: " << c.input);
+    } catch (const AletheiaException& e) {
+        CHECK(e.kind() == ErrorKind::Validation);
+        CHECK(e.code() == c.code);
+        CHECK_THAT(std::string{e.what()},
+                   ContainsSubstring(std::format("parse failed at line 1, column {}", c.column)));
+    }
+}
+
+// Run from_decimal and assert the kernel refused a component's magnitude: an
+// InputBoundExceeded AletheiaException whose bound_info names the decimal field,
+// the magnitude bound kind, the limit and the magnitude measured.
+static void expect_bound_refusal(const BoundRefusal& c) {
+    try {
+        static_cast<void>(Rational::from_decimal(c.input));
+        FAIL("expected Rational::from_decimal to throw for input: " << c.input);
+    } catch (const AletheiaException& e) {
+        CHECK(e.kind() == ErrorKind::InputBoundExceeded);
+        CHECK(e.code() == ErrorCode::InputBoundExceeded);
+        auto const& info = e.error().bound_info();
+        REQUIRE(info.has_value());
+        CHECK(info->bound_kind == bound_kind_rational_component_magnitude);
+        CHECK(info->observed == c.observed);
+        CHECK(info->limit == k_magnitude_limit);
+        REQUIRE(info->field.has_value());
+        CHECK(*info->field == "decimal");
+    }
+}
+
+// Run from_decimal and assert the shim refused the text before the kernel saw
+// it: a Validation-kinded AletheiaException with the code FfiValidationError and
+// the shim's message.
+static void expect_shim_refusal(std::string_view input, std::string_view message) {
     try {
         static_cast<void>(Rational::from_decimal(input));
         FAIL("expected Rational::from_decimal to throw for input: " << input);
     } catch (const AletheiaException& e) {
         CHECK(e.kind() == ErrorKind::Validation);
+        CHECK(e.code() == ErrorCode::FfiValidationError);
+        CHECK(std::string_view{e.what()} == message);
     }
 }
 
@@ -91,32 +166,33 @@ TEST_CASE("Rational::from_decimal parses valid decimals to exact rationals", "[t
     }
 }
 
-TEST_CASE("Rational::from_decimal rejects malformed literals as Validation errors",
+TEST_CASE("Rational::from_decimal rejects malformed literals with the kernel's parse code",
           "[types][decimal]") {
-    for (auto const& input : k_parse_fail_cases) {
-        DYNAMIC_SECTION("input=[" << input << "]") {
-            expect_validation_throw(input);
+    for (auto const& c : k_grammar_refusals) {
+        DYNAMIC_SECTION("input=[" << c.input << "]") {
+            expect_grammar_refusal(c);
         }
     }
 }
 
-TEST_CASE("Rational::from_decimal rejects int64-overflowing literals as Validation errors",
+TEST_CASE("Rational::from_decimal rejects a component past the magnitude bound as "
+          "InputBoundExceeded",
           "[types][decimal]") {
-    for (auto const& input : k_overflow_cases) {
-        DYNAMIC_SECTION("input=" << input) {
-            expect_validation_throw(input);
+    for (auto const& c : k_bound_refusals) {
+        DYNAMIC_SECTION("input=" << c.input) {
+            expect_bound_refusal(c);
         }
     }
 }
 
 TEST_CASE("Rational::from_decimal rejects an interior NUL byte (cross-binding parity)",
           "[types][decimal]") {
-    // The kernel reads the literal whole and refuses the NUL, rather than reading
+    // The shim reads the literal whole and refuses the NUL, rather than reading
     // "1\0xyz" as "1", a value the caller never wrote. Not in the
     // Python-mirrored set above (which uses string literals), so it is its own
     // case using an explicit embedded NUL.
     using namespace std::string_view_literals;
-    expect_validation_throw("1\0xyz"sv);
+    expect_shim_refusal("1\0xyz"sv, "input contains a NUL byte");
 }
 
 TEST_CASE("Rational ctor/make reject out-of-int64-range integral inputs", "[types]") {
@@ -140,15 +216,13 @@ TEST_CASE("Rational ctor/make reject out-of-int64-range integral inputs", "[type
     }
 }
 
-TEST_CASE("Rational::from_decimal rejects a non-ASCII literal as a Validation error",
+TEST_CASE("Rational::from_decimal rejects a non-ASCII literal as trailing input",
           "[types][decimal]") {
-    // The kernel's error envelope echoes the offending input, and the shim
-    // encodes that field as a JSON string, so the envelope stays valid JSON
-    // when the input carries non-ASCII bytes. Without that, a decimal escape
-    // in the echo would make the envelope unparseable and the caller would see
-    // a Protocol failure about the response rather than the Validation error
-    // about the literal. A UTF-8 literal must reach the caller as the latter.
-    expect_validation_throw("1.5\xe2\x82\xac");
+    // A UTF-8 literal is text the kernel reads: the digits before the euro sign
+    // parse and the sign is left behind, so the refusal is the grammar's, with
+    // its code and column, and never one about the bytes.
+    expect_grammar_refusal(
+        {.input = "1.5\xe2\x82\xac", .code = ErrorCode::TextTrailingInput, .column = 4});
 }
 
 // The input as its section is named, a byte outside printable ASCII spelled as
@@ -165,11 +239,11 @@ static auto escaped(std::string_view bytes) -> std::string {
     return out;
 }
 
-TEST_CASE("Rational::from_decimal rejects bytes that are not UTF-8 as Validation errors",
+TEST_CASE("Rational::from_decimal rejects bytes that are not UTF-8 before the kernel reads them",
           "[types][decimal]") {
     // Each surrounds digits that are a literal without it (a stray byte, a
-    // truncated sequence, an encoded surrogate, an overlong NUL), so a kernel
-    // that dropped what it could not decode would accept the literal.
+    // truncated sequence, an encoded surrogate, an overlong NUL), so a shim
+    // that dropped what it could not decode would hand the kernel a literal.
     constexpr std::array<std::string_view, 4> not_utf8{{
         "1.5\xff",
         "1\xe2\x82.5",
@@ -180,7 +254,7 @@ TEST_CASE("Rational::from_decimal rejects bytes that are not UTF-8 as Validation
     }};
     for (auto const input : not_utf8) {
         DYNAMIC_SECTION("input=[" << escaped(input) << "]") {
-            expect_validation_throw(input);
+            expect_shim_refusal(input, "input is not valid UTF-8");
         }
     }
 }

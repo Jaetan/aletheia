@@ -90,10 +90,10 @@ TEST_CASE("New ErrorCode entries map from string", "[input_bounds]") {
           aletheia::ErrorCode::InputBoundExceeded);
     CHECK(aletheia::error_code_from_string("parse_invalid_identifier") ==
           aletheia::ErrorCode::ParseInvalidIdentifier);
-    CHECK(aletheia::error_code_from_string("dbc_text_parse_failure") ==
-          aletheia::ErrorCode::DBCTextParseFailure);
-    CHECK(aletheia::error_code_from_string("dbc_text_trailing_input") ==
-          aletheia::ErrorCode::DBCTextTrailingInput);
+    CHECK(aletheia::error_code_from_string("text_parse_failure") ==
+          aletheia::ErrorCode::TextParseFailure);
+    CHECK(aletheia::error_code_from_string("text_trailing_input") ==
+          aletheia::ErrorCode::TextTrailingInput);
     CHECK(aletheia::error_code_from_string("dbc_text_attribute_refinement_failed") ==
           aletheia::ErrorCode::DBCTextAttributeRefinementFailed);
 }

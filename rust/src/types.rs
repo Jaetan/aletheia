@@ -36,7 +36,7 @@ impl CanId {
     /// [`Error::Validation`] if `value` exceeds [`MAX_STANDARD_ID`].
     pub fn standard(value: u16) -> Result<Self, Error> {
         if value > MAX_STANDARD_ID {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "standard CAN ID {value} exceeds 11-bit range (0-{MAX_STANDARD_ID})"
             )));
         }
@@ -49,7 +49,7 @@ impl CanId {
     /// [`Error::Validation`] if `value` exceeds [`MAX_EXTENDED_ID`].
     pub fn extended(value: u32) -> Result<Self, Error> {
         if value > MAX_EXTENDED_ID {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "extended CAN ID {value} exceeds 29-bit range (0-{MAX_EXTENDED_ID})"
             )));
         }
@@ -85,7 +85,7 @@ impl Dlc {
     /// [`Error::Validation`] if `code` is outside `0..=15`.
     pub fn new(code: u8) -> Result<Self, Error> {
         if code > 15 {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "DLC {code} out of range [0, 15]"
             )));
         }
@@ -117,7 +117,7 @@ impl Dlc {
             .position(|&b| b == bytes)
             .map(|code| Dlc(code as u8))
             .ok_or_else(|| {
-                Error::Validation(format!("{bytes} is not a valid CAN/CAN-FD DLC byte count"))
+                Error::validation(format!("{bytes} is not a valid CAN/CAN-FD DLC byte count"))
             })
     }
 }
@@ -139,12 +139,10 @@ impl Rational {
     /// than silently rewriting them).
     pub fn new(numerator: i64, denominator: i64) -> Result<Self, Error> {
         if denominator == 0 {
-            return Err(Error::Validation(
-                "rational denominator is zero".to_string(),
-            ));
+            return Err(Error::validation("rational denominator is zero"));
         }
         if denominator < 0 {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "rational denominator must be positive, got {denominator}"
             )));
         }
@@ -184,15 +182,21 @@ impl Rational {
     /// the kernel's: `-?digits` or `-?digits.digits+` — no `+` sign, no
     /// leading/trailing `.`, no exponent (so `"1e3"`, `".5"`, `"1."`, `"+2"` are
     /// rejected). Requires a live backend: like rational *display*, decimal
-    /// parsing is RTS-gated (it runs the kernel's `toℚ` + the `i64` bound check),
-    /// and an `FfiBackend` (via a [`Client`](crate::Client)) is the sole RTS
-    /// initialiser.
+    /// parsing is RTS-gated (the kernel parses the literal and holds each
+    /// rational component to its magnitude bound), and an `FfiBackend` (via a
+    /// [`Client`](crate::Client)) is the sole RTS initialiser.
     ///
     /// # Errors
-    /// [`Error::Validation`] if the string is not a valid decimal literal or its
-    /// rational overflows `i64`; [`Error::RtsNotInitialized`] if no backend has
-    /// been created; [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the
-    /// `.so` or the export is unavailable.
+    /// [`Error::Validation`] with `code` `Some("text_parse_failure")` (not a
+    /// decimal literal) or `Some("text_trailing_input")` (a literal followed by
+    /// more text), the kernel's line and column in its message, or
+    /// `Some("ffi_validation_error")` when the shim refused the bytes (a NUL
+    /// byte in `s`); [`Error::InputBoundExceeded`] with `field` `"decimal"`
+    /// when the numerator or the denominator crosses the rational component
+    /// magnitude bound; [`Error::Protocol`] when the entry reports a refusal
+    /// without an error envelope, the envelope is malformed, or the answered
+    /// denominator is not positive; [`Error::RtsNotInitialized`] if no backend
+    /// has been created.
     pub fn from_decimal(s: &str) -> Result<Self, Error> {
         crate::backend::parse_decimal(s)
     }

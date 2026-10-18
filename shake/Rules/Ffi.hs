@@ -225,6 +225,18 @@ ffiRules = do
           error $ "check-erasure failed: CANFrame no longer compiles to its "
                ++ "three runtime fields. The `.below256` byte-range proof "
                ++ "must stay irrelevant, or every frame carries a proof cell."
+        -- The decimal entry's answer: two Integer fields, the magnitude proof
+        -- erased, which is what lets the shim narrow each to int64_t with
+        -- `fromInteger` and lose nothing.
+        decimal <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/DBC/TextParser/DecimalEntry.hs"
+        let wireErasure = case drop 3 (dataDeclWords "WireRational" decimal) of
+              [ctor, "Integer", "Integer"] -> "C_mkWireRational_" `isPrefixOf` ctor
+              _ -> False
+        unless wireErasure $
+          error $ "check-erasure failed: WireRational no longer compiles to its "
+               ++ "two Integer fields. The `@0 small` magnitude proof must stay "
+               ++ "erased, or the shim's int64_t narrowing of a decimal's "
+               ++ "components is no longer proven lossless."
         let tsNewtype = "newtype T_Timestamp_18" `isInfixOf` time
         unless tsNewtype $
           error $ "check-erasure failed: Timestamp is no longer compiled as "
@@ -301,7 +313,7 @@ ffiRules = do
                ++ "newtype over Bool (Aletheia/Data/Dec0.hs). The @0 proof "
                ++ "field must stay erased — a plain data declaration here "
                ++ "means every Dec₀-valued hot-path predicate allocates."
-        putInfo "Erasure guards OK: CANId single-Integer ctors + CANFrame three fields + Timestamp newtype + Sum constructors + Maybe/Sigma builtins + Dec₀ newtype-over-Bool."
+        putInfo "Erasure guards OK: CANId single-Integer ctors + CANFrame three fields + WireRational two Integer fields + Timestamp newtype + Sum constructors + Maybe/Sigma builtins + Dec₀ newtype-over-Bool."
 
     phony "check-ffi-names" $ do
         -- Run `checkFFINames` on demand, against the wrapper named by

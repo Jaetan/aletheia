@@ -277,7 +277,7 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
 // kernel's `validIdentifierᵇ` asserts `length name <ᵇ suc
 // max-identifier-length`, so an identifier at the limit parses and anything
 // longer is rejected at `mkIdentFromChars`. It surfaces on the wire as
-// `dbc_text_trailing_input`, which is what the parser monad's position
+// `text_trailing_input`, which is what the parser monad's position
 // semantics produce; a typed `InputBoundExceeded IdentifierLength` would need
 // plumbing further down that monad.
 

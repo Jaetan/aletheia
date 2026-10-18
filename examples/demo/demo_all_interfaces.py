@@ -7,10 +7,10 @@ they produce identical LTL formulas:
 
     Excel -> YAML -> Check API -> DSL -> same verified Agda core
 
-Decimals are exact `Fraction`s in code, and the YAML/Excel loaders parse decimal
-text via the verified Agda kernel (the float principle: never a lossy float), so a
-live client must be up while loading — hence the `with AletheiaClient()` blocks.
-Build the library first: `cabal run shake -- build`.
+Decimals are exact `Fraction`s in code, and the YAML/Excel loaders parse every
+number of a check via the verified Agda kernel (the float principle: never a lossy
+float), so a live client must be up while loading, hence the `with AletheiaClient()`
+blocks. Build the library first: `cabal run shake -- build`.
 """
 
 # Standalone teaching demos intentionally repeat small setup/teardown
@@ -135,7 +135,7 @@ checks:
     within_ms: 100
 """
 
-# Loading parses the YAML's decimal values via the verified kernel (RTS-gated).
+# Loading parses the YAML's numbers via the verified kernel (RTS-gated).
 with AletheiaClient():
     yaml_checks = load_checks(YAML_SRC)
 yaml_1 = yaml_checks[0].to_dict()

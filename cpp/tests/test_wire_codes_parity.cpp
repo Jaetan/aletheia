@@ -91,8 +91,7 @@ constexpr auto k_named_issue_count = static_cast<std::size_t>(IssueCode::Unknown
 // ErrorCode: Unknown is declared first (value 0), so the anchor is the last
 // named enumerator's value. Appending a new enumerator after it fails the
 // count checks below until this anchor is moved to the new last member.
-constexpr auto k_named_error_count =
-    static_cast<std::size_t>(ErrorCode::ExtractionValueExceedsWireRange);
+constexpr auto k_named_error_count = static_cast<std::size_t>(ErrorCode::FfiValidationError);
 
 // ----- 1. YAML schema sanity -----
 

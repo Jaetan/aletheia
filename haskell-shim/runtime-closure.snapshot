@@ -67,6 +67,7 @@ MAlonzo.Code.Aletheia.DBC.TextParser
 MAlonzo.Code.Aletheia.DBC.TextParser.Attributes
 MAlonzo.Code.Aletheia.DBC.TextParser.Attributes.Foundations
 MAlonzo.Code.Aletheia.DBC.TextParser.Comments
+MAlonzo.Code.Aletheia.DBC.TextParser.Consumed
 MAlonzo.Code.Aletheia.DBC.TextParser.DecRatParse
 MAlonzo.Code.Aletheia.DBC.TextParser.DecRatParse.Properties
 MAlonzo.Code.Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits

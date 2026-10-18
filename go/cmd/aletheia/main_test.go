@@ -310,7 +310,7 @@ func TestCLITemplateRefusesAnExistingPath(t *testing.T) {
 	if code != exitError {
 		t.Errorf("run([template existing]) = %d, want %d", code, exitError)
 	}
-	if want := "Error: aletheia validation error: file already exists: " + path + "\n"; errOut != want {
+	if want := "Error: file already exists: " + path + "\n"; errOut != want {
 		t.Errorf("stderr = %q, want %q", errOut, want)
 	}
 	got, err := os.ReadFile(path)

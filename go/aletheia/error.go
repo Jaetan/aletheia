@@ -20,10 +20,12 @@ type ErrorKind int
 //go:generate stringer -type=ErrorKind -linecomment -output=errorkind_string.go
 
 const (
-	// ErrProtocol indicates a JSON parsing or protocol mismatch with the Agda core.
+	// ErrProtocol indicates a command or a response that does not cross as the
+	// protocol says, or a refusal with a wire code that no typed error carries.
 	ErrProtocol ErrorKind = iota // protocol
-	// ErrValidation indicates user-supplied input that failed local validation
-	// (DBC definition, formula/predicate values, check-loader input, frame payload, …).
+	// ErrValidation indicates input the caller supplied, refused by the binding's
+	// own checks (DBC definition, formula/predicate values, check-loader input,
+	// frame payload, …) or, for a decimal literal, by the kernel with its Code.
 	ErrValidation // validation
 	// ErrState indicates an operation was attempted in the wrong client state.
 	ErrState // state
@@ -34,34 +36,44 @@ const (
 // Error is what every operation of this package returns on failure. Use
 // [errors.As] to read its [ErrorKind] and [errors.Unwrap] for the cause.
 type Error struct {
-	// Kind is the high-level category (validation / state / protocol / FFI / ...).
+	// Kind is the high-level category: validation, state, protocol or FFI.
 	Kind ErrorKind
-	// Code is the machine-readable wire code from the Agda core; empty for client-side errors.
-	// See the Code* constants below for the full vocabulary.
+	// Code is the kernel's or the shared library's wire code, empty for the
+	// binding's own errors; the Code* constants below are the whole vocabulary.
 	Code string
 	// Message is the human-readable diagnostic.
 	Message string
 	// Cause is the optional wrapped underlying error; nil when there is none.
 	// Used by [errors.Unwrap] / [errors.Is] / [errors.As].
 	Cause error
+	// Location is where a loader read the number the kernel refused, such as
+	// "Check 'C'" or "Row 2"; empty outside a loader. See [Locate].
+	Location string
+	// Key is the key or column header the refused number sat under, such as
+	// "value" or "Factor"; empty outside a loader.
+	Key string
 }
 
-// Error renders as "aletheia <kind> error: <message>", with the cause
-// appended when there is one.
+// Error returns the message, the kernel's text when the kernel refused, as
+// every binding prints it, with the cause after it when the error wraps one;
+// the kind and the code are fields, not text. A refusal a loader located is
+// led by the location and the key, as "<location>: invalid '<key>': ".
 func (e *Error) Error() string {
+	text := e.Message
 	if e.Cause != nil {
-		return fmt.Sprintf("aletheia %s error: %s: %s", e.Kind, e.Message, e.Cause)
+		text += ": " + e.Cause.Error()
 	}
-	return fmt.Sprintf("aletheia %s error: %s", e.Kind, e.Message)
+	return locatedText(e.Location, e.Key, text)
 }
 
 // Unwrap returns the underlying error, enabling [errors.Is] and [errors.As].
 func (e *Error) Unwrap() error { return e.Cause }
 
-// The machine-readable error codes, one per error the kernel can raise,
-// grouped by the layer that raises them: parsing, DBC text, frames, input
-// bounds, routing, handlers, dispatch and extraction. The string each one
-// carries is the identifier on the wire and in [Error.Code], and
+// The machine-readable error codes, one per error the kernel or the shared
+// library can raise, grouped by the layer that raises them: parsing, DBC text,
+// frames, input bounds, routing, handlers, dispatch and extraction, and last
+// the shared library's own refusal of an entry's arguments. The string each
+// one carries is the identifier on the wire and in [Error.Code], and
 // docs/WIRE_CODES.yaml pins the whole vocabulary across the bindings.
 const (
 	// CodeParseMissingField — required JSON field absent on the input object.
@@ -121,10 +133,12 @@ const (
 	// numerators, denominators) of different lengths.
 	CodeParseSignalArrayLengthMismatch = "parse_signal_array_length_mismatch"
 
-	// CodeDBCTextParseFailure — generic .dbc text parse failure.
-	CodeDBCTextParseFailure = "dbc_text_parse_failure"
-	// CodeDBCTextTrailingInput — .dbc text contains unparsed trailing characters.
-	CodeDBCTextTrailingInput = "dbc_text_trailing_input"
+	// CodeTextParseFailure reports a text the kernel's parser could not start
+	// on, a .dbc text or a decimal literal, at the line and column it stopped.
+	CodeTextParseFailure = "text_parse_failure"
+	// CodeTextTrailingInput reports a text the parser read a statement of and
+	// then found unparsed characters, a .dbc text or a decimal literal.
+	CodeTextTrailingInput = "text_trailing_input"
 	// CodeDBCTextAttributeRefinementFailed — BA_ value fails its BA_DEF_ refinement.
 	CodeDBCTextAttributeRefinementFailed = "dbc_text_attribute_refinement_failed"
 
@@ -209,16 +223,51 @@ const (
 	// CodeExtractionValueExceedsWireRange — the extracted exact value's reduced
 	// numerator or denominator exceeds the signed 64-bit binary-wire range.
 	CodeExtractionValueExceedsWireRange = "extraction_value_exceeds_wire_range"
+
+	// CodeFFIValidationError is the shared library's own refusal of an
+	// argument it cannot read (a NULL pointer, a text that is not UTF-8 or
+	// holds a NUL) or of a buffer smaller than the frame the kernel built.
+	CodeFFIValidationError = "ffi_validation_error"
 )
+
+// locatedText is an error's text as it prints: after the location and the
+// key when a loader located it, alone otherwise.
+func locatedText(location, key, text string) string {
+	if location == "" {
+		return text
+	}
+	return location + ": invalid '" + key + "': " + text
+}
+
+// Locate is a refusal of the kernel located where a loader read the refused
+// number: the loaders know where the number was, and the kernel, handed its
+// text alone, does not. A coded *Error or an *InputBoundExceededError comes
+// back as a copy carrying the location and the key, the kernel's kind, code,
+// message and fields unchanged; any other error comes back as it was given.
+func Locate(err error, location, key string) error {
+	switch e := err.(type) {
+	case *Error:
+		if e.Code != "" {
+			located := *e
+			located.Location, located.Key = location, key
+			return &located
+		}
+	case *InputBoundExceededError:
+		located := *e
+		located.Location, located.Key = location, key
+		return &located
+	}
+	return err
+}
 
 // newError builds a typed *Error without a wire code or inner cause.
 func newError(kind ErrorKind, msg string) *Error {
 	return &Error{Kind: kind, Message: msg}
 }
 
-// newCodedError builds a typed *Error carrying an Agda-side Code (one
-// of the Code* constants above) so callers can discriminate cleanly
-// with errors.Is / matching on Code.
+// newCodedError builds a typed *Error carrying a wire Code (one of the
+// Code* constants above), which a caller reaches with errors.As and
+// matches on.
 func newCodedError(kind ErrorKind, code, msg string) *Error {
 	return &Error{Kind: kind, Code: code, Message: msg}
 }
@@ -259,8 +308,8 @@ func WrapValidationError(msg string, cause error) *Error {
 
 // InputBoundExceededError reports an input bound the kernel refused, or one
 // the binding checks itself before the call, with the bound, what was
-// observed, the limit, the kernel's message and, for a size bound on a DBC,
-// the part of the DBC that crossed it. It is the kernel's
+// observed, the limit, the kernel's message and the part of the input that
+// crossed it, when the refusal names one. It is the kernel's
 // InputBoundExceeded, and the peer bindings carry the same type: Python's
 // InputBoundExceededError, the C++ aletheia::InputBoundExceededError and
 // the Rust Error::InputBoundExceeded.
@@ -283,26 +332,34 @@ type InputBoundExceededError struct {
 	// Code is the wire error code, always [CodeInputBoundExceeded]: the
 	// decoder lifts this type for no other.
 	Code string
-	// Field names the part of a DBC that crossed a size bound, such as
-	// "senders array" or "version string", as the kernel's refusal names
-	// it. It is empty when the refusal names none, as for a bound on the
-	// input's length, its nesting depth or an identifier's length.
+	// Field names the part of the input that crossed the bound, as the
+	// kernel's refusal names it: a DBC's "senders array" or "signal factor",
+	// a decimal given to FromDecimal as "decimal". It is empty when the
+	// refusal names none, as for a bound on the input's length, its nesting
+	// depth or an identifier's length.
 	Field string
 	// Message is the kernel's message for the refusal, such as "ParseDBC:
 	// senders array: array cardinality 10001 exceeds limit 10000". It is
 	// empty for a bound the binding checks itself before the call.
 	Message string
+	// Location is where a loader read the number the kernel refused, as on
+	// [Error]; empty outside a loader. See [Locate].
+	Location string
+	// Key is the key or column header the refused number sat under; empty
+	// outside a loader.
+	Key string
 }
 
 // Error returns the kernel's message, and for a bound the binding checks
 // itself, which has none, the binding's own text naming the kind, the size
-// and the limit.
+// and the limit. A refusal a loader located is led by the location and the
+// key, as [Error.Error] prints one.
 func (e *InputBoundExceededError) Error() string {
-	if e.Message != "" {
-		return e.Message
+	text := e.Message
+	if text == "" {
+		text = fmt.Sprintf("%s %d exceeds limit %d", e.BoundKind, e.Observed, e.Limit)
 	}
-	return fmt.Sprintf("aletheia validation error: %s %d exceeds limit %d",
-		e.BoundKind, e.Observed, e.Limit)
+	return locatedText(e.Location, e.Key, text)
 }
 
 // newInputBoundExceededError builds the typed error, for the lifter in
@@ -348,11 +405,10 @@ type ValidationFailedError struct {
 	Message string
 }
 
-// Error renders exactly as a generic coded protocol error with the same
-// message, so a caller that only prints it sees one shape.
-func (e *ValidationFailedError) Error() string {
-	return fmt.Sprintf("aletheia %s error: %s", ErrProtocol, e.Message)
-}
+// Error returns the kernel's message, as a generic coded protocol error with
+// the same message prints, so a caller that only prints it sees one shape;
+// the issues are fields.
+func (e *ValidationFailedError) Error() string { return e.Message }
 
 // newValidationFailedError builds the typed error from a decoded envelope,
 // for validationFailedFromResponse in json_response.go.
@@ -396,11 +452,8 @@ type TextRoundTripFailedError struct {
 	Message string
 }
 
-// Error renders exactly as a generic coded protocol error with the same
-// message, as [ValidationFailedError.Error] does.
-func (e *TextRoundTripFailedError) Error() string {
-	return fmt.Sprintf("aletheia %s error: %s", ErrProtocol, e.Message)
-}
+// Error returns the kernel's message, as [ValidationFailedError.Error] does.
+func (e *TextRoundTripFailedError) Error() string { return e.Message }
 
 // newTextRoundTripFailedError builds the typed error from a decoded
 // envelope, for textRoundtripFailedFromResponse in json_response.go.

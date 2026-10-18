@@ -15,6 +15,11 @@ calamine = "0.35.0"
 rust_xlsxwriter = "0.95.0"
 zip = "8.6.0"
 
+[dev-dependencies]
+# Reads the cross-binding loader contract, docs/LOADER_SCENARIOS.yaml, in
+# tests/loader_scenarios.rs.
+yaml-rust2 = "0.10"
+
 [lib]
 name = "aletheia_excel"
 path = "src/lib.rs"

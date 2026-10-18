@@ -63,8 +63,8 @@ print("=" * 60)
 
 print(f"\n  Workbook: {WORKBOOK.name}")
 
-# A live client brings up the verified kernel that parses the workbook's
-# (text-formatted) decimal cells exactly — decimal parsing is RTS-gated.
+# A live client brings up the verified kernel, which parses every
+# (text-formatted) number cell of the Checks sheet exactly.
 with AletheiaClient():
     checks = load_checks_from_excel(WORKBOOK)
 print(f"  Loaded {len(checks)} checks:")

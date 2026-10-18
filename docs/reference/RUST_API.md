@@ -219,21 +219,41 @@ println!("encoded {} bytes", rebuilt.len());
 
 ## Error Handling
 
-Every fallible operation returns `Result<_, aletheia::Error>`, and none panics on the normal path. `Error` is an enum matched directly. `Core { code, message }` carries the kernel's error code, and `Validation`, `Protocol`, `InputBoundExceeded { .. }` and `ValidationFailed { .. }` classify what a call refuses; the remaining variants are the loader's own failures and the round-trip refusal, listed in rustdoc:
+Every fallible operation returns `Result<_, aletheia::Error>`, and none panics on the normal path. `Error` is an enum matched directly. `Core { code, message }` carries the kernel's error code, `Validation { message, code, located }` is the caller's own input refused, carrying the kernel's code when the kernel refused it, and `Protocol`, `InputBoundExceeded { .. }` and `ValidationFailed { .. }` classify what else a call refuses; the remaining variants, listed in rustdoc, are the shared library's loading and runtime failures (`LibraryLoad`, `SymbolMissing`, `InitFailed`, `AbiMismatch`, `RtsNotInitialized`), a null reply (`NullResponse`), a batch's per-frame error (`Frame`), the round-trip refusal (`TextRoundtripFailed`) and a mock backend's internal `BinaryPathUnsupported` signal:
 
 ```rust
 use aletheia::Error;
 
 fn describe(err: &Error) -> String {
     match err {
-        Error::Validation(msg) => format!("validation: {msg}"),
+        Error::Validation { message, code, .. } => match code {
+            Some(code) => format!("validation [{code}]: {message}"),
+            None => format!("validation: {message}"),
+        },
         Error::Core { code, message } => format!("core [{code}]: {message}"),
         other => other.to_string(),
     }
 }
 ```
 
-The kernel bounds the length of a DBC's lists and strings, so `parse_dbc_text`, `parse_dbc`, `validate_dbc` and `format_dbc_text` return `Error::InputBoundExceeded` for a DBC past a size bound, carrying the bound's kind, the observed size, the limit, the kernel's `message` and, in `field: Option<String>`, the part of the DBC that crossed it (e.g. `"senders array"`, `"version string"`); `format_dbc_text` checks every bound before it formats anything. A bound that names no part of a DBC, such as the input's length, its nesting depth or an identifier's length, leaves `field` as `None`. The error's text (`to_string()`) is the kernel's message exactly, e.g. `ParseDBC: senders array: array cardinality 10001 exceeds limit 10000`; the binding renders nothing of its own. A `match` on the variant that names its fields without `..` names `message` and `field` too.
+The YAML loader (`load_checks_from_yaml`, `load_checks_from_yaml_file`) and the `aletheia-excel` crate's (`load_checks_from_excel`, `load_dbc_from_excel`) hand the kernel each number they read as a rational, such as a check's `value` or a signal's `Factor`, as the text the document spells it with, a spreadsheet cell's trimmed of the whitespace around it, so the kernel decides what a valid number is. A number the kernel refuses keeps the kernel's variant, code and fields, `Error::Validation` carrying the kernel's `code` or `Error::InputBoundExceeded`, and gains `located: Option<Box<Located>>`, the place the loader read it: `location` (`Check 'C'` for a YAML check named `C`, `Check '<unnamed>'` for one with no name, `Row 2` for a spreadsheet row) and `key`, the YAML key or the column header it sat under (`value`, `Factor`), which `Error::location()` and `Error::key()` return; outside a loader `located` and both accessors are `None`. Its text (`to_string()`) reads `<location>: invalid '<key>': <kernel message>`. A loader of your own locates a refusal with `Error::located(location, key)`, which sets `located` on those two variants and returns any other error, such as a runtime that is not up, unchanged. The same document gets the same answer in every binding: [LOADER_SCENARIOS.yaml](../LOADER_SCENARIOS.yaml) is that contract.
+
+```rust
+let refused = load_checks_from_yaml(
+    "checks:\n  - name: C\n    signal: Speed\n    condition: never_exceeds\n    value: .5\n",
+)
+.unwrap_err();
+assert_eq!(
+    refused.to_string(),
+    "Check 'C': invalid 'value': parse failed at line 1, column 1"
+);
+assert_eq!(
+    (refused.location(), refused.key()),
+    (Some("Check 'C'"), Some("value"))
+);
+```
+
+The kernel bounds the length of a DBC's lists and strings, so `parse_dbc_text`, `parse_dbc`, `validate_dbc` and `format_dbc_text` return `Error::InputBoundExceeded` for a DBC past a size bound, carrying the bound's kind, the observed size, the limit, the kernel's `message` and, in `field: Option<String>`, the part of the DBC that crossed it (e.g. `"senders array"`, `"version string"`); `format_dbc_text` checks every bound before it formats anything. A bound that names no part of a DBC, such as the input's length, its nesting depth or an identifier's length, leaves `field` as `None`. The error's text (`to_string()`) is the kernel's message exactly, e.g. `ParseDBC: senders array: array cardinality 10001 exceeds limit 10000`; the binding renders nothing of its own. A `match` on the variant that names its fields without `..` names `message`, `field` and `located` too.
 
 Rust has no dedicated `State` variant, so a call made in the wrong lifecycle state surfaces as `Error::Protocol`. Codes match the kernel's `IssueCode` enum, tabulated in [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference).
 

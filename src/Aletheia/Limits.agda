@@ -183,17 +183,15 @@ max-atom-count-per-property = 1024
 max-properties-per-stream : ℕ
 max-properties-per-stream = 1024
 
--- Magnitude cap on every JSON number's rational components: |numerator|
--- and denominator of the exact ℚ each number denotes, measured on the
--- parsed (reduced) form.  2^63 - 1 — the signed 64-bit wire range that
--- the binary FFI's rational slots and the decimal SSOT
--- (`aletheia_parse_decimal`, Int64-checked at the marshaling boundary)
--- already enforce; the JSON wire enforces the same range so a bare
--- integer cannot smuggle an unrepresentable component past the typed
--- decimal path.  Magnitude formulation: the single Int64 value with
--- magnitude 2^63 (numerator -2^63) is refused here even though the
--- binary wire could carry it, keeping one symmetric limit in the
--- structured `observed` / `limit` wire triple.
+-- Magnitude cap on every number's rational components: |numerator| and
+-- denominator of the exact rational it denotes, measured on the parsed
+-- (reduced) form, for a JSON number, a DBC literal and a decimal entered
+-- through `aletheia_parse_decimal` alike (`DBC.Bounds.magnitude`).
+-- 2^63 - 1, the signed 64-bit range of the binary FFI's rational slots.
+-- The limit is a magnitude: the one Int64 value of magnitude 2^63
+-- (numerator -2^63) is refused even though a two's-complement slot could
+-- carry it, keeping the structured `observed` / `limit` pair a plain
+-- comparison.
 max-rational-component-magnitude : ℕ
 max-rational-component-magnitude = 9223372036854775807
 
