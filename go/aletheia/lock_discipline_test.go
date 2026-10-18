@@ -6,7 +6,6 @@ package aletheia
 import (
 	"slices"
 	"testing"
-	"unsafe"
 )
 
 // lockCheckingBackend is a routingBackend that records, at every entry, whether
@@ -18,7 +17,7 @@ type lockCheckingBackend struct {
 	closes   int
 }
 
-func (b *lockCheckingBackend) Close(_ unsafe.Pointer) {
+func (b *lockCheckingBackend) Close(_ State) {
 	b.closes++
 	if len(b.client.lockCh) != 1 {
 		b.unlocked = append(b.unlocked, -1)

@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"sync"
-	"unsafe"
 )
 
 // Compile-time assertion: Client implements io.Closer.
@@ -41,7 +40,7 @@ func WithDefaultChecks(checks ...CheckResult) ClientOption {
 // safe. Create with [NewClient]; [Client.Close] implements [io.Closer].
 type Client struct {
 	backend       Backend
-	state         unsafe.Pointer
+	state         State
 	lockCh        chan struct{} // 1-deep semaphore: empty=unlocked, full=locked
 	closeOnce     sync.Once
 	closed        bool
@@ -90,9 +89,9 @@ func (c *Client) Close() error {
 		// first, since nothing can preempt the GHC runtime.
 		c.lockCh <- struct{}{}
 		defer c.unlock()
-		if c.state != nil {
+		if c.state != 0 {
 			c.backend.Close(c.state)
-			c.state = nil
+			c.state = 0
 			c.closed = true
 		}
 	})

@@ -5,8 +5,6 @@
 
 package aletheia
 
-import "unsafe"
-
 // The FFIBackend of a build without cgo, or off Linux. It carries the whole
 // surface its cgo twin does, so the package and the code calling it compile
 // either way and MockBackend stays usable, and every endpoint refuses, since
@@ -38,57 +36,57 @@ func StablePtrCount() int64 { return 0 }
 // assertion at the end of the file holds them to.
 
 // Init refuses.
-func (*FFIBackend) Init() (unsafe.Pointer, error) { return nil, errNoCgo() }
+func (*FFIBackend) Init() (State, error) { return 0, errNoCgo() }
 
 // Process refuses.
-func (*FFIBackend) Process(_ unsafe.Pointer, _ string) (string, error) { return "", errNoCgo() }
+func (*FFIBackend) Process(_ State, _ string) (string, error) { return "", errNoCgo() }
 
 // SendFrameBinary refuses.
-func (*FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
+func (*FFIBackend) SendFrameBinary(_ State, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
 	return "", errNoCgo()
 }
 
 // SendErrorBinary refuses.
-func (*FFIBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
+func (*FFIBackend) SendErrorBinary(_ State, _ Timestamp) (string, error) {
 	return "", errNoCgo()
 }
 
 // SendRemoteBinary refuses.
-func (*FFIBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
+func (*FFIBackend) SendRemoteBinary(_ State, _ Timestamp, _ CANID) (string, error) {
 	return "", errNoCgo()
 }
 
 // StartStreamBinary refuses.
-func (*FFIBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) { return "", errNoCgo() }
+func (*FFIBackend) StartStreamBinary(_ State) (string, error) { return "", errNoCgo() }
 
 // EndStreamBinary refuses.
-func (*FFIBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) { return "", errNoCgo() }
+func (*FFIBackend) EndStreamBinary(_ State) (string, error) { return "", errNoCgo() }
 
 // FormatDBCBinary refuses.
-func (*FFIBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) { return "", errNoCgo() }
+func (*FFIBackend) FormatDBCBinary(_ State) (string, error) { return "", errNoCgo() }
 
 // ExtractSignalsBinary refuses.
-func (*FFIBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
+func (*FFIBackend) ExtractSignalsBinary(_ State, _ CANID, _ DLC, _ []byte) (string, error) {
 	return "", errNoCgo()
 }
 
 // BuildFrameBin refuses.
-func (*FFIBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
+func (*FFIBackend) BuildFrameBin(_ State, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
 	return nil, errNoCgo()
 }
 
 // UpdateFrameBin refuses.
-func (*FFIBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
+func (*FFIBackend) UpdateFrameBin(_ State, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
 	return nil, errNoCgo()
 }
 
 // ExtractSignalsBin refuses.
-func (*FFIBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
+func (*FFIBackend) ExtractSignalsBin(_ State, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, errNoCgo()
 }
 
 // Close has nothing to close.
-func (*FFIBackend) Close(_ unsafe.Pointer) {}
+func (*FFIBackend) Close(_ State) {}
 
 // formatRationalFFI refuses: the rational printer every binding shares is the
 // kernel's, and FromDecimal in decimal_nocgo.go refuses for the same reason.

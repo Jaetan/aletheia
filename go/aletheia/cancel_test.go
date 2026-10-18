@@ -11,7 +11,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"unsafe"
 )
 
 // routingBackend implements [Backend] by counting every call and handing it
@@ -25,47 +24,46 @@ type routingBackend struct {
 
 func (*routingBackend) backend() {}
 
-func (b *routingBackend) Init() (unsafe.Pointer, error) {
-	var sentinel byte
-	return unsafe.Pointer(&sentinel), nil
+func (b *routingBackend) Init() (State, error) {
+	return 1, nil
 }
 
-func (b *routingBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
+func (b *routingBackend) Process(_ State, _ string) (string, error) {
 	b.calls++
 	return b.hook(b.calls)
 }
 
 func (b *routingBackend) callCount() int { return b.calls }
 
-func (b *routingBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
-	return b.Process(nil, "")
+func (b *routingBackend) SendFrameBinary(_ State, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
+	return b.Process(0, "")
 }
-func (b *routingBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
-	return b.Process(nil, "")
+func (b *routingBackend) SendErrorBinary(_ State, _ Timestamp) (string, error) {
+	return b.Process(0, "")
 }
-func (b *routingBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
-	return b.Process(nil, "")
+func (b *routingBackend) SendRemoteBinary(_ State, _ Timestamp, _ CANID) (string, error) {
+	return b.Process(0, "")
 }
-func (b *routingBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
-	return b.Process(nil, "")
+func (b *routingBackend) StartStreamBinary(_ State) (string, error) {
+	return b.Process(0, "")
 }
-func (b *routingBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) { return b.Process(nil, "") }
-func (b *routingBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) { return b.Process(nil, "") }
-func (b *routingBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
-	return b.Process(nil, "")
+func (b *routingBackend) EndStreamBinary(_ State) (string, error) { return b.Process(0, "") }
+func (b *routingBackend) FormatDBCBinary(_ State) (string, error) { return b.Process(0, "") }
+func (b *routingBackend) ExtractSignalsBinary(_ State, _ CANID, _ DLC, _ []byte) (string, error) {
+	return b.Process(0, "")
 }
-func (b *routingBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
-	_, err := b.Process(nil, "")
+func (b *routingBackend) BuildFrameBin(_ State, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
+	_, err := b.Process(0, "")
 	return nil, err
 }
-func (b *routingBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
-	_, err := b.Process(nil, "")
+func (b *routingBackend) UpdateFrameBin(_ State, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
+	_, err := b.Process(0, "")
 	return nil, err
 }
-func (b *routingBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
+func (b *routingBackend) ExtractSignalsBin(_ State, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, ErrBinaryPathUnsupported
 }
-func (b *routingBackend) Close(_ unsafe.Pointer) {}
+func (b *routingBackend) Close(_ State) {}
 
 // newAnsweringBackend is a routingBackend that answers resp to every call at
 // once, so a test counts the calls that reached the FFI without parking any.

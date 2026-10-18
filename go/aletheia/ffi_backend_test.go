@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"unsafe"
 
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
@@ -242,7 +241,7 @@ func TestFFIBackend_SendErrorAndSendRemoteBinaryStream(t *testing.T) {
 
 // ffiSession opens a session on the real library holding no DBC, closed when
 // the test ends, for the tests that call the backend without a client.
-func ffiSession(t *testing.T) (*aletheia.FFIBackend, unsafe.Pointer) {
+func ffiSession(t *testing.T) (*aletheia.FFIBackend, aletheia.State) {
 	t.Helper()
 	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
 	if err != nil {
