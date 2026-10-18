@@ -18,6 +18,8 @@ open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
+open import Aletheia.DBC.Bounds using (SmallValue)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; intDecRat-small; natDecRat-small)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
@@ -178,6 +180,7 @@ private
       ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
         (d : DecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
+    → SmallDecRat d
     → proj₂ (parseAttrLine pos
         (emitAttribute-chars defs
            (DBCAttrDefault (mkAttrDefault name (AVFloat d)))
@@ -186,7 +189,7 @@ private
                 (RawDefault (mkRawAttrDefault name (RavDecRat d)))
                 (Trace.pos8 pos name (showDecRat-dec-chars d) outer)
                 outer)
-  on-AVFloat defs pos name d outer ss-NL =
+  on-AVFloat defs pos name d outer ss-NL small =
     subst
       (λ inp → proj₂ (parseAttrLine pos inp) ≡
                 just (mkResult
@@ -195,12 +198,13 @@ private
                         outer))
       (sym (emit-bridge-AVFloat defs name d outer))
       (parseAttrLine-roundtrip-RawDefault-RavDecRatFrac
-         pos name d outer ss-NL)
+         pos name d outer ss-NL small)
 
   on-AVInt :
       ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
         (z' : IntDecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
+    → SmallInt (intDecRatToℤ z')
     → proj₂ (parseAttrLine pos
         (emitAttribute-chars defs
            (DBCAttrDefault (mkAttrDefault name (AVInt z')))
@@ -210,7 +214,7 @@ private
                                (RavDecRat (IntDecRat.value z'))))
                 (Trace.pos8 pos name (showInt-chars (intDecRatToℤ z')) outer)
                 outer)
-  on-AVInt defs pos name z' outer ss-NL =
+  on-AVInt defs pos name z' outer ss-NL small =
     subst
       (λ q → proj₂ (parseAttrLine pos
                 (emitAttribute-chars defs
@@ -232,12 +236,13 @@ private
                            outer))
          (sym (emit-bridge-AVInt defs name z' outer))
          (parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt
-            pos name (intDecRatToℤ z') outer ss-NL))
+            pos name (intDecRatToℤ z') outer ss-NL small))
 
   on-AVHex :
       ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
         (n : NatDecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
+    → SmallInt (+ natDecRatToℕ n)
     → proj₂ (parseAttrLine pos
         (emitAttribute-chars defs
            (DBCAttrDefault (mkAttrDefault name (AVHex n)))
@@ -251,7 +256,7 @@ private
   -- spelling; the declared `showℕ-dec-chars` form differs only there, and
   -- that final alignment is a Position-level reduction (advancePositions
   -- walk), never a parser unfold.
-  on-AVHex defs pos name n outer ss-NL =
+  on-AVHex defs pos name n outer ss-NL small =
     subst
       (λ q → proj₂ (parseAttrLine pos
                 (emitAttribute-chars defs
@@ -273,7 +278,7 @@ private
                            outer))
          (sym (emit-bridge-AVHex defs name n outer))
          (parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt
-            pos name (+ natDecRatToℕ n) outer ss-NL))
+            pos name (+ natDecRatToℕ n) outer ss-NL small))
 
   -- Small bridge lemmas decompose `emit` and `rawOf` for AVEnum-default into
   -- (a) outer structural shell — refl by `emitAttrDefault-chars` reduction;
@@ -413,6 +418,7 @@ parseAttrLine-on-emit-RawDefault :
       (d : AttrDefault) (outer : List Char)
   → WFAttribute defs (DBCAttrDefault d)
   → SuffixStops isNewlineStart outer
+  → SmallValue (AttrDefault.value d)
   → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs (DBCAttrDefault d) ++ₗ outer))
     ≡ just (mkResult
@@ -421,20 +427,20 @@ parseAttrLine-on-emit-RawDefault :
                  (emitAttribute-chars defs (DBCAttrDefault d)))
               outer)
 parseAttrLine-on-emit-RawDefault defs pos
-  (mkAttrDefault name (AVString s)) outer _ ss-NL =
+  (mkAttrDefault name (AVString s)) outer _ ss-NL _ =
     on-AVString defs pos name s outer ss-NL
 parseAttrLine-on-emit-RawDefault defs pos
-  (mkAttrDefault name (AVFloat d)) outer _ ss-NL =
-    on-AVFloat defs pos name d outer ss-NL
+  (mkAttrDefault name (AVFloat d)) outer _ ss-NL small =
+    on-AVFloat defs pos name d outer ss-NL small
 parseAttrLine-on-emit-RawDefault defs pos
-  (mkAttrDefault name (AVInt z')) outer _ ss-NL =
-    on-AVInt defs pos name z' outer ss-NL
+  (mkAttrDefault name (AVInt z')) outer _ ss-NL small =
+    on-AVInt defs pos name z' outer ss-NL (intDecRat-small z' small)
 parseAttrLine-on-emit-RawDefault defs pos
-  (mkAttrDefault name (AVHex n)) outer _ ss-NL =
-    on-AVHex defs pos name n outer ss-NL
+  (mkAttrDefault name (AVHex n)) outer _ ss-NL small =
+    on-AVHex defs pos name n outer ss-NL (natDecRat-small n small)
 parseAttrLine-on-emit-RawDefault defs pos
   (mkAttrDefault name (AVEnum n)) outer
   (wfDefault _ (mkAttrDef defname defscope (ATEnum labels)) lookup-eq (VMTEnum _) _)
-  ss-NL =
+  ss-NL _ =
     on-AVEnum-with-ATEnum defs pos name n defname defscope labels outer
       lookup-eq ss-NL

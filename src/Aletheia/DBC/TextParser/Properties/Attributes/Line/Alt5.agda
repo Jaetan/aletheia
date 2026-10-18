@@ -24,6 +24,7 @@ open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl)
 
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt)
 open import Aletheia.Parser.Combinators
   using (mkResult; pure)
 
@@ -125,6 +126,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString pos name s outer-suffix 
 parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac :
     ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -132,12 +134,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac :
               (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat d)))
               (NetworkProofs.TraceNetwork.pos9 pos name (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac pos name d outer-suffix ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac pos name d outer-suffix ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac
-          pos name d outer-suffix ss-NL))
+          pos name d outer-suffix ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -146,6 +148,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac pos name d outer-suf
 parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt :
     ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -153,12 +156,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt :
               (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z))))
               (NetworkProofs.TraceNetwork.pos9 pos name (showInt-chars z) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt pos name z outer-suffix ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt pos name z outer-suffix ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt
-          pos name z outer-suffix ss-NL))
+          pos name z outer-suffix ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -193,6 +196,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatFrac :
     ∀ pos (name : List Char) (n : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name n ++ₗ
@@ -201,12 +205,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatFrac :
               (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat d)))
               (NodeProofs.TraceNode.pos9 pos name n (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatFrac pos name n d outer-suffix n-stop ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatFrac pos name n d outer-suffix n-stop ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac
-          pos name n d outer-suffix n-stop ss-NL))
+          pos name n d outer-suffix n-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -217,6 +221,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt :
     ∀ pos (name : List Char) (n : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name n ++ₗ
@@ -225,12 +230,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt :
               (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat (fromℤ z))))
               (NodeProofs.TraceNode.pos9 pos name n (showInt-chars z) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt pos name n z outer-suffix n-stop ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt pos name n z outer-suffix n-stop ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt
-          pos name n z outer-suffix n-stop ss-NL))
+          pos name n z outer-suffix n-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -264,6 +269,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavString pos name cid s outer-suf
 parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac :
     ∀ pos (name : List Char) (cid : CANId) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -272,12 +278,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac :
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat d)))
               (MessageProofs.TraceMessage.pos9 pos name cid (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac pos name cid d outer-suffix ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac pos name cid d outer-suffix ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac
-          pos name cid d outer-suffix ss-NL))
+          pos name cid d outer-suffix ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -287,6 +293,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac pos name cid d outer
 parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatBareInt :
     ∀ pos (name : List Char) (cid : CANId) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -295,12 +302,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatBareInt :
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat (fromℤ z))))
               (MessageProofs.TraceMessage.pos9 pos name cid (showInt-chars z) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatBareInt pos name cid z outer-suffix ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatBareInt pos name cid z outer-suffix ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt
-          pos name cid z outer-suffix ss-NL))
+          pos name cid z outer-suffix ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -340,6 +347,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatFrac :
       (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -349,12 +357,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatFrac :
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat d)))
               (SignalProofs.TraceSignal.pos9 pos name cid sig (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatFrac pos name cid sig d outer-suffix sig-stop ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatFrac pos name cid sig d outer-suffix sig-stop ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac
-          pos name cid sig d outer-suffix sig-stop ss-NL))
+          pos name cid sig d outer-suffix sig-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -367,6 +375,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatBareInt :
       (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -376,12 +385,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatBareInt :
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat (fromℤ z))))
               (SignalProofs.TraceSignal.pos9 pos name cid sig (showInt-chars z) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatBareInt pos name cid sig z outer-suffix sig-stop ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatBareInt pos name cid sig z outer-suffix sig-stop ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt
-          pos name cid sig z outer-suffix sig-stop ss-NL))
+          pos name cid sig z outer-suffix sig-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -418,6 +427,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatFrac :
     ∀ pos (name : List Char) (ev : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
@@ -426,12 +436,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatFrac :
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat d)))
               (EnvVarProofs.TraceEnvVar.pos9 pos name ev (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix ev-stop ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix ev-stop ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac
-          pos name ev d outer-suffix ev-stop ss-NL))
+          pos name ev d outer-suffix ev-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -442,6 +452,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatBareInt :
     ∀ pos (name : List Char) (ev : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
@@ -450,12 +461,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatBareInt :
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z))))
               (EnvVarProofs.TraceEnvVar.pos9 pos name ev (showInt-chars z) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suffix ev-stop ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suffix ev-stop ss-NL small =
   parseAttrLine-lift-alt5 pos input _ refl refl refl refl
     (bind-just-step parseRawAttrAssign (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt
-          pos name ev z outer-suffix ev-stop ss-NL))
+          pos name ev z outer-suffix ev-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ

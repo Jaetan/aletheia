@@ -71,7 +71,7 @@ data SuffixStops (P : Char → Bool) : List Char → Set where
 -- Phase 2.3: digitChar d is an ASCII digit (under d < 10)
 -- ----------------------------------------------------------------------------
 
--- Same pattern as `digitToNat-digitChar` / `charToDigit-digitChar`:
+-- Same pattern as `digitValue-digitChar` / `digitValue-digitChar`:
 -- ten refl branches (primitive evaluation of `primIsDigit '0'..'9'`)
 -- plus a suc-chain absurd on the catch-all.
 digitChar-isDigit : ∀ d → d Data.Nat.< 10 → isDigit (digitChar d) ≡ true

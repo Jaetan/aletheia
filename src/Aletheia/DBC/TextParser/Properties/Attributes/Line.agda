@@ -39,6 +39,8 @@ open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
+open import Aletheia.DBC.Bounds using (SmallType)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt)
 open import Aletheia.Parser.Combinators
   using (Position; Parser; ParseResult; mkResult; advancePositions;
          _>>=_; pure; _<|>_)
@@ -259,6 +261,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac :
       (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -268,12 +271,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac :
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavDecRat d)))
               (RelProofs.TraceNodeMsg.pos9 pos name n cid (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac pos name n cid d outer-suffix n-stop ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac pos name n cid d outer-suffix n-stop ss-NL small =
   parseAttrLine-lift-alt4 pos input _ refl refl refl
     (bind-just-step parseRawAttrRel (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac
-          pos name n cid d outer-suffix n-stop ss-NL))
+          pos name n cid d outer-suffix n-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -286,6 +289,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt :
       (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -295,12 +299,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt :
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavDecRat (fromℤ z))))
               (RelProofs.TraceNodeMsg.pos9 pos name n cid (showInt-chars z) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt pos name n cid z outer-suffix n-stop ss-NL =
+parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt pos name n cid z outer-suffix n-stop ss-NL small =
   parseAttrLine-lift-alt4 pos input _ refl refl refl
     (bind-just-step parseRawAttrRel (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt
-          pos name n cid z outer-suffix n-stop ss-NL))
+          pos name n cid z outer-suffix n-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -344,6 +348,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac :
       (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -355,12 +360,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac :
               (RelProofs.TraceNodeSig.pos9 pos name n cid sig (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac pos name n cid sig d outer-suffix
-  n-stop sig-stop ss-NL =
+  n-stop sig-stop ss-NL small =
   parseAttrLine-lift-alt4 pos input _ refl refl refl
     (bind-just-step parseRawAttrRel (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac
-          pos name n cid sig d outer-suffix n-stop sig-stop ss-NL))
+          pos name n cid sig d outer-suffix n-stop sig-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -374,6 +379,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt :
       (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -385,12 +391,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt :
               (RelProofs.TraceNodeSig.pos9 pos name n cid sig (showInt-chars z) outer-suffix)
               outer-suffix)
 parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt pos name n cid sig z outer-suffix
-  n-stop sig-stop ss-NL =
+  n-stop sig-stop ss-NL small =
   parseAttrLine-lift-alt4 pos input _ refl refl refl
     (bind-just-step parseRawAttrRel (λ a → pure (RawAssign a))
        pos input _ _ _
        (parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt
-          pos name n cid sig z outer-suffix n-stop sig-stop ss-NL))
+          pos name n cid sig z outer-suffix n-stop sig-stop ss-NL small))
   where
     input : List Char
     input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -411,6 +417,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-Network :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType ty
   → proj₂ (parseAttrLine pos
       (emitAttrDef-chars (mkAttrDef name ASNetwork ty) ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -418,12 +425,12 @@ parseAttrLine-roundtrip-RawDef-NotRel-Network :
               (advancePositions pos
                 (emitAttrDef-chars (mkAttrDef name ASNetwork ty)))
               outer-suffix)
-parseAttrLine-roundtrip-RawDef-NotRel-Network pos name ty outer-suffix wf-ty ss-NL =
+parseAttrLine-roundtrip-RawDef-NotRel-Network pos name ty outer-suffix wf-ty ss-NL small =
   parseAttrLine-lift-alt3 pos input _ refl refl
     (bind-just-step parseAttrDef (λ d → pure (RawDef d))
        pos input _ _ _
        (parseAttrDef-roundtrip (mkAttrDef name ASNetwork ty) pos outer-suffix
-          (Wf-Network wf-ty) ss-NL))
+          (Wf-Network wf-ty) ss-NL small))
   where
     input : List Char
     input = emitAttrDef-chars (mkAttrDef name ASNetwork ty) ++ₗ outer-suffix
@@ -432,6 +439,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-Node :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType ty
   → proj₂ (parseAttrLine pos
       (emitAttrDef-chars (mkAttrDef name ASNode ty) ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -439,12 +447,12 @@ parseAttrLine-roundtrip-RawDef-NotRel-Node :
               (advancePositions pos
                 (emitAttrDef-chars (mkAttrDef name ASNode ty)))
               outer-suffix)
-parseAttrLine-roundtrip-RawDef-NotRel-Node pos name ty outer-suffix wf-ty ss-NL =
+parseAttrLine-roundtrip-RawDef-NotRel-Node pos name ty outer-suffix wf-ty ss-NL small =
   parseAttrLine-lift-alt3 pos input _ refl refl
     (bind-just-step parseAttrDef (λ d → pure (RawDef d))
        pos input _ _ _
        (parseAttrDef-roundtrip (mkAttrDef name ASNode ty) pos outer-suffix
-          (Wf-Node wf-ty) ss-NL))
+          (Wf-Node wf-ty) ss-NL small))
   where
     input : List Char
     input = emitAttrDef-chars (mkAttrDef name ASNode ty) ++ₗ outer-suffix
@@ -453,6 +461,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-Message :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType ty
   → proj₂ (parseAttrLine pos
       (emitAttrDef-chars (mkAttrDef name ASMessage ty) ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -460,12 +469,12 @@ parseAttrLine-roundtrip-RawDef-NotRel-Message :
               (advancePositions pos
                 (emitAttrDef-chars (mkAttrDef name ASMessage ty)))
               outer-suffix)
-parseAttrLine-roundtrip-RawDef-NotRel-Message pos name ty outer-suffix wf-ty ss-NL =
+parseAttrLine-roundtrip-RawDef-NotRel-Message pos name ty outer-suffix wf-ty ss-NL small =
   parseAttrLine-lift-alt3 pos input _ refl refl
     (bind-just-step parseAttrDef (λ d → pure (RawDef d))
        pos input _ _ _
        (parseAttrDef-roundtrip (mkAttrDef name ASMessage ty) pos outer-suffix
-          (Wf-Message wf-ty) ss-NL))
+          (Wf-Message wf-ty) ss-NL small))
   where
     input : List Char
     input = emitAttrDef-chars (mkAttrDef name ASMessage ty) ++ₗ outer-suffix
@@ -474,6 +483,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-Signal :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType ty
   → proj₂ (parseAttrLine pos
       (emitAttrDef-chars (mkAttrDef name ASSignal ty) ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -481,12 +491,12 @@ parseAttrLine-roundtrip-RawDef-NotRel-Signal :
               (advancePositions pos
                 (emitAttrDef-chars (mkAttrDef name ASSignal ty)))
               outer-suffix)
-parseAttrLine-roundtrip-RawDef-NotRel-Signal pos name ty outer-suffix wf-ty ss-NL =
+parseAttrLine-roundtrip-RawDef-NotRel-Signal pos name ty outer-suffix wf-ty ss-NL small =
   parseAttrLine-lift-alt3 pos input _ refl refl
     (bind-just-step parseAttrDef (λ d → pure (RawDef d))
        pos input _ _ _
        (parseAttrDef-roundtrip (mkAttrDef name ASSignal ty) pos outer-suffix
-          (Wf-Signal wf-ty) ss-NL))
+          (Wf-Signal wf-ty) ss-NL small))
   where
     input : List Char
     input = emitAttrDef-chars (mkAttrDef name ASSignal ty) ++ₗ outer-suffix
@@ -495,6 +505,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-EnvVar :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType ty
   → proj₂ (parseAttrLine pos
       (emitAttrDef-chars (mkAttrDef name ASEnvVar ty) ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -502,12 +513,12 @@ parseAttrLine-roundtrip-RawDef-NotRel-EnvVar :
               (advancePositions pos
                 (emitAttrDef-chars (mkAttrDef name ASEnvVar ty)))
               outer-suffix)
-parseAttrLine-roundtrip-RawDef-NotRel-EnvVar pos name ty outer-suffix wf-ty ss-NL =
+parseAttrLine-roundtrip-RawDef-NotRel-EnvVar pos name ty outer-suffix wf-ty ss-NL small =
   parseAttrLine-lift-alt3 pos input _ refl refl
     (bind-just-step parseAttrDef (λ d → pure (RawDef d))
        pos input _ _ _
        (parseAttrDef-roundtrip (mkAttrDef name ASEnvVar ty) pos outer-suffix
-          (Wf-EnvVar wf-ty) ss-NL))
+          (Wf-EnvVar wf-ty) ss-NL small))
   where
     input : List Char
     input = emitAttrDef-chars (mkAttrDef name ASEnvVar ty) ++ₗ outer-suffix
@@ -543,6 +554,7 @@ parseAttrLine-roundtrip-RawDefault-RavString pos name s outer-suffix ss-NL =
 parseAttrLine-roundtrip-RawDefault-RavDecRatFrac :
     ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseAttrLine pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -550,12 +562,12 @@ parseAttrLine-roundtrip-RawDefault-RavDecRatFrac :
               (RawDefault (mkRawAttrDefault name (RavDecRat d)))
               (DefaultProofs.Trace.pos8 pos name (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawDefault-RavDecRatFrac pos name d outer-suffix ss-NL =
+parseAttrLine-roundtrip-RawDefault-RavDecRatFrac pos name d outer-suffix ss-NL small =
   parseAttrLine-lift-alt2 pos input _ refl
     (bind-just-step parseRawAttrDefault (λ d → pure (RawDefault d))
        pos input _ _ _
        (parseRawAttrDefault-roundtrip-RavDecRatFrac
-          pos name d outer-suffix ss-NL))
+          pos name d outer-suffix ss-NL small))
   where
     input : List Char
     input = toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -564,6 +576,7 @@ parseAttrLine-roundtrip-RawDefault-RavDecRatFrac pos name d outer-suffix ss-NL =
 parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt :
     ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -571,12 +584,12 @@ parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt :
               (RawDefault (mkRawAttrDefault name (RavDecRat (fromℤ z))))
               (DefaultProofs.Trace.pos8 pos name (showInt-chars z) outer-suffix)
               outer-suffix)
-parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt pos name z outer-suffix ss-NL =
+parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt pos name z outer-suffix ss-NL small =
   parseAttrLine-lift-alt2 pos input _ refl
     (bind-just-step parseRawAttrDefault (λ d → pure (RawDefault d))
        pos input _ _ _
        (parseRawAttrDefault-roundtrip-RavDecRatBareInt
-          pos name z outer-suffix ss-NL))
+          pos name z outer-suffix ss-NL small))
   where
     input : List Char
     input = toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -594,6 +607,7 @@ parseAttrLine-roundtrip-RawDef-Rel-NodeMsg :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType ty
   → proj₂ (parseAttrLine pos
       (emitAttrDef-chars (mkAttrDef name ASNodeMsg ty) ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -601,12 +615,12 @@ parseAttrLine-roundtrip-RawDef-Rel-NodeMsg :
               (advancePositions pos
                 (emitAttrDef-chars (mkAttrDef name ASNodeMsg ty)))
               outer-suffix)
-parseAttrLine-roundtrip-RawDef-Rel-NodeMsg pos name ty outer-suffix wf-ty ss-NL =
+parseAttrLine-roundtrip-RawDef-Rel-NodeMsg pos name ty outer-suffix wf-ty ss-NL small =
   parseAttrLine-lift-alt1 pos input _
     (bind-just-step parseAttrDefRel (λ d → pure (RawDef d))
        pos input _ _ _
        (parseAttrDefRel-roundtrip (mkAttrDef name ASNodeMsg ty) pos outer-suffix
-          (Wf-NodeMsg wf-ty) ss-NL))
+          (Wf-NodeMsg wf-ty) ss-NL small))
   where
     input : List Char
     input = emitAttrDef-chars (mkAttrDef name ASNodeMsg ty) ++ₗ outer-suffix
@@ -615,6 +629,7 @@ parseAttrLine-roundtrip-RawDef-Rel-NodeSig :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
+  → SmallType ty
   → proj₂ (parseAttrLine pos
       (emitAttrDef-chars (mkAttrDef name ASNodeSig ty) ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -622,12 +637,12 @@ parseAttrLine-roundtrip-RawDef-Rel-NodeSig :
               (advancePositions pos
                 (emitAttrDef-chars (mkAttrDef name ASNodeSig ty)))
               outer-suffix)
-parseAttrLine-roundtrip-RawDef-Rel-NodeSig pos name ty outer-suffix wf-ty ss-NL =
+parseAttrLine-roundtrip-RawDef-Rel-NodeSig pos name ty outer-suffix wf-ty ss-NL small =
   parseAttrLine-lift-alt1 pos input _
     (bind-just-step parseAttrDefRel (λ d → pure (RawDef d))
        pos input _ _ _
        (parseAttrDefRel-roundtrip (mkAttrDef name ASNodeSig ty) pos outer-suffix
-          (Wf-NodeSig wf-ty) ss-NL))
+          (Wf-NodeSig wf-ty) ss-NL small))
   where
     input : List Char
     input = emitAttrDef-chars (mkAttrDef name ASNodeSig ty) ++ₗ outer-suffix

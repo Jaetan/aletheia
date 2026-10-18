@@ -50,6 +50,8 @@ open import Aletheia.DBC.TextFormatter.Emitter
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop;
          showDecRat-chars-head-dash; showDecRat-chars-head-digit)
+open import Aletheia.DBC.DecRat.Magnitude using (smallNat-by-eval)
+open import Aletheia.DBC.Bounds using (EnvVarMagnitudes)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; stringLit; pair; iso; altSum; ws; wsOpt; decRat; withPrefix;
          emit; parse; EmitsOK;
@@ -305,8 +307,9 @@ private
 
 build-emits-ok : ∀ (ev : EnvironmentVar) (outer-suffix : List Char)
   → EnvVarNameStop ev
+  → EnvVarMagnitudes ev
   → EmitsOK envVarFmt ev outer-suffix
-build-emits-ok ev outer-suffix nameStop =
+build-emits-ok ev outer-suffix nameStop mag =
     -- L1 (withPrefix "EV_"): inner literal vacuous.
     tt
     -- L2 (withWS) at ws slot 1: head of name is non-hspace via name-eq.
@@ -325,12 +328,12 @@ build-emits-ok ev outer-suffix nameStop =
   , ∷-stop refl
     -- L9 (withPrefix "["): inner literal vacuous.
   , tt
-    -- L10 (pair decRat L11): SuffixStops isDigit — head of L11-emit is `|`.
-  , ∷-stop refl
+    -- L10 (pair decRat L11): the minimum is within the bound; SuffixStops isDigit — head of L11-emit is `|`.
+  , (EnvVarMagnitudes.minimum mag , ∷-stop refl)
     -- L11 (withPrefix "|"): inner literal vacuous.
   , tt
-    -- L12 (pair decRat L13): SuffixStops isDigit — head of L13-emit is `]`.
-  , ∷-stop refl
+    -- L12 (pair decRat L13): the maximum is within the bound; SuffixStops isDigit — head of L13-emit is `]`.
+  , (EnvVarMagnitudes.maximum mag , ∷-stop refl)
     -- L13 (withPrefix "]"): inner literal vacuous.
   , tt
     -- L14 (withWS) at ws slot 4: head of L15-emit is `"` (unit), non-hspace.
@@ -340,13 +343,13 @@ build-emits-ok ev outer-suffix nameStop =
   , ∷-stop refl
     -- L16 (withWS) at ws slot 5: head of L17-emit is decRat ini head.
   , decRat-head-non-hspace (EnvironmentVar.initial ev) _ outer-suffix
-    -- L17 (pair decRat L18): SuffixStops isDigit — head of L18-emit is ` `.
-  , ∷-stop refl
+    -- L17 (pair decRat L18): the initial value is within the bound; SuffixStops isDigit — head of L18-emit is ` `.
+  , (EnvVarMagnitudes.initial mag , ∷-stop refl)
     -- L18 (withWS) at ws slot 6: head of L19-emit is `0` (env_id), non-hspace.
   , ∷-stop refl
-    -- L19 (pair (discardFmt 0 nat) L20): SuffixStops isDigit — head of
-    -- L20-emit is ` ` (post-env_id ws), non-digit.
-  , ∷-stop refl
+    -- L19 (pair (discardFmt 0 nat) L20): 0 is within the bound; SuffixStops
+    -- isDigit — head of L20-emit is ` ` (post-env_id ws), non-digit.
+  , (smallNat-by-eval 0 tt , ∷-stop refl)
     -- L20 (withWS) at ws slot 7: head of L21-emit is `D` (atype), non-hspace.
   , ∷-stop refl
     -- L21 (pair (discardFmt ident-DummyNode ident) L22): SuffixStops
@@ -378,11 +381,12 @@ build-emits-ok ev outer-suffix nameStop =
 parseEnvVar-format-roundtrip :
     ∀ (pos : Position) (ev : EnvironmentVar) (outer-suffix : List Char)
   → EnvVarNameStop ev
+  → EnvVarMagnitudes ev
   → proj₂ (parse envVarFmt pos
       (emit envVarFmt ev ++ₗ outer-suffix))
     ≡ just (mkResult ev
              (advancePositions pos (emit envVarFmt ev))
              outer-suffix)
-parseEnvVar-format-roundtrip pos ev outer-suffix nameStop =
+parseEnvVar-format-roundtrip pos ev outer-suffix nameStop mag =
   roundtrip envVarFmt pos ev outer-suffix
-    (build-emits-ok ev outer-suffix nameStop)
+    (build-emits-ok ev outer-suffix nameStop mag)

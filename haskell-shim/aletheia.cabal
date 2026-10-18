@@ -62,6 +62,9 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.Bounds
                       MAlonzo.Code.Aletheia.DBC.CanonicalReceivers
                       MAlonzo.Code.Aletheia.DBC.DecRat
+                      MAlonzo.Code.Aletheia.DBC.DecRat.Literal
+                      MAlonzo.Code.Aletheia.DBC.DecRat.Literal.Properties
+                      MAlonzo.Code.Aletheia.DBC.DecRat.Magnitude
                       MAlonzo.Code.Aletheia.DBC.DecRat.RationalRoundtrip
                       MAlonzo.Code.Aletheia.DBC.DecRat.Refinement
                       MAlonzo.Code.Aletheia.DBC.DecRat.ScaleLemmas

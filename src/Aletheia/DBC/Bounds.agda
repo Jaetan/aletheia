@@ -30,7 +30,7 @@ open import Data.List.NonEmpty using () renaming (length to length⁺)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Nat using (ℕ; _≤_; _≤ᵇ_; _+_)
 open import Data.Nat.Properties using (≤ᵇ-reflects-≤)
-open import Data.Product using (_×_; _,_; proj₂)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (String)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
@@ -39,9 +39,14 @@ open import Relation.Nullary.Reflects using (invert)
 
 open import Aletheia.Data.Dec0 using (Dec₀; _because₀_; dec₀)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
+open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; SmallDecRat; largerComponent)
+open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
+open import Data.List.NonEmpty using (toList)
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; DBCSignal; SignalPresence; Always; When; SignalGroup
-  ; ValueTable; RawValueDesc; DBCComment; Node
+  ; ValueTable; RawValueDesc; DBCComment; Node; EnvironmentVar
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
   ; AttrDef; AttrDefault; AttrAssign
   ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
@@ -49,7 +54,8 @@ open import Aletheia.DBC.Types using
   )
 open import Aletheia.Error using (Error; InputBoundExceededAt)
 open import Aletheia.Limits using
-  ( BoundKind; ArrayCardinality; StringLength
+  ( BoundKind; ArrayCardinality; StringLength; RationalComponentMagnitude
+  ; max-rational-component-magnitude
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
   ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file; max-signal-groups-per-file
@@ -320,13 +326,143 @@ dbcTexts dbc =
     } ]
 
 -- ============================================================================
+-- MAGNITUDES
+-- ============================================================================
+
+-- A number whose larger reduced component passes the bound is refused
+-- naming its field; a value the parser held is 2^64 on that component.
+magnitude : String → (d : DecRat) → Checked (SmallDecRat d)
+magnitude tag d =
+  bound RationalComponentMagnitude tag (largerComponent d) max-rational-component-magnitude
+
+natMagnitude : String → (n : ℕ) → Checked (SmallNat n)
+natMagnitude tag n = bound RationalComponentMagnitude tag n max-rational-component-magnitude
+
+SmallKeys : List (ℕ × List Char) → Set
+SmallKeys = All (SmallNat ∘ proj₁)
+
+smallKeys : String → (vs : List (ℕ × List Char)) → Checked (SmallKeys vs)
+smallKeys tag = every (λ e → natMagnitude tag (proj₁ e))
+
+SmallSelectors : SignalPresence → Set
+SmallSelectors Always      = ⊤
+SmallSelectors (When _ vs) = All SmallNat (toList vs)
+
+smallSelectors : (p : SignalPresence) → Checked (SmallSelectors p)
+smallSelectors Always      = inj₂ [ tt ]
+smallSelectors (When _ vs) = every (natMagnitude "multiplex value") (toList vs)
+
+record SignalMagnitudes (sig : DBCSignal) : Set where
+  field
+    factor    : SmallDecRat (SignalDef.factor  (DBCSignal.signalDef sig))
+    offset    : SmallDecRat (SignalDef.offset  (DBCSignal.signalDef sig))
+    minimum   : SmallDecRat (SignalDef.minimum (DBCSignal.signalDef sig))
+    maximum   : SmallDecRat (SignalDef.maximum (DBCSignal.signalDef sig))
+    startBit  : SmallNat (SignalDef.startBit  (DBCSignal.signalDef sig))
+    bitLength : SmallNat (SignalDef.bitLength (DBCSignal.signalDef sig))
+    selectors : SmallSelectors (DBCSignal.presence sig)
+    keys      : SmallKeys (DBCSignal.valueDescriptions sig)
+
+signalMagnitudes : (sig : DBCSignal) → Checked (SignalMagnitudes sig)
+signalMagnitudes sig =
+  magnitude "signal factor"  (SignalDef.factor  def) >>= λ f →
+  magnitude "signal offset"  (SignalDef.offset  def) >>= λ o →
+  magnitude "signal minimum" (SignalDef.minimum def) >>= λ lo →
+  magnitude "signal maximum" (SignalDef.maximum def) >>= λ hi →
+  natMagnitude "signal start bit" (SignalDef.startBit def) >>= λ sb →
+  natMagnitude "signal length" (SignalDef.bitLength def) >>= λ bl →
+  smallSelectors (DBCSignal.presence sig) >>= λ s →
+  smallKeys "value description key" (DBCSignal.valueDescriptions sig) >>= λ k →
+  inj₂ [ record { factor = f ; offset = o ; minimum = lo ; maximum = hi
+                ; startBit = sb ; bitLength = bl ; selectors = s ; keys = k } ]
+  where
+    def = DBCSignal.signalDef sig
+
+record EnvVarMagnitudes (e : EnvironmentVar) : Set where
+  field
+    initial : SmallDecRat (EnvironmentVar.initial e)
+    minimum : SmallDecRat (EnvironmentVar.minimum e)
+    maximum : SmallDecRat (EnvironmentVar.maximum e)
+
+envVarMagnitudes : (e : EnvironmentVar) → Checked (EnvVarMagnitudes e)
+envVarMagnitudes e =
+  magnitude "environment variable initial value" (EnvironmentVar.initial e) >>= λ i →
+  magnitude "environment variable minimum"       (EnvironmentVar.minimum e) >>= λ lo →
+  magnitude "environment variable maximum"       (EnvironmentVar.maximum e) >>= λ hi →
+  inj₂ [ record { initial = i ; minimum = lo ; maximum = hi } ]
+
+SmallType : AttrType → Set
+SmallType (ATInt lo hi)   = SmallDecRat (IntDecRat.value lo) × SmallDecRat (IntDecRat.value hi)
+SmallType (ATFloat lo hi) = SmallDecRat lo × SmallDecRat hi
+SmallType ATString        = ⊤
+SmallType (ATEnum _)      = ⊤
+SmallType (ATHex lo hi)   = SmallDecRat (NatDecRat.value lo) × SmallDecRat (NatDecRat.value hi)
+
+smallType : (t : AttrType) → Checked (SmallType t)
+smallType (ATInt lo hi)   =
+  magnitude "attribute minimum" (IntDecRat.value lo) >>= λ l →
+  magnitude "attribute maximum" (IntDecRat.value hi) >>= λ h → inj₂ [ (l , h) ]
+smallType (ATFloat lo hi) =
+  magnitude "attribute minimum" lo >>= λ l →
+  magnitude "attribute maximum" hi >>= λ h → inj₂ [ (l , h) ]
+smallType ATString        = inj₂ [ tt ]
+smallType (ATEnum _)      = inj₂ [ tt ]
+smallType (ATHex lo hi)   =
+  magnitude "attribute minimum" (NatDecRat.value lo) >>= λ l →
+  magnitude "attribute maximum" (NatDecRat.value hi) >>= λ h → inj₂ [ (l , h) ]
+
+SmallValue : AttrValue → Set
+SmallValue (AVInt v)    = SmallDecRat (IntDecRat.value v)
+SmallValue (AVFloat d)  = SmallDecRat d
+SmallValue (AVString _) = ⊤
+SmallValue (AVEnum v)   = SmallDecRat (NatDecRat.value v)
+SmallValue (AVHex v)    = SmallDecRat (NatDecRat.value v)
+
+smallValue : (v : AttrValue) → Checked (SmallValue v)
+smallValue (AVInt v)    = magnitude "attribute value" (IntDecRat.value v)
+smallValue (AVFloat d)  = magnitude "attribute value" d
+smallValue (AVString _) = inj₂ [ tt ]
+smallValue (AVEnum v)   = magnitude "attribute value" (NatDecRat.value v)
+smallValue (AVHex v)    = magnitude "attribute value" (NatDecRat.value v)
+
+AttributeMagnitudes : DBCAttribute → Set
+AttributeMagnitudes (DBCAttrDef d)     = SmallType (AttrDef.attrType d)
+AttributeMagnitudes (DBCAttrDefault d) = SmallValue (AttrDefault.value d)
+AttributeMagnitudes (DBCAttrAssign a)  = SmallValue (AttrAssign.value a)
+
+attributeMagnitudes : (a : DBCAttribute) → Checked (AttributeMagnitudes a)
+attributeMagnitudes (DBCAttrDef d)     = smallType (AttrDef.attrType d)
+attributeMagnitudes (DBCAttrDefault d) = smallValue (AttrDefault.value d)
+attributeMagnitudes (DBCAttrAssign a)  = smallValue (AttrAssign.value a)
+
+record DBCMagnitudes (dbc : DBC) : Set where
+  field
+    signals              : All (All SignalMagnitudes ∘ DBCMessage.signals) (DBC.messages dbc)
+    environmentVars      : All EnvVarMagnitudes (DBC.environmentVars dbc)
+    attributes           : All AttributeMagnitudes (DBC.attributes dbc)
+    valueTables          : All (SmallKeys ∘ ValueTable.entries) (DBC.valueTables dbc)
+    unresolvedValueDescs : All (SmallKeys ∘ RawValueDesc.entries) (DBC.unresolvedValueDescs dbc)
+
+dbcMagnitudes : (dbc : DBC) → Checked (DBCMagnitudes dbc)
+dbcMagnitudes dbc =
+  every (every signalMagnitudes ∘ DBCMessage.signals) (DBC.messages dbc) >>= λ s →
+  every envVarMagnitudes (DBC.environmentVars dbc) >>= λ e →
+  every attributeMagnitudes (DBC.attributes dbc) >>= λ a →
+  every (smallKeys "value table key" ∘ ValueTable.entries) (DBC.valueTables dbc) >>= λ t →
+  every (smallKeys "unresolved value description key" ∘ RawValueDesc.entries)
+    (DBC.unresolvedValueDescs dbc) >>= λ u →
+  inj₂ [ record { signals = s ; environmentVars = e ; attributes = a
+                ; valueTables = t ; unresolvedValueDescs = u } ]
+
+-- ============================================================================
 -- THE BOUNDED DBC
 -- ============================================================================
 
 record IsBoundedDBC (dbc : DBC) : Set where
   field
-    counts : DBCCounts dbc
-    texts  : DBCTexts dbc
+    counts     : DBCCounts dbc
+    texts      : DBCTexts dbc
+    magnitudes : DBCMagnitudes dbc
 
 -- A DBC with the proof that it meets every bound.  `checkBounds` is its
 -- producer; the proof is erased, so it costs nothing at run time.
@@ -340,7 +476,8 @@ isBounded? : (dbc : DBC) → Checked (IsBoundedDBC dbc)
 isBounded? dbc =
   dbcCounts dbc >>= λ c →
   dbcTexts dbc >>= λ t →
-  inj₂ [ record { counts = c ; texts = t } ]
+  dbcMagnitudes dbc >>= λ m →
+  inj₂ [ record { counts = c ; texts = t ; magnitudes = m } ]
 
 checkBounds : DBC → Error ⊎ BoundedDBC
 checkBounds dbc with isBounded? dbc
@@ -366,9 +503,16 @@ withNodes (bounded d p) ns with count "nodes array" (length ns) max-nodes-per-fi
       ; attributes = DBCTexts.attributes t ; valueTables = DBCTexts.valueTables t
       ; unresolvedValueDescs = DBCTexts.unresolvedValueDescs t
       }
+  ; magnitudes = record
+      { signals = DBCMagnitudes.signals m ; environmentVars = DBCMagnitudes.environmentVars m
+      ; attributes = DBCMagnitudes.attributes m ; valueTables = DBCMagnitudes.valueTables m
+      ; unresolvedValueDescs = DBCMagnitudes.unresolvedValueDescs m
+      }
   }))
   where
     @0 c : DBCCounts d
     c = IsBoundedDBC.counts p
     @0 t : DBCTexts d
     t = IsBoundedDBC.texts p
+    @0 m : DBCMagnitudes d
+    m = IsBoundedDBC.magnitudes p

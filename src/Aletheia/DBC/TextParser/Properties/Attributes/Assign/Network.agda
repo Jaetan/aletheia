@@ -72,6 +72,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
 
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOK)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; fromℤ-small)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;
@@ -301,10 +302,10 @@ private
       (emit attrValueWireFmt (RavwFrac d) ++ₗ ';' ∷ '\n' ∷ outer-suffix)
   l4-RavwFrac d outer-suffix = value-stops-isHSpace-RavDecRatFrac d outer-suffix
 
-  l6-RavwFrac : ∀ (d : DecRat) (outer-suffix : List Char) →
+  l6-RavwFrac : ∀ (d : DecRat) (outer-suffix : List Char) → SmallDecRat d →
     EmitsOK attrValueWireFmt (RavwFrac d) (';' ∷ '\n' ∷ outer-suffix)
-  l6-RavwFrac d outer-suffix =
-    build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
+  l6-RavwFrac d outer-suffix small =
+    build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) small (∷-stop refl)
 
   result-eq-Frac :
     ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char) →
@@ -335,6 +336,7 @@ private
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac :
   ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -343,7 +345,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac :
               (TraceNetwork.pos9 pos name (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
-  (mkDecRat (+ zero) a b cx) outer-suffix ss-NL =
+  (mkDecRat (+ zero) a b cx) outer-suffix ss-NL small =
   let d-this = mkDecRat (+ zero) a b cx
       classify = showDecRat-chars-head-digit zero a b cx
       k = proj₁ classify
@@ -358,14 +360,14 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
         (RavwFrac d-this) outer-suffix
         (digitChar k) subtail ss-NL
         (l4-RavwFrac d-this outer-suffix)
-        (l6-RavwFrac d-this outer-suffix)
+        (l6-RavwFrac d-this outer-suffix small)
         eq
         (digitChar-not-B k k<10)
         (digitChar-not-S k k<10)
         (digitChar-not-E k k<10))
       (result-eq-Frac pos name d-this outer-suffix))
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
-  (mkDecRat (+ suc n) a b cx) outer-suffix ss-NL =
+  (mkDecRat (+ suc n) a b cx) outer-suffix ss-NL small =
   let d-this = mkDecRat (+ suc n) a b cx
       classify = showDecRat-chars-head-digit (suc n) a b cx
       k = proj₁ classify
@@ -380,14 +382,14 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
         (RavwFrac d-this) outer-suffix
         (digitChar k) subtail ss-NL
         (l4-RavwFrac d-this outer-suffix)
-        (l6-RavwFrac d-this outer-suffix)
+        (l6-RavwFrac d-this outer-suffix small)
         eq
         (digitChar-not-B k k<10)
         (digitChar-not-S k k<10)
         (digitChar-not-E k k<10))
       (result-eq-Frac pos name d-this outer-suffix))
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
-  (mkDecRat -[1+ n ] a b cx) outer-suffix ss-NL =
+  (mkDecRat -[1+ n ] a b cx) outer-suffix ss-NL small =
   let d-this = mkDecRat -[1+ n ] a b cx
       dash-witness = showDecRat-chars-head-dash n a b cx
       subtail = proj₁ dash-witness
@@ -400,7 +402,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
         (RavwFrac d-this) outer-suffix
         '-' subtail ss-NL
         (l4-RavwFrac d-this outer-suffix)
-        (l6-RavwFrac d-this outer-suffix)
+        (l6-RavwFrac d-this outer-suffix small)
         eq
         refl refl refl)
       (result-eq-Frac pos name d-this outer-suffix))
@@ -439,12 +441,12 @@ private
           (sym (showInt-eq-BareInt z))
           (value-stops-isHSpace-RavDecRatBareInt z outer-suffix)
 
-  l6-RavwBareInt : ∀ (z : ℤ) (outer-suffix : List Char) →
+  l6-RavwBareInt : ∀ (z : ℤ) (outer-suffix : List Char) → SmallInt z →
     EmitsOK attrValueWireFmt (RavwBareInt (mkIntDecRatFromℤ z))
       (';' ∷ '\n' ∷ outer-suffix)
-  l6-RavwBareInt z outer-suffix =
+  l6-RavwBareInt z outer-suffix small =
     build-EmitsOK-RavwBareInt (mkIntDecRatFromℤ z) (';' ∷ '\n' ∷ outer-suffix)
-                              (∷-stop refl) (λ ())
+                              (fromℤ-small z small) (∷-stop refl) (λ ())
 
   result-eq-BareInt :
     ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char) →
@@ -481,6 +483,7 @@ private
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt :
   ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -488,7 +491,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt :
               (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z)))
               (TraceNetwork.pos9 pos name (showInt-chars z) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name (+ n) outer-suffix ss-NL =
+parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name (+ n) outer-suffix ss-NL small =
   let nat-witness = showNat-chars-head n
       k = proj₁ nat-witness
       subtail = proj₁ (proj₂ nat-witness)
@@ -505,13 +508,13 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name (+ n) outer-s
         (RavwBareInt (mkIntDecRatFromℤ (+ n))) outer-suffix
         (digitChar k) subtail ss-NL
         (l4-RavwBareInt (+ n) outer-suffix)
-        (l6-RavwBareInt (+ n) outer-suffix)
+        (l6-RavwBareInt (+ n) outer-suffix small)
         val-eq
         (digitChar-not-B k k<10)
         (digitChar-not-S k k<10)
         (digitChar-not-E k k<10))
       (result-eq-BareInt pos name (+ n) outer-suffix))
-parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name -[1+ n ] outer-suffix ss-NL =
+parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name -[1+ n ] outer-suffix ss-NL small =
   -- For `-[1+ n ]`, `showInt-chars` emits `'-' ∷ showNat-chars (suc n)`
   -- so `showInt-chars-eq` is `'-' ∷ showNat-chars (suc n) ≡ '-' ∷ rest`,
   -- closed dash head.
@@ -523,7 +526,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name -[1+ n ] oute
         (RavwBareInt (mkIntDecRatFromℤ -[1+ n ])) outer-suffix
         '-' (showNat-chars (suc n)) ss-NL
         (l4-RavwBareInt -[1+ n ] outer-suffix)
-        (l6-RavwBareInt -[1+ n ] outer-suffix)
+        (l6-RavwBareInt -[1+ n ] outer-suffix small)
         val-eq
         refl refl refl)
       (result-eq-BareInt pos name -[1+ n ] outer-suffix))

@@ -23,6 +23,8 @@
 -- over a list of DBCMessages via `manyHelper`-induction.
 module Aletheia.DBC.TextParser.Properties.Topology.Message where
 
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; smallNat-by-eval)
+open import Aletheia.DBC.Bounds using (SignalMagnitudes)
 open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr; length; map)
@@ -32,6 +34,7 @@ open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; _≤_; _<_; s≤s; z≤n)
+open import Data.Nat.Properties using (≤-trans)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
@@ -51,8 +54,7 @@ open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bytesToValidDLC-roundtrip)
 
 open import Aletheia.DBC.TextFormatter.Emitter using (showNat-chars)
-open import Aletheia.DBC.TextFormatter.Topology using
-  (emitSignalLine-chars; emitMessage-chars; findMuxMaster; rawCanIdℕ)
+open import Aletheia.DBC.TextFormatter.Topology using (emitSignalLine-chars; emitMessage-chars; findMuxMaster; rawCanIdℕ; canId-small)
 
 open import Aletheia.DBC.Formatter.WellFormed using
   (WellFormedSignal; PhysicallyValid)
@@ -337,21 +339,23 @@ build-messageHeaderFmt-EmitsOK :
       (suffix : List Char)
   → IdentHeadNonHSpace msgName
   → IdentHeadNonHSpace msgSender
+  → SmallNat rawId
+  → SmallNat rawDlc
   → EmitsOK messageHeaderFmt (rawId , msgName , rawDlc , msgSender) suffix
 build-messageHeaderFmt-EmitsOK rawId msgName rawDlc msgSender suffix
-                                 name-pre send-pre =
+                                 name-pre send-pre id-small dlc-small =
   -- 13-slot EmitsOK assembly.  Each line below is one condition; trivial
   -- ⊤ slots are written `tt`.  Helpers discharge the four non-trivial
   -- left-leaning slots; literal-head slots use `∷-stop refl`.
   tt ,                                                          -- literal "BO_"
   showNat-double-stop rawId _ _ ,                                -- ws after "BO_"
-  ∷-stop refl ,                                                 -- nat rawId
+  (id-small , ∷-stop refl) ,                                    -- nat rawId, within the bound
   ident-double-stop msgName _ _ name-pre ,                       -- ws between rawId+name
   ∷-stop refl ,                                                 -- ident msgName
   ∷-stop refl ,                                                 -- wsOpt before ":"
   tt ,                                                          -- literal ":"
   showNat-double-stop rawDlc _ _ ,                               -- ws after ":"
-  ∷-stop refl ,                                                 -- nat rawDlc
+  (dlc-small , ∷-stop refl) ,                                   -- nat rawDlc, within the bound
   ident-double-stop msgSender _ _ send-pre ,                     -- ws between rawDlc+sender
   ∷-stop refl ,                                                 -- ident msgSender
   ∷-stop refl ,                                                 -- wsOpt before "\n"
@@ -368,17 +372,19 @@ messageHeader-roundtrip :
       (msgSender : Identifier) (suffix : List Char)
   → IdentHeadNonHSpace msgName
   → IdentHeadNonHSpace msgSender
+  → SmallNat rawId
+  → SmallNat rawDlc
   → proj₂ (parse messageHeaderFmt pos
        (emit messageHeaderFmt (rawId , msgName , rawDlc , msgSender) ++ₗ suffix))
     ≡ just (mkResult (rawId , msgName , rawDlc , msgSender)
              (advancePositions pos
                (emit messageHeaderFmt (rawId , msgName , rawDlc , msgSender)))
              suffix)
-messageHeader-roundtrip pos rawId msgName rawDlc msgSender suffix name-stop send-stop =
+messageHeader-roundtrip pos rawId msgName rawDlc msgSender suffix name-stop send-stop id-small dlc-small =
   roundtrip messageHeaderFmt pos
             (rawId , msgName , rawDlc , msgSender) suffix
             (build-messageHeaderFmt-EmitsOK rawId msgName rawDlc msgSender suffix
-              name-stop send-stop)
+              name-stop send-stop id-small dlc-small)
 
 
 -- ============================================================================
@@ -402,13 +408,14 @@ parseMessage-roundtrip :
   → All SignalLineWF (DBCMessage.signals msg)
   → ParseFailsAt signalLineFmt ('\n' ∷ outer-suffix)
   → SuffixStops isNewlineStart outer-suffix
+  → All SignalMagnitudes (DBCMessage.signals msg)
   → proj₂ (parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix))
     ≡ just (mkResult (inj₂ (clearBothMsg msg))
              (advancePositions pos (emitMessage-chars msg))
              outer-suffix)
 parseMessage-roundtrip pos msg outer-suffix
     fb≤64 wf-sigs pvs wfps mc
-    name-pre send-pre item-pres tf nl-stop =
+    name-pre send-pre item-pres tf nl-stop mags =
   trans
     (cong (λ inp → proj₂ (parseMessage pos inp))
           shape-bridge)
@@ -485,7 +492,8 @@ parseMessage-roundtrip pos msg outer-suffix
         pos-after-hdr
         (body ++ₗ '\n' ∷ outer-suffix)
         (messageHeader-roundtrip pos rawId msgName rawDlc msgSender
-          (body ++ₗ '\n' ∷ outer-suffix) name-pre send-pre)
+          (body ++ₗ '\n' ∷ outer-suffix) name-pre send-pre
+          (canId-small (DBCMessage.id msg)) (≤-trans fb≤64 (smallNat-by-eval 64 tt)))
 
     -- Step 2: peel many parseSignalLine via `parseSignalLines-roundtrip`.
     step-signals :
@@ -498,7 +506,7 @@ parseMessage-roundtrip pos msg outer-suffix
         (body ++ₗ '\n' ∷ outer-suffix)
         raws pos-after-sigs ('\n' ∷ outer-suffix)
         (parseSignalLines-roundtrip pos-after-hdr master rawDlc sigs
-          ('\n' ∷ outer-suffix) item-pres tf (∷-stop refl))
+          ('\n' ∷ outer-suffix) item-pres tf (∷-stop refl) fb≤64 mags)
 
     -- Step 3: peel many parseNewline (consumes single '\n').
     step-newline :
@@ -619,15 +627,19 @@ emitMessage-chars-head-not-newline _ _ = ∷-stop refl
 -- The result is `mkResult (clearBothMsg msg) …`; the Universal
 -- threads `attachValueDescs ∘ collectFromMessages ≡ id` post-parse to
 -- recover the original.
+-- A well-formed message whose signals' numbers are within the bound.
+MessageBounded : DBCMessage → Set
+MessageBounded msg = MessageWF msg × All SignalMagnitudes (DBCMessage.signals msg)
+
 parseMessage-roundtrip-bundled :
     ∀ (pos : Position) (msg : DBCMessage) (outer-suffix : List Char)
-  → MessageWF msg
+  → MessageBounded msg
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix))
     ≡ just (mkResult (inj₂ (clearBothMsg msg))
              (advancePositions pos (emitMessage-chars msg))
              outer-suffix)
-parseMessage-roundtrip-bundled pos msg outer-suffix wf nl-stop =
+parseMessage-roundtrip-bundled pos msg outer-suffix (wf , mags) nl-stop =
   parseMessage-roundtrip pos msg outer-suffix
     (MessageWF.fb-bound      wf)
     (MessageWF.wf-sigs       wf)
@@ -639,6 +651,7 @@ parseMessage-roundtrip-bundled pos msg outer-suffix wf nl-stop =
     (MessageWF.item-pres     wf)
     (λ pos₁ → signalLineFmt-fails-on-newline pos₁ outer-suffix)
     nl-stop
+    mags
 
 
 -- The result list is `map clearBothMsg msgs`, not `msgs`.  Per-element
@@ -649,7 +662,7 @@ parseMessage-roundtrip-bundled pos msg outer-suffix wf nl-stop =
 -- the original.
 parseMessages-roundtrip :
     ∀ (pos : Position) (msgs : List DBCMessage) (outer-suffix : List Char)
-  → All MessageWF msgs
+  → All MessageBounded msgs
   → SuffixStops isNewlineStart outer-suffix
   → (∀ (pos' : Position) → proj₂ (parseMessage pos' outer-suffix) ≡ nothing)
   → proj₂ (many parseMessage pos
@@ -662,7 +675,7 @@ parseMessages-roundtrip pos msgs outer-suffix msgs-stops os pf =
   many-η-roundtrip-with-lift
     parseMessage
     emitMessage-chars
-    MessageWF
+    MessageBounded
     (λ m → inj₂ (clearBothMsg m))
     parseMessage-roundtrip-bundled
     emitMessage-chars-nonzero

@@ -20,6 +20,7 @@ open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; cong)
 
+open import Aletheia.DBC.Bounds using (AttributeMagnitudes)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
@@ -56,13 +57,14 @@ parseTopStmt-on-emit-typed-TAT-Assign :
       (a : AttrAssign) (outer : List Char)
   → WFAttribute defs (DBCAttrAssign a)
   → SuffixStops isNewlineStart outer
+  → AttributeMagnitudes (DBCAttrAssign a)
   → proj₂ (parseTopStmt pos (emitTopStmt-chars defs (TAT (DBCAttrAssign a)) ++ₗ outer))
     ≡ just (mkResult
               (liftTopStmt defs (TAT (DBCAttrAssign a)))
               (advancePositions pos
                  (emitTopStmt-chars defs (TAT (DBCAttrAssign a))))
               outer)
-parseTopStmt-on-emit-typed-TAT-Assign defs pos a outer wf ss-NL =
+parseTopStmt-on-emit-typed-TAT-Assign defs pos a outer wf ss-NL small =
   parseTopStmt-on-BA-head-via-prefix pos _ _ _ outer _
     (cong (_++ₗ outer) (proj₂ (emitAttrAssign-chars-BA-head a)))
-    (parseAttrLine-on-emit-Attribute defs pos (DBCAttrAssign a) outer wf ss-NL)
+    (parseAttrLine-on-emit-Attribute defs pos (DBCAttrAssign a) outer wf ss-NL small)

@@ -2024,6 +2024,29 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A DBC text holding one long number is refused, and the process that sent
+  it lives; every number in a DBC is held to the rational-component bound on
+  both load routes (BREAKING).** A `VAL_` key, a signal factor or any other
+  number in a DBC text was folded into an integer before any bound looked at
+  it, so a key of 100,000 digits ended the host process with the kernel's heap,
+  and the parse of a literal cost time quadratic in its length: 6.067 s at
+  100,000 digits on the text route, 0.335 s on the JSON route. One literal core
+  now serves both grammars: it strips the significand's zeros, folds the digits
+  only when the value fits, and holds a literal whose reduced component is at
+  least 2^64 as that component exactly 2^64, which the bound check after the
+  parse refuses as `at least 18446744073709551615`; a JSON exponent is compared
+  by digit count before it is folded. The load-time walk that bounds a DBC's
+  counts and texts decides every number's reduced components too, on both
+  routes, refusing the first past 9223372036854775807 naming its field
+  (`signal factor`, `value description key`, …), so a DBC text that loaded
+  with a number past the bound is refused at load. Reading a literal is linear:
+  0.128 s at 100,000 digits on the text route and 0.072 s on the JSON route.
+  Proven in Agda: the core reads every literal within the bound exactly and
+  holds only a literal with a component of at least 2^64
+  (`Aletheia.DBC.DecRat.Literal.Properties`), and the well-formedness class the
+  DBC round-trip theorem assumes includes the bound every loaded DBC carries. Each binding holds
+  the long text's refusal with a test that sends it from a child process.
+
 - **A long JSON number in a command is refused, and the process that sent it
   lives; a bound refusal's `observed` stops at 2^64 - 1 (BREAKING).** The
   refusal of a JSON number past the rational-component bound echoed its

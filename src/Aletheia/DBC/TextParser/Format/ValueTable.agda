@@ -54,6 +54,9 @@ open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using (showNat-chars; quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop; showNat-chars-head)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat)
+open import Aletheia.DBC.Bounds using (SmallKeys)
+open import Data.List.Relation.Unary.All using ([]; _∷_)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; stringLit; pair; iso; many;
          altSum; ws; wsCanonOne; withPrefix;
@@ -199,12 +202,13 @@ private
 -- All four boil down to head-of-residual checks; the caller supplies the
 -- `outer-rest` head non-`"` witness.
 build-EmitsOK-entry : ∀ (v : ℕ) (d : List Char) (outer-rest : List Char)
+  → SmallNat v
   → SuffixStops (λ c → c ≈ᵇ '"') outer-rest
   → EmitsOK ValueEntry-format (v , d) outer-rest
-build-EmitsOK-entry v d outer-rest q-stop =
+build-EmitsOK-entry v d outer-rest v-small q-stop =
   ((showNat-head-non-hspace v
       (' ' ∷ quoteStringLit-chars d ++ₗ outer-rest)
-   , ∷-stop refl)
+   , (v-small , ∷-stop refl))
   , (∷-stop refl
     , q-stop))
 
@@ -219,25 +223,26 @@ build-EmitsOK-entry v d outer-rest q-stop =
 -- Cons (non-last): per-entry EmitsOK against next entry's leading `' '`
 --   (head non-`"`); recursive cons step.
 build-EmitsOKMany : ∀ (entries : List (ℕ × List Char)) (outer-suffix : List Char)
+  → SmallKeys entries
   → EmitsOKMany ValueEntry-format entries
       (' ' ∷ ';' ∷ '\n' ∷ outer-suffix)
-build-EmitsOKMany [] outer-suffix =
+build-EmitsOKMany [] outer-suffix _ =
   []-fails (λ pos →
     parseValueEntry-format-fails-on-semi pos ('\n' ∷ outer-suffix))
-build-EmitsOKMany ((v , d) ∷ []) outer-suffix =
+build-EmitsOKMany ((v , d) ∷ []) outer-suffix (v-small ∷ _) =
   ∷-cons
     (build-EmitsOK-entry v d (' ' ∷ ';' ∷ '\n' ∷ outer-suffix)
-                         (∷-stop refl))
+                         v-small (∷-stop refl))
     (s≤s z≤n)
-    (build-EmitsOKMany [] outer-suffix)
-build-EmitsOKMany ((v , d) ∷ ((v' , d') ∷ rest')) outer-suffix =
+    (build-EmitsOKMany [] outer-suffix [])
+build-EmitsOKMany ((v , d) ∷ ((v' , d') ∷ rest')) outer-suffix (v-small ∷ small-rest) =
   ∷-cons
     (build-EmitsOK-entry v d
        (emit (many ValueEntry-format) ((v' , d') ∷ rest')
         ++ₗ ' ' ∷ ';' ∷ '\n' ∷ outer-suffix)
-       (∷-stop refl))
+       v-small (∷-stop refl))
     (s≤s z≤n)
-    (build-EmitsOKMany ((v' , d') ∷ rest') outer-suffix)
+    (build-EmitsOKMany ((v' , d') ∷ rest') outer-suffix small-rest)
 
 -- ============================================================================
 -- WELL-FORMEDNESS — top-level builder
@@ -251,9 +256,10 @@ build-EmitsOKMany ((v , d) ∷ ((v' , d') ∷ rest')) outer-suffix =
 -- or reduces to `∷-stop refl` on a known fixed head.
 build-emits-ok : ∀ (vt : ValueTable) outer-suffix
   → ValueTableNameStop vt
+  → SmallKeys (ValueTable.entries vt)
   → EmitsOK ValueTable-format vt outer-suffix
 build-emits-ok record { name = name ; entries = [] } outer-suffix
-               (c , cs , name-eq , c-non-hs) =
+               (c , cs , name-eq , c-non-hs) _ =
   -- "VAL_TABLE_" literal: vacuous (tt).
   tt ,
   -- (withWS ident name): SuffixStops isHSpace on (name ++ rest), and
@@ -265,7 +271,7 @@ build-emits-ok record { name = name ; entries = [] } outer-suffix
           (∷-stop c-non-hs))
    , ∷-stop refl) ,
   -- (many ValueEntry-format []): EmitsOKMany on empty entries.
-  build-EmitsOKMany [] outer-suffix ,
+  build-EmitsOKMany [] outer-suffix [] ,
   -- (withWSCanonOne (withPrefix ";" newlineFmt)) tt outer-suffix:
   -- SuffixStops isHSpace (';' ∷ '\n' ∷ outer) × inner.
   -- Inner: literal ";" vacuous; newlineFmt (inj₂ tt outer): inner literal
@@ -274,7 +280,7 @@ build-emits-ok record { name = name ; entries = [] } outer-suffix
    , (tt
      , (tt , (λ pos → refl))))
 build-emits-ok record { name = name ; entries = (v , d) ∷ rest } outer-suffix
-               (c , cs , name-eq , c-non-hs) =
+               (c , cs , name-eq , c-non-hs) keys-small =
   tt ,
   ((subst (λ xs → SuffixStops isHSpace
                     (xs ++ₗ
@@ -286,7 +292,7 @@ build-emits-ok record { name = name ; entries = (v , d) ∷ rest } outer-suffix
           (sym name-eq)
           (∷-stop c-non-hs))
    , ∷-stop refl) ,
-  build-EmitsOKMany ((v , d) ∷ rest) outer-suffix ,
+  build-EmitsOKMany ((v , d) ∷ rest) outer-suffix keys-small ,
   (∷-stop refl
    , (tt
      , (tt , (λ pos → refl))))
@@ -302,11 +308,12 @@ build-emits-ok record { name = name ; entries = (v , d) ∷ rest } outer-suffix
 -- universally.
 parseValueTable-format-roundtrip : ∀ pos vt outer-suffix
   → ValueTableNameStop vt
+  → SmallKeys (ValueTable.entries vt)
   → proj₂ (parse ValueTable-format pos
       (emit ValueTable-format vt ++ₗ outer-suffix))
     ≡ just (mkResult vt
              (advancePositions pos (emit ValueTable-format vt))
              outer-suffix)
-parseValueTable-format-roundtrip pos vt outer-suffix nameStop =
+parseValueTable-format-roundtrip pos vt outer-suffix nameStop keys-small =
   roundtrip ValueTable-format pos vt outer-suffix
-    (build-emits-ok vt outer-suffix nameStop)
+    (build-emits-ok vt outer-suffix nameStop keys-small)

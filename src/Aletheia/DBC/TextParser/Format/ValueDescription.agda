@@ -55,6 +55,9 @@ open import Aletheia.DBC.TextFormatter.Emitter using
   (showNat-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop; showNat-chars-head)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat)
+open import Aletheia.DBC.Bounds using (SmallKeys)
+open import Data.List.Relation.Unary.All using ([]; _∷_)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; pair; iso; many;
          altSum; ws; wsCanonOne; withPrefix;
@@ -147,9 +150,11 @@ private
 build-emits-ok-vd : ∀ (rawId : ℕ) (sigId : Identifier)
                      (entries : List (ℕ × List Char)) (outer-suffix : List Char)
   → RawValueDescNameStop sigId
+  → SmallNat rawId
+  → SmallKeys entries
   → EmitsOK ValueDescription-format (rawId , sigId , entries) outer-suffix
 build-emits-ok-vd rawId sigId [] outer-suffix
-                  (c , cs , name-eq , c-non-hs) =
+                  (c , cs , name-eq , c-non-hs) id-small _ =
   -- "VAL_" literal: vacuous (tt).
   tt ,
   -- (withWS nat rawId):
@@ -161,7 +166,7 @@ build-emits-ok-vd rawId sigId [] outer-suffix
                         (withWSCanonOne
                           (withPrefix (';' ∷ []) newlineFmt))))
             (sigId , [] , tt) ++ₗ outer-suffix))
-   , ∷-stop refl) ,
+   , (id-small , ∷-stop refl)) ,
   -- (withWS ident sigId):
   -- SuffixStops isHSpace (name ++ rest2) — head c, c-non-hs witness.
   -- SuffixStops isIdentCont rest2        — head ' ', non-ident-cont.
@@ -171,13 +176,13 @@ build-emits-ok-vd rawId sigId [] outer-suffix
           (∷-stop c-non-hs))
    , ∷-stop refl) ,
   -- (many ValueEntry-format []): EmitsOKMany on empty entries.
-  build-EmitsOKMany [] outer-suffix ,
+  build-EmitsOKMany [] outer-suffix [] ,
   -- (withWSCanonOne (withPrefix ";" newlineFmt)) tt outer-suffix.
   (∷-stop refl
    , (tt
      , (tt , (λ pos → refl))))
 build-emits-ok-vd rawId sigId ((v , d) ∷ rest) outer-suffix
-                  (c , cs , name-eq , c-non-hs) =
+                  (c , cs , name-eq , c-non-hs) id-small keys-small =
   tt ,
   ((showNat-head-non-hspace rawId
       (emit (pair (withWS ident)
@@ -185,7 +190,7 @@ build-emits-ok-vd rawId sigId ((v , d) ∷ rest) outer-suffix
                         (withWSCanonOne
                           (withPrefix (';' ∷ []) newlineFmt))))
             (sigId , (v , d) ∷ rest , tt) ++ₗ outer-suffix))
-   , ∷-stop refl) ,
+   , (id-small , ∷-stop refl)) ,
   ((subst (λ xs → SuffixStops isHSpace
                     (xs ++ₗ
                      emit (pair (many ValueEntry-format)
@@ -196,7 +201,7 @@ build-emits-ok-vd rawId sigId ((v , d) ∷ rest) outer-suffix
           (sym name-eq)
           (∷-stop c-non-hs))
    , ∷-stop refl) ,
-  build-EmitsOKMany ((v , d) ∷ rest) outer-suffix ,
+  build-EmitsOKMany ((v , d) ∷ rest) outer-suffix keys-small ,
   (∷-stop refl
    , (tt
      , (tt , (λ pos → refl))))
@@ -214,12 +219,14 @@ parseValueDescription-format-roundtrip :
     ∀ (pos : Position) (rawId : ℕ) (sigId : Identifier)
       (entries : List (ℕ × List Char)) (outer-suffix : List Char)
   → RawValueDescNameStop sigId
+  → SmallNat rawId
+  → SmallKeys entries
   → proj₂ (parse ValueDescription-format pos
       (emit ValueDescription-format (rawId , sigId , entries) ++ₗ outer-suffix))
     ≡ just (mkResult (rawId , sigId , entries)
              (advancePositions pos
                (emit ValueDescription-format (rawId , sigId , entries)))
              outer-suffix)
-parseValueDescription-format-roundtrip pos rawId sigId entries outer-suffix nameStop =
+parseValueDescription-format-roundtrip pos rawId sigId entries outer-suffix nameStop id-small keys-small =
   roundtrip ValueDescription-format pos (rawId , sigId , entries) outer-suffix
-    (build-emits-ok-vd rawId sigId entries outer-suffix nameStop)
+    (build-emits-ok-vd rawId sigId entries outer-suffix nameStop id-small keys-small)

@@ -38,7 +38,8 @@ open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (MuxMarker; NotMux; IsMux; SelBy; BothMux;
-   RawSignal; mkRawSignal)
+   RawSignal; mkRawSignal; MuxSmall; RawSignalSmall)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; SmallDecRat)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop)
 open import Aletheia.DBC.TextParser.Format
@@ -221,14 +222,15 @@ header-EmitsOK rs rest (c , cs , name-eq , c-non-hs) ident-stop
 -- Coupling to sizeFmt is acceptable: the universal `roundtrip
 -- signalLineFmt` is the only consumer.
 mux-EmitsOK : ∀ (mux : MuxMarker) (rest' : List Char)
+  → MuxSmall mux
   → EmitsOK muxMarkerFmt mux (' ' ∷ ':' ∷ rest')
-mux-EmitsOK IsMux rest' =
+mux-EmitsOK IsMux rest' _ =
   -- ψMux IsMux = inj₁ tt (first alt; no alt-fail).
   ∷-stop refl , tt
-mux-EmitsOK (BothMux n) rest' =
+mux-EmitsOK (BothMux n) rest' n-small =
   -- ψMux (BothMux n) = inj₂ (inj₁ n).  isMux fails after parseWS:
   -- parseCharsSeq "M" on 'm' (head of " m<n>M") fails.
-  ((∷-stop refl , (tt , ∷-stop refl) , tt) ,
+  ((∷-stop refl , (tt , (n-small , ∷-stop refl)) , tt) ,
    λ pos →
      bind-nothing (parse (pair ws (literal ('M' ∷ []))))
                   (λ x → pure (proj₂ x))
@@ -236,11 +238,11 @@ mux-EmitsOK (BothMux n) rest' =
                   (pair-ws-f-fails (literal ('M' ∷ [])) pos
                                    ('m' ∷ emit nat n ++ₗ 'M' ∷ ' ' ∷ ':' ∷ rest')
                                    (∷-stop refl) refl))
-mux-EmitsOK (SelBy n) rest' =
+mux-EmitsOK (SelBy n) rest' n-small =
   -- ψMux (SelBy n) = inj₂ (inj₂ (inj₁ n)).  Two alt-fails:
   -- bothMux-fail (parseNatural roundtrip succeeds, then "M" on ' ' head fails),
   -- isMux-fail (parseWS + "M" on 'm' head).
-  (((∷-stop refl , (tt , ∷-stop refl)) ,
+  (((∷-stop refl , (tt , (n-small , ∷-stop refl))) ,
     -- bothMux fails: pair ws (iso _ _ _ (pair (withPrefix "m" nat)
     -- (literal "M"))).  After parseWS consumes leading ' ', the
     -- input is 'm' ∷ emit nat n ++ ' ' ∷ ':' ∷ rest'.  The inner
@@ -273,7 +275,7 @@ mux-EmitsOK (SelBy n) rest' =
               (advancePositions (advancePosition pos ' ') ('m' ∷ emit nat n))
               (' ' ∷ ':' ∷ rest')
               (roundtrip (withPrefix ('m' ∷ []) nat) (advancePosition pos ' ')
-                         n (' ' ∷ ':' ∷ rest') (tt , ∷-stop refl))
+                         n (' ' ∷ ':' ∷ rest') (tt , (n-small , ∷-stop refl)))
               refl))))
    ,
    λ pos →
@@ -283,7 +285,7 @@ mux-EmitsOK (SelBy n) rest' =
                   (pair-ws-f-fails (literal ('M' ∷ [])) pos
                                    ('m' ∷ emit nat n ++ₗ ' ' ∷ ':' ∷ rest')
                                    (∷-stop refl) refl))
-mux-EmitsOK NotMux rest' =
+mux-EmitsOK NotMux rest' _ =
   -- ψMux NotMux = inj₂ (inj₂ (inj₂ tt)).  Three alt-fails on input
   -- ' ' ∷ ':' ∷ rest'; all three (selBy/bothMux/isMux) parseWS the ' '
   -- then fail on ':' via the literal head mismatch.
@@ -346,26 +348,27 @@ mux-EmitsOK NotMux rest' =
 -- No `rest`-side precondition: sizeFmt's emit ends with signFlagFmt
 -- which imposes no constraint on `rest`.
 size-EmitsOK : ∀ (sb bl : ℕ) (bo : ByteOrder) (sgn : Bool) (rest : List Char)
+  → SmallNat sb → SmallNat bl
   → EmitsOK sizeFmt (sb , bl , bo , sgn) rest
-size-EmitsOK sb bl BigEndian false rest =
+size-EmitsOK sb bl BigEndian false rest sb-small bl-small =
   ∷-stop refl , tt ,
   showNat-double-stop sb _ rest ,
-  ∷-stop refl , tt , ∷-stop refl , tt , tt , tt
-size-EmitsOK sb bl BigEndian true rest =
+  (sb-small , ∷-stop refl) , tt , (bl-small , ∷-stop refl) , tt , tt , tt
+size-EmitsOK sb bl BigEndian true rest sb-small bl-small =
   ∷-stop refl , tt ,
   showNat-double-stop sb _ rest ,
-  ∷-stop refl , tt , ∷-stop refl , tt , tt ,
+  (sb-small , ∷-stop refl) , tt , (bl-small , ∷-stop refl) , tt , tt ,
   (tt , λ pos → refl)
-size-EmitsOK sb bl LittleEndian false rest =
+size-EmitsOK sb bl LittleEndian false rest sb-small bl-small =
   ∷-stop refl , tt ,
   showNat-double-stop sb _ rest ,
-  ∷-stop refl , tt , ∷-stop refl , tt ,
+  (sb-small , ∷-stop refl) , tt , (bl-small , ∷-stop refl) , tt ,
   (tt , λ pos → refl) ,
   tt
-size-EmitsOK sb bl LittleEndian true rest =
+size-EmitsOK sb bl LittleEndian true rest sb-small bl-small =
   ∷-stop refl , tt ,
   showNat-double-stop sb _ rest ,
-  ∷-stop refl , tt , ∷-stop refl , tt ,
+  (sb-small , ∷-stop refl) , tt , (bl-small , ∷-stop refl) , tt ,
   (tt , λ pos → refl) ,
   (tt , λ pos → refl)
 
@@ -375,15 +378,17 @@ size-EmitsOK sb bl LittleEndian true rest =
 --   literal ',', decRat o next ')' (non-digit), literal ')'.
 -- No `rest`-side precondition: scalingFmt's emit ends with literal ')'.
 scaling-EmitsOK : ∀ (f o : DecRat) (rest : List Char)
+  → SmallDecRat f → SmallDecRat o
   → EmitsOK scalingFmt (f , o) rest
-scaling-EmitsOK _ _ _ =
-  ∷-stop refl , tt , ∷-stop refl , tt , ∷-stop refl , tt
+scaling-EmitsOK _ _ _ f-small o-small =
+  ∷-stop refl , tt , (f-small , ∷-stop refl) , tt , (o-small , ∷-stop refl) , tt
 
 -- RANGE chunk: " [<min>|<max>]".  Same structural shape as scaling.
 range-EmitsOK : ∀ (mn mx : DecRat) (rest : List Char)
+  → SmallDecRat mn → SmallDecRat mx
   → EmitsOK rangeFmt (mn , mx) rest
-range-EmitsOK _ _ _ =
-  ∷-stop refl , tt , ∷-stop refl , tt , ∷-stop refl , tt
+range-EmitsOK _ _ _ mn-small mx-small =
+  ∷-stop refl , tt , (mn-small , ∷-stop refl) , tt , (mx-small , ∷-stop refl) , tt
 
 -- TAIL chunk: ` "<unit>" <recv>\n`.
 -- 7-tuple decomposition (the inner `iso` passes through ψ, then the
@@ -449,33 +454,38 @@ build-emits-ok : ∀ (rs : RawSignal) (suffix : List Char)
   → NameStop rs
   → RecvHeadStop (RawSignal.receivers rs)
   → SuffixStops isReceiverCont suffix
+  → RawSignalSmall rs
   → EmitsOK signalLineFmt rs suffix
 build-emits-ok rs@(mkRawSignal name IsMux sb bl bo sgn fac off mn mx unit recv)
-               suffix name-stop recv-head-stop recv-stop =
+               suffix name-stop recv-head-stop recv-stop
+               (mux-small , sb-small , bl-small , f-small , o-small , mn-small , mx-small) =
   header-EmitsOK rs _ name-stop (∷-stop refl) ,
-  mux-EmitsOK IsMux _ ,
-  size-EmitsOK sb bl bo sgn _ ,
-  scaling-EmitsOK fac off _ ,
-  range-EmitsOK mn mx _ ,
+  mux-EmitsOK IsMux _ mux-small ,
+  size-EmitsOK sb bl bo sgn _ sb-small bl-small ,
+  scaling-EmitsOK fac off _ f-small o-small ,
+  range-EmitsOK mn mx _ mn-small mx-small ,
   tail-EmitsOK unit recv suffix recv-head-stop recv-stop
 build-emits-ok rs@(mkRawSignal name (BothMux n) sb bl bo sgn fac off mn mx unit recv)
-               suffix name-stop recv-head-stop recv-stop =
+               suffix name-stop recv-head-stop recv-stop
+               (mux-small , sb-small , bl-small , f-small , o-small , mn-small , mx-small) =
   header-EmitsOK rs _ name-stop (∷-stop refl) ,
-  mux-EmitsOK (BothMux n) _ ,
-  size-EmitsOK sb bl bo sgn _ ,
-  scaling-EmitsOK fac off _ ,
-  range-EmitsOK mn mx _ ,
+  mux-EmitsOK (BothMux n) _ mux-small ,
+  size-EmitsOK sb bl bo sgn _ sb-small bl-small ,
+  scaling-EmitsOK fac off _ f-small o-small ,
+  range-EmitsOK mn mx _ mn-small mx-small ,
   tail-EmitsOK unit recv suffix recv-head-stop recv-stop
 build-emits-ok rs@(mkRawSignal name (SelBy n) sb bl bo sgn fac off mn mx unit recv)
-               suffix name-stop recv-head-stop recv-stop =
+               suffix name-stop recv-head-stop recv-stop
+               (mux-small , sb-small , bl-small , f-small , o-small , mn-small , mx-small) =
   header-EmitsOK rs _ name-stop (∷-stop refl) ,
-  mux-EmitsOK (SelBy n) _ ,
-  size-EmitsOK sb bl bo sgn _ ,
-  scaling-EmitsOK fac off _ ,
-  range-EmitsOK mn mx _ ,
+  mux-EmitsOK (SelBy n) _ mux-small ,
+  size-EmitsOK sb bl bo sgn _ sb-small bl-small ,
+  scaling-EmitsOK fac off _ f-small o-small ,
+  range-EmitsOK mn mx _ mn-small mx-small ,
   tail-EmitsOK unit recv suffix recv-head-stop recv-stop
 build-emits-ok rs@(mkRawSignal name NotMux sb bl bo sgn fac off mn mx unit recv)
-               suffix name-stop recv-head-stop recv-stop =
+               suffix name-stop recv-head-stop recv-stop
+               (mux-small , sb-small , bl-small , f-small , o-small , mn-small , mx-small) =
   -- NotMux's mux-EmitsOK body references `(' ' ∷ ':' ∷ rest')` in three
   -- alt-fail proofs, and Agda can't infer rest' from the goal's
   -- `emit (pair sizeFmt …) … ++ suffix` (the `' ' ∷ ':'` prefix sits
@@ -489,10 +499,10 @@ build-emits-ok rs@(mkRawSignal name NotMux sb bl bo sgn fac off mn mx unit recv)
                          ((fac , off) , (mn , mx) , (unit , recv))
                 ++ₗ suffix
   in header-EmitsOK rs _ name-stop (∷-stop refl) ,
-     mux-EmitsOK NotMux rest' ,
-     size-EmitsOK sb bl bo sgn _ ,
-     scaling-EmitsOK fac off _ ,
-     range-EmitsOK mn mx _ ,
+     mux-EmitsOK NotMux rest' mux-small ,
+     size-EmitsOK sb bl bo sgn _ sb-small bl-small ,
+     scaling-EmitsOK fac off _ f-small o-small ,
+     range-EmitsOK mn mx _ mn-small mx-small ,
      tail-EmitsOK unit recv suffix recv-head-stop recv-stop
 
 -- ============================================================================
@@ -503,8 +513,9 @@ signalLine-roundtrip : ∀ (pos : Position) (rs : RawSignal) (suffix : List Char
   → NameStop rs
   → RecvHeadStop (RawSignal.receivers rs)
   → SuffixStops isReceiverCont suffix
+  → RawSignalSmall rs
   → proj₂ (parse signalLineFmt pos (emit signalLineFmt rs ++ₗ suffix))
     ≡ just (mkResult rs (advancePositions pos (emit signalLineFmt rs)) suffix)
-signalLine-roundtrip pos rs suffix name-stop recv-head-stop recv-stop =
+signalLine-roundtrip pos rs suffix name-stop recv-head-stop recv-stop small =
   roundtrip signalLineFmt pos rs suffix
-    (build-emits-ok rs suffix name-stop recv-head-stop recv-stop)
+    (build-emits-ok rs suffix name-stop recv-head-stop recv-stop small)

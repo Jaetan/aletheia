@@ -41,7 +41,7 @@ open import Aletheia.Parser.Combinators using
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdent; isIdentStart; isIdentCont; mkIdentFromChars) public
 
-open import Aletheia.Protocol.JSON.Parse using (parseNatural) public
+open import Aletheia.Protocol.JSON.Parse using (parseNatural; parseDigits) public
 
 -- ============================================================================
 -- CHARACTER CLASSES

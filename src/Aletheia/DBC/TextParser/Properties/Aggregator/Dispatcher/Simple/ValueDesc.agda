@@ -27,6 +27,7 @@ open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
+open import Aletheia.DBC.Bounds using (SmallKeys)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions;
    _>>=_; pure)
@@ -78,11 +79,12 @@ parseTopStmt-on-emit-TVD-eq :
     ∀ (pos : Position) (rvd : RawValueDesc) (outer : List Char)
   → RawValueDescStop rvd
   → SuffixStops isNewlineStart outer
+  → SmallKeys (RawValueDesc.entries rvd)
   → proj₂ (parseTopStmt pos (emitValueDescription-chars rvd ++ₗ outer))
     ≡ just (mkResult (TSValueDesc rvd)
                      (advancePositions pos (emitValueDescription-chars rvd))
                      outer)
-parseTopStmt-on-emit-TVD-eq pos rvd outer rvd-stop nl-stop =
+parseTopStmt-on-emit-TVD-eq pos rvd outer rvd-stop nl-stop keys-small =
   trans alt-right-eq bind-success-eq
   where
     input : List Char
@@ -122,7 +124,7 @@ parseTopStmt-on-emit-TVD-eq pos rvd outer rvd-stop nl-stop =
         proj₂ (parseValueDescription pos input)
       ≡ just (mkResult rvd pos-vd outer)
     parseValueDescription-success =
-      parseValueDescription-roundtrip pos rvd outer rvd-stop nl-stop
+      parseValueDescription-roundtrip pos rvd outer rvd-stop nl-stop keys-small
 
     -- bind-just-step chains the RIGHT arm's success through the
     -- `>>= λ rvd → pure (TSValueDesc rvd)` continuation.

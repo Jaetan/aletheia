@@ -54,7 +54,7 @@ open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars;
          showℕ-dec-chars)
-open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
+open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ; canId-small)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   ( bind-just-step
@@ -71,6 +71,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
 
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOK; nat)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; fromℤ-small)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;
@@ -194,7 +195,7 @@ private
             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
       l5 = build-EmitsOK-stdTargetWireFmt-RatwSig raw sig
             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-            sig-stop val-stop
+            (canId-small cid) sig-stop val-stop
 
       step-format :
         proj₂ (parseRawAttrAssign pos
@@ -308,6 +309,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac :
     (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
+  → SmallDecRat d
   → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -318,7 +320,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac :
               (TraceSignal.pos9 pos name cid sig (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac pos name cid sig d outer-suffix
-                                                      ident-stop ss-NL =
+                                                      ident-stop ss-NL small =
   trans
     (cong (λ cs → proj₂ (parseRawAttrAssign pos cs))
           (sym (bridge-Signal-emit name (rawCanIdℕ cid) sig (RavwFrac d) outer-suffix)))
@@ -326,7 +328,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac pos name cid sig d outer-s
       (parseRawAttrAssign-format-roundtrip-Signal-raw pos name cid sig
         (RavwFrac d) outer-suffix ident-stop ss-NL
         (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
-        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)))
+        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) small (∷-stop refl)))
       result-eq)
   where
     result-eq :
@@ -351,6 +353,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt :
     (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
+  → SmallInt z
   → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -361,14 +364,14 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt :
               (TraceSignal.pos9 pos name cid sig (showInt-chars z) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt pos name cid sig z outer-suffix
-                                                         ident-stop ss-NL =
+                                                         ident-stop ss-NL small =
   trans
     (cong (λ cs → proj₂ (parseRawAttrAssign pos cs)) reshape-input)
     (trans
       (parseRawAttrAssign-format-roundtrip-Signal-raw pos name cid sig
         (RavwBareInt z') outer-suffix ident-stop ss-NL
         l4-rebuilt
-        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())))
+        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (fromℤ-small z small) (∷-stop refl) (λ ())))
       result-eq)
   where
     z' : IntDecRat

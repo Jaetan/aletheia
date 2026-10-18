@@ -33,6 +33,11 @@ open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂; subst)
 
+open import Aletheia.DBC.Bounds using (IsBoundedDBC; DBCMagnitudes; SmallKeys; SignalMagnitudes)
+open import Function using (_∘_)
+open import Aletheia.DBC.Types using (DBCSignal; DBCMessage)
+open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
+open import Aletheia.DBC.TextParser.ValueDescriptions using (prependVdsRvd; collectFromSignals; collectFromMessages)
 open import Aletheia.Parser.Combinators using
   ( Position; mkResult
   ; advancePositions; many; pure; _>>=_
@@ -121,27 +126,56 @@ open import Aletheia.DBC.TextFormatter.Topology using
 -- BRIDGE — derive `All TopStmtTypedWF` from `WellFormedTextDBCAgg`
 -- ============================================================================
 --
--- `toTopStmtsTyped d` is a 7-section `++` chain (`map TX xs` per section).
+-- `toTopStmtsTyped d` is a `++` chain of sections (`map TX xs` per section).
 -- `All P` distributes over `++` and `map`, so we can lift each section's
 -- slim precondition through its `TX` constructor.  The TVD chunk's arm
 -- derives `All RawValueDescStop` from signal-name validity.
+
+-- The keys of every collected `VAL_` line are within the bound when every
+-- signal's are: the collected lines carry the signals' own entry lists.
+prependVdsRvd-small :
+    ∀ cid name vds rest
+  → SmallKeys vds
+  → All (SmallKeys ∘ RawValueDesc.entries) rest
+  → All (SmallKeys ∘ RawValueDesc.entries) (prependVdsRvd cid name vds rest)
+prependVdsRvd-small _ _ []      _ _     rest-small = rest-small
+prependVdsRvd-small _ _ (_ ∷ _) _ small rest-small = small ∷ rest-small
+
+collectFromSignals-small :
+    ∀ cid (sigs : List DBCSignal)
+  → All SignalMagnitudes sigs
+  → All (SmallKeys ∘ RawValueDesc.entries) (collectFromSignals cid sigs)
+collectFromSignals-small _   []       []       = []
+collectFromSignals-small cid (s ∷ ss) (m ∷ ms) =
+  prependVdsRvd-small cid (DBCSignal.name s) (DBCSignal.valueDescriptions s)
+    (collectFromSignals cid ss) (SignalMagnitudes.keys m)
+    (collectFromSignals-small cid ss ms)
+
+collectFromMessages-small :
+    ∀ (msgs : List DBCMessage)
+  → All (All SignalMagnitudes ∘ DBCMessage.signals) msgs
+  → All (SmallKeys ∘ RawValueDesc.entries) (collectFromMessages msgs)
+collectFromMessages-small []       []         = []
+collectFromMessages-small (m ∷ ms) (sm ∷ sms) =
+  ++⁺ (collectFromSignals-small (DBCMessage.id m) (DBCMessage.signals m) sm)
+      (collectFromMessages-small ms sms)
 
 toTopStmtsTyped-wf :
     ∀ (d : DBC) → WellFormedTextDBCAgg d
   → All (TopStmtTypedWF (collectDefs (DBC.attributes d))) (toTopStmtsTyped d)
 toTopStmtsTyped-wf d wf =
-  ++⁺ (map⁺ (lift-stops TVT (TopStmtTypedWF defs) (DBC.valueTables d)
-                         (WellFormedTextDBCAgg.vt-stops wf) wfTVT))
-      (++⁺ (map⁺ (lift-stops TM (TopStmtTypedWF defs) (DBC.messages d)
-                              (WellFormedTextDBCAgg.msg-wfs wf) wfTM))
+  ++⁺ (map⁺ (lift-stops₂ TVT (TopStmtTypedWF defs) (DBC.valueTables d)
+                          (WellFormedTextDBCAgg.vt-stops wf) (DBCMagnitudes.valueTables m) wfTVT))
+      (++⁺ (map⁺ (lift-stops₂ TM (TopStmtTypedWF defs) (DBC.messages d)
+                               (WellFormedTextDBCAgg.msg-wfs wf) (DBCMagnitudes.signals m) wfTM))
            (++⁺ tbo-wf
                 (++⁺ tvd-wf
-                     (++⁺ (map⁺ (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
-                                             (WellFormedTextDBCAgg.ev-stops wf) wfTEV))
+                     (++⁺ (map⁺ (lift-stops₂ TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
+                                              (WellFormedTextDBCAgg.ev-stops wf) (DBCMagnitudes.environmentVars m) wfTEV))
                           (++⁺ (map⁺ (lift-stops TCM (TopStmtTypedWF defs) (DBC.comments d)
                                                   (WellFormedTextDBCAgg.cm-stops wf) wfTCM))
-                               (++⁺ (map⁺ (lift-stops TAT (TopStmtTypedWF defs) (DBC.attributes d)
-                                                       (WellFormedTextDBCAgg.attr-wfs wf) wfTAT))
+                               (++⁺ (map⁺ (lift-stops₂ TAT (TopStmtTypedWF defs) (DBC.attributes d)
+                                                        (WellFormedTextDBCAgg.attr-wfs wf) (DBCMagnitudes.attributes m) wfTAT))
                                     (map⁺ (lift-stops TSG (TopStmtTypedWF defs) (DBC.signalGroups d)
                                                        (WellFormedTextDBCAgg.sg-wfs wf) wfTSG))))))))
   where
@@ -149,9 +183,25 @@ toTopStmtsTyped-wf d wf =
       (TVT; TM; TVD; TEV; TCM; TAT; TSG; TBO)
 
     defs = collectDefs (DBC.attributes d)
+    m    = IsBoundedDBC.magnitudes (WellFormedTextDBCAgg.bounded wf)
 
-    -- Convert `All Stop xs` to `All (P ∘ TX) xs` via the wfTX
-    -- constructor (which carries the per-element witness).
+    -- The same lift with a second witness per element, the element's
+    -- magnitudes.
+    lift-stops₂ :
+        ∀ {A : Set} {Stop Small : A → Set}
+          (TX : A → TopStmtTyped)
+          (Wf : TopStmtTyped → Set)
+      → (xs : List A)
+      → All Stop xs
+      → All Small xs
+      → (∀ x → Stop x → Small x → Wf (TX x))
+      → All (λ x → Wf (TX x)) xs
+    lift-stops₂ _ _ []        []          []          _ = []
+    lift-stops₂ TX Wf (x ∷ xs) (sx ∷ srest) (mx ∷ mrest) f =
+      f x sx mx ∷ lift-stops₂ TX Wf xs srest mrest f
+
+    -- Convert `All Stop xs` to `All (Wf ∘ TX) xs` through the function
+    -- that builds each element's witness.
     lift-stops :
         ∀ {A : Set} {Stop : A → Set}
           (TX : A → TopStmtTyped)
@@ -172,10 +222,11 @@ toTopStmtsTyped-wf d wf =
     -- needed.  `lift-stops` then routes through `wfTVD`.
     tvd-wf : All (TopStmtTypedWF defs) (map TVD (collectFromMessages (DBC.messages d)))
     tvd-wf =
-      map⁺ (lift-stops TVD (TopStmtTypedWF defs)
-                       (collectFromMessages (DBC.messages d))
-                       (collectFromMessages-stops (DBC.messages d))
-                       wfTVD)
+      map⁺ (lift-stops₂ TVD (TopStmtTypedWF defs)
+                        (collectFromMessages (DBC.messages d))
+                        (collectFromMessages-stops (DBC.messages d))
+                        (collectFromMessages-small (DBC.messages d) (DBCMagnitudes.signals m))
+                        wfTVD)
 
     -- TBO arm.  `collectSenders-stops` derives `All RawMsgSendersStop
     -- (collectSenders msgs)` from each sender `Identifier`'s validity (head

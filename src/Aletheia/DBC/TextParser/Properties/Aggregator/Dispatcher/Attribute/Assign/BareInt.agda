@@ -29,6 +29,7 @@ open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; sym; trans; cong; subst)
 
+open import Aletheia.DBC.DecRat.Magnitude using (SmallInt)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult)
 
@@ -264,6 +265,7 @@ private
 parseAttrLine-on-RavBareInt-Network :
     ∀ (pos : Position) (name : List Char) (z : ℤ) (outer : List Char)
   → SuffixStops isNewlineStart outer
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
@@ -271,7 +273,7 @@ parseAttrLine-on-RavBareInt-Network :
               (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z))))
               (TraceNetwork.pos9 pos name (showInt-chars z) outer)
               outer)
-parseAttrLine-on-RavBareInt-Network pos name z outer ss-NL =
+parseAttrLine-on-RavBareInt-Network pos name z outer ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
@@ -280,12 +282,13 @@ parseAttrLine-on-RavBareInt-Network pos name z outer ss-NL =
                         outer))
     (sym (network-input-bridge name z outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt
-       pos name z outer ss-NL)
+       pos name z outer ss-NL small)
 
 parseAttrLine-on-RavBareInt-Node :
     ∀ (pos : Position) (name : List Char) (n : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " BU_ " ++ₗ Identifier.name n ++ₗ
@@ -294,7 +297,7 @@ parseAttrLine-on-RavBareInt-Node :
               (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat (fromℤ z))))
               (TraceNode.pos9 pos name n (showInt-chars z) outer)
               outer)
-parseAttrLine-on-RavBareInt-Node pos name n z outer n-stop ss-NL =
+parseAttrLine-on-RavBareInt-Node pos name n z outer n-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
@@ -303,11 +306,12 @@ parseAttrLine-on-RavBareInt-Node pos name n z outer n-stop ss-NL =
                         outer))
     (sym (node-input-bridge name n z outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt
-       pos name n z outer n-stop ss-NL)
+       pos name n z outer n-stop ss-NL small)
 
 parseAttrLine-on-RavBareInt-Message :
     ∀ (pos : Position) (name : List Char) (cid : CANId) (z : ℤ) (outer : List Char)
   → SuffixStops isNewlineStart outer
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -316,7 +320,7 @@ parseAttrLine-on-RavBareInt-Message :
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat (fromℤ z))))
               (TraceMessage.pos9 pos name cid (showInt-chars z) outer)
               outer)
-parseAttrLine-on-RavBareInt-Message pos name cid z outer ss-NL =
+parseAttrLine-on-RavBareInt-Message pos name cid z outer ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
@@ -325,13 +329,14 @@ parseAttrLine-on-RavBareInt-Message pos name cid z outer ss-NL =
                         outer))
     (sym (message-input-bridge name cid z outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatBareInt
-       pos name cid z outer ss-NL)
+       pos name cid z outer ss-NL small)
 
 parseAttrLine-on-RavBareInt-Signal :
     ∀ (pos : Position) (name : List Char) (cid : CANId) (sig : Identifier)
       (z : ℤ) (outer : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
@@ -341,7 +346,7 @@ parseAttrLine-on-RavBareInt-Signal :
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat (fromℤ z))))
               (TraceSignal.pos9 pos name cid sig (showInt-chars z) outer)
               outer)
-parseAttrLine-on-RavBareInt-Signal pos name cid sig z outer sig-stop ss-NL =
+parseAttrLine-on-RavBareInt-Signal pos name cid sig z outer sig-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
@@ -350,12 +355,13 @@ parseAttrLine-on-RavBareInt-Signal pos name cid sig z outer sig-stop ss-NL =
                         outer))
     (sym (signal-input-bridge name cid sig z outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatBareInt
-       pos name cid sig z outer sig-stop ss-NL)
+       pos name cid sig z outer sig-stop ss-NL small)
 
 parseAttrLine-on-RavBareInt-EnvVar :
     ∀ (pos : Position) (name : List Char) (ev : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
@@ -364,7 +370,7 @@ parseAttrLine-on-RavBareInt-EnvVar :
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z))))
               (TraceEnvVar.pos9 pos name ev (showInt-chars z) outer)
               outer)
-parseAttrLine-on-RavBareInt-EnvVar pos name ev z outer ev-stop ss-NL =
+parseAttrLine-on-RavBareInt-EnvVar pos name ev z outer ev-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
@@ -373,13 +379,14 @@ parseAttrLine-on-RavBareInt-EnvVar pos name ev z outer ev-stop ss-NL =
                         outer))
     (sym (envvar-input-bridge name ev z outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatBareInt
-       pos name ev z outer ev-stop ss-NL)
+       pos name ev z outer ev-stop ss-NL small)
 
 parseAttrLine-on-RavBareInt-NodeMsg :
     ∀ (pos : Position) (name : List Char) (n : Identifier) (cid : CANId)
       (z : ℤ) (outer : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       ((toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -389,7 +396,7 @@ parseAttrLine-on-RavBareInt-NodeMsg :
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavDecRat (fromℤ z))))
               (TraceNodeMsg.pos9 pos name n cid (showInt-chars z) outer)
               outer)
-parseAttrLine-on-RavBareInt-NodeMsg pos name n cid z outer n-stop ss-NL =
+parseAttrLine-on-RavBareInt-NodeMsg pos name n cid z outer n-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
@@ -398,13 +405,14 @@ parseAttrLine-on-RavBareInt-NodeMsg pos name n cid z outer n-stop ss-NL =
                         outer))
     (sym (nodemsg-input-bridge name n cid z outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt
-       pos name n cid z outer n-stop ss-NL)
+       pos name n cid z outer n-stop ss-NL small)
 
 parseAttrLine-on-RavBareInt-NodeSig :
     ∀ (pos : Position) (name : List Char) (n : Identifier) (cid : CANId)
       (sig : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer
+  → SmallInt z
   → proj₂ (parseAttrLine pos
       ((toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
@@ -415,7 +423,7 @@ parseAttrLine-on-RavBareInt-NodeSig :
               (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig) (RavDecRat (fromℤ z))))
               (TraceNodeSig.pos9 pos name n cid sig (showInt-chars z) outer)
               outer)
-parseAttrLine-on-RavBareInt-NodeSig pos name n cid sig z outer n-stop sig-stop ss-NL =
+parseAttrLine-on-RavBareInt-NodeSig pos name n cid sig z outer n-stop sig-stop ss-NL small =
   subst
     (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
@@ -424,4 +432,4 @@ parseAttrLine-on-RavBareInt-NodeSig pos name n cid sig z outer n-stop sig-stop s
                         outer))
     (sym (nodesig-input-bridge name n cid sig z outer))
     (parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt
-       pos name n cid sig z outer n-stop sig-stop ss-NL)
+       pos name n cid sig z outer n-stop sig-stop ss-NL small)

@@ -20,6 +20,7 @@ open All using (All)
 
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Identifier using (_≟ᴵ_)
+open import Aletheia.DBC.Bounds using (IsBoundedDBC)
 open import Aletheia.DBC.Types using (DBC; DBCSignal; DBCMessage; DBCAttribute; RawValueDesc)
 open import Aletheia.DBC.Formatter.WellFormed using (PhysicallyValid)
 open import Aletheia.DBC.Formatter.WellFormedText using (MasterCoherent; WellFormedTextPresence)
@@ -155,13 +156,14 @@ checkAttrs-sound attrs eq =
 -- `wfTextIssues d` is the 4-part `++ₗ` chain (WellFormedCheck.agda) emitting
 -- for exactly the 4 DECIDED Agg fields; split it, rebuild those four, and hand
 -- them to `wellFormedFromValidity`, which discharges the 5 free name-stop fields.
-wfTextIssues-sound : ∀ (d : DBC) → wfTextIssues d ≡ [] → WellFormedTextDBCAgg d
-wfTextIssues-sound d premise =
+wfTextIssues-sound : ∀ (d : DBC) → wfTextIssues d ≡ [] → IsBoundedDBC d → WellFormedTextDBCAgg d
+wfTextIssues-sound d premise bd =
   wellFormedFromValidity d
     (All.map (λ {m} → checkTextMessage-sound m) (concatMap-≡[]-sound p-eq))  -- All MessageWF
     (checkAttrs-sound     (DBC.attributes d)          r-eq)                  -- All WFAttribute
     (checkMsgIdsUnique-sound (DBC.messages d)         q-eq)                  -- AllPairs _≢_ ids
     (checkUnresolved-sound (DBC.unresolvedValueDescs d) s-eq)               -- unresolved ≡ []
+    bd
   where
     split1 = ++-≡[]-split premise
     p-eq   = proj₁ split1                    -- concatMap checkTextMessage (messages d) ≡ []

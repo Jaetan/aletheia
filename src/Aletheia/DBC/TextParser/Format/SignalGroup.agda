@@ -48,6 +48,7 @@ open import Aletheia.DBC.Types using (SignalGroup)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop)
+open import Aletheia.DBC.DecRat.Magnitude using (smallNat-by-eval)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; pair; iso; many;
          altSum; ws; wsOpt; wsCanonOne; withPrefix;
@@ -269,16 +270,16 @@ build-emits-ok sg outer-suffix nameStop sigs-stops =
     tt
     -- L2 (withWS) before discarded "0": head is '0', non-hspace.
   , ∷-stop refl
-    -- L3 (pair (discardFmt 0 nat) ...): SuffixStops isDigit on ' ' ∷ name ∷ …, head ' '.
-  , ∷-stop refl
+    -- L3 (pair (discardFmt 0 nat) ...): 0 is within the bound; SuffixStops isDigit on ' ' ∷ name ∷ …, head ' '.
+  , (smallNat-by-eval 0 tt , ∷-stop refl)
     -- L4 (withWS) before name: head is name's first char, non-hspace via NameStop.
   , ws-slot-name-witness sg _ outer-suffix nameStop
     -- L5 (pair ident ...): SuffixStops isIdentCont on ' ' ∷ '1' ∷ …, head ' '.
   , ∷-stop refl
     -- L6 (withWS) before discarded "1": head is '1', non-hspace.
   , ∷-stop refl
-    -- L7 (pair (discardFmt 1 nat) ...): SuffixStops isDigit on ' ' ∷ ':' ∷ …, head ' '.
-  , ∷-stop refl
+    -- L7 (pair (discardFmt 1 nat) ...): 1 is within the bound; SuffixStops isDigit on ' ' ∷ ':' ∷ …, head ' '.
+  , (smallNat-by-eval 1 tt , ∷-stop refl)
     -- L8 (withWSCanonOne) before ':': head is ':', non-hspace.
   , ∷-stop refl
     -- L9 (withPrefix ":"): vacuous.
