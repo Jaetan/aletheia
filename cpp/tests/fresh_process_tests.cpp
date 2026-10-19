@@ -33,7 +33,7 @@
 
 #if !defined(ALETHEIA_RUNTIME_DOWN_TESTS) || !defined(ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS) ||  \
     !defined(ALETHEIA_RENDERER_FREES_TESTS) || !defined(ALETHEIA_RTS_HEAP_CAP_TESTS) ||            \
-    !defined(ALETHEIA_LITERAL_BOUND_TESTS)
+    !defined(ALETHEIA_LITERAL_BOUND_TESTS) || !defined(ALETHEIA_RENDERER_NULL_KERNEL_TESTS)
 #error "the fresh-process suites' paths are compile definitions of the build"
 #endif
 
@@ -94,6 +94,10 @@ TEST_CASE("the renderer refuses when it finds no library", "[fresh_process]") {
 
 TEST_CASE("the renderer frees the strings the kernel hands it", "[fresh_process]") {
     require_passes(ALETHEIA_RENDERER_FREES_TESTS);
+}
+
+TEST_CASE("a decimal failure without an envelope is a protocol error", "[fresh_process]") {
+    require_passes(ALETHEIA_RENDERER_NULL_KERNEL_TESTS);
 }
 
 TEST_CASE("the runtime's heap cap contains", "[fresh_process]") {

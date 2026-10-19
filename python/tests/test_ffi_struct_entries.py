@@ -187,11 +187,7 @@ def test_a_text_the_header_refuses_is_refused_by_both_entries(state: StateHandle
         decimal = AletheiaDecimal()
         assert _LIB.aletheia_parse_decimal(argument, ctypes.byref(decimal)) == 1
         envelope = json.loads(_take_response(decimal.err))
-        assert (envelope["code"], envelope["message"], envelope["input"]) == (
-            "decimal_parse_failed",
-            reason,
-            "",
-        )
+        assert envelope == {"status": "error", "code": "ffi_validation_error", "message": reason}
     empty_text = ctypes.byref(AletheiaText(None, 0))
     empty = json.loads(_take_response(_LIB.aletheia_process(state, empty_text)))
     assert empty["code"] == "dispatch_invalid_json"

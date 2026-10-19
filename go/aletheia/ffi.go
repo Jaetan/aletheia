@@ -573,8 +573,8 @@ func (b *FFIBackend) Init() (State, error) {
 
 // Process sends one JSON command and returns the JSON response. A payload
 // past MaxJSONBytes is refused here, before it is copied across the boundary;
-// the kernel bounds it too. The kernel reads every byte of input, and answers a
-// NUL or bytes that are not UTF-8 with an ffi_validation_error response.
+// the kernel bounds it too. The shared library reads every byte and refuses a
+// NUL or bytes that are not UTF-8 with its own ffi_validation_error response.
 func (b *FFIBackend) Process(state State, input string) (string, error) {
 	if err := refuseOversize(uint64(len(input)), MaxJSONBytes); err != nil {
 		return "", err

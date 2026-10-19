@@ -35,7 +35,10 @@ fn failures() -> Vec<String> {
     let client = Client::new().expect("Client::new: is ALETHEIA_LIB set to a built .so?");
     let mut failures = Vec::new();
     match Rational::from_decimal("1.5\u{20ac}") {
-        Err(Error::Validation(_)) => {}
+        Err(Error::Validation {
+            code: Some(ref code),
+            ..
+        }) if code == "text_trailing_input" => {}
         other => failures.push(format!(
             "from_decimal answered {other:?} for 1.5 and a euro sign"
         )),

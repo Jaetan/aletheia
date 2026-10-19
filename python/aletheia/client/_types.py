@@ -2,25 +2,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Client types, exceptions, and result containers."""
 
-# DEFERRED:
-# Finding: This file (432 LOC, shrunk organically from a higher mark)
-#   mixes the public exception hierarchy (already re-exported at the top-level
-#   `aletheia` package) with client-internal scaffolding.  If it regrows, the
-#   natural split is to move the internal scaffolding to a
-#   `python/aletheia/client/_internals.py`; the exception hierarchy stays
-#   re-exported from the top-level `aletheia` package — the sole public path
-#   (`aletheia.client` is internal, and `aletheia.types` is now the wire-types
-#   namespace, so neither is available as a split target).
-# Why: Organic shrinkage keeps urgency low; the AletheiaError canonical-path
-#   question is already resolved (top-level `aletheia` is the single public path).
-# Revisit when: This file re-grows past ~600 LOC.
-
 import dataclasses
 from dataclasses import dataclass
 from fractions import Fraction
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, cast, override
 
+from aletheia.common_types import Prose
 from aletheia.limits import (
     BOUND_KIND_INPUT_LENGTH_BYTES,
     MAX_DBC_TEXT_BYTES,
@@ -41,7 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from aletheia.codes import ValidationIssue
-    from aletheia.common_types import PositiveInt, Prose
+    from aletheia.common_types import DocumentKey, Location, PositiveInt
 
 type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
 
@@ -49,20 +37,49 @@ type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
 class AletheiaError(Exception):
     """Base exception for all Aletheia errors.
 
+    The string form is the message, prefixed for an error a loader located:
+    ``<location>: invalid '<key>': <message>``.
+
     Attributes:
-        code: Machine-readable error code from the Agda core
-            (``aletheia.ErrorCode``).  ``None`` for errors raised
-            purely client-side (e.g. "library not loaded", "null pointer
-            from FFI") — those surface as a plain Python exception without
-            an Agda wire value.
+        message: The error's text; for an error the kernel answered, the
+            kernel's message verbatim.
+        code: The ``aletheia.ErrorCode`` the kernel or the shared library
+            answered.  ``None`` for an error the binding raised on its own
+            (a library that does not load, a runtime that is not up, a
+            malformed reply), except its bound checks of a command against
+            ``MAX_JSON_BYTES`` and of a ``parse_dbc_text`` text against
+            ``MAX_DBC_TEXT_BYTES``, which carry ``input_bound_exceeded``.
+        location: Where a YAML or Excel loader read the value the error
+            refuses (``Check 'C'``, ``Row 2``), or ``None`` for an error no
+            loader located.
+        key: The key or the column header the refused value sat under, set
+            with ``location``.
 
     """
 
+    message: Prose
     code: str | None
+    location: Location | None
+    key: DocumentKey | None
 
     def __init__(self, message: str, code: str | None = None) -> None:
         super().__init__(message)
+        self.message = Prose(message)
         self.code = code
+        self.location = None
+        self.key = None
+
+    def locate(self, location: Location, key: DocumentKey) -> None:
+        """Record where a loader read the refused value and the key it sat under."""
+        self.location = location
+        self.key = key
+
+    @override
+    def __str__(self) -> Prose:
+        """Return the message, after the location and the key when a loader set them."""
+        if self.location is None:
+            return self.message
+        return Prose(f"{self.location}: invalid '{self.key}': {self.message}")
 
 
 class FFIError(AletheiaError):
@@ -99,7 +116,10 @@ class ProtocolError(AletheiaError):
 
 
 class ValidationError(AletheiaError):
-    """Caller-supplied argument failed a Python-side validity check.
+    """Caller-supplied input was refused, by a Python-side check or by the kernel.
+
+    A refusal by the kernel or the shared library carries its ``code``, as
+    :func:`~aletheia.from_decimal` raises it for a literal it cannot read.
 
     Examples: negative timestamp, malformed CAN ID, unknown signal name,
     payload length mismatch.
@@ -116,8 +136,9 @@ class KernelRefusal(NamedTuple):
 
     Fields:
         message: The kernel's message, which is the error's text.
-        field: The part of a DBC that crossed one of its size bounds, as the
-            kernel names it, or ``None`` for a bound that names no field.
+        field: The part of the input that crossed the bound, as the kernel
+            names it (a DBC's ``"senders array"``, a decimal's ``"decimal"``),
+            or ``None`` for a bound that names no field.
     """
 
     message: Prose
@@ -131,8 +152,9 @@ class InputBoundExceededError(AletheiaError):
     carry the bound kind (e.g. ``"input_length_bytes"``), the observed value
     (``2**64 - 1`` when the kernel measured more, its message then saying
     "at least"), the canonical limit per :mod:`aletheia.limits`, and the
-    part of a DBC that crossed one of its size bounds
-    (e.g. ``"senders array"``), or ``None`` for a bound that names no field.
+    part of the input that crossed the bound as the kernel names it (a DBC's
+    ``"senders array"`` or ``"signal factor"``, a decimal's ``"decimal"``),
+    or ``None`` for a bound that names no field.
     For a refusal the kernel sent, ``refusal`` carries the kernel's message,
     which is the error's text, and the field; a bound the binding checks
     before the call has no refusal, and its text names the kind, the observed
@@ -293,10 +315,7 @@ def raise_on_error_response(
     # to avoid KeyError on non-error batches.
     if resp.get("status") == "error":
         err_resp = cast("ErrorResponse", resp)
-        err = ProtocolError(
-            f"error code={err_resp['code']}: {err_resp['message']}",
-            code=err_resp["code"],
-        )
+        err = ProtocolError(err_resp["message"], code=err_resp["code"])
         raise BatchError(err, partial, frame_index=frame_index) from err
     return cast("AckResponse | PropertyBatchResponse", resp)
 

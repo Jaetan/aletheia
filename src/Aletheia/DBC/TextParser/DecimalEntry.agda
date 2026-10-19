@@ -4,16 +4,15 @@
 
 -- Decimal-string → rational entry point for the FFI.
 --
--- This is the kernel-side single source of truth for "parse a user-entered
--- decimal into an exact rational".  Every binding (Python / Go / C++ / Rust)
--- routes decimal input through `aletheia_parse_decimal` (the Haskell shim
--- wrapper around `parseDecimal`) instead of re-implementing a float→rational
--- heuristic, so the accepted grammar cannot drift between languages.
+-- The kernel is the single source of truth for what a valid decimal is:
+-- every binding (Python / Go / C++ / Rust) routes decimal input through
+-- `aletheia_parse_decimal`, the Haskell shim's wrapper around `parseDecimal`,
+-- so neither the grammar nor the bound can drift between languages.
 --
 -- The float principle: a decimal is an *exact* rational (a `DecRat`,
 -- denominator 2^a·5^b), never a float64.  A `float` only ever appears when a
--- value is finally printed for a human; nothing internal to the program is a
--- float.  This module is the input half of that contract.
+-- value is finally printed for a human.  This module is the input half of
+-- that contract.
 --
 -- Grammar (delegated wholesale to `parseDecRat`):
 --     -?digits          (bare integer)
@@ -21,40 +20,58 @@
 -- No leading '+', no bare '.5', no scientific notation.  See
 -- `Aletheia.DBC.TextParser.DecRatParse`.
 --
--- `fromResult` is intentionally STRICTER than the library `runParser`
--- (Combinators), which discards trailing input: full consumption is required,
--- so "3.14xyz" is rejected rather than silently truncated to 3.14.  It is a
--- standalone named helper (not an inline `with runParserPartial …`) so the
--- roundtrip proof in `DecimalEntry.Properties` can close by `cong fromResult`
--- — an inline `with` abstracts the scrutinee and blocks the rewrite.
+-- The whole text must parse (`consumed`): "3.14xyz" is refused as trailing
+-- input rather than read as 3.14.  The value is then held to the one bound
+-- every number in a command or a DBC is held to, `SmallDecRat`: a reduced
+-- component past `max-rational-component-magnitude` is refused with the
+-- bound error naming the field `decimal`.  The shim only reads the verdict:
+-- an error is rendered as every kernel refusal is, and a `WireRational`'s
+-- two components fit the wire's signed 64-bit slots by its erased proof.
 module Aletheia.DBC.TextParser.DecimalEntry where
 
-open import Data.String using (String; toList)
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing; map)
-open import Data.Product using (proj₂)
-open import Data.Rational.Base using (ℚ)
+open import Data.Integer using (ℤ; ∣_∣)
+open import Data.List using (List)
+open import Data.Nat using (ℕ; _*_; _^_)
+open import Data.Product using (_×_; uncurry)
+open import Data.String using (String; toList)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 
-open import Aletheia.Parser.Combinators using (runParserPartial; ParseResult; mkResult)
+open import Aletheia.Parser.Combinators using (ParseResult; value; runParserPartial)
 open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
-open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.TextParser.Consumed using (consumed)
+open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; SmallDecRat; smallDecRat-components)
+open import Aletheia.DBC.Bounds using (Checked; [_]; magnitude)
+open import Aletheia.Error using (Error; DBCTextParseError; DBCTextParseErr)
 
--- Accept a parse only when the whole input was consumed.
-fromResult : Maybe (ParseResult DecRat) → Maybe DecRat
-fromResult nothing                       = nothing
-fromResult (just (mkResult d _ []))      = just d
-fromResult (just (mkResult _ _ (_ ∷ _))) = nothing
+-- The rational as the wire carries it: lowest terms over a positive
+-- denominator (the `DecRat` canonical invariant), each component at most
+-- `max-rational-component-magnitude`.
+record WireRational : Set where
+  constructor mkWireRational
+  field
+    numerator   : ℤ
+    denominator : ℕ
+    @0 small    : SmallNat ∣ numerator ∣ × SmallNat denominator
 
--- Parse a decimal-character stream into a canonical `DecRat`.  The
--- failure watermark (proj₁) is dropped: this is a yes/no boundary — the
--- FFI envelope reports the whole literal as invalid, not a position.
-parseDecimal-chars : List Char → Maybe DecRat
-parseDecimal-chars cs = fromResult (proj₂ (runParserPartial parseDecRat cs))
+wireOf : (d : DecRat) → @0 SmallDecRat d → WireRational
+wireOf d small =
+  mkWireRational (DecRat.numerator d) (2 ^ DecRat.twoExp d * 5 ^ DecRat.fiveExp d)
+                 (smallDecRat-components d small)
 
--- FFI entry: parse a decimal string into the exact rational it denotes.
--- `nothing` means "not a valid decimal literal".  The shim turns the result
--- into the wire envelope (`{numerator,denominator}` on success, an error
--- envelope otherwise) and catches Int64 overflow at the marshaling boundary.
-parseDecimal : String → Maybe ℚ
-parseDecimal s = map toℚ (parseDecimal-chars (toList s))
+-- The bound's verdict on a parsed decimal.
+fromChecked : (d : DecRat) → Checked (SmallDecRat d) → Error ⊎ WireRational
+fromChecked _ (inj₁ e)         = inj₁ e
+fromChecked d (inj₂ [ small ]) = inj₂ (wireOf d small)
+
+decide : DBCTextParseError ⊎ ParseResult DecRat → Error ⊎ WireRational
+decide (inj₁ e)   = inj₁ (DBCTextParseErr e)
+decide (inj₂ res) = fromChecked (value res) (magnitude "decimal" (value res))
+
+parseDecimal-chars : List Char → Error ⊎ WireRational
+parseDecimal-chars cs = decide (uncurry consumed (runParserPartial parseDecRat cs))
+
+-- FFI entry: the exact rational a decimal string denotes, or the refusal.
+parseDecimal : String → Error ⊎ WireRational
+parseDecimal s = parseDecimal-chars (toList s)

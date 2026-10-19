@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // YAML loader tests.
 // Tests YAML check parsing through the Check API with inline YAML strings.
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -396,7 +397,9 @@ TEST_CASE("yaml: an empty or comment-only document has no checks list", "[yaml][
                ContainsSubstring("YAML must contain a 'checks' list"));
 }
 
-TEST_CASE("yaml: a value the kernel refuses names the field", "[yaml][error]") {
+// The kernel's refusal keeps its kind, code and message, and the loader adds
+// the check and the key it read the number at, which the printed form leads with.
+TEST_CASE("yaml: a value the kernel refuses names the check and the field", "[yaml][error]") {
     auto const result = load_checks_from_yaml_string(R"(
 checks:
   - signal: Speed
@@ -404,8 +407,49 @@ checks:
     value: abc
 )");
     REQUIRE(!result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Validation);
-    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("invalid 'value'"));
+    auto const& error = result.error();
+    CHECK(error.kind() == ErrorKind::Validation);
+    CHECK(error.code() == ErrorCode::TextParseFailure);
+    CHECK(error.message() == "parse failed at line 1, column 1");
+    CHECK(error.location().value_or("") == "Check '<unnamed>'");
+    CHECK(error.key().value_or("") == "value");
+    CHECK(error.text() == "Check '<unnamed>': invalid 'value': parse failed at line 1, column 1");
+}
+
+// The kernel reads within_ms as it reads every number, and the loader refuses,
+// at the check, a reading that is not whole, one that is negative and one too
+// large for the check builder's microseconds, whichever kind of check reads it.
+TEST_CASE("yaml: a within_ms the check cannot take as its bound is refused at the check",
+          "[yaml][error]") {
+    struct Row {
+        std::string_view within;
+        std::string_view message;
+    };
+    constexpr std::array rows = {
+        Row{.within = "1.5", .message = "Check 'C': 'within_ms' must be a whole number, got 1.5"},
+        Row{.within = "-5", .message = "Check 'C': 'within_ms' must be non-negative, got -5"},
+        Row{.within = "9300000000000000",
+            .message = "Check 'C': invalid 'within_ms': time overflows microsecond conversion"},
+    };
+    for (auto const& row : rows) {
+        INFO("within_ms: " << row.within);
+        auto const within = "    within_ms: " + std::string{row.within} + "\n";
+        auto const settles = load_checks_from_yaml_string("checks:\n  - name: C\n"
+                                                          "    signal: Speed\n"
+                                                          "    condition: settles_between\n"
+                                                          "    min: 0\n    max: 100\n" +
+                                                          within);
+        auto const when_then = load_checks_from_yaml_string(
+            "checks:\n  - name: C\n"
+            "    when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n"
+            "    then:\n      signal: Light\n      condition: equals\n      value: 1\n" +
+            within);
+        for (auto const* result : std::array{&settles, &when_then}) {
+            REQUIRE_FALSE(result->has_value());
+            CHECK(result->error().kind() == ErrorKind::Validation);
+            CHECK(result->error().message() == row.message);
+        }
+    }
 }
 
 TEST_CASE("yaml: missing min/max for stays_between", "[yaml][error]") {
@@ -659,16 +703,25 @@ checks:
                ContainsSubstring("missing or invalid 'value' (expected number)"));
 }
 
-TEST_CASE("yaml: every spelling of a boolean is refused where a number is read", "[yaml][error]") {
+// A boolean is a scalar like any other, so the kernel reads its text, plain or
+// quoted, and refuses it as it refuses any text that is not a decimal.
+TEST_CASE("yaml: every spelling of a boolean is the kernel's refusal where a number is read",
+          "[yaml][error]") {
     auto const spelling =
         GENERATE(std::string_view{"true"}, std::string_view{"false"}, std::string_view{"TRUE"},
-                 std::string_view{"FALSE"}, std::string_view{"True"}, std::string_view{"False"});
+                 std::string_view{"FALSE"}, std::string_view{"True"}, std::string_view{"False"},
+                 std::string_view{"\"true\""}, std::string_view{"'false'"});
+    CAPTURE(spelling);
     auto const result = load_checks_from_yaml_string("checks:\n  - signal: Speed\n"
                                                      "    condition: never_exceeds\n    value: " +
                                                      std::string{spelling} + "\n");
     REQUIRE(!result.has_value());
-    CHECK_THAT(std::string(result.error().message()),
-               ContainsSubstring("missing or invalid 'value' (expected number)"));
+    auto const& error = result.error();
+    CHECK(error.kind() == ErrorKind::Validation);
+    CHECK(error.code() == ErrorCode::TextParseFailure);
+    CHECK(error.location().value_or("") == "Check '<unnamed>'");
+    CHECK(error.key().value_or("") == "value");
+    CHECK(error.text() == "Check '<unnamed>': invalid 'value': parse failed at line 1, column 1");
 }
 
 TEST_CASE("yaml: stays_between with a max and no min is refused as a pair", "[yaml][error]") {

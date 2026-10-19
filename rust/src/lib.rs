@@ -66,7 +66,7 @@ pub use dbc::{
     DbcMessage, DbcSignal, EnvironmentVar, Node, ParsedDbc, Presence, SignalGroup,
     ValueDescription, ValueTable,
 };
-pub use error::Error;
+pub use error::{Error, Located};
 pub use log::{LogField, LogLevel, LogRecord, LogValue, Logger};
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
 pub use mock::MockBackend;
@@ -204,7 +204,7 @@ impl ClientBuilder {
     pub fn build(self) -> Result<Client, Error> {
         if let Some(k) = self.rts_cores {
             if k == 0 || k > i32::MAX as u32 {
-                return Err(Error::Validation(format!(
+                return Err(Error::validation(format!(
                     "rts_cores must be in 1..={}, got {k}",
                     i32::MAX
                 )));

@@ -760,7 +760,9 @@ func xlsxStr(d map[string]xlsxCell, key string, rowNum int) (string, error) {
 // literal it was written as. A spreadsheet number cell stores a binary float,
 // which cannot hold a decimal exactly, and every binding treats a decimal as an
 // exact rational. Parsing runs the kernel, so a workbook with numeric fields
-// needs a loaded library.
+// needs a loaded library. A literal the kernel refuses comes back as the
+// kernel's refusal located at the row and the column header; any other failure
+// comes back as it was.
 func xlsxRational(d map[string]xlsxCell, key string, rowNum int) (aletheia.Rational, error) {
 	c, err := xlsxCellAt(d, key, rowNum)
 	if err != nil {
@@ -776,8 +778,8 @@ func xlsxRational(d map[string]xlsxCell, key string, rowNum int) (aletheia.Ratio
 	r, err := aletheia.FromDecimal(strings.TrimSpace(c.value))
 	if err != nil {
 		// The kernel knows the literal and not the workbook, so the row and the
-		// field are named here.
-		return aletheia.Rational{}, aletheia.WrapValidationError(fmt.Sprintf("row %d: invalid '%s'", rowNum, key), err)
+		// column header are named here.
+		return aletheia.Rational{}, aletheia.Locate(err, fmt.Sprintf("Row %d", rowNum), key)
 	}
 	return r, nil
 }

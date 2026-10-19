@@ -8,13 +8,15 @@ decimal-string → exact rational (the float principle: a decimal is an exact
 (``test_from_decimal``); this module calls the export directly via ``ctypes``,
 which is how it reaches bytes no binding sends, and checks the envelope itself:
 
-    peek → Agda ``parseDecimal`` → ``toℚ`` → Int64 bound check → wire JSON
+    peek → Agda ``parseDecimal`` → the rational component magnitude bound → wire JSON
 
-Success returns the bare
+Every refusal past the peek is the kernel's decision.  Success returns the bare
 ``{"numerator","denominator"}`` shape the bindings' ``decode_wire_rational``
-consumes; failure returns a ``{"status":"error",...}`` envelope keyed by
-``message`` (the cross-binding convention) with a precise ``code`` and the
-offending ``input`` echoed.
+consumes; a refusal returns the ``{"status":"error",...}`` envelope every
+kernel refusal is rendered as (``code``, ``message`` and the code's own fields,
+``_decimal_cases`` spells them), and a text the shim refuses before the kernel
+reads it (a NUL byte, bytes that are not UTF-8) the three-key
+``ffi_validation_error`` envelope.
 """
 
 from __future__ import annotations
@@ -25,7 +27,15 @@ from fractions import Fraction
 from typing import Final, cast
 
 import pytest
-from _decimal_cases import OVERFLOW_CASES, PARSE_FAIL_CASES, SUCCESS_CASES
+from _decimal_cases import (
+    OVERFLOW_CASES,
+    OVERFLOW_IDS,
+    PARSE_FAIL_CASES,
+    PARSE_FAIL_IDS,
+    SUCCESS_CASES,
+    OverflowCase,
+    ParseFailCase,
+)
 
 from aletheia.client._ffi import (
     AletheiaDecimal,
@@ -77,24 +87,16 @@ def test_parse_decimal_success(text: str, numerator: int, denominator: int) -> N
     assert Fraction(text) == Fraction(numerator, denominator)
 
 
-@pytest.mark.parametrize("text", PARSE_FAIL_CASES)
-def test_parse_decimal_rejects_malformed(text: str) -> None:
-    """Malformed input yields a parse-failure envelope echoing the input."""
-    result = _parse_decimal(text)
-    assert result["status"] == "error"
-    assert result["code"] == "decimal_parse_failed"
-    assert result["input"] == text
-    assert isinstance(result["message"], str)
-    assert result["message"]  # non-empty reason
+@pytest.mark.parametrize("case", PARSE_FAIL_CASES, ids=PARSE_FAIL_IDS)
+def test_parse_decimal_rejects_malformed(case: ParseFailCase) -> None:
+    """A malformed literal yields the kernel's parse refusal, position included."""
+    assert _parse_decimal(case.text) == case.envelope()
 
 
-@pytest.mark.parametrize("text", OVERFLOW_CASES)
-def test_parse_decimal_rejects_overflow(text: str) -> None:
-    """A numerator or denominator beyond the Int64 wire range is rejected."""
-    result = _parse_decimal(text)
-    assert result["status"] == "error"
-    assert result["code"] == "decimal_overflow"
-    assert result["input"] == text
+@pytest.mark.parametrize("case", OVERFLOW_CASES, ids=OVERFLOW_IDS)
+def test_parse_decimal_rejects_overflow(case: OverflowCase) -> None:
+    """A component past the magnitude bound yields the kernel's bound refusal."""
+    assert _parse_decimal(case.text) == case.envelope()
 
 
 # Bytes that are not UTF-8 around digits that are a literal without them: a
@@ -104,12 +106,11 @@ _NOT_UTF8: Final = ("1.5\udcff", "1\udce2\udc82.5", "1\udced\udca0\udc805", "\ud
 
 
 def test_parse_decimal_refuses_input_that_is_not_utf8() -> None:
-    """Bytes that are not UTF-8 are refused, never dropped to leave a literal."""
+    """Bytes that are not UTF-8 are refused by the shim, never dropped to leave a literal."""
     for text in _NOT_UTF8:
         result = _parse_decimal(text)
         assert result == {
             "status": "error",
-            "code": "decimal_parse_failed",
+            "code": "ffi_validation_error",
             "message": "input is not valid UTF-8",
-            "input": "",
         }, text.encode(errors="surrogateescape")

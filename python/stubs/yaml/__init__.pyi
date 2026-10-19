@@ -17,11 +17,32 @@ def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> object: ...
 # it is called here: the C++ mutation lane writes a slice's configuration.
 def safe_dump(data: object, *, sort_keys: bool = True) -> str: ...
 
-class Node:
-    """Subset of ``yaml.nodes.Node`` used by the float-tag constructor."""
+class YAMLError(Exception):
+    """Every error PyYAML raises for a document it cannot read."""
 
+class Mark:
+    """A position in the document, printed as its line, column and snippet."""
+
+class MarkedYAMLError(YAMLError):
+    """A ``YAMLError`` naming its problem and where in the document it lies."""
+
+    def __init__(
+        self,
+        context: str | None = None,
+        context_mark: Mark | None = None,
+        problem: str | None = None,
+        problem_mark: Mark | None = None,
+        note: str | None = None,
+    ) -> None: ...
+
+class Node:
+    """Subset of ``yaml.nodes.Node`` used by the number-tag constructor."""
+
+    # ``scalar``, ``sequence`` or ``mapping``.
+    id: ClassVar[str]
     tag: str
     value: object
+    start_mark: Mark
 
 class ScalarNode(Node):
     """A scalar node; ``value`` is the scalar's literal text."""
@@ -39,14 +60,14 @@ class SequenceNode(Node):
     value: list[Node]
 
 class SafeLoader:
-    """Subset of ``yaml.SafeLoader`` used by the no-float loader subclass.
+    """Subset of ``yaml.SafeLoader`` used by the loader subclass that keeps numbers as text.
 
     ``yaml_implicit_resolvers`` maps a scalar's first character (or ``None``
     for the catch-all bucket) to the ``(tag, regexp)`` pairs that classify it;
-    the no-float loader rebuilds this table without the float tag so a decimal
-    scalar stays a string (the float principle).  ``add_constructor`` /
-    ``construct_yaml_float`` support the explicit ``!!float``-tag constructor
-    layered on top of that table.
+    the subclass rebuilds this table without the int, float, bool and
+    timestamp tags so a scalar stays its text, which the kernel reads.  ``add_constructor`` /
+    ``construct_scalar`` support the constructor for an explicit ``!!int`` or
+    ``!!float`` tag, which also keeps the text.
     """
 
     yaml_implicit_resolvers: ClassVar[dict[str | None, list[tuple[str, re.Pattern[str]]]]]
@@ -58,4 +79,6 @@ class SafeLoader:
     def add_constructor(
         cls, tag: str, constructor: Callable[[SafeLoader, Node], object]
     ) -> None: ...
-    def construct_yaml_float(self, node: Node) -> float: ...
+    # The scalar's text; a node that is neither a scalar nor a mapping holding
+    # a ``=`` key raises ``yaml.constructor.ConstructorError``.
+    def construct_scalar(self, node: Node) -> str: ...

@@ -11,7 +11,7 @@ use super::*;
 fn validate_frame_len(dlc: Dlc, data: &[u8]) -> Result<(), Error> {
     let expected = dlc.to_bytes();
     if data.len() != expected {
-        return Err(Error::Validation(format!(
+        return Err(Error::validation(format!(
             "payload length {} does not match DLC ({expected} bytes expected)",
             data.len()
         )));
@@ -39,14 +39,14 @@ fn resolve_signal_indices(
             .iter()
             .position(|s| s.name == sv.name)
             .ok_or_else(|| {
-                Error::Validation(format!(
+                Error::validation(format!(
                     "unknown signal {:?} for message {:?}",
                     sv.name, message.name
                 ))
             })?;
         indices.push(
             u32::try_from(pos)
-                .map_err(|_| Error::Validation(format!("signal index {pos} out of range")))?,
+                .map_err(|_| Error::validation(format!("signal index {pos} out of range")))?,
         );
         nums.push(sv.value.numerator());
         dens.push(sv.value.denominator());

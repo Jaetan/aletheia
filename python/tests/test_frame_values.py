@@ -112,7 +112,7 @@ def test_a_value_its_signal_cannot_carry_is_refused(
     """Past either bound, or between two scaled steps, refused with its code and message."""
     refusal = _refusal(entry, _VALUE_DBC, _VALUE_MSG, case)
     assert refusal.code == code
-    assert str(refusal) == f"{entry} failed: {said}"
+    assert str(refusal) == said
 
 
 @_ENTRIES
@@ -121,7 +121,7 @@ def test_two_signals_sharing_a_bit_are_refused(entry: EntryName) -> None:
     mux = dbc_to_json(str(_MUX_DBC))
     refusal = _refusal(entry, mux, _MUX_MSG, Prose("two signals over the same bits"))
     assert refusal.code == ErrorCode.FRAME_SIGNALS_OVERLAP
-    assert str(refusal) == f"{entry} failed: signals overlap"
+    assert str(refusal) == "signals overlap"
 
 
 @_ENTRIES

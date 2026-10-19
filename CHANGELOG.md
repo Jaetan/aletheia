@@ -353,6 +353,110 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A decimal entered through `aletheia_parse_decimal` is decided in the
+  kernel and refused as every kernel refusal is, and the wire codes
+  `dbc_text_parse_failure` and `dbc_text_trailing_input` are renamed
+  `text_parse_failure` and `text_trailing_input` (BREAKING).** The kernel's
+  own decimal grammar parses the literal and holds its numerator and
+  denominator to the rational component bound, 9223372036854775807; a decimal
+  whose reduced numerator is -9223372036854775808, `-9223372036854775808` and
+  `-1844674407370955161.6` among them, was accepted and is now refused with
+  `observed` 9223372036854775808 against `limit` 9223372036854775807, while
+  `-9223372036854775807` is accepted. The refusal is the kernel's error
+  envelope: the codes `decimal_parse_failed` and `decimal_overflow` are gone,
+  with the echoed `input` field; a malformed literal answers
+  `text_parse_failure` or `text_trailing_input` with `line` and `column`
+  (`text_trailing_input` adds `statement_line` and `statement_column`), a
+  component past the bound answers `input_bound_exceeded` with `field`
+  `decimal`, `bound_kind` `rational_component_magnitude`, `observed` and
+  `limit`, and a text the shim refuses before the kernel sees it (a NULL
+  pointer, a size past what the library can index, bytes that are not UTF-8,
+  an interior NUL) answers `ffi_validation_error`. The renamed codes are the
+  ones a `.dbc` text that
+  fails to parse answers too (`parse_dbc_text`), and the parse failure's
+  message drops its `DBC text ` prefix, reading `parse failed at line L,
+  column C`; the bindings' constants follow: Python
+  `ErrorCode.DBC_TEXT_PARSE_FAILURE` / `DBC_TEXT_TRAILING_INPUT` are
+  `TEXT_PARSE_FAILURE` / `TEXT_TRAILING_INPUT`, Go `CodeDBCTextParseFailure`
+  / `CodeDBCTextTrailingInput` are `CodeTextParseFailure` /
+  `CodeTextTrailingInput`, C++ `ErrorCode::DBCTextParseFailure` /
+  `DBCTextTrailingInput` are `TextParseFailure` / `TextTrailingInput`;
+  `dbc_text_attribute_refinement_failed` keeps its name. A refused literal
+  keeps the kind of a caller's own mistake and carries the kernel's code:
+  Python `ValidationError` with `code`, Go an `*Error` of kind
+  `ErrValidation` with its `Code`, C++ `ErrorKind::Validation` with its code,
+  Rust `Error::Validation`, now a struct variant whose `code` is `Some` for a
+  kernel refusal and `None` for a check the binding makes itself, so a match
+  on `Error::Validation(_)` no longer compiles; a component past the bound is
+  the typed bound error (Python `InputBoundExceededError`, Go
+  `*InputBoundExceededError`, C++ `ErrorKind::InputBoundExceeded`, Rust
+  `Error::InputBoundExceeded`). The shim's own refusal joins the wire
+  vocabulary: `ffi_validation_error` is a row of `docs/WIRE_CODES.yaml`, which
+  `check-wire-codes` holds to the shim's source, and a member of Python
+  `ErrorCode` (`FFI_VALIDATION_ERROR`), Go (`CodeFFIValidationError`) and C++
+  (`ErrorCode::FfiValidationError`, where it was `ErrorCode::Unknown`). A
+  Python `str` holding a lone surrogate reaches the shim and is refused as text
+  that is not UTF-8 instead of raising `UnicodeEncodeError`, and a failure the
+  library answers without an envelope is Python's `ProtocolError`, as in the
+  other three, where it was `FFIError`. The record's magnitude proof is erased,
+  so its two `Integer` fields are all the shared library carries, which
+  `check-erasure` holds, and
+  `src/Aletheia/DBC/TextParser/DecimalEntry/Properties.agda` proves the entry
+  sound and complete on the kernel's own decimal text.
+
+- **Every binding prints an error as its message, the kernel's text verbatim
+  (BREAKING for Go and Rust).** Go's `Error()` drops its `aletheia <kind>
+  error: ` prefix, a wrapped cause still following the message, and Rust's
+  `Display` drops `validation error: `, `protocol error: `, `core error
+  [<code>]: ` and the issue count; the kind, the code and the issues are the
+  error's fields. Python's `build_frame`, `update_frame`, `extract_signals`,
+  `validate_dbc`, `format_dbc` and `format_dbc_text` refusals and its event
+  and batch errors drop the text the binding wrote around the kernel's
+  message and carry the kernel's code, `run_checks` errors carry the
+  kernel's message and code, `dbc_to_json`'s `ValidationError` carries the
+  kernel's code, and a reply whose status is neither `success` nor `error`
+  is a `ProtocolError`.
+
+- **A number a YAML or Excel loader refuses is the kernel's error, with the
+  place the loader read it (BREAKING).** The error keeps the kernel's kind,
+  code and fields and gains two members, the location and the key (Python
+  `location` and `key`, set by `AletheiaError.locate`; Go `Location` and
+  `Key`, set by `aletheia.Locate`; C++ `location()` and `key()`, set by
+  `located()`; Rust `location()` and `key()` on `Error`, carried in a new
+  `located` field of `Error::Validation` and `Error::InputBoundExceeded` and
+  set by `Error::located`), and every binding
+  prints it as `Check 'C': invalid 'value': <kernel message>` or `Row 2:
+  invalid 'Factor': <kernel message>` (C++ `text()` and `what()`). Python's
+  and C++'s loaders printed that text but answered a plain validation error
+  without the code or the bound fields, Go's Excel loader printed `aletheia
+  validation error: row 2: invalid 'Factor': aletheia validation error: ...`
+  around the refusal, and Go's and Rust's YAML loaders and Rust's Excel
+  loader named no place; in Go's
+  Excel loader a number past the bound is the `*InputBoundExceededError`
+  itself, no longer a validation error wrapping it, and a runtime or wire
+  fault keeps its own kind. Python's `AletheiaError` gains `message`, the
+  kernel's text without the location. Every loader hands the kernel the text
+  of every scalar under a number key as the document spells it, `within_ms`
+  included, the Excel `Message ID` column apart, which each loader reads
+  itself as a decimal or `0x` hexadecimal identifier; so one YAML document
+  gets one verdict in all four and loading one that holds a number needs the
+  runtime up: Python and Rust read `0x1F` as 31 and `-9223372036854775808` as
+  an integer the kernel never saw, Python read `!!float 0.1` as the double's
+  exact value and `017` as octal 15, Rust refused every quoted number as a
+  missing `value`, Go and C++ read `within_ms` through their YAML libraries
+  (`0x1F4` as 500), and Python and Rust refused a boolean or a date under a
+  number key (`true`, `yes`, `2024-01-01`) in their own words and C++ refused
+  `true` and `false` itself; each now answers the kernel's verdict, a boolean
+  or a date being `text_parse_failure` or `text_trailing_input` with the
+  place. Python's loader let a document that is not YAML escape as PyYAML's
+  own exception, where the other three answer a validation error; it now
+  raises `ValidationError` reading `invalid YAML:` and PyYAML's reason, and a
+  scalar tagged `!!bool`, `!!timestamp` or `!!value`, or spelled `=`,
+  reaches the kernel as its text in Python and Rust. An Excel text cell
+  holding only whitespace is an absent cell in Python and C++, as it was in
+  Go and Rust. `docs/LOADER_SCENARIOS.yaml` holds the four loaders to one
+  answer per spelling and per refused cell.
+
 - **The Go binding holds the kernel's session handle as an integer, so a
   Go program using it no longer dies when the runtime copies a stack
   (BREAKING for implementers of `Backend`).** The kernel's `aletheia_init`
@@ -2963,6 +3067,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   probes under `probes/` carry the claims.
 
 ### Removed
+
+- **The wire codes `dbc_text_parse_failure`, `dbc_text_trailing_input`,
+  `decimal_parse_failed` and `decimal_overflow` (BREAKING).** A text that
+  fails to parse answers `text_parse_failure` or `text_trailing_input`, whose
+  rows and Python, Go and C++ members replace the old names, and a decimal
+  `aletheia_parse_decimal` refuses answers the kernel's codes.
 
 - **60 probes whose claims a gate already holds, or that recorded an
   investigation, leave the store.** Every probe of `probes/` was sorted: the

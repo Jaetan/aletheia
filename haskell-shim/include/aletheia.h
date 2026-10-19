@@ -141,7 +141,9 @@ struct aletheia_signal_values {
  * entry answers ({"status": "error", "code": ..., "message": ...}), which the
  * caller frees with aletheia_free_str, and leaves data and size as they were.
  * The code is the kernel's typed refusal, or ffi_validation_error for a NULL
- * frame or signal values, or a buffer smaller than the frame the kernel built.
+ * pointer the entry needs (the state, the frame, the signal values, or an
+ * array or data with a non-zero count) or a buffer smaller than the frame the
+ * kernel built.
  * A NULL buffer, which has no err to set, returns 1 with nothing written.
  */
 struct aletheia_buffer {
@@ -160,9 +162,14 @@ struct aletheia_rational {
 
 /*
  * A parsed decimal: on success value holds it in lowest terms with a positive
- * denominator; on failure err is a JSON error envelope (code
- * decimal_parse_failed or decimal_overflow, the message, and the input
- * echoed) the caller frees with aletheia_free_str.
+ * denominator, the numerator's magnitude and the denominator each at most
+ * 2^63 - 1, so the numerator is never INT64_MIN. On failure err is the JSON
+ * error envelope every entry answers with, which the caller frees with
+ * aletheia_free_str: its status, code and message, and the code's own fields
+ * (text_parse_failure with line and column, text_trailing_input with those
+ * and the unconsumed statement's, input_bound_exceeded naming the field
+ * "decimal" with bound_kind, observed and limit), or code
+ * ffi_validation_error for a text struct aletheia_text refuses.
  */
 struct aletheia_decimal {
     struct aletheia_rational value;
@@ -341,8 +348,8 @@ char *aletheia_format_rational(const struct aletheia_rational *value);
  * Parse a decimal string into the exact rational it denotes (see
  * struct aletheia_decimal).
  * @return  0 on success, 1 on failure with out->err set. A text struct
- *          aletheia_text refuses is such a failure, code decimal_parse_failed
- *          and an empty input echoed; a NULL out returns 1 with nothing written.
+ *          aletheia_text refuses is such a failure, code ffi_validation_error;
+ *          a NULL out returns 1 with nothing written.
  */
 int8_t aletheia_parse_decimal(const struct aletheia_text *input, struct aletheia_decimal *out);
 

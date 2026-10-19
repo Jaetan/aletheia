@@ -67,7 +67,7 @@ class TestFormatDbcErrorPaths:
         backend = MockBackend([_resp({"status": "error", "message": "boom", "code": "my_code"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc()
-        assert str(excinfo.value) == "formatDBC failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "my_code"
 
     def test_error_status_without_message_uses_unknown_error(self) -> None:
@@ -82,7 +82,7 @@ class TestFormatDbcErrorPaths:
         backend = MockBackend([_resp({"status": "error", "message": "boom", "code": 123})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc()
-        assert str(excinfo.value) == "formatDBC failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code is None
 
     def test_unexpected_status_raises(self) -> None:
@@ -115,7 +115,7 @@ class TestFormatDbcTextErrorPaths:
         backend = MockBackend([_resp({"status": "error", "message": "boom", "code": "my_code"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "formatDBCText failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "my_code"
 
     def test_error_status_without_message_uses_unknown_error(self) -> None:
@@ -130,7 +130,7 @@ class TestFormatDbcTextErrorPaths:
         backend = MockBackend([_resp({"status": "error", "message": "boom", "code": 123})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "formatDBCText failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code is None
 
     def test_unexpected_status_raises(self) -> None:
@@ -228,7 +228,7 @@ class TestFormatDbcTextErrorPaths:
             pytest.raises(TextRoundTripFailedError) as excinfo,
         ):
             client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "formatDBCText failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "handler_text_roundtrip_failed"
         assert excinfo.value.has_errors is True
         assert excinfo.value.issues == issues
@@ -242,7 +242,7 @@ class TestValidateDbcErrorPaths:
         backend = MockBackend([_resp({"status": "error", "message": "boom", "code": "my_code"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
-        assert str(excinfo.value) == "validateDBC failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "my_code"
 
     def test_error_status_without_message_uses_unknown_error(self) -> None:
@@ -257,7 +257,7 @@ class TestValidateDbcErrorPaths:
         backend = MockBackend([_resp({"status": "error", "message": "boom", "code": 123})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
-        assert str(excinfo.value) == "validateDBC failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code is None
 
     def test_unexpected_status_raises(self) -> None:
@@ -296,7 +296,7 @@ class TestValidateDbcErrorPaths:
             pytest.raises(DBCValidationFailedError) as excinfo,
         ):
             client.validate_dbc(_sample_dbc())
-        assert str(excinfo.value) == "validateDBC failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "handler_validation_failed"
         assert excinfo.value.has_errors is True
         assert excinfo.value.issues == issues
@@ -325,7 +325,7 @@ class TestValidateDbcErrorPaths:
         )
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
-        assert str(excinfo.value) == "validateDBC failed: boom"
+        assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "some_other_code"
 
 

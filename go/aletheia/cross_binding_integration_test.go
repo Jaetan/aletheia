@@ -264,8 +264,8 @@ func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
 	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
 	}
-	if aErr.Code != CodeDBCTextTrailingInput {
-		t.Errorf("Code = %q, want %q", aErr.Code, CodeDBCTextTrailingInput)
+	if aErr.Code != CodeTextTrailingInput {
+		t.Errorf("Code = %q, want %q", aErr.Code, CodeTextTrailingInput)
 	}
 }
 

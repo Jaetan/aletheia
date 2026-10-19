@@ -621,14 +621,14 @@ def _cmd_check(args: argparse.Namespace) -> int:
     logfile: str = args.logfile
 
     try:
-        # Bring the GHC RTS up BEFORE loading the check files.  A DECIMAL check
-        # threshold (e.g. ``max: 6553.5``) is parsed exactly through the
-        # kernel's ``from_decimal`` SSOT, which is RTS-gated and vocal — it
-        # never self-initialises the runtime.  Constructing the production
-        # FFIBackend here acquires the RTS (the same resolution the client's own
-        # factory uses); injecting that backend into the client keeps "one
-        # client, one DBC parse" while ``default_checks`` still flow through the
-        # constructor (applied at ``start_stream``), so they are NOT dropped.
+        # Bring the GHC RTS up BEFORE loading the check files.  The check
+        # loaders read every number through the kernel's ``from_decimal``,
+        # which is RTS-gated and never starts the runtime itself.  Constructing
+        # the production FFIBackend here acquires the RTS (the same resolution
+        # the client's own factory uses); injecting that backend into the client
+        # keeps "one client, one DBC parse" while ``default_checks`` still flow
+        # through the constructor (applied at ``start_stream``), so they are
+        # NOT dropped.
         backend = FFIBackend()
         checks = _load_checks_from_args(args)
         default_checks = _load_defaults(args)

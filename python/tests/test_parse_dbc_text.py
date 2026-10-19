@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from aletheia import AletheiaClient
+from aletheia.codes import ErrorCode
 from aletheia.types import DLCCode
 
 CORPUS_DIR = Path(__file__).parent / "fixtures" / "dbc_corpus"
@@ -68,18 +69,19 @@ class TestParseDBCTextFailure:
     """Failure paths: parse errors and validation errors are typed."""
 
     def test_garbage_input_returns_parse_error(self) -> None:
-        """Non-DBC text returns a typed dbc_text_* parse error code."""
+        """Non-DBC text returns the typed parse-failure code."""
         with AletheiaClient() as client:
             resp = client.parse_dbc_text("this is not a DBC file at all")
         assert resp["status"] == "error"
         # Typed code from the Agda DBCTextParseError ADT.
-        assert resp["code"].startswith("dbc_text_")
+        assert resp["code"] == ErrorCode.TEXT_PARSE_FAILURE
 
     def test_empty_input_returns_parse_error(self) -> None:
-        """Empty input is rejected as a parse error."""
+        """Empty input is refused with the typed parse-failure code."""
         with AletheiaClient() as client:
             resp = client.parse_dbc_text("")
         assert resp["status"] == "error"
+        assert resp["code"] == ErrorCode.TEXT_PARSE_FAILURE
 
     def test_validation_failure_carries_structured_issues(self) -> None:
         """A ``handler_validation_failed`` envelope decodes issues + has_errors.

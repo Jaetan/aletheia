@@ -91,7 +91,7 @@ const WHEN_THEN_HEADERS: [&str; 11] = [
 ];
 
 fn invalid(msg: impl Into<String>) -> Error {
-    Error::Validation(msg.into())
+    Error::validation(msg)
 }
 
 /// The all-text-contract rejection for a numeric field supplied as a *number*
@@ -180,12 +180,13 @@ fn get_str(row: &Row, key: &str, ctx: &str) -> Result<String, Error> {
 /// A required numeric field as an exact [`Rational`]. A spreadsheet number cell
 /// stores an IEEE-754 double — lossy for decimals — so a numeric value MUST be
 /// **text-formatted**: its original string is parsed exactly by the kernel
-/// [`Rational::from_decimal`] (the cross-binding single source of truth). A
-/// number-typed cell is rejected. Requires a live backend (decimal parsing is
-/// RTS-gated).
+/// [`Rational::from_decimal`] (the cross-binding single source of truth), and
+/// a refusal of it keeps the kernel's error and gains the row (`ctx`) as its
+/// location and the column header (`key`) as its key. A number-typed cell is
+/// rejected. Requires a live backend (decimal parsing is RTS-gated).
 fn get_rational(row: &Row, key: &str, ctx: &str) -> Result<Rational, Error> {
     match row.get(key) {
-        Some(Data::String(s)) => Rational::from_decimal(s.trim()),
+        Some(Data::String(s)) => Rational::from_decimal(s.trim()).map_err(|e| e.located(ctx, key)),
         // The all-text contract rejects EVERY number cell, integer or decimal: a
         // spreadsheet stores numbers as lossy IEEE-754 doubles (calamine surfaces
         // even an integer cell as `Data::Float`). Rejecting both `Int` and `Float`
@@ -204,14 +205,14 @@ fn get_rational(row: &Row, key: &str, ctx: &str) -> Result<Rational, Error> {
 }
 
 /// A required whole-number field, read EXACTLY from a **text-formatted** cell:
-/// the kernel [`Rational::from_decimal`] parses it and a unit-denominator check
-/// rejects a fractional value. A number cell stores a lossy double and is
-/// rejected (the all-text contract — see [`get_rational`]). Requires a live
-/// backend.
+/// the kernel [`Rational::from_decimal`] parses it, a refusal of it located as
+/// [`get_rational`] locates one, and a unit-denominator check rejects a
+/// fractional value. A number cell stores a lossy double and is rejected (the
+/// all-text contract, see [`get_rational`]). Requires a live backend.
 fn get_int(row: &Row, key: &str, ctx: &str) -> Result<i64, Error> {
     match row.get(key) {
         Some(Data::String(s)) => {
-            let r = Rational::from_decimal(s.trim())?;
+            let r = Rational::from_decimal(s.trim()).map_err(|e| e.located(ctx, key))?;
             if r.denominator() != 1 {
                 return Err(invalid(format!("{ctx}: '{key}' must be a whole number")));
             }
@@ -285,7 +286,13 @@ fn describe(d: &Data) -> String {
 /// # Errors
 /// [`Error::Validation`] if the path is a symlink / non-regular file, the file or
 /// its uncompressed contents exceed the 64 MiB bound, the workbook has neither
-/// sheet, or a row is malformed (unknown condition, missing/ill-typed cell).
+/// sheet, or a row is malformed (unknown condition, missing/ill-typed cell, a
+/// number the kernel's decimal grammar refuses, carrying the kernel's `code`);
+/// [`Error::InputBoundExceeded`] if a number crosses the rational component
+/// magnitude bound. Both number refusals keep the kernel's message, code and
+/// fields, located (see [`Error::located`]) at `Row <n>` under the column
+/// header; [`Error::RtsNotInitialized`] if no backend is up (decimal parsing
+/// is RTS-gated).
 pub fn load_checks_from_excel(path: impl AsRef<Path>) -> Result<Vec<Check>, Error> {
     load_checks_within(path.as_ref(), MAX_INPUT_BYTES)
 }
@@ -332,8 +339,9 @@ fn load_checks_within(path: &Path, limit: u64) -> Result<Vec<Check>, Error> {
 /// layout carries only messages and signals, exactly like the peer loaders.
 ///
 /// # Errors
-/// [`Error::Validation`] under the same conditions as [`load_checks_from_excel`],
-/// plus a missing `DBC` sheet, no data rows, or an out-of-range CAN id / DLC.
+/// The errors of [`load_checks_from_excel`], under the same conditions, plus
+/// [`Error::Validation`] for a missing `DBC` sheet, no data rows, or an
+/// out-of-range CAN id / DLC.
 pub fn load_dbc_from_excel(path: impl AsRef<Path>) -> Result<Dbc, Error> {
     load_dbc_within(path.as_ref(), MAX_INPUT_BYTES)
 }

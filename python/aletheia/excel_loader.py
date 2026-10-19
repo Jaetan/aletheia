@@ -213,8 +213,16 @@ def _row_ctx(row_num: int) -> str:
 
 
 def _row_to_dict(headers: list[str], row: ExcelRow) -> dict[str, CellValue]:
-    """Zip headers with cell values, skipping None values."""
-    return {h: v for h, v in zip(headers, row, strict=False) if v is not None}
+    """Zip headers with cell values, keeping the present cells.
+
+    An empty cell (``None``) and a text cell holding only whitespace are
+    absent, as the Go, C++ and Rust loaders read them.
+    """
+    return {
+        h: v
+        for h, v in zip(headers, row, strict=False)
+        if v is not None and not (isinstance(v, str) and not v.strip())
+    }
 
 
 def _headers_from_row(row: ExcelRow) -> list[str]:
@@ -263,13 +271,18 @@ def load_checks_from_excel(
 
     Raises:
         FileNotFoundError: File doesn't exist
-        InputBoundExceededError: If the file is larger than
-            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).  Excel
-            workbooks are ZIP archives that openpyxl all-loads into memory;
-            the cap protects against ZIP-bomb / oversized-input DOS per
-            AGENTS.md universal rule "Adversarial-input bounds at parser
-            surfaces".
-        ValidationError: Invalid data in cells
+        InputBoundExceededError: If the file, or its uncompressed content,
+            is larger than :data:`aletheia.limits.MAX_DBC_TEXT_BYTES`
+            (64 MiB).  Excel workbooks are ZIP archives that openpyxl
+            all-loads into memory; the cap protects against ZIP-bomb /
+            oversized-input DOS per AGENTS.md universal rule
+            "Adversarial-input bounds at parser surfaces".  Also raised,
+            ``field`` ``"decimal"``, for a number with a component past
+            :data:`aletheia.limits.MAX_RATIONAL_COMPONENT_MAGNITUDE`.
+        FFIError: The GHC runtime is not up (no client has started it), so
+            the kernel cannot read a number
+        ValidationError: Invalid data in cells, a number the kernel refuses
+            carrying the kernel's code
 
     """
     p = Path(path)
@@ -314,13 +327,18 @@ def load_dbc_from_excel(
 
     Raises:
         FileNotFoundError: File doesn't exist
-        InputBoundExceededError: If the file is larger than
-            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).  Excel
-            workbooks are ZIP archives that openpyxl all-loads into memory;
-            the cap protects against ZIP-bomb / oversized-input DOS per
-            AGENTS.md universal rule "Adversarial-input bounds at parser
-            surfaces".
-        ValidationError: Invalid or missing data
+        InputBoundExceededError: If the file, or its uncompressed content,
+            is larger than :data:`aletheia.limits.MAX_DBC_TEXT_BYTES`
+            (64 MiB).  Excel workbooks are ZIP archives that openpyxl
+            all-loads into memory; the cap protects against ZIP-bomb /
+            oversized-input DOS per AGENTS.md universal rule
+            "Adversarial-input bounds at parser surfaces".  Also raised,
+            ``field`` ``"decimal"``, for a number with a component past
+            :data:`aletheia.limits.MAX_RATIONAL_COMPONENT_MAGNITUDE`.
+        FFIError: The GHC runtime is not up (no client has started it), so
+            the kernel cannot read a number
+        ValidationError: Invalid or missing data, a number the kernel
+            refuses carrying the kernel's code
 
     """
     p = Path(path)

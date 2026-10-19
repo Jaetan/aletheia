@@ -152,7 +152,7 @@ func TestProcess_RejectsOversizeJSON(t *testing.T) {
 	if bex.Message != "" {
 		t.Errorf("Message = %q, want none for a refusal the binding makes", bex.Message)
 	}
-	want := "aletheia validation error: input_length_bytes " + strconv.Itoa(MaxJSONBytes+1) +
+	want := "input_length_bytes " + strconv.Itoa(MaxJSONBytes+1) +
 		" exceeds limit " + strconv.Itoa(MaxJSONBytes)
 	if got := err.Error(); got != want {
 		t.Errorf("Error() = %q, want %q", got, want)

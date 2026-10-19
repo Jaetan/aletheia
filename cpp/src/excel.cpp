@@ -176,16 +176,20 @@ struct DataRow {
 };
 } // namespace
 
+/// The ASCII whitespace a text cell's value is trimmed of.
+constexpr std::string_view ascii_whitespace = " \t\n\v\f\r";
+
 /// Build a header->cell map from a worksheet row, keeping only present
-/// (non-empty) cells; a column with no header name is keyed by that empty
-/// name, which no field reads.
+/// cells: an empty cell and a text cell holding only whitespace are absent,
+/// as the Python, Go and Rust loaders read them; a column with no header
+/// name is keyed by that empty name, which no field reads.
 static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
                        const std::vector<std::string>& headers) -> CellMap {
     CellMap result;
     for (auto const [i, header] : std::views::enumerate(headers)) {
         auto const cell = ws.cell(row, static_cast<std::uint16_t>(i + 1));
         auto const str_val = cell_to_string(cell, header, row);
-        if (str_val.empty())
+        if (str_val.find_first_not_of(ascii_whitespace) == std::string::npos)
             continue;
         result[header] = CellVal{.value = str_val,
                                  .is_text = cell.value().type() == OpenXLSX::XLValueType::String};
@@ -238,13 +242,14 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 
 // get_decimal requires a TEXT cell holding a decimal literal.  The float
 // principle refuses a number-typed cell: a float64 has already lost the
-// authored precision, so numeric fields are authored as text-formatted cells
-// and parsed exactly by the kernel decimal SSOT (Rational::from_decimal).
-// RTS-gated: an FfiBackend must be live first.  A kernel decimal refusal is
-// re-thrown with the row and field prefixed, because the kernel knows the
-// literal and not the workbook position, and the loader answers Validation;
-// any other kernel throw passes through unchanged and the loader answers with
-// its own kind.
+// authored precision, so numeric fields are authored as text-formatted cells,
+// whose text, its leading and trailing ASCII whitespace trimmed, is parsed
+// exactly by the kernel decimal SSOT (Rational::from_decimal).
+// RTS-gated: an FfiBackend must be live first.  A refusal of the literal, a
+// Validation error with the kernel's or the shared library's code or the typed
+// bound error, keeps its kind, code and fields and is located at the row and the
+// column header, because the kernel knows the literal and not the workbook
+// position; a runtime, library or wire fault passes through unchanged.
 static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> Rational {
     auto const& cell = require_cell(cells, key, ctx_str, " (expected number)");
@@ -252,12 +257,15 @@ static auto get_decimal(const CellMap& cells, const std::string& key, const std:
         throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " + cell.value +
                                  "); format it as TEXT so the exact value is preserved "
                                  "(a number cell stores a lossy float)");
+    auto const raw = std::string_view{cell.value};
+    auto const first = raw.find_first_not_of(ascii_whitespace);
+    auto const text = raw.substr(first, raw.find_last_not_of(ascii_whitespace) - first + 1);
     try {
-        return Rational::from_decimal(cell.value);
+        return Rational::from_decimal(text);
     } catch (const AletheiaException& ex) {
-        if (ex.kind() != ErrorKind::Validation)
-            throw; // runtime-down / ABI faults are not properties of the cell
-        throw std::runtime_error(ctx_str + ": invalid '" + key + "': " + ex.what());
+        if (ex.kind() != ErrorKind::Validation && ex.kind() != ErrorKind::InputBoundExceeded)
+            throw;
+        throw AletheiaException(ex.error().located(ctx_str, key));
     }
 }
 
@@ -603,8 +611,9 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
         return results;
 
     } catch (const AletheiaException& ex) {
-        // A kernel or runtime failure keeps its kind; only a cell's own defect
-        // is a Validation error.
+        // A refused number, located, or a runtime failure keeps the error as
+        // thrown; any other throw, a cell's defect or the library's, is a
+        // Validation error.
         return std::unexpected(ex.error());
     } catch (const std::exception& ex) {
         return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});

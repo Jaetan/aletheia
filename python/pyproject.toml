@@ -375,6 +375,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_shim_marshalling.py",
     "--ignore=tests/test_ffi_abi_version.py",
     "--ignore=tests/test_wire_codes_parity.py",
+    "--ignore=tests/test_loader_scenarios.py",
     "--ignore=tests/test_unified_client.py",
     # test_check_no_review_marks.py imports the repo-root `tools` package (the
     # review-mark gate it covers) — `import tools` ModuleNotFound-aborts

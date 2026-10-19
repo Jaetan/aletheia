@@ -427,7 +427,7 @@ impl DbcMessage {
             CanId::extended(self.id)
         } else {
             u16::try_from(self.id)
-                .map_err(|_| Error::Validation(format!("standard id {} out of range", self.id)))
+                .map_err(|_| Error::validation(format!("standard id {} out of range", self.id)))
                 .and_then(CanId::standard)
         }
     }

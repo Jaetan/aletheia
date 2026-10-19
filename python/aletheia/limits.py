@@ -33,8 +33,8 @@ type Limit = PositiveInt
 # The wire code naming the kind of bound an input crossed.
 BoundKind = NewType("BoundKind", str)
 
-# The part of a DBC a size-bound refusal names, as the kernel spells it
-# (``"senders array"``, ``"version string"``).
+# The part of the input a bound refusal names, as the kernel spells it
+# (a DBC's ``"senders array"`` or ``"signal factor"``, a decimal's ``"decimal"``).
 BoundField = NewType("BoundField", str)
 
 # ============================================================================

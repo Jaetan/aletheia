@@ -136,15 +136,15 @@ TEST_CASE("ffi_error_from_status: non-zero status decodes the envelope's code an
 
 TEST_CASE("ffi_error_from_status: the shim's own refusal keeps its message under no known code",
           "[ffi][logic][error]") {
-    // The shim's refusals carry a code the kernel's vocabulary does not hold,
-    // which decodes as the JSON path decodes it.
+    // The shim's refusals carry the shim's own code, which decodes as the JSON
+    // path decodes it.
     reset_free();
     std::string buf = R"({"status":"error","code":"ffi_validation_error",)"
                       R"("message":"aletheia_build_frame_bin: null out buffer"})";
     auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
     REQUIRE(err.has_value());
     CHECK(err->kind() == ErrorKind::Protocol);
-    CHECK(err->code() == ErrorCode::Unknown);
+    CHECK(err->code() == ErrorCode::FfiValidationError);
     CHECK(std::string{err->message()} == "aletheia_build_frame_bin: null out buffer");
     CHECK(free_calls() == 1);
 }

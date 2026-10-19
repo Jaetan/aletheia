@@ -18,6 +18,7 @@
 
 using aletheia::AletheiaClient;
 using aletheia::AletheiaException;
+using aletheia::ErrorCode;
 using aletheia::ErrorKind;
 using aletheia::Rational;
 
@@ -33,11 +34,14 @@ TEST_CASE("the kernel's strings do not depend on the locale", "[locale]") {
     REQUIRE(std::string_view{std::setlocale(LC_CTYPE, nullptr)} == "C");
 
     SECTION("a non-ASCII literal is refused") {
+        // The euro sign reaches the kernel as UTF-8, so the kernel reads it and
+        // stops in front of it: a trailing-input refusal, not a UTF-8 one.
         try {
             static_cast<void>(Rational::from_decimal("1.5\u20ac"));
             FAIL("Rational::from_decimal accepted 1.5 and a euro sign");
         } catch (const AletheiaException& e) {
             CHECK(e.kind() == ErrorKind::Validation);
+            CHECK(e.code() == ErrorCode::TextTrailingInput);
         }
     }
     SECTION("a non-ASCII unit comes back whole") {

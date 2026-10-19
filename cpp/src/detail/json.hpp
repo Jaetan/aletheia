@@ -60,23 +60,17 @@ namespace aletheia::detail {
 // (the .dbc text image), or `"error"` with a typed code.
 [[nodiscard]] auto parse_dbc_text_response(std::string_view input) -> Result<DbcText>;
 
-// The error an `aletheia_parse_decimal` refusal envelope (raw JSON from
-// `detail::parse_decimal_ffi`) carries: Validation with the kernel's reason
-// for a parse failure / overflow (the precise `decimal_parse_failed` /
-// `decimal_overflow` message; user input, not a wire fault), Protocol for an
-// envelope that does not parse. The caller throws it as an AletheiaException, a
-// `std::runtime_error` subclass, so the YAML / Excel loaders'
-// `catch (const std::runtime_error&)` blocks convert it to a `Result<>` error,
-// while direct callers can branch on `.kind()`.
-[[nodiscard]] auto decimal_refusal(std::string_view envelope) -> AletheiaError;
-
 // The error a binary-output entry's refusal envelope carries: the
 // `{"status":"error","code":...,"message":...}` text `aletheia_build_frame_bin`,
-// `aletheia_update_frame_bin` and `aletheia_extract_signals_bin` set as the
-// buffer's error, decoded as a JSON error response is, so the code, the
-// message and the kind surface the same way on both paths (Protocol, unless
-// the code names its own kind).  An envelope that does not parse, or whose
-// status is not "error", is a Protocol error quoting it.
-[[nodiscard]] auto binary_refusal(std::string_view envelope) -> AletheiaError;
+// `aletheia_update_frame_bin`, `aletheia_extract_signals_bin` and
+// `aletheia_parse_decimal` set as the buffer's error, decoded as a JSON error
+// response is, so the code, the message and the kind surface the same way on
+// both paths: `coded` for a well-formed refusal (Protocol for the frame
+// entries; Validation for the decimal entry, whose text is the caller's own),
+// unless the code names its own kind: a bound refusal is InputBoundExceeded
+// with its `bound_info`.  An envelope that does not parse, or whose status is
+// not "error", is a Protocol error quoting it.
+[[nodiscard]] auto binary_refusal(std::string_view envelope, ErrorKind coded = ErrorKind::Protocol)
+    -> AletheiaError;
 
 } // namespace aletheia::detail

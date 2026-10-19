@@ -583,7 +583,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         target_sources(unit_tests PRIVATE
             tests/yaml_tests.cpp
             tests/excel_tests.cpp
-            tests/excel_tests_edges.cpp)
+            tests/excel_tests_edges.cpp
+            tests/test_loader_scenarios.cpp)
         target_link_libraries(unit_tests PRIVATE yaml-cpp::yaml-cpp OpenXLSX::OpenXLSX)
     endif()
     # The stand-in kernels `cabal run shake -- build` makes beside the library,
@@ -683,10 +684,12 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
 
     # Excel loader tests (OpenXLSX, Catch2). rts_setup_listener.cpp for
     # the same reason as yaml_tests — numeric cells are parsed via the kernel
-    # decimal SSOT (RTS-gated).
+    # decimal SSOT (RTS-gated). The loader contract's scenarios run here, both
+    # loaders' rows read from docs/LOADER_SCENARIOS.yaml through yaml-cpp.
     add_executable(excel_tests
         tests/excel_tests.cpp
         tests/excel_tests_edges.cpp
+        tests/test_loader_scenarios.cpp
         tests/rts_setup_listener.cpp)
     if(NOT ALETHEIA_SANITIZER)
         target_sources(excel_tests PRIVATE tests/alloc_fault.cpp)
@@ -694,40 +697,30 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         set_target_properties(excel_tests PROPERTIES ENABLE_EXPORTS ON)
     endif()
     target_link_libraries(excel_tests
-        PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
+        PRIVATE aletheia-cpp OpenXLSX::OpenXLSX yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)
     # The cross-binding portability test loads examples/demo/demo_workbook.xlsx
     # from the repository root.
     set_tests_properties(excel_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
 
-    # Renderer-uninitialised vocal test. The renderer never self-initialises the
-    # GHC RTS (an FfiBackend is the sole initialiser), so a pre-backend
-    # `format_rational_ffi` must throw. Must run in
-    # its own process because the GHC RTS is process-global: any FfiBackend-first
-    # test sharing the process would bring the runtime up and defeat the assertion.
-    # Run as a child of fresh_process_tests, below.
-    add_executable(rts_init_renderer_uninitialized_tests
-        tests/rts_init_renderer_uninitialized_tests.cpp)
-    target_link_libraries(rts_init_renderer_uninitialized_tests
-        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
-
-    # The renderer's refusal when it finds no library at all, in a process of
-    # its own for the same reason: the renderer searches once per process and
-    # keeps the answer. Run as a child of fresh_process_tests, below.
-    add_executable(renderer_missing_library_tests tests/renderer_missing_library_tests.cpp)
-    target_link_libraries(renderer_missing_library_tests
-        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
-
-    # The renderer's releases of the kernel's strings, read from the recording
-    # kernel's count, in a process of its own because the renderer loads its
-    # library once per process. Run as a child of fresh_process_tests, below.
-    add_executable(renderer_frees_kernel_strings_tests
-        tests/renderer_frees_kernel_strings_tests.cpp)
-    target_link_libraries(renderer_frees_kernel_strings_tests
-        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    # The renderer's suites, each in a process of its own because the renderer
+    # loads its library once per process and the GHC RTS is process-global, run
+    # as children of fresh_process_tests, below: its refusal while the runtime is
+    # down (an FfiBackend is the sole initialiser, so a pre-backend
+    # `format_rational_ffi` must throw) and when it finds no library at all, its
+    # releases of the kernel's strings read from the recording kernel's count,
+    # and its answer to a library that fails the decimal entry with no error
+    # envelope, read from the null kernel.
+    foreach(suite rts_init_renderer_uninitialized_tests renderer_missing_library_tests
+            renderer_frees_kernel_strings_tests renderer_null_kernel_tests)
+        add_executable(${suite} tests/${suite}.cpp)
+        target_link_libraries(${suite} PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    endforeach()
     target_compile_definitions(renderer_frees_kernel_strings_tests PRIVATE
         ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
+    target_compile_definitions(renderer_null_kernel_tests PRIVATE
+        ALETHEIA_TEST_NULL_KERNEL="${ALETHEIA_STAND_IN_DIR}/null_kernel.so")
 
     # Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
@@ -769,7 +762,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # Cross-binding wire-code parity test (yaml-cpp + aletheia-cpp, Catch2).
     # Reads docs/WIRE_CODES.yaml (the kernel-anchored wire-code SSOT) and
     # asserts the IssueCode and ErrorCode enums are each a bijection with
-    # their YAML section — every kernel code maps to a non-Unknown enumerator
+    # their YAML section — every wire code maps to a non-Unknown enumerator
     # and no enumerator lacks an SSOT row. Pure vocabulary test: no RTS, no
     # FFI backend, so no rts_setup_listener.cpp.
     add_executable(wire_codes_tests tests/test_wire_codes_parity.cpp)
@@ -808,12 +801,13 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # mutation build folds into the mutation binary, so the lane sweeps them
     # with the mutant each child inherits.
     set(ALETHEIA_FRESH_PROCESS_BINARIES rts_init_renderer_uninitialized_tests
-        renderer_missing_library_tests renderer_frees_kernel_strings_tests rts_heap_cap_tests
-        rts_heap_cap_workload literal_bound_tests)
+        renderer_missing_library_tests renderer_frees_kernel_strings_tests
+        renderer_null_kernel_tests rts_heap_cap_tests rts_heap_cap_workload literal_bound_tests)
     set(ALETHEIA_FRESH_PROCESS_DEFINITIONS
         ALETHEIA_RUNTIME_DOWN_TESTS="$<TARGET_FILE:rts_init_renderer_uninitialized_tests>"
         ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS="$<TARGET_FILE:renderer_missing_library_tests>"
         ALETHEIA_RENDERER_FREES_TESTS="$<TARGET_FILE:renderer_frees_kernel_strings_tests>"
+        ALETHEIA_RENDERER_NULL_KERNEL_TESTS="$<TARGET_FILE:renderer_null_kernel_tests>"
         ALETHEIA_RTS_HEAP_CAP_TESTS="$<TARGET_FILE:rts_heap_cap_tests>"
         ALETHEIA_LITERAL_BOUND_TESTS="$<TARGET_FILE:literal_bound_tests>")
     add_executable(fresh_process_tests tests/fresh_process_tests.cpp)

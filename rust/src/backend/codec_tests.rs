@@ -6,13 +6,14 @@
 
 use std::cell::Cell;
 
+use super::ffi_backend::{decimal_refusal, decimal_value};
 use super::{
     buffer_refusal, check_buffer_status, encode_opt_bool, frame_len, symbols,
     take_extraction_buffer, Backend, MAX_EXTRACT_BUF,
 };
 use crate::error::Error;
 use crate::mock::MockBackend;
-use crate::types::{CanId, Dlc};
+use crate::types::{CanId, Dlc, Rational};
 
 #[test]
 fn opt_bool_encodes_presence_then_value() {
@@ -41,7 +42,10 @@ fn frame_len_refuses_any_other_length_within_the_largest_frame() {
     for (code, len) in [(8, 20), (8, 7), (8, 9), (0, 1), (9, 8), (15, 48), (15, 63)] {
         let result = len_for(code, &vec![0u8; len]);
         assert!(
-            matches!(&result, Err(Error::Validation(m)) if m.contains("does not match DLC")),
+            matches!(
+                &result,
+                Err(Error::Validation { message: m, .. }) if m.contains("does not match DLC")
+            ),
             "DLC {code} with {len} bytes: {result:?}"
         );
     }
@@ -51,8 +55,14 @@ fn frame_len_refuses_any_other_length_within_the_largest_frame() {
 fn frame_len_refuses_a_length_past_the_largest_frame() {
     // 65 is one past any DLC's byte count; 256 is the first length the
     // frame's u8 cannot carry, which wrapped would read as 0.
-    assert!(matches!(len_for(15, &[0u8; 65]), Err(Error::Validation(_))));
-    assert!(matches!(len_for(0, &[0u8; 256]), Err(Error::Validation(_))));
+    assert!(matches!(
+        len_for(15, &[0u8; 65]),
+        Err(Error::Validation { .. })
+    ));
+    assert!(matches!(
+        len_for(0, &[0u8; 256]),
+        Err(Error::Validation { .. })
+    ));
 }
 
 #[test]
@@ -116,6 +126,48 @@ fn a_buffer_error_that_is_not_an_error_envelope_is_a_wire_fault() {
         matches!(&err, Error::Protocol(m)
             if m.starts_with("build_frame: error is not an error envelope")),
         "got: {err:?}"
+    );
+}
+
+#[test]
+fn a_refused_decimal_is_a_validation_error_carrying_the_refusal_code() {
+    let err = decimal_refusal(buffer_refusal(
+        "aletheia_parse_decimal",
+        r#"{"status":"error","code":"text_trailing_input","message":"m"}"#,
+    ));
+    assert!(
+        matches!(&err, Error::Validation { message, code: Some(code), located: None }
+            if code == "text_trailing_input" && message == "m"),
+        "got: {err:?}"
+    );
+    // The bound refusal keeps its typed error, and a malformed envelope
+    // stays a wire fault.
+    let err = decimal_refusal(buffer_refusal(
+        "aletheia_parse_decimal",
+        r#"{"status":"error","code":"input_bound_exceeded","message":"m","bound_kind":"rational_component_magnitude","observed":10,"limit":9,"field":"decimal"}"#,
+    ));
+    assert!(
+        matches!(&err, Error::InputBoundExceeded { field: Some(field), .. } if field == "decimal"),
+        "got: {err:?}"
+    );
+    let err = decimal_refusal(buffer_refusal("aletheia_parse_decimal", "m"));
+    assert!(matches!(&err, Error::Protocol(_)), "got: {err:?}");
+}
+
+#[test]
+fn a_decimal_over_a_non_positive_denominator_is_a_wire_fault() {
+    for denominator in [0, -1] {
+        let err = decimal_value(1, denominator).expect_err("the kernel never answers it");
+        let want =
+            format!("aletheia_parse_decimal answered a non-positive denominator {denominator}");
+        assert!(
+            matches!(&err, Error::Protocol(m) if *m == want),
+            "got: {err:?}"
+        );
+    }
+    assert_eq!(
+        decimal_value(-157, 50).expect("a positive denominator"),
+        Rational::new(-157, 50).expect("a positive denominator")
     );
 }
 

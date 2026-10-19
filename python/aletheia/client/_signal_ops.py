@@ -26,6 +26,7 @@ from aletheia.client._helpers.json_codec import (
 )
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
+from aletheia.client._refusal import envelope_message
 from aletheia.client._types import (
     ProtocolError,
     SignalExtractionResult,
@@ -35,6 +36,7 @@ from aletheia.client._types import (
     validate_can_id,
     validate_payload_length,
 )
+from aletheia.common_types import Prose
 from aletheia.types import DLCCode, is_object_list
 
 if TYPE_CHECKING:
@@ -149,7 +151,9 @@ class SignalOpsMixin(ClientHostState):
                 raise
 
             if response.get("status") == "error":
-                error_msg = response.get("message", "Unknown error")
+                error_msg = envelope_message(
+                    response, Prose("extract_signals failed: Unknown error")
+                )
                 error_code_raw = response.get("code")
                 error_code = error_code_raw if isinstance(error_code_raw, str) else None
                 log_event(
@@ -157,13 +161,12 @@ class SignalOpsMixin(ClientHostState):
                     logging.WARNING,
                     LogEvent.EXTRACTION_PARSE_FAILED,
                     canId=can_id,
-                    error=cast("str", error_msg),
+                    error=error_msg,
                 )
                 # Forward the Agda wire ``code`` so callers can branch on e.g.
                 # ``parse_payload_length_mismatch`` vs ``frame_signal_not_found``
                 # without parsing the message string (matches Go / C++ bindings).
-                msg = f"extract_signals failed: {error_msg}"
-                raise ProtocolError(msg, code=error_code)
+                raise ProtocolError(error_msg, code=error_code)
             if response.get("status") != "success":
                 msg = f"Unexpected status: {response.get('status')}"
                 raise ProtocolError(msg)

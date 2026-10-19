@@ -326,16 +326,22 @@ TEST_CASE("excel: DBC Message ID as a native integer cell loads", "[excel][dbc]"
     CHECK(std::holds_alternative<StandardId>(result->messages[0].id));
 }
 
-// A kernel decimal refusal surfaced through get_decimal/get_int must carry the
-// loader's own "Row N: invalid 'Field'" prefix — the kernel knows the literal,
-// not the workbook position.
+// A kernel decimal refusal surfaced through get_decimal keeps the kernel's
+// kind, code and message and gains the row and the column header, which the
+// kernel cannot know: it reads the literal, not the workbook position.
 TEST_CASE("excel: kernel decimal refusal carries row and field context", "[excel][dbc]") {
     const TempPath tf("excel_decimal_ctx.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE",
                                  "abc", "0", "0", "255", "", "", "", ""}});
     auto const result = load_dbc_from_excel(tf.path);
     REQUIRE_FALSE(result.has_value());
-    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("Row 2: invalid 'Factor'"));
+    auto const& error = result.error();
+    CHECK(error.kind() == ErrorKind::Validation);
+    CHECK(error.code() == ErrorCode::TextParseFailure);
+    CHECK(error.message() == "parse failed at line 1, column 1");
+    CHECK(error.location().value_or("") == "Row 2");
+    CHECK(error.key().value_or("") == "Factor");
+    CHECK(error.text() == "Row 2: invalid 'Factor': parse failed at line 1, column 1");
 }
 
 // Cross-binding portability lock: the shared demo workbook's DBC sheet omits the
@@ -532,6 +538,15 @@ TEST_CASE("excel: a missing required cell is refused by its field's name", "[exc
     SECTION("a number field") {
         const TempPath tf("excel_missing_value.xlsx");
         make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "", "", "", "", ""}});
+        auto const result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Value' (expected number)"));
+    }
+    SECTION(
+        "a number field holding only whitespace, an absent cell as Python, Go and Rust read it") {
+        const TempPath tf("excel_blank_value.xlsx");
+        make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "  \t ", "", "", "", ""}});
         auto const result = load_checks_from_excel(tf.path);
         REQUIRE_FALSE(result.has_value());
         CHECK_THAT(std::string(result.error().message()),

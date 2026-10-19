@@ -8,7 +8,6 @@
 use std::ffi::c_char;
 
 use libloading::Symbol;
-use serde_json::Value;
 
 use super::{
     check_buffer_status, encode_opt_bool, ensure_rts, frame_len, symbols, take_extraction_buffer,
@@ -135,11 +134,19 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
 /// # Errors
 /// [`Error::RtsNotInitialized`] if no backend is up (as for [`format_rational`],
 /// the RTS gate passing implies the symbol table is already latched, so a
-/// library-load / missing-symbol failure cannot surface here);
-/// [`Error::Validation`] if the string is not a valid decimal literal or its
-/// rational overflows `i64` (the kernel's `decimal_parse_failed` /
-/// `decimal_overflow` — user input, not a wire fault); [`Error::Protocol`] on a
-/// null return or malformed response (an ABI/kernel malfunction).
+/// library-load / missing-symbol failure cannot surface here). A refusal is the
+/// kernel's error envelope, read by [`super::buffer_refusal`] as every
+/// binary-output entry's is and then by [`decimal_refusal`]:
+/// [`Error::Validation`] with `code` `Some("text_parse_failure")` (the text is
+/// not a decimal literal) or `Some("text_trailing_input")` (a literal followed
+/// by more text), each carrying the kernel's line and column in its message,
+/// or `Some("ffi_validation_error")` when the shim refused the bytes before the
+/// kernel saw them (a NUL byte in `s`; a `&str` is always UTF-8, so the shim's
+/// UTF-8 refusal cannot arise); [`Error::InputBoundExceeded`] with `field`
+/// `"decimal"` when the numerator or the denominator crosses the rational
+/// component magnitude bound; [`Error::Protocol`] when the entry reports a
+/// refusal without an error envelope, the envelope is malformed, or the
+/// answered denominator is not positive (each an ABI or kernel malfunction).
 pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
     // Vocal, exactly like format_rational (and in the same order: RTS gate first,
     // symbols second): never self-init the RTS; return before the FFI call (the
@@ -168,30 +175,39 @@ pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
             ));
         }
         let envelope = take_response(syms, out.err);
-        return Err(decimal_refusal(&envelope));
+        return Err(decimal_refusal(super::buffer_refusal(
+            "aletheia_parse_decimal",
+            &envelope,
+        )));
     }
-    // The kernel answers lowest terms over a positive denominator; `new` refuses
-    // anything else, which would be the ABI or the kernel malfunctioning.
-    Rational::new(out.value.numerator, out.value.denominator).map_err(|e| {
+    decimal_value(out.value.numerator, out.value.denominator)
+}
+
+/// The rational the decimal entry answered. The kernel answers lowest terms
+/// over a positive denominator; `new` refuses only a non-positive one, which
+/// would be the ABI or the kernel malfunctioning, a wire fault worded as every
+/// binding words it.
+pub(super) fn decimal_value(numerator: i64, denominator: i64) -> Result<Rational, Error> {
+    Rational::new(numerator, denominator).map_err(|_| {
         Error::Protocol(format!(
-            "aletheia_parse_decimal answered an invalid rational: {e}"
+            "aletheia_parse_decimal answered a non-positive denominator {denominator}"
         ))
     })
 }
 
-/// Read the `aletheia_parse_decimal` error envelope, mapping its reason to
-/// [`Error::Validation`]: a refused literal (`decimal_parse_failed` /
-/// `decimal_overflow`) is user input, not a wire fault.
-fn decimal_refusal(json: &str) -> Error {
-    match serde_json::from_str::<Value>(json) {
-        Ok(value) => Error::Validation(
-            value
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("invalid decimal literal")
-                .to_string(),
-        ),
-        Err(e) => Error::Protocol(format!("aletheia_parse_decimal: malformed response: {e}")),
+/// The error a refused decimal answers. The literal is the caller's own text,
+/// so a coded refusal from the kernel or the shim is [`Error::Validation`]
+/// carrying that code; the bound refusal keeps its typed
+/// [`Error::InputBoundExceeded`], and a malformed envelope stays
+/// [`Error::Protocol`], a wire fault.
+pub(super) fn decimal_refusal(refusal: Error) -> Error {
+    match refusal {
+        Error::Core { code, message } => Error::Validation {
+            message,
+            code: Some(code),
+            located: None,
+        },
+        other => other,
     }
 }
 
@@ -372,7 +388,7 @@ impl FfiBackend {
         op: &str,
     ) -> Result<Vec<u8>, Error> {
         let count = u32::try_from(signals.indices.len())
-            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
+            .map_err(|_| Error::validation("too many signal injections"))?;
         let values = FfiSignalValues {
             indices: slice_ptr(signals.indices),
             numerators: slice_ptr(signals.nums),

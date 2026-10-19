@@ -187,8 +187,8 @@ fn exhausted_queue_is_an_error() {
     let probe = mock.clone();
     let c = Client::with_backend(Box::new(mock));
     let err = c.start_stream().expect_err("empty queue must error");
-    // Pin the EXACT inner message, not a substring of the "protocol error: …"
-    // Display, so the cross-binding unified shape cannot drift. The op token is
+    // Pin the EXACT message, which Display renders unchanged, so the
+    // cross-binding unified shape cannot drift. The op token is
     // the `<binary:OP>` sentinel (identical to Python/Go/C++), not a Rust method
     // name; `Error::Protocol` is Rust's wrong-state category (see mock.rs).
     match &err {

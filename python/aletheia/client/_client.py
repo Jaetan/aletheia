@@ -18,6 +18,7 @@ from aletheia.client._helpers.rational import (
     to_exact_fraction,
 )
 from aletheia.client._log import LogEvent, log_event
+from aletheia.client._refusal import envelope_message
 from aletheia.client._response_parsers import (
     parse_parsed_dbc_response,
     parse_success_or_error,
@@ -38,6 +39,7 @@ from aletheia.client._types import (
     StreamCaches,
     ValidationError,
 )
+from aletheia.common_types import Prose
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES, MAX_JSON_BYTES
 from aletheia.types import (
     Command,
@@ -470,9 +472,8 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             }
 
         if status == "error":
-            message = response.get("message", "Unknown error")
             code = response.get("code")
-            msg = f"validateDBC failed: {message}"
+            msg = envelope_message(response, Prose("validateDBC failed: Unknown error"))
             raise_if_input_bound_exceeded(response)
             raise_if_dbc_validation_failed(response, msg)
             raise ProtocolError(
@@ -514,9 +515,8 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             return normalize_dbc(dbc)
 
         if status == "error":
-            message = response.get("message", "Unknown error")
             code = response.get("code")
-            msg = f"formatDBC failed: {message}"
+            msg = envelope_message(response, Prose("formatDBC failed: Unknown error"))
             raise ProtocolError(
                 msg,
                 code=code if isinstance(code, str) else None,
@@ -593,9 +593,8 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             }
 
         if status == "error":
-            message = response.get("message", "Unknown error")
             code = response.get("code")
-            msg = f"formatDBCText failed: {message}"
+            msg = envelope_message(response, Prose("formatDBCText failed: Unknown error"))
             raise_if_input_bound_exceeded(response)
             raise_if_text_roundtrip_failed(response, msg)
             raise ProtocolError(

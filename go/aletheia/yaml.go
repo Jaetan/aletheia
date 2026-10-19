@@ -98,15 +98,16 @@ type yamlFile struct {
 }
 
 // yamlScalar keeps a number as the text it was written as, so that the kernel
-// parses it exactly: a field of floating type would have rounded a tenth
-// before this code ever saw it. A nil one means the key was absent, the
-// decoder calling this only for a value that is there.
+// alone reads it: a field of floating type would have rounded a tenth, and one
+// of integer type read 0x1F4 as 500, before this code ever saw it. A nil one
+// means the key was absent or held a null, which the decoder sets to nil
+// without calling this.
 type yamlScalar struct {
 	text string
 }
 
-// UnmarshalYAML keeps the text as written, refusing a list or a mapping where
-// a number belongs. Whether the text is a number the kernel decides later.
+// UnmarshalYAML keeps a scalar's text as written, whatever its tag, and
+// refuses a list or a mapping; the kernel decides whether it is a number.
 func (s *yamlScalar) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.ScalarNode {
 		return validationError("expected a numeric scalar value")
@@ -122,7 +123,7 @@ type yamlCheck struct {
 	Value     *yamlScalar `yaml:"value"`
 	Min       *yamlScalar `yaml:"min"`
 	Max       *yamlScalar `yaml:"max"`
-	WithinMs  *int64      `yaml:"within_ms"`
+	WithinMs  *yamlScalar `yaml:"within_ms"`
 	Severity  string      `yaml:"severity"`
 	When      *yamlClause `yaml:"when"`
 	Then      *yamlClause `yaml:"then"`
@@ -136,12 +137,36 @@ type yamlClause struct {
 	Max       *yamlScalar `yaml:"max"`
 }
 
-// nodeRational is the exact value of a written number, parsed by the kernel.
-// Loading a document with numbers therefore needs the runtime up, and a number
-// the kernel refuses comes back with the kernel's own reason, as it does in the
-// Rust binding.
-func nodeRational(s *yamlScalar) (Rational, error) {
-	return FromDecimal(s.text)
+// nodeRational is the exact value of a written number, parsed by the kernel
+// from the text the document spells it with. Loading a document with numbers
+// therefore needs the runtime up. A number the kernel refuses comes back as the
+// kernel's refusal located at the check, by the name checkName gives it, and at
+// the key the number sat under; any other failure comes back as it was.
+func nodeRational(s *yamlScalar, name, key string) (Rational, error) {
+	r, err := FromDecimal(s.text)
+	if err != nil {
+		return Rational{}, Locate(err, fmt.Sprintf("Check '%s'", name), key)
+	}
+	return r, nil
+}
+
+// nodeMilliseconds is a check's time bound, read as nodeRational reads a
+// number and located under within_ms, the key every time bound sits under. A
+// value the kernel reads that is not a whole number, or is negative, is
+// refused in this loader's own words, naming the check and the text as
+// written.
+func nodeMilliseconds(s *yamlScalar, name string) (int64, error) {
+	r, err := nodeRational(s, name, "within_ms")
+	if err != nil {
+		return 0, err
+	}
+	if r.Denominator != 1 {
+		return 0, validationError(fmt.Sprintf("check '%s': 'within_ms' must be a whole number, got %q", name, s.text))
+	}
+	if r.Numerator < 0 {
+		return 0, validationError(fmt.Sprintf("check '%s': 'within_ms' must be non-negative, got %q", name, s.text))
+	}
+	return r.Numerator, nil
 }
 
 // parseYAMLChecks is the checks a document carries. It is decoded twice, once
@@ -218,18 +243,18 @@ func (v yamlSimpleValues) Value() (Rational, error) {
 	if v.entry.Value == nil {
 		return Rational{}, v.requires("'value'")
 	}
-	return nodeRational(v.entry.Value)
+	return nodeRational(v.entry.Value, v.name, "value")
 }
 
 func (v yamlSimpleValues) Range() (Rational, Rational, error) {
 	if v.entry.Min == nil || v.entry.Max == nil {
 		return Rational{}, Rational{}, v.requires("'min' and 'max'")
 	}
-	lo, err := nodeRational(v.entry.Min)
+	lo, err := nodeRational(v.entry.Min, v.name, "min")
 	if err != nil {
 		return Rational{}, Rational{}, err
 	}
-	hi, err := nodeRational(v.entry.Max)
+	hi, err := nodeRational(v.entry.Max, v.name, "max")
 	if err != nil {
 		return Rational{}, Rational{}, err
 	}
@@ -240,7 +265,7 @@ func (v yamlSimpleValues) Within() (int64, error) {
 	if v.entry.WithinMs == nil {
 		return 0, v.requires("'within_ms'")
 	}
-	return *v.entry.WithinMs, nil
+	return nodeMilliseconds(v.entry.WithinMs, v.name)
 }
 
 // parseYAMLSimple builds a check written as one signal and one condition. The
@@ -268,18 +293,18 @@ func (v yamlThenValues) Value() (Rational, error) {
 	if v.clause.Value == nil {
 		return Rational{}, v.requires("'value'")
 	}
-	return nodeRational(v.clause.Value)
+	return nodeRational(v.clause.Value, v.name, "value")
 }
 
 func (v yamlThenValues) Range() (Rational, Rational, error) {
 	if v.clause.Min == nil || v.clause.Max == nil {
 		return Rational{}, Rational{}, v.requires("'min' and 'max'")
 	}
-	lo, err := nodeRational(v.clause.Min)
+	lo, err := nodeRational(v.clause.Min, v.name, "min")
 	if err != nil {
 		return Rational{}, Rational{}, err
 	}
-	hi, err := nodeRational(v.clause.Max)
+	hi, err := nodeRational(v.clause.Max, v.name, "max")
 	if err != nil {
 		return Rational{}, Rational{}, err
 	}
@@ -297,6 +322,10 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	if entry.WithinMs == nil {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': when/then checks require 'within_ms'", name))
 	}
+	withinMs, err := nodeMilliseconds(entry.WithinMs, name)
+	if err != nil {
+		return CheckResult{}, err
+	}
 
 	when := entry.When
 	then := entry.Then
@@ -309,7 +338,7 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': when condition '%s' requires 'value'", name, when.Condition))
 	}
 
-	whenValue, err := nodeRational(when.Value)
+	whenValue, err := nodeRational(when.Value, name, "value")
 	if err != nil {
 		return CheckResult{}, err
 	}
@@ -323,5 +352,5 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown then condition '%s'", name, then.Condition))
 	}
 	return DispatchThen(whenResult.Then(then.Signal), then.Condition,
-		yamlThenValues{name: name, clause: then}, *entry.WithinMs)
+		yamlThenValues{name: name, clause: then}, withinMs)
 }

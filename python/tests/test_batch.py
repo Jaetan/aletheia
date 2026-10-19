@@ -87,7 +87,8 @@ class TestSendFramesBatch:
         assert first["status"] == "ack"
         assert err.frame_index == 1
         assert isinstance(err.cause, ProtocolError)
-        assert "handler_non_monotonic_timestamp" in str(err.cause)
+        assert err.cause.code == "handler_non_monotonic_timestamp"
+        assert str(err.cause) == "backward timestamp"
         # Third frame was never sent
         assert client.send_frame.call_count == 2
 

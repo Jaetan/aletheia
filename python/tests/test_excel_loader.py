@@ -566,6 +566,17 @@ class TestLoadErrors:
         with pytest.raises(ValidationError, match="missing or invalid 'Value'"):
             load_checks_from_excel(p)
 
+    def test_whitespace_only_value_is_absent(self, tmp_path: Path) -> None:
+        """A text cell holding only whitespace is an absent cell, as Go, C++ and Rust read it."""
+        p = make_checks_workbook(
+            tmp_path,
+            [
+                [None, "Speed", "never_exceeds", "  \t ", None, None, None, None],
+            ],
+        )
+        with pytest.raises(ValidationError, match="missing or invalid 'Value'"):
+            load_checks_from_excel(p)
+
     def test_stays_between_missing_min(self, tmp_path: Path) -> None:
         """Verify stays between missing min."""
         p = make_checks_workbook(
