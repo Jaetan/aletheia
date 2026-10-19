@@ -589,7 +589,7 @@ fn frame_len(dlc: Dlc, data: &[u8]) -> Result<u8, Error> {
         .ok()
         .filter(|&len| usize::from(len) == expected)
         .ok_or_else(|| {
-            Error::Validation(format!(
+            Error::validation(format!(
                 "payload length {} does not match DLC ({expected} bytes expected)",
                 data.len()
             ))

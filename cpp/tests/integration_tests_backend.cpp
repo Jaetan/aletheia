@@ -293,15 +293,14 @@ TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[int
     auto const injection = SignalInjection::create(indices, numerators, denominators).value();
 
     SECTION("a buffer shorter than the frame is refused") {
-        // The library's own refusal, under a code the kernel's vocabulary does
-        // not hold.
+        // The library's own refusal, under the shim's own code.
         auto const built = backend->build_frame_bin(state, id, dlc, injection, 4);
         REQUIRE_FALSE(built.has_value());
-        CHECK(built.error().code() == ErrorCode::Unknown);
+        CHECK(built.error().code() == ErrorCode::FfiValidationError);
         CHECK(built.error().message() == "aletheia_build_frame_bin: out size 4 < 8 frame bytes");
         auto const updated = backend->update_frame_bin(state, id, dlc, data, injection, 4);
         REQUIRE_FALSE(updated.has_value());
-        CHECK(updated.error().code() == ErrorCode::Unknown);
+        CHECK(updated.error().code() == ErrorCode::FfiValidationError);
         CHECK(updated.error().message() == "aletheia_update_frame_bin: out size 4 < 8 frame bytes");
     }
     SECTION("a buffer longer than the frame comes back at the frame's length") {

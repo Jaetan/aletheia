@@ -21,30 +21,20 @@
 --   * `Aletheia.Parser.Combinators` provides the structural-recursion
 --     harness used here (Parser combinators over `List Char`).  String
 --     input is funnelled through `Data.String.toList` exactly once.
---   * Error taxonomy stays local to this module instead of extending
---     `Aletheia.Error.ParseError` — the JSON parser's error vocabulary
---     does not overlap with DBC text, so widening the shared ADT would
---     couple two unrelated evolution streams.  The current constructors
---     cover the three distinguishable failure modes from
---     `runParserPartial` + `refineAttributes`:
+--   * The error taxonomy is `Aletheia.Error.DBCTextParseError`, kept apart
+--     from the JSON parser's `ParseError` since the two vocabularies do not
+--     overlap.  Its four constructors cover the failure modes of
+--     `runParserPartial` + `refineAttributes` + the signal geometry gate:
 --
---       * `ParseFailure`             — top-level combinator returned
---                                      `nothing` (wrong token / no
---                                      alternative matched).  The
---                                      combinators lose position info
---                                      on failure, so this is a 0-arg
---                                      constructor — reporting "which
---                                      byte failed" would require a
---                                      redesign of `Parser` to thread
---                                      the last-touched position out of
---                                      `nothing`, which is scoped for a
---                                      future refactor.
---       * `TrailingInput`            — parser succeeded but left bytes
---                                      on the tape.  Position of the
---                                      first unconsumed byte is carried
---                                      so callers can localise the
---                                      error; empty-tape success is
---                                      the ≡ id path.
+--       * `ParseFailure`             — no alternative matched; carries the
+--                                      failure watermark, the deepest
+--                                      position any parse attempt reached.
+--       * `TrailingInput`            — the parser stopped before the end;
+--                                      carries the watermark and where the
+--                                      first unparseable statement starts.
+--                                      These two are minted by
+--                                      `Consumed.consumed`, which the decimal
+--                                      entry shares.
 --       * `AttributeRefinementFailed` — `refineAttributes` failed because
 --                                      some default/assignment referenced
 --                                      an unknown AttrDef or an
@@ -53,18 +43,19 @@
 --                                      the error pinpoints which
 --                                      `BA_DEF_` / `BA_DEF_DEF_` / `BA_` /
 --                                      `BA_REL_` entry is at fault.
+--       * `SignalGeometryError`      — an SG_ line's geometry the kernel
+--                                      refuses, named by its signal.
 module Aletheia.DBC.TextParser where
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Product using (_×_; _,_)
+open import Data.Maybe using (Maybe)
+open import Data.Product using (_×_; _,_; uncurry)
 open import Data.String using (String; toList; fromList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 
-open import Aletheia.Parser.Combinators using
-  (ParseResult; value; position; remaining;
-   runParserPartial)
+open import Aletheia.Parser.Combinators using (ParseResult; value; runParserPartial)
+open import Aletheia.DBC.TextParser.Consumed using (consumed)
 open import Aletheia.Parser.Position using (Position)
 
 open import Aletheia.DBC.Types using
@@ -80,7 +71,7 @@ open import Aletheia.DBC.TextParser.Senders using
   (attachSenders)
 
 open import Aletheia.Error public using
-  (DBCTextParseError; ParseFailure; TrailingInput; AttributeRefinementFailed)
+  (DBCTextParseError; AttributeRefinementFailed)
 
 -- ============================================================================
 -- GRAMMAR (BNF)
@@ -226,15 +217,13 @@ buildDBC ver nodes c attrs = record
   }
 
 -- Shape the `runParserPartial` result into the public error ⊎ DBC
--- taxonomy.  Broken out from `parseText` so the three-case dispatch
--- does not nest inside the `toList` call — easier to read, and the
--- refinement step is isolated from the outer runner.
+-- taxonomy: `consumed` refuses a failed or a partial parse, the rest is
+-- the refinement step, isolated from the outer runner.
 finalizeParse : Position × Maybe (ParseResult (List Char × List Node × List TopStmt))
               → DBCTextParseError ⊎ DBC
-finalizeParse (w , nothing) = inj₁ (ParseFailure w)
-finalizeParse (w , just res) with remaining res
-... | (_ ∷ _) = inj₁ (TrailingInput w (position res))
-... | []      with value res
+finalizeParse outcome with uncurry consumed outcome
+... | inj₁ e   = inj₁ e
+... | inj₂ res with value res
 ...   | (ver , nodes , stmts) with partitionTopStmts stmts
 -- A geometry-refused SG_ line (bucketed as `signalErrors`) aborts the
 -- parse with the FIRST refusal in wire order, before attribute

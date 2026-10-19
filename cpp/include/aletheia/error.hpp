@@ -40,12 +40,15 @@ enum class ErrorKind {
                         // bindings.
 };
 
-/// Machine-readable error codes mirroring the Agda `Error` ADT.
+/// Machine-readable error codes mirroring the Agda `Error` ADT and the shim's
+/// own refusal.
 ///
 /// Each named constant other than `Unknown` maps 1:1 to a string emitted by
 /// `errorCode` in `Aletheia.Error` — the Parse / DBC-text / Frame / Route /
 /// Handler / Dispatch / Extraction families plus the consolidated top-level
-/// `input_bound_exceeded` code (`WithContext` delegates to its inner error).
+/// `input_bound_exceeded` code (`WithContext` delegates to its inner error),
+/// or, for `FfiValidationError`, by the shared library refusing an argument
+/// it cannot read or a buffer it cannot write to.
 ///
 /// `Unknown` is a forward-compatibility sentinel used by
 /// `error_code_from_string` when the Agda core returns a code the C++
@@ -81,9 +84,10 @@ enum class ErrorCode {
     ParsePayloadByteOutOfRange,
     ParseNonPositiveDenominator,
     ParseSignalArrayLengthMismatch,
-    // DBC text parse errors
-    DBCTextParseFailure,
-    DBCTextTrailingInput,
+    // Text parse errors: a DBC text the grammar refuses carries one of these,
+    // a decimal literal it refuses TextParseFailure or TextTrailingInput.
+    TextParseFailure,
+    TextTrailingInput,
     DBCTextAttributeRefinementFailed,
     // Frame errors
     FrameSignalNotFound,
@@ -126,6 +130,8 @@ enum class ErrorCode {
     ExtractionMuxChainCycle,
     ExtractionMuxExtractionFailed,
     ExtractionValueExceedsWireRange,
+    // The shared library's own refusal of an entry's arguments
+    FfiValidationError,
 };
 
 /// Parse an error code string from Agda JSON into the enum.
@@ -148,6 +154,13 @@ class AletheiaError {
     // as a validation response.  Any other error — including one of those
     // envelopes without the structured fields — has `std::nullopt`.
     std::optional<std::vector<ValidationIssue>> issues_;
+    /// Where a loader read a refused number and the key it sat under, one
+    /// fact set by `located`; any other error has `std::nullopt`.
+    struct Place {
+        std::string location;
+        std::string key;
+    };
+    std::optional<Place> place_;
 
 public:
     AletheiaError(ErrorKind kind, std::string message, ErrorCode code = ErrorCode::Unknown,
@@ -168,6 +181,31 @@ public:
     [[nodiscard]] auto issues() const -> const std::optional<std::vector<ValidationIssue>>& {
         return issues_;
     }
+    /// Where a loader read the refused number: a check of a YAML document or a
+    /// row of a workbook.
+    [[nodiscard]] auto location() const -> std::optional<std::string> {
+        return place_.transform([](const Place& place) { return place.location; });
+    }
+    /// The key or column header the refused number sat under.
+    [[nodiscard]] auto key() const -> std::optional<std::string> {
+        return place_.transform([](const Place& place) { return place.key; });
+    }
+
+    /// This error, kind, code and fields kept, with the location and the key a
+    /// loader read the refused number at.
+    [[nodiscard]] auto located(std::string location, std::string key) const -> AletheiaError {
+        auto copy = *this;
+        copy.place_ = Place{.location = std::move(location), .key = std::move(key)};
+        return copy;
+    }
+
+    /// The error as every binding prints it: `<location>: invalid '<key>':
+    /// <message>` for a located error, the message alone for any other.
+    [[nodiscard]] auto text() const -> std::string {
+        if (place_)
+            return place_.value().location + ": invalid '" + place_.value().key + "': " + message_;
+        return message_;
+    }
 };
 
 template<typename T>
@@ -183,13 +221,13 @@ using Result = std::expected<T, AletheiaError>;
 /// `code()` after a `catch`.  Derives from `std::runtime_error` so
 /// existing `catch (const std::exception&)` blocks keep catching it via
 /// the base; new code can `catch (const AletheiaException&)` to recover
-/// the kind-tagged error.
+/// the kind-tagged error.  `what()` is the error's `text()`.
 class AletheiaException : public std::runtime_error {
     AletheiaError error_;
 
 public:
     explicit AletheiaException(AletheiaError error)
-        : std::runtime_error(std::string{error.message()})
+        : std::runtime_error(error.text())
         , error_(std::move(error)) {}
 
     [[nodiscard]] auto error() const -> const AletheiaError& { return error_; }

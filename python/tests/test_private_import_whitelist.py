@@ -212,14 +212,20 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # security check needs to be tested in isolation with monkeypatched
         # env vars and synthetic permission modes.
         ("test_ffi_loader_security.py", "aletheia.client._ffi", "find_ffi_library"),
-        # Raw-FFI smoke test for ``aletheia_parse_decimal`` (the decimal→rational
-        # SSOT).  Phase 0 ships the export but no high-level wrapper yet, so the
-        # test resolves the .so via ``find_ffi_library`` and calls the symbol
-        # directly through ctypes to cover the shim marshaling path.
+        # Raw-FFI test for ``aletheia_parse_decimal`` (the decimal→rational
+        # SSOT): it resolves the .so via ``find_ffi_library`` and calls the
+        # symbol directly through ctypes, covering the shim's marshaling beneath
+        # ``from_decimal``.
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "find_ffi_library"),
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "AletheiaText"),
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "configure_ffi_signatures"),
+        # The rational the decimal entry answers is read by one helper, held on
+        # the out-parameters the kernel never writes (a non-positive
+        # denominator), which no public path reaches.
+        ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaDecimal"),
+        ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_from_decimal.py", "aletheia.client._helpers.rational", "decimal_value"),
         # Demo-script gate: runs every examples/demo/*.py as a subprocess and
         # resolves the .so the same way the binding does, passing it through as
         # ALETHEIA_LIB — the public surface is ``AletheiaClient`` (which the demos
@@ -293,6 +299,9 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "parse_json_object"),
         # The binding's ABI version, which the version test holds to the header's.
         ("test_ffi_abi_version.py", "aletheia.client._ffi", "ABI_VERSION"),
+        # The one decoder of a failed entry's envelope, fed an envelope no
+        # kernel answers (no ``status``) to hold that it refuses it.
+        ("test_entry_refusal.py", "aletheia.client._refusal", "raise_entry_refusal"),
     )
 )
 

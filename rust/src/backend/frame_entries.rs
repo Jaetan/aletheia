@@ -33,7 +33,10 @@ fn dlc8() -> Dlc {
 /// A refusal by the guard, which names the mismatch.
 fn assert_guarded<T: std::fmt::Debug>(entry: &str, result: Result<T, Error>) {
     assert!(
-        matches!(&result, Err(Error::Validation(m)) if m.contains("does not match DLC")),
+        matches!(
+            &result,
+            Err(Error::Validation { message: m, .. }) if m.contains("does not match DLC")
+        ),
         "{entry}: {result:?}"
     );
 }

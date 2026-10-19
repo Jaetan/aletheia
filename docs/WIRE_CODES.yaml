@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Aletheia Cross-Binding Wire-Code Vocabulary
 #
-# Authoritative source for the two string-code vocabularies the Agda kernel
-# emits onto the JSON wire:
+# Authoritative source for the two string-code vocabularies on the JSON wire:
 #
 #   issue_codes -- DBC validation issue codes, carried in `issues[].code`
 #                  (validation / parsed-DBC / DBC-text responses and the
@@ -13,17 +12,22 @@
 #   error_codes -- machine-readable error codes, carried in the flat `code`
 #                  field of the error envelope.  Emitted by the per-ADT
 #                  `*ErrorCode` formatter families plus the top-level
-#                  `errorCode` in src/Aletheia/Error.agda.
+#                  `errorCode` in src/Aletheia/Error.agda, and last the
+#                  shared library's own refusal, written by
+#                  haskell-shim/src/AletheiaFFI/Marshal.hs, of an argument
+#                  it cannot read or a result it cannot write.
 #
 # Schema:
 #   issue_codes[] / error_codes[]: one entry per wire code
-#     name:        the literal wire string (matches the Agda formatter arm and
-#                  every binding's vocabulary member)
+#     name:        the literal wire string (matches the Agda formatter arm, or
+#                  the shim's envelope literal, and every binding's
+#                  vocabulary member)
 #     description: one-sentence summary of what the code reports
 #
-# Entry order mirrors kernel declaration order — the formatter-arm order in
-# the Agda sources above — and tools/check_wire_codes.py enforces it alongside
-# reciprocal set equality (run_ci step `check-wire-codes`).  Order matters
+# Entry order mirrors kernel declaration order (the formatter-arm order in
+# the Agda sources above, the shim's code after them), and
+# tools/check_wire_codes.py enforces it alongside reciprocal set equality
+# (run_ci step `check-wire-codes`).  Order matters
 # because MAlonzo numbers ADT constructors in declaration order; the IssueCode
 # ADT carries an append-only rule (src/Aletheia/DBC/Types.agda).
 #
@@ -38,8 +42,12 @@
 #
 # Adding a new wire code requires coordinated edits:
 #   1. add the Agda constructor (IssueCode: at the END of the ADT, per the
-#      append-only rule) and its formatter arm
-#   2. add the row here, at the position matching the new arm
+#      append-only rule) and its formatter arm, or, for a code the shared
+#      library writes itself, its envelope literal in
+#      haskell-shim/src/AletheiaFFI/Marshal.hs
+#   2. add the row here, at the position matching the new arm, or, for a
+#      shared-library code, after the kernel's in the order Marshal.hs
+#      spells them
 #   3. add the matching member in each binding's vocabulary (Python
 #      aletheia/codes/, Go result.go / error.go constants, C++
 #      validation_issue.hpp / error.hpp + the json_parse.cpp tables, Rust
@@ -339,13 +347,13 @@ error_codes:
   - name: dispatch_request_not_object
     description: The top-level value is not a JSON object.
 
-  # dbcTextParseErrorCode -- parseDBCText / formatDBCText.
+  # dbcTextParseErrorCode -- parseDBCText / formatDBCText / aletheia_parse_decimal.
 
-  - name: dbc_text_parse_failure
-    description: The .dbc text could not be parsed.
+  - name: text_parse_failure
+    description: "A text could not be parsed: a .dbc text, or a decimal entered through aletheia_parse_decimal."
 
-  - name: dbc_text_trailing_input
-    description: The top-level .dbc parse stopped at the first unparseable statement.
+  - name: text_trailing_input
+    description: The parse stopped at the first unparseable statement of a .dbc text, or at the unconsumed tail of a decimal.
 
   - name: dbc_text_attribute_refinement_failed
     description: A BA_DEF_DEF_ / BA_ / BA_REL_ entry failed attribute refinement.
@@ -354,3 +362,8 @@ error_codes:
 
   - name: input_bound_exceeded
     description: An adversarial-input bound was exceeded; the structured bound_kind field discriminates which limit.
+
+  # The shared library's own refusal (haskell-shim/src/AletheiaFFI/Marshal.hs).
+
+  - name: ffi_validation_error
+    description: The shared library refused an argument it cannot read (a NULL pointer, a size past what the library can index, a text that is not UTF-8 or holds a NUL byte) or a result it cannot write (a buffer smaller than the frame the kernel built).

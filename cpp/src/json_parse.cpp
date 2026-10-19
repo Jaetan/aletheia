@@ -56,9 +56,9 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"parse_payload_byte_out_of_range", ErrorCode::ParsePayloadByteOutOfRange},
     {"parse_non_positive_denominator", ErrorCode::ParseNonPositiveDenominator},
     {"parse_signal_array_length_mismatch", ErrorCode::ParseSignalArrayLengthMismatch},
-    // DBC text parse errors
-    {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
-    {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},
+    // Text parse errors: a .dbc text, or a decimal literal, read by the same grammar machinery
+    {"text_parse_failure", ErrorCode::TextParseFailure},
+    {"text_trailing_input", ErrorCode::TextTrailingInput},
     {"dbc_text_attribute_refinement_failed", ErrorCode::DBCTextAttributeRefinementFailed},
     // Frame errors
     {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
@@ -100,6 +100,8 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"extraction_mux_chain_cycle", ErrorCode::ExtractionMuxChainCycle},
     {"extraction_mux_extraction_failed", ErrorCode::ExtractionMuxExtractionFailed},
     {"extraction_value_exceeds_wire_range", ErrorCode::ExtractionValueExceedsWireRange},
+    // The shared library's own refusal
+    {"ffi_validation_error", ErrorCode::FfiValidationError},
 });
 
 } // namespace
@@ -255,40 +257,16 @@ static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::i
     return {num, den};
 }
 
-// Decode the `aletheia_parse_decimal` wire envelope into an exact Rational
-// (declared in detail/json.hpp). Defined in this TU so it reuses the static
-// `parse_rational_dict` above directly — no cross-TU lift. The kernel emits a
-// bare `{"numerator","denominator"}` on success or a `{"status":"error",...}`
-// envelope on failure; branch on the status BEFORE decoding so the precise
-// `decimal_parse_failed` / `decimal_overflow` message survives (otherwise the
-// wire decoder reports an opaque "missing numerator" and masks the reason).
-// Throws AletheiaException — NOT a bare AletheiaError — because AletheiaError is
-// not a std::exception, and the YAML / Excel loaders catch `std::runtime_error`
-// (which AletheiaException subclasses); a bare throw would escape them entirely.
-auto decimal_refusal(std::string_view envelope) -> AletheiaError {
-    Json j;
-    try {
-        j = parse_bounded(envelope);
-    } catch (const std::exception& e) {
-        // Unreachable for the kernel's own output; an unparsable envelope is an
-        // ABI/kernel malfunction, so report it as Protocol (mirrors Rust).
-        return make_error(ErrorKind::Protocol,
-                          std::string{"aletheia_parse_decimal: malformed response: "} + e.what());
-    }
-    return make_error(ErrorKind::Validation,
-                      j.value("message", std::string{"invalid decimal literal"}));
-}
-
 // Decode a binary-output entry's refusal envelope (declared in detail/json.hpp)
 // with the JSON path's own `make_json_error`, so the code, the message and any
 // structured fields surface as they do on a JSON response.
-auto binary_refusal(std::string_view envelope) -> AletheiaError {
+auto binary_refusal(std::string_view envelope, ErrorKind coded) -> AletheiaError {
     try {
         auto const j = parse_bounded(envelope);
         if (j.value("status", "") != "error")
             return make_error(ErrorKind::Protocol,
                               "Error envelope without status \"error\": " + std::string{envelope});
-        return make_json_error(ErrorKind::Protocol, j);
+        return make_json_error(coded, j);
     } catch (const std::exception& e) {
         return make_error(ErrorKind::Protocol,
                           "Malformed error envelope " + std::string{envelope} + ": " + e.what());

@@ -16,15 +16,15 @@ from typing import TYPE_CHECKING, cast
 from aletheia.client._helpers.dbc_normalize import normalize_dbc
 from aletheia.client._helpers.rational import validate_integer_field
 from aletheia.client._log import LogEvent, log_event
+from aletheia.client._refusal import (
+    extract_bound_triple,
+    raise_if_input_bound_exceeded,
+)
 from aletheia.client._types import (
     DBCValidationFailedError,
-    InputBoundExceededError,
-    KernelRefusal,
     ProtocolError,
     TextRoundTripFailedError,
 )
-from aletheia.common_types import Prose
-from aletheia.limits import BoundField, BoundKind, Limit
 from aletheia.types import (
     AckResponse,
     CompleteWarning,
@@ -42,7 +42,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from aletheia.codes import ValidationIssue
-    from aletheia.common_types import PositiveInt
 
 _logger = logging.getLogger("aletheia")
 
@@ -60,59 +59,6 @@ def validate_issue_severities(issues: list[ValidationIssue]) -> list[ValidationI
             msg = f"Unknown validation severity: {sev!r}"
             raise ProtocolError(msg)
     return issues
-
-
-def _extract_bound_triple(response: Response) -> tuple[BoundKind, PositiveInt, Limit] | None:
-    """Return the ``(bound_kind, observed, limit)`` triple, or ``None`` if absent.
-
-    All-or-nothing: a partial triple is treated as missing, matching the C++
-    binding's degrade-to-nullopt rule in ``make_json_error``. ``observed`` and
-    ``limit`` are positive integers; ``bool`` is excluded because
-    ``isinstance(True, int)`` is ``True`` and a boolean is a malformed wire
-    value, not a count. Single source for the triple shape, shared by
-    :func:`build_error_response` (which folds it into the ``ErrorResponse``) and
-    :func:`raise_if_input_bound_exceeded` (which gates it on the wire code), so
-    no call site re-derives the field rules.
-    """
-    bound_kind = response.get("bound_kind")
-    observed = response.get("observed")
-    limit = response.get("limit")
-    if not (isinstance(bound_kind, str) and isinstance(observed, int) and isinstance(limit, int)):
-        return None
-    if isinstance(observed, bool) or isinstance(limit, bool) or min(observed, limit) <= 0:
-        return None
-    return (BoundKind(bound_kind), observed, limit)
-
-
-def raise_if_input_bound_exceeded(response: Response) -> None:
-    """Raise :class:`InputBoundExceededError` for an ``input_bound_exceeded`` error envelope.
-
-    Gates on the wire code, like :func:`lift_issues_envelope` and the Go / C++ /
-    Rust decoders, then reads the triple with :func:`_extract_bound_triple`,
-    the ``field`` a DBC's size-bound refusal names, and the kernel's
-    ``message``, which is the error's text. Returns normally when the code
-    differs, the triple is not whole, ``field`` is present and not a string, or
-    ``message`` is not a string, so the caller raises its own fallback rather
-    than an error with fabricated fields. The single lift-and-raise shared by
-    every DBC command.
-    """
-    if response.get("code") != "input_bound_exceeded":
-        return
-    triple = _extract_bound_triple(response)
-    field = response.get("field")
-    message = response.get("message")
-    if triple is None or not (field is None or isinstance(field, str)):
-        return
-    if not isinstance(message, str):
-        return
-    kind, observed, limit = triple
-    raise InputBoundExceededError(
-        kind,
-        observed,
-        limit,
-        code="input_bound_exceeded",
-        refusal=KernelRefusal(Prose(message), None if field is None else BoundField(field)),
-    )
 
 
 # The error envelopes that carry a structured issues / has_errors payload
@@ -212,7 +158,7 @@ def build_error_response(response: Response) -> ErrorResponse:
     ``observed`` / ``limit`` triple via ``Protocol/ResponseFormat.
     errorExtras``; all three must be present and well-typed when any
     one is, else the payload is treated as missing rather than partial
-    (see :func:`_extract_bound_triple`).
+    (see :func:`~aletheia.client._refusal.extract_bound_triple`).
 
     Validation-failure errors carry the ``issues`` / ``has_errors`` pair
     under the same all-or-nothing rule (see :func:`lift_issues_envelope`).
@@ -229,7 +175,7 @@ def build_error_response(response: Response) -> ErrorResponse:
             + f" got {type(message).__name__}"
         )
     out: ErrorResponse = {"status": "error", "code": code, "message": message}
-    triple = _extract_bound_triple(response)
+    triple = extract_bound_triple(response)
     if triple is not None:
         out["bound_kind"], out["observed"], out["limit"] = triple
     if response.get("code") in ISSUES_CARRYING_CODES:
@@ -435,8 +381,7 @@ def parse_event_response(
             response="error",
             code=result_error["code"],
         )
-        msg = f"{event_kind} failed: {result_error['message']}"
-        raise ProtocolError(msg, code=result_error["code"])
+        raise ProtocolError(result_error["message"], code=result_error["code"])
     msg = f"Unexpected {event_kind} response status: {status!r} (expected 'ack' or 'error')"
     raise ProtocolError(msg)
 

@@ -103,22 +103,25 @@ class TestSendErrorRemote:
             client.send_remote(timestamp=1000, can_id=0x20000000, extended=True)
 
     def test_send_error_error_response_raises_protocol_error(self) -> None:
-        """parse_event_response raises ProtocolError for error_event errors."""
-        with pytest.raises(ProtocolError, match="error_event failed"):
+        """parse_event_response raises the kernel's message verbatim for error_event errors."""
+        with pytest.raises(ProtocolError) as exc_info:
             parse_event_response(
                 {"status": "error", "message": "test error", "code": "test_code"},
                 "error_event",
                 1000,
             )
+        assert str(exc_info.value) == "test error"
+        assert exc_info.value.code == "test_code"
 
     def test_send_remote_error_response_raises_protocol_error(self) -> None:
-        """parse_event_response raises ProtocolError for remote_event errors."""
-        with pytest.raises(ProtocolError, match="remote_event failed") as exc_info:
+        """parse_event_response raises the kernel's message verbatim for remote_event errors."""
+        with pytest.raises(ProtocolError) as exc_info:
             parse_event_response(
                 {"status": "error", "message": "remote rejected", "code": "handler_err"},
                 "remote_event",
                 1000,
             )
+        assert str(exc_info.value) == "remote rejected"
         assert exc_info.value.code == "handler_err"
 
     def test_send_error_success_status_rejected(self) -> None:

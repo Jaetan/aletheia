@@ -7,23 +7,24 @@ through the Check API into LTL properties.
 
 Usage:
     from pathlib import Path
-    from aletheia import load_checks
+    from aletheia import AletheiaClient, load_checks
 
-    # From a file (must be a pathlib.Path)
-    checks = load_checks(Path("my_checks.yaml"))
+    # The kernel reads every number of a document, so a client is open first
+    with AletheiaClient() as client:
+        # From a file (must be a pathlib.Path)
+        checks = load_checks(Path("my_checks.yaml"))
 
-    # From an inline YAML string (must be a str)
-    checks = load_checks('''
-    checks:
-      - name: "Speed limit"
-        signal: VehicleSpeed
-        condition: never_exceeds
-        value: 220
-        severity: critical
-    ''')
+        # From an inline YAML string (must be a str)
+        checks = load_checks('''
+        checks:
+          - name: "Speed limit"
+            signal: VehicleSpeed
+            condition: never_exceeds
+            value: 220
+            severity: critical
+        ''')
 
-    # Use with AletheiaClient
-    client.set_properties([c.to_dict() for c in checks])
+        client.set_properties([c.to_dict() for c in checks])
 
 YAML Schema
 ============
@@ -59,8 +60,6 @@ When/Then checks (causal)::
 
 from __future__ import annotations
 
-import math
-from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -81,6 +80,7 @@ from aletheia._check_conditions import (
     dispatch_when,
 )
 from aletheia._loader_utils import (
+    NumberText,
     get_dict,
     get_int,
     get_number,
@@ -92,84 +92,87 @@ from aletheia.types import is_object_list, is_str_dict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from fractions import Fraction
     from typing import TextIO
 
     from aletheia.checks import CheckResult
     from aletheia.types import JSONValue
 
 
-_YAML_FLOAT_TAG = "tag:yaml.org,2002:float"
+# The tags that would turn a scalar into something other than its text: a
+# number, a YAML 1.1 boolean (``true``, ``yes``, ``on``), a date, or the ``=``
+# value key.
+_YAML_TEXT_TAGS = (
+    "tag:yaml.org,2002:int",
+    "tag:yaml.org,2002:float",
+    "tag:yaml.org,2002:bool",
+    "tag:yaml.org,2002:timestamp",
+    "tag:yaml.org,2002:value",
+)
 
-# A ``yaml.SafeLoader`` subclass with the implicit FLOAT resolver removed (the
-# float principle): PyYAML's default resolver turns a bare ``1.5`` into a
-# Python ``float``, losing exactness; with the float tag dropped, such a scalar
-# stays a STRING and is parsed exactly by the kernel SSOT
-# :func:`~aletheia.from_decimal` (via :func:`~aletheia._loader_utils.get_number`).
-# Integers still resolve to ``int``; everything else inherits ``SafeLoader``'s
-# safe construction (no arbitrary object instantiation).  Built with ``type()``
+# The kernel decides what a number is, so the loader hands it every number as
+# the document spells it.  This ``yaml.SafeLoader`` subclass drops PyYAML's
+# implicit resolvers for those tags, so a plain ``42``, ``0x1F``, ``1.5``,
+# ``yes``, ``2024-01-01`` or ``=`` stays a string (no key of a check reads a
+# boolean or a date), and constructs a scalar explicitly tagged with one of
+# them as its text; :func:`~aletheia._loader_utils.get_number` hands that text
+# to the kernel.  The null resolver stays, so an empty value or
+# ``~`` reads as missing.  Everything else inherits ``SafeLoader``'s safe
+# construction (no arbitrary object instantiation).  Built with ``type()``
 # rather than a ``class`` statement so the subclass does not inherit
 # ``SafeLoader``'s deep ancestry into a flagged ``too-many-ancestors``; the
-# fresh resolver dict (and fresh inner lists) leaves the parent table untouched.
-_NoFloatSafeLoader: type[yaml.SafeLoader] = type(
-    "_NoFloatSafeLoader",
+# fresh resolver dict (and fresh inner lists) and ``add_constructor``'s copy of
+# the constructor table leave the parent's tables untouched.
+_TextNumberSafeLoader: type[yaml.SafeLoader] = type(
+    "_TextNumberSafeLoader",
     (yaml.SafeLoader,),
     {
         "yaml_implicit_resolvers": {
-            first_char: [(tag, regexp) for tag, regexp in resolvers if tag != _YAML_FLOAT_TAG]
+            first_char: [(tag, regexp) for tag, regexp in resolvers if tag not in _YAML_TEXT_TAGS]
             for first_char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
         }
     },
 )
 
 
-def _construct_tagged_float(loader: yaml.SafeLoader, node: yaml.Node) -> Fraction:
-    """Construct an explicitly ``!!float``-tagged scalar as an exact rational.
+def _construct_scalar_text(loader: yaml.SafeLoader, node: yaml.Node) -> NumberText:
+    """Construct a scalar tagged ``!!int``, ``!!float``, ``!!bool`` or ``!!timestamp`` as its text.
 
-    The implicit float resolver above governs only *untagged* scalars (a bare
-    ``1.5`` stays a string and is parsed exactly by the kernel SSOT); an
-    EXPLICIT ``!!float`` tag names the YAML float type, so the scalar is
-    accepted at IEEE-754 double semantics: every finite double is losslessly
-    representable as a rational, and ``Fraction(float)`` is the double's exact
-    value.  Non-representable values (NaN / ±infinity) are refused — no exact
-    rational exists for them.  The Go/C++/Rust loaders accept the same tagged
-    scalar via its literal text, so a losslessly-representable literal (e.g.
-    ``!!float 11.5``) loads to the identical rational in all four bindings.
+    A tag of these on a mapping or a sequence has no text, and is invalid YAML
+    with PyYAML's own wording, a mapping holding a ``=`` key included (which
+    ``construct_scalar`` would read as that key's value).
     """
     if not isinstance(node, yaml.ScalarNode):
-        msg = "YAML !!float tag must be applied to a scalar value"
-        raise ValidationError(msg)
-    try:
-        value = loader.construct_yaml_float(node)
-    except ValueError as exc:
-        msg = f"YAML !!float scalar {node.value!r} is not a valid float literal"
-        raise ValidationError(msg) from exc
-    if not math.isfinite(value):
-        msg = (
-            f"YAML !!float scalar {node.value!r} is not finite; only finite "
-            "tagged floats have an exact rational value"
+        raise yaml.MarkedYAMLError(
+            problem=f"expected a scalar node, but found {node.id}", problem_mark=node.start_mark
         )
-        raise ValidationError(msg)
-    return Fraction(value)
+    return NumberText(loader.construct_scalar(node))
 
 
-_NoFloatSafeLoader.add_constructor(_YAML_FLOAT_TAG, _construct_tagged_float)
+for _tag in _YAML_TEXT_TAGS:
+    _TextNumberSafeLoader.add_constructor(_tag, _construct_scalar_text)
 
 
-def _safe_load_no_float(stream: str | TextIO) -> object:
-    """Parse *stream* with :class:`_NoFloatSafeLoader` (no float resolver).
+def _safe_load_text_numbers(stream: str | TextIO) -> object:
+    """Parse *stream* with :class:`_TextNumberSafeLoader`, every number kept as its text.
 
-    Drives the loader instance directly — exactly PyYAML's own ``yaml.load``
-    implementation — rather than calling ``yaml.load(stream, Loader=...)``.
-    The custom :class:`yaml.SafeLoader` subclass is just as safe (it only drops
-    the float implicit resolver), but the ``yaml.load`` *call form* is what the
-    security linter pattern-matches; using the loader directly keeps the float
-    principle without a lint suppression.
+    Invalid YAML raises :class:`ValidationError` reading ``invalid YAML:`` and
+    PyYAML's reason, as the Go, C++ and Rust loaders refuse it.  Drives the
+    loader instance directly, exactly as PyYAML's own ``yaml.load`` does,
+    rather than calling ``yaml.load(stream, Loader=...)``.  The subclass is as
+    safe as :class:`yaml.SafeLoader` (it only keeps scalars as text), but the
+    ``yaml.load`` *call form* is what the security linter pattern-matches;
+    using the loader directly needs no lint suppression.
     """
-    loader = _NoFloatSafeLoader(stream)
     try:
-        return loader.get_single_data()
-    finally:
-        loader.dispose()
+        loader = _TextNumberSafeLoader(stream)
+        try:
+            return loader.get_single_data()
+        finally:
+            loader.dispose()
+    except yaml.YAMLError as exc:
+        msg = f"invalid YAML: {exc}"
+        raise ValidationError(msg) from exc
 
 
 def _ctx(name: str) -> str:
@@ -200,7 +203,16 @@ def load_checks(source: str | Path) -> list[CheckResult]:
         List of CheckResult objects ready for use with AletheiaClient
 
     Raises:
-        ValidationError: Invalid check definition (missing fields, unknown condition)
+        ValidationError: Invalid YAML, or an invalid check definition (missing
+            fields, unknown condition, a number the kernel refuses, carrying
+            the kernel's code)
+        InputBoundExceededError: The document is larger than
+            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES`, or a number has a
+            component past
+            :data:`aletheia.limits.MAX_RATIONAL_COMPONENT_MAGNITUDE` (``field``
+            ``"decimal"``)
+        FFIError: The GHC runtime is not up (no client has started it), so
+            the kernel cannot read a number
         FileNotFoundError: File path doesn't exist
 
     """
@@ -254,13 +266,13 @@ def _load_yaml(source: str | Path) -> object:
         # utf-8), and "UTF-8" is a codec-name alias of "utf-8" → both the
         # case and the None mutant are runtime-equivalent here (pragma).
         with source.open(encoding="utf-8") as f:  # pragma: no mutate
-            return _safe_load_no_float(f)
+            return _safe_load_text_numbers(f)
     # source: str — the public ``load_checks`` signature constrains this
     # branch by type; basedpyright/pyright catches non-(str|Path) callers
     # statically, so a runtime defensive ``isinstance(source, str)`` would
     # be dead code and is not added.
     check_dbc_text_size_bound(len(source.encode()))  # str.encode defaults to utf-8
-    return _safe_load_no_float(source)
+    return _safe_load_text_numbers(source)
 
 
 def _parse_check(entry: Mapping[str, JSONValue]) -> CheckResult:

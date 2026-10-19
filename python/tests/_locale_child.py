@@ -18,6 +18,7 @@ import locale
 import sys
 
 from aletheia import AletheiaClient, ValidationError, from_decimal
+from aletheia.codes import ErrorCode
 from aletheia.common_types import ExitStatus, Prose
 
 SENTINEL = "ALETHEIA_LOCALE_OK"
@@ -37,10 +38,13 @@ def _failures() -> list[Prose]:
         return [Prose(f"the child runs under LC_CTYPE {ctype!r}, not C, so it proves nothing")]
     failures: list[Prose] = []
     with AletheiaClient() as client:
+        # The euro sign reaches the kernel as UTF-8, so the kernel reads it and
+        # stops in front of it: a trailing-input refusal, not a UTF-8 one.
         try:
             value = from_decimal("1.5€")
-        except ValidationError:
-            pass
+        except ValidationError as exc:
+            if exc.code != ErrorCode.TEXT_TRAILING_INPUT:
+                failures.append(Prose(f"from_decimal refused 1.5 and a euro sign as {exc.code}"))
         else:
             failures.append(Prose(f"from_decimal accepted 1.5 and a euro sign as {value}"))
         response = client.parse_dbc_text(DBC_TEXT)

@@ -549,15 +549,17 @@ parseDBCText-on-formatChars d wf =
 --
 -- Once `parseDBCText pos (formatChars d) ≡ just (mkResult (ver, nodes,
 -- stmts) pos-end [])`, `finalizeParse` walks 5 `with` steps:
---   1. `remaining res = []` — definitional from `mkResult … []`.
+--   1. `consumed w (just res) = inj₂ res` — definitional from `mkResult … []`.
 --   2. `value res = (ver, nodes, stmts)` — definitional pattern unbox.
 --   3. `partitionTopStmts stmts` — the partition bridge maps to
 --      `mkCollectedTop … (map (rawOf defs) attrs) … (collectFromMessages
 --      d.messages)`.
---   4. `refineAttributes (CollectedTop.rawAttributes collected)` —
+--   4. `CollectedTop.signalErrors collected` — `[]`, the bridge collecting
+--      no geometry refusal from a formatted DBC.
+--   5. `refineAttributes (CollectedTop.rawAttributes collected)` —
 --      the refine-attributes bridge maps to `just attrs`.
---   5. `attachValueDescs (CollectedTop.rawValueDescs collected) … `
---      inside `buildDBC` — discharged via
+-- Then `attachValueDescs (CollectedTop.rawValueDescs collected) … `
+--      inside `buildDBC` is discharged via
 --      `map-attachToMessage-on-clearVdsMsgs-collected` consuming
 --      `msg-ids-unique` + `msg-wfs` from the WF record (the base
 --      value-descriptions bridge composed with the `clearVds` bridge to

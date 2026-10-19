@@ -5,10 +5,10 @@
 Load signal checks from a YAML file — version-controllable, CI/CD-friendly
 check definitions without writing Python.
 
-Decimal values are parsed exactly by the verified Agda kernel (the float
-principle: a decimal is an exact rational, never a lossy float), so a live client
-must be up while loading — hence the ``with AletheiaClient()`` blocks below. Build
-the library first: ``cabal run shake -- build``.
+Every number in a check file is parsed exactly by the verified Agda kernel (the
+float principle: a decimal is an exact rational, never a lossy float), so a live
+client must be up while loading, hence the ``with AletheiaClient()`` blocks below.
+Build the library first: ``cabal run shake -- build``.
 """
 
 # Standalone teaching demos intentionally repeat small setup/teardown
@@ -31,8 +31,8 @@ print("SECTION 1: Load Checks from File")
 print("=" * 60)
 
 yaml_path = Path(__file__).parent / "demo_checks.yaml"
-# A live client brings up the verified kernel that parses the file's decimal
-# values exactly — decimal parsing is RTS-gated.
+# A live client brings up the verified kernel, which parses every number in the
+# file exactly.
 with AletheiaClient():
     checks = load_checks(yaml_path)
 

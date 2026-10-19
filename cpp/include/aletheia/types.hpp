@@ -157,8 +157,13 @@ public:
     // is the kernel's: `-?digits` or `-?digits.digits+` (no `+` sign, no
     // leading/trailing `.`, no exponent). RTS-gated and vocal: an FfiBackend
     // must be live first (it is the sole GHC RTS initialiser), else this throws
-    // `AletheiaException(Ffi)` rather than self-initialising. Throws
-    // `AletheiaException(Validation)` on a malformed literal or int64 overflow.
+    // `AletheiaException(Ffi)` rather than self-initialising. A refusal is the
+    // kernel's, decoded by `detail::binary_refusal` and thrown as an
+    // `AletheiaException`: the literal is the caller's own text, so a malformed
+    // one is kind Validation with code `TextParseFailure` or
+    // `TextTrailingInput` (`FfiValidationError` when the shared library refused
+    // the bytes before the kernel read them), and a component past the kernel's
+    // magnitude bound is kind InputBoundExceeded with `bound_info()`.
     [[nodiscard]] static auto from_decimal(std::string_view s) -> Rational;
 
 private:

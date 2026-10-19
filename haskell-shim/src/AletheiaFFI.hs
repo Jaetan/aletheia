@@ -21,8 +21,8 @@ import Foreign.Ptr (Ptr, nullPtr)
 import Foreign.Storable (Storable, peek)
 import Foreign.Marshal.Array (peekArray)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import Data.Int (Int8, Int64)
-import Data.Word (Word8, Word32, Word64)
+import Data.Int (Int8)
+import Data.Word (Word8)
 import qualified Data.Text as T
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -33,7 +33,6 @@ import qualified MAlonzo.Code.Aletheia.DBC.TextParser.DecimalEntry as AgdaDE
 import qualified MAlonzo.Code.Aletheia.Main.Binary as AgdaBin
 import qualified MAlonzo.Code.Aletheia.Main.JSON as AgdaJSON
 import qualified MAlonzo.Code.Aletheia.Protocol.StreamState.Types as AgdaState
-import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 
 import AletheiaFFI.Marshal
@@ -349,17 +348,21 @@ aletheia_format_rational valuePtr
 -- ============================================================================
 
 -- | Parse a decimal string into the exact rational it denotes: its numerator
--- and denominator on success, or a `{"status":"error",...}` envelope (code
--- `decimal_parse_failed` / `decimal_overflow`, with the offending `input`
--- echoed) on failure.
+-- and denominator on success, or a `{"status":"error",...}` envelope on
+-- failure.
 --
--- This is the cross-binding single source of truth for decimal→rational: every
--- binding routes user decimal input through here rather than re-deriving a
--- float→rational heuristic, so the accepted grammar cannot drift between
--- languages.  The kernel parser (`parseDecimal`) yields an unbounded ℚ; the
--- Int64-wire bound is enforced here at the marshaling boundary.  The rational
--- is written into `out`; a failure sets its
--- error to a JSON envelope the caller frees via `aletheia_free_str`.
+-- The kernel is the cross-binding single source of truth for a valid decimal:
+-- every binding routes user decimal input through here rather than re-deriving
+-- a float→rational heuristic, so neither the grammar nor the bound can drift
+-- between languages.  `parseDecimal` answers `Error ⊎ WireRational`: a parse
+-- failure, a partial parse and a component past the magnitude bound are each
+-- a typed kernel error, rendered by `formatErrorEnvelope` as every kernel
+-- refusal is; a `WireRational`'s components fit `int64_t` by its erased
+-- proof, so `fromInteger` is lossless (held by `check-erasure`).  The shim's
+-- own refusal of the text (a NULL, an unreadable size, bytes that are not
+-- UTF-8, a NUL among them) is `ffi_validation_error`, as on `aletheia_process`.  The rational is
+-- written into `out`; a failure sets its error to a JSON envelope the caller
+-- frees via `aletheia_free_str`.
 foreign export ccall aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
 aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
 aletheia_parse_decimal inputPtr out
@@ -367,15 +370,17 @@ aletheia_parse_decimal inputPtr out
   | otherwise = do
       input <- peekText inputPtr
       case input of
-        Left reason -> refuse (mkDecimalErrorJson "decimal_parse_failed" reason "")
-        Right s -> do
-          let result = unsafeCoerce (AgdaDE.d_parseDecimal_16 (T.pack s))
-                         :: Maybe AgdaRational.T_ℚ_6
-          case decimalResult s result of
-            Left envelope -> refuse envelope
-            Right (n, d) -> pokeDecimalValue out (WireRational n d) >> pure 0
+        Left reason -> errorJSON reason >>= refuse
+        Right s ->
+          case unsafeCoerce (AgdaDE.d_parseDecimal_52 (T.pack s)) :: AgdaSum.T__'8846'__30 of
+            AgdaSum.C_inj'8321'_38 errAny -> kernelErrorText (unsafeCoerce errAny) >>= refuse
+            AgdaSum.C_inj'8322'_42 ratAny -> do
+              let rat = unsafeCoerce ratAny :: AgdaDE.T_WireRational_8
+              pokeDecimalValue out (WireRational (fromInteger (AgdaDE.d_numerator_16 rat))
+                                                 (fromInteger (AgdaDE.d_denominator_18 rat)))
+              pure 0
   where
-    refuse envelope = newUtf8 (T.pack envelope) >>= pokeDecimalErr out >> pure 1
+    refuse envelope = pokeDecimalErr out envelope >> pure 1
 
 foreign export ccall aletheia_free_buf :: Ptr Word8 -> IO ()
 aletheia_free_buf :: Ptr Word8 -> IO ()

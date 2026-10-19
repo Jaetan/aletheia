@@ -620,27 +620,31 @@ interleaves real Data frames with Error / Remote frames (e.g., to
 inject bus-fault events into a replay) must order ALL three kinds
 together by timestamp, not just within each kind.
 
-#### `dbc_text_*` on `parse_dbc_text`
+#### Text parse codes on `parse_dbc_text` and `aletheia_parse_decimal`
 
 **Symptom:** `parse_dbc_text` returns an error whose `code` is one of
-the three `dbc_text_*` codes:
-- `dbc_text_parse_failure` — the text could not be parsed; structured
+these three, or `aletheia_parse_decimal` (every binding's exact-decimal
+constructor) returns one of the first two:
+- `text_parse_failure`: the text could not be parsed; structured
   `line` / `column` mark the deepest byte any parse attempt reached
   (the watermark).
-- `dbc_text_trailing_input` — the top-level parse stopped at the first
-  unparseable statement; `line` / `column` mark the failing byte,
-  `statement_line` / `statement_column` where that statement starts.
-- `dbc_text_attribute_refinement_failed` — a `BA_DEF_DEF_` / `BA_` /
+- `text_trailing_input`: the parse stopped at the first unparseable
+  statement of a `.dbc` text, or at the unconsumed tail of a decimal;
+  `line` / `column` mark the failing byte, `statement_line` /
+  `statement_column` where that statement starts.
+- `dbc_text_attribute_refinement_failed`: a `BA_DEF_DEF_` / `BA_` /
   `BA_REL_` entry failed refinement (undeclared attribute, or a value
   that does not fit its declared type).
 
-**Cause:** The DBC source text failed the Agda-verified grammar
-parser (`Aletheia.DBC.TextParser`).  Causes: malformed `BO_` / `SG_` /
-`VAL_` lines, unbalanced quotes, invalid identifier characters,
-out-of-range numeric literals, or constructs the parser doesn't yet
-cover (the parser implements full cantools equivalence; if a
-construct is rejected, the source likely has a syntax error rather
-than a cantools-only extension).
+**Cause:** The DBC source text, or the decimal literal, failed the
+Agda-verified grammar parser (`Aletheia.DBC.TextParser`); a decimal
+whose numerator or denominator is past the component bound is refused
+with `input_bound_exceeded` and field `decimal` instead.  Causes for a
+DBC: malformed `BO_` / `SG_` / `VAL_` lines, unbalanced quotes, invalid
+identifier characters, out-of-range numeric literals, or constructs the
+parser doesn't yet cover (the parser implements full cantools
+equivalence; if a construct is rejected, the source likely has a syntax
+error rather than a cantools-only extension).
 
 **Action:** The error carries the structured `line` / `column`
 watermark identifying the failing byte.  Compare

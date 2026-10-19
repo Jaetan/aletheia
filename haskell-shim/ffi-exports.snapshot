@@ -23,7 +23,7 @@
 # Function exports (d_*)
 # ============================================================================
 F: Aletheia/DBC/RationalRenderer:d_formatRational_166
-F: Aletheia/DBC/TextParser/DecimalEntry:d_parseDecimal_16
+F: Aletheia/DBC/TextParser/DecimalEntry:d_parseDecimal_52
 F: Aletheia/Main/JSON:d_processJSONLine_74
 F: Aletheia/Main/Binary:d_processFrameRaw_116
 F: Aletheia/Main/Binary:d_processErrorFrameRaw_176
@@ -47,6 +47,8 @@ F: Aletheia/CAN/BatchExtraction:d_absent_26
 F: Aletheia/CAN/BatchExtraction:d_extractionErrorCodeToℕ_160
 F: Aletheia/CAN/BatchExtraction:d_wireRangeReason_166
 F: Aletheia/CAN/BatchExtraction:d_valueExceedsWireRangeCode_226
+F: Aletheia/DBC/TextParser/DecimalEntry:d_numerator_16
+F: Aletheia/DBC/TextParser/DecimalEntry:d_denominator_18
 F: Data/Rational/Base:d_numerator_14
 F: Data/Rational/Base:d_denominatorℕ_20
 F: Agda/Builtin/Sigma:d_fst_28
@@ -73,5 +75,6 @@ T: Aletheia/Protocol/StreamState/Types:T_StreamState_32
 T: Aletheia/Error:T_Error_358
 T: Aletheia/CAN/BatchExtraction:T_PartitionedResults_10
 T: Data/Rational/Base:T_ℚ_6
+T: Aletheia/DBC/TextParser/DecimalEntry:T_WireRational_8
 T: Agda/Builtin/Sigma:T_Σ_14
 T: Data/Sum/Base:T__'8846'__30

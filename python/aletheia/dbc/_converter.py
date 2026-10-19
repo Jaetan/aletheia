@@ -56,7 +56,8 @@ def dbc_and_warnings_from_response(
         DBCValidationFailedError: The DBC parsed but failed validation with
             a structured issue list (``handler_validation_failed``).
         ValidationError: The error envelope carries no structured issue
-            list (e.g. a syntactic parse failure).
+            list (e.g. a syntactic parse failure); it carries the kernel's
+            code.
 
     """
     if response["status"] == "error":
@@ -64,7 +65,7 @@ def dbc_and_warnings_from_response(
         # One rule decides liftability — the shared helper the client's
         # validate_dbc uses (gated on the wire code); no local re-implementation.
         raise_if_dbc_validation_failed(response, msg)
-        raise ValidationError(msg)
+        raise ValidationError(msg, code=response["code"])
     return response["dbc"], response["warnings"]
 
 

@@ -4,7 +4,7 @@
 
 Both loaders need to (a) extract typed fields from untyped dicts with
 helpful error messages, and (b) reject adversarial loader inputs
-(symlinks, oversize files) before yaml-cpp / openpyxl gets a chance to
+(symlinks, oversize files) before PyYAML / openpyxl gets a chance to
 explode or exhaust memory.  This module provides both surfaces.
 """
 
@@ -12,28 +12,32 @@ from __future__ import annotations
 
 import os
 import stat
-from fractions import Fraction
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, NewType, TypeGuard
 
 # DEFERRED:
-# Finding: `is_str_dict` (in protocols/_dbc_types.py) and `is_object_list`
-#   (in this module, definition below) are internal TypeGuard helpers exposed
-#   publicly via no-underscore naming.  Project-internal usage only.
-# Why: Mechanical rename + import-site update across ~10 call sites;
-#   gain is small (linter/dev-tooling clarity).
-# Revisit when: First external user lands, OR a `python -m aletheia._loader_utils`
-#   discovery surfaces the helpers as confusing public API.
+# Finding: `is_str_dict` and `is_object_list` (both in `aletheia/types.py`)
+#   are internal TypeGuard helpers exposed publicly via no-underscore naming.
+#   Project-internal usage only.
+# Why: Mechanical rename + import-site update across the package; gain is
+#   small (linter/dev-tooling clarity).
+# Revisit when: First external user lands, OR the helpers surface as
+#   confusing public API.
 # Direct sub-module import avoids re-entering ``client/__init__.py`` when
 # this module is loaded transitively from ``client._helpers`` during package
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).
-from aletheia.client._helpers.rational import from_decimal, is_pure_int
-from aletheia.client._types import ValidationError
+from aletheia.client._helpers.rational import from_decimal
+from aletheia.client._types import AletheiaError, ValidationError
+from aletheia.common_types import DocumentKey, Location
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from fractions import Fraction
     from pathlib import Path
 
     from aletheia.types import JSONValue
+
+# A number's text: a YAML scalar as the document spells it, an Excel cell's trimmed.
+NumberText = NewType("NumberText", str)
 
 
 def is_str(val: object) -> TypeGuard[str]:
@@ -54,72 +58,50 @@ def get_str(d: Mapping[str, JSONValue], key: str, ctx: str) -> str:
     return val
 
 
-def get_number(d: Mapping[str, JSONValue | Fraction], key: str, ctx: str) -> Fraction:
-    """Extract a required numeric field from *d* as an exact rational.
+def _read_number(text: NumberText, location: Location, key: DocumentKey) -> Fraction:
+    """Return the exact rational the kernel reads *text* as.
 
-    The float principle: no float ever materialises.  An integer is
-    read exactly (``Fraction(n)``); a decimal arrives as its original STRING
-    (YAML's float resolver is disabled; Excel uses the all-text contract) and
-    is parsed exactly via the kernel SSOT :func:`~aletheia.from_decimal`; an
-    explicitly ``!!float``-tagged YAML scalar arrives as the exact
-    ``Fraction`` the loader's float-tag constructor produced.  A ``float``
-    cell is **rejected** with a "format it as TEXT" message — a spreadsheet
-    number cell stores a lossy IEEE-754 double.  Booleans are rejected
-    (``isinstance(True, int)`` is ``True``, but a boolean is not a number).
-    Mirrors Rust ``get_rational`` / Go / C++.
+    The kernel decides what a number is.  Its refusal, or the shim's, carries a
+    code and keeps its type, code and fields, gaining *location* and *key*, so
+    its string form is ``<location>: invalid '<key>': <message>``.  An error
+    without a code (the RTS down, a malformed envelope) is the run's fault and
+    passes through unchanged.  RTS-gated, as :func:`~aletheia.from_decimal` is.
+    """
+    try:
+        return from_decimal(text)
+    except AletheiaError as exc:
+        if exc.code is not None:
+            exc.locate(location, key)
+        raise
 
-    Decimal parsing is RTS-gated (see :func:`~aletheia.from_decimal`).
+
+def get_number(d: Mapping[str, JSONValue], key: str, ctx: str) -> Fraction:
+    """Extract a required numeric field of a YAML check as an exact rational.
+
+    The YAML loader keeps every number as its text, so a number arrives as a
+    string, which the kernel reads as the document spells it
+    (:func:`_read_number`); any other value is refused as not a number.
     """
     val = d.get(key)
-    if isinstance(val, Fraction):
-        return val
-    if is_pure_int(val):
-        return Fraction(val)
     if isinstance(val, str):
-        try:
-            return from_decimal(val.strip())
-        except ValidationError as exc:
-            # Re-raise with the field context the loaders carry everywhere else,
-            # preserving the kernel's precise decimal_parse_failed/overflow reason.
-            msg = f"{ctx}: invalid '{key}': {exc}"
-            raise ValidationError(msg) from exc
-    if isinstance(val, float):
-        msg = (
-            f"{ctx}: '{key}' is a number cell; format it as TEXT so the exact value "
-            "is preserved (a number cell stores a lossy float)"
-        )
-        raise ValidationError(msg)
+        return _read_number(NumberText(val), Location(ctx), DocumentKey(key))
     msg = f"{ctx}: missing or invalid '{key}' (expected number)"
     raise ValidationError(msg)
 
 
 def get_int(d: Mapping[str, JSONValue], key: str, ctx: str) -> int:
-    """Extract a required integer field from *d*.
+    """Extract a required whole-number field of a YAML check.
 
-    An integer cell is accepted directly.  A text cell (the Excel all-text
-    contract) is parsed exactly via :func:`~aletheia.from_decimal` and must be
-    whole (unit denominator).  A ``float`` cell is **rejected** with a "format
-    it as TEXT" message (a number cell stores a lossy double).  Mirrors Rust
-    ``get_int``.
-
-    Parsing a text cell is RTS-gated (see :func:`~aletheia.from_decimal`).
+    The text is read as :func:`get_number` reads it and must be whole (unit
+    denominator).
     """
     val = d.get(key)
-    if is_pure_int(val):
-        return val
     if isinstance(val, str):
-        try:
-            frac = from_decimal(val.strip())
-        except ValidationError as exc:
-            msg = f"{ctx}: invalid '{key}': {exc}"
-            raise ValidationError(msg) from exc
+        frac = _read_number(NumberText(val), Location(ctx), DocumentKey(key))
         if frac.denominator != 1:
             msg = f"{ctx}: '{key}' must be a whole number, got {frac}"
             raise ValidationError(msg)
         return frac.numerator
-    if isinstance(val, float):
-        msg = f"{ctx}: '{key}' is a number cell; format it as TEXT (a whole number)"
-        raise ValidationError(msg)
     msg = f"{ctx}: missing or invalid '{key}' (expected integer)"
     raise ValidationError(msg)
 
@@ -127,23 +109,18 @@ def get_int(d: Mapping[str, JSONValue], key: str, ctx: str) -> int:
 def get_excel_number(d: Mapping[str, JSONValue], key: str, ctx: str) -> Fraction:
     """Extract a required Excel numeric field as an exact rational (all-text contract).
 
-    Unlike :func:`get_number` (shared with YAML, where an integer literal is
-    itself exact), an Excel **number cell** stores a lossy IEEE-754 double — so a
-    numeric field MUST be a text-formatted cell. openpyxl returns ``str`` for a
-    text cell and ``int``/``float`` for a number cell, so any non-``str`` numeric
-    cell is **rejected** with a "format it as TEXT" message; the text is parsed
-    exactly via the kernel SSOT :func:`~aletheia.from_decimal` (RTS-gated). This
-    rejects an integer number cell too — matching Rust ``get_rational``, Go
-    ``xlsxRational`` and C++ ``get_decimal``, so the four bindings agree on every
-    spreadsheet (the float principle: no lossy number cell ever enters).
+    An Excel **number cell** stores a lossy IEEE-754 double, so a numeric field
+    MUST be a text-formatted cell. openpyxl returns ``str`` for a text cell and
+    ``int``/``float`` for a number cell, so any non-``str`` numeric cell is
+    **rejected** with a "format it as TEXT" message; the trimmed text is read by
+    the kernel (:func:`_read_number`). This rejects an integer number cell too,
+    matching Rust ``get_rational``, Go ``xlsxRational`` and C++ ``get_decimal``,
+    so the four bindings agree on every spreadsheet (the float principle: no
+    lossy number cell ever enters).
     """
     val = d.get(key)
     if isinstance(val, str):
-        try:
-            return from_decimal(val.strip())
-        except ValidationError as exc:
-            msg = f"{ctx}: invalid '{key}': {exc}"
-            raise ValidationError(msg) from exc
+        return _read_number(NumberText(val.strip()), Location(ctx), DocumentKey(key))
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         msg = (
             f"{ctx}: '{key}' is a number cell (got {val}); format it as TEXT so the "
@@ -157,17 +134,13 @@ def get_excel_number(d: Mapping[str, JSONValue], key: str, ctx: str) -> Fraction
 def get_excel_int(d: Mapping[str, JSONValue], key: str, ctx: str) -> int:
     """Extract a required Excel whole-number field (all-text contract).
 
-    The text cell is parsed exactly via :func:`~aletheia.from_decimal` and must be
-    whole (unit denominator). A number cell (``int`` or ``float``) is rejected with
-    a "format it as TEXT" message — see :func:`get_excel_number`.
+    The text cell is read as :func:`get_excel_number` reads it and must be whole
+    (unit denominator). A number cell (``int`` or ``float``) is rejected with a
+    "format it as TEXT" message, as :func:`get_excel_number` rejects it.
     """
     val = d.get(key)
     if isinstance(val, str):
-        try:
-            frac = from_decimal(val.strip())
-        except ValidationError as exc:
-            msg = f"{ctx}: invalid '{key}': {exc}"
-            raise ValidationError(msg) from exc
+        frac = _read_number(NumberText(val.strip()), Location(ctx), DocumentKey(key))
         if frac.denominator != 1:
             msg = f"{ctx}: '{key}' must be a whole number, got {frac}"
             raise ValidationError(msg)

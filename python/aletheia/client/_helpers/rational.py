@@ -12,11 +12,12 @@ from aletheia.client._enrichment import get_renderer_lib
 from aletheia.client._ffi import (
     AletheiaDecimal,
     AletheiaText,
-    KernelResponse,
     hs_initialized,
-    parse_json_object,
+    take_error_envelope,
 )
+from aletheia.client._refusal import raise_entry_refusal
 from aletheia.client._types import FFIError, ProtocolError, ValidationError
+from aletheia.common_types import Prose
 from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
@@ -37,10 +38,8 @@ def is_pure_int(v: object) -> TypeGuard[int]:
     Python's ``bool`` is a subclass of ``int`` (``isinstance(True, int)``
     returns ``True``), so plain ``isinstance(v, int)`` is insufficient
     for "is this a numeric integer?" checks.  This guard rejects bools
-    while accepting all other ``int`` values.  Lives here (next to the wire
-    rational decoders that use it) rather than in ``_loader_utils`` so the
-    loader helpers can delegate decimal parsing to :func:`from_decimal`
-    without a circular import.
+    while accepting all other ``int`` values.  The wire rational decoders
+    here and the DBC reply checks of ``dbc_normalize`` use it.
     """
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -63,15 +62,27 @@ def from_decimal(s: str) -> Fraction:
     ``-N``), so it raises before the FFI call when the RTS is down rather than
     self-initialising.
 
+    A refusal is the kernel's error, decoded by the decoder the binary-output
+    entries use (:func:`raise_entry_refusal`): a refused literal is the
+    caller's own text, so it is a :class:`ValidationError` carrying the
+    kernel's ``code``, and a component past the bound the typed bound error.
+
     Raises:
         FFIError: the GHC runtime is not initialised (no client/backend
-            created), or the FFI returned a null pointer.
-        ValidationError: *s* is not a valid decimal literal, or its exact
-            rational overflows the Int64 wire range (the kernel's
-            ``decimal_parse_failed`` / ``decimal_overflow`` — user input, not
-            a wire fault).
-        ProtocolError: the FFI returned a malformed response envelope (an
-            ABI / kernel malfunction).
+            created).
+        InputBoundExceededError: a component of the exact rational is past
+            the kernel's rational component magnitude bound (the kernel's
+            ``input_bound_exceeded`` refusal, ``field`` ``"decimal"``).
+        ValidationError: the literal was refused, its ``code`` saying how:
+            ``text_parse_failure`` when the grammar matched nothing and
+            ``text_trailing_input`` when input remains after a literal, each
+            carrying the kernel's position in its message, or
+            ``ffi_validation_error`` when the shim refused the text before the
+            kernel read it (a NUL byte, or a lone surrogate, the one text a
+            ``str`` holds that is not UTF-8).
+        ProtocolError: the FFI answered a failure without an envelope, a
+            malformed envelope or a non-positive denominator (an ABI / kernel
+            malfunction).
 
     """
     if not hs_initialized():
@@ -82,26 +93,30 @@ def from_decimal(s: str) -> Fraction:
         raise FFIError(msg)
     lib = get_renderer_lib()
     out = AletheiaDecimal()
-    raw = s.encode()
+    # A lone surrogate reaches the shim as the bytes ``surrogatepass`` writes,
+    # which are not UTF-8, so the shim refuses it as it refuses such bytes from
+    # every binding; every other ``str`` encodes as plain UTF-8.
+    raw = s.encode(errors="surrogatepass")
     text = AletheiaText(raw, len(raw))
     if lib.aletheia_parse_decimal(ctypes.byref(text), ctypes.byref(out)) != 0:
-        err: int | None = out.err
-        if err is None:
-            msg = "aletheia_parse_decimal failed without an error"
-            raise FFIError(msg)
-        try:
-            envelope = parse_json_object(KernelResponse(ctypes.string_at(err)))
-        finally:
-            lib.aletheia_free_str(err)
-        # A failure is user input (ValidationError), not a wire fault: the
-        # envelope names the decimal_parse_failed / decimal_overflow reason.
-        message = envelope.get("message", "invalid decimal literal")
-        raise ValidationError(str(message))
+        missing = Prose("aletheia_parse_decimal failed without an error")
+        raise_entry_refusal(take_error_envelope(lib, out, missing), error=ValidationError)
+    return decimal_value(out)
+
+
+def decimal_value(out: AletheiaDecimal) -> Fraction:
+    """Read the rational the decimal entry answered into *out*.
+
+    The kernel answers lowest terms over a positive denominator; anything else
+    is the ABI or the kernel malfunctioning, which ``Fraction`` would hide by
+    moving the sign.
+
+    Raises:
+        ProtocolError: the denominator is not positive.
+
+    """
     numerator: int = out.value.numerator
     denominator: int = out.value.denominator
-    # The kernel answers lowest terms over a positive denominator; anything
-    # else is the ABI or the kernel malfunctioning, which Fraction would hide
-    # by moving the sign.
     if denominator <= 0:
         msg = f"aletheia_parse_decimal answered a non-positive denominator {denominator}"
         raise ProtocolError(msg)

@@ -64,9 +64,9 @@ bindings:
       # reads the wire kills, or a message meant for a person, which only a
       # test pinning its wording kills.
       survivors: 0
-      total_mutants: 915
+      total_mutants: 906
       score_pct: 100
-      run_at: "2026-10-16"
+      run_at: "2026-10-19"
       # A mutant mutmut ended at its timeout is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a sweep in which
       # the cap fired, and a timed-out mutant is a hang to remove, never a cap
@@ -151,12 +151,12 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 710
+      generated: 731
       not_covered: 15
       timeouts: 0
-      total_mutants: 695
+      total_mutants: 716
       score_pct: 100.0
-      run_at: "2026-10-17"
+      run_at: "2026-10-19"
       # A mutant that times out is neither killed nor lived, and no verdict
       # may come from a clock: a survivor runs the whole suite, the slowest
       # run there is, so a cap it reached would hide it as a timeout. A mutant
@@ -411,7 +411,7 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 6
-      total_mutants: 1547
+      total_mutants: 1546
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -439,42 +439,43 @@ bindings:
       # the library and not over this list.
       runs_by_file:
         cpp/benchmarks/benchmark_output.cpp: 0.2
-        cpp/benchmarks/measure.hpp: 0.3
+        cpp/benchmarks/measure.hpp: 0.1
         cpp/benchmarks/report_flush.hpp: 0.1
-        cpp/benchmarks/stability_report.hpp: 1.0
-        cpp/benchmarks/stability_snapshot.hpp: 5.4
+        cpp/benchmarks/stability_report.hpp: 0.6
+        cpp/benchmarks/stability_snapshot.hpp: 3.5
         cpp/include/aletheia/backend.hpp: 0.0
-        cpp/include/aletheia/check.hpp: 0.4
-        cpp/include/aletheia/client.hpp: 0.1
-        cpp/include/aletheia/detail/cache_keys.hpp: 0.3
+        cpp/include/aletheia/check.hpp: 0.2
+        cpp/include/aletheia/client.hpp: 0.0
+        cpp/include/aletheia/detail/cache_keys.hpp: 0.2
         cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
-        cpp/include/aletheia/log.hpp: 0.4
-        cpp/include/aletheia/ltl.hpp: 0.1
-        cpp/include/aletheia/response.hpp: 0.1
-        cpp/include/aletheia/types.hpp: 0.4
-        cpp/src/backend.cpp: 0.3
-        cpp/src/checked.cpp: 0.2
-        cpp/src/client.cpp: 14.3
-        cpp/src/client_stream.cpp: 2.7
-        cpp/src/dbc.cpp: 1.0
-        cpp/src/detail/dl_symbol.cpp: 0.1
+        cpp/include/aletheia/error.hpp: 0.0
+        cpp/include/aletheia/log.hpp: 0.2
+        cpp/include/aletheia/ltl.hpp: 0.0
+        cpp/include/aletheia/response.hpp: 0.0
+        cpp/include/aletheia/types.hpp: 0.2
+        cpp/src/backend.cpp: 0.2
+        cpp/src/checked.cpp: 0.1
+        cpp/src/client.cpp: 8.6
+        cpp/src/client_stream.cpp: 1.4
+        cpp/src/dbc.cpp: 0.5
+        cpp/src/detail/dl_symbol.cpp: 0.0
         cpp/src/detail/ffi_abi.hpp: 0.0
-        cpp/src/detail/ffi_logic.cpp: 1.2
+        cpp/src/detail/ffi_logic.cpp: 0.8
         cpp/src/detail/json_parse_helpers.hpp: 0.1
-        cpp/src/detail/loader_utils.cpp: 3.9
-        cpp/src/detail/loader_utils.hpp: 1.6
-        cpp/src/enrich.cpp: 0.1
-        cpp/src/excel.cpp: 22.7
-        cpp/src/ffi_backend.cpp: 5.9
-        cpp/src/json_parse.cpp: 2.9
-        cpp/src/json_parse_dbc.cpp: 0.8
-        cpp/src/json_serialize.cpp: 0.5
-        cpp/src/rational_renderer.cpp: 3.3
-        cpp/src/types.cpp: 0.1
-        cpp/src/yaml.cpp: 33.4
+        cpp/src/detail/loader_utils.cpp: 2.3
+        cpp/src/detail/loader_utils.hpp: 1.1
+        cpp/src/enrich.cpp: 0.0
+        cpp/src/excel.cpp: 19.5
+        cpp/src/ffi_backend.cpp: 3.7
+        cpp/src/json_parse.cpp: 1.8
+        cpp/src/json_parse_dbc.cpp: 0.4
+        cpp/src/json_serialize.cpp: 0.2
+        cpp/src/rational_renderer.cpp: 2.2
+        cpp/src/types.cpp: 0.0
+        cpp/src/yaml.cpp: 24.7
       timeouts: 0
       score_pct: 99.6
-      run_at: "2026-10-15"
+      run_at: "2026-10-19"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -483,7 +484,7 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1515
+        test: 1514
         kernel: 2
         check: 14
         fault: 10
@@ -786,12 +787,12 @@ bindings:
       # kernel returns is copied and released in one function, with no Drop
       # of its own to remove, and the same count holds that release.
       survivors: 0
-      generated: 374
-      unviable: 61
+      generated: 376
+      unviable: 62
       timeouts: 0
-      total_mutants: 313
+      total_mutants: 314
       score_pct: 100.0
-      run_at: "2026-10-08"
+      run_at: "2026-10-19"
       # A mutant cargo-mutants ended at its timeout is neither killed nor
       # alive, and no verdict comes from a clock.  None can hang a run by
       # construction: the lane's files hold no wait, no thread and no loop

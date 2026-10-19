@@ -405,6 +405,7 @@ pub(crate) fn parse_object(raw: &str) -> Result<Value, Error> {
                     observed,
                     limit,
                     field,
+                    located: None,
                 });
             }
         }

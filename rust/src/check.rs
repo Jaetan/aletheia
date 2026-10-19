@@ -88,7 +88,7 @@ fn rat_str(r: Rational) -> String {
 /// Convert milliseconds to a microsecond [`TimeBound`], guarding overflow.
 fn ms_to_bound(ms: u64) -> Result<TimeBound, Error> {
     let micros = ms.checked_mul(US_PER_MS).ok_or_else(|| {
-        Error::Validation(format!("time {ms} ms overflows microsecond conversion"))
+        Error::validation(format!("time {ms} ms overflows microsecond conversion"))
     })?;
     Ok(TimeBound(micros))
 }
@@ -223,7 +223,7 @@ impl Signal {
     ) -> Result<Check, Error> {
         let (lo, hi) = (lo.into(), hi.into());
         if !lo.le(hi) {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "stays_between: lo ({}) must be <= hi ({})",
                 rat_str(lo),
                 rat_str(hi)
@@ -308,7 +308,7 @@ impl Settles {
     /// overflows the microsecond conversion.
     pub fn within(self, ms: u64) -> Result<Check, Error> {
         if !self.range_ok {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "settles_between: lo ({}) must be <= hi ({})",
                 rat_str(self.lo),
                 rat_str(self.hi)
@@ -481,7 +481,7 @@ impl ThenCondition {
     /// `ms` overflows the microsecond conversion.
     pub fn within(self, ms: u64) -> Result<Check, Error> {
         if let Some(err) = self.range_err {
-            return Err(Error::Validation(err));
+            return Err(Error::validation(err));
         }
         let bound = ms_to_bound(ms)?;
         let f = Formula::Always(Box::new(Formula::implies(

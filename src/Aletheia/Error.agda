@@ -430,11 +430,13 @@ dispatchErrorCode (InvalidJSON _)        = "dispatch_invalid_json"
 dispatchErrorCode RequestNotObject       = "dispatch_request_not_object"
 
 -- ============================================================================
--- DBC TEXT PARSE ERRORS (DBC/TextParser.agda)
+-- TEXT PARSE ERRORS (DBC/TextParser.agda, DBC/TextParser/DecimalEntry.agda)
 -- ============================================================================
 
--- Errors emitted by the DBC text parser.  Kept
--- separate from `ParseError` (the JSON-protocol parser) because the
+-- Errors of the parsers run over a whole text: a failed or a partial
+-- parse is refused alike by the DBC text route and the decimal entry
+-- (`Consumed.consumed`), the other two arms are the DBC text route's own.
+-- Kept separate from `ParseError` (the JSON-protocol parser) because the
 -- vocabularies do not overlap; each evolves independently.
 -- Why `refineAttributes` rejected an attribute entry — carried alongside
 -- the offending attribute's name so the error states the exact cause
@@ -471,7 +473,7 @@ data DBCTextParseError : Set where
 
 formatDBCTextParseError : DBCTextParseError → String
 formatDBCTextParseError (ParseFailure pos) =
-  "DBC text parse failed at line " ++ₛ showℕ (Position.line pos)
+  "parse failed at line " ++ₛ showℕ (Position.line pos)
     ++ₛ ", column " ++ₛ showℕ (Position.column pos)
 formatDBCTextParseError (TrailingInput pos stmt) =
   "parse failed at line " ++ₛ showℕ (Position.line pos)
@@ -489,8 +491,8 @@ formatDBCTextParseError (SignalGeometryError name inner) =
   "signal '" ++ₛ name ++ₛ "': " ++ₛ formatParseError inner
 
 dbcTextParseErrorCode : DBCTextParseError → String
-dbcTextParseErrorCode (ParseFailure _)            = "dbc_text_parse_failure"
-dbcTextParseErrorCode (TrailingInput _ _)         = "dbc_text_trailing_input"
+dbcTextParseErrorCode (ParseFailure _)            = "text_parse_failure"
+dbcTextParseErrorCode (TrailingInput _ _)         = "text_trailing_input"
 dbcTextParseErrorCode (AttributeRefinementFailed _ _) = "dbc_text_attribute_refinement_failed"
 dbcTextParseErrorCode (SignalGeometryError _ inner)   = parseErrorCode inner
 

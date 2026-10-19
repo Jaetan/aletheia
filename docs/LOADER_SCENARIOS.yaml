@@ -1,0 +1,308 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Aletheia Cross-Binding Loader Contract
+#
+# What the YAML and Excel loaders of the four bindings answer for a number, the
+# same in each.  A loader hands the kernel the number's text as the document
+# spells it, so the value, or the refusal, is the kernel's.  A refusal keeps the
+# kernel's kind, code and fields and gains the location and the key the loader
+# knows; its string form is the location, the key and the kernel's message.
+#
+# Read by:
+#   python/tests/test_loader_scenarios.py      -- YAML and Excel
+#   go/aletheia/loader_scenarios_test.go       -- YAML
+#   go/excel/loader_scenarios_test.go          -- Excel
+#   cpp/tests/test_loader_scenarios.cpp        -- YAML and Excel
+#   rust/tests/loader_scenarios.rs             -- YAML
+#   rust/excel/tests/loader_scenarios.rs       -- Excel
+#
+# Schema:
+#   yaml[]:  one check document,
+#              checks:
+#                - name: "C"
+#                  signal: Speed
+#                  condition: never_exceeds
+#                  value: <value>
+#            with <value> written verbatim, quotes and tag included.
+#   yaml_within_ms[]: one check document,
+#              checks:
+#                - name: "C"
+#                  signal: Speed
+#                  condition: settles_between
+#                  min: 0
+#                  max: 100
+#                  within_ms: <value>
+#            with <value> written verbatim; a reading is the milliseconds.
+#   excel[]: one data row under the sheet's header row, every cell a TEXT cell
+#            except the DBC sheet's Signed cell, a boolean FALSE:
+#              Checks: C | Speed | never_exceeds | <value> | | | |
+#              DBC:    256 | M | | 8 | Sig | 0 | 8 | little_endian | FALSE |
+#                      <value> | 0 | 0 | 1 | | |
+#            with <value> in the Checks sheet's Value cell or the DBC sheet's
+#            Factor cell.
+#   Each scenario:
+#     name:   the scenario's identifier
+#     sheet:  Excel only: Checks or DBC
+#     value:  the number as the document spells it
+#     expect: either
+#       rational: [numerator, denominator]  -- the value the loader reads
+#       milliseconds: n                     -- yaml_within_ms: the bound it reads
+#     or a refusal:
+#       kind:     validation | input_bound_exceeded
+#       code:     the kernel's wire code
+#       location: where the loader read the number
+#       key:      the key or the column header the number sat under
+#       printed:  the refusal's string form
+#       bound:    input_bound_exceeded only: {kind, observed, limit, field}
+
+yaml:
+  - name: decimal
+    value: "1.5"
+    expect: {rational: [3, 2]}
+  - name: decimal_quoted
+    value: "\"1.5\""
+    expect: {rational: [3, 2]}
+  - name: integer
+    value: "42"
+    expect: {rational: [42, 1]}
+  - name: leading_zero
+    value: "017"
+    expect: {rational: [17, 1]}
+  - name: tagged_float
+    value: "!!float 0.1"
+    expect: {rational: [1, 10]}
+  - name: tagged_float_quoted
+    value: "!!float \"0.1\""
+    expect: {rational: [1, 10]}
+  - name: trailing
+    value: "1.5x"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 4 (first unparseable statement starts at line 1, column 4)"
+  - name: trailing_quoted
+    value: "\"1.5x\""
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 4 (first unparseable statement starts at line 1, column 4)"
+  - name: leading_point
+    value: ".5"
+    expect:
+      kind: validation
+      code: text_parse_failure
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 1"
+  - name: hexadecimal
+    value: "0x1F"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 2 (first unparseable statement starts at line 1, column 2)"
+  - name: hexadecimal_quoted
+    value: "\"0x1F\""
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 2 (first unparseable statement starts at line 1, column 2)"
+  - name: exponent
+    value: "1e3"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 2 (first unparseable statement starts at line 1, column 2)"
+  - name: underscore
+    value: "1_000"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 2 (first unparseable statement starts at line 1, column 2)"
+  - name: int64_minimum
+    value: "-9223372036854775808"
+    expect:
+      kind: input_bound_exceeded
+      code: input_bound_exceeded
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': decimal: rational component magnitude 9223372036854775808 exceeds limit 9223372036854775807"
+      bound: {kind: rational_component_magnitude, observed: 9223372036854775808, limit: 9223372036854775807, field: decimal}
+  - name: int64_minimum_quoted
+    value: "\"-9223372036854775808\""
+    expect:
+      kind: input_bound_exceeded
+      code: input_bound_exceeded
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': decimal: rational component magnitude 9223372036854775808 exceeds limit 9223372036854775807"
+      bound: {kind: rational_component_magnitude, observed: 9223372036854775808, limit: 9223372036854775807, field: decimal}
+  - name: twenty_digits
+    value: "99999999999999999999"
+    expect:
+      kind: input_bound_exceeded
+      code: input_bound_exceeded
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"
+      bound: {kind: rational_component_magnitude, observed: 18446744073709551615, limit: 9223372036854775807, field: decimal}
+
+  - name: boolean
+    value: "true"
+    expect:
+      kind: validation
+      code: text_parse_failure
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 1"
+  - name: boolean_quoted
+    value: "\"true\""
+    expect:
+      kind: validation
+      code: text_parse_failure
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 1"
+  - name: yaml11_boolean
+    value: "yes"
+    expect:
+      kind: validation
+      code: text_parse_failure
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 1"
+  - name: date
+    value: "2024-01-01"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 5 (first unparseable statement starts at line 1, column 5)"
+  - name: tagged_boolean
+    value: "!!bool true"
+    expect:
+      kind: validation
+      code: text_parse_failure
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 1"
+  - name: equals_sign
+    value: "="
+    expect:
+      kind: validation
+      code: text_parse_failure
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': parse failed at line 1, column 1"
+
+yaml_within_ms:
+  - name: within_integer
+    value: "500"
+    expect: {milliseconds: 500}
+  - name: within_quoted
+    value: "\"500\""
+    expect: {milliseconds: 500}
+  - name: within_whole_decimal
+    value: "1.0"
+    expect: {milliseconds: 1}
+  - name: within_zero
+    value: "0"
+    expect: {milliseconds: 0}
+  - name: within_hexadecimal
+    value: "0x1F4"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: within_ms
+      printed: "Check 'C': invalid 'within_ms': parse failed at line 1, column 2 (first unparseable statement starts at line 1, column 2)"
+  - name: within_unit
+    value: "500ms"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Check 'C'"
+      key: within_ms
+      printed: "Check 'C': invalid 'within_ms': parse failed at line 1, column 4 (first unparseable statement starts at line 1, column 4)"
+  - name: within_twenty_digits
+    value: "99999999999999999999"
+    expect:
+      kind: input_bound_exceeded
+      code: input_bound_exceeded
+      location: "Check 'C'"
+      key: within_ms
+      printed: "Check 'C': invalid 'within_ms': decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"
+      bound: {kind: rational_component_magnitude, observed: 18446744073709551615, limit: 9223372036854775807, field: decimal}
+
+excel:
+  - name: checks_decimal
+    sheet: Checks
+    value: "0.25"
+    expect: {rational: [1, 4]}
+  - name: checks_padded
+    sheet: Checks
+    value: " 0.25 "
+    expect: {rational: [1, 4]}
+  - name: checks_trailing
+    sheet: Checks
+    value: "1.5x"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Row 2"
+      key: Value
+      printed: "Row 2: invalid 'Value': parse failed at line 1, column 4 (first unparseable statement starts at line 1, column 4)"
+  - name: checks_leading_point
+    sheet: Checks
+    value: ".5"
+    expect:
+      kind: validation
+      code: text_parse_failure
+      location: "Row 2"
+      key: Value
+      printed: "Row 2: invalid 'Value': parse failed at line 1, column 1"
+  - name: checks_twenty_digits
+    sheet: Checks
+    value: "99999999999999999999"
+    expect:
+      kind: input_bound_exceeded
+      code: input_bound_exceeded
+      location: "Row 2"
+      key: Value
+      printed: "Row 2: invalid 'Value': decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"
+      bound: {kind: rational_component_magnitude, observed: 18446744073709551615, limit: 9223372036854775807, field: decimal}
+  - name: dbc_decimal
+    sheet: DBC
+    value: "0.25"
+    expect: {rational: [1, 4]}
+  - name: dbc_trailing
+    sheet: DBC
+    value: "1.5x"
+    expect:
+      kind: validation
+      code: text_trailing_input
+      location: "Row 2"
+      key: Factor
+      printed: "Row 2: invalid 'Factor': parse failed at line 1, column 4 (first unparseable statement starts at line 1, column 4)"
+  - name: dbc_twenty_digits
+    sheet: DBC
+    value: "99999999999999999999"
+    expect:
+      kind: input_bound_exceeded
+      code: input_bound_exceeded
+      location: "Row 2"
+      key: Factor
+      printed: "Row 2: invalid 'Factor': decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"
+      bound: {kind: rational_component_magnitude, observed: 18446744073709551615, limit: 9223372036854775807, field: decimal}

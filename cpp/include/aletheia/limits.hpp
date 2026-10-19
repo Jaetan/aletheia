@@ -128,9 +128,10 @@ struct InputBoundExceededError {
     std::uint64_t observed; // measured value past the limit; UINT64_MAX when the kernel
                             // measured more, its message then saying "at least"
     std::uint64_t limit;    // canonical bound from `Aletheia.Limits`
-    // The part of the DBC that crossed the bound, as the kernel names it
-    // (e.g. "senders array"): present on a DBC size bound (`array_cardinality`,
-    // `string_length`), std::nullopt on every other bound.
+    // The part of the input that crossed the bound, as the kernel names it:
+    // a DBC's "senders array" or "signal factor", a decimal entered through
+    // Rational::from_decimal as "decimal"; std::nullopt when the refusal names
+    // none (the input's length, its nesting depth, an identifier's length).
     std::optional<std::string> field;
 };
 

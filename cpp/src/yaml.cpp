@@ -11,7 +11,6 @@
 #include <yaml-cpp/yaml.h>
 
 #include <chrono>
-#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <stdexcept>
@@ -53,43 +52,52 @@ static auto get_str(const YAML::Node& node, const std::string& key, const std::s
     return child.as<std::string>();
 }
 
-// Read a numeric scalar as an EXACT Rational via the kernel decimal SSOT
-// (`Rational::from_decimal`) — the float principle: no float ever materialises.
-// YAML preserves the original scalar text, so the literal "11.5" is handed to
-// the kernel verbatim (→ 23/2) instead of round-tripping through a double.
-// RTS-gated: an FfiBackend must be live first. A kernel refusal of the literal
-// is the document's own defect, re-thrown with the check's context prefixed
-// because the kernel knows the literal and not the position; a refusal that is
-// not about the literal keeps its own kind all the way out of the loader.
-static auto get_decimal(const YAML::Node& node, const std::string& key, const std::string& ctx)
-    -> Rational {
-    auto const child = require_child(node, key, ctx, "number");
+// Read a numeric scalar as an exact Rational through the kernel's decimal
+// grammar (`Rational::from_decimal`), so no float ever materialises. yaml-cpp
+// hands every scalar as its text, tag and quotes aside, so the kernel reads the
+// number as the document spells it: `11.5`, `!!float 11.5` and `"11.5"` are each
+// 23/2, and `0x1F` or `1e3` is the kernel's refusal rather than a value a YAML
+// resolver chose. RTS-gated: an FfiBackend must be live first. A refusal of the
+// literal, a Validation error with the kernel's or the shared library's code or
+// the typed bound error, keeps its kind, code and fields and is located at the
+// check and the key, because the kernel knows the literal and not where the
+// document holds it; a runtime, library or wire fault keeps its own kind all the
+// way out of the loader. An absent key and a node that is not a scalar are the
+// loader's own refusal, naming `expected` as what it reads.
+static auto get_decimal(const YAML::Node& node, const std::string& key, const std::string& ctx,
+                        std::string_view expected = "number") -> Rational {
+    auto const child = require_child(node, key, ctx, expected);
     if (!child.IsScalar())
-        throw missing_or_invalid(ctx, key, "number");
-    // Reject booleans: yaml-cpp parses "true"/"false" as scalars too, and the
-    // kernel grammar would otherwise reject them with a less specific message.
-    auto const raw = child.as<std::string>();
-    if (raw == "true" || raw == "false" || raw == "TRUE" || raw == "FALSE" || raw == "True" ||
-        raw == "False")
-        throw missing_or_invalid(ctx, key, "number");
+        throw missing_or_invalid(ctx, key, expected);
     try {
-        return Rational::from_decimal(raw);
+        return Rational::from_decimal(child.as<std::string>());
     } catch (const AletheiaException& ex) {
-        if (ex.kind() != ErrorKind::Validation)
-            throw; // runtime-down / ABI faults are not properties of the document
-        throw std::runtime_error(ctx + ": invalid '" + key + "': " + ex.what());
+        if (ex.kind() != ErrorKind::Validation && ex.kind() != ErrorKind::InputBoundExceeded)
+            throw;
+        throw AletheiaException(ex.error().located(ctx, key));
     }
 }
 
-static auto get_int(const YAML::Node& node, const std::string& key, const std::string& ctx)
-    -> std::int64_t {
-    auto const child = require_child(node, key, ctx, "integer");
-    // A non-scalar fails the conversion below with the same refusal.
+// Read `within_ms`, a check's bound in milliseconds, as get_decimal reads a
+// number, so the kernel decides what the text is. The loader refuses at the
+// check a reading that is not whole, one that is negative, and one whose
+// microseconds the check builder's conversion refuses as overflowing int64.
+static auto get_within_ms(const YAML::Node& node, const std::string& ctx)
+    -> std::chrono::milliseconds {
+    auto const value = get_decimal(node, "within_ms", ctx, "integer");
+    if (value.denominator() != 1)
+        throw std::runtime_error(ctx + ": 'within_ms' must be a whole number, got " +
+                                 node["within_ms"].as<std::string>());
+    if (value.numerator() < 0)
+        throw std::runtime_error(ctx + ": 'within_ms' must be non-negative, got " +
+                                 node["within_ms"].as<std::string>());
+    auto const ms = std::chrono::milliseconds{value.numerator()};
     try {
-        return child.as<std::int64_t>();
-    } catch (const YAML::BadConversion&) {
-        throw missing_or_invalid(ctx, key, "integer");
+        static_cast<void>(detail::checked_ms_to_us(ms));
+    } catch (const std::invalid_argument& ex) {
+        throw std::runtime_error(ctx + ": invalid 'within_ms': " + ex.what());
     }
+    return ms;
 }
 
 static auto get_map(const YAML::Node& node, const std::string& key, const std::string& ctx)
@@ -152,7 +160,7 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
                                      ": condition 'settles_between' requires 'within_ms'");
         auto const lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
         auto const hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
-        auto const ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
+        auto const ms = get_within_ms(entry, ctx(name));
         return check::signal(signal).settles_between(lo, hi).within(ms);
     }
 
@@ -175,7 +183,7 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
 
     auto const when = get_map(entry, "when", ctx(name));
     auto const then = get_map(entry, "then", ctx(name));
-    auto const within_ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
+    auto const within_ms = get_within_ms(entry, ctx(name));
 
     // When clause
     auto const when_cond = get_str(when, "condition", ctx(name));
@@ -265,8 +273,8 @@ static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<Chec
         try {
             results.push_back(parse_check(entry));
         } catch (const AletheiaException& ex) {
-            // A kernel or runtime failure keeps its kind; only the document's
-            // own defect is a Validation error.
+            // A refused number, located, or a runtime failure keeps the error
+            // as thrown; any other defect of the document is a Validation one.
             return std::unexpected(ex.error());
         } catch (const std::runtime_error& ex) {
             return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});

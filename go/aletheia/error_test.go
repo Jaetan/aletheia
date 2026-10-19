@@ -106,24 +106,112 @@ func TestErrorKindString(t *testing.T) {
 	}
 }
 
-// An error carrying a cause renders both parts and unwraps to it, so
-// errors.Is reaches the cause; one with no cause renders one part and
-// unwraps to nil.
+// An error prints its message alone, the kernel's text when the kernel
+// refused; one carrying a cause prints the cause after it, as Go wraps
+// context, and unwraps to it, so errors.Is reaches the cause; one with no
+// cause unwraps to nil.
 func TestError_CauseIsRenderedAndUnwrapped(t *testing.T) {
 	cause := errors.New("underlying")
 	wrapped := aletheia.WrapValidationError("could not load", cause)
-	if got, want := wrapped.Error(), "aletheia validation error: could not load: underlying"; got != want {
+	if got, want := wrapped.Error(), "could not load: underlying"; got != want {
 		t.Errorf("Error() = %q, want %q", got, want)
 	}
 	if !errors.Is(wrapped, cause) {
 		t.Error("errors.Is must reach the cause through Unwrap")
 	}
 	bare := aletheia.NewValidationError("no cause")
-	if got, want := bare.Error(), "aletheia validation error: no cause"; got != want {
+	if got, want := bare.Error(), "no cause"; got != want {
 		t.Errorf("Error() = %q, want %q", got, want)
 	}
 	if errors.Unwrap(bare) != nil {
 		t.Error("an error with no cause must unwrap to nil")
+	}
+}
+
+// An error a loader located prints its location and its key before what it
+// prints unlocated, the message with the cause after it, or the bound error's
+// message or its own text; an error with no location prints that alone.
+func TestError_LocationLeadsTheText(t *testing.T) {
+	const parseFailure = "parse failed at line 1, column 1"
+	const bound = "decimal: rational component magnitude 9223372036854775808 exceeds limit 9223372036854775807"
+	coded := func(location, key string) *aletheia.Error {
+		return &aletheia.Error{Kind: aletheia.ErrValidation, Code: aletheia.CodeTextParseFailure,
+			Message: parseFailure, Location: location, Key: key}
+	}
+	kernelBound := func(location, key string) *aletheia.InputBoundExceededError {
+		return &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
+			Observed: 9223372036854775808, Limit: 9223372036854775807, Code: aletheia.CodeInputBoundExceeded,
+			Field: "decimal", Message: bound, Location: location, Key: key}
+	}
+	bindingBound := func(location, key string) *aletheia.InputBoundExceededError {
+		return &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
+			Observed: 10, Limit: 5, Code: aletheia.CodeInputBoundExceeded, Location: location, Key: key}
+	}
+	cases := map[string]struct {
+		err  error
+		want string
+	}{
+		"a coded error":          {coded("", ""), parseFailure},
+		"a coded error, located": {coded("Check 'C'", "value"), "Check 'C': invalid 'value': " + parseFailure},
+		"an error with a cause":  {&aletheia.Error{Message: "m", Cause: errors.New("c")}, "m: c"},
+		"a cause, located":       {&aletheia.Error{Message: "m", Cause: errors.New("c"), Location: "Row 2", Key: "Factor"}, "Row 2: invalid 'Factor': m: c"},
+		"the kernel's bound":     {kernelBound("", ""), bound},
+		"the kernel's, located":  {kernelBound("Row 2", "Value"), "Row 2: invalid 'Value': " + bound},
+		"the binding's bound":    {bindingBound("", ""), "rational_component_magnitude 10 exceeds limit 5"},
+		"the binding's, located": {bindingBound("Check 'C'", "value"), "Check 'C': invalid 'value': rational_component_magnitude 10 exceeds limit 5"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.err.Error(); got != tc.want {
+				t.Errorf("%s: Error() = %q, want %q", name, got, tc.want)
+			}
+		})
+	}
+}
+
+// Locate answers a copy of a coded error or of the bound error carrying the
+// location and the key, every field the kernel filled unchanged and the error
+// it was given left as it was; an error with no code and one from outside the
+// package come back as they were given.
+func TestLocate(t *testing.T) {
+	coded := &aletheia.Error{Kind: aletheia.ErrValidation, Code: aletheia.CodeTextTrailingInput,
+		Message: "parse failed at line 1, column 4", Cause: errors.New("c")}
+	var gotCoded *aletheia.Error
+	if !errors.As(aletheia.Locate(coded, "Check 'C'", "value"), &gotCoded) {
+		t.Fatal("a located coded error is not an *aletheia.Error")
+	}
+	wantCoded := *coded
+	wantCoded.Location, wantCoded.Key = "Check 'C'", "value"
+	if *gotCoded != wantCoded {
+		t.Errorf("Locate(coded) = %+v, want %+v", *gotCoded, wantCoded)
+	}
+	if gotCoded == coded || coded.Location != "" || coded.Key != "" {
+		t.Error("Locate changed the coded error it was given rather than answering a copy")
+	}
+
+	bound := &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
+		Observed: 18446744073709551615, Limit: 9223372036854775807, Code: aletheia.CodeInputBoundExceeded,
+		Field: "decimal", Message: "decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"}
+	var gotBound *aletheia.InputBoundExceededError
+	if !errors.As(aletheia.Locate(bound, "Row 2", "Factor"), &gotBound) {
+		t.Fatal("a located bound error is not an *aletheia.InputBoundExceededError")
+	}
+	wantBound := *bound
+	wantBound.Location, wantBound.Key = "Row 2", "Factor"
+	if *gotBound != wantBound {
+		t.Errorf("Locate(bound) = %+v, want %+v", *gotBound, wantBound)
+	}
+	if gotBound == bound || bound.Location != "" || bound.Key != "" {
+		t.Error("Locate changed the bound error it was given rather than answering a copy")
+	}
+
+	codeless := aletheia.NewValidationError("no code")
+	if got := aletheia.Locate(codeless, "Row 2", "Value"); got != error(codeless) || codeless.Location != "" || codeless.Key != "" {
+		t.Errorf("Locate(codeless) = %#v, want the error it was given, unchanged", got)
+	}
+	foreign := errors.New("not ours")
+	if got := aletheia.Locate(foreign, "Row 2", "Value"); got != foreign {
+		t.Errorf("Locate(foreign) = %#v, want the error it was given", got)
 	}
 }
 

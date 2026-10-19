@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #![cfg(feature = "yaml")]
 
-//! Cross-binding portability test for the YAML check loader (Slice R3b): the
-//! Rust loader must accept the *same* check file the Go and Python loaders do and
-//! compile it to the same formulas. The fixture's decimal operands are
-//! parsed via the kernel decimal SSOT (`Rational::from_decimal`), which is
-//! RTS-gated — so this test brings up a backend (`Client::new`) first, then loads.
+//! Cross-binding portability test for the YAML check loader: the Rust loader
+//! must accept the *same* check file the Go and Python loaders do and compile it
+//! to the same formulas. Every operand of the fixture is parsed by the kernel
+//! (`Rational::from_decimal`), which is RTS-gated, so this test brings up a
+//! backend (`Client::new`) first, then loads.
 
 use aletheia::{check, load_checks_from_yaml, Client, Rational};
 
@@ -17,9 +17,6 @@ const SHARED_FIXTURE: &str = include_str!("../../go/aletheia/testdata/doc_exampl
 
 #[test]
 fn loads_the_shared_cross_binding_fixture() {
-    // The fixture's `stays_between 11.5 14.5` operands are decimals parsed via the
-    // kernel decimal SSOT (`Rational::from_decimal`) — RTS-gated, so a backend
-    // must exist first.
     let _rts =
         Client::new().expect("init GHC RTS (is ALETHEIA_LIB set to a built libaletheia-ffi.so?)");
     let checks = load_checks_from_yaml(SHARED_FIXTURE).expect("load shared fixture");

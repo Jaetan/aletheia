@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Self-contained lazy-load + FFI dispatch for the cross-binding-
-// identical Rational pretty-printer.
+// Self-contained lazy-load + FFI dispatch for the kernel's Rational entries:
+// the cross-binding-identical pretty-printer and the decimal parser.
 //
 // Single source of truth: every render flows through
-// `aletheia_format_rational` in libaletheia-ffi.so.  The renderer dlopens
-// the library on first use via `std::call_once` for the format/free symbols,
-// but does NOT initialise the GHC RTS — that is an FfiBackend's job.  If the
-// runtime is not up it throws rather than self-initialising, which would
-// squander the FfiBackend's bus-count -N (the RTS is one-shot per process).
+// `aletheia_format_rational` in libaletheia-ffi.so, and every decimal through
+// `aletheia_parse_decimal`.  The renderer dlopens the library on first use via
+// `std::call_once` for the format, free and parse-decimal symbols, after
+// reading its ABI version, but does NOT initialise the GHC RTS: that is an
+// FfiBackend's job.  If the runtime is not up it throws rather than
+// self-initialising, which would squander the FfiBackend's bus-count -N (the
+// RTS is one-shot per process).
 // No local C++ fallback exists; `format_value(const Rational&)` (in
 // `enrich.cpp`) is byte-identical to Python's and Go's output by
 // construction, not by a test corpus.
@@ -216,12 +218,9 @@ static void ensure_loaded() {
                           "Rational pretty-printer requires libaletheia-ffi.so: " + s.load_error});
 }
 
-// The shape both entry points share: load lazily, refuse while the RTS is
-// down (calling the kernel then is undefined behaviour), call one kernel
-// function, own the string it returns.  `whats_down` and `returned_null`
-// name the operation in those two refusals.  A null return is unreachable
-// for a well-formed call, so it throws rather than fabricating a value,
-// as Go and Rust do.
+// What every entry point does before it calls the kernel: load lazily and
+// refuse while the RTS is down (calling the kernel then is undefined
+// behaviour), `whats_down` naming the operation in that refusal.
 static auto loaded_state(std::string_view whats_down) -> RendererState& {
     ensure_loaded();
     if (!rts_initialized())
@@ -231,6 +230,9 @@ static auto loaded_state(std::string_view whats_down) -> RendererState& {
     return state();
 }
 
+// Call one kernel function and own the string it returns, `returned_null`
+// naming the function.  A null return is unreachable for a well-formed call,
+// so it throws rather than fabricating a value, as Go and Rust do.
 template<typename Call>
 static auto kernel_string(Call call, std::string_view whats_down, std::string_view returned_null)
     -> std::string {

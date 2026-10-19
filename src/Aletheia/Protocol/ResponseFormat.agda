@@ -89,7 +89,7 @@ formatIssueSeverity IsWarning = "warning"
 -- Validation issue codes are deliberately NOT prefixed with `validation_`
 -- (e.g. `validation_duplicate_message_id`), even though the project's
 -- error-code naming convention (`parse_signal_bit_length_zero`,
--- `dbc_text_parse_failure`, etc.) prefixes error codes with a domain tag.
+-- `text_parse_failure`, etc.) prefixes error codes with a domain tag.
 -- RULE — the distinction is structural, not stylistic.  Error codes share a flat
 -- `("code", JStringS ...)` JSON field with the response envelope
 -- (`formatResponse (Error err)` at this module's tail), so they carry a domain

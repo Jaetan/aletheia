@@ -200,6 +200,7 @@ fn parse_object_lifts_input_bound_exceeded_triple() {
             observed,
             limit,
             field,
+            located,
         } => {
             assert_eq!(code, "input_bound_exceeded");
             assert_eq!(message, "too deep");
@@ -207,6 +208,7 @@ fn parse_object_lifts_input_bound_exceeded_triple() {
             assert_eq!(observed, 65);
             assert_eq!(limit, 64);
             assert_eq!(field, None, "an envelope naming no field lifts to None");
+            assert_eq!(located, None, "the lift locates nothing");
         }
         other => panic!("expected Error::InputBoundExceeded, got {other:?}"),
     }
@@ -305,12 +307,10 @@ fn parse_object_lifts_handler_validation_failed_issues() {
         r#"{"status":"error","code":"handler_validation_failed","message":"ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'","has_errors":true,"issues":[{"severity":"error","code":"duplicate_signal_name","detail":"Message 'M': duplicate signal name 'S'"},{"severity":"warning","code":"offset_scale_range","detail":"w"}]}"#,
     )
     .unwrap_err();
-    // Display renders the legacy message plus the issue count.
-    assert!(
-        err.to_string().contains(
-            "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S' (2 validation issues)"
-        ),
-        "Display: {err}"
+    // Display renders the kernel's message alone; the issues are fields.
+    assert_eq!(
+        err.to_string(),
+        "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'"
     );
     match err {
         Error::ValidationFailed {
@@ -676,4 +676,113 @@ fn decode_bin_rejects_invalid_utf8_reason() {
     buf.extend_from_slice(&[0xFF, 0xFE]);
     let err = decode_extraction_bin(&buf, &names()).unwrap_err();
     assert!(err.to_string().contains("not valid UTF-8"), "got: {err}");
+}
+
+#[test]
+fn an_error_prints_its_message_alone() {
+    // Every binding prints a refusal as its message, the kernel's text when
+    // the kernel refused; kind and code are the variant and its fields.
+    let issues = Vec::new();
+    let cases = [
+        (
+            Error::Validation {
+                message: "parse failed at line 1, column 4".to_string(),
+                code: Some("text_trailing_input".to_string()),
+                located: None,
+            },
+            "parse failed at line 1, column 4",
+        ),
+        (
+            Error::validation("rational denominator is zero"),
+            "rational denominator is zero",
+        ),
+        (Error::Protocol("p".to_string()), "p"),
+        (
+            Error::Core {
+                code: "handler_no_dbc".to_string(),
+                message: "StartStream: DBC not loaded".to_string(),
+            },
+            "StartStream: DBC not loaded",
+        ),
+        (
+            Error::TextRoundtripFailed {
+                code: "handler_text_roundtrip_failed".to_string(),
+                message: "FormatDBCText: the text does not re-parse".to_string(),
+                has_errors: true,
+                issues,
+            },
+            "FormatDBCText: the text does not re-parse",
+        ),
+    ];
+    for (err, want) in cases {
+        assert_eq!(err.to_string(), want);
+    }
+}
+
+#[test]
+fn a_located_refusal_prints_its_location_and_key_before_the_message() {
+    // A loader locates a refused number; the kernel's message, code and fields
+    // stay as the kernel answered them.
+    let located = Error::Validation {
+        message: "parse failed at line 1, column 4".to_string(),
+        code: Some("text_trailing_input".to_string()),
+        located: None,
+    }
+    .located("Check 'C'", "value");
+    assert_eq!(
+        located.to_string(),
+        "Check 'C': invalid 'value': parse failed at line 1, column 4"
+    );
+    assert!(
+        matches!(&located, Error::Validation { message, code: Some(code), located: Some(place) }
+            if message == "parse failed at line 1, column 4" && code == "text_trailing_input"
+                && place.location == "Check 'C'" && place.key == "value"),
+        "got: {located:?}"
+    );
+    assert_eq!(
+        (located.location(), located.key()),
+        (Some("Check 'C'"), Some("value"))
+    );
+
+    let kernel = "decimal: rational component magnitude 9223372036854775808 exceeds limit 9223372036854775807";
+    let located = parse_object(&format!(
+        r#"{{"status":"error","code":"input_bound_exceeded","message":"{kernel}","bound_kind":"rational_component_magnitude","observed":9223372036854775808,"limit":9223372036854775807,"field":"decimal"}}"#
+    ))
+    .unwrap_err()
+    .located("Row 2", "Factor");
+    assert_eq!(
+        located.to_string(),
+        format!("Row 2: invalid 'Factor': {kernel}")
+    );
+    assert!(
+        matches!(&located, Error::InputBoundExceeded {
+            code, message, bound_kind, observed: 9_223_372_036_854_775_808,
+            limit: 9_223_372_036_854_775_807, field: Some(field), located: Some(place) }
+            if code == "input_bound_exceeded" && message == kernel
+                && bound_kind == "rational_component_magnitude" && field == "decimal"
+                && place.location == "Row 2" && place.key == "Factor"),
+        "got: {located:?}"
+    );
+    assert_eq!(
+        (located.location(), located.key()),
+        (Some("Row 2"), Some("Factor"))
+    );
+
+    // An error no loader located has no place.
+    let unlocated = Error::validation("rational denominator is zero");
+    assert_eq!((unlocated.location(), unlocated.key()), (None, None));
+
+    // Every other variant is returned as it was.
+    let core = Error::Core {
+        code: "handler_no_dbc".to_string(),
+        message: "StartStream: DBC not loaded".to_string(),
+    }
+    .located("Row 2", "Value");
+    assert!(
+        matches!(&core, Error::Core { code, message }
+            if code == "handler_no_dbc" && message == "StartStream: DBC not loaded"),
+        "got: {core:?}"
+    );
+    assert_eq!(core.to_string(), "StartStream: DBC not loaded");
+    assert_eq!((core.location(), core.key()), (None, None));
 }

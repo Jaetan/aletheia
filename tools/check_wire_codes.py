@@ -1,40 +1,39 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""tools/check_wire_codes.py — Kernel ↔ ``docs/WIRE_CODES.yaml`` wire-code parity gate.
+"""Wire-code parity gate: the kernel and the shim against ``docs/WIRE_CODES.yaml``.
 
 The Agda kernel emits exactly two string-code vocabularies onto the JSON
 wire: DBC validation issue codes (``formatIssueCode`` in
 ``src/Aletheia/Protocol/ResponseFormat.agda``, the ``issues[].code`` field)
 and error codes (the per-ADT ``*ErrorCode`` formatter families plus the
 top-level ``errorCode`` in ``src/Aletheia/Error.agda``, the error
-envelope's ``code`` field).  Every
-binding mirrors both vocabularies, but all four decoders deliberately pass
-unknown codes through at runtime (the forward-compatibility channel), so a
-NEW kernel code reaches production as an unrecognised string without any
-test failing.
+envelope's ``code`` field).  The shared library's shim writes one more error
+code itself, its refusal of an argument it cannot read or a buffer it cannot
+write to (``haskell-shim/src/AletheiaFFI/Marshal.hs``), which the YAML lists
+after the kernel's.  Every binding mirrors both vocabularies, but all four
+decoders deliberately pass unknown codes through at runtime (the
+forward-compatibility channel), so a NEW kernel code reaches production as an
+unrecognised string without any test failing.
 
 ``docs/WIRE_CODES.yaml`` is the cross-binding SSOT for both vocabularies.
-This gate anchors it to the kernel: it collects the literal-RHS formatter
-arms from the two Agda sources and asserts the YAML matches — reciprocal
-set equality per vocabulary, plus kernel declaration order (which the YAML
+This gate anchors it to its emitters: it collects the literal-RHS formatter
+arms from the two Agda sources and the codes the shim's envelopes spell, and
+asserts the YAML matches: reciprocal set equality per vocabulary, plus
+kernel declaration order with the shim's codes after it (which the YAML
 header promises, because MAlonzo numbers ADT constructors in declaration
 order).  Per-binding parity tests (``python/tests/test_wire_codes_parity.py``)
 then anchor each binding's vocabulary to the YAML, closing the
 kernel → SSOT → binding chain.
 
 Delegating formatter arms (e.g. ``parseErrorCode (InContext _ inner) =
-parseErrorCode inner``) have no string-literal RHS and are skipped — only
+parseErrorCode inner``) have no string-literal RHS and are skipped: only
 literal arms mint wire codes.
 
 Exit codes:
-  0 — both vocabularies in parity (sets AND order).
-  1 — divergence detected (missing / phantom / duplicate / reordered codes).
-  2 — could not check: missing input file, malformed YAML, or zero codes
+  0: both vocabularies in parity (sets AND order).
+  1: divergence detected (missing / phantom / duplicate / reordered codes).
+  2: could not check: missing input file, malformed YAML, or zero codes
       parsed from a source that must carry them (a vacuous pass is refused).
-
-Forward-revert verified 2026-07-19: adding a phantom row to the YAML or a
-phantom ``formatIssueCode`` arm to the Agda source fires this gate; reverting
-returns to exit 0.
 """
 
 from __future__ import annotations
@@ -43,7 +42,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import cast
+from typing import NewType, cast
 
 import yaml
 
@@ -52,6 +51,12 @@ from tools._common import emit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_AGDA_ROOT = REPO_ROOT / "src"
 DEFAULT_YAML_PATH = REPO_ROOT / "docs" / "WIRE_CODES.yaml"
+
+# A wire code as its emitter spells it, and the text of a source that spells it.
+WireCode = NewType("WireCode", str)
+SourceText = NewType("SourceText", str)
+
+DEFAULT_SHIM_SOURCE = REPO_ROOT / "haskell-shim" / "src" / "AletheiaFFI" / "Marshal.hs"
 
 # Vocabulary sources, relative to the Agda root (the --agda-root test seam).
 ISSUE_CODE_SOURCE = Path("Aletheia") / "Protocol" / "ResponseFormat.agda"
@@ -73,6 +78,10 @@ ERROR_CODE_FUNCTIONS: tuple[str, ...] = (
     "dispatchErrorCode",
     "dbcTextParseErrorCode",
 )
+
+# A shim envelope spells its code inside a Haskell string literal whose quotes
+# are escaped with a backslash.
+_SHIM_CODE_RE = re.compile(r'\\"code\\":\\"([a-z0-9_]+)\\"')
 
 # Lines like:   parseErrorCode (MissingField _)   = "parse_missing_field"
 # A delegating arm's RHS is not a string literal, so it does not match.
@@ -104,7 +113,7 @@ def parse_kernel_codes(
     """Parse one vocabulary's wire strings from its Agda source, in declaration order.
 
     Raises :class:`WireCodesError` when the source is missing or yields zero
-    codes — either would make a "pass" vacuous.
+    codes; either would make a "pass" vacuous.
     """
     source = agda_root / relative
     if not source.is_file():
@@ -112,7 +121,28 @@ def parse_kernel_codes(
         raise WireCodesError(message)
     codes = collect_arm_literals(source.read_text(encoding="utf-8"), functions)
     if not codes:
-        message = f"parsed zero {label} from {source} — the regex or the Agda layout changed"
+        message = f"parsed zero {label} from {source}: the regex or the Agda layout changed"
+        raise WireCodesError(message)
+    return codes
+
+
+def collect_shim_codes(text: SourceText) -> list[WireCode]:
+    """Return the codes the shim's envelope literals spell, in file order, each once."""
+    return [WireCode(code) for code in dict.fromkeys(_SHIM_CODE_RE.findall(text))]
+
+
+def parse_shim_codes(source: Path) -> list[WireCode]:
+    """Parse the codes the shim writes itself from its source.
+
+    Raises :class:`WireCodesError` when the source is missing or yields zero
+    codes; either would make a "pass" vacuous.
+    """
+    if not source.is_file():
+        message = f"shim source not found: {source}"
+        raise WireCodesError(message)
+    codes = collect_shim_codes(SourceText(source.read_text(encoding="utf-8")))
+    if not codes:
+        message = f"parsed zero shim codes from {source}: the pattern or the shim's layout changed"
         raise WireCodesError(message)
     return codes
 
@@ -131,7 +161,7 @@ def load_wire_codes(yaml_path: Path) -> dict[str, list[dict[str, str]]]:
 
     Every entry must carry a non-empty ``name`` and ``description``; a missing
     file, a malformed root, or a missing/empty section raises
-    :class:`WireCodesError` (the could-not-check class — never a hollow pass).
+    :class:`WireCodesError` (the could-not-check class, never a hollow pass).
     """
     if not yaml_path.is_file():
         message = f"SSOT not found: {yaml_path}"
@@ -164,48 +194,56 @@ def load_wire_codes(yaml_path: Path) -> dict[str, list[dict[str, str]]]:
     return sections
 
 
-def compare_vocabulary(label: str, kernel: list[str], ssot: list[str]) -> list[str]:
-    """Return the divergences between one kernel vocabulary and its YAML section.
+def compare_vocabulary(label: str, emitted: list[str], ssot: list[str]) -> list[str]:
+    """Return the divergences between one vocabulary's emitted codes and its YAML section.
 
-    Checks duplicates on both sides, then reciprocal set inclusion, then —
-    only when the sets already agree — declaration order, so the order
+    The emitted codes are the kernel's, followed for the error codes by the
+    shim's, so a shim code repeating a kernel code is a duplicate on the
+    emitter side.  Checks duplicates on both sides, then reciprocal set
+    inclusion, then, only when the sets already agree, the order, so the order
     message never drowns out a genuine membership diff.
     """
     diffs: list[str] = []
-    for side, codes in (("kernel", kernel), ("YAML", ssot)):
+    for side, codes in (("emitter", emitted), ("YAML", ssot)):
         seen: set[str] = set()
         for code in codes:
             if code in seen:
                 diffs.append(f"{label}: duplicate code '{code}' on the {side} side")
             seen.add(code)
-    kernel_set, ssot_set = set(kernel), set(ssot)
+    emitted_set, ssot_set = set(emitted), set(ssot)
     diffs.extend(
-        f"{label}: kernel emits '{code}' but docs/WIRE_CODES.yaml has no row — add one"
-        for code in kernel
+        f"{label}: '{code}' is emitted but docs/WIRE_CODES.yaml has no row; add one"
+        for code in emitted
         if code not in ssot_set
     )
     diffs.extend(
-        f"{label}: docs/WIRE_CODES.yaml declares '{code}' but no kernel formatter arm "
-        + "emits it — remove the row or add the missing arm"
+        f"{label}: docs/WIRE_CODES.yaml declares '{code}' but nothing emits it; remove "
+        + "the row or add the missing formatter arm"
         for code in ssot
-        if code not in kernel_set
+        if code not in emitted_set
     )
-    if not diffs and kernel != ssot:
+    if not diffs and emitted != ssot:
         diffs.append(
-            f"{label}: same code set but the YAML order differs from kernel declaration "
-            + "order — reorder the YAML rows to match the formatter arms "
-            + "(the YAML header promises declaration order)"
+            f"{label}: same code set but the YAML order differs from the emitters' "
+            + "order; reorder the YAML rows to match the formatter arms, the shim's "
+            + "codes last (the YAML header promises declaration order)"
         )
     return diffs
 
 
 def main() -> int:
-    """Check both wire-code vocabularies against the SSOT; report any divergence."""
+    """Check both wire-code vocabularies against their emitters; report any divergence."""
     parser = argparse.ArgumentParser(
-        description="Enforce kernel <-> docs/WIRE_CODES.yaml wire-code parity."
+        description="Enforce kernel and shim <-> docs/WIRE_CODES.yaml wire-code parity."
     )
     _ = parser.add_argument(
         "--agda-root", type=Path, default=DEFAULT_AGDA_ROOT, help="Agda source root (test seam)"
+    )
+    _ = parser.add_argument(
+        "--shim-source",
+        type=Path,
+        default=DEFAULT_SHIM_SOURCE,
+        help="the shim's envelope source (test seam)",
     )
     _ = parser.add_argument(
         "--yaml", type=Path, default=DEFAULT_YAML_PATH, help="SSOT YAML path (test seam)"
@@ -219,16 +257,19 @@ def main() -> int:
         error_kernel = parse_kernel_codes(
             args.agda_root, ERROR_CODE_SOURCE, ERROR_CODE_FUNCTIONS, "error codes"
         )
+        shim_codes = parse_shim_codes(args.shim_source)
         sections = load_wire_codes(args.yaml)
     except WireCodesError as exc:
-        _ = sys.stderr.write(f"check-wire-codes: COULD NOT CHECK — {exc}\n")
+        _ = sys.stderr.write(f"check-wire-codes: COULD NOT CHECK: {exc}\n")
         return COULD_NOT_CHECK
 
     diffs = compare_vocabulary(
         "issue_codes", issue_kernel, [entry["name"] for entry in sections["issue_codes"]]
     )
     diffs += compare_vocabulary(
-        "error_codes", error_kernel, [entry["name"] for entry in sections["error_codes"]]
+        "error_codes",
+        [*error_kernel, *shim_codes],
+        [entry["name"] for entry in sections["error_codes"]],
     )
 
     if diffs:
@@ -236,18 +277,20 @@ def main() -> int:
         for diff in diffs:
             _ = sys.stderr.write(f"  - {diff}\n")
         _ = sys.stderr.write(
-            f"\nfound {len(diffs)} divergence(s) between the kernel formatters "
-            + "(formatIssueCode / the *ErrorCode families) and docs/WIRE_CODES.yaml.\n"
-            + "Reconcile by updating the YAML (when a kernel code was intentionally "
-            + "added or removed) or the Agda formatter — and mirror the change in every "
-            + "binding's vocabulary per the YAML header's addition protocol.\n"
+            f"\nfound {len(diffs)} divergence(s) between the emitters "
+            + "(formatIssueCode / the *ErrorCode families / the shim's envelopes) and "
+            + "docs/WIRE_CODES.yaml.\n"
+            + "Reconcile by updating the YAML (when an emitted code was intentionally "
+            + "added or removed), the Agda formatter or the shim's envelope, and mirror "
+            + "the change in every binding's vocabulary per the YAML header's addition "
+            + "protocol.\n"
         )
         return 1
 
     emit(
         f"check-wire-codes: {len(issue_kernel)} issue codes + {len(error_kernel)} error "
-        + "codes — docs/WIRE_CODES.yaml matches the kernel formatters "
-        + "(both directions, declaration order)"
+        + f"codes + {len(shim_codes)} shim codes; docs/WIRE_CODES.yaml matches the kernel "
+        + "formatters and the shim (both directions, declaration order)"
     )
     return 0
 

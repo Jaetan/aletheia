@@ -19,6 +19,7 @@ import pytest
 from _dbc_helpers import dbc, message, signal
 
 from aletheia import AletheiaClient, DBCValidationFailedError, ValidationError
+from aletheia.codes import ErrorCode
 from aletheia.dbc import (
     convert_dbc_file,
     dbc_to_json,
@@ -71,13 +72,15 @@ def test_dbc_to_json_invalid_file_raises(tmp_path: Path) -> None:
     string-literal and message-key mutants change the prefix (caught by the
     startswith) or look up a missing key (raising, which fails the test).
     A syntactic parse failure carries no structured issue list, so it stays
-    the generic ``ValidationError`` rather than ``DBCValidationFailedError``.
+    the generic ``ValidationError`` rather than ``DBCValidationFailedError``,
+    carrying the kernel's code.
     """
     bad = tmp_path / "bad.dbc"
-    bad.write_text("this is not a valid dbc file\n", encoding="utf-8")
+    bad.write_text("this is not a DBC file at all", encoding="utf-8")
     with pytest.raises(ValidationError) as excinfo:
         dbc_to_json(bad)
     assert str(excinfo.value).startswith(f"Failed to parse DBC file '{bad}': ")
+    assert excinfo.value.code == ErrorCode.TEXT_PARSE_FAILURE
 
 
 def test_dbc_to_json_validation_failure_raises_typed(tmp_path: Path) -> None:

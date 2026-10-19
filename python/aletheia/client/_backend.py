@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import ctypes
 from collections import deque
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 
 from aletheia.client._enrichment import set_renderer_lib
 from aletheia.client._ffi import (
@@ -31,13 +31,13 @@ from aletheia.client._ffi import (
     AletheiaFrame,
     AletheiaSignalValues,
     AletheiaText,
-    KernelResponse,
     RTSState,
     check_abi_version,
     configure_ffi_signatures,
     find_ffi_library,
-    parse_json_object,
+    take_error_envelope,
 )
+from aletheia.client._refusal import raise_entry_refusal
 from aletheia.client._types import (
     AletheiaError,
     FFIError,
@@ -46,6 +46,7 @@ from aletheia.client._types import (
     encode_maybe_bool,
     validate_payload_length,
 )
+from aletheia.common_types import Prose
 from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
@@ -236,29 +237,20 @@ def _decode_out_err(
     lib: ctypes.CDLL,
     out: AletheiaBuffer,
     prefix: str,
-) -> ProtocolError:
-    """Decode a failed buffer's ``err`` envelope and return a :class:`ProtocolError`.
+) -> NoReturn:
+    """Free a failed buffer's ``err`` envelope and raise the error it carries.
 
     The error is the JSON envelope every entry answers with
     (``{"status": "error", "code": …, "message": …}``): the kernel's typed
     refusal, or the shim's own (``ffi_validation_error``, a NULL pointer or a
-    buffer too small).  The exception carries the envelope's ``code``.  Frees
-    the ``err`` string.  The caller raises the returned exception (kept as a
-    return value rather than ``NoReturn``-style raise so the call sites read
-    linearly under pylint's ``too-many-statements`` budget).
+    buffer too small).  :func:`raise_entry_refusal` reads it: a bound refusal
+    raises :class:`InputBoundExceededError`, any other a :class:`ProtocolError`
+    carrying the envelope's ``code``, its text the kernel's message verbatim.
+    A buffer without an ``err`` raises a :class:`ProtocolError` without a code,
+    its text *prefix* and ``Unknown error``.
     """
-    err: int | None = out.err
-    if err is None:
-        return ProtocolError(f"{prefix}: Unknown error")
-    try:
-        envelope = parse_json_object(KernelResponse(ctypes.string_at(err)))
-    finally:
-        lib.aletheia_free_str(err)
-    code = envelope.get("code")
-    message = envelope.get("message")
-    if not isinstance(code, str) or not isinstance(message, str):
-        return ProtocolError(f"{prefix}: malformed error envelope {envelope!r}")
-    return ProtocolError(f"{prefix}: {message}", code=code)
+    envelope = take_error_envelope(lib, out, Prose(f"{prefix}: Unknown error"))
+    raise_entry_refusal(envelope)
 
 
 def _payload_frame(
@@ -496,7 +488,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
             ctypes.byref(out),
         )
         if status != 0:
-            raise _decode_out_err(self._lib, out, "build_frame failed")
+            _decode_out_err(self._lib, out, "build_frame failed")
         return ctypes.string_at(out_buf, out.size)
 
     def update_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
@@ -524,7 +516,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
             ctypes.byref(out),
         )
         if status != 0:
-            raise _decode_out_err(self._lib, out, "update_frame failed")
+            _decode_out_err(self._lib, out, "update_frame failed")
         return ctypes.string_at(out_buf, out.size)
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
@@ -545,7 +537,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
             ctypes.byref(out),
         )
         if status != 0:
-            raise _decode_out_err(self._lib, out, "extract_signals failed")
+            _decode_out_err(self._lib, out, "extract_signals failed")
         try:
             return ctypes.string_at(out.data, out.size)
         finally:

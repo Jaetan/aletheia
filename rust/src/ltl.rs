@@ -162,7 +162,7 @@ impl Predicate {
             }
             Predicate::Between { signal, min, max } => {
                 if !min.le(*max) {
-                    return Err(Error::Validation(format!(
+                    return Err(Error::validation(format!(
                         "between: min ({}/{}) exceeds max ({}/{})",
                         min.numerator(),
                         min.denominator(),
@@ -178,7 +178,7 @@ impl Predicate {
             }
             Predicate::StableWithin { signal, tolerance } => {
                 if tolerance.numerator() < 0 {
-                    return Err(Error::Validation(format!(
+                    return Err(Error::validation(format!(
                         "stableWithin: negative tolerance {}/{}",
                         tolerance.numerator(),
                         tolerance.denominator()
@@ -287,7 +287,7 @@ impl Formula {
 
     fn to_value_depth(&self, depth: usize) -> Result<Value, Error> {
         if depth > MAX_FORMULA_DEPTH {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "formula nesting depth exceeds {MAX_FORMULA_DEPTH}"
             )));
         }
