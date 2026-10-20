@@ -104,14 +104,14 @@ dev = [
     # fixed seed without promising them across its releases.  So every install
     # draws what CI draws, and a bump of this pin is the one change that can
     # move the sample.
-    "hypothesis==6.170.0",
+    "hypothesis==6.170.5",
     "pylint>=4.1.3,<5",
     "basedpyright>=1.40.2,<2",
     # ruff drives the ruff(ALL) lint + format gate; minor-level pin, because
     # ruff is pre-1.0 and new rules land in minor bumps, so a minor bump is a
     # deliberate act that reads the new findings.  The floor also carries STABLE
     # py314 lint-target support, which ruff has had since 0.15.
-    "ruff>=0.17.0,<0.18",
+    "ruff>=0.17.1,<0.18",
     # AGENTS.md Python cat 25 long-run sub-check — psutil drives
     # ``python/benchmarks/stability.py`` (the RSS, and the process filesystem
     # whose descriptor directory the fd count lists).  Keep in [dev] so the
