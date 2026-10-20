@@ -147,6 +147,10 @@ kernel, so a text holding one very long number is refused rather than read.
 A decimal a binding hands the kernel is decided there, every binding prints an
 error as the kernel's own message, and a number a YAML or Excel loader refuses
 is the kernel's error with the place the loader read it.
+An extracted signal value whose numerator or denominator is larger in
+magnitude than 2^63-1 is refused with a typed error on both extraction paths,
+a frame whose timestamp is past 2^64-1 is refused, and every number a reply
+writes is proven to lie in the range every binding's reader decodes.
 
 Living detail and rationale for the above are tracked outside the tree, with
 the rest of the pending work.
