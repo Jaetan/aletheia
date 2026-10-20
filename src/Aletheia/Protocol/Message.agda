@@ -11,16 +11,21 @@
 --       the Handlers tree produces Responses, ResponseFormat serializes them.
 module Aletheia.Protocol.Message where
 
+open import Data.Bool using (T)
 open import Data.String using (String)
 open import Data.List using (List)
+open import Data.List.Relation.Unary.All using (All)
 open import Data.Rational using (ℚ)
-open import Data.Product using (_×_)
+open import Data.Product using (_×_; proj₂)
 open import Aletheia.Protocol.Response using (PropertyResult; Warning)
 -- JSON.Types (not the Protocol.JSON umbrella): only the JSON value type
--- is needed here; the umbrella re-exports the parser, which would put
--- the message vocabulary inside every combinator change's recheck closure.
-open import Aletheia.Protocol.JSON.Types using (JSON)
+-- and the number predicate are needed here; the umbrella re-exports the
+-- parser, which would put the message vocabulary inside every combinator
+-- change's recheck closure.
+open import Aletheia.Protocol.JSON.Types using (JSON; NumbersWithin)
+open import Aletheia.CAN.BatchExtraction using (wireFits)
 open import Aletheia.DBC.Types using (ValidationIssue)
+open import Aletheia.Limits using (max-rational-component-magnitude)
 import Aletheia.Error as Err
 
 -- ============================================================================
@@ -72,8 +77,11 @@ data Response : Set where
 
   -- Extraction results (emitted by the signal-extraction handler, reached
   -- via the binary `processExtractDirect` entry point)
-  -- Args: successfully extracted values, errors, absent signals
-  ExtractionResultsResponse : List (String × ℚ) → List (String × String) → List String → Response
+  -- Args: successfully extracted values, errors, absent signals, and the
+  -- erased proof that every value fits the wire's rational slots
+  -- (`Aletheia.CAN.Batch.WireFits.extractAllSignals-values-fit`).
+  ExtractionResultsResponse : (values : List (String × ℚ)) → List (String × String) → List String
+    → @0 All (λ p → T (wireFits (proj₂ p))) values → Response
 
   -- Per-frame batch of property events emitted during streaming.
   -- Each element is one PropertyResult (Violation / Satisfaction /
@@ -102,13 +110,16 @@ data Response : Set where
   ValidationResponse : List ValidationIssue → Response
 
   -- Formatted DBC as JSON (emitted by the format-DBC handler, reached via
-  -- the binary `processFormatDBCDirect` entry point)
-  DBCResponse : JSON → Response
+  -- the binary `processFormatDBCDirect` entry point), with the erased proof
+  -- that every number in it has both components within the bound
+  -- (`Aletheia.DBC.Formatter.Bounded.formatDBC-within`).
+  DBCResponse : (json : JSON) → @0 NumbersWithin max-rational-component-magnitude json → Response
 
-  -- Parsed-and-validated DBC: the parsed body plus any non-error issues
-  -- (warnings).  Used by ParseDBC and ParseDBCText on the success path
-  -- (option 6b: warnings are NOT silently dropped on success).
-  ParsedDBCResponse : JSON → List ValidationIssue → Response
+  -- Parsed-and-validated DBC: the parsed body, the same erased number proof,
+  -- and any non-error issues (warnings).  Used by ParseDBC and ParseDBCText
+  -- on the success path (warnings are NOT silently dropped on success).
+  ParsedDBCResponse : (json : JSON) → @0 NumbersWithin max-rational-component-magnitude json
+    → List ValidationIssue → Response
 
   -- DBC text image (for FormatDBCText command): the formatted text plus its
   -- `wfTextIssues` diagnostics (warning-severity only).  Emitted ONLY when the

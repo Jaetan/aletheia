@@ -78,10 +78,11 @@ class ExtractionErrorCode(IntEnum):
     OUT_OF_BOUNDS = 1
     # Agda: ``Aletheia.CAN.BatchExtraction.BitExtractionFailed``
     BIT_EXTRACTION_FAILED = 2
-    # Agda: ``Aletheia.CAN.BatchExtraction.ValueExceedsWireRange`` — the
-    # exact value's reduced numerator or denominator exceeds the signed
-    # 64-bit range of the wire's rational slots; the FFI shim reroutes the
-    # signal here instead of letting the int64 slot wrap silently.
+    # Agda: ``Aletheia.CAN.BatchExtraction.ValueExceedsWireRange``: the
+    # exact value's reduced numerator magnitude or denominator exceeds
+    # 9223372036854775807, the symmetric bound of the wire's rational slots;
+    # the kernel's batch categoriser refuses the value with this code on
+    # both extraction paths, so the int64 slot never wraps.
     VALUE_EXCEEDS_WIRE_RANGE = 3
     # Agda: ``Aletheia.CAN.BatchExtraction.MuxSignalNotFound``
     MUX_SIGNAL_NOT_FOUND = 4

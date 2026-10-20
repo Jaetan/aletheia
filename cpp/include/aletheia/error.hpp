@@ -84,6 +84,7 @@ enum class ErrorCode {
     ParsePayloadByteOutOfRange,
     ParseNonPositiveDenominator,
     ParseSignalArrayLengthMismatch,
+    ParseTimestampPastWire,
     // Text parse errors: a DBC text the grammar refuses carries one of these,
     // a decimal literal it refuses TextParseFailure or TextTrailingInput.
     TextParseFailure,

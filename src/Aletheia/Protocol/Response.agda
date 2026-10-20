@@ -10,19 +10,23 @@
 -- Role: Used by Protocol.StreamState, Protocol.Message, and Protocol.ResponseFormat.
 module Aletheia.Protocol.Response where
 
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _≤_)
 open import Data.String using (String)
-open import Aletheia.Trace.Time using (Timestamp; μs)
+open import Aletheia.Trace.Time using (Timestamp; μs; tsValue)
+open import Aletheia.Limits using (observed-ceiling)
 open import Aletheia.LTL.Incremental using (LTLReason)
 
 -- Counterexample data for LTL violations.
 -- The reason is a closed `LTLReason` ADT — `Protocol.ResponseFormat` calls
 -- `formatLTLReason` at the JSON boundary so user-visible strings remain
 -- byte-stable while the core never traffics in display strings.
+-- `tsBounded` is the violating frame's own bound (`TimedFrame.tsBounded`),
+-- erased: the timestamp a reply quotes fits the wire's unsigned 64-bit slot.
 record CounterexampleData : Set where
   constructor mkCounterexampleData
   field
     timestamp : Timestamp μs  -- Timestamp (microseconds) of violating frame
+    @0 tsBounded : tsValue timestamp ≤ observed-ceiling
     reason : LTLReason        -- Closed reason ADT (formatted at JSON boundary)
 
 -- Property checking result for streaming protocol.

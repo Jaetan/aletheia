@@ -143,6 +143,7 @@ dispatchIterResult-violation : ∀ {n} dbc v (ps : List (PropertyState n)) (idx 
         (map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) completions
          ++ₗ (PR.PropertyResult.Violation (toℕ idx)
                 (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
+                                      (TimedFrame.tsBounded (Counterexample.violatingFrame ce))
                                       (Counterexample.reason ce))
               ∷ []))
 dispatchIterResult-violation dbc v ps idx ce completions tf cache = refl
@@ -272,6 +273,7 @@ handleDataFrame-violation-complete : ∀ {n} dbc v (props : List (PropertyState 
              (specCompletions (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)
          ++ₗ (PR.PropertyResult.Violation (toℕ idx)
                 (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
+                                      (TimedFrame.tsBounded (Counterexample.violatingFrame ce))
                                       (Counterexample.reason ce))
               ∷ []))
 handleDataFrame-violation-complete dbc v props prev cache tf idx ce mono spec-eq =

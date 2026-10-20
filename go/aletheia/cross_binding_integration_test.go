@@ -447,3 +447,111 @@ func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
 		t.Errorf("reason should be the detailed out-of-bounds string, got %q", binRes.Errors[0].Error)
 	}
 }
+
+// The kernel's batch categoriser refuses an extracted value whose reduced
+// numerator magnitude or denominator is above 9223372036854775807 (the
+// magnitude bound is symmetric), as a per-signal error on both extraction
+// paths, with one message. Row A has both components past the bound; row B
+// has a numerator of exactly -9223372036854775808, which fits an int64 but
+// not the symmetric bound.
+func TestCrossBinding_ExtractionWireRangeRefusalBothPaths(t *testing.T) {
+	const wireRangeMessage = "extracted value's numerator or denominator exceeds the Int64 wire range"
+	sid, d := canonicalFrameIDs()
+	rows := []struct {
+		name    string
+		signal  DBCSignal
+		payload FramePayload
+	}{
+		{
+			// raw 2^63+1 times 1/2^62 plus 1/5^27: both reduced components past the bound
+			name: "both components past the bound",
+			signal: DBCSignal{
+				Name:      "Big",
+				StartBit:  0,
+				BitLength: 64,
+				ByteOrder: LittleEndian,
+				IsSigned:  false,
+				Factor:    Rational{Numerator: 1, Denominator: 4611686018427387904},
+				Offset:    Rational{Numerator: 1, Denominator: 7450580596923828125},
+				Minimum:   Rational{Numerator: 1, Denominator: 7450580596923828125},
+				Maximum:   Rational{Numerator: 3, Denominator: 1},
+				Presence:  AlwaysPresent{},
+			},
+			payload: FramePayload{0x01, 0, 0, 0, 0, 0, 0, 0x80},
+		},
+		{
+			// raw 2^63 times -1/5: numerator -9223372036854775808 over 5
+			name: "numerator exactly minus 2^63",
+			signal: DBCSignal{
+				Name:      "Big",
+				StartBit:  0,
+				BitLength: 64,
+				ByteOrder: LittleEndian,
+				IsSigned:  false,
+				Factor:    Rational{Numerator: -1, Denominator: 5},
+				Offset:    Rational{Numerator: 0, Denominator: 1},
+				Minimum:   Rational{Numerator: -3689348814741910323, Denominator: 1},
+				Maximum:   Rational{Numerator: 0, Denominator: 1},
+				Presence:  AlwaysPresent{},
+			},
+			payload: FramePayload{0, 0, 0, 0, 0, 0, 0, 0x80},
+		},
+	}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			c := newFFIClient(t)
+			ctx := t.Context()
+			dbc := DBCDefinition{
+				Version: "1.0",
+				Messages: []DBCMessage{{
+					ID:      sid,
+					Name:    "Msg",
+					DLC:     d,
+					Sender:  "ECU",
+					Signals: []DBCSignal{row.signal},
+				}},
+			}
+			if _, err := c.ParseDBC(ctx, dbc); err != nil {
+				t.Fatalf("ParseDBC: %v", err)
+			}
+
+			// the public ExtractSignals commits to the binary wire once the DBC is loaded
+			binRes, err := c.ExtractSignals(ctx, sid, d, row.payload)
+			if err != nil {
+				t.Fatalf("ExtractSignals (binary path): %v", err)
+			}
+			// the same frame through the backend's JSON extraction
+			resp, err := c.backend.ExtractSignalsBinary(c.state, sid, d, []byte(row.payload))
+			if err != nil {
+				t.Fatalf("ExtractSignalsBinary (JSON path): %v", err)
+			}
+			jsonRes, err := parseExtractionResponse(resp)
+			if err != nil {
+				t.Fatalf("parseExtractionResponse: %v", err)
+			}
+
+			paths := []struct {
+				path string
+				res  *ExtractionResult
+			}{{"binary", binRes}, {"JSON", jsonRes}}
+			for _, p := range paths {
+				path, res := p.path, p.res
+				if len(res.Values) != 0 {
+					t.Errorf("%s path: len(Values) = %d, want 0", path, len(res.Values))
+				}
+				if len(res.Errors) != 1 {
+					t.Fatalf("%s path: len(Errors) = %d, want 1 (wire range)", path, len(res.Errors))
+				}
+				if res.Errors[0].Name != "Big" {
+					t.Errorf("%s path: error name = %q, want %q", path, res.Errors[0].Name, "Big")
+				}
+				if res.Errors[0].Error != wireRangeMessage {
+					t.Errorf("%s path: error reason = %q, want %q", path, res.Errors[0].Error, wireRangeMessage)
+				}
+			}
+			if binRes.Errors[0].Error != jsonRes.Errors[0].Error {
+				t.Errorf("error reason: binary %q != JSON %q", binRes.Errors[0].Error, jsonRes.Errors[0].Error)
+			}
+		})
+	}
+}

@@ -42,6 +42,12 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
+-- A natural written as a JSON number through `saturateObserved`: the
+-- formatter writes no natural above `observed-ceiling`, the top of the range
+-- every binding's reader holds (`ResponseFormat.Properties.formatResponse-readable`).
+saturated : ℕ → JSON
+saturated n = JNumber (ℕtoℚ (saturateObserved n))
+
 -- Shared header + variant-specific extras for PropertyResult JSON output.
 -- Every PropertyResult variant emits the same `type`/`status`/`property_index`
 -- prefix; extras carry per-variant fields (timestamp, reason, …).
@@ -50,10 +56,11 @@ mkPropertyResult status idx extras =
   JObject (
     ("type" , JStringS "property") ∷
     ("status" , JStringS status) ∷
-    ("property_index" , JNumber (ℕtoℚ idx)) ∷
+    ("property_index" , saturated idx) ∷
     extras)
 
--- Format PropertyResult as JSON object
+-- Format PropertyResult as JSON object.  The timestamp is written as it is:
+-- the frame entry refused one past the ceiling (`CounterexampleData.tsBounded`).
 formatPropertyResult : PropertyResult → JSON
 formatPropertyResult (PropertyResult.Violation idx counterex) =
   mkPropertyResult "fails" idx
@@ -75,7 +82,7 @@ formatWarning : Warning → JSON
 formatWarning w =
   JObject (
     ("kind"           , JStringS (formatWarningKind (Warning.kind w))) ∷
-    ("property_index" , JNumber (ℕtoℚ (Warning.propertyIndex w))) ∷
+    ("property_index" , saturated (Warning.propertyIndex w)) ∷
     ("detail"         , JStringS (Warning.detail w)) ∷
     [])
 
@@ -153,12 +160,14 @@ formatValidationIssue issue =
 --     that crossed the bound.
 --   * `ValidationFailed` / `TextRoundTripFailed` expose `has_errors` + `issues`.
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
+-- Every natural here goes through `saturated`: a position or a limit is
+-- written at most as the ceiling, as `observed` is.
 private
   boundInfoFields : BoundKind → ℕ → ℕ → List (String × JSON)
   boundInfoFields kind observed limit =
     ("bound_kind" , JStringS (boundKindCode kind)) ∷
-    ("observed"   , JNumber (ℕtoℚ (saturateObserved observed))) ∷
-    ("limit"      , JNumber (ℕtoℚ limit)) ∷
+    ("observed"   , saturated observed) ∷
+    ("limit"      , saturated limit) ∷
     []
 
 errorExtras : Err.Error → List (String × JSON)
@@ -167,18 +176,18 @@ errorExtras : Err.Error → List (String × JSON)
 -- trailing-input additionally reports where the unparseable statement
 -- starts, so tools can show both the statement and the exact byte.
 errorExtras (Err.DBCTextParseErr (Err.ParseFailure pos)) =
-  ("line"   , JNumber (ℕtoℚ (Position.line pos))) ∷
-  ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
+  ("line"   , saturated (Position.line pos)) ∷
+  ("column" , saturated (Position.column pos)) ∷
   []
 errorExtras (Err.DBCTextParseErr (Err.TrailingInput pos stmt)) =
-  ("line"             , JNumber (ℕtoℚ (Position.line pos))) ∷
-  ("column"           , JNumber (ℕtoℚ (Position.column pos))) ∷
-  ("statement_line"   , JNumber (ℕtoℚ (Position.line stmt))) ∷
-  ("statement_column" , JNumber (ℕtoℚ (Position.column stmt))) ∷
+  ("line"             , saturated (Position.line pos)) ∷
+  ("column"           , saturated (Position.column pos)) ∷
+  ("statement_line"   , saturated (Position.line stmt)) ∷
+  ("statement_column" , saturated (Position.column stmt)) ∷
   []
 errorExtras (Err.DispatchErr (Err.InvalidJSON pos)) =
-  ("line"   , JNumber (ℕtoℚ (Position.line pos))) ∷
-  ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
+  ("line"   , saturated (Position.line pos)) ∷
+  ("column" , saturated (Position.column pos)) ∷
   []
 errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
 errorExtras (Err.InputBoundExceededAt f k o l) = ("field" , JStringS f) ∷ boundInfoFields k o l
@@ -202,6 +211,17 @@ errorExtras (Err.HandlerErr (Err.InContext _ inner)) =
 errorExtras (Err.WithContext _ inner)      = errorExtras inner
 errorExtras _                              = []
 
+-- One extracted value, written as it is: the categoriser kept only values
+-- that fit the wire (the response's erased proof).
+formatSignalValue : String × ℚ → JSON
+formatSignalValue (name , value) =
+  JObject (("name" , JStringS name) ∷ ("value" , JNumber value) ∷ [])
+
+-- One extraction error, the signal's name and the kernel's reason.
+formatSignalError : String × String → JSON
+formatSignalError (name , msg) =
+  JObject (("name" , JStringS name) ∷ ("error" , JStringS msg) ∷ [])
+
 -- Format Response as JSON
 formatResponse : Response → JSON
 formatResponse (Success msg) =
@@ -215,27 +235,13 @@ formatResponse (Error err) =
     ("code"    , JStringS (Err.errorCode err)) ∷
     ("message" , JStringS (Err.formatError err)) ∷
     errorExtras err)
-formatResponse (ExtractionResultsResponse values errors absent) =
+formatResponse (ExtractionResultsResponse values errors absent _) =
   JObject (
     ("status" , JStringS "success") ∷
-    ("values" , formatSignalValues values) ∷
-    ("errors" , formatErrors errors) ∷
+    ("values" , JArray (map formatSignalValue values)) ∷
+    ("errors" , JArray (map formatSignalError errors)) ∷
     ("absent" , JArray (map JStringS absent)) ∷
     [])
-  where
-    formatSignalValues : List (String × ℚ) → JSON
-    formatSignalValues vals = JArray (map formatPair vals)
-      where
-        formatPair : String × ℚ → JSON
-        formatPair (name , value) =
-          JObject (("name" , JStringS name) ∷ ("value" , JNumber value) ∷ [])
-
-    formatErrors : List (String × String) → JSON
-    formatErrors errs = JArray (map formatError errs)
-      where
-        formatError : String × String → JSON
-        formatError (name , msg) =
-          JObject (("name" , JStringS name) ∷ ("error" , JStringS msg) ∷ [])
 formatResponse (PropertyResponse results) =
   -- Per-frame batch of property events.  Carries one
   -- top-level object that bindings parse as a single response, with the
@@ -257,7 +263,7 @@ formatResponse (Complete results warnings) =
     ("results"  , JArray (map formatPropertyResult results)) ∷
     ("warnings" , JArray (map formatWarning warnings)) ∷
     [])
-formatResponse (DBCResponse dbcJSON) =
+formatResponse (DBCResponse dbcJSON _) =
   JObject (
     ("status" , JStringS "success") ∷
     ("dbc" , dbcJSON) ∷
@@ -268,7 +274,7 @@ formatResponse (ValidationResponse issues) =
     ("has_errors" , JBool (hasAnyError issues)) ∷
     ("issues"     , JArray (map formatValidationIssue issues)) ∷
     [])
-formatResponse (ParsedDBCResponse dbcJSON warnings) =
+formatResponse (ParsedDBCResponse dbcJSON _ warnings) =
   JObject (
     ("status"   , JStringS "success") ∷
     ("dbc"      , dbcJSON) ∷

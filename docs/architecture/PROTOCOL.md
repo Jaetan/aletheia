@@ -421,12 +421,13 @@ The stream and its frames go through C entry points that take their input as C v
 
 | Rule | Code |
 |---|---|
+| The timestamp a stream entry reads (`aletheia_send_frame`, `aletheia_send_error`, `aletheia_send_remote`) is at most 2⁶⁴ − 1 | `parse_timestamp_past_wire` |
 | A standard identifier is below 2048, an extended one below 2²⁹ | `parse_std_can_id_out_of_range` / `parse_ext_can_id_out_of_range` |
 | The DLC is at most 15 | `parse_dlc_code_out_of_range` |
 | `data_len` is the DLC's byte count: the code itself up to 8, then 12, 16, 20, 24, 32, 48, 64 | `parse_payload_length_mismatch` |
 | Every payload byte is below 256 | `parse_payload_byte_out_of_range` |
 
-`data_len` is a `uint8_t`, so no payload over 255 bytes reaches the kernel. Every binding checks a payload against its DLC before calling, so these codes reach only a caller of the C entries themselves.
+`timestamp` is a `uint64_t` and `data_len` a `uint8_t`, so neither a timestamp past 2⁶⁴ − 1 nor a payload over 255 bytes reaches the kernel. Every binding checks a payload against its DLC before calling, so these codes reach only a caller of the C entries themselves.
 
 ### aletheia_start_stream and aletheia_end_stream
 
@@ -1065,6 +1066,8 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 
 The rational-component bound is measured on the parsed tree like the nesting-depth bound (reduction only shrinks component magnitudes, so a bounded submitted literal stays bounded). It is one bound, decided in the kernel, for a JSON number, a DBC literal and a decimal entered through `aletheia_parse_decimal` alike, so none of these admits a component another refuses, and a bare JSON integer cannot smuggle a component the binary FFI's rational slots cannot represent. The limit is symmetric in magnitude: these routes refuse numerator −2⁶³ even though a two's-complement slot could carry it, keeping the structured `observed` / `limit` pair a plain magnitude comparison. The binary build and update entries take each signal value as an `int64_t` numerator and denominator and hold neither to this bound, refusing a denominator that is not positive, so numerator −2⁶³ reaches them.
 
+An extracted signal value is held to the same symmetric bound on both extraction paths, `aletheia_extract_signals` and `aletheia_extract_signals_bin`: a value whose reduced \|numerator\| or denominator is above 2⁶³ − 1 is refused per signal with `extraction_value_exceeds_wire_range`, the signal appearing in `errors` and not in `values`, so a 64-bit signal can produce a refusal even when every DBC field is in range. A violation's `timestamp` is the frame's `uint64_t`, at most 18446744073709551615; the kernel refuses a larger one with `parse_timestamp_past_wire` before it reads any other field of the frame.
+
 A frame has no bound kind: `data_len` is a `uint8_t`, and the kernel refuses any payload whose length is not its DLC's byte count with `parse_payload_length_mismatch` (see [Binary Entry Points](#binary-entry-points)).
 
 ### Wire shape
@@ -1081,7 +1084,7 @@ The `message` field embeds the kind label, observed value, and limit; the struct
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
 ~~~
 
-`observed` is the measured value up to 2⁶⁴ − 1, the top of the unsigned 64-bit range, which every binding's typed `observed` holds. A measured value past that is reported as 18446744073709551615, and the message prints `at least` before it, so neither renders the measured value in more than twenty digits however long the number that crossed the bound (kernel `Aletheia.Limits.saturateObserved`; `Aletheia.Protocol.ResponseFormat.Properties` proves every `observed` an error reply writes is at most the ceiling). A command whose `"x"` is `1e30`:
+`observed` is the measured value up to 2⁶⁴ − 1, the top of the unsigned 64-bit range, which every binding's typed `observed` holds. A measured value past that is reported as 18446744073709551615, and the message prints `at least` before it, so neither renders the measured value in more than twenty digits however long the number that crossed the bound (kernel `Aletheia.Limits.saturateObserved`). The formatter writes `limit`, `line`, `column`, `statement_line`, `statement_column` and `property_index` through the same saturation, which moves none of them for an accepted input: a limit is a constant, a position at most one past the 64 MiB input length, an index below 1024. The theorem `formatResponse-readable` (`Aletheia.Protocol.ResponseFormat.Properties`) proves that every number any reply writes has a numerator in [−9223372036854775808, 18446744073709551615] and a denominator at most 18446744073709551615, the range every binding's reader decodes: a violation's `timestamp` through the frame entry's refusal of a larger one, a DBC's numbers and an extracted value's components through the 2⁶³ − 1 magnitude bound. A command whose `"x"` is `1e30`:
 
 ~~~
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807", "bound_kind": "rational_component_magnitude", "observed": 18446744073709551615, "limit": 9223372036854775807}
@@ -1188,6 +1191,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `parse_payload_byte_out_of_range` | A binary entry's payload byte is 256 or above | Unreachable through `aletheia.h`'s `uint8_t` payload |
 | `parse_non_positive_denominator` | A signal value for a build or an update has a zero or negative denominator | Give each value a positive denominator |
 | `parse_signal_array_length_mismatch` | A build's or an update's signal-value arrays differ in length | Unreachable through `struct aletheia_signal_values`, which carries one count |
+| `parse_timestamp_past_wire` | A frame, error or remote entry's timestamp is above 18446744073709551615 | Unreachable through `struct aletheia_frame`, whose `timestamp` is a `uint64_t` |
 
 #### Extraction errors — signal extraction on a data frame
 
@@ -1197,7 +1201,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `extraction_mux_signal_not_found` | Named multiplexor signal missing from message definition | DBC inconsistency — fix the DBC |
 | `extraction_mux_chain_cycle` | Multiplexor chain exceeded recursion depth (cycle?) | Simplify or break the multiplexor chain |
 | `extraction_mux_extraction_failed` | Failed to read the multiplexor signal's own bits | Check the multiplexor signal's `startBit`/`length` |
-| `extraction_value_exceeds_wire_range` | The extracted exact value's reduced numerator or denominator exceeds the signed 64-bit range of the binary wire's rational slots, so the value cannot travel the wire (the FFI encoder reroutes the signal to `errors` instead of letting the value wrap silently) | Per-signal runtime condition, not a DBC defect — reduction alone can push a component over the range even when every DBC field and frame byte is in range; rescale the signal's `factor`/`offset` if the exact value must travel |
+| `extraction_value_exceeds_wire_range` | The extracted exact value's reduced \|numerator\| or denominator is above 2⁶³ − 1, the symmetric bound of the binary wire's rational slots, so the kernel refuses the value on both extraction paths and the signal appears in `errors` with this reason | Per-signal runtime condition, not a DBC defect: reduction alone can push a component over the bound even when every DBC field and frame byte is in range; rescale the signal's `factor`/`offset` if the exact value must travel |
 
 #### Frame errors — binary build/update paths (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`)
 

@@ -240,9 +240,9 @@ ffiRules = do
         let tsNewtype = "newtype T_Timestamp_18" `isInfixOf` time
         unless tsNewtype $
           error $ "check-erasure failed: Timestamp is no longer compiled as "
-               ++ "a newtype. Trace/Time.agda uses `record ... no-eta-equality` "
-               ++ "intentionally so MAlonzo compiles Timestamp comparisons "
-               ++ "without a wrapper allocation on the hot path."
+               ++ "a newtype. Trace/Time.agda keeps Timestamp a one-field record "
+               ++ "whose unit parameter is erased, so MAlonzo compiles its "
+               ++ "comparisons without a wrapper allocation on the hot path."
         -- Records whose proofs are erased compile to newtypes over their one
         -- runtime field: a loaded DBC carries its validity, a checked DBC its
         -- size bounds, an encodable value its range and exactness facts, a

@@ -26,16 +26,16 @@ F: Aletheia/DBC/RationalRenderer:d_formatRational_166
 F: Aletheia/DBC/TextParser/DecimalEntry:d_parseDecimal_52
 F: Aletheia/Main/JSON:d_processJSONLine_74
 F: Aletheia/Main/Binary:d_processFrameRaw_116
-F: Aletheia/Main/Binary:d_processErrorFrameRaw_176
-F: Aletheia/Main/Binary:d_processRemoteFrameRaw_188
-F: Aletheia/Main/Binary:d_processExtractRaw_230
+F: Aletheia/Main/Binary:d_processErrorFrameRaw_178
+F: Aletheia/Main/Binary:d_processRemoteFrameRaw_208
+F: Aletheia/Main/Binary:d_processExtractRaw_252
 F: Aletheia/Main/Binary:d_processStartStreamDirect_28
 F: Aletheia/Main/Binary:d_processEndStreamDirect_32
 F: Aletheia/Main/Binary:d_processFormatDBCDirect_36
-F: Aletheia/Main/Binary:d_processBuildFrameRaw_290
-F: Aletheia/Main/Binary:d_processUpdateFrameRaw_440
-F: Aletheia/Main/Binary:d_processExtractBinRaw_550
-F: Aletheia/Protocol/StreamState/Types:d_initialState_50
+F: Aletheia/Main/Binary:d_processBuildFrameRaw_312
+F: Aletheia/Main/Binary:d_processUpdateFrameRaw_462
+F: Aletheia/Main/Binary:d_processExtractBinRaw_572
+F: Aletheia/Protocol/StreamState/Types:d_initialState_44
 
 # Indirect helper accessors used by haskell-shim FFI marshalling.
 # Drift here means the proof or runtime modules were renumbered;
@@ -44,9 +44,7 @@ F: Aletheia/Main/Binary:d_formatErrorEnvelope_12
 F: Aletheia/CAN/BatchExtraction:d_values_22
 F: Aletheia/CAN/BatchExtraction:d_errors_24
 F: Aletheia/CAN/BatchExtraction:d_absent_26
-F: Aletheia/CAN/BatchExtraction:d_extractionErrorCodeToℕ_160
-F: Aletheia/CAN/BatchExtraction:d_wireRangeReason_166
-F: Aletheia/CAN/BatchExtraction:d_valueExceedsWireRangeCode_226
+F: Aletheia/CAN/BatchExtraction:d_extractionErrorCodeToℕ_182
 F: Aletheia/DBC/TextParser/DecimalEntry:d_numerator_16
 F: Aletheia/DBC/TextParser/DecimalEntry:d_denominator_18
 F: Data/Rational/Base:d_numerator_14
@@ -72,7 +70,7 @@ C: Data/Sum/Base:C_inj'8322'_42
 # Every T_*_NN tag the Haskell shim names directly (in type annotations,
 # `unsafeCoerce` casts, or qualified imports of MAlonzo-generated types).
 T: Aletheia/Protocol/StreamState/Types:T_StreamState_32
-T: Aletheia/Error:T_Error_358
+T: Aletheia/Error:T_Error_366
 T: Aletheia/CAN/BatchExtraction:T_PartitionedResults_10
 T: Data/Rational/Base:T_ℚ_6
 T: Aletheia/DBC/TextParser/DecimalEntry:T_WireRational_8

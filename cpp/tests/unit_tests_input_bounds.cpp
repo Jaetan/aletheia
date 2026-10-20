@@ -120,6 +120,8 @@ TEST_CASE("the binary entries' frame and signal-value refusals map from string",
           aletheia::ErrorCode::ParseNonPositiveDenominator);
     CHECK(aletheia::error_code_from_string("parse_signal_array_length_mismatch") ==
           aletheia::ErrorCode::ParseSignalArrayLengthMismatch);
+    CHECK(aletheia::error_code_from_string("parse_timestamp_past_wire") ==
+          aletheia::ErrorCode::ParseTimestampPastWire);
 }
 
 // Every detail::parse_* callsite uses the parse_bounded helper

@@ -238,6 +238,9 @@ error_codes:
   - name: parse_signal_array_length_mismatch
     description: The signal-value arrays (indices, numerators, denominators) differ in length.
 
+  - name: parse_timestamp_past_wire
+    description: A binary entry's timestamp is above 18446744073709551615, the 64-bit wire range.
+
   # extractionErrorCode -- signal extraction on a data frame.
 
   - name: extraction_mux_value_mismatch
