@@ -137,6 +137,7 @@ var goErrorCodes = []string{
 	aletheia.CodeParsePayloadByteOutOfRange,
 	aletheia.CodeParseNonPositiveDenominator,
 	aletheia.CodeParseSignalArrayLengthMismatch,
+	aletheia.CodeParseTimestampPastWire,
 	aletheia.CodeTextParseFailure,
 	aletheia.CodeTextTrailingInput,
 	aletheia.CodeDBCTextAttributeRefinementFailed,

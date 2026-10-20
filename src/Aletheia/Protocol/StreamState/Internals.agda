@@ -378,7 +378,7 @@ dispatchIterResult {n} vdbc (updatedProps , nothing , c ∷ cs) tf cache =
   in (Streaming n vdbc updatedProps (just tf) cache , Response.PropertyResponse satisfactions)
 dispatchIterResult {n} vdbc (allProps , just (idx , ce) , completions) tf cache =
   let open Counterexample ce
-      ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
+      ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) (TimedFrame.tsBounded violatingFrame) reason
       satisfactions = map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) completions
       violation = PR.PropertyResult.Violation (toℕ idx) ceData
       -- Source-order: completions encountered BEFORE the halt come first;

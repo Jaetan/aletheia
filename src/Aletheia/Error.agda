@@ -94,16 +94,25 @@ data ParseError : Set where
   -- a payload whose byte count is not the DLC's (expected, observed); a
   -- payload byte at or above 256 (position, value); a signal value whose
   -- denominator is not positive; signal-value arrays of unequal lengths
-  -- (indices, numerators, denominators).  The identifier's range reuses
-  -- the CAN ID refusals above.
+  -- (indices, numerators, denominators); a timestamp past `observed-ceiling`,
+  -- the wire's unsigned 64-bit range (the timestamp, which the message
+  -- renders through `showObserved`).  The identifier's range reuses the CAN
+  -- ID refusals above.
   DLCCodeOutOfRange       : ℕ → ParseError
   PayloadLengthMismatch   : ℕ → ℕ → ParseError
   PayloadByteOutOfRange   : ℕ → ℕ → ParseError
   NonPositiveDenominator  : ℤ → ParseError
   SignalArrayLengthMismatch : ℕ → ℕ → ℕ → ParseError
+  TimestampPastWire       : ℕ → ParseError
   InContext               : String → ParseError → ParseError
   -- An adversarial-input bound is the top-level `Error.InputBoundExceeded`,
   -- not a ParseError.
+
+-- A measured value as a refusal's message prints it: the value itself, or
+-- "at least" and the ceiling when the value is past it.
+showObserved : ℕ → String
+showObserved o =
+  if observedSaturates o then "at least " ++ₛ showℕ observed-ceiling else showℕ o
 
 formatParseError : ParseError → String
 formatParseError (MissingField f) =
@@ -163,6 +172,8 @@ formatParseError (NonPositiveDenominator d) =
 formatParseError (SignalArrayLengthMismatch i n d) =
   "signal value arrays differ in length: " ++ₛ showℕ i ++ₛ " indices, "
     ++ₛ showℕ n ++ₛ " numerators, " ++ₛ showℕ d ++ₛ " denominators"
+formatParseError (TimestampPastWire ts) =
+  "timestamp " ++ₛ showObserved ts ++ₛ " exceeds the 64-bit wire range"
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -193,6 +204,7 @@ parseErrorCode (PayloadLengthMismatch _ _) = "parse_payload_length_mismatch"
 parseErrorCode (PayloadByteOutOfRange _ _) = "parse_payload_byte_out_of_range"
 parseErrorCode (NonPositiveDenominator _)  = "parse_non_positive_denominator"
 parseErrorCode (SignalArrayLengthMismatch _ _ _) = "parse_signal_array_length_mismatch"
+parseErrorCode (TimestampPastWire _)       = "parse_timestamp_past_wire"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================
@@ -206,9 +218,9 @@ data ExtractionError : Set where
   MuxExtractionFailed    : String → ExtractionError  -- multiplexor signal name
   -- The extracted exact value cannot travel a binary-wire rational slot:
   -- its reduced numerator or denominator exceeds the signed 64-bit range.
-  -- The code is minted here (the wire-code SSOT); detection happens in the
-  -- FFI shim's binary encoder, which reroutes the affected signal to the
-  -- per-signal error stream instead of letting the i64 poke wrap silently.
+  -- The code is minted here (the wire-code SSOT); the batch categorisers
+  -- (`CAN.BatchExtraction.wireFits`) refuse the value on the JSON and the
+  -- binary path alike, so the shim pokes only what the kernel kept.
   -- Exact reduction can push a component past the wire range even when
   -- every DBC field and frame byte is in range, so this is a per-signal
   -- runtime condition, not a DBC validation issue.
@@ -516,12 +528,6 @@ data Error : Set where
   -- The same, crossed by the named part of the input (a DBC's "senders
   -- array", its "version string"), which the payload carries as `field`.
   InputBoundExceededAt : String → BoundKind → ℕ → ℕ → Error
-
--- A bound's measured value as a refusal's message prints it: the value
--- itself, or "at least" and the ceiling when the value is past it.
-showObserved : ℕ → String
-showObserved o =
-  if observedSaturates o then "at least " ++ₛ showℕ observed-ceiling else showℕ o
 
 formatError : Error → String
 formatError (ParseErr pe)                       = formatParseError pe

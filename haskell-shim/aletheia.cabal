@@ -41,6 +41,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Agda.Builtin.String.Properties
                       MAlonzo.Code.Agda.Builtin.Unit
                       MAlonzo.Code.Agda.Primitive
+                      MAlonzo.Code.Aletheia.CAN.Batch.WireFits
                       MAlonzo.Code.Aletheia.CAN.BatchExtraction
                       MAlonzo.Code.Aletheia.CAN.BatchFrameBuilding
                       MAlonzo.Code.Aletheia.CAN.Constants
@@ -75,6 +76,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.Decidable.SignalGeometry
                       MAlonzo.Code.Aletheia.DBC.Decidable.WellFormedness
                       MAlonzo.Code.Aletheia.DBC.Formatter
+                      MAlonzo.Code.Aletheia.DBC.Formatter.Bounded
                       MAlonzo.Code.Aletheia.DBC.Formatter.WellFormedText.Foundations
                       MAlonzo.Code.Aletheia.DBC.Identifier
                       MAlonzo.Code.Aletheia.DBC.JSONParser

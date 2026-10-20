@@ -132,6 +132,10 @@ const (
 	// CodeParseSignalArrayLengthMismatch reports signal-value arrays (indices,
 	// numerators, denominators) of different lengths.
 	CodeParseSignalArrayLengthMismatch = "parse_signal_array_length_mismatch"
+	// CodeParseTimestampPastWire reports a binary entry's timestamp above
+	// 18446744073709551615, the 64-bit wire range (unreachable through the
+	// C ABI, whose timestamp is a uint64_t).
+	CodeParseTimestampPastWire = "parse_timestamp_past_wire"
 
 	// CodeTextParseFailure reports a text the kernel's parser could not start
 	// on, a .dbc text or a decimal literal, at the line and column it stopped.
@@ -220,8 +224,9 @@ const (
 	CodeExtractionMuxChainCycle = "extraction_mux_chain_cycle"
 	// CodeExtractionMuxExtractionFailed — multiplexor extraction step failed.
 	CodeExtractionMuxExtractionFailed = "extraction_mux_extraction_failed"
-	// CodeExtractionValueExceedsWireRange — the extracted exact value's reduced
-	// numerator or denominator exceeds the signed 64-bit binary-wire range.
+	// CodeExtractionValueExceedsWireRange: the extracted exact value's reduced
+	// numerator magnitude or denominator exceeds 9223372036854775807, the
+	// symmetric bound the kernel holds on both extraction paths.
 	CodeExtractionValueExceedsWireRange = "extraction_value_exceeds_wire_range"
 
 	// CodeFFIValidationError is the shared library's own refusal of an

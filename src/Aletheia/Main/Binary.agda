@@ -82,7 +82,7 @@ open import Aletheia.Protocol.Handlers using
 open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent; Error; Remote)
 open import Aletheia.Trace.Time using (mkTs)
 open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
-open import Aletheia.CAN.Frame.Parse using (parseCANId; parseDLC; parseCANFrame; parseTimedFrame; parseSignalValues)
+open import Aletheia.CAN.Frame.Parse using (parseCANId; parseDLC; parseCANFrame; parseTimedFrame; parseSignalValues; withTimestamp)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
 open import Aletheia.CAN.BatchExtraction using (IndexedExtractionResults; extractAllSignalsIndexed)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
@@ -169,24 +169,31 @@ processExtractBin state frame =
 -- RAW ENTRY POINTS (what AletheiaFFI.hs calls: builtins in, parsed here)
 -- ============================================================================
 
+-- The three frame entries decide the timestamp below 2^64 before anything
+-- else (`withTimestamp`); a data frame carries the decision, erased, to the
+-- counterexample that quotes its timestamp.
+
 -- A data frame as the caller handed it in: timestamp, identifier and its
 -- extended flag, DLC code, payload bytes, and the CAN-FD BRS / ESI bits.
 processFrameRaw : StreamState → (timestamp raw : ℕ) (extended : Bool) (code : ℕ) (bytes : List ℕ) (brs esi : Maybe Bool)
                 → StreamState × String
 {-# NOINLINE processFrameRaw #-}
-processFrameRaw state ts raw ext code bytes brs esi with parseTimedFrame ts raw ext code bytes brs esi
+processFrameRaw state ts raw ext code bytes brs esi
+  with withTimestamp ts (λ bounded → parseTimedFrame ts bounded raw ext code bytes brs esi)
 ... | inj₁ e  = wrapJSON (state , Msg.Response.Error (ParseErr e))
 ... | inj₂ tf = processFrameDirect state tf
 
 -- An error frame: its timestamp only.
 processErrorFrameRaw : StreamState → (timestamp : ℕ) → StreamState × String
 {-# NOINLINE processErrorFrameRaw #-}
-processErrorFrameRaw state ts = processEventDirect state (Error (mkTs ts))
+processErrorFrameRaw state ts with withTimestamp ts (λ _ → inj₂ (Error (mkTs ts)))
+... | inj₁ e  = wrapJSON (state , Msg.Response.Error (ParseErr e))
+... | inj₂ ev = processEventDirect state ev
 
 -- A remote frame: timestamp and identifier.
 processRemoteFrameRaw : StreamState → (timestamp raw : ℕ) (extended : Bool) → StreamState × String
 {-# NOINLINE processRemoteFrameRaw #-}
-processRemoteFrameRaw state ts raw ext with parseCANId raw ext
+processRemoteFrameRaw state ts raw ext with withTimestamp ts (λ _ → parseCANId raw ext)
 ... | inj₁ e     = wrapJSON (state , Msg.Response.Error (ParseErr e))
 ... | inj₂ canId = processEventDirect state (Remote (mkTs ts) canId)
 

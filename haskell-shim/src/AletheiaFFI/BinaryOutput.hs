@@ -45,10 +45,10 @@ import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 shimErrorOut :: String -> Ptr Buffer -> IO Int8
 shimErrorOut msg out = newUtf8 (T.pack (mkErrorJson msg)) >>= pokeBufferErr out >> return 1
 
-kernelErrorText :: AgdaError.T_Error_358 -> IO CString
+kernelErrorText :: AgdaError.T_Error_366 -> IO CString
 kernelErrorText err = newUtf8 (unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text)
 
-kernelErrorOut :: AgdaError.T_Error_358 -> Ptr Buffer -> IO Int8
+kernelErrorOut :: AgdaError.T_Error_366 -> Ptr Buffer -> IO Int8
 kernelErrorOut err out = kernelErrorText err >>= pokeBufferErr out >> return 1
 
 -- | Dispatch a binary-output entry's `Error ⊎ List Byte`: on success write the
@@ -69,20 +69,12 @@ dispatchBytesResult ctx (AgdaSum.C_inj'8322'_42 bytesAny) out = do
           pokeBufferSize out (fromIntegral n)
           return 0
 
--- | u8 wire value for the encoder guard's reroute, read from the kernel
--- (`valueExceedsWireRangeCode`) so the shim neither hardcodes a wire constant
--- nor builds a kernel value to look one up.
-valueExceedsWireRangeCode :: Integer
-valueExceedsWireRangeCode = AgdaBatch.d_valueExceedsWireRangeCode_226
-
--- | Split one (index, ℚ) value pair into its wire components.  The kernel
--- rational is unbounded; the wire's rational slots are i64.  `toIntegralSized`
--- decides representability of BOTH components — `Nothing` means the exact
--- value cannot travel the wire and must become a per-signal error entry
--- (the encoder guard below), never a silently wrapping `fromIntegral`.
--- Reduction alone can push a component past the wire range even when every
--- DBC field and frame byte is in range, so this guard is unconditional.
--- Uses stable accessor functions (d_numerator_14, d_denominatorℕ_20) — the
+-- | Split one (index, ℚ) value pair into its wire components.  The kernel's
+-- categorisers keep a value only when both of its reduced components fit the
+-- i64 wire slots (`wireFits`, proven in CAN/Batch/Properties/WireFits.agda),
+-- so `toIntegralSized` is the conversion, never a silently wrapping
+-- `fromIntegral`; a `Nothing` is unreachable and refused by the caller.
+-- Uses stable accessor functions (d_numerator_14, d_denominatorℕ_20): the
 -- C_mkℚ_24 constructor name is stdlib-version-dependent, accessor names aren't.
 splitValueEntry :: AgdaSigma.T_Σ_14 -> (Integer, Maybe (Int64, Int64))
 splitValueEntry pair =
@@ -92,12 +84,6 @@ splitValueEntry pair =
         den = AgdaRational.d_denominatorℕ_20 rat
     in (idx, (,) <$> toIntegralSized num <*> toIntegralSized den)
 
--- | Reason string for the encoder guard's reroute, pulled from the kernel
--- (`wireRangeReason` in CAN/BatchExtraction.agda) so the shim never
--- hardcodes reason text — same SSOT discipline as the reroute code above.
-wireRangeReasonText :: T.Text
-wireRangeReasonText = unsafeCoerce AgdaBatch.d_wireRangeReason_166 :: T.Text
-
 -- | Convert one kernel (index, (code, reason)) error entry to its wire
 -- components via the kernel's u8 mapping.  The reason Text travels the wire
 -- verbatim (UTF-8, delimited by the offsets table) — kernel-minted, never
@@ -106,7 +92,7 @@ kernelErrorEntry :: AgdaSigma.T_Σ_14 -> (Integer, Integer, T.Text)
 kernelErrorEntry pair =
     let codeReason = unsafeCoerce (AgdaSigma.d_snd_30 pair) :: AgdaSigma.T_Σ_14
     in ( unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
-       , AgdaBatch.d_extractionErrorCodeToℕ_160 (unsafeCoerce (AgdaSigma.d_fst_28 codeReason))
+       , AgdaBatch.d_extractionErrorCodeToℕ_182 (unsafeCoerce (AgdaSigma.d_fst_28 codeReason))
        , unsafeCoerce (AgdaSigma.d_snd_30 codeReason) :: T.Text
        )
 
@@ -115,13 +101,11 @@ kernelErrorEntry pair =
 --   Header(3×u16: nVals,nErrs,nAbs + u32 reasonBytes) + Values(×18B)
 --   + Errors(×3B) + Offsets((nErrs+1)×u32, cumulative into Reasons)
 --   + Reasons(UTF-8 blob) + Absent(×2B).
--- Encoder guard: values whose reduced numerator or denominator does not fit
--- the i64 wire slots are rerouted to the error stream with the kernel-minted
--- ValueExceedsWireRange code and wireRangeReason string (appended after the
--- kernel's own error entries; binding decoders key on signal index, not
--- segment order).  The counts and buffer size are computed AFTER the
--- partition so the header always matches the written segments.
--- Fails loudly (Left) if the reason blob would exceed the u32 offset space —
+-- The kernel refuses a value whose reduced components do not fit the i64 wire
+-- slots before it reaches here (its error entry carries code 3), so every
+-- value splits; a `Nothing` from the split is unreachable and answered Left
+-- rather than poked, keeping the writer total.
+-- Fails loudly (Left) if the reason blob would exceed the u32 offset space:
 -- unreachable with kernel-bounded reason strings, but total: never truncate,
 -- never wrap.
 -- Returns (buffer, total size). Caller frees via aletheia_free_buf.
@@ -132,15 +116,15 @@ packPartitionedResults ier = do
     let abss = unsafeCoerce (AgdaBatch.d_absent_26 ier) :: [Integer]
     let split    = map splitValueEntry vals
     let okVals   = [ (idx, n, d) | (idx, Just (n, d)) <- split ]
-    let overflow = [ (idx, valueExceedsWireRangeCode, wireRangeReasonText)
-                   | (idx, Nothing) <- split ]
-    let errEntries = map kernelErrorEntry errs ++ overflow
+    let errEntries = map kernelErrorEntry errs
     let offsets  = scanl (+) 0 [ TF.lengthWord8 t | (_, _, t) <- errEntries ]
     let reasonBytes = last offsets
     let nvals = length okVals
     let nerrs = length errEntries
     let nabss = length abss
-    if toInteger reasonBytes > toInteger (maxBound :: Word32)
+    if nvals /= length split
+      then return (Left "extracted value does not fit the i64 wire slots")
+      else if toInteger reasonBytes > toInteger (maxBound :: Word32)
       then return (Left "extraction reason blob exceeds the u32 offset space")
       else do
         let bufSize = 10 + nvals * 18 + nerrs * 3 + (nerrs + 1) * 4
@@ -158,8 +142,8 @@ packPartitionedResults ier = do
         return (Right (buf, bufSize))
 
 -- | Write value entries: signal_index(u16) + numerator(i64) + denominator(i64).
--- Components arrive pre-checked as Int64 (splitValueEntry) — no conversion
--- happens at the poke.
+-- Components arrive as Int64 (splitValueEntry); no conversion happens at the
+-- poke.
 writeExtrValues :: Ptr Word8 -> [(Integer, Int64, Int64)] -> IO (Ptr Word8)
 writeExtrValues ptr [] = return ptr
 writeExtrValues ptr ((idx, num, den):rest) = do

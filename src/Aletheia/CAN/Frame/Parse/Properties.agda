@@ -14,28 +14,31 @@
 module Aletheia.CAN.Frame.Parse.Properties where
 
 open import Data.Bool using (Bool; true; false; T)
+open import Data.Empty using (⊥-elim)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List as List using (List; []; _∷_)
 open import Data.Maybe using (just)
-open import Data.Nat using (ℕ; zero; suc; _+_; _<ᵇ_)
-open import Data.Nat.Properties using (+-suc; +-identityʳ)
+open import Data.Nat using (ℕ; zero; suc; _+_; _<ᵇ_; _≤ᵇ_; _≤_; _<_)
+open import Data.Nat.Properties using (+-suc; +-identityʳ; ≤ᵇ⇒≤; ≤⇒≤ᵇ; <⇒≱; ≤-irrelevant)
 open import Data.Product using (Σ; _×_; _,_; ∃)
 open import Data.Rational using (_/_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (tt)
 open import Data.Vec as Vec using (Vec; []; _∷_; toList)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; sym; trans)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; sym; trans; subst)
 
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.CAN.DLC using (mkDLC; dlcBytes; maxDLC-FD)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended; Byte; IsByte; AllBytes; []; _∷_)
 open import Aletheia.CAN.Frame.Parse using
   ( Payload; check; consByte; parseCANId; parseDLC; parseParts; parsePayload; parseRational
-  ; parseTimedFrame; parts; payload; walk )
+  ; parseTimedFrame; parts; payload; walk; withTimestamp )
 open import Aletheia.Trace.Time using (mkTs)
+open import Aletheia.Limits using (observed-ceiling)
 open import Aletheia.Error using
   ( ParseError; StdCANIdOutOfRange; ExtCANIdOutOfRange; DLCCodeOutOfRange
-  ; PayloadLengthMismatch; PayloadByteOutOfRange; NonPositiveDenominator )
+  ; PayloadLengthMismatch; PayloadByteOutOfRange; NonPositiveDenominator
+  ; TimestampPastWire )
 
 -- ============================================================================
 -- THE TEST COMBINATOR
@@ -43,6 +46,9 @@ open import Aletheia.Error using
 
 check-holds : ∀ {A B : Set} (b : Bool) (p : T b) (e : A) (k : T b → A ⊎ B) → check b e k ≡ k p
 check-holds true tt e k = refl
+
+check-fails : ∀ {A B : Set} (b : Bool) (e : A) (k : T b → A ⊎ B) → b ≡ false → check b e k ≡ inj₁ e
+check-fails false e k refl = refl
 
 -- A test whose continuation only accepts refuses with its own refusal, and
 -- only when it fails.
@@ -177,20 +183,47 @@ parseParts-accepts raw ext code {canId} {dlc} idOk dlcOk v ok with parseCANId ra
 ...     | .(inj₂ (payload v ok)) | refl = refl
 
 parseTimedFrame-accepts
-  : ∀ ts raw ext code brs esi {canId dlc}
+  : ∀ ts (tsOk : ts ≤ observed-ceiling) raw ext code brs esi {canId dlc}
   → parseCANId raw ext ≡ inj₂ canId → parseDLC code ≡ inj₂ dlc
   → (v : Vec Byte (dlcBytes dlc)) (ok : AllBytes v)
-  → parseTimedFrame ts raw ext code (toList v) brs esi
+  → parseTimedFrame ts tsOk raw ext code (toList v) brs esi
     ≡ inj₂ (record
       { timestamp = mkTs ts
+      ; tsBounded = tsOk
       ; payloadSize = dlcBytes dlc
       ; frame = record { id = canId ; dlc = dlc ; payload = v ; below256 = ok }
       ; dlcValid = refl
       ; brs = brs
       ; esi = esi })
-parseTimedFrame-accepts ts raw ext code brs esi {canId} {dlc} idOk dlcOk v ok
+parseTimedFrame-accepts ts tsOk raw ext code brs esi {canId} {dlc} idOk dlcOk v ok
   with parseParts raw ext code (toList v) | parseParts-accepts raw ext code idOk dlcOk v ok
 ... | .(inj₂ (parts canId dlc (payload v ok))) | refl = refl
+
+-- ============================================================================
+-- TIMESTAMP
+-- ============================================================================
+
+-- A timestamp at or below the ceiling reaches the continuation, with its
+-- bound (any proof of it, the bound being proof-irrelevant).
+withTimestamp-accepts
+  : ∀ {B : Set} ts (tsOk : ts ≤ observed-ceiling) (k : (@0 _ : ts ≤ observed-ceiling) → ParseError ⊎ B)
+  → withTimestamp ts k ≡ k tsOk
+withTimestamp-accepts ts tsOk k =
+  trans (check-holds (ts ≤ᵇ observed-ceiling) (≤⇒≤ᵇ tsOk) (TimestampPastWire ts) _)
+        (cong (λ q → k q) (≤-irrelevant _ tsOk))
+
+-- A timestamp past the ceiling is refused as that timestamp, whatever the
+-- continuation.
+withTimestamp-refuses
+  : ∀ {B : Set} ts → observed-ceiling < ts → (k : (@0 _ : ts ≤ observed-ceiling) → ParseError ⊎ B)
+  → withTimestamp ts k ≡ inj₁ (TimestampPastWire ts)
+withTimestamp-refuses ts c<ts k =
+  check-fails (ts ≤ᵇ observed-ceiling) (TimestampPastWire ts) _ (past-ceiling ts c<ts)
+  where
+    past-ceiling : ∀ ts → observed-ceiling < ts → (ts ≤ᵇ observed-ceiling) ≡ false
+    past-ceiling ts c<ts with ts ≤ᵇ observed-ceiling in eq
+    ... | false = refl
+    ... | true  = ⊥-elim (<⇒≱ c<ts (≤ᵇ⇒≤ ts observed-ceiling (subst T (sym eq) tt)))
 
 -- ============================================================================
 -- SIGNAL VALUES

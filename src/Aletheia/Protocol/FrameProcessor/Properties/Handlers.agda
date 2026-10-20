@@ -20,7 +20,7 @@
 module Aletheia.Protocol.FrameProcessor.Properties.Handlers where
 
 open import Aletheia.DBC.Validity using (validated)
-open import Aletheia.Protocol.StreamState using (getDBC; PropertyState)
+open import Aletheia.Protocol.StreamState using (PropertyState; WaitingForDBC; ReadyToStream)
 open import Aletheia.Protocol.StreamState.Internals using (stepProperty; extractTable; readableSignals)
 open import Aletheia.Protocol.Message using (Ack; Response)
 open import Aletheia.Error using (WithContext; HandlerErr; StreamActive)
@@ -39,7 +39,7 @@ open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
 open import Data.List using (List; [])
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Data.Maybe using (just; nothing)
+open import Data.Maybe using (nothing)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 -- ============================================================================
@@ -84,21 +84,19 @@ processFrameDirect-ack-sound-json dbc v props prev cache tf mono fmt-eq =
 -- ============================================================================
 
 -- Extract and formatDBC handlers never modify StreamState.  The proof
--- case-splits on getDBC (withDBC pattern).
+-- case-splits on the state, as the handlers' `withDBC` does.
 
 handleExtractAllSignals-preserves-state : ∀ {n} (frame : CANFrame n) state
   → proj₁ (handleExtractAllSignals frame state) ≡ state
-handleExtractAllSignals-preserves-state frame state
-  with getDBC state
-... | nothing = refl
-... | just _  = refl
+handleExtractAllSignals-preserves-state frame WaitingForDBC             = refl
+handleExtractAllSignals-preserves-state frame (ReadyToStream _ _ _ _)   = refl
+handleExtractAllSignals-preserves-state frame (Streaming _ _ _ _ _)     = refl
 
 handleFormatDBC-preserves-state : ∀ state
   → proj₁ (handleFormatDBC state) ≡ state
-handleFormatDBC-preserves-state state
-  with getDBC state
-... | nothing = refl
-... | just _  = refl
+handleFormatDBC-preserves-state WaitingForDBC             = refl
+handleFormatDBC-preserves-state (ReadyToStream _ _ _ _)   = refl
+handleFormatDBC-preserves-state (Streaming _ _ _ _ _)     = refl
 
 -- FormatDBCText: pipeline JSON→DBC→text, never touches state.
 handleFormatDBCText-preserves-state : ∀ (dbcJSON : JSON) state
