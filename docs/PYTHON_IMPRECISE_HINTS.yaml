@@ -64,9 +64,6 @@ hints:
     text: "float"
     count: 8
   - file: benchmarks/compare.py
-    text: "float | None"
-    count: 1
-  - file: benchmarks/compare.py
     text: "int"
     count: 3
   - file: benchmarks/compare.py
@@ -1122,9 +1119,6 @@ hints:
   - file: python/tests/test_benchmark_gate.py
     text: "int"
     count: 1
-  - file: python/tests/test_benchmark_gate.py
-    text: "pytest.CaptureFixture[str]"
-    count: 2
   - file: python/tests/test_benchmark_gate.py
     text: "str"
     count: 2

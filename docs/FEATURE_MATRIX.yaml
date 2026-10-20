@@ -553,6 +553,15 @@ features:
         entry: "ClientBuilder::rts_cores"
         notes: "Client::builder().rts_cores(k) passes +RTS -N<k> -RTS to hs_init. RTS is process-global: the first client latches the count; a later mismatching request is a no-op + a rts.cores_mismatch warning (mirrors Go WithRTSCores / C++ make_ffi_backend)."
 
+  - id: kernel_allocated_bytes
+    name: Kernel allocation count
+    description: Read how many bytes the kernel's runtime has allocated in the process since it started, so the difference of two reads is what ran between them allocated; the load scaling benchmark measures a DBC load this way. One process-level function in every binding, the count being the process's, answering no count until a backend has started the runtime.
+    bindings:
+      python: { status: implemented, entry: aletheia.allocated_bytes }
+      cpp:    { status: implemented, entry: "aletheia/backend.hpp#allocated_bytes" }
+      go:     { status: implemented, entry: AllocatedBytes }
+      rust:   { status: implemented, entry: "allocated_bytes" }
+
   - id: mock_backend
     name: Mock backend for testing
     description: Test-configurable drop-in backend — the test pre-loads the JSON responses to replay and can inspect the captured requests; used for unit testing without loading the .so.

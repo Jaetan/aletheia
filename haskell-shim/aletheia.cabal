@@ -564,6 +564,7 @@ foreign-library aletheia-ffi
     -- header, and the ABI version export is C that returns the header's.
     include-dirs:     include
     c-sources:        cbits/abi_version.c
+                      cbits/allocation.c
     build-depends:
         base >= 4.14 && < 5,
         text >= 1.2

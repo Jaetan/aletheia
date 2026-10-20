@@ -61,6 +61,9 @@ using AletheiaFrameBinFn = std::int8_t (*)(void*, const detail::FfiFrame*,
                                            const detail::FfiSignalValues*, detail::FfiBuffer*);
 using AletheiaExtractBinFn = std::int8_t (*)(void*, const detail::FfiFrame*, detail::FfiBuffer*);
 using AletheiaFreeBufFn = void (*)(std::uint8_t*);
+
+// The runtime's allocation count.
+using AletheiaAllocatedBytesFn = std::uint64_t (*)();
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -214,6 +217,43 @@ class FfiBackend : public IBackend {
         return std::string{result};
     }
 
+    // Initialize GHC RTS (once per process, never finalized), keeping the
+    // allocation entry of the library that started it.  The init state is
+    // shared with `rational_renderer.cpp` through `detail::rts_init_state()`,
+    // so the first backend's core count is visible to every later one and a
+    // different request surfaces as the `rts.cores_mismatch` warning instead
+    // of being dropped: the mismatch is what a later backend gets back.
+    static auto start_runtime(HsInitFn hs_init, AletheiaAllocatedBytesFn allocated_bytes_fn,
+                              int rts_cores) -> std::optional<std::pair<int, int>> {
+        auto& rts = detail::rts_init_state();
+        const std::scoped_lock lock(rts.mu);
+        if (rts.initialized)
+            return detail::rts_cores_mismatch(rts_cores, rts.cores);
+        // The argv always carries the containment heap cap.
+        // hs_init_with_rtsopts may retain argv for the whole process
+        // lifetime, so the backing storage must outlive this call:
+        // function-local statics give process-lifetime storage without
+        // a raw owning `new`, and the lines below run exactly once
+        // (guarded by rts.initialized under rts.mu), so their
+        // runtime-valued initialisers evaluate once.
+        const char* override_env = std::getenv(std::string{detail::rts_override_env}.c_str());
+        static auto rts_argv =
+            detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");
+        static auto rts_argv_ptrs = [] {
+            std::vector<char*> ptrs(rts_argv.size());
+            std::ranges::transform(rts_argv, ptrs.begin(),
+                                   [](std::string& arg) { return arg.data(); });
+            return ptrs;
+        }();
+        auto argc = static_cast<int>(rts_argv_ptrs.size());
+        auto** argv = rts_argv_ptrs.data();
+        hs_init(&argc, &argv);
+        rts.cores = rts_cores;
+        rts.allocated_bytes = allocated_bytes_fn;
+        rts.initialized = true;
+        return std::nullopt;
+    }
+
 public:
     // Both arguments are validated before the library is opened: a refused
     // construction must load nothing (dlopen of an empty path opens the
@@ -264,39 +304,9 @@ public:
         extract_signals_bin_fn_ =
             load_sym<AletheiaExtractBinFn>(handle, "aletheia_extract_signals_bin");
         free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle, "aletheia_free_buf");
-
-        // Initialize GHC RTS (once per process, never finalized).  The
-        // init state is shared with `rational_renderer.cpp` through
-        // `detail::rts_init_state()`, so the first backend's core count is
-        // visible to every later one and a different request surfaces as
-        // the `rts.cores_mismatch` warning instead of being dropped.
-        auto& rts = detail::rts_init_state();
-        const std::scoped_lock lock(rts.mu);
-        if (!rts.initialized) {
-            // The argv always carries the containment heap cap.
-            // hs_init_with_rtsopts may retain argv for the whole process
-            // lifetime, so the backing storage must outlive this call:
-            // function-local statics give process-lifetime storage without
-            // a raw owning `new`, and this block runs exactly once
-            // (guarded by rts.initialized under rts.mu), so their
-            // runtime-valued initialisers evaluate once.
-            const char* override_env = std::getenv(std::string{detail::rts_override_env}.c_str());
-            static auto rts_argv =
-                detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");
-            static auto rts_argv_ptrs = [] {
-                std::vector<char*> ptrs(rts_argv.size());
-                std::ranges::transform(rts_argv, ptrs.begin(),
-                                       [](std::string& arg) { return arg.data(); });
-                return ptrs;
-            }();
-            auto argc = static_cast<int>(rts_argv_ptrs.size());
-            auto** argv = rts_argv_ptrs.data();
-            hs_init(&argc, &argv);
-            rts.cores = rts_cores;
-            rts.initialized = true;
-        } else if (auto const mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {
-            rts_mismatch_ = mismatch.value();
-        }
+        auto const allocated_bytes_fn =
+            load_sym<AletheiaAllocatedBytesFn>(handle, "aletheia_allocated_bytes");
+        rts_mismatch_ = start_runtime(hs_init, allocated_bytes_fn, rts_cores);
         handle_ = opened.release();
     }
 
@@ -457,6 +467,17 @@ auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
     // the same .so instead of its relative-path heuristic.
     detail::register_default_lib_path(lib_path);
     return backend;
+}
+
+auto allocated_bytes() -> std::optional<std::uint64_t> {
+    auto& rts = detail::rts_init_state();
+    auto const entry = [&rts] {
+        const std::scoped_lock lock(rts.mu);
+        return rts.allocated_bytes;
+    }();
+    if (entry == nullptr)
+        return std::nullopt;
+    return entry();
 }
 
 auto make_ffi_backend_from_env(int rts_cores) -> std::unique_ptr<IBackend> {

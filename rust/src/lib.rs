@@ -22,6 +22,8 @@
 //!   [`ClientBuilder::build_with_backend`]): the [`Client`] is built over a
 //!   production FFI backend by default, or a test [`MockBackend`] (or any custom
 //!   double) for unit-testing the client without loading the `.so`.
+//! - The bytes the kernel's runtime has allocated in the process
+//!   ([`allocated_bytes`]), read around work to measure what it allocated.
 //!
 //! Frame streaming uses the binary FFI (`aletheia_send_frame`, …), *not* the
 //! JSON command path — that mirrors every other binding and the core's intended
@@ -59,7 +61,7 @@ pub mod yaml;
 #[cfg(feature = "async")]
 pub use async_client::AsyncClient;
 use backend::FfiBackend;
-pub use backend::{Backend, SignalInjection};
+pub use backend::{allocated_bytes, Backend, SignalInjection};
 pub use check::Check;
 pub use dbc::{
     AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,

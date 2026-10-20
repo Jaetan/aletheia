@@ -17,7 +17,7 @@ namespace aletheia::detail {
 // ALETHEIA_ABI_VERSION: the version of the structures and signatures this
 // binding lays out. The backend and the renderer refuse a library reporting any
 // other.
-inline constexpr std::uint32_t abi_version = 2;
+inline constexpr std::uint32_t abi_version = 3;
 
 // The entry `dlsym` resolved, as the function type the kernel exports it at.
 // dlsym answers void*, and POSIX guarantees a function pointer survives the

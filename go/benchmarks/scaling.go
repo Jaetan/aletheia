@@ -4,6 +4,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -13,8 +15,10 @@ import (
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
-// Scaling reports five sweeps under one mapping. The field order below is the
-// wire order benchmarks/SCHEMA.yaml pins across the four bindings.
+// Scaling reports its sweeps under one mapping, a key for each, in the order
+// of scalingResults' fields, which is the sweep order benchmarks/SCHEMA.yaml
+// pins across the four bindings. The schema holds each row to its key set,
+// compared as a set.
 type traceSizeRow struct {
 	Frames   int     `json:"frames"`
 	FPS      float64 `json:"fps"`
@@ -38,16 +42,27 @@ type complexityRow struct {
 type dbcSizeRow struct {
 	Messages       int     `json:"messages"`
 	Seconds        float64 `json:"seconds"`
+	AllocatedBytes uint64  `json:"allocated_bytes"`
 	MessagesPerSec float64 `json:"messages_per_sec"`
 	Relative       float64 `json:"relative"`
 }
 
+type literalLengthRow struct {
+	Digits         int     `json:"digits"`
+	Seconds        float64 `json:"seconds"`
+	AllocatedBytes uint64  `json:"allocated_bytes"`
+	DigitsPerSec   float64 `json:"digits_per_sec"`
+	Relative       float64 `json:"relative"`
+}
+
 type scalingResults struct {
-	TraceSizeCAN20     []traceSizeRow  `json:"trace_size_can20"`
-	TraceSizeCANFD     []traceSizeRow  `json:"trace_size_canfd"`
-	PropertyCount      []propCountRow  `json:"property_count"`
-	PropertyComplexity []complexityRow `json:"property_complexity"`
-	DBCSize            []dbcSizeRow    `json:"dbc_size"`
+	TraceSizeCAN20     []traceSizeRow     `json:"trace_size_can20"`
+	TraceSizeCANFD     []traceSizeRow     `json:"trace_size_canfd"`
+	PropertyCount      []propCountRow     `json:"property_count"`
+	PropertyComplexity []complexityRow    `json:"property_complexity"`
+	DBCSize            []dbcSizeRow       `json:"dbc_size"`
+	TextLiteralLength  []literalLengthRow `json:"text_literal_length"`
+	JSONLiteralLength  []literalLengthRow `json:"json_literal_length"`
 }
 
 // alwaysBetween, alwaysLessThan and alwaysLessThanRat build the Always-wrapped
@@ -174,32 +189,241 @@ func dbcSizes(quick bool) []int {
 	return []int{1250, 2500, 5000, 10000}
 }
 
-// minLoadSeconds loads the definition numRuns times, each on a fresh client
-// closed after, and answers the fastest load in seconds. Only ParseDBC is
-// timed. The minimum, not the mean: the sweep compares two sizes' times, and
-// the fastest load is the least noisy estimate of the work.
-func minLoadSeconds(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, numRuns int) float64 {
-	load := func() (float64, error) {
+// literalLengthText is the DBC text the text literal sweep loads: one
+// message whose one signal's factor is written as 1. followed by that many
+// zeros, which the kernel reduces to 1, so every load succeeds and only the
+// literal's length grows.
+func literalLengthText(digits int) string {
+	return "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\nBO_ 200 Msg: 8 ECU\n" +
+		" SG_ Sel : 0|8@1+ (1." + strings.Repeat("0", digits) + ",0) [0|255] \"\" ECU\n"
+}
+
+// literalLengthCommand is literalLengthText's DBC as the parseDBC command the
+// JSON literal sweep sends, one line of JSON with no spaces. The factor is
+// spliced in as written, since a JSON encoder would write the number as 1.
+func literalLengthCommand(digits int) string {
+	return `{"type":"command","command":"parseDBC","dbc":{"version":"","messages":[{"id":200,` +
+		`"name":"Msg","dlc":8,"sender":"ECU","senders":[],"extended":false,"signals":[{` +
+		`"name":"Sel","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,` +
+		`"factor":1.` + strings.Repeat("0", digits) +
+		`,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always",` +
+		`"receivers":["ECU"],"valueDescriptions":[]}]}],"signalGroups":[],` +
+		`"environmentVars":[],"valueTables":[],"nodes":[{"name":"ECU"}],"comments":[],` +
+		`"attributes":[],"unresolvedValueDescs":[]}}`
+}
+
+func literalLengths(quick bool) []int {
+	if quick {
+		return []int{25000, 50000, 100000}
+	}
+	return []int{12500, 25000, 50000, 100000}
+}
+
+// loadSession is a fresh session holding one load. run is the load, the one
+// call timed and counted; check, called after both, refuses an answer the
+// kernel did not accept; close ends the session.
+type loadSession struct {
+	run   func() error
+	check func() error
+	close func()
+}
+
+// openLoad opens a load's fresh session on the backend.
+type openLoad func(*aletheia.FFIBackend) (loadSession, error)
+
+// clientLoad opens a fresh client for the load, whose refusal is the error the
+// client answers.
+func clientLoad(load func(*aletheia.Client) error) openLoad {
+	return func(backend *aletheia.FFIBackend) (loadSession, error) {
 		client, err := aletheia.NewClient(backend)
 		if err != nil {
-			return 0, err
+			return loadSession{}, err
 		}
-		defer client.Close()
-		start := time.Now()
-		if _, err := client.ParseDBC(ctx, dbc); err != nil {
-			return 0, err
-		}
-		return time.Since(start).Seconds(), nil
+		return loadSession{
+			run:   func() error { return load(client) },
+			check: func() error { return nil },
+			close: func() { _ = client.Close() },
+		}, nil
 	}
-	times := make([]float64, 0, numRuns)
-	for r := 0; r < numRuns; r++ {
-		secs, err := load()
+}
+
+// commandLoad opens a fresh session on the backend and sends the command
+// through its raw command path, the reply checked by commandAccepted.
+func commandLoad(command string) openLoad {
+	return func(backend *aletheia.FFIBackend) (loadSession, error) {
+		state, err := backend.Init()
 		if err != nil {
-			die("dbc size point (%d messages) run %d/%d failed: %v", len(dbc.Messages), r+1, numRuns, err)
+			return loadSession{}, err
 		}
-		times = append(times, secs)
+		var reply string
+		return loadSession{
+			run: func() error {
+				var err error
+				reply, err = backend.Process(state, command)
+				return err
+			},
+			check: func() error { return commandAccepted(command, reply) },
+			close: func() { backend.Close(state) },
+		}, nil
 	}
-	return slices.Min(times)
+}
+
+// commandAccepted answers nil when the reply is the kernel accepting the
+// parseDBC command, and otherwise the refusal, named by the reply's status,
+// code and message.
+func commandAccepted(command, reply string) error {
+	var answer struct {
+		Status  string `json:"status"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(reply), &answer); err != nil {
+		return fmt.Errorf("process answered a %d-byte parseDBC command with a reply that does not decode: %w", len(command), err)
+	}
+	if answer.Status != "success" {
+		return fmt.Errorf("process refused a %d-byte parseDBC command: %s: %s: %s", len(command), answer.Status, answer.Code, answer.Message)
+	}
+	return nil
+}
+
+// dbcSizeLoad, textLiteralLoad and jsonLiteralLoad are the loads the load
+// sweeps time at a size, the definition, the text or the command built before
+// the load is timed.
+func dbcSizeLoad(messages int) openLoad {
+	dbc := dbcSizeDBC(messages)
+	return clientLoad(func(client *aletheia.Client) error {
+		_, err := client.ParseDBC(ctx, dbc)
+		return err
+	})
+}
+
+func textLiteralLoad(digits int) openLoad {
+	text := literalLengthText(digits)
+	return clientLoad(func(client *aletheia.Client) error {
+		_, err := client.ParseDBCText(ctx, text)
+		return err
+	})
+}
+
+func jsonLiteralLoad(digits int) openLoad {
+	return commandLoad(literalLengthCommand(digits))
+}
+
+// allocatedBytes reads the kernel runtime's allocation count, which the
+// backend the program opened has started.
+func allocatedBytes() (uint64, error) {
+	allocated, ok := aletheia.AllocatedBytes()
+	if !ok {
+		return 0, errors.New("the kernel's allocation count answered no count: no backend has started the runtime")
+	}
+	return allocated, nil
+}
+
+// loadCost is a load's seconds and the bytes the kernel's runtime allocated
+// while it ran.
+type loadCost struct {
+	seconds        float64
+	allocatedBytes uint64
+}
+
+// minLoad runs the load numRuns times, each in a fresh session closed after,
+// and answers the least seconds and the least allocated bytes of its runs.
+// Only the load is timed, and the allocation count is read on either side of
+// the timed span, after the session is open: the session's start and the
+// check of the reply are in neither number, and the collection each read
+// runs is not in the seconds. The bytes are the kernel runtime's, everything
+// it runs for the command, and not what the binding builds on the Go heap.
+// The least, not the mean: the gate compares a sweep's last point with its
+// first, and the least is the least noisy estimate of the work. A refused
+// load ends the program, naming the load and the refusal.
+func minLoad(backend *aletheia.FFIBackend, what string, numRuns int, open openLoad) loadCost {
+	run := func() (loadCost, error) {
+		session, err := open(backend)
+		if err != nil {
+			return loadCost{}, err
+		}
+		defer session.close()
+		before, err := allocatedBytes()
+		if err != nil {
+			return loadCost{}, err
+		}
+		start := time.Now()
+		if err := session.run(); err != nil {
+			return loadCost{}, err
+		}
+		seconds := time.Since(start).Seconds()
+		after, err := allocatedBytes()
+		if err != nil {
+			return loadCost{}, err
+		}
+		if err := session.check(); err != nil {
+			return loadCost{}, err
+		}
+		return loadCost{seconds: seconds, allocatedBytes: after - before}, nil
+	}
+	seconds := make([]float64, 0, numRuns)
+	allocated := make([]uint64, 0, numRuns)
+	for r := 0; r < numRuns; r++ {
+		cost, err := run()
+		if err != nil {
+			die("%s run %d/%d failed: %v", what, r+1, numRuns, err)
+		}
+		seconds = append(seconds, cost.seconds)
+		allocated = append(allocated, cost.allocatedBytes)
+	}
+	return loadCost{seconds: slices.Min(seconds), allocatedBytes: slices.Min(allocated)}
+}
+
+// sweep measures a sweep's points in order. Every sweep takes its baseline
+// from its own first row.
+func sweep[V any](points int, at func(int) V) []V {
+	values := make([]V, 0, points)
+	for i := 0; i < points; i++ {
+		values = append(values, at(i))
+	}
+	return values
+}
+
+// loadPoint is one row of a load sweep, rounded as the schema pins it: the
+// size, the least seconds and allocated bytes, the rate in size units a
+// second, and that rate over the first row's.
+type loadPoint struct {
+	size           int
+	seconds        float64
+	allocatedBytes uint64
+	rate           float64
+	relative       float64
+}
+
+// loadSweep runs one load at the warmup size, its cost discarded so that a
+// once-per-process allocation does not land in the first point, then
+// measures the load at each size, unit naming what a size counts.
+func loadSweep(backend *aletheia.FFIBackend, numRuns int, unit string, warmup int, sizes []int, load func(int) openLoad) []loadPoint {
+	_ = minLoad(backend, fmt.Sprintf("warmup load of %d %s", warmup, unit), 1, load(warmup))
+	costs := sweep(len(sizes), func(i int) loadCost {
+		return minLoad(backend, fmt.Sprintf("load of %d %s", sizes[i], unit), numRuns, load(sizes[i]))
+	})
+	points := make([]loadPoint, 0, len(sizes))
+	for i, cost := range costs {
+		rate := float64(sizes[i]) / cost.seconds
+		points = append(points, loadPoint{
+			size: sizes[i], seconds: round4(cost.seconds), allocatedBytes: cost.allocatedBytes, rate: round1(rate),
+			relative: round3(relativeOf(rate, float64(sizes[0])/costs[0].seconds)),
+		})
+	}
+	return points
+}
+
+// printLoadSweep prints a load sweep's table under its heading, the
+// allocated bytes beside the time.
+func printLoadSweep(out io.Writer, heading, sizeColumn, rateColumn, expected string, points []loadPoint) {
+	fmt.Fprintf(out, "\n%s\n%s\n%s\n", strings.Repeat("=", 70), heading, strings.Repeat("=", 70))
+	fmt.Fprintf(out, "%10s %10s %16s %14s %10s\n", sizeColumn, "Time (s)", "Allocated (B)", rateColumn, "Relative")
+	fmt.Fprintf(out, "%s\n", strings.Repeat("-", 64))
+	for _, p := range points {
+		fmt.Fprintf(out, "%10d %10.4f %16d %14.1f %9.3fx\n", p.size, p.seconds, p.allocatedBytes, p.rate, p.relative)
+	}
+	fmt.Fprintf(out, "\nExpected: %s\n", expected)
 }
 
 func runScaling(backend *aletheia.FFIBackend, out io.Writer, numRuns int, quick bool) scalingResults {
@@ -214,15 +438,6 @@ func runScaling(backend *aletheia.FFIBackend, out io.Writer, numRuns int, quick 
 
 	// Warmup.
 	_ = meanFPS(backend, can20, makeProperties(1), 1000, 1)
-
-	// Every sweep takes its baseline from its own first row.
-	sweep := func(points int, at func(int) float64) []float64 {
-		values := make([]float64, 0, points)
-		for i := 0; i < points; i++ {
-			values = append(values, at(i))
-		}
-		return values
-	}
 
 	scanTrace := func(f frameFamily, props []aletheia.Formula) []traceSizeRow {
 		sizes := traceSizes(quick)
@@ -263,30 +478,32 @@ func runScaling(backend *aletheia.FFIBackend, out io.Writer, numRuns int, quick 
 		})
 	}
 
-	// Warmup.
-	_ = minLoadSeconds(backend, dbcSizeDBC(500), 1)
-
-	// The definition is built outside the timed load.
-	dbcCounts := dbcSizes(quick)
-	loadTimes := sweep(len(dbcCounts), func(i int) float64 {
-		return minLoadSeconds(backend, dbcSizeDBC(dbcCounts[i]), numRuns)
-	})
-	dbcSize := make([]dbcSizeRow, 0, len(dbcCounts))
-	for i, secs := range loadTimes {
-		mps := float64(dbcCounts[i]) / secs
+	dbcPoints := loadSweep(backend, numRuns, "messages", 500, dbcSizes(quick), dbcSizeLoad)
+	dbcSize := make([]dbcSizeRow, 0, len(dbcPoints))
+	for _, p := range dbcPoints {
 		dbcSize = append(dbcSize, dbcSizeRow{
-			Messages: dbcCounts[i], Seconds: round4(secs), MessagesPerSec: round1(mps),
-			Relative: round3(relativeOf(mps, float64(dbcCounts[0])/loadTimes[0])),
+			Messages: p.size, Seconds: p.seconds, AllocatedBytes: p.allocatedBytes, MessagesPerSec: p.rate, Relative: p.relative,
 		})
 	}
+	printLoadSweep(out, "5. DBC Size Scaling", "Messages", "Messages/sec",
+		"the allocated bytes double with the messages (the check gates them; the time decides nothing)", dbcPoints)
 
-	fmt.Fprintf(out, "\n%s\n5. DBC Size Scaling\n%s\n", strings.Repeat("=", 70), strings.Repeat("=", 70))
-	fmt.Fprintf(out, "%10s %10s %14s %10s\n", "Messages", "Time (s)", "Messages/sec", "Relative")
-	fmt.Fprintf(out, "%s\n", strings.Repeat("-", 47))
-	for _, r := range dbcSize {
-		fmt.Fprintf(out, "%10d %10.4f %14.1f %9.3fx\n", r.Messages, r.Seconds, r.MessagesPerSec, r.Relative)
+	// The literal sweeps load one number of growing digits, through the DBC
+	// text and through a parseDBC command.
+	scanLiteral := func(heading, route string, load func(int) openLoad) []literalLengthRow {
+		points := loadSweep(backend, numRuns, "digits in a "+route, 1000, literalLengths(quick), load)
+		rows := make([]literalLengthRow, 0, len(points))
+		for _, p := range points {
+			rows = append(rows, literalLengthRow{
+				Digits: p.size, Seconds: p.seconds, AllocatedBytes: p.allocatedBytes, DigitsPerSec: p.rate, Relative: p.relative,
+			})
+		}
+		printLoadSweep(out, heading, "Digits", "Digits/sec",
+			"the allocated bytes double with the digits (the check gates them; the time decides nothing)", points)
+		return rows
 	}
-	fmt.Fprintf(out, "\nExpected: Relative stays near 1.0x (load time linear in the number of messages)\n")
+	textLiteralLength := scanLiteral("6. Text Literal Length Scaling", "DBC text", textLiteralLoad)
+	jsonLiteralLength := scanLiteral("7. JSON Literal Length Scaling", "parseDBC command", jsonLiteralLoad)
 
 	fmt.Fprintf(out, "%s\n", strings.Repeat("=", 70))
 	return scalingResults{
@@ -295,5 +512,7 @@ func runScaling(backend *aletheia.FFIBackend, out io.Writer, numRuns int, quick 
 		PropertyCount:      propCount,
 		PropertyComplexity: complexity,
 		DBCSize:            dbcSize,
+		TextLiteralLength:  textLiteralLength,
+		JSONLiteralLength:  jsonLiteralLength,
 	}
 }

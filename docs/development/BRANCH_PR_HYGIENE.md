@@ -95,13 +95,13 @@ the build tree) only seed on `push: main`, adding it to the ruleset is gated on 
    a merge-blocking path, with no bypass (the bypass list is empty by design).
 
 **Load scaling → required.** The `load scaling` check, the scaling leg of
-`benchmark.yml`, fails when a binding's DBC load time outgrows the doublings of
-its messages (`tools/benchmark_gate.py --bench scaling`). It runs on every pull
-request with no path filter: each leg asks `tools/benchmark_scope.py` whether
-the diff can move a measurement, and reports green without measuring when it
-cannot. Once the pull request that adds it has reported it green, add
-**`load scaling`** to the `main` ruleset's required checks, before that pull
-request merges.
+`benchmark.yml`, fails when the bytes a binding's DBC load allocates outgrow
+the doublings of its messages or of one number's digits
+(`tools/benchmark_gate.py --bench scaling`). It runs on every pull request with
+no path filter: each leg asks `tools/benchmark_scope.py` whether the diff can
+move a measurement, and reports green without measuring when it cannot. Once
+the pull request that adds it has reported it green, add **`load scaling`** to
+the `main` ruleset's required checks, before that pull request merges.
 
 **PR title → required.** The `PR title` check, `pr-title.yml`, holds a pull
 request's title, the subject its squash commit lands with, to the closed

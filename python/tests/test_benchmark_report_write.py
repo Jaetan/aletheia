@@ -38,7 +38,7 @@ from _full_stdout import (
 )
 from _processes import CommandWord
 
-from aletheia.common_types import ExitStatus, Prose
+from aletheia.common_types import AllocatedBytes, ExitStatus, Prose
 from benchmarks import (
     _common,
     latency,
@@ -172,8 +172,9 @@ def test_an_error_that_is_not_the_reports_passes_through_a_refused_report(
         assert streams.out.closed
 
 
-# A name a program's module binds that would load the kernel: a DBC loader or the client.
-Loader = Literal["load_dbc", "load_canfd_dbc", "dbc_to_json", "AletheiaClient"]
+# A name a program's module binds that would load the kernel: a DBC loader, the
+# client, or the backend.
+Loader = Literal["load_dbc", "load_canfd_dbc", "dbc_to_json", "AletheiaClient", "FFIBackend"]
 
 
 class _Entry(NamedTuple):
@@ -187,7 +188,7 @@ class _Entry(NamedTuple):
 _ENTRIES: Final = [
     _Entry(throughput.main, throughput, ["load_dbc", "load_canfd_dbc", "AletheiaClient"]),
     _Entry(latency.main, latency, ["load_dbc", "load_canfd_dbc", "AletheiaClient"]),
-    _Entry(scaling.main, scaling, ["load_dbc", "load_canfd_dbc", "AletheiaClient"]),
+    _Entry(scaling.main, scaling, ["load_dbc", "load_canfd_dbc", "AletheiaClient", "FFIBackend"]),
     _Entry(simplification.main, simplification, ["load_dbc", "AletheiaClient"]),
     _Entry(violations.main, violations, ["dbc_to_json", "AletheiaClient"]),
     _Entry(stability.main, stability, ["load_dbc", "AletheiaClient"]),
@@ -197,7 +198,7 @@ _ENTRY_IDS: Final = [entry.module.__name__.rpartition(".")[2] for entry in _ENTR
 
 def _kernel_must_not_load(*_args: DBCDefinition | PathText) -> Never:
     """Fail the test: the run reached the kernel."""
-    pytest.fail("the kernel loaded before the arguments were checked")
+    pytest.fail("the run reached the kernel")
 
 
 @pytest.mark.parametrize("entry", _ENTRIES, ids=_ENTRY_IDS)
@@ -234,9 +235,9 @@ def _fixed_rate(
     return FramesPerSecond(1000.0), scaling.Seconds(1.0)
 
 
-def _fixed_load(_dbc: DBCDefinition) -> scaling.Seconds:
-    """Answer one second, as a DBC load does."""
-    return scaling.Seconds(1.0)
+def _fixed_load(_source: scaling.LoadSource) -> scaling.LoadCost:
+    """Answer one second and one byte, as a DBC, DBC text or ``parseDBC`` command load does."""
+    return scaling.LoadCost(scaling.Seconds(1.0), AllocatedBytes(1))
 
 
 def _fixed_formula_rate(
@@ -332,10 +333,16 @@ def test_a_refused_latency_report_fails_the_run(
 def test_a_refused_scaling_report_fails_the_run(
     monkeypatch: pytest.MonkeyPatch, json_flag: list[CommandWord], buffering: Buffering
 ) -> None:
-    """Scaling's report, tables or JSON, refused by stdout fails the run with status 1."""
+    """Scaling's report, tables or JSON, refused by stdout fails the run with status 1.
+
+    Every load, the raw ``parseDBC`` command's included, is answered by the
+    stub, and the client and the backend fail the test if a load reaches them.
+    """
     _on_canonical_dbcs(monkeypatch, scaling)
     monkeypatch.setattr(scaling, "run_streaming_benchmark", _fixed_rate)
-    monkeypatch.setattr(scaling, "_load_seconds", _fixed_load)
+    monkeypatch.setattr(scaling, "_load_cost", _fixed_load)
+    monkeypatch.setattr(scaling, "AletheiaClient", _kernel_must_not_load)
+    monkeypatch.setattr(scaling, "FFIBackend", _kernel_must_not_load)
     words = ["--quick", "--runs", "1"]
     _refused_run(
         monkeypatch, "scaling", scaling.main, [*map(CommandWord, words), *json_flag], buffering

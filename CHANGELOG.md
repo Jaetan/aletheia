@@ -121,22 +121,33 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   The worker thread is unchanged for every other caller. The Rust twin of
   Python's `aletheia.asyncio.testing.TurnExecutor`.
 
-- **A DBC's load time may not outgrow its number of messages: the `load
-  scaling` check.** Each binding's scaling benchmark measures a `dbc_size`
-  sweep, the time to load a DBC of 1,250 to 10,000 messages (2,500 to 10,000
-  with `--quick`), each size double the one before and each point the best of
-  its runs. `tools/benchmark_gate.py --bench scaling` fails when a binding's
-  load time over the sweep grows more than ×3 per doubling of its messages, or
-  when a binding reports no sweep. On one machine the four bindings grew ×4.07
-  to ×4.39 from 2,500 to 10,000 messages, and a validator comparing every pair
-  of messages ×21.5, against the ×9 allowed. The sweep runs on every pull
+- **A DBC load may not outgrow its input: the `load scaling` check.** Each
+  binding's scaling benchmark measures three load sweeps, each size double the
+  one before: `dbc_size`, a DBC of 1,250 to 10,000 messages (2,500 to 10,000
+  with `--quick`), and two literal sweeps of 12,500 to 100,000 digits (25,000
+  to 100,000 with `--quick`), `text_literal_length`, a DBC text whose one
+  signal factor is `1.` followed by that many zeros, and
+  `json_literal_length`, the same DBC as a `parseDBC` command whose factor is
+  that JSON number, sent through each binding's raw command entry. Each point
+  records the least load time and the least allocated bytes of its runs, the
+  bytes being the difference of two reads of the kernel's allocation count
+  around the load. `tools/benchmark_gate.py --bench scaling` fails when a
+  binding's allocation over a sweep grows more than ×2.25 per doubling, or
+  when a binding reports no sweep, and prints the times without gating them:
+  the count repeats to within a few kilobytes from run to run, where a load's
+  time moves with the machine and the collector. On one machine the four
+  bindings allocated ×4.20 to ×4.21 more from 2,500 to 10,000 messages and
+  ×3.98 (text) and ×3.92 (JSON) more from 25,000 to 100,000 digits, where a
+  JSON array parser that appends each element at the end allocated ×6.93 to
+  ×7.01 and a literal fold that builds the whole number ×15.00 (text) and
+  ×15.10 (JSON), against the ×5.06 allowed. The sweeps run on every pull
   request as `benchmark.yml`'s `load scaling` leg, a required check: no path
   filter skips it, and `tools/benchmark_scope.py` decides inside the job
   whether the diff can move a measurement (the kernel, a binding, the harness
   or its gate), so a pull request of documentation alone passes it without
   measuring. The throughput leg asks the same question in place of its path
   filter. `benchmarks/run_all.sh` takes `--quick`, and `benchmarks/compare.py`
-  tables the sweep.
+  tables the three.
 
 - **Three gates on what the kernel's wire and build promise.**
   `tools/check_wire_code_emitters.py` (the Shake target
@@ -352,6 +363,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   subscript one container, which is the case where no bound is hand-written.
 
 ### Changed
+
+- **BREAKING (C ABI 3): the kernel reports the bytes its runtime has
+  allocated.** The new entry `aletheia_allocated_bytes` runs a collection and
+  returns the bytes the runtime has allocated since it started, so the
+  difference of two calls is what ran between them allocated;
+  `ALETHEIA_ABI_VERSION` is 3, and each binding refuses a library at another
+  version. Each binding exposes the count as one function, the count being the
+  whole process's: Python `aletheia.allocated_bytes()`, Go
+  `aletheia.AllocatedBytes()`, C++ `aletheia::allocated_bytes()` and Rust
+  `aletheia::allocated_bytes()`, each answering no count until a backend has
+  started the runtime. The `load scaling` check reads it around each load.
 
 - **A decimal entered through `aletheia_parse_decimal` is decided in the
   kernel and refused as every kernel refusal is, and the wire codes
@@ -1317,7 +1339,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   and read it as UTF-8 whatever the locale.** `aletheia_process` and
   `aletheia_parse_decimal` take a `const struct aletheia_text *`, the text's
   bytes and their count with no terminating NUL, where they took a
-  NUL-terminated string, and `ALETHEIA_ABI_VERSION` is 2. The shim decoded a C
+  NUL-terminated string. The shim decoded a C
   string with the calling process's locale and dropped what it could not
   decode: under `LC_ALL=C` the decimal `1.5€` was read as `1.5` and a unit `°C`
   came back as `C`, and under every locale a byte that is not UTF-8 was dropped,

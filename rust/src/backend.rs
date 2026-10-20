@@ -32,6 +32,7 @@ use crate::types::{CanId, Dlc, Timestamp};
 
 mod ffi_backend;
 
+pub use ffi_backend::allocated_bytes;
 pub(crate) use ffi_backend::{format_rational, parse_decimal, FfiBackend};
 
 /// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
@@ -180,10 +181,11 @@ type CloseFn = unsafe extern "C" fn(StateHandle);
 type FreeStrFn = unsafe extern "C" fn(*mut c_char);
 type HsInitFn = unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char);
 type AbiVersionFn = unsafe extern "C" fn() -> u32;
+type AllocatedBytesFn = unsafe extern "C" fn() -> u64;
 
 /// `ALETHEIA_ABI_VERSION`: the version of the structures and signatures this
 /// crate lays out, which the `abi_layout` tests hold to the header's.
-const ABI_VERSION: u32 = 2;
+const ABI_VERSION: u32 = 3;
 // Build and update share one shape: the caller allocates the output (`dlc`
 // bytes) in the `FfiBuffer` and reads an `i8` status, nonzero meaning failure
 // with the JSON error envelope in the buffer's `err`.
@@ -395,12 +397,16 @@ pub(crate) struct Symbols {
     close: Symbol<'static, CloseFn>,
     free_str: Symbol<'static, FreeStrFn>,
     hs_init: Symbol<'static, HsInitFn>,
+    allocated_bytes: Symbol<'static, AllocatedBytesFn>,
 }
 
 impl Symbols {
     /// Resolve every export, failing with the missing symbol's name if the
-    /// `.so` lacks one — at construction, not on the Nth call against a stale
-    /// library (the exports move together; `check-ffi-exports` pins the set).
+    /// `.so` lacks one: at construction, not on the Nth call against a stale
+    /// library. The version is checked first, and the header at this version
+    /// declares every entry below but the runtime's start,
+    /// [`RTS_INIT_SYMBOL`], which the GHC runtime library the `.so` depends on
+    /// exports with the signature of the `hs_init` the header declares.
     fn resolve(lib: &'static Library) -> Result<Self, Error> {
         // The version first: a library laid out for another ABI is refused
         // before any other entry is resolved or its runtime is started.
@@ -440,6 +446,7 @@ impl Symbols {
                 // NUL-terminate the mirrored RTS_INIT_SYMBOL for dlsym.  Plain
                 // hs_init cannot carry the -M cap under RtsOptsSafeOnly.
                 hs_init: symbol::<HsInitFn>(lib, format!("{RTS_INIT_SYMBOL}\0").as_bytes())?,
+                allocated_bytes: symbol::<AllocatedBytesFn>(lib, b"aletheia_allocated_bytes\0")?,
             })
         }
     }

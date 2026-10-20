@@ -13,12 +13,14 @@
 #include "detail/dl_symbol.hpp"
 #include "detail/ffi_abi.hpp"
 #include "detail/mock_backend.hpp"
+#include "integration_fixtures.hpp"
 #include "loaded_library.hpp"
 #include "temp_path.hpp"
 #include <aletheia/aletheia.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <dlfcn.h>
 #include <exception>
@@ -603,6 +605,42 @@ TEST_CASE("the FFI backend frees the string the kernel handed it", "[ffi][marsha
     auto const before = count();
     CHECK_THAT(backend->process(state, "{}"), ContainsSubstring("process size=2"));
     CHECK(count() == before + 1);
+}
+
+TEST_CASE("the kernel's allocation count grows across a DBC load", "[ffi][allocation]") {
+    // The count is the runtime's, read through the library that started it,
+    // and a load between two reads allocates in the kernel.
+    auto const lib = find_ffi_library();
+    if (lib.empty())
+        SKIP("no kernel library to load");
+    auto const dbc = aletheia::test::make_integration_dbc();
+    AletheiaClient client(make_ffi_backend(lib));
+    auto const before = allocated_bytes();
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+    auto const after = allocated_bytes();
+    REQUIRE(before.has_value());
+    REQUIRE(after.has_value());
+    CHECK(after.value() > before.value());
+}
+
+TEST_CASE("a later backend leaves the allocation count on the library that started the runtime",
+          "[ffi][allocation]") {
+    // The recording kernel answers each read of its count with one more than
+    // the last, so two reads of its entry around the process's read are one
+    // apart only when the process's read went to the library that started the
+    // runtime instead.
+    if (find_ffi_library().empty())
+        SKIP("no kernel library holds the process, so the stand-in must not be its first backend");
+    auto const lib = stand_in(ALETHEIA_TEST_RECORDING_KERNEL);
+    const aletheia::test::LoadedLibrary handle{dlopen(lib.c_str(), RTLD_NOW)};
+    REQUIRE(handle != nullptr);
+    auto const symbol = aletheia::detail::dl_symbol(handle.get(), "aletheia_allocated_bytes");
+    REQUIRE(symbol.has_value());
+    auto* const entry = aletheia::detail::symbol_as<std::uint64_t (*)()>(symbol.value());
+    auto const backend = make_ffi_backend(lib);
+    auto const before = entry();
+    REQUIRE(allocated_bytes().has_value());
+    CHECK(entry() == before + 1);
 }
 
 TEST_CASE("the renderer's default library path is the first one registered", "[ffi][renderer]") {

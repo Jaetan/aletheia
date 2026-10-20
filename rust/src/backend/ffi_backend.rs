@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! The production [`Backend`], [`FfiBackend`], with the frames it builds, and
-//! the kernel's rational rendering and decimal parsing ([`format_rational`],
-//! [`parse_decimal`]).
+//! The production [`Backend`], [`FfiBackend`], with the frames it builds, the
+//! kernel's rational rendering and decimal parsing ([`format_rational`],
+//! [`parse_decimal`]), and its runtime's allocation count
+//! ([`allocated_bytes`]).
 
 use std::ffi::c_char;
 
@@ -181,6 +182,29 @@ pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
         )));
     }
     decimal_value(out.value.numerator, out.value.denominator)
+}
+
+/// The bytes the kernel's runtime has allocated in this process since it
+/// started, or `None` before a backend has started the runtime.
+///
+/// The count covers the whole process, every client and thread, so the
+/// difference of two reads is what ran between them allocated. It is read
+/// through the library the runtime was started with, and never starts the
+/// runtime itself: a [`Client`](crate::Client) over the library does.
+/// Each read runs a collection first, so a read belongs outside any span a
+/// caller times.
+#[must_use]
+pub fn allocated_bytes() -> Option<u64> {
+    // The runtime first, as for format_rational: calling the entry with the
+    // runtime down is undefined behaviour, and a started runtime implies the
+    // symbol table is latched, so the lookup below loads nothing.
+    if !matches!(RTS_INIT.get(), Some(Ok(()))) {
+        return None;
+    }
+    let syms = symbols().ok()?;
+    // SAFETY: `aletheia_allocated_bytes` is `uint64_t aletheia_allocated_bytes(void)`,
+    // and the runtime it reads is started (checked above).
+    Some(unsafe { (syms.allocated_bytes)() })
 }
 
 /// The rational the decimal entry answered. The kernel answers lowest terms

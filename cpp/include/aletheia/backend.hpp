@@ -200,6 +200,13 @@ protected:
 // ALETHEIA_LIB is unset or empty; for an explicit path use the overload above.
 [[nodiscard]] auto make_ffi_backend_from_env(int rts_cores = 1) -> std::unique_ptr<IBackend>;
 
+// The bytes the kernel's runtime has allocated since it started, a count of the
+// whole process, so the difference of two reads is what ran between them
+// allocated. It is read through the library of the backend that started the
+// runtime, and is `std::nullopt` until one has. Each read runs a collection
+// first, which a timed span should leave out.
+[[nodiscard]] auto allocated_bytes() -> std::optional<std::uint64_t>;
+
 // Where the binding looks for libaletheia-ffi.so, in one order that every
 // caller shares: the ALETHEIA_LIB variable, which an empty value leaves unset;
 // then the path a make_ffi_backend call registered; then three build

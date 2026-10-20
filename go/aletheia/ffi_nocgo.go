@@ -32,6 +32,10 @@ func NewFFIBackendFromEnv(_ ...FFIBackendOption) (*FFIBackend, error) {
 // StablePtrCount is zero: no session can be opened without cgo.
 func StablePtrCount() int64 { return 0 }
 
+// AllocatedBytes answers no count: the count is the kernel runtime's, and
+// this build has no runtime it can start.
+func AllocatedBytes() (uint64, bool) { return 0, false }
+
 // Every endpoint below refuses. The signatures are the interface's, which the
 // assertion at the end of the file holds them to.
 

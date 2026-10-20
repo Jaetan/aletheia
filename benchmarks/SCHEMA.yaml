@@ -68,25 +68,31 @@ modes:
 
   scaling:
     flags: ["--runs", "--quick", "--json"]
-    # A DICT keyed by sub-benchmark (NOT a flat list) — scaling runs five
-    # distinct sweeps, each its own row schema.
+    # A DICT keyed by sub-benchmark (NOT a flat list): scaling runs distinct
+    # sweeps, each its own row schema, emitted in the order listed here.
     results_container: dict
-    sub_benchmarks: [trace_size_can20, trace_size_canfd, property_count, property_complexity, dbc_size]
+    sub_benchmarks: [trace_size_can20, trace_size_canfd, property_count, property_complexity, dbc_size, text_literal_length, json_literal_length]
     # Per-sub-benchmark row key sets.
     row_keys:
       trace_size_can20: [frames, fps, relative]
       trace_size_canfd: [frames, fps, relative]
       property_count: [properties, fps, us_per_frame, relative]
       property_complexity: [complexity, fps, us_per_frame, relative]
-      dbc_size: [messages, seconds, messages_per_sec, relative]
-    # Row COUNT per sweep under --quick (the mode the gate runs) — deterministic,
-    # so the gate can assert it without touching measured values.
+      dbc_size: [messages, seconds, allocated_bytes, messages_per_sec, relative]
+      text_literal_length: [digits, seconds, allocated_bytes, digits_per_sec, relative]
+      json_literal_length: [digits, seconds, allocated_bytes, digits_per_sec, relative]
+    # Row COUNT per sweep under --quick (the mode the gate runs): deterministic,
+    # so the gate can assert it without touching measured values.  The dbc_size
+    # sizes and the literal sizes each double the last, as the load scaling
+    # check needs.
     quick_row_counts:
       trace_size_can20: 4        # [1000, 5000, 10000, 50000] (full drops in 100000)
       trace_size_canfd: 4
       property_count: 6          # [1, 2, 3, 5, 7, 10]
       property_complexity: 5
-      dbc_size: 3                # [2500, 5000, 10000]: two doublings, the gate's
+      dbc_size: 3                # [2500, 5000, 10000]
+      text_literal_length: 3     # [25000, 50000, 100000]
+      json_literal_length: 3     # [25000, 50000, 100000]
     # The five complexity labels, verbatim and in order (the "complexity" row field).
     complexity_labels:
       - "Simple predicate"
@@ -99,9 +105,10 @@ modes:
 #    structure/labels/counts, not these magnitudes) ───────────────────────────
 experiment:
   # Averaging: every streaming point is the mean of --runs passes (default 5);
-  # single-pass is NOT used.  A dbc_size point is the MINIMUM of --runs loads:
-  # the gate compares two sizes' times, and the minimum is the least noisy
-  # estimate of the work.
+  # single-pass is NOT used.  A point of a load sweep (dbc_size or a literal
+  # sweep) keeps the MINIMUM seconds and, apart, the MINIMUM allocated_bytes of
+  # its --runs loads: the sweeps compare sizes' costs, and the minimum is the
+  # least noisy estimate of the work.
   scaling_runs_default: 5
   # Frames per timed pass. For trace-size sweeps the size IS the frame count;
   # for property-count / property-complexity it is fixed:
@@ -122,12 +129,47 @@ experiment:
   dbc_sizes:
     full: [1250, 2500, 5000, 10000]
     quick: [2500, 5000, 10000]
+  # The literal sweeps, text_literal_length and json_literal_length, run at
+  # literal_lengths: a point's digits, D, are the zeros after "1." in the factor
+  # of the DBC's one signal, where <D zeros> stands for them.  Each sweep runs
+  # one untimed warm-up load at 1000 digits first.  The kernel reduces the
+  # factor to 1, so a load succeeds; a refused load ends the program non-zero,
+  # naming the refusal, and is never recorded.
+  literal_lengths:
+    full: [12500, 25000, 50000, 100000]
+    quick: [25000, 50000, 100000]
+  # text_literal_length loads text_literal_length_text, its "\n" line ends, its
+  # SG_ line opening on one space and its final "\n" included, on a fresh
+  # client per load, through the binding's DBC text load (parse_dbc_text).
+  text_literal_length_text: |
+    VERSION ""
+
+    NS_ :
+
+    BS_:
+
+    BU_: ECU
+
+    BO_ 200 Msg: 8 ECU
+     SG_ Sel : 0|8@1+ (1.<D zeros>,0) [0|255] "" ECU
+  # json_literal_length sends json_literal_length_command, one line with no
+  # line end, in a fresh session per load, through the binding's public raw
+  # command path (process); any answer but "status": "success" is a refusal.
+  json_literal_length_command: '{"type":"command","command":"parseDBC","dbc":{"version":"","messages":[{"id":200,"name":"Msg","dlc":8,"sender":"ECU","senders":[],"extended":false,"signals":[{"name":"Sel","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1.<D zeros>,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always","receivers":["ECU"],"valueDescriptions":[]}]}],"signalGroups":[],"environmentVars":[],"valueTables":[],"nodes":[{"name":"ECU"}],"comments":[],"attributes":[],"unresolvedValueDescs":[]}}'
+  # allocated_bytes: the bytes one load allocated, the kernel's process-wide
+  # count (aletheia_allocated_bytes) read on the open client or session just
+  # before the clock starts, subtracted from the count read just after it
+  # stops, so neither read is timed.  A whole number, written as a JSON integer.
+  # seconds is the load's wall time; messages_per_sec = messages / seconds and
+  # digits_per_sec = digits / seconds.
   # relative = fps / (fps of the first row in the same sweep); for dbc_size,
-  # messages_per_sec / (the first row's messages_per_sec).
+  # messages_per_sec / (the first row's messages_per_sec); for a literal sweep,
+  # digits_per_sec / (the first row's digits_per_sec).
   relative_baseline: first_row
   # Rounding (match across bindings): fps -> 1 dp, us_per_frame -> 1 dp,
-  # relative -> 3 dp, seconds -> 4 dp, messages_per_sec -> 1 dp.
-  rounding: { fps: 1, us_per_frame: 1, relative: 3, seconds: 4, messages_per_sec: 1 }
+  # relative -> 3 dp, seconds -> 4 dp, messages_per_sec -> 1 dp,
+  # digits_per_sec -> 1 dp.
+  rounding: { fps: 1, us_per_frame: 1, relative: 3, seconds: 4, messages_per_sec: 1, digits_per_sec: 1 }
   # trace-size sweep properties (one Always-wrapped range predicate each):
   trace_size_property:
     can20: "Always(Atomic(Between(EngineSpeed, 0, 8000)))"

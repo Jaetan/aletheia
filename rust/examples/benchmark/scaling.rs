@@ -6,7 +6,7 @@
 use std::io;
 use std::time::Instant;
 
-use aletheia::{CanId, Dbc, Dlc, Formula, Predicate, Rational};
+use aletheia::{CanId, Client, Dbc, Dlc, Formula, ParsedDbc, Predicate, Rational};
 use serde_json::{json, Value};
 
 use crate::fixtures::{
@@ -21,15 +21,18 @@ use crate::Output;
 // Scaling mode: the sweeps under one dict-shaped payload, in the order the
 // cross-binding schema (benchmarks/SCHEMA.yaml, tools/check_bench_schema.py)
 // pins across all four bindings: trace_size_can20, trace_size_canfd,
-// property_count, property_complexity, dbc_size. A streaming sweep's point is
-// the MEAN fps over `runs` streaming passes, `relative = fps / (fps of the
-// first row)`; a dbc_size point is the MINIMUM load time over `runs` loads,
-// `relative = messages_per_sec / (messages_per_sec of the first row)`.
-// Rounding: fps / us_per_frame / messages_per_sec -> 1 dp, relative -> 3 dp,
-// seconds -> 4 dp (identical to Go / Python).
+// property_count, property_complexity, dbc_size, text_literal_length,
+// json_literal_length. A streaming sweep's point is the MEAN fps over `runs`
+// streaming passes, `relative = fps / (fps of the first row)`; a load sweep's
+// point (dbc_size and the two literal sweeps) is the MINIMUM load time and the
+// MINIMUM allocated bytes over `runs` loads, `relative` its messages_per_sec or
+// digits_per_sec over the first row's.
+// Rounding: fps / us_per_frame / messages_per_sec / digits_per_sec -> 1 dp,
+// relative -> 3 dp, seconds -> 4 dp, allocated_bytes an integer (identical to
+// Go / Python).
 // ---------------------------------------------------------------------------
 
-/// Mean streaming fps over `runs` passes (the robust methodology — noise on an
+/// Mean streaming fps over `runs` passes (the robust methodology; noise on an
 /// un-averaged baseline row would multiply into every `relative` in the sweep).
 fn mean_fps(
     dbc: &Dbc,
@@ -141,57 +144,207 @@ fn dbc_sizes(quick: bool) -> Vec<u32> {
     }
 }
 
-/// Wall-clock seconds of one `parse_dbc` of `dbc` into a fresh client. Only the
-/// call is timed: the client is created before the clock starts, and the loaded
-/// document and the client (whose drop closes it) are dropped after it stops.
-fn load_seconds(dbc: &Dbc) -> f64 {
-    let client = new_client();
-    let start = Instant::now();
-    let loaded = client.parse_dbc(dbc).expect("parse dbc");
-    let elapsed = start.elapsed().as_secs_f64();
-    drop(loaded);
-    elapsed
+/// The literal sweeps' points (zeros after `1.` in the one factor), each
+/// double the one before; `--quick` drops the smallest.
+fn literal_lengths(quick: bool) -> Vec<u32> {
+    if quick {
+        vec![25000, 50000, 100000]
+    } else {
+        vec![12500, 25000, 50000, 100000]
+    }
 }
 
-/// Minimum load time over `runs` loads: the sweep compares two sizes' times,
-/// and the minimum is the least noisy estimate of the work.
-fn min_load_seconds(dbc: &Dbc, runs: usize) -> f64 {
-    let secs_list: Vec<f64> = (0..runs).map(|_| load_seconds(dbc)).collect();
+/// The DBC text of one message and one signal whose factor is `1.` followed
+/// by `digits` zeros, which the kernel reduces to 1, so the load succeeds at
+/// any length the kernel's DBC text bound admits.
+fn literal_dbc_text(digits: u32) -> String {
+    format!(
+        concat!(
+            "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n",
+            "BO_ 200 Msg: 8 ECU\n",
+            " SG_ Sel : 0|8@1+ (1.{zeros},0) [0|255] \"\" ECU\n",
+        ),
+        zeros = "0".repeat(digits as usize),
+    )
+}
+
+/// The `parseDBC` command of [`literal_dbc_text`]'s DBC, one line of JSON
+/// with no spaces. The factor is spliced in as written, since a JSON encoder
+/// would write the number as 1.
+fn literal_dbc_command(digits: u32) -> String {
+    const HEAD: &str = concat!(
+        r#"{"type":"command","command":"parseDBC","dbc":{"version":"","messages":[{"id":200,"#,
+        r#""name":"Msg","dlc":8,"sender":"ECU","senders":[],"extended":false,"signals":[{"#,
+        r#""name":"Sel","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"#,
+        r#""factor":1."#,
+    );
+    const TAIL: &str = concat!(
+        r#","offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always","#,
+        r#""receivers":["ECU"],"valueDescriptions":[]}]}],"signalGroups":[],"#,
+        r#""environmentVars":[],"valueTables":[],"nodes":[{"name":"ECU"}],"comments":[],"#,
+        r#""attributes":[],"unresolvedValueDescs":[]}}"#,
+    );
+    format!("{HEAD}{zeros}{TAIL}", zeros = "0".repeat(digits as usize))
+}
+
+/// Load `dbc` into `client`.
+fn load_dbc(client: &Client, dbc: &Dbc) -> ParsedDbc {
+    client.parse_dbc(dbc).expect("parse dbc")
+}
+
+/// Load `text`, the [`literal_dbc_text`] of `digits` zeros, into `client`: a
+/// refusal ends the program naming it, and is never a recorded point.
+fn load_text(client: &Client, text: &str, digits: u32) -> ParsedDbc {
+    client.parse_dbc_text(text).unwrap_or_else(|err| {
+        panic!("the text_literal_length load at {digits} digits was refused: {err}")
+    })
+}
+
+/// What a load leaves, accepted once the count is read on both sides of the
+/// load, so the acceptance is neither timed nor counted.
+trait Loaded {
+    /// Accept the load, or end the program naming its refusal.
+    fn accept(self);
+}
+
+/// A typed load ends the program on a refusal, so the document it leaves is
+/// accepted as it is.
+impl Loaded for ParsedDbc {
+    fn accept(self) {}
+}
+
+/// The kernel's raw answer to the [`literal_dbc_command`] of `digits` zeros.
+struct Answer {
+    digits: u32,
+    raw: String,
+}
+
+/// An answer other than a success ends the program naming it, and is never a
+/// recorded point.
+impl Loaded for Answer {
+    fn accept(self) {
+        let answer: Value = serde_json::from_str(&self.raw).unwrap_or(Value::Null);
+        assert!(
+            answer["status"] == "success",
+            "the json_literal_length load at {} digits was refused: {}",
+            self.digits,
+            self.raw
+        );
+    }
+}
+
+/// Send `command`, the [`literal_dbc_command`] of `digits` zeros, through
+/// `client`'s raw command path.
+fn send_command(client: &Client, command: &str, digits: u32) -> Answer {
+    let raw = client.process(command).unwrap_or_else(|err| {
+        panic!("the json_literal_length command at {digits} digits failed: {err}")
+    });
+    Answer { digits, raw }
+}
+
+/// One load's cost: its wall time, and the bytes the runtime allocated
+/// across it.
+struct LoadCost {
+    seconds: f64,
+    allocated_bytes: u64,
+}
+
+/// The bytes the kernel's runtime has allocated so far in the process.
+fn allocated() -> u64 {
+    aletheia::allocated_bytes()
+        .expect("an open client has started the runtime, so there is a count to read")
+}
+
+/// The cost of one `load` into a fresh client. Only the call is timed, and
+/// the count is read on both sides of the timed span, each read running a
+/// collection: the client is opened before the first read, so its session is
+/// not the load's, and what the load leaves is accepted, and the client
+/// (whose drop closes it) dropped, after the second.
+fn load_cost<T: Loaded>(load: impl FnOnce(&Client) -> T) -> LoadCost {
+    let client = new_client();
+    let before = allocated();
+    let start = Instant::now();
+    let loaded = load(&client);
+    let seconds = start.elapsed().as_secs_f64();
+    let after = allocated();
+    loaded.accept();
+    LoadCost {
+        seconds,
+        allocated_bytes: after
+            .checked_sub(before)
+            .expect("the runtime's allocation count never falls"),
+    }
+}
+
+/// The least time and the least allocated bytes over `runs` loads, each taken
+/// on its own: a sweep compares two sizes' costs, and the minimum is the least
+/// noisy estimate of the work. `point` names the point in a failure.
+fn min_load_cost<T: Loaded>(point: &str, runs: usize, load: impl Fn(&Client) -> T) -> LoadCost {
+    let costs: Vec<LoadCost> = (0..runs).map(|_| load_cost(&load)).collect();
     // Never take the minimum of an empty sample: `min_of` would yield a
     // fabricated infinity reported as a measurement.  Load errors already abort
-    // (`load_seconds` panics), so this is reachable only for `--runs 0`.
+    // (each load panics), so this is reachable only for `--runs 0`.
     assert!(
-        !secs_list.is_empty(),
-        "dbc_size point ({} messages) has no measurement (runs = {runs})",
-        dbc.messages.len()
+        !costs.is_empty(),
+        "{point} has no measurement (runs = {runs})"
     );
-    min_of(&secs_list)
+    let seconds: Vec<f64> = costs.iter().map(|cost| cost.seconds).collect();
+    LoadCost {
+        seconds: min_of(&seconds),
+        allocated_bytes: costs
+            .iter()
+            .map(|cost| cost.allocated_bytes)
+            .min()
+            .expect("a sample that is not empty has a least cost"),
+    }
 }
 
-/// Sweep DBC sizes; rows carry `{messages, seconds, messages_per_sec, relative}`.
-fn scan_dbc_size(out: &mut Output<'_>, sizes: &[u32], runs: usize) -> io::Result<Vec<Value>> {
+/// Sweep one load over `sizes`, each a count of `unit`: a point is the
+/// [`min_load_cost`] of the load `load_of(size)` makes, its rate the size over
+/// the seconds, and `relative` the rate over the first row's. Rows carry
+/// `{<unit>, seconds, allocated_bytes, <unit>_per_sec, relative}`, and the
+/// table ends on the line `Expected: <expected>`.
+fn scan_load<T: Loaded, L: Fn(&Client) -> T>(
+    out: &mut Output<'_>,
+    sweep: &str,
+    unit: &str,
+    expected: &str,
+    sizes: &[u32],
+    runs: usize,
+    load_of: impl Fn(u32) -> L,
+) -> io::Result<Vec<Value>> {
+    let rate = format!("{unit}_per_sec");
     let mut rows = Vec::new();
     let mut baseline: Option<f64> = None;
     for &size in sizes {
-        let secs = min_load_seconds(&sized_dbc(size), runs);
+        let cost = min_load_cost(
+            &format!("{sweep} point ({size} {unit})"),
+            runs,
+            load_of(size),
+        );
+        let (secs, bytes) = (cost.seconds, cost.allocated_bytes);
         let per_sec = f64::from(size) / secs;
         let base = *baseline.get_or_insert(per_sec);
         let relative = if base > 0.0 { per_sec / base } else { 0.0 };
         out.line(&format!(
-            "  {size} messages: {secs:.4} s, {per_sec:.0} messages/sec ({relative:.2}x)"
+            "  {size} {unit}: {secs:.4} s, {bytes} bytes allocated, \
+             {per_sec:.0} {unit}/sec ({relative:.2}x)"
         ))?;
+        // The size's key is the unit, and the rate's is `rate`.
         rows.push(json!({
-            "messages": size,
+            unit: size,
             "seconds": round4(secs),
-            "messages_per_sec": round1(per_sec),
+            "allocated_bytes": bytes,
+            rate.as_str(): round1(per_sec),
             "relative": round3(relative),
         }));
     }
+    out.line(&format!("Expected: {expected}"))?;
     Ok(rows)
 }
 
 /// Run the scaling sweeps and return them as ordered `(key, rows)` pairs
-/// (the caller emits them in this order — the schema pins it).
+/// (the caller emits them in this order, which the schema pins).
 pub(crate) fn run_scaling(
     out: &mut Output<'_>,
     runs: usize,
@@ -276,9 +429,59 @@ pub(crate) fn run_scaling(
     }
 
     // 5: DBC-size sweep, after one untimed warm-up load of a 500-message DBC.
-    let _ = load_seconds(&sized_dbc(500));
+    let warm_dbc = sized_dbc(500);
+    let _ = load_cost(|client| load_dbc(client, &warm_dbc));
     out.line("\nDBC size scaling:")?;
-    let dbc_rows = scan_dbc_size(out, &dbc_sizes(quick), runs)?;
+    let dbc_rows = scan_load(
+        out,
+        "dbc_size",
+        "messages",
+        "the allocated bytes double with the messages \
+         (the check gates them; the time decides nothing)",
+        &dbc_sizes(quick),
+        runs,
+        |size| {
+            let dbc = sized_dbc(size);
+            move |client: &Client| load_dbc(client, &dbc)
+        },
+    )?;
+
+    // 6 & 7: the literal sweeps, through the DBC text route and then through
+    // a parseDBC command on the raw command path, each after one untimed
+    // warm-up load of a 1000-digit literal on its route, so the route's
+    // once-per-process allocation lands in no point.
+    let literal_expected = "the allocated bytes double with the digits \
+                            (the check gates them; the time decides nothing)";
+    let warm_text = literal_dbc_text(1000);
+    let _ = load_cost(|client| load_text(client, &warm_text, 1000));
+    out.line("\nText literal length scaling:")?;
+    let text_literal_rows = scan_load(
+        out,
+        "text_literal_length",
+        "digits",
+        literal_expected,
+        &literal_lengths(quick),
+        runs,
+        |digits| {
+            let text = literal_dbc_text(digits);
+            move |client: &Client| load_text(client, &text, digits)
+        },
+    )?;
+    let warm_command = literal_dbc_command(1000);
+    let _ = load_cost(|client| send_command(client, &warm_command, 1000));
+    out.line("\nJSON literal length scaling:")?;
+    let json_literal_rows = scan_load(
+        out,
+        "json_literal_length",
+        "digits",
+        literal_expected,
+        &literal_lengths(quick),
+        runs,
+        |digits| {
+            let command = literal_dbc_command(digits);
+            move |client: &Client| send_command(client, &command, digits)
+        },
+    )?;
 
     Ok(vec![
         ("trace_size_can20", Value::Array(trace20)),
@@ -286,5 +489,7 @@ pub(crate) fn run_scaling(
         ("property_count", Value::Array(pc_rows)),
         ("property_complexity", Value::Array(cx_rows)),
         ("dbc_size", Value::Array(dbc_rows)),
+        ("text_literal_length", Value::Array(text_literal_rows)),
+        ("json_literal_length", Value::Array(json_literal_rows)),
     ])
 }

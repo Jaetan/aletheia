@@ -1,20 +1,22 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Shared GHC RTS init state — `ffi_backend.cpp` initialises the RTS and
+// Shared GHC RTS init state: `ffi_backend.cpp` initialises the RTS and
 // `rational_renderer.cpp` reads this state to decide whether it may call the
 // kernel, so the two TUs coordinate on a single source of truth.
 //
 // FfiBackend (`make_ffi_backend`) is the sole RTS initialiser: its constructor
 // runs `hs_init` once and records the requested cores here. The rational
-// renderer is a *consumer* — it dlopens the .so for the format/free symbols but
+// renderer is a *consumer*: it dlopens the .so for the format/free symbols but
 // does NOT init the RTS; before calling the kernel it checks `rts_initialized()`
 // and throws if the runtime is down rather than self-initialising, which would
 // latch a default `-N` and squander the FfiBackend's bus-count `-N` (GHC's
 // `hs_init` is one-shot per process).
 //
 // The `cores` field backs FfiBackend's `rts.cores_mismatch` warning when more
-// than one FfiBackend is created with differing `rts_cores` (first init wins).
+// than one FfiBackend is created with differing `rts_cores` (first init wins),
+// and `allocated_bytes` is the allocation-count entry of the library that
+// started the runtime, which `aletheia::allocated_bytes` calls.
 //
 // Lifecycle invariant: the GHC RTS is process-global, so `hs_init` is called at
 // most once per process; there is no teardown (`hs_exit` is never called, as the
@@ -22,6 +24,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <mutex>
 
 namespace aletheia::detail {
@@ -33,11 +36,15 @@ struct RTSInitState {
     // FfiBackend constructed with a different count cannot change it and
     // surfaces the difference as the `rts.cores_mismatch` warning.
     int cores = 0;
+    // `aletheia_allocated_bytes` of the library the first FfiBackend started
+    // the runtime with, null until one has.  That backend never closes its
+    // library, so the address stays valid for the process.
+    std::uint64_t (*allocated_bytes)() = nullptr;
 };
 
-// Function-static accessor — guarantees a single instance shared across
+// Function-static accessor: guarantees a single instance shared across
 // every TU that links against aletheia-cpp.  Lock `RTSInitState::mu`
-// before reading or writing `initialized` / `cores`.
+// before reading or writing any field.
 [[nodiscard]] auto rts_init_state() -> RTSInitState&;
 
 // Whether the GHC RTS has been initialised (by an FfiBackend). The rational

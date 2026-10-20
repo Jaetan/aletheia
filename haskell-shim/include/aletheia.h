@@ -213,12 +213,13 @@ static_assert(offsetof(struct aletheia_decimal, err) == 16, "aletheia_decimal.er
  * whose number is not the one it was written against, rather than calling an
  * entry whose arguments it would lay out differently.
  */
-enum { ALETHEIA_ABI_VERSION = 2 };
+enum { ALETHEIA_ABI_VERSION = 3 };
 
 /*
  * GHC Runtime System initialization.
  *
- * Must be called exactly once per process, before any aletheia_* calls.
+ * Must be called exactly once per process, before any aletheia_* call but
+ * aletheia_abi_version().
  * argc and argv may be NULL/0 for default RTS options.
  *
  * IMPORTANT: Never call hs_exit() after hs_init(). The GHC RTS does not
@@ -352,6 +353,16 @@ char *aletheia_format_rational(const struct aletheia_rational *value);
  *          a NULL out returns 1 with nothing written.
  */
 int8_t aletheia_parse_decimal(const struct aletheia_text *input, struct aletheia_decimal *out);
+
+/*
+ * The bytes the runtime has allocated since it started, in every session and
+ * thread of the process. The call runs a collection first, because the
+ * runtime counts an allocation area only when it collects it, so the count
+ * covers every allocation made before the call, and the difference of two
+ * calls is what ran between them allocated. Call it only once the runtime
+ * has started (hs_init).
+ */
+uint64_t aletheia_allocated_bytes(void);
 
 /*
  * Free a string returned by any aletheia_* function that returns char*, or

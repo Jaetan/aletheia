@@ -3,9 +3,12 @@
 //
 // The suites that need a process of their own for the renderer and the
 // runtime, each run as a child of this one: the renderer with the runtime down,
-// with no library to find, or releasing the kernel's strings, the runtime's
-// heap cap, and a command holding one long number, which a kernel that echoes
-// it whole answers by ending its process. ctest runs this file
+// with no library to find, releasing the kernel's strings, or handed a decimal
+// failure with no envelope; the allocation count, read beside the renderer in
+// the runtime-down, string and envelope children, answering none with the
+// runtime down, the recording kernel's count whole and the null kernel's zero;
+// the runtime's heap cap; and a command holding one long number, which a
+// kernel that echoes it whole answers by ending its process. ctest runs this file
 // as a binary of its own, and the mutation build folds it into the mutation
 // binary, which the runner starts once per mutant with the mutant named in its
 // environment: a child inherits the environment, and it or the workload it
