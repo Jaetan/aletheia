@@ -6,7 +6,8 @@
 // These cases assert the renderer is vocal when no FfiBackend has brought the
 // runtime up: a pre-backend call must throw, neither self-initialising, which
 // would latch a default core count and squander the FfiBackend's own, nor
-// calling the kernel with the runtime down.
+// calling the kernel with the runtime down. The allocation count, which only a
+// started runtime keeps, answers none.
 //
 // Must run in its own process, a child of fresh_process_tests, because the GHC
 // RTS is process-global: any FfiBackend-first case in the same process would bring the
@@ -26,6 +27,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 
 namespace fs = std::filesystem;
@@ -101,4 +103,10 @@ TEST_CASE("a runtime-down decimal parse answers on the runtime, not on the liter
     using namespace std::string_view_literals;
     REQUIRE_THROWS_WITH(aletheia::Rational::from_decimal("1\0xyz"sv),
                         Catch::Matchers::ContainsSubstring("runtime not initialized"));
+}
+
+TEST_CASE("the allocation count answers none while the runtime is down", "[ffi][rts_init]") {
+    // No FfiBackend has been created in this process, so no library has
+    // started the runtime and none holds a count to read.
+    CHECK(aletheia::allocated_bytes() == std::nullopt);
 }

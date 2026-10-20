@@ -4,10 +4,11 @@
 # The cross-language benchmark on a GitHub-hosted runner (ubuntu-24.04,
 # 4-core / ~16 GB), with the supported toolchain (clang-23 / Python 3.14 / Go
 # stable), in two legs on every pull request: throughput, gated against the
-# committed GHA baseline and advisory, and `load scaling`, which fails when a
-# binding's DBC load time outgrows the doublings of its messages and is a
-# check the main branch ruleset requires.  A manual run measures the one mode
-# it is given.  Results are printed to the log and uploaded as an artifact.
+# committed GHA baseline and advisory, and `load scaling`, which fails when the
+# bytes a binding's DBC load allocates outgrow the doublings of its messages or
+# of one number's digits and is a check the main branch ruleset requires.  A
+# manual run measures the one mode it is given.  Results are printed to the
+# log and uploaded as an artifact.
 # The toolchain setup mirrors pr-full-ci.yml and reuses its cache keys so the
 # Agda build and the clang-23 debs are warm if that workflow has run.
 
@@ -373,9 +374,14 @@ jobs:
       # PR gate.  Throughput: fail the check on a noticeable regression vs the
       # committed GHA baseline; with no baseline yet the gate reports + passes
       # (bootstrap), and benchmarks/gha_baseline.json is seeded from that
-      # known-good run.  Scaling: fail when a binding's DBC load time outgrows
-      # the doublings of its messages (tools/benchmark_gate.py says by how
-      # much).  PR-only: exploratory workflow_dispatch runs are not gated.
+      # known-good run.  Scaling: fail when the bytes a binding's DBC load
+      # allocates outgrow the doublings of its messages or of one number's
+      # digits (tools/benchmark_gate.py says by how much).  PR-only:
+      # exploratory workflow_dispatch runs are not gated.
+      #
+      # Only throughput retries.  The scaling gate reads allocated bytes, a
+      # count a re-measure repeats to within a few kilobytes, so a second run
+      # could only agree with the first.
       #
       # Retry-once WITH RE-MEASURE (jitter watch, 2026-07-02): #132 failed this
       # gate with a uniform ~2.7× slowdown across EVERY binding and category on
@@ -388,7 +394,7 @@ jobs:
       # count retries across runs with:
       #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
       #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
-      - name: Regression gate (retry-once with re-measure)
+      - name: Regression gate (throughput retries once with re-measure)
         if: env.LANE_MEASURES != '0' && github.event_name == 'pull_request'
         run: |
           set -euo pipefail
@@ -396,6 +402,9 @@ jobs:
           if [ "${BENCH}" = throughput ]; then gate+=(--threshold-pct 30); fi
           if python/.venv/bin/python3 -m tools.benchmark_gate "${gate[@]}"; then
             exit 0
+          fi
+          if [ "${BENCH}" = scaling ]; then
+            exit 1
           fi
           echo "::warning title=FLAKE-RETRY::${BENCH} gate failed on attempt 1 — re-measuring once (runner jitter suspected; see the jitter watch)"
           {

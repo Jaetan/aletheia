@@ -3,14 +3,18 @@
 //
 // A library that answers the decimal entry with failure and no error envelope
 // is a wire fault, a Protocol error as in every binding. The null kernel the
-// build makes beside the library answers so. A process of its own, because the
-// renderer loads its library once per process and keeps it.
+// build makes beside the library answers so, and answers its allocation count
+// with zero, which the binding hands on as it came. A process of its own,
+// because the renderer loads its library once per process and keeps it, and
+// the count is read through the library that started the runtime.
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <aletheia/aletheia.hpp>
 
+#include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 
 TEST_CASE("a decimal failure without an envelope is a protocol error", "[rational_renderer]") {
@@ -29,4 +33,10 @@ TEST_CASE("a decimal failure without an envelope is a protocol error", "[rationa
         CHECK(e.code() == aletheia::ErrorCode::Unknown);
         CHECK(std::string_view{e.what()} == "aletheia_parse_decimal failed without an error");
     }
+}
+
+TEST_CASE("the allocation count is the kernel's answer, zero included", "[ffi]") {
+    auto const backend =
+        aletheia::make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_NULL_KERNEL});
+    CHECK(aletheia::allocated_bytes() == std::optional<std::uint64_t>{0});
 }

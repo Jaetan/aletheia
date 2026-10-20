@@ -5,14 +5,15 @@
 # Probes go/benchmarks/main.go.
 # Claim: each of the three modes emits the payload benchmarks/SCHEMA.yaml pins,
 # which is what makes the four bindings comparable: the lane names verbatim and
-# in order, the row keys, the four scaling sweeps with their quick row counts
-# and their five complexity labels. The claim is also an ordering one, because a
-# shape check alone passes a report whose smallest and largest are swapped: a
-# row's minimum is below its mean is below its maximum, and its percentiles
-# rise. Throughput is run three times and latency over fifty operations so that
-# a row's smallest and largest are two different numbers and the ordering has
-# something to say. The schema is read here, never restated, so a lane renamed in one place
-# fails rather than drifts.
+# in order, the row keys, the scaling sweeps in the schema's order with their
+# quick row counts, the complexity labels, and the rounding of every value the
+# schema rounds, a byte count being a positive whole number. The claim is also
+# an ordering one, because a shape check alone passes a report whose smallest
+# and largest are swapped: a row's minimum is below its mean is below its
+# maximum, and its percentiles rise. Throughput is run three times and latency
+# over fifty operations so that a row's smallest and largest are two different
+# numbers and the ordering has something to say. The schema is read here, never
+# restated, so a lane renamed in one place fails rather than drifts.
 # The binary is built, never found: one left over from before a wire change
 # reports numbers that are void rather than stale.
 # Non-zero exit: a mode's payload has left the schema. Exits 2 without Go or
@@ -79,13 +80,16 @@ for row in rows("latency"):
     rising(f"latency {row['name']}", row, ["min_us", "mean_us", "max_us"], distinct=True)
     rising(f"latency {row['name']}", row, ["p50_us", "p90_us", "p99_us", "p999_us"])
 
-# The schema pins the rounding too: one decimal for a rate or a duration, three
-# for a ratio. A value carrying more is a binding that rounds differently from
-# the others, which shows up as a difference nobody measured.
+# The schema pins the rounding too: one decimal for a rate or a per-frame time,
+# four for a load's seconds, three for a ratio, and a byte count a whole number.
+# A value carrying more is a binding that rounds differently from the others,
+# which shows up as a difference nobody measured.
 rounding = yaml.safe_load(open("benchmarks/SCHEMA.yaml", encoding="utf-8"))["experiment"]["rounding"]
 places = {"fps": rounding["fps"], "fps_mean": rounding["fps"], "fps_stdev": rounding["fps"],
           "fps_min": rounding["fps"], "fps_max": rounding["fps"],
-          "us_per_frame": rounding["us_per_frame"], "relative": rounding["relative"]}
+          "us_per_frame": rounding["us_per_frame"], "relative": rounding["relative"],
+          "seconds": rounding["seconds"], "messages_per_sec": rounding["messages_per_sec"],
+          "digits_per_sec": rounding["digits_per_sec"]}
 
 
 def check_rounding(where, row):
@@ -93,6 +97,11 @@ def check_rounding(where, row):
         want = places.get(field)
         if want is not None and round(value, want) != value:
             bad.append(f"{where}: {field} is {value}, not rounded to {want} places")
+    # A load allocates, so a count that is not positive measured no load.
+    if "allocated_bytes" in row:
+        count = row["allocated_bytes"]
+        if type(count) is not int or count <= 0:
+            bad.append(f"{where}: allocated_bytes is {count!r}, not a positive whole number")
 
 
 for mode in ("throughput", "latency"):
@@ -101,8 +110,8 @@ for mode in ("throughput", "latency"):
 
 spec = schema["scaling"]
 sweeps = rows("scaling")
-if sorted(sweeps) != sorted(spec["sub_benchmarks"]):
-    bad.append(f"scaling: sweeps {sorted(sweeps)} != {sorted(spec['sub_benchmarks'])}")
+if list(sweeps) != spec["sub_benchmarks"]:
+    bad.append(f"scaling: sweeps {list(sweeps)} != {spec['sub_benchmarks']}")
 for name, rowset in sweeps.items():
     want = spec["quick_row_counts"][name]
     if len(rowset) != want:

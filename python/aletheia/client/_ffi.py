@@ -17,7 +17,7 @@ from aletheia.client._types import FFIError, ProtocolError
 from aletheia.types import JSONValue, is_str_dict
 
 if TYPE_CHECKING:
-    from aletheia.common_types import Prose
+    from aletheia.common_types import AllocatedBytes, Prose
     from aletheia.types import Response
 
 # The reply of a kernel entry that answers in JSON, as the bytes it returned.
@@ -174,9 +174,25 @@ def hs_initialized() -> bool:
     return RTSState.initialized
 
 
+def allocated_bytes() -> AllocatedBytes | None:
+    """Answer the bytes the kernel's runtime has allocated in this process since it started.
+
+    The count covers the whole process, every session and thread, so the
+    difference of two reads is what ran between them allocated.  It is read
+    through the library :class:`RTSState` latched when a backend started the
+    runtime, and is ``None`` before one has.  Each read runs a garbage
+    collection first, which a timed span should leave out.
+    """
+    lib = RTSState.lib
+    if lib is None:
+        return None
+    count: AllocatedBytes = lib.aletheia_allocated_bytes()
+    return count
+
+
 # ``ALETHEIA_ABI_VERSION``: the version of the structures and signatures this
-# binding lays out, which ``test_ffi_abi_layout.py`` holds to the header's.
-ABI_VERSION = 2
+# binding lays out, which ``test_ffi_abi_version.py`` holds to the header's.
+ABI_VERSION = 3
 
 
 def check_abi_version(lib: ctypes.CDLL) -> None:
@@ -360,6 +376,12 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
         ctypes.POINTER(AletheiaDecimal),
     ]
     lib.aletheia_parse_decimal.restype = ctypes.c_int8
+
+    # The bytes the runtime has allocated since it started, read after a
+    # collection.  It needs the runtime started, so :func:`allocated_bytes`
+    # calls it only on the library :class:`RTSState` latched.
+    lib.aletheia_allocated_bytes.argtypes = []
+    lib.aletheia_allocated_bytes.restype = ctypes.c_uint64
 
 
 def _validate_lib_path(p: Path, source: str) -> None:

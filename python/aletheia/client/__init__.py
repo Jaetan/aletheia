@@ -11,11 +11,11 @@ This sub-package holds the FFI loader, the streaming protocol, response
 parsers, and the strong-typed exception/result hierarchy as ``_``-prefixed
 modules. The public names live in:
 
-* ``_client`` — :class:`AletheiaClient`
-* ``_backend`` — :class:`Backend`, :class:`FFIBackend`, :class:`MockBackend`,
+* ``_client``: :class:`AletheiaClient`
+* ``_backend``: :class:`Backend`, :class:`FFIBackend`, :class:`MockBackend`,
   :class:`BinaryPathUnsupportedError`
-* ``_ffi`` — :class:`RTSState`
-* ``_types`` — the exception hierarchy, the response TypedDicts, and the
+* ``_ffi``: :class:`RTSState`, :func:`allocated_bytes`
+* ``_types``: the exception hierarchy, the response TypedDicts, and the
   byte/DLC converters
 
 There is intentionally no public re-export surface here: importing a name

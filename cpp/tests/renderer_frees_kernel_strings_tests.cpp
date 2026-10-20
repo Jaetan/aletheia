@@ -6,6 +6,8 @@
 // loads its library once per process and keeps it, and the one library whose
 // releases can be read is the recording kernel, which counts them; the suite
 // that shares a process with the real library cannot point the renderer at it.
+// For the same reason the allocation count is read here, the recording kernel
+// being the library that started this process's runtime.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -14,6 +16,7 @@
 #include <aletheia/aletheia.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 
+#include <cstdint>
 #include <dlfcn.h>
 #include <filesystem>
 
@@ -42,4 +45,22 @@ TEST_CASE("the renderer frees the strings the kernel hands it", "[rational_rende
     REQUIRE_FALSE(parsed.has_value());
     CHECK_THAT(parsed.error(), Catch::Matchers::ContainsSubstring("parse_decimal"));
     CHECK(frees() == before + 1);
+}
+
+TEST_CASE("the allocation count comes back whole from the library that started the runtime",
+          "[ffi]") {
+    // The recording kernel answers its count with 2^63 plus the reads made
+    // before, and nothing in this process reads it earlier, so the reads give
+    // 2^63 and then one more only when each reached the entry and all 64 bits
+    // came back: a read that keeps fewer bits reads another number. Every
+    // backend this process makes is on the stand-in, so it is the one that
+    // started the runtime.
+    auto const backend =
+        aletheia::make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL});
+    auto const first = aletheia::allocated_bytes();
+    auto const second = aletheia::allocated_bytes();
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK(first.value() == (std::uint64_t{1} << 63U));
+    CHECK(second.value() == (std::uint64_t{1} << 63U) + 1);
 }

@@ -364,7 +364,7 @@ own allocations by one recorded run, naming the frames above each, so the
 allocations of a vendored library, which may not be failed, are never failed,
 and the loaders are swept whole. And a kernel stand-in the build makes beside
 the library (`haskell-shim/test/recording_kernel.c`) carries every symbol the
-backend and the renderer resolve, refuses every call with a message quoting its arguments,
+backend and the renderer resolve, refuses the kernel's entries with a message quoting their arguments,
 which is the one way to read what the backend marshals to an entry whose
 arguments the real kernel acknowledges without reading: the timestamp of an
 error or remote event, and the CAN-FD bus bits of a frame; and it counts the

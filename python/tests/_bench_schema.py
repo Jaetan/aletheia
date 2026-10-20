@@ -15,10 +15,14 @@ if TYPE_CHECKING:
 SCHEMA: Final = Path(__file__).resolve().parents[2] / "benchmarks" / "SCHEMA.yaml"
 
 # A binding as result files name it (``cpp``), a benchmark mode (``throughput``),
-# and a lane of the throughput mode.
+# a lane of the throughput mode, a sweep of the scaling mode (``dbc_size``), a
+# key of a sweep's rows (``seconds``), and a size a load sweep runs at.
 BindingId = NewType("BindingId", str)
 ModeName = NewType("ModeName", str)
 LaneName = NewType("LaneName", str)
+SweepName = NewType("SweepName", str)
+RowKey = NewType("RowKey", str)
+SweepSize = NewType("SweepSize", int)
 
 
 class Envelope(TypedDict):
@@ -35,8 +39,9 @@ class ThroughputMode(TypedDict):
 
 
 class ScalingMode(TypedDict):
-    """The labels of the property-complexity sweep."""
+    """Each sweep's row keys, in the schema's order, and the property-complexity labels."""
 
+    row_keys: dict[SweepName, list[RowKey]]
     complexity_labels: list[Prose]
 
 
@@ -47,11 +52,26 @@ class Modes(TypedDict):
     scaling: ScalingMode
 
 
+class Sizes(TypedDict):
+    """The sizes a load sweep runs at, in a full run and under ``--quick``."""
+
+    full: list[SweepSize]
+    quick: list[SweepSize]
+
+
+class Experiment(TypedDict):
+    """The sizes of the load sweeps."""
+
+    dbc_sizes: Sizes
+    literal_lengths: Sizes
+
+
 class Schema(TypedDict):
     """The schema, in the fields the tests read."""
 
     envelope: Envelope
     modes: Modes
+    experiment: Experiment
 
 
 def schema() -> Schema:

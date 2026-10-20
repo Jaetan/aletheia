@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! Point 2: the rational renderer — and decimal parsing — are *vocal* when the
-//! GHC RTS is uninitialised.
+//! GHC RTS is uninitialised, and the allocation count answers no count.
 //!
 //! Its own test binary because the GHC RTS is process-global and one-shot: any real
 //! `Client`/`AsyncClient` (`Client::new()`) in the same binary would bring the RTS
@@ -27,9 +27,9 @@ fn renderer_is_vocal_when_the_rts_is_uninitialised() {
         .add_checks(&[check::signal("Speed").never_exceeds(120)])
         .expect_err("rendering a threshold with the RTS down must be vocal, not silent");
 
-    // Match the variant, not a message substring: RTS-down is its own typed error,
-    // distinct from a missing-library error (`format_rational` loads the `.so` first,
-    // so a missing one would be `Error::LibraryLoad`, not this).
+    // Match the variant, not a message substring: RTS-down is its own typed error.
+    // `format_rational` checks the runtime latch before loading anything, so it
+    // answers this whether or not the `.so` could be loaded.
     assert!(
         matches!(err, Error::RtsNotInitialized),
         "expected Error::RtsNotInitialized; got: {err:?}"
@@ -47,4 +47,11 @@ fn from_decimal_is_vocal_when_the_rts_is_uninitialised() {
         matches!(err, Error::RtsNotInitialized),
         "expected Error::RtsNotInitialized; got: {err:?}"
     );
+}
+
+#[test]
+fn the_allocation_count_is_none_when_the_rts_is_uninitialised() {
+    // No backend has started the runtime, so there is no count, and the read
+    // must not call the kernel's entry, which needs the runtime up.
+    assert_eq!(aletheia::allocated_bytes(), None);
 }

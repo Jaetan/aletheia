@@ -27,6 +27,11 @@ Location = NewType("Location", str)
 # The key or the column header a loader read a value under.
 DocumentKey = NewType("DocumentKey", str)
 
+# A count of bytes the kernel's runtime allocated in the whole process: the
+# count since it started, as `aletheia.allocated_bytes` reads it, or the bytes
+# between two such reads, as the scaling program counts one load's.
+AllocatedBytes = NewType("AllocatedBytes", int)
+
 
 @dataclass(frozen=True)
 class Gt[T]:

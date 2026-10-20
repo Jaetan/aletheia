@@ -112,8 +112,8 @@ shimHeaderStamp = "build/shim-header.stamp"
 -- | The stand-in kernels the bindings' tests load in place of the library: one
 -- at an ABI version no binding was written against, one exporting the version
 -- alone, one exporting no kernel symbol, one whose kernel answers null, and
--- one that refuses every call quoting what it was handed and counts the closes
--- and frees it is given.
+-- one that refuses the kernel's entries quoting what it was handed, answers a
+-- known allocation count, and counts the closes and frees it is given.
 -- Each is built from @haskell-shim/test/<name>.c@ against the kernel's header
 -- into the directory the library is built in, where every binding's test looks
 -- for it beside the library it stands in for.
@@ -262,6 +262,7 @@ libraryRules = do
              , "haskell-shim/src/AletheiaFFI/Wire.hsc"
              , "haskell-shim/include/aletheia.h"
              , "haskell-shim/cbits/abi_version.c"
+             , "haskell-shim/cbits/allocation.c"
              , "haskell-shim/test/ConstructorTest.hs"
              , "haskell-shim/aletheia.cabal"
              ]

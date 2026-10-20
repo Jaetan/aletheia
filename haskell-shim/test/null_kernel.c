@@ -90,6 +90,10 @@ int8_t aletheia_parse_decimal(const struct aletheia_text *input, struct aletheia
     return 1;
 }
 
+uint64_t aletheia_allocated_bytes(void) {
+    return 0;
+}
+
 char *aletheia_extract_signals(void *state, const struct aletheia_frame *frame) {
     (void)state;
     (void)frame;

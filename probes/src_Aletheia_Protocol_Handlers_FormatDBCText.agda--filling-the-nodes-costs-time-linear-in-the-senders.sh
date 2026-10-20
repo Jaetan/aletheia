@@ -6,8 +6,7 @@
 # Claim: formatDBCText fills an empty node list with every message's senders
 # in time linear in them, up to a logarithm: the names already kept live in a
 # set. 40,000 distinct senders take at most 9 times as long as 10,000 (x3 per
-# doubling, the load scaling check's bound); a list of kept names grows
-# 16-fold. Both are past the node bound, so each answer is the node-bound
+# doubling); a list of kept names grows 16-fold. Both are past the node bound, so each answer is the node-bound
 # refusal, reached after the filling. Each time is the processor time a
 # command takes, the least of three, the two sizes sent in turn: what else
 # the machine runs moves wall time and leaves this nearly alone, and what

@@ -2,11 +2,18 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Regression gates for the cross-language benchmark.
 
-``--bench scaling`` checks the ``dbc_size`` sweep instead: in every binding,
-doubling a DBC's messages must not multiply its load time by more than
-``MAX_DOUBLING``.  A linear load doubles its time; a load quadratic in its
-messages quadruples it.  Every binding must have reported, since this check
-is required: a missing result fails it.
+``--bench scaling`` checks the load sweeps instead, ``dbc_size`` sized by its
+messages, and ``text_literal_length`` and ``json_literal_length`` by the digits
+of a DBC's one long number, loaded from DBC text and from a ``parseDBC``
+command: in every binding, each doubling of a sweep's size may multiply the
+bytes the kernel allocates for one load by at most ``MAX_ALLOCATION_DOUBLING``,
+over the whole sweep.  Allocation is counted rather than timed, and the count
+repeats to within a few kilobytes from run to run, so the runner's load does
+not move the verdict; the load times are printed beside it and decide nothing.
+The measurements the factor rests on are in the comment on
+``MAX_ALLOCATION_DOUBLING``.  Every binding must have reported every load
+sweep, since this check is required: a binding with no result file, or one
+missing a sweep, fails it.
 
 Otherwise, the throughput gate:
 
@@ -17,7 +24,7 @@ slower than its baseline by more than ``--threshold-pct``, or if a binding whose
 result file is present lacks a lane the baseline names.
 
 The gate runs on the GitHub-hosted runner, which is shared, variable, and a
-different machine than the local benchmark host — so the baseline MUST itself be
+different machine than the local benchmark host, so the baseline MUST itself be
 GHA-measured (never the local numbers, which are several times faster), and the
 threshold is deliberately generous: it catches a *noticeable* drop, not
 run-to-run jitter. ``run_all.sh``'s 5-run mean already damps within-run noise.
@@ -34,14 +41,16 @@ import itertools
 import json
 import sys
 from pathlib import Path
-from typing import NewType, TypedDict, cast
+from typing import Literal, NamedTuple, NewType, TypedDict, cast
 
 from aletheia.common_types import ExitStatus, Prose
 
-# The four bindings benchmarked by run_all.sh, the languages benchmarks/SCHEMA.yaml
-# names. A binding absent from a run (one that failed to build) is skipped, not
-# scored as a 100% regression: build failures are pr-full-ci's job to report. A
-# binding that is present and reports fewer lanes than the baseline names fails.
+# The bindings benchmarked by run_all.sh, the languages benchmarks/SCHEMA.yaml
+# names. The throughput gate skips a binding absent from a run (one that failed
+# to build) rather than scoring it as a 100% regression, build failures being
+# pr-full-ci's job to report, and fails one that is present and reports fewer
+# lanes than the baseline names. The scaling check fails a binding with no
+# result file.
 BINDINGS = ("cpp", "go", "python", "rust")
 
 # Baseline JSON shape: {binding: {lane_name: fps_mean}}.
@@ -61,30 +70,66 @@ class _ResultFile(TypedDict):
     results: list[_Row]
 
 
-# A number of DBC messages, a load time, and how many times one time is another.
-MessageCount = NewType("MessageCount", int)
+# A point's size (the messages of a ``dbc_size`` DBC, or the digits of the one
+# long number in a literal sweep's DBC), a load time, the bytes the kernel
+# allocated for one load, and how many times one number is another.
+PointSize = NewType("PointSize", int)
 Seconds = NewType("Seconds", float)
+ByteCount = NewType("ByteCount", int)
 GrowthFactor = NewType("GrowthFactor", float)
 
-# A linear load doubles its time when its messages double, and a quadratic one
-# quadruples it; this sits between.  Measured on one machine, best of five
-# loads per point, over the quick sweep's two doublings (2,500 to 10,000
-# messages): the four bindings grew x4.07 to x4.39, a validator comparing every
-# pair of messages x21.5, against the x9 this allows.
-MAX_DOUBLING = GrowthFactor(3.0)
+# A load sweep's key in a scaling result file's ``results``, and the column of
+# its rows that holds a point's size.
+type SweepKey = Literal["dbc_size", "text_literal_length", "json_literal_length"]
+type SizeColumn = Literal["messages", "digits"]
 
 
-class _DbcSizeRow(TypedDict):
-    """One point of the ``dbc_size`` scaling sweep (fields we read)."""
+class Sweep(NamedTuple):
+    """A load sweep the scaling check reads: its key and the column its sizes are in."""
 
-    messages: MessageCount
+    key: SweepKey
+    size: SizeColumn
+
+
+# The load sweeps, in the order benchmarks/SCHEMA.yaml lists them.
+SWEEPS = (
+    Sweep("dbc_size", "messages"),
+    Sweep("text_literal_length", "digits"),
+    Sweep("json_literal_length", "digits"),
+)
+
+# The width of the sweep column the check prints, its longest key's.
+_KEY_WIDTH = max(len(sweep.key) for sweep in SWEEPS)
+
+# A load linear in its size doubles its allocation when the size doubles, one
+# quadratic in it quadruples it, and one allocating n log n grows x2.18 per
+# doubling at 2,500 messages; this sits above n log n and below the defects
+# measured.  Measured with the kernel's allocation count, which repeats to
+# within a few kilobytes from run to run: dbc_size x2.04 to x2.07 per doubling,
+# x4.20 to x4.21 over the quick sweep's two doublings, against the x5.06 this
+# allows over two; text_literal_length x1.99 to x2.00 per doubling, x3.98 over
+# the quick sweep; json_literal_length x3.92 over the quick sweep; a JSON array
+# parser appending each element at the end x6.93 to x7.01 over the quick
+# message sweep; a literal parser folding each digit into one growing number
+# x15.00 over the quick text digit sweep and x15.10 over the quick JSON one.
+MAX_ALLOCATION_DOUBLING = GrowthFactor(2.25)
+
+
+class _SweepRow(TypedDict, total=False):
+    """One point of a load sweep (fields we read): its size is under the sweep's column."""
+
+    messages: PointSize
+    digits: PointSize
     seconds: Seconds
+    allocated_bytes: ByteCount
 
 
-class _ScalingResults(TypedDict):
-    """The scaling sweeps of a result file (the one this gate reads)."""
+class _ScalingResults(TypedDict, total=False):
+    """The load sweeps of a scaling result file (the ones this gate reads)."""
 
-    dbc_size: list[_DbcSizeRow]
+    dbc_size: list[_SweepRow]
+    text_literal_length: list[_SweepRow]
+    json_literal_length: list[_SweepRow]
 
 
 class _ScalingFile(TypedDict):
@@ -93,17 +138,110 @@ class _ScalingFile(TypedDict):
     results: _ScalingResults
 
 
-def _check_dbc_size(results_dir: Path, max_doubling: GrowthFactor) -> ExitStatus:
-    """Fail when a binding is missing or its load time outgrows the doublings of its messages.
+class _Point(NamedTuple):
+    """One point of a load sweep, read: its size, its load time if reported, its allocation."""
 
-    Each step of the sweep doubles the messages.  The check is on the whole
-    sweep, the last time over the first against ``max_doubling`` to the power
-    of the doublings: a single step's ratio carries one step's noise, and the
-    wider the range the further a quadratic load's growth sits from a linear one.
+    size: PointSize
+    seconds: Seconds | None
+    allocated: ByteCount
+
+
+class _Verdict(NamedTuple):
+    """One sweep of one result file, judged: the lines to print, and why it fails if it does."""
+
+    lines: list[Prose]
+    failure: Prose | None
+
+
+def _times(before: Seconds | ByteCount | None, after: Seconds | ByteCount | None) -> Prose:
+    """Return ``after`` over ``before``, n/a when either is unread or ``before`` is not positive."""
+    if before is None or after is None or before <= 0:
+        return Prose("x n/a")
+    return Prose(f"x{after / before:.2f}")
+
+
+def _seconds(value: Seconds | None) -> Prose:
+    """Return a load time as the check prints it."""
+    return Prose("n/a s") if value is None else Prose(f"{value:.4f} s")
+
+
+def _points(sweep: Sweep, rows: list[_SweepRow] | None) -> list[_Point] | Prose:
+    """Read a sweep's points, or the reason they cannot be judged.
+
+    A sweep is judged on two points at least, sizes that double from one to
+    the next, and an allocation each point reports as a positive count.
     """
+    if rows is None:
+        return Prose(f"no {sweep.key} sweep")
+    if len(rows) < len(("small", "large")):
+        return Prose(f"{sweep.key} has {len(rows)} point(s), a doubling needs two")
+    sizes = [size for row in rows if (size := row.get(sweep.size)) is not None]
+    if len(sizes) < len(rows) or any(
+        large != 2 * small for small, large in itertools.pairwise(sizes)
+    ):
+        return Prose(f"the {sweep.key} points do not double their {sweep.size}")
+    points: list[_Point] = []
+    for size, row in zip(sizes, rows, strict=True):
+        allocated = row.get("allocated_bytes")
+        where = f"{sweep.key} at {size} {sweep.size}"
+        if allocated is None:
+            return Prose(f"{where} reports no allocated_bytes")
+        if allocated <= 0:
+            return Prose(f"{where} reports allocated_bytes {allocated}, not a positive count")
+        points.append(_Point(size, row.get("seconds"), allocated))
+    return points
+
+
+def _judge(sweep: Sweep, rows: list[_SweepRow] | None, max_doubling: GrowthFactor) -> _Verdict:
+    """Judge one load sweep of one result file against ``max_doubling``.
+
+    Each step of the sweep doubles the size.  The check is on the whole sweep,
+    the last point's allocation over the first's against ``max_doubling`` to
+    the power of the doublings: the wider the range, the further a superlinear
+    load's growth sits from a linear one.  Each step's load times and
+    allocations are printed with their ratios, and the whole sweep's time
+    ratio beside its allocation's; the times decide nothing.
+    """
+    points = _points(sweep, rows)
+    if not isinstance(points, list):
+        return _Verdict([], points)
+    steps = list(itertools.pairwise(points))
+    lines = [
+        Prose(
+            f"{sweep.key:{_KEY_WIDTH}s} {small.size:>6} -> {large.size:>6} {sweep.size}:"
+            + f" {_seconds(small.seconds)} -> {_seconds(large.seconds)}"
+            + f" ({_times(small.seconds, large.seconds)}),"
+            + f" {small.allocated:,} -> {large.allocated:,} bytes"
+            + f" ({_times(small.allocated, large.allocated)})"
+        )
+        for small, large in steps
+    ]
+    first, last = points[0], points[-1]
+    growth = GrowthFactor(last.allocated / first.allocated)
+    allowed = GrowthFactor(max_doubling ** len(steps))
+    flag = "  <-- SUPERLINEAR" if growth > allowed else ""
+    lines.append(
+        Prose(
+            f"{sweep.key:{_KEY_WIDTH}s} {first.size:>6} -> {last.size:>6} {sweep.size}:"
+            + f" seconds {_times(first.seconds, last.seconds)},"
+            + f" allocated bytes x{growth:.2f} (at most x{allowed:.2f}){flag}"
+        )
+    )
+    if growth > allowed:
+        reason = Prose(
+            f"{sweep.key}: {first.size} -> {last.size} {sweep.size} allocated"
+            + f" {growth:.2f} times the bytes (at most {allowed:.2f})"
+        )
+        return _Verdict(lines, reason)
+    return _Verdict(lines, None)
+
+
+def _check_scaling(results_dir: Path, max_doubling: GrowthFactor) -> ExitStatus:
+    """Fail when a binding is missing a load sweep, or a load's allocation outgrows its size."""
     _emit(
-        "benchmark-gate: each doubling of a DBC's messages may multiply its load time"
-        + f" by at most {max_doubling}, over the whole sweep\n"
+        "benchmark-gate: each doubling of a load sweep's size may multiply the bytes one load"
+        + f" allocates by at most {max_doubling}, over the whole sweep; the load times are"
+        + " printed and decide nothing\n"
     )
     failures: list[Prose] = []
     for binding in BINDINGS:
@@ -112,42 +250,18 @@ def _check_dbc_size(results_dir: Path, max_doubling: GrowthFactor) -> ExitStatus
             failures.append(Prose(f"{binding}: no {path.name}"))
             continue
         data = cast("_ScalingFile", json.loads(path.read_text(encoding="utf-8")))
-        rows = data["results"].get("dbc_size", [])
-        if len(rows) < len(("small", "large")):
-            failures.append(
-                Prose(f"{binding}: dbc_size has {len(rows)} point(s), a doubling needs two")
-            )
-            continue
-        steps = list(itertools.pairwise(rows))
-        if any(large["messages"] != 2 * small["messages"] for small, large in steps):
-            failures.append(Prose(f"{binding}: the dbc_size points do not double"))
-            continue
-        for small, large in steps:
-            _emit(
-                f"  {binding:7s} {small['messages']:>6} -> {large['messages']:>6} messages:"
-                + f" {small['seconds']:.4f} s -> {large['seconds']:.4f} s"
-                + f" (x{large['seconds'] / small['seconds']:.2f})"
-            )
-        growth = rows[-1]["seconds"] / rows[0]["seconds"]
-        allowed = max_doubling ** len(steps)
-        flag = "  <-- SUPERLINEAR" if growth > allowed else ""
-        _emit(
-            f"  {binding:7s} {rows[0]['messages']:>6} -> {rows[-1]['messages']:>6} messages:"
-            + f" x{growth:.2f} (at most x{allowed:.2f}){flag}"
-        )
-        if growth > allowed:
-            failures.append(
-                Prose(
-                    f"{binding}: {rows[0]['messages']} -> {rows[-1]['messages']} messages took"
-                    + f" {growth:.2f} times as long (at most {allowed:.2f})"
-                )
-            )
+        for sweep in SWEEPS:
+            verdict = _judge(sweep, data["results"].get(sweep.key), max_doubling)
+            for line in verdict.lines:
+                _emit(f"  {binding:7s} {line}")
+            if verdict.failure is not None:
+                failures.append(Prose(f"{binding}: {verdict.failure}"))
     if failures:
         _fail("\nbenchmark-gate: FAIL:")
         for line in failures:
             _fail(f"  {line}")
         return ExitStatus(1)
-    _emit("\nbenchmark-gate: ok (no binding's load time outgrew its messages past the factor)")
+    _emit("\nbenchmark-gate: ok (no binding's load allocation outgrew its size past the factor)")
     return ExitStatus(0)
 
 
@@ -241,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     """Compare the latest benchmark run against the baseline; return the exit code."""
     bench, results_dir, baseline_path, threshold_pct = _parse_args(argv)
     if bench == "scaling":
-        return _check_dbc_size(results_dir, MAX_DOUBLING)
+        return _check_scaling(results_dir, MAX_ALLOCATION_DOUBLING)
 
     current = _load_results(results_dir, bench)
     if not current:
@@ -249,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if not baseline_path.is_file():
-        _emit(f"benchmark-gate: no baseline at {baseline_path} — bootstrap mode (reporting only).")
+        _emit(f"benchmark-gate: no baseline at {baseline_path}: bootstrap mode (reporting only).")
         _emit("Copy the object below into the baseline file once the run is known-good:\n")
         _emit(json.dumps(current, indent=2, sort_keys=True))
         return 0

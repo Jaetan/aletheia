@@ -49,24 +49,37 @@ class _ScalingRow(TypedDict):
     fps: float
 
 
-# How many DBC messages loaded per second.
+# How many DBC messages loaded per second, how many digits of a DBC's one long
+# number loaded per second, and how many bytes the kernel allocated for one load.
 MessagesPerSecond = NewType("MessagesPerSecond", float)
+DigitsPerSecond = NewType("DigitsPerSecond", float)
+ByteCount = NewType("ByteCount", int)
 
 
 class _DbcSizeRow(TypedDict):
-    """One DBC-size row: the messages and how many loaded per second."""
+    """One DBC-size row: messages loaded per second, and the bytes the load allocated."""
 
     messages_per_sec: MessagesPerSecond
+    allocated_bytes: ByteCount
+
+
+class _LiteralLengthRow(TypedDict):
+    """One row of a literal sweep: digits loaded per second, and the bytes the load allocated."""
+
+    digits_per_sec: DigitsPerSecond
+    allocated_bytes: ByteCount
 
 
 class _ScalingResults(TypedDict):
-    """Scaling result payload: a dict of five sweeps (see benchmarks/SCHEMA.yaml)."""
+    """Scaling result payload: a dict of sweeps (see benchmarks/SCHEMA.yaml)."""
 
     trace_size_can20: list[_ScalingRow]
     trace_size_canfd: list[_ScalingRow]
     property_count: list[_ScalingRow]
     property_complexity: list[_ScalingRow]
     dbc_size: list[_DbcSizeRow]
+    text_literal_length: list[_LiteralLengthRow]
+    json_literal_length: list[_LiteralLengthRow]
 
 
 class _ThroughputFile(TypedDict):
@@ -151,7 +164,7 @@ def _width(labels: Iterable[str]) -> int:
 
 
 def _delta(current: float, baseline: float) -> str:
-    """Percentage change from baseline to current, signed, or a dash at zero."""
+    """Percentage change from baseline to current, signed, or n/a when the baseline is zero."""
     if baseline == 0:
         return "n/a"
     return f"{100 * (current - baseline) / baseline:+.1f}%"
@@ -218,14 +231,17 @@ def compare_latency(columns: dict[str, _LatencyFile]) -> None:
     print()
 
 
-# A sweep's key in the results dict, a column of its rows, and a heading.
+# A sweep's key in the results dict, a column of its rows, a heading, a value a
+# scaling table compares (a rate or a count of bytes), and a cell as printed.
 SweepKey = NewType("SweepKey", str)
 ColumnName = NewType("ColumnName", str)
 Heading = NewType("Heading", str)
+SweepValue = NewType("SweepValue", float)
+Cell = NewType("Cell", str)
 
 
 class _Sweep(NamedTuple):
-    """A scaling sweep: its key, the column naming a row, the column compared, titles."""
+    """A table of a scaling sweep: its key, the column naming a row, the column compared, titles."""
 
     key: SweepKey
     id_col: ColumnName
@@ -234,7 +250,8 @@ class _Sweep(NamedTuple):
     unit: Heading
 
 
-# The five sub-benchmarks pinned in benchmarks/SCHEMA.yaml.
+# A table for each sub-benchmark pinned in benchmarks/SCHEMA.yaml, and for each
+# load sweep a second table of the bytes one load allocated.
 _SCALING_SWEEPS: list[_Sweep] = [
     _Sweep(
         SweepKey("trace_size_can20"),
@@ -271,6 +288,41 @@ _SCALING_SWEEPS: list[_Sweep] = [
         ColumnName("messages_per_sec"),
         Heading("messages/sec"),
     ),
+    _Sweep(
+        SweepKey("dbc_size"),
+        ColumnName("messages"),
+        Heading("DBC Size Allocation"),
+        ColumnName("allocated_bytes"),
+        Heading("bytes per load"),
+    ),
+    _Sweep(
+        SweepKey("text_literal_length"),
+        ColumnName("digits"),
+        Heading("Text Literal Length"),
+        ColumnName("digits_per_sec"),
+        Heading("digits/sec"),
+    ),
+    _Sweep(
+        SweepKey("text_literal_length"),
+        ColumnName("digits"),
+        Heading("Text Literal Length Allocation"),
+        ColumnName("allocated_bytes"),
+        Heading("bytes per load"),
+    ),
+    _Sweep(
+        SweepKey("json_literal_length"),
+        ColumnName("digits"),
+        Heading("JSON Literal Length"),
+        ColumnName("digits_per_sec"),
+        Heading("digits/sec"),
+    ),
+    _Sweep(
+        SweepKey("json_literal_length"),
+        ColumnName("digits"),
+        Heading("JSON Literal Length Allocation"),
+        ColumnName("allocated_bytes"),
+        Heading("bytes per load"),
+    ),
 ]
 
 
@@ -293,29 +345,40 @@ def _id_label(idv: object, width: int) -> str:
     return f"{idv:>{width},}" if isinstance(idv, int) else f"{idv!s:>{width}}"
 
 
-def _sweep_value(data: _ScalingFile, sweep: _Sweep, idv: object) -> float | None:
-    """Return the value a file reports at one identifying value of a sweep, if any."""
+def _sweep_value(data: _ScalingFile, sweep: _Sweep, idv: object) -> SweepValue | None:
+    """Return the value a file reports at one identifying value of a sweep, if any.
+
+    A file without a row there, or whose row lacks the compared column, as an
+    older result file's may, reports none.
+    """
     match = next((r for r in _sweep_rows(data, sweep.key) if r.get(sweep.id_col) == idv), None)
-    return float(cast("float", match[sweep.value])) if match else None
+    value = None if match is None else match.get(sweep.value)
+    return None if value is None else SweepValue(float(cast("float", value)))
+
+
+def _cell(value: SweepValue | None) -> Cell:
+    """Return a compared value as a table prints it: thousands-grouped, or n/a when absent."""
+    return Cell("n/a") if value is None else Cell(f"{value:,.0f}")
 
 
 def _compare_one_sweep(columns: dict[str, _ScalingFile], sweep: _Sweep) -> None:
-    """Print one sweep's table, one column per file, keyed on its id column."""
+    """Print one table of a sweep, one column per file, keyed on its id column.
+
+    A column is as wide as its label or its widest value needs, so a long
+    count, a byte count most of all, never runs into its neighbour.
+    """
     labels = sorted(columns)
-    col = _width(labels)
     ids = _sweep_ids(columns.values(), sweep.key, sweep.id_col)
+    cells = [[_cell(_sweep_value(columns[label], sweep, idv)) for label in labels] for idv in ids]
+    col = _width([*labels, *(cell for row in cells for cell in row)])
     idw = _width(str(idv) for idv in ids)
     print(_RULE)
     print(f"{sweep.title} Scaling Comparison ({sweep.unit})")
     print(_RULE)
     print(f"{sweep.id_col:>{idw}}" + "".join(f"{label:>{col}}" for label in labels))
     print("-" * (idw + col * len(labels)))
-    for idv in ids:
-        row = _id_label(idv, idw)
-        for label in labels:
-            value = _sweep_value(columns[label], sweep, idv)
-            row += f"{value:>{col},.0f}" if value is not None else f"{'n/a':>{col}}"
-        print(row)
+    for idv, row in zip(ids, cells, strict=True):
+        print(_id_label(idv, idw) + "".join(f"{cell:>{col}}" for cell in row))
     print()
 
 
@@ -377,23 +440,28 @@ def against_baseline_latency(lang: str, current: _LatencyFile, baseline: _Latenc
 
 
 def against_baseline_scaling(lang: str, current: _ScalingFile, baseline: _ScalingFile) -> None:
-    """Per sweep and identifying value: the current value, the baseline's, the delta."""
+    """Per table and identifying value: the current value, the baseline's, the delta.
+
+    The value columns are as wide as their headings or their widest value needs.
+    """
     for sweep in _SCALING_SWEEPS:
         ids = _sweep_ids([current], sweep.key, sweep.id_col)
+        pairs = [
+            (_sweep_value(current, sweep, idv), _sweep_value(baseline, sweep, idv)) for idv in ids
+        ]
+        col = _width(["current", "baseline", *(_cell(value) for pair in pairs for value in pair)])
         idw = _width(str(idv) for idv in ids)
         print(_RULE)
         print(f"{lang} {sweep.title} scaling against its baseline ({sweep.unit})")
         print(_RULE)
-        print(f"{sweep.id_col:>{idw}}{'current':>12}{'baseline':>12}{'delta':>9}")
-        print("-" * (idw + 33))
-        for idv in ids:
-            cur = _sweep_value(current, sweep, idv)
-            base = _sweep_value(baseline, sweep, idv)
+        print(f"{sweep.id_col:>{idw}}{'current':>{col}}{'baseline':>{col}}{'delta':>9}")
+        print("-" * (idw + 2 * col + 9))
+        for idv, (cur, base) in zip(ids, pairs, strict=True):
             row = _id_label(idv, idw)
             if cur is not None and base is not None:
-                row += f"{cur:>12,.0f}{base:>12,.0f}{_delta(cur, base):>9}"
+                row += f"{_cell(cur):>{col}}{_cell(base):>{col}}{_delta(cur, base):>9}"
             else:
-                row += f"{'n/a':>12}{'n/a':>12}{'n/a':>9}"
+                row += f"{'n/a':>{col}}{'n/a':>{col}}{'n/a':>9}"
             print(row)
         print()
 

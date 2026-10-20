@@ -81,7 +81,7 @@ from aletheia.client._backend import (
     MockBackend,
 )
 from aletheia.client._client import AletheiaClient
-from aletheia.client._ffi import RTSState
+from aletheia.client._ffi import RTSState, allocated_bytes
 from aletheia.client._helpers.rational import from_decimal
 from aletheia.client._types import (
     AletheiaError,
@@ -184,6 +184,7 @@ __all__ = [
     "TextRoundTripFailedError",
     "ValidationError",
     "ValidationIssue",
+    "allocated_bytes",
     "bytes_to_dlc",
     "create_template",  # pip install aletheia[excel]
     "dlc_to_bytes",

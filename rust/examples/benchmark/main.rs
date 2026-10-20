@@ -18,10 +18,12 @@
 //!
 //! Modes: `throughput` (`--frames N --runs N`), `latency` (`--ops N`),
 //! `scaling` (`--runs N --quick`; sweeps of trace size CAN 2.0B / CAN-FD,
-//! property count, property complexity and DBC size, emitted as a dict-shaped
-//! `results` payload). `--json` sends the human-readable progress to stderr and prints
-//! the JSON report to stdout. `--quick` shrinks the default sizes for a fast
-//! smoke run (and selects the reduced scaling magnitudes the schema pins).
+//! property count, property complexity, DBC size, and literal length through
+//! the DBC text and through a `parseDBC` command, emitted as a dict-shaped
+//! `results` payload). `--json` sends the human-readable progress to stderr
+//! and prints the JSON report to stdout. `--quick` shrinks the default sizes
+//! for a fast smoke run (and selects the reduced scaling magnitudes the schema
+//! pins).
 
 mod fixtures;
 mod latency;
@@ -230,7 +232,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     // `--quick` lowers the default sizes for a fast smoke run; explicit flags
     // still take precedence. In `scaling` mode it selects the reduced sweep
     // magnitudes the cross-binding schema pins (matching Go / Python). For
-    // throughput / latency it is a convenience — `run_all.sh` drives those with
+    // throughput / latency it is a convenience: `run_all.sh` drives those with
     // explicit sizes, never `--quick`.
     let (def_frames, def_runs, def_ops) = if quick {
         (1000u64, 2usize, 1000usize)

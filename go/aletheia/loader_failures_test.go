@@ -66,9 +66,12 @@ func runLoaderChild(t *testing.T, scenario, lib, dir string) string {
 
 // Every way a library can fail the binding is refused with an error naming
 // the failure, and never a panic or a silent answer: a library that opens but
-// carries none of the kernel's symbols, a file that is not a library, and a
-// kernel that answers null. The search for the library is exercised the same
-// way, with no path in the environment.
+// carries none of the kernel's symbols, a file that is not a library, a
+// library laid out for another ABI version, one at this version carrying
+// nothing else, and a kernel that answers null. The search for the library is
+// exercised the same way, with no path in the environment. The null-kernel
+// and recording-kernel scenarios also read what a stand-in answers, its
+// allocation count among it.
 func TestLoaderFailuresAreVocal(t *testing.T) {
 	if scenario := os.Getenv(loaderScenarioEnv); scenario != "" {
 		runLoaderScenario(scenario) // os.Exits; never returns
@@ -82,12 +85,13 @@ func TestLoaderFailuresAreVocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	scenarios := map[string]string{
-		"symbolless":    standIn(t, lib, "symbolless"),
-		"not-a-library": notALibrary,
-		"null-kernel":   standIn(t, lib, "null_kernel"),
-		"stale-abi":     standIn(t, lib, "stale_abi_kernel"),
-		"abi-only":      standIn(t, lib, "abi_only_kernel"),
-		"search":        "",
+		"symbolless":       standIn(t, lib, "symbolless"),
+		"not-a-library":    notALibrary,
+		"null-kernel":      standIn(t, lib, "null_kernel"),
+		"recording-kernel": standIn(t, lib, "recording_kernel"),
+		"stale-abi":        standIn(t, lib, "stale_abi_kernel"),
+		"abi-only":         standIn(t, lib, "abi_only_kernel"),
+		"search":           "",
 	}
 	for scenario, lib := range scenarios {
 		t.Run(scenario, func(t *testing.T) {
@@ -204,7 +208,12 @@ func runLoaderScenario(scenario string) {
 	case "null-kernel":
 		// The stand-in's runtime entry is a no-op, so the runtime reads as
 		// up and every null the stand-in answers reaches the caller as the
-		// binding's own refusal of a null.
+		// binding's own refusal of a null. Before it opens, no backend has
+		// started the runtime, and the allocation count answers none.
+		if allocated, ok := AllocatedBytes(); ok || allocated != 0 {
+			fmt.Printf("FAIL: AllocatedBytes answered %d and %v before any backend started the runtime, want no count\n", allocated, ok)
+			os.Exit(50)
+		}
 		b, err := NewFFIBackend(lib)
 		if err != nil {
 			fmt.Printf("FAIL: the stand-in would not open: %v\n", err)
@@ -218,6 +227,12 @@ func runLoaderScenario(scenario string) {
 		expect(err, "aletheia_init returned null", 32)
 		_, err = b.Process(0, "{}")
 		expect(err, "aletheia_process returned null", 33)
+		// The stand-in counts no allocation, and its zero is a count, read
+		// through the entry the backend that started the runtime kept.
+		if allocated, ok := AllocatedBytes(); !ok || allocated != 0 {
+			fmt.Printf("FAIL: AllocatedBytes answered %d and %v, want the stand-in's count of 0\n", allocated, ok)
+			os.Exit(51)
+		}
 		_, err = formatRational(half)
 		expect(err, "aletheia_format_rational returned a null pointer", 34)
 		_, err = FromDecimal("0.1")
@@ -230,6 +245,21 @@ func runLoaderScenario(scenario string) {
 		expectEqual(formatObservedBase(diag, values), "violated: always(Speed < 220)", 37)
 		expectEqual(formatRationalExact(Rational{Numerator: 3, Denominator: 1}), "3", 38)
 		expectEqual(formatRationalExact(Rational{Numerator: 1, Denominator: 3}), "1/3", 39)
+	case "recording-kernel":
+		// The stand-in answers 2^63 plus the reads made before, so the first
+		// two reads of a fresh process set the count's top bit, which a read
+		// narrowed below 64 bits or taken as signed reads as another number,
+		// and differ by one, which shows that each read reached the entry.
+		if _, err := NewFFIBackend(lib); err != nil {
+			fmt.Printf("FAIL: the stand-in would not open: %v\n", err)
+			os.Exit(52)
+		}
+		for read, want := range []uint64{1 << 63, 1<<63 + 1} {
+			if allocated, ok := AllocatedBytes(); !ok || allocated != want {
+				fmt.Printf("FAIL: read %d answered %d and %v, want %d\n", read, allocated, ok, want)
+				os.Exit(53 + read)
+			}
+		}
 	case "search":
 		// Nothing in the environment: a registered path that is gone is
 		// passed over for the build's own locations, relative to the

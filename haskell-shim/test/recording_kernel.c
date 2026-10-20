@@ -1,17 +1,18 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// A kernel stand-in that answers every call with a refusal quoting what it
-// was handed, so a test can read what a binding marshals to the kernel
+// A kernel stand-in that answers the kernel's entries with a refusal quoting
+// what it was handed, so a test can read what a binding marshals to the kernel
 // entries whose arguments the real kernel acknowledges without reading: the
 // timestamp of an error or remote event, the CAN-FD bus bits of a frame, and
 // the size of a command's text. It counts the closes and the frees it is
 // handed, so a test reads that a state was closed or a string released, which
 // the real kernel acknowledges without reading and which only a leak checker
-// would otherwise report. It carries every symbol the bindings resolve, at the
-// kernel's own signatures, and its runtime entry is a no-op: the runtime is
-// brought up once per process by the first backend a suite builds, on the
-// real library, and never by this one. The build makes it beside the library,
+// would otherwise report. Its renderer answers the rational it was handed and
+// its allocation count a known value, so a test reads what reached them. It
+// carries every symbol the bindings resolve, at the kernel's own signatures,
+// and its runtime entry is a no-op, so a process whose first backend opens it
+// reads the runtime as up without one. The build makes it beside the library,
 // where the bindings' tests load it.
 #include "aletheia.h"
 
@@ -138,6 +139,15 @@ int8_t aletheia_parse_decimal(const struct aletheia_text *input, struct aletheia
     (void)input;
     out->err = refusal("parse_decimal");
     return 1;
+}
+
+// The allocation count is 2^63 plus the reads made before this one: a read
+// that dropped a high bit or took the count as signed reads another number,
+// and two reads in a row differ by one, so a test reads that the whole count
+// came back and that each read reached the stand-in.
+static atomic_uint_fast64_t allocation_reads;
+uint64_t aletheia_allocated_bytes(void) {
+    return (UINT64_C(1) << 63) + atomic_fetch_add(&allocation_reads, 1);
 }
 
 char *aletheia_extract_signals(void *state, const struct aletheia_frame *frame) {

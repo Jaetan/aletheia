@@ -151,10 +151,10 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 731
+      generated: 733
       not_covered: 15
       timeouts: 0
-      total_mutants: 716
+      total_mutants: 718
       score_pct: 100.0
       run_at: "2026-10-19"
       # A mutant that times out is neither killed nor lived, and no verdict
@@ -787,10 +787,10 @@ bindings:
       # kernel returns is copied and released in one function, with no Drop
       # of its own to remove, and the same count holds that release.
       survivors: 0
-      generated: 376
+      generated: 380
       unviable: 62
       timeouts: 0
-      total_mutants: 314
+      total_mutants: 318
       score_pct: 100.0
       run_at: "2026-10-19"
       # A mutant cargo-mutants ended at its timeout is neither killed nor

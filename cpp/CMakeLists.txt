@@ -561,13 +561,13 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # because of compiler crashes on its templates.
     if(ALETHEIA_MUTATION)
         target_compile_options(unit_tests PRIVATE ${ALETHEIA_MUTATION_FLAGS})
-        # Cover the real FfiBackend (dlopen glue) in the mutation surface: the
-        # Mock-only unit sources never execute ffi_backend.cpp, so Mull would
-        # report its mutants as uncovered.  Fold the real-.so integration tests
-        # into the mutation binary so FfiBackend's FFI-boundary guards are
-        # exercised and killed.  (Mutation build only; the normal unit_tests
-        # stays Mock-only / .so-free for speed.)  The suite's size-bound unit
-        # is folded in last of all, below.
+        # The mutation runner runs this binary alone. Its unit sources reach
+        # the real FfiBackend through the runtime listener's backend and the
+        # cases that load the library or a stand-in, while the backend's
+        # FFI-boundary guards are exercised by the integration suites, which
+        # the normal build runs as a binary of their own; the mutation build
+        # folds them in so those guards' mutants are killed.  The suite's
+        # size-bound unit is folded in last of all, below.
         target_sources(unit_tests PRIVATE
             tests/integration_tests.cpp
             tests/integration_tests_backend.cpp
@@ -711,7 +711,9 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # `format_rational_ffi` must throw) and when it finds no library at all, its
     # releases of the kernel's strings read from the recording kernel's count,
     # and its answer to a library that fails the decimal entry with no error
-    # envelope, read from the null kernel.
+    # envelope, read from the null kernel. The runtime-down, recording-kernel
+    # and null-kernel processes also read the allocation count, which only the
+    # library that started the runtime answers.
     foreach(suite rts_init_renderer_uninitialized_tests renderer_missing_library_tests
             renderer_frees_kernel_strings_tests renderer_null_kernel_tests)
         add_executable(${suite} tests/${suite}.cpp)

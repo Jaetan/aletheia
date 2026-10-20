@@ -29,6 +29,9 @@ package aletheia
 // static uint32_t call_abi_version(void *fn) {
 //     return ((uint32_t (*)(void))fn)();
 // }
+// static uint64_t call_allocated_bytes(void *fn) {
+//     return ((uint64_t (*)(void))fn)();
+// }
 // // The state handle crosses as an integer: the kernel's handle is not an
 // // address, and Go may not hold one in a pointer.
 // static uintptr_t call_init(void *fn) {
@@ -138,6 +141,9 @@ var (
 	hsInitMu    sync.Mutex
 	hsInitDone  bool
 	hsInitCores int
+	// hsAllocatedBytesFn is aletheia_allocated_bytes of the library the
+	// runtime was started with, kept by the backend that started it.
+	hsAllocatedBytesFn unsafe.Pointer
 
 	// stablePtrCount is how many session handles the process has taken from
 	// the kernel and not yet given back: [FFIBackend.Init] adds one and
@@ -160,6 +166,26 @@ func hsInitialized() bool {
 // in production needs it.
 func StablePtrCount() int64 {
 	return stablePtrCount.Load()
+}
+
+// AllocatedBytes is how many bytes the kernel's runtime has allocated since
+// it started, a count of the whole process as [StablePtrCount] is: the
+// difference of two reads is what ran between them allocated. It answers
+// false and no count until a backend has started the runtime, and then reads
+// the library that backend opened. Each read runs a collection first, since
+// the runtime counts an allocation area only when it collects it, so a read
+// belongs outside anything timed. The scaling benchmark reads it around a
+// load.
+func AllocatedBytes() (uint64, bool) {
+	hsInitMu.Lock()
+	fn := hsAllocatedBytesFn
+	hsInitMu.Unlock()
+	if fn == nil {
+		return 0, false
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	return uint64(C.call_allocated_bytes(fn)), true
 }
 
 // FFIBackend is the [Backend] that calls libaletheia-ffi.so, opened with
@@ -324,6 +350,10 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if err != nil {
 		return nil, err
 	}
+	allocatedBytesFn, err := loadSym(handle, "aletheia_allocated_bytes")
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := ffiConfig{rtsCores: 1}
 	for _, o := range opts {
@@ -349,6 +379,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		}
 		C.call_hs_init_argv(hsInit, C.int(len(argv)), cargv)
 		hsInitCores = cfg.rtsCores
+		hsAllocatedBytesFn = allocatedBytesFn
 		hsInitDone = true
 	} else if cfg.rtsCores != hsInitCores && cfg.logger != nil {
 		cfg.logger.LogAttrs(context.Background(), slog.LevelWarn, "rts.cores_mismatch",
@@ -388,7 +419,7 @@ func extFlag(id CANID) C.uint8_t {
 // abiVersion is ALETHEIA_ABI_VERSION: the version of the structures and
 // signatures this binding lays out, which the header test holds to the
 // header's.
-const abiVersion = 2
+const abiVersion = 3
 
 // abiVersionError refuses a library whose ABI version is not abiVersion.
 func abiVersionError(found uint32) error {

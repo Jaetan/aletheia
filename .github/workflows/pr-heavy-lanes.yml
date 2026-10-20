@@ -476,17 +476,17 @@ jobs:
       # builds that stopped at a failed compile what those runs held together,
       # rather than a history of every build.  Measured, each slice built from
       # cold into an empty cache, 20 CPUs at the build's own job cap: a slice
-      # holds 38648 to 38948 KiB.  A build that misses
+      # holds 41952 to 42312 KiB.  A build that misses
       # every object, after a change to what every object hashes (the plugin,
       # the configuration, the toolchain), holds the restored working set beside
       # its own until the eviction, and such a build, stopping at a failed
       # compile or a preprocessor error, is saved whole, both sets, so the run
       # after it can hold two beside its own: the cap needs three of the
-      # largest, 119.6 MB, and each further run since the last eviction that
+      # largest, 130.0 MB, and each further run since the last eviction that
       # fails a compile or its eviction can stack one more, so a run holding
       # four of the largest is past the cap, where ccache's own cleanup, an
       # approximate LRU over part of the cache, can trim the build's own objects
-      # too.  It is 128M, the rest being room for the code to grow, and a probe
+      # too.  It is 140M, the rest being room for the code to grow, and a probe
       # reads red once three of the largest no longer fit.  The saves of the
       # slices' working sets accumulate across runs;
       # tools/prune_actions_cache.py keeps the newest few per lane on `main`,
@@ -518,7 +518,7 @@ jobs:
           }
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
-            echo "CCACHE_MAXSIZE=128M"
+            echo "CCACHE_MAXSIZE=140M"
           } >> "${GITHUB_ENV}"
       - name: Restore ccache (C++ mutation tree)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
