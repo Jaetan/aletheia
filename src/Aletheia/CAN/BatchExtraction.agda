@@ -23,7 +23,12 @@ open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
 open import Aletheia.DBC.RationalRenderer using (formatℚ)
 open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)
-open import Data.Nat using (ℕ; suc)
+open import Data.Bool using (Bool; true; false)
+open import Data.Integer using (∣_∣)
+-- The builtin max and comparison: one comparison whatever the size of the
+-- components, where the structural `_⊔_` recurses once per unit of value.
+open import Data.Nat using (ℕ; suc; _⊔′_; _≤ᵇ_)
+open import Aletheia.Limits using (max-rational-component-magnitude)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (just; nothing)
@@ -32,7 +37,6 @@ open import Aletheia.Error using
   ; formatFrameError; ExtractionErr; formatError
   ; ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle
   ; MuxExtractionFailed; ValueExceedsWireRange; InContext
-  ; formatExtractionError
   )
 -- The error and its wire code share a name for this condition, as they do for
 -- the multiplexor ones; the error's is renamed here so the two are distinct
@@ -64,19 +68,33 @@ combinePartitioned (mkPartitionedResults v1 e1 a1) (mkPartitionedResults v2 e2 a
 -- STRING-KEYED EXTRACTION (JSON output)
 -- ============================================================================
 
+-- Whether an extracted value fits the binary wire's rational slots: its
+-- reduced numerator magnitude and its denominator are both at most
+-- `max-rational-component-magnitude`.  Measured as `jsonMaxComponent`
+-- measures a JSON number (Aletheia.Protocol.JSON.Types).
+wireFits : ℚ → Bool
+wireFits q =
+  (∣ ℚ.numerator q ∣ ⊔′ suc (ℚ.denominator-1 q)) ≤ᵇ max-rational-component-magnitude
+
 -- Shared structure for categorizeResult and categorizeIndexed.
--- Success → success partition; MuxValueMismatch → absent partition;
--- remaining error cases delegated to the toErr callback.
+-- A Success whose value fits the wire goes to the success partition and one
+-- whose value does not is refused as `ExtractionFailed ValueExceedsWireRange`
+-- through toErr, so both paths refuse it with the same reason and the shim
+-- pokes only values the kernel kept (Aletheia.CAN.Batch.Properties.WireFits);
+-- MuxValueMismatch goes to the absent partition; the remaining error cases
+-- go to toErr.  The fit is a `with`, not `if`, so a proof can abstract it.
 categorizeWith : ∀ {K E}
   → (K → ExtractionResult → E)
   → K → ExtractionResult → PartitionedResults K E
-categorizeWith _ key (Success value) =
-  mkPartitionedResults ((key , value) ∷ []) [] []
+categorizeWith toErr key (Success value) with wireFits value
+... | true  = mkPartitionedResults ((key , value) ∷ []) [] []
+... | false =
+  mkPartitionedResults [] ((key , toErr key (ExtractionFailed ValueExceedsWireRange)) ∷ []) []
 -- Mux value mismatch is genuine absence (multiplexed out for this frame).
 categorizeWith _ key (SignalNotPresent MuxValueMismatch) =
   mkPartitionedResults [] [] (key ∷ [])
--- Other ExtractionError variants, SignalNotInDBC, ValueOutOfBounds, and the
--- dead ExtractionFailed branch (see extractSignalDirect) — all routed to toErr.
+-- Other ExtractionError variants, SignalNotInDBC, ValueOutOfBounds and
+-- ExtractionFailed go to toErr.
 categorizeWith toErr key result =
   mkPartitionedResults [] ((key , toErr key result) ∷ []) []
 
@@ -98,9 +116,10 @@ resultToString _ (SignalNotPresent reason) = formatError (ExtractionErr reason)
 resultToString _ (ValueOutOfBounds value mn mx) =
   formatFrameError (SignalValueOutOfBounds (formatBounds value mn mx))
 resultToString _ (ExtractionFailed reason) = formatError (ExtractionErr reason)
--- Unreachable: `categorizeWith` short-circuits `Success` to the success
--- arm before applying `toErr`, so `resultToString` is never called on a
--- `Success` value.  Empty string is a totality-only sentinel.
+-- Unreachable: `categorizeWith` never applies `toErr` to a `Success`, keeping
+-- a fitting value and refusing the other as an `ExtractionFailed`, so
+-- `resultToString` is never called on a `Success` value.  Empty string is a
+-- totality-only sentinel.
 resultToString _ (Success _) = ""
 
 categorizeResult : String → ExtractionResult → ExtractionResults
@@ -140,12 +159,11 @@ data ExtractionErrorCode : Set where
   NotInDBC            : ExtractionErrorCode  -- 0: signal name not found in DBC message
   OutOfBounds         : ExtractionErrorCode  -- 1: extracted value outside min/max range
   BitExtractionFailed : ExtractionErrorCode  -- 2: bit-level read or scaling step failed
-  -- 3: the exact value's reduced numerator or denominator exceeds the
-  -- signed 64-bit range of the binary wire's rational slots.  Never
-  -- produced by the kernel categorizers below — the FFI shim's binary
-  -- encoder (AletheiaFFI/BinaryOutput.hs) detects the condition at the
-  -- poke boundary and reroutes the signal to the error stream with this
-  -- code and the kernel-minted wireRangeReason string (string twin:
+  -- 3: the exact value's reduced numerator magnitude or denominator exceeds
+  -- `max-rational-component-magnitude`, the signed 64-bit range of the
+  -- binary wire's rational slots.  Minted by categorizeWith on both paths
+  -- when `wireFits` refuses a Success, so the shim's encoder pokes only
+  -- values the kernel proved fit (string twin:
   -- `extraction_value_exceeds_wire_range`).
   ValueExceedsWireRange : ExtractionErrorCode
   MuxSignalNotFound   : ExtractionErrorCode  -- 4: multiplexor signal missing from message
@@ -186,12 +204,6 @@ extractionErrorToCode (MuxExtractionFailed _) = MuxExtractionFailed
 extractionErrorToCode ValueExceedsWireRange   = ValueExceedsWireRange
 extractionErrorToCode (InContext _ inner)     = extractionErrorToCode inner
 
--- The reason string the FFI shim's binary encoder attaches when it reroutes
--- an over-range value to the error stream (code 3).  Kernel-minted so the
--- shim never hardcodes reason text — same SSOT discipline as the code itself.
-wireRangeReason : String
-wireRangeReason = formatExtractionError ValueExceedsWireRange
-
 -- An indexed error entry carries the wire code AND the same reason string
 -- the JSON path formats for that error (shared resultToString) — the binary
 -- wire is exactly as informative as the JSON wire.
@@ -228,9 +240,3 @@ extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → FrameError ⊎ Ind
 extractAllSignalsIndexed dbc frame with findMessageById (CANFrame.id frame) dbc
 ... | nothing = inj₁ CANIdNotFound
 ... | just msg = inj₂ (extractAllSignalsIndexedFromMessage frame msg)
-
--- The wire code of `ValueExceedsWireRange`, read by the binary encoder that
--- reroutes an out-of-range value, so the shim names a number rather than
--- building a kernel value.
-valueExceedsWireRangeCode : ℕ
-valueExceedsWireRangeCode = extractionErrorCodeToℕ ValueExceedsWireRange

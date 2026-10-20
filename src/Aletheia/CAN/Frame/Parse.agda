@@ -6,21 +6,22 @@
 -- signal values as a C caller hands them in, to kernel values whose
 -- invariants are decided here.
 --
--- A data frame's fields are checked in a fixed order, identifier, DLC, then
--- the payload walked byte by byte, and the first that fails is the refusal: a
--- typed `ParseError` carrying the offending value.  The records built here
--- hold their invariants as irrelevant or erased fields (`CANId`'s range,
--- `DLC`'s bound, `CANFrame`'s byte range, `TimedFrame.dlcValid`), so every
--- frame past this module satisfies them by construction.  Signal values
--- arrive as three parallel arrays and leave as `(index , ℚ)` pairs, each ℚ
--- normalised by the standard library's `_/_`.
+-- A data frame's fields are checked in a fixed order, timestamp, identifier,
+-- DLC, then the payload walked byte by byte, and the first that fails is the
+-- refusal: a typed `ParseError` carrying the offending value.  The records
+-- built here hold their invariants as irrelevant or erased fields (`CANId`'s
+-- range, `DLC`'s bound, `CANFrame`'s byte range, `TimedFrame.dlcValid` and
+-- `TimedFrame.tsBounded`), so every frame past this module satisfies them by
+-- construction.  Signal values arrive as three parallel arrays and leave as
+-- `(index , ℚ)` pairs, each ℚ normalised by the standard library's `_/_`.
 module Aletheia.CAN.Frame.Parse where
 
 open import Data.Bool using (Bool; true; false; T)
 open import Data.Integer using (ℤ; +_)
 open import Data.List as List using (List; []; _∷_)
 open import Data.Maybe using (Maybe)
-open import Data.Nat using (ℕ; zero; suc; _<ᵇ_)
+open import Data.Nat using (ℕ; zero; suc; _<ᵇ_; _≤ᵇ_; _≤_)
+open import Data.Nat.Properties using (≤ᵇ⇒≤)
 open import Data.Product using (Σ; _×_; _,_)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -33,10 +34,11 @@ open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes; maxDLC-FD)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended; CANFrame; Byte; IsByte; AllBytes; []; _∷_)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.Trace.Time using (mkTs)
+open import Aletheia.Limits using (observed-ceiling)
 open import Aletheia.Error using
   ( ParseError; StdCANIdOutOfRange; ExtCANIdOutOfRange; DLCCodeOutOfRange
   ; PayloadLengthMismatch; PayloadByteOutOfRange; NonPositiveDenominator
-  ; SignalArrayLengthMismatch )
+  ; SignalArrayLengthMismatch; TimestampPastWire )
 
 -- The refusal when the test fails, the continuation given its evidence
 -- (`tt`, the one inhabitant of `T true`) when it holds.
@@ -52,6 +54,13 @@ parseCANId raw true  =
 
 parseDLC : (code : ℕ) → ParseError ⊎ DLC
 parseDLC code = check (code <ᵇ suc maxDLC-FD) (DLCCodeOutOfRange code) λ p → inj₂ (mkDLC code p)
+
+-- The continuation given the timestamp's bound as erased evidence, the
+-- refusal when the timestamp is past `observed-ceiling`.  One builtin
+-- comparison decides it; the proof is erased, so its conversion never runs.
+withTimestamp : ∀ {B : Set} (ts : ℕ) → ((@0 _ : ts ≤ observed-ceiling) → ParseError ⊎ B) → ParseError ⊎ B
+withTimestamp ts k =
+  check (ts ≤ᵇ observed-ceiling) (TimestampPastWire ts) λ p → k (≤ᵇ⇒≤ ts observed-ceiling p)
 
 -- Exactly `n` bytes, each below 256.
 record Payload (n : ℕ) : Set where
@@ -108,14 +117,17 @@ parseCANFrame raw ext code bs with parseParts raw ext code bs
 ... | inj₁ e = inj₁ e
 ... | inj₂ p = inj₂ (Parts.dlc p , frameOf p)
 
--- A timestamped data frame, its size fixed by its DLC.
+-- A timestamped data frame, its size fixed by its DLC, the timestamp's
+-- bound (`withTimestamp`'s evidence) stored erased.
 parseTimedFrame
-  : (timestamp raw : ℕ) (extended : Bool) (code : ℕ) (bytes : List ℕ) (brs esi : Maybe Bool)
+  : (timestamp : ℕ) (@0 bounded : timestamp ≤ observed-ceiling)
+    (raw : ℕ) (extended : Bool) (code : ℕ) (bytes : List ℕ) (brs esi : Maybe Bool)
   → ParseError ⊎ TimedFrame
-parseTimedFrame ts raw ext code bs brs esi with parseParts raw ext code bs
+parseTimedFrame ts bounded raw ext code bs brs esi with parseParts raw ext code bs
 ... | inj₁ e = inj₁ e
 ... | inj₂ (parts canId dlc body) = inj₂ record
   { timestamp   = mkTs ts
+  ; tsBounded   = bounded
   ; payloadSize = dlcBytes dlc
   ; frame       = frameOf (parts canId dlc body)
   ; dlcValid    = refl

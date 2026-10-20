@@ -21,10 +21,9 @@
 module Aletheia.Protocol.StreamState.Types where
 
 open import Data.List using (List)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (Maybe)
 open import Data.Nat using (ℕ)
 open import Data.Fin using (Fin)
-open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache)
@@ -64,12 +63,6 @@ data StreamState : Set where
   WaitingForDBC : StreamState
   ReadyToStream : (n : ℕ) → ValidDBC → List (PropertyState n) → SignalCache → StreamState
   Streaming     : (n : ℕ) → ValidDBC → List (PropertyState n) → Maybe TimedFrame → SignalCache → StreamState
-
--- The loaded DBC, if any (ReadyToStream or Streaming).
-getDBC : StreamState → Maybe DBC
-getDBC WaitingForDBC = nothing
-getDBC (ReadyToStream _ vdbc _ _) = just (ValidDBC.dbc vdbc)
-getDBC (Streaming _ vdbc _ _ _) = just (ValidDBC.dbc vdbc)
 
 -- Initial empty state
 initialState : StreamState

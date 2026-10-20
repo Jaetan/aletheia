@@ -23,7 +23,8 @@
 --
 -- Rationale for values:
 --   * 64 MiB input — commercial automotive DBCs are 1-10 MiB; 6× headroom.
---   * 64 nesting depth — matches nlohmann/json default.
+--   * 64 nesting depth: a reply nests at most 8, and a property formula
+--     nests one level per operator, so this is the formula depth accepted.
 --   * 10k messages, 1024 signals/message — frame-bit count caps real
 --     signal counts much earlier; cardinality is the OOM defense, not a
 --     design constraint.

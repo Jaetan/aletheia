@@ -54,6 +54,7 @@ class ErrorCode(StrEnum):
     PARSE_PAYLOAD_BYTE_OUT_OF_RANGE = "parse_payload_byte_out_of_range"
     PARSE_NON_POSITIVE_DENOMINATOR = "parse_non_positive_denominator"
     PARSE_SIGNAL_ARRAY_LENGTH_MISMATCH = "parse_signal_array_length_mismatch"
+    PARSE_TIMESTAMP_PAST_WIRE = "parse_timestamp_past_wire"
     # Text parse errors: a DBC text the parser refuses, and a decimal entered
     # through the decimal entry, carry the first two
     TEXT_PARSE_FAILURE = "text_parse_failure"

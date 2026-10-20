@@ -25,9 +25,10 @@ open import Aletheia.CAN.Frame using (CANFrame; CANId)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.Trace.Time public
   using (μs; Timestamp; tsValue; _≤ᵗ_)
+open import Aletheia.Limits using (observed-ceiling)
 open import Data.Bool using (Bool)
 open import Data.Maybe using (Maybe)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _≤_)
 open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_)
 open import Data.Unit using (⊤)
@@ -44,9 +45,13 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 -- Phase 5.1 scope keeps LTL atomic predicates signal-level only; bus-bit
 -- predicates (BRS-set / ESI-set as truth values) would require lifting
 -- the Maybe Bool to the predicate vocabulary and are deferred to Phase 6.
+-- The frame parser decides the timestamp below 2^64 before it builds the
+-- frame; `tsBounded` carries that decision, erased, so a reply quoting the
+-- timestamp is proven to fit the wire's unsigned 64-bit slot.
 record TimedFrame : Set where
   field
     timestamp   : Timestamp μs  -- Microseconds since trace start
+    @0 tsBounded : tsValue timestamp ≤ observed-ceiling
     payloadSize : ℕ
     frame       : CANFrame payloadSize
     .dlcValid   : payloadSize ≡ dlcBytes (CANFrame.dlc frame)

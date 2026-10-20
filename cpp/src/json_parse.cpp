@@ -56,6 +56,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"parse_payload_byte_out_of_range", ErrorCode::ParsePayloadByteOutOfRange},
     {"parse_non_positive_denominator", ErrorCode::ParseNonPositiveDenominator},
     {"parse_signal_array_length_mismatch", ErrorCode::ParseSignalArrayLengthMismatch},
+    {"parse_timestamp_past_wire", ErrorCode::ParseTimestampPastWire},
     // Text parse errors: a .dbc text, or a decimal literal, read by the same grammar machinery
     {"text_parse_failure", ErrorCode::TextParseFailure},
     {"text_trailing_input", ErrorCode::TextTrailingInput},

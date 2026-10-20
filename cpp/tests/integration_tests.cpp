@@ -569,3 +569,100 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     // generic per-code message.
     CHECK(std::string_view{bin->errors[0].reason}.contains("not in ["));
 }
+
+// A message of one 64-bit unsigned signal, "Big", whose scaling is chosen by
+// the row: the raw value reaches the component bound of the kernel's wire
+// range only through the factor and the offset, since every DBC number is
+// itself held to that bound at load.
+namespace {
+struct WideSignalRow {
+    Rational factor;
+    Rational offset;
+    Rational minimum;
+    Rational maximum;
+    FramePayload data;
+};
+} // namespace
+
+static auto make_wide_signal_dbc(const WideSignalRow& row) -> DbcDefinition {
+    const DbcSignal big{
+        .name = SignalName{"Big"},
+        .start_bit = BitPosition{0},
+        .bit_length = BitLength{64},
+        .byte_order = ByteOrder::LittleEndian,
+        .is_signed = false,
+        .factor = RationalFactor{row.factor},
+        .offset = RationalOffset{row.offset},
+        .minimum = RationalBound{row.minimum},
+        .maximum = RationalBound{row.maximum},
+        .unit = Unit{""},
+        .presence = AlwaysPresent{},
+    };
+    return DbcDefinition{
+        .version = "1.0",
+        .messages = {DbcMessage{
+            .id = CanId{StandardId::create(0x100).value()},
+            .name = MessageName{"Msg"},
+            .dlc = Dlc::create(8).value(),
+            .sender = NodeName{"ECU"},
+            .signals = {big},
+        }},
+    };
+}
+
+TEST_CASE("binary and JSON extraction refuse a value whose component is past the wire range",
+          "[integration][parity]") {
+    // The kernel's batch categoriser holds an extracted value's reduced
+    // numerator magnitude and denominator to 9223372036854775807 on both
+    // extraction paths, so a 64-bit signal whose scaling carries the raw value
+    // past that bound is one error entry on each path, with the kernel's
+    // message, and no value.
+    auto const row = GENERATE(
+        // Raw 2^63 + 1 over a factor of 1/2^62 and an offset of 1/5^27: the
+        // reduced numerator and the denominator are both past the bound.
+        WideSignalRow{.factor = Rational{1, 4611686018427387904},
+                      .offset = Rational{1, 7450580596923828125},
+                      .minimum = Rational{1, 7450580596923828125},
+                      .maximum = Rational{3, 1},
+                      .data =
+                          FramePayload{std::byte{0x01}, std::byte{0}, std::byte{0}, std::byte{0},
+                                       std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0x80}}},
+        // Raw 2^63 over a factor of -1/5: the numerator is exactly -2^63,
+        // which an int64 holds and the symmetric magnitude bound refuses.
+        WideSignalRow{.factor = Rational{-1, 5},
+                      .offset = Rational{0, 1},
+                      .minimum = Rational{-3689348814741910323, 1},
+                      .maximum = Rational{0, 1},
+                      .data =
+                          FramePayload{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+                                       std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0x80}}});
+    auto const lib = find_lib();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    auto const dbc = make_wide_signal_dbc(row);
+
+    AletheiaClient bin_client(make_ffi_backend(lib));
+    REQUIRE(bin_client.parse_dbc(std::stop_token{}, dbc).has_value());
+    auto const bin = bin_client.extract_signals(std::stop_token{}, id, dlc, row.data);
+    REQUIRE(bin.has_value());
+
+    auto json_backend = std::make_unique<FixedBinExtractBackend>(
+        make_ffi_backend(lib),
+        std::unexpected(AletheiaError{ErrorKind::BinaryUnsupported,
+                                      "binary path not supported by this backend"}));
+    AletheiaClient json_client(std::move(json_backend));
+    REQUIRE(json_client.parse_dbc(std::stop_token{}, dbc).has_value());
+    auto const json = json_client.extract_signals(std::stop_token{}, id, dlc, row.data);
+    REQUIRE(json.has_value());
+
+    constexpr std::string_view message =
+        "extracted value's numerator or denominator exceeds the Int64 wire range";
+    for (auto const* result : {&*bin, &*json}) {
+        CHECK(result->values.empty());
+        CHECK(result->absent.empty());
+        REQUIRE(result->errors.size() == 1);
+        CHECK(result->errors[0].name == SignalName{"Big"});
+        CHECK(result->errors[0].reason == message);
+    }
+    CHECK(bin->errors[0].reason == json->errors[0].reason);
+}

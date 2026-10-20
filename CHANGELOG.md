@@ -364,6 +364,25 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING: the kernel refuses an extracted value past the wire's bound on
+  both extraction paths, and a frame entry refuses a timestamp past the 64-bit
+  range.** The kernel's batch categoriser refuses an extracted signal value
+  whose reduced numerator or denominator is above 9223372036854775807 on the
+  JSON extraction path (`aletheia_extract_signals`) as it did on the binary
+  path, the signal landing in `errors` with
+  `extraction_value_exceeds_wire_range`; before, the JSON path wrote the exact
+  value and the FFI shim's encoder rerouted it on the binary path alone. The
+  bound is symmetric in magnitude, so numerator -9223372036854775808, accepted
+  before on both paths, is refused. The binary frame entries
+  (`aletheia_send_frame`, `aletheia_send_error`, `aletheia_send_remote`)
+  refuse a timestamp above 18446744073709551615 with the new wire code
+  `parse_timestamp_past_wire` before reading any other field, a refusal the
+  C ABI's `uint64_t` timestamp cannot reach. Every number the kernel writes in
+  a reply is proven to have a numerator in [-2^63, 2^64 - 1] and a denominator
+  at most 2^64 - 1, the range every binding's reader decodes (the theorem
+  `formatResponse-readable` in
+  `src/Aletheia/Protocol/ResponseFormat/Properties.agda`).
+
 - **BREAKING (C ABI 3): the kernel reports the bytes its runtime has
   allocated.** The new entry `aletheia_allocated_bytes` runs a collection and
   returns the bytes the runtime has allocated since it started, so the

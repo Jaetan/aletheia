@@ -22,13 +22,14 @@ open import Aletheia.Error using
   (MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed;
    ValueExceedsWireRange; InContext)
 open import Aletheia.CAN.BatchExtraction using
-  ( PartitionedResults; categorizeResult; categorizeIndexed
+  ( PartitionedResults; categorizeResult; categorizeIndexed; wireFits
   ; ExtractionErrorCode; extractionErrorCodeToℕ
   ; NotInDBC; OutOfBounds; BitExtractionFailed; ValueExceedsWireRange
   ; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed; MuxValueMismatch
   ; SignalPastFrameEnd
   )
 
+open import Data.Bool using (true; false)
 open import Data.List using (map)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Maybe.Properties using (just-injective)
@@ -44,12 +45,15 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans
 -- THEOREM: for every extraction result, the reason strings in the indexed
 -- categorizer's error partition are exactly those of the string-keyed
 -- categorizer.  Both derive from the shared resultToString, so every arm is
--- definitional — this pin makes the sharing a checked invariant rather than
--- a code-review convention.
+-- definitional once a Success is split on whether its value fits the wire;
+-- this pin makes the sharing a checked invariant rather than a code-review
+-- convention.
 reason-parity : ∀ (name : String) (idx : ℕ) (r : ExtractionResult) →
   map proj₂ (PartitionedResults.errors (categorizeResult name r))
   ≡ map (λ e → proj₂ (proj₂ e)) (PartitionedResults.errors (categorizeIndexed name idx r))
-reason-parity _ _ (Success _)                            = refl
+reason-parity _ _ (Success v) with wireFits v
+... | true  = refl
+... | false = refl
 reason-parity _ _ SignalNotInDBC                         = refl
 reason-parity _ _ (SignalNotPresent MuxValueMismatch)    = refl
 reason-parity _ _ (SignalNotPresent (MuxSignalNotFound _))   = refl

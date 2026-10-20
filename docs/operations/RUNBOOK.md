@@ -453,8 +453,8 @@ or the binding raises `aletheia.InputBoundExceededError` (Python) /
   `max_atom_count_per_property` (1024 atoms).
 - `property_count` — one `setProperties` call submitted more than
   `max_properties_per_stream` (1024) properties.
-- `rational_component_magnitude` — a JSON number's exact rational has a
-  numerator or denominator outside the signed 64-bit wire range.
+- `rational_component_magnitude`: a JSON number's exact rational has a
+  numerator magnitude or denominator above 9223372036854775807.
 
 **Action:** Read the `bound_kind` / `observed` / `limit` fields on
 the typed error to identify which bound was crossed. Action then
@@ -484,7 +484,7 @@ splits by bound-kind family:
 
 ### Runtime — frame refusals (`parse_*` on a binary entry)
 
-#### `parse_payload_length_mismatch` / `parse_dlc_code_out_of_range` / `parse_std_can_id_out_of_range` / `parse_ext_can_id_out_of_range`
+#### `parse_payload_length_mismatch` / `parse_dlc_code_out_of_range` / `parse_std_can_id_out_of_range` / `parse_ext_can_id_out_of_range` / `parse_timestamp_past_wire`
 
 **Symptom:** A binary entry (`aletheia_send_frame`, `aletheia_extract_signals`,
 `aletheia_build_frame_bin`, `aletheia_update_frame_bin`,
@@ -492,9 +492,12 @@ splits by bound-kind family:
 codes.
 
 **Cause:** The kernel parses every frame it is handed and refused this one:
-a `data_len` that is not the DLC's byte count, a DLC above 15, or an
-identifier outside its 11- or 29-bit range.  Every binding refuses these
-before calling the kernel, so the producer is a caller of the C ABI itself.
+a `data_len` that is not the DLC's byte count, a DLC above 15, an
+identifier outside its 11- or 29-bit range, or a stream event's timestamp
+above the 64-bit range.  Every binding refuses the identifier, DLC and length
+faults before calling the kernel, so their producer is a caller of the C ABI
+itself; the timestamp refusal is unreachable from the bindings and from the
+C ABI, whose `struct aletheia_frame` carries the timestamp as a `uint64_t`.
 
 **Action:** Fix the producer's frame encoding.  The DLC-to-bytes table is
 `{0..8, 12, 16, 20, 24, 32, 48, 64}` for DLC codes `0..15`, and `data_len`

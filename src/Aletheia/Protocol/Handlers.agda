@@ -20,16 +20,20 @@ module Aletheia.Protocol.Handlers where
 open import Data.String using (String; fromList)
 open import Data.List using (List; []; _∷_; map; reverse; length) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc; _<ᵇ_)
+open import Data.Nat using (ℕ; suc; _<ᵇ_; z≤n)
 open import Data.Fin using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
-open import Aletheia.DBC.Validity using (ValidDBC)
+open import Aletheia.DBC.Validity using (ValidDBC; IsValidDBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull)
 open import Aletheia.DBC.Formatter using (formatDBC)
+-- Erased proofs the responses carry: every number the formatter writes for a
+-- bounded DBC, and every extracted value the categoriser kept, fits the wire.
+open import Aletheia.DBC.Formatter.Bounded using (formatDBC-within)
+open import Aletheia.CAN.Batch.WireFits using (extractAllSignals-values-fit)
 open import Aletheia.DBC.Identifier using (TooLong; BadChars)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
@@ -42,7 +46,6 @@ open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; Warnin
 open import Aletheia.Trace.Time using (μs; mkTs)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; PartitionedResults)
-open import Aletheia.Prelude using (require)
 open import Aletheia.Error as Err using
   ( HandlerErr; WithContext; ParseErr
   ; InputBoundExceeded
@@ -61,7 +64,6 @@ open import Data.Char using ()
 -- Import state types from StreamState (no circular dependency: Handlers → StreamState types only)
 open import Aletheia.Protocol.StreamState using
   ( StreamState; WaitingForDBC; ReadyToStream; Streaming
-  ; getDBC
   ; PropertyState; mkPropertyState
   )
 open import Aletheia.Protocol.StreamState.Internals using (collectAtoms; indexFormula)
@@ -73,12 +75,15 @@ open import Aletheia.DBC.Bounds using (BoundedDBC; checkBounds)
 -- ============================================================================
 
 private
-  -- Check DBC is loaded, returning the DBC or NoDBC error
-  withDBC : StreamState → HandlerError ⊎ DBC
-  withDBC state = require NoDBC (getDBC state)
+  -- The loaded DBC with its validity proof, or NoDBC: a handler reads the
+  -- erased facts a response carries (the DBC's bounds) from the proof.
+  withDBC : StreamState → HandlerError ⊎ ValidDBC
+  withDBC WaitingForDBC               = inj₁ NoDBC
+  withDBC (ReadyToStream _ vdbc _ _)  = inj₂ vdbc
+  withDBC (Streaming _ vdbc _ _ _)    = inj₂ vdbc
 
   -- Require DBC loaded, wrapping NoDBC with command context
-  withDBCContext : String → StreamState → (DBC → StreamState × Response) → StreamState × Response
+  withDBCContext : String → StreamState → (ValidDBC → StreamState × Response) → StreamState × Response
   withDBCContext ctx state f with withDBC state
   ... | inj₁ err = (state , Response.Error (WithContext ctx (HandlerErr err)))
   ... | inj₂ dbc = f dbc
@@ -229,7 +234,7 @@ verdictToResult idx Holds            = PR.PropertyResult.Satisfaction (toℕ idx
 -- EOS Fails uses synthetic timestamp 0: the violation is the absence of
 -- satisfaction over the entire trace (e.g. Eventually(p) never saw p),
 -- so no single violating frame exists to timestamp.
-verdictToResult idx (Fails reason)   = PR.PropertyResult.Violation (toℕ idx) (mkCounterexampleData (mkTs {u = μs} 0) reason)
+verdictToResult idx (Fails reason)   = PR.PropertyResult.Violation (toℕ idx) (mkCounterexampleData (mkTs {u = μs} 0) z≤n reason)
 verdictToResult idx (Unsure reason)  = PR.PropertyResult.Unresolved (toℕ idx) reason
 
 -- Finalize all properties with verdicts (extracted for proof access)
@@ -280,14 +285,17 @@ handleEndStream (Streaming n vdbc props _ cache) =
 handleEndStream state =
   (state , Response.Error (WithContext "EndStream" (HandlerErr NotStreaming)))
 
--- Extract all signals from a CAN frame
+-- Extract all signals from a CAN frame; the response carries the erased
+-- proof that every value kept fits the wire.
 handleExtractAllSignals : ∀ {n} → CANFrame n → StreamState → StreamState × Response
-handleExtractAllSignals frame state = withDBCContext "ExtractAllSignals" state λ dbc →
-  let results = extractAllSignals dbc frame
+handleExtractAllSignals frame state = withDBCContext "ExtractAllSignals" state λ vdbc →
+  let dbc     = ValidDBC.dbc vdbc
+      results = extractAllSignals dbc frame
   in (state , Response.ExtractionResultsResponse
                 (PartitionedResults.values results)
                 (PartitionedResults.errors results)
-                (PartitionedResults.absent results))
+                (PartitionedResults.absent results)
+                (extractAllSignals-values-fit dbc frame))
 
 -- Validate DBC structure: parse JSON, then run comprehensive validator
 handleValidateDBC : JSON → StreamState → StreamState × Response
@@ -300,10 +308,13 @@ handleValidateDBC dbcJSON state = withParsedDBC "ValidateDBC" dbcJSON state λ d
     validateHelper (inj₁ e) = (state , Response.Error (WithContext "ValidateDBC" e))
     validateHelper (inj₂ b) = (state , Response.ValidationResponse (validateDBCFull (BoundedDBC.dbc b)))
 
--- Format DBC: returns currently-loaded DBC as JSON
+-- Format DBC: returns the loaded DBC as JSON, with the erased proof that
+-- every number in it is within the bound, read from the DBC's validity.
 handleFormatDBC : StreamState → StreamState × Response
-handleFormatDBC state = withDBCContext "FormatDBC" state λ dbc →
-  (state , Response.DBCResponse (formatDBC dbc))
+handleFormatDBC state = withDBCContext "FormatDBC" state λ vdbc →
+  let dbc = ValidDBC.dbc vdbc
+  in (state , Response.DBCResponse (formatDBC dbc)
+                (formatDBC-within dbc (IsValidDBC.bounded (ValidDBC.isValid vdbc))))
 
 -- ============================================================================
 -- COMMAND DISPATCH

@@ -21,6 +21,7 @@ open import Data.Char using (Char)
 open import Data.String using (String; toList)
 open import Data.List using (List; []; _∷_)
 open import Data.Bool using (Bool)
+open import Data.Unit using (⊤)
 open import Data.Integer using (∣_∣)
 -- `_⊔′_`, NOT `_⊔_`: stdlib's `_⊔_` is defined by structural recursion on the
 -- unary view, so MAlonzo compiles it to decrement-and-recurse — cost linear in
@@ -32,7 +33,7 @@ open import Data.Integer using (∣_∣)
 -- Data.Nat.Properties converts between them should a proof ever need the
 -- recursive form.  Both measurements here feed Bool bound checks only, so
 -- neither has a proof obligation to preserve.
-open import Data.Nat using (ℕ; suc; _⊔′_)
+open import Data.Nat using (ℕ; suc; _⊔′_; _≤_)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_; proj₂)
 open import Function using (_∘_)
@@ -106,3 +107,40 @@ mutual
   fieldsMaxComponent : List (String × JSON) → ℕ
   fieldsMaxComponent []          = 0
   fieldsMaxComponent (kv ∷ rest) = jsonMaxComponent (proj₂ kv) ⊔′ fieldsMaxComponent rest
+
+-- Every number in a JSON value satisfies a claim on rationals; a `Set`,
+-- never computed at run time, stated per number so a proof can follow the
+-- tree.
+mutual
+  NumbersSatisfy : (ℚ → Set) → JSON → Set
+  NumbersSatisfy _ JNull            = ⊤
+  NumbersSatisfy _ (JBool _)        = ⊤
+  NumbersSatisfy P (JNumber q)      = P q
+  NumbersSatisfy _ (JString _)      = ⊤
+  NumbersSatisfy P (JArray xs)      = ListNumbersSatisfy P xs
+  NumbersSatisfy P (JObject fields) = FieldsNumbersSatisfy P fields
+
+  -- Every element of an Array.
+  ListNumbersSatisfy : (ℚ → Set) → List JSON → Set
+  ListNumbersSatisfy _ []       = ⊤
+  ListNumbersSatisfy P (x ∷ xs) = NumbersSatisfy P x × ListNumbersSatisfy P xs
+
+  -- Every field value of an Object; keys carry no numeric content.
+  FieldsNumbersSatisfy : (ℚ → Set) → List (String × JSON) → Set
+  FieldsNumbersSatisfy _ []          = ⊤
+  FieldsNumbersSatisfy P (kv ∷ rest) = NumbersSatisfy P (proj₂ kv) × FieldsNumbersSatisfy P rest
+
+-- Both reduced components of a rational within a bound: the magnitude of its
+-- numerator and its denominator, the claim `jsonMaxComponent` measures.
+ComponentsWithin : ℕ → ℚ → Set
+ComponentsWithin bound q = ∣ ℚ.numerator q ∣ ≤ bound × suc (ℚ.denominator-1 q) ≤ bound
+
+-- Every number in a JSON value has both components within the bound.
+NumbersWithin : ℕ → JSON → Set
+NumbersWithin bound = NumbersSatisfy (ComponentsWithin bound)
+
+ListNumbersWithin : ℕ → List JSON → Set
+ListNumbersWithin bound = ListNumbersSatisfy (ComponentsWithin bound)
+
+FieldsNumbersWithin : ℕ → List (String × JSON) → Set
+FieldsNumbersWithin bound = FieldsNumbersSatisfy (ComponentsWithin bound)
