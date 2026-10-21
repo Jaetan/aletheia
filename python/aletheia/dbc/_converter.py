@@ -102,7 +102,9 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     # Every byte becomes the character of the same number, so the kernel
     # decides the file's characters: a byte above 0x7E is refused with its
     # position whatever the file's encoding, and CR bytes reach it as they are.
-    text = path.read_bytes().decode("latin-1")
+    # The codec's name is case-insensitive, so its case mutant is equivalent
+    # (pragma).
+    text = path.read_bytes().decode("latin-1")  # pragma: no mutate
     with AletheiaClient() as client:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     dbc, _ = dbc_and_warnings_from_response(response, str(dbc_path))

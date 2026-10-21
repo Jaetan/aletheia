@@ -242,8 +242,9 @@ def _load_dbc_with(
         # before crossing the FFI boundary).
         check_dbc_text_size_bound(p.stat().st_size)
         # Every byte becomes the character of the same number, so the kernel
-        # decides the file's characters whatever its encoding.
-        text = p.read_bytes().decode("latin-1")
+        # decides the file's characters whatever its encoding. The codec's name
+        # is case-insensitive, so its case mutant is equivalent (pragma).
+        text = p.read_bytes().decode("latin-1")  # pragma: no mutate
         return _parsed(lambda: client.parse_dbc_text(text), dbc_path)
 
     if excel_path is not None:
