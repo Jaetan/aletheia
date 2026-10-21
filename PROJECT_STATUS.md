@@ -142,6 +142,9 @@ under which doubling a DBC's messages, or the digits of one number in it,
 multiplies the bytes its load allocates by more than 2.25.
 The kernel reports the bytes its runtime has allocated through an entry each
 binding exposes as one function, and the check reads it around each load.
+A DBC the validator refuses is refused in time linear in its issues, and a
+gate holds the refusal's allocated bytes to the same factor per doubling of
+its issue count.
 Every number a DBC or a command carries is held to one magnitude bound in the
 kernel, so a text holding one very long number is refused rather than read.
 A decimal a binding hands the kernel is decided there, every binding prints an
