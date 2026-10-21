@@ -2,20 +2,17 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- DBC validator output formatting and filtering.
---
--- Purpose: Utilities for processing ValidationIssue lists after validation.
--- Exports: hasAnyError, formatIssuesText, errorIssues, warningIssues.
--- Role: Used by Protocol.Handlers and Protocol.ResponseFormat to present
---   validation results to the user.
+-- The validation issues of a DBC: filtered by severity, asked whether any is
+-- an error, and written as the one text a refusal's message carries.
 module Aletheia.DBC.Validator.Formatting where
 
 open import Aletheia.DBC.Types using
   ( ValidationIssue; IsError; IsWarning )
-open import Data.List using (List; []; _∷_)
+open import Data.Char using (Char)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Base using (filterᵇ)
 open import Data.Bool.ListAction using (any)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; toList; fromList)
 open import Data.Bool using (Bool; true; false)
 
 private
@@ -33,11 +30,17 @@ private
 hasAnyError : List ValidationIssue → Bool
 hasAnyError = any isError
 
--- Format issue list as a single human-readable error string
+-- The details joined by "; ", as characters: each step copies one detail in
+-- front of the rest, so the join is linear in the text it writes (a string
+-- append copies both sides, and a join of appends copies the tail at every
+-- step).
+formatIssuesChars : List ValidationIssue → List Char
+formatIssuesChars []             = []
+formatIssuesChars (i ∷ [])       = toList (ValidationIssue.detail i)
+formatIssuesChars (i ∷ j ∷ rest) = toList (ValidationIssue.detail i) ++ₗ ';' ∷ ' ' ∷ formatIssuesChars (j ∷ rest)
+
 formatIssuesText : List ValidationIssue → String
-formatIssuesText [] = ""
-formatIssuesText (i ∷ []) = ValidationIssue.detail i
-formatIssuesText (i ∷ rest) = ValidationIssue.detail i ++ₛ "; " ++ₛ formatIssuesText rest
+formatIssuesText issues = fromList (formatIssuesChars issues)
 
 -- Filter only error-severity issues
 errorIssues : List ValidationIssue → List ValidationIssue

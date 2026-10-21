@@ -2233,6 +2233,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A validation refusal is built in time linear in its issues.** The
+  `handler_validation_failed` message joins every error issue's detail; the
+  join copied the text joined so far at every step, so a DBC whose messages
+  each carry hundreds of overlap issues was refused in time and memory growing
+  with the square of the issue count (measured: ×3.5 to ×4.0 allocated bytes
+  per doubling of the issues, 20.9 GB at 20,400 issues, and 156 s for a
+  200-message DBC of 50 overlapping signals each). The join now writes its
+  characters once, and a Python gate holds a refusal's allocation to the
+  load-scaling factor per doubling of its issues.
+
 - **A DBC text holding one long number is refused, and the process that sent
   it lives; every number in a DBC is held to the rational-component bound on
   both load routes (BREAKING).** A `VAL_` key, a signal factor or any other

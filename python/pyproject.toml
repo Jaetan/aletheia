@@ -400,6 +400,10 @@ pytest_add_cli_args = [
     # hot-path.
     "--ignore=tests/test_benchmark_gate.py",
     "--ignore=tests/test_benchmark_compare.py",
+    # Same shape: reads the load-scaling factor from the repo-root `tools`
+    # package.  The property it holds, a refusal's allocation per doubling of
+    # its issues, is the kernel's, which no Python mutant moves.
+    "--ignore=tests/test_validation_reply_allocation.py",
     # Same shape: covers the benchmark legs' scope question (repo-root `tools`
     # package) and reads benchmark.yml above python/.  Infra coverage, not
     # hot-path.
