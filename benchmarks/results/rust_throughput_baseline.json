@@ -1,73 +1,78 @@
 {
   "benchmark": "throughput",
   "language": "rust",
+  "parameters": {
+    "frames": 10000,
+    "runs": 10,
+    "warmup": 2
+  },
   "results": [
     {
-      "fps_max": 285913.1,
-      "fps_mean": 277317.0,
-      "fps_min": 270905.6,
-      "fps_stdev": 5673.7,
+      "fps_max": 320138.9,
+      "fps_mean": 309133.5,
+      "fps_min": 292656.7,
+      "fps_stdev": 9741.3,
       "frames": 10000,
       "name": "CAN 2.0B: Stream LTL (2 props)",
       "runs": 10,
-      "us_per_frame": 3.6
+      "us_per_frame": 3.2
     },
     {
-      "fps_max": 408709.6,
-      "fps_mean": 399432.9,
-      "fps_min": 391852.5,
-      "fps_stdev": 5988.2,
+      "fps_max": 419587.2,
+      "fps_mean": 403348.5,
+      "fps_min": 386073.0,
+      "fps_stdev": 10784.8,
       "frames": 10000,
       "name": "CAN 2.0B: Signal Extraction",
       "runs": 10,
       "us_per_frame": 2.5
     },
     {
-      "fps_max": 130957.0,
-      "fps_mean": 128376.0,
-      "fps_min": 123211.9,
-      "fps_stdev": 2657.6,
+      "fps_max": 121959.0,
+      "fps_mean": 118858.8,
+      "fps_min": 115987.7,
+      "fps_stdev": 2329.2,
       "frames": 10000,
       "name": "CAN 2.0B: Frame Building",
       "runs": 10,
-      "us_per_frame": 7.8
+      "us_per_frame": 8.4
     },
     {
-      "fps_max": 167861.4,
-      "fps_mean": 164457.6,
-      "fps_min": 160213.7,
-      "fps_stdev": 2289.0,
+      "fps_max": 165912.9,
+      "fps_mean": 161825.2,
+      "fps_min": 156021.8,
+      "fps_stdev": 3119.1,
       "frames": 10000,
       "name": "CAN-FD:   Stream LTL (3 props)",
       "runs": 10,
-      "us_per_frame": 6.1
+      "us_per_frame": 6.2
     },
     {
-      "fps_max": 29195.8,
-      "fps_mean": 28802.2,
-      "fps_min": 28124.8,
-      "fps_stdev": 332.5,
+      "fps_max": 29854.0,
+      "fps_mean": 29078.7,
+      "fps_min": 28498.1,
+      "fps_stdev": 470.9,
       "frames": 10000,
       "name": "CAN-FD:   Signal Extraction",
       "runs": 10,
-      "us_per_frame": 34.7
+      "us_per_frame": 34.4
     },
     {
-      "fps_max": 32426.8,
-      "fps_mean": 32074.1,
-      "fps_min": 31686.1,
-      "fps_stdev": 225.0,
+      "fps_max": 32031.7,
+      "fps_mean": 30959.8,
+      "fps_min": 29850.5,
+      "fps_stdev": 721.3,
       "frames": 10000,
       "name": "CAN-FD:   Frame Building",
       "runs": 10,
-      "us_per_frame": 31.2
+      "us_per_frame": 32.3
     }
   ],
   "system": {
-    "cores": 24,
+    "cores": 20,
     "cpu": "x86_64",
     "platform": "linux",
-    "rust": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01)"
   },
-  "timestamp": "2026-07-26T00:08:30Z"
+  "timestamp": "2026-10-20T22:48:05Z"
 }
