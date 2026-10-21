@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-10-20.
+**Last Updated**: 2026-10-21.
 
 Aletheia is a formally verified CAN-frame analysis system: a core written in Agda
 with machine-checked correctness proofs, compiled to Haskell and exposed through
@@ -151,6 +151,19 @@ An extracted signal value whose numerator or denominator is larger in
 magnitude than 2^63-1 is refused with a typed error on both extraction paths,
 a frame whose timestamp is past 2^64-1 is refused, and every number a reply
 writes is proven to lie in the range every binding's reader decodes.
+A DBC is held to its character set on both load routes: every string holds
+printable ASCII but `"` and `\`, plus TAB, LF and CR, a text is scanned
+before it is parsed and the first character outside printable ASCII, TAB, LF
+and CR is refused at its line and column; every name is a DBC identifier
+decided as it is read, a `setProperties` signal must be one the loaded DBC
+carries, and each binding reads a `.dbc` file byte for byte, so a byte above
+0x7E is refused by the kernel whatever the file's encoding.
+
+**Commands and replies.** The kernel reads a command as RFC 8259 JSON text
+and writes every reply as such text, both machine-checked: a raw control
+character, text after the value or a `\u` escape naming a lone surrogate half
+is refused at its line and column, and a reply escapes every control
+character and every key.
 
 Living detail and rationale for the above are tracked outside the tree, with
 the rest of the pending work.
