@@ -67,8 +67,9 @@ private
   --     the range the decimal SSOT and the binary FFI's rational slots
   --     enforce, so a bare JSON integer cannot carry a component the
   --     wire cannot represent.
-  -- The checks live here rather than inside `parseJSON` to keep the
-  -- parser a pure inverse of `formatJSON`.
+  -- The checks live here, after the parse, so `parseJSON` is RFC 8259's
+  -- grammar alone (`parseJSON-sound`) and reads back what `formatJSONChars`
+  -- writes (`parseJSON-formatJSONChars`).
   -- Takes the full `runParser` pair: the failure watermark (proj₁) feeds
   -- the positioned `InvalidJSON` on the nothing arm; the success arm
   -- drops both the watermark and the end position.

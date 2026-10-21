@@ -2,104 +2,106 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- JSON formatter (structurally recursive on JSON).
+-- The JSON formatter.
 --
--- Purpose: Serialize JSON values to strings.
--- Strings are escaped (", \, \n, \r, \t) to be inverse to JSON.Parse, which
--- has handled escapes from the start.  The escape pass lets
--- DBCTextResponse carry literal quotes and newlines round-trip through
--- the JSON envelope.
+-- Each value is written in front of the text that follows it, so a reply is
+-- built in one pass and `fromList` turns it into a string once.  A string
+-- or key is escaped: the quotation mark, the reverse solidus, and every
+-- character below U+0020 (`\b \f \n \r \t`, the others `\u00XX`).  An
+-- integer is written as its decimal digits, a rational with a denominator
+-- above 1 as the object `{"numerator": n, "denominator": d}`.
 module Aletheia.Protocol.JSON.Format where
 
-open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_; length; intersperse) renaming (_++_ to _++ₗ_)
-open import Data.Char using (Char)
-open import Data.Bool using (true; false)
-open import Data.Nat using (zero; suc; _<_; z<s; s<s)
+open import Data.String using (String; toList; fromList)
+open import Data.List using (List; []; _∷_)
+open import Data.Char using (Char; _≈ᵇ_)
+open import Data.Char.Base using (toℕ; fromℕ)
+open import Data.Bool using (true; false; _∨_; if_then_else_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _<ᵇ_; _/_; _%_; s≤s; z≤n)
+open import Data.Nat.DivMod using (m/n<m)
 open import Data.Nat.Induction using (<-wellFounded-fast)
-open import Data.Nat.Properties using (m<n⇒m<1+n)
 open import Induction.WellFounded using (Acc; acc)
-open import Data.Integer using ()
-open import Data.Rational as Rat using (ℚ)
-open import Data.Rational.Unnormalised as ℚᵘ using ()
+open import Data.Integer using (ℤ; +_; -[1+_])
+open import Data.Rational using (ℚ; mkℚ)
 open import Data.Product using (_×_; _,_)
-open import Data.Integer.Show using () renaming (show to showℤ)
-open import Data.Nat.Show using () renaming (show to showℕ)
+open import Aletheia.DBC.TextFormatter.Emitter using (digitChar)
 open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
 
--- Format a rational: integers as decimal notation, non-integers as object
-formatRational : ℚ → String
-formatRational r with Rat.toℚᵘ r
-... | ℚᵘ.mkℚᵘ num zero =
-      -- Denominator is 1, format as integer
-      showℤ num
-... | ℚᵘ.mkℚᵘ num (suc denom-1) =
-      -- Denominator > 1, format as object for exact representation
-      "{\"numerator\": " ++ₛ showℤ num ++ₛ
-      ", \"denominator\": " ++ₛ showℕ (suc (suc denom-1)) ++ₛ "}"
+-- `n`, below 16, as a lowercase hex digit.
+hexDigitChar : ℕ → Char
+hexDigitChar n = if n <ᵇ 10 then fromℕ (48 + n) else fromℕ (87 + n)
 
-private
-  escapeChar : Char → List Char
-  escapeChar c with c
-  ... | '"'   = '\\' ∷ '"' ∷ []
-  ... | '\\'  = '\\' ∷ '\\' ∷ []
-  ... | '\n'  = '\\' ∷ 'n' ∷ []
-  ... | '\r'  = '\\' ∷ 'r' ∷ []
-  ... | '\t'  = '\\' ∷ 't' ∷ []
-  ... | other = other ∷ []
+-- The escape of the character numbered `n`, below 32, after its `\`.
+controlEscape : ℕ → List Char → List Char
+controlEscape 8  rest = 'b' ∷ rest
+controlEscape 9  rest = 't' ∷ rest
+controlEscape 10 rest = 'n' ∷ rest
+controlEscape 12 rest = 'f' ∷ rest
+controlEscape 13 rest = 'r' ∷ rest
+controlEscape n  rest = 'u' ∷ '0' ∷ '0' ∷ hexDigitChar (n / 16) ∷ hexDigitChar (n % 16) ∷ rest
 
-  -- `cs` escaped, in front of `rest`.
-  escapeOnto : List Char → List Char → List Char
-  escapeOnto []       rest = rest
-  escapeOnto (c ∷ cs) rest = escapeChar c ++ₗ escapeOnto cs rest
+escapeChar : Char → List Char → List Char
+escapeChar c rest =
+  if toℕ c <ᵇ 32 then '\\' ∷ controlEscape (toℕ c) rest
+  else if (c ≈ᵇ '"') ∨ (c ≈ᵇ '\\') then '\\' ∷ c ∷ rest
+  else c ∷ rest
 
--- The elements of an array are rendered one by one and then joined
--- neighbour to neighbour, which halves their number: every round copies the
--- text once, so n elements cost a number of copies logarithmic in n, where
--- appending them one by one would copy everything after an element once per
--- element.  The rounds end because each shortens the list, the same
--- well-founded recursion as stdlib's merge sort.  Within one value the few
--- pieces are appended directly, which is cheapest for the small responses a
--- stream answers each frame with.
-private
-  pairUp : List String → List String
-  pairUp (a ∷ b ∷ rest) = (a ++ₛ b) ∷ pairUp rest
-  pairUp xs             = xs
+escapeOnto : List Char → List Char → List Char
+escapeOnto []       rest = rest
+escapeOnto (c ∷ cs) rest = escapeChar c (escapeOnto cs rest)
 
-  pairUp-shorter : ∀ a b rest → length (pairUp (a ∷ b ∷ rest)) < length (a ∷ b ∷ rest)
-  pairUp-shorter _ _ []           = s<s z<s
-  pairUp-shorter _ _ (_ ∷ [])     = s<s (s<s z<s)
-  pairUp-shorter _ _ (c ∷ d ∷ cs) = s<s (m<n⇒m<1+n (pairUp-shorter c d cs))
+-- A quoted string.
+showsString : List Char → List Char → List Char
+showsString cs rest = '"' ∷ escapeOnto cs ('"' ∷ rest)
 
-  joinAll : (xs : List String) → Acc _<_ (length xs) → String
-  joinAll []                _         = ""
-  joinAll (x ∷ [])          _         = x
-  joinAll xs@(a ∷ b ∷ rest) (acc rec) = joinAll (pairUp xs) (rec (pairUp-shorter a b rest))
+-- The decimal digits of `n` in front of `rest`, most significant first, by
+-- well-founded recursion on `n`.  Zero writes nothing, so the first digit
+-- written is never `0`.
+digitsOnto : (n : ℕ) → Acc _<_ n → List Char → List Char
+digitsOnto zero      _         rest = rest
+digitsOnto n@(suc _) (acc rec) rest =
+  digitsOnto (n / 10) (rec (m/n<m n 10 (s≤s (s≤s z≤n)))) (digitChar (n % 10) ∷ rest)
 
-  -- Rendered elements, separated by commas.
-  joinSeparated : List String → String
-  joinSeparated xs = joinAll (intersperse ", " xs) (<-wellFounded-fast _)
+showsℕ : ℕ → List Char → List Char
+showsℕ zero      rest = '0' ∷ rest
+showsℕ n@(suc _) rest = digitsOnto n (<-wellFounded-fast n) rest
+
+showsℤ : ℤ → List Char → List Char
+showsℤ (+ n)    rest = showsℕ n rest
+showsℤ -[1+ n ] rest = '-' ∷ showsℕ (suc n) rest
+
+showsRational : ℚ → List Char → List Char
+showsRational (mkℚ num zero      _) rest = showsℤ num rest
+showsRational (mkℚ num (suc d-1) _) rest =
+  '{' ∷ showsString (toList "numerator") (':' ∷ ' ' ∷ showsℤ num
+    (',' ∷ ' ' ∷ showsString (toList "denominator") (':' ∷ ' ' ∷ showsℕ (suc (suc d-1)) ('}' ∷ rest))))
 
 mutual
-  formatJSON : JSON → String
-  formatJSON JNull         = "null"
-  formatJSON (JBool true)  = "true"
-  formatJSON (JBool false) = "false"
-  formatJSON (JNumber n)   = formatRational n
-  formatJSON (JString cs)  = fromList ('"' ∷ escapeOnto cs ('"' ∷ []))
-  formatJSON (JArray xs)   = "[" ++ₛ joinSeparated (renderElements xs) ++ₛ "]"
-  formatJSON (JObject fs)  = "{" ++ₛ renderFields fs ++ₛ "}"
+  showsJSON : JSON → List Char → List Char
+  showsJSON JNull         rest = 'n' ∷ 'u' ∷ 'l' ∷ 'l' ∷ rest
+  showsJSON (JBool true)  rest = 't' ∷ 'r' ∷ 'u' ∷ 'e' ∷ rest
+  showsJSON (JBool false) rest = 'f' ∷ 'a' ∷ 'l' ∷ 's' ∷ 'e' ∷ rest
+  showsJSON (JNumber r)   rest = showsRational r rest
+  showsJSON (JString cs)  rest = showsString cs rest
+  showsJSON (JArray [])                rest = '[' ∷ ']' ∷ rest
+  showsJSON (JArray (x ∷ xs))          rest = '[' ∷ showsJSON x (showsElements xs (']' ∷ rest))
+  showsJSON (JObject [])               rest = '{' ∷ '}' ∷ rest
+  showsJSON (JObject ((k , v) ∷ fs))   rest = '{' ∷ showsField k v (showsFields fs ('}' ∷ rest))
 
-  renderElements : List JSON → List String
-  renderElements []       = []
-  renderElements (x ∷ xs) = formatJSON x ∷ renderElements xs
+  -- Each element after the first, after a comma and a space.
+  showsElements : List JSON → List Char → List Char
+  showsElements []       rest = rest
+  showsElements (x ∷ xs) rest = ',' ∷ ' ' ∷ showsJSON x (showsElements xs rest)
 
-  -- An object's fields are the few its kind declares, so they are appended
-  -- one by one; a collection the data sizes is an array.
-  renderFields : List (String × JSON) → String
-  renderFields []                          = ""
-  renderFields ((key , val) ∷ [])          = renderField key val
-  renderFields ((key , val) ∷ rest@(_ ∷ _)) = renderField key val ++ₛ ", " ++ₛ renderFields rest
+  showsFields : List (String × JSON) → List Char → List Char
+  showsFields []             rest = rest
+  showsFields ((k , v) ∷ fs) rest = ',' ∷ ' ' ∷ showsField k v (showsFields fs rest)
 
-  renderField : String → JSON → String
-  renderField key val = "\"" ++ₛ key ++ₛ "\": " ++ₛ formatJSON val
+  showsField : String → JSON → List Char → List Char
+  showsField k v rest = showsString (toList k) (':' ∷ ' ' ∷ showsJSON v rest)
+
+formatJSONChars : JSON → List Char
+formatJSONChars j = showsJSON j []
+
+formatJSON : JSON → String
+formatJSON j = fromList (formatJSONChars j)

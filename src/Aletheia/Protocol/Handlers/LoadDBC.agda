@@ -31,7 +31,7 @@ open import Aletheia.DBC.Validated using (validate)
 open import Aletheia.DBC.Formatter using (formatDBC)
 -- Erased: the response carries the proof that every number the formatter
 -- writes for the bounded DBC is within the bound.
-open import Aletheia.DBC.Formatter.Bounded using (formatDBC-within)
+open import Aletheia.DBC.Formatter.Bounded using (formatDBC-within; formatDBC-shallow)
 open import Aletheia.LTL.SignalPredicate using (emptyCache)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState using (StreamState; ReadyToStream)
@@ -48,7 +48,7 @@ private
   ... | inj₂ (vdbc , warnings) =
     let dbc = BoundedDBC.dbc b
     in (ReadyToStream 0 vdbc [] emptyCache
-       , Response.ParsedDBCResponse (formatDBC dbc) (formatDBC-within dbc (BoundedDBC.isBounded b)) warnings)
+       , Response.ParsedDBCResponse (formatDBC dbc) (formatDBC-within dbc (BoundedDBC.isBounded b) , formatDBC-shallow dbc) warnings)
 
 loadValidatedDBC : String → DBC → StreamState → StreamState × Response
 loadValidatedDBC cmdCtx dbc state with checkBounds dbc

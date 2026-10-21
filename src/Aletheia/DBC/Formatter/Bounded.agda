@@ -31,7 +31,7 @@ open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_; _^_; _≤_; _<ᵇ_; _/_; 
 open import Data.Nat.DivMod using (m%n<n)
 open import Data.Nat.Properties using
   ( ≤-refl; ≤-trans; ≤-pred; <⇒≤; <ᵇ⇒<; m≤m+n; 1+n≰n; m∸n≤m; ∸-monoˡ-≤
-  ; *-monoˡ-≤; +-mono-≤; suc-pred )
+  ; *-monoˡ-≤; +-mono-≤; suc-pred; ≤ᵇ⇒≤ )
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (String)
 open import Data.Unit using (tt)
@@ -69,7 +69,9 @@ open import Aletheia.DBC.Types using
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign )
 open import Aletheia.Limits using (max-rational-component-magnitude)
 open import Aletheia.Protocol.JSON.Types using
-  (JSON; JNumber; NumbersWithin; ListNumbersWithin; FieldsNumbersWithin)
+  (JSON; JNumber; JString; NumbersWithin; ListNumbersWithin; FieldsNumbersWithin; Shallow; FieldsShallow)
+open import Aletheia.Protocol.JSON.Shallow using (shallow-≤; map-shallow; fields-++)
+open import Aletheia.DBC.Formatter using (identJSON)
 
 -- ============================================================================
 -- ARRAY LENGTHS
@@ -345,3 +347,102 @@ formatDBC-within dbc b =
    , mapAll-within attribute-within _ (DBCMagnitudes.attributes m)
    , mapAll-within rawValueDesc-within _ (DBCMagnitudes.unresolvedValueDescs m)
    , tt
+
+-- ============================================================================
+-- DEPTH
+-- ============================================================================
+
+-- `formatDBC` nests at most 7 deep: the DBC, its messages, a message, its
+-- signals, a signal, its value descriptions, an entry.
+
+@0 canId-shallow : ∀ k id → FieldsShallow k (formatCANId id)
+canId-shallow k (Standard _ _) = tt , tt
+canId-shallow k (Extended _ _) = tt , tt , tt
+
+@0 valueEntry-shallow : ∀ e → Shallow 1 (formatValueEntry e)
+valueEntry-shallow (n , s) = tt , tt , tt
+
+@0 presence-shallow : ∀ k p → FieldsShallow (suc k) (formatPresence p)
+presence-shallow k Always        = tt , tt
+presence-shallow k (When mux vs) = tt , tt , map-shallow ℕtoJSON (λ _ → tt) (List⁺.toList vs) , tt
+
+@0 signal-shallow : ∀ frameBytes sig → Shallow 3 (formatDBCSignal frameBytes sig)
+signal-shallow frameBytes sig =
+  tt , tt , tt , tt , tt , tt , tt , tt , tt , tt ,
+  map-shallow identJSON (λ _ → tt) _ , map-shallow formatValueEntry valueEntry-shallow _ ,
+  presence-shallow 1 (DBCSignal.presence sig)
+
+@0 message-shallow : ∀ msg → Shallow 5 (formatDBCMessage msg)
+message-shallow msg =
+  fields-++ (formatCANId (DBCMessage.id msg)) _ (canId-shallow 4 (DBCMessage.id msg))
+    (tt , tt , tt , map-shallow identJSON (λ _ → tt) _ ,
+     map-shallow (formatDBCSignal (dlcBytes (DBCMessage.dlc msg))) (signal-shallow (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg) , tt)
+
+@0 signalGroup-shallow : ∀ sg → Shallow 2 (formatSignalGroup sg)
+signalGroup-shallow sg = tt , map-shallow identJSON (λ _ → tt) _ , tt
+
+@0 envVar-shallow : ∀ ev → Shallow 1 (formatEnvironmentVar ev)
+envVar-shallow ev = tt , tt , tt , tt , tt , tt
+
+@0 valueTable-shallow : ∀ vt → Shallow 3 (formatValueTable vt)
+valueTable-shallow vt = tt , map-shallow formatValueEntry valueEntry-shallow _ , tt
+
+@0 rawValueDesc-shallow : ∀ rvd → Shallow 3 (formatRawValueDesc rvd)
+rawValueDesc-shallow rvd =
+  fields-++ (formatCANId (RawValueDesc.canId rvd)) _ (canId-shallow 2 (RawValueDesc.canId rvd))
+    (tt , map-shallow formatValueEntry valueEntry-shallow _ , tt)
+
+@0 node-shallow : ∀ n → Shallow 1 (formatNode n)
+node-shallow n = tt , tt
+
+@0 commentTarget-shallow : ∀ k t → FieldsShallow k (formatCommentTarget t)
+commentTarget-shallow k CTNetwork      = tt , tt
+commentTarget-shallow k (CTNode _)     = tt , tt , tt
+commentTarget-shallow k (CTMessage id) = tt , canId-shallow k id
+commentTarget-shallow k (CTSignal id _) = tt , fields-++ (formatCANId id) _ (canId-shallow k id) (tt , tt)
+commentTarget-shallow k (CTEnvVar _)   = tt , tt , tt
+
+@0 comment-shallow : ∀ c → Shallow 2 (formatComment c)
+comment-shallow c = commentTarget-shallow 0 (DBCComment.target c) , tt , tt
+
+@0 attrType-shallow : ∀ k t → FieldsShallow (suc k) (formatAttrType t)
+attrType-shallow k (ATInt _ _)    = tt , tt , tt , tt
+attrType-shallow k (ATFloat _ _)  = tt , tt , tt , tt
+attrType-shallow k ATString       = tt , tt
+attrType-shallow k (ATEnum labels) = tt , map-shallow JString (λ _ → tt) labels , tt
+attrType-shallow k (ATHex _ _)    = tt , tt , tt , tt
+
+@0 attrValue-shallow : ∀ k v → FieldsShallow k (formatAttrValue v)
+attrValue-shallow k (AVInt _)    = tt , tt , tt
+attrValue-shallow k (AVFloat _)  = tt , tt , tt
+attrValue-shallow k (AVString _) = tt , tt , tt
+attrValue-shallow k (AVEnum _)   = tt , tt , tt
+attrValue-shallow k (AVHex _)    = tt , tt , tt
+
+@0 attrTarget-shallow : ∀ k t → FieldsShallow k (formatAttrTarget t)
+attrTarget-shallow k ATgtNetwork          = tt , tt
+attrTarget-shallow k (ATgtNode _)         = tt , tt , tt
+attrTarget-shallow k (ATgtMessage id)     = tt , canId-shallow k id
+attrTarget-shallow k (ATgtSignal id _)    = tt , fields-++ (formatCANId id) _ (canId-shallow k id) (tt , tt)
+attrTarget-shallow k (ATgtEnvVar _)       = tt , tt , tt
+attrTarget-shallow k (ATgtNodeMsg _ id)   = tt , tt , canId-shallow k id
+attrTarget-shallow k (ATgtNodeSig _ id _) = tt , tt , fields-++ (formatCANId id) _ (canId-shallow k id) (tt , tt)
+
+@0 attribute-shallow : ∀ a → Shallow 3 (formatAttribute a)
+attribute-shallow (DBCAttrDef d)     = tt , tt , tt , attrType-shallow 0 _ , tt
+attribute-shallow (DBCAttrDefault d) = tt , tt , attrValue-shallow 1 _ , tt
+attribute-shallow (DBCAttrAssign a)  = tt , tt , attrTarget-shallow 1 _ , attrValue-shallow 1 _ , tt
+
+-- Every value `formatDBC` writes nests at most 7 deep.
+@0 formatDBC-shallow : ∀ dbc → Shallow 7 (formatDBC dbc)
+formatDBC-shallow dbc =
+  tt ,
+  map-shallow formatDBCMessage message-shallow _ ,
+  map-shallow formatSignalGroup (λ sg → shallow-≤ (formatSignalGroup sg) (≤ᵇ⇒≤ 2 5 tt) (signalGroup-shallow sg)) _ ,
+  map-shallow formatEnvironmentVar (λ ev → shallow-≤ (formatEnvironmentVar ev) (≤ᵇ⇒≤ 1 5 tt) (envVar-shallow ev)) _ ,
+  map-shallow formatValueTable (λ vt → shallow-≤ (formatValueTable vt) (≤ᵇ⇒≤ 3 5 tt) (valueTable-shallow vt)) _ ,
+  map-shallow formatNode (λ n → shallow-≤ (formatNode n) (≤ᵇ⇒≤ 1 5 tt) (node-shallow n)) _ ,
+  map-shallow formatComment (λ c → shallow-≤ (formatComment c) (≤ᵇ⇒≤ 2 5 tt) (comment-shallow c)) _ ,
+  map-shallow formatAttribute (λ a → shallow-≤ (formatAttribute a) (≤ᵇ⇒≤ 3 5 tt) (attribute-shallow a)) _ ,
+  map-shallow formatRawValueDesc (λ r → shallow-≤ (formatRawValueDesc r) (≤ᵇ⇒≤ 3 5 tt) (rawValueDesc-shallow r)) _ ,
+  tt

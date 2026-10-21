@@ -87,8 +87,9 @@ class FractionJSONEncoder(json.JSONEncoder):
 
     Non-ASCII text is written as its UTF-8 characters rather than
     ``\uXXXX`` escapes, whatever ``ensure_ascii`` the caller passes: the
-    kernel's parser is byte-oriented and the other bindings write UTF-8
-    directly, so the pin keeps Python's bytes identical to theirs.
+    kernel reads both spellings as the same character, and the other
+    bindings write UTF-8 directly, so the pin keeps Python's bytes identical
+    to theirs.
     """
 
     @property

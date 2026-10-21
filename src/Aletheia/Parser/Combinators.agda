@@ -20,6 +20,7 @@ open import Data.Bool using (Bool; true; false; not)
 open import Data.Bool.ListAction using (any)
 open import Data.Nat using (ℕ; zero; suc; _∸_)
 open import Data.String as String using (String)
+open import Data.Unit using (⊤; tt)
 
 -- ============================================================================
 -- POSITION TRACKING
@@ -275,6 +276,11 @@ runParser p input with p initialPosition input
 -- Useful for incremental parsing or when you need unconsumed input
 runParserPartial : ∀ {A : Set} → Parser A → List Char → Position × Maybe (ParseResult A)
 runParserPartial p input = p initialPosition input
+
+-- | Succeeds, consuming nothing, only at the end of the input
+eof : Parser ⊤
+eof pos []      = pos , just (mkResult tt pos [])
+eof pos (_ ∷ _) = pos , nothing
 
 -- | Optional: parse A or return nothing if it fails
 optional : ∀ {A : Set} → Parser A → Parser (Maybe A)

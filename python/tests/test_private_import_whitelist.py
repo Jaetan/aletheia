@@ -106,6 +106,11 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_property_hypothesis.py", "aletheia.client._ffi", "parse_json_object"),
         ("test_property_hypothesis.py", "aletheia.client._ffi", "KernelResponse"),
         ("test_property_hypothesis.py", "aletheia.client._types", "validate_can_id"),
+        # The JSON grammar gate hands the kernel a hand-built command and reads
+        # the reply through the binding's own reader, so a reply the kernel
+        # escapes is shown decoded by the code the client uses.
+        ("test_json_grammar.py", "aletheia.client._ffi", "parse_json_object"),
+        ("test_json_grammar.py", "aletheia.client._ffi", "KernelResponse"),
         (
             "test_types_and_conditions.py",
             "aletheia.client._types",

@@ -39,7 +39,9 @@ open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.CAN.Batch.WireFits using (Fits; wireFits-components)
 open import Aletheia.Protocol.JSON.Types using
   ( JSON; JNull; JBool; JNumber; JString; JArray; JObject; JStringS
-  ; NumbersSatisfy; ListNumbersSatisfy; FieldsNumbersSatisfy; ComponentsWithin )
+  ; NumbersSatisfy; ListNumbersSatisfy; FieldsNumbersSatisfy; ComponentsWithin
+  ; jsonDepth; Shallow; FieldsShallow )
+open import Aletheia.Protocol.JSON.Shallow using (shallow-depth; map-shallow)
 open import Aletheia.Protocol.Message using (Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
@@ -363,8 +365,87 @@ formatResponse-readable (PropertyResponse results) = tt , map-readable propertyR
 formatResponse-readable Ack = tt , tt
 formatResponse-readable (Complete results warnings) =
   tt , map-readable propertyResult-readable results , map-readable warning-readable warnings , tt
-formatResponse-readable (DBCResponse json w) = tt , satisfy-map components-readable json w , tt
+formatResponse-readable (DBCResponse json w) = tt , satisfy-map components-readable json (proj₁ w) , tt
 formatResponse-readable (ValidationResponse issues) = tt , tt , map-readable issue-readable issues , tt
 formatResponse-readable (ParsedDBCResponse json w warnings) =
-  tt , satisfy-map components-readable json w , map-readable issue-readable warnings , tt
+  tt , satisfy-map components-readable json (proj₁ w) , map-readable issue-readable warnings , tt
 formatResponse-readable (DBCTextResponse _ issues) = tt , tt , map-readable issue-readable issues , tt
+
+-- ============================================================================
+-- DEPTH
+-- ============================================================================
+
+-- Every reply nests at most 8 deep: the reply, its formatted DBC (at most 7,
+-- `formatDBC-shallow`), or an array of objects of primitives.
+private
+  @0 issue-shallow : ∀ k i → Shallow (suc k) (formatValidationIssue i)
+  issue-shallow _ _ = tt , tt , tt , tt
+
+  @0 propertyResult-shallow : ∀ k r → Shallow (suc k) (formatPropertyResult r)
+  propertyResult-shallow _ (PropertyResult.Violation _ _) = tt , tt , tt , tt , tt , tt
+  propertyResult-shallow _ (PropertyResult.Satisfaction _) = tt , tt , tt , tt
+  propertyResult-shallow _ (PropertyResult.Unresolved _ _) = tt , tt , tt , tt , tt
+
+  @0 warning-shallow : ∀ k w → Shallow (suc k) (formatWarning w)
+  warning-shallow _ _ = tt , tt , tt , tt
+
+  @0 value-shallow : ∀ k p → Shallow (suc k) (formatSignalValue p)
+  value-shallow _ _ = tt , tt , tt
+
+  @0 signalError-shallow : ∀ k e → Shallow (suc k) (formatSignalError e)
+  signalError-shallow _ _ = tt , tt , tt
+
+  @0 handler-shallow : ∀ k h → FieldsShallow (suc (suc k)) (errorExtras (Err.HandlerErr h))
+  handler-shallow k Err.NoDBC                        = tt
+  handler-shallow k Err.AlreadyStreaming             = tt
+  handler-shallow k Err.NotStreaming                 = tt
+  handler-shallow k Err.StreamNotStarted             = tt
+  handler-shallow k Err.StreamActive                 = tt
+  handler-shallow k (Err.PropertyParseFailed _)      = tt
+  handler-shallow k (Err.ValidationFailed issues)    = tt , map-shallow formatValidationIssue (issue-shallow k) issues , tt
+  handler-shallow k (Err.TextRoundTripFailed issues) = tt , map-shallow formatValidationIssue (issue-shallow k) issues , tt
+  handler-shallow k (Err.NonMonotonicTimestamp _ _)  = tt
+  handler-shallow k (Err.WrappedParse _)             = tt
+  handler-shallow k (Err.WrappedFrame _)             = tt
+  handler-shallow k (Err.InContext _ inner)          = handler-shallow k inner
+
+  @0 errorExtras-shallow : ∀ k e → FieldsShallow (suc (suc k)) (errorExtras e)
+  errorExtras-shallow k (Err.ParseErr _)      = tt
+  errorExtras-shallow k (Err.FrameErr _)      = tt
+  errorExtras-shallow k (Err.ExtractionErr _) = tt
+  errorExtras-shallow k (Err.RouteErr _)      = tt
+  errorExtras-shallow k (Err.HandlerErr h)    = handler-shallow k h
+  errorExtras-shallow k (Err.DispatchErr Err.MissingTypeField)       = tt
+  errorExtras-shallow k (Err.DispatchErr (Err.UnknownMessageType _)) = tt
+  errorExtras-shallow k (Err.DispatchErr (Err.InvalidJSON _))        = tt , tt , tt
+  errorExtras-shallow k (Err.DispatchErr Err.RequestNotObject)       = tt
+  errorExtras-shallow k (Err.DBCTextParseErr (Err.ParseFailure _))   = tt , tt , tt
+  errorExtras-shallow k (Err.DBCTextParseErr (Err.TrailingInput _ _)) = tt , tt , tt , tt , tt
+  errorExtras-shallow k (Err.DBCTextParseErr (Err.AttributeRefinementFailed _ _)) = tt
+  errorExtras-shallow k (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = tt
+  errorExtras-shallow k (Err.WithContext _ inner)          = errorExtras-shallow k inner
+  errorExtras-shallow k (Err.InputBoundExceeded _ _ _)     = tt , tt , tt , tt
+  errorExtras-shallow k (Err.InputBoundExceededAt _ _ _ _) = tt , tt , tt , tt , tt
+
+-- Every reply is within 8 levels.  Erased, since it reads the erased proofs
+-- the DBC replies carry.
+@0 formatResponse-shallow : ∀ r → Shallow 8 (formatResponse r)
+formatResponse-shallow (Success _) = tt , tt , tt
+formatResponse-shallow (Error e)   = tt , tt , tt , errorExtras-shallow 5 e
+formatResponse-shallow (ExtractionResultsResponse values errors absent _) =
+  tt , map-shallow formatSignalValue (value-shallow 5) values , map-shallow formatSignalError (signalError-shallow 5) errors
+     , map-shallow JStringS (λ _ → tt) absent , tt
+formatResponse-shallow (PropertyResponse results) = tt , map-shallow formatPropertyResult (propertyResult-shallow 5) results , tt
+formatResponse-shallow Ack = tt , tt
+formatResponse-shallow (Complete results warnings) =
+  tt , map-shallow formatPropertyResult (propertyResult-shallow 5) results , map-shallow formatWarning (warning-shallow 5) warnings , tt
+formatResponse-shallow (DBCResponse json w) = tt , proj₂ w , tt
+formatResponse-shallow (ValidationResponse issues) = tt , tt , map-shallow formatValidationIssue (issue-shallow 5) issues , tt
+formatResponse-shallow (ParsedDBCResponse json w warnings) =
+  tt , proj₂ w , map-shallow formatValidationIssue (issue-shallow 5) warnings , tt
+formatResponse-shallow (DBCTextResponse _ issues) = tt , tt , map-shallow formatValidationIssue (issue-shallow 5) issues , tt
+
+-- THEOREM: every reply nests at most 8 deep, below every binding reader's
+-- nesting limit.
+@0 formatResponse-depth : ∀ r → jsonDepth (formatResponse r) ≤ 8
+formatResponse-depth r = shallow-depth 8 (formatResponse r) (formatResponse-shallow r)

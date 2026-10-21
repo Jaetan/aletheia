@@ -12,15 +12,9 @@
 --   string-lit   ::= '"' (any-char-but-quote | '""')* '"'
 --   ws           ::= (" " | "\t")+
 --   newline      ::= "\n" | "\r\n"
---   rational, integer-lit, nat — re-exported from the JSON parser (same
---   grammar shape: `-?digit+ (\.digit+)? ([eE][+-]?digit+)?`).
---
--- Why re-export instead of duplicate: DBC-text rationals share the exact
--- grammar of the JSON parser's rationals, and `Aletheia.Protocol.JSON.Parse`
--- is already exercised by its own corpus.  Hoisting to a neutral
--- `Aletheia.Parser.Lexical` would broaden the blast radius of the code move
--- beyond this code move's scope; a future cleanup can do that once the DBC
--- text parser has its own test matrix.
+--   nat          ::= digit+
+-- A number with a sign, a fraction or an exponent is read by
+-- `Aletheia.DBC.TextParser.DecRatParse`, on `parseDigits`.
 --
 -- `Identifier.name` is `List Char`, so the lexer builds Identifiers directly via
 -- `mkIdentFromChars` (axiom-free) with no String bridge.  RULE: keep it that way —
@@ -30,18 +24,30 @@ module Aletheia.DBC.TextParser.Lexer where
 
 open import Data.Bool using (Bool; _∨_; not)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
+open import Data.Char.Base using (isDigit)
 open import Data.List using (List; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (ℕ)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; fail; _>>=_; _<|>_; _*>_;
+  (Parser; pure; fail; _>>=_; _<$>_; _<|>_; _*>_;
    satisfy; char; string; many; some)
 
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdent; isIdentStart; isIdentCont; mkIdentFromChars) public
 
-open import Aletheia.Protocol.JSON.Parse using (parseNatural; parseDigits) public
+open import Aletheia.DBC.DecRat.Literal using (natLiteral)
+
+-- A run of one or more digits, as read.
+parseDigits : Parser (List Char)
+parseDigits = some (satisfy isDigit)
+
+-- A natural number: its digits, or 2^64 when the run holds at least 65
+-- significant digits (`Aletheia.DBC.DecRat.Literal.natLiteral`), which the
+-- bound checks after the parse refuse.
+parseNatural : Parser ℕ
+parseNatural = natLiteral <$> parseDigits
 
 -- ============================================================================
 -- CHARACTER CLASSES

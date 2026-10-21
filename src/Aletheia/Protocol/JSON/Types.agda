@@ -33,7 +33,8 @@ open import Data.Integer using (∣_∣)
 -- Data.Nat.Properties converts between them should a proof ever need the
 -- recursive form.  Both measurements here feed Bool bound checks only, so
 -- neither has a proof obligation to preserve.
-open import Data.Nat using (ℕ; suc; _⊔′_; _≤_)
+open import Data.Nat using (ℕ; zero; suc; _⊔′_; _≤_)
+open import Data.Empty using (⊥)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_; proj₂)
 open import Function using (_∘_)
@@ -54,13 +55,10 @@ data JSON : Set where
 JStringS : String → JSON
 JStringS = JString ∘ toList
 
--- Structural nesting depth of a JSON value.  Mirrors nlohmann/json's
--- `parse_event_t::object_start` / `array_start` callback semantics —
--- primitives are depth 0, each Array/Object nesting level increments by 1.
--- Used at the parseJSON surface for a post-parse depth check alongside
--- the Identifier length bound and the atom-count bound.  Direct
--- measurement, NOT fuel — the bound `max-nesting-depth` is the
--- canonical adversarial-input limit (`Aletheia.Limits`, 64).
+-- Structural nesting depth of a JSON value: a scalar is 0, an array or an
+-- object one more than its deepest element.  `processJSONLine` refuses a
+-- command deeper than `max-nesting-depth` (`Aletheia.Limits`) after the
+-- parse, and `formatResponse-depth` bounds every reply's.
 mutual
   jsonDepth : JSON → ℕ
   jsonDepth JNull             = 0
@@ -144,3 +142,26 @@ ListNumbersWithin bound = ListNumbersSatisfy (ComponentsWithin bound)
 
 FieldsNumbersWithin : ℕ → List (String × JSON) → Set
 FieldsNumbersWithin bound = FieldsNumbersSatisfy (ComponentsWithin bound)
+
+-- A JSON value nested at most `k` deep: each array or object takes one
+-- level, so a primitive is within any depth and a container within `suc k`
+-- when its elements are within `k`.  A `Set`, the claim `jsonDepth`
+-- measures, stated per container so a proof can follow a formatter's shape.
+mutual
+  Shallow : ℕ → JSON → Set
+  Shallow _       JNull        = ⊤
+  Shallow _       (JBool _)    = ⊤
+  Shallow _       (JNumber _)  = ⊤
+  Shallow _       (JString _)  = ⊤
+  Shallow zero    (JArray _)   = ⊥
+  Shallow (suc k) (JArray xs)  = ListShallow k xs
+  Shallow zero    (JObject _)  = ⊥
+  Shallow (suc k) (JObject fs) = FieldsShallow k fs
+
+  ListShallow : ℕ → List JSON → Set
+  ListShallow _ []       = ⊤
+  ListShallow k (x ∷ xs) = Shallow k x × ListShallow k xs
+
+  FieldsShallow : ℕ → List (String × JSON) → Set
+  FieldsShallow _ []        = ⊤
+  FieldsShallow k (kv ∷ fs) = Shallow k (proj₂ kv) × FieldsShallow k fs

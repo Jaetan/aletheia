@@ -24,7 +24,10 @@ proofModules =
     , "Aletheia/JSON/Properties.agda"
     -- Protocol
     , "Aletheia/Protocol/JSON/Properties.agda"
+    , "Aletheia/Protocol/JSON/Properties/Sound.agda"
+    , "Aletheia/Protocol/JSON/Properties/Roundtrip.agda"
     , "Aletheia/Protocol/ResponseFormat/Properties.agda"
+    , "Aletheia/Protocol/ResponseFormat/Properties/JSONText.agda"
     , "Aletheia/Protocol/FrameProcessor/Properties.agda"
     , "Aletheia/Protocol/Handlers/Properties.agda"
     -- The FormatDBCText handler emits a DBCTextResponse ONLY when its text

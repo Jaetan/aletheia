@@ -364,6 +364,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING: the kernel reads a command as RFC 8259 JSON text and writes
+  every reply as such text, both proven.** The parser refuses, with
+  `dispatch_invalid_json` at the line and column of the first character it
+  cannot read, text after the value, whitespace other than space, tab, line
+  feed and carriage return, an integer part with a leading zero, a raw
+  character below U+0020 inside a string, and a `\u` escape naming a lone
+  surrogate half; before, it accepted each of them but the last, and refused
+  every `\u` escape. A `\u` escape is read as the character it names, a
+  surrogate pair as one character. A reply escapes every character below
+  U+0020, `\b \f \n \r \t` in their short form and the rest as `\u00XX`, and
+  escapes keys as it escapes values; before, a reply wrote a key as it was
+  and a backspace, form feed or other control character raw, so a strict
+  reader refused a reply echoing one. `parseJSON-sound`
+  (`src/Aletheia/Protocol/JSON/Properties/Sound.agda`) proves every text the
+  parser accepts is in RFC 8259's grammar, written as an Agda type in
+  `src/Aletheia/Protocol/JSON/RFC8259.agda`; `parseJSON-formatJSONChars`
+  (`src/Aletheia/Protocol/JSON/Properties/Roundtrip.agda`) proves the parser
+  reads back every value the formatter writes; `reply-is-JSONText` and
+  `formatResponse-depth` prove every reply is in the grammar and nests at
+  most 8 deep.
+
 - **BREAKING: the kernel refuses an extracted value past the wire's bound on
   both extraction paths, and a frame entry refuses a timestamp past the 64-bit
   range.** The kernel's batch categoriser refuses an extracted signal value

@@ -8,6 +8,7 @@
 
 - [Audience](#audience)
 - [Overview](#overview)
+- [JSON Text](#json-text)
 - [Message Types](#message-types)
 - [Commands](#commands)
 - [Binary Entry Points](#binary-entry-points)
@@ -53,6 +54,19 @@ WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
                                           → StartStream → Streaming → SendFrame* → Streaming
                                                                      → EndStream → ReadyToStream
 ~~~
+
+---
+
+## JSON Text
+
+A command is RFC 8259 JSON text, and so is every reply. The kernel's parser is that grammar, proven both ways: every text it accepts whole is in RFC 8259's grammar, written as an Agda type in `Aletheia.Protocol.JSON.RFC8259` (`parseJSON-sound`), and it reads back every value the kernel writes (`parseJSON-formatJSONChars`).
+
+- A command is one value, with whitespace around it and nothing after it. Whitespace is space, horizontal tab, line feed and carriage return.
+- An integer part is `0` or starts with a digit from 1 to 9.
+- A string holds no raw character below U+0020. A `\uXXXX` escape names a Unicode scalar value: a surrogate pair (`😀`) is read as the one character it encodes, and a lone surrogate half is refused.
+- Text outside the grammar is refused with `dispatch_invalid_json`, its `line` and `column` those of the first character the parser cannot read.
+
+A reply escapes `"`, `\` and every character below U+0020, in keys as in values: `\b`, `\f`, `\n`, `\r` and `\t` in their short form, the rest as `\u00XX`. Every reply is in the grammar (`reply-is-JSONText`) and nests at most 8 deep (`formatResponse-depth`).
 
 ---
 
@@ -972,17 +986,17 @@ Accepted in input, converted to rational internally.
 ~~~json
 {"numerator": 1, "denominator": 4}
 ~~~
-Used in responses for exact representation.
+A reply writes a value that is not an integer this way, and an integer as itself.
 
 **Why Two Formats?**
 - Decimal format is convenient for users (e.g., `"factor": 0.1`)
 - Object format preserves exact values (e.g., 1/3 has no finite decimal)
-- Parser accepts both, formatter outputs object format
+- The parser accepts both; a reply writes the object for a value that is not an integer
 
 **Examples**:
 - `0.25` → `{"numerator": 1, "denominator": 4}`
 - `1.5` → `{"numerator": 3, "denominator": 2}`
-- `100` → `{"numerator": 100, "denominator": 1}`
+- `100` → `100`
 
 **Note**: The JSON format exposes the actual denominator for clarity, even though the internal representation may differ.
 

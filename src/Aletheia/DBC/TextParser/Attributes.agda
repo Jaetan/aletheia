@@ -119,16 +119,11 @@ open import Aletheia.DBC.Types using
 -- except on the frame hot-path" (signal extraction sticks with `ℚ` for
 -- performance, every other DBC numeric field is `DecRat`).
 --
--- The two-way split (vs the older `RavNumber : ℚ`) keeps the substrate
--- aligned with the parsers that already have roundtrip proofs:
--- `parseStringLit-roundtrip` and `parseDecRat-roundtrip-suffix`.  Both
--- numeric wire forms (bare integer like `50` and decimal-fraction like
--- `0.5`) flow through `parseDecRat`, which subsumes the former
--- `parseInt` branch via the alt of `parseDecRatFrac <|>
--- parseDecRatBareInt` (see `Aletheia.DBC.TextParser.DecRatParse`).
--- There is no `parseRational-roundtrip` and proving it from scratch
--- (scientific notation, sign + fraction + exponent unrolling) would add
--- ~1 kLOC of foundation work for attribute proofs.
+-- The two-way split keeps the substrate on parsers with round-trip proofs,
+-- `parseStringLit-roundtrip` and `parseDecRat-roundtrip-suffix`: both
+-- numeric wire forms (a bare integer like `50`, a decimal fraction like
+-- `0.5`) go through `parseDecRat` (`parseDecRatFrac <|> parseDecRatBareInt`,
+-- `Aletheia.DBC.TextParser.DecRatParse`).
 -- `RavString` and `name` carry `List Char`
 -- (matching `parseStringLit : Parser (List Char)` and the AST's
 -- `AttrDefault.name : List Char` / `AttrAssign.name : List Char`).
