@@ -251,21 +251,22 @@ func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
 }
 
 // An identifier one character past MaxIdentifierLength is refused by the
-// kernel's identifier check and surfaces as a parse error whose code is the
-// trailing-input one, because the parser stops where the identifier does.
+// kernel's identifier decision as the lexer reads it: the bound's own code,
+// located by the line and column where the name starts.
 func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
 	c := newFFIClient(t)
 	name := strings.Repeat("A", MaxIdentifierLength+1)
 	_, err := c.ParseDBCText(t.Context(), identifierDBCText(name))
-	if err == nil {
-		t.Fatal("expected a parse error for an identifier one past the limit, got nil")
+	var bErr *InputBoundExceededError
+	if !errors.As(err, &bErr) {
+		t.Fatalf("expected *aletheia.InputBoundExceededError, got %T: %v", err, err)
 	}
-	var aErr *Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+	if bErr.BoundKind != BoundKindIdentifierLength || bErr.Observed != MaxIdentifierLength+1 ||
+		bErr.Limit != MaxIdentifierLength || bErr.Field != "" {
+		t.Errorf("bound = %+v, want identifier_length %d/%d with no field", bErr, MaxIdentifierLength+1, MaxIdentifierLength)
 	}
-	if aErr.Code != CodeTextTrailingInput {
-		t.Errorf("Code = %q, want %q", aErr.Code, CodeTextTrailingInput)
+	if want := "ParseDBCText: identifier at line 5, column 9: identifier length 129 exceeds limit 128"; bErr.Error() != want {
+		t.Errorf("Error() = %q, want %q", bErr.Error(), want)
 	}
 }
 

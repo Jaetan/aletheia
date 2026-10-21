@@ -3,7 +3,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- `parseRawAttrAssign` × ATgtMessage per-line construct roundtrips
--- (3 emit shapes), η-style migration onto the universal
+-- (3 emit shapes), each an instance of the universal
 -- `parseAttrAssign-format-roundtrip` lemma.
 --
 -- ATgtMessage is the `RatwMsg raw : ℕ` constructor of `RawAttrTargetWire`,
@@ -13,8 +13,8 @@
 -- discharges the `with buildCANId raw | buildCANId-rawCanIdℕ cid` aux on
 -- `raw = rawCanIdℕ cid` via `... | just .cid | refl = refl`.
 --
--- TraceMessage module preserved for `Properties/Attributes/Line.agda`'s
--- per-target-shape line dispatchers.
+-- `TraceMessage` names the position after one inline line; the dispatchers
+-- of `Properties/Attributes/Line/Alt5.agda` state their results through it.
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Message where
 
@@ -37,6 +37,7 @@ open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
    intDecRatToℤ-mkIntDecRatFromℤ)
 open import Aletheia.DBC.Types using (ATgtMessage)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.CAN.Frame using (CANId)
 
 open import Aletheia.DBC.TextParser.Attributes
@@ -47,6 +48,7 @@ open import Aletheia.DBC.TextParser.Attributes
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline; isHSpace)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
+open import Aletheia.DBC.TextFormatter.Attributes using (quoteIdent-chars)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars;
          showℕ-dec-chars)
@@ -84,13 +86,13 @@ open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
    build-EmitsOK-stdTargetWireFmt-RatwMsg)
 
 -- ============================================================================
--- TRACE MODULE — kept for `Properties/Attributes/Line.agda` compatibility
+-- TRACE MODULE: the position after one inline line
 -- ============================================================================
 
-module TraceMessage (pos : Position) (name : List Char) (cid : CANId)
+module TraceMessage (pos : Position) (name : Identifier) (cid : CANId)
                     (value-chars : List Char) (outer-suffix : List Char) where
   cs-name : List Char
-  cs-name = quoteStringLit-chars name
+  cs-name = quoteIdent-chars name
 
   cs-id : List Char
   cs-id = showℕ-dec-chars (rawCanIdℕ cid)
@@ -103,29 +105,29 @@ module TraceMessage (pos : Position) (name : List Char) (cid : CANId)
             ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ [])
 
 -- ============================================================================
--- BRIDGES — emit form ↔ inline-input shape
+-- BRIDGES: emit form ↔ inline-input shape
 -- ============================================================================
 
 private
   -- Per-shape bridge: emit attrAssignFmt (n, RatwMsg raw, wireVal, tt) ++
   -- outer-suffix ≡ canonical spec shape.  Direct alias of
-  -- `emit-attrAssignFmt-RatwMsg-with-outer` (Format/AttrLine.agda).
+  -- `emit-attrAssignFmt-RatwMsg-with-outer` (Format/AttrLine/Builders.agda).
   bridge-Message-emit :
-    ∀ (name : List Char) (raw : ℕ)
+    ∀ (name : Identifier) (raw : ℕ)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → emit attrAssignFmt (name , RatwMsg raw , wireVal , tt) ++ₗ outer-suffix
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
           toList " BO_ " ++ₗ emit nat raw ++ₗ
           ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
   bridge-Message-emit = emit-attrAssignFmt-RatwMsg-with-outer
 
 -- ============================================================================
--- COMMON RAW-LEVEL ROUNDTRIP — Message arm
+-- COMMON RAW-LEVEL ROUNDTRIP: Message arm
 -- ============================================================================
 
 private
   parseRawAttrAssign-format-roundtrip-Message-raw :
-    ∀ (pos : Position) (name : List Char) (cid : CANId)
+    ∀ (pos : Position) (name : Identifier) (cid : CANId)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → SuffixStops isNewlineStart outer-suffix
     → SuffixStops isHSpace
@@ -202,10 +204,10 @@ private
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtMessage-RavString :
-  ∀ pos (name : List Char) (cid : CANId) (s : List Char) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (cid : CANId) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -238,18 +240,18 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavString pos name cid s outer-suffix s
                                     p outer-suffix))
                      (cong (advancePositions pos)
                            (trans (emit-attrAssignFmt-RatwMsg name (rawCanIdℕ cid) (RavwString s))
-                                  (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                                  (cong (λ z → toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                                                   ' ' ∷ 'B' ∷ 'O' ∷ '_' ∷ ' ' ∷ z)
                                         (++ₗ-assoc (emit nat (rawCanIdℕ cid)) (' ' ∷ [])
                                                    (quoteStringLit-chars s ++ₗ
                                                       ';' ∷ '\n' ∷ [])))))
 
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac :
-  ∀ pos (name : List Char) (cid : CANId) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (cid : CANId) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -282,18 +284,18 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac pos name cid d outer-suff
                                     p outer-suffix))
                      (cong (advancePositions pos)
                            (trans (emit-attrAssignFmt-RatwMsg name (rawCanIdℕ cid) (RavwFrac d))
-                                  (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                                  (cong (λ z → toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                                                   ' ' ∷ 'B' ∷ 'O' ∷ '_' ∷ ' ' ∷ z)
                                         (++ₗ-assoc (emit nat (rawCanIdℕ cid)) (' ' ∷ [])
                                                    (showDecRat-dec-chars d ++ₗ
                                                       ';' ∷ '\n' ∷ [])))))
 
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt :
-  ∀ pos (name : List Char) (cid : CANId) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (cid : CANId) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -317,13 +319,13 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt pos name cid z outer-s
     showInt-eq = cong showInt-chars (intDecRatToℤ-mkIntDecRatFromℤ z)
 
     reshape-input :
-      toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
       ≡ emit attrAssignFmt (name , RatwMsg (rawCanIdℕ cid) , RavwBareInt z' , tt) ++ₗ outer-suffix
     reshape-input =
       trans (cong (λ chars →
-              toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+              toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                 toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
                 ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
               (sym showInt-eq))
@@ -359,13 +361,13 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt pos name cid z outer-s
         pos-eq = cong (advancePositions pos)
           (trans (emit-attrAssignFmt-RatwMsg name (rawCanIdℕ cid) (RavwBareInt z'))
                  (trans
-                   (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                   (cong (λ z → toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                                    ' ' ∷ 'B' ∷ 'O' ∷ '_' ∷ ' ' ∷ z)
                          (++ₗ-assoc (emit nat (rawCanIdℕ cid)) (' ' ∷ [])
                                     (showInt-chars (intDecRatToℤ z') ++ₗ
                                        ';' ∷ '\n' ∷ [])))
                    (cong (λ chars →
-                           toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                           toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                              toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
                              ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
                          showInt-eq)))

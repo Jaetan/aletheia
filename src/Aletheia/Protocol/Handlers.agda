@@ -27,18 +27,18 @@ open import Data.Bool using (Bool; true; false)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.Validity using (ValidDBC; IsValidDBC)
-open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
+open import Aletheia.DBC.JSONParser using (parseDBCWithErrors; identError)
 open import Aletheia.DBC.Validator using (validateDBCFull)
 open import Aletheia.DBC.Formatter using (formatDBC)
 -- Erased proofs the responses carry: every number the formatter writes for a
 -- bounded DBC, and every extracted value the categoriser kept, fits the wire.
-open import Aletheia.DBC.Formatter.Bounded using (formatDBC-within)
+open import Aletheia.DBC.Formatter.Bounded using (formatDBC-within; formatDBC-shallow)
 open import Aletheia.CAN.Batch.WireFits using (extractAllSignals-values-fit)
-open import Aletheia.DBC.Identifier using (TooLong; BadChars)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Coalgebra using (finalizeL; initProc)
-open import Aletheia.LTL.JSON using (parseProperty; ParseFail; Shape; BadSignal)
+open import Aletheia.LTL.JSON using (parseProperty; ParseFail; Shape; BadSignal; UnknownSignalName)
+open import Aletheia.CAN.DBCHelpers using (dbcHasSignal)
 open import Aletheia.LTL.Syntax using (atomCount)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; ValidateDBC; ParseDBCText; FormatDBCText)
@@ -47,17 +47,15 @@ open import Aletheia.Trace.Time using (μs; mkTs)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; PartitionedResults)
 open import Aletheia.Error as Err using
-  ( HandlerErr; WithContext; ParseErr
+  ( HandlerErr; WithContext
   ; InputBoundExceeded
   ; HandlerError; NoDBC; AlreadyStreaming; NotStreaming; StreamActive
-  ; PropertyParseFailed
-  ; InvalidIdentifier
+  ; PropertyParseFailed; UnknownSignal
   )
 open import Aletheia.Limits using
-  ( AtomCount; PropertyCount; IdentifierLength
+  ( AtomCount; PropertyCount
   ; max-atom-count-per-property
   ; max-properties-per-stream
-  ; max-identifier-length
   )
 open import Data.Char using ()
 
@@ -88,11 +86,7 @@ private
   ... | inj₁ err = (state , Response.Error (WithContext ctx (HandlerErr err)))
   ... | inj₂ dbc = f dbc
 
-  -- Parse DBC from JSON, wrapping parse errors with command context.
-  -- parseDBCWithErrors returns `Error ⊎ DBC`; the return type is lifted
-  -- so `Error.InputBoundExceeded IdentifierLength …` rejections at
-  -- `validateIdent` surface alongside `ParseErr` envelopes.  The legacy
-  -- ParseError envelopes arrive pre-wrapped via `ParseErr`.
+  -- Parse DBC from JSON, wrapping every refusal with the command context.
   withParsedDBC : String → JSON → StreamState → (DBC → StreamState × Response) → StreamState × Response
   withParsedDBC ctx dbcJSON state f with parseDBCWithErrors dbcJSON
   ... | inj₁ err = (state , Response.Error (WithContext ctx err))
@@ -149,42 +143,40 @@ withIndices (x ∷ xs) = (fzero , x) ∷ map (λ p → fsuc (Data.Product.proj�
 --   * Shape OK but atom count > `max-atom-count-per-property` (1024):
 --     emit typed `WithContext "SetProperties" (InputBoundExceeded AtomCount
 --     observed limit)` (code `input_bound_exceeded` + structured
---     `bound_kind / observed / limit`).  This mirrors the handler-boundary placement
---     pattern used for NestingDepth.
+--     `bound_kind / observed / limit`), decided here at the handler boundary
+--     once the property's shape is known.
 --
 -- The `Fin n` index threaded through the JSON list is the static
 -- property identifier; `toℕ` lifts it to `ℕ` only for the wire-side
--- `PropertyParseFailed` envelope (which still carries `ℕ` because the
--- error message reaches the user regardless of `n`).
+-- `PropertyParseFailed` envelope (which carries `ℕ`, the error message
+-- reaching the user regardless of `n`).
 
--- Signal names are `Identifier`-typed and validated on the SINGLE parse
--- path — `parseProperty` carries the typed reason out as `ParseFail`, so
--- there is no second raw-JSON walk to keep in sync.  Map the verdict
--- directly to the wire error:
+-- Signal names are decided as they are read, on the SINGLE parse path:
+-- `parseProperty` takes the loaded DBC's signal predicate and carries the
+-- typed reason out as `ParseFail`, so there is no second walk to keep in
+-- sync.  Map the verdict directly to the wire error:
 --   * `Shape`                   — malformed JSON shape → untyped
 --                                 `HandlerErr (PropertyParseFailed idx)`.
---   * `BadSignal (TooLong n)`   — name over `max-identifier-length` →
---                                 `InputBoundExceeded IdentifierLength`
---                                 (the old post-parse per-atom length check
---                                 is now unreachable — over-long names fail
---                                 the single parse first).
---   * `BadSignal (BadChars cs)` — bad charset / empty →
---                                 `ParseErr (InvalidIdentifier …)`.
+--   * `BadSignal cs r`          — `cs` refused by the identifier decision →
+--                                 the error a parsed DBC's name gets for `r`
+--                                 (`identError`), read from the `signal` slot.
+--   * `UnknownSignalName cs`    — no signal of the DBC carries the name →
+--                                 `HandlerErr (UnknownSignal …)`.
 parseFailResponse : StreamState → ℕ → ParseFail → StreamState × Response
 parseFailResponse state propIdx Shape =
       (state , Response.Error (WithContext "SetProperties"
                                 (HandlerErr (PropertyParseFailed propIdx))))
-parseFailResponse state _ (BadSignal (TooLong observed)) =
+parseFailResponse state _ (BadSignal cs r) =
+      (state , Response.Error (WithContext "SetProperties" (identError "signal" cs r)))
+parseFailResponse state _ (UnknownSignalName cs) =
       (state , Response.Error (WithContext "SetProperties"
-                                (InputBoundExceeded IdentifierLength observed max-identifier-length)))
-parseFailResponse state _ (BadSignal (BadChars cs)) =
-      (state , Response.Error (WithContext "SetProperties"
-                                (ParseErr (InvalidIdentifier (fromList cs)))))
+                                (HandlerErr (UnknownSignal (fromList cs)))))
 
 parseAllProperties : (n : ℕ) → StreamState → ValidDBC → List (Fin n × JSON) → List (PropertyState n) → StreamState × Response
 parseAllProperties n _ vdbc [] acc =
   (ReadyToStream n vdbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
-parseAllProperties n state vdbc ((idx , json) ∷ rest) acc with parseProperty json
+parseAllProperties n state vdbc ((idx , json) ∷ rest) acc
+  with parseProperty (dbcHasSignal (ValidDBC.dbc vdbc)) json
 ... | inj₁ pf   = parseFailResponse state (toℕ idx) pf
 ... | inj₂ prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
 ...   | false | observed = (state , Response.Error
@@ -314,7 +306,7 @@ handleFormatDBC : StreamState → StreamState × Response
 handleFormatDBC state = withDBCContext "FormatDBC" state λ vdbc →
   let dbc = ValidDBC.dbc vdbc
   in (state , Response.DBCResponse (formatDBC dbc)
-                (formatDBC-within dbc (IsValidDBC.bounded (ValidDBC.isValid vdbc))))
+                (formatDBC-within dbc (IsValidDBC.bounded (ValidDBC.isValid vdbc)) , formatDBC-shallow dbc))
 
 -- ============================================================================
 -- COMMAND DISPATCH

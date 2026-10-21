@@ -5,17 +5,16 @@
 -- DSL-side preamble formats for the DBC text
 -- format: VERSION, BS_, NS_.
 --
--- The three preamble constructs share the framework-extension theme of
--- this commit: each is a wrap-shape (`parse <fmt> >>= many parseNewline
--- >>= pure`) preserving the existing permissive parser spec.  The two
--- new Format DSL constructors landed for this work are:
+-- Each of the three is a wrap-shape (`parse <fmt> >>= many parseNewline
+-- >>= pure`) preserving the permissive parser spec.  Two Format DSL
+-- leaves exist for these three alone:
 --
---   * `wsCanonTab`     — canonical tab emit, parser one-or-more isHSpace
---                        (mirror of `ws` for tab-indented NS_ lines).
---   * `nonNewlineRun`  — empty canonical emit, parser zero-or-more
---                        non-newline (BS_ opaque-tail consumer).
+--   * `wsCanonTab`:    canonical tab emit, parser one-or-more isHSpace
+--                      (mirror of `ws` for tab-indented NS_ lines).
+--   * `nonNewlineRun`: empty canonical emit, parser zero-or-more
+--                      non-newline (BS_ opaque-tail consumer).
 --
--- Bridge proofs (DSL emit ≡ existing formatter) are minimal:
+-- Bridge proofs (DSL emit ≡ formatter) are minimal:
 --
 --   * VERSION: `emit versionFmt v ++ '\n' ∷ [] ≡ emitVersion-chars v`
 --              — formatter has trailing `\n\n`, DSL emits one `\n` and
@@ -30,7 +29,7 @@
 -- canonical-NSLine) refl <inner-tower>`.  The inner tower's underlying
 -- carrier is `⊤ × List NSLineShape`; the iso projects everything to
 -- `⊤` for the user-facing API while emitting the canonical 26-element
--- body (25 specific keyword identifiers + 1 blank).  Each
+-- body (25 keyword words + 1 blank).  Each
 -- `NSLineShape` constructor (`ns-blank` / `ns-keyword`) is dispatched
 -- via `altSum` over `blankLineFmt` and `keywordLineFmt`; the
 -- altSum disjointness witness for the keyword branch closes by
@@ -57,8 +56,7 @@ open import Aletheia.Parser.Combinators
          parseCharsSeq; pure; _>>=_; _<|>_; _<$>_;
          char)
   renaming ()
-open import Aletheia.DBC.Identifier using
-  (Identifier; mkIdent; validIdentifierᵇ)
+open import Aletheia.DBC.Identifier using (isWordᵇ)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseWS; isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
@@ -71,7 +69,7 @@ open import Aletheia.DBC.TextParser.Properties.Primitives using
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart)
 open import Aletheia.DBC.TextParser.Format
-  using (Format; literal; ident; pair; iso; many;
+  using (Format; literal; word; pair; iso; many;
          altSum; ws; wsOpt; wsCanonOne; wsCanonTab; nonNewlineRun;
          stringLit; withPrefix;
          emit; parse; EmitsOK; EmitsOKMany;
@@ -233,37 +231,38 @@ parseBitTiming-format-roundtrip pos outer-suffix =
 -- ============================================================================
 
 -- One body line is either a blank (`\n`) or an indented keyword
--- (`\t<ident>\n`).  Each iteration of the body's `many nsLineFmt`
+-- (`\t<word>\n`).  Each iteration of the body's `many nsLineFmt`
 -- consumes one such line.
 data NSLineShape : Set where
   ns-blank   : NSLineShape
-  ns-keyword : Identifier → NSLineShape
+  ns-keyword : List Char → NSLineShape
 
 -- Blank line: just `newlineFmt`.  Carrier ⊤.
 private
   blankLineFmt : Format ⊤
   blankLineFmt = newlineFmt
 
-  -- Keyword line: `'\t'` (mandatory hspace, canonical tab) + identifier
-  -- + zero-or-more hspace + newline.  Carrier `Identifier` — iso
-  -- projects out the inner identifier slot.  Inline lambdas (rather
-  -- than where-bound helpers) keep the iso transparent to definitional
+  -- Keyword line: `'\t'` (mandatory hspace, canonical tab) + word
+  -- + zero-or-more hspace + newline.  Carrier `List Char` (the word's
+  -- characters: a keyword is a word, never an `Identifier`); the iso
+  -- projects out the inner word slot.  Inline lambdas (rather than
+  -- where-bound helpers) keep the iso transparent to definitional
   -- reduction.
-  keywordLineFmt : Format Identifier
+  keywordLineFmt : Format (List Char)
   keywordLineFmt =
-    iso proj₁ (λ i → i , tt) (λ _ → refl) (
+    iso proj₁ (λ w → w , tt) (λ _ → refl) (
      withWSCanonTab (
-      pair ident (
+      pair word (
        withWSOpt newlineFmt)))
 
 -- iso helpers for nsLineFmt.  Module-level (not where-bound) so
 -- definitional reduction is transparent at consumer call sites.
 private
-  ns-line-fwd : ⊤ ⊎ Identifier → NSLineShape
+  ns-line-fwd : ⊤ ⊎ List Char → NSLineShape
   ns-line-fwd (inj₁ _) = ns-blank
   ns-line-fwd (inj₂ i) = ns-keyword i
 
-  ns-line-bwd : NSLineShape → ⊤ ⊎ Identifier
+  ns-line-bwd : NSLineShape → ⊤ ⊎ List Char
   ns-line-bwd ns-blank        = inj₁ tt
   ns-line-bwd (ns-keyword i)  = inj₂ i
 
@@ -391,7 +390,7 @@ private
     -- parse keywordLineFmt = parse (iso ...) = parse <inner> >>= ...
     -- parse <inner> starts with parseWS; satisfy isHSpace fails on c.
     bind-nothing
-      (parse (withWSCanonTab (pair ident (withWSOpt newlineFmt))))
+      (parse (withWSCanonTab (pair word (withWSOpt newlineFmt))))
       _ pos (c ∷ cs)
       inner-fail
     where
@@ -408,7 +407,7 @@ private
       -- parse (pair wsCanonTab Q) fails on (c ∷ cs) — propagates
       -- via the bind chain.
       pair-fail :
-        proj₂ (parse (pair wsCanonTab (pair ident (withWSOpt newlineFmt)))
+        proj₂ (parse (pair wsCanonTab (pair word (withWSOpt newlineFmt)))
                      pos (c ∷ cs))
         ≡ nothing
       pair-fail =
@@ -417,12 +416,12 @@ private
       -- parse (withWSCanonTab Q) is the iso-wrapped pair.  The iso's
       -- `>>= λ a → pure (φ a)` propagates nothing.
       inner-fail :
-        proj₂ (parse (withWSCanonTab (pair ident (withWSOpt newlineFmt)))
+        proj₂ (parse (withWSCanonTab (pair word (withWSOpt newlineFmt)))
                      pos (c ∷ cs))
         ≡ nothing
       inner-fail =
         bind-nothing
-          (parse (pair wsCanonTab (pair ident (withWSOpt newlineFmt))))
+          (parse (pair wsCanonTab (pair word (withWSOpt newlineFmt))))
           _ pos (c ∷ cs) pair-fail
 
 -- The full termination certificate: `parse nsLineFmt pos suffix ≡
@@ -466,18 +465,15 @@ parse-nsLineFmt-fail-on-stop pos (c ∷ cs) (∷-stop h)
             right-fail
 
 -- ============================================================================
--- Canonical 25 NS_ keyword identifiers + the trailing blank
+-- Canonical 25 NS_ keyword words + the trailing blank
 -- ============================================================================
 
--- Each `mkIdent (toList "kw") tt` typechecks because every NS_ keyword
--- reduces to `T (validIdentifierᵇ (toList "kw")) ≡ ⊤` on the closed
--- string (the same canary the earlier `_Scratch.agda` tracked).
+-- The keywords are words, not identifiers: an identifier is never a keyword.
 private
-  mkKwId : (kw : String) → {valid : T (validIdentifierᵇ (toList kw))}
-         → Identifier
-  mkKwId kw {valid} = mkIdent (toList kw) valid
+  mkKwId : String → List Char
+  mkKwId = toList
 
-  ns-keyword-ids : List Identifier
+  ns-keyword-ids : List (List Char)
   ns-keyword-ids =
     mkKwId "NS_DESC_"          ∷
     mkKwId "CM_"               ∷
@@ -529,30 +525,31 @@ nsFmt =
         (many nsLineFmt)))))
 
 -- Build EmitsOK nsLineFmt for one keyword line.  Reduces to a
--- (SuffixStops isHSpace, vacuous, ∷-stop refl, ∷-stop refl, tt,
--- λ _ → refl) tower; the outermost obligation is on `kw-name ++ '\n'
--- ∷ rest`, which has the keyword's first char as head — `∷-stop refl`
--- because every canonical keyword starts with a letter.  All other
--- slots are on closed-head fixed chars.
+-- (SuffixStops isHSpace, (word witness, ∷-stop refl), ∷-stop refl, tt,
+-- λ _ → refl) tower; the outermost obligation is on `kw ++ '\n' ∷
+-- rest`, which has the keyword's first char as head: `∷-stop refl`,
+-- because every canonical keyword starts with a letter.  The word
+-- witness `T (isWordᵇ kw)` is `⊤` on every closed canonical keyword.
+-- All other slots are on closed-head fixed chars.
 --
 -- Plus the altSum disjointness witness for the inj₂ branch:
--- `parse blankLineFmt pos ('\t' ∷ kw-name ++ '\n' ∷ rest) ≡ nothing`
--- — closes by `λ _ → refl` because parse newlineFmt rejects '\t'-led
+-- `parse blankLineFmt pos ('\t' ∷ kw ++ '\n' ∷ rest) ≡ nothing`,
+-- which closes by `λ _ → refl` because parse newlineFmt rejects '\t'-led
 -- input definitionally.
 private
-  EmitsOK-keyword-line : ∀ (kw : Identifier) (rest : List Char)
-    → SuffixStops isHSpace
-        ((Identifier.name kw ++ₗ '\n' ∷ []) ++ₗ rest)
+  EmitsOK-keyword-line : ∀ (kw : List Char) (rest : List Char)
+    → T (isWordᵇ kw)
+    → SuffixStops isHSpace ((kw ++ₗ '\n' ∷ []) ++ₗ rest)
     → EmitsOK nsLineFmt (ns-keyword kw) rest
-  EmitsOK-keyword-line kw rest kw-head-stop =
+  EmitsOK-keyword-line kw rest kw-word kw-head-stop =
     -- inj₂ keyword branch:
     --   EmitsOK keywordLineFmt kw rest
     --   × disjointness witness for blankLineFmt branch
     ( -- EmitsOK keywordLineFmt kw rest unfolds via iso/pair to:
-      -- (1) wsCanonTab: SuffixStops isHSpace (kw-name ++ '\n' ∷ rest)
+      -- (1) wsCanonTab: SuffixStops isHSpace (kw ++ '\n' ∷ rest)
       kw-head-stop ,
-      -- (2) ident: SuffixStops isIdentCont ('\n' ∷ rest)
-      ∷-stop refl ,
+      -- (2) word: T (isWordᵇ kw) × SuffixStops isIdentCont ('\n' ∷ rest)
+      (kw-word , ∷-stop refl) ,
       -- (3) wsOpt: SuffixStops isHSpace ('\n' ∷ rest)
       ∷-stop refl ,
       -- (4) newlineFmt: (vacuous, λ _ → refl).
@@ -570,15 +567,16 @@ private
   EmitsOK-blank-line rest _ = tt , λ _ → refl
 
 -- Build EmitsOKMany nsLineFmt over (map ns-keyword kws ++ ns-blank ∷ [])
--- on a canonical-keyword input.  Each keyword's first char is a letter
--- (closed-head) so `∷-stop refl` discharges the SuffixStops obligation
--- definitionally; the recursive structure is the natural one over
--- `List Identifier`.
+-- on a canonical-keyword input.  Each keyword carries its word witness
+-- and its head-stop: the first char is a letter (closed-head) so
+-- `∷-stop refl` discharges the SuffixStops obligation definitionally;
+-- the recursive structure is the natural one over `List (List Char)`.
 private
   build-EmitsOKMany-canonical-keywords :
-      ∀ (kws : List Identifier) (outer-suffix : List Char)
-    → All (λ kw → ∀ rest → SuffixStops isHSpace
-                            ((Identifier.name kw ++ₗ '\n' ∷ []) ++ₗ rest)) kws
+      ∀ (kws : List (List Char)) (outer-suffix : List Char)
+    → All (λ kw → T (isWordᵇ kw)
+                × (∀ rest → SuffixStops isHSpace ((kw ++ₗ '\n' ∷ []) ++ₗ rest)))
+          kws
     → SuffixStops isNSLineStart outer-suffix
     → EmitsOKMany nsLineFmt
         (map ns-keyword kws ++ₗ ns-blank ∷ [])
@@ -599,40 +597,41 @@ private
         with ∨-false-split {isHSpace c} {isNewlineStart c} h
       ... | hs , nl = ∷-stop hs , ∷-stop nl
   build-EmitsOKMany-canonical-keywords (kw ∷ kws) outer-suffix
-    (kw-stop All.∷ rest-stops) outer-stop =
+    ((kw-word , kw-stop) All.∷ rest-stops) outer-stop =
     ∷-cons
       (EmitsOK-keyword-line kw
         (emit (many nsLineFmt) (map ns-keyword kws ++ₗ ns-blank ∷ [])
          ++ₗ outer-suffix)
+        kw-word
         (kw-stop _))
       (s≤s z≤n)
       (build-EmitsOKMany-canonical-keywords kws outer-suffix
         rest-stops outer-stop)
 
--- The 25 per-keyword head-stops, supplied as 25 `λ _ → ∷-stop refl`
--- witnesses.  Every canonical keyword's first char is a letter, which
--- is not hspace; for any `rest`, `Identifier.name kw ++ '\n' ∷ rest`
--- has the same head as `Identifier.name kw`, so `∷-stop refl`
+-- The 25 per-keyword witnesses, each `tt , λ _ → ∷-stop refl`.  Every
+-- canonical keyword is a closed word, so `T (isWordᵇ kw)` reduces to
+-- `⊤`; its first char is a letter, which is not hspace, and for any
+-- `rest`, `kw ++ '\n' ∷ rest` has the same head as `kw`, so `∷-stop refl`
 -- discharges the SuffixStops obligation definitionally.
 private
   ns-keyword-ids-head-stops :
-    All (λ kw → ∀ rest → SuffixStops isHSpace
-                          ((Identifier.name kw ++ₗ '\n' ∷ []) ++ₗ rest))
+    All (λ kw → T (isWordᵇ kw)
+              × (∀ rest → SuffixStops isHSpace ((kw ++ₗ '\n' ∷ []) ++ₗ rest)))
         ns-keyword-ids
   ns-keyword-ids-head-stops =
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷ (λ _ → ∷-stop refl) All.∷
-    (λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷ (tt , λ _ → ∷-stop refl) All.∷
+    (tt , λ _ → ∷-stop refl) All.∷
     All.[]
 
 -- Build EmitsOK nsFmt tt outer-suffix.  Reduces structurally through

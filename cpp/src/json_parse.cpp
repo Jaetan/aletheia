@@ -73,6 +73,9 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},
     // Top-level adversarial-input bound
     {"input_bound_exceeded", ErrorCode::InputBoundExceeded},
+    // The DBC character set and keywords
+    {"dbc_invalid_character", ErrorCode::DBCInvalidCharacter},
+    {"dbc_keyword_name", ErrorCode::DBCKeywordName},
     // Route errors
     {"route_missing_field", ErrorCode::RouteMissingField},
     {"route_unknown_command", ErrorCode::RouteUnknownCommand},
@@ -86,6 +89,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"handler_stream_not_started", ErrorCode::HandlerStreamNotStarted},
     {"handler_stream_active", ErrorCode::HandlerStreamActive},
     {"handler_property_parse_failed", ErrorCode::HandlerPropertyParseFailed},
+    {"handler_unknown_signal", ErrorCode::HandlerUnknownSignal},
     {"handler_validation_failed", ErrorCode::HandlerValidationFailed},
     {"handler_text_roundtrip_failed", ErrorCode::HandlerTextRoundtripFailed},
     {"handler_non_monotonic_timestamp", ErrorCode::HandlerNonMonotonicTimestamp},

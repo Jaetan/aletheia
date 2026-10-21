@@ -87,8 +87,9 @@ class FractionJSONEncoder(json.JSONEncoder):
 
     Non-ASCII text is written as its UTF-8 characters rather than
     ``\uXXXX`` escapes, whatever ``ensure_ascii`` the caller passes: the
-    kernel's parser is byte-oriented and the other bindings write UTF-8
-    directly, so the pin keeps Python's bytes identical to theirs.
+    kernel reads both spellings as the same character, and the other
+    bindings write UTF-8 directly, so the pin keeps Python's bytes identical
+    to theirs.
     """
 
     @property
@@ -112,8 +113,8 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     """Serialize *value* to JSON through :class:`FractionJSONEncoder`.
 
     Rationals go out exact and non-ASCII text as its UTF-8 characters, both
-    pinned by the encoder (DBC permits non-ASCII in ``CM_`` text bodies,
-    comments, and similar opaque-tail consumers).
+    pinned by the encoder: the kernel refuses a DBC holding a character outside
+    the DBC character set, and the refusal echoes the text it names.
     """
     return json.dumps(value, cls=FractionJSONEncoder, indent=indent)
 

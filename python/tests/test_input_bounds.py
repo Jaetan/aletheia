@@ -62,6 +62,11 @@ def _trivial_dbc() -> DBCDefinition:
     return dbc([message(100, "M", [], senders=[])], version="")
 
 
+def _signal_dbc() -> DBCDefinition:
+    """Build a minimal valid DBC carrying the one signal ``S`` the properties below name."""
+    return dbc([message(100, "M", [signal("S")], senders=[])], version="")
+
+
 def _nested_ltl(depth: int) -> LTLFormula:
     """Build a property with ``depth`` levels of nested ``always`` wrappers.
 
@@ -389,11 +394,10 @@ class TestInputBoundEnforcedAtFFIEntry:
 class TestIdentifierLengthBound:
     """A DBC identifier is at most ``MAX_IDENTIFIER_LENGTH`` characters.
 
-    The kernel's ``validIdentifierᵇ`` (``src/Aletheia/DBC/Identifier.agda``)
-    holds an identifier to ``max-identifier-length`` characters.  One at the
-    limit parses; a longer name is no identifier, so the text parser stops in
-    front of the statement holding it and refuses the text with
-    ``text_trailing_input``.
+    The kernel's identifier decision (``src/Aletheia/DBC/Identifier.agda``)
+    holds a name to ``max-identifier-length`` characters as the lexer reads
+    it.  One at the limit parses; a longer name is refused where it starts,
+    with the bound's own code, the text route locating it by line and column.
     """
 
     def test_identifier_at_max_length_accepted(self) -> None:
@@ -405,23 +409,25 @@ class TestIdentifierLengthBound:
             assert result["status"] == "success", result
             assert result["dbc"]["messages"][0]["name"] == name
 
-    def test_identifier_one_over_max_rejected(self) -> None:
-        """A 129-char identifier (one over the limit) is rejected."""
-        name = "A" * (limits.MAX_IDENTIFIER_LENGTH + 1)
+    @pytest.mark.parametrize("length", [limits.MAX_IDENTIFIER_LENGTH + 1, 500])
+    def test_identifier_over_max_rejected_where_it_starts(self, length: PositiveInt) -> None:
+        """A name past the limit is refused with its length and the line and column it starts at."""
+        name = "A" * length
         dbc_text = f'VERSION ""\nNS_:\nBS_:\nBU_:\nBO_ 100 {name}: 8 ECU\n'
-        with AletheiaClient() as client:
-            result = client.parse_dbc_text(dbc_text)
-            assert result["status"] == "error", result
-            assert result["code"] == "text_trailing_input", result
-
-    def test_identifier_far_over_max_rejected(self) -> None:
-        """A 500-char identifier is rejected (no length-dependent edge case)."""
-        name = "A" * 500
-        dbc_text = f'VERSION ""\nNS_:\nBS_:\nBU_:\nBO_ 100 {name}: 8 ECU\n'
-        with AletheiaClient() as client:
-            result = client.parse_dbc_text(dbc_text)
-            assert result["status"] == "error", result
-            assert result["code"] == "text_trailing_input", result
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.parse_dbc_text(dbc_text)
+        err = exc_info.value
+        assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
+            limits.BOUND_KIND_IDENTIFIER_LENGTH,
+            length,
+            limits.MAX_IDENTIFIER_LENGTH,
+            None,
+            "input_bound_exceeded",
+            (
+                "ParseDBCText: identifier at line 5, column 9: "
+                f"identifier length {length} exceeds limit 128"
+            ),
+        )
 
 
 class TestNestingDepthBound:
@@ -438,7 +444,7 @@ class TestNestingDepthBound:
         """60 always-wrappers + atomic + predicate = JSON depth 62 (<= 64)."""
         prop = _nested_ltl(60)
         with AletheiaClient() as client:
-            client.parse_dbc(_trivial_dbc())
+            client.parse_dbc(_signal_dbc())
             r = client.set_properties([prop])
             assert r["status"] == "success", r
 
@@ -450,7 +456,7 @@ class TestNestingDepthBound:
         """
         prop = _nested_ltl(63)
         with AletheiaClient() as client:
-            client.parse_dbc(_trivial_dbc())
+            client.parse_dbc(_signal_dbc())
             r = client.set_properties([prop])
             assert r["status"] == "error", r
             assert r["code"] == "input_bound_exceeded", r
@@ -479,7 +485,7 @@ class TestAtomCountBound:
         """
         prop = Signal("S").equals(0).to_formula()
         with AletheiaClient() as client:
-            client.parse_dbc(_trivial_dbc())
+            client.parse_dbc(_signal_dbc())
             r = client.set_properties([prop])
             assert r["status"] == "success", r
 
@@ -492,7 +498,7 @@ class TestAtomCountBound:
         preds = [Signal("S").equals(i) for i in range(100)]
         prop = _balanced_and(preds)
         with AletheiaClient() as client:
-            client.parse_dbc(_trivial_dbc())
+            client.parse_dbc(_signal_dbc())
             r = client.set_properties([prop])
             assert r["status"] == "success", r
 
@@ -501,7 +507,7 @@ class TestAtomCountBound:
         limit = limits.MAX_ATOM_COUNT_PER_PROPERTY
         prop = _balanced_and([Signal("S").equals(i) for i in range(limit)])
         with AletheiaClient() as client:
-            client.parse_dbc(_trivial_dbc())
+            client.parse_dbc(_signal_dbc())
             r = client.set_properties([prop])
         assert r["status"] == "success", r
 
@@ -510,7 +516,7 @@ class TestAtomCountBound:
         limit = limits.MAX_ATOM_COUNT_PER_PROPERTY
         prop = _balanced_and([Signal("S").equals(i) for i in range(limit + 1)])
         with AletheiaClient() as client:
-            client.parse_dbc(_trivial_dbc())
+            client.parse_dbc(_signal_dbc())
             r = client.set_properties([prop])
         assert r["status"] == "error", r
         assert r["code"] == "input_bound_exceeded", r
@@ -939,14 +945,21 @@ class TestSharedDBCBoundCascade:
     def test_text_field_bound_counts_characters(self) -> None:
         """A text field is bounded in characters, so a two-byte character counts once.
 
-        The version holds exactly ``MAX_STRING_LENGTH_CHARACTERS`` characters,
-        twice as many bytes; it loads.  One character more is refused, and the
-        observed length is the character count.
+        The version holds exactly ``MAX_STRING_LENGTH_CHARACTERS`` two-byte
+        characters: it passes the length bound and is refused for its first
+        character, which is outside the DBC character set, so the length is
+        decided before the characters.  One character more is refused for its
+        length, and the observed length is the character count.
         """
         limit = limits.MAX_STRING_LENGTH_CHARACTERS
         with AletheiaClient() as client:
             at = client.parse_dbc(dbc([message(256, "M", [signal("S")])], version="é" * limit))
-            assert at["status"] == "success", at
+            assert at == {
+                "status": "error",
+                "code": "dbc_invalid_character",
+                "message": "ParseDBC: version string: character at index 0 (code point 233)"
+                + " is outside the DBC character set",
+            }
             with pytest.raises(InputBoundExceededError) as exc_info:
                 client.parse_dbc(dbc([message(256, "M", [signal("S")])], version="é" * (limit + 1)))
         err = exc_info.value

@@ -48,8 +48,9 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign using
 -- arms) take `IdentNameStop n` as a precondition: a non-empty `Identi-
 -- fier.name n` whose first char is non-hspace.  Every well-formed
 -- `Identifier` discharges this universally: empty-name is impossible
--- (`validIdentifierᵇ [] = false`); non-empty-name has `T (isIdentStart
--- c)` for the head, which `isIdentStart→¬isHSpace` rules out.
+-- (`validIdentifierᵇ [] = false`); a non-empty name's witness is
+-- `T ((isIdentStart c ∧ allᵇ isIdentCont cs) ∧ (length ∧ not keyword))`,
+-- whose first leaf `isIdentStart→¬isHSpace` rules out.
 
 private
   -- `T (a ∧ b)` projects to `T a × T b`.  Closed-Bool reduction:
@@ -61,12 +62,12 @@ private
 -- Universal IdentNameStop witness, formulated against the same Σ-shape
 -- the slims expect.  Pattern-matches on the Identifier record's two
 -- fields directly: empty-name is closed via `()` on `valid : T false`;
--- non-empty extracts `T (isIdentStart c)` and composes with the disjoint-
--- ness lemma.
+-- non-empty projects `T (isIdentStart c)` out of the nested witness and
+-- composes with the disjointness lemma.
 identifier-name-stop : ∀ (n : Identifier) → IdentNameStop n
 identifier-name-stop (mkIdent []       ())
 identifier-name-stop (mkIdent (c ∷ cs) v) =
-  c , cs , refl , isIdentStart→¬isHSpace c (proj₁ (T-∧→× v))
+  c , cs , refl , isIdentStart→¬isHSpace c (proj₁ (T-∧→× (proj₁ (T-∧→× v))))
 
 -- ============================================================================
 -- PER-TARGET IDENT-NAME-STOP PRECONDITION

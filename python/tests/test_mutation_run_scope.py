@@ -241,6 +241,8 @@ def _sandbox_main(
     argument.
     """
     monkeypatch.setattr("sys.argv", ["mutation_run"])
+    for binding in ("PYTHON", "GO", "CPP", "RUST"):
+        monkeypatch.delenv(f"ALETHEIA_MUTATION_SKIP_{binding}", raising=False)
     monkeypatch.setattr(mutation_run, "load_spec", _unrecorded_spec)
     monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(mutation_run, "ARTIFACT_BASE", tmp_path / "artifacts")

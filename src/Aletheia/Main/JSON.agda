@@ -21,6 +21,7 @@ open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using (runParser)
+open import Aletheia.Parser.Watermark using (Watermark)
 open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; lookupString)
 open import Aletheia.Protocol.JSON.Types using (jsonDepth; jsonMaxComponent)
@@ -67,13 +68,14 @@ private
   --     the range the decimal SSOT and the binary FFI's rational slots
   --     enforce, so a bare JSON integer cannot carry a component the
   --     wire cannot represent.
-  -- The checks live here rather than inside `parseJSON` to keep the
-  -- parser a pure inverse of `formatJSON`.
+  -- The checks live here, after the parse, so `parseJSON` is RFC 8259's
+  -- grammar alone (`parseJSON-sound`) and reads back what `formatJSONChars`
+  -- writes (`parseJSON-formatJSONChars`).
   -- Takes the full `runParser` pair: the failure watermark (proj₁) feeds
   -- the positioned `InvalidJSON` on the nothing arm; the success arm
   -- drops both the watermark and the end position.
-  handleParsedJSON : StreamState → Position × Maybe (JSON × Position) → StreamState × String
-  handleParsedJSON state (w , nothing) = wrapJSON (state , Msg.Response.Error (DispatchErr (InvalidJSON w)))
+  handleParsedJSON : StreamState → Watermark × Maybe (JSON × Position) → StreamState × String
+  handleParsedJSON state (w , nothing) = wrapJSON (state , Msg.Response.Error (DispatchErr (InvalidJSON (Watermark.position w))))
   handleParsedJSON state (_ , just (j , _)) =
     let depth = jsonDepth j
         comp  = jsonMaxComponent j

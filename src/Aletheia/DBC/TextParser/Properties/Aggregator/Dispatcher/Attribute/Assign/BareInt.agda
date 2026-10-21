@@ -36,10 +36,11 @@ open import Aletheia.Parser.Combinators using
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.DecRat using (fromℤ)
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.TextFormatter.Attributes using (quoteIdent-chars)
 
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (quoteStringLit-chars; showInt-chars; showℕ-dec-chars)
+  ( showInt-chars; showℕ-dec-chars )
 
 open import Aletheia.DBC.TextParser.Attributes using
   (RawAssign; mkRawAttrAssign
@@ -97,31 +98,31 @@ private
     cong (' ' ∷_) (++ₗ-assoc V (toList ";\n") outer)
 
   network-input-bridge :
-      ∀ (name : List Char) (z : ℤ) (outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (z : ℤ) (outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer
   network-input-bridge name z outer =
     trans (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
-        (trans (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+        (trans (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
                 (trail-bridge (showInt-chars z) outer))))
 
   node-input-bridge :
-      ∀ (name : List Char) (n : Identifier) (z : ℤ) (outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (n : Identifier) (z : ℤ) (outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer
   node-input-bridge name n z outer =
     trans (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
-        (trans (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+        (trans (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans (++ₗ-assoc (toList " BU_ ") _ outer)
               (cong (toList " BU_ " ++ₗ_)
                 (trans (++ₗ-assoc (Identifier.name n) _ outer)
@@ -129,18 +130,18 @@ private
                         (trail-bridge (showInt-chars z) outer))))))))
 
   message-input-bridge :
-      ∀ (name : List Char) (cid : CANId) (z : ℤ) (outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (cid : CANId) (z : ℤ) (outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer
   message-input-bridge name cid z outer =
     trans (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
-        (trans (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+        (trans (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans (++ₗ-assoc (toList " BO_ ") _ outer)
               (cong (toList " BO_ " ++ₗ_)
                 (trans (++ₗ-assoc (showℕ-dec-chars (rawCanIdℕ cid)) _ outer)
@@ -157,20 +158,20 @@ private
         (cong (sig-name ++ₗ_) (trail-bridge V outer)))
 
   signal-input-bridge :
-      ∀ (name : List Char) (cid : CANId) (sig : Identifier) (z : ℤ) (outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (cid : CANId) (sig : Identifier) (z : ℤ) (outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer
   signal-input-bridge name cid sig z outer =
     trans (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
-        (trans (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+        (trans (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans (++ₗ-assoc (toList " SG_ ") _ outer)
               (cong (toList " SG_ " ++ₗ_)
                 (trans (++ₗ-assoc (showℕ-dec-chars (rawCanIdℕ cid)) _ outer)
@@ -180,18 +181,18 @@ private
                            (showInt-chars z) outer))))))))
 
   envvar-input-bridge :
-      ∀ (name : List Char) (ev : Identifier) (z : ℤ) (outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (ev : Identifier) (z : ℤ) (outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer
   envvar-input-bridge name ev z outer =
     trans (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
-        (trans (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+        (trans (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans (++ₗ-assoc (toList " EV_ ") _ outer)
               (cong (toList " EV_ " ++ₗ_)
                 (trans (++ₗ-assoc (Identifier.name ev) _ outer)
@@ -199,20 +200,20 @@ private
                         (trail-bridge (showInt-chars z) outer))))))))
 
   nodemsg-input-bridge :
-      ∀ (name : List Char) (n : Identifier) (cid : CANId) (z : ℤ) (outer : List Char)
-    → (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (n : Identifier) (cid : CANId) (z : ℤ) (outer : List Char)
+    → (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer
   nodemsg-input-bridge name n cid z outer =
     trans (++ₗ-assoc (toList "BA_REL_ ") _ outer)
       (cong (toList "BA_REL_ " ++ₗ_)
-        (trans (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+        (trans (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans (++ₗ-assoc (toList " BU_BO_REL_ ") _ outer)
               (cong (toList " BU_BO_REL_ " ++ₗ_)
                 (trans (++ₗ-assoc (Identifier.name n) _ outer)
@@ -222,14 +223,14 @@ private
                            (showInt-chars z) outer))))))))
 
   nodesig-input-bridge :
-      ∀ (name : List Char) (n : Identifier) (cid : CANId) (sig : Identifier)
+      ∀ (name : Identifier) (n : Identifier) (cid : CANId) (sig : Identifier)
         (z : ℤ) (outer : List Char)
-    → (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+    → (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
@@ -237,8 +238,8 @@ private
   nodesig-input-bridge name n cid sig z outer =
     trans (++ₗ-assoc (toList "BA_REL_ ") _ outer)
       (cong (toList "BA_REL_ " ++ₗ_)
-        (trans (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+        (trans (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans (++ₗ-assoc (toList " BU_SG_REL_ ") _ outer)
               (cong (toList " BU_SG_REL_ " ++ₗ_)
                 (trans (++ₗ-assoc (Identifier.name n) _ outer)
@@ -263,11 +264,11 @@ private
 -- ============================================================================
 
 parseAttrLine-on-RavBareInt-Network :
-    ∀ (pos : Position) (name : List Char) (z : ℤ) (outer : List Char)
+    ∀ (pos : Position) (name : Identifier) (z : ℤ) (outer : List Char)
   → SuffixStops isNewlineStart outer
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ((toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z))))
@@ -285,12 +286,12 @@ parseAttrLine-on-RavBareInt-Network pos name z outer ss-NL small =
        pos name z outer ss-NL small)
 
 parseAttrLine-on-RavBareInt-Node :
-    ∀ (pos : Position) (name : List Char) (n : Identifier) (z : ℤ) (outer : List Char)
+    ∀ (pos : Position) (name : Identifier) (n : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ((toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
@@ -309,11 +310,11 @@ parseAttrLine-on-RavBareInt-Node pos name n z outer n-stop ss-NL small =
        pos name n z outer n-stop ss-NL small)
 
 parseAttrLine-on-RavBareInt-Message :
-    ∀ (pos : Position) (name : List Char) (cid : CANId) (z : ℤ) (outer : List Char)
+    ∀ (pos : Position) (name : Identifier) (cid : CANId) (z : ℤ) (outer : List Char)
   → SuffixStops isNewlineStart outer
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ((toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
@@ -332,13 +333,13 @@ parseAttrLine-on-RavBareInt-Message pos name cid z outer ss-NL small =
        pos name cid z outer ss-NL small)
 
 parseAttrLine-on-RavBareInt-Signal :
-    ∀ (pos : Position) (name : List Char) (cid : CANId) (sig : Identifier)
+    ∀ (pos : Position) (name : Identifier) (cid : CANId) (sig : Identifier)
       (z : ℤ) (outer : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ((toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
@@ -358,12 +359,12 @@ parseAttrLine-on-RavBareInt-Signal pos name cid sig z outer sig-stop ss-NL small
        pos name cid sig z outer sig-stop ss-NL small)
 
 parseAttrLine-on-RavBareInt-EnvVar :
-    ∀ (pos : Position) (name : List Char) (ev : Identifier) (z : ℤ) (outer : List Char)
+    ∀ (pos : Position) (name : Identifier) (ev : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ((toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
@@ -382,13 +383,13 @@ parseAttrLine-on-RavBareInt-EnvVar pos name ev z outer ev-stop ss-NL small =
        pos name ev z outer ev-stop ss-NL small)
 
 parseAttrLine-on-RavBareInt-NodeMsg :
-    ∀ (pos : Position) (name : List Char) (n : Identifier) (cid : CANId)
+    ∀ (pos : Position) (name : Identifier) (n : Identifier) (cid : CANId)
       (z : ℤ) (outer : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      ((toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ((toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
@@ -408,13 +409,13 @@ parseAttrLine-on-RavBareInt-NodeMsg pos name n cid z outer n-stop ss-NL small =
        pos name n cid z outer n-stop ss-NL small)
 
 parseAttrLine-on-RavBareInt-NodeSig :
-    ∀ (pos : Position) (name : List Char) (n : Identifier) (cid : CANId)
+    ∀ (pos : Position) (name : Identifier) (n : Identifier) (cid : CANId)
       (sig : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      ((toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ((toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ

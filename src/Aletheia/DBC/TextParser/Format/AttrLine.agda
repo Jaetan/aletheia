@@ -14,11 +14,15 @@
 -- prefix + name + ws + ";\n" trailer.
 --
 -- Wire grammar slice:
---   attr-default ::= "BA_DEF_DEF_" ws string-lit ws attr-value ws? ";" newline
---   attr-assign  ::= "BA_" ws string-lit (ws attr-target)? ws attr-value
+--   attr-default ::= "BA_DEF_DEF_" ws quoted-ident ws attr-value ws? ";" newline
+--   attr-assign  ::= "BA_" ws quoted-ident (ws attr-target)? ws attr-value
 --                    ws? ";" newline
---   attr-rel     ::= "BA_REL_" ws string-lit ws rel-target ws attr-value
+--   attr-rel     ::= "BA_REL_" ws quoted-ident ws rel-target ws attr-value
 --                    ws? ";" newline
+--
+-- The name slot is `quotedIdent`: `"` then an identifier then `"`, so a
+-- name is an `Identifier` and its emit is
+-- `'"' ∷ Identifier.name n ++ₗ '"' ∷ []`.
 --   attr-line    ::= attr-def-rel <|> attr-default <|> attr-def <|>
 --                    attr-rel <|> attr-assign      (5-way <|>)
 --
@@ -66,10 +70,8 @@ open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop; headOr)
-open import Aletheia.DBC.TextFormatter.Emitter using
-  (quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.Format
-  using (Format; literal; ident; nat; stringLit; pair; iso;
+  using (Format; literal; ident; quotedIdent; nat; pair; iso;
          altSum; ws; wsOpt; withPrefix;
          emit; parse; EmitsOK; roundtrip)
 open import Aletheia.DBC.TextParser.Format.AttrValue
@@ -104,7 +106,7 @@ newlineFmt = iso (λ _ → tt) (λ _ → inj₂ tt) (λ _ → refl)
 
 -- Carrier: (name, value-wire, tt-trailing).
 DefaultLineCarrier : Set
-DefaultLineCarrier = List Char × RawAttrValueWire × ⊤
+DefaultLineCarrier = Identifier × RawAttrValueWire × ⊤
 
 -- Wire shape:
 --     BA_DEF_DEF_ "<name>" <value> ;\n
@@ -117,7 +119,7 @@ attrDefaultFmt : Format DefaultLineCarrier
 attrDefaultFmt =
   withPrefix (toList "BA_DEF_DEF_") (
     withWS (
-      pair stringLit (
+      pair quotedIdent (
         withWS (
           pair attrValueWireFmt (
             withWSOpt (
@@ -155,29 +157,25 @@ private
 -- ============================================================================
 
 -- 9-element EmitsOK tuple:
---   1. literal "BA_DEF_DEF_" — vacuous.
+--   1. literal "BA_DEF_DEF_": vacuous.
 --   2. leading withWS after "BA_DEF_DEF_": SuffixStops isHSpace on
---      `(quoteStringLit-chars n ++ inner) ++ outer-suffix`.  Head is `'"'`.
---   3. stringLit body: SuffixStops `_≈ᵇ '"'` on `' ' ∷ ...`.  ∷-stop refl.
+--      `('"' ∷ Identifier.name n ++ '"' ∷ []) ++ inner ++ outer-suffix`.
+--      Head is `'"'`.
+--   3. quotedIdent body: the opening quote is vacuous, the identifier
+--      stops at `'"' ∷ ' ' ∷ ...` (`isIdentCont '"'` is false), the
+--      closing quote is vacuous.
 --   4. leading withWS after name: SuffixStops isHSpace on
---      `(emit attrValueWireFmt rv ++ ' ' ∷ ';' ∷ '\n' ∷ []) ++ outer-suffix`.
+--      `(emit attrValueWireFmt rv ++ ';' ∷ '\n' ∷ []) ++ outer-suffix`.
 --      Per-shape head-stop dispatch.
---   5. attrValueWireFmt body: per-shape EmitsOK from build-EmitsOK-Ravw* with
---      suffix `' ' ∷ ';' ∷ '\n' ∷ outer-suffix`.  Wait — actually the
---      withWSOpt around `;` makes the suffix at the value slot just `;\n` +
---      outer (not ` ;\n`).  Let me re-check.
---
---      Actually looking at the structure: `pair attrValueWireFmt
---      (withWSOpt (withPrefix ";" newlineFmt))`.  The withWSOpt has empty
---      canonical emit — so the suffix at attrValueWireFmt's slot is
---      `(emit (withWSOpt ...) tt) ++ outer-suffix` = `(';' ∷ '\n' ∷ [])
---      ++ outer-suffix` = `';' ∷ '\n' ∷ outer-suffix`.  Confirmed.
+--   5. attrValueWireFmt body: per-shape EmitsOK supplied by the caller
+--      against `';' ∷ '\n' ∷ outer-suffix` (the withWSOpt before `;` has
+--      the empty canonical emit, so the value slot's suffix is `;\n` +
+--      outer-suffix).
 --   6. leading withWSOpt after value: SuffixStops isHSpace on
---      `(emit (withPrefix ";" newlineFmt) tt) ++ outer-suffix` =
 --      `(';' ∷ '\n' ∷ []) ++ outer-suffix`.  Head `';'` non-hspace.
---   7. literal ";" — vacuous.
---   8. newlineFmt iso — inj₂ inner.  literal "\n" vacuous.
---   9. newlineFmt altSum disjointness — parse "\r\n" on `'\n' ∷ os` fails
+--   7. literal ";": vacuous.
+--   8. newlineFmt iso: inj₂ inner, literal "\n" vacuous.
+--   9. newlineFmt altSum disjointness: parse "\r\n" on `'\n' ∷ os` fails
 --      on first-char comparison.  λ _ → refl.
 
 -- Per-shape EmitsOK at the value slot.  Each shape supplies a different
@@ -208,18 +206,18 @@ private
   value-suffix-not-dot _ = λ ()
 
 build-EmitsOK-attrDefaultFmt :
-  ∀ (n : List Char) (rv : RawAttrValueWire) (outer-suffix : List Char)
+  ∀ (n : Identifier) (rv : RawAttrValueWire) (outer-suffix : List Char)
   → -- Per-shape value precondition supplied as an additional witness:
     EmitsOK attrValueWireFmt rv (value-suffix outer-suffix)
   → EmitsOK attrDefaultFmt (n , rv , tt) outer-suffix
 build-EmitsOK-attrDefaultFmt n rv outer-suffix value-emit =
   -- L1: literal "BA_DEF_DEF_" — vacuous.
     tt
-  -- L2: leading withWS after "BA_DEF_DEF_".  Head `'"'` from
-  --     quoteStringLit-chars n.  ∷-stop refl.
+  -- L2: leading withWS after "BA_DEF_DEF_".  Head `'"'`, the opening
+  --     quote of quotedIdent.
   , ∷-stop refl
-  -- L3: stringLit body — `_≈ᵇ '"'` on `' ' ∷ ...`.
-  , ∷-stop refl
+  -- L3: quotedIdent body.  The identifier stops at the closing `'"'`.
+  , (tt , ∷-stop refl , tt)
   -- L4: leading withWS after name.  Head non-hspace per shape.  The goal
   -- shape is `(emit attrValueWireFmt rv ++ (';' ∷ '\n' ∷ [])) ++ outer-suffix`;
   -- our head-stop helper produces `emit attrValueWireFmt rv ++ rest`, so
@@ -242,7 +240,7 @@ build-EmitsOK-attrDefaultFmt n rv outer-suffix value-emit =
 -- ============================================================================
 
 parseAttrDefault-format-roundtrip :
-  ∀ (pos : Position) (n : List Char) (rv : RawAttrValueWire) (outer-suffix : List Char)
+  ∀ (pos : Position) (n : Identifier) (rv : RawAttrValueWire) (outer-suffix : List Char)
   → EmitsOK attrValueWireFmt rv (value-suffix outer-suffix)
   → proj₂ (parse attrDefaultFmt pos
       (emit attrDefaultFmt (n , rv , tt) ++ₗ outer-suffix))
@@ -519,10 +517,10 @@ relTargetWireFmt =
 -- ⊤-trailing.  The trailing `⊤` is the result of the `withWSOpt; ";";
 -- newlineFmt` chain.
 AttrAssignCarrier : Set
-AttrAssignCarrier = List Char × RawAttrTargetWire × RawAttrValueWire × ⊤
+AttrAssignCarrier = Identifier × RawAttrTargetWire × RawAttrValueWire × ⊤
 
 AttrRelCarrier : Set
-AttrRelCarrier = List Char × RawRelTargetWire × RawAttrValueWire × ⊤
+AttrRelCarrier = Identifier × RawRelTargetWire × RawAttrValueWire × ⊤
 
 -- BA_ line.  Wire shape:
 --     BA_ "<name>" <target-prefix-or-empty><value> ;\n
@@ -532,7 +530,7 @@ attrAssignFmt : Format AttrAssignCarrier
 attrAssignFmt =
   withPrefix (toList "BA_") (
     withWS (
-      pair stringLit (
+      pair quotedIdent (
         pair (withWS stdTargetWireFmt) (
           pair attrValueWireFmt (
             withWSOpt (
@@ -545,7 +543,7 @@ attrRelFmt : Format AttrRelCarrier
 attrRelFmt =
   withPrefix (toList "BA_REL_") (
     withWS (
-      pair stringLit (
+      pair quotedIdent (
         pair (withWS relTargetWireFmt) (
           pair attrValueWireFmt (
             withWSOpt (
@@ -556,8 +554,8 @@ attrRelFmt =
 -- ============================================================================
 --
 -- The line Format's EmitsOK has 10 slots after structural reduction.  Eight
--- are constants (closed-Char head dispatches on `'B'`/`'"'`/`' '`/`';'`/
--- `'\n'`).  Two slots vary per call: L4 (head non-hspace at the post-name
+-- are constants (closed-Char head dispatches on `'B'`/`'"'`/`';'`/`'\n'`;
+-- the quotedIdent slot's identifier stops at its closing `'"'`).  Two slots vary per call: L4 (head non-hspace at the post-name
 -- ws slot — depends on target shape's emit head) and L5 (per-target altSum
 -- EmitsOK — depends on which target arm).  Plus L6 (per-value altSum
 -- EmitsOK) is always supplied by the caller.
@@ -594,7 +592,7 @@ private
 -- 7 constants inline.  L4/L5/L6 use the canonical right-assoc shape;
 -- builder bridges via `++ₗ-assoc` substs.
 parseAttrAssign-format-roundtrip :
-  ∀ (pos : Position) (n : List Char)
+  ∀ (pos : Position) (n : Identifier)
     (wireTgt : RawAttrTargetWire) (wireVal : RawAttrValueWire)
     (outer-suffix : List Char)
   → SuffixStops isHSpace
@@ -613,10 +611,10 @@ parseAttrAssign-format-roundtrip pos n wireTgt wireVal outer-suffix l4 l5 l6 =
   roundtrip attrAssignFmt pos (n , wireTgt , wireVal , tt) outer-suffix
     -- L1: literal "BA_"
     ( tt
-    -- L2: leading withWS after BA_, head '"' from quoteStringLit-chars n
+    -- L2: leading withWS after BA_, head '"' (the opening quote)
     , ∷-stop refl
-    -- L3: stringLit body, head ' ' (leading ws of post-name withWS)
-    , ∷-stop refl
+    -- L3: quotedIdent body, the identifier stops at the closing '"'
+    , (tt , ∷-stop refl , tt)
     -- (L4, L5): paired from `withWS stdTargetWireFmt` expansion.  Bridge
     -- via subst on rebracket-tail3 (L4) / rebracket-tail (L5).
     , ( subst (SuffixStops isHSpace)
@@ -645,7 +643,7 @@ parseAttrAssign-format-roundtrip pos n wireTgt wireVal outer-suffix l4 l5 l6 =
 -- (longer prefix) — that's the only structural difference from
 -- `attrAssignFmt`.  L4/L5/L6 supplied by caller in canonical shape.
 parseAttrRel-format-roundtrip :
-  ∀ (pos : Position) (n : List Char)
+  ∀ (pos : Position) (n : Identifier)
     (wireTgt : RawRelTargetWire) (wireVal : RawAttrValueWire)
     (outer-suffix : List Char)
   → SuffixStops isHSpace
@@ -664,7 +662,7 @@ parseAttrRel-format-roundtrip pos n wireTgt wireVal outer-suffix l4 l5 l6 =
   roundtrip attrRelFmt pos (n , wireTgt , wireVal , tt) outer-suffix
     ( tt
     , ∷-stop refl
-    , ∷-stop refl
+    , (tt , ∷-stop refl , tt)
     , ( subst (SuffixStops isHSpace)
               (rebracket-tail3 (emit relTargetWireFmt wireTgt)
                                (emit attrValueWireFmt wireVal)
@@ -735,9 +733,9 @@ emit-relTargetWireFmt-RrtNodeSig _ _ _ = refl
 -- only Format-DSL line shape that closes by `refl` without ++ₗ-assoc
 -- bridges (since RatwNet emits `[]` and the slot disappears).
 emit-attrAssignFmt-RatwNet :
-  ∀ (n : List Char) (wireVal : RawAttrValueWire) →
+  ∀ (n : Identifier) (wireVal : RawAttrValueWire) →
   emit attrAssignFmt (n , RatwNet , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       ' ' ∷ (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
 emit-attrAssignFmt-RatwNet _ _ = refl
 
@@ -751,10 +749,11 @@ private
     → (xs ++ₗ ' ' ∷ []) ++ₗ ys ≡ xs ++ₗ ' ' ∷ ys
   shift-trail-space-AttrLine xs ys = ++ₗ-assoc xs (' ' ∷ []) ys
 
--- Generic bridge for the line-shape `(qsl(name) ++ ' ∷ kw-body ++ (value-chars
--- ++ ;\n+[])) ++ outer-suffix ↔ qsl(name) ++ ' ∷ kw-body ++ value-chars ++
--- ;\n+ outer-suffix`.  Three nested ++-assoc steps:
---   1. `qsl ++ (' ∷ STUFF)` ↔ outer pull through qsl.
+-- Generic bridge for the line-shape `(qn ++ ' ∷ kw-body ++ (value-chars
+-- ++ ;\n+[])) ++ outer-suffix ↔ qn ++ ' ∷ kw-body ++ value-chars ++
+-- ;\n+ outer-suffix`, where `qn` is the quoted name
+-- `'"' ∷ Identifier.name name ++ '"' ∷ []`.  Three nested ++-assoc steps:
+--   1. `qn ++ (' ∷ STUFF)` ↔ outer pull through qn.
 --   2. `kw-body ++ (value ++ ;\n+[])` ↔ outer pull through kw-body.
 --   3. `value ++ (;\n+[])` ↔ outer pull through value.
 -- Treats `kw-body` opaquely; identical proof for Node/Msg/Sig/Ev kw-bodies.
@@ -764,19 +763,19 @@ private
 -- emit-equation sibling `Format/AttrLine/Builders.agda` can compose the
 -- `*-with-outer` lemmas after the split.
 bridge-emit-tail :
-  ∀ (name : List Char) (kw-body : List Char) (value-chars : List Char)
+  ∀ (name : Identifier) (kw-body : List Char) (value-chars : List Char)
     (outer-suffix : List Char)
-  → (quoteStringLit-chars name ++ₗ
+  → (('"' ∷ Identifier.name name ++ₗ '"' ∷ []) ++ₗ
        ' ' ∷ kw-body ++ₗ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
       ++ₗ outer-suffix
-    ≡ quoteStringLit-chars name ++ₗ
+    ≡ ('"' ∷ Identifier.name name ++ₗ '"' ∷ []) ++ₗ
         ' ' ∷ kw-body ++ₗ value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix
 bridge-emit-tail name kw-body value-chars outer-suffix =
   trans
-    (++ₗ-assoc (quoteStringLit-chars name)
+    (++ₗ-assoc ('"' ∷ Identifier.name name ++ₗ '"' ∷ [])
                (' ' ∷ kw-body ++ₗ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
                outer-suffix)
-    (cong (λ z → quoteStringLit-chars name ++ₗ ' ' ∷ z)
+    (cong (λ z → ('"' ∷ Identifier.name name ++ₗ '"' ∷ []) ++ₗ ' ' ∷ z)
           (trans
             (++ₗ-assoc kw-body (value-chars ++ₗ ';' ∷ '\n' ∷ []) outer-suffix)
             (cong (kw-body ++ₗ_)

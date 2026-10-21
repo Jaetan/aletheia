@@ -23,6 +23,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from _dbc_helpers import dbc, message, signal
 from _stream_helpers import send_test_frame
 
 from aletheia import (
@@ -537,19 +538,18 @@ class TestStateMachineErrors:
 
         Path G: the Agda coalgebra's three-valued Kleene ``finalizeL`` returns
         ``Unsure`` for unresolved atomic predicates at end-of-stream. This is
-        exposed as ``status="unresolved"`` in the JSON protocol — a distinct
+        exposed as ``status="unresolved"`` in the JSON protocol, a distinct
         verdict from ``"fails"``.
         """
+        # The DBC carries a second message whose signal no frame of the
+        # stream carries, so the predicate on it is never evaluated and its
+        # verdict stays Unknown at end-of-stream.
+        other = message(257, "OtherMessage", [signal("OtherSignal")])
+        two_messages = dbc([*simple_dbc["messages"], other])
         with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties(
-                [
-                    # Predicate targets a signal that is not in simple_dbc —
-                    # therefore never evaluated on any frame, so its verdict stays
-                    # Unknown at end-of-stream.
-                    Signal("UnknownSignal").less_than(100).always().to_dict()
-                ]
-            )
+            client.parse_dbc(two_messages)
+            reply = client.set_properties([Signal("OtherSignal").less_than(100).always().to_dict()])
+            assert reply["status"] == "success", reply
             client.start_stream()
             # Send an unrelated frame that carries TestSignal only.
             send_test_frame(client, [10, 0, 0, 0, 0, 0, 0, 0])

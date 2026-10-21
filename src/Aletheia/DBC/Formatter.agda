@@ -255,20 +255,20 @@ formatAttrTarget (ATgtNodeSig n id s) =
 -- "kind" discriminator so the three variants live in a single flat object.
 attrDefFields : AttrDef → List (String × JSON)
 attrDefFields d =
-  ("name"     , JString (AttrDef.name d)) ∷
+  ("name"     , identJSON (AttrDef.name d)) ∷
   ("scope"    , JString (formatAttrScope (AttrDef.scope d))) ∷
   ("attrType" , JObject (formatAttrType (AttrDef.attrType d))) ∷
   []
 
 attrDefaultFields : AttrDefault → List (String × JSON)
 attrDefaultFields d =
-  ("name"  , JString (AttrDefault.name d)) ∷
+  ("name"  , identJSON (AttrDefault.name d)) ∷
   ("value" , JObject (formatAttrValue (AttrDefault.value d))) ∷
   []
 
 attrAssignFields : AttrAssign → List (String × JSON)
 attrAssignFields a =
-  ("name"   , JString (AttrAssign.name a)) ∷
+  ("name"   , identJSON (AttrAssign.name a)) ∷
   ("target" , JObject (formatAttrTarget (AttrAssign.target a))) ∷
   ("value"  , JObject (formatAttrValue (AttrAssign.value a))) ∷
   []

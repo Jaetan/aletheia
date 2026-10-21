@@ -103,6 +103,11 @@ enum class ErrorCode {
     // Top-level adversarial-input bound, one code for every parser surface;
     // discriminate by `bound_kind` from the structured payload.
     InputBoundExceeded,
+    // The DBC character set and keywords: a character outside the set
+    // (`code_point`, located by `field` + `index` or `line` + `column`), a
+    // keyword used as a name (`keyword`).
+    DBCInvalidCharacter,
+    DBCKeywordName,
     // Route errors
     RouteMissingField,
     RouteUnknownCommand,
@@ -116,6 +121,8 @@ enum class ErrorCode {
     HandlerStreamNotStarted,
     HandlerStreamActive,
     HandlerPropertyParseFailed,
+    // A property names a signal no signal of the loaded DBC carries.
+    HandlerUnknownSignal,
     HandlerValidationFailed,
     HandlerTextRoundtripFailed,
     HandlerNonMonotonicTimestamp,

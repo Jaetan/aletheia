@@ -16,7 +16,8 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.Identifier using (Identifier; _≡csᵇ_)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (Maybe; just; nothing; is-just)
+open import Data.Bool.ListAction using (any)
 open import Data.Bool using (Bool; T; false)
 open import Data.Nat using (_≡ᵇ_)
 open import Data.Nat.Properties using (_≟_; ≡ᵇ⇒≡; ≡⇒≡ᵇ)
@@ -120,3 +121,7 @@ findSignalInList name (s ∷ ss) =
 -- Returns first signal whose name matches (DBC should have unique names per message)
 findSignalByName : List Char → DBCMessage → Maybe DBCSignal
 findSignalByName name msg = findSignalInList name (DBCMessage.signals msg)
+
+-- Whether a message of the DBC carries a signal of this name.
+dbcHasSignal : DBC → List Char → Bool
+dbcHasSignal dbc name = any (λ msg → is-just (findSignalByName name msg)) (DBC.messages dbc)

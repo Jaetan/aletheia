@@ -156,7 +156,7 @@ open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Maybe.Properties using (≡-dec)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Properties using (_≟_)
-open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
+open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Unit using (tt)
 open import Relation.Nullary.Decidable using (Dec; yes; no; ¬?)
 
@@ -393,11 +393,11 @@ attrIssues : List AttrDef → DBCAttribute → List ValidationIssue
 attrIssues _    (DBCAttrDef d)     = wfAttrTypeIssues (AttrDef.attrType d)
 attrIssues defs (DBCAttrDefault d) =
      resolveDefIssues (lookupDef (AttrDefault.name d) defs) (AttrDefault.value d)
-                      (fromList (AttrDefault.name d))
+                      (nameStr (AttrDefault.name d))
   ++ₗ enumDefaultIssue (lookupDef (AttrDefault.name d) defs) (AttrDefault.value d)
 attrIssues defs (DBCAttrAssign a)  =
   resolveDefIssues (lookupDef (AttrAssign.name a) defs) (AttrAssign.value a)
-                   (fromList (AttrAssign.name a))
+                   (nameStr (AttrAssign.name a))
 
 checkAttrs : List DBCAttribute → List ValidationIssue
 checkAttrs attrs = concatMap (attrIssues (collectDefs attrs)) attrs

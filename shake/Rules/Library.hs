@@ -191,7 +191,10 @@ libraryRules = do
         -- cabal's "module not found" (a listed module removed).  Run this after
         -- adding/removing an Agda module, then commit aletheia.cabal.
         need ["build/MAlonzo/Code/Aletheia/Main.hs"]  -- ensure MAlonzo .hs exist
-        malonzoFiles <- getDirectoryFiles "build" ["MAlonzo//**/*.hs"]
+        -- Listed untracked, after the need: a tracked listing is one value per
+        -- run, and a run whose compile adds a module would list the tree as it
+        -- stood before the compile and leave that module out.
+        malonzoFiles <- liftIO $ getDirectoryFilesIO "build" ["MAlonzo//**/*.hs"]
         let modules   = sort (map malonzoModuleName malonzoFiles)
             cabalPath = "haskell-shim/aletheia.cabal"
         old <- liftIO $ readFile cabalPath

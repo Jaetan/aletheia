@@ -2,19 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Slim `parseAttrDef-roundtrip` / `parseAttrDefRel-roundtrip` derived
--- from the universal Format DSL roundtrip (`Format.AttrDef`).
---
--- Formerly: hand-written 1,428-line bind-chain proofs through
--- 14 parser primitives per scope (`parseAttrDef-roundtrip` × 5 std-scope
--- cases + `parseAttrDefRel-roundtrip` × 2 rel-scope cases) + 5-way
--- attribute-type dispatcher.
---
--- Now: per-scope wrappers around the universal `parseAttrDef-
--- format-roundtrip` / `parseAttrDefRel-format-roundtrip` lemmas, plus
--- two per-construct bridges (`emit attrDefFmt raw ≡ emitAttrDef-chars
--- d` per std scope; same for rel) and the η-style trailing-newline /
--- pure-lift composition.
+-- `parseAttrDef-roundtrip` / `parseAttrDefRel-roundtrip`, derived from the
+-- universal Format DSL roundtrip (`Format.AttrDef`): per-scope wrappers
+-- around `parseAttrDef-format-roundtrip` / `parseAttrDefRel-format-roundtrip`,
+-- two per-construct bridges (`emit attrDefFmt raw ≡ emitAttrDef-chars d` per
+-- std scope; the same for rel) and the trailing-newline / pure-lift
+-- composition.  The attribute name is an `Identifier` written between
+-- quotes (`quoteIdent-chars`, the characters of `emit quotedIdent`).
 module Aletheia.DBC.TextParser.Properties.Attributes.Def where
 
 open import Data.Char using (Char)
@@ -27,6 +21,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst; subst₂)
 
 open import Aletheia.DBC.Bounds using (SmallType)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePositions;
          _>>=_; pure; many)
@@ -40,7 +35,7 @@ open import Aletheia.DBC.TextParser.Attributes using
   (parseAttrDef; parseAttrDefRel)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttrDef-chars; emitAttrType-chars)
+  (emitAttrDef-chars; emitAttrType-chars; quoteIdent-chars)
 open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
@@ -146,48 +141,48 @@ emit-attrTypeFmt-eq-emitAttrType-chars (RatHex _ _)    = refl
 
 -- DSL emit ≡ formatter emit for the full BA_DEF_ line.  Per std scope
 -- (5 cases), both sides reduce to the same `<closed BA_DEF_ + scope
--- bytes> ++ qsl n ++ ' ' ∷ <attrType bytes> ++ ' ' ∷ ';' ∷ '\n' ∷ []`
+-- bytes> ++ quoteIdent-chars n ++ ' ' ∷ <attrType bytes> ++ ' ' ∷ ';' ∷ '\n' ∷ []`
 -- shape, with `<attrType bytes>` differing only between LHS (`emit
 -- attrTypeFmt rt`) and RHS (`emitAttrType-chars (liftAttrType rt)`).
 -- Bridge by `cong` over `emit-attrTypeFmt-eq-emitAttrType-chars`.
 emit-attrDefFmt-eq-emitAttrDef-chars :
-  ∀ (s : RawStdScope) (n : List Char) (rt : RawAttrType)
+  ∀ (s : RawStdScope) (n : Identifier) (rt : RawAttrType)
   → emit attrDefFmt (s , n , rt , tt)
     ≡ emitAttrDef-chars (mkAttrDef n (liftStdScope s) (liftAttrType rt))
 emit-attrDefFmt-eq-emitAttrDef-chars RssNet n rt =
   cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ ' ' ∷
-              (quoteStringLit-chars n ++ₗ
+              (quoteIdent-chars n ++ₗ
                ' ' ∷ (z ++ₗ ' ' ∷ ';' ∷ '\n' ∷ [])))
        (emit-attrTypeFmt-eq-emitAttrType-chars rt)
 emit-attrDefFmt-eq-emitAttrDef-chars RssNode n rt =
   cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ ' ' ∷
               'B' ∷ 'U' ∷ '_' ∷ ' ' ∷
-              (quoteStringLit-chars n ++ₗ
+              (quoteIdent-chars n ++ₗ
                ' ' ∷ (z ++ₗ ' ' ∷ ';' ∷ '\n' ∷ [])))
        (emit-attrTypeFmt-eq-emitAttrType-chars rt)
 emit-attrDefFmt-eq-emitAttrDef-chars RssMsg n rt =
   cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ ' ' ∷
               'B' ∷ 'O' ∷ '_' ∷ ' ' ∷
-              (quoteStringLit-chars n ++ₗ
+              (quoteIdent-chars n ++ₗ
                ' ' ∷ (z ++ₗ ' ' ∷ ';' ∷ '\n' ∷ [])))
        (emit-attrTypeFmt-eq-emitAttrType-chars rt)
 emit-attrDefFmt-eq-emitAttrDef-chars RssSig n rt =
   cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ ' ' ∷
               'S' ∷ 'G' ∷ '_' ∷ ' ' ∷
-              (quoteStringLit-chars n ++ₗ
+              (quoteIdent-chars n ++ₗ
                ' ' ∷ (z ++ₗ ' ' ∷ ';' ∷ '\n' ∷ [])))
        (emit-attrTypeFmt-eq-emitAttrType-chars rt)
 emit-attrDefFmt-eq-emitAttrDef-chars RssEnv n rt =
   cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ ' ' ∷
               'E' ∷ 'V' ∷ '_' ∷ ' ' ∷
-              (quoteStringLit-chars n ++ₗ
+              (quoteIdent-chars n ++ₗ
                ' ' ∷ (z ++ₗ ' ' ∷ ';' ∷ '\n' ∷ [])))
        (emit-attrTypeFmt-eq-emitAttrType-chars rt)
 
 -- DSL emit ≡ formatter emit for the full BA_DEF_REL_ line.  Per rel
 -- scope (2 cases).
 emit-attrDefRelFmt-eq-emitAttrDef-chars :
-  ∀ (s : RawRelScope) (n : List Char) (rt : RawAttrType)
+  ∀ (s : RawRelScope) (n : Identifier) (rt : RawAttrType)
   → emit attrDefRelFmt (s , n , rt , tt)
     ≡ emitAttrDef-chars (mkAttrDef n (liftRelScope s) (liftAttrType rt))
 emit-attrDefRelFmt-eq-emitAttrDef-chars RrsNodeMsg n rt =
@@ -195,7 +190,7 @@ emit-attrDefRelFmt-eq-emitAttrDef-chars RrsNodeMsg n rt =
               'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷
               'B' ∷ 'U' ∷ '_' ∷ 'B' ∷ 'O' ∷ '_' ∷
               'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷
-              (quoteStringLit-chars n ++ₗ
+              (quoteIdent-chars n ++ₗ
                ' ' ∷ (z ++ₗ ' ' ∷ ';' ∷ '\n' ∷ [])))
        (emit-attrTypeFmt-eq-emitAttrType-chars rt)
 emit-attrDefRelFmt-eq-emitAttrDef-chars RrsNodeSig n rt =
@@ -203,7 +198,7 @@ emit-attrDefRelFmt-eq-emitAttrDef-chars RrsNodeSig n rt =
               'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷
               'B' ∷ 'U' ∷ '_' ∷ 'S' ∷ 'G' ∷ '_' ∷
               'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷
-              (quoteStringLit-chars n ++ₗ
+              (quoteIdent-chars n ++ₗ
                ' ' ∷ (z ++ₗ ' ' ∷ ';' ∷ '\n' ∷ [])))
        (emit-attrTypeFmt-eq-emitAttrType-chars rt)
 
@@ -215,7 +210,7 @@ emit-attrDefRelFmt-eq-emitAttrDef-chars RrsNodeSig n rt =
 -- parser succeeds and returns the lifted AttrDef.
 private
   parseAttrDef-roundtrip-raw :
-      ∀ (pos : Position) (s : RawStdScope) (n : List Char) (rt : RawAttrType)
+      ∀ (pos : Position) (s : RawStdScope) (n : Identifier) (rt : RawAttrType)
         (outer-suffix : List Char)
     → SuffixStops isNewlineStart outer-suffix
     → SmallType (liftAttrType rt)
@@ -387,7 +382,7 @@ parseAttrDef-roundtrip
 
 private
   parseAttrDefRel-roundtrip-raw :
-      ∀ (pos : Position) (s : RawRelScope) (n : List Char) (rt : RawAttrType)
+      ∀ (pos : Position) (s : RawRelScope) (n : Identifier) (rt : RawAttrType)
         (outer-suffix : List Char)
     → SuffixStops isNewlineStart outer-suffix
     → SmallType (liftAttrType rt)

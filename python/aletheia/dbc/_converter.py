@@ -99,10 +99,12 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     """
     path = Path(dbc_path)
     check_dbc_text_size_bound(path.stat().st_size)
-    # read_text's encoding is NOT droppable (default is the locale, not utf-8);
-    # "UTF-8" is a codec-name alias of "utf-8" → both the case and the None
-    # mutant are runtime-equivalent here (pragma).
-    text = path.read_text(encoding="utf-8")  # pragma: no mutate
+    # Every byte becomes the character of the same number, so the kernel
+    # decides the file's characters: a byte above 0x7E is refused with its
+    # position whatever the file's encoding, and CR bytes reach it as they are.
+    # The codec's name is case-insensitive, so its case mutant is equivalent
+    # (pragma).
+    text = path.read_bytes().decode("latin-1")  # pragma: no mutate
     with AletheiaClient() as client:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     dbc, _ = dbc_and_warnings_from_response(response, str(dbc_path))

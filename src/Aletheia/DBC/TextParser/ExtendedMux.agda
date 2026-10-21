@@ -47,10 +47,8 @@
 --   emit side.
 --
 -- Range endpoint width:
---   `nat "-" nat` uses the unsigned-only `parseNatural` re-exported from
---   `Aletheia.Protocol.JSON.Parse` via `Lexer`.  `parseNatural` cannot
---   swallow a leading `-`, so the `"-"` separator is unambiguous — no
---   backtracking needed.
+--   `nat "-" nat` uses `Lexer`'s unsigned `parseNatural`, which cannot
+--   swallow a leading `-`, so the `"-"` separator needs no backtracking.
 --
 -- Longest-first dispatch (future top-level aggregator):
 --   `SG_MUL_VAL_` shares the `SG_` prefix with the in-BO_ signal line

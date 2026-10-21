@@ -157,7 +157,12 @@ emitAssignValue-chars (AVHex n)    = showℕ-dec-chars (natDecRatToℕ n)
 -- Default context: `AVEnum n` → look up the label at index n in the
 -- matching AttrDef's ENUM labels, quoted as a string literal.  Missing
 -- def, non-ENUM def, or OOB index all degrade to `""` (see module header).
-emitDefaultValue-chars : List AttrDef → (attrName : List Char) → AttrValue → List Char
+-- An attribute name on the wire: the identifier between quotes (what
+-- `Format.quotedIdent` emits).
+quoteIdent-chars : Identifier → List Char
+quoteIdent-chars i = '"' ∷ Identifier.name i ++ₗ ('"' ∷ [])
+
+emitDefaultValue-chars : List AttrDef → (attrName : Identifier) → AttrValue → List Char
 emitDefaultValue-chars _    _  (AVInt z)    = showℤ-dec-chars (intDecRatToℤ z)
 emitDefaultValue-chars _    _  (AVFloat q)  = showDecRat-dec-chars q
 emitDefaultValue-chars _    _  (AVString s) = quoteStringLit-chars s
@@ -181,11 +186,11 @@ emitAttrDef-chars : AttrDef → List Char
 emitAttrDef-chars d with isRelScope (AttrDef.scope d)
 ... | true  =
   toList "BA_DEF_REL_ " ++ₗ emitScopePrefix-chars (AttrDef.scope d) ++ₗ
-  quoteStringLit-chars (AttrDef.name d) ++ₗ
+  quoteIdent-chars (AttrDef.name d) ++ₗ
   ' ' ∷ emitAttrType-chars (AttrDef.attrType d) ++ₗ toList " ;\n"
 ... | false =
   toList "BA_DEF_ " ++ₗ emitScopePrefix-chars (AttrDef.scope d) ++ₗ
-  quoteStringLit-chars (AttrDef.name d) ++ₗ
+  quoteIdent-chars (AttrDef.name d) ++ₗ
   ' ' ∷ emitAttrType-chars (AttrDef.attrType d) ++ₗ toList " ;\n"
 
 -- `"BA_DEF_DEF_" ws string-lit ws attr-value ws? ";" newline`.  The
@@ -193,7 +198,7 @@ emitAttrDef-chars d with isRelScope (AttrDef.scope d)
 emitAttrDefault-chars : List AttrDef → AttrDefault → List Char
 emitAttrDefault-chars defs d =
   toList "BA_DEF_DEF_ " ++ₗ
-  quoteStringLit-chars (AttrDefault.name d) ++ₗ
+  quoteIdent-chars (AttrDefault.name d) ++ₗ
   ' ' ∷ emitDefaultValue-chars defs (AttrDefault.name d) (AttrDefault.value d) ++ₗ
   toList ";\n"
 
@@ -206,7 +211,7 @@ emitAttrAssign-chars : AttrAssign → List Char
 emitAttrAssign-chars a = body (AttrAssign.target a)
   where
     qname : List Char
-    qname = quoteStringLit-chars (AttrAssign.name a)
+    qname = quoteIdent-chars (AttrAssign.name a)
     vstr : List Char
     vstr = emitAssignValue-chars (AttrAssign.value a)
     body : AttrTarget → List Char

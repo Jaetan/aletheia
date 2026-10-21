@@ -1,136 +1,230 @@
 {
   "benchmark": "scaling",
   "language": "python",
-  "timestamp": "2026-07-26T00:09:18.242331+00:00",
+  "timestamp": "2026-10-20T23:37:48.032270+00:00",
   "system": {
     "cpu": "x86_64",
     "cores": 24,
     "platform": "Linux",
-    "python": "3.14.5"
+    "python": "3.14.8"
+  },
+  "parameters": {
+    "runs": 10,
+    "quick": false
   },
   "results": {
     "trace_size_can20": [
       {
         "frames": 1000,
-        "fps": 187929.1,
+        "fps": 222463.4,
         "relative": 1.0
       },
       {
         "frames": 5000,
-        "fps": 193170.9,
-        "relative": 1.028
+        "fps": 214193.8,
+        "relative": 0.963
       },
       {
         "frames": 10000,
-        "fps": 191513.9,
-        "relative": 1.019
+        "fps": 226089.7,
+        "relative": 1.016
       },
       {
         "frames": 50000,
-        "fps": 190813.2,
-        "relative": 1.015
+        "fps": 222056.0,
+        "relative": 0.998
       },
       {
         "frames": 100000,
-        "fps": 190399.9,
-        "relative": 1.013
+        "fps": 224582.8,
+        "relative": 1.01
       }
     ],
     "trace_size_canfd": [
       {
         "frames": 1000,
-        "fps": 163701.2,
+        "fps": 175205.5,
         "relative": 1.0
       },
       {
         "frames": 5000,
-        "fps": 174188.4,
-        "relative": 1.064
+        "fps": 179082.2,
+        "relative": 1.022
       },
       {
         "frames": 10000,
-        "fps": 181578.6,
-        "relative": 1.109
+        "fps": 181790.1,
+        "relative": 1.038
       },
       {
         "frames": 50000,
-        "fps": 180240.0,
-        "relative": 1.101
+        "fps": 182112.6,
+        "relative": 1.039
       },
       {
         "frames": 100000,
-        "fps": 181491.9,
-        "relative": 1.109
+        "fps": 179297.6,
+        "relative": 1.023
       }
     ],
     "property_count": [
       {
         "properties": 1,
-        "fps": 188728.8,
-        "us_per_frame": 5.3,
+        "fps": 212563.7,
+        "us_per_frame": 4.7,
         "relative": 1.0
       },
       {
         "properties": 2,
-        "fps": 152894.9,
-        "us_per_frame": 6.5,
-        "relative": 0.81
+        "fps": 173380.4,
+        "us_per_frame": 5.8,
+        "relative": 0.816
       },
       {
         "properties": 3,
-        "fps": 145270.4,
-        "us_per_frame": 6.9,
-        "relative": 0.77
+        "fps": 165844.0,
+        "us_per_frame": 6.0,
+        "relative": 0.78
       },
       {
         "properties": 5,
-        "fps": 105576.5,
-        "us_per_frame": 9.5,
-        "relative": 0.559
+        "fps": 111384.6,
+        "us_per_frame": 9.0,
+        "relative": 0.524
       },
       {
         "properties": 7,
-        "fps": 88563.6,
-        "us_per_frame": 11.3,
-        "relative": 0.469
+        "fps": 91559.5,
+        "us_per_frame": 10.9,
+        "relative": 0.431
       },
       {
         "properties": 10,
-        "fps": 70160.4,
-        "us_per_frame": 14.3,
-        "relative": 0.372
+        "fps": 74331.7,
+        "us_per_frame": 13.5,
+        "relative": 0.35
       }
     ],
     "property_complexity": [
       {
         "complexity": "Simple predicate",
-        "fps": 186737.3,
-        "us_per_frame": 5.4,
+        "fps": 217714.3,
+        "us_per_frame": 4.6,
         "relative": 1.0
       },
       {
         "complexity": "Range predicate",
-        "fps": 184766.7,
-        "us_per_frame": 5.4,
-        "relative": 0.989
+        "fps": 219361.9,
+        "us_per_frame": 4.6,
+        "relative": 1.008
       },
       {
         "complexity": "Two predicates (AND)",
-        "fps": 152810.9,
-        "us_per_frame": 6.5,
-        "relative": 0.818
+        "fps": 171110.2,
+        "us_per_frame": 5.8,
+        "relative": 0.786
       },
       {
         "complexity": "Three predicates",
-        "fps": 148157.3,
-        "us_per_frame": 6.7,
-        "relative": 0.793
+        "fps": 165322.8,
+        "us_per_frame": 6.0,
+        "relative": 0.759
       },
       {
         "complexity": "Implication",
-        "fps": 158529.7,
-        "us_per_frame": 6.3,
-        "relative": 0.849
+        "fps": 181997.5,
+        "us_per_frame": 5.5,
+        "relative": 0.836
+      }
+    ],
+    "dbc_size": [
+      {
+        "messages": 1250,
+        "seconds": 0.4564,
+        "allocated_bytes": 1365098944,
+        "messages_per_sec": 2738.9,
+        "relative": 1.0
+      },
+      {
+        "messages": 2500,
+        "seconds": 0.9906,
+        "allocated_bytes": 2824417288,
+        "messages_per_sec": 2523.7,
+        "relative": 0.921
+      },
+      {
+        "messages": 5000,
+        "seconds": 1.8934,
+        "allocated_bytes": 5798344392,
+        "messages_per_sec": 2640.8,
+        "relative": 0.964
+      },
+      {
+        "messages": 10000,
+        "seconds": 3.9053,
+        "allocated_bytes": 11827511680,
+        "messages_per_sec": 2560.6,
+        "relative": 0.935
+      }
+    ],
+    "text_literal_length": [
+      {
+        "digits": 12500,
+        "seconds": 0.0037,
+        "allocated_bytes": 22487632,
+        "digits_per_sec": 3352025.1,
+        "relative": 1.0
+      },
+      {
+        "digits": 25000,
+        "seconds": 0.0089,
+        "allocated_bytes": 44640448,
+        "digits_per_sec": 2824146.2,
+        "relative": 0.843
+      },
+      {
+        "digits": 50000,
+        "seconds": 0.0196,
+        "allocated_bytes": 88978816,
+        "digits_per_sec": 2547932.2,
+        "relative": 0.76
+      },
+      {
+        "digits": 100000,
+        "seconds": 0.06,
+        "allocated_bytes": 177557216,
+        "digits_per_sec": 1666614.4,
+        "relative": 0.497
+      }
+    ],
+    "json_literal_length": [
+      {
+        "digits": 12500,
+        "seconds": 0.0028,
+        "allocated_bytes": 19290496,
+        "digits_per_sec": 4438808.5,
+        "relative": 1.0
+      },
+      {
+        "digits": 25000,
+        "seconds": 0.0071,
+        "allocated_bytes": 37643296,
+        "digits_per_sec": 3528888.3,
+        "relative": 0.795
+      },
+      {
+        "digits": 50000,
+        "seconds": 0.0156,
+        "allocated_bytes": 74283760,
+        "digits_per_sec": 3194975.1,
+        "relative": 0.72
+      },
+      {
+        "digits": 100000,
+        "seconds": 0.0384,
+        "allocated_bytes": 147531072,
+        "digits_per_sec": 2605462.3,
+        "relative": 0.587
       }
     ]
   }

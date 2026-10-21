@@ -22,7 +22,7 @@ open import Aletheia.Protocol.Response using (PropertyResult; Warning)
 -- and the number predicate are needed here; the umbrella re-exports the
 -- parser, which would put the message vocabulary inside every combinator
 -- change's recheck closure.
-open import Aletheia.Protocol.JSON.Types using (JSON; NumbersWithin)
+open import Aletheia.Protocol.JSON.Types using (JSON; NumbersWithin; Shallow)
 open import Aletheia.CAN.BatchExtraction using (wireFits)
 open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.Limits using (max-rational-component-magnitude)
@@ -68,6 +68,11 @@ data StreamCommand : Set where
 -- ============================================================================
 
 -- Response types for the streaming protocol
+-- What the formatter's JSON of a DBC is known to be: every number with both
+-- components within the bound, and nested at most 7 deep.
+FormattedDBC : JSON → Set
+FormattedDBC json = NumbersWithin max-rational-component-magnitude json × Shallow 7 json
+
 data Response : Set where
   -- Generic success with message
   Success : String → Response
@@ -110,16 +115,16 @@ data Response : Set where
   ValidationResponse : List ValidationIssue → Response
 
   -- Formatted DBC as JSON (emitted by the format-DBC handler, reached via
-  -- the binary `processFormatDBCDirect` entry point), with the erased proof
-  -- that every number in it has both components within the bound
-  -- (`Aletheia.DBC.Formatter.Bounded.formatDBC-within`).
-  DBCResponse : (json : JSON) → @0 NumbersWithin max-rational-component-magnitude json → Response
+  -- the binary `processFormatDBCDirect` entry point), with the erased proofs
+  -- that every number in it has both components within the bound and that
+  -- it nests at most 7 deep (`Aletheia.DBC.Formatter.Bounded.formatDBC-within`,
+  -- `formatDBC-shallow`).
+  DBCResponse : (json : JSON) → @0 FormattedDBC json → Response
 
-  -- Parsed-and-validated DBC: the parsed body, the same erased number proof,
-  -- and any non-error issues (warnings).  Used by ParseDBC and ParseDBCText
-  -- on the success path (warnings are NOT silently dropped on success).
-  ParsedDBCResponse : (json : JSON) → @0 NumbersWithin max-rational-component-magnitude json
-    → List ValidationIssue → Response
+  -- Parsed-and-validated DBC: the parsed body, the same erased proofs, and
+  -- any non-error issues (warnings).  Used by ParseDBC and ParseDBCText on
+  -- the success path (warnings are NOT silently dropped on success).
+  ParsedDBCResponse : (json : JSON) → @0 FormattedDBC json → List ValidationIssue → Response
 
   -- DBC text image (for FormatDBCText command): the formatted text plus its
   -- `wfTextIssues` diagnostics (warning-severity only).  Emitted ONLY when the

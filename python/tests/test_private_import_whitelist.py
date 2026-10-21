@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Grep-guard for test files that reach into ``aletheia.client._*`` internals.
 
+Every Python file under ``tests/`` is read, the helper modules and
+``conftest.py`` included: a reach-through moved into a helper is still one.
 Test modules are allowed to exercise implementation detail directly, but
 each such import path is enumerated here so that a new reach-through
 into a ``_``-prefixed module produces an explicit promote-or-justify
@@ -106,6 +108,15 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_property_hypothesis.py", "aletheia.client._ffi", "parse_json_object"),
         ("test_property_hypothesis.py", "aletheia.client._ffi", "KernelResponse"),
         ("test_property_hypothesis.py", "aletheia.client._types", "validate_can_id"),
+        # The kernel-row tests (the JSON grammar, the DBC character set, the
+        # property signals) hand the kernel a hand-built command through one
+        # helper and read the reply through the binding's own reader, so a
+        # reply the kernel escapes is shown decoded by the code the client uses.
+        ("_kernel_rows.py", "aletheia.client._ffi", "parse_json_object"),
+        ("_kernel_rows.py", "aletheia.client._ffi", "KernelResponse"),
+        # The suite's fixture releases the runtime the first FFIBackend acquired,
+        # so the RTS does not outlive the session that started it.
+        ("conftest.py", "aletheia.client._ffi", "RTSState"),
         (
             "test_types_and_conditions.py",
             "aletheia.client._types",
@@ -307,9 +318,9 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
 
 
 def _collect_private_imports() -> list[PrivateImport]:
-    """Return every ``from aletheia.client._X import Y`` in tests/."""
+    """Return every ``from aletheia.client._X import Y`` in tests/, helpers included."""
     found: list[PrivateImport] = []
-    for test_file in _TESTS_DIR.glob("test_*.py"):
+    for test_file in _TESTS_DIR.glob("*.py"):
         source = test_file.read_text(encoding="utf-8")
         tree = ast.parse(source)
         for node in ast.walk(tree):

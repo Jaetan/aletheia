@@ -174,6 +174,12 @@ const (
 	// surface; the payload's bound_kind field says which.
 	CodeInputBoundExceeded = "input_bound_exceeded"
 
+	// CodeDBCInvalidCharacter — a character outside the DBC character set,
+	// carried as code_point; located by field and index, or by line and column.
+	CodeDBCInvalidCharacter = "dbc_invalid_character"
+	// CodeDBCKeywordName — a DBC keyword used as a name, carried as keyword.
+	CodeDBCKeywordName = "dbc_keyword_name"
+
 	// CodeRouteMissingField — required field absent on a routed request.
 	CodeRouteMissingField = "route_missing_field"
 	// CodeRouteUnknownCommand — command name not recognized by the dispatcher.
@@ -197,6 +203,9 @@ const (
 	CodeHandlerStreamActive = "handler_stream_active"
 	// CodeHandlerPropertyParseFailed — set_properties body could not be parsed.
 	CodeHandlerPropertyParseFailed = "handler_property_parse_failed"
+	// CodeHandlerUnknownSignal — a property names a signal no signal of the
+	// loaded DBC carries.
+	CodeHandlerUnknownSignal = "handler_unknown_signal"
 	// CodeHandlerValidationFailed — handler-level validation rejected the request.
 	CodeHandlerValidationFailed = "handler_validation_failed"
 	// CodeHandlerTextRoundtripFailed — FormatDBCText refused: emitted text does not re-parse to the input DBC.

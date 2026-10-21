@@ -12,6 +12,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **The private-import whitelist reads every Python file under `python/tests/`,
+  the helper modules and `conftest.py` included.** A reach-through into a
+  `_`-prefixed client module moved into a helper was invisible to the gate;
+  it now needs its row like any test's. It found one: the suite's own
+  `conftest.py` releasing the kernel's runtime state.
+
 - **No document turns a paragraph into a heading with a line of `-` or `=`.**
   The documentation gate's new `atx_headings` arm names every setext heading of a
   tracked document. It found two documents whose metadata block rendered as one
@@ -363,6 +369,64 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   subscript one container, which is the case where no bound is hand-written.
 
 ### Changed
+
+- **BREAKING: the kernel reads a command as RFC 8259 JSON text and writes
+  every reply as such text, both proven.** The parser refuses, with
+  `dispatch_invalid_json` at the line and column of the first character it
+  cannot read, text after the value, whitespace other than space, tab, line
+  feed and carriage return, an integer part with a leading zero, a raw
+  character below U+0020 inside a string, and a `\u` escape naming a lone
+  surrogate half; before, it accepted each of them but the last, and refused
+  every `\u` escape. A `\u` escape is read as the character it names, a
+  surrogate pair as one character. A reply escapes every character below
+  U+0020, `\b \f \n \r \t` in their short form and the rest as `\u00XX`, and
+  escapes keys as it escapes values; before, a reply wrote a key as it was
+  and a backspace, form feed or other control character raw, so a strict
+  reader refused a reply echoing one. `parseJSON-sound`
+  (`src/Aletheia/Protocol/JSON/Properties/Sound.agda`) proves every text the
+  parser accepts is in RFC 8259's grammar, written as an Agda type in
+  `src/Aletheia/Protocol/JSON/RFC8259.agda`; `parseJSON-formatJSONChars`
+  (`src/Aletheia/Protocol/JSON/Properties/Roundtrip.agda`) proves the parser
+  reads back every value the formatter writes; `reply-is-JSONText` and
+  `formatResponse-depth` prove every reply is in the grammar and nests at
+  most 8 deep.
+
+- **BREAKING: a DBC is held to the DBC character set on both load routes,
+  every name is a DBC identifier decided as it is read, a `setProperties`
+  signal must be a signal of the loaded DBC, and a `.dbc` file is read byte
+  for byte.** Where a DBC's bounds are decided, every string (version, unit,
+  comment, value label, attribute enum label or string value) holds printable
+  ASCII but `"` and `\`, plus TAB, LF and CR; a DBC text is scanned before it
+  is parsed and the first character outside printable ASCII, TAB, LF and CR
+  is refused at its line and column (`dbc_invalid_character`, with `field`
+  and `index` where the bounds are decided, a parsed DBC or a `"` or `\` in
+  a text's string, `line` and `column` where the text's scan finds it). A name is
+  built only by the one identifier decision, as its characters are read: an
+  ASCII C identifier (`[A-Za-z_][A-Za-z0-9_]*`) of at most 128 characters,
+  the 129th character being the refusal, and not a DBC keyword; attribute
+  names, written between quotes, are identifiers too. The refusal is typed
+  on both routes (`input_bound_exceeded` with `identifier_length`, the new
+  `dbc_keyword_name` carrying `keyword`, `parse_invalid_identifier`,
+  `dbc_invalid_character`), located by `field` in a parsed DBC and by `line`
+  and `column` where the name starts in a DBC text (a character refusal at
+  the character's own position), which the text parser's failure now
+  carries beside its position; a word that starts with a character no
+  identifier starts with is refused whole on the text route too, and
+  `parse_invalid_identifier` names its place on every route. Before, every
+  character loaded in a string (a text could not carry `"`), a keyword and a
+  non-ASCII name loaded as names, an attribute name was any string, and only
+  the JSON route refused a 129-character name with a typed error, a DBC text
+  failing untyped at its 129th character. A `setProperties` signal is decided as
+  it is read, by the identifier decision a parsed DBC's names go through
+  (each refusal spelled as that route spells it, in `field` `signal`) and
+  then the loaded DBC's signals: a name no signal of the DBC carries is
+  refused with the new code `handler_unknown_signal`; before, it was
+  accepted and the property ended with an `uncached_atom` warning. Each
+  binding's `.dbc` file reader (Python `dbc_to_json` and the CLI, the Go and
+  C++ CLIs) maps every byte to the character of the same number, so a byte
+  above 0x7E is refused by the kernel with its code and position whatever
+  the file's encoding, and a CR byte reaches the kernel as it is; before,
+  Python raised `UnicodeDecodeError` on a cp1252 file and translated CR LF.
 
 - **BREAKING: the kernel refuses an extracted value past the wire's bound on
   both extraction paths, and a frame entry refuses a timestamp past the 64-bit

@@ -23,7 +23,8 @@ module Aletheia.DBC.TextParser.DecimalEntry.Properties where
 open import Data.Bool using (true; false)
 open import Data.Empty using (⊥-elim)
 open import Data.Integer using (+_; -[1+_])
-open import Data.List using ([]; _∷_)
+open import Data.Char using (Char)
+open import Data.List using (List; []; _∷_)
 open import Data.List.Properties using (++-identityʳ)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _≤ᵇ_; _*_; _^_)
@@ -39,6 +40,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; con
 open import Aletheia.Parser.Combinators
   using (ParseResult; mkResult; value; position; remaining; runParserPartial; initialPosition)
 open import Aletheia.Parser.Position using (Position; advancePositions)
+open import Aletheia.Parser.Watermark using (Watermark; Refusal; mark; at)
 open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase2Many using ([]-stop)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase6Suffix using
@@ -50,8 +52,8 @@ open import Aletheia.DBC.Bounds using ([_]; bound)
 open import Aletheia.Limits using
   (BoundKind; RationalComponentMagnitude; max-rational-component-magnitude)
 open import Aletheia.Error using
-  (DBCTextParseError; ParseFailure; TrailingInput; DBCTextParseErr; InputBoundExceededAt)
-open import Aletheia.DBC.TextParser.Consumed using (consumed)
+  (Error; ParseFailure; TrailingInput; DBCTextParseErr; InputBoundExceededAt; InPart)
+open import Aletheia.DBC.TextParser.Consumed using (consumed; refusalError)
 open import Aletheia.DBC.TextParser.DecimalEntry using
   (WireRational; wireOf; fromChecked; decide; parseDecimal-chars)
 open WireRational using (numerator; denominator)
@@ -60,21 +62,36 @@ open WireRational using (numerator; denominator)
 -- THE WHOLE-TEXT OUTCOME
 -- ============================================================================
 
-consumed-fail : ∀ {A : Set} (w : Position) → consumed {A} w nothing ≡ inj₁ (ParseFailure w)
+-- A failed parse with nothing refused is a failure at the watermark.
+consumed-fail : ∀ {A : Set} (w : Position) → consumed {A} (at w) nothing ≡ inj₁ (DBCTextParseErr (ParseFailure w))
 consumed-fail _ = refl
 
+-- A stop with nothing refused is trailing input from the watermark.
 consumed-trailing : ∀ {A : Set} (w : Position) (res : ParseResult A) {c cs} →
-  remaining res ≡ c ∷ cs → consumed w (just res) ≡ inj₁ (TrailingInput w (position res))
+  remaining res ≡ c ∷ cs → consumed (at w) (just res) ≡ inj₁ (DBCTextParseErr (TrailingInput w (position res)))
 consumed-trailing _ (mkResult _ _ (_ ∷ _)) refl = refl
 
-consumed-whole : ∀ {A : Set} (w : Position) (res : ParseResult A) →
+-- A refusal on the watermark answers a failed run and a stopped one alike.
+consumed-refused : ∀ {A : Set} (w : Position) (r : Refusal) (m : Maybe (ParseResult A)) →
+  (∀ res → m ≡ just res → Σ[ c ∈ Char ] Σ[ cs ∈ List Char ] remaining res ≡ c ∷ cs) →
+  consumed (mark w (just r)) m ≡ inj₁ (refusalError r)
+consumed-refused _ _ nothing _ = refl
+consumed-refused _ _ (just res@(mkResult _ _ (_ ∷ _))) _ = refl
+consumed-refused _ _ (just res@(mkResult _ _ [])) stop with stop res refl
+... | _ , _ , ()
+
+consumed-whole : ∀ {A : Set} (w : Watermark) (res : ParseResult A) →
   remaining res ≡ [] → consumed w (just res) ≡ inj₂ res
 consumed-whole _ (mkResult _ _ []) refl = refl
 
 -- A consumed result is the parser's own, with nothing left.
-consumed-inj₂ : ∀ {A : Set} (w : Position) (m : Maybe (ParseResult A)) (res : ParseResult A) →
+consumed-inj₂ : ∀ {A : Set} (w : Watermark) (m : Maybe (ParseResult A)) (res : ParseResult A) →
   consumed w m ≡ inj₂ res → m ≡ just res × remaining res ≡ []
-consumed-inj₂ _ (just (mkResult _ _ [])) _ refl = refl , refl
+consumed-inj₂ _                 (just (mkResult _ _ []))      _ refl = refl , refl
+consumed-inj₂ (mark _ nothing)  (just (mkResult _ _ (_ ∷ _))) _ ()
+consumed-inj₂ (mark _ (just _)) (just (mkResult _ _ (_ ∷ _))) _ ()
+consumed-inj₂ (mark _ nothing)  nothing                       _ ()
+consumed-inj₂ (mark _ (just _)) nothing                       _ ()
 
 -- ============================================================================
 -- THE BOUND'S VERDICT
@@ -87,7 +104,7 @@ bound-holds k tag n limit n≤limit with n ≤ᵇ limit | ≤ᵇ-reflects-≤ n 
 ... | false | ofⁿ ¬q = ⊥-elim (¬q n≤limit)
 
 bound-fails : ∀ (k : BoundKind) (tag : String) (n limit : ℕ) → ¬ (n ≤ limit) →
-  bound k tag n limit ≡ inj₁ (InputBoundExceededAt tag k n limit)
+  bound k tag n limit ≡ inj₁ (InputBoundExceededAt (InPart tag) k n limit)
 bound-fails k tag n limit ¬n≤limit with n ≤ᵇ limit | ≤ᵇ-reflects-≤ n limit
 ... | true  | ofʸ q = ⊥-elim (¬n≤limit q)
 ... | false | ofⁿ _ = refl
@@ -118,7 +135,7 @@ decide-small res small with bound-holds RationalComponentMagnitude "decimal"
 ... | q , eq = wireOf (value res) q , cong (fromChecked (value res)) eq , refl , refl
 
 decide-large : ∀ (res : ParseResult DecRat) → ¬ SmallDecRat (value res) →
-  decide (inj₂ res) ≡ inj₁ (InputBoundExceededAt "decimal" RationalComponentMagnitude
+  decide (inj₂ res) ≡ inj₁ (InputBoundExceededAt (InPart "decimal") RationalComponentMagnitude
                                                  (largerComponent (value res))
                                                  max-rational-component-magnitude)
 decide-large res large =
@@ -126,12 +143,12 @@ decide-large res large =
        (bound-fails RationalComponentMagnitude "decimal" (largerComponent (value res))
                     max-rational-component-magnitude large)
 
-decide-fail : ∀ (e : DBCTextParseError) → decide (inj₁ e) ≡ inj₁ (DBCTextParseErr e)
+decide-fail : ∀ (e : Error) → decide (inj₁ e) ≡ inj₁ e
 decide-fail _ = refl
 
 -- A `WireRational` is answered only for a consumed parse of an in-bound
 -- `DecRat`, and carries that `DecRat`'s components.
-decide-inj₂ : ∀ (o : DBCTextParseError ⊎ ParseResult DecRat) (w : WireRational) →
+decide-inj₂ : ∀ (o : Error ⊎ ParseResult DecRat) (w : WireRational) →
   decide o ≡ inj₂ w →
   Σ[ res ∈ ParseResult DecRat ] (o ≡ inj₂ res × SmallDecRat (value res) × Components w (value res))
 decide-inj₂ (inj₂ res) w eq

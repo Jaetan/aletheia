@@ -39,7 +39,9 @@ open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.CAN.Batch.WireFits using (Fits; wireFits-components)
 open import Aletheia.Protocol.JSON.Types using
   ( JSON; JNull; JBool; JNumber; JString; JArray; JObject; JStringS
-  ; NumbersSatisfy; ListNumbersSatisfy; FieldsNumbersSatisfy; ComponentsWithin )
+  ; NumbersSatisfy; ListNumbersSatisfy; FieldsNumbersSatisfy; ComponentsWithin
+  ; jsonDepth; Shallow; FieldsShallow )
+open import Aletheia.Protocol.JSON.Shallow using (shallow-depth; map-shallow)
 open import Aletheia.Protocol.Message using (Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
@@ -151,6 +153,37 @@ private
   bound-within _ o _ =
     (λ ()) ∷ᵃ (λ _ → saturateObserved o , refl , saturateObserved-≤ o) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
 
+  parse-within : ∀ pe → All ObservedWithin (errorExtras (Err.ParseErr pe))
+  parse-within (Err.InvalidIdentifier (Err.InPart _) _) = (λ ()) ∷ᵃ []ᵃ
+  parse-within (Err.InvalidIdentifier (Err.AtText _) _) = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
+  parse-within (Err.MissingField _) = []ᵃ
+  parse-within (Err.InvalidByteOrder _) = []ᵃ
+  parse-within (Err.InvalidPresence _) = []ᵃ
+  parse-within Err.MissingSigned = []ᵃ
+  parse-within (Err.InvalidSigned _) = []ᵃ
+  parse-within (Err.NotAnObject _ _) = []ᵃ
+  parse-within (Err.ExtCANIdOutOfRange _) = []ᵃ
+  parse-within (Err.StdCANIdOutOfRange _) = []ᵃ
+  parse-within (Err.DefaultCANIdOutOfRange _) = []ᵃ
+  parse-within (Err.InvalidDLCBytes _) = []ᵃ
+  parse-within Err.RootNotObject = []ᵃ
+  parse-within Err.MissingSignalName = []ᵃ
+  parse-within Err.SignalBitLengthZero = []ᵃ
+  parse-within (Err.SignalStartBitExceedsFrame _ _) = []ᵃ
+  parse-within (Err.SignalBitLengthExceedsFrame _ _) = []ᵃ
+  parse-within (Err.SignalBigEndianOverflow _ _ _) = []ᵃ
+  parse-within (Err.InvalidKind _ _) = []ᵃ
+  parse-within (Err.NonTerminatingRational _) = []ᵃ
+  parse-within Err.NonIntegerMultiplexValue = []ᵃ
+  parse-within (Err.NonNaturalField _) = []ᵃ
+  parse-within (Err.DLCCodeOutOfRange _) = []ᵃ
+  parse-within (Err.PayloadLengthMismatch _ _) = []ᵃ
+  parse-within (Err.PayloadByteOutOfRange _ _) = []ᵃ
+  parse-within (Err.NonPositiveDenominator _) = []ᵃ
+  parse-within (Err.SignalArrayLengthMismatch _ _ _) = []ᵃ
+  parse-within (Err.TimestampPastWire _) = []ᵃ
+  parse-within (Err.InContext _ _) = []ᵃ
+
   handler-within : ∀ h → All ObservedWithin (errorExtras (Err.HandlerErr h))
   handler-within Err.NoDBC                       = []ᵃ
   handler-within Err.AlreadyStreaming            = []ᵃ
@@ -158,6 +191,7 @@ private
   handler-within Err.StreamNotStarted            = []ᵃ
   handler-within Err.StreamActive                = []ᵃ
   handler-within (Err.PropertyParseFailed _)     = []ᵃ
+  handler-within (Err.UnknownSignal _)           = []ᵃ
   handler-within (Err.ValidationFailed _)        = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
   handler-within (Err.TextRoundTripFailed _)     = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
   handler-within (Err.NonMonotonicTimestamp _ _) = []ᵃ
@@ -168,7 +202,7 @@ private
 -- Every `observed` an error reply's fields carry is at most the ceiling,
 -- whatever wraps the refusal.
 errorExtras-observed-within : ∀ e → All ObservedWithin (errorExtras e)
-errorExtras-observed-within (Err.ParseErr _)      = []ᵃ
+errorExtras-observed-within (Err.ParseErr pe)     = parse-within pe
 errorExtras-observed-within (Err.FrameErr _)      = []ᵃ
 errorExtras-observed-within (Err.ExtractionErr _) = []ᵃ
 errorExtras-observed-within (Err.RouteErr _)      = []ᵃ
@@ -184,7 +218,12 @@ errorExtras-observed-within (Err.DBCTextParseErr (Err.AttributeRefinementFailed 
 errorExtras-observed-within (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = []ᵃ
 errorExtras-observed-within (Err.WithContext _ inner)          = errorExtras-observed-within inner
 errorExtras-observed-within (Err.InputBoundExceeded k o l)     = bound-within k o l
-errorExtras-observed-within (Err.InputBoundExceededAt _ k o l) = (λ ()) ∷ᵃ bound-within k o l
+errorExtras-observed-within (Err.InputBoundExceededAt (Err.InPart _) k o l) = (λ ()) ∷ᵃ bound-within k o l
+errorExtras-observed-within (Err.InputBoundExceededAt (Err.AtText _) k o l) = (λ ()) ∷ᵃ (λ ()) ∷ᵃ bound-within k o l
+errorExtras-observed-within (Err.InvalidCharacter (Err.InField _ _) _) = (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
+errorExtras-observed-within (Err.InvalidCharacter (Err.InText _) _)    = (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
+errorExtras-observed-within (Err.KeywordName (Err.InPart _) _)         = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
+errorExtras-observed-within (Err.KeywordName (Err.AtText _) _)         = (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
 
 -- The theorem over the whole reply: every top-level `observed` an error
 -- response writes is at most `observed-ceiling`.
@@ -313,6 +352,38 @@ private
   bound-readable : ∀ k o l → FieldsReadable (errorExtras (Err.InputBoundExceeded k o l))
   bound-readable _ o l = tt , saturated-readable o , saturated-readable l , tt
 
+  parse-readable : ∀ pe → FieldsReadable (errorExtras (Err.ParseErr pe))
+  parse-readable (Err.InvalidIdentifier (Err.InPart _) _) = tt , tt
+  parse-readable (Err.InvalidIdentifier (Err.AtText pos) _) =
+    saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , tt
+  parse-readable (Err.MissingField _) = tt
+  parse-readable (Err.InvalidByteOrder _) = tt
+  parse-readable (Err.InvalidPresence _) = tt
+  parse-readable Err.MissingSigned = tt
+  parse-readable (Err.InvalidSigned _) = tt
+  parse-readable (Err.NotAnObject _ _) = tt
+  parse-readable (Err.ExtCANIdOutOfRange _) = tt
+  parse-readable (Err.StdCANIdOutOfRange _) = tt
+  parse-readable (Err.DefaultCANIdOutOfRange _) = tt
+  parse-readable (Err.InvalidDLCBytes _) = tt
+  parse-readable Err.RootNotObject = tt
+  parse-readable Err.MissingSignalName = tt
+  parse-readable Err.SignalBitLengthZero = tt
+  parse-readable (Err.SignalStartBitExceedsFrame _ _) = tt
+  parse-readable (Err.SignalBitLengthExceedsFrame _ _) = tt
+  parse-readable (Err.SignalBigEndianOverflow _ _ _) = tt
+  parse-readable (Err.InvalidKind _ _) = tt
+  parse-readable (Err.NonTerminatingRational _) = tt
+  parse-readable Err.NonIntegerMultiplexValue = tt
+  parse-readable (Err.NonNaturalField _) = tt
+  parse-readable (Err.DLCCodeOutOfRange _) = tt
+  parse-readable (Err.PayloadLengthMismatch _ _) = tt
+  parse-readable (Err.PayloadByteOutOfRange _ _) = tt
+  parse-readable (Err.NonPositiveDenominator _) = tt
+  parse-readable (Err.SignalArrayLengthMismatch _ _ _) = tt
+  parse-readable (Err.TimestampPastWire _) = tt
+  parse-readable (Err.InContext _ _) = tt
+
   handler-readable : ∀ h → FieldsReadable (errorExtras (Err.HandlerErr h))
   handler-readable Err.NoDBC                       = tt
   handler-readable Err.AlreadyStreaming            = tt
@@ -320,6 +391,7 @@ private
   handler-readable Err.StreamNotStarted            = tt
   handler-readable Err.StreamActive                = tt
   handler-readable (Err.PropertyParseFailed _)     = tt
+  handler-readable (Err.UnknownSignal _)           = tt
   handler-readable (Err.ValidationFailed issues)   = tt , map-readable issue-readable issues , tt
   handler-readable (Err.TextRoundTripFailed issues) = tt , map-readable issue-readable issues , tt
   handler-readable (Err.NonMonotonicTimestamp _ _) = tt
@@ -328,7 +400,7 @@ private
   handler-readable (Err.InContext _ inner)         = handler-readable inner
 
 errorExtras-readable : ∀ e → FieldsReadable (errorExtras e)
-errorExtras-readable (Err.ParseErr _)      = tt
+errorExtras-readable (Err.ParseErr pe)     = parse-readable pe
 errorExtras-readable (Err.FrameErr _)      = tt
 errorExtras-readable (Err.ExtractionErr _) = tt
 errorExtras-readable (Err.RouteErr _)      = tt
@@ -347,7 +419,17 @@ errorExtras-readable (Err.DBCTextParseErr (Err.AttributeRefinementFailed _ _)) =
 errorExtras-readable (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = tt
 errorExtras-readable (Err.WithContext _ inner)          = errorExtras-readable inner
 errorExtras-readable (Err.InputBoundExceeded k o l)     = bound-readable k o l
-errorExtras-readable (Err.InputBoundExceededAt _ k o l) = tt , bound-readable k o l
+errorExtras-readable (Err.InputBoundExceededAt (Err.InPart _) k o l) = tt , bound-readable k o l
+errorExtras-readable (Err.InputBoundExceededAt (Err.AtText pos) k o l) =
+  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , bound-readable k o l
+errorExtras-readable (Err.InvalidCharacter (Err.InField _ i) cp) =
+  tt , saturated-readable i , saturated-readable cp , tt
+errorExtras-readable (Err.InvalidCharacter (Err.InText pos) cp) =
+  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) ,
+  saturated-readable cp , tt
+errorExtras-readable (Err.KeywordName (Err.InPart _) _) = tt , tt , tt
+errorExtras-readable (Err.KeywordName (Err.AtText pos) _) =
+  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , tt , tt
 
 -- THEOREM: every number `formatResponse` writes, for any reply, has a
 -- numerator in [-2^63, 2^64-1] and a denominator at most 2^64-1, the range
@@ -363,8 +445,124 @@ formatResponse-readable (PropertyResponse results) = tt , map-readable propertyR
 formatResponse-readable Ack = tt , tt
 formatResponse-readable (Complete results warnings) =
   tt , map-readable propertyResult-readable results , map-readable warning-readable warnings , tt
-formatResponse-readable (DBCResponse json w) = tt , satisfy-map components-readable json w , tt
+formatResponse-readable (DBCResponse json w) = tt , satisfy-map components-readable json (proj₁ w) , tt
 formatResponse-readable (ValidationResponse issues) = tt , tt , map-readable issue-readable issues , tt
 formatResponse-readable (ParsedDBCResponse json w warnings) =
-  tt , satisfy-map components-readable json w , map-readable issue-readable warnings , tt
+  tt , satisfy-map components-readable json (proj₁ w) , map-readable issue-readable warnings , tt
 formatResponse-readable (DBCTextResponse _ issues) = tt , tt , map-readable issue-readable issues , tt
+
+-- ============================================================================
+-- DEPTH
+-- ============================================================================
+
+-- Every reply nests at most 8 deep: the reply, its formatted DBC (at most 7,
+-- `formatDBC-shallow`), or an array of objects of primitives.
+private
+  @0 issue-shallow : ∀ k i → Shallow (suc k) (formatValidationIssue i)
+  issue-shallow _ _ = tt , tt , tt , tt
+
+  @0 propertyResult-shallow : ∀ k r → Shallow (suc k) (formatPropertyResult r)
+  propertyResult-shallow _ (PropertyResult.Violation _ _) = tt , tt , tt , tt , tt , tt
+  propertyResult-shallow _ (PropertyResult.Satisfaction _) = tt , tt , tt , tt
+  propertyResult-shallow _ (PropertyResult.Unresolved _ _) = tt , tt , tt , tt , tt
+
+  @0 warning-shallow : ∀ k w → Shallow (suc k) (formatWarning w)
+  warning-shallow _ _ = tt , tt , tt , tt
+
+  @0 value-shallow : ∀ k p → Shallow (suc k) (formatSignalValue p)
+  value-shallow _ _ = tt , tt , tt
+
+  @0 signalError-shallow : ∀ k e → Shallow (suc k) (formatSignalError e)
+  signalError-shallow _ _ = tt , tt , tt
+
+  @0 parse-shallow : ∀ k pe → FieldsShallow (suc (suc k)) (errorExtras (Err.ParseErr pe))
+  parse-shallow k (Err.InvalidIdentifier (Err.InPart _) _) = tt , tt
+  parse-shallow k (Err.InvalidIdentifier (Err.AtText _) _) = tt , tt , tt
+  parse-shallow k (Err.MissingField _) = tt
+  parse-shallow k (Err.InvalidByteOrder _) = tt
+  parse-shallow k (Err.InvalidPresence _) = tt
+  parse-shallow k Err.MissingSigned = tt
+  parse-shallow k (Err.InvalidSigned _) = tt
+  parse-shallow k (Err.NotAnObject _ _) = tt
+  parse-shallow k (Err.ExtCANIdOutOfRange _) = tt
+  parse-shallow k (Err.StdCANIdOutOfRange _) = tt
+  parse-shallow k (Err.DefaultCANIdOutOfRange _) = tt
+  parse-shallow k (Err.InvalidDLCBytes _) = tt
+  parse-shallow k Err.RootNotObject = tt
+  parse-shallow k Err.MissingSignalName = tt
+  parse-shallow k Err.SignalBitLengthZero = tt
+  parse-shallow k (Err.SignalStartBitExceedsFrame _ _) = tt
+  parse-shallow k (Err.SignalBitLengthExceedsFrame _ _) = tt
+  parse-shallow k (Err.SignalBigEndianOverflow _ _ _) = tt
+  parse-shallow k (Err.InvalidKind _ _) = tt
+  parse-shallow k (Err.NonTerminatingRational _) = tt
+  parse-shallow k Err.NonIntegerMultiplexValue = tt
+  parse-shallow k (Err.NonNaturalField _) = tt
+  parse-shallow k (Err.DLCCodeOutOfRange _) = tt
+  parse-shallow k (Err.PayloadLengthMismatch _ _) = tt
+  parse-shallow k (Err.PayloadByteOutOfRange _ _) = tt
+  parse-shallow k (Err.NonPositiveDenominator _) = tt
+  parse-shallow k (Err.SignalArrayLengthMismatch _ _ _) = tt
+  parse-shallow k (Err.TimestampPastWire _) = tt
+  parse-shallow k (Err.InContext _ _) = tt
+
+  @0 handler-shallow : ∀ k h → FieldsShallow (suc (suc k)) (errorExtras (Err.HandlerErr h))
+  handler-shallow k Err.NoDBC                        = tt
+  handler-shallow k Err.AlreadyStreaming             = tt
+  handler-shallow k Err.NotStreaming                 = tt
+  handler-shallow k Err.StreamNotStarted             = tt
+  handler-shallow k Err.StreamActive                 = tt
+  handler-shallow k (Err.PropertyParseFailed _)      = tt
+  handler-shallow k (Err.UnknownSignal _)            = tt
+  handler-shallow k (Err.ValidationFailed issues)    = tt , map-shallow formatValidationIssue (issue-shallow k) issues , tt
+  handler-shallow k (Err.TextRoundTripFailed issues) = tt , map-shallow formatValidationIssue (issue-shallow k) issues , tt
+  handler-shallow k (Err.NonMonotonicTimestamp _ _)  = tt
+  handler-shallow k (Err.WrappedParse _)             = tt
+  handler-shallow k (Err.WrappedFrame _)             = tt
+  handler-shallow k (Err.InContext _ inner)          = handler-shallow k inner
+
+  @0 errorExtras-shallow : ∀ k e → FieldsShallow (suc (suc k)) (errorExtras e)
+  errorExtras-shallow k (Err.ParseErr pe)     = parse-shallow k pe
+  errorExtras-shallow k (Err.FrameErr _)      = tt
+  errorExtras-shallow k (Err.ExtractionErr _) = tt
+  errorExtras-shallow k (Err.RouteErr _)      = tt
+  errorExtras-shallow k (Err.HandlerErr h)    = handler-shallow k h
+  errorExtras-shallow k (Err.DispatchErr Err.MissingTypeField)       = tt
+  errorExtras-shallow k (Err.DispatchErr (Err.UnknownMessageType _)) = tt
+  errorExtras-shallow k (Err.DispatchErr (Err.InvalidJSON _))        = tt , tt , tt
+  errorExtras-shallow k (Err.DispatchErr Err.RequestNotObject)       = tt
+  errorExtras-shallow k (Err.DBCTextParseErr (Err.ParseFailure _))   = tt , tt , tt
+  errorExtras-shallow k (Err.DBCTextParseErr (Err.TrailingInput _ _)) = tt , tt , tt , tt , tt
+  errorExtras-shallow k (Err.DBCTextParseErr (Err.AttributeRefinementFailed _ _)) = tt
+  errorExtras-shallow k (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = tt
+  errorExtras-shallow k (Err.WithContext _ inner)          = errorExtras-shallow k inner
+  errorExtras-shallow k (Err.InputBoundExceeded _ _ _)     = tt , tt , tt , tt
+  errorExtras-shallow k (Err.InputBoundExceededAt (Err.InPart _) _ _ _) = tt , tt , tt , tt , tt
+  errorExtras-shallow k (Err.InputBoundExceededAt (Err.AtText _) _ _ _) = tt , tt , tt , tt , tt , tt
+  errorExtras-shallow k (Err.InvalidCharacter (Err.InField _ _) _) = tt , tt , tt , tt
+  errorExtras-shallow k (Err.InvalidCharacter (Err.InText _) _)    = tt , tt , tt , tt
+  errorExtras-shallow k (Err.KeywordName (Err.InPart _) _)         = tt , tt , tt
+  errorExtras-shallow k (Err.KeywordName (Err.AtText _) _)         = tt , tt , tt , tt
+
+-- Every reply is within 8 levels.  Erased, since it reads the erased proofs
+-- the DBC replies carry.
+@0 formatResponse-shallow : ∀ r → Shallow 8 (formatResponse r)
+formatResponse-shallow (Success _) = tt , tt , tt
+formatResponse-shallow (Error e)   = tt , tt , tt , errorExtras-shallow 5 e
+formatResponse-shallow (ExtractionResultsResponse values errors absent _) =
+  tt , map-shallow formatSignalValue (value-shallow 5) values , map-shallow formatSignalError (signalError-shallow 5) errors
+     , map-shallow JStringS (λ _ → tt) absent , tt
+formatResponse-shallow (PropertyResponse results) = tt , map-shallow formatPropertyResult (propertyResult-shallow 5) results , tt
+formatResponse-shallow Ack = tt , tt
+formatResponse-shallow (Complete results warnings) =
+  tt , map-shallow formatPropertyResult (propertyResult-shallow 5) results , map-shallow formatWarning (warning-shallow 5) warnings , tt
+formatResponse-shallow (DBCResponse json w) = tt , proj₂ w , tt
+formatResponse-shallow (ValidationResponse issues) = tt , tt , map-shallow formatValidationIssue (issue-shallow 5) issues , tt
+formatResponse-shallow (ParsedDBCResponse json w warnings) =
+  tt , proj₂ w , map-shallow formatValidationIssue (issue-shallow 5) warnings , tt
+formatResponse-shallow (DBCTextResponse _ issues) = tt , tt , map-shallow formatValidationIssue (issue-shallow 5) issues , tt
+
+-- THEOREM: every reply nests at most 8 deep, below every binding reader's
+-- nesting limit.
+@0 formatResponse-depth : ∀ r → jsonDepth (formatResponse r) ≤ 8
+formatResponse-depth r = shallow-depth 8 (formatResponse r) (formatResponse-shallow r)

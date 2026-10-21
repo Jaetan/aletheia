@@ -163,6 +163,63 @@ checkFFINames ffiFile = do
             Just c  -> checkOneFFIName ffiFile (ffiQualifier e) (ffiFuncName e) c ffiContent
             Nothing -> return ()  -- unreachable: loadFFIModuleContents covers every module
 
+-- A snapshot entry is present when its mangled name appears where MAlonzo
+-- writes it: a function at its signature, a constructor among a data
+-- declaration's alternatives, a type at its `data` / `newtype` header.  A
+-- small family of contexts tolerates MAlonzo's per-version formatting.
+funcPresent, ctorPresent, typePresent :: String -> String -> Bool
+funcPresent name c = (name ++ " ::") `isInfixOf` c
+ctorPresent name c =
+    (" " ++ name ++ " ")  `isInfixOf` c
+ || (" " ++ name ++ "\n") `isInfixOf` c
+ || ("\n" ++ name ++ " ") `isInfixOf` c  -- continuation after `|\n   `
+ || ("(" ++ name ++ " ") `isInfixOf` c
+ || ("(" ++ name ++ ")") `isInfixOf` c
+typePresent name c =
+    ("data "    ++ name ++ " ")  `isInfixOf` c
+ || ("data "    ++ name ++ "\n") `isInfixOf` c
+ || ("newtype " ++ name ++ " ")  `isInfixOf` c
+ || ("newtype " ++ name ++ "\n") `isInfixOf` c
+
+entryPresent :: String -> String -> String -> Bool
+entryPresent kind name c = case kind of
+    "F" -> funcPresent name c
+    "C" -> ctorPresent name c
+    "T" -> typePresent name c
+    _   -> False
+
+-- A snapshot line naming a type or constructor tag: `T: <module>:<mangled>`
+-- or `C: <module>:<mangled>`.
+parseTagLine :: String -> Maybe (String, String, String)
+parseTagLine l = case stripPrefix "T: " s of
+    Just body -> withKind "T" body
+    Nothing   -> case stripPrefix "C: " s of
+        Just body -> withKind "C" body
+        Nothing   -> Nothing
+  where
+    s = strip l
+    withKind kind body = case break (== ':') body of
+        (m, ':':n) -> Just (kind, m, n)
+        _          -> Nothing
+
+-- Every spelling of `stem` followed by digits in `c`, in order of appearance.
+numberedAfter :: String -> String -> [String]
+numberedAfter stem = go
+  where
+    go [] = []
+    go s@(_:rest) = case stripPrefix stem s of
+        Just after | ds@(_:_) <- takeWhile isDigit after -> (stem ++ ds) : go rest
+        _                                                -> go rest
+
+-- The tag `mangled` as module text `c` declares it now: the first spelling of
+-- its stem (the name up to its number) that the gate's own predicate accepts,
+-- so the regeneration writes exactly what `check-ffi-exports` reads.
+refreshedTag :: String -> String -> String -> Maybe String
+refreshedTag kind mangled c =
+    listToMaybe [ cand | cand <- nub (numberedAfter stem c), entryPresent kind cand c ]
+  where
+    stem = reverse (dropWhile isDigit (reverse mangled))
+
 -- | The FFI gates and the snapshot's regeneration.
 ffiRules :: Rules ()
 ffiRules = do
@@ -391,27 +448,6 @@ ffiRules = do
             if existsHere
               then do c <- readFile path; return (m, Just c)
               else return (m, Nothing)
-        -- A constructor / type tag is "present" if the mangled name
-        -- appears in the expected position in the MAlonzo output.  We
-        -- check a small family of contexts to tolerate MAlonzo's
-        -- per-version formatting variation.
-        let funcPresent name c = (name ++ " ::") `isInfixOf` c
-            ctorPresent name c =
-                (" " ++ name ++ " ")  `isInfixOf` c
-             || (" " ++ name ++ "\n") `isInfixOf` c
-             || ("\n" ++ name ++ " ") `isInfixOf` c  -- continuation after `|\n   `
-             || ("(" ++ name ++ " ") `isInfixOf` c
-             || ("(" ++ name ++ ")") `isInfixOf` c
-            typePresent name c =
-                ("data "    ++ name ++ " ")  `isInfixOf` c
-             || ("data "    ++ name ++ "\n") `isInfixOf` c
-             || ("newtype " ++ name ++ " ")  `isInfixOf` c
-             || ("newtype " ++ name ++ "\n") `isInfixOf` c
-            entryPresent kind name c = case kind of
-                "F" -> funcPresent name c
-                "C" -> ctorPresent name c
-                "T" -> typePresent name c
-                _   -> False
         let failures =
               [ (kind, modName, mangled)
               | (kind, modName, mangled) <- expected
@@ -446,17 +482,19 @@ ffiRules = do
                ++ show (length [() | ("T", _, _) <- expected]) ++ " types)."
 
     phony "regen-ffi-exports" $ do
-        -- Rewrite the F: function entries in `haskell-shim/ffi-exports.snapshot`
-        -- in-place from the current MAlonzo output.  Run after an intentional
-        -- Agda refactor that changes the mangled numbers.
+        -- Rewrite the F: function entries and the C: / T: tag entries in
+        -- `haskell-shim/ffi-exports.snapshot` in-place from the current
+        -- MAlonzo output.  Run after an intentional Agda refactor that changes
+        -- the mangled numbers.
         --
-        -- Preservation contract (the original regen
-        -- iterated only `ffiExports` and overwrote the whole file, which would
-        -- have silently dropped every C: constructor / T: type / indirect F:
-        -- helper line on first re-run):
+        -- Preservation contract:
         --
-        --   * Lines without an `F: ` prefix (header comments, blanks, section
-        --     dividers, `C: …`, `T: …`) are copied through verbatim.
+        --   * Lines without an `F: `, `C: ` or `T: ` prefix (header comments,
+        --     blanks, section dividers) are copied through verbatim.
+        --   * `C: <module>:C_<name>_NN` and `T: <module>:T_<Name>_NN` lines get
+        --     their NN refreshed to the number the module declares for the
+        --     stem, judged by the gate's own presence predicate; a stem the
+        --     module no longer declares is an error naming it.
         --   * `F: <module>:d_<funcName>_NN` lines whose `<module>` and
         --     `<funcName>` match an entry in `ffiExports` get their NN
         --     refreshed from MAlonzo.
@@ -514,10 +552,33 @@ ffiRules = do
                 [ "    F: " ++ ffiModule e ++ ":d_" ++ ffiFuncName e ++ "_0"
                 | e <- unmatched
                 ]
+        -- The tag lines name modules beyond `ffiExports` (Sum, Sigma, the
+        -- rational base); each is read from the build like the gate reads it.
+        let tagLines = [ t | l <- lines existing, Just t <- [parseTagLine l] ]
+        tagContents <- liftIO $ forM (nub [ m | (_, m, _) <- tagLines ]) $ \m -> do
+            let path = "build/MAlonzo/Code" </> m <.> "hs"
+            existsHere <- SysDir.doesFileExist path
+            unless existsHere $
+                error $ "regen-ffi-exports: the snapshot names " ++ m
+                     ++ " but " ++ path ++ " is not built"
+            c <- readFile path
+            length c `seq` return (m, c)
+        let refreshTagLine line = case parseTagLine line of
+                Nothing -> (line, False)
+                Just (kind, m, n) ->
+                    let c = fromMaybe "" (lookup m tagContents)
+                    in case refreshedTag kind n c of
+                         Just fresh -> (kind ++ ": " ++ m ++ ":" ++ fresh, fresh /= n)
+                         Nothing    -> error $ "regen-ffi-exports: " ++ m
+                                           ++ " declares no " ++ kindLabel kind
+                                           ++ " whose name starts "
+                                           ++ reverse (dropWhile isDigit (reverse n))
+            (finalLines, tagRefreshed) = unzip (map refreshTagLine rewrittenLines)
         liftIO $ writeFile "haskell-shim/ffi-exports.snapshot"
-                           (unlines rewrittenLines)
+                           (unlines finalLines)
         putInfo $ "Regenerated snapshot: refreshed "
-               ++ show (length matched) ++ " F: function entries; "
+               ++ show (length matched) ++ " F: function entries and "
+               ++ show (length (filter id tagRefreshed)) ++ " C: / T: tag entries; "
                ++ "preserved "
-               ++ show (length (lines existing) - length matched)
-               ++ " non-function lines (C: / T: / indirect F: helpers / comments)."
+               ++ show (length (lines existing) - length matched - length (filter id tagRefreshed))
+               ++ " lines (unchanged tags, indirect F: helpers, comments)."

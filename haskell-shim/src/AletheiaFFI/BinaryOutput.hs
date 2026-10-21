@@ -45,10 +45,10 @@ import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 shimErrorOut :: String -> Ptr Buffer -> IO Int8
 shimErrorOut msg out = newUtf8 (T.pack (mkErrorJson msg)) >>= pokeBufferErr out >> return 1
 
-kernelErrorText :: AgdaError.T_Error_366 -> IO CString
+kernelErrorText :: AgdaError.T_Error_388 -> IO CString
 kernelErrorText err = newUtf8 (unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text)
 
-kernelErrorOut :: AgdaError.T_Error_366 -> Ptr Buffer -> IO Int8
+kernelErrorOut :: AgdaError.T_Error_388 -> Ptr Buffer -> IO Int8
 kernelErrorOut err out = kernelErrorText err >>= pokeBufferErr out >> return 1
 
 -- | Dispatch a binary-output entry's `Error ⊎ List Byte`: on success write the

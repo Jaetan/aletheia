@@ -2,19 +2,12 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- JSON data types, parser, and formatter with rational number support.
---
--- Purpose: Core JSON handling for streaming protocol (parse/format JSON).
--- Types: JSON (JNull, JBool, JNumber, JString, JArray, JObject).
--- Operations: parseJSON (String → JSON), formatJSON (JSON → String).
--- Role: Foundation for all protocol communication (commands, responses, data frames).
---
--- Structure: Implementation split across sub-modules:
---   Types.agda  — JSON data type (~25 lines)
---   Lookup.agda — value extractors and typed lookup helpers (~100 lines)
---   Format.agda — formatJSON and formatRational (~55 lines)
---   Parse.agda  — parseJSON and all parse helpers (~200 lines)
--- This facade re-exports everything for backward compatibility.
+-- JSON, the protocol's text: every command is read and every reply written
+-- through this module, which re-exports four:
+--   Types.agda   the value type `JSON`
+--   Lookup.agda  value extractors and typed lookups
+--   Format.agda  `formatJSON` and `formatJSONChars`
+--   Parse.agda   `parseJSON`, RFC 8259's grammar
 module Aletheia.Protocol.JSON where
 
 open import Aletheia.Protocol.JSON.Types public

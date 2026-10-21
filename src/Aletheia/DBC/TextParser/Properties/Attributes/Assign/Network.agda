@@ -3,8 +3,10 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- `parseRawAttrAssign` × ATgtNetwork per-line construct roundtrips
--- (3 emit shapes), η-style migration onto the universal
--- `parseAttrAssign-format-roundtrip` lemma.
+-- (3 emit shapes) over the universal `parseAttrAssign-format-roundtrip`
+-- lemma.  The attribute name is an `Identifier`, written as
+-- `quoteIdent-chars name`, the characters of
+-- `emit quotedIdent name`.
 --
 -- ATgtNetwork is the `RatwNet` constructor of `RawAttrTargetWire`,
 -- emitting `[]` (no keyword body).  The Format DSL routes RatwNet through
@@ -14,8 +16,7 @@
 -- ('"' / digit / '-') this reduces by `refl` after `parseCharsSeq`'s
 -- first-char mismatch fires.
 --
--- TraceNetwork module preserved for `Properties/Attributes/Line.agda`'s
--- per-target-shape line dispatchers.
+-- The TraceNetwork module serves the per-target-shape line dispatchers.
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network where
 
@@ -40,6 +41,8 @@ open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
   (mkIntDecRatFromℤ; intDecRatToℤ;
    intDecRatToℤ-mkIntDecRatFromℤ)
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.TextFormatter.Attributes using (quoteIdent-chars)
 open import Aletheia.DBC.Types using
   (ATgtNetwork)
 
@@ -87,13 +90,13 @@ open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
   (parseAttrAssign-format-roundtrip-RatwNet)
 
 -- ============================================================================
--- TRACE MODULE — kept for `Properties/Attributes/Line.agda` compatibility
+-- TRACE MODULE — position of the line's end, for the line dispatchers
 -- ============================================================================
 
-module TraceNetwork (pos : Position) (name : List Char) (value-chars : List Char)
+module TraceNetwork (pos : Position) (name : Identifier) (value-chars : List Char)
                     (outer-suffix : List Char) where
   cs-name : List Char
-  cs-name = quoteStringLit-chars name
+  cs-name = quoteIdent-chars name
 
   -- Single advancePositions call over the full inline-line shape.
   -- Mirrors Default.agda's `Trace.pos8` pattern — definitionally equal
@@ -108,31 +111,33 @@ module TraceNetwork (pos : Position) (name : List Char) (value-chars : List Char
 -- BRIDGES — emit form ↔ inline-input shape
 -- ============================================================================
 --
--- Mirror of Default.agda's bridge structure.  Two-step ++-assoc bridge:
---   (qsl(name) ++ ' ' ∷ (value-chars ++ ';' ∷ '\n' ∷ [])) ++ outer-suffix
--- ↔ qsl(name) ++ ' ' ∷ (value-chars ++ ';' ∷ '\n' ∷ outer-suffix)
+-- Two-step ++-assoc bridge, `qi(name)` the quoted identifier:
+--   (qi(name) ++ ' ' ∷ (value-chars ++ ';' ∷ '\n' ∷ [])) ++ outer-suffix
+-- ↔ qi(name) ++ ' ' ∷ (value-chars ++ ';' ∷ '\n' ∷ outer-suffix)
 
 private
   bridge-tail :
-    ∀ (name : List Char) (value-chars : List Char) (outer-suffix : List Char)
-    → (quoteStringLit-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
+    ∀ (name : Identifier) (value-chars : List Char) (outer-suffix : List Char)
+    → (quoteIdent-chars name ++ₗ
+          ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
         ++ₗ outer-suffix
-      ≡ quoteStringLit-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+      ≡ quoteIdent-chars name ++ₗ
+          ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
   bridge-tail name value-chars outer-suffix =
-    trans (++ₗ-assoc (quoteStringLit-chars name)
+    trans (++ₗ-assoc (quoteIdent-chars name)
                      (' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
                      outer-suffix)
-          (cong (λ z → quoteStringLit-chars name ++ₗ ' ' ∷ z)
+          (cong (λ z → quoteIdent-chars name ++ₗ ' ' ∷ z)
                 (++ₗ-assoc value-chars (';' ∷ '\n' ∷ []) outer-suffix))
 
   -- Per-shape bridge: emit attrAssignFmt (...) ++ outer ≡ inline-input.
   -- Uses the public `emit-attrAssignFmt-RatwNet` lemma to lift the deep
-  -- iso/pair structure to a flat closed-Char + qsl ++ ' ' ∷ value form,
+  -- iso/pair structure to a flat closed-Char + qi ++ ' ' ∷ value form,
   -- then ++ₗ-assoc bridges the trailing `;\n` slot.
   bridge-Network-emit :
-    ∀ (name : List Char) (wireVal : RawAttrValueWire) (outer-suffix : List Char)
+    ∀ (name : Identifier) (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix
-      ≡ 'B' ∷ 'A' ∷ '_' ∷ ' ' ∷ quoteStringLit-chars name ++ₗ
+      ≡ 'B' ∷ 'A' ∷ '_' ∷ ' ' ∷ quoteIdent-chars name ++ₗ
           ' ' ∷ (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
   bridge-Network-emit name wireVal outer-suffix =
     trans
@@ -145,16 +150,16 @@ private
 -- COMMON RAW-LEVEL ROUNDTRIP — Network arm
 -- ============================================================================
 
--- RatwNet helper now uses the specialized
+-- The RatwNet helper uses the specialized
 -- `parseAttrAssign-format-roundtrip-RatwNet` (head-class witness) rather
--- than the universal lemma + EmitsOK obligation.  Rationale: the
+-- than the universal lemma + EmitsOK obligation: the
 -- universal-lemma path's `EmitsOK stdTargetWireFmt RatwNet …` obligation blows
 -- -M16G at the inj₂-deep altSum position with abstract input.  The head
 -- witness (head Char + 3 inequalities `(x ≈ᵇ 'B') ≡ false`, `'S'`, `'E'`)
 -- is small and locally derivable in the per-shape dispatchers.
 private
   parseRawAttrAssign-format-roundtrip-Network-raw :
-    ∀ (pos : Position) (name : List Char) (wireVal : RawAttrValueWire)
+    ∀ (pos : Position) (name : Identifier) (wireVal : RawAttrValueWire)
       (outer-suffix : List Char)
       (x : Char) (tail : List Char)
     → SuffixStops isNewlineStart outer-suffix
@@ -223,10 +228,10 @@ private
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavString :
-  ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name ATgtNetwork (RavString s))
@@ -308,7 +313,7 @@ private
     build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) small (∷-stop refl)
 
   result-eq-Frac :
-    ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char) →
+    ∀ pos (name : Identifier) (d : DecRat) (outer-suffix : List Char) →
     just (mkResult (mkRawAttrAssign name ATgtNetwork
                      (liftRavw (RavwFrac d)))
             (advancePositions pos
@@ -325,20 +330,19 @@ private
          (cong (advancePositions pos)
                (emit-attrAssignFmt-RatwNet name (RavwFrac d)))
 
--- Frac dispatcher refactored to constructor
--- pattern-match + projection-based head-witness extraction.
--- The original `with showDecRat-chars-head-classify d` over abstract DecRat
--- triggered goal-rebuild thrashing on the wide ∃₂ × _⊎_ result type at
+-- The Frac dispatcher pattern-matches the constructor and projects the
+-- head witness.  A `with showDecRat-chars-head-classify d` over abstract
+-- DecRat triggers goal-rebuild thrashing on the wide ∃₂ × _⊎_ result type at
 -- inj₂-deep value position of attrValueWireFmt's altSum, blowing -M16G.
 -- Pattern-matching on `mkDecRat`'s 3 numerator constructors + projecting
 -- the head witness from `showDecRat-chars-head-digit` / `-dash` (no `with`)
--- eliminates the goal-rebuild cycle.
+-- avoids the goal-rebuild cycle.
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac :
-  ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name ATgtNetwork (RavDecRat d))
@@ -420,14 +424,14 @@ private
   showInt-eq-BareInt z = cong showInt-chars (intDecRatToℤ-mkIntDecRatFromℤ z)
 
   reshape-input-BareInt :
-    ∀ (name : List Char) (z : ℤ) (outer-suffix : List Char) →
-    toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+    ∀ (name : Identifier) (z : ℤ) (outer-suffix : List Char) →
+    toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
       ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
     ≡ emit attrAssignFmt (name , RatwNet , RavwBareInt (mkIntDecRatFromℤ z) , tt)
         ++ₗ outer-suffix
   reshape-input-BareInt name z outer-suffix =
     trans (cong (λ chars →
-            toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+            toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
               ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
             (sym (showInt-eq-BareInt z)))
       (sym (bridge-Network-emit name (RavwBareInt (mkIntDecRatFromℤ z)) outer-suffix))
@@ -449,7 +453,7 @@ private
                               (fromℤ-small z small) (∷-stop refl) (λ ())
 
   result-eq-BareInt :
-    ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char) →
+    ∀ pos (name : Identifier) (z : ℤ) (outer-suffix : List Char) →
     just (mkResult (mkRawAttrAssign name ATgtNetwork
                      (liftRavw (RavwBareInt (mkIntDecRatFromℤ z))))
             (advancePositions pos
@@ -468,24 +472,23 @@ private
                  (trans (emit-attrAssignFmt-RatwNet name
                           (RavwBareInt (mkIntDecRatFromℤ z)))
                         (cong (λ chars →
-                                toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                                toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                                   ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
                               (showInt-eq-BareInt z))))
 
--- BareInt dispatcher refactored to constructor
--- pattern-match on `z : ℤ` + projection-based head-witness extraction
--- (mirror of Frac's refactor, same rationale).  For `z = + n`, head is
--- digit `digitChar k` derived from `showNat-chars-head n` (since
--- `showInt-chars (+ n) = showNat-chars n` and the lemma
+-- The BareInt dispatcher pattern-matches on `z : ℤ` and projects the
+-- head witness (mirror of the Frac dispatcher, same rationale).  For
+-- `z = + n`, head is digit `digitChar k` derived from `showNat-chars-head n`
+-- (since `showInt-chars (+ n) = showNat-chars n` and the lemma
 -- `intDecRatToℤ-mkIntDecRatFromℤ z` lets us bridge from `showInt-chars
 -- (intDecRatToℤ z') = showInt-chars z`).  For `z = -[1+ n ]`, head is
 -- closed `'-'`.
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt :
-  ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z)))

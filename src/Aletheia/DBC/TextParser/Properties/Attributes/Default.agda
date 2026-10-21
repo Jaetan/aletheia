@@ -4,7 +4,7 @@
 
 -- `parseRawAttrDefault` per-line construct roundtrip.
 --
--- The production parser is now η-style over `attrDefaultFmt`
+-- The production parser is η-style over `attrDefaultFmt`
 -- (`Format/AttrLine.agda`):
 --
 --   parseRawAttrDefault =
@@ -13,6 +13,11 @@
 --     pure (liftDefaultLine result)
 --
 --   liftDefaultLine (n, wire-val, _) = mkRawAttrDefault n (liftRavw wire-val)
+--
+-- The name is an `Identifier`, read by `quotedIdent`; its wire characters
+-- are `quoteIdent-chars n`, the text formatter's own spelling, which is
+-- what `emit quotedIdent n` normalizes to.  String values are `List Char`,
+-- written by `quoteStringLit-chars` and read by `stringLit`.
 --
 -- Each per-emit-shape dispatcher (RavString / RavDecRatFrac /
 -- RavDecRatBareInt) is a thin wrapper over the universal
@@ -27,9 +32,6 @@
 --   5. Compose with `bind-just-step` for `many parseNewline → []` (under
 --      `SuffixStops isNewlineStart outer-suffix`).
 --   6. Lift wire→AST via `liftRavw` at the result.
---
--- Formerly: 582 file-LOC hand-written 9-step bind chain + per-shape
--- value-roundtrip helpers + head-stop dispatchers (this file).
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Default where
 
@@ -49,6 +51,7 @@ open import Relation.Binary.PropositionalEquality
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePositions;
          _>>=_; pure; many)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
@@ -65,6 +68,7 @@ open import Aletheia.DBC.TextParser.Lexer
 
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars)
+open import Aletheia.DBC.TextFormatter.Attributes using (quoteIdent-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (bind-just-step; SuffixStops; ∷-stop; headOr;
@@ -204,14 +208,14 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix small ss-digit not-dot
 -- The end position after parsing one BA_DEF_DEF_ line.  Equivalent to
 -- `advancePositions pos (emit attrDefaultFmt (name, wire-val, tt))` for
 -- the matching shape.
-module Trace (pos : Position) (name : List Char) (value-chars : List Char)
+module Trace (pos : Position) (name : Identifier) (value-chars : List Char)
                (outer-suffix : List Char) where
     cs-name : List Char
-    cs-name = quoteStringLit-chars name
+    cs-name = quoteIdent-chars name
 
     -- Position after the full line emit, computed in the inline-char form
-    -- mirror of `emit attrDefaultFmt (n, wire-val, tt)` for backward
-    -- compatibility with the per-shape line dispatchers.
+    -- the per-shape line dispatchers state, which mirrors
+    -- `emit attrDefaultFmt (n, wire-val, tt)`.
     pos8 : Position
     pos8 = advancePositions pos
              (toList "BA_DEF_DEF_ " ++ₗ cs-name ++ₗ
@@ -231,9 +235,9 @@ module Trace (pos : Position) (name : List Char) (value-chars : List Char)
 private
   -- Common prefix shape: BA_DEF_DEF_ + ' ' + name + ' ' + <value-chars>
   -- + ;\n + outer-suffix.  Both LHS forms reduce to this.
-  inline-input : (name value-chars outer-suffix : List Char) → List Char
+  inline-input : (name : Identifier) (value-chars outer-suffix : List Char) → List Char
   inline-input name value-chars outer-suffix =
-    toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+    toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
       ' ' ∷ value-chars ++ₗ toList ";\n" ++ₗ outer-suffix
 
   -- Bridge per shape: `emit attrDefaultFmt (name, wire, tt) ++ outer-suffix
@@ -244,11 +248,13 @@ private
   -- (intDecRatToℤ z')` (RavwBareInt).
   --
   -- LHS reduces (definitionally) to:
-  --   'B' ∷ ... ∷ ' ' ∷ (qsl name ++ ' ' ∷ ((vc ++ ';' ∷ '\n' ∷ []) ++ outer))
+  --   'B' ∷ ... ∷ ' ' ∷ (qi name ++ ' ' ∷ ((vc ++ ';' ∷ '\n' ∷ []) ++ outer))
   -- RHS reduces (definitionally) to:
-  --   'B' ∷ ... ∷ ' ' ∷ (qsl name ++ ' ' ∷ (vc ++ ';' ∷ '\n' ∷ outer))
+  --   'B' ∷ ... ∷ ' ' ∷ (qi name ++ ' ' ∷ (vc ++ ';' ∷ '\n' ∷ outer))
+  -- where `qi name` is `quoteIdent-chars name`, the normal form of
+  -- `emit quotedIdent name`.
   -- Difference: `(vc ++ ';' ∷ '\n' ∷ []) ++ outer` vs `vc ++ (';' ∷ '\n' ∷
-  -- outer)` — equal by ++-assoc, NOT definitionally.  Bridge is `cong` of
+  -- outer)`, equal by ++-assoc, NOT definitionally.  Bridge is `cong` of
   -- the prefix wrapped around `++-assoc vc (';' ∷ '\n' ∷ []) outer`.
 
   -- Two ++-assoc steps to rewrite Agda's natural reduction of
@@ -256,15 +262,15 @@ private
   -- associated via the outer `++ outer`) into the inline-input shape
   -- (right-associated via `toList ";\n" ++ outer`).
   bridge-tail :
-    ∀ (name : List Char) (value-chars : List Char) (outer-suffix : List Char)
-    → (quoteStringLit-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
+    ∀ (name : Identifier) (value-chars : List Char) (outer-suffix : List Char)
+    → (quoteIdent-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
         ++ₗ outer-suffix
-      ≡ quoteStringLit-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+      ≡ quoteIdent-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
   bridge-tail name value-chars outer-suffix =
-    trans (++ₗ-assoc (quoteStringLit-chars name)
+    trans (++ₗ-assoc (quoteIdent-chars name)
                      (' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
                      outer-suffix)
-          (cong (λ z → quoteStringLit-chars name ++ₗ ' ' ∷ z)
+          (cong (λ z → quoteIdent-chars name ++ₗ ' ' ∷ z)
                 (++ₗ-assoc value-chars (';' ∷ '\n' ∷ []) outer-suffix))
 
   -- Per-shape bridges: emit attrDefaultFmt (...) ++ outer ≡ inline-input.
@@ -272,7 +278,7 @@ private
   -- closed-Char ∷-tower; the tail is supplied by `bridge-tail`.
 
   bridge-RavwString :
-    ∀ (name : List Char) (s : List Char) (outer-suffix : List Char)
+    ∀ (name : Identifier) (s : List Char) (outer-suffix : List Char)
     → emit attrDefaultFmt (name , RavwString s , tt) ++ₗ outer-suffix
       ≡ inline-input name (quoteStringLit-chars s) outer-suffix
   bridge-RavwString name s outer-suffix =
@@ -280,7 +286,7 @@ private
          (bridge-tail name (quoteStringLit-chars s) outer-suffix)
 
   bridge-RavwFrac :
-    ∀ (name : List Char) (d : DecRat) (outer-suffix : List Char)
+    ∀ (name : Identifier) (d : DecRat) (outer-suffix : List Char)
     → emit attrDefaultFmt (name , RavwFrac d , tt) ++ₗ outer-suffix
       ≡ inline-input name (showDecRat-dec-chars d) outer-suffix
   bridge-RavwFrac name d outer-suffix =
@@ -288,7 +294,7 @@ private
          (bridge-tail name (showDecRat-dec-chars d) outer-suffix)
 
   bridge-RavwBareInt :
-    ∀ (name : List Char) (z' : IntDecRat) (outer-suffix : List Char)
+    ∀ (name : Identifier) (z' : IntDecRat) (outer-suffix : List Char)
     → emit attrDefaultFmt (name , RavwBareInt z' , tt) ++ₗ outer-suffix
       ≡ inline-input name (showInt-chars (intDecRatToℤ z')) outer-suffix
   bridge-RavwBareInt name z' outer-suffix =
@@ -341,7 +347,7 @@ private
 
 private
   parseRawAttrDefault-format-roundtrip-raw :
-    ∀ (pos : Position) (name : List Char) (wire-val : RawAttrValueWire)
+    ∀ (pos : Position) (name : Identifier) (wire-val : RawAttrValueWire)
       (outer-suffix : List Char)
     → SuffixStops isNewlineStart outer-suffix
     → EmitsOK attrValueWireFmt wire-val (value-suffix outer-suffix)
@@ -400,10 +406,10 @@ private
 
 -- RavString: emit `quoteStringLit-chars s` for the value.
 parseRawAttrDefault-roundtrip-RavString :
-  ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseRawAttrDefault pos
-      (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult (mkRawAttrDefault name (RavString s))
               (Trace.pos8 pos name (quoteStringLit-chars s) outer-suffix)
@@ -416,11 +422,11 @@ parseRawAttrDefault-roundtrip-RavString pos name s outer-suffix ss-NL =
 
 -- RavDecRat (frac form): emit `showDecRat-dec-chars d` for the value.
 parseRawAttrDefault-roundtrip-RavDecRatFrac :
-  ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseRawAttrDefault pos
-      (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult (mkRawAttrDefault name (RavDecRat d))
               (Trace.pos8 pos name (showDecRat-dec-chars d) outer-suffix)
@@ -436,11 +442,11 @@ parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL small 
 -- `RavDecRat (IntDecRat.value (mkIntDecRatFromℤ z))` ≡ `RavDecRat (fromℤ z)`
 -- by definitional reduction of `mkIntDecRatFromℤ`.
 parseRawAttrDefault-roundtrip-RavDecRatBareInt :
-  ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseRawAttrDefault pos
-      (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult (mkRawAttrDefault name (RavDecRat (fromℤ z)))
               (Trace.pos8 pos name (showInt-chars z) outer-suffix)
@@ -466,12 +472,12 @@ parseRawAttrDefault-roundtrip-RavDecRatBareInt pos name z outer-suffix ss-NL sma
     -- via `showInt-eq`, so the input bridge is just `cong` applied to
     -- the shape.
     reshape-input :
-      toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
       ≡ emit attrDefaultFmt (name , RavwBareInt z' , tt) ++ₗ outer-suffix
     reshape-input =
       trans (cong (λ chars →
-              toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+              toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
                 ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
               (sym showInt-eq))
         (sym (bridge-RavwBareInt name z' outer-suffix))
@@ -509,6 +515,6 @@ parseRawAttrDefault-roundtrip-RavDecRatBareInt pos name z outer-suffix ss-NL sma
                ≡ Trace.pos8 pos name (showInt-chars z) outer-suffix
         pos-eq = cong (advancePositions pos)
           (cong (λ chars →
-            toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+            toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
               ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
             showInt-eq)

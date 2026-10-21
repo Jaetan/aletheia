@@ -8,6 +8,7 @@
 
 - [Audience](#audience)
 - [Overview](#overview)
+- [JSON Text](#json-text)
 - [Message Types](#message-types)
 - [Commands](#commands)
 - [Binary Entry Points](#binary-entry-points)
@@ -53,6 +54,19 @@ WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
                                           → StartStream → Streaming → SendFrame* → Streaming
                                                                      → EndStream → ReadyToStream
 ~~~
+
+---
+
+## JSON Text
+
+A command is RFC 8259 JSON text, and so is every reply. The kernel's parser is that grammar, proven both ways: every text it accepts whole is in RFC 8259's grammar, written as an Agda type in `Aletheia.Protocol.JSON.RFC8259` (`parseJSON-sound`), and it reads back every value the kernel writes (`parseJSON-formatJSONChars`).
+
+- A command is one value, with whitespace around it and nothing after it. Whitespace is space, horizontal tab, line feed and carriage return.
+- An integer part is `0` or starts with a digit from 1 to 9.
+- A string holds no raw character below U+0020. A `\uXXXX` escape names a Unicode scalar value: a surrogate pair (`😀`) is read as the one character it encodes, and a lone surrogate half is refused.
+- Text outside the grammar is refused with `dispatch_invalid_json`, its `line` and `column` those of the first character the parser cannot read.
+
+A reply escapes `"`, `\` and every character below U+0020, in keys as in values: `\b`, `\f`, `\n`, `\r` and `\t` in their short form, the rest as `\u00XX`. Every reply is in the grammar (`reply-is-JSONText`) and nests at most 8 deep (`formatResponse-depth`).
 
 ---
 
@@ -398,16 +412,19 @@ Define LTL properties to check against the frame stream.
 }
 ~~~
 
-**Response** (Error):
+**Response** (Error, no DBC loaded):
 ~~~json
 {
   "status": "error",
-  "message": "Signal 'Speed' not found in DBC"
+  "code": "handler_no_dbc",
+  "message": "SetProperties: DBC not loaded"
 }
 ~~~
 
 **State Requirements**: Must be in `ReadyToStream` state (after parseDBC)
 **State Transition**: `ReadyToStream` → `ReadyToStream` (idempotent)
+
+A `signal` is decided as it is read, by the identifier decision a parsed DBC's names go through and then the loaded DBC, and each refusal is the one that decision gives a parsed DBC's name, its `field` being `signal`: a name past 128 characters is `input_bound_exceeded` with `identifier_length`, one holding a character outside ASCII `dbc_invalid_character` with its `index` and `code_point`, a DBC keyword `dbc_keyword_name`, one that is not an identifier `parse_invalid_identifier`, and one no signal of the loaded DBC carries `handler_unknown_signal`; the first refusal ends the command and no property is kept.
 
 See [LTL Property Format](#ltl-property-format) section below for complete schema.
 
@@ -972,17 +989,17 @@ Accepted in input, converted to rational internally.
 ~~~json
 {"numerator": 1, "denominator": 4}
 ~~~
-Used in responses for exact representation.
+A reply writes a value that is not an integer this way, and an integer as itself.
 
 **Why Two Formats?**
 - Decimal format is convenient for users (e.g., `"factor": 0.1`)
 - Object format preserves exact values (e.g., 1/3 has no finite decimal)
-- Parser accepts both, formatter outputs object format
+- The parser accepts both; a reply writes the object for a value that is not an integer
 
 **Examples**:
 - `0.25` → `{"numerator": 1, "denominator": 4}`
 - `1.5` → `{"numerator": 3, "denominator": 2}`
-- `100` → `{"numerator": 100, "denominator": 1}`
+- `100` → `100`
 
 **Note**: The JSON format exposes the actual denominator for clarity, even though the internal representation may differ.
 
@@ -1094,6 +1111,8 @@ The DBC bounds (`array_cardinality`, `string_length` and `rational_component_mag
 
 Every number in a DBC is held to the rational-component bound on both load routes: after every count and text, `checkBounds` decides the reduced numerator and denominator of every signal factor, offset, minimum and maximum, every environment variable's initial value and bounds, every numeric attribute bound and value, every signal's start bit and length, and every bare natural (a multiplex selector, a value-description, value-table or unresolved `VAL_` key), refusing the first past 9223372036854775807 with `rational_component_magnitude`, `observed` the larger reduced component, and `field` naming the position: `signal factor`, `signal offset`, `signal minimum`, `signal maximum`, `signal start bit`, `signal length`, `multiplex value`, `value description key`, `environment variable initial value`, `environment variable minimum`, `environment variable maximum`, `attribute minimum`, `attribute maximum`, `attribute value`, `value table key`, `unresolved value description key`. A literal's digits are read by one core shared by the JSON and DBC grammars (kernel `Aletheia.DBC.DecRat.Literal`): it strips the significand's leading and trailing zeros and folds the digits only when the value can fit, holding a literal whose reduced component is at least 2⁶⁴ as a value with that component exactly 2⁶⁴, so reading a literal costs time linear in its length and the bound check after the parse refuses it as `at least 18446744073709551615`; a JSON exponent is compared by digit count before it is folded. No literal within the bound is held (`Aletheia.DBC.DecRat.Literal.Properties`), and the text round-trip theorem takes the bound every loaded DBC carries as its premise.
 
+A DBC's texts are held to the DBC character set on both load routes, where its bounds are decided (`checkBounds`), and a DBC text is scanned before it is parsed: a string (version, unit, comment, value label, attribute enum label or string value) holds printable ASCII but `"` and `\`, plus TAB, LF and CR. A name is built only by the one identifier decision, as its characters are read: `[A-Za-z_][A-Za-z0-9_]*`, at most 128 characters (a character outside ASCII anywhere in the name is refused before its length, then the 129th character), not a DBC keyword; an attribute name, written between quotes, is an identifier too. The refusal is typed on both routes (`identifier_length`, `dbc_keyword_name`, `parse_invalid_identifier`, `dbc_invalid_character`), located by `field` in a parsed DBC and by `line` and `column` where the name starts in a DBC text (a character refusal at the character's own line and column). In a DBC text a name is read as far as its identifier characters go, so a word that starts with a character no identifier starts with is refused whole, while a character inside a name that no identifier holds ends the name and the statement fails at that character; a `"` or `\` in a string of a text passes the scan and is refused where the bounds are decided, with `field` and `index`.
+
 `handler_validation_failed` errors (a `parseDBC` / `parseDBCText` rejected because the DBC has error-level validation issues) carry the **full structured issue list** on the envelope — errors *and* warnings, in the same `{severity, code, detail}` element shape as the `validation` response, plus the same `has_errors` flag (trivially `true` on this path; included so both payloads decode with one issue decoder). The `message` field flattens only the error-level details. Example:
 
 ~~~
@@ -1130,29 +1149,26 @@ Bounds are intentionally generous (commercial automotive DBCs are 1-10 MiB, ~6×
 
 ### Common Errors
 
-**Invalid JSON**:
+Each example is the kernel's reply to the command named, verbatim.
+
+**Invalid JSON** (`{"type": "command", "command": }`):
 ~~~
-<<< {"status": "error", "message": "Failed to parse JSON: unexpected token"}
+<<< {"status": "error", "code": "dispatch_invalid_json", "message": "invalid JSON: parse failed at line 1, column 32", "line": 1, "column": 32}
 ~~~
 
-**Missing Required Field**:
+**Missing Required Field** (`{"type": "command"}`):
 ~~~
-<<< {"status": "error", "message": "Missing required field: 'command'"}
-~~~
-
-**Invalid State Transition**:
-~~~
-<<< {"status": "error", "code": "handler_no_dbc", "message": "StartStream: DBC not loaded"}
+<<< {"status": "error", "code": "route_missing_command_field", "message": "missing 'command' field"}
 ~~~
 
-**Signal Not Found**:
+**Unknown Command** (`{"type": "command", "command": "startStream"}`; streaming has no JSON command form, see [Binary Entry Points](#binary-entry-points)):
 ~~~
-<<< {"status": "error", "message": "Signal 'InvalidSignal' not found in DBC"}
+<<< {"status": "error", "code": "route_unknown_command", "message": "unknown command 'startStream'"}
 ~~~
 
-**Message ID Not Found**:
+**No DBC Loaded** (`setProperties` before `parseDBC`):
 ~~~
-<<< {"status": "error", "message": "Message ID 999 not found in DBC"}
+<<< {"status": "error", "code": "handler_no_dbc", "message": "SetProperties: DBC not loaded"}
 ~~~
 
 ### Error Code Reference
@@ -1184,7 +1200,10 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `parse_signal_big_endian_overflow` | Big-endian signal's descending bit run extends past the end of the frame | The Motorola `startBit` names the MSB; `length` bits must fit below it within the frame |
 | `parse_invalid_kind` | An enum-like string field carries an unrecognised value (`invalid <domain> kind '<value>'`) | Use one of the documented values for that field |
 | `parse_non_terminating_rational` | A rational field is non-terminating in decimal (denominator has a prime factor outside {2, 5}) | Use a value representable as a terminating decimal |
-| `parse_invalid_identifier` | String is not a valid DBC identifier (must start with a letter or `_`, then alphanumerics/`_`) | Fix the identifier name |
+| `parse_invalid_identifier` | A name is not a DBC identifier (a letter or `_`, then letters, digits and `_`); `field` locates it in a parsed DBC or a property, `line` and `column` where the name starts in a DBC text, where a name is read as far as its identifier characters go (`S-x` is the name `S` followed by text the statement refuses) | Fix the identifier name |
+| `dbc_invalid_character` | A character outside the DBC character set: a string holds printable ASCII but `"` and `\`, plus TAB, LF and CR; a name holds ASCII (an ASCII character outside the identifier grammar is `parse_invalid_identifier`). `code_point` names it; `field` and `index` locate it where a DBC's bounds are decided (a parsed DBC, or a `"` or `\` in a text's string), `line` and `column` where a DBC text's scan finds a character outside printable ASCII, TAB, LF and CR | Replace the character; a `.dbc` file is read byte for byte, so a byte above 0x7E is refused whatever the file's encoding |
+| `dbc_keyword_name` | A DBC keyword used as a name: a section keyword (`VERSION`, `NS_`, `BS_`, `BU_`, `BO_`, `SG_`, `EV_`, `CM_`), a symbol of the `NS_` block, or an attribute type word (`INT`, `HEX`, `FLOAT`, `STRING`, `ENUM`); the whole list is `dbcKeywords` in `src/Aletheia/DBC/Identifier.agda`. `keyword` carries it, with `field` in a parsed DBC or a property, with `line` and `column` where the name starts in a DBC text | Rename |
+| `handler_unknown_signal` | A property names a signal no signal of the loaded DBC carries; the message names it | Name a signal of the DBC |
 | `parse_non_natural_field` | A field is present but its value is not a JSON natural number | Supply a non-negative integer |
 | `parse_dlc_code_out_of_range` | A binary entry's frame has a DLC above 15 | Encode the DLC as a code `0-15` |
 | `parse_payload_length_mismatch` | A binary entry's frame has a `data_len` that is not its DLC's byte count | Send exactly `dlcToBytes(dlc)` bytes |

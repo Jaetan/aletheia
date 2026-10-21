@@ -119,16 +119,11 @@ open import Aletheia.DBC.Types using
 -- except on the frame hot-path" (signal extraction sticks with `ℚ` for
 -- performance, every other DBC numeric field is `DecRat`).
 --
--- The two-way split (vs the older `RavNumber : ℚ`) keeps the substrate
--- aligned with the parsers that already have roundtrip proofs:
--- `parseStringLit-roundtrip` and `parseDecRat-roundtrip-suffix`.  Both
--- numeric wire forms (bare integer like `50` and decimal-fraction like
--- `0.5`) flow through `parseDecRat`, which subsumes the former
--- `parseInt` branch via the alt of `parseDecRatFrac <|>
--- parseDecRatBareInt` (see `Aletheia.DBC.TextParser.DecRatParse`).
--- There is no `parseRational-roundtrip` and proving it from scratch
--- (scientific notation, sign + fraction + exponent unrolling) would add
--- ~1 kLOC of foundation work for attribute proofs.
+-- The two-way split keeps the substrate on parsers with round-trip proofs,
+-- `parseStringLit-roundtrip` and `parseDecRat-roundtrip-suffix`: both
+-- numeric wire forms (a bare integer like `50`, a decimal fraction like
+-- `0.5`) go through `parseDecRat` (`parseDecRatFrac <|> parseDecRatBareInt`,
+-- `Aletheia.DBC.TextParser.DecRatParse`).
 -- `RavString` and `name` carry `List Char`
 -- (matching `parseStringLit : Parser (List Char)` and the AST's
 -- `AttrDefault.name : List Char` / `AttrAssign.name : List Char`).
@@ -139,13 +134,13 @@ data RawAttrValue : Set where
 record RawAttrDefault : Set where
   constructor mkRawAttrDefault
   field
-    name  : List Char
+    name  : Identifier
     value : RawAttrValue
 
 record RawAttrAssign : Set where
   constructor mkRawAttrAssign
   field
-    name   : List Char
+    name   : Identifier
     target : AttrTarget
     value  : RawAttrValue
 
@@ -427,7 +422,7 @@ liftRelTarget (RrtNodeSig n r s) with buildCANId r
 
 -- Parser-form lifter for BA_ assignment lines.  Plugs into the η-style
 -- production wrapper after `parse attrAssignFmt >>= many parseNewline`.
-buildAttrAssignP : List Char → RawAttrTargetWire → RawAttrValueWire
+buildAttrAssignP : Identifier → RawAttrTargetWire → RawAttrValueWire
                  → Parser RawAttrAssign
 buildAttrAssignP n RatwNet         wireVal =
   pure (mkRawAttrAssign n ATgtNetwork (liftRavw wireVal))
@@ -445,7 +440,7 @@ buildAttrAssignP n (RatwEv ev)     wireVal =
   pure (mkRawAttrAssign n (ATgtEnvVar ev) (liftRavw wireVal))
 
 -- Parser-form lifter for BA_REL_ relation lines.
-buildAttrRelP : List Char → RawRelTargetWire → RawAttrValueWire
+buildAttrRelP : Identifier → RawRelTargetWire → RawAttrValueWire
               → Parser RawAttrAssign
 buildAttrRelP n (RrtNodeMsg i r) wireVal with buildCANId r
 ... | just cid =
@@ -600,9 +595,9 @@ refineAttribute defs (RawAssign (mkRawAttrAssign n tgt rv)) with lookupDef n def
 -- failure so the error pinpoints WHICH `BA_DEF_` / `BA_DEF_DEF_` / `BA_`
 -- line is at fault.
 rawAttrName : RawDBCAttribute → List Char
-rawAttrName (RawDef d)     = AttrDef.name d
-rawAttrName (RawDefault d) = RawAttrDefault.name d
-rawAttrName (RawAssign a)  = RawAttrAssign.name a
+rawAttrName (RawDef d)     = Identifier.name (AttrDef.name d)
+rawAttrName (RawDefault d) = Identifier.name (RawAttrDefault.name d)
+rawAttrName (RawAssign a)  = Identifier.name (RawAttrAssign.name a)
 
 refineAll : List AttrDef → List RawDBCAttribute
           → (AttrRefineCause × List Char) ⊎ List DBCAttribute

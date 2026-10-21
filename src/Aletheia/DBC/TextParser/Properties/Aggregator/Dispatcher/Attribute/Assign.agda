@@ -41,6 +41,7 @@ open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
 open import Aletheia.DBC.DecRat using ()
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using
   ( AttrDef
   ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
@@ -99,7 +100,7 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.A
 
 parseAttrLine-on-emit-RawAssign :
     ∀ (defs : List AttrDef) (pos : Position)
-      (name : List Char) (target : AttrTarget) (value : AttrValue)
+      (name : Identifier) (target : AttrTarget) (value : AttrValue)
       (outer : List Char)
   → IdentNameStop-of target
   → SuffixStops isNewlineStart outer

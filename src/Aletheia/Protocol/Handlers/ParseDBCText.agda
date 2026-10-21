@@ -14,16 +14,21 @@
 -- `processStreamCommand (ParseDBCText _) _` dispatch case.
 module Aletheia.Protocol.Handlers.ParseDBCText where
 
+open import Data.Char using (Char; toℕ)
+open import Data.List using (List)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.String using (String; toList)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Bounds using (scanText)
 open import Aletheia.DBC.TextParser using (parseTextChars)
+open import Aletheia.Parser.Position using (Position; initialPosition)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState using (StreamState)
 open import Aletheia.Protocol.Handlers.LoadDBC using (loadValidatedDBC)
 open import Aletheia.Error using
-  ( DBCTextParseError; WithContext; DBCTextParseErr )
+  ( Error; WithContext; InvalidCharacter; InText )
 
 -- Parse DBC from raw DBC text using the verified Agda text parser.
 -- Composes the proven `parseTextChars` (DBC/TextParser.agda)
@@ -45,9 +50,9 @@ open import Aletheia.Error using
 -- elaborator does not abstract the parse result in the goal type during
 -- type-checking — inlining the `with` form here exhausts the 16 GiB heap cap.
 
-handleParseDBCTextResult : DBCTextParseError ⊎ DBC → StreamState → StreamState × Response
+handleParseDBCTextResult : Error ⊎ DBC → StreamState → StreamState × Response
 handleParseDBCTextResult (inj₁ err)  state =
-  (state , Response.Error (WithContext "ParseDBCText" (DBCTextParseErr err)))
+  (state , Response.Error (WithContext "ParseDBCText" err))
 handleParseDBCTextResult (inj₂ dbc) state =
   loadValidatedDBC "ParseDBCText" dbc state
 
@@ -56,5 +61,13 @@ handleParseDBCTextResult (inj₂ dbc) state =
 -- never longer than its encoding.  `parseTextChars` reads the characters
 -- `toList` yields once; the `String` overload `parseText` would walk them a
 -- second time.
+-- A text holding a character outside the DBC text set (printable ASCII,
+-- TAB, LF, CR) is refused at that character's line and column before any
+-- parse: `scanText` walks the characters once, the parser then reads them.
+afterScan : Maybe (Position × Char) → List Char → StreamState → StreamState × Response
+afterScan (just (pos , c)) _  state =
+  (state , Response.Error (WithContext "ParseDBCText" (InvalidCharacter (InText pos) (toℕ c))))
+afterScan nothing          cs state = handleParseDBCTextResult (parseTextChars cs) state
+
 handleParseDBCText : String → StreamState → StreamState × Response
-handleParseDBCText text state = handleParseDBCTextResult (parseTextChars (toList text)) state
+handleParseDBCText text state = afterScan (scanText initialPosition (toList text)) (toList text) state

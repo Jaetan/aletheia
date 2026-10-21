@@ -37,6 +37,7 @@ open import Aletheia.DBC.DecRat.Refinement using
    intDecRatToℤ-mkIntDecRatFromℤ)
 open import Aletheia.DBC.Types using (ATgtNodeMsg; ATgtNodeSig)
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.TextFormatter.Attributes using (quoteIdent-chars)
 open import Aletheia.CAN.Frame using (CANId)
 
 open import Aletheia.DBC.TextParser.Attributes
@@ -92,10 +93,10 @@ open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
 -- TRACE MODULES — kept for `Properties/Attributes/Line.agda` compatibility
 -- ============================================================================
 
-module TraceNodeMsg (pos : Position) (name : List Char) (n : Identifier) (cid : CANId)
+module TraceNodeMsg (pos : Position) (name : Identifier) (n : Identifier) (cid : CANId)
                     (value-chars : List Char) (outer-suffix : List Char) where
   cs-name : List Char
-  cs-name = quoteStringLit-chars name
+  cs-name = quoteIdent-chars name
 
   cs-n : List Char
   cs-n = Identifier.name n
@@ -110,11 +111,11 @@ module TraceNodeMsg (pos : Position) (name : List Char) (n : Identifier) (cid : 
             ' ' ∷ cs-id ++ₗ
             ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ [])
 
-module TraceNodeSig (pos : Position) (name : List Char) (n : Identifier) (cid : CANId)
+module TraceNodeSig (pos : Position) (name : Identifier) (n : Identifier) (cid : CANId)
                     (sig : Identifier)
                     (value-chars : List Char) (outer-suffix : List Char) where
   cs-name : List Char
-  cs-name = quoteStringLit-chars name
+  cs-name = quoteIdent-chars name
 
   cs-n : List Char
   cs-n = Identifier.name n
@@ -139,20 +140,20 @@ module TraceNodeSig (pos : Position) (name : List Char) (n : Identifier) (cid : 
 
 private
   bridge-NodeMsg-emit :
-    ∀ (name : List Char) (idn : Identifier) (raw : ℕ)
+    ∀ (name : Identifier) (idn : Identifier) (raw : ℕ)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → emit attrRelFmt (name , RrtNodeMsg idn raw , wireVal , tt) ++ₗ outer-suffix
-      ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
           toList " BU_BO_REL_ " ++ₗ Identifier.name idn ++ₗ
           ' ' ∷ emit nat raw ++ₗ
           ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
   bridge-NodeMsg-emit = emit-attrRelFmt-RrtNodeMsg-with-outer
 
   bridge-NodeSig-emit :
-    ∀ (name : List Char) (idn : Identifier) (raw : ℕ) (sig : Identifier)
+    ∀ (name : Identifier) (idn : Identifier) (raw : ℕ) (sig : Identifier)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → emit attrRelFmt (name , RrtNodeSig idn raw sig , wireVal , tt) ++ₗ outer-suffix
-      ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
           toList " BU_SG_REL_ " ++ₗ Identifier.name idn ++ₗ
           ' ' ∷ toList "SG_ " ++ₗ emit nat raw ++ₗ
           ' ' ∷ Identifier.name sig ++ₗ
@@ -165,7 +166,7 @@ private
 
 private
   parseRawAttrRel-format-roundtrip-NodeMsg-raw :
-    ∀ (pos : Position) (name : List Char) (idn : Identifier) (cid : CANId)
+    ∀ (pos : Position) (name : Identifier) (idn : Identifier) (cid : CANId)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → IdentNameStop idn
     → SuffixStops isNewlineStart outer-suffix
@@ -251,7 +252,7 @@ private
       ... | just .cid | refl = refl
 
   parseRawAttrRel-format-roundtrip-NodeSig-raw :
-    ∀ (pos : Position) (name : List Char) (idn : Identifier) (cid : CANId)
+    ∀ (pos : Position) (name : Identifier) (idn : Identifier) (cid : CANId)
       (sig : Identifier) (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → IdentNameStop idn
     → IdentNameStop sig
@@ -360,17 +361,17 @@ private
 private
   -- NodeMsg: 2 ++ₗ-assoc steps (over name idn, then over emit nat raw).
   pos-eq-chars-NodeMsg :
-    ∀ (n : List Char) (idn : Identifier) (cid : CANId) (value-chars : List Char) →
-    toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+    ∀ (n : Identifier) (idn : Identifier) (cid : CANId) (value-chars : List Char) →
+    toList "BA_REL_ " ++ₗ quoteIdent-chars n ++ₗ
       ' ' ∷ (toList "BU_BO_REL_" ++ₗ ' ' ∷ (Identifier.name idn ++ₗ
         ' ' ∷ emit nat (rawCanIdℕ cid) ++ₗ ' ' ∷ [])) ++ₗ
         (value-chars ++ₗ ';' ∷ '\n' ∷ [])
-    ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+    ≡ toList "BA_REL_ " ++ₗ quoteIdent-chars n ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name idn ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ []
   pos-eq-chars-NodeMsg n idn cid value-chars =
-    cong (λ z → toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+    cong (λ z → toList "BA_REL_ " ++ₗ quoteIdent-chars n ++ₗ
                    ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ 'B' ∷ 'O' ∷ '_' ∷
                      'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷ z)
          (trans
@@ -383,20 +384,20 @@ private
 
   -- NodeSig: 3 ++ₗ-assoc steps (over name idn, over emit nat raw, over name sig).
   pos-eq-chars-NodeSig :
-    ∀ (n : List Char) (idn : Identifier) (cid : CANId) (sig : Identifier)
+    ∀ (n : Identifier) (idn : Identifier) (cid : CANId) (sig : Identifier)
       (value-chars : List Char) →
-    toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+    toList "BA_REL_ " ++ₗ quoteIdent-chars n ++ₗ
       ' ' ∷ (toList "BU_SG_REL_" ++ₗ ' ' ∷ (Identifier.name idn ++ₗ
         ' ' ∷ (toList "SG_" ++ₗ ' ' ∷ (emit nat (rawCanIdℕ cid) ++ₗ
           ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ [])))) ++ₗ
         (value-chars ++ₗ ';' ∷ '\n' ∷ [])
-    ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+    ≡ toList "BA_REL_ " ++ₗ quoteIdent-chars n ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name idn ++ₗ
         ' ' ∷ toList "SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
         ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ []
   pos-eq-chars-NodeSig n idn cid sig value-chars =
-    cong (λ z → toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+    cong (λ z → toList "BA_REL_ " ++ₗ quoteIdent-chars n ++ₗ
                    ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ 'S' ∷ 'G' ∷ '_' ∷
                      'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷ z)
          (trans
@@ -419,12 +420,12 @@ private
 -- ============================================================================
 
 parseRawAttrRel-roundtrip-ATgtNodeMsg-RavString :
-  ∀ pos (name : List Char) (n : Identifier) (cid : CANId)
+  ∀ pos (name : Identifier) (n : Identifier) (cid : CANId)
     (s : List Char) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseRawAttrRel pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -462,13 +463,13 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavString pos name n cid s outer-suffix
                                   (pos-eq-chars-NodeMsg name n cid (quoteStringLit-chars s))))
 
 parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac :
-  ∀ pos (name : List Char) (n : Identifier) (cid : CANId)
+  ∀ pos (name : Identifier) (n : Identifier) (cid : CANId)
     (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseRawAttrRel pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -506,13 +507,13 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac pos name n cid d outer-suffi
                                   (pos-eq-chars-NodeMsg name n cid (showDecRat-dec-chars d))))
 
 parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt :
-  ∀ pos (name : List Char) (n : Identifier) (cid : CANId)
+  ∀ pos (name : Identifier) (n : Identifier) (cid : CANId)
     (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseRawAttrRel pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -538,14 +539,14 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt pos name n cid z outer-su
     showInt-eq = cong showInt-chars (intDecRatToℤ-mkIntDecRatFromℤ z)
 
     reshape-input :
-      toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
       ≡ emit attrRelFmt (name , RrtNodeMsg n (rawCanIdℕ cid) , RavwBareInt z' , tt) ++ₗ outer-suffix
     reshape-input =
       trans (cong (λ chars →
-              toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+              toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
                 toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
                 ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
                 ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
@@ -584,7 +585,7 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt pos name n cid z outer-su
                  (trans
                    (pos-eq-chars-NodeMsg name n cid (showInt-chars (intDecRatToℤ z')))
                    (cong (λ chars →
-                           toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+                           toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
                              toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
                              ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
                              ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
@@ -595,13 +596,13 @@ parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt pos name n cid z outer-su
 -- ============================================================================
 
 parseRawAttrRel-roundtrip-ATgtNodeSig-RavString :
-  ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (sig : Identifier)
+  ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (sig : Identifier)
     (s : List Char) (outer-suffix : List Char)
   → IdentNameStop n
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseRawAttrRel pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ toList "SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
@@ -640,14 +641,14 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavString pos name n cid sig s outer-suffi
                                   (pos-eq-chars-NodeSig name n cid sig (quoteStringLit-chars s))))
 
 parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac :
-  ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (sig : Identifier)
+  ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (sig : Identifier)
     (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseRawAttrRel pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ toList "SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
@@ -686,14 +687,14 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac pos name n cid sig d outer-s
                                   (pos-eq-chars-NodeSig name n cid sig (showDecRat-dec-chars d))))
 
 parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt :
-  ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (sig : Identifier)
+  ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (sig : Identifier)
     (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseRawAttrRel pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ toList "SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
@@ -720,7 +721,7 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt pos name n cid sig z oute
     showInt-eq = cong showInt-chars (intDecRatToℤ-mkIntDecRatFromℤ z)
 
     reshape-input :
-      toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ toList "SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
@@ -728,7 +729,7 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt pos name n cid sig z oute
       ≡ emit attrRelFmt (name , RrtNodeSig n (rawCanIdℕ cid) sig , RavwBareInt z' , tt) ++ₗ outer-suffix
     reshape-input =
       trans (cong (λ chars →
-              toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+              toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
                 toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
                 ' ' ∷ toList "SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
                 ' ' ∷ Identifier.name sig ++ₗ
@@ -768,7 +769,7 @@ parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt pos name n cid sig z oute
                  (trans
                    (pos-eq-chars-NodeSig name n cid sig (showInt-chars (intDecRatToℤ z')))
                    (cong (λ chars →
-                           toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+                           toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
                              toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
                              ' ' ∷ toList "SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
                              ' ' ∷ Identifier.name sig ++ₗ

@@ -215,7 +215,7 @@ error_codes:
     description: A rational field is not representable as a terminating decimal.
 
   - name: parse_invalid_identifier
-    description: A string is not a valid DBC identifier.
+    description: A name is not a DBC identifier (a letter or underscore, then letters, digits and underscores); located by field in a parsed DBC or a property, by line and column where the name starts in a DBC text.
 
   - name: parse_non_integer_multiplex_value
     description: A multiplex_values array contains a non-natural element.
@@ -327,6 +327,9 @@ error_codes:
   - name: handler_property_parse_failed
     description: An LTL property failed to parse.
 
+  - name: handler_unknown_signal
+    description: A property names a signal no signal of the loaded DBC carries; the message names it.
+
   - name: handler_validation_failed
     description: DBC validation surfaced an error on load; the envelope's issues array carries the full list.
 
@@ -365,6 +368,12 @@ error_codes:
 
   - name: input_bound_exceeded
     description: An adversarial-input bound was exceeded; the structured bound_kind field discriminates which limit.
+
+  - name: dbc_invalid_character
+    description: A character outside the DBC character set, carried as code_point; located by field and index in a parsed DBC, or by line and column in a DBC text.
+
+  - name: dbc_keyword_name
+    description: A DBC keyword used as a name, carried as keyword; located by field in a parsed DBC or a property, by line and column where the name starts in a DBC text.
 
   # The shared library's own refusal (haskell-shim/src/AletheiaFFI/Marshal.hs).
 

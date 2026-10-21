@@ -216,6 +216,18 @@ func newClient() (*aletheia.Client, error) {
 	return aletheia.NewClient(backend)
 }
 
+// latin1 maps every byte to the character of the same number, so the kernel
+// decides the file's characters whatever its encoding: a byte above 0x7E is
+// refused with its position, and the bytes of a valid UTF-8 file that is
+// ASCII reach the kernel unchanged.
+func latin1(raw []byte) string {
+	runes := make([]rune, len(raw))
+	for i, b := range raw {
+		runes[i] = rune(b)
+	}
+	return string(runes)
+}
+
 // loadDBCText reads a .dbc text file through the verified text parser. The
 // parse epilogue is the whole of DBC validation, so the warnings it returns are
 // the entire issue list: a DBC carrying errors is refused by the kernel, and
@@ -233,7 +245,7 @@ func loadDBCText(client *aletheia.Client, path string) (aletheia.DBCDefinition, 
 	if err != nil {
 		return aletheia.DBCDefinition{}, nil, fmt.Errorf("reading %s: %w", path, err)
 	}
-	parsed, err := client.ParseDBCText(context.Background(), string(raw))
+	parsed, err := client.ParseDBCText(context.Background(), latin1(raw))
 	if err != nil {
 		return aletheia.DBCDefinition{}, nil, fmt.Errorf("parsing %s: %w", path, err)
 	}

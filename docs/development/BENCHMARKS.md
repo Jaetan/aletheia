@@ -4,18 +4,18 @@ Benchmarks across the Python, C++, Go and Rust bindings: what they measure, how 
 
 ## Canonical Results
 
-Per-binding throughput in frames a second: the committed baseline set, `benchmarks/results/*_throughput_baseline.json`, measured 2026-07-26 on the host [Local baselines](#local-baselines) names. No lane's standard deviation exceeds 5.1% of its mean.
+Per-binding throughput in frames a second: the committed baseline set, `benchmarks/results/*_throughput_baseline.json`, measured 2026-10-20 on the host [Local baselines](#local-baselines) names. No lane's standard deviation exceeds 4.6% of its mean.
 
 | Benchmark | C++ (fps) | Rust (fps) | Go (fps) | Python (fps) |
 |---|---:|---:|---:|---:|
-| CAN 2.0B: Stream LTL (2 props) | 287,620 | 277,317 | 265,605 | 155,586 |
-| CAN 2.0B: Signal Extraction | 398,927 | 399,433 | 343,640 | 136,192 |
-| CAN 2.0B: Frame Building | 127,827 | 128,376 | 119,633 | 83,431 |
-| CAN-FD:   Stream LTL (3 props) | 165,215 | 164,458 | 156,353 | 106,411 |
-| CAN-FD:   Signal Extraction | 28,685 | 28,802 | 27,755 | 20,150 |
-| CAN-FD:   Frame Building | 31,778 | 32,074 | 31,334 | 26,149 |
+| CAN 2.0B: Stream LTL (2 props) | 311,324 | 309,134 | 299,301 | 174,636 |
+| CAN 2.0B: Signal Extraction | 409,175 | 403,348 | 350,113 | 163,129 |
+| CAN 2.0B: Frame Building | 117,258 | 118,859 | 108,090 | 67,122 |
+| CAN-FD:   Stream LTL (3 props) | 167,567 | 161,825 | 154,451 | 107,112 |
+| CAN-FD:   Signal Extraction | 29,112 | 29,079 | 27,901 | 20,280 |
+| CAN-FD:   Frame Building | 31,045 | 30,960 | 29,647 | 24,153 |
 
-Per-frame C++ latency on CAN 2.0B streaming has a median of 3.2 µs and a mean of 3.6 µs, from the committed latency baseline. Streaming does not retain what it accepts: the Python suite fails a session of 100,000 frames whose peak resident set grows by 32 MiB.
+Per-frame C++ latency on CAN 2.0B streaming has a median of 2.9 µs and a mean of 3.3 µs, from the committed latency baseline. Streaming does not retain what it accepts: the Python suite fails a session of 100,000 frames whose peak resident set grows by 32 MiB.
 
 ---
 
@@ -46,7 +46,7 @@ cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang
 
 `benchmarks/results/<binding>_<mode>_baseline.json`, one per binding and mode, is the committed measurement; the runner's own `<binding>_<mode>.json` beside it is ignored by git.
 
-Measured on an Intel Core Ultra 9 285K of 24 cores under WSL2, with `clang++-22` at `-O3`; each file's `system` object records the runtime that measured it. A throughput baseline is 10 runs of 10,000 frames per lane, a latency baseline 10,000 timed operations per lane, and a scaling baseline the full sweep, five trace sizes where `--quick` runs four. A fresh report also records every flag its run read in its `parameters` object, the warmup and the scaling run count among them, and a C++ report names its compiler in `system`; the committed files carry neither, so their warmup and scaling run count are not recorded.
+Measured on an Intel Core Ultra 9 285K of 24 cores under WSL2, with `clang++-23` at `-O3`; each file's `system` object records the runtime that measured it. A throughput baseline is 10 runs of 10,000 frames per lane, a latency baseline 10,000 timed operations per lane, and a scaling baseline the full sweep, five trace sizes where `--quick` runs four. A fresh report also records every flag its run read in its `parameters` object, the warmup and the scaling run count among them, and a C++ report names its compiler in `system`; the committed files carry both.
 
 To read a fresh run against its baseline, run `cabal run shake -- build`, since a stale library measures the previous Agda core; run the mode with the counts the baseline records; and give `compare.py` the binding's fresh file and its baseline:
 

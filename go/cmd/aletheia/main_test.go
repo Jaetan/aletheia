@@ -919,3 +919,13 @@ func TestNewClientNotFound(t *testing.T) {
 		t.Errorf("newClient error = %v; want %q", err, want)
 	}
 }
+
+// latin1 maps every byte to the character of the same number: the last ASCII
+// byte stays itself, and the bytes from 0x80 to 0xFF become U+0080 to U+00FF,
+// so the kernel sees the byte's number in each refusal's code point.
+func TestLatin1MapsEveryByteToTheCharacterOfTheSameNumber(t *testing.T) {
+	raw := []byte{0x41, 0x7f, 0x80, 0xb0, 0xff}
+	if got, want := latin1(raw), "A\u007f\u0080\u00b0\u00ff"; got != want {
+		t.Fatalf("latin1(%x) = %q, want %q", raw, got, want)
+	}
+}

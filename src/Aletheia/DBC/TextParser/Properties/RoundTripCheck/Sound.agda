@@ -21,7 +21,7 @@ open import Function.Bundles using (Equivalence)
 open import Relation.Nullary.Decidable using (toWitness)
 open import Relation.Binary.PropositionalEquality using (_≡_; cong; sym)
 
-open import Aletheia.Error using (DBCTextParseError)
+open import Aletheia.Error using (Error)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.TextParser using (parseText)
 open import Aletheia.DBC.TextFormatter using (formatText)
@@ -31,7 +31,7 @@ open import Aletheia.DBC.TextParser.RoundTripCheck using (rtGo; roundTripsᵇ)
 --   • inj₁ e: `rtGo (inj₁ _) d = false`, so `false ≡ true` is absurd.
 --   • inj₂ d″: `rtGo (inj₂ d″) d = ⌊ d ≟-DBC d″ ⌋`; `⌊…⌋ ≡ true` ⇒ `T ⌊…⌋`
 --     (`Equivalence.from T-≡`) ⇒ the witness `d ≡ d″` (`toWitness`) ⇒ `inj₂ d″ ≡ inj₂ d`.
-rtGo-sound : ∀ (r : DBCTextParseError ⊎ DBC) (d : DBC) → rtGo r d ≡ true → r ≡ inj₂ d
+rtGo-sound : ∀ (r : Error ⊎ DBC) (d : DBC) → rtGo r d ≡ true → r ≡ inj₂ d
 rtGo-sound (inj₁ _)  d ()
 rtGo-sound (inj₂ d″) d eq = cong inj₂ (sym (toWitness (Equivalence.from T-≡ eq)))
 

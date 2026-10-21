@@ -12,15 +12,9 @@
 --   string-lit   ::= '"' (any-char-but-quote | '""')* '"'
 --   ws           ::= (" " | "\t")+
 --   newline      ::= "\n" | "\r\n"
---   rational, integer-lit, nat — re-exported from the JSON parser (same
---   grammar shape: `-?digit+ (\.digit+)? ([eE][+-]?digit+)?`).
---
--- Why re-export instead of duplicate: DBC-text rationals share the exact
--- grammar of the JSON parser's rationals, and `Aletheia.Protocol.JSON.Parse`
--- is already exercised by its own corpus.  Hoisting to a neutral
--- `Aletheia.Parser.Lexical` would broaden the blast radius of the code move
--- beyond this code move's scope; a future cleanup can do that once the DBC
--- text parser has its own test matrix.
+--   nat          ::= digit+
+-- A number with a sign, a fraction or an exponent is read by
+-- `Aletheia.DBC.TextParser.DecRatParse`, on `parseDigits`.
 --
 -- `Identifier.name` is `List Char`, so the lexer builds Identifiers directly via
 -- `mkIdentFromChars` (axiom-free) with no String bridge.  RULE: keep it that way —
@@ -28,27 +22,46 @@
 -- `DBC/TextParser/` that transitively imports it, out of `--safe`.
 module Aletheia.DBC.TextParser.Lexer where
 
-open import Data.Bool using (Bool; _∨_; not)
+open import Data.Bool using (Bool; true; false; _∨_; not; if_then_else_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.List using (List; _∷_)
+open import Data.Char.Base using (isDigit)
+open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (ℕ; zero; suc; _∸_; _+_)
+open import Data.List using (length; takeWhileᵇ)
+open import Data.Sum using (inj₁; inj₂)
+open import Data.Product using (_,_)
+open import Aletheia.Limits using (max-identifier-length)
+open import Aletheia.Parser.Position using (Position; advancePosition)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; fail; _>>=_; _<|>_; _*>_;
-   satisfy; char; string; many; some)
+  ( Parser; pure; _>>=_; _<$>_; _<|>_; _*>_; satisfy; char; string; many; some
+  ; ParseResult; mkResult; at; refuse; refused )
 
 open import Aletheia.DBC.Identifier using
-  (Identifier; mkIdent; isIdentStart; isIdentCont; mkIdentFromChars) public
+  ( Identifier; mkIdent; isIdentStart; isIdentCont; mkIdentFromChars
+  ; parseIdentifierField; TooLong; BadChars ) public
 
-open import Aletheia.Protocol.JSON.Parse using (parseNatural; parseDigits) public
+open import Aletheia.DBC.DecRat.Literal using (natLiteral)
+
+-- A run of one or more digits, as read.
+parseDigits : Parser (List Char)
+parseDigits = some (satisfy isDigit)
+
+-- A natural number: its digits, or 2^64 when the run holds at least 65
+-- significant digits (`Aletheia.DBC.DecRat.Literal.natLiteral`), which the
+-- bound checks after the parse refuse.
+parseNatural : Parser ℕ
+parseNatural = natLiteral <$> parseDigits
 
 -- ============================================================================
 -- CHARACTER CLASSES
 -- ============================================================================
 -- `isIdentStart` / `isIdentCont` are defined in `Aletheia.DBC.Identifier` and
--- re-exported via the `open import ... public` above, so this module remains
--- the canonical surface for DBC-text lexical primitives.
+-- re-exported via the `open import ... public` above, so this module is the
+-- surface for the DBC text's lexical primitives.
 
 -- Intraline whitespace — matches the grammar `ws ::= (" " | "\t")+`.
 -- Explicitly excludes newlines so lexers sharing a BNF line cannot swallow
@@ -56,11 +69,10 @@ open import Aletheia.Protocol.JSON.Parse using (parseNatural; parseDigits) publi
 isHSpace : Char → Bool
 isHSpace c = ⌊ c ≟ᶜ ' ' ⌋ ∨ ⌊ c ≟ᶜ '\t' ⌋
 
--- Non-newline char predicate.  Dual of `isNewlineStart` — `isNonNewline c`
--- holds iff `c` is neither `'\n'` nor `'\r'`, i.e., the char is safe to
--- consume inside a single line.  Used by `parseBitTiming`'s opaque-tail
--- consumer (`many (satisfy isNonNewline)`) and by the Format DSL
--- `nonNewlineRun` constructor.
+-- Non-newline char predicate.  Dual of `isNewlineStart`: `isNonNewline c`
+-- holds iff `c` is neither `'\n'` nor `'\r'`, the char is safe to consume
+-- inside a single line.  The Format DSL's `nonNewlineRun` reads with it (the
+-- `BS_:` line's opaque tail among its users).
 isNonNewline : Char → Bool
 isNonNewline c = not (⌊ c ≟ᶜ '\n' ⌋ ∨ ⌊ c ≟ᶜ '\r' ⌋)
 
@@ -68,34 +80,69 @@ isNonNewline c = not (⌊ c ≟ᶜ '\n' ⌋ ∨ ⌊ c ≟ᶜ '\r' ⌋)
 -- IDENTIFIERS
 -- ============================================================================
 
--- Build an Identifier from chars after satisfy accepted the head and `many
--- (satisfy isIdentCont)` accepted every element of the tail.  This is
--- axiom-free: `mkIdentFromChars` (in `Aletheia.DBC.Identifier`)
--- stores the char list directly as the Identifier's `name` field, with the
--- `T (validIdentifierᵇ (h ∷ t))` witness coming from the `T?` decision.
---
--- Split into an outer `buildIdent h t = fromMaybeIdent (mkIdentFromChars
--- (h ∷ t))` rather than a top-level `with` so the layer-2 roundtrip proof
--- (`Properties.Primitives.parseIdentifier-roundtrip`) can substitute the
--- `mkIdentFromChars`-result via `cong` — the `with` form's internal
--- case-split would be opaque to outer rewrites.  Exposed (not private) so
--- the roundtrip proof can name them explicitly in `bind-just-step`
--- continuations.  The `nothing` branch is logically unreachable here (the
--- structural guarantees of `satisfy isIdentStart >>= many (satisfy
--- isIdentCont)` imply `validIdentifierᵇ (h ∷ t) = true`) but the parser
--- machinery still requires a `Maybe`-shaped match.
-fromMaybeIdent : Maybe Identifier → Parser Identifier
-fromMaybeIdent (just i) = pure i
-fromMaybeIdent nothing  = fail
+-- At most `n` characters satisfying `pred`, read one at a time; stops at the
+-- first other character or when `n` are read.  Structural on the input; the
+-- counter is data beside it.
+atMost : ℕ → (Char → Bool) → Parser (List Char)
+atMost _       _    pos []       = at pos , just (mkResult [] pos [])
+atMost zero    _    pos input    = at pos , just (mkResult [] pos input)
+atMost (suc n) pred pos (c ∷ cs) with pred c
+... | false = at pos , just (mkResult [] pos (c ∷ cs))
+... | true with atMost n pred (advancePosition pos c) cs
+...   | pos′ , just r  = pos′ , just (mkResult (c ∷ ParseResult.value r) (ParseResult.position r) (ParseResult.remaining r))
+...   | pos′ , nothing = pos′ , nothing
 
-buildIdent : Char → List Char → Parser Identifier
-buildIdent h t = fromMaybeIdent (mkIdentFromChars (h ∷ t))
+-- The run of identifier characters: a start character, then at most
+-- `max-identifier-length ∸ 1` continuation characters.
+identRun : Parser (List Char)
+identRun =
+  satisfy isIdentStart >>= λ h →
+  atMost (max-identifier-length ∸ 1) isIdentCont >>= λ t →
+  pure (h ∷ t)
 
+-- How many characters at the head satisfy `pred`.
+countWhile : (Char → Bool) → List Char → ℕ
+countWhile _    []       = 0
+countWhile pred (c ∷ cs) = if pred c then suc (countWhile pred cs) else 0
+
+-- The one identifier decision on a finished run, read from `start`: the
+-- identifier, or the refusal on the watermark.
+decideName : Position → List Char → Parser Identifier
+decideName start run pos input with parseIdentifierField run
+... | inj₂ i = at pos , just (mkResult i pos input)
+... | inj₁ e = refuse (refused start e) pos input
+
+-- After the run: a further identifier character is the 129th, and the name
+-- is refused by its length, counted to its end; otherwise the decision.
+decideRun : Position → List Char → Parser Identifier
+decideRun start run pos [] = decideName start run pos []
+decideRun start run pos (c ∷ cs) with isIdentCont c
+... | true  = refuse (refused start (TooLong (length run + suc (countWhile isIdentCont cs)))) pos (c ∷ cs)
+... | false = decideName start run pos (c ∷ cs)
+
+-- An identifier, read where `pos` stands: the run, then the decision, a
+-- refusal carrying `pos` as the name's start.  A word starting with a
+-- character no identifier starts with (a digit) is read to its end and
+-- refused as not an identifier, as the JSON route refuses the same name.
 parseIdentifier : Parser Identifier
-parseIdentifier =
+parseIdentifier pos [] = at pos , nothing
+parseIdentifier pos (c ∷ cs) =
+  if isIdentStart c then (identRun >>= decideRun pos) pos (c ∷ cs)
+  else if isIdentCont c then refuse (refused pos (BadChars (c ∷ takeWhileᵇ isIdentCont cs))) pos (c ∷ cs)
+  else (at pos , nothing)
+
+-- On a start character the identifier parser is the run then the decision.
+parseIdentifier-start : ∀ pos h cs → isIdentStart h ≡ true
+  → parseIdentifier pos (h ∷ cs) ≡ (identRun >>= decideRun pos) pos (h ∷ cs)
+parseIdentifier-start pos h cs eq rewrite eq = refl
+
+-- A word: the identifier grammar alone, every character kept, no decision.
+-- The `NS_` block's keyword lines are words.
+parseWord : Parser (List Char)
+parseWord =
   satisfy isIdentStart >>= λ h →
   many (satisfy isIdentCont) >>= λ t →
-  buildIdent h t
+  pure (h ∷ t)
 
 -- ============================================================================
 -- STRING LITERALS

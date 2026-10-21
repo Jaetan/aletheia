@@ -2,45 +2,47 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- What the size-bound checker guarantees beyond its type, which already
--- says an accepted DBC meets every bound: a DBC within every bound is
--- accepted, as itself, and a refused one is outside some bound.  The same
--- for replacing a bounded DBC's node list.
+-- What the bounds checker guarantees beyond its type, which already says
+-- an accepted DBC meets every bound: a DBC within every bound is accepted,
+-- as itself, and a refused one is outside some bound.  The same for
+-- replacing a bounded DBC's node list.
 module Aletheia.DBC.Bounds.Properties where
 
-open import Data.Bool using (T; true)
+open import Data.Bool using (Bool; T; true)
+open import Data.Bool.Properties using (T-≡)
+open import Data.Char using (Char)
 open import Data.Empty using (⊥)
-open import Data.List using (List; []; _∷_; length)
+open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.Nat using (_≤_)
+open import Data.Maybe using (nothing; just)
+open import Data.Nat using (ℕ; suc; _≤_)
 open import Data.Nat.Properties using (≤⇒≤ᵇ)
 open import Data.Product using (∃-syntax; _×_; _,_)
 open import Data.Sum using (inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
+open import Function.Bundles using (Equivalence)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; sym)
 open import Relation.Nullary using (¬_)
 
 open import Aletheia.Data.Dec0 using (Dec₀; _because₀_; does₀)
+open import Aletheia.DBC.Identifier using (firstFailing)
 open import Aletheia.DBC.Types using
-  ( DBCSignal; SignalPresence; Always; When
-  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
-  ; AttrDef; AttrDefault; AttrAssign
-  ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
-  ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
-  )
+  ( DBCSignal; SignalPresence; Always; When; DBCAttribute; DBCAttrDef
+  ; DBCAttrDefault; DBCAttrAssign; AttrDef; AttrDefault; AttrAssign; AttrType
+  ; ATInt; ATFloat; ATString; ATEnum; ATHex; AttrValue; AVInt; AVFloat
+  ; AVString; AVEnum; AVHex )
 open import Aletheia.DBC.Bounds using
-  ( Checked; [_]; _>>=_; decide; bound; count; walk; every
-  ; SelectorCount; SignalCounts; MessageCounts; LabelCount; AttributeCounts; DBCCounts
-  ; ShortLabels; SignalTexts; ShortType; ShortValue; AttributeTexts; DBCTexts
-  ; IsBoundedDBC; BoundedDBC; bounded; isBounded?; checkBounds; withNodes
-  ; selectorCount; signalCounts; messageCounts; labelCount; attributeCounts; dbcCounts
-  ; shortLabels; signalTexts; shortType; shortValue; attributeTexts; dbcTexts
+  ( Checked; [_]; _>>=_; decide; bound; walk; every; SelectorCount
+  ; SignalCounts; MessageCounts; LabelCount; AttributeCounts; DBCCounts
+  ; CharsOK; chars; charsAt; TextOK; text; LabelsOK; labels; SignalTexts
+  ; TypeOK; ValueOK; AttributeTexts; DBCTexts; IsBoundedDBC; BoundedDBC
+  ; bounded; isBounded?; checkBounds; NodesOK; nodesOK; withNodes
+  ; selectorCount; signalCounts; messageCounts; labelCount; attributeCounts
+  ; dbcCounts; signalTexts; typeOK; valueOK; attributeTexts; dbcTexts
   ; SmallSelectors; SignalMagnitudes; EnvVarMagnitudes; SmallType; SmallValue
-  ; AttributeMagnitudes; DBCMagnitudes
-  ; smallSelectors; signalMagnitudes; envVarMagnitudes; smallType; smallValue
-  ; attributeMagnitudes; dbcMagnitudes
-  )
-open import Aletheia.Limits using (ArrayCardinality; max-nodes-per-file)
+  ; AttributeMagnitudes; DBCMagnitudes; smallSelectors; signalMagnitudes
+  ; envVarMagnitudes; smallType; smallValue; attributeMagnitudes
+  ; dbcMagnitudes )
 
 -- ============================================================================
 -- ACCEPTANCE, COMPOSITIONALLY
@@ -118,47 +120,60 @@ dbcCounts-accepts dbc c =
   bind-accepts (bound-accepts (DBCCounts.unresolvedValueDescs c)) λ _ → tt
 
 -- ============================================================================
--- TEXTS
+-- CHARACTERS AND TEXTS
 -- ============================================================================
 
-shortLabels-accepts : ∀ tag vs → ShortLabels vs → Accepted (shortLabels tag vs)
-shortLabels-accepts _ _ ps = every-accepts (λ _ → bound-accepts) ps
+-- A list whose every character satisfies `p` has no failing character.
+firstFailing-nothing : ∀ (p : Char → Bool) {cs} → CharsOK p cs → ∀ i → firstFailing p i cs ≡ nothing
+firstFailing-nothing p []        _ = refl
+firstFailing-nothing p (pc ∷ ps) i rewrite Equivalence.to T-≡ pc = firstFailing-nothing p ps (suc i)
+
+charsAt-accepts : ∀ p tag cs r (eq : firstFailing p 0 cs ≡ r) → r ≡ nothing → Accepted (charsAt p tag cs r eq)
+charsAt-accepts p tag cs nothing  _ _ = tt
+charsAt-accepts p tag cs (just _) _ ()
+
+chars-accepts : ∀ p tag {cs} → CharsOK p cs → Accepted (chars p tag cs)
+chars-accepts p tag {cs} ps = charsAt-accepts p tag cs _ refl (firstFailing-nothing p ps 0)
+
+text-accepts : ∀ tag {cs} → TextOK cs → Accepted (text tag cs)
+text-accepts tag (s , a) =
+  bind-accepts (bound-accepts s) λ _ → bind-accepts (chars-accepts _ tag a) λ _ → tt
+
+labels-accepts : ∀ tag {vs} → LabelsOK vs → Accepted (labels tag vs)
+labels-accepts tag ps = every-accepts (λ _ → text-accepts tag) ps
 
 signalTexts-accepts : ∀ sig → SignalTexts sig → Accepted (signalTexts sig)
 signalTexts-accepts sig t =
-  bind-accepts (bound-accepts (SignalTexts.unit t)) λ _ →
-  bind-accepts (shortLabels-accepts _ _ (SignalTexts.labels t)) λ _ → tt
+  bind-accepts (text-accepts _ (SignalTexts.unit t)) λ _ →
+  bind-accepts (labels-accepts _ (SignalTexts.labels t)) λ _ → tt
 
-shortType-accepts : ∀ t → ShortType t → Accepted (shortType t)
-shortType-accepts (ATInt _ _)   _  = tt
-shortType-accepts (ATFloat _ _) _  = tt
-shortType-accepts ATString      _  = tt
-shortType-accepts (ATEnum _)    ps = every-accepts (λ _ → bound-accepts) ps
-shortType-accepts (ATHex _ _)   _  = tt
+typeOK-accepts : ∀ t → TypeOK t → Accepted (typeOK t)
+typeOK-accepts (ATInt _ _)   _  = tt
+typeOK-accepts (ATFloat _ _) _  = tt
+typeOK-accepts ATString      _  = tt
+typeOK-accepts (ATEnum _)    ps = every-accepts (λ _ → text-accepts _) ps
+typeOK-accepts (ATHex _ _)   _  = tt
 
-shortValue-accepts : ∀ v → ShortValue v → Accepted (shortValue v)
-shortValue-accepts (AVInt _)    _  = tt
-shortValue-accepts (AVFloat _)  _  = tt
-shortValue-accepts (AVString _) le = bound-accepts le
-shortValue-accepts (AVEnum _)   _  = tt
-shortValue-accepts (AVHex _)    _  = tt
+valueOK-accepts : ∀ v → ValueOK v → Accepted (valueOK v)
+valueOK-accepts (AVInt _)    _ = tt
+valueOK-accepts (AVFloat _)  _ = tt
+valueOK-accepts (AVString _) t = text-accepts _ t
+valueOK-accepts (AVEnum _)   _ = tt
+valueOK-accepts (AVHex _)    _ = tt
 
 attributeTexts-accepts : ∀ a → AttributeTexts a → Accepted (attributeTexts a)
-attributeTexts-accepts (DBCAttrDef d) (n , t) =
-  bind-accepts (bound-accepts n) λ _ → bind-accepts (shortType-accepts (AttrDef.attrType d) t) λ _ → tt
-attributeTexts-accepts (DBCAttrDefault d) (n , v) =
-  bind-accepts (bound-accepts n) λ _ → bind-accepts (shortValue-accepts (AttrDefault.value d) v) λ _ → tt
-attributeTexts-accepts (DBCAttrAssign a) (n , v) =
-  bind-accepts (bound-accepts n) λ _ → bind-accepts (shortValue-accepts (AttrAssign.value a) v) λ _ → tt
+attributeTexts-accepts (DBCAttrDef d)     t = typeOK-accepts (AttrDef.attrType d) t
+attributeTexts-accepts (DBCAttrDefault d) v = valueOK-accepts (AttrDefault.value d) v
+attributeTexts-accepts (DBCAttrAssign a)  v = valueOK-accepts (AttrAssign.value a) v
 
 dbcTexts-accepts : ∀ dbc → DBCTexts dbc → Accepted (dbcTexts dbc)
 dbcTexts-accepts dbc t =
-  bind-accepts (bound-accepts (DBCTexts.version t)) λ _ →
+  bind-accepts (text-accepts _ (DBCTexts.version t)) λ _ →
   bind-accepts (every-accepts (λ _ → every-accepts signalTexts-accepts) (DBCTexts.signals t)) λ _ →
-  bind-accepts (every-accepts (λ _ → bound-accepts) (DBCTexts.comments t)) λ _ →
+  bind-accepts (every-accepts (λ _ → text-accepts _) (DBCTexts.comments t)) λ _ →
   bind-accepts (every-accepts attributeTexts-accepts (DBCTexts.attributes t)) λ _ →
-  bind-accepts (every-accepts (λ _ → shortLabels-accepts _ _) (DBCTexts.valueTables t)) λ _ →
-  bind-accepts (every-accepts (λ _ → shortLabels-accepts _ _) (DBCTexts.unresolvedValueDescs t)) λ _ → tt
+  bind-accepts (every-accepts (λ _ → labels-accepts _) (DBCTexts.valueTables t)) λ _ →
+  bind-accepts (every-accepts (λ _ → labels-accepts _) (DBCTexts.unresolvedValueDescs t)) λ _ → tt
 
 -- ============================================================================
 -- THE BOUNDED DBC
@@ -239,17 +254,21 @@ checkBounds-refuses dbc eq p with checkBounds-accepts dbc p
 -- REPLACING THE NODE LIST
 -- ============================================================================
 
-withNodes-accepts : ∀ b ns → length ns ≤ max-nodes-per-file
+nodesOK-accepts : ∀ ns → NodesOK ns → Accepted (nodesOK ns)
+nodesOK-accepts ns le = bound-accepts le
+
+withNodes-accepts : ∀ b ns → NodesOK ns
   → ∃[ b′ ] (withNodes b ns ≡ inj₂ b′ × BoundedDBC.dbc b′ ≡ record (BoundedDBC.dbc b) { nodes = ns })
-withNodes-accepts (bounded d p) ns le with count "nodes array" (length ns) max-nodes-per-file | bound-accepts {ArrayCardinality} {"nodes array"} le
-... | inj₂ [ _ ] | _ = _ , refl , refl
+withNodes-accepts (bounded d p) ns ok with nodesOK ns | nodesOK-accepts ns ok
+... | inj₂ [ _ ] | _  = _ , refl , refl
+... | inj₁ _     | ()
 
 withNodes-dbc : ∀ b ns {b′} → withNodes b ns ≡ inj₂ b′
   → BoundedDBC.dbc b′ ≡ record (BoundedDBC.dbc b) { nodes = ns }
-withNodes-dbc (bounded d p) ns eq with count "nodes array" (length ns) max-nodes-per-file
+withNodes-dbc (bounded d p) ns eq with nodesOK ns
 withNodes-dbc (bounded d p) ns refl | inj₂ [ _ ] = refl
 
-withNodes-refuses : ∀ b ns {e} → withNodes b ns ≡ inj₁ e → ¬ (length ns ≤ max-nodes-per-file)
-withNodes-refuses b ns eq le with withNodes-accepts b ns le
+withNodes-refuses : ∀ b ns {e} → withNodes b ns ≡ inj₁ e → ¬ NodesOK ns
+withNodes-refuses b ns eq ok with withNodes-accepts b ns ok
 ... | _ , eq′ , _ with trans (sym eq) eq′
 ...   | ()

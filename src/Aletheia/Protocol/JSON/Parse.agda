@@ -2,230 +2,229 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- JSON parser (uses parser combinators, structurally recursive).
+-- The JSON parser: RFC 8259's grammar, on parser combinators that recurse
+-- structurally on the input.
 --
--- Purpose: Parse JSON strings into the JSON data type.
--- Supports: null, booleans, numbers (integer/decimal/scientific), strings, arrays, objects.
--- Rational: Decimals parsed to exact ℚ representation (e.g., 3.14 → 314/100).
+-- It reads a whole text holding one value and nothing after it.  Whitespace
+-- is RFC 8259's four characters; an integer part is `0` or starts with a
+-- digit from 1 to 9; a string holds no raw character below U+0020, and a
+-- `\u` escape names a Unicode scalar value, a surrogate pair read as one
+-- character and a lone half refused.  Numbers are read exactly as rationals
+-- (`Aletheia.DBC.DecRat.Literal`): "42" is 42/1, "3.14" is 314/100, "1e-7"
+-- is 1/10000000.
 module Aletheia.Protocol.JSON.Parse where
 
-open import Data.String using (String; toList; fromList)
-open import Data.List using (List; []; _∷_)
-open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.Char.Base using (isDigit)
-open import Data.Bool using (true; false; not; _∧_)
-open import Data.Maybe using (Maybe; just; nothing; fromMaybe; maybe′) renaming (map to mapₘ)
-open import Data.Nat using (ℕ; zero; suc)
-open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Rational as Rat using (ℚ)
+open import Data.String using (String; fromList)
+open import Data.List using (List; []; _∷_; [_])
+open import Data.Char using (Char; _≈ᵇ_)
+open import Data.Char.Base using (toℕ; fromℕ)
+open import Data.Bool using (Bool; true; false; not; _∧_; _∨_; if_then_else_)
+open import Data.Bool.ListAction using (any)
+open import Data.Maybe using (Maybe; just; nothing; fromMaybe; maybe′)
+open import Data.Nat using (ℕ; _+_; _*_; _∸_; _<ᵇ_)
+open import Data.Rational using (ℚ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Parser.Combinators using (Parser; pure; fail; _>>=_; _<$>_; _<|>_; _*>_; _<*_; satisfy; char; digit; spaces; string; many; some; optional; runParser)
+open import Aletheia.Parser.Combinators using
+  (Parser; pure; fail; _>>=_; _<$>_; _<*>_; _<|>_; _*>_; _<*_; satisfy; char; anyChar;
+   string; many; optional; eof)
 open import Aletheia.DBC.DecRat using (toℚ)
-open import Aletheia.DBC.DecRat.Literal using (natLiteral; scientificLiteral)
+open import Aletheia.DBC.DecRat.Literal using (scientificLiteral)
 open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
 
 -- ============================================================================
--- PRIMITIVE PARSERS
+-- WHITESPACE AND LITERALS
 -- ============================================================================
 
--- A run of one or more digits, as read.
-parseDigits : Parser (List Char)
-parseDigits = some (satisfy isDigit)
+-- Space, horizontal tab, line feed, carriage return.
+whitespace : List Char
+whitespace = ' ' ∷ '\t' ∷ '\n' ∷ '\r' ∷ []
 
--- A natural number: its digits, or 2^64 when the run holds at least 65
--- significant digits (`Aletheia.DBC.DecRat.Literal.natLiteral`), which the
--- bound checks after the parse refuse.
-parseNatural : Parser ℕ
-parseNatural = natLiteral <$> parseDigits
+isWhitespace : Char → Bool
+isWhitespace c = any (c ≈ᵇ_) whitespace
 
--- Parse integer (with optional minus sign)
-parseInt : Parser ℤ
-parseInt = do
-  neg ← optional (char '-')
-  n ← parseNatural
-  parseIntHelper neg n
-  where
-    parseIntHelper : Maybe Char → ℕ → Parser ℤ
-    parseIntHelper nothing n = pure (+ n)
-    parseIntHelper (just _) zero = pure (+ 0)
-    parseIntHelper (just _) (suc n') = pure (-[1+ n' ])
+ws : Parser (List Char)
+ws = many (satisfy isWhitespace)
 
--- Helper: <$ operator (discard result, return constant)
 _<$_ : ∀ {A B : Set} → A → Parser B → Parser A
 a <$ p = p >>= λ _ → pure a
 
 infixl 4 _<$_
 
--- ============================================================================
--- JSON VALUE PARSERS
--- ============================================================================
-
 parseNull : Parser JSON
 parseNull = JNull <$ string "null"
 
 parseBoolean : Parser JSON
-parseBoolean =
-  (JBool true <$ string "true") <|>
-  (JBool false <$ string "false")
+parseBoolean = (JBool true <$ string "true") <|> (JBool false <$ string "false")
 
--- A rational number: integers, decimals and scientific notation, read
--- through the one literal core (`Aletheia.DBC.DecRat.Literal`): the
--- significand's digits are folded only when the value fits, and the
--- exponent's digits are folded only when they can matter, so the cost is
--- linear in the literal's length and a literal past the component bound
--- is held at 2^64 for the bound check after the parse.
--- Examples: "42" → 42/1, "3.14" → 314/100, "-1.5" → -3/2, "-0.1" → -1/10,
---           "1e-7" → 1/10000000, "2.5E+3" → 2500/1.
+-- ============================================================================
+-- NUMBERS
+-- ============================================================================
+
+-- A decimal digit, `0` to `9`.  Decided on the character's code, so a
+-- proof can read what it accepted.
+isDigitChar : Char → Bool
+isDigitChar c = (47 <ᵇ toℕ c) ∧ (toℕ c <ᵇ 58)
+
+isNonZeroDigit : Char → Bool
+isNonZeroDigit c = isDigitChar c ∧ not (c ≈ᵇ '0')
+
+digit : Parser Char
+digit = satisfy isDigitChar
+
+-- A run of one or more digits, as read.
+digitRun : Parser (List Char)
+digitRun = _∷_ <$> digit <*> many digit
+
+-- `0`, or a digit from 1 to 9 followed by digits.
+parseIntPart : Parser (List Char)
+parseIntPart =
+  ([_] <$> char '0') <|>
+  (_∷_ <$> satisfy isNonZeroDigit <*> many digit)
+
+-- An exponent's sign and digits, after its `e` or `E`.
+exponentParts : Char → Maybe Char → List Char → Maybe Char × List Char
+exponentParts _ sign digits = sign , digits
+
+-- The exponent: `e` or `E`, an optional sign, digits.
+parseExponent : Parser (Maybe Char × List Char)
+parseExponent = exponentParts <$> (char 'e' <|> char 'E') <*> optional (char '+' <|> char '-') <*> digitRun
+
+-- A number's value, through the literal core `scientificLiteral`: it folds
+-- the significand's digits only while the value fits and the exponent's only
+-- while they can matter, so the cost is linear in the literal's length, and
+-- a literal past the component bound is held for the bound check after the
+-- parse.
+literalValue : Maybe Char → List Char → Maybe (List Char) → Maybe (Maybe Char × List Char) → ℚ
+literalValue neg int frac exp =
+  toℚ (scientificLiteral neg int (fromMaybe [] frac) (maybe′ proj₁ nothing exp) (maybe′ proj₂ [] exp))
+
 parseRational : Parser ℚ
-parseRational = do
-  neg  ← optional (char '-')
-  int  ← parseDigits
-  frac ← optional (char '.' *> some digit)
-  exp  ← optional parseExponent
-  pure (toℚ (scientificLiteral neg int (fromMaybe [] frac)
-                               (expSign exp) (expDigits exp)))
-  where
-    -- The exponent part: e/E, an optional sign, digits.
-    parseExponent : Parser (Maybe Char × List Char)
-    parseExponent = do
-      _      ← char 'e' <|> char 'E'
-      sign   ← optional (char '+' <|> char '-')
-      digits ← parseDigits
-      pure (sign , digits)
-
-    expSign : Maybe (Maybe Char × List Char) → Maybe Char
-    expSign = maybe′ proj₁ nothing
-
-    expDigits : Maybe (Maybe Char × List Char) → List Char
-    expDigits = maybe′ proj₂ []
+parseRational =
+  literalValue <$> optional (char '-') <*> parseIntPart <*> optional (char '.' *> digitRun)
+               <*> optional parseExponent
 
 parseNumber : Parser JSON
 parseNumber = JNumber <$> parseRational
 
--- Parse a literal (non-escape) character inside a JSON string.
--- Excludes the closing quote and the escape introducer.
-parseLiteralStringChar : Parser Char
-parseLiteralStringChar = satisfy (λ c → not ⌊ c ≟ᶜ '"' ⌋ ∧ not ⌊ c ≟ᶜ '\\' ⌋)
+-- ============================================================================
+-- STRINGS
+-- ============================================================================
 
--- Decode the second character of a JSON escape sequence.
--- Supports the ASCII-range escapes JSON.stringify (Python json, Go
--- encoding/json, JavaScript) emits: \" \\ \/ \n \t \r \b \f.  Unicode
--- \uXXXX escapes are intentionally unsupported — DBC text and the rest
--- of the protocol stay within ASCII.
+-- A character a string may hold as it is: U+0020 and above, except the
+-- quotation mark and the reverse solidus.
+isUnescaped : Char → Bool
+isUnescaped c = (31 <ᵇ toℕ c) ∧ not (c ≈ᵇ '"') ∧ not (c ≈ᵇ '\\')
+
+isHexDigit : Char → Bool
+isHexDigit c = isDigitChar c ∨ ((96 <ᵇ toℕ c) ∧ (toℕ c <ᵇ 103)) ∨ ((64 <ᵇ toℕ c) ∧ (toℕ c <ᵇ 71))
+
+-- A hex digit's value, for a character `isHexDigit` accepts.
+hexDigitValue : Char → ℕ
+hexDigitValue c =
+  if isDigitChar c then toℕ c ∸ 48 else if 96 <ᵇ toℕ c then toℕ c ∸ 87 else toℕ c ∸ 55
+
+hexDigit : Parser ℕ
+hexDigit = hexDigitValue <$> satisfy isHexDigit
+
+-- The UTF-16 code unit four hex digits write.
+codeUnit : ℕ → ℕ → ℕ → ℕ → ℕ
+codeUnit a b c d = ((a * 16 + b) * 16 + c) * 16 + d
+
+hex4 : Parser ℕ
+hex4 = codeUnit <$> hexDigit <*> hexDigit <*> hexDigit <*> hexDigit
+
+isHighSurrogate : ℕ → Bool
+isHighSurrogate n = (55295 <ᵇ n) ∧ (n <ᵇ 56320)
+
+isLowSurrogate : ℕ → Bool
+isLowSurrogate n = (56319 <ᵇ n) ∧ (n <ᵇ 57344)
+
+-- The second half of a surrogate pair: `\u` and a low half at once.
+lowSurrogate : ℕ → Parser Char
+lowSurrogate high =
+  char '\\' *> char 'u' *> hex4 >>= λ low →
+  if isLowSurrogate low
+  then pure (fromℕ (65536 + (high ∸ 55296) * 1024 + (low ∸ 56320)))
+  else fail
+
+-- The character a `\u` escape names.  A lone surrogate half is refused
+-- before `fromℕ`, which would turn it into U+FFFD.
+unicodeEscape : Parser Char
+unicodeEscape =
+  hex4 >>= λ unit →
+  if isHighSurrogate unit then lowSurrogate unit
+  else if isLowSurrogate unit then fail
+  else pure (fromℕ unit)
+
+-- The one-character escapes: the character after the `\`, and the
+-- character the escape names.
+shortEscapes : List (Char × Char)
+shortEscapes =
+  ('"' , '"') ∷ ('\\' , '\\') ∷ ('/' , '/') ∷ ('b' , '\b') ∷ ('f' , '\f') ∷ ('n' , '\n') ∷ ('r' , '\r') ∷
+  ('t' , '\t') ∷ []
+
+-- The value a character has in a table of pairs, the first if several.
+lookupᶜ : Char → List (Char × Char) → Maybe Char
+lookupᶜ _ []              = nothing
+lookupᶜ c ((k , v) ∷ kvs) = if c ≈ᵇ k then just v else lookupᶜ c kvs
+
+-- The character an escape names, from the character after the `\`.
 decodeEscape : Char → Parser Char
-decodeEscape '"'  = pure '"'
-decodeEscape '\\' = pure '\\'
-decodeEscape '/'  = pure '/'
-decodeEscape 'n'  = pure '\n'
-decodeEscape 't'  = pure '\t'
-decodeEscape 'r'  = pure '\r'
-decodeEscape 'b'  = pure '\b'
-decodeEscape 'f'  = pure '\f'
-decodeEscape _    = fail
+decodeEscape c = if c ≈ᵇ 'u' then unicodeEscape else maybe′ pure fail (lookupᶜ c shortEscapes)
 
--- Parse a JSON escape sequence: '\' followed by one of the recognised
--- second chars; consumes 2 input chars and produces the decoded char.
-parseEscapeChar : Parser Char
-parseEscapeChar = do
-  _ ← char '\\'
-  c ← satisfy (λ _ → true)
-  decodeEscape c
+parseEscape : Parser Char
+parseEscape = char '\\' *> anyChar >>= decodeEscape
 
--- Parse a single character inside a JSON string — either an escape
--- sequence or a literal char.  Termination: each branch consumes ≥1
--- input char, so `many parseStringChar` makes progress.
 parseStringChar : Parser Char
-parseStringChar = parseEscapeChar <|> parseLiteralStringChar
+parseStringChar = parseEscape <|> satisfy isUnescaped
+
+-- A string's characters, between its quotation marks.
+parseStringChars : Parser (List Char)
+parseStringChars = char '"' *> many parseStringChar <* char '"'
 
 parseString : Parser JSON
-parseString = do
-  _ ← char '"'
-  chars ← many parseStringChar
-  _ ← char '"'
-  pure (JString chars)
+parseString = JString <$> parseStringChars
 
--- Parse JSON with a character list as termination measure, as `many` does:
--- each nesting level drops one element of it, so the recursion is structural.
-parseJSONHelper : List Char → Parser JSON
-parseJSONHelper []          pos input = pos , nothing  -- Nested deeper than the measure is long
-parseJSONHelper (_ ∷ bound) pos input = (spaces *> parseValue <* spaces) pos input
-  where
-    mutual
-      -- Parse a single JSON value
-      parseValue : Parser JSON
-      parseValue =
-        parseNull <|> parseBoolean <|> parseNumber <|> parseString <|>
-        parseArray <|> parseObject
+-- ============================================================================
+-- VALUES
+-- ============================================================================
 
-      -- Parse array, recursing on the shorter measure
-      parseArray : Parser JSON
-      parseArray = do
-        _ ← char '['
-        _ ← spaces
-        elements ← parseArrayElements
-        _ ← spaces
-        _ ← char ']'
-        pure (JArray elements)
-        where
-          parseArrayElements : Parser (List JSON)
-          parseArrayElements =
-            (do
-              first ← parseJSONHelper bound  -- Recursive call with the shorter measure
-              rest ← many (spaces *> char ',' *> spaces *> parseJSONHelper bound)
-              pure (first ∷ rest))
-            <|> pure []
+-- An object member from its key's characters and its value.
+memberOf : List Char → JSON → String × JSON
+memberOf key value = fromList key , value
 
-      -- Parse object, recursing on the shorter measure
-      parseObject : Parser JSON
-      parseObject = do
-        _ ← char '{'
-        _ ← spaces
-        fields ← parseObjectFields
-        _ ← spaces
-        _ ← char '}'
-        pure (JObject fields)
-        where
-          parseObjectFields : Parser (List (String × JSON))
-          parseObjectFields =
-            (do
-              first ← parseObjectField
-              rest ← many (spaces *> char ',' *> spaces *> parseObjectField)
-              pure (first ∷ rest))
-            <|> pure []
-            where
-              parseObjectField : Parser (String × JSON)
-              parseObjectField = do
-                str ← parseString
-                key ← extractString str
-                _ ← spaces
-                _ ← char ':'
-                _ ← spaces
-                val ← parseJSONHelper bound  -- Recursive call with the shorter measure
-                pure (key , val)
-                where
-                  extractString : JSON → Parser String
-                  extractString (JString cs) = pure (fromList cs)
-                  extractString _ = fail
+-- A structural character with whitespace on both sides: `[`, `{`, `]`, `}`,
+-- `:` and `,`.
+structural : Char → Parser Char
+structural c = ws *> char c <* ws
 
--- Entry point: the input itself is the termination measure, bounding the
--- recursion depth by its length.  The adversarial-input nesting-depth
--- cap (`max-nesting-depth`, 64) is enforced ONE LAYER UP by `processJSONLine`
--- (`Main/JSON.agda`) as a typed `InputBoundExceeded NestingDepth …`
--- rejection.
--- Placing the check at the handler boundary rather than inside `parseJSON`
--- keeps the parser as the pure inverse of `formatJSON` (no `nothing`-as-bound
--- punning) and exposes the structured `bound_kind / observed / limit` triple
--- on the wire via `Protocol/ResponseFormat.errorExtras`.
+-- The measure drops one element per nesting level, so the recursion is
+-- structural; `parseJSON` passes the input itself, which bounds the depth
+-- by its length.
+mutual
+  parseValue : List Char → Parser JSON
+  parseValue []      = fail
+  parseValue (_ ∷ b) =
+    parseNull <|> parseBoolean <|> parseNumber <|> parseString <|> parseArray b <|> parseObject b
+
+  parseArray : List Char → Parser JSON
+  parseArray b = structural '[' *> (JArray <$> (parseValues b <|> pure [])) <* structural ']'
+
+  parseValues : List Char → Parser (List JSON)
+  parseValues b = _∷_ <$> parseValue b <*> many (structural ',' *> parseValue b)
+
+  parseObject : List Char → Parser JSON
+  parseObject b = structural '{' *> (JObject <$> (parseMembers b <|> pure [])) <* structural '}'
+
+  parseMembers : List Char → Parser (List (String × JSON))
+  parseMembers b = _∷_ <$> parseMember b <*> many (structural ',' *> parseMember b)
+
+  parseMember : List Char → Parser (String × JSON)
+  parseMember b = memberOf <$> (parseStringChars <* structural ':') <*> parseValue b
+
+-- A whole text: one value, whitespace around it, nothing after.  The
+-- nesting-depth bound (`max-nesting-depth`) is checked on the parsed tree by
+-- `processJSONLine` (`Main/JSON.agda`), which reports it as a typed bound
+-- refusal.
 parseJSON : Parser JSON
-parseJSON pos input = parseJSONHelper input pos input
-
--- ============================================================================
--- HELPER: RUN JSON PARSER
--- ============================================================================
-
--- Parse JSON from string.  Drops the failure watermark (proj₂ of the
--- driver pair) — positioned JSON errors surface via `Main.JSON`'s
--- driver, which consumes the full pair.
-fromString : String → Maybe JSON
-fromString input = mapₘ proj₁ (proj₂ (runParser parseJSON (toList input)))
+parseJSON pos input = (ws *> parseValue input <* ws <* eof) pos input

@@ -42,7 +42,7 @@ open import Data.List.Properties using (length-++) renaming (++-assoc to ++ₗ-a
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; _≤_; _<_; s≤s; z≤n)
 open import Data.Nat.Properties using (≤-trans; m≤m+n; +-mono-≤)
-open import Data.Product using (_×_; _,_; Σ; proj₂)
+open import Data.Product using (_×_; _,_; Σ; proj₁; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
@@ -53,17 +53,17 @@ open import Data.List.Relation.Unary.All as All using ()
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePosition; advancePositions;
          parseCharsSeq; pure; _>>=_; _<|>_; _<$>_;
-         satisfy; manyHelper; samePosᵇ)
+         satisfy; manyHelper; samePosᵇ; at)
   renaming (many to many-parser)
 open import Aletheia.Parser.Position.Properties using (samePosᵇ-advances)
-open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
+open import Aletheia.DBC.Identifier using (Identifier; isIdentCont; isWordᵇ)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; intDecRat-small; natDecRat-small)
 open import Aletheia.Limits using (max-rational-component-magnitude)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; intDecRatToℤ; NatDecRat; natDecRatToℕ)
 open import Aletheia.DBC.TextParser.Lexer
-  using (parseIdentifier; parseStringLit; parseNatural;
+  using (parseIdentifier; parseWord; parseStringLit; parseNatural;
          parseWS; parseWSOpt; isHSpace; isNonNewline)
 open import Aletheia.DBC.TextParser.DecRatParse using
   (parseDecRat; parseDecRatFrac; parseIntDecRat; parseNatDecRat)
@@ -71,7 +71,7 @@ open import Aletheia.DBC.TextFormatter.Emitter
   using (showNat-chars; quoteStringLit-chars; showDecRat-dec-chars;
          showInt-chars)
 open import Aletheia.DBC.TextParser.Properties.Primitives
-  using (parseCharsSeq-success; parseIdentifier-roundtrip;
+  using (parseCharsSeq-success; parseIdentifier-roundtrip; parseWord-roundtrip;
          parseStringLit-roundtrip; parseWS-one-space; parseWS-one-tab;
          alt-left-just; alt-right-nothing)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
@@ -99,9 +99,13 @@ data Format : Set → Set₁ where
   -- Fixed-string literal: emits the chars verbatim, parses them by exact
   -- match.  Carrier is `⊤` (no information beyond presence).
   literal : List Char → Format ⊤
-  -- Identifier (DBC identifier — `[A-Za-z_][A-Za-z0-9_]*`).  Stops on
-  -- the first non-`isIdentCont` char.
+  -- Identifier (a DBC identifier: the grammar, the length bound, no
+  -- keyword, decided as it is read).  Stops on the first non-`isIdentCont`
+  -- char.
   ident   : Format Identifier
+  -- Word: the identifier grammar alone, no decision; the `NS_` block's
+  -- keyword lines.  Stops on the first non-`isIdentCont` char.
+  word    : Format (List Char)
   -- Natural number (decimal digits).  Stops on the first non-digit char.
   -- Delegates to `parseNatural` / `showNat-chars`.
   nat     : Format ℕ
@@ -249,6 +253,7 @@ data Format : Set → Set₁ where
 emit : ∀ {A} → Format A → A → List Char
 emit (literal cs)     tt       = cs
 emit ident            i        = Identifier.name i
+emit word             cs       = cs
 emit nat              n        = showNat-chars n
 emit stringLit        cs       = quoteStringLit-chars cs
 emit (pair f g)       (a , b)  = emit f a ++ₗ emit g b
@@ -282,12 +287,13 @@ emit nonNewlineRun    tt       = []
 -- `Bool` variable that no longer matches the `Σ` carrier's type.
 liftRefined : ∀ {A} (P : A → Bool) → A → Parser (Σ A (λ a → T (P a)))
 liftRefined P a pos input with T? (P a)
-... | yes wit = pos , just (mkResult (a , wit) pos input)
-... | no  _   = pos , nothing
+... | yes wit = at pos , just (mkResult (a , wit) pos input)
+... | no  _   = at pos , nothing
 
 parse : ∀ {A} → Format A → Parser A
 parse (literal cs)    = parseCharsSeq cs >>= λ _ → pure tt
 parse ident           = parseIdentifier
+parse word            = parseWord
 parse nat             = parseNatural
 parse stringLit       = parseStringLit
 parse (pair f g)      = parse f >>= λ a → parse g >>= λ b → pure (a , b)
@@ -351,6 +357,7 @@ data EmitsOKMany {A : Set} (f : Format A) : List A → List Char → Set
 EmitsOK : ∀ {A} → Format A → A → List Char → Set
 EmitsOK (literal cs)   tt       _      = ⊤
 EmitsOK ident          _        suffix = SuffixStops isIdentCont suffix
+EmitsOK word           cs       suffix = T (isWordᵇ cs) × SuffixStops isIdentCont suffix
 EmitsOK nat            n        suffix =
   n ≤ max-rational-component-magnitude × SuffixStops isDigit suffix
 EmitsOK stringLit      _        suffix = SuffixStops (λ c → c ≈ᵇ '"') suffix
@@ -488,6 +495,8 @@ mutual
                    (parseCharsSeq-success pos cs suffix)
   roundtrip ident        pos i  suffix ss =
     parseIdentifier-roundtrip pos i suffix ss
+  roundtrip word         pos cs suffix (w , ss) =
+    parseWord-roundtrip pos cs suffix w ss
   roundtrip nat          pos n  suffix (n≤ , ss) =
     parseNatural-showNat-chars pos n suffix n≤ ss
   roundtrip stringLit    pos cs suffix ss =
@@ -709,3 +718,11 @@ mutual
 withPrefix : ∀ {A} → List Char → Format A → Format A
 withPrefix cs f =
   iso proj₂ (λ a → tt , a) (λ _ → refl) (pair (literal cs) f)
+
+-- A quoted identifier, `"<ident>"`: an attribute name on the wire.  The
+-- closing quote is not a continuation character, so the identifier stops
+-- at it.
+quotedIdent : Format Identifier
+quotedIdent =
+  withPrefix ('"' ∷ [])
+    (iso proj₁ (λ i → i , tt) (λ _ → refl) (pair ident (literal ('"' ∷ []))))
