@@ -18,9 +18,14 @@ const CHILD_ENV: &str = "ALETHEIA_TEST_LOCALE_CHILD";
 const SENTINEL: &str = "ALETHEIA_LOCALE_OK";
 
 /// One message whose signal has the unit "°C": the text reaches the kernel as
-/// UTF-8 and the unit comes back in its response.
+/// UTF-8, and the kernel refuses the degree sign, outside the DBC character
+/// set, at its line and column.
 const DBC_TEXT: &str = "VERSION \"1.0\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n\
     BO_ 256 M: 8 ECU\n SG_ T : 0|16@1+ (1,0) [0|65535] \"\u{b0}C\" Vector__XXX\n";
+
+/// A message whose type is the two characters "°C": the kernel echoes them
+/// whole in its refusal, so non-ASCII text crosses the kernel both ways.
+const RAW_COMMAND: &str = "{\"type\": \"\u{b0}C\"}";
 
 /// The checks, answering what went wrong, each as one line.
 fn failures() -> Vec<String> {
@@ -44,13 +49,18 @@ fn failures() -> Vec<String> {
         )),
     }
     match client.parse_dbc_text(DBC_TEXT) {
-        Ok(parsed) => {
-            let unit = &parsed.dbc.messages[0].signals[0].unit;
-            if unit != "\u{b0}C" {
-                failures.push(format!("the unit came back as {unit:?}"));
-            }
-        }
-        Err(e) => failures.push(format!("parse_dbc_text refused the DBC: {e}")),
+        Err(Error::Core {
+            ref code,
+            ref message,
+        }) if code == "dbc_invalid_character"
+            && message.contains("line 10, column 35 (code point 176)") => {}
+        other => failures.push(format!(
+            "parse_dbc_text answered the degree sign with {other:?}"
+        )),
+    }
+    match client.process(RAW_COMMAND) {
+        Ok(reply) if reply.contains("unknown message type '\u{b0}C'") => {}
+        other => failures.push(format!("the degree sign came back as {other:?}")),
     }
     failures
 }

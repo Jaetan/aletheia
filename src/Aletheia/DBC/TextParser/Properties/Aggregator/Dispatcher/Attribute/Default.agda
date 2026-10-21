@@ -30,6 +30,7 @@ open import Aletheia.DBC.DecRat.Refinement using
   ; fromℤ-intDecRatToℤ
   ; fromℕ-natDecRatToℕ
   )
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using
   ( ATEnum
   ; AttrDef; mkAttrDef
@@ -39,7 +40,7 @@ open import Aletheia.DBC.Types using
   )
 
 open import Aletheia.DBC.TextFormatter.Attributes using
-  ( emitAttribute-chars
+  ( quoteIdent-chars; emitAttribute-chars
   ; emitDefaultValue-chars
   ; nthLabel
   )
@@ -84,16 +85,16 @@ private
     cong (' ' ∷_) (++ₗ-assoc V (toList ";\n") outer)
 
   default-input-bridge :
-      ∀ (name vstr outer : List Char)
-    → (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (vstr outer : List Char)
+    → (toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ vstr ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ vstr ++ₗ toList ";\n" ++ₗ outer
   default-input-bridge name vstr outer =
     trans (++ₗ-assoc (toList "BA_DEF_DEF_ ") _ outer)
       (cong (toList "BA_DEF_DEF_ " ++ₗ_)
-        (trans (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+        (trans (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
                 (trail-bridge vstr outer))))
 
   -- Per-shape bridges restate `default-input-bridge` with the literal
@@ -104,33 +105,33 @@ private
   -- itself only costs a list-level `emit` unfold.
 
   emit-bridge-AVString :
-      ∀ (defs : List AttrDef) (name s outer : List Char)
+      ∀ (defs : List AttrDef) (name : Identifier) (s outer : List Char)
     → emitAttribute-chars defs
         (DBCAttrDefault (mkAttrDefault name (AVString s)))
       ++ₗ outer
-      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer
   emit-bridge-AVString defs name s outer =
     default-input-bridge name (quoteStringLit-chars s) outer
 
   emit-bridge-AVFloat :
-      ∀ (defs : List AttrDef) (name : List Char) (d : DecRat)
+      ∀ (defs : List AttrDef) (name : Identifier) (d : DecRat)
         (outer : List Char)
     → emitAttribute-chars defs
         (DBCAttrDefault (mkAttrDefault name (AVFloat d)))
       ++ₗ outer
-      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer
   emit-bridge-AVFloat defs name d outer =
     default-input-bridge name (showDecRat-dec-chars d) outer
 
   emit-bridge-AVInt :
-      ∀ (defs : List AttrDef) (name : List Char) (z' : IntDecRat)
+      ∀ (defs : List AttrDef) (name : Identifier) (z' : IntDecRat)
         (outer : List Char)
     → emitAttribute-chars defs
         (DBCAttrDefault (mkAttrDefault name (AVInt z')))
       ++ₗ outer
-      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ showInt-chars (intDecRatToℤ z') ++ₗ toList ";\n" ++ₗ outer
   emit-bridge-AVInt defs name z' outer =
     default-input-bridge name (showInt-chars (intDecRatToℤ z')) outer
@@ -143,18 +144,18 @@ private
   -- the concrete prefix (heap blowup).  The alias costs only a list-level
   -- reduction in this bridge's own type-check.
   emit-bridge-AVHex :
-      ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
+      ∀ (defs : List AttrDef) (name : Identifier) (n : NatDecRat)
         (outer : List Char)
     → emitAttribute-chars defs
         (DBCAttrDefault (mkAttrDefault name (AVHex n)))
       ++ₗ outer
-      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ showInt-chars (+ natDecRatToℕ n) ++ₗ toList ";\n" ++ₗ outer
   emit-bridge-AVHex defs name n outer =
     default-input-bridge name (showInt-chars (+ natDecRatToℕ n)) outer
 
   on-AVString :
-      ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+      ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
         (s : List Char) (outer : List Char)
     → SuffixStops isNewlineStart outer
     → proj₂ (parseAttrLine pos
@@ -177,7 +178,7 @@ private
          pos name s outer ss-NL)
 
   on-AVFloat :
-      ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+      ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
         (d : DecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
     → SmallDecRat d
@@ -201,7 +202,7 @@ private
          pos name d outer ss-NL small)
 
   on-AVInt :
-      ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+      ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
         (z' : IntDecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
     → SmallInt (intDecRatToℤ z')
@@ -239,7 +240,7 @@ private
             pos name (intDecRatToℤ z') outer ss-NL small))
 
   on-AVHex :
-      ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+      ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
         (n : NatDecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
     → SmallInt (+ natDecRatToℕ n)
@@ -291,15 +292,15 @@ private
   -- via `cong`.
 
   emit-default-AVEnum-shell :
-      ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
+      ∀ (defs : List AttrDef) (name : Identifier) (n : NatDecRat)
     → emitAttribute-chars defs (DBCAttrDefault (mkAttrDefault name (AVEnum n)))
-      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ emitDefaultValue-chars defs name (AVEnum n) ++ₗ toList ";\n"
   emit-default-AVEnum-shell _ _ _ = refl
 
   emit-default-value-AVEnum-eq :
-      ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
-        (defname : List Char) (defscope : _) (labels : List (List Char))
+      ∀ (defs : List AttrDef) (name : Identifier) (n : NatDecRat)
+        (defname : Identifier) (defscope : _) (labels : List (List Char))
     → lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
     → emitDefaultValue-chars defs name (AVEnum n)
       ≡ quoteStringLit-chars (nthLabel (natDecRatToℕ n) labels)
@@ -308,23 +309,23 @@ private
   ... | _ | refl = refl
 
   emit-AVEnum-eq :
-      ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
-        (defname : List Char) (defscope : _) (labels : List (List Char))
+      ∀ (defs : List AttrDef) (name : Identifier) (n : NatDecRat)
+        (defname : Identifier) (defscope : _) (labels : List (List Char))
     → lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
     → emitAttribute-chars defs (DBCAttrDefault (mkAttrDefault name (AVEnum n)))
-      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ quoteStringLit-chars (nthLabel (natDecRatToℕ n) labels) ++ₗ
          toList ";\n"
   emit-AVEnum-eq defs name n defname defscope labels parser-lookup-eq =
     trans (emit-default-AVEnum-shell defs name n)
-      (cong (λ vstr → toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (cong (λ vstr → toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
                        ' ' ∷ vstr ++ₗ toList ";\n")
             (emit-default-value-AVEnum-eq
                defs name n defname defscope labels parser-lookup-eq))
 
   rawOf-AVEnum-eq :
-      ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
-        (defname : List Char) (defscope : _) (labels : List (List Char))
+      ∀ (defs : List AttrDef) (name : Identifier) (n : NatDecRat)
+        (defname : Identifier) (defscope : _) (labels : List (List Char))
     → lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
     → rawOf defs (DBCAttrDefault (mkAttrDefault name (AVEnum n)))
       ≡ RawDefault (mkRawAttrDefault name
@@ -334,8 +335,8 @@ private
   ... | _ | refl = refl
 
   on-AVEnum-with-ATEnum :
-      ∀ (defs : List AttrDef) (pos : Position) (name : List Char) (n : NatDecRat)
-        (defname : List Char) (defscope : _) (labels : List (List Char))
+      ∀ (defs : List AttrDef) (pos : Position) (name : Identifier) (n : NatDecRat)
+        (defname : Identifier) (defscope : _) (labels : List (List Char))
         (outer : List Char)
     → lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
     → SuffixStops isNewlineStart outer

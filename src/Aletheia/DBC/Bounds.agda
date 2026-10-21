@@ -2,42 +2,56 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- The size bounds a DBC meets before it is validated, loaded or formatted:
--- how many items each of its lists holds and how long each of its texts is.
--- `IsBoundedDBC` states them; `checkBounds` decides them, refusing with the
--- first bound crossed or returning the DBC as a `BoundedDBC`, with the
--- erased proof that it meets every one.
+-- The bounds a DBC meets before it is validated, loaded or formatted: how
+-- many items each of its lists holds, how long each of its texts is and
+-- which characters it holds, which names it uses, and how large each of its
+-- numbers is.  `IsBoundedDBC` states them; `checkBounds` decides them,
+-- refusing with the first bound crossed or returning the DBC as a
+-- `BoundedDBC`, with the erased proof that it meets every one.
 --
--- Order of discovery: every count before any text.  Counts: messages, then
--- per message its signals, senders, and per signal its receivers and
--- multiplex values; attributes and per attribute its enum labels; comments;
--- nodes; value tables; value descriptions in total; signal groups and per
--- group its members; environment variables; unresolved value descriptions.
--- Texts: version, per signal its unit and value labels, comments, attribute
--- names, enum labels and string values, value-table labels, unresolved
--- value labels.
+-- Order of discovery: every count, then every text, then every name, then
+-- every magnitude.  Counts: messages, then per message its signals, senders,
+-- and per signal its receivers and multiplex values; attributes and per
+-- attribute its enum labels; comments; nodes; value tables; value
+-- descriptions in total; signal groups and per group its members;
+-- environment variables; unresolved value descriptions.  Texts: version,
+-- per signal its unit and value labels, comments, attribute enum labels and
+-- string values, value-table labels, unresolved value labels; each is held
+-- to its length and then to the DBC character set (printable ASCII but `"`
+-- and `\`, or TAB, LF, CR), the first character outside it refused with its
+-- index and code point.  Names: every identifier, per message its name,
+-- sender, senders and per signal its name, receivers and multiplexor; signal
+-- groups and their members; environment variables; value tables; nodes;
+-- comment and attribute targets; the signals of unresolved value
+-- descriptions; each refused as a DBC keyword or past the identifier
+-- length; an attribute name, a quoted string on the wire, is held to the
+-- identifier rules as well: ASCII, the grammar, no keyword, the length.
 --
--- Each bound is one decision, `within`, carrying its evidence erased; the
--- refusal, `InputBoundExceededAt`, is built where the decision is made and
--- names the field.  A text's length is its number of characters.  Identifiers are not walked: an `Identifier` carries its own
--- length bound.
+-- Each bound is one decision carrying its evidence erased; the refusal is
+-- built where the decision is made and names the field.
 module Aletheia.DBC.Bounds where
 
-open import Data.Bool using (true; false)
-open import Data.Char using (Char)
+open import Data.Bool using (Bool; true; false; T; not; _∧_; _∨_; if_then_else_)
+open import Data.Char using (Char; toℕ)
 open import Data.List using (List; []; _∷_; length)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.List.NonEmpty using () renaming (length to length⁺)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.Nat using (ℕ; _≤_; _≤ᵇ_; _+_)
+open import Data.Nat using (ℕ; suc; _≤_; _≤ᵇ_; _+_; _≡ᵇ_)
 open import Data.Nat.Properties using (≤ᵇ-reflects-≤)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (String)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Function using (_∘_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; subst; sym)
+open import Relation.Nullary.Negation using (contradiction)
 open import Relation.Nullary.Reflects using (invert)
 
 open import Aletheia.Data.Dec0 using (Dec₀; _because₀_; dec₀)
+open import Aletheia.Parser.Position using (Position; advancePosition)
+open import Aletheia.DBC.Identifier using
+  ( firstFailing )
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.DecRat using (DecRat)
@@ -46,23 +60,21 @@ open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
 open import Data.List.NonEmpty using (toList)
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; DBCSignal; SignalPresence; Always; When; SignalGroup
-  ; ValueTable; RawValueDesc; DBCComment; Node; EnvironmentVar
-  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
-  ; AttrDef; AttrDefault; AttrAssign
-  ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
-  ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
-  )
-open import Aletheia.Error using (Error; InputBoundExceededAt)
+  ; ValueTable; RawValueDesc; DBCComment; Node; EnvironmentVar; DBCAttribute
+  ; DBCAttrDef; DBCAttrDefault; DBCAttrAssign; AttrDef; AttrDefault
+  ; AttrAssign; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex; AttrValue
+  ; AVInt; AVFloat; AVString; AVEnum; AVHex )
+open import Aletheia.Error using
+  ( Error; InputBoundExceededAt; InPart; InvalidCharacter; InField )
 open import Aletheia.Limits using
   ( BoundKind; ArrayCardinality; StringLength; RationalComponentMagnitude
-  ; max-rational-component-magnitude
-  ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
-  ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
+  ; max-rational-component-magnitude; max-messages-per-file
+  ; max-signals-per-message; max-attributes-per-file; max-comments-per-file
+  ; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file; max-signal-groups-per-file
-  ; max-environment-variables-per-file; max-unresolved-value-descriptions-per-file
-  ; max-enum-labels-per-attribute; max-multiplex-values-per-signal
-  ; max-string-length-characters
-  )
+  ; max-environment-variables-per-file
+  ; max-unresolved-value-descriptions-per-file; max-enum-labels-per-attribute
+  ; max-multiplex-values-per-signal; max-string-length-characters )
 
 -- ============================================================================
 -- VERDICTS
@@ -95,16 +107,13 @@ within n limit = dec₀ (n ≤ᵇ limit) (≤ᵇ-reflects-≤ n limit)
 
 bound : BoundKind → String → (n limit : ℕ) → Checked (n ≤ limit)
 bound kind tag n limit =
-  decide (InputBoundExceededAt tag kind n limit) (within n limit)
+  decide (InputBoundExceededAt (InPart tag) kind n limit) (within n limit)
 
 count : String → (n limit : ℕ) → Checked (n ≤ limit)
 count = bound ArrayCardinality
 
 ShortText : List Char → Set
 ShortText cs = length cs ≤ max-string-length-characters
-
-text : String → (cs : List Char) → Checked (ShortText cs)
-text tag cs = bound StringLength tag (length cs) max-string-length-characters
 
 -- Every item of a list, in order.  The evidence for the items already
 -- passed is folded into an erased continuation, so the walk is a loop.
@@ -244,72 +253,120 @@ dbcCounts dbc =
     } ]
 
 -- ============================================================================
+-- CHARACTERS
+-- ============================================================================
+
+-- A character of a DBC string: printable ASCII but `"` and `\`, or TAB, LF, CR.
+stringCharᵇ : Char → Bool
+stringCharᵇ c =
+  ((32 ≤ᵇ n) ∧ (n ≤ᵇ 126) ∧ not (n ≡ᵇ 34) ∧ not (n ≡ᵇ 92))
+    ∨ (n ≡ᵇ 9) ∨ (n ≡ᵇ 10) ∨ (n ≡ᵇ 13)
+  where n = toℕ c
+
+-- A character of a DBC text: a string's, or the `"` and `\` its syntax spells.
+textCharᵇ : Char → Bool
+textCharᵇ c = stringCharᵇ c ∨ (toℕ c ≡ᵇ 34) ∨ (toℕ c ≡ᵇ 92)
+
+CharsOK : (Char → Bool) → List Char → Set
+CharsOK p = All (T ∘ p)
+
+-- A walk that finds no failing character has seen every one satisfy `p`.
+all-from-firstFailing : ∀ (p : Char → Bool) i cs → firstFailing p i cs ≡ nothing → CharsOK p cs
+all-from-firstFailing p i []       _  = []
+all-from-firstFailing p i (c ∷ cs) eq = go (p c) refl eq
+  where
+    go : ∀ b → p c ≡ b
+       → (if b then firstFailing p (suc i) cs else just (i , c)) ≡ nothing
+       → CharsOK p (c ∷ cs)
+    go true  pc eq′ = subst T (sym pc) tt ∷ all-from-firstFailing p (suc i) cs eq′
+    go false _  eq′ = contradiction eq′ (λ ())
+
+-- The first character of a DBC text outside the text set, at its position.
+scanText : Position → List Char → Maybe (Position × Char)
+scanText _   []       = nothing
+scanText pos (c ∷ cs) =
+  if textCharᵇ c then scanText (advancePosition pos c) cs else just (pos , c)
+
+-- Every character of a field satisfies `p`, or the first that does not is
+-- refused with its index and code point.  `charsAt` takes the walk's result
+-- as an argument, so a proof reasons about it without abstracting the walk.
+charsAt : (p : Char → Bool) → String → (cs : List Char) (r : Maybe (ℕ × Char))
+        → firstFailing p 0 cs ≡ r → Checked (CharsOK p cs)
+charsAt p tag cs nothing       eq = inj₂ [ all-from-firstFailing p 0 cs eq ]
+charsAt p tag cs (just (i , c)) _ = inj₁ (InvalidCharacter (InField tag i) (toℕ c))
+
+chars : (p : Char → Bool) → String → (cs : List Char) → Checked (CharsOK p cs)
+chars p tag cs = charsAt p tag cs (firstFailing p 0 cs) refl
+
+-- ============================================================================
 -- TEXTS
 -- ============================================================================
 
-ShortLabels : List (ℕ × List Char) → Set
-ShortLabels = All (ShortText ∘ proj₂)
+TextOK : List Char → Set
+TextOK cs = ShortText cs × CharsOK stringCharᵇ cs
+
+text : String → (cs : List Char) → Checked (TextOK cs)
+text tag cs =
+  bound StringLength tag (length cs) max-string-length-characters >>= λ s →
+  chars stringCharᵇ tag cs >>= λ a → inj₂ [ (s , a) ]
+
+LabelsOK : List (ℕ × List Char) → Set
+LabelsOK = All (TextOK ∘ proj₂)
 
 record SignalTexts (sig : DBCSignal) : Set where
   field
-    unit   : ShortText (DBCSignal.unit sig)
-    labels : ShortLabels (DBCSignal.valueDescriptions sig)
+    unit   : TextOK (DBCSignal.unit sig)
+    labels : LabelsOK (DBCSignal.valueDescriptions sig)
 
-ShortType : AttrType → Set
-ShortType (ATEnum vs) = All ShortText vs
-ShortType _           = ⊤
+TypeOK : AttrType → Set
+TypeOK (ATEnum vs) = All TextOK vs
+TypeOK _           = ⊤
 
-ShortValue : AttrValue → Set
-ShortValue (AVString cs) = ShortText cs
-ShortValue _             = ⊤
+ValueOK : AttrValue → Set
+ValueOK (AVString cs) = TextOK cs
+ValueOK _             = ⊤
 
 AttributeTexts : DBCAttribute → Set
-AttributeTexts (DBCAttrDef d)     = ShortText (AttrDef.name d) × ShortType (AttrDef.attrType d)
-AttributeTexts (DBCAttrDefault d) = ShortText (AttrDefault.name d) × ShortValue (AttrDefault.value d)
-AttributeTexts (DBCAttrAssign a)  = ShortText (AttrAssign.name a) × ShortValue (AttrAssign.value a)
+AttributeTexts (DBCAttrDef d)     = TypeOK (AttrDef.attrType d)
+AttributeTexts (DBCAttrDefault d) = ValueOK (AttrDefault.value d)
+AttributeTexts (DBCAttrAssign a)  = ValueOK (AttrAssign.value a)
 
 record DBCTexts (dbc : DBC) : Set where
   field
-    version              : ShortText (DBC.version dbc)
+    version              : TextOK (DBC.version dbc)
     signals              : All (All SignalTexts ∘ DBCMessage.signals) (DBC.messages dbc)
-    comments             : All (ShortText ∘ DBCComment.text) (DBC.comments dbc)
+    comments             : All (TextOK ∘ DBCComment.text) (DBC.comments dbc)
     attributes           : All AttributeTexts (DBC.attributes dbc)
-    valueTables          : All (ShortLabels ∘ ValueTable.entries) (DBC.valueTables dbc)
-    unresolvedValueDescs : All (ShortLabels ∘ RawValueDesc.entries) (DBC.unresolvedValueDescs dbc)
+    valueTables          : All (LabelsOK ∘ ValueTable.entries) (DBC.valueTables dbc)
+    unresolvedValueDescs : All (LabelsOK ∘ RawValueDesc.entries) (DBC.unresolvedValueDescs dbc)
 
-shortLabels : String → (vs : List (ℕ × List Char)) → Checked (ShortLabels vs)
-shortLabels tag = every (λ e → text tag (proj₂ e))
+labels : String → (vs : List (ℕ × List Char)) → Checked (LabelsOK vs)
+labels tag = every (λ e → text tag (proj₂ e))
 
 signalTexts : (sig : DBCSignal) → Checked (SignalTexts sig)
 signalTexts sig =
   text "signal text field" (DBCSignal.unit sig) >>= λ u →
-  shortLabels "signal text field" (DBCSignal.valueDescriptions sig) >>= λ l →
+  labels "signal text field" (DBCSignal.valueDescriptions sig) >>= λ l →
   inj₂ [ record { unit = u ; labels = l } ]
 
-shortType : (t : AttrType) → Checked (ShortType t)
-shortType (ATInt _ _)   = inj₂ [ tt ]
-shortType (ATFloat _ _) = inj₂ [ tt ]
-shortType ATString      = inj₂ [ tt ]
-shortType (ATEnum vs)   = every (text "attribute text field") vs
-shortType (ATHex _ _)   = inj₂ [ tt ]
+typeOK : (t : AttrType) → Checked (TypeOK t)
+typeOK (ATInt _ _)   = inj₂ [ tt ]
+typeOK (ATFloat _ _) = inj₂ [ tt ]
+typeOK ATString      = inj₂ [ tt ]
+typeOK (ATEnum vs)   = every (text "attribute text field") vs
+typeOK (ATHex _ _)   = inj₂ [ tt ]
 
-shortValue : (v : AttrValue) → Checked (ShortValue v)
-shortValue (AVInt _)     = inj₂ [ tt ]
-shortValue (AVFloat _)   = inj₂ [ tt ]
-shortValue (AVString cs) = text "attribute text field" cs
-shortValue (AVEnum _)    = inj₂ [ tt ]
-shortValue (AVHex _)     = inj₂ [ tt ]
+valueOK : (v : AttrValue) → Checked (ValueOK v)
+valueOK (AVInt _)     = inj₂ [ tt ]
+valueOK (AVFloat _)   = inj₂ [ tt ]
+valueOK (AVString cs) = text "attribute text field" cs
+valueOK (AVEnum _)    = inj₂ [ tt ]
+valueOK (AVHex _)     = inj₂ [ tt ]
 
 attributeTexts : (a : DBCAttribute) → Checked (AttributeTexts a)
-attributeTexts (DBCAttrDef d) =
-  text "attribute text field" (AttrDef.name d) >>= λ n →
-  shortType (AttrDef.attrType d) >>= λ t → inj₂ [ (n , t) ]
-attributeTexts (DBCAttrDefault d) =
-  text "attribute text field" (AttrDefault.name d) >>= λ n →
-  shortValue (AttrDefault.value d) >>= λ v → inj₂ [ (n , v) ]
-attributeTexts (DBCAttrAssign a) =
-  text "attribute text field" (AttrAssign.name a) >>= λ n →
-  shortValue (AttrAssign.value a) >>= λ v → inj₂ [ (n , v) ]
+attributeTexts (DBCAttrDef d)     = typeOK (AttrDef.attrType d)
+attributeTexts (DBCAttrDefault d) = valueOK (AttrDefault.value d)
+attributeTexts (DBCAttrAssign a)  = valueOK (AttrAssign.value a)
 
 dbcTexts : (dbc : DBC) → Checked (DBCTexts dbc)
 dbcTexts dbc =
@@ -317,8 +374,8 @@ dbcTexts dbc =
   every (every signalTexts ∘ DBCMessage.signals) (DBC.messages dbc) >>= λ s →
   every (text "comment text" ∘ DBCComment.text) (DBC.comments dbc) >>= λ c →
   every attributeTexts (DBC.attributes dbc) >>= λ a →
-  every (shortLabels "value table label" ∘ ValueTable.entries) (DBC.valueTables dbc) >>= λ t →
-  every (shortLabels "unresolved value description label" ∘ RawValueDesc.entries)
+  every (labels "value table label" ∘ ValueTable.entries) (DBC.valueTables dbc) >>= λ t →
+  every (labels "unresolved value description label" ∘ RawValueDesc.entries)
     (DBC.unresolvedValueDescs dbc) >>= λ u →
   inj₂ [ record
     { version = v ; signals = s ; comments = c ; attributes = a
@@ -484,10 +541,17 @@ checkBounds dbc with isBounded? dbc
 ... | inj₁ e     = inj₁ e
 ... | inj₂ [ p ] = inj₂ (bounded dbc p)
 
--- The same DBC with its node list replaced, still bounded: only the new
--- list's count is decided, the rest of the proof carries over.
+-- A node list within its count.
+NodesOK : List Node → Set
+NodesOK ns = length ns ≤ max-nodes-per-file
+
+nodesOK : (ns : List Node) → Checked (NodesOK ns)
+nodesOK ns = count "nodes array" (length ns) max-nodes-per-file
+
+-- The same DBC with its node list replaced, still bounded: the new list's
+-- count is decided, the rest of the proof carries over.
 withNodes : BoundedDBC → List Node → Error ⊎ BoundedDBC
-withNodes (bounded d p) ns with count "nodes array" (length ns) max-nodes-per-file
+withNodes (bounded d p) ns with nodesOK ns
 ... | inj₁ e     = inj₁ e
 ... | inj₂ [ q ] = inj₂ (bounded (record d { nodes = ns }) (record
   { counts = record

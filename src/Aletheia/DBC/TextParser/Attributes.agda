@@ -134,13 +134,13 @@ data RawAttrValue : Set where
 record RawAttrDefault : Set where
   constructor mkRawAttrDefault
   field
-    name  : List Char
+    name  : Identifier
     value : RawAttrValue
 
 record RawAttrAssign : Set where
   constructor mkRawAttrAssign
   field
-    name   : List Char
+    name   : Identifier
     target : AttrTarget
     value  : RawAttrValue
 
@@ -422,7 +422,7 @@ liftRelTarget (RrtNodeSig n r s) with buildCANId r
 
 -- Parser-form lifter for BA_ assignment lines.  Plugs into the η-style
 -- production wrapper after `parse attrAssignFmt >>= many parseNewline`.
-buildAttrAssignP : List Char → RawAttrTargetWire → RawAttrValueWire
+buildAttrAssignP : Identifier → RawAttrTargetWire → RawAttrValueWire
                  → Parser RawAttrAssign
 buildAttrAssignP n RatwNet         wireVal =
   pure (mkRawAttrAssign n ATgtNetwork (liftRavw wireVal))
@@ -440,7 +440,7 @@ buildAttrAssignP n (RatwEv ev)     wireVal =
   pure (mkRawAttrAssign n (ATgtEnvVar ev) (liftRavw wireVal))
 
 -- Parser-form lifter for BA_REL_ relation lines.
-buildAttrRelP : List Char → RawRelTargetWire → RawAttrValueWire
+buildAttrRelP : Identifier → RawRelTargetWire → RawAttrValueWire
               → Parser RawAttrAssign
 buildAttrRelP n (RrtNodeMsg i r) wireVal with buildCANId r
 ... | just cid =
@@ -595,9 +595,9 @@ refineAttribute defs (RawAssign (mkRawAttrAssign n tgt rv)) with lookupDef n def
 -- failure so the error pinpoints WHICH `BA_DEF_` / `BA_DEF_DEF_` / `BA_`
 -- line is at fault.
 rawAttrName : RawDBCAttribute → List Char
-rawAttrName (RawDef d)     = AttrDef.name d
-rawAttrName (RawDefault d) = RawAttrDefault.name d
-rawAttrName (RawAssign a)  = RawAttrAssign.name a
+rawAttrName (RawDef d)     = Identifier.name (AttrDef.name d)
+rawAttrName (RawDefault d) = Identifier.name (RawAttrDefault.name d)
+rawAttrName (RawAssign a)  = Identifier.name (RawAttrAssign.name a)
 
 refineAll : List AttrDef → List RawDBCAttribute
           → (AttrRefineCause × List Char) ⊎ List DBCAttribute

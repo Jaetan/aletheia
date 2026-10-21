@@ -70,7 +70,7 @@ C: Data/Sum/Base:C_inj'8322'_42
 # Every T_*_NN tag the Haskell shim names directly (in type annotations,
 # `unsafeCoerce` casts, or qualified imports of MAlonzo-generated types).
 T: Aletheia/Protocol/StreamState/Types:T_StreamState_32
-T: Aletheia/Error:T_Error_366
+T: Aletheia/Error:T_Error_388
 T: Aletheia/CAN/BatchExtraction:T_PartitionedResults_10
 T: Data/Rational/Base:T_ℚ_6
 T: Aletheia/DBC/TextParser/DecimalEntry:T_WireRational_8

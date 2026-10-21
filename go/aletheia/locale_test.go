@@ -22,9 +22,15 @@ const localeChildEnv = "ALETHEIA_TEST_LOCALE_CHILD"
 const localeSentinel = "ALETHEIA_LOCALE_OK"
 
 // localeDBCText is one message whose signal has the unit "°C": the text
-// reaches the kernel as UTF-8 and the unit comes back in its response.
+// reaches the kernel as UTF-8, and the kernel refuses the degree sign, outside
+// the DBC character set, at its line and column.
 const localeDBCText = "VERSION \"1.0\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n" +
 	"BO_ 256 M: 8 ECU\n SG_ T : 0|16@1+ (1,0) [0|65535] \"°C\" Vector__XXX\n"
+
+// localeRawCommand is a message whose type is the two characters "°C": the
+// kernel echoes them whole in its refusal, so non-ASCII text crosses the
+// kernel both ways.
+const localeRawCommand = `{"type": "°C"}`
 
 // The kernel reads and writes its strings as UTF-8 whatever the locale of the
 // process that loaded it. The GHC runtime reads the locale once, when it
@@ -56,8 +62,9 @@ func TestKernelStringsUnderTheCLocale(t *testing.T) {
 	}
 }
 
-// runLocaleChecks is the child's body: a refused non-ASCII literal, and a
-// non-ASCII unit that comes back whole.
+// runLocaleChecks is the child's body: a refused non-ASCII literal, a
+// non-ASCII unit refused at its position, and a non-ASCII message type echoed
+// whole.
 func runLocaleChecks(t *testing.T) {
 	if got := os.Getenv("LC_ALL"); got != "C" {
 		t.Fatalf("the child runs under LC_ALL=%q, not C, so it proves nothing", got)
@@ -67,12 +74,23 @@ func runLocaleChecks(t *testing.T) {
 	if !errors.As(err, &aErr) || aErr.Kind != ErrValidation || aErr.Code != CodeTextTrailingInput {
 		t.Errorf("FromDecimal accepted 1.5 and a euro sign, or refused it as %v", err)
 	}
-	parsed, err := newFFIClient(t).ParseDBCText(t.Context(), localeDBCText)
-	if err != nil {
-		t.Fatalf("ParseDBCText: %v", err)
+	_, err = newFFIClient(t).ParseDBCText(t.Context(), localeDBCText)
+	if !errors.As(err, &aErr) || aErr.Code != CodeDBCInvalidCharacter ||
+		!strings.Contains(aErr.Message, "line 10, column 35 (code point 176)") {
+		t.Errorf("ParseDBCText answered the degree sign with %v", err)
 	}
-	if unit := parsed.DBC.Messages[0].Signals[0].Unit; unit != "°C" {
-		t.Errorf("the unit came back as %q", unit)
+	backend, err := NewFFIBackend(findFFILibrary())
+	if err != nil {
+		t.Fatalf("NewFFIBackend: %v", err)
+	}
+	state, err := backend.Init()
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer backend.Close(state)
+	reply, err := backend.Process(state, localeRawCommand)
+	if err != nil || !strings.Contains(reply, "unknown message type '°C'") {
+		t.Errorf("the degree sign came back as %q (%v)", reply, err)
 	}
 	if !t.Failed() {
 		fmt.Println(localeSentinel)

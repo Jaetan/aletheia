@@ -2,39 +2,31 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- DBC Identifier type — validated identifiers per the DBC grammar
--- (`identifier ::= (letter | "_") (letter | digit | "_")*`).
---
--- Shape: `name : List Char` plus an irrelevant witness that the char list
--- satisfies the grammar.  Storing as `List Char` (not `String`) lets the
--- lexer build `mkIdent (h ∷ t) <validity>` axiom-free from the chars it
--- just consumed.
---
--- Axiom budget:
---   * Lexer (`parseIdentifier`): axiom-free.  Builds directly from the
---     consumed `List Char`.
---   * JSON parser path (`mkIdentFromString`): axiom-free.  Stores `toList s`
---     as the name; the validity witness is the `T?` decision result.
---   * The two `String ↔ List Char` axioms in `Substrate.Unsafe` survive only
---     for the OUTER `parseText (formatText d) ≡ inj₂ d` wrap, not for any
---     Identifier construction site.
+-- A DBC identifier: a C identifier in ASCII,
+-- `[A-Za-z_][A-Za-z0-9_]*`, held as `name : List Char` with the erased
+-- witness that the characters satisfy the grammar.  Its length and the DBC
+-- keywords are decided where a DBC's bounds are (`Aletheia.DBC.Bounds`),
+-- so the lexer and the JSON route build an `Identifier` from the characters
+-- they read with no axiom.
 module Aletheia.DBC.Identifier where
 
-open import Data.Bool using (Bool; true; false; T; _∨_; _∧_)
+open import Data.Bool using (Bool; true; false; T; _∨_; _∧_; not)
 open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.Char.Base using (isAlpha; _≈ᵇ_; toℕ)
+open import Data.Char.Base using (isDigit; _≈ᵇ_; toℕ)
 open import Data.Char.Properties using (≈⇒≡)
 open import Data.List using (List; []; _∷_; length)
 import Data.List.Properties as ListProps
 open import Data.List.Relation.Unary.All as All using ()
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc; _<ᵇ_)
+open import Data.List using (map)
+open import Data.Bool.ListAction using (any)
+open import Data.Nat using (ℕ; suc; _≤ᵇ_; _<ᵇ_)
+open import Data.Bool using (if_then_else_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡; ≡⇒≡ᵇ)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂; [_,_]′)
 
-open import Aletheia.Data.Dec0 using (Dec₀; fromBridges)
 open import Data.String as String using (String; fromList; toList)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
@@ -44,56 +36,98 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; con
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Limits using (max-identifier-length)
-open import Aletheia.Parser.CharClass using (isAlphaNum)
 
 -- ============================================================================
--- CHARACTER CLASSES (hosted here so Identifier can reference them without a
--- cyclic dep on TextParser.Lexer; Lexer re-imports these)
+-- CHARACTER CLASSES (the lexer reads them from here)
 -- ============================================================================
+
+-- An ASCII letter, by code point: `A` to `Z` or `a` to `z`.
+isAsciiLetter : Char → Bool
+isAsciiLetter c = ((65 ≤ᵇ toℕ c) ∧ (toℕ c ≤ᵇ 90)) ∨ ((97 ≤ᵇ toℕ c) ∧ (toℕ c ≤ᵇ 122))
 
 isIdentStart : Char → Bool
-isIdentStart c = isAlpha c ∨ ⌊ c ≟ᶜ '_' ⌋
+isIdentStart c = isAsciiLetter c ∨ ⌊ c ≟ᶜ '_' ⌋
 
 isIdentCont : Char → Bool
-isIdentCont c = isAlphaNum c ∨ ⌊ c ≟ᶜ '_' ⌋
+isIdentCont c = isAsciiLetter c ∨ isDigit c ∨ ⌊ c ≟ᶜ '_' ⌋
 
 -- ============================================================================
--- IDENTIFIER VALIDITY — Bool predicate at List Char level
+-- IDENTIFIER VALIDITY, a Bool over the characters
 -- ============================================================================
 
--- Bool-valued identifier validity check on char lists.  Mirrors the text
--- parser's shape: `satisfy isIdentStart >>= many (satisfy isIdentCont)`.
--- Defined here (not in Lexer) so downstream callers can reason about validity
--- without a cyclic import.
 allᵇ : (Char → Bool) → List Char → Bool
 allᵇ _ []       = true
 allᵇ p (c ∷ cs) = p c ∧ allᵇ p cs
 
--- Extended with a length bound against
--- `max-identifier-length` (128) so every constructed `Identifier`
--- provably satisfies AGENTS.md "Adversarial-input bounds at parser
--- surfaces".  The bound check is the third conjunct; existing
--- `mkIdentFromChars` / `mkIdentFromString` callers go through
--- `T? (validIdentifierᵇ cs)` so they pick up the bound automatically.
--- Hard-coded `mkIdent (toList "<short>") tt` callsites still typecheck
--- because the conjunct reduces to `true` on every concrete string
--- shorter than 128 chars (closed-term reduction).
+-- The first character failing `p`, with its index counted from `i`.
+firstFailing : (Char → Bool) → ℕ → List Char → Maybe (ℕ × Char)
+firstFailing _ _ []       = nothing
+firstFailing p i (c ∷ cs) = if p c then firstFailing p (suc i) cs else just (i , c)
+
+-- An ASCII character, by code point.
+asciiᵇ : Char → Bool
+asciiᵇ c = toℕ c <ᵇ 128
+
+infix 4 _≡csᵇ_
+_≡csᵇ_ : List Char → List Char → Bool
+[]       ≡csᵇ []       = true
+[]       ≡csᵇ (_ ∷ _)  = false
+(_ ∷ _)  ≡csᵇ []       = false
+(c ∷ cs) ≡csᵇ (d ∷ ds) = (c ≈ᵇ d) ∧ (cs ≡csᵇ ds)
+
+-- ============================================================================
+-- KEYWORDS
+-- ============================================================================
+
+-- Every keyword the DBC grammar spells (the Vector specification of 2007,
+-- its NS_ symbols included) and the five attribute type words.  A keyword is
+-- refused as a name where a DBC's bounds are decided.
+dbcKeywords : List (List Char)
+dbcKeywords = map toList
+  ( "VERSION" ∷ "NS_" ∷ "BS_" ∷ "BU_" ∷ "BO_" ∷ "SG_" ∷ "EV_" ∷ "CM_"
+  ∷ "NS_DESC_" ∷ "BA_DEF_" ∷ "BA_" ∷ "VAL_" ∷ "CAT_DEF_" ∷ "CAT_" ∷ "FILTER"
+  ∷ "BA_DEF_DEF_" ∷ "EV_DATA_" ∷ "ENVVAR_DATA_" ∷ "SGTYPE_" ∷ "SGTYPE_VAL_"
+  ∷ "BA_DEF_SGTYPE_" ∷ "BA_SGTYPE_" ∷ "SIG_TYPE_REF_" ∷ "VAL_TABLE_"
+  ∷ "SIG_GROUP_" ∷ "SIG_VALTYPE_" ∷ "SIGTYPE_VALTYPE_" ∷ "BO_TX_BU_"
+  ∷ "BA_DEF_REL_" ∷ "BA_REL_" ∷ "BA_SGTYPE_REL_" ∷ "SG_MUL_VAL_"
+  ∷ "BU_SG_REL_" ∷ "BU_BO_REL_" ∷ "BU_EV_REL_" ∷ "BA_DEF_DEF_REL_"
+  ∷ "INT" ∷ "HEX" ∷ "FLOAT" ∷ "STRING" ∷ "ENUM" ∷ [] )
+
+isKeywordᵇ : List Char → Bool
+isKeywordᵇ cs = any (cs ≡csᵇ_) dbcKeywords
+
+-- A word: the grammar alone, in the lexer's shape (`satisfy isIdentStart`
+-- then `many (satisfy isIdentCont)`).  The `NS_` block's keyword lines are
+-- words; a DBC identifier is more.
+isWordᵇ : List Char → Bool
+isWordᵇ []       = false
+isWordᵇ (c ∷ cs) = isIdentStart c ∧ allᵇ isIdentCont cs
+
+-- A DBC identifier: a word of at most `max-identifier-length` characters
+-- that is not a DBC keyword.
 validIdentifierᵇ : List Char → Bool
-validIdentifierᵇ []       = false
-validIdentifierᵇ (c ∷ cs) =
-  isIdentStart c ∧ allᵇ isIdentCont cs ∧ (length (c ∷ cs) <ᵇ suc max-identifier-length)
+validIdentifierᵇ cs =
+  isWordᵇ cs ∧ (length cs <ᵇ suc max-identifier-length) ∧ not (isKeywordᵇ cs)
+
+-- The index of the first character outside the grammar: the head if it is
+-- not a start character, else the first tail character that is not a
+-- continuation character; `nothing` for a word.
+grammarBreak : List Char → Maybe ℕ
+grammarBreak []       = just 0
+grammarBreak (c ∷ cs) = if isIdentStart c then index (firstFailing isIdentCont 1 cs) else just 0
+  where
+    index : Maybe (ℕ × Char) → Maybe ℕ
+    index (just (i , _)) = just i
+    index nothing        = nothing
+
 
 -- ============================================================================
 -- Identifier — `List Char`-internal record with char-list-level witness
 -- ============================================================================
 
--- Runtime representation: MAlonzo compiles `Identifier` as a two-field data
--- constructor — `data Identifier = MkIdent (List Char) AgdaAny` — because
--- `valid : T (validIdentifierᵇ name)` stays relevant under `--safe`.
--- Conversion to `String` for JSON serialization / accessor calls happens in
--- `Aletheia.DBC.Types` via `fromList ∘ Identifier.name`; per-call cost is
--- O(name-length) and identifier names are <30 chars, so the overhead is
--- bounded and not on the per-frame signal-extraction hot path.
+-- MAlonzo compiles `Identifier` as a two-field constructor, the witness
+-- `valid : T (validIdentifierᵇ name)` staying relevant under `--safe`.  The
+-- `String` view is `nameStr`, a walk of the name.
 record Identifier : Set where
   constructor mkIdent
   field
@@ -104,68 +138,43 @@ record Identifier : Set where
 -- Construction from a `List Char` — the single identifier-parse interface
 -- ============================================================================
 
--- The reason an identifier char list fails the DBC grammar.  Carried out of
--- the ONE validity decision (`parseIdentifierField`) so a caller that needs a
--- typed rejection (the LTL-property JSON parser) gets the reason
--- from the parse itself, with no second validity walk to keep in sync:
---   * `TooLong  n`  — `n` chars, over `max-identifier-length` (the length
---                     conjunct of `validIdentifierᵇ` failed).  Surfaced as
---                     `InputBoundExceeded IdentifierLength` (preserves D-32.1).
---   * `BadChars cs` — within the length bound but not the
---                     `(letter|_)(letter|digit|_)*` grammar (incl. empty).
---                     Surfaced as `ParseErr (InvalidIdentifier …)`.
+-- Why characters are not an identifier, as a reader meets them one by one:
+-- a character outside the grammar before the bound (`BadChars`), the 129th
+-- identifier character reached (`TooLong`, carrying the length), or a
+-- finished word that is a DBC keyword (`Keyword`).
 data IdentifierError : Set where
   TooLong  : ℕ → IdentifierError
+  Keyword  : List Char → IdentifierError
   BadChars : List Char → IdentifierError
 
--- THE identifier-parse interface: decide `validIdentifierᵇ` once, returning the
--- validated `Identifier` or the typed reason.  Used by `Lexer.parseIdentifier`
--- (via the `mkIdentFromChars` erasure below) and the LTL-property JSON parser
--- (directly, for the typed error).  Axiom-free; the witness type matches the
--- `Identifier.valid` field exactly.  `T? (validIdentifierᵇ cs)` is decided
--- FIRST so the erasure keeps its original reduction shape — the length split
--- only refines the (already-rejected) failure branch into TooLong vs BadChars.
+-- The one identifier decision: the validated `Identifier`, or the typed
+-- reason.  `Lexer.parseIdentifier` takes it through `mkIdentFromChars`, the
+-- LTL property parser directly.
 parseIdentifierField : List Char → IdentifierError ⊎ Identifier
 parseIdentifierField cs with T? (validIdentifierᵇ cs)
 ... | yes w = inj₂ (mkIdent cs w)
-... | no  _ with length cs <ᵇ suc max-identifier-length
-...   | false = inj₁ (TooLong (length cs))
-...   | true  = inj₁ (BadChars cs)
+... | no  _ with grammarBreak cs
+...   | just i  = if i <ᵇ max-identifier-length then inj₁ (BadChars cs) else inj₁ (TooLong (length cs))
+...   | nothing = if length cs <ᵇ suc max-identifier-length then inj₁ (Keyword cs) else inj₁ (TooLong (length cs))
 
--- `Maybe` erasure of the typed parse — the historical interface, now DERIVED
--- from the single `parseIdentifierField` decision (one interface, one path).
--- `Lexer.parseIdentifier` and `mkIdentFromString` consume this.
+-- The decision as a `Maybe`, for the lexer.
 toMaybeIdent : IdentifierError ⊎ Identifier → Maybe Identifier
 toMaybeIdent = [ (λ _ → nothing) , just ]′
 
 mkIdentFromChars : List Char → Maybe Identifier
 mkIdentFromChars cs = toMaybeIdent (parseIdentifierField cs)
 
--- Build an Identifier from a String.  Used by JSON ingestion (where every
--- field arrives as a String).  The Identifier's name is stored as `toList s`,
--- so the witness type `T (validIdentifierᵇ (toList s))` is exactly what the
--- `T?` decision returns.  Axiom-free.
-mkIdentFromString : String → Maybe Identifier
-mkIdentFromString = mkIdentFromChars ∘ toList
-
--- Constructing an Identifier from its own `name` round-trips — primitive form
--- on `parseIdentifierField` (the `yes` branch closes via `T-irrelevant` on the
--- witness; `no` is absurd against the stored `valid`), with the `Maybe` form as
--- its image under the `toMaybeIdent` erasure.  Axiom-free.  Single home for
--- this fact (cat 27 dedup): `parseIdentifierField-on-valid` feeds the LTL-JSON
--- predicate roundtrip (`LTL.JSON.Properties`);
--- `mkIdentFromChars-on-valid` the DBC text-parser roundtrip
--- (`TextParser.Properties.Primitives`).
+-- Deciding an Identifier's own `name` gives it back: the `yes` branch closes
+-- through `T-irrelevant` on the witness, `no` is absurd against the stored
+-- `valid`.  The DBC text-parser round trip (`TextParser.Properties.Primitives`)
+-- consumes it, and the LTL-JSON predicate round trip through
+-- `JSONParser.validateIdent-on-valid`.
 parseIdentifierField-on-valid : ∀ (i : Identifier)
   → parseIdentifierField (Identifier.name i) ≡ inj₂ i
 parseIdentifierField-on-valid (mkIdent name valid)
   with T? (validIdentifierᵇ name)
 ... | yes w  = cong (λ v → inj₂ (mkIdent name v)) (T-irrelevant w valid)
 ... | no  ¬w = ⊥-elim (¬w valid)
-
-mkIdentFromChars-on-valid : ∀ (i : Identifier)
-  → mkIdentFromChars (Identifier.name i) ≡ just i
-mkIdentFromChars-on-valid i = cong toMaybeIdent (parseIdentifierField-on-valid i)
 
 -- ============================================================================
 -- String view (`fromList ∘ Identifier.name`)
@@ -207,12 +216,6 @@ mkIdent cs₁ v₁ ≟ᴵ mkIdent cs₂ v₂ with ListProps.≡-dec _≟ᶜ_ cs�
 --   * `≈⇒≡` from `Data.Char.Properties` bridges Char `≈` ⇔ `≡`.
 -- No `primStringEquality` axiom or COMPILE pragma needed; allowlist unchanged.
 
-infix 4 _≡csᵇ_
-_≡csᵇ_ : List Char → List Char → Bool
-[]       ≡csᵇ []       = true
-[]       ≡csᵇ (_ ∷ _)  = false
-(_ ∷ _)  ≡csᵇ []       = false
-(c ∷ cs) ≡csᵇ (d ∷ ds) = (c ≈ᵇ d) ∧ (cs ≡csᵇ ds)
 
 -- Char-level soundness via the `_≈ᵇ_` chain.
 private
@@ -251,16 +254,6 @@ private
 ≡csᵇ-complete : ∀ cs ds → cs ≡ ds → T (cs ≡csᵇ ds)
 ≡csᵇ-complete cs .cs refl = ≡csᵇ-refl cs
 
--- Self-certifying twin: packages `_≡csᵇ_` with an ERASED certificate built
--- from the lemma family below, so a Dec₀-shaped consumer gets the Bool and
--- its meaning as one value (MAlonzo erases the certificate — Dec₀ is a
--- newtype over Bool).  The standalone lemmas REMAIN the proof surface: the
--- cache-correctness and adequacy proofs consume them RELEVANTLY, which an
--- erased certificate cannot serve — the two are complementary, not
--- redundant.
-_≟cs₀_ : (cs ds : List Char) → Dec₀ (cs ≡ ds)
-cs ≟cs₀ ds = fromBridges (cs ≡csᵇ ds) (≡csᵇ-sound cs ds) (≡csᵇ-complete cs ds)
-
 -- Anti-soundness: when `_≡csᵇ_` says `false`, the propositional equality
 -- is impossible.  Used in cache-lookup proofs that case-split on the Bool
 -- and need to discharge the `cs ≢ ds` obligation in the negative branch.
@@ -284,3 +277,5 @@ private
 ≡csᵇ-refl-eq : ∀ cs → (cs ≡csᵇ cs) ≡ true
 ≡csᵇ-refl-eq []       = refl
 ≡csᵇ-refl-eq (c ∷ cs) rewrite ≈ᵇ-refl-eq c | ≡csᵇ-refl-eq cs = refl
+
+

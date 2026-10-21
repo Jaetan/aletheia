@@ -33,6 +33,12 @@ open import Aletheia.Limits using (BoundKind; boundKindLabel; observed-ceiling; 
 -- PARSE ERRORS (DBC/JSONParser.agda, CAN/Frame/Parse.agda)
 -- ============================================================================
 
+-- Where a refused name or bound sits: the named part of a parsed input, or
+-- the position in a DBC text where the name starts.
+data NamePlace : Set where
+  InPart : String → NamePlace
+  AtText : Position → NamePlace
+
 data ParseError : Set where
   MissingField            : String → ParseError
   InvalidByteOrder        : String → ParseError
@@ -72,11 +78,9 @@ data ParseError : Set where
   -- rational whose denominator has a prime factor outside {2, 5}. First
   -- argument is the field name for diagnostics.
   NonTerminatingRational  : String → ParseError
-  -- Name field that fails the DBC identifier grammar (letter/underscore start,
-  -- alphanumeric/underscore continue).  Introduced to
-  -- reject invalid identifiers at the JSON parse boundary; the text parser
-  -- already rejects these syntactically via `parseIdentifier`.
-  InvalidIdentifier       : String → ParseError
+  -- A name outside the DBC identifier grammar (letter or underscore start,
+  -- alphanumerics and underscores after), where it sits, and the name.
+  InvalidIdentifier       : NamePlace → String → ParseError
   -- Non-integer value in a `multiplex_values` JSON array.  Split out from
   -- `InvalidPresence` so the wire code distinguishes
   -- "presence string not 'always'" (the original InvalidPresence intent)
@@ -155,8 +159,11 @@ formatParseError (InvalidKind domain value) =
   "invalid " ++ₛ domain ++ₛ " kind '" ++ₛ value ++ₛ "'"
 formatParseError (NonTerminatingRational f) =
   "rational field '" ++ₛ f ++ₛ "' is non-terminating in decimal (denominator has a prime factor outside {2, 5})"
-formatParseError (InvalidIdentifier s) =
-  "'" ++ₛ s ++ₛ "' is not a valid DBC identifier (must start with letter or '_', followed by alphanumerics or '_')"
+formatParseError (InvalidIdentifier (InPart part) s) =
+  part ++ₛ ": '" ++ₛ s ++ₛ "' is not a valid DBC identifier (must start with letter or '_', followed by alphanumerics or '_')"
+formatParseError (InvalidIdentifier (AtText pos) s) =
+  "identifier at line " ++ₛ showℕ (Position.line pos) ++ₛ ", column " ++ₛ showℕ (Position.column pos)
+    ++ₛ ": '" ++ₛ s ++ₛ "' is not a valid DBC identifier (must start with letter or '_', followed by alphanumerics or '_')"
 formatParseError NonIntegerMultiplexValue =
   "non-integer value in 'multiplex_values' array (every element must be a JSON natural number)"
 formatParseError (NonNaturalField f) =
@@ -196,7 +203,7 @@ parseErrorCode (SignalBitLengthExceedsFrame _ _) = "parse_signal_bit_length_exce
 parseErrorCode (SignalBigEndianOverflow _ _ _)   = "parse_signal_big_endian_overflow"
 parseErrorCode (InvalidKind _ _)          = "parse_invalid_kind"
 parseErrorCode (NonTerminatingRational _) = "parse_non_terminating_rational"
-parseErrorCode (InvalidIdentifier _)       = "parse_invalid_identifier"
+parseErrorCode (InvalidIdentifier _ _)     = "parse_invalid_identifier"
 parseErrorCode NonIntegerMultiplexValue    = "parse_non_integer_multiplex_value"
 parseErrorCode (NonNaturalField _)         = "parse_non_natural_field"
 parseErrorCode (DLCCodeOutOfRange _)       = "parse_dlc_code_out_of_range"
@@ -352,6 +359,8 @@ data HandlerError : Set where
   StreamNotStarted       : HandlerError
   StreamActive           : HandlerError
   PropertyParseFailed    : ℕ → HandlerError
+  -- A property names a signal no signal of the loaded DBC carries.
+  UnknownSignal          : String → HandlerError
   -- Carries the FULL structured list of validation issues produced by
   -- DBC.Validator.validateDBCFull — errors AND warnings, so a rejected
   -- parse still reports the complete picture (a caller fixing the errors
@@ -386,6 +395,7 @@ formatHandlerError StreamNotStarted      = "stream not started"
 formatHandlerError StreamActive          = "stream still active"
 formatHandlerError (PropertyParseFailed idx) =
   "property parse failure at index " ++ₛ showℕ idx
+formatHandlerError (UnknownSignal s) = "signal '" ++ₛ s ++ₛ "' not found in DBC"
 -- The message flattens only the error-level issues (byte-identical to the
 -- pre-full-list wire text); warnings travel in the structured `issues`
 -- field appended by ResponseFormat.errorExtras.
@@ -407,6 +417,7 @@ handlerErrorCode NotStreaming          = "handler_not_streaming"
 handlerErrorCode StreamNotStarted      = "handler_stream_not_started"
 handlerErrorCode StreamActive          = "handler_stream_active"
 handlerErrorCode (PropertyParseFailed _) = "handler_property_parse_failed"
+handlerErrorCode (UnknownSignal _)     = "handler_unknown_signal"
 handlerErrorCode (ValidationFailed _)  = "handler_validation_failed"
 handlerErrorCode (TextRoundTripFailed _) = "handler_text_roundtrip_failed"
 handlerErrorCode (NonMonotonicTimestamp _ _) = "handler_non_monotonic_timestamp"
@@ -512,6 +523,12 @@ dbcTextParseErrorCode (SignalGeometryError _ inner)   = parseErrorCode inner
 -- TOP-LEVEL ERROR SUM
 -- ============================================================================
 
+-- Where a refused character sits: in a parsed field, at its index, or in a
+-- DBC text, at its position.
+data CharLocation : Set where
+  InField : String → ℕ → CharLocation
+  InText  : Position → CharLocation
+
 data Error : Set where
   ParseErr           : ParseError → Error
   FrameErr           : FrameError → Error
@@ -525,9 +542,15 @@ data Error : Set where
   -- says which bound, and bindings dispatch on the `bound_kind` field of
   -- the structured payload.
   InputBoundExceeded : BoundKind → ℕ → ℕ → Error
-  -- The same, crossed by the named part of the input (a DBC's "senders
-  -- array", its "version string"), which the payload carries as `field`.
-  InputBoundExceededAt : String → BoundKind → ℕ → ℕ → Error
+  -- The same, located: the named part of the input (a DBC's "senders
+  -- array", its "version string"), carried as `field`, or the position in a
+  -- DBC text where the refused name starts, carried as `line` and `column`.
+  InputBoundExceededAt : NamePlace → BoundKind → ℕ → ℕ → Error
+  -- A character outside the DBC character set, with its code point: in a
+  -- parsed field at its index, or in a DBC text at its line and column.
+  InvalidCharacter : CharLocation → ℕ → Error
+  -- A DBC keyword used as a name: where the name sits, and the keyword.
+  KeywordName : NamePlace → String → Error
 
 formatError : Error → String
 formatError (ParseErr pe)                       = formatParseError pe
@@ -540,8 +563,23 @@ formatError (DBCTextParseErr de)                = formatDBCTextParseError de
 formatError (WithContext ctx inner)             = ctx ++ₛ ": " ++ₛ formatError inner
 formatError (InputBoundExceeded kind obs limit) =
   boundKindLabel kind ++ₛ " " ++ₛ showObserved obs ++ₛ " exceeds limit " ++ₛ showℕ limit
-formatError (InputBoundExceededAt part kind obs limit) =
+formatError (InputBoundExceededAt (InPart part) kind obs limit) =
   part ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit)
+formatError (InputBoundExceededAt (AtText pos) kind obs limit) =
+  "identifier at line " ++ₛ showℕ (Position.line pos) ++ₛ ", column "
+    ++ₛ showℕ (Position.column pos) ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit)
+formatError (InvalidCharacter (InField part i) cp) =
+  part ++ₛ ": character at index " ++ₛ showℕ i ++ₛ " (code point " ++ₛ showℕ cp
+    ++ₛ ") is outside the DBC character set"
+formatError (InvalidCharacter (InText pos) cp) =
+  "character at line " ++ₛ showℕ (Position.line pos) ++ₛ ", column "
+    ++ₛ showℕ (Position.column pos) ++ₛ " (code point " ++ₛ showℕ cp
+    ++ₛ ") is outside the DBC character set"
+formatError (KeywordName (InPart part) kw) =
+  part ++ₛ ": '" ++ₛ kw ++ₛ "' is a DBC keyword"
+formatError (KeywordName (AtText pos) kw) =
+  "identifier '" ++ₛ kw ++ₛ "' at line " ++ₛ showℕ (Position.line pos)
+    ++ₛ ", column " ++ₛ showℕ (Position.column pos) ++ₛ " is a DBC keyword"
 
 errorCode : Error → String
 errorCode (ParseErr pe)             = parseErrorCode pe
@@ -554,3 +592,5 @@ errorCode (DBCTextParseErr de)      = dbcTextParseErrorCode de
 errorCode (WithContext _ inner)     = errorCode inner
 errorCode (InputBoundExceeded _ _ _) = "input_bound_exceeded"
 errorCode (InputBoundExceededAt _ kind obs limit) = errorCode (InputBoundExceeded kind obs limit)
+errorCode (InvalidCharacter _ _)    = "dbc_invalid_character"
+errorCode (KeywordName _ _)         = "dbc_keyword_name"

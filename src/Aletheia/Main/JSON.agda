@@ -21,6 +21,7 @@ open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using (runParser)
+open import Aletheia.Parser.Watermark using (Watermark)
 open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; lookupString)
 open import Aletheia.Protocol.JSON.Types using (jsonDepth; jsonMaxComponent)
@@ -73,8 +74,8 @@ private
   -- Takes the full `runParser` pair: the failure watermark (proj₁) feeds
   -- the positioned `InvalidJSON` on the nothing arm; the success arm
   -- drops both the watermark and the end position.
-  handleParsedJSON : StreamState → Position × Maybe (JSON × Position) → StreamState × String
-  handleParsedJSON state (w , nothing) = wrapJSON (state , Msg.Response.Error (DispatchErr (InvalidJSON w)))
+  handleParsedJSON : StreamState → Watermark × Maybe (JSON × Position) → StreamState × String
+  handleParsedJSON state (w , nothing) = wrapJSON (state , Msg.Response.Error (DispatchErr (InvalidJSON (Watermark.position w))))
   handleParsedJSON state (_ , just (j , _)) =
     let depth = jsonDepth j
         comp  = jsonMaxComponent j

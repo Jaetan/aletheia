@@ -39,7 +39,7 @@ open import Aletheia.DBC.Types using (DBCSignal; DBCMessage)
 open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
 open import Aletheia.DBC.TextParser.ValueDescriptions using (prependVdsRvd; collectFromSignals; collectFromMessages)
 open import Aletheia.Parser.Combinators using
-  ( Position; mkResult
+  ( Position; Watermark; mkResult
   ; advancePositions; many; pure; _>>=_
   ; initialPosition)
 
@@ -586,7 +586,7 @@ outcome-subst :
 outcome-subst f (w , _) refl = refl
 
 finalizeParse-on-mkResult-clean :
-    ∀ (d : DBC) (w pos-end : Position) → WellFormedTextDBCAgg d
+    ∀ (d : DBC) (w : Watermark) (pos-end : Position) → WellFormedTextDBCAgg d
   → finalizeParse
       (w , just (mkResult
               ( DBC.version d

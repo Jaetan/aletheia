@@ -241,10 +241,9 @@ def _load_dbc_with(
         # pre-check mirrors dbc_to_json's defense-in-depth (rejects >64 MiB
         # before crossing the FFI boundary).
         check_dbc_text_size_bound(p.stat().st_size)
-        # read_text's encoding is NOT droppable (default is the locale, not
-        # utf-8); "UTF-8" is a codec-name alias → both the case and the None
-        # mutant are runtime-equivalent here (pragma).
-        text = p.read_text(encoding="utf-8")  # pragma: no mutate
+        # Every byte becomes the character of the same number, so the kernel
+        # decides the file's characters whatever its encoding.
+        text = p.read_bytes().decode("latin-1")
         return _parsed(lambda: client.parse_dbc_text(text), dbc_path)
 
     if excel_path is not None:

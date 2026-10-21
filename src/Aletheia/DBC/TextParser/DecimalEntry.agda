@@ -43,7 +43,7 @@ open import Aletheia.DBC.TextParser.Consumed using (consumed)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; SmallDecRat; smallDecRat-components)
 open import Aletheia.DBC.Bounds using (Checked; [_]; magnitude)
-open import Aletheia.Error using (Error; DBCTextParseError; DBCTextParseErr)
+open import Aletheia.Error using (Error)
 
 -- The rational as the wire carries it: lowest terms over a positive
 -- denominator (the `DecRat` canonical invariant), each component at most
@@ -65,8 +65,8 @@ fromChecked : (d : DecRat) → Checked (SmallDecRat d) → Error ⊎ WireRationa
 fromChecked _ (inj₁ e)         = inj₁ e
 fromChecked d (inj₂ [ small ]) = inj₂ (wireOf d small)
 
-decide : DBCTextParseError ⊎ ParseResult DecRat → Error ⊎ WireRational
-decide (inj₁ e)   = inj₁ (DBCTextParseErr e)
+decide : Error ⊎ ParseResult DecRat → Error ⊎ WireRational
+decide (inj₁ e)   = inj₁ e
 decide (inj₂ res) = fromChecked (value res) (magnitude "decimal" (value res))
 
 parseDecimal-chars : List Char → Error ⊎ WireRational

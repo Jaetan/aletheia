@@ -15,7 +15,7 @@
 -- is exactly what every roundtrip/correctness statement needs.
 module Aletheia.Parser.Properties where
 
-open import Aletheia.Parser.Combinators using (Parser; ParseResult; value; remaining; position; Position; line; column; pure; fail; _>>=_; _<$>_; satisfy; advancePosition; advancePositions; mkResult)
+open import Aletheia.Parser.Combinators using (Parser; ParseResult; value; remaining; position; Position; line; column; pure; fail; _>>=_; _<$>_; satisfy; advancePosition; advancePositions; mkResult; at)
 open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
@@ -264,10 +264,10 @@ pure-consumes-nothing : ∀ {A : Set} (a : A) (pos : Position) (input : List Cha
 pure-consumes-nothing a pos input = mkResult a pos input , refl , refl , refl
 
 -- fail always fails, and its watermark is the position it was launched
--- at (stated at pair level: `fail` is a leaf, so the full result is
--- closed — no watermark term to get stuck on).
+-- at with nothing refused (stated at pair level: `fail` is a leaf, so the
+-- full result is closed, with no watermark term to get stuck on).
 fail-always-fails : ∀ {A : Set} (pos : Position) (input : List Char)
-                  → fail {A} pos input ≡ (pos , nothing)
+                  → fail {A} pos input ≡ (at pos , nothing)
 fail-always-fails pos input = refl
 
 -- Bind preserves failure

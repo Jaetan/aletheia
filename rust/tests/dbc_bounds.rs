@@ -331,35 +331,18 @@ fn parse_dbc_text_refuses_a_version_string_too_long() {
 }
 
 #[test]
-fn an_identifier_too_long_is_a_bound_that_names_no_field() {
+fn an_identifier_too_long_is_a_bound_naming_its_field() {
     let name = "S".repeat(129);
     let dbc = Dbc {
         messages: vec![message(256, vec![signal(&name)])],
         ..base()
     };
-    let kernel = format!(
-        "ParseDBC: message 'M256', signal '{name}': identifier length 129 exceeds limit 128"
+    assert_refused(
+        client().parse_dbc(&dbc),
+        ("identifier_length", 129, 128),
+        "signal name",
+        &format!(
+            "ParseDBC: message 'M256', signal '{name}': signal name: identifier length 129 exceeds limit 128"
+        ),
     );
-    let err = client()
-        .parse_dbc(&dbc)
-        .expect_err("a signal name past its length bound is refused");
-    match &err {
-        Error::InputBoundExceeded {
-            message,
-            bound_kind,
-            observed,
-            limit,
-            field,
-            ..
-        } => {
-            assert_eq!(*message, kernel);
-            assert_eq!(
-                (bound_kind.as_str(), *observed, *limit),
-                ("identifier_length", 129, 128)
-            );
-            assert_eq!(*field, None);
-        }
-        other => panic!("expected Error::InputBoundExceeded, got {other:?}"),
-    }
-    assert_eq!(err.to_string(), kernel);
 }

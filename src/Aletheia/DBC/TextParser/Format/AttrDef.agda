@@ -6,10 +6,11 @@
 -- BA_DEF_REL_ attribute-definition lines.
 --
 -- Grammar slice (mirrors `TextParser.Attributes`):
---   attr-def     ::= "BA_DEF_" ws (attr-scope ws)? string-lit ws attr-type
+--   attr-def     ::= "BA_DEF_" ws (attr-scope ws)? quoted-ident ws attr-type
 --                    ws? ";" newline
---   attr-def-rel ::= "BA_DEF_REL_" ws rel-scope ws string-lit ws attr-type
+--   attr-def-rel ::= "BA_DEF_REL_" ws rel-scope ws quoted-ident ws attr-type
 --                    ws? ";" newline
+--   quoted-ident ::= '"' ident '"'                           (the name)
 --   attr-scope   ::= "BU_" | "BO_" | "SG_" | "EV_"          (4-way)
 --   rel-scope    ::= "BU_BO_REL_" | "BU_SG_REL_"            (2-way)
 --   attr-type    ::= "STRING" | "INT" ws int ws int
@@ -59,12 +60,11 @@ open import Aletheia.DBC.TextFormatter.Emitter
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop)
 open import Aletheia.DBC.Bounds using (SmallType)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.TextParser.Format
-  using (Format; literal; stringLit; pair; iso; many;
+  using (Format; literal; stringLit; quotedIdent; pair; iso; many;
          altSum; ws; wsOpt; wsCanonOne; decRat; intDecRat; natDecRat;
          withPrefix; emit; parse; EmitsOK; ParseFailsAt; roundtrip)
--- The HEAD-NON-HSPACE HELPERS section (10 helpers) moved to a sibling
--- submodule.
 open import Aletheia.DBC.TextParser.Format.AttrDef.HeadHelpers
   using (showNat-chars-head-stop;
          showInt-chars-head-stop; showDecRat-chars-head-stop;
@@ -307,12 +307,13 @@ relScopeFmt = iso fwdRel bwdRel fwdRel-bwdRel relScopeCarrierFmt
 -- ============================================================================
 
 -- Carrier shape: each line carries (scope, name, type, ⊤-trailing).  The
--- trailing `⊤` is the result of the `wsCanonOne; ";"; newline` chain.
+-- name is an `Identifier` read through `quotedIdent`; the trailing `⊤` is
+-- the result of the `wsCanonOne; ";"; newline` chain.
 StdAttrDefCarrier : Set
-StdAttrDefCarrier = RawStdScope × (List Char × (RawAttrType × ⊤))
+StdAttrDefCarrier = RawStdScope × (Identifier × (RawAttrType × ⊤))
 
 RelAttrDefCarrier : Set
-RelAttrDefCarrier = RawRelScope × (List Char × (RawAttrType × ⊤))
+RelAttrDefCarrier = RawRelScope × (Identifier × (RawAttrType × ⊤))
 
 -- BA_DEF_ line.  Wire shape:
 --     BA_DEF_ <scope-prefix><"name"> <type> ;\n
@@ -324,7 +325,7 @@ attrDefFmt =
   withPrefix (toList "BA_DEF_") (
     withWS (
       pair stdScopeFmt (
-        pair stringLit (
+        pair quotedIdent (
           withWS (
             pair attrTypeFmt (
               withWSCanonOne (
@@ -336,16 +337,16 @@ attrDefFmt =
 -- (where the std-scope keyword bakes the trailing space into its arm
 -- via `withPrefix "BU_" ws`), the rel-scope keyword is just the literal
 -- and the trailing-space-before-name is supplied by an explicit `withWS`
--- between `relScopeFmt` and `stringLit`.  This mirrors the parser's
+-- between `relScopeFmt` and `quotedIdent`.  This mirrors the parser's
 -- structure: `parseRelScope` consumes only the keyword, then
--- `parseAttrDefRel` runs an explicit `parseWS` before `parseStringLit`.
+-- `parseAttrDefRel` runs an explicit `parseWS` before the quoted name.
 attrDefRelFmt : Format RelAttrDefCarrier
 attrDefRelFmt =
   withPrefix (toList "BA_DEF_REL_") (
     withWS (
       pair relScopeFmt (
         withWS (
-          pair stringLit (
+          pair quotedIdent (
             withWS (
               pair attrTypeFmt (
                 withWSCanonOne (
@@ -366,50 +367,31 @@ liftRelAttrDef (s , n , t , _) =
   mkAttrDef n (liftRelScope s) (liftAttrType t)
 
 -- ============================================================================
--- HEAD-NON-HSPACE HELPERS — see `Format/AttrDef/HeadHelpers.agda`
--- ============================================================================
---
--- The 10 head-non-hspace helpers (`digit-not-isHSpace`,
--- `showNat-chars-head-stop`, `showInt-chars-head-stop`,
--- `showDecRat-chars-head-stop`, `quoted-head-stop`,
--- `not-dot-after-space`, `assoc-bridgeᴴ`, `assoc-bridgeᴰ`) moved to
--- the sibling submodule `Format.AttrDef.HeadHelpers`.  No dependency on
--- AttrDef's own definitions —
--- they bridge `SuffixStops … preconditions` for the EMITS-OK builders
--- below.  Imported back at the top of this module.
-
--- ============================================================================
 -- EMITS-OK BUILDERS — concrete-shape preconditions baked into signatures
 -- ============================================================================
 --
--- Per advisor: the production use site has the suffix at
--- `attrTypeFmt`'s slot as `' ' ∷ ';' ∷ '\n' ∷ outer-line-suffix` (from
--- the trailing `withWSCanonOne (withPrefix ";" newlineFmt)`), and at
--- `stdScopeFmt`/`relScopeFmt`'s slot as `quoteStringLit-chars name ++
--- rest` (head `'"'`, from the immediately following `pair stringLit
--- ...`).  Bake these concrete shapes into the builder signatures so
--- every inner SuffixStops witness closes by `refl` on the closed-Char
--- head, and altSum disjointness witnesses close by `λ _ → refl` (the
--- earlier alt's keyword first-char differs from the actual head).
+-- The production use site has the suffix at `attrTypeFmt`'s slot as
+-- `' ' ∷ ';' ∷ '\n' ∷ outer-line-suffix` (from the trailing
+-- `withWSCanonOne (withPrefix ";" newlineFmt)`), and at `stdScopeFmt`'s
+-- slot as `emit quotedIdent name ++ rest` (head `'"'`, from the
+-- immediately following `pair quotedIdent ...`).  These concrete shapes
+-- are baked into the builder signatures so every inner SuffixStops
+-- witness closes by `refl` on the closed-Char head, and altSum
+-- disjointness witnesses close by `λ _ → refl` (the earlier alt's keyword
+-- first-char differs from the actual head).
 
 -- Standard scope: at the call site in `attrDefFmt`, the suffix is
--- `(quoteStringLit-chars name ++ inner) ++ outer-suffix` where inner
--- is the emit of the trailing `withWS (pair attrTypeFmt (...))` chunk.
--- Bake the left-associated `(_ ++ _) ++ _` shape so all inner SuffixStops
--- witnesses close by `∷-stop refl` on the closed `'"'` head (folded
--- through the leading `'"' ∷` of `quoteStringLit-chars`).  altSum
--- disjointness witnesses against earlier alts close by `λ _ → refl`
--- since each keyword's first char differs from `'"'`.
---
--- For the rel scope (used in `attrDefRelFmt`), the call-site suffix has
--- an extra leading space (from the explicit `withWS` between
--- `relScopeFmt` and `stringLit`).  Since `relScopeFmt`'s inner reductions
--- only check the leading-char head, the same `(quoteStringLit-chars name
--- ++ inner) ++ outer-suffix` shape works after the `' ' ∷` folds in.
+-- `(emit quotedIdent name ++ inner) ++ outer-suffix` where inner is the
+-- emit of the trailing `withWS (pair attrTypeFmt (...))` chunk.  The
+-- left-associated `(_ ++ _) ++ _` shape lets all inner SuffixStops
+-- witnesses close by `∷-stop refl` on the closed `'"'` head (the opening
+-- quote `quotedIdent` emits first).  altSum disjointness witnesses
+-- against earlier alts close by `λ _ → refl` since each keyword's first
+-- char differs from `'"'`.
 build-EmitsOK-stdScopeFmt :
-  ∀ (s : RawStdScope) (name inner outer-suffix : List Char)
+  ∀ (s : RawStdScope) (name : Identifier) (inner outer-suffix : List Char)
   → EmitsOK stdScopeFmt s
-      ((quoteStringLit-chars name ++ₗ inner) ++ₗ outer-suffix)
+      ((emit quotedIdent name ++ₗ inner) ++ₗ outer-suffix)
 build-EmitsOK-stdScopeFmt RssNode _ _ _ = tt , ∷-stop refl
 build-EmitsOK-stdScopeFmt RssMsg _ _ _ =
   (tt , ∷-stop refl) , (λ _ → refl)
@@ -419,15 +401,10 @@ build-EmitsOK-stdScopeFmt RssEnv _ _ _ =
   (tt , ∷-stop refl) , (λ _ → refl)
 build-EmitsOK-stdScopeFmt RssNet _ _ _ = tt , (λ _ → refl)
 
--- Relation scope: at `attrDefRelFmt`'s call site the suffix is
--- `' ' ∷ (quoteStringLit-chars name ++ inner) ++ outer-suffix` (leading
--- ' ' from the explicit `withWS` between `relScopeFmt` and `stringLit`).
--- BU_BO_REL_ / BU_SG_REL_ both START with 'B' so their inner SuffixStops
--- on the trailing-suffix close by `∷-stop refl` on '"' (after the leading
--- ' ' from withWS and the BU_BO_REL_ keyword folds through).  Wait —
--- actually, we don't need any SuffixStops witness for `withPrefix
--- "BU_BO_REL_" ws` because `relScopeFmt` is `altSum (literal …) (literal
--- …)` (NO inner ws).  So this is much simpler than std scope.
+-- Relation scope: `relScopeFmt` is `altSum (literal …) (literal …)` with
+-- no inner `ws`, so no SuffixStops witness is needed and the suffix is
+-- universal; the altSum disjointness witness closes on the keywords'
+-- differing fourth character (`BU_B` / `BU_S`).
 build-EmitsOK-relScopeFmt :
   ∀ (s : RawRelScope) (suffix : List Char)
   → EmitsOK relScopeFmt s suffix
@@ -625,11 +602,11 @@ private
   -- of `attrDefFmt`.  The suffix is `(emit stdScopeFmt s ++ inner) ++
   -- outer-suffix`; per scope, the head reduces to a closed Char (`'B'`
   -- / `'S'` / `'E'` for keyword scopes; `'"'` for `RssNet`'s empty emit
-  -- followed by quoteStringLit-chars).
+  -- followed by `emit quotedIdent n`).
   stdScope-emit-leading-non-hspace :
-    ∀ (s : RawStdScope) (n : List Char) (inner outer-suffix : List Char)
+    ∀ (s : RawStdScope) (n : Identifier) (inner outer-suffix : List Char)
     → SuffixStops isHSpace
-        ((emit stdScopeFmt s ++ₗ (quoteStringLit-chars n ++ₗ inner)) ++ₗ
+        ((emit stdScopeFmt s ++ₗ (emit quotedIdent n ++ₗ inner)) ++ₗ
          outer-suffix)
   stdScope-emit-leading-non-hspace RssNet  _ _ _ = ∷-stop refl
   stdScope-emit-leading-non-hspace RssNode _ _ _ = ∷-stop refl
@@ -649,21 +626,23 @@ private
 -- tuple by combining the per-Format sub-builders + per-case head-stop
 -- helpers.  `outer-suffix` and all four record fields are universal.
 build-EmitsOK-attrDefFmt :
-  ∀ (s : RawStdScope) (n : List Char) (rt : RawAttrType) (outer-suffix : List Char)
+  ∀ (s : RawStdScope) (n : Identifier) (rt : RawAttrType) (outer-suffix : List Char)
   → SmallType (liftAttrType rt)
   → EmitsOK attrDefFmt (s , n , rt , tt) outer-suffix
 build-EmitsOK-attrDefFmt s n rt outer-suffix small =
   -- L1: literal "BA_DEF_" — vacuous.
     tt
   -- L2: leading withWS after "BA_DEF_": SuffixStops isHSpace on
-  --     `(emit stdScopeFmt s ++ (quoteStringLit-chars n ++ ' ' ∷ ...))
+  --     `(emit stdScopeFmt s ++ (emit quotedIdent n ++ ' ' ∷ ...))
   --     ++ outer-suffix`.  Per-scope head-stop closes by ∷-stop refl.
   , stdScope-emit-leading-non-hspace s n inner-after-name outer-suffix
-  -- L3: stdScopeFmt EmitsOK — sub-builder, concrete-shape `(quoteStringLit
-  --     ++ inner) ++ outer-suffix`.
+  -- L3: stdScopeFmt EmitsOK, the sub-builder at concrete shape `(emit quotedIdent
+  --     n ++ inner) ++ outer-suffix`.
   , build-EmitsOK-stdScopeFmt s n inner-after-name outer-suffix
-  -- L4: stringLit SuffixStops `_≈ᵇ '"'` on suffix `' ' ∷ ...`.  ∷-stop refl.
-  , ∷-stop refl
+  -- L4: quotedIdent: the opening quote literal (vacuous), `ident` stopped
+  --     by the closing quote (`isIdentCont '"'` is false), the closing
+  --     quote literal (vacuous).
+  , (tt , ∷-stop refl , tt)
   -- L5: leading withWS after name: SuffixStops isHSpace on `(emit attrTypeFmt
   --     rt ++ ' ' ∷ ';' ∷ '\n' ∷ []) ++ outer-suffix`.  Per-rt head-stop.
   , attrType-emit-leading-non-hspace rt
@@ -680,8 +659,8 @@ build-EmitsOK-attrDefFmt s n rt outer-suffix small =
   --      fails on first-char comparison.  λ _ → refl.
   , λ _ → refl
   where
-    -- inner = emit (pair stringLit (withWS (pair attrTypeFmt (...)))) (n, rt, tt)
-    -- minus the `quoteStringLit-chars n` prefix (which is supplied
+    -- inner = emit (pair quotedIdent (withWS (pair attrTypeFmt (...)))) (n, rt, tt)
+    -- minus the `emit quotedIdent n` prefix (which is supplied
     -- explicitly to `build-EmitsOK-stdScopeFmt`).
     inner-after-name : List Char
     inner-after-name = ' ' ∷ (emit attrTypeFmt rt ++ₗ ' ' ∷ ';' ∷ '\n' ∷ [])
@@ -691,7 +670,7 @@ build-EmitsOK-attrDefFmt s n rt outer-suffix small =
 -- case's withPrefix-internalised trailing space).  11 elements total
 -- (one extra leading-ws slot vs std).
 build-EmitsOK-attrDefRelFmt :
-  ∀ (s : RawRelScope) (n : List Char) (rt : RawAttrType) (outer-suffix : List Char)
+  ∀ (s : RawRelScope) (n : Identifier) (rt : RawAttrType) (outer-suffix : List Char)
   → SmallType (liftAttrType rt)
   → EmitsOK attrDefRelFmt (s , n , rt , tt) outer-suffix
 build-EmitsOK-attrDefRelFmt s n rt outer-suffix small =
@@ -700,15 +679,16 @@ build-EmitsOK-attrDefRelFmt s n rt outer-suffix small =
   -- L2: leading withWS after "BA_DEF_REL_": SuffixStops on
   --     `(emit relScopeFmt s ++ ' ' ∷ ...) ++ outer-suffix`.
   , relScope-emit-leading-non-hspace s
-      (' ' ∷ (quoteStringLit-chars n ++ₗ inner-after-name)) outer-suffix
+      (' ' ∷ (emit quotedIdent n ++ₗ inner-after-name)) outer-suffix
   -- L3: relScopeFmt EmitsOK — sub-builder.
   , build-EmitsOK-relScopeFmt s _
   -- L4: leading withWS after rel scope: SuffixStops on
-  --     `(quoteStringLit-chars n ++ ' ' ∷ emit attrTypeFmt rt ++ ...) ++ outer-suffix`.
-  --     Head '"' from quoteStringLit-chars folds.  ∷-stop refl.
+  --     `(emit quotedIdent n ++ ' ' ∷ emit attrTypeFmt rt ++ ...) ++ outer-suffix`.
+  --     Head '"' from the opening quote folds.  ∷-stop refl.
   , ∷-stop refl
-  -- L5: stringLit SuffixStops `_≈ᵇ '"'` on `' ' ∷ ...`.  ∷-stop refl.
-  , ∷-stop refl
+  -- L5: quotedIdent: opening quote (vacuous), `ident` stopped by the
+  --     closing quote, closing quote (vacuous).
+  , (tt , ∷-stop refl , tt)
   -- L6: leading withWS after name: SuffixStops on attrTypeFmt emit head.
   , attrType-emit-leading-non-hspace rt
       (' ' ∷ ';' ∷ '\n' ∷ []) outer-suffix
@@ -735,7 +715,7 @@ build-EmitsOK-attrDefRelFmt s n rt outer-suffix small =
 --   ≡ just (mkResult (s, n, rt, tt) ...).
 -- Single `roundtrip attrDefFmt` call backed by the EmitsOK builder.
 parseAttrDef-format-roundtrip :
-  ∀ (pos : Position) (s : RawStdScope) (n : List Char) (rt : RawAttrType)
+  ∀ (pos : Position) (s : RawStdScope) (n : Identifier) (rt : RawAttrType)
     (outer-suffix : List Char)
   → SmallType (liftAttrType rt)
   → proj₂ (parse attrDefFmt pos
@@ -750,7 +730,7 @@ parseAttrDef-format-roundtrip pos s n rt outer-suffix small =
 
 -- Mirror for BA_DEF_REL_.
 parseAttrDefRel-format-roundtrip :
-  ∀ (pos : Position) (s : RawRelScope) (n : List Char) (rt : RawAttrType)
+  ∀ (pos : Position) (s : RawRelScope) (n : Identifier) (rt : RawAttrType)
     (outer-suffix : List Char)
   → SmallType (liftAttrType rt)
   → proj₂ (parse attrDefRelFmt pos

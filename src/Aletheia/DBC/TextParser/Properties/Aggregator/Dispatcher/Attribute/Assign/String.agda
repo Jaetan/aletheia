@@ -46,7 +46,7 @@ open import Aletheia.DBC.Types using
   )
 
 open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttribute-chars)
+  (quoteIdent-chars; emitAttribute-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; showℕ-dec-chars)
@@ -116,33 +116,33 @@ private
 
   -- Network: 4 segments — toList "BA_ " ++ qname ++ ' ' ∷ vstr ++ toList ";\n"
   network-input-bridge :
-      ∀ (name s outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (s outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer
   network-input-bridge name s outer =
     trans
       (++ₗ-assoc (toList "BA_ ")
-                 (quoteStringLit-chars name ++ₗ
+                 (quoteIdent-chars name ++ₗ
                   ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n")
                  outer)
       (cong (toList "BA_ " ++ₗ_)
         (trans
-          (++ₗ-assoc (quoteStringLit-chars name)
+          (++ₗ-assoc (quoteIdent-chars name)
                      (' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n")
                      outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+          (cong (quoteIdent-chars name ++ₗ_)
                 (trail-bridge (quoteStringLit-chars s) outer))))
 
   -- Node: 6 segments — toList "BA_ " ++ qname ++ toList " BU_ " ++ cs-node ++
   --                    ' ' ∷ vstr ++ toList ";\n"
   node-input-bridge :
-      ∀ (name : List Char) (n : Identifier) (s outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (n : Identifier) (s outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer
   node-input-bridge name n s outer =
@@ -150,8 +150,8 @@ private
       (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
         (trans
-          (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+          (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans
               (++ₗ-assoc (toList " BU_ ") _ outer)
               (cong (toList " BU_ " ++ₗ_)
@@ -163,11 +163,11 @@ private
   -- Message: 6 segments — toList "BA_ " ++ qname ++ toList " BO_ " ++ cs-id ++
   --                       ' ' ∷ vstr ++ toList ";\n"
   message-input-bridge :
-      ∀ (name : List Char) (cid : CANId) (s outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (cid : CANId) (s outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer
   message-input-bridge name cid s outer =
@@ -175,8 +175,8 @@ private
       (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
         (trans
-          (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+          (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans
               (++ₗ-assoc (toList " BO_ ") _ outer)
               (cong (toList " BO_ " ++ₗ_)
@@ -203,12 +203,12 @@ private
           (trail-bridge s outer)))
 
   signal-input-bridge :
-      ∀ (name : List Char) (cid : CANId) (sig : Identifier) (s outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (cid : CANId) (sig : Identifier) (s outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer
@@ -217,8 +217,8 @@ private
       (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
         (trans
-          (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+          (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans
               (++ₗ-assoc (toList " SG_ ") _ outer)
               (cong (toList " SG_ " ++ₗ_)
@@ -232,11 +232,11 @@ private
   -- EnvVar: 6 segments — toList "BA_ " ++ qname ++ toList " EV_ " ++
   --                      Identifier.name ev ++ ' ' ∷ vstr ++ toList ";\n"
   envvar-input-bridge :
-      ∀ (name : List Char) (ev : Identifier) (s outer : List Char)
-    → (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (ev : Identifier) (s outer : List Char)
+    → (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer
   envvar-input-bridge name ev s outer =
@@ -244,8 +244,8 @@ private
       (++ₗ-assoc (toList "BA_ ") _ outer)
       (cong (toList "BA_ " ++ₗ_)
         (trans
-          (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+          (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans
               (++ₗ-assoc (toList " EV_ ") _ outer)
               (cong (toList " EV_ " ++ₗ_)
@@ -258,12 +258,12 @@ private
   --                       ++ Identifier.name n ++ ' ' ∷ cs-id ++
   --                       ' ' ∷ vstr ++ toList ";\n"
   nodemsg-input-bridge :
-      ∀ (name : List Char) (n : Identifier) (cid : CANId) (s outer : List Char)
-    → (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ∀ (name : Identifier) (n : Identifier) (cid : CANId) (s outer : List Char)
+    → (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer
@@ -272,8 +272,8 @@ private
       (++ₗ-assoc (toList "BA_REL_ ") _ outer)
       (cong (toList "BA_REL_ " ++ₗ_)
         (trans
-          (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+          (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans
               (++ₗ-assoc (toList " BU_BO_REL_ ") _ outer)
               (cong (toList " BU_BO_REL_ " ++ₗ_)
@@ -293,14 +293,14 @@ private
   -- ++ ...` — we still need the bridge through " SG_ ".  No `' ' ∷` boundary
   -- before " SG_ ".
   nodesig-input-bridge :
-      ∀ (name : List Char) (n : Identifier) (cid : CANId) (sig : Identifier)
+      ∀ (name : Identifier) (n : Identifier) (cid : CANId) (sig : Identifier)
         (s outer : List Char)
-    → (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+    → (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n") ++ₗ outer
-      ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
          toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
@@ -310,8 +310,8 @@ private
       (++ₗ-assoc (toList "BA_REL_ ") _ outer)
       (cong (toList "BA_REL_ " ++ₗ_)
         (trans
-          (++ₗ-assoc (quoteStringLit-chars name) _ outer)
-          (cong (quoteStringLit-chars name ++ₗ_)
+          (++ₗ-assoc (quoteIdent-chars name) _ outer)
+          (cong (quoteIdent-chars name ++ₗ_)
             (trans
               (++ₗ-assoc (toList " BU_SG_REL_ ") _ outer)
               (cong (toList " BU_SG_REL_ " ++ₗ_)
@@ -339,7 +339,7 @@ private
 
 parseAttrLine-on-emit-RawAssign-AVString :
     ∀ (defs : List AttrDef) (pos : Position)
-      (name : List Char) (target : AttrTarget) (s : List Char)
+      (name : Identifier) (target : AttrTarget) (s : List Char)
       (outer : List Char)
   → IdentNameStop-of target
   → SuffixStops isNewlineStart outer

@@ -232,14 +232,12 @@ data AttrTarget : Set where
   ATgtNodeMsg : (node : Identifier) → (msgID : CANId) → AttrTarget
   ATgtNodeSig : (node : Identifier) → (msgID : CANId) → (signal : Identifier) → AttrTarget
 
--- BA_DEF_ / BA_DEF_REL_ — attribute type declaration.
--- `name` is a DBC wire-format quoted string literal (not restricted to the
--- identifier grammar).  Stored as `List Char` so the
--- JSON-side roundtrip stays axiom-free.
+-- BA_DEF_ / BA_DEF_REL_ — attribute type declaration.  The name is a DBC
+-- identifier written between quotes on the wire.
 record AttrDef : Set where
   constructor mkAttrDef
   field
-    name     : List Char
+    name     : Identifier
     scope    : AttrScope
     attrType : AttrType
 
@@ -247,14 +245,14 @@ record AttrDef : Set where
 record AttrDefault : Set where
   constructor mkAttrDefault
   field
-    name  : List Char
+    name  : Identifier
     value : AttrValue
 
 -- BA_ / BA_REL_ — concrete attribute value assignment.
 record AttrAssign : Set where
   constructor mkAttrAssign
   field
-    name   : List Char
+    name   : Identifier
     target : AttrTarget
     value  : AttrValue
 
@@ -316,17 +314,14 @@ envVarNameStr = fromList ∘ Identifier.name ∘ EnvironmentVar.name
 valueTableNameStr : ValueTable → String
 valueTableNameStr = fromList ∘ Identifier.name ∘ ValueTable.name
 
--- Attribute names are free-form quoted strings in DBC wire format; they
--- are stored as `List Char`, so each accessor composes
--- `fromList` to recover the String.
 attrDefNameStr : AttrDef → String
-attrDefNameStr = fromList ∘ AttrDef.name
+attrDefNameStr = fromList ∘ Identifier.name ∘ AttrDef.name
 
 attrDefaultNameStr : AttrDefault → String
-attrDefaultNameStr = fromList ∘ AttrDefault.name
+attrDefaultNameStr = fromList ∘ Identifier.name ∘ AttrDefault.name
 
 attrAssignNameStr : AttrAssign → String
-attrAssignNameStr = fromList ∘ AttrAssign.name
+attrAssignNameStr = fromList ∘ Identifier.name ∘ AttrAssign.name
 
 -- ============================================================================
 -- TEXT-TYPED FIELD ACCESSORS (fields are List Char,

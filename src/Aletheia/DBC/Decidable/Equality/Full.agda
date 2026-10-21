@@ -375,7 +375,7 @@ x ≟-DBCComment y
 
 _≟-AttrDef_ : (x y : AttrDef) → Dec (x ≡ y)
 x ≟-AttrDef y
-  with ≡-dec _≟ᶜ_ (AttrDef.name x) (AttrDef.name y)
+  with AttrDef.name x ≟ᴵ AttrDef.name y
 ... | no ¬p = no (λ eq → ¬p (cong AttrDef.name eq))
 ... | yes refl
   with AttrDef.scope x ≟-AttrScope AttrDef.scope y
@@ -387,7 +387,7 @@ x ≟-AttrDef y
 
 _≟-AttrDefault_ : (x y : AttrDefault) → Dec (x ≡ y)
 x ≟-AttrDefault y
-  with ≡-dec _≟ᶜ_ (AttrDefault.name x) (AttrDefault.name y)
+  with AttrDefault.name x ≟ᴵ AttrDefault.name y
 ... | no ¬p = no (λ eq → ¬p (cong AttrDefault.name eq))
 ... | yes refl
   with AttrDefault.value x ≟-AttrValue AttrDefault.value y
@@ -396,7 +396,7 @@ x ≟-AttrDefault y
 
 _≟-AttrAssign_ : (x y : AttrAssign) → Dec (x ≡ y)
 x ≟-AttrAssign y
-  with ≡-dec _≟ᶜ_ (AttrAssign.name x) (AttrAssign.name y)
+  with AttrAssign.name x ≟ᴵ AttrAssign.name y
 ... | no ¬p = no (λ eq → ¬p (cong AttrAssign.name eq))
 ... | yes refl
   with AttrAssign.target x ≟-AttrTarget AttrAssign.target y

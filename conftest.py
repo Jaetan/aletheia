@@ -89,10 +89,12 @@ def _doc_dbc() -> DBCDefinition:
     """Hand-built DBC that covers the signal names used across the docs.
 
     Docs freely reference Speed/VehicleSpeed/EngineRPM/etc. as illustrative
-    examples of property subjects. Pack those names into a single 8-byte
-    message at ID 0x100 so ``build_frame``/``update_frame`` calls resolve
-    against real signal definitions. The numeric ranges are deliberately
-    wide so 72.0 / 130.0 / 0.0 doc-literal values stay inside [min, max].
+    examples of property subjects. Pack those names into one 8-byte message
+    at ID 0x100, and ``Voltage`` into a second at 0x101, so
+    ``build_frame``/``update_frame`` calls resolve against real signal
+    definitions and every property names a signal of the loaded DBC, which
+    the kernel requires. The numeric ranges are deliberately wide so
+    72.0 / 130.0 / 0.0 doc-literal values stay inside [min, max].
     """
     vehicle_speed: DBCSignalAlways = {
         **_signal("VehicleSpeed", 0, 16),
@@ -121,7 +123,20 @@ def _doc_dbc() -> DBCDefinition:
         "sender": "ECU",
         "signals": [vehicle_speed, speed, brake_pedal, engine_rpm, coolant_temp],
     }
-    return {"version": "1.0", "messages": [vehicle_state], **empty_dbc_tier2()}
+    voltage: DBCSignalAlways = {
+        **_signal("Voltage", 0, 16),
+        "factor": Fraction(1, 100),
+        "maximum": Fraction("655.35"),
+        "unit": "V",
+    }
+    battery: DBCMessage = {
+        "id": 0x101,
+        "name": "Battery",
+        "dlc": DLCByteCount(8),
+        "sender": "ECU",
+        "signals": [voltage],
+    }
+    return {"version": "1.0", "messages": [vehicle_state, battery], **empty_dbc_tier2()}
 
 
 def _harness_dbc_to_json[**P](*_args: P.args, **_kwargs: P.kwargs) -> DBCDefinition:

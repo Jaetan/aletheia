@@ -73,6 +73,10 @@ class ErrorCode(StrEnum):
     # Top-level adversarial-input bound: discriminate by `bound_kind` from
     # the structured payload.
     INPUT_BOUND_EXCEEDED = "input_bound_exceeded"
+    # The DBC character set and keywords: a character outside the set, or a
+    # keyword used as a name.
+    DBC_INVALID_CHARACTER = "dbc_invalid_character"
+    DBC_KEYWORD_NAME = "dbc_keyword_name"
     # Route errors
     ROUTE_MISSING_FIELD = "route_missing_field"
     ROUTE_UNKNOWN_COMMAND = "route_unknown_command"
@@ -86,6 +90,7 @@ class ErrorCode(StrEnum):
     HANDLER_STREAM_NOT_STARTED = "handler_stream_not_started"
     HANDLER_STREAM_ACTIVE = "handler_stream_active"
     HANDLER_PROPERTY_PARSE_FAILED = "handler_property_parse_failed"
+    HANDLER_UNKNOWN_SIGNAL = "handler_unknown_signal"
     HANDLER_VALIDATION_FAILED = "handler_validation_failed"
     HANDLER_TEXT_ROUNDTRIP_FAILED = "handler_text_roundtrip_failed"
     HANDLER_NON_MONOTONIC_TIMESTAMP = "handler_non_monotonic_timestamp"

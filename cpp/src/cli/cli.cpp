@@ -160,6 +160,24 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
 // rejected by the kernel and surfaces as a DbcLoadError with core issues).
 // Canonical-JSON and `.xlsx` inputs are not accepted. The file's size is
 // checked against the DBC text bound before it is read, as the loaders do.
+// Every byte becomes the character of the same number, encoded as UTF-8 for
+// the JSON command, so the kernel decides the file's characters whatever its
+// encoding: a byte above 0x7E is refused with its position.
+static auto latin1_to_utf8(std::string_view bytes) -> std::string {
+    std::string out;
+    out.reserve(bytes.size());
+    for (const unsigned char byte : bytes) {
+        const unsigned value = byte;
+        if (value < 0x80U) {
+            out.push_back(static_cast<char>(value));
+        } else {
+            out.push_back(static_cast<char>(0xC0U | (value >> 6U)));
+            out.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
+        }
+    }
+    return out;
+}
+
 static auto load_dbc_text(AletheiaClient& client, const std::string& path)
     -> std::expected<aletheia::ParsedDBC, DbcLoadError> {
     if (path.empty())
@@ -178,7 +196,7 @@ static auto load_dbc_text(AletheiaClient& client, const std::string& path)
         return std::unexpected(DbcLoadError{.message = "reading " + path});
     std::ostringstream buf;
     buf << in.rdbuf();
-    auto parsed = client.parse_dbc_text(std::stop_token{}, buf.str());
+    auto parsed = client.parse_dbc_text(std::stop_token{}, latin1_to_utf8(buf.str()));
     if (!parsed)
         return std::unexpected(DbcLoadError{
             .message = "parsing " + path + ": " +

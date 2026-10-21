@@ -16,14 +16,11 @@
 -- + `validateIdent : List Char → …`).  These proofs are axiom-free —
 -- `validateIdent-roundtrip` no longer goes through `toList`.
 module Aletheia.DBC.Formatter.MetadataRoundtrip where
-open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.DecRat.Refinement using
   (intDecRatToℤ;
    natDecRatToℕ;
    mkIntDecRatFromℤ-intDecRatToℤ; mkNatDecRatFromℕ-natDecRatToℕ)
-open import Data.Bool.Properties using (T?; T-irrelevant)
-open import Data.Empty using (⊥-elim)
-open import Relation.Nullary using (yes; no)
 
 open import Data.Bool using (T)
 open import Data.Char using (Char)
@@ -33,7 +30,7 @@ open import Data.List.Properties using (map-∘)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
 
@@ -56,7 +53,7 @@ open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON;
   formatAttrValue; formatAttrTarget;
   formatRawValueDesc; formatCANId;
   attrDefFields; attrDefaultFields; attrAssignFields)
-open import Aletheia.DBC.JSONParser using (parseCharsList; parseVarType;
+open import Aletheia.DBC.JSONParser using (parseCharsList; parseVarType; validateIdent-on-valid;
   parseSignalGroup; parseSignalGroupList;
   parseEnvironmentVar; parseEnvironmentVarList;
   parseValueEntry; parseValueEntryList;
@@ -124,14 +121,9 @@ parseCharsList-roundtrip (s ∷ ss)
   rewrite parseCharsList-roundtrip ss = refl
 
 -- Identifier roundtrip: validating the `name` chars of a valid Identifier
--- returns the original Identifier.  Axiom-free: `mkIdentFromChars`
--- runs the `T?` decision on `Identifier.name i : List Char` directly, so the
--- `yes w` branch closes via `T-irrelevant` and the `no` branch is absurd.
+-- returns the original Identifier, through the one identifier decision.
 validateIdent-roundtrip : ∀ (i : Identifier) → validateIdent (Identifier.name i) ≡ inj₂ i
-validateIdent-roundtrip (mkIdent name valid)
-  with T? (validIdentifierᵇ name)
-... | yes w  = cong (λ v → inj₂ (mkIdent name v)) (T-irrelevant w valid)
-... | no  ¬w = ⊥-elim (¬w valid)
+validateIdent-roundtrip = validateIdent-on-valid
 
 -- `map` post-compose through `Identifier.name` — used in SignalGroup /
 -- receivers / senders roundtrips where the formatter emits
@@ -534,16 +526,19 @@ attrTarget-roundtrip (ATgtNodeSig n (Extended rawId pf) s)
 -- Record eta closes the `mk*` equality at the end.
 attrDef-roundtrip : ∀ d → parseAttrDef (attrDefFields d) ≡ inj₂ d
 attrDef-roundtrip d
-  rewrite attrScope-roundtrip (AttrDef.scope d)
+  rewrite validateIdent-roundtrip (AttrDef.name d)
+        | attrScope-roundtrip (AttrDef.scope d)
         | attrType-roundtrip (AttrDef.attrType d) = refl
 
 attrDefault-roundtrip : ∀ d → parseAttrDefault (attrDefaultFields d) ≡ inj₂ d
 attrDefault-roundtrip d
-  rewrite attrValue-roundtrip (AttrDefault.value d) = refl
+  rewrite validateIdent-roundtrip (AttrDefault.name d)
+        | attrValue-roundtrip (AttrDefault.value d) = refl
 
 attrAssign-roundtrip : ∀ a → parseAttrAssign (attrAssignFields a) ≡ inj₂ a
 attrAssign-roundtrip a
-  rewrite attrTarget-roundtrip (AttrAssign.target a)
+  rewrite validateIdent-roundtrip (AttrAssign.name a)
+        | attrTarget-roundtrip (AttrAssign.target a)
         | attrValue-roundtrip (AttrAssign.value a) = refl
 
 -- DBCAttribute: 3-way tagged union keyed on "kind". parseAttribute dispatches

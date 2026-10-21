@@ -273,13 +273,10 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
     CHECK_FALSE(xid.has_value());
 }
 
-// The Identifier validity record enforces max_identifier_length: the Agda
-// kernel's `validIdentifierᵇ` asserts `length name <ᵇ suc
-// max-identifier-length`, so an identifier at the limit parses and anything
-// longer is rejected at `mkIdentFromChars`. It surfaces on the wire as
-// `text_trailing_input`, which is what the parser monad's position
-// semantics produce; a typed `InputBoundExceeded IdentifierLength` would need
-// plumbing further down that monad.
+// The kernel's identifier decision holds a name to max_identifier_length as
+// the lexer reads it: an identifier at the limit parses, and a longer one is
+// refused where it starts with the bound's own code, the text route
+// locating it by line and column in the message.
 
 TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
     auto const lib = find_lib();
@@ -303,6 +300,13 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
     auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
     auto const result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code() == ErrorCode::InputBoundExceeded);
+    REQUIRE(result.error().bound_info().has_value());
+    CHECK(result.error().bound_info()->bound_kind == aletheia::bound_kind_identifier_length);
+    CHECK(result.error().bound_info()->observed == aletheia::max_identifier_length + 1);
+    CHECK(result.error().bound_info()->limit == aletheia::max_identifier_length);
+    CHECK(result.error().message() ==
+          "ParseDBCText: identifier at line 5, column 9: identifier length 129 exceeds limit 128");
 }
 
 // Typed NestingDepth wire-error.  A deeply-nested LTL formula trips the

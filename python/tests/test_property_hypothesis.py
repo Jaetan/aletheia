@@ -67,8 +67,13 @@ _JSON_VALUES = st.recursive(
 
 @st.composite
 def signal_name_strategy(draw: st.DrawFn) -> str:
-    """Generate identifier-shaped strings (DBC signal naming rules)."""
-    first = draw(st.sampled_from("ABCDEFGHIJKLMNOPQRSTUVWXYZ_"))
+    """Generate identifier-shaped strings (DBC signal naming rules).
+
+    The first character is a lower-case letter or an underscore, so no draw is
+    a DBC keyword, which the kernel refuses as a name: every keyword starts
+    with an upper-case letter.
+    """
+    first = draw(st.sampled_from("abcdefghijklmnopqrstuvwxyz_"))
     rest = draw(
         st.text(
             alphabet=st.sampled_from(

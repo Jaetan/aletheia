@@ -19,7 +19,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.String using (String)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
-open import Aletheia.Error using (DBCTextParseError)
+open import Aletheia.Error using (Error)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.TextParser using (parseText)
 open import Aletheia.DBC.TextFormatter using (formatText)
@@ -28,7 +28,7 @@ open import Aletheia.DBC.Decidable.Equality.Full using (_≟-DBC_)
 -- Exposed on the parse-back result:
 -- a parse-back FAILURE counts as divergence (honest — e.g. an `AVFloat` under an
 -- `ATInt` def emits a line the parser rejects); a parse-back value is compared to `d`.
-rtGo : DBCTextParseError ⊎ DBC → DBC → Bool
+rtGo : Error ⊎ DBC → DBC → Bool
 rtGo (inj₁ _)  _ = false
 rtGo (inj₂ d″) d = ⌊ d ≟-DBC d″ ⌋
 

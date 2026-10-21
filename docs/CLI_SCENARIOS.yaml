@@ -163,6 +163,74 @@ scenarios:
       stderr_contains:
         - "Error:"
 
+  # cp1252_degree.dbc is the Windows-1252 encoding of a DBC whose unit is
+  # "°C": every CLI reads the file byte for byte, so the degree sign's byte,
+  # 0xB0, reaches the kernel as U+00B0 and is refused at the byte's line and
+  # column, whatever the file's encoding.
+  - id: validate-cp1252-degree
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/cp1252_degree.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "character at line 10, column 30 (code point 176) is outside the DBC character set"
+
+  # byte_7f.dbc holds a DEL byte, 0x7F, inside a comment: the first byte above
+  # the printable range, refused as the character of the same number.
+  - id: validate-byte-7f
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/byte_7f.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "character at line 11, column 7 (code point 127) is outside the DBC character set"
+
+  # byte_80.dbc holds 0x80 inside a comment: the first byte the readers
+  # re-encode, which reaches the kernel as U+0080.
+  - id: validate-byte-80
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/byte_80.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "character at line 11, column 7 (code point 128) is outside the DBC character set"
+
+  # byte_ff.dbc holds 0xFF inside a comment: the last byte, which reaches the
+  # kernel as U+00FF.
+  - id: validate-byte-ff
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/byte_ff.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "character at line 11, column 7 (code point 255) is outside the DBC character set"
+
+  # keyword_name.dbc names a signal `BO_`, a DBC keyword: the kernel refuses
+  # the name as it reads it, with the line and column where it starts.
+  - id: validate-keyword-name
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/keyword_name.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "identifier 'BO_' at line 10, column 6 is a DBC keyword"
+
+  # long_name.dbc names a signal with 129 characters: the kernel refuses the
+  # name at its 129th character, reporting its length and where it starts.
+  - id: validate-long-name
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/long_name.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "identifier at line 10, column 6: identifier length 129 exceeds limit 128"
+
   # A positional the subcommand does not take is an operational error naming
   # it, whether a flag follows it or not.
   - id: validate-stray-positional

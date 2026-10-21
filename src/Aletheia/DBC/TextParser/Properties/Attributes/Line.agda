@@ -55,7 +55,7 @@ open import Aletheia.DBC.Types using
 open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttrDef-chars)
+  (emitAttrDef-chars; quoteIdent-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars; showℕ-dec-chars)
@@ -230,12 +230,12 @@ parseAttrLine-lift-alt5 pos input r p1-fail p2-fail p3-fail p4-fail alt5-eq =
 
 -- ATgtNodeMsg × 3
 parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavString :
-    ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (s : List Char)
+    ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (s : List Char)
       (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseAttrLine pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -251,19 +251,19 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavString pos name n cid s outer-s
           pos name n cid s outer-suffix n-stop ss-NL))
   where
     input : List Char
-    input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
             toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
             ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
             ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac :
-    ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (d : DecRat)
+    ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (d : DecRat)
       (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseAttrLine pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -279,19 +279,19 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac pos name n cid d out
           pos name n cid d outer-suffix n-stop ss-NL small))
   where
     input : List Char
-    input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
             toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
             ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
             ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt :
-    ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (z : ℤ)
+    ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (z : ℤ)
       (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
@@ -307,19 +307,19 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt pos name n cid z 
           pos name n cid z outer-suffix n-stop ss-NL small))
   where
     input : List Char
-    input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
             toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
             ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
             ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
 
 -- ATgtNodeSig × 3
 parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString :
-    ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (sig : Identifier)
+    ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (sig : Identifier)
       (s : List Char) (outer-suffix : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseAttrLine pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
@@ -337,20 +337,20 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString pos name n cid sig s out
           pos name n cid sig s outer-suffix n-stop sig-stop ss-NL))
   where
     input : List Char
-    input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
             toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
             toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
             ' ' ∷ Identifier.name sig ++ₗ
             ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac :
-    ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (sig : Identifier)
+    ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (sig : Identifier)
       (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseAttrLine pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
@@ -368,20 +368,20 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac pos name n cid sig d
           pos name n cid sig d outer-suffix n-stop sig-stop ss-NL small))
   where
     input : List Char
-    input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
             toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
             toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
             ' ' ∷ Identifier.name sig ++ₗ
             ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt :
-    ∀ pos (name : List Char) (n : Identifier) (cid : CANId) (sig : Identifier)
+    ∀ pos (name : Identifier) (n : Identifier) (cid : CANId) (sig : Identifier)
       (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
@@ -399,7 +399,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt pos name n cid si
           pos name n cid sig z outer-suffix n-stop sig-stop ss-NL small))
   where
     input : List Char
-    input = toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_REL_ " ++ₗ quoteIdent-chars name ++ₗ
             toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
             toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
             ' ' ∷ Identifier.name sig ++ₗ
@@ -414,7 +414,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt pos name n cid si
 -- because `emitAttrDef-chars d` only reduces when scope is concrete.
 
 parseAttrLine-roundtrip-RawDef-NotRel-Network :
-    ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
   → SmallType ty
@@ -436,7 +436,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-Network pos name ty outer-suffix wf-ty ss-
     input = emitAttrDef-chars (mkAttrDef name ASNetwork ty) ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawDef-NotRel-Node :
-    ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
   → SmallType ty
@@ -458,7 +458,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-Node pos name ty outer-suffix wf-ty ss-NL 
     input = emitAttrDef-chars (mkAttrDef name ASNode ty) ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawDef-NotRel-Message :
-    ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
   → SmallType ty
@@ -480,7 +480,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-Message pos name ty outer-suffix wf-ty ss-
     input = emitAttrDef-chars (mkAttrDef name ASMessage ty) ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawDef-NotRel-Signal :
-    ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
   → SmallType ty
@@ -502,7 +502,7 @@ parseAttrLine-roundtrip-RawDef-NotRel-Signal pos name ty outer-suffix wf-ty ss-N
     input = emitAttrDef-chars (mkAttrDef name ASSignal ty) ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawDef-NotRel-EnvVar :
-    ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
   → SmallType ty
@@ -531,10 +531,10 @@ parseAttrLine-roundtrip-RawDef-NotRel-EnvVar pos name ty outer-suffix wf-ty ss-N
 -- at char 7 but finds 'D'.
 
 parseAttrLine-roundtrip-RawDefault-RavString :
-    ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseAttrLine pos
-      (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDefault (mkRawAttrDefault name (RavString s)))
@@ -548,15 +548,15 @@ parseAttrLine-roundtrip-RawDefault-RavString pos name s outer-suffix ss-NL =
           pos name s outer-suffix ss-NL))
   where
     input : List Char
-    input = toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
             ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawDefault-RavDecRatFrac :
-    ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseAttrLine pos
-      (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDefault (mkRawAttrDefault name (RavDecRat d)))
@@ -570,15 +570,15 @@ parseAttrLine-roundtrip-RawDefault-RavDecRatFrac pos name d outer-suffix ss-NL s
           pos name d outer-suffix ss-NL small))
   where
     input : List Char
-    input = toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
             ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt :
-    ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseAttrLine pos
-      (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDefault (mkRawAttrDefault name (RavDecRat (fromℤ z))))
@@ -592,7 +592,7 @@ parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt pos name z outer-suffix ss-N
           pos name z outer-suffix ss-NL small))
   where
     input : List Char
-    input = toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+    input = toList "BA_DEF_DEF_ " ++ₗ quoteIdent-chars name ++ₗ
             ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
 
 -- ============================================================================
@@ -604,7 +604,7 @@ parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt pos name z outer-suffix ss-N
 -- only reduces when scope is concrete.
 
 parseAttrLine-roundtrip-RawDef-Rel-NodeMsg :
-    ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
   → SmallType ty
@@ -626,7 +626,7 @@ parseAttrLine-roundtrip-RawDef-Rel-NodeMsg pos name ty outer-suffix wf-ty ss-NL 
     input = emitAttrDef-chars (mkAttrDef name ASNodeMsg ty) ++ₗ outer-suffix
 
 parseAttrLine-roundtrip-RawDef-Rel-NodeSig :
-    ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
+    ∀ pos (name : Identifier) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
   → SmallType ty

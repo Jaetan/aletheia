@@ -4,21 +4,22 @@
 
 -- Correctness properties for the LTL JSON parser and formatter.
 --
--- Purpose: Prove roundtrip and soundness for LTL formula serialization.
--- Properties:
---   Roundtrip: parseLTL (formatLTL φ) ≡ inj₂ (resetStart φ)
---   Soundness: parseLTL json ≡ inj₂ φ → json is a JObject
---   Completeness: Corollary of roundtrip
--- Role: Phase 3 verification of LTL DSL translation correctness.
+-- The parser reads signal names against `known`, the loaded DBC's signals,
+-- so the round trip holds for a formula whose every signal is known:
+--   Roundtrip: KnownSignals known φ → parseLTL known (formatLTL φ) ≡ inj₂ (resetStart φ)
+--   Soundness: parseLTL known json ≡ inj₂ φ → json is a JObject
 --
 -- Note: resetStart zeros out the startTime parameter in metric operators.
 -- formatLTL ignores startTime; the parser always produces startTime=0.
 -- For user-facing formulas (always startTime=0), resetStart f ≡ f.
 module Aletheia.LTL.JSON.Properties where
 
+open import Data.Bool using (Bool; true)
+open import Data.Char using (Char)
+open import Data.List using (List)
 open import Data.Maybe using (just)
 open import Data.Sum using (inj₂)
-open import Data.Product using (_,_; ∃-syntax)
+open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.JSON using (JNull; JBool; JNumber; JString; JArray; JObject; getNat)
@@ -26,10 +27,10 @@ open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.JSON.Properties using (getNat-ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin; signalOf)
 open import Aletheia.LTL.JSON using (parseLTL; parseSignalPredicate)
 open import Aletheia.LTL.JSON.Format using (formatLTL; formatSignalPredicateFields)
-open import Aletheia.DBC.Identifier using (parseIdentifierField-on-valid)
+open import Aletheia.DBC.JSONParser using (validateIdent-on-valid)
 
 -- ============================================================================
 -- RESET START TIME (normalize for roundtrip)
@@ -58,16 +59,38 @@ resetStart (LTL.MetricRelease n _ f g) = LTL.MetricRelease n 0 (resetStart f) (r
 -- SIGNAL PREDICATE ROUNDTRIP
 -- ============================================================================
 
-predicate-roundtrip : (p : SignalPredicate)
-  → parseSignalPredicate (formatSignalPredicateFields p) ≡ inj₂ p
-predicate-roundtrip (ValueP (Equals s v)) rewrite parseIdentifierField-on-valid s = refl
-predicate-roundtrip (ValueP (LessThan s v)) rewrite parseIdentifierField-on-valid s = refl
-predicate-roundtrip (ValueP (GreaterThan s v)) rewrite parseIdentifierField-on-valid s = refl
-predicate-roundtrip (ValueP (LessThanOrEqual s v)) rewrite parseIdentifierField-on-valid s = refl
-predicate-roundtrip (ValueP (GreaterThanOrEqual s v)) rewrite parseIdentifierField-on-valid s = refl
-predicate-roundtrip (ValueP (Between s min max)) rewrite parseIdentifierField-on-valid s = refl
-predicate-roundtrip (DeltaP (ChangedBy s d)) rewrite parseIdentifierField-on-valid s = refl
-predicate-roundtrip (DeltaP (StableWithin s t)) rewrite parseIdentifierField-on-valid s = refl
+-- The signals `setProperties` admits: each is a signal of the loaded DBC.
+-- The length and the keyword are inside every `Identifier` already.
+KnownPredicate : (List Char → Bool) → SignalPredicate → Set
+KnownPredicate known p = known (signalOf p) ≡ true
+
+KnownSignals : (List Char → Bool) → LTL SignalPredicate → Set
+KnownSignals known (LTL.Atomic p) = KnownPredicate known p
+KnownSignals known (LTL.Not f) = KnownSignals known f
+KnownSignals known (LTL.And f g) = KnownSignals known f × KnownSignals known g
+KnownSignals known (LTL.Or f g) = KnownSignals known f × KnownSignals known g
+KnownSignals known (LTL.Next f) = KnownSignals known f
+KnownSignals known (LTL.WNext f) = KnownSignals known f
+KnownSignals known (LTL.Always f) = KnownSignals known f
+KnownSignals known (LTL.Eventually f) = KnownSignals known f
+KnownSignals known (LTL.Until f g) = KnownSignals known f × KnownSignals known g
+KnownSignals known (LTL.Release f g) = KnownSignals known f × KnownSignals known g
+KnownSignals known (LTL.MetricEventually _ _ f) = KnownSignals known f
+KnownSignals known (LTL.MetricAlways _ _ f) = KnownSignals known f
+KnownSignals known (LTL.MetricUntil _ _ f g) = KnownSignals known f × KnownSignals known g
+KnownSignals known (LTL.MetricRelease _ _ f g) = KnownSignals known f × KnownSignals known g
+
+predicate-roundtrip : ∀ (known : List Char → Bool) (p : SignalPredicate)
+  → KnownPredicate known p
+  → parseSignalPredicate known (formatSignalPredicateFields p) ≡ inj₂ p
+predicate-roundtrip known (ValueP (Equals s v)) has rewrite validateIdent-on-valid s | has = refl
+predicate-roundtrip known (ValueP (LessThan s v)) has rewrite validateIdent-on-valid s | has = refl
+predicate-roundtrip known (ValueP (GreaterThan s v)) has rewrite validateIdent-on-valid s | has = refl
+predicate-roundtrip known (ValueP (LessThanOrEqual s v)) has rewrite validateIdent-on-valid s | has = refl
+predicate-roundtrip known (ValueP (GreaterThanOrEqual s v)) has rewrite validateIdent-on-valid s | has = refl
+predicate-roundtrip known (ValueP (Between s min max)) has rewrite validateIdent-on-valid s | has = refl
+predicate-roundtrip known (DeltaP (ChangedBy s d)) has rewrite validateIdent-on-valid s | has = refl
+predicate-roundtrip known (DeltaP (StableWithin s t)) has rewrite validateIdent-on-valid s | has = refl
 
 -- ============================================================================
 -- LTL ROUNDTRIP
@@ -76,78 +99,74 @@ predicate-roundtrip (DeltaP (StableWithin s t)) rewrite parseIdentifierField-on-
 -- No depth parameter needed: parseLTL is structurally recursive on JSON input.
 -- Each case reduces by computation (string comparisons on concrete operator names)
 -- plus the induction hypothesis on sub-formulas.
-roundtrip : (f : LTL SignalPredicate)
-  → parseLTL (formatLTL f) ≡ inj₂ (resetStart f)
+roundtrip : ∀ (known : List Char → Bool) (f : LTL SignalPredicate)
+  → KnownSignals known f
+  → parseLTL known (formatLTL f) ≡ inj₂ (resetStart f)
 
--- Atomic: predicate roundtrip
-roundtrip (LTL.Atomic p)
-  rewrite predicate-roundtrip p = refl
+roundtrip known (LTL.Atomic p) k
+  rewrite predicate-roundtrip known p k = refl
 
--- Unary operators
-roundtrip (LTL.Not f)
-  rewrite roundtrip f = refl
+roundtrip known (LTL.Not f) k
+  rewrite roundtrip known f k = refl
 
-roundtrip (LTL.Next f)
-  rewrite roundtrip f = refl
+roundtrip known (LTL.Next f) k
+  rewrite roundtrip known f k = refl
 
-roundtrip (LTL.WNext f)
-  rewrite roundtrip f = refl
+roundtrip known (LTL.WNext f) k
+  rewrite roundtrip known f k = refl
 
-roundtrip (LTL.Always f)
-  rewrite roundtrip f = refl
+roundtrip known (LTL.Always f) k
+  rewrite roundtrip known f k = refl
 
-roundtrip (LTL.Eventually f)
-  rewrite roundtrip f = refl
+roundtrip known (LTL.Eventually f) k
+  rewrite roundtrip known f k = refl
 
--- Binary operators
-roundtrip (LTL.And f g)
-  rewrite roundtrip f | roundtrip g = refl
+roundtrip known (LTL.And f g) (kf , kg)
+  rewrite roundtrip known f kf | roundtrip known g kg = refl
 
-roundtrip (LTL.Or f g)
-  rewrite roundtrip f | roundtrip g = refl
+roundtrip known (LTL.Or f g) (kf , kg)
+  rewrite roundtrip known f kf | roundtrip known g kg = refl
 
-roundtrip (LTL.Until f g)
-  rewrite roundtrip f | roundtrip g = refl
+roundtrip known (LTL.Until f g) (kf , kg)
+  rewrite roundtrip known f kf | roundtrip known g kg = refl
 
-roundtrip (LTL.Release f g)
-  rewrite roundtrip f | roundtrip g = refl
+roundtrip known (LTL.Release f g) (kf , kg)
+  rewrite roundtrip known f kf | roundtrip known g kg = refl
 
--- Metric unary operators: getNat abstraction needed for ℕtoℚ roundtrip.
--- Window is unwrapped via tsValue at the formatter; parser re-wraps via mkTs,
--- and `mkTs (tsValue n) ≡ n` by Timestamp record η-conversion.
--- INVARIANT: do not change `Timestamp` to a `data` declaration or break record
--- η (e.g. via private constructor / erasure boundary) — this roundtrip would
--- silently stop reducing.  See Aletheia.Trace.Time.
-roundtrip (LTL.MetricEventually n _ f)
+-- Metric operators: `getNat` abstraction needed for the ℕtoℚ roundtrip.  The
+-- window is unwrapped via `tsValue` at the formatter and re-wrapped via
+-- `mkTs` by the parser; `mkTs (tsValue n) ≡ n` by `Timestamp` record η.
+-- INVARIANT: `Timestamp` stays a record with η (no `data`, no private
+-- constructor, no erasure boundary), or this roundtrip stops reducing.
+roundtrip known (LTL.MetricEventually n _ f) k
   with getNat (JNumber (ℕtoℚ (tsValue n))) | getNat-ℕtoℚ (tsValue n)
-... | .(just (tsValue n)) | refl rewrite roundtrip f = refl
+... | .(just (tsValue n)) | refl rewrite roundtrip known f k = refl
 
-roundtrip (LTL.MetricAlways n _ f)
+roundtrip known (LTL.MetricAlways n _ f) k
   with getNat (JNumber (ℕtoℚ (tsValue n))) | getNat-ℕtoℚ (tsValue n)
-... | .(just (tsValue n)) | refl rewrite roundtrip f = refl
+... | .(just (tsValue n)) | refl rewrite roundtrip known f k = refl
 
--- Metric binary operators
-roundtrip (LTL.MetricUntil n _ f g)
+roundtrip known (LTL.MetricUntil n _ f g) (kf , kg)
   with getNat (JNumber (ℕtoℚ (tsValue n))) | getNat-ℕtoℚ (tsValue n)
 ... | .(just (tsValue n)) | refl
-  rewrite roundtrip f | roundtrip g = refl
+  rewrite roundtrip known f kf | roundtrip known g kg = refl
 
-roundtrip (LTL.MetricRelease n _ f g)
+roundtrip known (LTL.MetricRelease n _ f g) (kf , kg)
   with getNat (JNumber (ℕtoℚ (tsValue n))) | getNat-ℕtoℚ (tsValue n)
 ... | .(just (tsValue n)) | refl
-  rewrite roundtrip f | roundtrip g = refl
+  rewrite roundtrip known f kf | roundtrip known g kg = refl
 
 -- ============================================================================
 -- SOUNDNESS (structural property)
 -- ============================================================================
 
--- Minimal soundness: successful parse implies JSON is an object.
--- parseLTL only succeeds on JObject values (all other constructors return nothing).
-parseLTL-isObject : ∀ json f → parseLTL json ≡ inj₂ f
+-- A successful parse implies the JSON is an object: `parseLTL` succeeds on
+-- `JObject` values only.
+parseLTL-isObject : ∀ (known : List Char → Bool) json f → parseLTL known json ≡ inj₂ f
   → ∃[ fields ] (json ≡ JObject fields)
-parseLTL-isObject JNull f ()
-parseLTL-isObject (JBool _) f ()
-parseLTL-isObject (JNumber _) f ()
-parseLTL-isObject (JString _) f ()
-parseLTL-isObject (JArray _) f ()
-parseLTL-isObject (JObject fields) f _ = fields , refl
+parseLTL-isObject _ JNull f ()
+parseLTL-isObject _ (JBool _) f ()
+parseLTL-isObject _ (JNumber _) f ()
+parseLTL-isObject _ (JString _) f ()
+parseLTL-isObject _ (JArray _) f ()
+parseLTL-isObject _ (JObject fields) f _ = fields , refl

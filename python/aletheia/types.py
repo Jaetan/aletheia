@@ -113,8 +113,8 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     """Serialize *value* to JSON through :class:`FractionJSONEncoder`.
 
     Rationals go out exact and non-ASCII text as its UTF-8 characters, both
-    pinned by the encoder (DBC permits non-ASCII in ``CM_`` text bodies,
-    comments, and similar opaque-tail consumers).
+    pinned by the encoder: the kernel refuses a DBC holding a character outside
+    the DBC character set, and the refusal echoes the text it names.
     """
     return json.dumps(value, cls=FractionJSONEncoder, indent=indent)
 

@@ -36,7 +36,7 @@ open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop; showNat-chars-head)
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (digitChar; quoteStringLit-chars)
+  using (digitChar)
 open import Aletheia.DBC.DecRat.Magnitude using (SmallNat)
 open import Aletheia.DBC.TextParser.Format
   using (nat; emit; parse; EmitsOK)
@@ -140,7 +140,7 @@ emit-stdTargetWireFmt-RatwNet-on-non-keyword-head _ x rest refl x≢B x≢S x≢
 -- consume this with head-class witnesses derived from `showXxx-chars-
 -- head-classify`.
 parseAttrAssign-format-roundtrip-RatwNet :
-  ∀ (pos : Position) (n : List Char)
+  ∀ (pos : Position) (n : Identifier)
     (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     (x : Char) (tail : List Char)
   → SuffixStops isHSpace
@@ -173,8 +173,9 @@ parseAttrAssign-format-roundtrip-RatwNet pos n wireVal outer-suffix x tail
 --
 -- Mirror of `emit-attrAssignFmt-RatwNet` for the 4 keyword targets.  Each
 -- exposes the closed-form emit equality so the per-target Properties files
--- can bridge between the inline-input shape (`"BA_ " ++ qsl(name) ++
--- " <KW>_ " ++ <body> ++ ' ' ∷ value-chars ++ ";\n" ++ outer`) and the
+-- can bridge between the inline-input shape (`"BA_ " ++ qn ++
+-- " <KW>_ " ++ <body> ++ ' ' ∷ value-chars ++ ";\n" ++ outer`, where `qn` is
+-- the quoted name `'"' ∷ Identifier.name n ++ '"' ∷ []`) and the
 -- universal `parseAttrAssign-format-roundtrip`'s `emit attrAssignFmt …`
 -- input.  All close by `refl` here — the parent `Format.AttrLine`'s
 -- private internals (fwdStdTgt / bwdStdTgt / stdTargetWireCarrierFmt / arm
@@ -182,24 +183,24 @@ parseAttrAssign-format-roundtrip-RatwNet pos n wireVal outer-suffix x tail
 -- module-level `private` (which controls name export, not reduction).
 
 emit-attrAssignFmt-RatwNode :
-  ∀ (n : List Char) (idn : Identifier) (wireVal : RawAttrValueWire) →
+  ∀ (n : Identifier) (idn : Identifier) (wireVal : RawAttrValueWire) →
   emit attrAssignFmt (n , RatwNode idn , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       ' ' ∷ (toList "BU_" ++ₗ ' ' ∷ Identifier.name idn ++ₗ ' ' ∷ []) ++ₗ
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
 emit-attrAssignFmt-RatwNode _ _ _ = refl
 
 -- Outer-suffix variant: bakes outer-suffix into the canonical spec shape
--- (`"BA_ " ++ qsl(n) ++ " BU_ " ++ name idn ++ ' ∷ value-emit ++ ;\n+
+-- (`"BA_ " ++ qn ++ " BU_ " ++ name idn ++ ' ∷ value-emit ++ ;\n+
 -- outer-suffix`) — the form per-target dispatcher inputs use.  Composed
--- via `bridge-emit-tail` (3 nested ++-assoc steps over qsl/kw-body/value)
+-- via `bridge-emit-tail` (3 nested ++-assoc steps over qn/kw-body/value)
 -- + one final ++-assoc over `name idn ++ ' ∷ []` to fold the trailing
 -- ws-slot of `identTrailingWS` into the leading ' ∷ value-chars.
 emit-attrAssignFmt-RatwNode-with-outer :
-  ∀ (n : List Char) (idn : Identifier) (wireVal : RawAttrValueWire)
+  ∀ (n : Identifier) (idn : Identifier) (wireVal : RawAttrValueWire)
     (outer-suffix : List Char) →
   emit attrAssignFmt (n , RatwNode idn , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       toList " BU_ " ++ₗ Identifier.name idn ++ₗ
       ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
 emit-attrAssignFmt-RatwNode-with-outer n idn wireVal outer-suffix =
@@ -211,25 +212,25 @@ emit-attrAssignFmt-RatwNode-with-outer n idn wireVal outer-suffix =
               (toList "BU_" ++ₗ ' ' ∷ Identifier.name idn ++ₗ ' ' ∷ [])
               (emit attrValueWireFmt wireVal)
               outer-suffix))
-      (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+      (cong (λ z → toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
                      ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ ' ' ∷ z)
             (++ₗ-assoc (Identifier.name idn) (' ' ∷ [])
                        (emit attrValueWireFmt wireVal ++ₗ
                           ';' ∷ '\n' ∷ outer-suffix))))
 
 emit-attrAssignFmt-RatwMsg :
-  ∀ (n : List Char) (raw : ℕ) (wireVal : RawAttrValueWire) →
+  ∀ (n : Identifier) (raw : ℕ) (wireVal : RawAttrValueWire) →
   emit attrAssignFmt (n , RatwMsg raw , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       ' ' ∷ (toList "BO_" ++ₗ ' ' ∷ emit nat raw ++ₗ ' ' ∷ []) ++ₗ
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
 emit-attrAssignFmt-RatwMsg _ _ _ = refl
 
 emit-attrAssignFmt-RatwMsg-with-outer :
-  ∀ (n : List Char) (raw : ℕ) (wireVal : RawAttrValueWire)
+  ∀ (n : Identifier) (raw : ℕ) (wireVal : RawAttrValueWire)
     (outer-suffix : List Char) →
   emit attrAssignFmt (n , RatwMsg raw , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       toList " BO_ " ++ₗ emit nat raw ++ₗ
       ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
 emit-attrAssignFmt-RatwMsg-with-outer n raw wireVal outer-suffix =
@@ -241,16 +242,16 @@ emit-attrAssignFmt-RatwMsg-with-outer n raw wireVal outer-suffix =
               (toList "BO_" ++ₗ ' ' ∷ emit nat raw ++ₗ ' ' ∷ [])
               (emit attrValueWireFmt wireVal)
               outer-suffix))
-      (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+      (cong (λ z → toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
                      ' ' ∷ 'B' ∷ 'O' ∷ '_' ∷ ' ' ∷ z)
             (++ₗ-assoc (emit nat raw) (' ' ∷ [])
                        (emit attrValueWireFmt wireVal ++ₗ
                           ';' ∷ '\n' ∷ outer-suffix))))
 
 emit-attrAssignFmt-RatwSig :
-  ∀ (n : List Char) (raw : ℕ) (sig : Identifier) (wireVal : RawAttrValueWire) →
+  ∀ (n : Identifier) (raw : ℕ) (sig : Identifier) (wireVal : RawAttrValueWire) →
   emit attrAssignFmt (n , RatwSig raw sig , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       ' ' ∷ (toList "SG_" ++ₗ ' ' ∷ (emit nat raw ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ [])) ++ₗ
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
@@ -261,10 +262,10 @@ emit-attrAssignFmt-RatwSig _ _ _ _ = refl
 -- spec form `... " SG_ " ++ emit nat raw ++ ' ∷ name sig ++ ' ∷ value-emit
 -- ++ ;\n+ outer-suffix`.
 emit-attrAssignFmt-RatwSig-with-outer :
-  ∀ (n : List Char) (raw : ℕ) (sig : Identifier) (wireVal : RawAttrValueWire)
+  ∀ (n : Identifier) (raw : ℕ) (sig : Identifier) (wireVal : RawAttrValueWire)
     (outer-suffix : List Char) →
   emit attrAssignFmt (n , RatwSig raw sig , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       toList " SG_ " ++ₗ emit nat raw ++ₗ
       ' ' ∷ Identifier.name sig ++ₗ
       ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
@@ -278,7 +279,7 @@ emit-attrAssignFmt-RatwSig-with-outer n raw sig wireVal outer-suffix =
                 ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ []))
               (emit attrValueWireFmt wireVal)
               outer-suffix))
-      (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+      (cong (λ z → toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
                      ' ' ∷ 'S' ∷ 'G' ∷ '_' ∷ ' ' ∷ z)
             (trans
               (++ₗ-assoc (emit nat raw)
@@ -291,18 +292,18 @@ emit-attrAssignFmt-RatwSig-with-outer n raw sig wireVal outer-suffix =
                                   ';' ∷ '\n' ∷ outer-suffix))))))
 
 emit-attrAssignFmt-RatwEv :
-  ∀ (n : List Char) (ev : Identifier) (wireVal : RawAttrValueWire) →
+  ∀ (n : Identifier) (ev : Identifier) (wireVal : RawAttrValueWire) →
   emit attrAssignFmt (n , RatwEv ev , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       ' ' ∷ (toList "EV_" ++ₗ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ []) ++ₗ
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
 emit-attrAssignFmt-RatwEv _ _ _ = refl
 
 emit-attrAssignFmt-RatwEv-with-outer :
-  ∀ (n : List Char) (ev : Identifier) (wireVal : RawAttrValueWire)
+  ∀ (n : Identifier) (ev : Identifier) (wireVal : RawAttrValueWire)
     (outer-suffix : List Char) →
   emit attrAssignFmt (n , RatwEv ev , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       toList " EV_ " ++ₗ Identifier.name ev ++ₗ
       ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
 emit-attrAssignFmt-RatwEv-with-outer n ev wireVal outer-suffix =
@@ -314,7 +315,7 @@ emit-attrAssignFmt-RatwEv-with-outer n ev wireVal outer-suffix =
               (toList "EV_" ++ₗ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ [])
               (emit attrValueWireFmt wireVal)
               outer-suffix))
-      (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+      (cong (λ z → toList "BA_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
                      ' ' ∷ 'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ z)
             (++ₗ-assoc (Identifier.name ev) (' ' ∷ [])
                        (emit attrValueWireFmt wireVal ++ₗ
@@ -322,9 +323,9 @@ emit-attrAssignFmt-RatwEv-with-outer n ev wireVal outer-suffix =
 
 -- BA_REL_ line emit equalities.
 emit-attrRelFmt-RrtNodeMsg :
-  ∀ (n : List Char) (idn : Identifier) (raw : ℕ) (wireVal : RawAttrValueWire) →
+  ∀ (n : Identifier) (idn : Identifier) (raw : ℕ) (wireVal : RawAttrValueWire) →
   emit attrRelFmt (n , RrtNodeMsg idn raw , wireVal , tt)
-  ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_REL_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       ' ' ∷ (toList "BU_BO_REL_" ++ₗ ' ' ∷ (Identifier.name idn ++ₗ
         ' ' ∷ emit nat raw ++ₗ ' ' ∷ [])) ++ₗ
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
@@ -333,10 +334,10 @@ emit-attrRelFmt-RrtNodeMsg _ _ _ _ = refl
 -- RrtNodeMsg: kw-body has nested `(name idn ++ ' ∷ emit nat raw ++ ' ∷ [])`
 -- after BU_BO_REL_ prefix.  Two nested ++-assoc steps.
 emit-attrRelFmt-RrtNodeMsg-with-outer :
-  ∀ (n : List Char) (idn : Identifier) (raw : ℕ) (wireVal : RawAttrValueWire)
+  ∀ (n : Identifier) (idn : Identifier) (raw : ℕ) (wireVal : RawAttrValueWire)
     (outer-suffix : List Char) →
   emit attrRelFmt (n , RrtNodeMsg idn raw , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_REL_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       toList " BU_BO_REL_ " ++ₗ Identifier.name idn ++ₗ
       ' ' ∷ emit nat raw ++ₗ
       ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
@@ -350,7 +351,7 @@ emit-attrRelFmt-RrtNodeMsg-with-outer n idn raw wireVal outer-suffix =
                 ' ' ∷ emit nat raw ++ₗ ' ' ∷ []))
               (emit attrValueWireFmt wireVal)
               outer-suffix))
-      (cong (λ z → toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+      (cong (λ z → toList "BA_REL_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
                      ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ 'B' ∷ 'O' ∷ '_' ∷
                        'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷ z)
             (trans
@@ -364,10 +365,10 @@ emit-attrRelFmt-RrtNodeMsg-with-outer n idn raw wireVal outer-suffix =
                                   ';' ∷ '\n' ∷ outer-suffix))))))
 
 emit-attrRelFmt-RrtNodeSig :
-  ∀ (n : List Char) (idn : Identifier) (raw : ℕ) (sig : Identifier)
+  ∀ (n : Identifier) (idn : Identifier) (raw : ℕ) (sig : Identifier)
     (wireVal : RawAttrValueWire) →
   emit attrRelFmt (n , RrtNodeSig idn raw sig , wireVal , tt)
-  ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_REL_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       ' ' ∷ (toList "BU_SG_REL_" ++ₗ ' ' ∷ (Identifier.name idn ++ₗ
         ' ' ∷ (toList "SG_" ++ₗ ' ' ∷ (emit nat raw ++ₗ
           ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ [])))) ++ₗ
@@ -376,10 +377,10 @@ emit-attrRelFmt-RrtNodeSig _ _ _ _ _ = refl
 
 -- RrtNodeSig: most nested kw-body — three nested ++-assoc steps.
 emit-attrRelFmt-RrtNodeSig-with-outer :
-  ∀ (n : List Char) (idn : Identifier) (raw : ℕ) (sig : Identifier)
+  ∀ (n : Identifier) (idn : Identifier) (raw : ℕ) (sig : Identifier)
     (wireVal : RawAttrValueWire) (outer-suffix : List Char) →
   emit attrRelFmt (n , RrtNodeSig idn raw sig , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+  ≡ toList "BA_REL_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
       toList " BU_SG_REL_ " ++ₗ Identifier.name idn ++ₗ
       ' ' ∷ toList "SG_ " ++ₗ emit nat raw ++ₗ
       ' ' ∷ Identifier.name sig ++ₗ
@@ -395,7 +396,7 @@ emit-attrRelFmt-RrtNodeSig-with-outer n idn raw sig wireVal outer-suffix =
                   ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ []))))
               (emit attrValueWireFmt wireVal)
               outer-suffix))
-      (cong (λ z → toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
+      (cong (λ z → toList "BA_REL_ " ++ₗ ('"' ∷ Identifier.name n ++ₗ '"' ∷ []) ++ₗ
                      ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ 'S' ∷ 'G' ∷ '_' ∷
                        'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷ z)
             (trans

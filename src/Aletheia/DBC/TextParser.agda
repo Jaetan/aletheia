@@ -55,8 +55,8 @@ open import Data.String using (String; toList; fromList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 
 open import Aletheia.Parser.Combinators using (ParseResult; value; runParserPartial)
+open import Aletheia.Parser.Watermark using (Watermark)
 open import Aletheia.DBC.TextParser.Consumed using (consumed)
-open import Aletheia.Parser.Position using (Position)
 
 open import Aletheia.DBC.Types using
   (DBC; Node; DBCAttribute)
@@ -71,7 +71,7 @@ open import Aletheia.DBC.TextParser.Senders using
   (attachSenders)
 
 open import Aletheia.Error public using
-  (DBCTextParseError; AttributeRefinementFailed)
+  ( Error; DBCTextParseErr; DBCTextParseError; AttributeRefinementFailed )
 
 -- ============================================================================
 -- GRAMMAR (BNF)
@@ -219,8 +219,8 @@ buildDBC ver nodes c attrs = record
 -- Shape the `runParserPartial` result into the public error ⊎ DBC
 -- taxonomy: `consumed` refuses a failed or a partial parse, the rest is
 -- the refinement step, isolated from the outer runner.
-finalizeParse : Position × Maybe (ParseResult (List Char × List Node × List TopStmt))
-              → DBCTextParseError ⊎ DBC
+finalizeParse : Watermark × Maybe (ParseResult (List Char × List Node × List TopStmt))
+              → Error ⊎ DBC
 finalizeParse outcome with uncurry consumed outcome
 ... | inj₁ e   = inj₁ e
 ... | inj₂ res with value res
@@ -231,9 +231,9 @@ finalizeParse outcome with uncurry consumed outcome
 -- submitted values (the signal name, not a byte offset, is the anchor
 -- the current parser can supply on this channel).
 ...     | collected with CollectedTop.signalErrors collected
-...       | (e ∷ _) = inj₁ e
+...       | (e ∷ _) = inj₁ (DBCTextParseErr e)
 ...       | [] with refineAttributes (CollectedTop.rawAttributes collected)
-...         | inj₁ (cause , bad) = inj₁ (AttributeRefinementFailed cause (fromList bad))
+...         | inj₁ (cause , bad) = inj₁ (DBCTextParseErr (AttributeRefinementFailed cause (fromList bad)))
 ...         | inj₂ attrs         = inj₂ (buildDBC ver nodes collected attrs)
 
 -- Parse a DBC text image given as a `List Char`.  The parser already
@@ -247,14 +247,13 @@ finalizeParse outcome with uncurry consumed outcome
 --   1. `parseDBCText` consumes every byte of input (no trailing slop).
 --   2. `refineAttributes` resolves every BA_DEF_DEF_ / BA_ / BA_REL_
 --      against the input's AttrDef list.
--- Failure of either surfaces as the matching `DBCTextParseError` case;
--- the refinement-fail note describes the class of issue, not which
--- specific attribute is broken (the refinement pass currently does not
--- thread that info out — see module header).
-parseTextChars : List Char → DBCTextParseError ⊎ DBC
+-- A failure is the kernel's error: a refused name located where it starts,
+-- else the matching `DBCTextParseError`; the refinement-fail note describes
+-- the class of issue, not which specific attribute is broken.
+parseTextChars : List Char → Error ⊎ DBC
 parseTextChars cs = finalizeParse (runParserPartial parseDBCText cs)
 
 -- Parse a DBC text image.  See `parseTextChars` for the `List Char`
 -- entry point used by the roundtrip proofs.
-parseText : String → DBCTextParseError ⊎ DBC
+parseText : String → Error ⊎ DBC
 parseText s = parseTextChars (toList s)

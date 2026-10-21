@@ -3,14 +3,16 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- `parseRawAttrAssign` × ATgtNode per-line construct roundtrips
--- (3 emit shapes), η-style migration onto the universal
--- `parseAttrAssign-format-roundtrip` lemma.
+-- (3 emit shapes), each an instance of the universal
+-- `parseAttrAssign-format-roundtrip` lemma.  The attribute name is an
+-- `Identifier` written between quotes (`quotedIdent`), the string value
+-- a `List Char` written through `quoteStringLit-chars`.
 --
 -- ATgtNode's wire form is `RatwNode idn`, routed through `nodeArm` =
 -- `withPrefix "BU_" (withWS identTrailingWS)` of `stdTargetWireFmt`'s
 -- 5-way altSum.  No top-level disjointness obligation (RatwNode is the
 -- 4-deep inj₁ position).  The EmitsOK builder
--- `build-EmitsOK-stdTargetWireFmt-RatwNode` (in Format/AttrLine.agda)
+-- `build-EmitsOK-stdTargetWireFmt-RatwNode` (Format/AttrLine/Builders.agda)
 -- takes `IdentNameStop`-derived head witness + value-stop and returns
 -- the structural EmitsOK.
 
@@ -36,6 +38,7 @@ open import Aletheia.DBC.DecRat.Refinement using
    intDecRatToℤ-mkIntDecRatFromℤ)
 open import Aletheia.DBC.Types using (ATgtNode)
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.TextFormatter.Attributes using (quoteIdent-chars)
 
 open import Aletheia.DBC.TextParser.Attributes
   using (parseRawAttrAssign;
@@ -86,13 +89,13 @@ IdentNameStop n =
     (Identifier.name n ≡ c ∷ cs) × (isHSpace c ≡ false)
 
 -- ============================================================================
--- TRACE MODULE — kept for `Properties/Attributes/Line.agda` compatibility
+-- TRACE MODULE, the inline-line position the dispatchers' callers name
 -- ============================================================================
 
-module TraceNode (pos : Position) (name : List Char) (idn : Identifier)
+module TraceNode (pos : Position) (name : Identifier) (idn : Identifier)
                  (value-chars : List Char) (outer-suffix : List Char) where
   cs-name : List Char
-  cs-name = quoteStringLit-chars name
+  cs-name = quoteIdent-chars name
 
   cs-node : List Char
   cs-node = Identifier.name idn
@@ -106,27 +109,27 @@ module TraceNode (pos : Position) (name : List Char) (idn : Identifier)
             ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ [])
 
 -- ============================================================================
--- BRIDGES — emit form ↔ inline-input shape
+-- BRIDGES: emit form ↔ inline-input shape
 -- ============================================================================
 
 private
   -- Per-shape bridge: emit attrAssignFmt (n, RatwNode idn, wireVal, tt) ++
   -- outer-suffix ≡ canonical spec shape.  Direct alias of
-  -- `emit-attrAssignFmt-RatwNode-with-outer` (Format/AttrLine.agda), which
+  -- `emit-attrAssignFmt-RatwNode-with-outer` (Format/AttrLine/Builders.agda), which
   -- composes `cong (_++ₗ outer-suffix) emit-eq` ▸ `bridge-emit-tail` ▸
   -- one final ++-assoc on `name idn` to land on the canonical
-  -- "BA_ <qsl> BU_ <name> <value> ;\n" form callers use.
+  -- `BA_ "<attr>" BU_ <node> <value> ;\n` form callers use.
   bridge-Node-emit :
-    ∀ (name : List Char) (idn : Identifier)
+    ∀ (name : Identifier) (idn : Identifier)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → emit attrAssignFmt (name , RatwNode idn , wireVal , tt) ++ₗ outer-suffix
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
           toList " BU_ " ++ₗ Identifier.name idn ++ₗ
           ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
   bridge-Node-emit = emit-attrAssignFmt-RatwNode-with-outer
 
 -- ============================================================================
--- COMMON RAW-LEVEL ROUNDTRIP — Node arm
+-- COMMON RAW-LEVEL ROUNDTRIP: Node arm
 -- ============================================================================
 
 private
@@ -161,7 +164,7 @@ private
                         (sym cs-eq) (∷-stop c-not-hsp)
 
   parseRawAttrAssign-format-roundtrip-Node-raw :
-    ∀ (pos : Position) (name : List Char) (idn : Identifier)
+    ∀ (pos : Position) (name : Identifier) (idn : Identifier)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → IdentNameStop idn
     → SuffixStops isNewlineStart outer-suffix
@@ -228,11 +231,11 @@ private
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtNode-RavString :
-  ∀ pos (name : List Char) (idn : Identifier) (s : List Char) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (idn : Identifier) (s : List Char) (outer-suffix : List Char)
   → IdentNameStop idn
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name idn ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -279,20 +282,20 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavString pos name idn s outer-suffix iden
               chars-eq)
           where
             -- After emit-attrAssignFmt-RatwNode: emit-eq has the structure
-            -- "BA_ " ++ qsl(n) ++ ' ∷ ("BU_" ++ ' ∷ name idn ++ ' ∷ []) ++
+            -- "BA_ " ++ "<name>" ++ ' ∷ ("BU_" ++ ' ∷ name idn ++ ' ∷ []) ++
             --   (qsl(s) ++ ;\n+[])
             -- We need to bridge to the Trace.pos9 form:
-            -- "BA_ " ++ qsl(n) ++ " BU_ " ++ name idn ++ ' ∷ qsl(s) ++ ;\n+[]
+            -- "BA_ " ++ "<name>" ++ " BU_ " ++ name idn ++ ' ∷ qsl(s) ++ ;\n+[]
             -- Same shape as bridge-Node-emit but with outer-suffix = [].
             chars-eq :
-              toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+              toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                 ' ' ∷ (toList "BU_" ++ₗ ' ' ∷ Identifier.name idn ++ₗ ' ' ∷ []) ++ₗ
                   (emit attrValueWireFmt (RavwString s) ++ₗ ';' ∷ '\n' ∷ [])
-              ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+              ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                   toList " BU_ " ++ₗ Identifier.name idn ++ₗ
                   ' ' ∷ quoteStringLit-chars s ++ₗ ';' ∷ '\n' ∷ []
             chars-eq =
-              cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+              cong (λ z → toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                              ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ ' ' ∷ z)
                    (bridge-ident-tail-empty
                      (Identifier.name idn) (quoteStringLit-chars s))
@@ -306,12 +309,12 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavString pos name idn s outer-suffix iden
                         refl
 
 parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac :
-  ∀ pos (name : List Char) (idn : Identifier) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (idn : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop idn
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name idn ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -351,19 +354,19 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac pos name idn d outer-suffix 
         pos-eq =
           cong (advancePositions pos)
             (trans (emit-attrAssignFmt-RatwNode name idn (RavwFrac d))
-                   (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                   (cong (λ z → toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                                     ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ ' ' ∷ z)
                          (trans (++ₗ-assoc (Identifier.name idn) (' ' ∷ [])
                                   (showDecRat-dec-chars d ++ₗ ';' ∷ '\n' ∷ []))
                                 refl)))
 
 parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt :
-  ∀ pos (name : List Char) (idn : Identifier) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (idn : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop idn
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name idn ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -389,13 +392,13 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt pos name idn z outer-suff
     -- The dispatcher's input shape uses `showInt-chars z`; rewrite to
     -- `showInt-chars (intDecRatToℤ z')`, then bridge via `bridge-Node-emit`.
     reshape-input :
-      toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name idn ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
       ≡ emit attrAssignFmt (name , RatwNode idn , RavwBareInt z' , tt) ++ₗ outer-suffix
     reshape-input =
       trans (cong (λ chars →
-              toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+              toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                 toList " BU_ " ++ₗ Identifier.name idn ++ₗ
                 ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
               (sym showInt-eq))
@@ -431,13 +434,13 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt pos name idn z outer-suff
         pos-eq = cong (advancePositions pos)
           (trans (emit-attrAssignFmt-RatwNode name idn (RavwBareInt z'))
                  (trans
-                   (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                   (cong (λ z → toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                                     ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ ' ' ∷ z)
                          (trans (++ₗ-assoc (Identifier.name idn) (' ' ∷ [])
                                   (showInt-chars (intDecRatToℤ z') ++ₗ ';' ∷ '\n' ∷ []))
                                 refl))
                    (cong (λ chars →
-                           toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                           toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                              toList " BU_ " ++ₗ Identifier.name idn ++ₗ
                              ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
                          showInt-eq)))

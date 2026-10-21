@@ -14,21 +14,27 @@ from one that stopped early.
 from __future__ import annotations
 
 import argparse
+import json
 import locale
 import sys
 
-from aletheia import AletheiaClient, ValidationError, from_decimal
+from aletheia import AletheiaClient, FFIBackend, ValidationError, from_decimal
 from aletheia.codes import ErrorCode
 from aletheia.common_types import ExitStatus, Prose
 
 SENTINEL = "ALETHEIA_LOCALE_OK"
 
 # One message whose signal has the unit "°C": the text reaches the kernel as
-# UTF-8 and the unit comes back in the kernel's response.
+# UTF-8, and the kernel refuses the degree sign, outside the DBC character
+# set, at its line and column.
 DBC_TEXT = (
     'VERSION "1.0"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n'
     'BO_ 256 M: 8 ECU\n SG_ T : 0|16@1+ (1,0) [0|65535] "°C" Vector__XXX\n'
 )
+
+# A message whose type is the two characters "°C": the kernel echoes them
+# whole in its refusal, so non-ASCII text crosses the kernel both ways.
+RAW_COMMAND = b'{"type": "\xc2\xb0C"}'
 
 
 def _failures() -> list[Prose]:
@@ -48,10 +54,20 @@ def _failures() -> list[Prose]:
         else:
             failures.append(Prose(f"from_decimal accepted 1.5 and a euro sign as {value}"))
         response = client.parse_dbc_text(DBC_TEXT)
-        if response["status"] != "success":
-            failures.append(Prose(f"parse_dbc_text refused the DBC: {response}"))
-        elif (unit := response["dbc"]["messages"][0]["signals"][0]["unit"]) != "°C":
-            failures.append(Prose(f"the unit came back as {unit!r}"))
+        if (
+            response["status"] != "error"
+            or response["code"] != ErrorCode.DBC_INVALID_CHARACTER
+            or "line 10, column 35 (code point 176)" not in response["message"]
+        ):
+            failures.append(Prose(f"parse_dbc_text answered the degree sign with {response}"))
+    backend = FFIBackend()
+    state = backend.init()
+    try:
+        echoed = json.loads(backend.process(state, RAW_COMMAND))
+    finally:
+        backend.close(state)
+    if echoed["message"] != "unknown message type '°C'":
+        failures.append(Prose(f"the degree sign came back as {echoed}"))
     return failures
 
 

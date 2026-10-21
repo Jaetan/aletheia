@@ -31,6 +31,7 @@ open import Data.Unit using (⊤; tt)
 -- joining this module's recheck closure. Re-exported here so existing
 -- parser-side importers are unaffected.
 open import Aletheia.Parser.Position public
+open import Aletheia.Parser.Watermark public
 
 -- Parse result with position information
 record ParseResult (A : Set) : Set where
@@ -42,14 +43,15 @@ record ParseResult (A : Set) : Set where
 
 open ParseResult public
 
--- Parser type: takes position and input, returns the furthest position
--- reached during the attempt (the WATERMARK — first component) paired
--- with the outcome. The watermark is what makes failed parses report the
--- deepest point any branch reached (byte-exact error positions); the
--- outcome keeps the pre-watermark `Maybe (ParseResult A)` shape so
+-- Parser type: takes position and input, returns the watermark (the
+-- furthest position reached during the attempt and, when the identifier
+-- decision refused a name there, the refusal) paired with the outcome.
+-- The watermark is what makes failed parses report the deepest point any
+-- branch reached (byte-exact error positions) and a refused name with its
+-- reason; the outcome keeps the `Maybe (ParseResult A)` shape so
 -- success-side reasoning composes through `proj₂` unchanged.
 Parser : Set → Set
-Parser A = Position → List Char → Position × Maybe (ParseResult A)
+Parser A = Position → List Char → Watermark × Maybe (ParseResult A)
 
 -- ============================================================================
 -- BASIC COMBINATORS
@@ -57,18 +59,22 @@ Parser A = Position → List Char → Position × Maybe (ParseResult A)
 
 -- | Always succeeds with given value, consumes nothing
 pure : ∀ {A : Set} → A → Parser A
-pure x pos input = pos , just (mkResult x pos input)
+pure x pos input = at pos , just (mkResult x pos input)
 
 -- | Always fails
 fail : ∀ {A : Set} → Parser A
-fail pos _ = pos , nothing
+fail pos _ = at pos , nothing
+
+-- | Fails, the watermark carrying why: a name the identifier decision refused
+refuse : ∀ {A : Set} → Refusal → Parser A
+refuse r pos _ = mark pos (just r) , nothing
 
 -- | Monadic bind for parsers
 _>>=_ : ∀ {A B : Set} → Parser A → (A → Parser B) → Parser B
 (p >>= f) pos input with p pos input
 ... | w , nothing = w , nothing
 ... | w , just result with f (value result) (position result) (remaining result)
-...   | w' , out = maxₚ w w' , out
+...   | w' , out = farthest w w' , out
 
 infixl 1 _>>=_
 
@@ -85,7 +91,7 @@ _<*>_ : ∀ {A B : Set} → Parser (A → B) → Parser A → Parser B
 (pf <*> px) pos input with pf pos input
 ... | w , nothing = w , nothing
 ... | w , just result with (value result <$> px) (position result) (remaining result)
-...   | w' , out = maxₚ w w' , out
+...   | w' , out = farthest w w' , out
 
 infixl 4 _<*>_
 
@@ -106,7 +112,7 @@ _<|>_ : ∀ {A : Set} → Parser A → Parser A → Parser A
 (p1 <|> p2) pos input with p1 pos input
 ... | w , just result = w , just result
 ... | w , nothing with p2 pos input
-...   | w' , out = maxₚ w w' , out
+...   | w' , out = farthest w w' , out
 
 infixl 3 _<|>_
 
@@ -122,13 +128,13 @@ private
 
 -- | Parse a single character satisfying predicate
 satisfy : (Char → Bool) → Parser Char
-satisfy pred pos [] = pos , nothing
+satisfy pred pos [] = at pos , nothing
 satisfy pred pos (c ∷ cs) with pred c
 -- The advanced position is both the success watermark (proj₁) and the
 -- result position; bind it once (per-char hot path).  `let` is
 -- definitional, so proofs matching this branch close by refl unchanged.
-... | true  = let pos' = advancePosition pos c in pos' , just (mkResult c pos' cs)
-... | false = pos , nothing
+... | true  = let pos' = advancePosition pos c in at pos' , just (mkResult c pos' cs)
+... | false = at pos , nothing
 
 -- | Parse specific character
 char : Char → Parser Char
@@ -159,9 +165,9 @@ noneOf chars = satisfy (λ c → not (elem c chars))
 -- Exposed (not private) so roundtrip proofs in `Aletheia.DBC.TextParser.*.Properties`
 -- can pattern-match on its structure (see
 -- `Aletheia.DBC.TextParser.DecRatParse.Properties.manyHelper-satisfy-exhaust`).
-manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → List Char → Position × Maybe (ParseResult (List A))
+manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → List Char → Watermark × Maybe (ParseResult (List A))
 -- Base case: ran out of attempts
-manyHelper p pos input [] = pos , just (mkResult [] pos input)
+manyHelper p pos input [] = at pos , just (mkResult [] pos input)
 -- Recursive case: try parser. A failed element parse is SWALLOWED (many
 -- succeeds with the shorter list) but its watermark is KEPT — that depth
 -- is exactly what the driver reports for the first unparseable statement.
@@ -170,8 +176,8 @@ manyHelper p pos input (_ ∷ bound) with p pos input
 ... | w , just result with samePosᵇ (position result) pos
 ...   | true = w , just (mkResult [] pos input)  -- No progress made, stop
 ...   | false with manyHelper p (position result) (remaining result) bound  -- Progress made, continue
-...     | w' , nothing = maxₚ w w' , just (mkResult ((value result) ∷ []) (position result) (remaining result))
-...     | w' , just restResult = maxₚ w w' , just (mkResult ((value result) ∷ (value restResult)) (position restResult) (remaining restResult))
+...     | w' , nothing = farthest w w' , just (mkResult ((value result) ∷ []) (position result) (remaining result))
+...     | w' , just restResult = farthest w w' , just (mkResult ((value result) ∷ (value restResult)) (position restResult) (remaining restResult))
 
 -- | Parse zero or more occurrences (structurally terminating)
 many : ∀ {A : Set} → Parser A → Parser (List A)
@@ -266,21 +272,22 @@ newline = char '\n'
 -- | Run a parser from the beginning of input
 -- Returns parsed value with final position (for error reporting)
 -- The watermark rides along so drivers can report byte-exact failure
--- positions (and, on partial success, the deepest swallowed failure).
-runParser : ∀ {A : Set} → Parser A → List Char → Position × Maybe (A × Position)
+-- positions, a refused name, and, on partial success, the deepest
+-- swallowed failure.
+runParser : ∀ {A : Set} → Parser A → List Char → Watermark × Maybe (A × Position)
 runParser p input with p initialPosition input
 ... | w , nothing = w , nothing
 ... | w , just result = w , just (value result , position result)
 
 -- | Run parser and return full result (value, position, and remaining input)
 -- Useful for incremental parsing or when you need unconsumed input
-runParserPartial : ∀ {A : Set} → Parser A → List Char → Position × Maybe (ParseResult A)
+runParserPartial : ∀ {A : Set} → Parser A → List Char → Watermark × Maybe (ParseResult A)
 runParserPartial p input = p initialPosition input
 
 -- | Succeeds, consuming nothing, only at the end of the input
 eof : Parser ⊤
-eof pos []      = pos , just (mkResult tt pos [])
-eof pos (_ ∷ _) = pos , nothing
+eof pos []      = at pos , just (mkResult tt pos [])
+eof pos (_ ∷ _) = at pos , nothing
 
 -- | Optional: parse A or return nothing if it fails
 optional : ∀ {A : Set} → Parser A → Parser (Maybe A)

@@ -101,15 +101,16 @@ private
   T-∧₁ : ∀ {a b : Bool} → T (a ∧ b) → T a
   T-∧₁ {true} {true} _ = tt
 
--- Generic universal name-stop.  `validIdentifierᵇ (c ∷ cs)`'s first conjunct
--- is `isIdentStart c`, so `T-∧₁ valid : T (isIdentStart c)`; the empty-name
--- case is closed by `()` on `valid : T (validIdentifierᵇ []) = T false`.
+-- Generic universal name-stop.  `validIdentifierᵇ (c ∷ cs)` is
+-- `(isIdentStart c ∧ allᵇ isIdentCont cs) ∧ (length ∧ not keyword)`, so
+-- `T-∧₁ (T-∧₁ valid) : T (isIdentStart c)`; the empty-name case is closed
+-- by `()` on `valid : T (validIdentifierᵇ []) = T false`.
 identNameStop : ∀ (i : Identifier)
   → Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]
       (Identifier.name i ≡ c ∷ cs) × (isHSpace c ≡ false)
 identNameStop (mkIdent []       ())
 identNameStop (mkIdent (c ∷ cs) v) =
-  c , cs , refl , isIdentStart→¬isHSpace c (T-∧₁ v)
+  c , cs , refl , isIdentStart→¬isHSpace c (T-∧₁ (T-∧₁ v))
 
 -- ── Per-section discharges (each `*NameStop` unfolds to the Σ above) ──────
 

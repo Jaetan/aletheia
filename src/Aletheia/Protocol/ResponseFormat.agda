@@ -158,6 +158,9 @@ formatValidationIssue issue =
 --     bound error);
 --     `InputBoundExceededAt field …` adds `field`, the part of the input
 --     that crossed the bound.
+--   * `InvalidCharacter` exposes `code_point` with `field` + `index` for a
+--     parsed field, or `line` + `column` for a DBC text; `KeywordName`
+--     exposes `field` + `keyword`.
 --   * `ValidationFailed` / `TextRoundTripFailed` expose `has_errors` + `issues`.
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
 -- Every natural here goes through `saturated`: a position or a limit is
@@ -190,7 +193,30 @@ errorExtras (Err.DispatchErr (Err.InvalidJSON pos)) =
   ("column" , saturated (Position.column pos)) ∷
   []
 errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
-errorExtras (Err.InputBoundExceededAt f k o l) = ("field" , JStringS f) ∷ boundInfoFields k o l
+errorExtras (Err.InputBoundExceededAt (Err.InPart f) k o l) = ("field" , JStringS f) ∷ boundInfoFields k o l
+errorExtras (Err.InputBoundExceededAt (Err.AtText pos) k o l) =
+  ("line"   , saturated (Position.line pos)) ∷
+  ("column" , saturated (Position.column pos)) ∷
+  boundInfoFields k o l
+errorExtras (Err.InvalidCharacter (Err.InField f i) cp) =
+  ("field"      , JStringS f) ∷
+  ("index"      , saturated i) ∷
+  ("code_point" , saturated cp) ∷
+  []
+errorExtras (Err.InvalidCharacter (Err.InText pos) cp) =
+  ("line"       , saturated (Position.line pos)) ∷
+  ("column"     , saturated (Position.column pos)) ∷
+  ("code_point" , saturated cp) ∷
+  []
+errorExtras (Err.KeywordName (Err.InPart f) kw) =
+  ("field"   , JStringS f) ∷
+  ("keyword" , JStringS kw) ∷
+  []
+errorExtras (Err.KeywordName (Err.AtText pos) kw) =
+  ("line"    , saturated (Position.line pos)) ∷
+  ("column"  , saturated (Position.column pos)) ∷
+  ("keyword" , JStringS kw) ∷
+  []
 -- A validation rejection carries the FULL issue list (errors AND warnings)
 -- structurally — the same element shape as the `validation` response, so
 -- bindings reuse one issue decoder. `has_errors` is trivially true on this
@@ -209,6 +235,12 @@ errorExtras (Err.HandlerErr (Err.TextRoundTripFailed issues)) =
 errorExtras (Err.HandlerErr (Err.InContext _ inner)) =
   errorExtras (Err.HandlerErr inner)
 errorExtras (Err.WithContext _ inner)      = errorExtras inner
+errorExtras (Err.ParseErr (Err.InvalidIdentifier (Err.InPart f) _)) =
+  ("field" , JStringS f) ∷ []
+errorExtras (Err.ParseErr (Err.InvalidIdentifier (Err.AtText pos) _)) =
+  ("line"   , saturated (Position.line pos)) ∷
+  ("column" , saturated (Position.column pos)) ∷
+  []
 errorExtras _                              = []
 
 -- One extracted value, written as it is: the categoriser kept only values

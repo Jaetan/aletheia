@@ -156,6 +156,7 @@ MAlonzo.Code.Aletheia.Parser.CharClass
 MAlonzo.Code.Aletheia.Parser.Combinators
 MAlonzo.Code.Aletheia.Parser.Position
 MAlonzo.Code.Aletheia.Parser.Position.Properties
+MAlonzo.Code.Aletheia.Parser.Watermark
 MAlonzo.Code.Aletheia.Prelude
 MAlonzo.Code.Aletheia.Protocol.Handlers
 MAlonzo.Code.Aletheia.Protocol.Handlers.FormatDBCText
@@ -166,6 +167,7 @@ MAlonzo.Code.Aletheia.Protocol.JSON
 MAlonzo.Code.Aletheia.Protocol.JSON.Format
 MAlonzo.Code.Aletheia.Protocol.JSON.Lookup
 MAlonzo.Code.Aletheia.Protocol.JSON.Parse
+MAlonzo.Code.Aletheia.Protocol.JSON.Shallow
 MAlonzo.Code.Aletheia.Protocol.JSON.Types
 MAlonzo.Code.Aletheia.Protocol.Message
 MAlonzo.Code.Aletheia.Protocol.Response

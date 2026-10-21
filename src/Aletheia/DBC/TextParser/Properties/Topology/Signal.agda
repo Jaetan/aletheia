@@ -311,9 +311,9 @@ recvHeadStop : ∀ (cr : CanonicalReceivers) → RecvHeadStop cr
 recvHeadStop (mkCanonical [] _)                             = 'V' , _ , refl , refl
 recvHeadStop (mkCanonical (mkIdent [] vp ∷ _) _)            = ⊥-elim vp
 recvHeadStop (mkCanonical (mkIdent (c ∷ cs) v ∷ []) _)      =
-  c , (cs ++ₗ []) , refl , isIdentStart→¬isHSpace c (T-∧₁ v)
+  c , (cs ++ₗ []) , refl , isIdentStart→¬isHSpace c (T-∧₁ (T-∧₁ v))
 recvHeadStop (mkCanonical (mkIdent (c ∷ cs) v ∷ s ∷ rest) _) =
-  c , _ , refl , isIdentStart→¬isHSpace c (T-∧₁ v)
+  c , _ , refl , isIdentStart→¬isHSpace c (T-∧₁ (T-∧₁ v))
 
 
 -- ============================================================================

@@ -77,7 +77,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.Error using (DBCTextParseError)
 open import Aletheia.Parser.Combinators using
   (Parser; pure; _>>=_; _<|>_; _*>_;
-   fail; many)
+   fail; many; at)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseNewline)
 open import Aletheia.CAN.Frame using (CANId)
@@ -226,7 +226,7 @@ private
   parseTopStmt-CM = parseComment >>= λ c → pure (TSComment c)
 
 parseTopStmt : Parser TopStmt
-parseTopStmt pos []                   = pos , nothing
+parseTopStmt pos []                   = at pos , nothing
 parseTopStmt pos ('V' ∷ rest)         = parseTopStmt-V  pos ('V' ∷ rest)
 parseTopStmt pos ('B' ∷ 'A' ∷ rest)   = parseTopStmt-BA pos ('B' ∷ 'A' ∷ rest)
 parseTopStmt pos ('B' ∷ 'O' ∷ rest)   = parseTopStmt-BO pos ('B' ∷ 'O' ∷ rest)
@@ -236,7 +236,7 @@ parseTopStmt pos ('E' ∷ 'V' ∷ rest)   = parseTopStmt-EV pos ('E' ∷ 'V' ∷
 parseTopStmt pos ('C' ∷ 'M' ∷ rest)   = parseTopStmt-CM pos ('C' ∷ 'M' ∷ rest)
 -- Failure watermark = the dispatch position: the keyword table rejected
 -- the statement's very first characters, so no attempt got deeper.
-parseTopStmt pos _                    = pos , nothing
+parseTopStmt pos _                    = at pos , nothing
 
 -- ============================================================================
 -- PARTITION INTO PER-FIELD BUCKETS

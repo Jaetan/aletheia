@@ -37,6 +37,7 @@ open import Aletheia.DBC.DecRat.Refinement using
    intDecRatToℤ-mkIntDecRatFromℤ)
 open import Aletheia.DBC.Types using (ATgtEnvVar)
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.TextFormatter.Attributes using (quoteIdent-chars)
 
 open import Aletheia.DBC.TextParser.Attributes
   using (parseRawAttrAssign;
@@ -83,10 +84,10 @@ open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
 -- TRACE MODULE — kept for `Properties/Attributes/Line.agda` compatibility
 -- ============================================================================
 
-module TraceEnvVar (pos : Position) (name : List Char) (ev : Identifier)
+module TraceEnvVar (pos : Position) (name : Identifier) (ev : Identifier)
                    (value-chars : List Char) (outer-suffix : List Char) where
   cs-name : List Char
-  cs-name = quoteStringLit-chars name
+  cs-name = quoteIdent-chars name
 
   cs-ev : List Char
   cs-ev = Identifier.name ev
@@ -103,10 +104,10 @@ module TraceEnvVar (pos : Position) (name : List Char) (ev : Identifier)
 
 private
   bridge-EnvVar-emit :
-    ∀ (name : List Char) (ev : Identifier)
+    ∀ (name : Identifier) (ev : Identifier)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix
-      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ≡ toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
           toList " EV_ " ++ₗ Identifier.name ev ++ₗ
           ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
   bridge-EnvVar-emit = emit-attrAssignFmt-RatwEv-with-outer
@@ -117,7 +118,7 @@ private
 
 private
   parseRawAttrAssign-format-roundtrip-EnvVar-raw :
-    ∀ (pos : Position) (name : List Char) (ev : Identifier)
+    ∀ (pos : Position) (name : Identifier) (ev : Identifier)
       (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → IdentNameStop ev
     → SuffixStops isNewlineStart outer-suffix
@@ -205,15 +206,15 @@ private
 
 private
   pos-eq-chars :
-    ∀ (n : List Char) (ev : Identifier) (value-chars : List Char) →
-    toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+    ∀ (n : Identifier) (ev : Identifier) (value-chars : List Char) →
+    toList "BA_ " ++ₗ quoteIdent-chars n ++ₗ
       ' ' ∷ (toList "EV_" ++ₗ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ []) ++ₗ
         (value-chars ++ₗ ';' ∷ '\n' ∷ [])
-    ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+    ≡ toList "BA_ " ++ₗ quoteIdent-chars n ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
         ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ []
   pos-eq-chars n ev value-chars =
-    cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+    cong (λ z → toList "BA_ " ++ₗ quoteIdent-chars n ++ₗ
                    ' ' ∷ 'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ z)
          (++ₗ-assoc (Identifier.name ev) (' ' ∷ [])
                     (value-chars ++ₗ ';' ∷ '\n' ∷ []))
@@ -223,11 +224,11 @@ private
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString :
-  ∀ pos (name : List Char) (ev : Identifier) (s : List Char) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (ev : Identifier) (s : List Char) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -263,12 +264,12 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString pos name ev s outer-suffix ide
                                   (pos-eq-chars name ev (quoteStringLit-chars s))))
 
 parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac :
-  ∀ pos (name : List Char) (ev : Identifier) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (ev : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
   → SmallDecRat d
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -304,12 +305,12 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix
                                   (pos-eq-chars name ev (showDecRat-dec-chars d))))
 
 parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt :
-  ∀ pos (name : List Char) (ev : Identifier) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : Identifier) (ev : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
   → SmallInt z
   → proj₂ (parseRawAttrAssign pos
-      (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      (toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
@@ -333,13 +334,13 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suf
     showInt-eq = cong showInt-chars (intDecRatToℤ-mkIntDecRatFromℤ z)
 
     reshape-input :
-      toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
       ≡ emit attrAssignFmt (name , RatwEv ev , RavwBareInt z' , tt) ++ₗ outer-suffix
     reshape-input =
       trans (cong (λ chars →
-              toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+              toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                 toList " EV_ " ++ₗ Identifier.name ev ++ₗ
                 ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
               (sym showInt-eq))
@@ -377,7 +378,7 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suf
                  (trans
                    (pos-eq-chars name ev (showInt-chars (intDecRatToℤ z')))
                    (cong (λ chars →
-                           toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                           toList "BA_ " ++ₗ quoteIdent-chars name ++ₗ
                              toList " EV_ " ++ₗ Identifier.name ev ++ₗ
                              ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
                          showInt-eq)))

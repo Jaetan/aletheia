@@ -92,7 +92,7 @@ open import Aletheia.DBC.TextFormatter.Emitter using
 -- ============================================================================
 
 on-AVInt-Network :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char) (z' : IntDecRat)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier) (z' : IntDecRat)
       (outer : List Char)
   → SuffixStops isNewlineStart outer
   → SmallInt (intDecRatToℤ z')
@@ -120,7 +120,7 @@ on-AVInt-Network defs pos name z' outer ss-NL small =
     (parseAttrLine-on-RavBareInt-Network pos name (intDecRatToℤ z') outer ss-NL small)
 
 on-AVInt-Node :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char) (n : Identifier)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier) (n : Identifier)
       (z' : IntDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNode n)
   → SuffixStops isNewlineStart outer
@@ -149,7 +149,7 @@ on-AVInt-Node defs pos name n z' outer n-stop ss-NL small =
     (parseAttrLine-on-RavBareInt-Node pos name n (intDecRatToℤ z') outer n-stop ss-NL small)
 
 on-AVInt-Message :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (cid : _) (z' : IntDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
   → SmallInt (intDecRatToℤ z')
@@ -179,7 +179,7 @@ on-AVInt-Message defs pos name cid z' outer ss-NL small =
     (parseAttrLine-on-RavBareInt-Message pos name cid (intDecRatToℤ z') outer ss-NL small)
 
 on-AVInt-Signal :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (cid : _) (sig : Identifier) (z' : IntDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtSignal cid sig)
   → SuffixStops isNewlineStart outer
@@ -211,7 +211,7 @@ on-AVInt-Signal defs pos name cid sig z' outer sig-stop ss-NL small =
        outer sig-stop ss-NL small)
 
 on-AVInt-EnvVar :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (ev : Identifier) (z' : IntDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtEnvVar ev)
   → SuffixStops isNewlineStart outer
@@ -243,7 +243,7 @@ on-AVInt-EnvVar defs pos name ev z' outer ev-stop ss-NL small =
        outer ev-stop ss-NL small)
 
 on-AVInt-NodeMsg :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (n : Identifier) (cid : _) (z' : IntDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNodeMsg n cid)
   → SuffixStops isNewlineStart outer
@@ -275,7 +275,7 @@ on-AVInt-NodeMsg defs pos name n cid z' outer n-stop ss-NL small =
        outer n-stop ss-NL small)
 
 on-AVInt-NodeSig :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (n : Identifier) (cid : _) (sig : Identifier) (z' : IntDecRat)
       (outer : List Char)
   → IdentNameStop-of (ATgtNodeSig n cid sig)
@@ -313,7 +313,7 @@ on-AVInt-NodeSig defs pos name n cid sig z' outer stops ss-NL small =
 -- ============================================================================
 
 on-AVHex-Network :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (n : NatDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
   → SmallInt (+ natDecRatToℕ n)
@@ -341,7 +341,7 @@ on-AVHex-Network defs pos name n outer ss-NL small =
     (parseAttrLine-on-RavBareInt-Network pos name (+ natDecRatToℕ n) outer ss-NL small)
 
 on-AVHex-Node :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (nd : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNode nd)
   → SuffixStops isNewlineStart outer
@@ -372,7 +372,7 @@ on-AVHex-Node defs pos name nd n outer n-stop ss-NL small =
        outer n-stop ss-NL small)
 
 on-AVHex-Message :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (cid : _) (n : NatDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
   → SmallInt (+ natDecRatToℕ n)
@@ -403,7 +403,7 @@ on-AVHex-Message defs pos name cid n outer ss-NL small =
        outer ss-NL small)
 
 on-AVHex-Signal :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (cid : _) (sig : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtSignal cid sig)
   → SuffixStops isNewlineStart outer
@@ -435,7 +435,7 @@ on-AVHex-Signal defs pos name cid sig n outer sig-stop ss-NL small =
        outer sig-stop ss-NL small)
 
 on-AVHex-EnvVar :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (ev : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtEnvVar ev)
   → SuffixStops isNewlineStart outer
@@ -467,7 +467,7 @@ on-AVHex-EnvVar defs pos name ev n outer ev-stop ss-NL small =
        outer ev-stop ss-NL small)
 
 on-AVHex-NodeMsg :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (nd : Identifier) (cid : _) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNodeMsg nd cid)
   → SuffixStops isNewlineStart outer
@@ -499,7 +499,7 @@ on-AVHex-NodeMsg defs pos name nd cid n outer n-stop ss-NL small =
        outer n-stop ss-NL small)
 
 on-AVHex-NodeSig :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (nd : Identifier) (cid : _) (sig : Identifier) (n : NatDecRat)
       (outer : List Char)
   → IdentNameStop-of (ATgtNodeSig nd cid sig)
@@ -538,7 +538,7 @@ on-AVHex-NodeSig defs pos name nd cid sig n outer stops ss-NL small =
 -- ============================================================================
 
 on-AVEnum-Network :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (n : NatDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
   → SmallInt (+ natDecRatToℕ n)
@@ -566,7 +566,7 @@ on-AVEnum-Network defs pos name n outer ss-NL small =
     (parseAttrLine-on-RavBareInt-Network pos name (+ natDecRatToℕ n) outer ss-NL small)
 
 on-AVEnum-Node :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (nd : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNode nd)
   → SuffixStops isNewlineStart outer
@@ -597,7 +597,7 @@ on-AVEnum-Node defs pos name nd n outer n-stop ss-NL small =
        outer n-stop ss-NL small)
 
 on-AVEnum-Message :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (cid : _) (n : NatDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
   → SmallInt (+ natDecRatToℕ n)
@@ -628,7 +628,7 @@ on-AVEnum-Message defs pos name cid n outer ss-NL small =
        outer ss-NL small)
 
 on-AVEnum-Signal :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (cid : _) (sig : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtSignal cid sig)
   → SuffixStops isNewlineStart outer
@@ -660,7 +660,7 @@ on-AVEnum-Signal defs pos name cid sig n outer sig-stop ss-NL small =
        outer sig-stop ss-NL small)
 
 on-AVEnum-EnvVar :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (ev : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtEnvVar ev)
   → SuffixStops isNewlineStart outer
@@ -692,7 +692,7 @@ on-AVEnum-EnvVar defs pos name ev n outer ev-stop ss-NL small =
        outer ev-stop ss-NL small)
 
 on-AVEnum-NodeMsg :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (nd : Identifier) (cid : _) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNodeMsg nd cid)
   → SuffixStops isNewlineStart outer
@@ -724,7 +724,7 @@ on-AVEnum-NodeMsg defs pos name nd cid n outer n-stop ss-NL small =
        outer n-stop ss-NL small)
 
 on-AVEnum-NodeSig :
-    ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
+    ∀ (defs : List AttrDef) (pos : Position) (name : Identifier)
       (nd : Identifier) (cid : _) (sig : Identifier) (n : NatDecRat)
       (outer : List Char)
   → IdentNameStop-of (ATgtNodeSig nd cid sig)

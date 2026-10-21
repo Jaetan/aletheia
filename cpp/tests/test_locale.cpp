@@ -11,6 +11,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 
 #include <clocale>
 #include <stop_token>
@@ -23,11 +24,15 @@ using aletheia::ErrorKind;
 using aletheia::Rational;
 
 // One message whose signal has the unit "°C": the text reaches the kernel as
-// UTF-8 (the encoding clang gives a narrow literal) and the unit comes back in
-// its response.
+// UTF-8 (the encoding clang gives a narrow literal), and the kernel refuses
+// the degree sign, outside the DBC character set, at its line and column.
 constexpr std::string_view k_dbc_text =
     "VERSION \"1.0\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n"
     "BO_ 256 M: 8 ECU\n SG_ T : 0|16@1+ (1,0) [0|65535] \"\u00b0C\" Vector__XXX\n";
+
+// A message whose type is the two characters "°C": the kernel echoes them
+// whole in its refusal, so non-ASCII text crosses the kernel both ways.
+constexpr std::string_view k_raw_command = R"({"type": "°C"})";
 
 TEST_CASE("the kernel's strings do not depend on the locale", "[locale]") {
     AletheiaClient client(aletheia::make_ffi_backend_from_env());
@@ -44,9 +49,16 @@ TEST_CASE("the kernel's strings do not depend on the locale", "[locale]") {
             CHECK(e.code() == ErrorCode::TextTrailingInput);
         }
     }
-    SECTION("a non-ASCII unit comes back whole") {
+    SECTION("a non-ASCII unit is refused at its position") {
         auto const parsed = client.parse_dbc_text(std::stop_token{}, k_dbc_text);
-        REQUIRE(parsed.has_value());
-        CHECK(parsed->dbc.messages[0].signals[0].unit.get() == "\u00b0C");
+        REQUIRE_FALSE(parsed.has_value());
+        auto const& error = aletheia::detail::error_of(parsed);
+        CHECK(error.code() == ErrorCode::DBCInvalidCharacter);
+        CHECK(error.message().contains("line 10, column 35 (code point 176)"));
+    }
+    SECTION("a non-ASCII message type is echoed whole") {
+        auto const backend = aletheia::make_ffi_backend_from_env();
+        auto const state = backend->init();
+        CHECK(backend->process(state, k_raw_command).contains("unknown message type '\u00b0C'"));
     }
 }

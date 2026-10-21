@@ -11,19 +11,12 @@ reply escapes every control character it echoes, so every JSON reader reads it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, NewType, cast
+from typing import Final, NewType
 
 import pytest
+from _kernel_rows import Command, kernel_reply
 
-from aletheia import FFIBackend
-from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.common_types import Prose
-
-if TYPE_CHECKING:
-    from aletheia.types import Response
-
-# A command's bytes, as the kernel receives them.
-Command = NewType("Command", bytes)
 
 # The column of the first character the kernel cannot read.
 Column = NewType("Column", int)
@@ -73,21 +66,12 @@ _ECHOED: Final = (
 )
 
 
-def _answer(command: Command) -> Response:
-    backend = FFIBackend()
-    state = backend.init()
-    try:
-        return cast("Response", parse_json_object(KernelResponse(backend.process(state, command))))
-    finally:
-        backend.close(state)
-
-
 @pytest.mark.parametrize(("label", "command", "column"), _REFUSED, ids=[row[0] for row in _REFUSED])
 def test_text_outside_the_grammar_is_refused_at_its_position(
     label: Prose, command: Command, column: Column
 ) -> None:
     """A command RFC 8259 does not allow is refused at the first character it cannot read."""
-    assert _answer(command) == {
+    assert kernel_reply(command) == {
         "status": "error",
         "code": "dispatch_invalid_json",
         "message": f"invalid JSON: parse failed at line 1, column {column}",
@@ -101,7 +85,7 @@ def test_an_escaped_character_is_read_and_echoed_readably(
     label: Prose, command: Command, echoed: MessageType
 ) -> None:
     r"""A character a ``\u`` or short escape names is read, and the reply echoing it is JSON."""
-    assert _answer(command) == {
+    assert kernel_reply(command) == {
         "status": "error",
         "code": "dispatch_unknown_message_type",
         "message": f"unknown message type '{echoed}'",
