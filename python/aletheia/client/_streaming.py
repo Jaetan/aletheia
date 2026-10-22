@@ -177,7 +177,8 @@ class StreamingMixin(ClientHostState):
                 )
                 if len(self._caches.extraction) < MAX_EXTRACT_CACHE:
                     self._caches.extraction[cache_key] = extraction
-                else:
+                elif not self._caches.full_reported:
+                    self._caches.full_reported = True
                     log_event(
                         _logger,
                         logging.WARNING,

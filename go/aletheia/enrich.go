@@ -328,6 +328,8 @@ type extractCache struct {
 	entries map[frameMeta]map[string]*ExtractionResult
 	// count is the number of stored results across the inner maps
 	count int
+	// fullReported latches cache.full: one per fill, until the cache is cleared.
+	fullReported bool
 }
 
 // newExtractCache is an empty cache.
@@ -359,7 +361,18 @@ func (c *extractCache) put(meta frameMeta, data []byte, result *ExtractionResult
 	return true
 }
 
+// noteFull reports whether this refusal is the first since the cache was
+// emptied, so the caller logs cache.full once per fill.
+func (c *extractCache) noteFull() bool {
+	if c.fullReported {
+		return false
+	}
+	c.fullReported = true
+	return true
+}
+
 func (c *extractCache) clear() {
 	c.entries = make(map[frameMeta]map[string]*ExtractionResult)
 	c.count = 0
+	c.fullReported = false
 }

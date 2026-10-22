@@ -241,8 +241,9 @@ cache is being thrashed.
 
 #### `cache.full`
 
-**Symptom:** warn-level log line during signal extraction; the
-record carries the current cache size in the `size` field.
+**Symptom:** one warn-level log line per fill of the signal-extraction
+cache, on the first extraction the full cache refuses; the record
+carries the cache size in the `size` field.
 
 **Cause:** The signal-extraction cache reached its capacity bound
 (`MAX_EXTRACT_CACHE = 256` in Python `_types.py`, `maxExtractCache`
@@ -251,12 +252,12 @@ extraction itself succeeded; the warning is purely informational
 about cache pressure.
 
 **Action:** None for correctness. Once full the cache stops
-admitting new (can_id, signal_name) pairs — it does not evict —
-which means each fresh signal extraction past the cap pays the full
-kernel-call cost. If the warning fires on every frame, the working
-set legitimately exceeds 256 distinct (can_id, signal_name) pairs;
-the cap is a compile-time constant in each binding and would need a
-binding-side patch to lift.
+admitting new frames (keyed by the frame's identifier and payload) and
+does not evict, so each fresh frame past the cap pays the full
+kernel-call cost until a new stream or new properties empty the cache.
+The warning fires once per fill, so a stream over more than 256
+distinct frames logs it once; the cap is a compile-time constant in
+the Python, Go and C++ bindings and would need a binding-side patch to lift.
 
 ### Extraction errors
 
@@ -539,13 +540,13 @@ the RTS state is per-process and a fresh process recovers.
 
 #### Runaway cache growth
 
-**Symptom:** Process RSS grows over a long-running streaming session
-without `cache.full` warnings firing at expected cadence.
+**Symptom:** Process RSS grows over a long-running streaming session.
 
 **Cause:** A binding-side state accumulator (typically a
 host-application list of `Violation` records) is growing unbounded.
-The kernel's signal-extraction cache is bounded — if `cache.full`
-fires repeatedly, the kernel cache is doing its job.
+The signal-extraction cache of the Python, Go and C++ bindings is bounded:
+it holds at most 256 frames and logs `cache.full` once, on the first frame
+the full cache refuses.
 
 **Action:** Audit binding-side data structures for accumulation. The
 kernel is `O(1)` in trace length per

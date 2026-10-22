@@ -749,6 +749,11 @@ def _run_gha_checks(runner: Runner) -> None:
         cwd=runner.repo_root,
     )
     runner.step(
+        "check-cpp-layout",
+        [runner.python, "-m", "tools.check_cpp_layout"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
         "check-precise-hints",
         [runner.python, "-m", "tools.check_precise_hints"],
         cwd=runner.repo_root,

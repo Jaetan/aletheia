@@ -370,6 +370,35 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING: the C++ client's object layout moves, and `libaletheia-cpp` is
+  installed at `SOVERSION 2`; `cache.full` is logged once per fill in C++, Go
+  and Python, and the Python binding prints nothing until the host configures
+  its logger.** `AletheiaClient` holds its extraction cache and a latch in one
+  struct (320 bytes, 312 before), so a program linked against the installed
+  shared library is rebuilt for this release. The layout is now a kept record:
+  `docs/CPP_LAYOUT.yaml` holds the size and alignment of every public type and
+  the library's `SOVERSION`, the C++ layout test holds the figures to the
+  compiler, `tools/check_cpp_layout.py` holds the roster to the headers, and a
+  pull request changing the record is refused without the breaking mark. A
+  `SOVERSION` raised with no row moved passes too, for a break the record
+  cannot show (a virtual function added); the version never falls. The
+  `cache.full` warning fired on every extraction the full cache refused
+  (measured: 2976 lines on stderr from `python -m benchmarks.violations
+  --frames 1000 --runs 2`); it is now logged once, on the first refusal, and
+  again only once a new stream or new properties empty the cache. The
+  `aletheia` logger had no handler, so a host that configured no logging saw
+  every WARNING-level record on stderr through Python's last-resort handler,
+  where the C++, Go and Rust clients are silent until a logger is passed to
+  them; a `NullHandler` on the package logger now keeps every record off
+  stderr until the host attaches a handler, the failed-frame warnings
+  (`enrichment.extraction_failed`, `extraction.process_failed`,
+  `extraction.parse_failed`) included, and the Python API guide and
+  INTERFACES.md say how to turn them on. The three command lines attach a
+  WARNING-level logger writing to stderr, so a warning raised during a run is
+  seen alike from `python -m aletheia`, the Go `aletheia` and `aletheia-cli`.
+  A boolean log field reads `true` or `false` in Python, as the Go and C++
+  clients write it, where it read `True` or `False`.
+
 - **BREAKING: the kernel reads a command as RFC 8259 JSON text and writes
   every reply as such text, both proven.** The parser refuses, with
   `dispatch_invalid_json` at the line and column of the first character it

@@ -306,6 +306,8 @@ find_package(aletheia-cpp REQUIRED)
 target_link_libraries(my_app PRIVATE aletheia::aletheia-cpp)
 ~~~
 
+The installed shared library `libaletheia-cpp` carries a `SOVERSION`, raised by every change to the size or alignment of a public type (`docs/CPP_LAYOUT.yaml`), so a program linked against an older one is rebuilt rather than run against a layout it was not compiled for.
+
 #### Usage
 
 ```cpp

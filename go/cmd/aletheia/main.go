@@ -29,12 +29,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/Jaetan/aletheia/go/excel"
@@ -203,17 +206,72 @@ func openDBC(path string) (*aletheia.Client, aletheia.DBCDefinition, []aletheia.
 	return client, def, warnings, nil
 }
 
-// newClient builds a client over the real FFI backend.
+// cliHandler writes every record at Warn or above as its event and its fields,
+// `event key=value ...`, one line per record: the command line's logging, the
+// line the Python and C++ command lines print. Copies share one lock, so a
+// record is one write whichever goroutine logs it.
+type cliHandler struct {
+	mu     *sync.Mutex
+	w      io.Writer
+	prefix string
+	attrs  []slog.Attr
+}
+
+func (h *cliHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= slog.LevelWarn }
+
+func (h *cliHandler) Handle(_ context.Context, r slog.Record) error {
+	var b strings.Builder
+	b.WriteString(r.Message)
+	for _, a := range h.attrs {
+		fmt.Fprintf(&b, " %s=%s", a.Key, a.Value.Resolve())
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		fmt.Fprintf(&b, " %s%s=%s", h.prefix, a.Key, a.Value.Resolve())
+		return true
+	})
+	b.WriteByte('\n')
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, err := io.WriteString(h.w, b.String())
+	return err
+}
+
+func (h *cliHandler) WithAttrs(as []slog.Attr) slog.Handler {
+	c := *h
+	c.attrs = slices.Clone(h.attrs)
+	for _, a := range as {
+		c.attrs = append(c.attrs, slog.Attr{Key: h.prefix + a.Key, Value: a.Value})
+	}
+	return &c
+}
+
+func (h *cliHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	c := *h
+	c.prefix = h.prefix + name + "."
+	return &c
+}
+
+// cliLogger is the command line's logger over w: records at Warn or above, as
+// cliHandler writes them.
+func cliLogger(w io.Writer) *slog.Logger {
+	return slog.New(&cliHandler{mu: &sync.Mutex{}, w: w})
+}
+
+// newClient builds a client over the real FFI backend, both logging to stderr.
 func newClient() (*aletheia.Client, error) {
 	lib := resolveLib("/")
 	if lib == "" {
 		return nil, fmt.Errorf("libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'")
 	}
-	backend, err := aletheia.NewFFIBackend(lib)
+	logger := cliLogger(os.Stderr)
+	backend, err := aletheia.NewFFIBackend(lib, aletheia.WithFFILogger(logger))
 	if err != nil {
 		return nil, fmt.Errorf("loading %s: %w", lib, err)
 	}
-	return aletheia.NewClient(backend)
+	return aletheia.NewClient(backend, aletheia.WithLogger(logger))
 }
 
 // latin1 maps every byte to the character of the same number, so the kernel

@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
+#include <aletheia/log.hpp>
+
+#include <ostream>
 #include <span>
 #include <string>
 
@@ -24,5 +27,10 @@ inline constexpr int cli_exit_error = 2;
 // subcommand: the binding has no CAN-log reader. Behavior lives in
 // cpp/src/cli/cli.cpp.
 [[nodiscard]] auto run_cli(std::span<const std::string> args) noexcept -> int;
+
+// The command line's logger: every record at Warn or above written to `out`
+// as `event key=value ...`, one per line, as the Python and Go command lines
+// print theirs; nothing below Warn reaches it. `out` outlives the logger.
+[[nodiscard]] auto cli_logger(std::ostream& out) -> Logger;
 
 } // namespace aletheia

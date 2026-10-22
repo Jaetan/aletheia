@@ -50,6 +50,7 @@ Use the fluent Signal interface to build properties:
     brake.implies(speed_decreases.within(100))
 """
 
+import logging
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
@@ -111,6 +112,11 @@ from aletheia.types import (
     DBCDefinition,
     PropertyResultEntry,
 )
+
+# The package prints nothing until the host configures the ``aletheia`` logger:
+# the handler keeps logging's last-resort stderr handler out of the chain, as
+# the C++, Go and Rust clients are silent until a logger is passed to them.
+logging.getLogger("aletheia").addHandler(logging.NullHandler())
 
 
 # Optional-dependency modules: available when the corresponding extras are

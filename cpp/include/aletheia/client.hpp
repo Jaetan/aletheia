@@ -290,12 +290,21 @@ private:
 
     // Extraction cache: keyed by (id_value, is_extended, dlc, payload).
     // Capped at max_cache_size entries; when full, new extractions are
-    // performed but not cached (falls back to per-frame extraction, logging
-    // a `cache.full` warning).
+    // performed but not cached, and `cache.full` is logged once per fill, on
+    // the first extraction the full cache refuses, until the cache is emptied.
     // Cache key types live in detail/cache_keys.hpp — see there for the
     // transparent comparator that enables heterogeneous lookup by FrameKeyView.
     static constexpr std::size_t max_cache_size = 256;
-    std::map<detail::FrameKey, ExtractionResult, detail::FrameKeyLess> cache_;
+    struct ExtractionCache {
+        std::map<detail::FrameKey, ExtractionResult, detail::FrameKeyLess> entries;
+        bool full_reported = false;
+
+        void clear() {
+            entries.clear();
+            full_reported = false;
+        }
+    };
+    ExtractionCache cache_;
 
     // Last frame seen per CAN ID, for end-of-stream enrichment.
     // Populated by send_frame() (guarded by !diags_.empty()); cleared by

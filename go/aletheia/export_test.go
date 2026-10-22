@@ -44,3 +44,6 @@ var FindFFILibrary = findFFILibrary
 
 // FormatEnrichedReason is formatEnrichedReason for the tests; it cannot fail.
 var FormatEnrichedReason = formatEnrichedReason
+
+// MaxExtractCache is maxExtractCache for the tests, which fill the cache to it.
+const MaxExtractCache = maxExtractCache

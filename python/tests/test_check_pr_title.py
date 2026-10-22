@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 SHIPPED = RelPath("go/aletheia/x.go")
 TOOLING = RelPath("tools/x.py")
 CHANGELOG = RelPath("CHANGELOG.md")
+CPP_LAYOUT = RelPath("docs/CPP_LAYOUT.yaml")
 RELEASE = Prose("chore(dist): prepare v1.2.3")
 FIX = Prose("fix(go): a bug")
 
@@ -126,6 +127,46 @@ def test_a_title_that_reads_as_an_option_is_held_to_the_vocabulary(
     assert capsys.readouterr().err == (
         f"check-pr-title: FAIL — {title!r}: it does not read `type(scope)!: text`.\n"
     )
+
+
+def test_a_changed_cpp_layout_record_needs_the_breaking_mark(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A branch changing docs/CPP_LAYOUT.yaml is refused under a subject without the mark."""
+    repo = _plant(tmp_path, monkeypatch, _branch(CPP_LAYOUT, changelog=True))
+    assert _check(repo, monkeypatch, Prose("fix(cpp): the client holds a latch")) == 1
+    assert capsys.readouterr().err == (
+        "check-pr-title: FAIL: 'fix(cpp): the client holds a latch' carries no breaking "
+        + "mark, and the branch changes docs/CPP_LAYOUT.yaml: a program linked against "
+        + "libaletheia-cpp is rebuilt for it.\nMark the subject `type(scope)!:`, with "
+        + "SOVERSION bumped in cpp/CMakeLists.txt.\n"
+    )
+
+
+def test_a_changed_cpp_layout_record_under_the_breaking_mark_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """The same branch under a marked subject owes a BREAKING lead, which it edits, and passes."""
+    repo = _plant(tmp_path, monkeypatch, _branch(CPP_LAYOUT, changelog=True))
+    assert _check(repo, monkeypatch, Prose("fix(cpp)!: the client holds a latch")) == 0
+    assert capsys.readouterr().out == (
+        "check-pr-title: ok ('fix(cpp)!: the client holds a latch' owes a BREAKING lead "
+        + "under ### Changed, or ### Removed when surface goes; the branch edits CHANGELOG.md)\n"
+    )
+
+
+def test_a_revert_of_a_marked_subject_carries_its_mark_for_the_layout_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A revert names no mark of its own; reverting a breaking subject is breaking."""
+    repo = _plant(tmp_path, monkeypatch, _branch(CPP_LAYOUT, changelog=True))
+    assert _check(repo, monkeypatch, Prose("revert: fix(cpp)!: the client holds a latch")) == 0
+    assert _check(repo, monkeypatch, Prose("revert: fix(cpp): the client holds a latch")) == 1
 
 
 def test_a_title_owing_nothing_on_tooling_passes(
@@ -332,6 +373,26 @@ def test_a_branch_git_cannot_read_stops_the_check(
     assert capsys.readouterr().err.startswith(
         "check-pr-title: git merge-base HEAD no-such-ref failed\n"
     )
+
+
+@pytest.mark.process(
+    "git's own reading of a rename, which lists the new path alone unless told not to"
+)
+def test_a_branch_renaming_the_cpp_layout_record_needs_the_breaking_mark(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rename moves the record away from its path, which is a change to it like any other."""
+    repo = _repo(tmp_path, CPP_LAYOUT, changelog=False, subject=Prose("docs: the record"))
+    git(repo, "checkout", "main")
+    git(repo, "merge", "--ff-only", "feature")
+    git(repo, "checkout", "-b", "rename")
+    git(repo, "mv", CPP_LAYOUT, "docs/LAYOUT.yaml")
+    _ = (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- **A bug.** Gone.\n", encoding="utf-8"
+    )
+    commit(repo, Prose("fix(cpp): the record moves"))
+    assert _check(repo, monkeypatch, Prose("fix(cpp): the record moves")) == 1
 
 
 def test_an_unreadable_snapshot_stops_the_check(

@@ -485,7 +485,10 @@ features:
     name: Structured logging (16 events)
     description: Canonical 16-event log vocabulary across lifecycle / stream / cache / enrichment / extraction / end-of-stream-diagnostic domains.
     bindings:
-      python: { status: implemented, entry: "aletheia.client._log" }
+      python:
+        status: implemented
+        entry: "aletheia.client._log"
+        notes: "The aletheia logger carries a NullHandler: nothing is printed until the host attaches a handler, the WARNING-level records included."
       cpp:    { status: implemented, entry: "aletheia/log.hpp#Logger" }
       go:     { status: implemented, entry: WithLogger }
       rust:

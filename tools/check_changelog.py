@@ -15,7 +15,8 @@ comparison ref (default ``main``), this gate holds these:
   a record of the public surface (``SURFACE_RECORDS``: the feature matrix,
   which the parity tests hold every binding's listed symbols to; the C ABI's
   export snapshot; the wire codes and the log events, names consumers match
-  on), edits ``CHANGELOG.md``;
+  on; the C++ layout record, which every program linked against the shared
+  library is rebuilt for), edits ``CHANGELOG.md``;
 * a branch that owes no entry leaves ``CHANGELOG.md`` alone, the release
   preparation apart (that module's ``cuts_a_release``): the changelog records
   what users get, and an entry under a subject that owes none is where internal
@@ -102,6 +103,7 @@ SURFACE_RECORDS = frozenset(
         RelPath("haskell-shim/ffi-exports.snapshot"),
         RelPath("docs/WIRE_CODES.yaml"),
         RelPath("docs/LOG_EVENTS.yaml"),
+        RelPath("docs/CPP_LAYOUT.yaml"),
     }
 )
 CHANGELOG = RelPath("CHANGELOG.md")

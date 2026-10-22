@@ -10,18 +10,25 @@ the opt-in design.
 """
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 from _dbc_helpers import dbc, message, signal
 from _stream_helpers import run_one_frame_stream
 
 from aletheia import AletheiaClient, Signal
-from aletheia.client._log import KNOWN_EVENTS, LogEvent
+from aletheia.client._log import KNOWN_EVENTS, LogEvent, log_event
+from aletheia.client._types import MAX_EXTRACT_CACHE
 from aletheia.types import DBCDefinition, DLCCode
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from aletheia.common_types import Prose
+
+# A frame's place in its stream, from 0; a log record's rendered message.
+FrameOrdinal = NewType("FrameOrdinal", int)
+LogLine = NewType("LogLine", str)
 
 
 class _Capture(logging.Handler):
@@ -52,9 +59,76 @@ def capture_handler() -> Iterator[_Capture]:
 class TestLoggingStreamingEvents:
     """Verify that streaming workflow emits the expected log events."""
 
-    def test_no_logging_without_handler(self, simple_dbc: DBCDefinition) -> None:
-        """Without a handler installed, nothing crashes."""
-        run_one_frame_stream(simple_dbc, bytearray(8))
+    def test_no_handler_prints_nothing(
+        self, simple_dbc: DBCDefinition, capsys: pytest.CaptureFixture[Prose]
+    ) -> None:
+        """A host that configured no logging sees nothing, a WARNING-level event included.
+
+        pytest hangs its own capture handlers on the root logger, which would
+        catch what the host's absent configuration lets fall through to
+        ``logging.lastResort``; they are taken off the root's list in place
+        (pytest removes its handler from that same list when the phase ends)
+        and put back after the call.
+        """
+        root_handlers = logging.root.handlers
+        saved = root_handlers[:]
+        root_handlers.clear()
+        try:
+            run_one_frame_stream(simple_dbc, bytearray(8))
+            log_event(logging.getLogger("aletheia"), logging.WARNING, LogEvent.CACHE_FULL, size=1)
+        finally:
+            root_handlers[:] = saved
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert captured.out == ""
+
+    def test_cache_full_fires_once_per_fill(
+        self, simple_dbc: DBCDefinition, capture: _Capture
+    ) -> None:
+        """``cache.full`` fires once per fill, on the first frame past the cache's capacity.
+
+        Byte 0 holds 200, past the property's bound, so every frame violates
+        and is enriched through the cache; bytes 2 and 3, which the 16-bit
+        signal does not read, make each payload a new cache key.
+        """
+
+        def send(client: AletheiaClient, i: FrameOrdinal) -> None:
+            client.send_frame(
+                timestamp=i + 1,
+                can_id=256,
+                dlc=DLCCode(8),
+                data=bytearray([200, 0, i & 0xFF, i >> 8, 0, 0, 0, 0]),
+            )
+
+        def fulls() -> list[LogLine]:
+            return [
+                LogLine(r.getMessage())
+                for r in capture.records
+                if r.getMessage().startswith("cache.full")
+            ]
+
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            client.set_properties([Signal("TestSignal").less_than(100).always().to_dict()])
+            client.start_stream()
+            for i in range(MAX_EXTRACT_CACHE):
+                send(client, FrameOrdinal(i))
+            assert fulls() == []
+            send(client, FrameOrdinal(MAX_EXTRACT_CACHE))
+            assert len(fulls()) == 1
+            send(client, FrameOrdinal(MAX_EXTRACT_CACHE + 1))
+            assert len(fulls()) == 1, "a second frame past the bound fired cache.full again"
+            client.end_stream()
+            client.start_stream()  # empties the cache
+            for i in range(MAX_EXTRACT_CACHE + 1):
+                send(client, FrameOrdinal(i))
+            client.end_stream()
+        assert fulls() == [f"cache.full size={MAX_EXTRACT_CACHE}"] * 2
+        assert all(
+            r.levelno == logging.WARNING
+            for r in capture.records
+            if r.getMessage().startswith("cache.full")
+        )
 
     def test_streaming_ack_events(
         self,
@@ -185,6 +259,13 @@ class TestLoggingStreamingEvents:
                 assert record.levelno == logging.WARNING, (
                     f"Expected WARNING for {msg}, got {record.levelname}"
                 )
+
+
+def test_a_boolean_field_reads_true_or_false(capture: _Capture) -> None:
+    """A boolean field is written ``true`` or ``false``, as the Go and C++ sinks write one."""
+    logger = logging.getLogger("aletheia")
+    log_event(logger, logging.DEBUG, LogEvent.FRAME_PROCESSED, extended=False, brs=True)
+    assert [r.getMessage() for r in capture.records] == ["frame.processed extended=false brs=true"]
 
 
 class TestLoggingSchema:

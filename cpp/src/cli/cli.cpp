@@ -51,6 +51,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ostream>
 #include <ranges>
 #include <set>
 #include <span>
@@ -59,7 +60,9 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -147,7 +150,8 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
         return std::unexpected<std::string>(
             "libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'");
     try {
-        return AletheiaClient(aletheia::make_ffi_backend(lib.value()));
+        return AletheiaClient(aletheia::make_ffi_backend(lib.value()),
+                              aletheia::cli_logger(std::cerr));
     } catch (const std::exception& e) {
         return std::unexpected<std::string>(std::string{"loading FFI backend: "} + e.what());
     }
@@ -727,6 +731,26 @@ static auto dispatch(const std::string& cmd, std::span<const std::string> rest) 
 }
 
 namespace aletheia {
+
+auto cli_logger(std::ostream& out) -> Logger {
+    return Logger(
+        [&out](const LogRecord& r) {
+            out << r.event;
+            for (auto const& [key, value] : r.fields) {
+                out << ' ' << key << '=';
+                std::visit(
+                    [&out](auto const& v) {
+                        if constexpr (std::is_same_v<std::decay_t<decltype(v)>, bool>)
+                            out << (v ? "true" : "false");
+                        else
+                            out << v;
+                    },
+                    value);
+            }
+            out << '\n';
+        },
+        LogLevel::Warn);
+}
 
 auto run_cli(std::span<const std::string> args) noexcept -> int {
     try {

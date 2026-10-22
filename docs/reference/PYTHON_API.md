@@ -1053,7 +1053,7 @@ Without registered checks, each result carries only `property_index`, `timestamp
 
 ## Structured Logging
 
-The Python binding emits structured log records on the standard `logging.getLogger("aletheia")` logger — attach a handler to that name (or any ancestor) to capture them. No `WithLogger` constructor hook is needed; the binding simply follows Python's `logging` conventions.
+The Python binding emits structured log records on the standard `logging.getLogger("aletheia")` logger and prints nothing until the host attaches a handler to that name (or any ancestor): a `NullHandler` on the package logger keeps every record off stderr, the WARNING-level failed-frame warnings included, as the C++, Go and Rust clients are silent until a logger is passed to them. No `WithLogger` constructor hook is needed; the binding follows Python's `logging` conventions for a library.
 
 Every record carries:
 

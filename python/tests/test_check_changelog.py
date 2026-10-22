@@ -73,14 +73,15 @@ BaseBytes = NewType("BaseBytes", bytes)
 type GitStep = Literal["rev-parse", "merge-base", "diff", "log"]
 
 
-def test_the_surface_records_are_the_four_named() -> None:
-    """The records are the feature matrix, the ABI snapshot, the wire codes and the log events."""
-    assert {
-        RelPath("docs/FEATURE_MATRIX.yaml"),
-        RelPath("haskell-shim/ffi-exports.snapshot"),
-        RelPath("docs/WIRE_CODES.yaml"),
-        RelPath("docs/LOG_EVENTS.yaml"),
-    } == SURFACE_RECORDS
+def test_the_surface_records_are_the_five_named() -> None:
+    """The feature matrix, the ABI snapshot, the wire codes, the log events and the C++ layout."""
+    assert sorted(SURFACE_RECORDS) == [
+        "docs/CPP_LAYOUT.yaml",
+        "docs/FEATURE_MATRIX.yaml",
+        "docs/LOG_EVENTS.yaml",
+        "docs/WIRE_CODES.yaml",
+        "haskell-shim/ffi-exports.snapshot",
+    ]
 
 
 @pytest.mark.parametrize("record", sorted(SURFACE_RECORDS))
