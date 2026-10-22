@@ -22,10 +22,13 @@ Whether a subject owes the CHANGELOG an entry is one table (``owed_entry``):
 * The breaking mark makes any subject owe an entry, with a BREAKING lead under
   ``### Changed``, or ``### Removed`` when surface goes.
 * A branch edits the CHANGELOG only when a subject owes it an entry or a record
-  of the public surface changed, the release preparation apart:
-  ``chore(dist): prepare vX.Y.Z`` moves the unreleased entries under the
-  version's heading and owes none (``cuts_a_release``; ``release_version``
-  reads the version, ``released`` every version a branch prepares).
+  of the public surface changed, two subjects apart, both owing none: the
+  release preparation, ``chore(dist): prepare vX.Y.Z``, moves the unreleased
+  entries under the version's heading (``cuts_a_release``; ``release_version``
+  reads the version, ``released`` every version a branch prepares); a
+  correction, ``docs(changelog): text``, removes or rewrites entries and adds
+  none (``corrects_the_changelog``).  The ``changelog`` scope belongs to an
+  unmarked ``docs`` subject alone.
 
 The text is one line of printable characters, starting with one that is not a
 space.
@@ -97,6 +100,7 @@ class Scope(StrEnum):
     BUILD = "build"
     DEPS = "deps"
     PROOFS = "proofs"
+    CHANGELOG = "changelog"
 
 
 # What users get: the kernel, its C ABI, the four bindings, the command lines,
@@ -181,6 +185,10 @@ def _read(
     if kind in _ENTRY_TYPES and scope_word is None:
         return Refusal(Prose(f"a `{kind}` subject names its scope"))
     scope = None if scope_word is None else Scope(scope_word)
+    if scope is Scope.CHANGELOG and (kind is not CommitType.DOCS or breaking):
+        return Refusal(
+            Prose("`changelog` is the scope of an unmarked `docs` subject: a CHANGELOG correction")
+        )
     return Subject(kind, scope, breaking=breaking, text=text)
 
 
@@ -226,6 +234,20 @@ def release_version(subject: Subject) -> ReleaseVersion | None:
 def cuts_a_release(subject: Subject) -> bool:
     """Say whether the subject is the release preparation, which edits the CHANGELOG owing none."""
     return release_version(subject) is not None
+
+
+def corrects_the_changelog(subject: Subject) -> bool:
+    """Say whether the subject is a correction, which edits the CHANGELOG owing and adding none.
+
+    The scope decides it: ``parse`` gives it to an unmarked ``docs`` subject alone.
+    """
+    return subject.scope is Scope.CHANGELOG
+
+
+def corrected(branch: Branch) -> bool:
+    """Say whether a commit on the branch corrects the CHANGELOG; a refused subject does not."""
+    reads = [read for read in map(parse, branch.subjects) if isinstance(read, Subject)]
+    return any(map(corrects_the_changelog, reads))
 
 
 def released(branch: Branch) -> frozenset[ReleaseVersion]:

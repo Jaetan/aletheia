@@ -6,12 +6,14 @@ The title is the subject the squash commit lands with on the comparison ref, so
 it reads ``type(scope)!: text`` in the closed vocabulary of
 ``tools/commit_subjects.py``; it names a shipped scope, or none, when the branch
 changes what users get; and the branch edits ``CHANGELOG.md`` exactly when that
-module's table says the title owes it an entry, the release preparation apart
-(``cuts_a_release``).  A release title needs a commit on the branch preparing
-its version, and a branch preparing a release needs a release title
-(``released``), so the version the squash lands is one whose cut
-``tools/check_changelog.py`` holds, which also refuses a branch preparing two;
-the branch's own commits and the CHANGELOG's shape are that gate's.
+module's table says the title owes it an entry, the release preparation and a
+correction apart (``cuts_a_release``, ``corrects_the_changelog``).  A release
+title needs a commit on the branch preparing its version, and a branch preparing
+a release needs a release title (``released``), so the version the squash lands
+is one whose cut ``tools/check_changelog.py`` holds, which also refuses a branch
+preparing two; a correction title needs a commit on the branch correcting the
+changelog (``corrected``), whose branch that gate holds to adding no entry; the
+branch's own commits and the CHANGELOG's shape are that gate's.
 
 The workflow ``.github/workflows/pr-title.yml`` runs it on every title edit and
 every push to a pull request, on a bare interpreter: nothing it imports needs a
@@ -24,8 +26,9 @@ Exit codes:
       the release preparation apart.
   1 — the vocabulary refuses the title, it names an internal scope on a branch
       that changes what users get, it names a release the branch does not
-      prepare or none on a branch preparing one, it owes an entry the branch
-      leaves out, it owes none, cuts no release, and the branch edits the
+      prepare or none on a branch preparing one, it corrects the changelog on a
+      branch no commit of which does, it owes an entry the branch leaves out, it
+      owes none, cuts no release, corrects nothing, and the branch edits the
       CHANGELOG, or the branch changes the C++ layout record and the title
       carries no breaking mark.
   2 — git cannot answer (no comparison ref, no merge-base, no top level), or the
@@ -46,6 +49,8 @@ from tools.commit_subjects import (
     ReleaseVersion,
     Revision,
     Subject,
+    corrected,
+    corrects_the_changelog,
     cuts_a_release,
     kernel_sources,
     mislabelled,
@@ -108,6 +113,13 @@ def verdict(title: Prose, read: Subject, branch: Branch, kernel: frozenset[RelPa
     if (version is not None or prepared) and version not in prepared:
         _ = sys.stderr.write(release_refusal(title, version, prepared))
         return ExitStatus(1)
+    if corrects_the_changelog(read) and not corrected(branch):
+        _ = sys.stderr.write(
+            f"check-pr-title: FAIL: {title!r} corrects the CHANGELOG, and no commit on the "
+            + "branch does.\nCommit the correction under 'docs(changelog): text', so "
+            + "check-changelog holds it to adding no entry.\n"
+        )
+        return ExitStatus(1)
     return entry_verdict(title, read, branch)
 
 
@@ -138,9 +150,13 @@ def entry_verdict(title: Prose, read: Subject, branch: Branch) -> ExitStatus:
         if cuts_a_release(read):
             emit(f"check-pr-title: ok ({title!r} cuts a release; the branch edits CHANGELOG.md)")
             return ExitStatus(0)
+        if corrects_the_changelog(read):
+            emit(f"check-pr-title: ok ({title!r} corrects the CHANGELOG; the branch edits it)")
+            return ExitStatus(0)
         _ = sys.stderr.write(
             f"check-pr-title: FAIL — {title!r} owes no entry, and the branch edits "
-            + "CHANGELOG.md.\nRelabel the change, or leave CHANGELOG.md alone.\n"
+            + "CHANGELOG.md.\nRelabel the change, or leave CHANGELOG.md alone; a branch that "
+            + "only removes or rewrites entries is a correction, 'docs(changelog): text'.\n"
         )
         return ExitStatus(1)
     if where is None:

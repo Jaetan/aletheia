@@ -5,7 +5,8 @@
 The lists are pinned whole, so adding or retiring a type or a scope changes a
 test as well as the module; the parser is held to each refusal it words; the
 table is held cell by cell, every type against a shipped scope, an internal
-scope and none, with and without the breaking mark.
+scope and none, with and without the breaking mark, the ``changelog`` scope
+apart, which an unmarked ``docs`` subject alone carries.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ from tools.commit_subjects import (
     Revision,
     Scope,
     Subject,
+    corrected,
+    corrects_the_changelog,
     cuts_a_release,
     kernel_sources,
     mislabelled,
@@ -49,6 +52,11 @@ QUIET_TYPES = [
     CommitType.DEPS,
     CommitType.CHORE,
 ]
+# Every scope any type may name: all but ``changelog``, a ``docs`` subject's alone.
+ANY_TYPE_SCOPES = [scope for scope in Scope if scope is not Scope.CHANGELOG]
+CORRECTION_SCOPE = Refusal(
+    Prose("`changelog` is the scope of an unmarked `docs` subject: a CHANGELOG correction")
+)
 
 
 def test_the_types_are_the_eleven_ruled() -> None:
@@ -68,7 +76,7 @@ def test_the_types_are_the_eleven_ruled() -> None:
     ]
 
 
-def test_the_scopes_are_the_nineteen_ruled() -> None:
+def test_the_scopes_are_the_twenty_ruled() -> None:
     """The scopes, what users get first, then the project's own tooling."""
     assert [scope.value for scope in Scope] == [
         "kernel",
@@ -90,6 +98,7 @@ def test_the_scopes_are_the_nineteen_ruled() -> None:
         "build",
         "deps",
         "proofs",
+        "changelog",
     ]
 
 
@@ -184,7 +193,7 @@ def test_a_scope_outside_the_vocabulary_is_refused_and_the_scopes_named() -> Non
     assert parse(Prose("fix(go-excel): a")) == Refusal(
         Prose(
             "`go-excel` is not a scope: kernel, ffi, python, go, cpp, rust, cli, excel, dist, "
-            + "ci, mutation, bench, tools, probes, hooks, docs, build, deps, proofs"
+            + "ci, mutation, bench, tools, probes, hooks, docs, build, deps, proofs, changelog"
         )
     )
 
@@ -278,7 +287,7 @@ def test_an_entry_deciding_type_owes_its_category_on_every_shipped_scope(
 @pytest.mark.parametrize("kind", ENTRY_TYPES)
 def test_an_entry_deciding_type_owes_nothing_on_an_internal_scope(kind: CommitType) -> None:
     """On the project's own tooling, ``feat``, ``fix`` and ``perf`` owe no entry."""
-    for scope in set(Scope) - SHIPPED_SCOPES:
+    for scope in set(ANY_TYPE_SCOPES) - SHIPPED_SCOPES:
         assert _owes(Prose(f"{kind}({scope}): a change")) is None
 
 
@@ -286,14 +295,14 @@ def test_an_entry_deciding_type_owes_nothing_on_an_internal_scope(kind: CommitTy
 def test_every_other_type_owes_nothing_whatever_its_scope(kind: CommitType) -> None:
     """The types that change nothing a user sees owe no entry, scoped or not."""
     assert _owes(Prose(f"{kind}: a change")) is None
-    for scope in Scope:
+    for scope in ANY_TYPE_SCOPES:
         assert _owes(Prose(f"{kind}({scope}): a change")) is None
 
 
 @pytest.mark.parametrize("kind", [*ENTRY_TYPES, *QUIET_TYPES])
 def test_the_breaking_mark_owes_a_breaking_entry_whatever_the_scope(kind: CommitType) -> None:
     """The mark makes any subject owe an entry with a BREAKING lead, internal scope included."""
-    for scope in Scope:
+    for scope in ANY_TYPE_SCOPES:
         assert _owes(Prose(f"{kind}({scope})!: a change")) == BREAKING
 
 
@@ -353,6 +362,48 @@ def test_the_release_preparation_is_the_one_subject_that_cuts_a_release(
     assert isinstance(read, Subject), read
     assert release_version(read) == expected
     assert cuts_a_release(read) is (expected is not None)
+
+
+def test_the_changelog_scope_is_an_unmarked_docs_subject_s_alone() -> None:
+    """``docs(changelog)`` reads; the scope under any other type, or marked, is refused."""
+    assert parse(Prose("docs(changelog): a sentence")) == Subject(
+        CommitType.DOCS, Scope.CHANGELOG, breaking=False, text=Prose("a sentence")
+    )
+    assert parse(Prose("docs(changelog)!: a sentence")) == CORRECTION_SCOPE
+    for kind in CommitType:
+        if kind is not CommitType.DOCS:
+            assert parse(Prose(f"{kind}(changelog): a sentence")) == CORRECTION_SCOPE
+
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        (Prose("docs(changelog): a sentence"), True),
+        (Prose("docs(docs): a sentence"), False),
+        (Prose("docs: a sentence"), False),
+        (Prose("chore(dist): prepare v1.2.3"), False),
+        (Prose("revert: docs(changelog): a sentence"), False),
+    ],
+    ids=["correction", "docs-scope", "unscoped-docs", "release", "revert"],
+)
+def test_a_correction_is_a_docs_subject_on_the_changelog_scope(
+    subject: Prose, *, expected: bool
+) -> None:
+    """``docs(changelog)`` alone corrects the CHANGELOG, owing no entry; its revert does not."""
+    read = parse(subject)
+    assert isinstance(read, Subject), read
+    assert corrects_the_changelog(read) is expected
+    assert owed_entry(read) is None
+
+
+def test_a_branch_corrects_the_changelog_when_one_commit_does() -> None:
+    """One correction among the branch's commits is enough; a refused subject is none."""
+    assert corrected(
+        Branch([], [Prose("fix(go): a bug"), Prose("docs(changelog): a sentence")], Revision("b"))
+    )
+    assert not corrected(
+        Branch([], [Prose("docs(changelog)!: a sentence"), Prose("docs: a")], Revision("b"))
+    )
 
 
 def test_a_branch_prepares_the_versions_its_release_subjects_name() -> None:

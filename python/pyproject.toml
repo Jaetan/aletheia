@@ -491,6 +491,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_install_hooks.py",
     "--ignore=tests/test_agda_tree_lock.py",
     "--ignore=tests/test_check_changelog.py",
+    "--ignore=tests/test_check_changelog_cut.py",
     "--ignore=tests/test_check_pr_title.py",
     "--ignore=tests/test_check_cpp_layout.py",
     "--ignore=tests/test_commit_subjects.py",
