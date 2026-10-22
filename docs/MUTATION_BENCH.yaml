@@ -151,12 +151,12 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 733
+      generated: 734
       not_covered: 15
       timeouts: 0
-      total_mutants: 718
+      total_mutants: 719
       score_pct: 100.0
-      run_at: "2026-10-19"
+      run_at: "2026-10-21"
       # A mutant that times out is neither killed nor lived, and no verdict
       # may come from a clock: a survivor runs the whole suite, the slowest
       # run there is, so a cap it reached would hide it as a timeout. A mutant
@@ -411,7 +411,7 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 6
-      total_mutants: 1546
+      total_mutants: 1549
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -475,7 +475,7 @@ bindings:
         cpp/src/yaml.cpp: 24.7
       timeouts: 0
       score_pct: 99.6
-      run_at: "2026-10-19"
+      run_at: "2026-10-21"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -484,7 +484,7 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1514
+        test: 1517
         kernel: 2
         check: 14
         fault: 10
@@ -666,7 +666,7 @@ bindings:
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/src/client_stream.cpp
-          text: if (cache_it == cache_.end()) {
+          text: if (cache_it == cache_.entries.end()) {
           route: check
           refused: attempt to dereference a past-the-end iterator.
           count: 1

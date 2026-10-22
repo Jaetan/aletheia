@@ -395,7 +395,7 @@ target_link_libraries(aletheia-cpp
         $<BUILD_INTERFACE:OpenXLSX::OpenXLSX>)
 
 set_target_properties(aletheia-cpp PROPERTIES
-    SOVERSION 1
+    SOVERSION 2
     VERSION ${PROJECT_VERSION})
 
 # Namespaced alias so a downstream add_subdirectory() consumer links
@@ -724,17 +724,9 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_compile_definitions(renderer_null_kernel_tests PRIVATE
         ALETHEIA_TEST_NULL_KERNEL="${ALETHEIA_STAND_IN_DIR}/null_kernel.so")
 
-    # Feature matrix parity test (yaml-cpp, Catch2). Reads
-    # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
-    # ("<header>#<symbol>") resolves to an existing header containing the
-    # symbol as a whole-word match. Parity source: docs/FEATURE_MATRIX.yaml.
-    add_executable(feature_matrix_tests tests/test_feature_matrix_parity.cpp)
-    target_compile_features(feature_matrix_tests PRIVATE cxx_std_23)
-    target_link_libraries(feature_matrix_tests
-        PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
-    set_tests_properties(feature_matrix_tests PROPERTIES
-        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
+    # The tests holding the binding to a record under docs/: the feature matrix,
+    # the log events, the object layout and the wire codes.
+    include(tests/record_parity.cmake)
 
     # Functional tests for the CLI (aletheia::run_cli). Links the
     # shared aletheia-cli-core; needs the repo root (fixtures) and the .so
@@ -745,34 +737,6 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     add_test(NAME cli_tests COMMAND cli_tests)
     set_tests_properties(cli_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
-
-    # Cross-binding log-event parity test (yaml-cpp + aletheia-cpp,
-    # Catch2). Reads docs/LOG_EVENTS.yaml, runs a comprehensive mock-backend
-    # workflow capturing LogRecord events, and asserts each emitted event is
-    # a member of the canonical name set.
-    # rts_setup_listener.cpp: set_properties renders the condition descriptions,
-    # which needs the GHC RTS up; this mock-backend test creates no real
-    # FfiBackend, so the listener brings the runtime up for the process.
-    add_executable(log_events_tests tests/test_log_events_parity.cpp tests/rts_setup_listener.cpp)
-    target_include_directories(log_events_tests PRIVATE src)
-    target_link_libraries(log_events_tests
-        PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    add_test(NAME log_events_tests COMMAND log_events_tests)
-    set_tests_properties(log_events_tests PROPERTIES
-        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
-
-    # Cross-binding wire-code parity test (yaml-cpp + aletheia-cpp, Catch2).
-    # Reads docs/WIRE_CODES.yaml (the kernel-anchored wire-code SSOT) and
-    # asserts the IssueCode and ErrorCode enums are each a bijection with
-    # their YAML section — every wire code maps to a non-Unknown enumerator
-    # and no enumerator lacks an SSOT row. Pure vocabulary test: no RTS, no
-    # FFI backend, so no rts_setup_listener.cpp.
-    add_executable(wire_codes_tests tests/test_wire_codes_parity.cpp)
-    target_link_libraries(wire_codes_tests
-        PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    add_test(NAME wire_codes_tests COMMAND wire_codes_tests)
-    set_tests_properties(wire_codes_tests PROPERTIES
-        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # RTS heap-cap containment (behavioural). rts_heap_cap_workload is a
     # standalone helper (its own main, real FFI) that the rts_heap_cap_tests

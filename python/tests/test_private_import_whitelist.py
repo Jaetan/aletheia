@@ -42,9 +42,18 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
     for _entry in (
         # Structured-logging internals — per-event string catalogue is
         # implementation detail of Client.log_event; a drift test needs to
-        # see the raw mapping to compare against the 15 wire events.
+        # see the raw mapping to compare against the wire events.
         ("test_logging.py", "aletheia.client._log", "KNOWN_EVENTS"),
         ("test_logging.py", "aletheia.client._log", "LogEvent"),
+        # The one emission function and the cache bound: the silent-default
+        # test emits through the function every event goes through, and the
+        # once-per-fill test fills the cache to its bound.
+        ("test_logging.py", "aletheia.client._log", "log_event"),
+        ("test_logging.py", "aletheia.client._types", "MAX_EXTRACT_CACHE"),
+        # The command line's sink test writes the lines the client writes,
+        # through the one emission function and its event names.
+        ("test_cli_logging.py", "aletheia.client._log", "LogEvent"),
+        ("test_cli_logging.py", "aletheia.client._log", "log_event"),
         # Cross-binding YAML parity gate — anchors the LogEvent enum to
         # docs/LOG_EVENTS.yaml (the SSOT shared with Go/C++). Same internal-
         # vocabulary justification as test_logging.py above.

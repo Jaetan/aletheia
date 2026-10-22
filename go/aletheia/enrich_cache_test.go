@@ -36,3 +36,19 @@ func TestExtractCache_HoldsUpToItsBound(t *testing.T) {
 		t.Error("the cleared cache refused a key")
 	}
 }
+
+// noteFull answers true once per fill: on the first call, not on the next,
+// and again once the cache is cleared.
+func TestExtractCache_NotesItsFillOnce(t *testing.T) {
+	c := newExtractCache()
+	if !c.noteFull() {
+		t.Fatal("the first refusal was not reported")
+	}
+	if c.noteFull() {
+		t.Error("the second refusal was reported again")
+	}
+	c.clear()
+	if !c.noteFull() {
+		t.Error("the first refusal after a clear was not reported")
+	}
+}

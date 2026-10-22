@@ -11,6 +11,12 @@
 # parametrizes (cli x scenario) over this file. A scenario that passes on one
 # CLI and fails on another is a parity bug in the failing CLI, not in this file.
 #
+# Logging: every CLI writes the WARNING-level log events of its run to stderr,
+# one per line as the event name and its fields, and nothing below WARNING. No
+# scenario here can raise one, so a unit test per CLI holds it
+# (python/tests/test_cli_logging.py, go/cmd/aletheia/main_test.go,
+# cpp/tests/cli_tests.cpp).
+#
 # Exit-code contract (holds in BOTH text and --json output modes):
 #   0 = ok
 #   1 = violations found / validation failed

@@ -25,8 +25,9 @@ Exit codes:
   1 — the vocabulary refuses the title, it names an internal scope on a branch
       that changes what users get, it names a release the branch does not
       prepare or none on a branch preparing one, it owes an entry the branch
-      leaves out, or it owes none, cuts no release, and the branch edits the
-      CHANGELOG.
+      leaves out, it owes none, cuts no release, and the branch edits the
+      CHANGELOG, or the branch changes the C++ layout record and the title
+      carries no breaking mark.
   2 — git cannot answer (no comparison ref, no merge-base, no top level), or the
       runtime-closure snapshot cannot be read as UTF-8.
 """
@@ -65,6 +66,9 @@ DESCRIPTION = (
 )
 TOOL = Prose("check-pr-title")
 CHANGELOG = RelPath("CHANGELOG.md")
+# The C++ wrapper's object layout; a change to it is one every linked program is
+# rebuilt for, so the subject that lands it carries the breaking mark.
+CPP_LAYOUT = RelPath("docs/CPP_LAYOUT.yaml")
 COULD_NOT_CHECK = ExitStatus(2)
 
 
@@ -88,6 +92,15 @@ def verdict(title: Prose, read: Subject, branch: Branch, kernel: frozenset[RelPa
         _ = sys.stderr.write(
             f"check-pr-title: FAIL — {title!r} names an internal scope, and the branch "
             + f"changes what users get: {', '.join(shipped)}.\n"
+        )
+        return ExitStatus(1)
+    marked = read.breaking or (read.reverted is not None and read.reverted.breaking)
+    if CPP_LAYOUT in branch.changed and not marked:
+        _ = sys.stderr.write(
+            f"check-pr-title: FAIL: {title!r} carries no breaking mark, and the branch "
+            + f"changes {CPP_LAYOUT}: a program linked against libaletheia-cpp is rebuilt "
+            + "for it.\nMark the subject `type(scope)!:`, with SOVERSION bumped in "
+            + "cpp/CMakeLists.txt.\n"
         )
         return ExitStatus(1)
     version = release_version(read)

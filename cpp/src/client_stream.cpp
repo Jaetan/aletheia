@@ -406,22 +406,26 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
     const detail::FrameKeyView lookup{
         .id_value = id_value, .is_extended = is_extended, .dlc = dlc.value(), .data = data};
 
-    auto cache_it = cache_.find(lookup);
-    if (cache_it == cache_.end()) {
+    auto cache_it = cache_.entries.find(lookup);
+    if (cache_it == cache_.entries.end()) {
         logger_.debug("cache.miss", {{"canId", static_cast<std::uint64_t>(id_value)},
                                      {"dlc", static_cast<std::uint64_t>(dlc.value())}});
         auto extraction = extract_signals_internal(id, dlc, data, id_value, is_extended);
         if (!extraction.has_value())
             return {};
-        if (cache_.size() < max_cache_size) {
+        if (cache_.entries.size() < max_cache_size) {
             // Construct the owning FrameKey only on insertion.
             detail::FrameKey key{.id_value = id_value,
                                  .is_extended = is_extended,
                                  .dlc = dlc.value(),
                                  .data = FramePayload(data.begin(), data.end())};
-            cache_it = cache_.emplace(std::move(key), std::move(extraction).value()).first;
+            cache_it = cache_.entries.emplace(std::move(key), std::move(extraction).value()).first;
         } else {
-            logger_.warn("cache.full", {{"size", static_cast<std::uint64_t>(cache_.size())}});
+            if (!cache_.full_reported) {
+                cache_.full_reported = true;
+                logger_.warn("cache.full",
+                             {{"size", static_cast<std::uint64_t>(cache_.entries.size())}});
+            }
             // Over capacity — use result directly without caching
             return collect_matching_signals(diag, extraction.value());
         }

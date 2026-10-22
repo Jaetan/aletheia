@@ -26,6 +26,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import importlib
+import logging
 import os
 import sys
 from pathlib import Path
@@ -866,6 +867,18 @@ _OPTIONAL_EXTRAS = {
 }
 
 
+def warning_handler() -> logging.Handler:
+    """Give a handler writing WARNING-level records and above to stderr as their message.
+
+    The command line's logging: the Go and C++ command lines print the same
+    events to stderr at the same level, with no time stamp.
+    """
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    return handler
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Returns exit code.
 
@@ -874,36 +887,45 @@ def main(argv: list[str] | None = None) -> int:
     place, as on a subcommand that takes none, and that one is the terminator,
     not an argument. A ``--`` before the subcommand is refused, the subcommand
     coming first.
+
+    WARNING-level events reach stderr for the run, through a handler on the
+    ``aletheia`` logger attached here and taken off when the run ends.
     """
     tokens = sys.argv[1:] if argv is None else argv
+    logger = logging.getLogger("aletheia")
+    stderr_handler = warning_handler()
+    logger.addHandler(stderr_handler)
     try:
-        parser = build_parser()
-        if tokens[:1] == ["--"]:
-            parser.error("argument command: invalid choice: '--'")
-        args, extras = parser.parse_known_args(tokens)
-        if "--" in extras and extras.count("--") == tokens.count("--"):
-            extras.remove("--")
-        if extras:
-            parser.error(f"unrecognized arguments: {' '.join(extras)}")
-        handler = _COMMANDS[args.command]
-        code = handler(args)
         try:
-            sys.stdout.flush()
-        except OSError as exc:
-            _refuse_report(exc)
-    except SystemExit as e:
-        return e.code if isinstance(e.code, int) else _EXIT_ERROR
-    except (AletheiaError, OSError, ValueError) as e:
-        sys.stderr.write(f"Error: {e}\n")
-        return _EXIT_ERROR
-    except ImportError as e:
-        missing = _OPTIONAL_EXTRAS.get((e.name or "").split(".", 1)[0])
-        if missing is None:
-            raise
-        distribution, extra = missing
-        sys.stderr.write(
-            f"Error: {distribution} is not installed; install it with "
-            + f"pip install 'aletheia[{extra}]'\n"
-        )
-        return _EXIT_ERROR
-    return code
+            parser = build_parser()
+            if tokens[:1] == ["--"]:
+                parser.error("argument command: invalid choice: '--'")
+            args, extras = parser.parse_known_args(tokens)
+            if "--" in extras and extras.count("--") == tokens.count("--"):
+                extras.remove("--")
+            if extras:
+                parser.error(f"unrecognized arguments: {' '.join(extras)}")
+            handler = _COMMANDS[args.command]
+            code = handler(args)
+            try:
+                sys.stdout.flush()
+            except OSError as exc:
+                _refuse_report(exc)
+        except SystemExit as e:
+            return e.code if isinstance(e.code, int) else _EXIT_ERROR
+        except (AletheiaError, OSError, ValueError) as e:
+            sys.stderr.write(f"Error: {e}\n")
+            return _EXIT_ERROR
+        except ImportError as e:
+            missing = _OPTIONAL_EXTRAS.get((e.name or "").split(".", 1)[0])
+            if missing is None:
+                raise
+            distribution, extra = missing
+            sys.stderr.write(
+                f"Error: {distribution} is not installed; install it with "
+                + f"pip install 'aletheia[{extra}]'\n"
+            )
+            return _EXIT_ERROR
+        return code
+    finally:
+        logger.removeHandler(stderr_handler)

@@ -21,6 +21,9 @@ Design choices:
 * Human-readable fallback: ``fmt`` still renders ``event.name key=val ...``
   so the default ``StreamHandler`` output stays grep-friendly and every
   existing log-scraping regex keeps matching.
+* Silent by default: ``aletheia/__init__.py`` puts a ``NullHandler`` on the
+  ``aletheia`` logger, so no record reaches stderr through
+  ``logging.lastResort`` until the host attaches a handler.
 
 Do NOT invent new event names in call sites — add the name here first,
 then use ``log_event(logger, LogEvent.NEW_NAME, ...)``.
@@ -83,8 +86,13 @@ KNOWN_EVENTS: Final[frozenset[str]] = frozenset(e.value for e in LogEvent)
 
 
 def _format_fields(fields: dict[str, object]) -> str:
-    """Render kwargs as ``key=value`` pairs in insertion order."""
-    return " ".join(f"{k}={v}" for k, v in fields.items())
+    """Render kwargs as ``key=value`` pairs in insertion order.
+
+    A boolean reads ``true`` or ``false``, as the Go and C++ sinks write one.
+    """
+    return " ".join(
+        f"{k}={str(v).lower() if isinstance(v, bool) else v}" for k, v in fields.items()
+    )
 
 
 def log_event(

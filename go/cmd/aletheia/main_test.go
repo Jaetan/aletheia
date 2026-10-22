@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -927,5 +928,42 @@ func TestLatin1MapsEveryByteToTheCharacterOfTheSameNumber(t *testing.T) {
 	raw := []byte{0x41, 0x7f, 0x80, 0xb0, 0xff}
 	if got, want := latin1(raw), "A\u007f\u0080\u00b0\u00ff"; got != want {
 		t.Fatalf("latin1(%x) = %q, want %q", raw, got, want)
+	}
+}
+
+// The command line's logger writes WARNING-level records and nothing below,
+// each as `event key=value ...`, the lines the C++ CLI test asserts for the
+// same records.
+func TestCLILogger_WritesWarningsAlone(t *testing.T) {
+	var buf bytes.Buffer
+	l := cliLogger(&buf)
+	l.Info("dbc.parsed", "messages", 1)
+	l.Warn("cache.full", "size", 256)
+	l.Warn("extraction.parse_failed", "canId", uint64(256), "error", "bad frame")
+	want := "cache.full size=256\nextraction.parse_failed canId=256 error=bad frame\n"
+	if got := buf.String(); got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
+	}
+}
+
+// A boolean field reads as the Python and C++ command lines write it. No Warn
+// event carries a boolean, so a debug event's fields stand in.
+func TestCLILogger_WritesABooleanAsTrueOrFalse(t *testing.T) {
+	var buf bytes.Buffer
+	l := cliLogger(&buf)
+	l.Warn("frame.processed", "canId", uint64(256), "extended", false)
+	l.Warn("frame.processed", "canId", uint64(0x1FFFFFFF), "extended", true)
+	want := "frame.processed canId=256 extended=false\nframe.processed canId=536870911 extended=true\n"
+	if got := buf.String(); got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
+	}
+}
+
+// Fields a logger carries and a group's name reach the line as the record's own.
+func TestCLILogger_WritesCarriedFieldsAndGroups(t *testing.T) {
+	var buf bytes.Buffer
+	cliLogger(&buf).With("canId", 256).WithGroup("frame").Warn("cache.full", "size", 256)
+	if got, want := buf.String(), "cache.full canId=256 frame.size=256\n"; got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
 	}
 }

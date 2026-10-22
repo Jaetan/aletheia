@@ -550,3 +550,24 @@ TEST_CASE("a report on a stream that failed before it names the stream's error",
     CHECK(err == "Error: writing the report: " +
                      std::make_error_code(std::io_errc::stream).message() + "\n");
 }
+
+TEST_CASE("the CLI's logger writes WARNING-level events to its stream and nothing below",
+          "[cli][log]") {
+    std::ostringstream out;
+    auto const logger = aletheia::cli_logger(out);
+    logger.info("dbc.parsed", {{"messages", std::uint64_t{1}}});
+    logger.warn("cache.full", {{"size", std::uint64_t{256}}});
+    logger.warn("extraction.parse_failed",
+                {{"canId", std::uint64_t{256}}, {"error", std::string_view{"bad frame"}}});
+    CHECK(out.str() == "cache.full size=256\nextraction.parse_failed canId=256 error=bad frame\n");
+}
+
+// No Warn event carries a boolean, so a debug event's fields stand in.
+TEST_CASE("the CLI's logger writes a boolean field as true or false", "[cli][log]") {
+    std::ostringstream out;
+    auto const logger = aletheia::cli_logger(out);
+    logger.warn("frame.processed", {{"canId", std::uint64_t{256}}, {"extended", false}});
+    logger.warn("frame.processed", {{"canId", std::uint64_t{0x1FFFFFFF}}, {"extended", true}});
+    CHECK(out.str() == "frame.processed canId=256 extended=false\n"
+                       "frame.processed canId=536870911 extended=true\n");
+}

@@ -722,7 +722,7 @@ All produce:
 
 See [PROTOCOL.md § Structured Logging](../architecture/PROTOCOL.md#structured-logging) for the canonical event taxonomy (category × level × event-name table) — this section covers only the per-binding wiring.
 
-**Python** — attach a handler to the `aletheia` logger:
+**Python**: the package prints nothing until the host configures the `aletheia` logger. A `NullHandler` sits on it, so without a handler of the host's no record reaches stderr, the failed-frame warnings (`enrichment.extraction_failed`, `extraction.process_failed`, `extraction.parse_failed`) included. Attach a handler to turn them on:
 ```python
 import logging
 logging.getLogger("aletheia").setLevel(logging.INFO)
@@ -755,6 +755,8 @@ let client = Client::builder()
     .min_level(aletheia::LogLevel::Info)
     .build()?;
 ```
+
+**Command lines.** `python -m aletheia`, the Go `aletheia` and `aletheia-cli` each attach a WARNING-level logger writing every record to stderr as its event name and fields, so a run's warnings are seen with no configuration; nothing below WARNING is written.
 
 **Emission point of `rts.cores_mismatch`.**  All four bindings emit the warning the second (and subsequent) time a process initialises the GHC RTS with a different `-N` value than the first call.  The exact moment differs by binding:
 

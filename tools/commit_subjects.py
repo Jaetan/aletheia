@@ -343,7 +343,8 @@ def read_branch(tool: Prose, base: Revision) -> Branch | None:
         return None
     fork = Revision("".join(merge_base))
     span = GitArg(f"{fork}..HEAD")
-    changed = _git(tool, GitArg("diff"), GitArg("--name-only"), span)
+    # A rename lists both paths, the old one being a change to what was there.
+    changed = _git(tool, GitArg("diff"), GitArg("--name-only"), GitArg("--no-renames"), span)
     subjects = _git(tool, GitArg("log"), GitArg("--no-merges"), GitArg("--format=%s"), span)
     if changed is None or subjects is None:
         return None

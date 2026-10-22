@@ -152,7 +152,7 @@ func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnosti
 		}
 		result = c.extractSignalsLocked(ctx, id, dlc, data)
 		if result != nil {
-			if !c.cache.put(meta, data, result) && c.logger != nil {
+			if !c.cache.put(meta, data, result) && c.cache.noteFull() && c.logger != nil {
 				c.logger.LogAttrs(ctx, slog.LevelWarn, "cache.full",
 					slog.Int("size", maxExtractCache))
 			}

@@ -488,35 +488,124 @@ TEST_CASE("cache.miss then cache.hit name the frame that was extracted", "[clien
     }
 }
 
-TEST_CASE("cache.full fires once, on the first frame past the cache's capacity",
-          "[client][log][fields][cache]") {
-    Capture cap;
+namespace {
+// The extraction cache's capacity, AletheiaClient::max_cache_size.
+constexpr unsigned k_cache_capacity = 256;
+} // namespace
+
+// Queues the backend's answers to n frames that each violate and are enriched.
+static void queue_violating_frames(MockBackend& mock, unsigned n) {
+    std::ranges::for_each(std::views::repeat(0, n), [&mock](auto) {
+        mock.queue_response(std::string{k_violation});
+        mock.queue_response(std::string{k_extraction});
+    });
+}
+
+// Sends frame i of a run whose payloads differ in bytes 0 and 1, so each is a
+// new cache key until the cache is full; the frame is enriched.
+static void send_numbered_frame(AletheiaClient& client, unsigned i) {
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    data[0] = static_cast<std::byte>(i & 0xFFU);
+    data[1] = static_cast<std::byte>((i >> 8U) & 0xFFU);
+    auto const r = client.send_frame(std::stop_token{}, Timestamp{static_cast<std::int64_t>(i)}, id,
+                                     dlc, data);
+    REQUIRE(r.has_value());
+    REQUIRE(std::get<PropertyBatch>(*r).first_violation()->enrichment.has_value());
+}
+
+// Sends frames first, first + 1, ... up to and excluding last.
+static void send_numbered_frames(AletheiaClient& client, unsigned first, unsigned last) {
+    for (auto const i : std::views::iota(first, last))
+        send_numbered_frame(client, i);
+}
+
+// A backend that answers set_properties and start_stream, then n enriched frames.
+static auto streaming_backend(unsigned n) -> std::unique_ptr<MockBackend> {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({"status": "success"})"); // set_properties
     mock->queue_response(R"({"status": "success"})"); // start_stream
-    constexpr unsigned frames = 257;
-    std::ranges::for_each(std::views::repeat(0, frames), [&mock](auto) {
-        mock->queue_response(std::string{k_violation});
-        mock->queue_response(std::string{k_extraction});
-    });
+    queue_violating_frames(*mock, n);
+    return mock;
+}
+
+TEST_CASE("cache.full fires once per fill: on the first frame past the cache's capacity, not on "
+          "the next, and once more after a new stream empties the cache",
+          "[client][log][fields][cache]") {
+    Capture cap;
+    auto mock = streaming_backend(k_cache_capacity + 2);
+    mock->queue_response(R"({"status": "success"})"); // the second start_stream
+    queue_violating_frames(*mock, k_cache_capacity + 1);
     auto client = streaming_client(std::move(mock), cap.logger());
 
-    auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-    for (auto const i : std::views::iota(0U, frames)) {
-        FramePayload data(8, std::byte{0});
-        data[0] = static_cast<std::byte>(i & 0xFFU);
-        data[1] = static_cast<std::byte>((i >> 8U) & 0xFFU);
-        auto const r = client.send_frame(std::stop_token{}, Timestamp{static_cast<std::int64_t>(i)},
-                                         id, dlc, data);
-        REQUIRE(r.has_value());
-        REQUIRE(std::get<PropertyBatch>(*r).first_violation()->enrichment.has_value());
-        if (i + 1 < frames)
-            CHECK(cap.count("cache.full") == 0);
+    send_numbered_frames(client, 0, k_cache_capacity);
+    CHECK(cap.count("cache.full") == 0);
+    send_numbered_frame(client, k_cache_capacity);
+    CHECK(cap.count("cache.full") == 1);
+    send_numbered_frame(client, k_cache_capacity + 1);
+    CHECK(cap.count("cache.full") == 1);
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+    send_numbered_frames(client, 0, k_cache_capacity + 1);
+    REQUIRE(cap.count("cache.full") == 2);
+    for (auto const& e : cap.events) {
+        if (e.name != "cache.full")
+            continue;
+        CHECK(e.level == LogLevel::Warn);
+        CHECK(field<std::uint64_t>(e, "size") == k_cache_capacity);
     }
-    auto const& full = cap.only("cache.full");
-    CHECK(full.level == LogLevel::Warn);
-    CHECK(field<std::uint64_t>(full, "size") == 256);
+}
+
+TEST_CASE("set_properties empties the extraction cache and re-arms cache.full",
+          "[client][log][cache]") {
+    Capture cap;
+    auto mock = streaming_backend(k_cache_capacity + 1);
+    mock->queue_response(R"({"status": "success"})"); // the second set_properties
+    queue_violating_frames(*mock, k_cache_capacity + 1);
+    auto client = streaming_client(std::move(mock), cap.logger());
+
+    send_numbered_frames(client, 0, k_cache_capacity + 1);
+    REQUIRE(cap.count("cache.full") == 1);
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    send_numbered_frames(client, 0, k_cache_capacity + 1);
+    CHECK(cap.count("cache.full") == 2);
+}
+
+TEST_CASE("a moved client keeps its extraction cache and whether cache.full was reported",
+          "[client][log][cache]") {
+    Capture cap;
+    auto mock = streaming_backend(k_cache_capacity + 2);
+    mock->queue_response(std::string{k_violation}); // frame 0 again: a hit, no extraction
+    auto client = streaming_client(std::move(mock), cap.logger());
+
+    send_numbered_frames(client, 0, k_cache_capacity + 1);
+    REQUIRE(cap.count("cache.full") == 1);
+    AletheiaClient moved{std::move(client)};
+    send_numbered_frame(moved, k_cache_capacity + 1);
+    CHECK(cap.count("cache.full") == 1);
+    auto const hits = cap.count("cache.hit");
+    send_numbered_frame(moved, 0);
+    CHECK(cap.count("cache.hit") == hits + 1);
+}
+
+TEST_CASE("a client assigned from another takes its extraction cache and whether cache.full was "
+          "reported",
+          "[client][log][cache]") {
+    Capture cap;
+    auto full = streaming_client(streaming_backend(k_cache_capacity + 2), cap.logger());
+    auto target = streaming_client(streaming_backend(0), cap.logger());
+    send_numbered_frames(full, 0, k_cache_capacity + 1);
+    REQUIRE(cap.count("cache.full") == 1);
+    target = std::move(full);
+    send_numbered_frame(target, k_cache_capacity + 1);
+    CHECK(cap.count("cache.full") == 1);
+
+    target = streaming_client(streaming_backend(k_cache_capacity + 1), cap.logger());
+    send_numbered_frames(target, 0, k_cache_capacity + 1);
+    CHECK(cap.count("cache.full") == 2);
 }
 
 TEST_CASE("enrichment.property_index_oob names the index and the count on both paths",

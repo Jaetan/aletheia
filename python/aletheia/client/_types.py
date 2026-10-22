@@ -501,15 +501,21 @@ MAX_EXTRACT_CACHE: int = 256
 
 @dataclass(slots=True)
 class StreamCaches:
-    """Per-stream mutable caches, cleared together on start_stream/parse_dbc."""
+    """Per-stream mutable caches, emptied together at a stream start and at a properties set.
+
+    ``full_reported`` latches the ``cache.full`` warning: one per fill, on the
+    first extraction the full cache refuses, until the cache is emptied.
+    """
 
     extraction: ExtractionCache = dataclasses.field(default_factory=dict)
     last_frames: dict[LastFrameKey, LastFrameData] = dataclasses.field(default_factory=dict)
+    full_reported: bool = False
 
     def clear(self) -> None:
-        """Reset all caches for a new stream."""
+        """Empty the caches and re-arm the ``cache.full`` warning."""
         self.extraction.clear()
         self.last_frames.clear()
+        self.full_reported = False
 
 
 class CANFrameTuple(NamedTuple):

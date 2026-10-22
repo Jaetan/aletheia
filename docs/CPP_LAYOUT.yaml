@@ -1,0 +1,429 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# The C++ wrapper's object layout: the size and alignment in bytes of every class,
+# struct, enum and type alias the public headers under cpp/include/aletheia/
+# declare at namespace scope, outside a detail or unnamed namespace and not a
+# template, and the SOVERSION of the shared library they belong to. A program
+# linked against libaletheia-cpp holds these types by value, so a change to any
+# row is one every such program is rebuilt for: it bumps SOVERSION in
+# cpp/CMakeLists.txt, carries the breaking mark on its subject, and re-takes the
+# rows from the C++ layout test's output. A break no row shows (a virtual
+# function added, a signature or an enumerator's value changed) bumps SOVERSION
+# on its own, under the same mark; the version never falls.
+#
+# The figures are a measurement of the toolchain CI builds and tests with (Clang
+# 23 with libstdc++) in the shipped build, not a target: another standard library
+# lays the containers out otherwise, and so do the mutation tree's debug-mode
+# containers, which are not measured.
+# tools/check_cpp_layout.py holds the roster to the headers and this soversion
+# to CMake's and to a rise wherever the rows moved; cpp/tests/test_cpp_layout.cpp
+# holds the figures to the compiler; tools/check_pr_title.py refuses a change to
+# this file without the breaking mark.
+
+soversion: 2
+types:
+  - name: aletheia::BackendState
+    size: 16
+    align: 8
+  - name: aletheia::SignalInjection
+    size: 48
+    align: 8
+  - name: aletheia::IBackend
+    size: 8
+    align: 8
+  - name: aletheia::CheckResult
+    size: 240
+    align: 8
+  - name: aletheia::CheckSignalPredicate
+    size: 144
+    align: 8
+  - name: aletheia::SettlesBuilder
+    size: 64
+    align: 8
+  - name: aletheia::CheckSignal
+    size: 32
+    align: 8
+  - name: aletheia::ThenCondition
+    size: 208
+    align: 8
+  - name: aletheia::ThenSignal
+    size: 104
+    align: 8
+  - name: aletheia::WhenCondition
+    size: 72
+    align: 8
+  - name: aletheia::WhenSignal
+    size: 32
+    align: 8
+  - name: aletheia::AletheiaClient
+    size: 320
+    align: 8
+  - name: aletheia::AlwaysPresent
+    size: 1
+    align: 1
+  - name: aletheia::Multiplexed
+    size: 56
+    align: 8
+  - name: aletheia::SignalPresence
+    size: 64
+    align: 8
+  - name: aletheia::DbcValueEntry
+    size: 40
+    align: 8
+  - name: aletheia::DbcSignal
+    size: 256
+    align: 8
+  - name: aletheia::DbcMessage
+    size: 192
+    align: 8
+  - name: aletheia::DbcSignalGroup
+    size: 56
+    align: 8
+  - name: aletheia::DbcVarType
+    size: 4
+    align: 4
+  - name: aletheia::DbcEnvironmentVar
+    size: 88
+    align: 8
+  - name: aletheia::DbcValueTable
+    size: 56
+    align: 8
+  - name: aletheia::DbcNode
+    size: 32
+    align: 8
+  - name: aletheia::DbcCommentTargetNetwork
+    size: 1
+    align: 1
+  - name: aletheia::DbcCommentTargetNode
+    size: 32
+    align: 8
+  - name: aletheia::DbcCommentTargetMessage
+    size: 8
+    align: 4
+  - name: aletheia::DbcCommentTargetSignal
+    size: 40
+    align: 8
+  - name: aletheia::DbcCommentTargetEnvVar
+    size: 32
+    align: 8
+  - name: aletheia::DbcCommentTarget
+    size: 48
+    align: 8
+  - name: aletheia::DbcComment
+    size: 80
+    align: 8
+  - name: aletheia::DbcAttrScope
+    size: 4
+    align: 4
+  - name: aletheia::DbcAttrTypeInt
+    size: 16
+    align: 8
+  - name: aletheia::DbcAttrTypeFloat
+    size: 32
+    align: 8
+  - name: aletheia::DbcAttrTypeString
+    size: 1
+    align: 1
+  - name: aletheia::DbcAttrTypeEnum
+    size: 24
+    align: 8
+  - name: aletheia::DbcAttrTypeHex
+    size: 16
+    align: 8
+  - name: aletheia::DbcAttrType
+    size: 40
+    align: 8
+  - name: aletheia::DbcAttrValueInt
+    size: 8
+    align: 8
+  - name: aletheia::DbcAttrValueFloat
+    size: 16
+    align: 8
+  - name: aletheia::DbcAttrValueString
+    size: 32
+    align: 8
+  - name: aletheia::DbcAttrValueEnum
+    size: 8
+    align: 8
+  - name: aletheia::DbcAttrValueHex
+    size: 8
+    align: 8
+  - name: aletheia::DbcAttrValue
+    size: 40
+    align: 8
+  - name: aletheia::DbcAttrTargetNetwork
+    size: 1
+    align: 1
+  - name: aletheia::DbcAttrTargetNode
+    size: 32
+    align: 8
+  - name: aletheia::DbcAttrTargetMessage
+    size: 8
+    align: 4
+  - name: aletheia::DbcAttrTargetSignal
+    size: 40
+    align: 8
+  - name: aletheia::DbcAttrTargetEnvVar
+    size: 32
+    align: 8
+  - name: aletheia::DbcAttrTargetNodeMsg
+    size: 40
+    align: 8
+  - name: aletheia::DbcAttrTargetNodeSig
+    size: 72
+    align: 8
+  - name: aletheia::DbcAttrTarget
+    size: 80
+    align: 8
+  - name: aletheia::DbcAttrDef
+    size: 80
+    align: 8
+  - name: aletheia::DbcAttrDefault
+    size: 72
+    align: 8
+  - name: aletheia::DbcAttrAssign
+    size: 152
+    align: 8
+  - name: aletheia::DbcAttribute
+    size: 160
+    align: 8
+  - name: aletheia::DbcRawValueDesc
+    size: 64
+    align: 8
+  - name: aletheia::DbcDefinition
+    size: 352
+    align: 8
+  - name: aletheia::ErrorKind
+    size: 4
+    align: 4
+  - name: aletheia::ErrorCode
+    size: 4
+    align: 4
+  - name: aletheia::AletheiaError
+    size: 240
+    align: 8
+  - name: aletheia::AletheiaException
+    size: 256
+    align: 8
+  - name: aletheia::InputBoundExceededError
+    size: 88
+    align: 8
+  - name: aletheia::LogLevel
+    size: 1
+    align: 1
+  - name: aletheia::LogValue
+    size: 24
+    align: 8
+  - name: aletheia::LogField
+    size: 40
+    align: 8
+  - name: aletheia::LogRecord
+    size: 48
+    align: 8
+  - name: aletheia::LogCallback
+    size: 32
+    align: 8
+  - name: aletheia::Logger
+    size: 32
+    align: 8
+  - name: aletheia::Equals
+    size: 48
+    align: 8
+  - name: aletheia::LessThan
+    size: 48
+    align: 8
+  - name: aletheia::GreaterThan
+    size: 48
+    align: 8
+  - name: aletheia::LessThanOrEqual
+    size: 48
+    align: 8
+  - name: aletheia::GreaterThanOrEqual
+    size: 48
+    align: 8
+  - name: aletheia::Between
+    size: 64
+    align: 8
+  - name: aletheia::ChangedBy
+    size: 48
+    align: 8
+  - name: aletheia::StableWithin
+    size: 48
+    align: 8
+  - name: aletheia::Predicate
+    size: 72
+    align: 8
+  - name: aletheia::Atomic
+    size: 72
+    align: 8
+  - name: aletheia::Not
+    size: 8
+    align: 8
+  - name: aletheia::And
+    size: 16
+    align: 8
+  - name: aletheia::Or
+    size: 16
+    align: 8
+  - name: aletheia::Next
+    size: 8
+    align: 8
+  - name: aletheia::WeakNext
+    size: 8
+    align: 8
+  - name: aletheia::Always
+    size: 8
+    align: 8
+  - name: aletheia::Eventually
+    size: 8
+    align: 8
+  - name: aletheia::Until
+    size: 16
+    align: 8
+  - name: aletheia::Release
+    size: 16
+    align: 8
+  - name: aletheia::MetricAlways
+    size: 16
+    align: 8
+  - name: aletheia::MetricEventually
+    size: 16
+    align: 8
+  - name: aletheia::MetricUntil
+    size: 24
+    align: 8
+  - name: aletheia::MetricRelease
+    size: 24
+    align: 8
+  - name: aletheia::LtlFormulaVariant
+    size: 80
+    align: 8
+  - name: aletheia::LtlFormula
+    size: 80
+    align: 8
+  - name: aletheia::PropertyDiagnostic
+    size: 56
+    align: 8
+  - name: aletheia::ViolationEnrichment
+    size: 144
+    align: 8
+  - name: aletheia::SignalError
+    size: 64
+    align: 8
+  - name: aletheia::ExtractionResult
+    size: 72
+    align: 8
+  - name: aletheia::Verdict
+    size: 4
+    align: 4
+  - name: aletheia::PropertyResult
+    size: 216
+    align: 8
+  - name: aletheia::Ack
+    size: 1
+    align: 1
+  - name: aletheia::PropertyBatch
+    size: 24
+    align: 8
+  - name: aletheia::FrameResponse
+    size: 32
+    align: 8
+  - name: aletheia::StreamWarning
+    size: 72
+    align: 8
+  - name: aletheia::StreamResult
+    size: 48
+    align: 8
+  - name: aletheia::BatchResult
+    size: 272
+    align: 8
+  - name: aletheia::SignalName
+    size: 32
+    align: 8
+  - name: aletheia::MessageName
+    size: 32
+    align: 8
+  - name: aletheia::NodeName
+    size: 32
+    align: 8
+  - name: aletheia::Unit
+    size: 32
+    align: 8
+  - name: aletheia::Rational
+    size: 16
+    align: 8
+  - name: aletheia::PhysicalValue
+    size: 16
+    align: 8
+  - name: aletheia::Delta
+    size: 16
+    align: 8
+  - name: aletheia::Tolerance
+    size: 16
+    align: 8
+  - name: aletheia::RationalFactor
+    size: 16
+    align: 8
+  - name: aletheia::RationalOffset
+    size: 16
+    align: 8
+  - name: aletheia::RationalBound
+    size: 16
+    align: 8
+  - name: aletheia::BitPosition
+    size: 2
+    align: 2
+  - name: aletheia::BitLength
+    size: 2
+    align: 2
+  - name: aletheia::PropertyIndex
+    size: 8
+    align: 8
+  - name: aletheia::MultiplexValue
+    size: 4
+    align: 4
+  - name: aletheia::FramePayload
+    size: 24
+    align: 8
+  - name: aletheia::StandardId
+    size: 2
+    align: 2
+  - name: aletheia::ExtendedId
+    size: 4
+    align: 4
+  - name: aletheia::CanId
+    size: 8
+    align: 4
+  - name: aletheia::Timestamp
+    size: 8
+    align: 8
+  - name: aletheia::Dlc
+    size: 1
+    align: 1
+  - name: aletheia::ByteOrder
+    size: 4
+    align: 4
+  - name: aletheia::SignalValue
+    size: 48
+    align: 8
+  - name: aletheia::Frame
+    size: 56
+    align: 8
+  - name: aletheia::ValidationResult
+    size: 32
+    align: 8
+  - name: aletheia::ParsedDBC
+    size: 376
+    align: 8
+  - name: aletheia::DbcText
+    size: 56
+    align: 8
+  - name: aletheia::IssueSeverity
+    size: 4
+    align: 4
+  - name: aletheia::IssueCode
+    size: 4
+    align: 4
+  - name: aletheia::ValidationIssue
+    size: 72
+    align: 8
