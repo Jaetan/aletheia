@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-10-21.
+**Last Updated**: 2026-10-22.
 
 Aletheia is a formally verified CAN-frame analysis system: a core written in Agda
 with machine-checked correctness proofs, compiled to Haskell and exposed through
@@ -167,6 +167,13 @@ and writes every reply as such text, both machine-checked: a raw control
 character, text after the value or a `\u` escape naming a lone surrogate half
 is refused at its line and column, and a reply escapes every control
 character and every key.
+
+**Logging and the C++ library.** A library host sees no log record until it
+configures logging: the Python package's `aletheia` logger carries only a
+`NullHandler`, and the C++, Go and Rust clients write only to a logger they
+are given. The three command lines write warnings to stderr. The C++
+binding's shared library raises its `SOVERSION` whenever a public type's size
+or alignment changes, recorded in `docs/CPP_LAYOUT.yaml` and held by gates.
 
 Living detail and rationale for the above are tracked outside the tree, with
 the rest of the pending work.
