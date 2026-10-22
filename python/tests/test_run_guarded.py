@@ -18,7 +18,6 @@ comes hangs the run, which is the run's own limit to report.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import os
 import shutil
 import signal
@@ -29,6 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, Self, TypedDict, Unpack
 
 import pytest
+from _stand_in import never_written, stopped
 
 from tools import _common
 
@@ -47,26 +47,6 @@ class Build(NamedTuple):
     driver: subprocess.Popen[str]
     watched: int
     lock: Path
-
-
-def _stopped(build: Build) -> None:
-    """Block until every process the build started has exited.
-
-    Each of them holds the lock's descriptor, the watched one included, so the
-    lock frees only once the last of them is gone.
-    """
-    fd = os.open(build.lock, os.O_RDWR)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    finally:
-        os.close(fd)
-
-
-def _never(tmp_path: Path) -> Path:
-    """Make a FIFO nothing writes: a process reading it blocks until something stops it."""
-    never = tmp_path / "never"
-    os.mkfifo(never)
-    return never
 
 
 @contextlib.contextmanager
@@ -89,7 +69,7 @@ def _started(
     ready = tmp_path / "ready"
     for fifo in (pid_file, ready):
         os.mkfifo(fifo)
-    never = _never(tmp_path)
+    never = never_written(tmp_path)
     flock = shutil.which("flock")
     if flock is None:
         pytest.skip("flock(1) is not installed")
@@ -192,7 +172,7 @@ def test_closing_the_stop_descriptor_stops_the_command(tmp_path: Path) -> None:
     stop_read, stop_write = os.pipe()
     os.close(stop_write)
     try:
-        result = _common.run_guarded(["cat", str(_never(tmp_path))], stop_fd=stop_read)
+        result = _common.run_guarded(["cat", str(never_written(tmp_path))], stop_fd=stop_read)
     finally:
         os.close(stop_read)
     # A guard that stops its group ends in that group's SIGKILL, itself included.
@@ -297,7 +277,7 @@ def test_a_killed_caller_stops_its_command(tmp_path: Path) -> None:
     ) as build:
         build.driver.kill()
         _ = build.driver.wait()
-        _stopped(build)
+        stopped(build.lock)
 
 
 @pytest.mark.process(
@@ -317,7 +297,7 @@ def test_an_interrupted_caller_waits_for_its_command(tmp_path: Path) -> None:
         printed, _ = build.driver.communicate()
         assert build.driver.returncode == 128 + signal.SIGTERM
         assert printed.split() == [str(-signal.SIGKILL)], "the caller left before its guard"
-        _stopped(build)
+        stopped(build.lock)
 
 
 @pytest.mark.process(
@@ -330,7 +310,7 @@ def test_a_command_that_ignores_the_interrupt_is_killed(tmp_path: Path) -> None:
     with _started(tmp_path, handlers=False, shell_body=body) as build:
         build.driver.kill()
         _ = build.driver.wait()
-        _stopped(build)
+        stopped(build.lock)
 
 
 @pytest.mark.process(
@@ -350,4 +330,4 @@ def test_a_command_that_ignores_the_interrupt_is_killed_after_the_grace_period(
     with _started(tmp_path, handlers=False, shell_body=body, grace_seconds=0.0) as build:
         build.driver.kill()
         _ = build.driver.wait()
-        _stopped(build)
+        stopped(build.lock)

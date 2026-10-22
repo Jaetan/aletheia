@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""What ``tools.check_build_incremental`` does before it builds: refuse on a killed run's leftovers.
+"""What ``tools.check_build_incremental`` does about a killed run: refuse leftovers, end its build.
 
-The gate edits two tracked sources and restores them on exit, on SIGINT and on
-SIGTERM, which SIGKILL bypasses.  These tests cover the startup half: a marker
-names the run that wrote it; a marker in a source, a build holding Shake's
-lock, or another gate holding the Agda lock each refuse the run before any
-build starts and before any source is captured or touched.
+The gate edits two tracked Agda sources and the C header and restores them on
+exit, on SIGINT and on SIGTERM, which SIGKILL bypasses.  Most of these tests
+cover the startup half: a marker names the run that wrote it; a marker in a
+source, a build holding Shake's lock, or another gate holding the Agda lock
+each refuse the run before any build starts and before any source is captured
+or touched.  The last holds that the build a killed run started stops with it,
+rather than relinking the library with the killed run's marker in it.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from typing import TYPE_CHECKING, Literal
 
 import pytest
 from _processes import pid_no_process_holds
+from _stand_in import ScriptSource, driving_a_held_build, stopped
 
 from tools import _common
 from tools import check_build_incremental as gate
@@ -226,3 +229,16 @@ class TestStartupRefusals:
         assert gate.main() == 1
         out = capsys.readouterr().out
         assert f"the .so carries the marker {NAMED!r} of an earlier run (pid 4242, " in out
+
+
+@pytest.mark.process(
+    "SIGKILL ends the gate without running any of its code, and only the kernel closing"
+    + " the killed gate's pipe end shows the build stopping"
+)
+def test_a_killed_gate_stops_its_build(tmp_path: Path) -> None:
+    """The gate killed mid-build, SIGKILL included, stops the build it started."""
+    source = ScriptSource("from tools.check_build_incremental import _build; _build()")
+    with driving_a_held_build(tmp_path, source) as build:
+        build.driver.kill()
+        _ = build.driver.wait()
+        stopped(build.lock)
