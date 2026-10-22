@@ -238,6 +238,7 @@ fn describe(err: &Error) -> String {
 
 The YAML loader (`load_checks_from_yaml`, `load_checks_from_yaml_file`) and the `aletheia-excel` crate's (`load_checks_from_excel`, `load_dbc_from_excel`) hand the kernel each number they read as a rational, such as a check's `value` or a signal's `Factor`, as the text the document spells it with, a spreadsheet cell's trimmed of the whitespace around it, so the kernel decides what a valid number is. A number the kernel refuses keeps the kernel's variant, code and fields, `Error::Validation` carrying the kernel's `code` or `Error::InputBoundExceeded`, and gains `located: Option<Box<Located>>`, the place the loader read it: `location` (`Check 'C'` for a YAML check named `C`, `Check '<unnamed>'` for one with no name, `Row 2` for a spreadsheet row) and `key`, the YAML key or the column header it sat under (`value`, `Factor`), which `Error::location()` and `Error::key()` return; outside a loader `located` and both accessors are `None`. Its text (`to_string()`) reads `<location>: invalid '<key>': <kernel message>`. A loader of your own locates a refusal with `Error::located(location, key)`, which sets `located` on those two variants and returns any other error, such as a runtime that is not up, unchanged. The same document gets the same answer in every binding: [LOADER_SCENARIOS.yaml](../LOADER_SCENARIOS.yaml) is that contract.
 
+<!-- refuses: text_parse_failure -->
 ```rust
 let refused = load_checks_from_yaml(
     "checks:\n  - name: C\n    signal: Speed\n    condition: never_exceeds\n    value: .5\n",

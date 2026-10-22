@@ -45,7 +45,7 @@ from aletheia.can_log import iter_can_log   # `pip install aletheia[can]`
 dbc_json = dbc_to_json("vehicle.dbc")
 
 # Define property using fluent DSL: "Speed must always be less than 250 km/h"
-property = Signal("Speed").less_than(250).always()
+property = Signal("VehicleSpeed").less_than(250).always()
 
 # `data` must be a `bytes` / `bytearray` of the correct length for the DLC.
 # Three common ways to produce it:
@@ -371,7 +371,7 @@ from aletheia.dbc import dbc_to_json
 dbc = dbc_to_json("vehicle.dbc")
 
 # Property: Speed must always stay below 250 km/h
-property = Signal("Speed").less_than(250).always()
+property = Signal("VehicleSpeed").less_than(250).always()
 
 # Check CAN trace
 with AletheiaClient() as client:
@@ -400,16 +400,16 @@ from fractions import Fraction
 
 properties = [
     # P1: Speed always in valid range
-    Signal("Speed").between(0, 300).always(),
+    Signal("VehicleSpeed").between(0, 300).always(),
 
-    # P2: Voltage always stable (decimals are exact Fractions — no float)
-    Signal("BatteryVoltage").between(Fraction("11.5"), Fraction("14.5")).always(),
+    # P2: Brake pressure always in range (decimals are exact Fractions, never a float)
+    Signal("BrakePressure").between(Fraction("0"), Fraction("6553.5")).always(),
 
-    # P3: No critical errors
-    Signal("CriticalError").equals(1).never(),
+    # P3: No hard braking (deceleration past 10 m/s²)
+    Signal("Acceleration").less_than(-10).never(),
 
-    # P4: Engine eventually reaches operating temp
-    Signal("EngineTemp").greater_than(90).eventually()
+    # P4: The brake is eventually applied
+    Signal("BrakeActive").equals(1).eventually()
 ]
 
 with AletheiaClient() as client:
@@ -437,10 +437,10 @@ with AletheiaClient() as client:
 ### Example 3: Brake Safety Property
 
 ```python
-# Safety property: If brake pedal pressed, speed must decrease within 100ms
+# Safety property: If brake pressure is applied, speed must decrease within 100ms
 
-brake_pressed = Signal("BrakePedal").greater_than(0)
-speed_decreasing = Signal("Speed").changed_by(-5)  # Decreased by at least 5 km/h
+brake_pressed = Signal("BrakePressure").greater_than(0)
+speed_decreasing = Signal("VehicleSpeed").changed_by(-5)  # Decreased by at least 5 km/h
 
 property = brake_pressed.implies(speed_decreasing.within(100))
 
@@ -473,14 +473,14 @@ with AletheiaClient() as client:
 ### Example 4: Power Mode State Machine
 
 ```python
-# Property: From power-off, start button can't activate until ACC mode reached
+# Property: once stopped, the vehicle does not accelerate until the brake is released
 
-power_off = Signal("PowerMode").equals(0)
-power_acc = Signal("PowerMode").equals(2)
-power_start = Signal("StartButton").equals(1)
+stopped = Signal("VehicleSpeed").equals(0)
+released = Signal("BrakeActive").equals(0)
+accelerating = Signal("Acceleration").greater_than(0)
 
-property = power_off.implies(
-    power_start.never().until(power_acc)
+property = stopped.implies(
+    accelerating.never().until(released)
 )
 
 with AletheiaClient() as client:
@@ -494,7 +494,7 @@ with AletheiaClient() as client:
         if response.get("type") == "property_batch":
             fails = [e for e in response["results"] if e["status"] == "fails"]
             if fails:
-                print(f"Invalid power mode transition at {fails[0]['timestamp']}us")
+                print(f"Accelerated before the brake was released at {fails[0]['timestamp']}us")
                 break
 
     client.end_stream()
@@ -611,8 +611,8 @@ from fractions import Fraction
 from aletheia import checks
 
 check_list = [
-    checks.signal("Speed").never_exceeds(220),
-    checks.signal("Voltage").stays_between(Fraction("11.5"), Fraction("14.5")),
+    checks.signal("VehicleSpeed").never_exceeds(220),
+    checks.signal("BrakePressure").stays_between(Fraction("0"), Fraction("6553.5")),
 ]
 response = client.add_checks(check_list)
 assert response["status"] == "success"
@@ -626,8 +626,8 @@ Set LTL properties to check (use `.to_dict()` on DSL properties).
 
 ```python
 properties = [
-    Signal("Speed").less_than(250).always(),
-    Signal("Voltage").between(11, 14).always()
+    Signal("VehicleSpeed").less_than(250).always(),
+    Signal("Acceleration").between(-10, 10).always()
 ]
 
 response = client.set_properties([p.to_dict() for p in properties])
@@ -864,15 +864,15 @@ except ValidationError as e:
 
 ### Signal Not Found
 
-```python
-from aletheia import ProtocolError
+A property naming a signal the DBC does not carry is refused with the error envelope, `code` `handler_unknown_signal`:
 
+<!-- refuses: handler_unknown_signal -->
+```python
 property = Signal("InvalidSignal").less_than(100).always()
 
-try:
-    client.set_properties([property.to_dict()])
-except ProtocolError as e:
-    print(f"Error: {e}")
+response = client.set_properties([property.to_dict()])
+if response["status"] == "error":
+    print(f"Error: {response['message']}")  # SetProperties: signal 'InvalidSignal' not found in DBC
 ```
 
 ---
@@ -1005,8 +1005,10 @@ Lazily iterate CAN frames from a log file (O(1) memory).
 ```python
 from aletheia.can_log import iter_can_log
 
+client.start_stream()
 for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("highway.asc"):
     response = client.send_frame(ts, can_id, dlc, data)
+client.end_stream()
 ```
 
 **Parameters** (both functions):

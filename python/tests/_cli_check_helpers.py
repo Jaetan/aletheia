@@ -40,6 +40,7 @@ class CheckInputs(NamedTuple):
     dbc: Path | None = None
     checks: Path | None = None
     workbook: Path | None = None
+    as_json: bool = False
 
     def words(self) -> list[CommandWord]:
         """Return the command line that follows ``aletheia check``."""
@@ -50,7 +51,8 @@ class CheckInputs(NamedTuple):
             if path is not None
             for word in (flag, str(path))
         ]
-        return [*named, CommandWord(str(self.log))]
+        json_flag = [CommandWord("--json")] if self.as_json else []
+        return [*named, *json_flag, CommandWord(str(self.log))]
 
 
 class CliRun(NamedTuple):

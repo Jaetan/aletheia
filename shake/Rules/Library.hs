@@ -113,13 +113,14 @@ shimHeaderStamp = "build/shim-header.stamp"
 -- at an ABI version no binding was written against, one exporting the version
 -- alone, one exporting no kernel symbol, one whose kernel answers null, and
 -- one that refuses the kernel's entries quoting what it was handed, answers a
--- known allocation count, and counts the closes and frees it is given.
+-- known allocation count, and counts the closes and frees it is given, and one
+-- that forwards every entry to the library and logs each refusal it answers.
 -- Each is built from @haskell-shim/test/<name>.c@ against the kernel's header
 -- into the directory the library is built in, where every binding's test looks
 -- for it beside the library it stands in for.
 standIns :: [FilePath]
 standIns = map (\name -> "build/stand-ins" </> name <.> "so")
-    ["stale_abi_kernel", "abi_only_kernel", "symbolless", "null_kernel", "recording_kernel"]
+    ["stale_abi_kernel", "abi_only_kernel", "symbolless", "null_kernel", "recording_kernel", "forwarding_kernel"]
 
 -- | The rules that build, list and clean the kernel library.
 libraryRules :: Rules ()

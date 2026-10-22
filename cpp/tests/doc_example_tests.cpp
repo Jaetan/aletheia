@@ -20,7 +20,7 @@
 //
 // Path substitutions (parallel python/conftest.py loader fakes):
 //
-//   "/opt/aletheia/lib/libaletheia-ffi.so" → resolved libaletheia-ffi.so
+//   "/opt/aletheia/lib/libaletheia-ffi.so" → the forwarding stand-in kernel
 //   "checks.yaml"                          → testdata/doc_examples/checks.yaml
 //   "checks.xlsx" / "tests.xlsx"           → examples/demo/demo_workbook.xlsx
 //
@@ -31,6 +31,11 @@
 //   C. Body fragment (statements/expressions)    → wrap in synthesized main
 //      with predeclared globals (`backend`, `client`, `ts`, `can_id`, `dlc`,
 //      `data_storage`, `data`, `frames`, `dbc`) under `using namespace aletheia;`.
+//
+// Every program runs against the forwarding stand-in kernel, which hands each
+// call to the library and logs each refusal it answers: a fence fails unless
+// the kernel refused exactly the codes a `<!-- refuses: <code> ... -->` line
+// directly above it names, so a fence that discards a refused call fails too.
 //
 // The harness case skips when `libaletheia-ffi.so` is not findable; the
 // structural gates need no library.
@@ -91,9 +96,10 @@ constexpr std::array<std::string_view, 1> k_path_docs = {
 
 namespace {
 struct CppFence {
-    std::string file;    // repo-relative path
-    int line;            // 1-based line number of opening ```cpp
-    std::string content; // body between fences (no surrounding ``` lines)
+    std::string file;                 // repo-relative path
+    int line;                         // 1-based line number of opening ```cpp
+    std::string content;              // body between fences (no surrounding ``` lines)
+    std::vector<std::string> refuses; // the codes the line directly above names, in order
 
     [[nodiscard]] auto display() const -> std::string { return file + ":L" + std::to_string(line); }
 };
@@ -179,6 +185,19 @@ static auto cpp_fence_opening(std::string_view line) -> FenceOpening {
     return FenceOpening::Hidden;
 }
 
+// The codes a line names when it is the mark directly above a fence that shows
+// refusals, in the order the kernel answers them; none for any other line.
+static auto stated_refusals(const std::string& line) -> std::vector<std::string> {
+    static const std::regex mark(R"(<!-- refuses: ([a-z0-9_]+(?: [a-z0-9_]+)*) -->)");
+    std::smatch m;
+    if (!std::regex_match(line, m, mark))
+        return {};
+    std::vector<std::string> codes;
+    for (auto const code : std::views::split(m[1].str(), ' '))
+        codes.emplace_back(std::string_view{code});
+    return codes;
+}
+
 // Extracts every ```cpp fence from one markdown file.
 static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path)
     -> std::vector<CppFence> {
@@ -192,6 +211,8 @@ static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_pa
     bool in_fence = false;
     int fence_start = 0;
     std::string body;
+    std::vector<std::string> refuses;
+    std::string previous;
     while (std::getline(in, line)) {
         ++lineno;
         if (!in_fence) {
@@ -199,13 +220,19 @@ static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_pa
                 in_fence = true;
                 fence_start = lineno;
                 body.clear();
+                refuses = stated_refusals(previous);
             }
+            previous = line;
             continue;
         }
         // Inside a fence — closing line is exactly ``` after trim.
         if (strip_right(strip_left(line)) == "```") {
-            fences.push_back({.file = std::string{rel_path}, .line = fence_start, .content = body});
+            fences.push_back({.file = std::string{rel_path},
+                              .line = fence_start,
+                              .content = body,
+                              .refuses = std::exchange(refuses, {})});
             in_fence = false;
+            previous = line;
             continue;
         }
         body.append(line).append("\n");
@@ -389,6 +416,134 @@ return 0;
 }
 )CPP";
 
+// The check a result the example keeps and never reads is handed to: the
+// forwarding stand-in kernel sees only the kernel's refusals, and a binding
+// refuses some inputs itself (an identifier out of range, a DLC above 15),
+// so an example keeping such a refusal unread would pass on its exit status.
+// It ends the run naming the line when the result holds an error, an
+// AletheiaError or a factory's message alike; a type without one passes
+// through, the branch reading it never instantiated.
+constexpr std::string_view k_unread_check = R"CPP(#include <cstdlib>
+#include <iostream>
+#include <utility>
+
+template <typename T>
+auto docExampleUnread(const char* where, T&& kept) -> T&& {
+    if constexpr (requires { kept.has_value(); kept.error(); }) {
+        if (!kept.has_value()) {
+            std::cerr << "the example discards an error at " << where;
+            if constexpr (requires { kept.error().text(); })
+                std::cerr << ": " << kept.error().text();
+            else if constexpr (requires { std::cerr << kept.error(); })
+                std::cerr << ": " << kept.error();
+            std::cerr << '\n';
+            std::exit(1);
+        }
+    }
+    return std::forward<T>(kept);
+}
+)CPP";
+
+// The offset of the `;` ending the statement whose text starts at `from`: the
+// first outside brackets, string and character literals and line comments.
+static auto statement_end(std::string_view text, std::size_t from) -> std::size_t {
+    enum class In : std::uint8_t { Code, Literal, Escape, Slash, Comment };
+    auto in = In::Code;
+    auto quote = '"';
+    int depth = 0;
+    for (auto const [k, c] : std::views::enumerate(text.substr(from))) {
+        switch (in) {
+        case In::Literal:
+            if (c == '\\')
+                in = In::Escape;
+            else if (c == quote)
+                in = In::Code;
+            continue;
+        case In::Escape:
+            in = In::Literal;
+            continue;
+        case In::Comment:
+            in = c == '\n' ? In::Code : In::Comment;
+            continue;
+        case In::Slash:
+            in = In::Code;
+            if (c == '/') {
+                in = In::Comment;
+                continue;
+            }
+            break;
+        case In::Code:
+            break;
+        }
+        if (c == '"' || c == '\'') {
+            quote = c;
+            in = In::Literal;
+        } else if (c == '/') {
+            in = In::Slash;
+        } else if (c == '(' || c == '{' || c == '[') {
+            ++depth;
+        } else if (c == ')' || c == '}' || c == ']') {
+            --depth;
+        } else if (c == ';' && depth == 0) {
+            return from + static_cast<std::size_t>(k);
+        }
+    }
+    return std::string_view::npos;
+}
+
+// The program with each `auto name = ...;` declaration whose initialiser calls
+// something and whose name the rest of the program never names handed to
+// docExampleUnread, so the value is checked where it is kept, which is where
+// it is last seen. `where[k]` names the document line of the program's line k.
+static auto wrap_unread_results(std::string_view program, const std::vector<std::string>& where)
+    -> std::string {
+    static const std::regex kept(
+        R"(^(\s*(?:\[\[maybe_unused\]\]\s*)?auto\s+(?:const\s+)?(\w+)\s*=\s*).*)");
+    static const std::regex calls(R"(\w\s*\()");
+    std::vector<std::size_t> starts{0};
+    for (auto const [i, c] : std::views::enumerate(program)) {
+        if (c == '\n')
+            starts.push_back(static_cast<std::size_t>(i) + 1);
+    }
+    std::string out;
+    std::size_t done = 0;
+    for (auto const [k, start] : std::views::enumerate(starts)) {
+        if (start < done || static_cast<std::size_t>(k) >= where.size())
+            continue;
+        auto const line = std::string{program.substr(start, program.find('\n', start) - start)};
+        std::smatch m;
+        if (!std::regex_match(line, m, kept))
+            continue;
+        // The value starts at its first character, on the next line when the
+        // declaration breaks after its `=`.
+        auto const init =
+            program.find_first_not_of(" \t\n", start + static_cast<std::size_t>(m.length(1)));
+        auto const end = statement_end(program, init);
+        if (end == std::string_view::npos)
+            continue;
+        auto const value = std::string{program.substr(init, end - init)};
+        auto const rest = std::string{program.substr(end)};
+        if (!std::regex_search(value, calls) ||
+            std::regex_search(rest, std::regex{"\\b" + m[2].str() + "\\b"}))
+            continue;
+        out.append(program.substr(done, init - done));
+        out.append("docExampleUnread(\"" + where[static_cast<std::size_t>(k)] + "\", ");
+        out.append(value).append(")");
+        done = end;
+    }
+    out.append(program.substr(done));
+    return out;
+}
+
+// The document line of each line of a fence's content.
+static auto fence_lines(const CppFence& fence) -> std::vector<std::string> {
+    auto const count = static_cast<int>(std::ranges::count(fence.content, '\n')) + 1;
+    return std::views::iota(0, count) | std::views::transform([&](int k) {
+               return fence.file + ":L" + std::to_string(fence.line + 1 + k);
+           }) |
+           std::ranges::to<std::vector>();
+}
+
 static auto wrap_body_fragment(std::string body) -> std::string {
     std::string out;
     out.reserve(k_prologue.size() + body.size() + k_epilogue.size());
@@ -398,14 +553,16 @@ static auto wrap_body_fragment(std::string body) -> std::string {
     return out;
 }
 
-// Pick a wrapper shape based on body content.
-static auto wrap_fence(std::string body) -> std::string {
+// Pick a wrapper shape based on body content, every shape's unread results
+// handed to the check its program opens with.
+static auto wrap_fence(std::string body, const CppFence& fence) -> std::string {
+    body = wrap_unread_results(body, fence_lines(fence));
     if (has_main(body))
-        return body;
+        return std::string{k_unread_check} + body;
     if (has_include(body)) {
-        return body + "\n\nint main() { return 0; }\n";
+        return std::string{k_unread_check} + body + "\n\nint main() { return 0; }\n";
     }
-    return wrap_body_fragment(std::move(body));
+    return std::string{k_unread_check} + wrap_body_fragment(std::move(body));
 }
 
 static auto write_file(const fs::path& path, std::string_view content) -> void {
@@ -480,10 +637,29 @@ static auto doc_fixtures(const fs::path& root) -> Fixtures {
     return fixtures;
 }
 
-// Compiles one program against the binding and runs it, failing the calling
-// test case on either step.
+// The code of each refusal the forwarding stand-in logged, in order: a line is
+// the entry, a tab and the kernel's envelope. No file is no refusal.
+static auto refusal_codes(const fs::path& log) -> std::vector<std::string> {
+    static const std::regex code(R"re("code": "([a-z0-9_]+)")re");
+    std::vector<std::string> codes;
+    std::ifstream in(log);
+    std::string line;
+    while (std::getline(in, line)) {
+        std::smatch m;
+        if (!std::regex_search(line, m, code)) {
+            FAIL("an unreadable refusal log line: " << line);
+        }
+        codes.push_back(m[1].str());
+    }
+    return codes;
+}
+
+// Compiles one program against the binding and runs it against the forwarding
+// stand-in kernel, failing the calling test case on either step or on
+// refusals other than the codes `refuses` names.
 static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
-                            const std::string& lib) -> void {
+                            const std::string& lib, const std::vector<std::string>& refuses)
+    -> void {
     // The library is shared and carries its own dependencies, so a program
     // links it alone and needs its directory on the run-time search path;
     // linking by file name gives the linker the path but not the loader.
@@ -497,7 +673,7 @@ static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
     cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
         << sh_quote(doc_include_dir()) << " -o " << sh_quote(out_path.string()) << " "
         << sh_quote(src_path.string()) << " " << sh_quote(ALETHEIA_DOC_LIB_FILE) << " -Wl,-rpath,"
-        << sh_quote(lib_dir.string()) << " -ldl -lpthread -lstdc++fs "
+        << sh_quote(lib_dir.string()) << " -ldl -lpthread -lstdc++fs -Werror=unused-result "
         << ALETHEIA_DOC_SANITIZER_FLAG;
     auto const compile_cmd = cmd.str();
 
@@ -507,11 +683,19 @@ static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
     INFO("Compile output:\n" << compile_out);
     REQUIRE(compile_rc == 0);
 
+    auto const log = fs::path{out_path.string() + ".refusals"};
     std::ostringstream run_cmd;
-    run_cmd << "ALETHEIA_LIB=" << sh_quote(lib) << " " << sh_quote(out_path.string());
+    run_cmd << "ALETHEIA_LIB=" << sh_quote(ALETHEIA_DOC_FORWARDING_KERNEL)
+            << " ALETHEIA_FORWARD_TO=" << sh_quote(lib)
+            << " ALETHEIA_REFUSAL_LOG=" << sh_quote(log.string()) << " "
+            << sh_quote(out_path.string());
     auto const [run_rc, run_out] = run_capture(run_cmd.str());
     INFO("Run output:\n" << run_out);
     REQUIRE(run_rc == 0);
+    INFO("Refusal log:\n" << (fs::exists(log) ? read_text_file(log) : std::string{}));
+    INFO("An example that shows a refusal names its codes on a `<!-- refuses: <code> ... -->` "
+         "line directly above its fence");
+    CHECK(refusal_codes(log) == refuses);
 }
 
 TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-examples]") {
@@ -531,12 +715,29 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
 
     for (auto const [i, fence] : std::views::enumerate(fences)) {
         DYNAMIC_SECTION("Fence " << fence.display()) {
-            auto body = substitute_paths(fence.content, lib, fixtures.yaml, fixtures.excel);
+            auto body = substitute_paths(fence.content, ALETHEIA_DOC_FORWARDING_KERNEL,
+                                         fixtures.yaml, fixtures.excel);
             auto const src_path = workdir / ("fence" + std::to_string(i) + ".cpp");
-            write_file(src_path, wrap_fence(std::move(body)));
-            compile_and_run(src_path, workdir / ("fence" + std::to_string(i)), lib);
+            write_file(src_path, wrap_fence(std::move(body), fence));
+            compile_and_run(src_path, workdir / ("fence" + std::to_string(i)), lib, fence.refuses);
         }
     }
+}
+
+TEST_CASE("doc-example harness: an unread result is handed to the check, a read one is not",
+          "[doc-examples][gate]") {
+    std::vector<std::string> const where{"d.md:L1", "d.md:L2", "d.md:L3", "d.md:L4"};
+    CHECK(wrap_unread_results("auto r = load(\"x\");\n", where) ==
+          "auto r = docExampleUnread(\"d.md:L1\", load(\"x\"));\n");
+    CHECK(wrap_unread_results("[[maybe_unused]] auto const _r =\n    load(1,\n         2);\n",
+                              where) ==
+          "[[maybe_unused]] auto const _r =\n    docExampleUnread(\"d.md:L1\", load(1,\n         "
+          "2));\n");
+    CHECK(wrap_unread_results("auto r = load();\nuse(r);\n", where) ==
+          "auto r = load();\nuse(r);\n");
+    CHECK(wrap_unread_results("auto n = 3;\n", where) == "auto n = 3;\n");
+    CHECK(wrap_unread_results("auto s = f(\"a;b\"); // c;\n", where) ==
+          "auto s = docExampleUnread(\"d.md:L1\", f(\"a;b\")); // c;\n");
 }
 
 TEST_CASE("doc-example harness: every path document's ```cpp fences run as one program",
@@ -552,13 +753,23 @@ TEST_CASE("doc-example harness: every path document's ```cpp fences run as one p
     for (auto const [i, rel] : std::views::enumerate(k_path_docs)) {
         DYNAMIC_SECTION("Path " << rel) {
             std::string program;
-            for (auto const& fence : extract_cpp_fences(root / rel, rel))
+            std::vector<std::string> refuses;
+            std::vector<std::string> where;
+            for (auto const& fence : extract_cpp_fences(root / rel, rel)) {
                 program += fence.content;
+                refuses.insert(refuses.end(), fence.refuses.begin(), fence.refuses.end());
+                // A fence's content ends in a newline, so its last line is the next one's first.
+                auto lines = fence_lines(fence);
+                lines.pop_back();
+                where.insert(where.end(), lines.begin(), lines.end());
+            }
             REQUIRE_FALSE(program.empty());
             auto const src_path = scratch.path / ("path" + std::to_string(i) + ".cpp");
-            write_file(src_path,
-                       substitute_paths(std::move(program), lib, fixtures.yaml, fixtures.excel));
-            compile_and_run(src_path, scratch.path / ("path" + std::to_string(i)), lib);
+            write_file(src_path, std::string{k_unread_check} +
+                                     substitute_paths(wrap_unread_results(program, where),
+                                                      ALETHEIA_DOC_FORWARDING_KERNEL, fixtures.yaml,
+                                                      fixtures.excel));
+            compile_and_run(src_path, scratch.path / ("path" + std::to_string(i)), lib, refuses);
         }
     }
 }

@@ -258,6 +258,18 @@ A DBC past a size bound, such as too many messages or too long a string, is refu
 
 The YAML loaders (`LoadChecksFromYAML`, `LoadChecksFromYAMLFile`) and the Excel module's (`excel.LoadChecks`, `excel.LoadDbc`) hand the kernel each number they read as a rational, such as a check's `value` or a signal's `Factor`, as the text the document spells it with, so the kernel decides what a valid number is. A number the kernel refuses keeps the kernel's type, code and fields, an `*aletheia.Error` carrying the kernel's `Code` or an `*aletheia.InputBoundExceededError`, and gains `Location`, where the loader read it (`Check 'C'` for a YAML check named `C`, `Check '<unnamed>'` for one with no name, `Row 2` for a spreadsheet row), and `Key`, the YAML key or the column header it sat under (`value`, `within_ms`, `Factor`). Its `Error()` reads `<location>: invalid '<key>': <kernel message>`, such as `Check 'C': invalid 'value': parse failed at line 1, column 1` for a value written `.5`. A YAML check's `within_ms` is read the same way, and a value the kernel reads that is not a whole number, or is negative, is refused in the loader's own words, such as `check 'C': 'within_ms' must be a whole number, got "1.5"`. A loader outside the package locates a refusal with `aletheia.Locate(err, location, key)`, which answers a located copy of a coded `*aletheia.Error` or of an `*aletheia.InputBoundExceededError`, and any other error, such as a runtime that is not up, as it was given.
 
+<!-- refuses: text_parse_failure -->
+```go
+_, err := aletheia.LoadChecksFromYAML(
+	"checks:\n  - name: C\n    signal: Speed\n    condition: never_exceeds\n    value: .5\n",
+)
+var aerr *aletheia.Error
+if !errors.As(err, &aerr) || aerr.Location != "Check 'C'" || aerr.Key != "value" {
+	panic(fmt.Sprintf("want the refusal located at Check 'C', key value; got %v", err))
+}
+fmt.Println(err) // Check 'C': invalid 'value': parse failed at line 1, column 1
+```
+
 ---
 
 ## Cancellation

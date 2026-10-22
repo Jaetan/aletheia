@@ -100,8 +100,8 @@ from aletheia.can_log import iter_can_log  # from source: pip install -e '.[can]
 dbc_json = dbc_to_json("vehicle.dbc")
 
 # Define temporal properties using fluent DSL (raw LTL)
-speed_limit = Signal("Speed").less_than(220).always()
-brake_check = Signal("BrakePressed").equals(1).eventually()
+speed_limit = Signal("VehicleSpeed").less_than(220).always()
+brake_check = Signal("BrakeActive").equals(1).eventually()
 
 # Stream CAN frames from a .blf / .asc / .log / .mf4 trace and check properties.
 # iter_can_log() yields CANFrameTuple(timestamp, can_id, dlc, data, extended,
@@ -132,6 +132,8 @@ See the [Python API Guide](docs/reference/PYTHON_API.md) for the complete DSL re
 For users who do not need full LTL control, three higher-level interfaces compile to the same verified core, and are the recommended entry point:
 
 ```python
+from pathlib import Path
+
 from aletheia import checks, load_checks, load_checks_from_excel
 
 # Check API — industry vocabulary
@@ -139,7 +141,7 @@ checks.signal("Speed").never_exceeds(220)
 checks.when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100)
 
 # YAML — declarative config files
-check_list = load_checks("checks.yaml")
+check_list = load_checks(Path("checks.yaml"))  # a str is read as YAML text
 
 # Excel — spreadsheet templates for technicians
 check_list = load_checks_from_excel("checks.xlsx")
@@ -156,14 +158,14 @@ with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
 
     # Build a frame from signal values
-    frame = client.build_frame(can_id=0x100, dlc=8, signals={"Speed": 72})
+    frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72})
 
     # Extract signals from a frame
     result = client.extract_signals(can_id=0x100, dlc=8, data=frame)
-    speed = result.get("Speed")  # Fraction(72) — extraction values are exact Fractions
+    speed = result.get("VehicleSpeed")  # Fraction(72): extraction values are exact Fractions
 
     # Update specific signals in a frame
-    modified = client.update_frame(can_id=0x100, dlc=8, frame=frame, signals={"Speed": 130})
+    modified = client.update_frame(can_id=0x100, dlc=8, frame=frame, signals={"VehicleSpeed": 130})
 ```
 
 ### Async client and lazy iter

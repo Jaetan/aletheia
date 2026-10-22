@@ -436,12 +436,12 @@ from aletheia import checks, load_checks, Signal
 check_list = load_checks(Path("checks.yaml"))
 
 # Add a Check API check
-check_list.append(checks.signal("Speed").never_exceeds(220))
+check_list.append(checks.signal("VehicleSpeed").never_exceeds(220))
 
 # Add a raw DSL property (wrap in CheckResult for metadata)
 from aletheia import CheckResult
-prop = Signal("Temp").between(-40, 215).always()
-check_list.append(CheckResult(prop).named("Temp range"))
+prop = Signal("Acceleration").between(-10, 10).always()
+check_list.append(CheckResult(prop).named("Acceleration range"))
 
 # All used the same way
 client.add_checks(check_list)

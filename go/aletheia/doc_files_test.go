@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -39,9 +40,23 @@ var docFiles = []string{
 
 // goFence is one Go fence of a listed file.
 type goFence struct {
-	file    string // path relative to the repository root
-	line    int    // 1-based line number of the opening ```go
-	content string // body between fences (no surrounding ``` lines)
+	file    string   // path relative to the repository root
+	line    int      // 1-based line number of the opening ```go
+	content string   // body between fences (no surrounding ``` lines)
+	refuses []string // the codes the line directly above names, in order
+}
+
+// refusesMark is the line directly above a fence that shows refusals, naming
+// the codes the kernel answers its calls with, in order.
+var refusesMark = regexp.MustCompile(`^<!-- refuses: ([a-z0-9_]+(?: [a-z0-9_]+)*) -->$`)
+
+// statedRefusals is the codes a line names when it is a refusesMark, else none.
+func statedRefusals(line string) []string {
+	m := refusesMark.FindStringSubmatch(line)
+	if m == nil {
+		return nil
+	}
+	return strings.Fields(m[1])
 }
 
 func (f goFence) name() string {
@@ -96,7 +111,9 @@ func extractGoFences(t *testing.T, file string) []goFence {
 		inFence    bool
 		fenceStart int
 		fenceBody  strings.Builder
+		refuses    []string
 		lineno     int
+		previous   string
 	)
 	for scanner.Scan() {
 		lineno++
@@ -106,7 +123,9 @@ func extractGoFences(t *testing.T, file string) []goFence {
 				inFence = true
 				fenceStart = lineno
 				fenceBody.Reset()
+				refuses = statedRefusals(previous)
 			}
+			previous = line
 			continue
 		}
 		if strings.TrimSpace(line) == "```" {
@@ -114,8 +133,10 @@ func extractGoFences(t *testing.T, file string) []goFence {
 				file:    file,
 				line:    fenceStart,
 				content: fenceBody.String(),
+				refuses: refuses,
 			})
 			inFence = false
+			previous = line
 			continue
 		}
 		fenceBody.WriteString(line)

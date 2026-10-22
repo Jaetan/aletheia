@@ -64,16 +64,16 @@ Aletheia provides:
 
 1. **Multi-language APIs**: Familiar interfaces for automotive engineers
    ```python
-   checks.signal("Speed").never_exceeds(220)                   # Python
+   speed_limit = checks.signal("Speed").never_exceeds(220)  # Python
    ```
    ```cpp
-   check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));  // C++
+   auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));  // C++
    ```
    ```go
-   aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))  // Go
+   speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))  // Go
    ```
    ```rust
-   check::signal("Speed").never_exceeds(220)                   // Rust
+   let speed_limit = check::signal("Speed").never_exceeds(220);  // Rust
    ```
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
@@ -194,7 +194,7 @@ Signal("Speed").less_than(220).always()             # Full DSL
 
 C++:
 ```cpp
-check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));
+auto speed = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));
 [[maybe_unused]] auto _yaml  = load_checks_from_yaml("checks.yaml");
 [[maybe_unused]] auto _excel = load_checks_from_excel("tests.xlsx");
 // LTL formulas via ltl:: namespace (compositional, not fluent DSL):
@@ -227,7 +227,7 @@ from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log
 
 dbc = dbc_to_json("vehicle.dbc")
-check_list = [checks.signal("Speed").never_exceeds(220)]
+check_list = [checks.signal("VehicleSpeed").never_exceeds(220)]
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)

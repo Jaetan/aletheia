@@ -351,7 +351,7 @@ TEST_CASE("excel: demo workbook DBC loads as standard messages", "[excel][dbc][p
     auto const path = repo_root() / "examples" / "demo" / "demo_workbook.xlsx";
     auto const result = load_dbc_from_excel(path);
     REQUIRE(result.has_value());
-    CHECK(result->messages.size() == 2);
+    CHECK(result->messages.size() == 4);
     for (auto const& msg : result->messages)
         CHECK(std::holds_alternative<StandardId>(msg.id));
 }

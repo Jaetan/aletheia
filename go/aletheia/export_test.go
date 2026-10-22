@@ -47,3 +47,7 @@ var FormatEnrichedReason = formatEnrichedReason
 
 // MaxExtractCache is maxExtractCache for the tests, which fill the cache to it.
 const MaxExtractCache = maxExtractCache
+
+// StandIn is standIn for the tests outside the package, the doc-example
+// harness among them, which runs every fence against a stand-in kernel.
+var StandIn = standIn

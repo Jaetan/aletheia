@@ -25,7 +25,7 @@ from aletheia.dbc import dbc_to_json
 dbc_json = dbc_to_json("vehicle.dbc")
 
 # Define properties using fluent DSL
-speed_limit = Signal("Speed").less_than(220).always()
+speed_limit = Signal("VehicleSpeed").less_than(220).always()
 
 # Stream CAN frames and check properties
 with AletheiaClient() as client:
@@ -37,8 +37,11 @@ with AletheiaClient() as client:
         response = client.send_frame(
             timestamp, can_id, dlc, data, extended=extended, brs=brs, esi=esi
         )
-        if response.get("status") == "fails":
-            print(f"Violation: {response['reason']}")
+        # A frame that produces verdicts returns a property_batch envelope.
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry.get("status") == "fails":
+                    print(f"Violation: {entry['reason']}")
 
     client.end_stream()
 ```

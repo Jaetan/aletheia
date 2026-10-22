@@ -891,7 +891,7 @@ def _demo_workbook() -> Path:
 def test_demo_workbook_dbc_loads_as_standard_messages() -> None:
     """The shared demo workbook's DBC sheet loads as standard messages."""
     dbc = load_dbc_from_excel(_demo_workbook())
-    assert len(dbc["messages"]) == 2
+    assert len(dbc["messages"]) == 4
     for msg in dbc["messages"]:
         # A standard message never carries the optional "extended" key.
         assert msg.get("extended", False) is False
@@ -900,7 +900,7 @@ def test_demo_workbook_dbc_loads_as_standard_messages() -> None:
 def test_demo_workbook_checks_match_the_api() -> None:
     """The shared demo workbook's checks compile to the same formulas as the API."""
     checks = load_checks_from_excel(_demo_workbook())
-    assert len(checks) == 9  # 6 simple + 3 when/then
+    assert len(checks) == 10  # 6 simple + 4 when/then
     assert checks[0].to_dict() == signal("VehicleSpeed").never_exceeds(220).to_dict()
     expected_wt = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
     assert checks[6].to_dict() == expected_wt
