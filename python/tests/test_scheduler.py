@@ -2,37 +2,34 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for ``tools._scheduler`` — lane-parallel gate scheduling.
 
-Each step's command is answered in-process by a stand-in (``_step_runs``),
-which records what the scheduler asked to run, so the tests hold the *logic*:
+The logic tests answer each step's command in-process by a stand-in
+(``_step_runs``), which records what the scheduler asked to run, so they hold:
 the property a gate orchestrator must never get wrong — **no failure is
 silently dropped** — plus lane fail-fast, cross-lane independence, a signal
 death's status counted as a failure, output kept with its step, and
-deterministic result ordering.  The one test that runs real steps holds what
-only processes show: an interrupt reaching a sweep stops the steps it runs.
+deterministic result ordering.  The tests that run real steps, over a stand-in
+``cabal`` (``_stand_in``), hold what only processes show: once a sweep is
+interrupted or killed, the steps it runs and the builds they start stop, and
+the lock a build held frees.
 """
 
 from __future__ import annotations
 
 import os
 import signal
-import subprocess
-import sys
 from functools import partial
 from pathlib import Path
 
 import pytest
 from _executors import DrivenExecutor, Order
 from _processes import CommandWord
+from _stand_in import ScriptSource, driving_a_held_build, stopped
 from _step_runs import NO_OUTPUT, Answer, Descriptor, StandIn, StepCall, ends, install, passes
 
-from tools import _scheduler
 from tools._determinism_guard import Clock, Seconds
 from tools._scheduler import Step, StepEvent, all_passed, run_lanes
 
 from aletheia.common_types import ExitStatus, Prose
-
-REPO_ROOT = Path(_scheduler.__file__).resolve().parents[1]
-
 
 A1, A2, B1 = CommandWord("a1"), CommandWord("a2"), CommandWord("b1")
 FIRST, BOOM, OOM = CommandWord("first"), CommandWord("boom"), CommandWord("oom")
@@ -105,41 +102,88 @@ def test_signal_death_counts_as_failure(monkeypatch: pytest.MonkeyPatch) -> None
     assert runs.commands == [OOM]
 
 
+# A sweep of two lanes run in parallel, one of them a step running the build.
+_PARALLEL = ScriptSource(
+    "from tools._scheduler import Step, run_lanes; "
+    + "run_lanes([[Step('build', 'cabal run shake -- build')], [Step('other', 'true')]], "
+    + "max_workers=2, heavy_limit=1)"
+)
+
+
 @pytest.mark.process(
     "an interrupt reaches a sweep through its process group, and only real processes show"
     + " the sweep stopping steps that run in groups of their own"
 )
 def test_an_interrupted_parallel_sweep_stops_its_steps(tmp_path: Path) -> None:
-    """Ctrl-C, SIGINT to the sweep's process group, ends a parallel sweep and its steps.
+    """Ctrl-C, SIGINT to the sweep's process group, ends a parallel sweep, its steps and builds.
 
     Each step runs in a process group of its own, which the interrupt does
-    not reach, and this one blocks on a FIFO nothing writes, so a sweep that
-    only waited on its workers would never return.  The step says it started
-    through another FIFO, which the test reads, so no clock decides when the
-    interrupt is sent.
+    not reach, and the build blocks until something stops it, so a sweep that
+    only waited on its workers would never return.  A stop that reached the
+    step's shell but not the build it waits on would leave the lock held.
     """
-    started = tmp_path / "started"
-    never = tmp_path / "never"
-    for fifo in (started, never):
-        os.mkfifo(fifo)
-    script = (
+    with driving_a_held_build(tmp_path, _PARALLEL, own_group=True) as build:
+        os.killpg(build.driver.pid, signal.SIGINT)
+        assert build.driver.wait() != 0
+        stopped(build.lock)
+
+
+@pytest.mark.process(
+    "an interrupt reaches a sweep through its process group, and only real processes show"
+    + " the serial sweep's step stopping when the interrupt leaves the wait on it"
+)
+def test_an_interrupted_serial_sweep_stops_its_step(tmp_path: Path) -> None:
+    """Ctrl-C ends a serial sweep and its build, though the serial path gives steps no stop pipe.
+
+    The interrupt lands in the wait on the step, on the calling thread, and
+    reaches the step only through its guard, whose watch pipe the sweep's
+    leaving closes.
+    """
+    serial = ScriptSource(
         "from tools._scheduler import Step, run_lanes; "
-        f"run_lanes([[Step('slow', 'echo > \"{started}\"; exec cat \"{never}\"')], "
-        "[Step('other', 'true')]], max_workers=2, heavy_limit=1)"
+        + "run_lanes([[Step('build', 'cabal run shake -- build')]], "
+        + "max_workers=1, heavy_limit=1, executor=None)"
     )
-    with subprocess.Popen(
-        [sys.executable, "-c", script],
-        cwd=REPO_ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        process_group=0,
-    ) as sweep:
-        try:
-            _ = started.read_text()
-            os.killpg(sweep.pid, signal.SIGINT)
-            assert sweep.wait() != 0
-        finally:
-            sweep.kill()
+    with driving_a_held_build(tmp_path, serial, own_group=True) as build:
+        os.killpg(build.driver.pid, signal.SIGINT)
+        assert build.driver.wait() != 0
+        stopped(build.lock)
+
+
+@pytest.mark.process(
+    "SIGKILL ends the sweep without running any of its code, and only the kernel closing"
+    + " its pipe ends shows the guards stopping the steps"
+)
+def test_a_killed_sweep_stops_its_steps(tmp_path: Path) -> None:
+    """A sweep killed outright, SIGKILL included, stops the build a step runs."""
+    with driving_a_held_build(tmp_path, _PARALLEL) as build:
+        build.driver.kill()
+        _ = build.driver.wait()
+        stopped(build.lock)
+
+
+@pytest.mark.process(
+    "a step that runs its own build under a guard puts it in a process group of its own,"
+    + " which only real processes show the killed sweep's guard reaching in turn"
+)
+def test_a_killed_sweep_stops_a_step_that_guards_its_own_build(tmp_path: Path) -> None:
+    """A killed sweep stops a build its step guards itself, as the staleness gate's step does.
+
+    This holds that the build stops, not by which path: were the inner guard
+    never told, the outer guard's SIGKILL of the step, after its grace period,
+    would close the inner guard's pipe all the same.  The guard's own tests
+    hold the path an exception takes out of ``run_guarded``.
+    """
+    nested = ScriptSource(
+        "import sys; from tools._scheduler import Step, run_lanes; "
+        + "run_lanes([[Step('build', [sys.executable, '-c', "
+        + "'from tools.check_build_incremental import _build; _build()'])], "
+        + "[Step('other', 'true')]], max_workers=2, heavy_limit=1)"
+    )
+    with driving_a_held_build(tmp_path, nested) as build:
+        build.driver.kill()
+        _ = build.driver.wait()
+        stopped(build.lock)
 
 
 def test_each_step_keeps_its_own_output_whole(monkeypatch: pytest.MonkeyPatch) -> None:
