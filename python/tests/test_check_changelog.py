@@ -12,14 +12,16 @@ Three layers:
   ``###`` headers, read as CommonMark (``cut_problem``, the pure reading of a
   release cut against its base, is ``test_check_changelog_cut``'s);
   ``entry_counts`` / ``gained_entries``, the entries per release section and
-  those a correction would add.
+  those a correction would add; ``probe_mentions``, the lines naming the
+  project's probes, each other sense of the word passed.
 * ``main`` — an end-to-end run over a planted top level, the branch fed as the
   data git lists: a refused subject fails; a subject owing an entry, or a
   surface record changed, fails without a CHANGELOG edit and passes with one;
   anything else passes without one; a release preparation passes with its cut
   and fails without it, or beside a second release; a correction passes when
-  it adds no entry and fails when it adds one; a git step that cannot answer,
-  or a base CHANGELOG not given as UTF-8, stops the gate with exit 2.
+  it adds no entry and fails when it adds one; a CHANGELOG naming a probe
+  fails; a git step that cannot answer, or a base CHANGELOG not given as
+  UTF-8, stops the gate with exit 2.
   One run plants a git repository, its claim being what git itself lists: a
   merge commit is no subject of the branch's.
 """
@@ -41,6 +43,7 @@ from tools.check_changelog import (
     Category,
     EntryCount,
     Gain,
+    Mention,
     Owed,
     OwedSubject,
     UnreleasedHeaders,
@@ -49,6 +52,7 @@ from tools.check_changelog import (
     headers_refused,
     main,
     owed,
+    probe_mentions,
     subjects_refused,
     unreleased_headers,
 )
@@ -67,7 +71,7 @@ TWO_ENTRIES = Prose("# Changelog\n" + ENTRY_TAIL + "\n- **Another.** Gone.\n")
 OK = Prose(
     "check-changelog: ok (the subjects since main read in the vocabulary, CHANGELOG.md is "
     + "edited exactly when they owe it an entry, the release preparation and a correction "
-    + "apart)\n"
+    + "apart, and it names no probe)\n"
 )
 BASE = Revision("base")
 MAIN = Revision("main")
@@ -744,3 +748,77 @@ def test_a_section_gains_entries_only_when_it_holds_more() -> None:
         Gain(Prose("[1.1.0] — 2026-02-01"), EntryCount(0), EntryCount(1)),
         Gain(Prose("[1.0.0] — 2026-01-01"), EntryCount(1), EntryCount(2)),
     ]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "- **A probe holds the claim.**",
+        "  `probes/a.sh` reads red.",
+        "  the store's PROBE_WORKERS.",
+        "  Probing the tree.",
+        "  a probe's verdict, and probes beside it.",
+        "  `tools/run_probes.py` runs.",
+        "  the four-approach probe hit.",
+    ],
+    ids=["probe", "path", "upper", "probing", "twice", "inside-a-name", "investigation"],
+)
+def test_the_projects_probes_are_named_in_any_form_once_per_line(line: Prose) -> None:
+    """The word in any case and any form, inside a path or a name, names its line once."""
+    text = Prose(f"## [Unreleased]\n\n{line}\n")
+    assert probe_mentions(text) == [Mention(3, line)]
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        "the\n  build-staleness probes relink the kernel",
+        "the staleness gate's edit/revert\n  probes can mint",
+        "(baseline and post-probe build-ids, chained across consecutive probe\n  cycles)",
+        '(a `""` probe matched a phantom entry)',
+        "the\n  defense-in-depth size probe is retained, the single marshal now *is*\n  the probe",
+        "rather than via the renderer's cwd-relative probe",
+        "two `.so` relinks (an edit probe and its\n  revert)",
+        "now probes **two** structurally distant runtime modules",
+        "because both distinct\n  probe tokens must reach the `.so`",
+        "a gate run killed\n  mid-probe leaves a leftover",
+    ],
+    ids=[
+        "staleness-probes",
+        "edit-revert",
+        "build-ids",
+        "lookup-key",
+        "size-check",
+        "library-path",
+        "edit-probe",
+        "two-modules",
+        "tokens",
+        "mid-probe",
+    ],
+)
+def test_another_sense_of_the_word_is_not_the_projects(words: Prose) -> None:
+    """A mechanism an entry describes that is called a probe, wrapped or not, is passed."""
+    assert probe_mentions(Prose(f"## [1.0.0] — 2026-01-01\n\n- **A.** {words}.\n")) == []
+
+
+def test_a_line_with_another_sense_still_names_the_projects_probe() -> None:
+    """A kept sense passes only its own words: the project's probe on the same line is named."""
+    line = Prose("  the cwd-relative probe, and a probe of the store.")
+    assert probe_mentions(Prose(f"## [Unreleased]\n\n{line}\n")) == [Mention(3, line)]
+
+
+def test_e2e_a_changelog_naming_a_probe_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A CHANGELOG naming the project's probes fails, each line named with its number."""
+    branch = _branch(
+        RelPath("python/aletheia/thing.py"), Prose("fix(python): a bug"), changelog=True
+    )
+    named = Prose(ENTRY + "  A probe holds it.\n")
+    assert _gate(tmp_path, monkeypatch, branch, changelog=named) == 1
+    assert capsys.readouterr().err == (
+        "check-changelog: FAIL: CHANGELOG.md names the project's probes, which are internal:\n"
+        + "  line 8: A probe holds it.\n"
+        + "An entry states its change and the gate or test that holds it; the probe that showed\n"
+        + "it belongs to the commit message.\n"
+    )

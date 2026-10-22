@@ -49,44 +49,40 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   session starts and removed when the last ends, so mutmut, which runs pytest
   inside its own process, keeps the real clock and threads.
 
-- **The documentation gate is a set of arms, one claim each, and holds what 17
-  probes held: `tools/docs_arms/`.** `tools/check_docs.py` reads every tracked
-  Markdown file once and runs each arm over the same texts. Its own checks are
-  arms like the rest: `links` (every relative link and anchor resolves in a
-  fresh checkout) and `labels` (no living document carries a transient label or
-  a link into the agent memory store), each now held by tests on planted
-  repositories where the gate's own code was held by almost none. Fourteen arms
-  hold what the retired probes held: the C symbols the building guide names are
-  the shim's exports; the Go standard names exactly the fuzz targets the binding
-  defines, and nothing schedules a fuzz run; the build trees and the Go binary
-  the documents name are ignored by the tracked rules, and a venv is ignored at
-  its sanctioned path and at no other top-level one; the index names every
-  document; the building guide's paragraphs are one line each; every document
-  gives the current phase the phase table's word; every pip extra a README names
-  is defined; the README's project tree is the tracked top-level directories;
-  the dependency ledger has its one home; a section number cited beside a link
-  names a heading of the target; every shake target a document shows exists; the
-  opening README.md shares with the pitch is one text; the benchmarks guide
-  states what the baselines, the schema and the residency test record; and every
-  path the building guide names is tracked. The ignore rules are asked in a
-  fresh repository holding only the tracked ignore files, since the `*` file
-  `python -m venv` writes inside a venv answers for any rule otherwise.
-  `python/tests/test_check_docs.py` refuses an arm module the gate does not run.
-  Before the probes left, each of their 112 checks was planted in a private
-  clone: 93 turned the gate red, 14 guard the probes' own interpreter and
-  directory, 2 found an arm blind, and each was fixed (the venv's own ignore
-  file; an extras list with a stray comma), and 3 hold nothing a document
-  states. Mutation rounds over the gate and every arm ran in private clones: the
-  first ran 273 mutants and killed 206, and each survivor that changes behaviour
-  was then held by a test shown red with the mutant applied, or fixed in the
-  arm; the gate, its shared readers and the two arms that were its own checks
-  now kill all 53 mutants run on them. Two more rounds on the lines the fixes
-  changed found 31, then 47, surviving mutants that change behaviour: 58 are
-  held by tests, and 20 are dismissed, each a regular-expression variant told
-  apart only by input outside the arm's claim (a case flag, a Unicode digit, an
-  unclosed bracket, a run of whitespace) or by an order Python randomises per
-  run. The rounds stop there, since a regular expression has no end of such
-  variants.
+- **The documentation gate is a set of arms, one claim each:
+  `tools/docs_arms/`.** `tools/check_docs.py` reads every tracked Markdown file
+  once and runs each arm over the same texts. Its own checks are arms like the
+  rest: `links` (every relative link and anchor resolves in a fresh checkout)
+  and `labels` (no living document carries a transient label or a link into the
+  agent memory store), each now held by tests on planted repositories where the
+  gate's own code was held by almost none. Fourteen arms hold that the C symbols
+  the building guide names are the shim's exports; the Go standard names exactly
+  the fuzz targets the binding defines, and nothing schedules a fuzz run; the
+  build trees and the Go binary the documents name are ignored by the tracked
+  rules, and a venv is ignored at its sanctioned path and at no other top-level
+  one; the index names every document; the building guide's paragraphs are one
+  line each; every document gives the current phase the phase table's word;
+  every pip extra a README names is defined; the README's project tree is the
+  tracked top-level directories; the dependency ledger has its one home; a
+  section number cited beside a link names a heading of the target; every shake
+  target a document shows exists; the opening README.md shares with the pitch is
+  one text; the benchmarks guide states what the baselines, the schema and the
+  residency test record; and every path the building guide names is tracked. The
+  ignore rules are asked in a fresh repository holding only the tracked ignore
+  files, since the `*` file `python -m venv` writes inside a venv answers for
+  any rule otherwise. `python/tests/test_check_docs.py` refuses an arm module
+  the gate does not run. Two arms were found blind, and each was fixed (the
+  venv's own ignore file; an extras list with a stray comma). Mutation rounds
+  over the gate and every arm ran in private clones: the first ran 273 mutants
+  and killed 206, and each survivor that changes behaviour was then held by a
+  test shown red with the mutant applied, or fixed in the arm; the gate, its
+  shared readers and the two arms that were its own checks now kill all 53
+  mutants run on them. Two more rounds on the lines the fixes changed found 31,
+  then 47, surviving mutants that change behaviour: 58 are held by tests, and 20
+  are dismissed, each a regular-expression variant told apart only by input
+  outside the arm's claim (a case flag, a Unicode digit, an unclosed bracket, a
+  run of whitespace) or by an order Python randomises per run. The rounds stop
+  there, since a regular expression has no end of such variants.
 
 - **A Rust test reads the kernel stand-in's counts:
   `rust/tests/kernel_releases.rs`.** The recording kernel, the stand-in that
@@ -101,15 +97,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   kills the one mutant the Rust record carried as a survivor, the backend's
   `Drop`, which only a leak checker on a nightly toolchain was thought able to
   see. The Rust record reads no survivor and an empty ledger.
-
-- **Every probe's time is on its line and kept.** The probe store's runner
-  printed a verdict and a path, so a whole run, 70 min 54 s on the tree of
-  `77d2a3a4`, said nothing of where the time went. Each line now carries the
-  probe's wall time after its path, and the run's times are kept beside its
-  failures in `tools/ci-output/probes/timings.tsv`, one row per probe with its
-  verdict, the latest run's only. The probe over the runner holds the time
-  printed and kept, never shorter than a staged probe's sleep, and replaced
-  by the next run, red against the runner it replaces.
 
 - **A Rust test drives the async client on its own thread:
   `aletheia::testing::TurnExecutor`.** `AsyncClient` runs its sync client on a
@@ -211,28 +198,26 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   other inside a synthesised `main` with a client and one frame's `ts`, `id`,
   `dlc` and `data` predeclared. The five Rust fences of `docs/PITCH.md`,
   `docs/development/DISTRIBUTION.md` and `docs/reference/INTERFACES.md` were
-  read by nothing, and the ten of `docs/reference/RUST_API.md` compiled only by
-  a probe. Two structural gates hold the harness's list to the tree both ways,
-  as the Python harness's is held. The pitch's Rust frame loop sent a frame on
-  a stream it never started, which the kernel refuses; it now starts it.
+  read by nothing. Two structural gates hold the harness's list to the tree both
+  ways, as the Python harness's is held. The pitch's Rust frame loop sent a
+  frame on a stream it never started, which the kernel refuses; it now starts
+  it.
 - **A ratchet on imprecise Python type hints, `tools/check_precise_hints.py`.**
-  Every hint is universally quantified, so `str`, `list[float]` or
-  `dict[str, X]` claims the code handles any string, any list of floats, any
-  key, which it does not; ruff, pylint and basedpyright in strict mode all pass
-  such a hint. The gate reads every tracked Python file outside `.archive/`,
-  and the Python each probe hands an interpreter, and refuses `Any` or
-  `object` or a generic given no parameters, a `str`, `int`, `float` or
-  `bytes` anywhere in a hint, three or more nested subscripts, and a type
-  alias or a `NewType` over a shape holding any of these, in an annotation
-  or in the type a `cast` names, unless
-  `docs/PYTHON_IMPRECISE_HINTS.yaml` names it; a row naming more hints than
-  its file holds fails too. The record holds the hints the tree has today and
-  only shrinks. Prose is `aletheia.common_types.Prose`, a `NewType` the gate
-  reads as precise, in a new standard-library-only module the library and
-  `tools/` share with `ExitStatus`; `tools/__init__.py` puts the library's
-  source on the path of the pre-commit hook's bare interpreter. The gate runs
-  in `run_ci` and in its pre-commit tier; `--root DIR --record FILE` holds
-  another tree, every tracked file under DIR, to a record of its own.
+  Every hint is universally quantified, so `str`, `list[float]` or `dict[str,
+  X]` claims the code handles any string, any list of floats, any key, which it
+  does not; ruff, pylint and basedpyright in strict mode all pass such a hint.
+  The gate reads every tracked Python file outside `.archive/` and refuses `Any`
+  or `object` or a generic given no parameters, a `str`, `int`, `float` or
+  `bytes` anywhere in a hint, three or more nested subscripts, and a type alias
+  or a `NewType` over a shape holding any of these, in an annotation or in the
+  type a `cast` names, unless `docs/PYTHON_IMPRECISE_HINTS.yaml` names it; a row
+  naming more hints than its file holds fails too. The record holds the hints
+  the tree has today and only shrinks. Prose is `aletheia.common_types.Prose`, a
+  `NewType` the gate reads as precise, in a new standard-library-only module the
+  library and `tools/` share with `ExitStatus`; `tools/__init__.py` puts the
+  library's source on the path of the pre-commit hook's bare interpreter. The
+  gate runs in `run_ci` and in its pre-commit tier; `--root DIR --record FILE`
+  holds another tree, every tracked file under DIR, to a record of its own.
 - **`aletheia template <file>.xlsx`, in the Python, C++ and Go CLIs.** It
   writes the blank workbook the Excel loaders read, the DBC, Checks and
   When-Then sheets under bold header rows, so the spreadsheet route starts from
@@ -256,23 +241,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   every mutant's bucket from the tool's `outcomes.json`, keys each survivor on
   its mutation and source line as the C++ ledger does, and refuses a
   cargo-mutants other than the version `docs/MUTATION_BENCH.yaml` pins. The
-  sweep mutates a scratch copy of the whole tree and runs cargo-mutants in
-  place within it, because the suite includes the DBC corpus and the parity
-  snapshots from above the crate at compile time and a copy of the crate alone
-  does not build; a probe holds that reason. The configuration
-  names an error value, so every function returning a `Result` gets an `Err`
-  mutant beside its `Ok` ones, and every one of those dies. The lane joins the
-  runner, its diff scope, the static gate, which now refuses a record with no
-  block for a binding the runner sweeps, and the heavy-lanes workflow as a lane
-  of its own. The first sweep left 56 of 305 mutants alive; 54 are killed by
-  tests at the boundaries they sit on (the identifier and payload maxima, the
-  rational comparison's cross terms, the extraction buffer's plausibility cap
-  and its null and empty-reason cases, the bus-bit encoding, the error and
-  remote frame acknowledgements, the RTS core-count warning with both specs,
-  the DBC message helpers and the comment target's flag), the buffer cap
-  having moved into a function a test can hand a buffer to. The two the
-  record carries are the `Drop` impls that return memory to the kernel, which
-  no test observes without a leak checker.
+  sweep mutates a scratch copy of the whole tree and runs cargo-mutants in place
+  within it, because the suite includes the DBC corpus and the parity snapshots
+  from above the crate at compile time and a copy of the crate alone does not
+  build. The configuration names an error value, so every function returning a
+  `Result` gets an `Err` mutant beside its `Ok` ones, and every one of those
+  dies. The lane joins the runner, its diff scope, the static gate, which now
+  refuses a record with no block for a binding the runner sweeps, and the
+  heavy-lanes workflow as a lane of its own. The first sweep left 56 of 305
+  mutants alive; 54 are killed by tests at the boundaries they sit on (the
+  identifier and payload maxima, the rational comparison's cross terms, the
+  extraction buffer's plausibility cap and its null and empty-reason cases, the
+  bus-bit encoding, the error and remote frame acknowledgements, the RTS
+  core-count warning with both specs, the DBC message helpers and the comment
+  target's flag), the buffer cap having moved into a function a test can hand a
+  buffer to. The two the record carries are the `Drop` impls that return memory
+  to the kernel, which no test observes without a leak checker.
 
 - **A coverage lane, each binding's suite under its own coverage tool, held to
   floors.** `tools/coverage_run.py` runs the Python suite under coverage.py, the
@@ -315,11 +299,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   held out is the install receipt `shake install` generates, which no checkout
   carries.
 
-- **The FFI-name gate runs on demand and reads a wrapper it is given.**
-  `cabal run shake -- check-ffi-names` runs the check the Main.hs build rule
-  runs inline, against the wrapper named by `ALETHEIA_FFI_WRAPPER` or, unset,
-  the shim's own. A probe hands the phony the shim's wrapper rewritten into each
-  shape the extractor must read through and reads the verdict.
+- **The FFI-name gate runs on demand and reads a wrapper it is given.** `cabal
+  run shake -- check-ffi-names` runs the check the Main.hs build rule runs
+  inline, against the wrapper named by `ALETHEIA_FFI_WRAPPER` or, unset, the
+  shim's own.
 
 - **The Actions cache is pruned of what nothing can restore.** The repository's
   cache stood past its ceiling, and at the ceiling the platform evicts whatever
@@ -610,44 +593,38 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   declarations byte for byte as they were: `go/aletheia/json.go` keeps the
   serialization and gives response decoding to `json_response.go` and DBC
   decoding to `json_dbc.go`; `client.go` keeps the type, its lock and the DBC
-  methods and gives the frame and stream methods to `client_stream.go` and
-  the enrichment helpers to `client_enrich.go`; `stream_test.go` gives the
+  methods and gives the frame and stream methods to `client_stream.go` and the
+  enrichment helpers to `client_enrich.go`; `stream_test.go` gives the
   end-of-stream verdict cases to `stream_eos_test.go`; `go/benchmarks/main.go`
   gives each mode to `throughput.go`, `latency.go` and `scaling.go`;
   `go/excel/excel_test.go` gives the template, loader-edge, hardening and
   cell-type cases a file each. The test names listed before and after are the
-  same, the mutation record's hot path names the parts, and every probe and
-  comment that cited moved code cites its new file. The Haskell file over the
-  cap follows, and a tree-wide gate then holds every code file to it.
+  same, the mutation record's hot path names the parts, and every comment that
+  cited moved code cites its new file. The Haskell file over the cap follows,
+  and a tree-wide gate then holds every code file to it.
 
-- **The C++ mutation binary runs its costliest tests last.** Under
-  `--order decl` and `--abort` a mutant pays for every test ahead of the one
-  that kills it, and the tests that build an input past a size bound through
-  the kernel ran before the loader suites, so every `excel.cpp` mutant paid for
-  them. Those tests are their own units
-  (`cpp/tests/integration_tests_size_bounds.cpp`,
+- **The C++ mutation binary runs its costliest tests last.** Under `--order
+  decl` and `--abort` a mutant pays for every test ahead of the one that kills
+  it, and the tests that build an input past a size bound through the kernel ran
+  before the loader suites, so every `excel.cpp` mutant paid for them. Those
+  tests are their own units (`cpp/tests/integration_tests_size_bounds.cpp`,
   `cpp/tests/unit_tests_input_cap.cpp`), tagged `[costly]` and linked last into
   the mutation binary, while ctest's suites hold the same tests as before; the
   library lookup two integration units now share is `cpp/tests/find_lib.hpp`.
-  Before a leg's runner starts, the lane lists the binary and refuses one with
-  a `[costly]` test ahead of an untagged one, or with none
-  (`tools/mutation_cpp_order.py`). On a local whole sweep the mutants' run
-  time fell from 2690 s to 517 s and the median `excel.cpp` mutant from 6.15 s
-  to 0.60 s; every kill route and ledger row stayed where it was. The merge's
-  drift line now reads the heaviest slice under the recorded cut against the
-  heaviest under a cut on the run's own figures, since one file can outweigh
-  an equal share and no cut goes below it. The probes that read the tree as
-  it stands, through a scratch checkout of the last commit plus the
-  uncommitted diff, now copy the untracked files too: the diff does not carry
-  them, and the compile database already names them.
+  Before a leg's runner starts, the lane lists the binary and refuses one with a
+  `[costly]` test ahead of an untagged one, or with none
+  (`tools/mutation_cpp_order.py`). On a local whole sweep the mutants' run time
+  fell from 2690 s to 517 s and the median `excel.cpp` mutant from 6.15 s to
+  0.60 s; every kill route and ledger row stayed where it was. The merge's drift
+  line now reads the heaviest slice under the recorded cut against the heaviest
+  under a cut on the run's own figures, since one file can outweigh an equal
+  share and no cut goes below it.
 
-- **The C++ mutation lane holds the pointer-call rule itself.** A census of
-  the whole tree, swept in one process or merged from the legs, is refused
-  when it carries no `cxx_replace_pointer_call_null` mutant, or one on a line
-  reading an exception's message through `what()`
-  (`tools/mutation_cpp_pointer_calls.py`). The probe that held the rule on one
-  unit is retired: that unit no longer makes the replacement anywhere. A
-  change to the Mull patches or `tools/build_mull.sh` now sweeps every lane.
+- **The C++ mutation lane holds the pointer-call rule itself.** A census of the
+  whole tree, swept in one process or merged from the legs, is refused when it
+  carries no `cxx_replace_pointer_call_null` mutant, or one on a line reading an
+  exception's message through `what()` (`tools/mutation_cpp_pointer_calls.py`).
+  A change to the Mull patches or `tools/build_mull.sh` now sweeps every lane.
 
 - **The documentation gate's arm tests plant their files instead of building
   repositories.** A test whose claim does not need a process starts none. Each
@@ -685,17 +662,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   test, and the record's two leak-route rows leave the unobserved ledger.
 
 - **A gate refuses the C++ library's unchecked reads, in the parse the
-  type-deduction ratchet already makes.** A probe held the reads of a state a
-  check has ruled out at zero (AGENTS/cpp.md cat 24), one clang-query over
-  every translation unit, 150.5 s, run only with the probe store; and it read
-  a unit clang-query could not parse as clean, since clang-query exits zero
-  after a fatal diagnostic and matches nothing in that unit, so it passed over
-  a tree whose unit hid an unchecked read behind a missing include.
-  `tools/check_cpp_checked_reads.py` now holds the rule, and the C++ lint
-  lane's `check-cpp-ast` step, `tools/check_cpp_ast.py`, runs it with the
-  ratchet in one query per unit, the parse being most of either rule's time:
-  12.2 s and 165 s of CPU for both, where the two apart took 21.9 s and 297 s.
-  A unit clang-query cannot parse fails the step. The rules' tests run the
+  type-deduction ratchet already makes.** `tools/check_cpp_checked_reads.py`
+  now holds the reads of a state a check has ruled out at zero (AGENTS/cpp.md
+  cat 24), and the C++ lint lane's `check-cpp-ast` step,
+  `tools/check_cpp_ast.py`, runs it with the ratchet in one query per unit,
+  the parse being most of either rule's time: 12.2 s and 165 s of CPU for
+  both, where the two apart took 21.9 s and 297 s. A unit clang-query cannot
+  parse fails the step, since clang-query exits zero after a fatal diagnostic
+  and matches nothing in that unit. The rules' tests run the
   whole query over a tree laid out as the binding's: every spelling the
   checked-read rule names, the checked form of each, a public header's
   template read only where a test instantiates it, the two headers held out,
@@ -710,69 +684,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   it, and the benchmark's 28 subscripts take their checked forms.
 
 - **The mutation lane holds every binding's record exactly, both ways.** The
-  lane failed a run worse than `docs/MUTATION_BENCH.yaml` and passed one
-  better: fewer survivors or not-covered mutants, a ledger row the run no
-  longer produced, which it only reported, and a C++ tree's census past its
-  record. It held no total but to a floor on each C++ tree's census, and no
-  C++ kill route or Go or Rust count of every mutant the tool made at all;
-  seven probes swept the trees again to refuse what the lane let pass. The
-  lane now fails a run off the record either way, `regression` where the run
-  is worse and `stale` where it is better, until the change that moved it
-  records the new figure in the same commit: the survivor count,
-  `total_mutants`, `generated` (gremlins' six buckets, cargo-mutants' four, so
-  a mutant that left the surface for the not viable, skipped or unviable
-  bucket is seen), the not-covered count, the C++ census by kill route, every
-  row of the three ledgers, each C++ tree's census at the merge, and a mutant
-  in every file of the C++ `hot_path`. The seven probes are retired into the
-  lane, and with the Go and Rust baselines' probes gone, so are the kept Go
-  and Rust sweeps that only they read. The probe that held a timed-out Go
-  sweep refused is retired into the Go drift tests: the run at the ceiling it
-  took, off the record, is now refused as stale, and the rest of its claim,
-  the recorded run with 622 mutants timed out refused and the ceiling as the
-  edge, is a test.
+  lane failed a run worse than `docs/MUTATION_BENCH.yaml` and passed one better:
+  fewer survivors or not-covered mutants, a ledger row the run no longer
+  produced, which it only reported, and a C++ tree's census past its record. It
+  held no total but to a floor on each C++ tree's census, and no C++ kill route
+  or Go or Rust count of every mutant the tool made at all. The lane now fails a
+  run off the record either way, `regression` where the run is worse and `stale`
+  where it is better, until the change that moved it records the new figure in
+  the same commit: the survivor count, `total_mutants`, `generated` (gremlins'
+  six buckets, cargo-mutants' four, so a mutant that left the surface for the
+  not viable, skipped or unviable bucket is seen), the not-covered count, the
+  C++ census by kill route, every row of the three ledgers, each C++ tree's
+  census at the merge, and a mutant in every file of the C++ `hot_path`. The Go
+  drift tests hold a timed-out Go sweep refused: the run at the ceiling, off the
+  record, is now refused as stale, and a test holds the recorded run with 622
+  mutants timed out refused and the ceiling as the edge.
 
-- **Every probe writes only beneath a directory of its own.** Probes wrote
-  where another could read or write: a fixed scratch directory under
-  `cpp/build`, `tools/ci-output` or `go/`, a tracked directory, a shared build
-  tree they built in, or the tree's Agda interfaces and lock. Each now writes
-  beneath a directory it makes with `mktemp -d`, and builds what it runs
-  there: a C++ target in a tree of its own made by the new
-  `tools/private_cpp_tree.sh`, which configures from the sources `cpp/build`
-  fetched and builds with the tree as ccache's base directory, so a fresh
-  tree's library is served from the cache in 1.8 s where, without the base
-  directory, 28 of its 76 compiles missed and it took 32.8 s; an Agda check in
-  a copy of the project and its interfaces; a gate pointed at a copy of the
-  files it reads. A lane's mutation tree is read as the lane left it, and the
-  probe of the slices refuses one that is absent, was built under another
-  configuration or is older than a tracked C++ source. The rewrite found what
-  the shared state had hidden: a probe signed the commits of its scratch
-  repository with the developer's own key; two configured C++ trees fetched
-  their dependencies from the network on every run; one redated every Agda
-  interface in the tree to 2020 and deleted one; and the probe of the fuzz
-  recipe could not have seen the write it guards against once writes outside
-  its directory are refused, so it runs the recipe against a copy of the seeds
-  and compares the two. The two probes that time the kernel's growth take its
-  processor time, the two sizes in turn, rather than its wall time.
-- **The probe store runs its probes side by side, each in a sandbox.** The
-  runner ran one probe at a time, since only then could it tell which probe
-  had moved a tracked file. It now runs `PROBE_WORKERS` probes at once, 4
-  unless told otherwise, each under a Landlock ruleset (`setpriv`, util-linux
-  2.42) that lets it write only beneath a directory of its own, the tool
-  caches and the git directory, so a write to a tracked file or to another
-  probe's directory is refused in the probe that made it. Landlock does not
-  govern a file's times or mode, so the runner reads every tracked file's
-  mtime, size and mode whenever a probe starts or ends; a change makes the
-  probes running since the last reading suspects, each runs again alone, and
-  the one that moves a file fails. Lines and kept times are in path order
-  whatever order the probes finish in, so a run at one worker and a run at
-  eight keep the same record once the times are taken out. A probe starts
-  with SIGINT and SIGQUIT at their defaults, as one run by hand does. The 294
-  probes took 1305.9 s at one worker and 429.3 s at four, with 14.6 GiB of
-  memory at the peak, page cache included; eight took 399.7 s and 20.8 GiB,
-  and sixteen 387.3 s, held at a 22 GiB cap. Past four, the three longest
-  probes bound the run. The probe over the runner holds a refused write, a touched file, a flipped mode,
-  one record at one worker and at eight, and two probes that see each other
-  running at two workers.
 - **Every list in a DBC has a bound, every DBC command decides them alike,
   and a loaded DBC carries the proof (BREAKING).** Eight lists had no bound on
   any route and now refuse past it with `input_bound_exceeded`,
@@ -847,35 +774,31 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `InputBoundExceededError` with an empty `Code`, where every other refusal
   carries `input_bound_exceeded`.
 
-- **A test starts a process only where its claim needs one.** Every process
-  the four bindings' tests start was judged against what the test claims. The
+- **A test starts a process only where its claim needs one.** Every process the
+  four bindings' tests start was judged against what the test claims. The
   `aletheia check` tests of error frames, an Excel-authored DBC and a filled-in
-  template run the CLI's `main` in the test's own process, where they ran it
-  as a child; undoing either fix they guard still fails them. A pid no process
+  template run the CLI's `main` in the test's own process, where they ran it as
+  a child; undoing either fix they guard still fails them. A pid no process
   holds is the kernel's `pid_max`, never handed out, where two tests spawned and
-  reaped a child for its id, which the kernel could give to another process.
-  The precise-hints gate's command line runs in-process. Two child scripts a
-  test carried as a string waited on the clock, out of the gate's sight: a
-  lock holder slept 60 s, so a slow run freed the lock under the test, and a
-  streaming handshake polled with a 20 s deadline. The holder now waits on
-  input the test holds and the handshake on a FIFO, and the gate reads a Python
-  test's string that is a script, one that parses and calls or imports
-  something, as the source it is. The processes kept are the ones a claim
-  needs: a runtime started fresh or with another locale or capability count, a
-  heap cap that ends its process, a doc fence built and run as a program,
-  git's tracked set, a signal, a process group, a record lock or resident
-  memory, which belong to a process. The wide-net probe accepts a word that
-  starts a process only in the files judged, each with its reason, so the
-  probe refuses a new one until it is judged. The stand-in kernels the tests
-  load (one at another ABI version, one exporting the version alone, one
-  exporting no kernel symbol, one answering null) are built by `cabal run
-  shake -- build` beside the library, from `haskell-shim/test/`, where Go,
-  Python and Rust compiled them with `cc` during their tests and C++ built its
-  own copies in CMake; every binding loads them from the directory of the
-  library it runs against, a missing one failing with the build's name, and
-  Python and Rust load the built symbol-less kernel where they loaded the
-  host's `libm`. A probe holds the build's table to the names the tests load,
-  both ways, and each built kernel to the exports its role needs.
+  reaped a child for its id, which the kernel could give to another process. The
+  precise-hints gate's command line runs in-process. Two child scripts a test
+  carried as a string waited on the clock, out of the gate's sight: a lock
+  holder slept 60 s, so a slow run freed the lock under the test, and a
+  streaming handshake polled with a 20 s deadline. The holder now waits on input
+  the test holds and the handshake on a FIFO, and the gate reads a Python test's
+  string that is a script, one that parses and calls or imports something, as
+  the source it is. The processes kept are the ones a claim needs: a runtime
+  started fresh or with another locale or capability count, a heap cap that ends
+  its process, a doc fence built and run as a program, git's tracked set, a
+  signal, a process group, a record lock or resident memory, which belong to a
+  process. The stand-in kernels the tests load (one at another ABI version, one
+  exporting the version alone, one exporting no kernel symbol, one answering
+  null) are built by `cabal run shake -- build` beside the library, from
+  `haskell-shim/test/`, where Go, Python and Rust compiled them with `cc` during
+  their tests and C++ built its own copies in CMake; every binding loads them
+  from the directory of the library it runs against, a missing one failing with
+  the build's name, and Python and Rust load the built symbol-less kernel where
+  they loaded the host's `libm`.
 
 - **The test-determinism gate reads every spelling of a clock or a thread,
   and the Go doc examples and Rust test binaries run one thing at a time.** A
@@ -1018,68 +941,60 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   printed as a file whose runs the record does not count, and against them the
   heaviest slice of heavy lanes run 37091833867 cost 5.1, 5.7 and 9.7 percent
   over an equal share in the leak, plain and address trees. Re-taken from that
-  run's `cpp-runs.json`, the same run reads 0.0, 0.0 and 2.1, the address
-  tree's `cpp/src/client.cpp` alone being more than a third of that tree. The
-  docs now say what the unit, a suite run, holds: a file's figure across CI
-  runners and not across hosts. Over three pairs of CI runs, each pair
-  sweeping one state of the C++ sources, each file of 2 percent of its tree or
-  more in either run of a pair gets 0.82 to 1.22 times the other run's figure,
-  and a local sweep gives each such file 0.33 to 0.63 times the CI one. A
-  lane's saved cache kept superseded generations until the 128M cap trimmed
-  them, and the four fresh caches of the largest slice the cap was sized to
-  hold, 130.4 MB, had outgrown it. A lane now takes its start where it zeroes
-  its cache's counters, after the restore, and before the save it runs
-  `tools/mutation_ccache_evict.sh`, which evicts every entry the run did not
-  use, going by the modification time a hit refreshes, keeps the cache whole
-  for a run that compiled nothing or whose build stopped at a failed compile
-  or a preprocessor error, prints the cache before and after, and fails when
-  an entry from a second or more before the start survives; the 128M cap holds
-  three of the largest slice, enough for the run after one build that stopped
-  at a failed compile, with room to grow. A probe, run green under ccache
-  4.9.1 (the runner's) and 4.13.6, holds that a direct and a preprocessor-mode
-  rebuild keep every entry they read and the latter drops the manifests it did
-  not, that a build under another slice's configuration keeps none of the
-  first's entries, and that a run that compiled nothing, failed a compile or
-  failed to preprocess keeps the cache whole.
+  run's `cpp-runs.json`, the same run reads 0.0, 0.0 and 2.1, the address tree's
+  `cpp/src/client.cpp` alone being more than a third of that tree. The docs now
+  say what the unit, a suite run, holds: a file's figure across CI runners and
+  not across hosts. Over three pairs of CI runs, each pair sweeping one state of
+  the C++ sources, each file of 2 percent of its tree or more in either run of a
+  pair gets 0.82 to 1.22 times the other run's figure, and a local sweep gives
+  each such file 0.33 to 0.63 times the CI one. A lane's saved cache kept
+  superseded generations until the 128M cap trimmed them, and the four fresh
+  caches of the largest slice the cap was sized to hold, 130.4 MB, had outgrown
+  it. A lane now takes its start where it zeroes its cache's counters, after the
+  restore, and before the save it runs `tools/mutation_ccache_evict.sh`, which
+  evicts every entry the run did not use, going by the modification time a hit
+  refreshes, keeps the cache whole for a run that compiled nothing or whose
+  build stopped at a failed compile or a preprocessor error, prints the cache
+  before and after, and fails when an entry from a second or more before the
+  start survives; the 128M cap holds three of the largest slice, enough for the
+  run after one build that stopped at a failed compile, with room to grow.
 
 - **The C++ binding reads a state a check rules out in a checked form, and its
-  mutation lane sweeps the three suites that need a process of their own for
-  the renderer and the runtime.** A guard whose mutant stopped it firing let
-  the code read an optional's or an expected's value that was not there, an
+  mutation lane sweeps the three suites that need a process of their own for the
+  renderer and the runtime.** A guard whose mutant stopped it firing let the
+  code read an optional's or an expected's value that was not there, an
   expected's error that was not there, or a subscript, a span's slice or a
-  string view's narrowing past the end: undefined on a shipped build, and
-  killed in the lane only by the standard library's debug checks, which no
-  test observes. Every such read in the library and the command-line tool now
-  takes its checked form, `value()`, `at()`, `substr()`, and two helpers for
-  what C++23 leaves unchecked, `detail::error_of` and `detail::subspan_at`
-  (`cpp/include/aletheia/detail/checked.hpp`). Each is a template forwarding
-  to one check compiled once and tested at its boundaries; the one mutant of
-  that check no test can observe computes a slice past the end, which the
-  standard library's own assertion ends. A helper whose check sat in the
-  template would carry a mutant no correct call can kill for every type it
-  reads, measured. A span's front and back have no checked form in C++23 and
-  stay as they were. The ZIP walker's little-endian readers read their field
-  as a checked slice, each byte at its place, without an index. One guard read
-  the same as the `catch` around it, so that `catch` now takes nlohmann's
-  exceptions only, as its comment said, and a test that read past the end of
-  the list it checked now requires its size first. The three suites, the
-  renderer with the runtime down, the renderer with no library to find (a
-  suite new here) and the runtime's heap cap, run as children of one binary,
-  `cpp/tests/fresh_process_tests.cpp`, which ctest runs and the mutation build
-  folds into the mutation binary: each child inherits the mutant and links the
-  same library, itself or through the workload it starts, and a child that
-  fails ends its parent as it ended itself, so the sweep reads the child's
-  ending as its own. Each child, and the heap-cap suite's workload, dies with
-  the process that started it, since the runner ends a run by killing the test
-  binary alone and then waits for its pipes, which a child left running would
-  hold. The children build into a `fresh-process` directory of the tree, which
-  the sweep cache keys as it keys the test kernels. The decimal parser's
-  denominator check builds the rational or throws, as Go's does, so the call
-  site has no branch left to mutate. The lane's survivors fall from 8 to 4,
-  both classes now ruled: the client's re-check of a precondition nothing
-  proves, and `from_chars`'s out-parameter. The kills no test observes fall
-  from 172 mutants in 122 ledger rows to 58 in 35, and a probe over every
-  translation unit holds the census of unchecked reads at zero.
+  string view's narrowing past the end: undefined on a shipped build, and killed
+  in the lane only by the standard library's debug checks, which no test
+  observes. Every such read in the library and the command-line tool now takes
+  its checked form, `value()`, `at()`, `substr()`, and two helpers for what
+  C++23 leaves unchecked, `detail::error_of` and `detail::subspan_at`
+  (`cpp/include/aletheia/detail/checked.hpp`). Each is a template forwarding to
+  one check compiled once and tested at its boundaries; the one mutant of that
+  check no test can observe computes a slice past the end, which the standard
+  library's own assertion ends. A helper whose check sat in the template would
+  carry a mutant no correct call can kill for every type it reads, measured. A
+  span's front and back have no checked form in C++23 and stay as they were. The
+  ZIP walker's little-endian readers read their field as a checked slice, each
+  byte at its place, without an index. One guard read the same as the `catch`
+  around it, so that `catch` now takes nlohmann's exceptions only, as its
+  comment said, and a test that read past the end of the list it checked now
+  requires its size first. The three suites, the renderer with the runtime down,
+  the renderer with no library to find (a suite new here) and the runtime's heap
+  cap, run as children of one binary, `cpp/tests/fresh_process_tests.cpp`, which
+  ctest runs and the mutation build folds into the mutation binary: each child
+  inherits the mutant and links the same library, itself or through the workload
+  it starts, and a child that fails ends its parent as it ended itself, so the
+  sweep reads the child's ending as its own. Each child, and the heap-cap
+  suite's workload, dies with the process that started it, since the runner ends
+  a run by killing the test binary alone and then waits for its pipes, which a
+  child left running would hold. The children build into a `fresh-process`
+  directory of the tree, which the sweep cache keys as it keys the test kernels.
+  The decimal parser's denominator check builds the rational or throws, as Go's
+  does, so the call site has no branch left to mutate. The lane's survivors fall
+  from 8 to 4, both classes now ruled: the client's re-check of a precondition
+  nothing proves, and `from_chars`'s out-parameter. The kills no test observes
+  fall from 172 mutants in 122 ledger rows to 58 in 35.
 - **The runtime parameters' document has one check.** The four bindings'
   tests that compared their mirrored constants with
   `docs/RESOURCE_BUDGETS.yaml` repeated `tools/check_rts_runtime.py`, and
@@ -1179,14 +1094,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   mutant either way.
 
 - **Every mutation lane refuses a sweep in which its tool's cap fired.** A
-  mutant the tool ended at its timeout is neither killed nor survived, and
-  no verdict comes from a clock. The C++ lane counted such a mutant killed:
-  the merge now takes the timeout count from the kill-route census and
-  leaves it out of the killed count, and the Python lane passes mutmut's
-  count through. Every baseline records `timeout_ceiling: 0`, the Rust
-  lane's former 30 and its justification by a quiet or loaded host
-  included, and the probes that compare a sweep with the record fail on a
-  timed-out mutant rather than calling the run untestable.
+  mutant the tool ended at its timeout is neither killed nor survived, and no
+  verdict comes from a clock. The C++ lane counted such a mutant killed: the
+  merge now takes the timeout count from the kill-route census and leaves it out
+  of the killed count, and the Python lane passes mutmut's count through. Every
+  baseline records `timeout_ceiling: 0`, the Rust lane's former 30 and its
+  justification by a quiet or loaded host included.
 
 - **A C++ mutant's run ends at its first failing assertion.** The lane hands
   the test binary Catch2's `--abort`, where the suite used to run to its end
@@ -1197,8 +1110,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   848 s. The kill-route census reads any failing assertion as the test's kill,
   whatever ends the process after it, and a run with none goes through the
   whole suite either way, so no route moves: compared mutant by mutant, the
-  two sweeps read the same route, check and status for every one, and a probe
-  sweeps every tree without the flag to hold that.
+  two sweeps read the same route, check and status for every one.
 
 - **The cabal store a CI job saves holds the shake executable's dependencies.**
   Every job that builds the kernel compiled `shake` and the libraries it
@@ -1213,15 +1125,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   rebuilding Agda against a newer one.
 
 - **CI restores GHC instead of installing it.** `ghcup install ghc` spent 92 s
-  of every job's 104 s toolchain step unpacking and installing the bindist.
-  The directory ghcup installs GHC to, read from `ghcup whereis basedir`, is
-  now cached under a key naming the version and the runner image; a job that
-  finds it skips the install, and every job runs the compiler from that
-  directory, hit or miss. It is cached where ghcup puts it rather than moved,
-  because the kernel library a job restores from the build-tree cache names
-  GHC's library directory in its RUNPATH, so a compiler cached anywhere else
-  leaves that library unable to load GHC's runtime. A probe holds every job
-  that installs Agda to this one setup of GHC and the store.
+  of every job's 104 s toolchain step unpacking and installing the bindist. The
+  directory ghcup installs GHC to, read from `ghcup whereis basedir`, is now
+  cached under a key naming the version and the runner image; a job that finds
+  it skips the install, and every job runs the compiler from that directory, hit
+  or miss. It is cached where ghcup puts it rather than moved, because the
+  kernel library a job restores from the build-tree cache names GHC's library
+  directory in its RUNPATH, so a compiler cached anywhere else leaves that
+  library unable to load GHC's runtime.
 
 - **The Go mutation lane is two shards and a merge.** It set the pull
   request's wall clock once the C++ legs stopped running whole suites: 1275 s
@@ -1247,10 +1158,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 - **Every job that builds the dev venv reuses pip's wheel cache.** The venv is
   created afresh on every run, and its install fetched every wheel again from
-  the package index: about 20 s in most jobs, 97 s and 255 s in two jobs of
-  one run. Each `actions/setup-python` step ahead of a venv install now
-  caches pip, keyed on `python/pyproject.toml`, as the benchmark workflow
-  already did, and a probe holds every such job to it.
+  the package index: about 20 s in most jobs, 97 s and 255 s in two jobs of one
+  run. Each `actions/setup-python` step ahead of a venv install now caches pip,
+  keyed on `python/pyproject.toml`, as the benchmark workflow already did.
 
 - **The Rust mutation lane sweeps in shards side by side.** It set the pull
   request's wall clock once the Go lane was sharded: 905 s, its sweep 845 s.
@@ -1305,25 +1215,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   required check, now reports both and fails unless both passed. clang-tidy
   and the two checks reading its compile database run in a lane of their own,
   over a tree configured and never built (`cpp/build-tidy`), so they do not
-  wait for the test build; a probe holds that tree's database to the test
-  build's. Timed alone on four CPUs, the parts took 242.5 s and 192.3 s against
-  330 s for the whole sweep; the lint lane on one runner made the sweep slower,
-  342 s, which is why it came with the second. A sweep of some lanes records no
-  build-source digest, so its log is no evidence that every gate observed the
-  tree.
+  wait for the test build. Timed alone on four CPUs, the parts took 242.5 s and
+  192.3 s against 330 s for the whole sweep; the lint lane on one runner made
+  the sweep slower, 342 s, which is why it came with the second. A sweep of some
+  lanes records no build-source digest, so its log is no evidence that every
+  gate observed the tree.
 
-- **The Rust mutation lane runs as two jobs on two runners.** A mutant's
-  build is bound by the CPUs it shares with the other shards, so a second
-  runner halves each job's share of the sweep. Each job sweeps four of the
-  jobs' eight shards (`ALETHEIA_MUTATION_RUST_STAGE`), whatever CPUs it was
-  given, so the two jobs' shards partition one listing, and keeps that listing
-  beside its shards. The `mutation merge` job holds the two listings to each
-  other and to the commit, refuses a shard missing or doubled, and merges the
-  eight as one sweep's, the lane's verdict. Run the same way locally, each job
-  alone on four CPUs took 227 s and 190 s against 361 s for the whole sweep,
-  and the merge read the record: 375 mutants, 314 caught, 2 missed, 59
-  unviable. A probe holds cargo-mutants' dealing to the eight shards as well
-  as to a whole sweep's counts.
+- **The Rust mutation lane runs as two jobs on two runners.** A mutant's build
+  is bound by the CPUs it shares with the other shards, so a second runner
+  halves each job's share of the sweep. Each job sweeps four of the jobs' eight
+  shards (`ALETHEIA_MUTATION_RUST_STAGE`), whatever CPUs it was given, so the
+  two jobs' shards partition one listing, and keeps that listing beside its
+  shards. The `mutation merge` job holds the two listings to each other and to
+  the commit, refuses a shard missing or doubled, and merges the eight as one
+  sweep's, the lane's verdict. Run the same way locally, each job alone on four
+  CPUs took 227 s and 190 s against 361 s for the whole sweep, and the merge
+  read the record: 375 mutants, 314 caught, 2 missed, 59 unviable.
 
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
@@ -1354,20 +1261,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   Go, C++ and Rust extractors already did, so the lists of documents whose
   fences a harness skips are gone. The Python and Rust harnesses gain the
   floor under their fence count that the Go and C++ ones carry.
-- **The Tutorial's C++ and Rust paths run in their doc-example harnesses.**
-  Each path is one program cut into steps: the harness joins its fences in
-  order and compiles and runs the whole, where before only a probe outside CI
-  compiled them. The C++ steps exited zero when a call failed and dropped the
-  sent frame's answer; a failed step now exits non-zero, and the last step
-  closes `main`. The C++ harness's own prologue exits non-zero on a DBC that
-  does not parse, where it went on with a client holding none.
+- **The Tutorial's C++ and Rust paths run in their doc-example harnesses.** Each
+  path is one program cut into steps: the harness joins its fences in order and
+  compiles and runs the whole. The C++ steps exited zero when a call failed and
+  dropped the sent frame's answer; a failed step now exits non-zero, and the
+  last step closes `main`. The C++ harness's own prologue exits non-zero on a
+  DBC that does not parse, where it went on with a client holding none.
 - **The C++ and Go doc-example harnesses hold their document lists to the tree
   both ways, as the Python one does:** a tracked Markdown file carrying a fence
   in the binding's language is listed, and a listed one is tracked and carries
   one, as the harness's own extractor reads it. The C++ list named `README.md`
   and `docs/architecture/CANCELLATION.md`, which carry no C++ fence, and missed
-  `cpp/README.md`, whose program only a probe compiled; the Go list named
-  `README.md`, which carries no Go fence, and was held one way, by a probe. The
+  `cpp/README.md`; the Go list named `README.md`, which carries no Go fence. The
   C++ harness skipped a listed document that did not exist, so a rename shrank
   the run silently; it now fails. The Go list and extractor moved to
   `go/aletheia/doc_files_test.go`, which builds without cgo, so its list gates,
@@ -1405,9 +1310,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   operations, as the Python and C++ ones do, where they warmed for 2.
 - **The Go CLI is a module of its own, `go/cmd/aletheia`,** in the `go/`
   workspace beside the core and Excel modules: `template` writes through the
-  Excel module, and the core module stays free of excelize. The CI's Go steps,
-  the coverage lane and the Go probes read the modules from the workspace with
-  `go list -m`, so a module the workspace adds is gated the day it is added.
+  Excel module, and the core module stays free of excelize. The CI's Go steps
+  and the coverage lane read the modules from the workspace with `go list -m`,
+  so a module the workspace adds is gated the day it is added.
 - **BREAKING (C ABI): the kernel's entries take structures, not lists of
   parameters, and the library reports the ABI version it implements.** Every
   entry carrying more than one value takes it as one structure by pointer: the
@@ -1510,31 +1415,28 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 - **The mutation lanes make the mutants they refused.** For each lane, the
   constructs its tool refused were counted from the tree and each lifted or
-  justified. C++: Mull's two call mutators refused every call through a
-  function pointer as indirect, and the backend calls every kernel entry
-  through one, so no mutant ever dropped a kernel call or made the kernel
-  answer something else; libirm now reaches them
-  (`tools/mull/libirm-call-replacement-indirect.patch`,
+  justified. C++: Mull's two call mutators refused every call through a function
+  pointer as indirect, and the backend calls every kernel entry through one, so
+  no mutant ever dropped a kernel call or made the kernel answer something else;
+  libirm now reaches them (`tools/mull/libirm-call-replacement-indirect.patch`,
   `tools/mull/libirm-void-call-indirect.patch`). The scalar replacement's
   constant truncates to false on a call returning `bool`, so every guard was
-  tested for not firing alone; `cxx_replace_bool_call_true` is the other
-  answer. A pointer-returning call had no replacement at all;
-  `cxx_replace_pointer_call_null` answers it with null, made only where null
-  is an answer the caller reads, a call through a function pointer or a
-  result compared with null, since a string's data or an exception's message
-  never answers null (`tools/mull/mull-call-replacement-kinds.patch`, both
-  sides). `cpp/mull.yml` names the decrement, assignment, bitwise and negation
-  groups beside `cxx_default`, which leaves them out, and names the assignment
-  group by its members so the address tree can drop the constant stores alone,
-  a sanitizer writing stores of its own at a statement's location as it
-  inserts calls. Go: the six mutators
-  gremlins ships off by default are on in `go/.gremlins.yaml`. Python:
-  mutmut's operator table is fixed, and what it cannot mutate is pinned by a
-  probe rather than counted as swept. Each lift is swept and the baselines
-  re-taken; the probes under `probes/` and the C++ lane's pointer-call rule
-  hold each lift and each refusal. The widened set also found a test that waited with no deadline for a backend
-  call the client had refused, holding the process open past the run's end
-  under the mutant; the wait now has one and the test fails fast.
+  tested for not firing alone; `cxx_replace_bool_call_true` is the other answer.
+  A pointer-returning call had no replacement at all;
+  `cxx_replace_pointer_call_null` answers it with null, made only where null is
+  an answer the caller reads, a call through a function pointer or a result
+  compared with null, since a string's data or an exception's message never
+  answers null (`tools/mull/mull-call-replacement-kinds.patch`, both sides).
+  `cpp/mull.yml` names the decrement, assignment, bitwise and negation groups
+  beside `cxx_default`, which leaves them out, and names the assignment group by
+  its members so the address tree can drop the constant stores alone, a
+  sanitizer writing stores of its own at a statement's location as it inserts
+  calls. Go: the six mutators gremlins ships off by default are on in
+  `go/.gremlins.yaml`. Python: mutmut's operator table is fixed, and what it
+  cannot mutate is not counted as swept. Each lift is swept and the baselines
+  re-taken. The widened set also found a test that waited with no deadline for a
+  backend call the client had refused, holding the process open past the run's
+  end under the mutant; the wait now has one and the test fails fast.
 
 - **The FFI-name gate refuses a name it cannot read.** A wrapper that spells an
   export only inside a comment, or a MAlonzo module that lost the definition,
@@ -1561,19 +1463,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   tuple's `timestamp` field, its exit-code line says an unresolved check
   exits 0, and it shows the `--excel` path and the loaders' extras.
 
-- **The runner benchmark baseline is current, and the gate reads Rust.** The
-  bar `tools/benchmark_gate.py` held every pull request to dated from June and
+- **The runner benchmark baseline is current, and the gate reads Rust.** The bar
+  `tools/benchmark_gate.py` held every pull request to dated from June and
   predated the hot-path work since, so on the common runner class the streaming
   lanes ran up to half again faster than it and a regression of that size would
   have passed; it also carried no Rust column, the gate naming three bindings
-  where `benchmarks/run_all.sh` measures four. `benchmarks/gha_baseline.json`
-  is now a known-good pull-request run's own report, written through the gate's
+  where `benchmarks/run_all.sh` measures four. `benchmarks/gha_baseline.json` is
+  now a known-good pull-request run's own report, written through the gate's
   bootstrap mode, from the CPU class seven of the last ten runs landed on, and
   the gate compares the four languages `benchmarks/SCHEMA.yaml` names. A test
-  and a probe hold the baseline to that shape: every language, every throughput
-  lane, a positive number in each, since a lane the baseline lacks is one the
-  gate skips without a word. `docs/development/BENCHMARKS.md` states the runner
-  classes and the refresh procedure.
+  holds the baseline to that shape: every language, every throughput lane, a
+  positive number in each, since a lane the baseline lacks is one the gate skips
+  without a word. `docs/development/BENCHMARKS.md` states the runner classes and
+  the refresh procedure.
 
 - **The pre-commit IWYU check blocks, and it waits for the agda-tree lock.**
   The hook installed by `tools/install_hooks.py` ran `tools/iwyu.py --check`
@@ -1594,17 +1496,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   to pick the change up.
 
 - **The Go guide names the panic the package keeps for itself.** Its
-  error-handling section said the package never panics, and the probe holding
-  it to that read red on every run, because the client fails an unlock of a
-  lock nobody holds rather than turning the defect into a wait a later
-  caller inherits. The sentence now says what the code does: no call a host can make
-  panics, and the unlock of a lock nobody holds breaks an invariant of the
-  package's own unexported lock that only a defect inside it can break,
-  failing there the way `sync.Mutex` does. A test holds that fault to its
-  message on a bounded wait, so an unlock that blocks fails in seconds, and
-  the probe holds the package to that panic in that method, refuses a tree
-  where the panic is gone while the guide still names it, and refuses a guide
-  that stops naming it.
+  error-handling section said the package never panics, but the client fails an
+  unlock of a lock nobody holds rather than turning the defect into a wait a
+  later caller inherits. The sentence now says what the code does: no call a
+  host can make panics, and the unlock of a lock nobody holds breaks an
+  invariant of the package's own unexported lock that only a defect inside it
+  can break, failing there the way `sync.Mutex` does. A test holds that fault to
+  its message on a bounded wait, so an unlock that blocks fails in seconds.
 
 - **The C++ mutation lanes' compiler caches are capped from a measurement.**
   Each of the nine lanes keeps its own cache of its tree's objects, and the
@@ -1616,18 +1514,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   than the smallest. The cap is sized from the slices' measured caches, which
   the lane's comment states. Each lane also prints its cache's own statistics
   before saving it, so the figures can be re-read from a run.
-
-- **A failing probe says why.** The probe store's runner sent every probe's
-  output to `/dev/null` and printed `FAIL` and a path, so a probe that crashed
-  in its own inline Python read exactly like a probe that refused its claim,
-  and the reason was only visible on re-running that one probe alone. The
-  runner now keeps a failing probe's whole output under
-  `tools/ci-output/probes/`, in a file its `FAIL` line names beside the exit
-  status, and prints the last lines of it beneath, so the store's record is
-  read whole and a chatty failure does not fill it. A passing probe is still one
-  line, whatever it said, and the directory holds only the latest run's
-  failures. A probe over the runner holds each of these, red against the
-  runner it replaces.
 
 - **The address legs' budget is read off their own run.** They shipped budgeted
   at 75 minutes from a ratio measured locally, which scaled the sweep: the
@@ -1660,23 +1546,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   invent. The census floor is per tree for the same reason, and
   `docs/MUTATION_BENCH.yaml` records what each tree carries.
 
-- **One sweep of the mutation trees, shared by every probe that reads one.**
-  Four probes each state a claim about one sweep, and written to sweep for
-  themselves they re-measured the same run once per claim: with a third tree
-  that was 43 minutes of the store's clock, measured at 674, 650, 622 and 648
-  seconds. `tools/mutation_sweep_cache.py` runs the sweep once and keys it on
-  every file a sweep reads from the tree, or its absence, and on the argv and
-  the environment the lane sweeps with: each tree's test binary and the test
-  kernels built beside it, the runner's configuration, the kernel library at
-  every path in the tree the tests look for it, the fixture a test reads, the
-  sources the binary's mutants name, which the runner copies into its report,
-  the libraries the binary needs, which the runner looks up by name in the
-  directory it runs in, and every file the loader can open in a directory of the
-  tree that a loaded library searches. The lane and the cache sweep under one
-  environment of their own, built from the caller's search path and temp
-  directory with the locale pinned, so a caller's library override, sanitizer
-  options or locale no longer change what a sweep reports, and every probe that
-  runs the runner now runs it the same way, its reports in scratch. Every tree
+- **One sweep of the mutation trees.** `tools/mutation_sweep_cache.py` runs the
+  sweep once and keys it on every file a sweep reads from the tree, or its
+  absence, and on the argv and the environment the lane sweeps with: each tree's
+  test binary and the test kernels built beside it, the runner's configuration,
+  the kernel library at every path in the tree the tests look for it, the
+  fixture a test reads, the sources the binary's mutants name, which the runner
+  copies into its report, the libraries the binary needs, which the runner looks
+  up by name in the directory it runs in, and every file the loader can open in
+  a directory of the tree that a loaded library searches. The lane and the cache
+  sweep under one environment of their own, built from the caller's search path
+  and temp directory with the locale pinned, so a caller's library override,
+  sanitizer options or locale no longer change what a sweep reports. Every tree
   is stamped with the configuration it was built under, so the lane rebuilds a
   tree whose configuration moved and the cache reports it rather than sweeping
   it; a tree built before the stamps is rebuilt by the lane once, and refused by
@@ -1685,21 +1566,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the key cannot follow is reported and not swept, a sweep of a tree that
   changed while it ran is not kept, a refresh replaces the kept sweep only with
   a complete one, and filing a sweep removes the ones before it and any a dead
-  process left. A probe traces a dry run of each tree and fails on a file the
-  key leaves out, and another holds every file the key names to moving it. The
-  four probes read the kept sweep and the last three now take a second between
-  them. The mutation lane now runs on a change to any module its harness loads,
-  and a test checks its list of them against what the harness imports. The sweep
-  runs on every CPU it was given but one, and on none it was not, because the
-  machine it runs on is somebody's to use while it does.
+  process left. The mutation lane now runs on a change to any module its harness
+  loads, and a test checks its list of them against what the harness imports.
+  The sweep runs on every CPU it was given but one, and on none it was not,
+  because the machine it runs on is somebody's to use while it does.
 
 - **The C++ mutation trees run libstdc++'s debug mode, and a kill by the
   library's own check is its own route.** A mutant that skips a lookup's guard
   reads past the map's end, and what it reads there is not reproducible: the
-  recorded census watched one such mutant's route move between two sweeps of
-  the pinned order, a garbage string's length deciding between a `bad_alloc` a
-  test caught and a signal. Every object of both mutation trees now compiles
-  under `_GLIBCXX_DEBUG`, so a read past a container's end or an out-of-range
+  recorded census watched one such mutant's route move between two sweeps of the
+  pinned order, a garbage string's length deciding between a `bad_alloc` a test
+  caught and a signal. Every object of both mutation trees now compiles under
+  `_GLIBCXX_DEBUG`, so a read past a container's end or an out-of-range
   subscript ends the run at that step, with the check's message, and two sweeps
   of each tree read every mutant's route the same. The census reads such a kill
   as `check`, apart from `fault`, which is now a bare signal, and the routes are
@@ -1707,32 +1585,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   check or a signal, are a maintained ledger: 69 rows over 97 mutants under
   `unobserved_ledger` in the C++ baseline, each a mutator, a file, the text of
   its source line, the route and the invariant the check refused, because what
-  each changes, a guard for 90 of the 97 and the value an index is computed
-  from for the other seven, leads straight to an operation the language does
-  not define. The lane refuses a kill the ledger does not name and reports one
-  it no longer produces, as it does for survivors; the probe refuses both
-  directions; and `tools/check_mutation_setup.py` holds every row of both
-  ledgers to a file and a line the tree still has, so a rename or a reworded
-  line fails in the always-on sweep instead of rotting until someone sweeps.
-  A row is keyed on the line's text rather than its number, and records the
-  refusal down to its invariant without the index and size the check printed,
-  since those come from the test data. The rows cross the standard library
-  version the lane is built against: measured between libstdc++ 16 and the 15
-  the workflow installs, the debug-mode sentences are identical, the
-  assertions differ only in the header path and line a row does not record,
-  and each of the nine invariants recorded is present in both versions. Measured over the unmutated suite, three
-  runs each: the leak tree 2.1 s either way, the plain tree 3.6 s to 4.9 s.
-  The cap per mutant is now on the runner's command line, ten minutes: Mull's
-  default is ten times the unmutated run, and under debug mode the four
-  mutants that let an oversized input through to a parser run 65 to 79 s
-  against baselines of 2 and 5 s, so the default ended them where the tests
-  would have. The configuration's `timeout` key caps the runner's own runs of the
-  unmutated binary, not a mutant's, and now says so; it is raised to a minute,
-  since Mull's default of three seconds is under the plain tree's suite under
-  debug mode. An instrumenting sanitizer stays out of
-  the trees, now by measurement: under UBSan the plain tree carried 81 more
-  mutants, each removing a check the sanitizer had inserted at the site of a
-  call the source wrote, and 87 survived.
+  each changes, a guard for 90 of the 97 and the value an index is computed from
+  for the other seven, leads straight to an operation the language does not
+  define. The lane refuses a kill the ledger does not name and reports one it no
+  longer produces, as it does for survivors; and `tools/check_mutation_setup.py`
+  holds every row of both ledgers to a file and a line the tree still has, so a
+  rename or a reworded line fails in the always-on sweep instead of rotting
+  until someone sweeps. A row is keyed on the line's text rather than its
+  number, and records the refusal down to its invariant without the index and
+  size the check printed, since those come from the test data. The rows cross
+  the standard library version the lane is built against: measured between
+  libstdc++ 16 and the 15 the workflow installs, the debug-mode sentences are
+  identical, the assertions differ only in the header path and line a row does
+  not record, and each of the nine invariants recorded is present in both
+  versions. Measured over the unmutated suite, three runs each: the leak tree
+  2.1 s either way, the plain tree 3.6 s to 4.9 s. The cap per mutant is now on
+  the runner's command line, ten minutes: Mull's default is ten times the
+  unmutated run, and under debug mode the four mutants that let an oversized
+  input through to a parser run 65 to 79 s against baselines of 2 and 5 s, so
+  the default ended them where the tests would have. The configuration's
+  `timeout` key caps the runner's own runs of the unmutated binary, not a
+  mutant's, and now says so; it is raised to a minute, since Mull's default of
+  three seconds is under the plain tree's suite under debug mode. An
+  instrumenting sanitizer stays out of the trees, now by measurement: under
+  UBSan the plain tree carried 81 more mutants, each removing a check the
+  sanitizer had inserted at the site of a call the source wrote, and 87
+  survived.
 - **A test the mutated tree cannot satisfy fails the Python mutation lane, and
   the static gate now says so.** mutmut copies `python/` alone into `mutants/`,
   where `Path(__file__).resolve().parents[2]` stops at `python/` rather than the
@@ -1836,28 +1714,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   changelog gate's `Category` enum, as the worked examples.
 - **The C++ mutation lane sweeps under a pinned test order, and its recorded
   census is exact.** Catch2 shuffles its cases by default under a seed that
-  changes every run, and mull runs the test binary once per mutant, so the
-  lane read a different kill-route census every sweep: six orders of one tree
-  read the fault route at 93, 93, 96, 98, 99 and 101, while under the pinned
-  order two runs compared mutant for mutant moved nothing and three runs on an
-  idle machine agreed on every count. The baseline in
-  `docs/MUTATION_BENCH.yaml` carried a `kill_routes_margin` of 8 and a
-  four-timeout tolerance to absorb that spread, which was covering the shuffle
-  rather than anything about the code. The lane now hands the binary
-  `-- --order decl`, both baseline probes sweep under that same order, and the
-  recorded counts are compared for equality with no tolerance at all.
-  Pinning is not allowed to hide what the shuffle was incidentally exercising:
-  a probe sweeps three orders and refuses any mutant whose killed-or-survived
-  verdict moves with the order, which would be inter-test coupling, and runs
-  the unmutated suite under four orders besides. Measured over six orders of
-  1037 mutants, no verdict moves. The route is not asked to be
-  order-independent and cannot be: a fault ends the process, so the order
-  decides which test reports before the run stops. One mutant is the exception
-  that proves the reading, `dlc_to_bytes` at the `update_frame_bin` call site,
-  whose corrupted length runs close to the cap of ten times the unmutated
-  baseline; an oversubscribed machine times it out where an idle one reads the
-  fault it dies by, so a sweep with any timeout is reported as a census taken
-  under load rather than absorbed into a tolerance.
+  changes every run, and mull runs the test binary once per mutant, so the lane
+  read a different kill-route census every sweep: six orders of one tree read
+  the fault route at 93, 93, 96, 98, 99 and 101, while under the pinned order
+  two runs compared mutant for mutant moved nothing and three runs on an idle
+  machine agreed on every count. The baseline in `docs/MUTATION_BENCH.yaml`
+  carried a `kill_routes_margin` of 8 and a four-timeout tolerance to absorb
+  that spread, which was covering the shuffle rather than anything about the
+  code. The lane now hands the binary `-- --order decl`, and the recorded counts
+  are compared for equality with no tolerance at all. Measured over six orders
+  of 1037 mutants, no mutant's killed-or-survived verdict moves with the order.
+  The route is not asked to be order-independent and cannot be: a fault ends the
+  process, so the order decides which test reports before the run stops. One
+  mutant is the exception that proves the reading, `dlc_to_bytes` at the
+  `update_frame_bin` call site, whose corrupted length runs close to the cap of
+  ten times the unmutated baseline; an oversubscribed machine times it out where
+  an idle one reads the fault it dies by, so a sweep with any timeout is
+  reported as a census taken under load rather than absorbed into a tolerance.
 
 - **Loop over what the library can bound, not over a number we wrote.** Every counting
   loop of `cpp/src` and `cpp/include` whose bound a view removes outright now carries the
@@ -1990,22 +1863,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   bounds what it waits on: the context of each call, the close in its cleanup,
   the parked call of the cancellation gate and the channels it reads. A lock a
   mutant leaves held fails the test in seconds.
-- **The supported C++ toolchain is Clang 23.** Every site that installs, invokes,
-  caches or documents the compiler moves from 22 to 23: the five workflows, the
-  runtime image, the CI steps, the benchmark runner, the probes, the pinned pip
-  `clang-format`, and the policy line in `cpp/CMakeLists.txt`, which a new probe
-  reads to hold the rest of the tree to one version. The mutation lane moves with
-  it: Mull 0.34.1 stops at LLVM 22, so `tools/build_mull.sh` builds it from source
-  with the two-line patch LLVM 23 needs and is the one recipe the workflow and the
-  documents call. clang-tidy 23 retires the `hicpp` module and adds checks the
-  sources now satisfy: `const` on every value that is never written, no empty
-  parameter list on a lambda, and the single-character overloads of the string
-  members; `readability-trailing-comma` is disabled, because clang-format answers
-  a trailing comma by breaking the list one element per line. A const-qualified
-  `auto` is now spelled `auto const` everywhere, the placement the C++ standard
-  in `AGENTS/cpp.md` fixes and a probe holds. The `check-clang-tidy-coverage`
-  step runs in the C++ lane after the build that writes the compile database it
-  reads, instead of racing it.
+- **The supported C++ toolchain is Clang 23.** Every site that installs,
+  invokes, caches or documents the compiler moves from 22 to 23: the five
+  workflows, the runtime image, the CI steps, the benchmark runner, the pinned
+  pip `clang-format`, and the policy line in `cpp/CMakeLists.txt`. The mutation
+  lane moves with it: Mull 0.34.1 stops at LLVM 22, so `tools/build_mull.sh`
+  builds it from source with the two-line patch LLVM 23 needs and is the one
+  recipe the workflow and the documents call. clang-tidy 23 retires the `hicpp`
+  module and adds checks the sources now satisfy: `const` on every value that is
+  never written, no empty parameter list on a lambda, and the single-character
+  overloads of the string members; `readability-trailing-comma` is disabled,
+  because clang-format answers a trailing comma by breaking the list one element
+  per line. A const-qualified `auto` is now spelled `auto const` everywhere, the
+  placement the C++ standard in `AGENTS/cpp.md` fixes. The
+  `check-clang-tidy-coverage` step runs in the C++ lane after the build that
+  writes the compile database it reads, instead of racing it.
 - **BREAKING (Go): the backend interface takes one slice of injections, not a count
   and three arrays.** `BuildFrameBin` and `UpdateFrameBin` took a signal count beside
   three slices of that length, so nothing carried the fact that the three agree and
@@ -2104,28 +1976,26 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   unchanged. `mutmut` is excluded from automated bumps, because its baseline is a
   measured mutant count that only a hand bump can re-measure.
 
-- **CI builds the C++ binding against libstdc++ 15.** ubuntu-24.04 ships 14, which
-  is why a standard C++23 construct compiled on a developer machine and failed only
-  on the runner. The toolchain policy tracks the latest stable release rather than
-  promising a floor, so the runners now take libstdc++ 15 from the toolchain PPA the
-  same way they take clang-22 from apt.llvm.org: seven install sites across five
-  workflows, each with its .deb cache key bumped so a cache filled without the new
-  package cannot be reused. The release image's C++ verify stage moves with them, or
-  it would accept what the release lane rejects; it takes the PPA as a deb line with
-  the key fetched by fingerprint, because the tool that adds a PPA is absent from
-  that minimal image. Nothing published embeds the library, because the bundle ships
-  the C++ binding as source. A probe holds the move whole: it reads the version off
-  the workflows, then fails if an install block, a cache key, the release image or
-  the build document is left behind.
+- **CI builds the C++ binding against libstdc++ 15.** ubuntu-24.04 ships 14,
+  which is why a standard C++23 construct compiled on a developer machine and
+  failed only on the runner. The toolchain policy tracks the latest stable
+  release rather than promising a floor, so the runners now take libstdc++ 15
+  from the toolchain PPA the same way they take clang-22 from apt.llvm.org:
+  seven install sites across five workflows, each with its .deb cache key bumped
+  so a cache filled without the new package cannot be reused. The release
+  image's C++ verify stage moves with them, or it would accept what the release
+  lane rejects; it takes the PPA as a deb line with the key fetched by
+  fingerprint, because the tool that adds a PPA is absent from that minimal
+  image. Nothing published embeds the library, because the bundle ships the C++
+  binding as source.
 
 - **Every dependency the C++ build fetches is pinned, transitively.** The bumped
-  spreadsheet library stopped vendoring its zip and XML implementations and started
-  fetching them itself, from a git tag and with no hash, so the pin claim covered the
-  four archives the build downloads and not the two further projects one of them pulled
-  in. Both are now declared in `cpp/CMakeLists.txt` ahead of it and pinned to a release
-  archive with a measured hash, at the versions it asked for. The probe that held the
-  claim was widened with the half that was missing: it reads what the configured tree
-  actually fetched and fails on anything the build file does not declare.
+  spreadsheet library stopped vendoring its zip and XML implementations and
+  started fetching them itself, from a git tag and with no hash, so the pin
+  claim covered the four archives the build downloads and not the two further
+  projects one of them pulled in. Both are now declared in `cpp/CMakeLists.txt`
+  ahead of it and pinned to a release archive with a measured hash, at the
+  versions it asked for.
 
 - **The C++ benchmark sources are inside the lint gate too.** With the tests at zero the
   two benchmark sources were the last C++ the repository compiles outside any gate, and
@@ -2217,9 +2087,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 - **BREAKING (C++): `DbcDefinition::unresolved_value_descriptions` is renamed
   `unresolved_value_descs`.** The kernel record's field, the wire key both the
   parser and the serializer use, Python's field and Rust's field all carry the
-  record's abbreviation; the C++ member expanded it, which was the one exception
-  the record-parity probe had to name. The probe now maps every field
-  mechanically. The wire is unchanged: only the C++ member name moves.
+  record's abbreviation; the C++ member expanded it. The wire is unchanged: only
+  the C++ member name moves.
 - **`make_mock_backend()` now answers instead of refusing.** The factory handed
   out the configurable test double with an empty response queue, so the first
   call on it threw, and the method that fills the queue lives in a test-internal
@@ -2406,14 +2275,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   read as a browser reads tags, and the memory-citation gate no longer starts a
   line at a form feed or U+2028.
 
-- **The fresh-process probe reads a child that ends mid-read as gone.** The
-  probe that holds a fresh-process suite's child to dying with its parent read
-  `/proc/<pid>/status` catching only `FileNotFoundError`, the error of a
-  process gone before the open; one that ended between the open and the read
-  raised `ProcessLookupError`, the probe stopped with a traceback, and its
-  kill of a child it had found outliving the parent never ran. Both errors now
-  read as gone, and the kill tolerates a child that ends before it.
-
 - **The documentation gate names a tracked file the work tree lacks instead of
   stopping.** A path git tracks and the work tree does not hold, deleted and not
   yet staged, stopped the gate with a traceback: in its read of the Markdown
@@ -2435,16 +2296,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   where it stopped at the pitch, and `section_citations` reads a cited target
   under the path git tracks, never a symlink's destination.
 
-- **clang-tidy runs with the jobs it was given, in the probe store and in the
-  gate.** `run-clang-tidy` sizes itself from `multiprocessing.cpu_count()`,
-  the machine's count whatever CPUs it was given: 24 under `taskset -c 0-19`,
-  one job per file it lints up to that. Four clang-tidy probes running at once
-  in the store could run 71 clang-tidy processes between them, and the memory
-  cap of the cgroup they ran under forced more than an hour of reclaim with
-  nothing killed. The store now starts each probe with `PYTHON_CPU_COUNT` at
-  the CPUs `nproc` gives it divided by `PROBE_WORKERS`, at least one, and
-  `tools/run_ci.py`'s clang-tidy step passes `-j` with `cpu_budget()`, the
-  step budget iwyu takes. The lint command `AGENTS.md` and `AGENTS/cpp.md`
+- **clang-tidy runs with the jobs it was given, in the gate.** `run-clang-tidy`
+  sizes itself from `multiprocessing.cpu_count()`, the machine's count whatever
+  CPUs it was given: 24 under `taskset -c 0-19`, one job per file it lints up to
+  that. `tools/run_ci.py`'s clang-tidy step now passes `-j` with `cpu_budget()`,
+  the step budget iwyu takes. The lint command `AGENTS.md` and `AGENTS/cpp.md`
   give is now the gate's own lane, `tools/run_ci.py --lanes cpp-lint`, not a
   copy of its command.
 
@@ -2487,13 +2343,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 - **The sweep reads the tracked tree under `tools/`, not the directory whole.**
   `tools/ci-output` keeps the gates' logs and the scratch scripts of
-  investigations, none of it a gate's source, and two readers took it for the
-  tree: basedpyright, handed the directory `tools` and reading no ignore list,
-  type-checked a kept helper script and failed the pre-push sweep; and the
-  AGENTS/go.md fuzz-targets probe, grepping `tools/` for a scheduled fuzz run,
-  read a kept record as a lane. basedpyright now excludes `tools/ci-output` in
-  `python/pyproject.toml`, pinned by a test in `python/tests/test_run_ci_runner.py`,
-  and the probe reads `git ls-files`.
+  investigations, none of it a gate's source, and a reader took it for the tree:
+  basedpyright, handed the directory `tools` and reading no ignore list,
+  type-checked a kept helper script and failed the pre-push sweep. basedpyright
+  now excludes `tools/ci-output` in `python/pyproject.toml`, pinned by a test in
+  `python/tests/test_run_ci_runner.py`.
 
 - **A C++ loader's refusal never reads a null from `dlerror`.** Both loaders,
   the backend resolving the kernel's entries and the rational renderer resolving
@@ -2516,40 +2370,37 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   C++ record is re-taken: 1429 kills by a test, 15 by a standard-library check,
   10 by a fault, 23 unobserved rows over 25 mutants, 4 survivors, 1460 mutants.
 
-- **A commit leaves the files it commits where they were.** The pre-commit
-  hook parked unstaged and untracked changes with a stash of the whole tree
-  and `--keep-index`, which checks every staged file out again, contents
-  unchanged: each commit moved every committed file's mtime to the commit's
-  time (four files at 13:09:15.67 for a commit at 13:09:15), and every
-  consumer that reads mtimes rebuilt from committed sources, ninja and CMake
-  what depends on them, the slices probe refusing a mutation tree built from
-  those exact contents. The hook now records the parked paths in a stash
-  entry it builds itself, from trees written through private index files,
-  with the parents `git stash pop` reads, and shows the gates the staged
-  content by writing the parked tracked paths from the index tree and
-  removing the untracked files; the repository's index is never staged into
-  and a file that is only staged is never written. The entry's tree records
-  the parked paths as they stand, so an unstaged deletion of a staged-new
-  file and a worktree copy put back to HEAD by hand, which git's own stash
-  tree loses, come back as they were; a file removed from the index but kept
-  on disk is committed as deleted and stays on disk, where git's `stash
-  push` over a pathspec stages it again. Every path the hook hands git is
-  read literally, so a name with a colon or a bracket is a name, never
-  pathspec magic or a pattern (an untracked `x[1].txt` once matched the
-  tracked `x1.txt` on the restore and removed it from the tree), a name
-  that is not UTF-8 is parked and comes back, and a nested repository stays
-  where it is. A parking step that fails refuses the commit and writes back
-  what it parked; the entry dropped is the hook's own, never the top of the
-  stack; the commands printed when a restore fails run as printed. Each
-  holds a test, shown red first.
+- **A commit leaves the files it commits where they were.** The pre-commit hook
+  parked unstaged and untracked changes with a stash of the whole tree and
+  `--keep-index`, which checks every staged file out again, contents unchanged:
+  each commit moved every committed file's mtime to the commit's time (four
+  files at 13:09:15.67 for a commit at 13:09:15), and every consumer that reads
+  mtimes rebuilt from committed sources, ninja and CMake what depends on them.
+  The hook now records the parked paths in a stash entry it builds itself, from
+  trees written through private index files, with the parents `git stash pop`
+  reads, and shows the gates the staged content by writing the parked tracked
+  paths from the index tree and removing the untracked files; the repository's
+  index is never staged into and a file that is only staged is never written.
+  The entry's tree records the parked paths as they stand, so an unstaged
+  deletion of a staged-new file and a worktree copy put back to HEAD by hand,
+  which git's own stash tree loses, come back as they were; a file removed from
+  the index but kept on disk is committed as deleted and stays on disk, where
+  git's `stash push` over a pathspec stages it again. Every path the hook hands
+  git is read literally, so a name with a colon or a bracket is a name, never
+  pathspec magic or a pattern (an untracked `x[1].txt` once matched the tracked
+  `x1.txt` on the restore and removed it from the tree), a name that is not
+  UTF-8 is parked and comes back, and a nested repository stays where it is. A
+  parking step that fails refuses the commit and writes back what it parked; the
+  entry dropped is the hook's own, never the top of the stack; the commands
+  printed when a restore fails run as printed. Each holds a test, shown red
+  first.
 - **`benchmarks/run_all.sh` runs the Rust harness cargo built.** It ran the
-  binary in `rust/target` whatever `CARGO_TARGET_DIR` said, so with the
-  variable set the Rust lane measured an earlier build, or failed where there
-  was none. It now reads the variable, and builds the C++ harness in the tree
+  binary in `rust/target` whatever `CARGO_TARGET_DIR` said, so with the variable
+  set the Rust lane measured an earlier build, or failed where there was none.
+  It now reads the variable, and builds the C++ harness in the tree
   `ALETHEIA_BENCH_CPP_BUILD_DIR` names and the Go one at the path
   `ALETHEIA_BENCH_GO_BIN` names, `cpp/build` and `go/benchmarks/benchmark`
-  otherwise, its refusal of a Debug tree naming the tree it read; a probe
-  exercises the script without building where another run reads.
+  otherwise, its refusal of a Debug tree naming the tree it read.
 - **Parsing a DBC takes time linear in its length.** Every route that loads a
   DBC reads its JSON or its text through the parser combinators' `many`, which
   measured the whole rest of the document each time it started (once per JSON
@@ -2630,9 +2481,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 - **The streaming example of `docs/reference/INTERFACES.md` sent a frame on a
   stream it never started, in C++, Go and Python alike.** Each call answered
   `stream not started`, and each example passed because it kept the answer
-  without reading it. The examples now open the stream first. A probe runs
-  every example that keeps a result it never reads the way its harness runs it,
-  and fails when that result is an error.
+  without reading it. The examples now open the stream first.
 - **The C++ mutation lane reads a failed test as the test's kill when Mull
   kept none of its output.** Mull reads a test binary's output as UTF-8 and
   keeps nothing of a stream holding a byte that is not, so a failure report
@@ -2667,29 +2516,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   It started one compile per CPU of the machine, so run under `taskset` or a
   cgroup cpuset it ran them all at once on the few it had. It now counts with
   `detect_cpus` in `tools/_resources.py`, which reads `os.process_cpu_count`,
-  the process's affinity, where `os.cpu_count` reads the machine. A probe
-  refuses a CPU count under `tools/` taken from the machine, and a pinned CPU
-  list under `tools/` or `probes/` counted up from CPU zero.
+  the process's affinity, where `os.cpu_count` reads the machine.
 - **The Python CLI exits 2 with one `Error:` line on an operating-system error
   and on a missing optional extra,** where it ended in a traceback: a directory
   that cannot be written, a file that cannot be read, or an install without
   the `[excel]`, `[yaml]` or `[can]` extra, the message naming the
   `pip install` that brings it.
-- **The Rust mutation sweep never writes the tree, and the probe over the store
-  reads a tool that would.** The Rust lane and the probe over its baseline ran
-  cargo-mutants in place in the tree, so for as long as a sweep ran a mutant
-  sat in `rust/src`, where a hook, a build or a commit reading the tree took it
-  for the source, and the probe runner failed that probe on every run for the
-  four sources it moved and restored. `tools/_common.py` gains
-  `scratch_worktree`, a detached worktree of `HEAD` with the uncommitted diff
-  applied, whose git commands run clear of the variables a hook exports; the
-  lane sweeps there, and the probe calls the lane's own tool instead of
-  spelling the sweep a second time. The probe over the store now also reads
-  each probe for a tool whose contract is to write what it is pointed at
-  (`cargo mutants --in-place`, `cargo fmt`, `clang-format -i`, `ruff format`,
-  `ruff check --fix`, `gofmt -w`) and refuses one run on the tree rather than
-  under a directory the probe made with `mktemp`; it reads red over the Rust
-  probe as it was.
+- **The Rust mutation sweep never writes the tree.** The Rust lane ran
+  cargo-mutants in place in the tree, so for as long as a sweep ran a mutant sat
+  in `rust/src`, where a hook, a build or a commit reading the tree took it for
+  the source. `tools/_common.py` gains `scratch_worktree`, a detached worktree
+  of `HEAD` with the uncommitted diff applied, whose git commands run clear of
+  the variables a hook exports; the lane sweeps there.
 
 - **The two C micro-benchmarks call `aletheia_send_frame` at its real
   signature.** `benchmarks/response_overhead_ffi.c` and
@@ -2737,55 +2575,45 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the two censuses count the same survivors; a test hands the merge a surviving
   mutant only a later tree carries.
 - **A killed CI sweep or reproducible-build gate stops the build it started.**
-  `tools/run_ci.py`'s steps and `tools/check_reproducible_build.py`'s
-  `shake clean` and `shake build` ran as plain children, so a sweep or gate
-  killed mid-build left the build running, holding Shake's lock against the next
-  one. Every step the scheduler in `tools/_scheduler.py` runs, and both commands
-  of each reproducible build, now run under `run_guarded`, which merges a
-  command's stderr into its stdout and gives the command no input, since a
-  process group that is not the terminal's foreground job stops when it reads
-  the terminal. A step in a group of its own no longer sees the Ctrl-C a
-  terminal sends the sweep, so the guard also watches a pipe the parallel
-  scheduler closes whenever it leaves, an interrupt included, which stops every
-  running step before the interrupt propagates. Probes SIGKILL the sweep, the sweep running the
-  staleness gate's guarded build, and the gate, each over a stand-in build, each
-  red before the change and reading the build gone and its lock free 0.05s
-  after. Two more interrupt a sweep's process group: a parallel sweep, which a
-  guard without the scheduler's pipe leaves running past the bound, and a
-  serial one, the way the sweep runs its build step. Tests cover the merged and
-  the file output, the closed input, the stop pipe, a step's stderr, the
-  parallel sweep's descriptors and the interrupted sweep.
+  `tools/run_ci.py`'s steps and `tools/check_reproducible_build.py`'s `shake
+  clean` and `shake build` ran as plain children, so a sweep or gate killed
+  mid-build left the build running, holding Shake's lock against the next one.
+  Every step the scheduler in `tools/_scheduler.py` runs, and both commands of
+  each reproducible build, now run under `run_guarded`, which merges a command's
+  stderr into its stdout and gives the command no input, since a process group
+  that is not the terminal's foreground job stops when it reads the terminal. A
+  step in a group of its own no longer sees the Ctrl-C a terminal sends the
+  sweep, so the guard also watches a pipe the parallel scheduler closes whenever
+  it leaves, an interrupt included, which stops every running step before the
+  interrupt propagates. Tests cover the merged and the file output, the closed
+  input, the stop pipe, a step's stderr, the parallel sweep's descriptors and
+  the interrupted sweep.
 
-- **A killed staleness gate stops the build it started, and a held tree lock
-  is never called stale.** `tools/check_build_incremental.py` ran
-  `cabal run shake -- build` as a plain child, so a gate killed mid-build left
-  the build running: it kept Shake's lock and relinked the `.so` with the
-  killed run's marker in it. The build now runs under `run_guarded` in
-  `tools/_common.py`, which starts it through `tools/_guarded_run.py` in a
-  process group of its own. The guard holds the read end of a pipe only the
-  gate writes to, reads end-of-file when the gate closes it or dies however it
-  dies, and then sends the group the SIGINT a terminal's Ctrl-C would, on which
-  Shake stops the agda it runs in a group of its own; what is left once the
-  command exits gets SIGKILL. A gate SIGKILLed mid-build left no cabal, shake
-  or agda behind and Shake's lock free 0.15s later, where before the build ran
-  to the end. The Agda tree lock's contention message read a held lock whose
-  recorded pid had exited as `stale?`, inviting a delete of a lock a live
-  process holds; a held flock has a live holder by construction, and the
-  message now says so. Tests cover the killed and the interrupted caller, a
-  command that ignores the interrupt, a guard outside a group of its own, the
-  pipe's descriptors and both lock messages; one probe SIGKILLs the gate's
-  build step over a stand-in build, and one shows the lock's descriptor never
-  reaches a process a tool starts.
+- **A killed staleness gate stops the build it started, and a held tree lock is
+  never called stale.** `tools/check_build_incremental.py` ran `cabal run shake
+  -- build` as a plain child, so a gate killed mid-build left the build running:
+  it kept Shake's lock and relinked the `.so` with the killed run's marker in
+  it. The build now runs under `run_guarded` in `tools/_common.py`, which starts
+  it through `tools/_guarded_run.py` in a process group of its own. The guard
+  holds the read end of a pipe only the gate writes to, reads end-of-file when
+  the gate closes it or dies however it dies, and then sends the group the
+  SIGINT a terminal's Ctrl-C would, on which Shake stops the agda it runs in a
+  group of its own; what is left once the command exits gets SIGKILL. A gate
+  SIGKILLed mid-build left no cabal, shake or agda behind and Shake's lock free
+  0.15s later, where before the build ran to the end. The Agda tree lock's
+  contention message read a held lock whose recorded pid had exited as `stale?`,
+  inviting a delete of a lock a live process holds; a held flock has a live
+  holder by construction, and the message now says so. Tests cover the killed
+  and the interrupted caller, a command that ignores the interrupt, a guard
+  outside a group of its own, the pipe's descriptors and both lock messages.
 
-- **A gate run by a hook in a linked worktree finds the worktree's root.**
-  Git exports `GIT_DIR` to a hook there, and with it set git takes the
-  directory it runs in as the work tree, so `git_toplevel` in
-  `tools/_common.py`, which asks from the `tools` directory, answered that
-  directory, and the pre-commit hook's SPDX gate failed with
-  `LICENSE.md not found` on every commit made in a worktree. The lookup now
-  runs git without `GIT_DIR` or `GIT_WORK_TREE`, so the root comes from the
-  path asked about. A test sets each variable in turn, and a probe commits in
-  a detached worktree through a hook that runs the SPDX gate.
+- **A gate run by a hook in a linked worktree finds the worktree's root.** Git
+  exports `GIT_DIR` to a hook there, and with it set git takes the directory it
+  runs in as the work tree, so `git_toplevel` in `tools/_common.py`, which asks
+  from the `tools` directory, answered that directory, and the pre-commit hook's
+  SPDX gate failed with `LICENSE.md not found` on every commit made in a
+  worktree. The lookup now runs git without `GIT_DIR` or `GIT_WORK_TREE`, so the
+  root comes from the path asked about. A test sets each variable in turn.
 
 - **The CAN-log reader's docstrings name the frame tuple's own fields.**
   `load_can_log` and `iter_can_log` described their tuples as
@@ -2794,18 +2622,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   tuple's field list, and a test holds each to `CANFrameTuple._fields`.
 
 - **A test run whose scratch directory a peer is sweeping waits for the peer
-  instead of giving up.** Each C++ test binary reaps the scratch directories
-  of dead runs before creating its own, and a killed run leaves one under a
-  process id a later run can reuse: that run then finds a peer removing its
-  directory between creating it and locking it. The fixture yielded 64 times
-  and threw, which outlasts an empty directory's removal and not a populated
-  one's, measured at about 45 ms for 20000 files, and the throw came out of a
-  fixture constructor, read under the mutation lane as a kill of whatever
-  mutant was running. The fixture now waits on the peer's lock, which the
-  peer holds for exactly the removal, and takes the directory afresh once it
-  is gone; no physical time enters. A suite case stages the peer as a thread
-  of the same process over a populated directory, and a probe drives the
-  first `scratch_dir()` call of a fresh process the same way.
+  instead of giving up.** Each C++ test binary reaps the scratch directories of
+  dead runs before creating its own, and a killed run leaves one under a process
+  id a later run can reuse: that run then finds a peer removing its directory
+  between creating it and locking it. The fixture yielded 64 times and threw,
+  which outlasts an empty directory's removal and not a populated one's,
+  measured at about 45 ms for 20000 files, and the throw came out of a fixture
+  constructor, read under the mutation lane as a kill of whatever mutant was
+  running. The fixture now waits on the peer's lock, which the peer holds for
+  exactly the removal, and takes the directory afresh once it is gone; no
+  physical time enters. A suite case stages the peer as a thread of the same
+  process over a populated directory.
 
 - **The pre-commit hook writes a file staged in part back whole.** The hook
   parks unstaged and untracked changes while its gates run, and wrote them
@@ -2817,31 +2644,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   from the stash commit, the untracked files from its third parent, a deleted
   path removed, and never touches the index.
 
-- **A probe edits a scratch copy of the tree, never the tree.** Seven probes
-  in the store appended a fixture to a tracked source, or drifted a header or a
-  record, and restored it on exit, so between the two the file read as the
-  user's change to whatever else read the tree: a push made while the store
-  ran was refused by the pre-push sweep over a fixture line it took for the
-  tree's own, and a fast sweep run meanwhile failed its format step on a test
-  source holding another probe's fixture. Those probes now edit a scratch copy:
-  six a detached worktree of `HEAD` with the uncommitted diff applied, the
-  compile database rewritten to it and the fetched dependencies shared
-  read-only where the lens parses; the seventh a copy of the header alone,
-  compiled through the one test unit that includes it with the tracked header
-  shadowed on the include path and the test binary's own link line reused, so
-  nothing under the tree or its build moves. A probe over the store reads every probe for the constructs that
-  write, resolves each target through the literals the probe itself spells,
-  and refuses a target git tracks; it reads red over each of the seven as they
-  were, and one probe's scratch write is respelled under its scratch variable
-  so the lens reads it as one. The runner reads every tracked file's mtime,
-  size and mode before and after each probe and fails the probe that moved
-  one, whatever it exited, its line counting the files and its log naming
-  them, so a write the lens cannot see from the probe's text is seen when it
-  happens; a store with no git work tree around it is refused rather than run
-  unwatched. Over the store it found an eighth probe the lens could not, one
-  that touched every Agda source to date it after the interfaces; the touch is
-  now a check that the sources already are.
-
 - **A gate run killed mid-probe leaves a leftover that names itself.**
   `tools/check_build_incremental.py` restores the two sources it edits on exit,
   on SIGINT and on SIGTERM, which SIGKILL bypasses. A killed run left its
@@ -2851,11 +2653,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   gate run refused on the markers, neither saying a run had been killed. The
   marker now carries the pid and start time of the run that wrote it. The gate
   refuses on a marker before it builds or captures a source, naming the run,
-  whether it still lives, and the edit that restores the file, and refuses
-  while a build holds Shake's lock, naming that process. Two runs cannot
-  overlap: the gate holds the repo-wide Agda lock, and a second run reports it
-  as held. Tests and probes hold each refusal; the probes drive the gate in a
-  detached worktree of `HEAD`, so the marker they plant never touches the tree.
+  whether it still lives, and the edit that restores the file, and refuses while
+  a build holds Shake's lock, naming that process. Two runs cannot overlap: the
+  gate holds the repo-wide Agda lock, and a second run reports it as held. Tests
+  hold each refusal.
 
 - **A binding that ran but reports no number for a baseline lane fails the
   benchmark gate.** `tools/benchmark_gate.py` walked the baseline's lanes and
@@ -2866,7 +2667,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the baseline kept the old name, passed with the lane unscored. The gate now
   skips only the binding with no file; a present binding lacking a baseline lane
   fails, with the binding and lane named on stderr under their own heading,
-  apart from the regressions. A test and a probe hold that polarity, and
+  apart from the regressions. A test holds that polarity, and
   `docs/development/BENCHMARKS.md` states both cases.
 
 - **The Go benchmark harness aborts on a failed warmup operation, as the other
@@ -2878,9 +2679,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   and Python harnesses all abort. The throughput lane now lives in one function
   that returns the first failed pass as its error, warmup or measured, named by
   the lane and the pass, and the harness dies on it. That function is driven by
-  tests that need no kernel, and a probe over the four harnesses holds every
-  warmup loop to calling what the measured loop times, guarding it the same way,
-  and sitting in a function that catches nothing.
+  tests that need no kernel.
 
 - **The C++ benchmark harness aborts on a failed timed operation and refuses a
   count of zero.** Inside its measured loops a `send_frame`, `extract_signals`
@@ -2985,8 +2784,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 - **The Mull cache key hashes the patches the build applies.** The key hashed
   `tools/build_mull.sh` alone, so a patch under `tools/mull/` edited on its own
   replayed the previous binaries from the cache and the lane swept with a
-  mutator the tree no longer described. A probe holds the key to the script
-  and to every patch it applies.
+  mutator the tree no longer described.
 - **A translation unit clang-query cannot parse fails the restated-type gate.**
   clang-query exits zero after a fatal diagnostic and matches nothing in the
   unit, which the gate read as a unit with nothing to report.
@@ -3017,8 +2815,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   every directory of the same shape whose lock it can take. The lock is what
   separates a running owner from a gone one, where a process id is reused and
   a timestamp is not a freshness signal, and it repairs every caller rather
-  than one: the probes that drive `mull-runner` themselves make these
-  directories too. The lane removes the tail its own last runs leave, which
+  than one. The lane removes the tail its own last runs leave, which
   has no next run to repair it, and a progress write that fails now names the
   filesystem it failed on and the space left there, rather than pointing at
   whichever line happened to be writing.
@@ -3179,26 +2976,26 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   Go throughput/latency baselines are void rather than outdated: they came from a
   binary that could not decode the wire it was measuring, so its four surviving
   lanes are as untrustworthy as its two missing ones.
-- **The benchmark harness refuses a zero or non-numeric count, and a broken build
-  fails the run instead of skipping the lane.** `--frames 0` made every lane publish
-  a schema-conformant all-zero report and exit 0: a fabricated measurement set, the
-  class of defect the harness exists to prevent. Both `--frames` and `--runs` must
-  now be positive integers, checked before the mode check, every preflight and the
-  results clear, so a refused value touches nothing. A lane whose toolchain is on
-  PATH but whose build fails is reported as FAIL and fails the run; only an absent
-  toolchain is still a skip. A lane whose scratch file cannot be created fails
-  without leaving a file behind, the scratch names are ignored by git, and
-  `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory so the probes can
-  drive the harness without touching the last measurements.
+- **The benchmark harness refuses a zero or non-numeric count, and a broken
+  build fails the run instead of skipping the lane.** `--frames 0` made every
+  lane publish a schema-conformant all-zero report and exit 0: a fabricated
+  measurement set, the class of defect the harness exists to prevent. Both
+  `--frames` and `--runs` must now be positive integers, checked before the mode
+  check, every preflight and the results clear, so a refused value touches
+  nothing. A lane whose toolchain is on PATH but whose build fails is reported
+  as FAIL and fails the run; only an absent toolchain is still a skip. A lane
+  whose scratch file cannot be created fails without leaving a file behind, the
+  scratch names are ignored by git, and `ALETHEIA_BENCH_RESULTS_DIR` redirects
+  the results directory.
 
 - **A fresh benchmark run can be read against its committed baseline.**
   `benchmarks/compare.py` keyed its columns on the language a file named, so a
   binding's fresh result and its baseline replaced one another without a word,
   as did one binding's three modes, and the complexity labels of the scaling
-  table were cut at twelve characters. A column is now the binding plus what
-  the file's name adds beyond `<binding>_<mode>`, every mode given prints its
-  own table, two files that would share a column are refused with both named,
-  and a binding given with its baseline prints, per lane, the current mean, the
+  table were cut at twelve characters. A column is now the binding plus what the
+  file's name adds beyond `<binding>_<mode>`, every mode given prints its own
+  table, two files that would share a column are refused with both named, and a
+  binding given with its baseline prints, per lane, the current mean, the
   baseline mean, the delta and the current standard deviation, the report shape
   `AGENTS.md` asks for. The reconfigure `benchmarks/run_all.sh` prints when it
   refuses a Debug-configured `cpp/build` no longer opens with a clean of the
@@ -3207,8 +3004,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `docs/development/BENCHMARKS.md` gains the Local baselines section that names
   the committed files, what each mode's baseline records and how a fresh run is
   read against it, and loses a runtime version list one baseline already
-  contradicted; the runtime versions are each file's `system` object. Nine
-  probes under `probes/` carry the claims.
+  contradicted; the runtime versions are each file's `system` object.
 
 ### Removed
 
@@ -3218,35 +3014,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   rows and Python, Go and C++ members replace the old names, and a decimal
   `aletheia_parse_decimal` refuses answers the kernel's codes.
 
-- **60 probes whose claims a gate already holds, or that recorded an
-  investigation, leave the store.** Every probe of `probes/` was sorted: the
-  claim, what the probe builds, and the gate that already holds the claim or
-  the gate it folds into. 42 probes named a holder, and each holder was shown
-  red on the probe's own defect, planted in a private clone of the tree, before
-  the probe went; 17 recorded a candidate a review dismissed or a wording no
-  gate owns, and go as records, their claims in the commit that removes them.
-  The route reader's probe still carried a `leak` sample after the leak tree
-  retired, so it had read red since; the one arm no test held, the census order
-  ranking a test's kill before a library check's, is now asserted in
-  `python/tests/test_mutation_cpp_routes.py`. With the probes went their rows in
-  `docs/PYTHON_IMPRECISE_HINTS.yaml`.
-
-- **The kept sweeps of the C++ mutation trees, and the two probes that read
-  them.** Two probes swept the C++ trees again under a variant of the lane's
-  command, one in other orders of the cases and one without `--abort`, to hold
-  that neither moves a mutant's verdict or ending; in the last store run they
-  took 4899.9 s and 4333.5 s, 40 percent of the probes' summed time. Their
-  claims do not earn that: the census reads any failing assertion as the
-  test's kill whatever ended the process after it, which
-  `test_a_run_is_read_by_what_ended_it` holds, so `--abort` cannot move an
-  ending; a verdict the order moves changes the survivors when the order
-  changes, which the exact lane refuses; and no commit records an order
-  dependence either probe found. With them went the last reader of
-  `tools/mutation_sweep_cache.py`, which kept sweeps keyed on every file a
-  sweep reads. It is removed with its tests, its probes, `cpp/mutation-sweeps/`
-  and the `fresh-process` directory the fresh-process suites were built into
-  so its key could find them. A dry run of one leg, which the probes over the
-  mutation surface read, is `tools/mutation_cpp_dry_run.py`.
+- **The kept sweeps of the C++ mutation trees.**
+  `tools/mutation_sweep_cache.py`, which kept sweeps keyed on every file a sweep
+  reads, is removed with its tests, `cpp/mutation-sweeps/` and the
+  `fresh-process` directory the fresh-process suites were built into so its key
+  could find them. A dry run of one leg is `tools/mutation_cpp_dry_run.py`.
 - **The `frame_byte_count` bound kind and `max-frame-byte-count` (BREAKING).**
   The bound refused nothing the DLC's byte count did not already refuse; a
   frame of the wrong length is now `parse_payload_length_mismatch`, whatever
@@ -4309,8 +4081,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   Go (decoder via `UseNumber`) and Rust (serde `as_i64`) were already strict, so
   all four bindings now agree. The UI float-input converters are untouched (a
   follow-up replaces them with an exact Agda decimal parser). Boundary tests per
-  binding; the C++ guard is revert-probed (a float `startBit` truncated-and-passed
-  without it).
+  binding.
 - **Go decodes JSON response numbers exactly, not through `float64`**
   (`go/aletheia/json.go`). `parseResponse` used `json.Unmarshal`, which decodes
   every JSON number as a `float64` — so a rational numerator/denominator above
@@ -6711,8 +6482,7 @@ the encoding carries a load-bearing
 
 Internal Agda kernel + proof refactor — no binding, wire, or runtime
 behavior change.  Three coordinated changes ship together to close two
-deferrals that an earlier four-approach probe had deferred
-again on grounds of an Agda elaboration barrier:
+deferrals made on grounds of an Agda elaboration barrier:
 
 1. `injectHelper` lifted from where-bound inside `injectSignal` to a
    top-level definition in `Aletheia.CAN.Encoding`.  Proofs (`Encoding/
@@ -6725,20 +6495,12 @@ again on grounds of an Agda elaboration barrier:
    (n bl : ℕ) → Maybe (BitVec bl)` using stdlib's `Reflects` data carrier
    (`with n <ᵇ bl | <ᵇ-reflects-< n bl`).  The `ofʸ`/`ofⁿ` constructors
    carry the bound-fit witness as data, sidestepping the `with ... in eq`
-   ↔ outer-with-abstraction trap the four-approach probe hit.
+   ↔ outer-with-abstraction trap.
    Reduction equation `mkBoundedBitVec-just` lets consumers compose into
    `trans`/`with … | reduction` chains without crossing the barrier.
 3. `injectHelper`'s Dec dispatch (`_<?_`) swapped for `mkBoundedBitVec`.
    MAlonzo output confirmed: the Dec constructor and `<?` are gone from
    `MAlonzo.Code.Aletheia.CAN.Encoding`.
-
-The four-approach probe's framing ("the barrier is structural to
-Agda's `with ... in eq` elaboration mechanism") is empirically correct
-— `mkBoundedBitVec-just` written with `with ... in eq` still triggers
-the exact `[UnequalTerms]` "ill-typed with-abstraction" error in a
-17-line minimal reproduction.  But the conclusion ("workaround: keep
-`Dec`") was over-strong: the `Reflects` two-with pattern is the
-structural escape hatch the four-approach probe didn't try.
 
 **Perf:** no measurable Frame Building gain over the post-`@0` baseline
 (an earlier `@0`-erasure of `ℕToBitVec`'s bound slot already
