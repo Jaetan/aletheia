@@ -5,8 +5,10 @@
 End to end over ``main()``, fed in process what git would read: a title off the
 vocabulary fails before git is asked anything; a title naming an internal scope
 fails on a branch that changes what users get; a title fails unless it names the
-release its branch prepares, or none on a branch preparing none; a title owing an
-entry passes only when the branch edits ``CHANGELOG.md``; a missing
+release its branch prepares, or none on a branch preparing none; a correction
+title passes on a branch a commit of which corrects the changelog and fails on
+one where none does; a title owing an entry passes only when the branch edits
+``CHANGELOG.md``; a missing
 runtime-closure snapshot stops the check with exit 2.  Git itself runs only
 where the claim is git's own refusal: a ref it cannot resolve, or no repository
 to name a top level.
@@ -33,6 +35,7 @@ TOOLING = RelPath("tools/x.py")
 CHANGELOG = RelPath("CHANGELOG.md")
 CPP_LAYOUT = RelPath("docs/CPP_LAYOUT.yaml")
 RELEASE = Prose("chore(dist): prepare v1.2.3")
+CORRECTION = Prose("docs(changelog): an entry reworded")
 FIX = Prose("fix(go): a bug")
 
 
@@ -252,7 +255,37 @@ def test_a_title_owing_nothing_fails_when_the_branch_edits_the_changelog(
     assert _check(repo, monkeypatch, Prose("ci(tools): a step")) == 1
     assert capsys.readouterr().err == (
         "check-pr-title: FAIL — 'ci(tools): a step' owes no entry, and the branch edits "
-        + "CHANGELOG.md.\nRelabel the change, or leave CHANGELOG.md alone.\n"
+        + "CHANGELOG.md.\nRelabel the change, or leave CHANGELOG.md alone; a branch that "
+        + "only removes or rewrites entries is a correction, 'docs(changelog): text'.\n"
+    )
+
+
+def test_the_correction_title_edits_the_changelog_owing_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A correction's title passes on a branch whose commit corrects the CHANGELOG."""
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=True, subjects=(CORRECTION,)))
+    assert _check(repo, monkeypatch, CORRECTION) == 0
+    assert capsys.readouterr().out == (
+        "check-pr-title: ok ('docs(changelog): an entry reworded' corrects the CHANGELOG; "
+        + "the branch edits it)\n"
+    )
+
+
+def test_a_correction_title_needs_a_commit_correcting_the_changelog(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A correction's title over commits that correct nothing is refused, the holder named."""
+    repo = _plant(tmp_path, monkeypatch, _branch(TOOLING, changelog=True, subjects=(FIX,)))
+    assert _check(repo, monkeypatch, CORRECTION) == 1
+    assert capsys.readouterr().err == (
+        "check-pr-title: FAIL: 'docs(changelog): an entry reworded' corrects the "
+        + "CHANGELOG, and no commit on the branch does.\nCommit the correction under "
+        + "'docs(changelog): text', so check-changelog holds it to adding no entry.\n"
     )
 
 

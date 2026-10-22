@@ -9,14 +9,17 @@ Three layers:
   and every subject the vocabulary refuses (the table itself is
   ``test_commit_subjects``'s).
 * ``unreleased_headers`` / ``headers_refused`` — the pure audit of the section's
-  ``###`` headers, read as CommonMark; ``cut_problem``, the pure reading of a
-  release cut against its base, each way a CHANGELOG falls short of one named.
+  ``###`` headers, read as CommonMark (``cut_problem``, the pure reading of a
+  release cut against its base, is ``test_check_changelog_cut``'s);
+  ``entry_counts`` / ``gained_entries``, the entries per release section and
+  those a correction would add.
 * ``main`` — an end-to-end run over a planted top level, the branch fed as the
   data git lists: a refused subject fails; a subject owing an entry, or a
   surface record changed, fails without a CHANGELOG edit and passes with one;
   anything else passes without one; a release preparation passes with its cut
-  and fails without it, or beside a second release; a git step that cannot
-  answer, or a base CHANGELOG not given as UTF-8, stops the gate with exit 2.
+  and fails without it, or beside a second release; a correction passes when
+  it adds no entry and fails when it adds one; a git step that cannot answer,
+  or a base CHANGELOG not given as UTF-8, stops the gate with exit 2.
   One run plants a git repository, its claim being what git itself lists: a
   merge commit is no subject of the branch's.
 """
@@ -28,6 +31,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal, NewType
 
 import pytest
+from _changelog_texts import CUT, ENTRY, ENTRY_TAIL, SHAPE_FIX
 from _git_repo import commit, git, merge
 
 from tools._common import RelPath
@@ -35,18 +39,20 @@ from tools.check_changelog import (
     CHANGELOG,
     SURFACE_RECORDS,
     Category,
-    CutProblem,
+    EntryCount,
+    Gain,
     Owed,
     OwedSubject,
     UnreleasedHeaders,
-    cut_problem,
+    entry_counts,
+    gained_entries,
     headers_refused,
     main,
     owed,
     subjects_refused,
     unreleased_headers,
 )
-from tools.commit_subjects import Branch, GitArg, ReleaseVersion, Revision
+from tools.commit_subjects import Branch, GitArg, Revision
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -55,13 +61,14 @@ if TYPE_CHECKING:
 
 ADDED = Prose("### Added")
 FIXED = Prose("### Fixed")
-# The unreleased entry, and the same entry cut under 1.2.3, each after a title line.
-ENTRY_TAIL = "\n## [Unreleased]\n\n### Fixed\n\n- **A bug.** Gone.\n"
-CUT_TAIL = "\n## [Unreleased]\n\n## [1.2.3] — 2026-10-12\n\n### Fixed\n\n- **A bug.** Gone.\n"
-ENTRY = Prose("# Changelog\n" + ENTRY_TAIL)
-CUT = Prose("# Changelog\n" + CUT_TAIL)
 RELEASE = Prose("chore(dist): prepare v1.2.3")
-VERSION = ReleaseVersion("1.2.3")
+CORRECTION = Prose("docs(changelog): an entry reworded")
+TWO_ENTRIES = Prose("# Changelog\n" + ENTRY_TAIL + "\n- **Another.** Gone.\n")
+OK = Prose(
+    "check-changelog: ok (the subjects since main read in the vocabulary, CHANGELOG.md is "
+    + "edited exactly when they owe it an entry, the release preparation and a correction "
+    + "apart)\n"
+)
 BASE = Revision("base")
 MAIN = Revision("main")
 # A top level's defaults: an empty section, and a snapshot naming Main and one stdlib module.
@@ -273,13 +280,9 @@ def test_e2e_a_subject_owing_nothing_fails_with_a_changelog_edit(
         + "  refactor(cpp): tidy\n"
         + "An entry is owed by a feat, fix or perf on a shipped scope, a breaking mark, or a\n"
         + "changed public-surface record; relabel the change, or leave CHANGELOG.md alone.\n"
+        + "A branch that only removes or rewrites entries is a correction, "
+        + "'docs(changelog): text'.\n"
     )
-
-
-SHAPE_FIX = Prose(
-    "Cut it as docs/development/RELEASE.md says: the entries move under "
-    + "'## [1.2.3] — YYYY-MM-DD', below an empty '## [Unreleased]', and nothing else changes."
-)
 
 
 def test_e2e_the_release_preparation_edits_the_changelog_owing_none(
@@ -289,10 +292,7 @@ def test_e2e_the_release_preparation_edits_the_changelog_owing_none(
     branch = _branch(RelPath("python/pyproject.toml"), RELEASE, changelog=True)
     _base_holds(monkeypatch, ENTRY)
     assert _gate(tmp_path, monkeypatch, branch, changelog=CUT) == 0
-    assert capsys.readouterr().out == (
-        "check-changelog: ok (the subjects since main read in the vocabulary, and CHANGELOG.md "
-        + "is edited exactly when they owe it an entry, the release preparation apart)\n"
-    )
+    assert capsys.readouterr().out == OK
 
 
 def test_e2e_a_release_preparation_that_leaves_the_entries_unreleased_fails(
@@ -353,346 +353,6 @@ def test_e2e_a_base_changelog_that_cannot_be_read_stops_the_gate(
     assert capsys.readouterr().err.startswith(
         "check-changelog: FAIL — CHANGELOG.md cannot be read at the merge-base "
     )
-
-
-OLDER = Prose("\n## [1.2.2] — 2026-01-01\n\n- **Old.** Kept.\n")
-HEAD = "# Changelog\n\n## [Unreleased]\n\n"
-# A preamble quoting a later version's heading and holding one deeper than a release's.
-QUOTED = "# Changelog\n\n> ## [9.9.9] — 2026-01-01\n\n### [9.9.9] — 2026-01-01\n"
-
-
-@pytest.mark.parametrize(
-    ("changelog", "base"),
-    [
-        (CUT, ENTRY),
-        (Prose(CUT + OLDER), Prose(ENTRY + OLDER)),
-        (
-            Prose(QUOTED + CUT_TAIL),
-            Prose(QUOTED + ENTRY_TAIL),
-        ),
-        (
-            Prose(HEAD + "## [1.2.3] — 2026-10-12\n### Fixed\n- **A bug.** Gone.\n"),
-            Prose("# Changelog\n\n## [Unreleased]\n### Fixed\n- **A bug.** Gone.\n"),
-        ),
-        (
-            Prose("# Change\u2028log\n" + CUT_TAIL),
-            Prose("# Change\u2028log\n" + ENTRY_TAIL),
-        ),
-        (
-            Prose(
-                "# Changelog\n\n## [Unreleased]\n\t \n## [1.2.3] — 2026-10-12\n\n### Fixed\n\n"
-                + "- **A bug.** Gone.\n"
-            ),
-            ENTRY,
-        ),
-    ],
-    ids=[
-        "cut",
-        "older-release-kept",
-        "quoted-and-deeper-are-no-release",
-        "no-blank-under-the-headings",
-        "line-separator-in-the-preamble",
-        "tab-and-space-are-blank",
-    ],
-)
-def test_a_release_cut_has_no_problem(changelog: Prose, base: Prose) -> None:
-    """The base's unreleased lines under the dated heading, nothing else moved, is the cut."""
-    assert cut_problem(changelog, base, VERSION) is None
-
-
-_WANTED = "'## [1.2.3] — YYYY-MM-DD'"
-
-
-@pytest.mark.parametrize(
-    ("changelog", "found"),
-    [
-        (
-            "# Changelog\n\n## [Unreleased]\n\n- **A bug.** Gone.\n\n## [1.2.3] — 2026-10-12\n",
-            "is not empty under '## [Unreleased]'",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n- **A bug.** Gone.\n\n## [1.2.3] — 2026-10-12\n",
-            "is not empty under '## [Unreleased]'",
-        ),
-        (
-            HEAD + "[x]: https://example.com\n\n## [1.2.3] — 2026-10-12\n",
-            "is not empty under '## [Unreleased]'",
-        ),
-        (
-            HEAD + "\u00a0\n\n## [1.2.3] — 2026-10-12\n",
-            "is not empty under '## [Unreleased]'",
-        ),
-        ("# Changelog\n\n## [Unreleased]\n", f"has no {_WANTED} heading after '## [Unreleased]'"),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n# [1.2.3] — 2026-10-12\n",
-            f"has no {_WANTED} heading after '## [Unreleased]'",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [1.2.2] — 2026-10-12\n",
-            f"heads the section after '## [Unreleased]' '[1.2.2] — 2026-10-12', not {_WANTED}",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [1.2.3]\n",
-            f"heads the section after '## [Unreleased]' '[1.2.3]', not {_WANTED}",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [1.2.3] - 2026-10-12\n",
-            f"heads the section after '## [Unreleased]' '[1.2.3] - 2026-10-12', not {_WANTED}",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [1.2.3] — 20261012\n",
-            f"heads the section after '## [Unreleased]' '[1.2.3] — 20261012', not {_WANTED}",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [01.2.3] — 2026-10-12\n",
-            f"heads the section after '## [Unreleased]' '[01.2.3] — 2026-10-12', not {_WANTED}",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [1.2.3] — \u0662\u0660\u0662\u0666-10-12\n",
-            "heads the section after '## [Unreleased]' "
-            + "'[1.2.3] — \u0662\u0660\u0662\u0666-10-12', not "
-            + _WANTED,
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [Other]\n\n## [1.2.3] — 2026-10-12\n",
-            f"heads the section after '## [Unreleased]' '[Other]', not {_WANTED}",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [1.2.3] — 2026-13-40\n",
-            "dates release 1.2.3 '2026-13-40', which is not a calendar date",
-        ),
-        (
-            "# Changelog\n\n## [Unreleased]\n\n## [1.2.3] — 2026-10-12\n\n## [Unreleased]\n",
-            "has 2 '## [Unreleased]' sections, not one",
-        ),
-        ("# Changelog\n", "has 0 '## [Unreleased]' sections, not one"),
-    ],
-    ids=[
-        "entries-left",
-        "entry-under-the-heading",
-        "definition-left",
-        "no-break-space-left",
-        "no-heading",
-        "level-one",
-        "another-version",
-        "undated",
-        "hyphen",
-        "basic-date",
-        "leading-zero",
-        "arabic-indic-date",
-        "heading-between",
-        "not-a-date",
-        "two-unreleased",
-        "no-unreleased",
-    ],
-)
-def test_a_changelog_short_of_the_cut_says_how(changelog: Prose, found: Prose) -> None:
-    """Each way a CHANGELOG falls short of the cut's shape is named, with the cut as the fix."""
-    assert cut_problem(changelog, ENTRY, VERSION) == CutProblem(found, SHAPE_FIX)
-
-
-_NEWER = "names release 1.2.3, not newer than the base's newest release, "
-MOVED = Prose(
-    "holds under release 1.2.3 other lines, or the same in another order, than the base's "
-    + "'## [Unreleased]' held"
-)
-# Two older releases: by SemVer 1.2.10 is the newer, as text 1.2.9 is.
-SEMVER = Prose(
-    "\n## [1.2.10] — 2026-09-02\n\n- **Later.** Kept.\n"
-    + "\n## [1.2.9] — 2026-09-01\n\n- **Old.** Kept.\n"
-)
-
-
-@pytest.mark.parametrize(
-    ("changelog", "base", "problem"),
-    [
-        (
-            Prose(HEAD + "## [1.2.3] — 2026-10-12\n\n### Fixed\n\n- **B.** b\n- **A.** a\n"),
-            Prose(HEAD + "### Fixed\n\n- **A.** a\n- **B.** b\n"),
-            CutProblem(MOVED, SHAPE_FIX),
-        ),
-        (
-            Prose(HEAD + "## [1.2.3] — 2026-10-12\n\n### Added\n\n- **A.** a\n\n### Fixed\n\n"),
-            Prose(HEAD + "### Added\n\n### Fixed\n\n- **A.** a\n\n"),
-            CutProblem(MOVED, SHAPE_FIX),
-        ),
-        (
-            Prose("# Changelog\n\n## [Unreleased]\n\n## [1.2.3] — 2026-10-12\n"),
-            ENTRY,
-            CutProblem(
-                MOVED,
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose(CUT + "- **New.** Slipped in.\n"),
-            ENTRY,
-            CutProblem(
-                MOVED,
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose(CUT + "\n## [1.2.2] — 2026-01-01\n\n- **Old.** Edited.\n"),
-            Prose(ENTRY + OLDER),
-            CutProblem(
-                Prose("changes text outside '## [Unreleased]' and the new release's section"),
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose("# Change log\n" + CUT_TAIL),
-            ENTRY,
-            CutProblem(
-                Prose("changes text outside '## [Unreleased]' and the new release's section"),
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose(
-                "# Changelog\n"
-                + OLDER
-                + "\n## [Unreleased]\n\n## [1.2.3] — 2026-10-12\n\n"
-                + "### Fixed\n\n- **A bug.** Gone.\n"
-            ),
-            Prose(ENTRY + OLDER),
-            CutProblem(
-                Prose("changes text outside '## [Unreleased]' and the new release's section"),
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose(CUT + "\n## [1.2.4] — 2026-09-01\n\n- **Later.** Kept.\n" + OLDER),
-            Prose(ENTRY + "\n## [1.2.4] — 2026-09-01\n\n- **Later.** Kept.\n" + OLDER),
-            CutProblem(
-                Prose(_NEWER + "1.2.4"),
-                Prose(
-                    "Prepare a version newer than 1.2.4, in the commit, the title and the heading."
-                ),
-            ),
-        ),
-        (
-            Prose(
-                "# Changelog\n\n## [Unreleased]\n\n## [1.2.3] — 2026-09-01\n\n- **A bug.** Gone.\n"
-            ),
-            Prose(
-                "# Changelog\n\n## [Unreleased]\n\n## [1.2.3] — 2026-09-01\n\n- **A bug.** Gone.\n"
-            ),
-            CutProblem(
-                Prose(_NEWER + "1.2.3"),
-                Prose(
-                    "Prepare a version newer than 1.2.3, in the commit, the title and the heading."
-                ),
-            ),
-        ),
-        (
-            CUT,
-            Prose(ENTRY + "\n## [Unreleased]\n"),
-            CutProblem(
-                Prose("is cut from a base with 2 '## [Unreleased]' sections, not one"),
-                Prose("Merge the base's '## [Unreleased]' sections into one on main first."),
-            ),
-        ),
-        (
-            CUT,
-            Prose("# Changelog\n"),
-            CutProblem(
-                Prose("is cut from a base with 0 '## [Unreleased]' sections, not one"),
-                Prose("Merge the base's '## [Unreleased]' sections into one on main first."),
-            ),
-        ),
-        (
-            Prose(CUT + SEMVER),
-            Prose(ENTRY + SEMVER),
-            CutProblem(
-                Prose(_NEWER + "1.2.10"),
-                Prose(
-                    "Prepare a version newer than 1.2.10, in the commit, the title and the heading."
-                ),
-            ),
-        ),
-        (
-            Prose("# Changelog\n\n## [1.2.3] — 2026-10-12\n" + CUT_TAIL),
-            ENTRY,
-            CutProblem(
-                Prose("changes text outside '## [Unreleased]' and the new release's section"),
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose(CUT + "\n"),
-            ENTRY,
-            CutProblem(
-                MOVED,
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose(HEAD + "## [1.2.3] — 2026-10-12\n\n- a\n- b\u0085- c\n"),
-            Prose(HEAD + "- a\u0085- b\n- c\n"),
-            CutProblem(
-                MOVED,
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose("## [Unreleased]\n\n## [1.2.3] — 2026-10-12\n\n- a\n\n# Changelog\n\n"),
-            Prose("# Changelog\n\n## [Unreleased]\n\n- a\n"),
-            CutProblem(
-                Prose("changes text outside '## [Unreleased]' and the new release's section"),
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose(
-                "# Changelog\n\n## [1.0.0] — 2026-01-01\n\n- old\n## [Unreleased]\n\n"
-                + "## [1.2.3] — 2026-10-12\n\n- a\n- b\n"
-            ),
-            Prose(
-                "# Changelog\n\n## [Unreleased]\n\n- a\n- b\n\n## [1.0.0] — 2026-01-01\n\n- old\n"
-            ),
-            CutProblem(
-                Prose("changes text outside '## [Unreleased]' and the new release's section"),
-                SHAPE_FIX,
-            ),
-        ),
-        (
-            Prose(CUT + "\n## [1.2.3] — 2026-01-01 and earlier\n\n- **Old.** Kept.\n"),
-            Prose(ENTRY + "\n## [1.2.3] — 2026-01-01 and earlier\n\n- **Old.** Kept.\n"),
-            CutProblem(
-                Prose(_NEWER + "1.2.3"),
-                Prose(
-                    "Prepare a version newer than 1.2.3, in the commit, the title and the heading."
-                ),
-            ),
-        ),
-    ],
-    ids=[
-        "entries-reordered",
-        "entry-moved-to-another-category",
-        "entries-dropped",
-        "entry-added",
-        "older-release-edited",
-        "preamble-edited",
-        "unreleased-below-older",
-        "not-newer",
-        "already-released",
-        "base-two-unreleased",
-        "base-no-unreleased",
-        "semver-order",
-        "release-heading-also-above",
-        "blank-line-added",
-        "entry-boundary-moved-across-a-next-line",
-        "title-moved-below-the-release",
-        "release-placed-below-an-older-one",
-        "older-heading-in-another-form",
-    ],
-)
-def test_a_cut_that_differs_from_its_base_says_how(
-    changelog: Prose, base: Prose, problem: CutProblem
-) -> None:
-    """Against the base, the cut moves exactly its unreleased lines, and to a newer version."""
-    assert cut_problem(changelog, base, VERSION) == problem
 
 
 def test_e2e_a_subject_owing_an_entry_fails_without_one(
@@ -983,3 +643,104 @@ def test_e2e_a_changelog_that_is_not_utf8_cannot_be_checked(
     assert err.startswith("check-changelog: FAIL — ")
     assert "CHANGELOG.md cannot be read: " in err
     assert err.endswith("\n")
+
+
+def test_e2e_a_correction_that_removes_an_entry_edits_the_changelog_owing_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A correction removes an entry from CHANGELOG.md owing none, and passes."""
+    branch = _branch(RelPath("tools/thing.py"), CORRECTION, changelog=True)
+    _base_holds(monkeypatch, TWO_ENTRIES)
+    assert _gate(tmp_path, monkeypatch, branch, changelog=ENTRY) == 0
+    assert capsys.readouterr().out == OK
+
+
+def test_e2e_a_correction_that_rewords_an_entry_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A correction that rewrites an entry's words adds none, and passes."""
+    branch = _branch(RelPath("tools/thing.py"), CORRECTION, changelog=True)
+    _base_holds(monkeypatch, ENTRY)
+    reworded = Prose("# Changelog\n" + ENTRY_TAIL.replace("Gone.", "Gone for good."))
+    assert _gate(tmp_path, monkeypatch, branch, changelog=reworded) == 0
+
+
+def test_e2e_a_correction_that_adds_an_entry_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A correction whose section holds more entries than at the merge-base is refused."""
+    branch = _branch(RelPath("tools/thing.py"), CORRECTION, changelog=True)
+    _base_holds(monkeypatch, ENTRY)
+    assert _gate(tmp_path, monkeypatch, branch, changelog=TWO_ENTRIES) == 1
+    assert capsys.readouterr().err == (
+        "check-changelog: FAIL: the branch corrects CHANGELOG.md, and a section holds more "
+        + "entries than at the merge-base:\n"
+        + "  '## [Unreleased]' 1 to 2\n"
+        + "A correction removes or rewrites entries and adds none; an entry belongs to the\n"
+        + "change that owes it, on a branch of its own.\n"
+    )
+
+
+def test_e2e_a_correction_beside_a_subject_owing_an_entry_adds_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A branch that corrects the CHANGELOG cannot also add the entry another subject owes."""
+    branch = _branch(
+        RelPath("python/aletheia/thing.py"), Prose("fix(python): a bug"), CORRECTION, changelog=True
+    )
+    _base_holds(monkeypatch, UNRELEASED)
+    assert _gate(tmp_path, monkeypatch, branch, changelog=ENTRY) == 1
+    assert "  '## [Unreleased]' 0 to 1\n" in capsys.readouterr().err
+
+
+def test_e2e_a_correction_whose_base_cannot_be_read_stops_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A correction is judged against the base's CHANGELOG; unread, the gate stops."""
+
+    def run(
+        cmd: list[GitArg], *, capture_output: bool, check: bool
+    ) -> subprocess.CompletedProcess[BaseBytes]:
+        assert capture_output
+        assert not check
+        refusal = BaseBytes(b"fatal: path 'CHANGELOG.md' does not exist in 'base'\n")
+        return subprocess.CompletedProcess(cmd, 128, BaseBytes(b""), refusal)
+
+    monkeypatch.setattr("tools.check_changelog.subprocess", SimpleNamespace(run=run))
+    branch = _branch(RelPath("tools/thing.py"), CORRECTION, changelog=True)
+    assert _gate(tmp_path, monkeypatch, branch) == 2
+    assert capsys.readouterr().err.startswith(
+        "check-changelog: FAIL — CHANGELOG.md cannot be read at the merge-base "
+    )
+
+
+def test_entries_are_the_top_level_items_under_each_release_heading() -> None:
+    """A top-level list item counts under its release; a nested, quoted or fenced one does not."""
+    text = Prose(
+        "# Changelog\n\n- above\n\n## [Unreleased]\n\n### Fixed\n\n- **A.** One.\n"
+        + "  - nested\n\n> - quoted\n\n> ## [9.9.9] — 2026-01-01\n\n```\n- fenced\n```\n\n"
+        + "1. Ordered.\n\n"
+        + "## [1.0.0] — 2026-01-01\n\n- **B.** Two.\n- **C.** Three.\n"
+    )
+    assert entry_counts(text) == {
+        "": EntryCount(1),
+        "[Unreleased]": EntryCount(2),
+        "[1.0.0] — 2026-01-01": EntryCount(2),
+    }
+
+
+def test_a_section_gains_entries_only_when_it_holds_more() -> None:
+    """A rewording, a rewrap and a removal gain nothing; a new item or section does."""
+    base = Prose(
+        "## [Unreleased]\n\n- **A.** One.\n- **B.** Two.\n\n## [1.0.0] — 2026-01-01\n\n"
+        + "- **C.** Three.\n\n## [0.9.0] — 2025-01-01\n\n- **D.** Four.\n- **E.** Five.\n"
+    )
+    head = Prose(
+        "## [Unreleased]\n\n- **A.** One, reworded.\n- **B.**\n  Two.\n\n"
+        + "## [1.1.0] — 2026-02-01\n\n- **F.** Six.\n\n## [1.0.0] — 2026-01-01\n\n"
+        + "- **C.** Three.\n- **G.** Seven.\n\n## [0.9.0] — 2025-01-01\n\n- **D.** Four.\n"
+    )
+    assert gained_entries(head, base) == [
+        Gain(Prose("[1.1.0] — 2026-02-01"), EntryCount(0), EntryCount(1)),
+        Gain(Prose("[1.0.0] — 2026-01-01"), EntryCount(1), EntryCount(2)),
+    ]

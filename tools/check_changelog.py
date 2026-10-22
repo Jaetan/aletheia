@@ -18,9 +18,12 @@ comparison ref (default ``main``), this gate holds these:
   on; the C++ layout record, which every program linked against the shared
   library is rebuilt for), edits ``CHANGELOG.md``;
 * a branch that owes no entry leaves ``CHANGELOG.md`` alone, the release
-  preparation apart (that module's ``cuts_a_release``): the changelog records
-  what users get, and an entry under a subject that owes none is where internal
-  work leaks into it;
+  preparation and a correction apart (that module's ``cuts_a_release`` and
+  ``corrects_the_changelog``): the changelog records what users get, and an
+  entry under a subject that owes none is where internal work leaks into it;
+* a branch whose commits correct the changelog (that module's ``corrected``)
+  adds it no entry (``gained_entries``): against the merge-base, no section a
+  top-level ``##`` heading opens holds more top-level list items than it did;
 * the ``## [Unreleased]`` section carries each of its ``###`` category headers
   once, and every one is a Keep-a-Changelog category: a second
   ``### Changed`` is where an entry lands out of sight of the first;
@@ -40,13 +43,14 @@ Exit codes:
       one, the section is sound, and a release the branch prepares is cut.
   1 — a subject the vocabulary refuses, shipped files under internal labels
       alone, a branch that owes an entry and leaves ``CHANGELOG.md`` alone, one
-      that edits it owing none and cutting no release, no ``## [Unreleased]``
-      section, a category header repeated under it, a header there that is
-      not a category, a release the CHANGELOG does not cut from its base, or two
-      releases.
+      that edits it owing none, cutting no release and correcting nothing, a
+      correction that adds an entry, no ``## [Unreleased]`` section, a category
+      header repeated under it, a header there that is not a category, a release
+      the CHANGELOG does not cut from its base, or two releases.
   2 — git cannot answer (no comparison ref, no merge-base, no top level), or
       ``CHANGELOG.md`` or the runtime-closure snapshot cannot be read as UTF-8, or,
-      on a branch preparing a release, the merge-base's ``CHANGELOG.md`` cannot.
+      on a branch preparing a release or correcting the changelog, the
+      merge-base's ``CHANGELOG.md`` cannot.
 """
 
 from __future__ import annotations
@@ -61,7 +65,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType
 
 from tools._common import RelPath, emit, find_executable
-from tools._markdown import headings, sections
+from tools._markdown import blocks, headings, sections
 from tools._markdown import lines as commonmark_lines
 from tools.commit_subjects import (
     RUNTIME_CLOSURE,
@@ -72,6 +76,8 @@ from tools.commit_subjects import (
     ReleaseVersion,
     Revision,
     Subject,
+    corrected,
+    corrects_the_changelog,
     cuts_a_release,
     kernel_sources,
     mislabelled,
@@ -89,8 +95,9 @@ if TYPE_CHECKING:
 
 DESCRIPTION = (
     "Hold a branch's commit subjects to the vocabulary, require the CHANGELOG entry they or a "
-    + "public-surface record owe and refuse one nothing owes, hold [Unreleased] to one "
-    + "header per category, and hold a release preparation to its cut."
+    + "public-surface record owe and refuse one nothing owes, hold a correction to adding "
+    + "none, hold [Unreleased] to one header per category, and hold a release preparation "
+    + "to its cut."
 )
 TOOL = Prose("check-changelog")
 
@@ -123,6 +130,10 @@ _RELEASE_OPENING = re.compile(rf"\[(?P<version>{VERSION_PATTERN})\]")
 _BLANK = " \t"
 # One of a version's three numbers.
 VersionNumber = NewType("VersionNumber", int)
+# How many entries a release section holds.
+EntryCount = NewType("EntryCount", int)
+# An entry is a list item at the top level, inside no quote and no other item.
+_ENTRY_WITHIN = ("list",)
 
 
 class Category(StrEnum):
@@ -302,11 +313,81 @@ def unowed_edit_refused(branch: Branch) -> bool:
     subjects = [read for read in map(parse, branch.subjects) if isinstance(read, Subject)]
     if reasons.records or reasons.subjects or any(map(cuts_a_release, subjects)):
         return False
+    if any(map(corrects_the_changelog, subjects)):
+        return False
     lines = [
         "check-changelog: FAIL — the branch edits CHANGELOG.md, and no subject owes it an entry:",
         *(f"  {subject}" for subject in branch.subjects),
         "An entry is owed by a feat, fix or perf on a shipped scope, a breaking mark, or a",
         "changed public-surface record; relabel the change, or leave CHANGELOG.md alone.",
+        "A branch that only removes or rewrites entries is a correction, 'docs(changelog): text'.",
+    ]
+    _ = sys.stderr.write("\n".join(lines) + "\n")
+    return True
+
+
+class Gain(NamedTuple):
+    """A release section holding more entries than it did at the merge-base."""
+
+    section: Prose
+    before: EntryCount
+    after: EntryCount
+
+
+def entry_counts(changelog: Prose) -> dict[Prose, EntryCount]:
+    """Count the entries under each release heading, keyed by the heading as written.
+
+    A release heading is a top-level ``##`` heading, outside every quote and list;
+    an entry is a top-level list item (``_ENTRY_WITHIN``) after it and before the
+    next, read as CommonMark (``tools._markdown``).  Entries above the first
+    release heading count under the empty key.
+    """
+    opened = [
+        heading
+        for heading in headings(changelog)
+        if heading.level == _RELEASE_LEVEL and not heading.nested
+    ]
+    counts: dict[Prose, EntryCount] = {}
+    for block in blocks(changelog):
+        if block.kind != "item" or block.within != _ENTRY_WITHIN:
+            continue
+        above = [heading.source for heading in opened if heading.line < block.first]
+        key = above[-1] if above else Prose("")
+        counts[key] = EntryCount(counts.get(key, 0) + 1)
+    return counts
+
+
+def gained_entries(changelog: Prose, base: Prose) -> list[Gain]:
+    """Give each release section holding more entries than at ``base``, in the changelog's order.
+
+    A section ``base`` lacks held none there.  Counting is what holds a correction
+    to adding nothing: an entry split in two counts as one added, a rewording or a
+    rewrap as none.
+    """
+    before = entry_counts(base)
+    return [
+        Gain(section, EntryCount(before.get(section, 0)), after)
+        for section, after in entry_counts(changelog).items()
+        if after > before.get(section, 0)
+    ]
+
+
+def correction_refused(changelog: Prose, base: Prose) -> bool:
+    """Write the refusal for a correction that adds an entry; say if it did."""
+    gains = gained_entries(changelog, base)
+    if not gains:
+        return False
+    lines = [
+        "check-changelog: FAIL: the branch corrects CHANGELOG.md, and a section holds more "
+        + "entries than at the merge-base:",
+        *(
+            f"  '## {gain.section}' {gain.before} to {gain.after}"
+            if gain.section
+            else f"  above the first release {gain.before} to {gain.after}"
+            for gain in gains
+        ),
+        "A correction removes or rewrites entries and adds none; an entry belongs to the",
+        "change that owes it, on a branch of its own.",
     ]
     _ = sys.stderr.write("\n".join(lines) + "\n")
     return True
@@ -510,8 +591,9 @@ def main() -> ExitStatus:
     if branch is None:
         return COULD_NOT_CHECK
     prepared = sorted(released(branch))
+    corrects = corrected(branch)
     base_text: Prose | None = None
-    if len(prepared) == 1:
+    if len(prepared) == 1 or corrects:
         base_text = base_changelog(branch)
         if base_text is None:
             return COULD_NOT_CHECK
@@ -522,14 +604,15 @@ def main() -> ExitStatus:
         entry_refused(branch),
         unowed_edit_refused(branch),
         versions_refused(prepared),
-        base_text is not None and cut_refused(prepared[0], text, base_text),
+        base_text is not None and len(prepared) == 1 and cut_refused(prepared[0], text, base_text),
+        base_text is not None and corrects and correction_refused(text, base_text),
     ]
     if any(refused):
         return ExitStatus(1)
     emit(
         f"check-changelog: ok (the subjects since {base} read in the vocabulary, "
-        + "and CHANGELOG.md is edited exactly when they owe it an entry, the release "
-        + "preparation apart)"
+        + "CHANGELOG.md is edited exactly when they owe it an entry, the release "
+        + "preparation and a correction apart)"
     )
     return ExitStatus(0)
 

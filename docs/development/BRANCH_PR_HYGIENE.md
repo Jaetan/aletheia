@@ -109,8 +109,10 @@ commit-subject vocabulary (`tools/check_pr_title.py`), refuses an internal scope
 on a branch that changes what users get, and requires a CHANGELOG edit exactly
 when the vocabulary's table says the title owes an entry: a title that owes none
 on a branch that edits `CHANGELOG.md` is refused too, the release preparation
-(`chore(dist): prepare vX.Y.Z`) apart; a release title and the branch's
-preparation commit name the same version; and a branch that changes the C++
+(`chore(dist): prepare vX.Y.Z`) and a correction (`docs(changelog): text`) apart;
+a release title and the branch's preparation commit name the same version, and a
+correction title needs a commit on the branch correcting the CHANGELOG, which
+`check-changelog` holds to adding no entry; and a branch that changes the C++
 layout record, `docs/CPP_LAYOUT.yaml`, needs the breaking mark on its title. It runs on every title edit
 and every push, and needs no build. Once the pull request that adds it has
 reported it green, add **`PR title`** to the `main` ruleset's required checks,
