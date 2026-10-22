@@ -540,10 +540,10 @@ def _run_lints(runner: Runner) -> None:
     _clang_format = Path(runner.python).parent / "clang-format"
     clang_format_bin = str(_clang_format) if _clang_format.exists() else "clang-format"
     # Run from the repository root so the listing is every tracked C++ source,
-    # not only the binding's: two live elsewhere and were outside this gate for
-    # as long as it ran from cpp/. The style is named explicitly because
-    # clang-format finds a configuration by walking up from each file, and there
-    # is none above those two; naming it also keeps one style for the tree.
+    # those outside the binding with its own. The style is named explicitly
+    # because clang-format finds a configuration by walking up from each file,
+    # and there is none above the sources outside cpp/; naming it also keeps one
+    # style for the tree.
     clang_format_cmd = (
         "git ls-files -z -- '*.cpp' '*.hpp' | "
         f"xargs -0 -r {shlex.quote(clang_format_bin)} "
