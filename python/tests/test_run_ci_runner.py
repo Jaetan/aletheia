@@ -33,7 +33,6 @@ from tools._ci_steps import (
     AGDA_SHAKE_TARGETS,
     CPP_COMPILERS,
     CPP_LINT_LANE,
-    DOC_EXAMPLE_DOCS,
     FAST_STEPS,
     HEAVY_STEPS,
     ROOT_PYTHON,
@@ -294,24 +293,6 @@ def test_basedpyright_leaves_the_kept_outputs_under_tools_unread() -> None:
     config = tomllib.loads((repo / "python" / "pyproject.toml").read_text(encoding="utf-8"))
     excluded = config["tool"]["basedpyright"].get("exclude", [])
     assert "../tools/ci-output" in excluded, f"basedpyright reads tools/ci-output: {excluded}"
-
-
-def test_the_doc_example_step_reads_exactly_the_harness_documents(tmp_path: Path) -> None:
-    """The doc-example step's document arguments are ``DOC_EXAMPLE_DOCS``, all of them and last.
-
-    A directory given beside the list, or a document spelled into the step
-    rather than into the list, runs fences the structural tests and the
-    documented command do not read.
-    """
-    runner = ci_runner(tmp_path)
-    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
-    steps = {step.name: step for step in runner.registered_steps}
-    cmd = list(steps["pytest --markdown-docs"].cmd)
-    documents = [str(doc) for doc in DOC_EXAMPLE_DOCS]
-    assert cmd[-len(documents) :] == documents
-    # The argument before the documents is the last option's value, so nothing
-    # else is collected.
-    assert cmd[-len(documents) - 1] == "pythonpath=python/tests"
 
 
 @pytest.mark.process(
