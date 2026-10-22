@@ -24,6 +24,9 @@ comparison ref (default ``main``), this gate holds these:
 * a branch whose commits correct the changelog (that module's ``corrected``)
   adds it no entry (``gained_entries``): against the merge-base, no section a
   top-level ``##`` heading opens holds more top-level list items than it did;
+* the changelog names none of the project's probes (``probe_mentions``): a
+  probe is an investigation's instrument, never what users get, so an entry
+  states its change and the gate or test that holds it;
 * the ``## [Unreleased]`` section carries each of its ``###`` category headers
   once, and every one is a Keep-a-Changelog category: a second
   ``### Changed`` is where an entry lands out of sight of the first;
@@ -44,9 +47,10 @@ Exit codes:
   1 — a subject the vocabulary refuses, shipped files under internal labels
       alone, a branch that owes an entry and leaves ``CHANGELOG.md`` alone, one
       that edits it owing none, cutting no release and correcting nothing, a
-      correction that adds an entry, no ``## [Unreleased]`` section, a category
-      header repeated under it, a header there that is not a category, a release
-      the CHANGELOG does not cut from its base, or two releases.
+      correction that adds an entry, a probe the changelog names, no
+      ``## [Unreleased]`` section, a category header repeated under it, a header
+      there that is not a category, a release the CHANGELOG does not cut from its
+      base, or two releases.
   2 — git cannot answer (no comparison ref, no merge-base, no top level), or
       ``CHANGELOG.md`` or the runtime-closure snapshot cannot be read as UTF-8, or,
       on a branch preparing a release or correcting the changelog, the
@@ -88,7 +92,7 @@ from tools.commit_subjects import (
     toplevel,
 )
 
-from aletheia.common_types import ExitStatus, Prose
+from aletheia.common_types import ExitStatus, PositiveInt, Prose
 
 if TYPE_CHECKING:
     from tools._markdown import Section
@@ -96,8 +100,8 @@ if TYPE_CHECKING:
 DESCRIPTION = (
     "Hold a branch's commit subjects to the vocabulary, require the CHANGELOG entry they or a "
     + "public-surface record owe and refuse one nothing owes, hold a correction to adding "
-    + "none, hold [Unreleased] to one header per category, and hold a release preparation "
-    + "to its cut."
+    + "none, refuse a probe the CHANGELOG names, hold [Unreleased] to one header per "
+    + "category, and hold a release preparation to its cut."
 )
 TOOL = Prose("check-changelog")
 
@@ -134,6 +138,31 @@ VersionNumber = NewType("VersionNumber", int)
 EntryCount = NewType("EntryCount", int)
 # An entry is a list item at the top level, inside no quote and no other item.
 _ENTRY_WITHIN = ("list",)
+# The word for the project's probes, in any form.
+_PROBE_WORD = re.compile(r"prob(?:e|ing)", re.IGNORECASE)
+# The other senses the changelog describes, each as written, wrapped anywhere: a
+# mechanism of shipped code or of a gate that is called a probe.
+_OTHER_SENSES = tuple(
+    re.compile(sense)
+    for sense in (
+        # The build-staleness gate edits a runtime module, then reverts it.
+        r"build-staleness\s+probes",
+        r"edit/revert\s+probes",
+        r"post-probe\s+build-ids",
+        r"consecutive\s+probe\s+cycles",
+        r"an\s+edit\s+probe\s+and\s+its\s+revert",
+        r"now\s+probes\s+\*\*two\*\*",
+        r"distinct\s+probe\s+tokens",
+        r"killed\s+mid-probe",
+        # A C++ table looked up with an empty key.
+        r'a\s+`""`\s+probe',
+        # The Go binding's size check on a serialised DBC.
+        r"size\s+probe",
+        r"\*is\*\s+the\s+probe",
+        # The C++ renderer's search for the shared library.
+        r"cwd-relative\s+probe",
+    )
+)
 
 
 class Category(StrEnum):
@@ -334,6 +363,13 @@ class Gain(NamedTuple):
     after: EntryCount
 
 
+class Mention(NamedTuple):
+    """A line of the changelog naming the project's probes: its number and its text."""
+
+    line: PositiveInt
+    text: Prose
+
+
 def entry_counts(changelog: Prose) -> dict[Prose, EntryCount]:
     """Count the entries under each release heading, keyed by the heading as written.
 
@@ -388,6 +424,45 @@ def correction_refused(changelog: Prose, base: Prose) -> bool:
         ),
         "A correction removes or rewrites entries and adds none; an entry belongs to the",
         "change that owes it, on a branch of its own.",
+    ]
+    _ = sys.stderr.write("\n".join(lines) + "\n")
+    return True
+
+
+def probe_mentions(changelog: Prose) -> list[Mention]:
+    """Give each line naming the project's probes, once per line, in the changelog's order.
+
+    The word is ``_PROBE_WORD`` in any case, a path such as ``probes/`` included; a
+    match inside one of ``_OTHER_SENSES``, a mechanism an entry describes that is
+    called a probe, is not the project's.  Lines are numbered as the file's
+    newlines end them.
+    """
+    kept = [
+        range(found.start(), found.end())
+        for sense in _OTHER_SENSES
+        for found in sense.finditer(changelog)
+    ]
+    written = changelog.split("\n")
+    numbers: list[PositiveInt] = []
+    for found in _PROBE_WORD.finditer(changelog):
+        if any(found.start() in span for span in kept):
+            continue
+        number: PositiveInt = changelog.count("\n", 0, found.start()) + 1
+        if number not in numbers:
+            numbers.append(number)
+    return [Mention(number, Prose(written[number - 1])) for number in numbers]
+
+
+def probes_refused(changelog: Prose) -> bool:
+    """Write the refusal for each line naming the project's probes; say if one did."""
+    mentions = probe_mentions(changelog)
+    if not mentions:
+        return False
+    lines = [
+        "check-changelog: FAIL: CHANGELOG.md names the project's probes, which are internal:",
+        *(f"  line {mention.line}: {mention.text.strip()}" for mention in mentions),
+        "An entry states its change and the gate or test that holds it; the probe that showed",
+        "it belongs to the commit message.",
     ]
     _ = sys.stderr.write("\n".join(lines) + "\n")
     return True
@@ -599,6 +674,7 @@ def main() -> ExitStatus:
             return COULD_NOT_CHECK
     refused = [
         headers_refused(unreleased_headers(text)),
+        probes_refused(text),
         subjects_refused(branch),
         labels_refused(branch, kernel_sources(snapshot)),
         entry_refused(branch),
@@ -612,7 +688,7 @@ def main() -> ExitStatus:
     emit(
         f"check-changelog: ok (the subjects since {base} read in the vocabulary, "
         + "CHANGELOG.md is edited exactly when they owe it an entry, the release "
-        + "preparation and a correction apart)"
+        + "preparation and a correction apart, and it names no probe)"
     )
     return ExitStatus(0)
 
