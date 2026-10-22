@@ -102,8 +102,14 @@ coverage run's instrumentation, and run against the kernel. A fence declaring
 `main` returning `Result<(), aletheia::Error>` under `use aletheia::*`, with
 `client` (the minimal corpus DBC parsed), `ts`, `id`, `dlc` and `data`
 predeclared. The Rust fences of a document `PATH_DOCS` lists (the Tutorial's
-Rust path) are one program cut into steps, joined in order and run whole. A
-fence that cannot run opens with tildes, which the extractor does not read.
+Rust path) are one program cut into steps, joined in order and run whole.
+Every program runs against the forwarding stand-in kernel and fails unless
+the kernel refused exactly the codes a `<!-- refuses: <code> ... -->` line
+directly above its fence names, as in the other three bindings; an `Err` a
+program binds and never reads ends its run, a binding's own refusal included,
+a `Result` a statement drops fails to compile (`#![deny(unused_must_use)]`), and
+a `let _` of a call made without `?` fails a static gate. A fence that cannot
+run opens with tildes, which the extractor does not read.
 `DOC_FILES` names every tracked Markdown file carrying a Rust fence, less the
 ones `PATH_DOCS` names, and two structural gates hold the lists to the tree
 both ways, the way the Python harness's list is held. A third refuses

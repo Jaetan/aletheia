@@ -151,8 +151,8 @@ func TestLoadExcelDemoWorkbookDBC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load demo DBC: %v", err)
 	}
-	if len(dbc.Messages) != 2 {
-		t.Fatalf("expected 2 messages (EngineData, BrakeStatus), got %d", len(dbc.Messages))
+	if len(dbc.Messages) != 4 {
+		t.Fatalf("expected 4 messages (VehicleDynamics, BrakeStatus, Powertrain, BodyStatus), got %d", len(dbc.Messages))
 	}
 	for _, m := range dbc.Messages {
 		if m.ID.IsExtended() {

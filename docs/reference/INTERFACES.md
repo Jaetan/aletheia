@@ -259,9 +259,9 @@ from aletheia.dbc import dbc_to_json
 
 check_list = [
     checks.signal("VehicleSpeed").never_exceeds(220),
-    checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5")),
-    checks.when("BrakePedal").exceeds(50)
-         .then("BrakeLight").equals(1).within(100),
+    checks.signal("BrakePressure").stays_between(Fraction("0"), Fraction("6553.5")),
+    checks.when("BrakePressure").exceeds(500)
+         .then("BrakeActive").equals(1).within(100),
 ]
 
 dbc = dbc_to_json("vehicle.dbc")

@@ -214,6 +214,15 @@ auto describe = [](const AletheiaError& e) -> std::string {
 
 A decimal the YAML or Excel loader reads, such as a check's value or a signal's factor, is handed to the kernel as the document spells it (a workbook cell's text with its leading and trailing whitespace trimmed), and a refusal of it, the kernel's or the shared library's, keeps its kind, code and fields: kind `Validation` with its code, or kind `InputBoundExceeded` with `bound_info()`. The loader adds `location()`, `Check '<name>'` for a YAML check (`<unnamed>` for a check without a name) and `Row <n>` for a workbook row, and `key()`, the YAML key or the column header the number sat under, through `located(location, key)`, so `text()` reads `<location>: invalid '<key>': <message>`. Every other error leaves both `std::nullopt`, and its `text()` is its `message()`. The same document gets the same answer in every binding: [LOADER_SCENARIOS.yaml](../LOADER_SCENARIOS.yaml) is that contract.
 
+<!-- refuses: text_parse_failure -->
+```cpp
+auto const refused = aletheia::load_checks_from_yaml_string(
+    "checks:\n  - name: C\n    signal: Speed\n    condition: never_exceeds\n    value: .5\n");
+if (refused || refused.error().text() !=
+                   "Check 'C': invalid 'value': parse failed at line 1, column 1")
+    return 1;
+```
+
 `ErrorKind` is one of `Protocol`, `Validation`, `State`, `Ffi`, `BinaryUnsupported`, `Cancellation`, `InputBoundExceeded` and `TextRoundtrip`; `ErrorCode` mirrors the kernel's error codes and `FfiValidationError`, the shared library's refusal of an entry's arguments (see [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 A DBC past one of the size bounds in `<aletheia/limits.hpp>` is refused with kind and code `InputBoundExceeded` by every command that takes one: `parse_dbc`, `parse_dbc_text`, `validate_dbc` and `format_dbc_text`, which refuses it rather than formatting it. `error().bound_info()` then carries the bound kind, the observed size, the limit and `field`, the part of the DBC that crossed the bound (such as `"senders array"`), which every other bound leaves `std::nullopt`; the message names the command and that part. A text field's length is counted in characters, against `max_string_length_characters`.

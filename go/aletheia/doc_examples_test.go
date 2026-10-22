@@ -22,6 +22,8 @@
 package aletheia_test
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -29,6 +31,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -85,15 +88,18 @@ func substitutePaths(body, libPath, yamlFix, excelFix string) string {
 
 // wrapFence returns the fence as a main.go, by its shape: a package clause
 // (which comments may precede) runs verbatim, an import block gets a
-// package and an empty main, anything else is a body fragment.
-func wrapFence(body string) string {
+// package and an empty main, anything else is a body fragment. Each shape
+// has its discarded errors checked (rewriteDiscards) and carries the
+// function that checks them.
+func wrapFence(body, doc string, opening int, funcs map[string]bool) string {
 	if hasPackageDecl(body) {
-		return body
+		return rewriteDiscards(body, "", "", doc, opening, funcs) + discardedErrors
 	}
 	if hasImportBlock(body) {
-		return "package main\n\n" + body + "\nfunc main() {}\n"
+		const head = "package main\n\n"
+		return head + rewriteDiscards(body, head, "", doc, opening, funcs) + "\nfunc main() {}\n" + discardedErrors
 	}
-	return wrapBodyFragment(body)
+	return wrapBodyFragment(rewriteDiscards(body, fragmentHead, fragmentTail, doc, opening, funcs), doc, opening)
 }
 
 func hasPackageDecl(body string) bool {
@@ -122,10 +128,11 @@ func hasImportBlock(body string) bool {
 }
 
 // wrapBodyFragment places a fragment inside a synthesised main whose
-// predeclared names are the Python harness's globals, and uses every name
-// the fragment declares with := so an unused variable cannot fail it.
-func wrapBodyFragment(body string) string {
-	suppressors := unusedSuppressors(body)
+// predeclared names are the Python harness's globals, and hands every name
+// the fragment declares with := and never reads to docExampleDiscarded, so
+// an unused variable cannot fail it and an unread error ends the run.
+func wrapBodyFragment(body, doc string, opening int) string {
+	suppressors := unusedSuppressors(body, doc, opening)
 	const tmpl = `package main
 
 import (
@@ -152,6 +159,7 @@ var (
 	_ = excel.LoadChecks
 )
 
+%s
 func buildDocDBC() aletheia.DBCDefinition {
 	rat := func(n, d int64) aletheia.Rational { return aletheia.Rational{Numerator: n, Denominator: d} }
 	signal := func(name aletheia.SignalName, start aletheia.BitPosition, length aletheia.BitLength, maxVal int64) aletheia.DBCSignal {
@@ -247,15 +255,15 @@ func main() {
 	_ = client
 }
 `
-	return fmt.Sprintf(tmpl, body, suppressors)
+	return fmt.Sprintf(tmpl, discardedErrors, body, suppressors)
 }
 
-// unusedSuppressors is one blank assignment per name the fragment declares
-// with := at its top level (a name declared inside a block is scoped there
-// and needs none). A fragment that does not parse gets none; the build then
-// reports the real error with its position.
-func unusedSuppressors(body string) string {
-	src := "package x\nfunc f() {\n" + body + "\n}\n"
+// unusedSuppressors is one docExampleDiscarded call per name the fragment
+// declares with := at its top level and never reads (a name declared inside
+// a block is scoped there and needs none). A fragment that does not parse
+// gets none; the build then reports the real error with its position.
+func unusedSuppressors(body, doc string, opening int) string {
+	src := fragmentHead + body + fragmentTail
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "", src, 0)
 	if err != nil {
@@ -268,7 +276,15 @@ func unusedSuppressors(body string) string {
 	if !ok || fn.Body == nil {
 		return ""
 	}
-	var names []string
+	// A name is read when it appears anywhere but where it is declared.
+	appearances := map[string]int{}
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		if id, ok := node.(*ast.Ident); ok {
+			appearances[id.Name]++
+		}
+		return true
+	})
+	var sb strings.Builder
 	seen := map[string]bool{}
 	for _, stmt := range fn.Body.List {
 		as, ok := stmt.(*ast.AssignStmt)
@@ -277,21 +293,12 @@ func unusedSuppressors(body string) string {
 		}
 		for _, lhs := range as.Lhs {
 			id, ok := lhs.(*ast.Ident)
-			if !ok || id.Name == "_" || seen[id.Name] {
+			if !ok || id.Name == "_" || seen[id.Name] || appearances[id.Name] > 1 {
 				continue
 			}
 			seen[id.Name] = true
-			names = append(names, id.Name)
+			fmt.Fprintf(&sb, "\tdocExampleDiscarded(%q, %s)\n", discardSite(doc, opening, fset.Position(id.Pos()).Line, fragmentHead), id.Name)
 		}
-	}
-	if len(names) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	for _, n := range names {
-		sb.WriteString("\t_ = ")
-		sb.WriteString(n)
-		sb.WriteByte('\n')
 	}
 	return sb.String()
 }
@@ -331,12 +338,47 @@ replace github.com/Jaetan/aletheia/go/excel => %s
 	return yamlFix, excelFix
 }
 
+// refusalCodes is the code of each refusal the forwarding stand-in logged
+// to path, in order: a line is the entry, a tab and the kernel's envelope.
+// No file is no refusal.
+func refusalCodes(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("read the refusal log: %v", err)
+	}
+	var codes []string
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		_, envelope, ok := strings.Cut(scanner.Text(), "\t")
+		var refusal struct {
+			Code string `json:"code"`
+		}
+		if !ok || json.Unmarshal([]byte(envelope), &refusal) != nil || refusal.Code == "" {
+			t.Fatalf("an unreadable refusal log line: %q", scanner.Text())
+		}
+		codes = append(codes, refusal.Code)
+	}
+	return codes
+}
+
 // Every Go fence of every listed file builds and runs, each as its own
-// subtest named by file and line.
+// subtest named by file and line, against the forwarding stand-in kernel:
+// a fence fails unless the kernel refused exactly the codes the line
+// directly above it names, so one that discards a refused call fails too.
 func TestDocExamples(t *testing.T) {
 	lib := findFFILibForDocs()
 	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
+	}
+	forwarder := aletheia.StandIn(t, lib, "forwarding_kernel")
+	funcs, err := errorReturning()
+	if err != nil {
+		t.Fatalf("read the bindings' sources: %v", err)
 	}
 
 	root := t.TempDir()
@@ -358,8 +400,8 @@ func TestDocExamples(t *testing.T) {
 	}
 	wrapped := make([]wrappedFence, 0, len(fences))
 	for i, fence := range fences {
-		body := substitutePaths(fence.content, lib, yamlFix, excelFix)
-		src := wrapFence(body)
+		body := substitutePaths(fence.content, forwarder, yamlFix, excelFix)
+		src := wrapFence(body, fence.file, fence.line, funcs)
 		dir := filepath.Join(root, "f"+strconv.Itoa(i))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
@@ -373,7 +415,7 @@ func TestDocExamples(t *testing.T) {
 	// one build compiles every fence into bin/, a program per fence named
 	// as its directory; a fence that does not compile is named by the
 	// build's own "# aletheia_doc_harness/fN" header, mapped back below
-	env := append(os.Environ(), "GOFLAGS=-mod=mod", "ALETHEIA_LIB="+lib)
+	env := append(os.Environ(), "GOFLAGS=-mod=mod", "ALETHEIA_LIB="+forwarder, "ALETHEIA_FORWARD_TO="+lib)
 	bin := filepath.Join(root, "bin") + string(filepath.Separator)
 	args := []string{"build", "-o", bin}
 	for _, w := range wrapped {
@@ -393,14 +435,20 @@ func TestDocExamples(t *testing.T) {
 	// each fence then runs alone, in document order
 	for _, w := range wrapped {
 		t.Run(w.fence.name(), func(t *testing.T) {
+			refusals := filepath.Join(w.dir, "refusals.log")
 			cmd := exec.Command(filepath.Join(bin, filepath.Base(w.dir)))
 			cmd.Dir = root
-			cmd.Env = env
+			cmd.Env = append(slices.Clip(env), "ALETHEIA_REFUSAL_LOG="+refusals)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				wrapper, _ := os.ReadFile(filepath.Join(w.dir, "main.go"))
 				t.Fatalf("fence %s failed.\n----- WRAPPER (%s/main.go) -----\n%s\n----- COMBINED OUTPUT -----\n%s\n----- ERROR -----\n%v",
 					w.fence.name(), w.dir, wrapper, out, err)
+			}
+			if refused := refusalCodes(t, refusals); !slices.Equal(refused, w.fence.refuses) {
+				log, _ := os.ReadFile(refusals)
+				t.Fatalf("fence %s: the kernel refused %v, the fence states %v: an example that shows a refusal names its codes on a `<!-- refuses: <code> ... -->` line directly above its fence\n%s",
+					w.fence.name(), refused, w.fence.refuses, log)
 			}
 		})
 	}

@@ -5,12 +5,13 @@
 # Probes shake/Rules/Library.hs.
 # Claim: the stand-in kernels the build makes are the ones the tests load, and
 # each exports what its role needs. Every name a binding's test loads (Go's
-# standIn, Python's StandInName, Rust's stand_in::stand_in and the C++ build's
-# ALETHEIA_STAND_IN_DIR paths) is in the build's standIns table, and every
+# standIn or StandIn, Python's StandInName, Rust's stand_in::stand_in and the
+# C++ build's ALETHEIA_STAND_IN_DIR paths) is in the build's standIns table, and every
 # entry of the table is loaded by some test. After a build, every entry is under
 # build/stand-ins: the stale and the ABI-only kernels export
 # aletheia_abi_version alone of the kernel's symbols, symbolless exports none of
-# them, and null_kernel and recording_kernel export every one the library does.
+# them, and null_kernel, recording_kernel and forwarding_kernel export every one
+# the library does.
 # Non-zero exit: a name is on one side only, a built stand-in is missing, or one
 # exports other than its role. Exits 2 when the names cannot be read, or, past
 # the names, without a built library or nm.
@@ -21,8 +22,8 @@ for file in shake/Rules/Library.hs cpp/CMakeLists.txt; do [ -f "$file" ] || exit
 names() { grep -o '"[a-z_]*"' | tr -d '"' | grep -vx 'so' | sort -u; }
 table=$(sed -n '/^standIns = /,/\]/p' shake/Rules/Library.hs | names)
 loaded=$({
-	grep -oh 'standIn(t, lib, "[a-z_]*")' go/aletheia/*_test.go
-	grep -oh 'StandInName("[a-z_]*")' python/tests/*.py
+	grep -oh '[sS]tandIn(t, lib, "[a-z_]*")' go/aletheia/*_test.go
+	grep -oh 'StandInName("[a-z_]*")' python/tests/*.py conftest.py
 	grep -oh 'stand_in::stand_in("[a-z_]*")' rust/tests/*.rs
 	grep -o 'ALETHEIA_STAND_IN_DIR}/[a-z_]*\.so' cpp/CMakeLists.txt | sed 's|.*/\([a-z_]*\)\.so|"\1"|'
 } | names)
@@ -52,7 +53,7 @@ for name in $table; do
 	case $name in
 	stale_abi_kernel | abi_only_kernel) want=aletheia_abi_version ;;
 	symbolless) want= ;;
-	null_kernel | recording_kernel) want=$(printf '%s\n' "$kernel" | paste -sd' ') ;;
+	null_kernel | recording_kernel | forwarding_kernel) want=$(printf '%s\n' "$kernel" | paste -sd' ') ;;
 	*)
 		echo "$name: a stand-in this probe knows no role for"
 		status=1

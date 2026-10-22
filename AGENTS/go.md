@@ -100,7 +100,12 @@ harness (`TestDocExamples`): every ```go fence in the files `docFiles`
 lists in `go/aletheia/doc_files_test.go` (the Go README among them)
 is wrapped as `package main` in a per-fence tempdir (with a
 `replace`-directive go.mod pointing at the local repo), built by one
-`go build` and executed one fence at a time. The companion structural gate `TestNoGoFenceHidesBehindASuffix`
+`go build` and executed one fence at a time, against the forwarding stand-in
+kernel: a fence fails unless the kernel refused exactly the codes a
+`<!-- refuses: <code> ... -->` line directly above it names, as in the other
+three bindings; an error a fence assigns to `_`, declares and never reads, or
+drops from a call statement or a `defer` ends its run, a binding's own refusal
+included (`go/aletheia/doc_discards_test.go`). The companion structural gate `TestNoGoFenceHidesBehindASuffix`
 refuses a Go fence hidden behind a suffixed info word (`go,ignore`, which a
 reader takes for Go and the extractor neither runs nor counts): a fence that
 cannot run opens with tildes, which the extractor does not read, as in the

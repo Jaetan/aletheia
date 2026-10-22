@@ -130,7 +130,12 @@ against `$<TARGET_FILE:aletheia-cpp>`, and runs it. That target is a shared
 library, so the link carries an `-Wl,-rpath` to the directory holding it and
 the fence can load it. The C++ fences of a document `k_path_docs` lists (the
 Tutorial's C++ path) are one program cut into steps, joined in order, compiled
-and run whole. The companion structural gates refuse a C++ fence hidden behind
+and run whole. Every program runs against the forwarding stand-in kernel and
+fails unless the kernel refused exactly the codes a `<!-- refuses: <code> ... -->`
+line directly above its fence names, as in the other three bindings; a result
+a program keeps and never reads ends its run when it holds an error, a
+binding's own refusal included, and one a statement drops fails to compile
+(`-Werror=unused-result`). The companion structural gates refuse a C++ fence hidden behind
 a suffixed info word (`cpp,x`, which a reader takes for C++ and the extractor
 neither runs nor counts) and hold a collective fence floor; a fence that
 cannot run opens with tildes, which the extractor does not read, as in the

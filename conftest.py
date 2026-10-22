@@ -6,37 +6,49 @@ Doc-example harness per AGENTS/python.md cat 32. Every Python fence of the
 documents ``DOC_EXAMPLE_DOCS`` names in ``tools/_ci_steps.py`` is collected
 and executed end-to-end against the real FFI.
 
-The fakes below paper over fake-path references (``vehicle.dbc``,
-``drive.blf``, ``highway.asc``, ``vehicle_checks.xlsx``, ``checks.yaml``)
-so doc examples stay readable while still running against live code:
+A fence that names a file shipped under ``examples/`` (``vehicle.dbc``,
+``drive.log``) runs against that file, so its checks are held to the signals a
+reader's copy carries. The fakes below paper over every other path a fence
+names (``drive.blf``, ``highway.asc``, ``vehicle_checks.xlsx``,
+``checks.yaml``) so doc examples stay readable while still running against
+live code:
 
-* loader wrappers (``dbc_to_json``, ``iter_can_log``, ...) ignore the path
-  argument and return a purpose-built DBC or an empty iterable; this keeps
-  the narrative of the fence faithful while side-stepping missing files.
-* a pre-built ``dbc`` + already-entered ``client`` are injected so fences
-  that reuse names from a prior narrative block (e.g. PYTHON_API
-  Examples 2–4 referencing ``dbc`` defined in Example 1) resolve without
-  ``continuation``-chaining every block.
-* the DBC carries the signal names the docs talk about (``VehicleSpeed``,
-  ``Speed``, ``BrakePedal``, ``EngineRPM``, ...) so ``build_frame`` /
-  ``update_frame`` calls with those names resolve against a real message.
+* loader wrappers (``dbc_to_json``, ``iter_can_log``, ...) load a shipped file
+  the path names, and otherwise return ``vehicle.dbc`` or an empty iterable;
+  this keeps the narrative of the fence faithful while side-stepping missing
+  files. ``load_checks`` parses a ``str`` as the YAML text it is.
+* a ``dbc`` loaded from ``vehicle.dbc`` and a ``client`` that parsed it are
+  injected, so fences that reuse names from a prior narrative block (e.g.
+  PYTHON_API Examples 2–4 referencing the ``dbc`` Example 1 loads from
+  ``vehicle.dbc``) resolve without ``continuation``-chaining every block,
+  against the DBC that block loads.
+
+Every fence runs against the forwarding stand-in kernel, which hands each
+call to the built library and logs each refusal the library answers. A fence
+fails unless its refusals are exactly the codes named by a
+``<!-- refuses: <code> ... -->`` line directly above it, so a fence that
+discards a refused call fails rather than passing on its run alone.
 
 Scope: this conftest is only loaded when pytest's rootdir resolves to the
 repo root (``--markdown-docs`` runs with ``--rootdir=<repo>``). The regular
 ``python/tests/`` suite uses ``python/pyproject.toml`` as its rootdir, so
 these fakes do not leak into unit-test runs.  The harness runs with
-``-o pythonpath=python/tests``, so the DBC's signals are built on the test
-suite's own ``CANONICAL_SIGNAL``.
+``-o pythonpath=python/tests``, so it finds the stand-in kernels the way the
+test suite does.
 """
 
 from __future__ import annotations
 
+import json
+import re
+import shutil
 from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 import pytest
-from _canonical_dbc import CANONICAL_SIGNAL
+from _stand_in import StandInName, stand_in_kernel
+from pytest_markdown_docs.plugin import MarkdownInlinePythonItem
 
 from tools.check_fence_marks import harness_markdown_it
 
@@ -51,6 +63,7 @@ from aletheia import (
     AletheiaError,
     BatchError,
     CANFrameTuple,
+    CheckResult,
     FrameResponse,
     ProtocolError,
     Signal,
@@ -59,88 +72,56 @@ from aletheia import (
     infinitely_often,
     never,
 )
-from aletheia._dbc_types import empty_dbc_tier2
+from aletheia.can_log import iter_can_log, load_can_log
+from aletheia.client._ffi import find_ffi_library
+from aletheia.codes import ErrorCode
+from aletheia.dbc import dbc_to_json
 from aletheia.dsl import Predicate, Property
-from aletheia.types import DLCByteCount, DLCCode
+from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
+from aletheia.types import DLCCode
+from aletheia.yaml_loader import load_checks
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator, Iterator
     from types import ModuleType
     from typing import TypeAliasType
 
     from markdown_it import MarkdownIt
 
-    from aletheia import CheckResult, DBCDefinition
-    from aletheia.types import DBCMessage, DBCSignalAlways
+    from aletheia import DBCDefinition
 
 _REPO_ROOT = Path(__file__).parent
 
+# The data files shipped under examples/, by name: each fence's directory holds a
+# copy, so a path a fence names reaches the file a reader's checkout carries.
+_SHIPPED = {
+    path.name: path
+    for path in (_REPO_ROOT / "examples").rglob("*")
+    if path.suffix in {".dbc", ".log", ".xlsx", ".yaml"}
+}
 
-def _signal(name: str, start_bit: int, length: int) -> DBCSignalAlways:
-    """Place the test suite's unscaled, unitless signal at a name and bit range.
-
-    A caller spreads the result into a dict display to override a field, so
-    the overrides are typed by ``DBCSignalAlways`` itself.
-    """
-    return {**CANONICAL_SIGNAL, "name": name, "startBit": start_bit, "length": length}
+# The line directly above a fence that demonstrates refusals, naming their codes in order.
+_REFUSES = re.compile(r"<!-- refuses: ([a-z0-9_]+(?: [a-z0-9_]+)*) -->")
 
 
 def _doc_dbc() -> DBCDefinition:
-    """Hand-built DBC that covers the signal names used across the docs.
-
-    Docs freely reference Speed/VehicleSpeed/EngineRPM/etc. as illustrative
-    examples of property subjects. Pack those names into one 8-byte message
-    at ID 0x100, and ``Voltage`` into a second at 0x101, so
-    ``build_frame``/``update_frame`` calls resolve against real signal
-    definitions and every property names a signal of the loaded DBC, which
-    the kernel requires. The numeric ranges are deliberately wide so
-    72.0 / 130.0 / 0.0 doc-literal values stay inside [min, max].
-    """
-    vehicle_speed: DBCSignalAlways = {
-        **_signal("VehicleSpeed", 0, 16),
-        "factor": Fraction(1, 100),
-        "maximum": Fraction("655.35"),
-        "unit": "km/h",
-    }
-    speed: DBCSignalAlways = {**vehicle_speed, "name": "Speed", "startBit": 16}
-    brake_pedal: DBCSignalAlways = {
-        **_signal("BrakePedal", 32, 8),
-        "maximum": Fraction(255),
-        "unit": "%",
-    }
-    engine_rpm: DBCSignalAlways = {**_signal("EngineRPM", 40, 16), "unit": "rpm"}
-    coolant_temp: DBCSignalAlways = {
-        **_signal("CoolantTemp", 56, 8),
-        "offset": Fraction(-40),
-        "minimum": Fraction(-40),
-        "maximum": Fraction(215),
-        "unit": "celsius",
-    }
-    vehicle_state: DBCMessage = {
-        "id": 0x100,
-        "name": "VehicleState",
-        "dlc": DLCByteCount(8),
-        "sender": "ECU",
-        "signals": [vehicle_speed, speed, brake_pedal, engine_rpm, coolant_temp],
-    }
-    voltage: DBCSignalAlways = {
-        **_signal("Voltage", 0, 16),
-        "factor": Fraction(1, 100),
-        "maximum": Fraction("655.35"),
-        "unit": "V",
-    }
-    battery: DBCMessage = {
-        "id": 0x101,
-        "name": "Battery",
-        "dlc": DLCByteCount(8),
-        "sender": "ECU",
-        "signals": [voltage],
-    }
-    return {"version": "1.0", "messages": [vehicle_state, battery], **empty_dbc_tier2()}
+    """Load ``vehicle.dbc``, the DBC the documents' narratives load and reuse."""
+    return dbc_to_json(_SHIPPED["vehicle.dbc"])
 
 
-def _harness_dbc_to_json[**P](*_args: P.args, **_kwargs: P.kwargs) -> DBCDefinition:
-    return _doc_dbc()
+def _shipped_or[**P, R](real: Callable[P, R], fake: Callable[[], R]) -> Callable[P, R]:
+    """Wrap ``real`` to load a file the fence's directory holds, else call ``fake``."""
+
+    def load(*args: P.args, **kwargs: P.kwargs) -> R:
+        named = args[0] if args else None
+        if isinstance(named, str | Path) and Path(named).is_file():
+            return real(*args, **kwargs)
+        return fake()
+
+    return load
+
+
+_harness_dbc_to_json = _shipped_or(dbc_to_json, _doc_dbc)
 
 
 def _harness_convert_dbc_file[**P](*_args: P.args, **_kwargs: P.kwargs) -> str:
@@ -150,8 +131,8 @@ def _harness_convert_dbc_file[**P](*_args: P.args, **_kwargs: P.kwargs) -> str:
     return "{}"
 
 
-def _harness_iter_can_log[**P](*_args: P.args, **_kwargs: P.kwargs) -> Iterator[CANFrameTuple]:
-    """Return a single illustrative 7-tuple frame.
+def _harness_frames() -> Iterator[CANFrameTuple]:
+    """Return a single illustrative 7-tuple frame, for a log no fence's directory holds.
 
     Empty iterators silently pass any unpack — including a 4-tuple unpack
     against a 7-tuple yield, the exact drift that the old 5-tuple era and
@@ -160,28 +141,33 @@ def _harness_iter_can_log[**P](*_args: P.args, **_kwargs: P.kwargs) -> Iterator[
     ``CANFrameTuple`` ensures every fence body that iterates is actually
     exercised, so unpack-arity drift fails fast at fence-execution time.
     The synthetic frame ``(0, 0x100, 8, bytes(8), False, None, None)``
-    resolves cleanly against the harness DBC's message id ``0x100`` with
-    ``dlc=8``; downstream signal values decode to 0, comfortably below
-    the ``Speed < 250`` property the docs commonly reference. ``brs`` and
-    ``esi`` are ``None`` (CAN 2.0B; the BRS/ESI bits do not exist).
+    resolves cleanly against ``vehicle.dbc``'s message id ``0x100`` with
+    ``dlc=8``; its signals decode to 0, comfortably below the speed limits
+    the docs reference. ``brs`` and ``esi`` are ``None`` (CAN 2.0B; the
+    BRS/ESI bits do not exist).
     """
     return iter([CANFrameTuple(0, 0x100, DLCCode(8), bytes(8), extended=False, brs=None, esi=None)])
 
 
-def _harness_load_can_log[**P](*_args: P.args, **_kwargs: P.kwargs) -> list[CANFrameTuple]:
-    return []
+_harness_iter_can_log = _shipped_or(iter_can_log, _harness_frames)
+_harness_load_can_log = _shipped_or(load_can_log, list[CANFrameTuple])
 
 
-def _harness_load_checks[**P](*_args: P.args, **_kwargs: P.kwargs) -> list[CheckResult]:
-    return []
+def _text_or_shipped[**P, R](real: Callable[P, R], fake: Callable[[], R]) -> Callable[P, R]:
+    """Wrap ``real`` to parse a ``str``, which it reads as text, and load a path as the rest do."""
+    shipped = _shipped_or(real, fake)
+
+    def load(*args: P.args, **kwargs: P.kwargs) -> R:
+        if args and isinstance(args[0], str):
+            return real(*args, **kwargs)
+        return shipped(*args, **kwargs)
+
+    return load
 
 
-def _harness_load_checks_from_excel[**P](*_args: P.args, **_kwargs: P.kwargs) -> list[CheckResult]:
-    return []
-
-
-def _harness_load_dbc_from_excel[**P](*_args: P.args, **_kwargs: P.kwargs) -> DBCDefinition:
-    return _doc_dbc()
+_harness_load_checks = _text_or_shipped(load_checks, list[CheckResult])
+_harness_load_checks_from_excel = _shipped_or(load_checks_from_excel, list[CheckResult])
+_harness_load_dbc_from_excel = _shipped_or(load_dbc_from_excel, _doc_dbc)
 
 
 def _harness_create_template[**P](*_args: P.args, **_kwargs: P.kwargs) -> None:
@@ -255,9 +241,10 @@ def _make_globals() -> _DocGlobals:
     the pre-start state, and ``send_frame[s]``/``end_stream`` fences
     chain onto their ``start_stream`` predecessor via ``continuation``.
     """
-    dbc = _doc_dbc()
     client = AletheiaClient()
     client.__enter__()  # pylint: disable=unnecessary-dunder-call
+    # Loaded once the client is up: the loader reads every number through the kernel.
+    dbc = _doc_dbc()
     client.parse_dbc(dbc)
     return {
         "AletheiaClient": AletheiaClient,
@@ -293,8 +280,8 @@ def _make_globals() -> _DocGlobals:
         "session_checks": [],
         "can_trace": [],
         "frame_bytes": bytes(8),
-        "property": Signal("Speed").less_than(250).always(),
-        "brake_pressed": Signal("BrakePedal").greater_than(0),
+        "property": Signal("VehicleSpeed").less_than(250).always(),
+        "brake_pressed": Signal("BrakePressure").greater_than(0),
         "ts": 0,
         "can_id": 0x100,
         "dlc": 8,
@@ -343,18 +330,69 @@ def sandbox_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Run every doc fence with cwd redirected to a per-test ``tmp_path``.
+    """Run every doc fence in a per-test ``tmp_path`` holding a copy of each shipped data file.
 
-    Defense-in-depth: even though ``pytest_sessionstart`` patches
-    ``create_template`` (and the other loader entry points) to no-op
-    fakes, the patches only fire when this conftest is loaded.  Running
-    pytest with a non-repo rootdir bypasses the conftest, lets the real
-    ``create_template`` execute, and lands ``vehicle_checks.xlsx`` in the
-    invoking shell's cwd.  Pinning cwd to ``tmp_path`` per test means any
-    file write — patched or not — goes to a sandboxed dir that pytest
-    auto-cleans, so the repo tree stays clean regardless of how the
-    harness was invoked.  Doc fences do not depend on cwd: the loader
-    fakes (``load_checks`` / ``iter_can_log`` / etc.) ignore their path
-    args entirely, so the chdir is invisible to fence behaviour.
+    A loader reads the file a fence names when the directory holds it, so a
+    fence naming ``vehicle.dbc`` or ``drive.log`` runs against the shipped
+    file, and every other path reaches the loader's fake. Defense-in-depth:
+    even though ``pytest_sessionstart`` patches ``create_template`` (and the
+    other loader entry points), the patches only fire when this conftest is
+    loaded.  Running pytest with a non-repo rootdir bypasses the conftest,
+    lets the real ``create_template`` execute, and lands
+    ``vehicle_checks.xlsx`` in the invoking shell's cwd.  Pinning cwd to
+    ``tmp_path`` per test means any file write, patched or not, goes to a
+    sandboxed dir that pytest auto-cleans, and a fence writing over a copy
+    leaves the shipped file as it was.
     """
+    for name, path in _SHIPPED.items():
+        _ = shutil.copyfile(path, tmp_path / name)
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def refusal_log(tmp_path_factory: pytest.TempPathFactory) -> Generator[Path]:
+    """Load the forwarding stand-in kernel in place of the library, logging refusals to one file.
+
+    The variables are set before any fence loads the library, so every
+    client a fence opens, the injected one or its own, reaches the kernel
+    through the stand-in.
+    """
+    log = tmp_path_factory.mktemp("refusals") / "refusals.log"
+    log.touch()
+    with pytest.MonkeyPatch.context() as env:
+        env.setenv("ALETHEIA_FORWARD_TO", str(find_ffi_library()))
+        env.setenv("ALETHEIA_REFUSAL_LOG", str(log))
+        env.setenv("ALETHEIA_LIB", str(stand_in_kernel(StandInName("forwarding_kernel"))))
+        yield log
+
+
+def _stated_refusals(item: MarkdownInlinePythonItem) -> list[ErrorCode]:
+    """Return the codes the ``refuses`` line directly above the fence names, in order."""
+    lines = item.path.read_text(encoding="utf-8").splitlines()
+    # start_line is the 1-based line opening the fence, so the line above it is list index - 2.
+    above = lines[item.start_line - 2] if item.start_line > 1 else ""
+    stated = _REFUSES.fullmatch(above)
+    return [ErrorCode(code) for code in stated.group(1).split()] if stated else []
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
+    """Fail a fence whose refusals are not exactly the codes its ``refuses`` line names."""
+    if not isinstance(item, MarkdownInlinePythonItem):
+        return (yield)
+    # The item resolves its fixtures as it runs, so the log is asked for first.
+    log = Path(item.fixture_request.getfixturevalue("refusal_log"))
+    before = log.stat().st_size
+    result = yield
+    with log.open(encoding="utf-8") as read:
+        _ = read.seek(before)
+        envelopes = [line.split("\t", 1)[1] for line in read.read().splitlines()]
+    refused = [ErrorCode(json.loads(envelope)["code"]) for envelope in envelopes]
+    stated = _stated_refusals(item)
+    assert refused == stated, (
+        f"the kernel refused [{' '.join(refused)}], the fence states [{' '.join(stated)}]: an"
+        + " example that shows a refusal names its codes on a `<!-- refuses: <code> ... -->`"
+        + " line directly above its fence\n"
+        + "\n".join(envelopes)
+    )
+    return result

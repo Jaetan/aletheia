@@ -201,8 +201,10 @@ frames = load_can_log("drive.log")
 ```python
 from aletheia.can_log import iter_can_log
 
+client.start_stream()
 for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.log"):
     response = client.send_frame(ts, can_id, dlc, data)
+client.end_stream()
 ```
 
 ### Skip error/remote frames (default) or include them
@@ -351,10 +353,12 @@ frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72})
 ```python
 client.start_stream()
 for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.log"):
-    # Modify speed to test property with altered values
-    modified = client.update_frame(
-        can_id=can_id, dlc=dlc, frame=data, signals={"VehicleSpeed": 130}
-    )
+    modified = data
+    if can_id == 0x100:  # the message carrying VehicleSpeed
+        # Modify speed to test property with altered values
+        modified = client.update_frame(
+            can_id=can_id, dlc=dlc, frame=data, signals={"VehicleSpeed": 130}
+        )
     response = client.send_frame(ts, can_id, dlc, modified)
 client.end_stream()
 ```
@@ -453,6 +457,7 @@ client.add_checks(check_list)
 ### Get signal values and formula from violations
 
 ```python
+client.start_stream()
 response = client.send_frame(ts, can_id, dlc, data)
 if response.get("type") == "property_batch":
     for entry in response["results"]:
@@ -462,19 +467,22 @@ if response.get("type") == "property_batch":
             formula = enrichment.get("formula_desc", "")
             reason = enrichment.get("enriched_reason", "")
             print(f"{reason}  signals={signals}")
+client.end_stream()
 ```
 
 ### Custom violation formatting
 
 ```python
-# Assumes: client in streaming mode with checks registered (see recipes above)
+# Assumes: checks registered (see recipes above)
 from aletheia import iter_can_log
 
 violations = []
+client.start_stream()
 for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.log"):
     response = client.send_frame(ts, can_id, dlc, data)
     if response.get("type") == "property_batch":
         violations.extend(e for e in response["results"] if e.get("status") == "fails")
+client.end_stream()
 
 for entry in violations:
     ts_ms = entry["timestamp"] / 1000  # µs → ms (timestamp is a plain int)
@@ -499,7 +507,7 @@ from aletheia.dbc import dbc_to_json
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
 dbc = dbc_to_json("vehicle.dbc")
-check_list = [checks.signal("Speed").never_exceeds(220).named("speed_limit")]
+check_list = [checks.signal("VehicleSpeed").never_exceeds(220).named("speed_limit")]
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
@@ -552,7 +560,7 @@ from aletheia import checks, load_checks, load_checks_from_excel
 check_list = []
 check_list.extend(load_checks(Path("base_checks.yaml")))         # YAML (Path → file)
 check_list.extend(load_checks_from_excel("extra_checks.xlsx"))   # Excel
-check_list.append(checks.signal("Speed").never_exceeds(220))      # Check API
+check_list.append(checks.signal("VehicleSpeed").never_exceeds(220))  # Check API
 
 client.add_checks(check_list)
 ```

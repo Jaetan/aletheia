@@ -128,10 +128,10 @@ hints:
     count: 2
   - file: conftest.py
     text: "int"
-    count: 5
+    count: 3
   - file: conftest.py
     text: "str"
-    count: 2
+    count: 1
   - file: examples/demo/dbc_validation.py
     text: "str"
     count: 1

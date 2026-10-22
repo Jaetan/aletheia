@@ -13,13 +13,17 @@ gate runs each script as a subprocess from its OWN directory, so sibling imports
 A script that crashes — stale API, missing fixture, a float where an exact
 ``Fraction`` is required — fails here instead of in a user's hands.
 
-Runs against the real ``libaletheia-ffi.so``; ``ALETHEIA_LIB`` is resolved the
-same way the binding resolves it (:func:`find_ffi_library`) and passed through to
-each subprocess.
+Runs against the real ``libaletheia-ffi.so`` through the forwarding stand-in
+kernel, which hands every call to the library resolved the way the binding
+resolves it (:func:`find_ffi_library`) and logs every refusal it answers. A
+script exiting 0 can still have discarded a refused call, so each run's
+refusals are held to the codes ``_STATED_REFUSALS`` names for the script, none
+for a script it does not name.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -28,8 +32,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from _stand_in import StandInName, stand_in_kernel
 
 from aletheia.client._ffi import find_ffi_library
+from aletheia.codes import ErrorCode
 
 _EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
 _DEMO_DIR = _EXAMPLES_DIR / "demo"
@@ -41,6 +47,12 @@ _SCRIPTS = sorted(
     key=lambda p: p.relative_to(_EXAMPLES_DIR).as_posix(),
 )
 _SCRIPT_IDS = [p.relative_to(_EXAMPLES_DIR).as_posix() for p in _SCRIPTS]
+
+# The refusals an example shows on purpose, in the order the kernel answers them.
+_STATED_REFUSALS: dict[Path, list[ErrorCode]] = {
+    # Its hard-error DBC, overlapping signals, refused at load.
+    _DEMO_DIR / "dbc_validation.py": [ErrorCode.HANDLER_VALIDATION_FAILED],
+}
 
 # Why every example runs as a user runs it.
 _RUNS_AS_A_PROGRAM = (
@@ -62,10 +74,13 @@ def test_demo_dir_is_populated() -> None:
 
 @pytest.mark.parametrize("script", _SCRIPTS, ids=_SCRIPT_IDS)
 @pytest.mark.process(_RUNS_AS_A_PROGRAM)
-def test_demo_script_runs(script: Path) -> None:
-    """Each example exits 0 against the built ``.so`` and writes nothing under ``examples/``."""
+def test_demo_script_runs(script: Path, tmp_path: Path) -> None:
+    """Each example exits 0, is refused only what it states, and writes nothing in examples/."""
+    refusals = tmp_path / "refusals.log"
     env = dict(os.environ)
-    env["ALETHEIA_LIB"] = str(find_ffi_library())
+    env["ALETHEIA_FORWARD_TO"] = str(find_ffi_library())
+    env["ALETHEIA_LIB"] = str(stand_in_kernel(StandInName("forwarding_kernel")))
+    env["ALETHEIA_REFUSAL_LOG"] = str(refusals)
     # The sibling imports would otherwise write bytecode into examples/demo/__pycache__.
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     before = _examples_state()
@@ -92,6 +107,15 @@ def test_demo_script_runs(script: Path) -> None:
         or before[path].st_mtime_ns != after[path].st_mtime_ns
     )
     assert not written, f"example {script.name!r} wrote under examples/: {written}"
+    # A line of the log is the refusing entry, a tab and the kernel's envelope.
+    envelopes = [
+        line.split("\t", 1)[1]
+        for line in (refusals.read_text(encoding="utf-8") if refusals.exists() else "").splitlines()
+    ]
+    refused = [ErrorCode(json.loads(envelope)["code"]) for envelope in envelopes]
+    assert refused == _STATED_REFUSALS.get(script, []), (
+        f"example {script.name!r} was refused other than it states:\n" + "\n".join(envelopes)
+    )
     # Guard the vacuous-gate class: a demo that swallows a failure and still exits
     # 0.  returncode alone let a demo print "0/4 tests passed" (after catching the
     # exception) and pass.  Scan stdout AND stderr (a demo may print to either),

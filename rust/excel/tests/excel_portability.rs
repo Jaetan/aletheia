@@ -21,11 +21,11 @@ fn demo() -> std::path::PathBuf {
 fn demo_workbook_checks_match_the_builders() {
     let _rts = Client::new().expect("init GHC RTS (is ALETHEIA_LIB set?)");
     let checks = load_checks_from_excel(demo()).expect("load checks from demo workbook");
-    // 6 simple checks (Checks sheet) + 3 causal checks (When-Then sheet).
+    // 6 simple checks (Checks sheet) + 4 causal checks (When-Then sheet).
     assert_eq!(
         checks.len(),
-        9,
-        "demo workbook has 6 simple + 3 when/then checks"
+        10,
+        "demo workbook has 6 simple + 4 when/then checks"
     );
 
     // checks[0] is the first Checks-sheet row; checks[6] the first When-Then row.
@@ -53,26 +53,30 @@ fn demo_workbook_checks_match_the_builders() {
 fn demo_workbook_dbc_loads_as_standard_messages() {
     let _rts = Client::new().expect("init GHC RTS (is ALETHEIA_LIB set?)");
     let dbc = load_dbc_from_excel(demo()).expect("load DBC from demo workbook");
-    assert_eq!(dbc.messages.len(), 2, "EngineData + BrakeStatus");
+    assert_eq!(
+        dbc.messages.len(),
+        4,
+        "VehicleDynamics + BrakeStatus + Powertrain + BodyStatus"
+    );
 
     let engine = dbc
-        .message_by_name("EngineData")
-        .expect("EngineData message");
-    // 0x100 = 256; the sheet omits Extended → standard (the contract under test).
-    assert_eq!(engine.id, 0x100);
+        .message_by_name("Powertrain")
+        .expect("Powertrain message");
+    // 0x300 = 768; the sheet omits Extended → standard (the contract under test).
+    assert_eq!(engine.id, 0x300);
     assert!(
         !engine.extended,
         "absent Extended column ⇒ standard message"
     );
     assert_eq!(engine.dlc, 8);
-    assert_eq!(engine.signals.len(), 2);
+    assert_eq!(engine.signals.len(), 4);
 
-    let speed = engine.signal_by_name("EngineSpeed").expect("EngineSpeed");
+    let rpm = engine.signal_by_name("EngineRPM").expect("EngineRPM");
     // "0.25" parses EXACTLY to 1/4 via the kernel decimal SSOT (from_decimal).
-    assert_eq!(speed.factor, Rational::new(1, 4).unwrap());
-    assert_eq!(speed.byte_order, ByteOrder::LittleEndian);
-    assert_eq!(speed.presence, Presence::Always);
-    assert_eq!(speed.unit, "rpm");
+    assert_eq!(rpm.factor, Rational::new(1, 4).unwrap());
+    assert_eq!(rpm.byte_order, ByteOrder::LittleEndian);
+    assert_eq!(rpm.presence, Presence::Always);
+    assert_eq!(rpm.unit, "rpm");
 
     let brake = dbc
         .message_by_name("BrakeStatus")

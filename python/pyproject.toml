@@ -475,6 +475,10 @@ pytest_add_cli_args = [
     "--ignore=tests/test_cli_check_decimal_rts.py",
     "--ignore=tests/test_cli_check_error_frames.py",
     "--ignore=tests/test_cli_check_excel.py",
+    # The shipped-pairing tests read the repository's examples/ and documents
+    # through the repo-root `tools` package, neither of which the relocated
+    # mutants/ tree carries.
+    "--ignore=tests/test_cli_check_shipped.py",
     "--ignore=tests/test_format_dbc.py",
     "--ignore=tests/test_agda_open_grammar.py",
     "--ignore=tests/test_agda_open_grammar_generated.py",

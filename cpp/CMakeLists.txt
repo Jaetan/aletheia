@@ -868,6 +868,11 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
             ALETHEIA_DOC_LIB_FILE="$<TARGET_FILE:aletheia-cpp>"
             ALETHEIA_DOC_CXX_STD="23"
             ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
+    # The stand-in every fence runs against: it forwards each call to the
+    # library and logs each refusal, which the harness holds to the codes the
+    # fence's mark names.
+    target_compile_definitions(doc_example_tests PRIVATE
+        ALETHEIA_DOC_FORWARDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/forwarding_kernel.so")
     add_test(NAME doc_example_tests COMMAND doc_example_tests)
     set_tests_properties(doc_example_tests PROPERTIES
         ENVIRONMENT
