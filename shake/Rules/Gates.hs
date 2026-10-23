@@ -169,11 +169,10 @@ gateRules = do
     phony "check-mutation-setup" $ do
         -- Mutation-setup coverage gate.  AGENTS.md cat 14(g)
         -- mandates per-binding mutation testing on hot-path modules.  This
-        -- script parses docs/MUTATION_BENCH.yaml and verifies every declared
-        -- hot-path source file exists on disk — catches silent removal /
-        -- rename of a hot-path file (e.g. a future protocols-split move that
-        -- relocates `aletheia/client/_client.py`) without running the
-        -- mutation tools (each binding's tool takes 30 min - 2 hours).
+        -- script holds docs/MUTATION_BENCH.yaml and each lane's
+        -- configuration to the tree, the invariants its module docstring
+        -- lists, without running the mutation tools (each binding's tool
+        -- takes 30 min - 2 hours).
         -- Dynamic counterpart that actually runs mutmut / gremlins / Mull /
         -- cargo-mutants is `tools/mutation_run.py`, gated behind
         -- ALETHEIA_MUTATION_CHECK=1 (or `--mutation`) in `tools/run_ci.py`.

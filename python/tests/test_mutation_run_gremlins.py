@@ -339,8 +339,8 @@ def test_the_sweep_s_flags_are_the_whole_goflags_when_none_was_set() -> None:
 def test_no_go_test_run_of_the_sweep_is_served_from_the_test_cache() -> None:
     """The coverage run gremlins sets every mutant's limit from is measured, not served.
 
-    A cached coverage run takes well under a second, and three times that
-    stops every mutant's run before its tests end.
+    A cached coverage run times the cache, not the tests, so a limit set at a
+    multiple of it bears no relation to how long a mutant's tests take.
     """
     flags = str(mutation_run.go_sweep_goflags(mutation_run.GoFlags("-mod=mod"))).split()
     assert "-count=1" in flags

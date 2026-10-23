@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from _gate_exit import stderr_of_exit_2
 
 from tools import check_mutation_setup
 from tools._common import RelPath
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from tools.mutation_cpp_slices import FileRuns, Slice, SliceWeights
+
+    from aletheia.common_types import Prose
 
 # A file the slices can claim, weighed.
 _CLAIMABLE: FileRuns = {RelPath("cpp/src/client.cpp"): SuiteRuns(1.0)}
@@ -53,6 +56,18 @@ def _one_file_domain(_root: Path, _config: Path) -> list[RelPath]:
 def test_the_recorded_weights_are_files_a_slice_can_claim() -> None:
     """The record weighs files of the derived domain alone, as the tree stands."""
     assert check_mutation_setup.cpp_slice_weights_are_of_the_domain(_recorded()) == []
+
+
+def test_a_mull_configuration_the_gate_cannot_read_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Without ``cpp/mull.yml``, which the slice domain is cut by, the check stops the gate."""
+    monkeypatch.setattr(check_mutation_setup, "REPO_ROOT", tmp_path)
+    config = tmp_path / "cpp" / "mull.yml"
+    assert stderr_of_exit_2(
+        capsys,
+        lambda: check_mutation_setup.cpp_slice_weights_are_of_the_domain(_bindings(_CLAIMABLE)),
+    ) == (f"ERROR: cannot read {config}: [Errno 2] No such file or directory: '{config}'\n")
 
 
 def test_a_record_weighing_nothing_is_caught() -> None:

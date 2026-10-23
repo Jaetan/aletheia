@@ -169,8 +169,8 @@ Artifacts written:
 Usage:
   python/.venv/bin/python -m tools.mutation_run
 
-The static counterpart is ``tools/check_mutation_setup.py``, which gates on
-each binding's hot-path source files existing per ``docs/MUTATION_BENCH.yaml``.
+The static counterpart is ``tools/check_mutation_setup.py``, which holds the
+record and each lane's configuration to the tree without running a tool.
 """
 
 from __future__ import annotations
@@ -515,9 +515,10 @@ def go_sweep_goflags(caller: GoFlags) -> GoFlags:
     ``go test`` reads both from ``GOFLAGS``, the one route to a test flag
     gremlins leaves open, and its coverage run and every mutant's run inherit
     them alike.  gremlins times its coverage run and stops each mutant's run
-    at three times that, so a coverage run served from the test cache, as one
-    is after a dry run of the same tree, stops every mutant before its tests
-    end: measured on one shard, 362 of 382 mutants timed out.
+    at a multiple of that (``go/.gremlins.yaml``'s ``timeout-coefficient``), so
+    a coverage run served from the test cache, as one is after a dry run of the
+    same tree, stops every mutant before its tests end: measured on one shard
+    at gremlins' default multiple of three, 362 of 382 mutants timed out.
     """
     return GoFlags(f"{caller} -count=1 -skip=^{GO_DOC_HARNESS}$".strip())
 

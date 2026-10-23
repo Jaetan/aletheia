@@ -364,8 +364,9 @@ pytest_add_cli_args = [
     # LOG_EVENTS.yaml etc.) or importing the repo-root `tools` package (the
     # agda-opens grammar tests).  All are infrastructure-coverage tests, NOT
     # hot-path coverage, so excluding them does not weaken the mutation lane's
-    # signal on the 5 modules above.  (mutmut copies only python/ + also_copy
-    # into mutants/, so `import tools` ModuleNotFound-aborts collection there.)
+    # signal on the 5 modules above.  (The conftest puts the repository root on
+    # the path, so `import tools` resolves in mutants/ too; these tests hold the
+    # tools, not the hot paths, and read the tree above python/ through them.)
     "--ignore=tests/test_doc_examples_harness.py",
     "--ignore=tests/test_property_hypothesis.py",
     "--ignore=tests/test_cross_binding_integration.py",
@@ -378,16 +379,16 @@ pytest_add_cli_args = [
     "--ignore=tests/test_loader_scenarios.py",
     "--ignore=tests/test_unified_client.py",
     # test_check_no_review_marks.py imports the repo-root `tools` package (the
-    # review-mark gate it covers) — `import tools` ModuleNotFound-aborts
-    # collection in the relocated mutants/ tree, like the grammar tests above.
+    # review-mark gate it covers): it holds the tools, not a hot path, and reads
+    # the tree above python/ through them, like the grammar tests above.
     # Infra coverage, not hot-path, so excluding it removes no mutation signal.
     "--ignore=tests/test_check_no_review_marks.py",
     "--ignore=tests/test_check_refused_words.py",
     "--ignore=tests/test_driven_executor.py",
     "--ignore=tests/test_check_mutation_slices.py",
     # Same shape: these cover the action-pin / workflow-permissions gates and
-    # import the repo-root `tools` package, so they abort collection in the
-    # relocated mutants/ tree.  Infra coverage, not hot-path.
+    # import the repo-root `tools` package: they hold the tools and read the
+    # tree above python/ through them.  Infra coverage, not hot-path.
     "--ignore=tests/test_check_action_pins.py",
     "--ignore=tests/test_check_workflow_permissions.py",
     # Same shape: covers the gate-claim provenance check and the sweep record a
@@ -417,6 +418,9 @@ pytest_add_cli_args = [
     # Same shape: covers the mutation-setup gate (repo-root `tools` package).
     # Infra coverage, not hot-path.
     "--ignore=tests/test_check_mutation_setup.py",
+    "--ignore=tests/test_check_mutation_setup_lanes.py",
+    "--ignore=tests/test_check_mutation_setup_go_rust.py",
+    "--ignore=tests/test_check_mutation_setup_cpp_lane.py",
     # Same shape, by reading rather than importing: it holds every build-tree
     # cache save to asking whether there is a tree, and the workflows it reads
     # are above python/, which the relocated mutants/ tree does not carry.
@@ -450,7 +454,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_dist_staging.py",
     # Reads .github/workflows through parents[2], which stops at python/ in the
     # relocated mutants/ tree: the set it reads is empty there and its first
-    # assertion fails, which ends the baseline as surely as an aborted import.
+    # assertion fails, which ends the baseline with no mutant run.
     "--ignore=tests/test_doc_only_path_exemption.py",
     # The demo gate reaches repo-root `examples/demo` via parents[2] (only
     # `python/` in the relocated mutants/ tree, so the glob is empty) AND runs
@@ -483,9 +487,9 @@ pytest_add_cli_args = [
     "--ignore=tests/test_agda_open_grammar.py",
     "--ignore=tests/test_agda_open_grammar_generated.py",
     # CI-tooling unit tests (the lane-parallel scheduler / resource budgets /
-    # run_ci orchestrator).  They import the repo-root `tools` package, which
-    # mutmut does not copy into mutants/, so they ModuleNotFound-abort collection
-    # there — same class as the agda-open grammar tests above.  They cover
+    # run_ci orchestrator).  They import the repo-root `tools` package, holding
+    # the tools and reading the tree above python/ through them, the class of
+    # the agda-open grammar tests above.  They cover
     # tools/, not the 5 hot-path aletheia/ modules, so excluding them does not
     # weaken the mutation signal on those modules.
     "--ignore=tests/test_resources.py",
@@ -600,8 +604,8 @@ pytest_add_cli_args = [
     "--ignore=tests/test_licence_audit.py",
     "--ignore=tests/test_check_python_wheel.py",
     # Same class: covers the release-bundle consumer gate (repo-root `tools`
-    # package), so it ModuleNotFound-aborts collection in the relocated
-    # mutants/ tree.  Infra coverage, not hot-path.
+    # package), holding the tools and reading the tree above python/ through
+    # them.  Infra coverage, not hot-path.
     "--ignore=tests/test_bundle_validate.py",
     # Same class: the runnable-files gate walks the repository and reads its
     # tools, and the IWYU tool's argument tests import it (repo-root `tools`

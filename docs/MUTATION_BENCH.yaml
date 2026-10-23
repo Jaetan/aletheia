@@ -9,12 +9,14 @@
 # its own after its protocols were split out, and its DBC loader is now a
 # converter and a YAML loader.
 #
-# tools/check_mutation_setup.py reads the hot-path lists and refuses a path that
-# names nothing. tools/mutation_run.py runs each binding's tool, archives the
-# report under benchmarks/mutation/ by commit, and compares the survivors it
-# counts with the baseline recorded here: more survivors than the baseline fails
-# the lane. A survivor is a test gap, unless the baseline's own comment says why
-# that one cannot be killed.
+# tools/check_mutation_setup.py holds this file to the tree and to the runner,
+# as its docstring lists: a hot-path path naming nothing, a ledger row naming a
+# line the tree no longer holds and a measured block missing a count among them.
+# tools/mutation_run.py runs each binding's tool, archives the report under
+# benchmarks/mutation/ by commit, and compares the survivors it counts with the
+# baseline recorded here: more survivors than the baseline fails the lane. A
+# survivor is a test gap, unless the baseline's own comment says why that one
+# cannot be killed.
 #
 # A baseline is a measurement of a tool and a toolchain, not a target. Changing
 # either re-measures the row, which is why each tool is pinned exactly.
