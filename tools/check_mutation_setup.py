@@ -150,6 +150,8 @@ BindingName = NewType("BindingName", str)
 ModuleName = NewType("ModuleName", str)
 # A function as its ``def`` names it.
 FunctionName = NewType("FunctionName", str)
+# A decorator as a name spells it.
+DecoratorName = NewType("DecoratorName", str)
 # The functions a name reaches in one scope, each name's every definition.
 type Scope = Mapping[FunctionName, Sequence[ast.FunctionDef]]
 
@@ -328,73 +330,223 @@ def _helper_files(module: ModuleName) -> list[Path]:
 def _imports_at_collection(tree: ast.Module, path: Path) -> Iterator[ModuleName]:
     """Yield each module an import under ``tree`` names, where importing the module runs it.
 
-    Every statement's body runs, a class's and a ``try``'s among them; ``if
-    TYPE_CHECKING:`` runs its ``else`` alone; an annotation does not run, nor
-    a generator expression's body, a lambda's or a coroutine's.  A function's
-    body runs where a statement that runs calls it by its own name, a bare
-    decorator included, the name read in the scope of the call (the module's,
-    a class body's or a function body's own definitions, the enclosing ones
+    The walk reads the source as written, never as Python resolves it: a
+    name is read as it is spelled, in the scope where it is written, and
+    every branch is read as running.  So every statement's body is read, a
+    class's, a ``try``'s, each handler's and each loop's among them, and ``if
+    TYPE_CHECKING:`` reads its ``else`` alone.  A function's body is read
+    where a statement read calls it by its own name, a bare decorator
+    included, the name looked up in the scope of the call (the module's, a
+    class body's or a function body's own definitions, the enclosing ones
     behind them, every definition of a name kept since a later one hiding an
-    earlier is a lint failure) and the body read in the scope of its
-    definition, once: a call through an attribute or another name, and a
-    helper's function, are not read.  A call of ``__import__`` or
-    ``import_module`` names the module its first argument spells, relative to
-    the package its second spells, and one naming either by an expression
-    stops the gate, since the gate reads a name spelled; ``path`` names the
-    file then.  ``from p import n`` names ``p`` and ``p.n``, since ``n`` may
-    be a module of the package ``p``.  A relative import statement names a
-    package's module, and the tests are no package.
+    earlier is a lint failure) and the body read once, in the scope it
+    closes over, which a class body's names are not part of.  An annotation
+    is read where pytest's collection evaluates a signature: a ``test*``
+    function's or coroutine's, a ``pytest_*`` hook's and a fixture's, in the
+    module or a ``Test*`` class of it, none where the module imports
+    ``annotations`` from ``__future__``.  A fixture is a function decorated
+    by a name or an attribute spelled ``fixture``, or by the name ``from
+    pytest import fixture as`` binds.
+
+    What Python reaches through a name it resolves as it runs is left
+    unread: a function called through an attribute, an alias or a
+    rebinding; what constructing a class runs (``__init__``,
+    ``__init_subclass__``, a metaclass); a test, class or fixture pytest
+    finds under another name (bound to a ``test*`` or ``Test*`` name,
+    inherited from a class otherwise named, built in a called function, a
+    fixture made by calling ``fixture``); a fixture of a unittest class not
+    named ``Test*``; a helper's function; and code run from a string by
+    ``exec`` or ``eval``.  So is what Python defers, even where the code
+    runs it at once: a lambda's body, a generator expression's past its
+    first iterable, a coroutine's, a type parameter, a ``type`` alias's
+    value.  What the walk reads but neither Python nor pytest runs is read
+    all the same: a branch not taken, a definition a later one hides or
+    ``del`` removes, a test a decorator replaces, a decorator spelled
+    ``fixture`` that is not pytest's, a helper module's tests and fixtures,
+    a ``pytest_*`` function pytest does not call, a test or ``Test*`` class
+    whose own or module's ``__test__`` is false, a ``Test*`` class pytest
+    passes over for an ``__init__`` or a ``__new__``, and the test methods
+    of a ``Test*`` unittest class, whose signatures pytest leaves
+    unevaluated.
+
+    A call of ``__import__`` names the module its first argument spells; one
+    of ``import_module`` names it relative to the package its second spells;
+    either naming a module by an expression stops the gate, since the gate
+    reads a name spelled, and ``path`` names the file then.  ``from p import
+    n`` names ``p`` and ``p.n``, since ``n`` may be a module of the package
+    ``p``.  A relative import names a module of the helper package it sits
+    in, and nothing in a test, since the tests are no package.
     """
-    return _imports_run_by(tree, {}, _Walk(path))
+    run = not _postpones_annotations(tree)
+    walk = _Walk(path, _package_of(path), _fixture_spellings(tree))
+    return _imports_run_by(tree, {}, walk, annotations_run=run)
 
 
 @dataclass
 class _Walk:
-    """What one module's walk carries: its file, each function's scope, the functions read."""
+    """What one module's walk carries.
+
+    Its file and helper package, the names its fixtures are spelled by, each
+    function's scope, and the functions read.
+    """
 
     path: Path
+    package: ModuleName
+    fixtures: frozenset[DecoratorName]
     scopes: dict[ast.FunctionDef, Scope] = field(default_factory=dict)
     entered: set[ast.FunctionDef] = field(default_factory=set)
 
 
-def _imports_run_by(node: ast.AST, outer: Scope, walk: _Walk) -> Iterator[ModuleName]:
+def _imports_run_by(
+    node: ast.AST, outer: Scope, walk: _Walk, *, annotations_run: bool
+) -> Iterator[ModuleName]:
     """Yield each module an import under ``node`` names, as running ``node`` runs it.
 
     ``outer`` is the scope around ``node``, whose own definitions hide its
     names; a function called by name is read once, in the scope it closes over.
+    ``annotations_run`` says whether pytest's collection evaluates the
+    annotations of the tests and fixtures ``node``'s own statements define.
     """
     defined = _functions_defined(node)
     scope: Scope = {**outer, **defined}
+    closure = outer if isinstance(node, ast.ClassDef) else scope
     for functions in defined.values():
         for function in functions:
-            walk.scopes[function] = scope
+            _ = walk.scopes.setdefault(function, closure)
     for child in _statements_run(node):
-        yield from _modules_named(child, walk.path)
+        yield from _modules_named(child, walk)
         if not isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
-            yield from _imports_run_by(child, scope, walk)
+            within = annotations_run and _collected_within(child)
+            yield from _imports_run_by(child, scope, walk, annotations_run=within)
         for called in _called_by_name(child):
-            for function in scope.get(called, ()):
-                if function not in walk.entered:
-                    walk.entered.add(function)
-                    yield from _imports_run_by(function, walk.scopes[function], walk)
+            yield from _imports_of_calling(called, scope, walk)
+        for annotation in _signature_collected(child, walk) if annotations_run else []:
+            yield from _modules_named(annotation, walk)
+            for called in _called_by_name(annotation):
+                yield from _imports_of_calling(called, scope, walk)
 
 
-def _modules_named(statement: ast.AST, path: Path) -> Iterator[ModuleName]:
+def _imports_of_calling(called: FunctionName, scope: Scope, walk: _Walk) -> Iterator[ModuleName]:
+    """Yield what calling ``called`` imports: each function the name has in ``scope``, read once."""
+    for function in scope.get(called, ()):
+        if function not in walk.entered:
+            walk.entered.add(function)
+            yield from _imports_run_by(function, walk.scopes[function], walk, annotations_run=False)
+
+
+def _collected_within(statement: ast.AST) -> bool:
+    """Say whether pytest collects in ``statement``'s body where it collects around it.
+
+    A compound statement's body is its scope's; a class is collected by its
+    ``Test`` prefix.
+    """
+    return not isinstance(statement, ast.ClassDef) or statement.name.startswith("Test")
+
+
+def _signature_collected(statement: ast.AST, walk: _Walk) -> list[ast.Expr]:
+    """Return the annotations pytest's collection evaluates in ``statement``'s signature.
+
+    It reads a ``test*`` function's or coroutine's, a ``pytest_*`` hook's and a
+    fixture's; each annotation is returned as the expression statement it then
+    runs as.
+    """
+    if not isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef) or not (
+        statement.name.startswith(("test", "pytest_"))
+        or any(_names_fixture(decorator, walk) for decorator in statement.decorator_list)
+    ):
+        return []
+    arguments = statement.args
+    parameters = (
+        *arguments.posonlyargs,
+        *arguments.args,
+        *arguments.kwonlyargs,
+        arguments.vararg,
+        arguments.kwarg,
+    )
+    annotations = [
+        parameter.annotation
+        for parameter in parameters
+        if parameter is not None and parameter.annotation is not None
+    ]
+    if statement.returns is not None:
+        annotations.append(statement.returns)
+    return [ast.Expr(value=annotation) for annotation in annotations]
+
+
+def _postpones_annotations(tree: ast.Module) -> bool:
+    """Say whether ``tree`` imports ``annotations`` from ``__future__``, making each a string."""
+    return any(
+        isinstance(statement, ast.ImportFrom)
+        and statement.module == "__future__"
+        and any(alias.name == "annotations" for alias in statement.names)
+        for statement in tree.body
+    )
+
+
+def _fixture_spellings(tree: ast.Module) -> frozenset[DecoratorName]:
+    """Return the names a decorator spells pytest's ``fixture`` by in ``tree``.
+
+    ``fixture`` itself, and each name ``from pytest import fixture as`` binds.
+    """
+    return frozenset(
+        {DecoratorName("fixture")}
+        | {
+            DecoratorName(alias.asname)
+            for statement in tree.body
+            if isinstance(statement, ast.ImportFrom) and statement.module == "pytest"
+            for alias in statement.names
+            if alias.name == "fixture" and alias.asname is not None
+        }
+    )
+
+
+def _names_fixture(decorator: ast.expr, walk: _Walk) -> bool:
+    """Say whether ``decorator`` spells pytest's ``fixture``, bare, as an attribute or called."""
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return (isinstance(target, ast.Name) and DecoratorName(target.id) in walk.fixtures) or (
+        isinstance(target, ast.Attribute) and target.attr == "fixture"
+    )
+
+
+def _package_of(path: Path) -> ModuleName:
+    """Return the package of the module at ``path``, as Python sets its ``__package__``.
+
+    It is the dotted path of the module's directory below ``python/tests/``,
+    empty for a test or helper beside it, where a relative import has no
+    package to resolve in.
+    """
+    return ModuleName(".".join(path.parent.relative_to(PY_TESTS_DIR).parts))
+
+
+def _modules_named(statement: ast.AST, walk: _Walk) -> Iterator[ModuleName]:
     """Yield each module ``statement`` names itself: an import's, or a call's in its expressions."""
     if isinstance(statement, ast.Import):
         yield from (ModuleName(alias.name) for alias in statement.names)
-    elif (
-        isinstance(statement, ast.ImportFrom)
-        and statement.level == 0
-        and statement.module is not None
-    ):
-        yield ModuleName(statement.module)
-        yield from (ModuleName(f"{statement.module}.{alias.name}") for alias in statement.names)
+    elif isinstance(statement, ast.ImportFrom):
+        base = _from_base(statement, walk.package)
+        if base is not None:
+            yield base
+            yield from (ModuleName(f"{base}.{alias.name}") for alias in statement.names)
     for expression in _expressions_run(statement):
         if isinstance(expression, ast.Call):
-            named = _module_a_call_imports(expression, path)
+            named = _module_a_call_imports(expression, walk.path)
             if named is not None:
                 yield named
+
+
+def _from_base(statement: ast.ImportFrom, package: ModuleName) -> ModuleName | None:
+    """Return the module ``from ... import`` reads its names from, None where none resolves.
+
+    A relative one resolves in ``package``; outside a package, or above its
+    top, Python refuses it, and it names nothing.
+    """
+    if statement.level == 0:
+        return None if statement.module is None else ModuleName(statement.module)
+    relative = "." * statement.level + (statement.module or "")
+    try:
+        return ModuleName(importlib.util.resolve_name(relative, package))
+    except ImportError:
+        return None
 
 
 def _functions_defined(node: ast.AST) -> dict[FunctionName, list[ast.FunctionDef]]:
@@ -435,14 +587,19 @@ def _expressions_run(node: ast.AST) -> Iterator[ast.expr]:
 def _children_run(node: ast.AST) -> list[ast.AST]:
     """Return the children of ``node`` that run when it does.
 
-    A nested statement runs on its own; an annotation is deferred; of a
-    lambda its defaults run, of a generator expression its first iterable.
+    A nested statement runs on its own; an annotation, a type parameter and a
+    ``type`` alias's value are deferred; of a lambda its defaults run, of a
+    generator expression its first iterable.
     """
     if isinstance(node, ast.Lambda):
         return [node.args]
     if isinstance(node, ast.GeneratorExp):
         return [node.generators[0].iter]
     deferred = {id(getattr(node, name, None)) for name in ("annotation", "returns")}
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.TypeAlias):
+        deferred |= {id(parameter) for parameter in node.type_params}
+    if isinstance(node, ast.TypeAlias):
+        deferred.add(id(node.value))
     return [
         child
         for child in ast.iter_child_nodes(node)
@@ -489,7 +646,7 @@ def _module_a_call_imports(call: ast.Call, path: Path) -> ModuleName | None:
     first = call.args[0] if call.args else None
     if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
         _exit_at(call, path, Prose("by an expression, which this gate reads only spelled"))
-    if not first.value.startswith("."):
+    if name == "__import__" or not first.value.startswith("."):
         return ModuleName(first.value)
     package = (
         call.args[1]
