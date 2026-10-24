@@ -27,6 +27,7 @@ from _processes import CommandWord
 
 from tools._ci_steps import (
     DOC_EXAMPLE_DOCS,
+    DOC_EXAMPLE_PACKAGE,
     GO_BUILD_NO_CGO,
     in_every_go_module,
     register_all_steps,
@@ -182,12 +183,12 @@ def test_the_cgo_free_build_keeps_no_executable(tmp_path: Path) -> None:
 
 
 # The doc-example command AGENTS/python.md prints, its continuation lines
-# joined: run from the root, with the step's options, over the step's list.
+# joined: run from the root, with the step's options, over the step's list and package.
 _DOCUMENTED_DOC_EXAMPLE_COMMAND = re.compile(
     r'cd "\$\(git rev-parse --show-toplevel\)" && python3 -m pytest --markdown-docs '
     + r'--rootdir="\$\(pwd\)" -o pythonpath=python/tests '
-    + r"""\$\(python3 -c 'from tools\._ci_steps import DOC_EXAMPLE_DOCS; """
-    + r"""print\(\*DOC_EXAMPLE_DOCS, sep="\\n"\)'\)"""
+    + r"""\$\(python3 -c 'from tools\._ci_steps import DOC_EXAMPLE_DOCS, DOC_EXAMPLE_PACKAGE; """
+    + r"""print\(\*DOC_EXAMPLE_DOCS, DOC_EXAMPLE_PACKAGE, sep="\\n"\)'\)"""
 )
 _DOC_EXAMPLE_OPENING = 'cd "$(git rev-parse --show-toplevel)" && python3 -m pytest --markdown-docs'
 
@@ -211,10 +212,11 @@ def test_the_documented_doc_example_command_runs_what_the_step_runs(tmp_path: Pa
 
     Both run pytest's Markdown collection from the root, with the root and the
     path the repository-root conftest needs, over the documents the list names
-    and nothing else, so the two collect the same fences.  A command naming a
-    subset of the documents, an option one carries and the other does not, or
-    a directory given beside the list runs other fences than the step runs
-    and the structural tests read.
+    and the package whose docstrings it reads, and nothing else, so the two
+    collect the same fences.  A command naming a subset of the documents, an
+    option one carries and the other does not, a directory given beside them,
+    or no package runs other fences than the step runs and the structural tests
+    read.
     """
     command = _documented_doc_example_command()
     assert _DOCUMENTED_DOC_EXAMPLE_COMMAND.fullmatch(command), command
@@ -228,5 +230,6 @@ def test_the_documented_doc_example_command_runs_what_the_step_runs(tmp_path: Pa
         "-o",
         "pythonpath=python/tests",
         *(str(doc) for doc in DOC_EXAMPLE_DOCS),
+        str(DOC_EXAMPLE_PACKAGE),
     ]
     assert step.cwd == tmp_path

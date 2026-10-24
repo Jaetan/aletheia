@@ -368,6 +368,7 @@ pytest_add_cli_args = [
     # the path, so `import tools` resolves in mutants/ too; these tests hold the
     # tools, not the hot paths, and read the tree above python/ through them.)
     "--ignore=tests/test_doc_examples_harness.py",
+    "--ignore=tests/test_doc_example_semantics.py",
     "--ignore=tests/test_property_hypothesis.py",
     "--ignore=tests/test_cross_binding_integration.py",
     "--ignore=tests/test_feature_matrix_parity.py",

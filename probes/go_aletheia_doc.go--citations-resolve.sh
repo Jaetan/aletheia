@@ -5,9 +5,9 @@
 # Probes go/aletheia/doc.go.
 # Claim: what the package documentation cites exists: the two contract
 # documents, the section of PROTOCOL.md it names, the Agda module and the
-# proof it names for the streaming obligation, the four functional options
-# and the two constructors its examples call, and the three verdicts it
-# links. Non-zero exit: a citation resolves nowhere.
+# proof it names for the streaming obligation, the functional options and the
+# constructors it links, and the three verdicts it links. Non-zero exit: a
+# citation resolves nowhere.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 f=go/aletheia/doc.go
@@ -22,8 +22,10 @@ section=$(grep -o '"Streaming Semantics: [^"]*"' "$f" | tr -d '"')
 module=$(grep -o 'Aletheia\.Protocol\.Adequacy\.[A-Za-z]*' "$f" | head -1)
 [ -f "src/$(printf '%s' "$module" | tr . /).agda" ] || { echo "Agda module $module is missing"; status=1; }
 grep -q "streaming-warms-cache" "src/$(printf '%s' "$module" | tr . /).agda" || { echo "streaming-warms-cache is not in $module"; status=1; }
-for fn in $(grep -o 'aletheia\.[A-Z][A-Za-z]*(' "$f" | tr -d '(' | cut -d. -f2 | sort -u); do
-    grep -q "^func $fn(\|^func (c \*Client) $fn(" go/aletheia/*.go || { echo "aletheia.$fn is called in the examples and declared nowhere"; status=1; }
+fns=$(grep -oP '\[\K(?:New|With)[A-Za-z]*(?=\])' "$f" | sort -u)
+[ -n "$fns" ] || { echo "doc.go links no constructor or option"; status=1; }
+for fn in $fns; do
+    grep -q "^func $fn(" go/aletheia/*.go || { echo "[$fn] is linked and declared nowhere"; status=1; }
 done
 for v in Unresolved Holds Fails; do
     grep -q "\[$v\]" "$f" || continue

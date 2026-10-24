@@ -14,7 +14,7 @@
 //! proper, beside the client it serves, so consumers testing their own async
 //! usage have it too.
 //!
-//! ```no_run
+//! ```rust
 //! use aletheia::testing::TurnExecutor;
 //! use aletheia::Client;
 //!

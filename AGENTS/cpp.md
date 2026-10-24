@@ -122,7 +122,8 @@ cd cpp && cmake --build build --target cross_binding_integration_tests && ctest 
 
 The `ctest` battery includes the doc-example harness
 (`doc_example_tests`). It extracts every ```cpp fence from the documents
-`k_doc_files` lists, wraps each in one of three shapes (a full `int main()`,
+`k_doc_files` lists and from the `//` comments of the headers `k_header_files`
+lists, wraps each in one of three shapes (a full `int main()`,
 an `#include` block with declarations, or a body fragment under
 `using namespace aletheia` with `client`, `backend`, `ts`, `can_id`, `dlc`,
 `data` and `frames` predeclared), compiles it with `${CMAKE_CXX_COMPILER}`
@@ -130,8 +131,10 @@ against `$<TARGET_FILE:aletheia-cpp>`, and runs it. That target is a shared
 library, so the link carries an `-Wl,-rpath` to the directory holding it and
 the fence can load it. The C++ fences of a document `k_path_docs` lists (the
 Tutorial's C++ path) are one program cut into steps, joined in order, compiled
-and run whole. Every program runs against the forwarding stand-in kernel and
-fails unless the kernel refused exactly the codes a `<!-- refuses: <code> ... -->`
+and run whole, and every fence of a document `k_whole_program_docs` lists (the
+README) is also built as written, with nothing the harness adds, as a reader
+builds it. Every program runs against the forwarding stand-in kernel and fails
+unless the kernel refused exactly the codes a `<!-- refuses: <code> ... -->`
 line directly above its fence names, as in the other three bindings; a result
 a program keeps and never reads ends its run when it holds an error, a
 binding's own refusal included, and one a statement drops fails to compile
@@ -141,7 +144,8 @@ neither runs nor counts) and hold a collective fence floor; a fence that
 cannot run opens with tildes, which the extractor does not read, as in the
 other three bindings. `k_doc_files` in `cpp/tests/doc_example_tests.cpp` names
 every tracked Markdown file carrying a C++ fence, less the ones `k_path_docs`
-names, and two more structural gates hold the lists to the tree both ways, the
+names, `k_header_files` every tracked C++ file whose comments carry one, and
+two more structural gates hold the lists to the tree both ways, the
 way the Python harness's list is held: a document that gains a C++ fence fails
 the suite until it is listed, and a listed one that is untracked or carries
 none fails it too. The harness skips itself when `libaletheia-ffi.so` is

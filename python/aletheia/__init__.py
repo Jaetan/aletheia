@@ -7,47 +7,56 @@ AletheiaClient
 
 AletheiaClient provides streaming LTL checking and signal operations:
 
-    from aletheia import AletheiaClient, Signal
+```python
+from aletheia import AletheiaClient, Signal
+from aletheia.can_log import iter_can_log
+from aletheia.dbc import dbc_to_json
 
-    with AletheiaClient() as client:
-        client.parse_dbc(dbc_json)
+with AletheiaClient() as client:
+    client.parse_dbc(dbc_to_json("vehicle.dbc"))
 
-        # Signal operations work anytime after DBC loaded
-        result = client.extract_signals(can_id=0x100, dlc=8, data=frame_bytes)
-        speed = result.get("VehicleSpeed", 0)
+    # Build frames from signal values
+    frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 50})
 
-        # Build frames from signal values
-        frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 50})
+    # Signal operations work anytime after DBC loaded
+    result = client.extract_signals(can_id=0x100, dlc=8, data=frame)
+    speed = result.get("VehicleSpeed", 0)
 
-        # Update specific signals in a frame
-        modified = client.update_frame(
-            can_id=0x100, dlc=8, frame=data,
-            signals={"VehicleSpeed": 130},
-        )
+    # Update specific signals in a frame
+    modified = client.update_frame(
+        can_id=0x100, dlc=8, frame=frame,
+        signals={"VehicleSpeed": 130},
+    )
 
-        # Streaming LTL checking
-        client.set_properties([Signal("Speed").less_than(220).always().to_dict()])
-        client.start_stream()
+    # Streaming LTL checking
+    client.set_properties([Signal("VehicleSpeed").less_than(220).always().to_dict()])
+    client.start_stream()
 
-        for frame in can_trace:
-            # Signal ops work while streaming too!
-            response = client.send_frame(timestamp, can_id, dlc, data)
+    for ts, can_id, dlc, data, ext, brs, esi in iter_can_log("drive.log"):
+        # Signal ops work while streaming too!
+        response = client.send_frame(ts, can_id, dlc, data, extended=ext, brs=brs, esi=esi)
 
-        client.end_stream()
+    client.end_stream()
+```
 
 Python DSL for LTL Properties
 ==============================
 
 Use the fluent Signal interface to build properties:
 
-    # Temporal operators
-    Signal("Speed").less_than(220).always()
-    Signal("DoorClosed").equals(1).eventually()
-    Signal("ErrorCode").equals(0xFF).never()
+```python
+# Temporal operators
+Signal("Speed").less_than(220).always()
+Signal("DoorClosed").equals(1).eventually()
+Signal("ErrorCode").equals(0xFF).never()
 
-    # Composition
-    brake.and_(throttle.equals(0))
-    brake.implies(speed_decreases.within(100))
+# Composition
+brake = Signal("Brake").equals(1)
+throttle = Signal("Throttle")
+speed_decreases = Signal("Speed").changed_by(-10)
+brake.and_(throttle.equals(0))
+brake.implies(speed_decreases.within(100)).always()
+```
 """
 
 import logging

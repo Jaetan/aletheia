@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for the Go and Rust lanes' checks of ``tools.check_mutation_setup_lanes``.
 
-Each lane skips its doc-example harness by name, the Rust lane the benchmark
-program's tests with it, and the check holds the skip to those and nothing
-else.  The tests are planted and the module's paths monkeypatched to them,
-the diagnostics compared whole; an input a check cannot read stops the gate
-with exit 2, named on stderr.
+Each lane skips its doc-example harness by name, the Go lane the package's
+Example functions with it and the Rust lane the benchmark program's tests, and
+the check holds the skip to those and nothing else; the Rust lane selects its
+targets so cargo runs no doctest.  The tests are planted and the module's paths
+monkeypatched to them, the diagnostics compared whole; an input a check cannot
+read stops the gate with exit 2, named on stderr.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 CargoTestArg = NewType("CargoTestArg", str)
 
 
-# The Go lane skips its doc-example harness alone.
+# The Go lane skips its doc-example harness and the Example functions go test runs, alone.
 
 _GO_HARNESS: Final = TestName(GO_DOC_HARNESS)
 _GO_FIXTURE: Final = TestName(f"{GO_DOC_HARNESS}Fixture_ChecksYAMLLoads")
@@ -39,19 +40,25 @@ _GO_BESIDE: Final = TestName("TestOpen")
 _NOTHING_BESIDE: Final = Prose("")
 
 
+_GO_EXAMPLE: Final = TestName("ExampleClient_SendFramesSeq")
+_ONE_EXAMPLE: Final = Prose(f"func {_GO_EXAMPLE}() {{\n\t// Output:\n}}\n")
+
+
 def _plant_go_tests(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
     harness: TestName = _GO_HARNESS,
     beside: Prose = _NOTHING_BESIDE,
+    examples: Prose = _NOTHING_BESIDE,
 ) -> None:
-    """Plant the Go package's tests, the harness named ``harness``, ``beside`` appended to one."""
+    """Plant the Go tests, the harness named ``harness``, ``beside`` and ``examples`` appended."""
     _ = plant(
         root,
         {
             RelPath("go/aletheia/doc_examples_test.go"): Prose(
                 f"func {harness}(t *testing.T) {{}}\nfunc {_GO_FIXTURE}(t *testing.T) {{}}\n"
             ),
+            RelPath("go/aletheia/example_test.go"): examples,
             RelPath("go/aletheia/client_test.go"): Prose(
                 f"func TestMain(m *testing.M) {{}}\nfunc {_GO_BESIDE}(t *testing.T) {{}}\n{beside}"
             ),
@@ -92,9 +99,59 @@ def _drops(lane: SkippingLane, name: TestName) -> Prose:
 def test_the_runners_own_goflags_skip_the_harness_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The GOFLAGS the runner gives gremlins skip the harness and nothing else."""
-    _plant_go_tests(tmp_path, monkeypatch)
+    """The GOFLAGS the runner gives gremlins skip the harness and the examples, nothing else."""
+    _plant_go_tests(tmp_path, monkeypatch, examples=_ONE_EXAMPLE)
     assert not check_mutation_setup_lanes.go_lane_runs_no_doc_harness()
+
+
+def _example_reached(name: TestName) -> Prose:
+    """Return the diagnostic for an Example function the Go lane's skip misses."""
+    return Prose(
+        f"[go/examples] every mutant's run reaches {name}, an Example function go test "
+        + "checks against its Output: the lane's skip does not match it"
+    )
+
+
+@pytest.mark.parametrize(
+    ("beside", "flags", "diagnostics"),
+    [
+        pytest.param(
+            _NOTHING_BESIDE,
+            GoFlags(f"-skip=^{GO_DOC_HARNESS}$"),
+            [_example_reached(_GO_EXAMPLE)],
+            id="a skip of the harness alone reaches the example",
+        ),
+        pytest.param(
+            Prose(
+                "func Example() {\n\t// Output: 1\n}\nfunc Example_options() {\n"
+                + "\t// Unordered output:\n}\n"
+            ),
+            GoFlags(f"-skip=^({GO_DOC_HARNESS}|{_GO_EXAMPLE})$"),
+            [_example_reached(TestName("Example")), _example_reached(TestName("Example_options"))],
+            id="the package example and a suffixed one are examples",
+        ),
+        pytest.param(
+            Prose(
+                "func Examplefoo() {\n\t// Output:\n}\nfunc ExampleX(t int) {\n\t// Output:\n}\n"
+                + "func ExampleY() {\n\tfmt.Println(1)\n}\n"
+            ),
+            GoFlags(f"-skip=^({GO_DOC_HARNESS}|{_GO_EXAMPLE})$"),
+            [],
+            id="a lowercase letter after Example, a parameter or no Output makes none go test runs",
+        ),
+    ],
+)
+def test_the_go_examples_are_found_and_skipped_as_go_does(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    beside: Prose,
+    flags: GoFlags,
+    diagnostics: list[Prose],
+) -> None:
+    """An example is what go test runs as one, and an example the skip misses is named."""
+    _plant_go_tests(tmp_path, monkeypatch, examples=Prose(_ONE_EXAMPLE + beside))
+    _runner_flags(monkeypatch, flags)
+    assert check_mutation_setup_lanes.go_lane_runs_no_doc_harness() == diagnostics
 
 
 @pytest.mark.parametrize(
@@ -227,8 +284,9 @@ _RUST_HARNESS_RUN: Final = _reaches("rust", RUST_DOC_HARNESS)
 
 
 def _skipping(*names: TestName) -> list[CargoTestArg]:
-    """Return the lane's test arguments: ``--`` and a ``--skip`` for each of ``names``."""
+    """Return the lane's arguments: ``--tests``, ``--`` and a ``--skip`` for each of ``names``."""
     return [
+        CargoTestArg("--tests"),
         CargoTestArg("--"),
         *(arg for name in names for arg in (CargoTestArg("--skip"), CargoTestArg(name))),
     ]
@@ -287,6 +345,7 @@ def test_skips_written_as_one_argument_each_pass(
         tmp_path,
         monkeypatch,
         [
+            CargoTestArg("--tests"),
             CargoTestArg("--"),
             *(CargoTestArg(f"--skip={name}") for name in (RUST_DOC_HARNESS, *_RUST_PROGRAM)),
         ],
@@ -340,7 +399,8 @@ def test_skips_handed_to_cargo_rather_than_the_test_binaries_are_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Without ``--`` the filters reach cargo, not libtest, so every test runs."""
-    _plant_rust_tests(tmp_path, monkeypatch, _skipping(RUST_DOC_HARNESS, *_RUST_PROGRAM)[1:])
+    no_separator = [CargoTestArg("--tests"), *_skipping(RUST_DOC_HARNESS, *_RUST_PROGRAM)[2:]]
+    _plant_rust_tests(tmp_path, monkeypatch, no_separator)
     assert check_mutation_setup_lanes.rust_lane_runs_no_doc_harness() == [
         _RUST_HARNESS_RUN,
         *(_program_reached(name) for name in _RUST_PROGRAM),
@@ -483,3 +543,35 @@ def test_a_rust_lane_input_that_is_missing_exits_2(
     assert stderr_of_exit_2(capsys, check_mutation_setup_lanes.rust_lane_runs_no_doc_harness) == (
         f"ERROR: cannot read {tmp_path / missing}: No such file or directory\n"
     )
+
+
+_DOCTESTS_RUN: Final = Prose(
+    "[rust/doctests] every mutant's run reaches the crate's doctests: the lane's cargo "
+    + "arguments select no target, so cargo test runs them"
+)
+_DOC_NAMED: Final = Prose(
+    "[rust/doctests] the lane's cargo arguments name --doc, with which cargo runs the "
+    + "doctests alone, or refuses the command beside another target"
+)
+
+
+@pytest.mark.parametrize(
+    ("cargo", "diagnostics"),
+    [
+        pytest.param([], [_DOCTESTS_RUN], id="no target selected runs the doctests"),
+        pytest.param([CargoTestArg("--doc")], [_DOC_NAMED], id="the doctests selected"),
+        pytest.param([CargoTestArg("--lib"), CargoTestArg("--doc")], [_DOC_NAMED], id="with --doc"),
+        pytest.param([CargoTestArg("--lib")], [], id="the library's tests alone"),
+        pytest.param([CargoTestArg("--test=doc_examples")], [], id="a test target by name"),
+    ],
+)
+def test_the_lane_selects_targets_that_leave_the_doctests_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cargo: list[CargoTestArg],
+    diagnostics: list[Prose],
+) -> None:
+    """Cargo runs doctests unless a target is selected, or when --doc is: the lane must select."""
+    skips = _skipping(RUST_DOC_HARNESS, *_RUST_PROGRAM)[1:]
+    _plant_rust_tests(tmp_path, monkeypatch, [*cargo, *skips])
+    assert check_mutation_setup_lanes.rust_lane_runs_no_doc_harness() == diagnostics

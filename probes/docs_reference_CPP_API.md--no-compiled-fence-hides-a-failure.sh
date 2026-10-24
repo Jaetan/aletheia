@@ -2,13 +2,14 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes the documents the C++ doc-example harness compiles and runs.
+# Probes the documents and header comments the C++ doc-example harness compiles
+# and runs.
 # Claim: no fence answers a failed call by exiting zero. The harness judges a
 # fence by its exit code, so an error path that returns zero reports green
 # however the call went, and the example then demonstrates nothing past the
 # line that failed. Also refuses an empty catch and a discarded result beside
-# a client call. Non-zero exit: a fence carries one of those shapes, or the
-# harness's document list cannot be read.
+# a client call. Non-zero exit: a fence carries one of those shapes, or one of
+# the harness's lists cannot be read.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 py=python/.venv/bin/python
@@ -20,7 +21,7 @@ from pathlib import Path
 
 harness = Path("cpp/tests/doc_example_tests.cpp").read_text(encoding="utf-8")
 docs = []
-for name in ("k_doc_files", "k_path_docs"):
+for name in ("k_doc_files", "k_path_docs", "k_header_files"):
     listing = re.search(name + r"\s*=\s*\{(.*?)\};", harness, re.S)
     if listing is None:
         print(f"the harness's list {name} could not be read")
@@ -42,6 +43,12 @@ for rel in docs:
     if not path.is_file():
         continue
     text = path.read_text(encoding="utf-8")
+    if path.suffix != ".md":
+        # A header's fences sit in its comments, read past the slashes and one blank.
+        text = "\n".join(
+            re.sub(r"^\s*/+ ?", "", line) if line.lstrip().startswith("//") else ""
+            for line in text.split("\n")
+        )
     for match in fence.finditer(text):
         first = text[: match.start()].count("\n") + 1
         body = match.group(1)

@@ -177,34 +177,41 @@ Each example below is a realistic small scenario showing how a caller cancels wo
 
 A monitoring task watches a CAN bus for property violations and gives up if no violation is detected within a timeout window.
 
-```python
+```python runner:ProgramRunner
 import asyncio
 import pathlib
 
 from aletheia import load_checks
 from aletheia.asyncio import AletheiaClient
+from aletheia.can_log import iter_can_log
+
+def live_bus_frames():
+    yield from iter_can_log("drive.log")  # the live bus stands here: a recorded drive
 
 async def watch_for_violation(dbc_path: str, timeout_s: float) -> bool:
     """Return True if a property violation occurs within `timeout_s`, else False."""
-    async with AletheiaClient(default_checks=load_checks(pathlib.Path("checks.yaml"))) as client:
+    async with AletheiaClient() as client:
         await client.parse_dbc_text(pathlib.Path(dbc_path).read_text(encoding="utf-8"))
+        # The kernel reads every number of the checks, so they load once the client is open.
+        await client.add_checks(load_checks(pathlib.Path("vehicle_checks.yaml")))
         await client.start_stream()
         try:
             async with asyncio.timeout(timeout_s):
                 async for result in client.send_frames_iter(live_bus_frames()):
                     if result.violation is not None:
-                        # Violation found — exit early; the timeout context unwinds cleanly.
+                        # Violation found: exit early; the timeout context unwinds cleanly.
                         return True
                 return False
         except TimeoutError:
             # asyncio.timeout converts the deadline to TimeoutError on the awaiter.
-            # The contract guarantees: every frame that came back through the iter
-            # before the timeout is committed; the next frame the live bus produces
-            # was NOT pulled (still in the source iter) and will not be silently
-            # missed if the caller resumes streaming.
+            # The contract guarantees that every frame that came back through the
+            # iter before the timeout is committed; whether the next frame was
+            # already pulled from the source is not guaranteed (see below).
             return False
         finally:
             await client.end_stream()
+
+print(asyncio.run(watch_for_violation("vehicle.dbc", timeout_s=5.0)))
 ```
 
 What the contract guarantees here:

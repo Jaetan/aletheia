@@ -6,17 +6,19 @@
 // repo-root conftest.py) and Go's TestDocExamples
 // (go/aletheia/doc_examples_test.go).
 //
-// Every ```cpp fence of the documents k_doc_files lists is extracted,
-// wrapped, compiled by ${CMAKE_CXX_COMPILER}, and executed end-to-end. A
-// failing fence (compile or runtime) is a test failure reported with
-// `file:Lline` precision. The C++ fences of a document k_path_docs lists are
-// one program cut into steps, joined in order, compiled and run whole.
-// Non-runnable fences (signature sketches, illustrative pseudocode referencing
-// undefined symbols) open with tildes, which the extractor does not read. The
-// structural gates at the foot of this file hold the list
-// to the tree both ways, refuse a C++ fence hidden behind a suffixed info word
-// as Go's TestNoGoFenceHidesBehindASuffix does, and keep a collective fence
-// floor.
+// Every ```cpp fence of the documents k_doc_files lists, and of the `//`
+// comments of the headers k_header_files lists, is extracted, wrapped,
+// compiled by ${CMAKE_CXX_COMPILER}, and executed end-to-end. A failing fence
+// (compile or runtime) is a test failure reported with `file:Lline`
+// precision. The C++ fences of a document k_path_docs lists are one program
+// cut into steps, joined in order, compiled and run whole, and every fence of
+// a document k_whole_program_docs lists is also built as it stands, with
+// nothing the harness adds, as a reader builds it. Non-runnable fences
+// (signature sketches, illustrative pseudocode referencing undefined symbols)
+// open with tildes, which the extractor does not read. The structural gates at the foot of this
+// file hold the lists to the tree both ways, refuse a C++ fence hidden behind
+// a suffixed info word as Go's TestNoGoFenceHidesBehindASuffix does, and keep
+// a collective fence floor.
 //
 // Path substitutions (parallel python/conftest.py loader fakes):
 //
@@ -50,6 +52,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <optional>
 #include <ranges>
 #include <regex>
 #include <sstream>
@@ -92,6 +95,20 @@ constexpr std::array<std::string_view, 5> k_doc_files = {
 // into steps: the Tutorial's C++ path.
 constexpr std::array<std::string_view, 1> k_path_docs = {
     "docs/guides/TUTORIAL.md",
+};
+
+// Every tracked C++ file whose `//` comments carry a ```cpp fence; the
+// structural gates below hold the list to the tree both ways.
+constexpr std::array<std::string_view, 3> k_header_files = {
+    "cpp/include/aletheia/check.hpp",
+    "cpp/include/aletheia/log.hpp",
+    "cpp/include/aletheia/yaml.hpp",
+};
+
+// The listed documents whose fences are each a whole program, which a reader
+// builds as it stands; the harness builds each as written too.
+constexpr std::array<std::string_view, 1> k_whole_program_docs = {
+    "cpp/README.md",
 };
 
 namespace {
@@ -174,7 +191,7 @@ static auto cpp_fence_opening(std::string_view line) -> FenceOpening {
     auto const trim = strip_left(line);
     if (!trim.starts_with("```cpp"))
         return FenceOpening::Other;
-    auto const rest = trim.substr(6);
+    auto const rest = strip_right(trim.substr(6));
     if (rest.contains('`'))
         return FenceOpening::Other;
     if (rest.empty() || rest.front() == ' ' || rest.front() == '\t')
@@ -198,23 +215,50 @@ static auto stated_refusals(const std::string& line) -> std::vector<std::string>
     return codes;
 }
 
-// Extracts every ```cpp fence from one markdown file.
-static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path)
-    -> std::vector<CppFence> {
+namespace {
+// Where a file carries its fences: on its own lines, as a Markdown document
+// does, or in its `//` comments, as a header does.
+enum class FenceHost : std::uint8_t { Lines, Comments };
+} // namespace
+
+// What a `//` comment line says past its slashes and one blank; none for a
+// line that is no comment.
+static auto comment_text(std::string_view line) -> std::optional<std::string> {
+    auto text = strip_left(line);
+    if (!text.starts_with("//"))
+        return std::nullopt;
+    text.remove_prefix(std::min(text.find_first_not_of('/'), text.size()));
+    if (text.starts_with(' '))
+        text.remove_prefix(1);
+    return std::string{text};
+}
+
+// Extracts every ```cpp fence from one file, read where `host` says.
+static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path,
+                               FenceHost host = FenceHost::Lines) -> std::vector<CppFence> {
     std::ifstream in(abs_path);
     if (!in) {
         FAIL("read failed: " << abs_path);
     }
     std::vector<CppFence> fences;
-    std::string line;
+    std::string raw;
     int lineno = 0;
     bool in_fence = false;
     int fence_start = 0;
     std::string body;
     std::vector<std::string> refuses;
     std::string previous;
-    while (std::getline(in, line)) {
+    while (std::getline(in, raw)) {
         ++lineno;
+        auto const read = host == FenceHost::Lines ? std::optional{raw} : comment_text(raw);
+        if (!read) {
+            if (in_fence) {
+                FAIL("a ```cpp fence leaves its comment at " << rel_path << " line " << lineno);
+            }
+            previous.clear();
+            continue;
+        }
+        auto const& line = *read;
         if (!in_fence) {
             if (cpp_fence_opening(line) == FenceOpening::Run) {
                 in_fence = true;
@@ -265,7 +309,8 @@ static auto substitute_paths(std::string body, const std::string& lib_path,
 // Heuristic: does the body contain a top-level `int main(` declaration?
 static auto has_main(std::string_view body) -> bool {
     static const std::regex main_re(
-        R"((^|\n)\s*(?:\[\[[^\]]+\]\]\s*)?(?:static\s+|inline\s+|constexpr\s+)?int\s+main\s*\()");
+        R"((^|\n)\s*(?:\[\[[^\]]+\]\]\s*)?(?:static\s+|inline\s+|constexpr\s+)?)"
+        R"((?:int\s+main\s*\(|auto\s+main\s*\([^)]*\)\s*->\s*int\b))");
     return std::regex_search(body.cbegin(), body.cend(), main_re);
 }
 
@@ -603,17 +648,19 @@ static auto sh_quote(std::string_view s) -> std::string {
     return out;
 }
 
-// Cached fence list — extraction is idempotent so we read once and reuse
-// across repeat entries (Catch2 SECTION re-enters the test case body for
-// each section, which would otherwise re-parse the markdown N times).
+// The fences, read once: Catch2 re-enters a test case for each of its sections.
 static auto fence_cache() -> const std::vector<CppFence>& {
     static auto const cached = [] {
         std::vector<CppFence> out;
         auto const root = repo_root();
-        for (auto const rel : k_doc_files) {
-            auto const fs_list = extract_cpp_fences(root / rel, rel);
-            out.insert(out.end(), fs_list.begin(), fs_list.end());
-        }
+        auto const add = [&](std::string_view rel, FenceHost host) {
+            auto const found = extract_cpp_fences(root / rel, rel, host);
+            out.insert(out.end(), found.begin(), found.end());
+        };
+        for (auto const rel : k_doc_files)
+            add(rel, FenceHost::Lines);
+        for (auto const rel : k_header_files)
+            add(rel, FenceHost::Comments);
         return out;
     }();
     return cached;
@@ -654,12 +701,9 @@ static auto refusal_codes(const fs::path& log) -> std::vector<std::string> {
     return codes;
 }
 
-// Compiles one program against the binding and runs it against the forwarding
-// stand-in kernel, failing the calling test case on either step or on
-// refusals other than the codes `refuses` names.
-static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
-                            const std::string& lib, const std::vector<std::string>& refuses)
-    -> void {
+// Compiles and links one program against the binding, failing the calling test
+// case when it does not build.
+static auto compile_program(const fs::path& src_path, const fs::path& out_path) -> void {
     // The library is shared and carries its own dependencies, so a program
     // links it alone and needs its directory on the run-time search path;
     // linking by file name gives the linker the path but not the loader.
@@ -682,7 +726,15 @@ static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
     INFO("Compile command: " << compile_cmd);
     INFO("Compile output:\n" << compile_out);
     REQUIRE(compile_rc == 0);
+}
 
+// Compiles one program against the binding and runs it against the forwarding
+// stand-in kernel, failing the calling test case on either step or on
+// refusals other than the codes `refuses` names.
+static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
+                            const std::string& lib, const std::vector<std::string>& refuses)
+    -> void {
+    compile_program(src_path, out_path);
     auto const log = fs::path{out_path.string() + ".refusals"};
     std::ostringstream run_cmd;
     run_cmd << "ALETHEIA_LIB=" << sh_quote(ALETHEIA_DOC_FORWARDING_KERNEL)
@@ -720,6 +772,12 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
             auto const src_path = workdir / ("fence" + std::to_string(i) + ".cpp");
             write_file(src_path, wrap_fence(std::move(body), fence));
             compile_and_run(src_path, workdir / ("fence" + std::to_string(i)), lib, fence.refuses);
+            if (std::ranges::contains(k_whole_program_docs, fence.file)) {
+                // A reader builds it as it stands, with nothing the harness adds.
+                auto const raw = workdir / ("fence" + std::to_string(i) + ".raw.cpp");
+                write_file(raw, fence.content);
+                compile_program(raw, workdir / ("fence" + std::to_string(i) + ".raw"));
+            }
         }
     }
 }
@@ -778,11 +836,12 @@ TEST_CASE("doc-example harness: every path document's ```cpp fences run as one p
 // Structural gates (Go's: go/aletheia/doc_files_test.go)
 // ---------------------------------------------------------------------------
 
-// Every tracked Markdown file, as git lists it: the set a fresh checkout holds,
-// so an untracked file in the working tree is never read.
-static auto tracked_markdown(const fs::path& root) -> std::vector<std::string> {
-    auto const [rc, out] =
-        run_capture("git -C " + sh_quote(root.string()) + " ls-files -z -- '*.md' '*.mdx' '*.svx'");
+// Every tracked file the pathspecs name, as git lists it: the set a fresh
+// checkout holds, so an untracked file in the working tree is never read.
+static auto tracked_files(const fs::path& root, std::string_view pathspecs)
+    -> std::vector<std::string> {
+    auto const [rc, out] = run_capture("git -C " + sh_quote(root.string()) + " ls-files -z -- " +
+                                       std::string{pathspecs});
     if (rc != 0) {
         FAIL("git ls-files exited " << rc << ": " << out);
     }
@@ -794,7 +853,15 @@ static auto tracked_markdown(const fs::path& root) -> std::vector<std::string> {
     return paths;
 }
 
-TEST_CASE("doc-example structural gate: every tracked ```cpp fence is in a listed document",
+static auto tracked_markdown(const fs::path& root) -> std::vector<std::string> {
+    return tracked_files(root, "'*.md' '*.mdx' '*.svx'");
+}
+
+static auto tracked_cpp(const fs::path& root) -> std::vector<std::string> {
+    return tracked_files(root, "'*.cpp' '*.hpp' '*.h'");
+}
+
+TEST_CASE("doc-example structural gate: every tracked ```cpp fence is in a listed file",
           "[doc-examples][gate]") {
     auto const root = repo_root();
     std::vector<std::string> unlisted;
@@ -804,13 +871,17 @@ TEST_CASE("doc-example structural gate: every tracked ```cpp fence is in a liste
         if (!extract_cpp_fences(root / doc, doc).empty())
             unlisted.push_back(doc);
     }
+    for (auto const& file : tracked_cpp(root)) {
+        if (!std::ranges::contains(k_header_files, file) &&
+            !extract_cpp_fences(root / file, file, FenceHost::Comments).empty())
+            unlisted.push_back(file);
+    }
     CAPTURE(unlisted);
     CHECK(unlisted.empty());
 }
 
-TEST_CASE(
-    "doc-example structural gate: every listed document is tracked and carries a ```cpp fence",
-    "[doc-examples][gate]") {
+TEST_CASE("doc-example structural gate: every listed file is tracked and carries a ```cpp fence",
+          "[doc-examples][gate]") {
     auto const root = repo_root();
     auto const tracked = tracked_markdown(root);
     auto const tracked_with_a_fence = [&](std::string_view doc) {
@@ -827,6 +898,19 @@ TEST_CASE(
         CHECK_FALSE(std::ranges::contains(k_doc_files, doc));
         tracked_with_a_fence(doc);
     }
+    for (auto const [i, doc] : std::views::enumerate(k_whole_program_docs)) {
+        INFO(doc << " is a whole-program document");
+        CHECK_FALSE(std::ranges::contains(k_whole_program_docs | std::views::take(i), doc));
+        CHECK(std::ranges::contains(k_doc_files, doc));
+    }
+    auto const sources = tracked_cpp(root);
+    for (auto const [i, header] : std::views::enumerate(k_header_files)) {
+        INFO(header << " is listed");
+        CHECK_FALSE(std::ranges::contains(k_header_files | std::views::take(i), header));
+        CHECK(std::ranges::contains(sources, header));
+        CHECK_FALSE(extract_cpp_fences(root / header, header, FenceHost::Comments).empty());
+        CHECK(std::ranges::contains(fence_cache(), header, &CppFence::file));
+    }
 }
 
 TEST_CASE("doc-example structural gate: no ```cpp fence hides behind a suffixed info word",
@@ -838,6 +922,14 @@ TEST_CASE("doc-example structural gate: no ```cpp fence hides behind a suffixed 
              std::views::enumerate(std::views::split(read_text_file(root / doc), '\n'))) {
             if (cpp_fence_opening(std::string_view{line}) == FenceOpening::Hidden)
                 hidden.push_back(doc + ":" + std::to_string(i + 1));
+        }
+    }
+    for (auto const& file : tracked_cpp(root)) {
+        for (auto const [i, line] :
+             std::views::enumerate(std::views::split(read_text_file(root / file), '\n'))) {
+            auto const text = comment_text(std::string_view{line});
+            if (text && cpp_fence_opening(*text) == FenceOpening::Hidden)
+                hidden.push_back(file + ":" + std::to_string(i + 1));
         }
     }
     INFO("write cpp, or open a fence that cannot run with tildes");
@@ -868,6 +960,25 @@ TEST_CASE("doc-example structural gate: a ```cpp fence is read by its first info
          }) {
         INFO(line);
         CHECK(cpp_fence_opening(line) == want);
+    }
+}
+
+TEST_CASE("doc-example structural gate: a comment line is read past its slashes and one blank",
+          "[doc-examples][gate]") {
+    struct Row {
+        std::string_view line;
+        std::optional<std::string_view> want;
+    };
+    for (auto const& [line, want] : std::array{
+             Row{.line = "// ```cpp", .want = "```cpp"},
+             Row{.line = "//   checks:", .want = "  checks:"},
+             Row{.line = "  //x", .want = "x"},
+             Row{.line = "/// ```cpp", .want = "```cpp"},
+             Row{.line = "//", .want = ""},
+             Row{.line = "int x; // ```cpp", .want = std::nullopt},
+         }) {
+        INFO(line);
+        CHECK(comment_text(line) == want);
     }
 }
 

@@ -47,9 +47,10 @@ The static gate (`tools/check_mutation_setup.py`) runs always-on
 module docstring lists; among them, no lane's per-mutant run reaches its
 binding's doc-example harness, which holds the documents to the binding and
 costs its whole run once per mutant: the Go and Rust lanes skip theirs by
-name, and the gate holds each skip to that test alone, the Rust lane's to it
-and the benchmark program's tests, which build the example with a cargo of
-their own.  The dynamic runner is opt-in via `ALETHEIA_MUTATION_CHECK=1` or
+name, and the gate holds each skip to that test alone, the Go lane's to it and
+the package's Example functions, the Rust lane's to it and the benchmark
+program's tests, which build the example with a cargo of their own; the Rust
+lane selects its targets with `--tests`, so cargo runs none of the doctests.  The dynamic runner is opt-in via `ALETHEIA_MUTATION_CHECK=1` or
 `tools/run_ci.py --mutation`.
 
 In CI the runner is invoked once per binding, in parallel lanes with their own
@@ -456,7 +457,7 @@ cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run
 
 # Go (needs build/libaletheia-ffi.so).  The lane's own tool, which sweeps a
 # scratch copy of the tree, names it to the tests as ALETHEIA_REPO_ROOT and the
-# built kernel as ALETHEIA_LIB, and skips the doc-example harness.
+# built kernel as ALETHEIA_LIB, and skips the doc-example harness and the Examples.
 ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_CPP=1 ALETHEIA_MUTATION_SKIP_RUST=1 \
   python/.venv/bin/python -m tools.mutation_run
 

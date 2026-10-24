@@ -3,14 +3,21 @@
 """Python DSL for LTL properties over CAN signals.
 
 Provides fluent interface for expressing temporal properties:
-    Signal("Speed").less_than(220).always()
-    brake_pressed.implies(speed_decreases.within(100))
+```python
+Signal("VehicleSpeed").less_than(220).always()
+# Every brake press is followed within 100 ms by a speed decrease
+brake_pressed = Signal("BrakePressure").greater_than(0)
+speed_decreases = Signal("VehicleSpeed").changed_by(-10)
+brake_pressed.implies(speed_decreases.within(100)).always()
+```
 
 Usage with AletheiaClient:
-    from aletheia import AletheiaClient, Signal
+```python
+from aletheia import AletheiaClient, Signal
 
-    property = Signal("Speed").less_than(220).always()
-    client.set_properties([property.to_dict()])
+property = Signal("VehicleSpeed").less_than(220).always()
+client.set_properties([property.to_dict()])
+```
 
 Output format matches the Agda JSON schema:
     - All formulas use "operator" key (not "type")
@@ -24,6 +31,8 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+from aletheia._dsl_patterns import eventually_always, infinitely_often, never
+from aletheia._dsl_property import Property, implies_formula, require_non_negative_time_ms
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
 from aletheia.client._helpers.rational import to_exact_fraction
 from aletheia.client._types import ValidationError
@@ -35,15 +44,11 @@ from aletheia.types import (
     LTLFormula,
     MetricAlwaysFormula,
     MetricEventuallyFormula,
-    MetricReleaseFormula,
-    MetricUntilFormula,
     NextFormula,
     NotFormula,
     OrFormula,
     PredicateType,
-    ReleaseFormula,
     SignalPredicate,
-    UntilFormula,
     WeakNextFormula,
 )
 
@@ -72,27 +77,6 @@ def to_predicate_fraction(value: _RationalInput) -> Fraction:
 def _atomic(predicate: SignalPredicate) -> AtomicFormula:
     """Wrap a signal predicate in an atomic formula."""
     return {"operator": "atomic", "predicate": predicate}
-
-
-def require_non_negative_time_ms(time_ms: int) -> None:
-    """Reject negative durations in metric temporal operators.
-
-    Raises:
-        ValidationError: When *time_ms* is negative.
-
-    """
-    if time_ms < 0:
-        msg = f"time_ms must be non-negative, got {time_ms}"
-        raise ValidationError(msg)
-
-
-def _implies_formula(antecedent: LTLFormula, consequent: LTLFormula) -> OrFormula:
-    """Desugar implication to ``or(not(antecedent), consequent)``."""
-    return {
-        "operator": "or",
-        "left": {"operator": "not", "formula": antecedent},
-        "right": consequent,
-    }
 
 
 class Signal:
@@ -147,7 +131,9 @@ class Signal:
             Predicate that can be used in temporal operators
 
         Example:
-            Signal("Gear").equals(0)  # Gear is in park
+        ```python
+        Signal("Gear").equals(0)  # Gear is in park
+        ```
 
         """
         formula: AtomicFormula = _atomic(
@@ -169,7 +155,9 @@ class Signal:
             Predicate that can be used in temporal operators
 
         Example:
-            Signal("Speed").less_than(220)  # Speed below 220 km/h
+        ```python
+        Signal("Speed").less_than(220)  # Speed below 220 km/h
+        ```
 
         """
         formula: AtomicFormula = _atomic(
@@ -191,7 +179,9 @@ class Signal:
             Predicate that can be used in temporal operators
 
         Example:
-            Signal("Speed").greater_than(5)  # Vehicle moving
+        ```python
+        Signal("Speed").greater_than(5)  # Vehicle moving
+        ```
 
         """
         formula: AtomicFormula = _atomic(
@@ -252,7 +242,13 @@ class Signal:
             Predicate that can be used in temporal operators
 
         Example:
+        ```python
+        from aletheia import AletheiaClient, from_decimal
+
+        # The kernel reads every decimal, so a client is open first
+        with AletheiaClient():
             Signal("BatteryVoltage").between(from_decimal("11.5"), from_decimal("14.5"))
+        ```
 
         """
         lo = to_predicate_fraction(min_val)
@@ -278,7 +274,9 @@ class Signal:
             Predicate that can be used in temporal operators
 
         Example:
-            Signal("Speed").changed_by(-10)  # Speed decreased by 10+
+        ```python
+        Signal("Speed").changed_by(-10)  # Speed decreased by 10+
+        ```
 
         """
         formula: AtomicFormula = _atomic(
@@ -302,7 +300,9 @@ class Signal:
             Predicate that can be used in temporal operators
 
         Example:
-            Signal("Temp").stable_within(2)  # Temperature stable within +/-2
+        ```python
+        Signal("Temp").stable_within(2)  # Temperature stable within +/-2
+        ```
 
         """
         formula: AtomicFormula = _atomic(
@@ -360,7 +360,9 @@ class Predicate:
             Temporal property (LTL formula)
 
         Example:
-            Signal("Speed").less_than(220).always()
+        ```python
+        Signal("Speed").less_than(220).always()
+        ```
 
         """
         formula: AlwaysFormula = {"operator": "always", "formula": self._formula}
@@ -373,7 +375,9 @@ class Predicate:
             Temporal property (LTL formula)
 
         Example:
-            Signal("DoorClosed").equals(1).eventually()
+        ```python
+        Signal("DoorClosed").equals(1).eventually()
+        ```
 
         """
         formula: EventuallyFormula = {"operator": "eventually", "formula": self._formula}
@@ -388,7 +392,9 @@ class Predicate:
             Temporal property (LTL formula)
 
         Example:
-            Signal("ErrorCode").equals(0xFF).never()
+        ```python
+        Signal("ErrorCode").equals(0xFF).never()
+        ```
 
         """
         formula: AlwaysFormula = {
@@ -413,7 +419,12 @@ class Predicate:
             ValidationError: ``time_ms`` is negative.
 
         Example:
-            brake_pressed.implies(speed_decreases.within(100))
+        ```python
+        # Every brake press is followed within 100 ms by a speed decrease
+        brake_pressed = Signal("BrakePressure").greater_than(0)
+        speed_decreases = Signal("VehicleSpeed").changed_by(-10)
+        brake_pressed.implies(speed_decreases.within(100)).always()
+        ```
 
         """
         require_non_negative_time_ms(time_ms)
@@ -440,7 +451,9 @@ class Predicate:
             ValidationError: ``time_ms`` is negative.
 
         Example:
-            Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
+        ```python
+        Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
+        ```
 
         """
         require_non_negative_time_ms(time_ms)
@@ -461,7 +474,11 @@ class Predicate:
             Combined predicate
 
         Example:
-            left_ok.and_(right_ok)
+        ```python
+        left_ok = Signal("LeftDoor").equals(0)
+        right_ok = Signal("RightDoor").equals(0)
+        left_ok.and_(right_ok)
+        ```
 
         """
         formula: AndFormula = {
@@ -481,7 +498,11 @@ class Predicate:
             Combined predicate
 
         Example:
-            error1.or_(error2)
+        ```python
+        error1 = Signal("ErrorCode").equals(1)
+        error2 = Signal("ErrorCode").equals(2)
+        error1.or_(error2)
+        ```
 
         """
         formula: OrFormula = {"operator": "or", "left": self._formula, "right": other.to_formula()}
@@ -494,7 +515,9 @@ class Predicate:
             Negated predicate
 
         Example:
-            Signal("Enabled").equals(1).not_()
+        ```python
+        Signal("Enabled").equals(1).not_()
+        ```
 
         """
         formula: NotFormula = {"operator": "not", "formula": self._formula}
@@ -512,10 +535,97 @@ class Predicate:
             Implication property
 
         Example:
-            brake_pressed.implies(speed_decreases.within(100))
+        ```python
+        # Every brake press is followed within 100 ms by a speed decrease
+        brake_pressed = Signal("BrakePressure").greater_than(0)
+        speed_decreases = Signal("VehicleSpeed").changed_by(-10)
+        brake_pressed.implies(speed_decreases.within(100)).always()
+        ```
 
         """
-        return Property(_implies_formula(self._formula, other.to_formula()))
+        return Property(implies_formula(self._formula, other.to_formula()))
+
+    def until(self, other: Property | Predicate) -> Property:
+        """Temporal until: this predicate holds at every frame until other becomes true.
+
+        Args:
+            other: Property or Predicate that must eventually hold
+
+        Returns:
+            Until property
+
+        Example:
+        ```python
+        # The start button stays released until the power mode reaches ACC, which it does
+        Signal("StartButton").equals(1).not_().until(Signal("PowerMode").equals(2))
+        ```
+
+        """
+        return Property(self._formula).until(other)
+
+    def release(self, other: Property | Predicate) -> Property:
+        """Temporal release: other holds until this predicate releases it (dual of until).
+
+        Args:
+            other: Property or Predicate that must hold until released
+
+        Returns:
+            Release property
+
+        Example:
+        ```python
+        # The brake stays engaged up to the frame the ignition comes on, and forever
+        # if it never does
+        Signal("Ignition").equals(1).release(Signal("Brake").equals(1))
+        ```
+
+        """
+        return Property(self._formula).release(other)
+
+    def metric_until(self, time_ms: int, other: Property | Predicate) -> Property:
+        """Temporal until with time bound: this predicate holds until other, within time_ms.
+
+        Args:
+            time_ms: Time bound in milliseconds (must be >= 0)
+            other: Property or Predicate that must hold within time_ms
+
+        Returns:
+            Metric Until property
+
+        Raises:
+            ValidationError: ``time_ms`` is negative.
+
+        Example:
+        ```python
+        # The speed stays above 50 until the brake is pressed, which happens within 1000 ms
+        Signal("Speed").greater_than(50).metric_until(1000, Signal("Brake").equals(1))
+        ```
+
+        """
+        return Property(self._formula).metric_until(time_ms, other)
+
+    def metric_release(self, time_ms: int, other: Property | Predicate) -> Property:
+        """Temporal release with time bound: other holds until this predicate releases it.
+
+        Args:
+            time_ms: Time bound in milliseconds (must be >= 0)
+            other: Property or Predicate that must hold until released
+
+        Returns:
+            Metric Release property
+
+        Raises:
+            ValidationError: ``time_ms`` is negative.
+
+        Example:
+        ```python
+        # The brake stays engaged through the first 5000 ms, released sooner when the
+        # ignition comes on
+        Signal("Ignition").equals(1).metric_release(5000, Signal("Brake").equals(1))
+        ```
+
+        """
+        return Property(self._formula).metric_release(time_ms, other)
 
     # ------------------------------------------------------------------
     # Discouraged in CAN analysis — kept for standard-LTLf completeness.
@@ -548,13 +658,19 @@ class Predicate:
             Temporal property (LTL Next formula)
 
         Example (discouraged on real traces):
-            # Anti-pattern: assumes next frame arrives immediately
-            Signal("Brake").equals(1).next()
+        ```python
+        # Anti-pattern: assumes next frame arrives immediately
+        Signal("Brake").equals(1).next()
+        ```
 
         Better alternatives:
-            Signal("Brake").equals(1).within(10)         # within 10 ms
-            Signal("Brake").equals(1).eventually()       # if timing doesn't matter
-            state_a.metric_until(100, state_b)            # transition within 100 ms
+        ```python
+        state_a = Signal("Gear").equals(1)
+        state_b = Signal("Gear").equals(2)
+        Signal("Brake").equals(1).within(10)  # within 10 ms
+        Signal("Brake").equals(1).eventually()  # if timing doesn't matter
+        state_a.metric_until(100, state_b)  # gear 1 until gear 2, within 100 ms
+        ```
 
         """
         formula: NextFormula = {"operator": "next", "formula": self._formula}
@@ -575,383 +691,13 @@ class Predicate:
             Temporal property (LTL Weak Next formula)
 
         Example:
-            Signal("Brake").equals(1).weak_next()
+        ```python
+        Signal("Brake").equals(1).weak_next()
+        ```
 
         """
         formula: WeakNextFormula = {"operator": "weakNext", "formula": self._formula}
         return Property(formula)
-
-
-class Property:
-    """Temporal property (LTL formula).
-
-    Created by Predicate temporal methods. Can be composed with
-    other properties using logical operators.
-
-    **Recommended combinators**:
-        ``and_``, ``or_``, ``not_``, ``implies``, ``until``, ``release``,
-        ``metric_until``, ``metric_release``, ``always``, ``eventually``
-
-    **Discouraged** (see the "Discouraged in CAN analysis" section at the
-    bottom of this class): ``next`` — use ``metric_until`` /
-    ``Predicate.within`` instead on real CAN traces.
-    """
-
-    def __init__(self, formula: LTLFormula) -> None:
-        """Construct a Property wrapping a finished LTLFormula dict.
-
-        Not part of the public API — derive Properties via temporal
-        combinators on a :class:`Predicate` (``always`` / ``eventually``
-        / ``never`` / ``within`` / ``for_at_least`` / ``metric_until``
-        / ``metric_release``) or via composition operators (``and_``
-        / ``or_`` / ``not_`` / ``implies``).  Direct callers must
-        supply a fully-formed LTLFormula matching the Agda JSON schema;
-        the stored ``_formula`` is assumed to be schema-valid and is
-        passed verbatim to the kernel via ``to_formula()``.
-        """
-        self._formula: LTLFormula = formula
-
-    def to_formula(self) -> LTLFormula:
-        """Convert to LTL formula for use in composition.
-
-        Returns:
-            LTL formula representation
-
-        """
-        return self._formula
-
-    def and_(self, other: Property) -> Property:
-        """Logical AND of two properties.
-
-        Args:
-            other: Another property
-
-        Returns:
-            Combined property
-
-        Example:
-            speed_ok.and_(voltage_ok)
-
-        """
-        formula: AndFormula = {
-            "operator": "and",
-            "left": self._formula,
-            "right": other.to_formula(),
-        }
-        return Property(formula)
-
-    def or_(self, other: Property) -> Property:
-        """Logical OR of two properties.
-
-        Args:
-            other: Another property
-
-        Returns:
-            Combined property
-
-        Example:
-            charging.or_(engine_running)
-
-        """
-        formula: OrFormula = {"operator": "or", "left": self._formula, "right": other.to_formula()}
-        return Property(formula)
-
-    def implies(self, other: Property | Predicate) -> Property:
-        """Logical implication: if self then other.
-
-        Desugars to or(not(self), other) for Agda compatibility.
-
-        Args:
-            other: Consequent property or predicate
-
-        Returns:
-            Implication property
-
-        Example:
-            brake_pressed.implies(speed_decreases.within(100))
-
-        """
-        return Property(_implies_formula(self._formula, other.to_formula()))
-
-    def until(self, other: Property) -> Property:
-        """Temporal until: self holds until other becomes true.
-
-        Args:
-            other: Property that must eventually hold
-
-        Returns:
-            Until property
-
-        Example:
-            power_off.implies(power_start.never().until(power_acc))
-
-        """
-        formula: UntilFormula = {
-            "operator": "until",
-            "left": self._formula,
-            "right": other.to_formula(),
-        }
-        return Property(formula)
-
-    def release(self, other: Property) -> Property:
-        """Temporal release: other holds until self releases it (dual of until).
-
-        Args:
-            other: Property that must hold until released
-
-        Returns:
-            Release property
-
-        Example:
-            # Safety interlock: brake must be engaged until ignition releases it
-            ignition_on.release(brake_engaged)
-
-        """
-        formula: ReleaseFormula = {
-            "operator": "release",
-            "left": self._formula,
-            "right": other.to_formula(),
-        }
-        return Property(formula)
-
-    def metric_until(self, time_ms: int, other: Property) -> Property:
-        """Temporal until with time bound: self holds until other, within time_ms.
-
-        More robust than Next for checking "next frame" conditions.
-        Tolerates CAN jitter and ECU timing uncertainty.
-
-        Args:
-            time_ms: Time bound in milliseconds (must be >= 0)
-            other: Property that must eventually hold
-
-        Returns:
-            Metric Until property
-
-        Raises:
-            ValidationError: ``time_ms`` is negative.
-
-        Example:
-            # Speed must stay above 50 until brake within 1000ms
-            speed_ok.metric_until(1000, brake_pressed)
-
-        """
-        require_non_negative_time_ms(time_ms)
-        formula: MetricUntilFormula = {
-            "operator": "metricUntil",
-            "timebound": time_ms * MICROSECONDS_PER_MILLISECOND,
-            "left": self._formula,
-            "right": other.to_formula(),
-        }
-        return Property(formula)
-
-    def metric_release(self, time_ms: int, other: Property) -> Property:
-        """Temporal release with time bound: other holds until self releases it, within time_ms.
-
-        Args:
-            time_ms: Time bound in milliseconds (must be >= 0)
-            other: Property that must hold until released
-
-        Returns:
-            Metric Release property
-
-        Raises:
-            ValidationError: ``time_ms`` is negative.
-
-        Example:
-            # Brake must be engaged until ignition releases it, within 5000ms
-            ignition_on.metric_release(5000, brake_engaged)
-
-        """
-        require_non_negative_time_ms(time_ms)
-        formula: MetricReleaseFormula = {
-            "operator": "metricRelease",
-            "timebound": time_ms * MICROSECONDS_PER_MILLISECOND,
-            "left": self._formula,
-            "right": other.to_formula(),
-        }
-        return Property(formula)
-
-    def always(self) -> Property:
-        """Property must always hold (globally) - applies to nested formulas.
-
-        Returns:
-            Nested temporal property
-
-        Example:
-            # G(F(p)) - infinitely often pattern
-            Signal("Speed").greater_than(100).eventually().always()
-
-        """
-        formula: AlwaysFormula = {"operator": "always", "formula": self._formula}
-        return Property(formula)
-
-    def eventually(self) -> Property:
-        """Property must eventually hold - applies to nested formulas.
-
-        Returns:
-            Nested temporal property
-
-        Example:
-            # F(G(p)) - eventually always (stability) pattern
-            Signal("Temperature").less_than(70).always().eventually()
-
-        """
-        formula: EventuallyFormula = {"operator": "eventually", "formula": self._formula}
-        return Property(formula)
-
-    def not_(self) -> Property:
-        """Logical negation of property - applies to nested formulas.
-
-        Returns:
-            Negated property
-
-        Example:
-            # G(not F(p)) - never occurs pattern
-            fault_eventually = Signal("Fault").equals(1).eventually()
-            fault_eventually.not_().always()
-
-        """
-        formula: NotFormula = {"operator": "not", "formula": self._formula}
-        return Property(formula)
-
-    def to_dict(self) -> LTLFormula:
-        """Convert to dictionary for use with AletheiaClient.
-
-        Returns:
-            Dictionary representation suitable for JSON serialization
-
-        Example:
-            property = Signal("Speed").less_than(220).always()
-            client.set_properties([property.to_dict()])
-
-        """
-        return self._formula
-
-    # ------------------------------------------------------------------
-    # Discouraged in CAN analysis — kept for standard-LTLf completeness.
-    # See ``Predicate.next`` for the full rationale.
-    # ------------------------------------------------------------------
-
-    def next(self) -> Property:
-        """Apply Next operator to nested formula.
-
-        **DISCOURAGED on CAN networks.** See :meth:`Predicate.next` for the
-        full rationale; prefer ``.within(time_ms)`` in practice.
-
-        Use this for nested temporal operators like X(G(phi)) — "next, then
-        always" — when working on deterministic replay traces where the
-        next-frame notion is well-defined.
-
-        Returns:
-            Nested temporal property (X(nested))
-
-        Example:
-            # X(G(p)) — next frame, then always
-            Signal("State").equals(1).always().next()
-
-        """
-        formula: NextFormula = {"operator": "next", "formula": self._formula}
-        return Property(formula)
-
-    def weak_next(self) -> Property:
-        """Apply Weak Next operator to nested formula.
-
-        Like ``next()``, but satisfied at end of stream. See
-        :meth:`Predicate.weak_next` for the full rationale.
-
-        Returns:
-            Nested temporal property (WX(nested))
-
-        Example:
-            # WX(G(p)) — weak next frame, then always
-            Signal("State").equals(1).always().weak_next()
-
-        """
-        formula: WeakNextFormula = {"operator": "weakNext", "formula": self._formula}
-        return Property(formula)
-
-
-# ============================================================================
-# NESTED TEMPORAL OPERATOR HELPERS
-# ============================================================================
-
-
-def infinitely_often(formula: Property | Predicate) -> Property:
-    """G(F phi) - Property holds infinitely many times (liveness pattern).
-
-    Standard LTL pattern for liveness properties that must occur repeatedly.
-    This is NOT a primitive operator, but a composition of Always and Eventually.
-
-    Use this when: You need to verify recurring behaviors (e.g., periodic signals,
-    repeated state transitions, cyclic patterns).
-
-    Args:
-        formula: Property or Predicate that must hold infinitely often
-
-    Returns:
-        Always(Eventually(formula)) property
-
-    Example:
-        # Speed exceeds 100 infinitely often (repeated acceleration)
-        infinitely_often(Signal("Speed").greater_than(100))
-
-        # Equivalent fluent form:
-        Signal("Speed").greater_than(100).eventually().always()
-
-    Note: Helper exists for clarity when expressing this common LTL pattern.
-
-    """
-    return formula.eventually().always()
-
-
-def eventually_always(formula: Property | Predicate) -> Property:
-    """F(G phi) - Property eventually holds forever (stability pattern).
-
-    Standard LTL pattern for stability/convergence properties.
-    This is NOT a primitive operator, but a composition of Eventually and Always.
-
-    Use this when: You need to verify that a system reaches a stable state
-    (e.g., temperature stabilization, mode transitions, initialization complete).
-
-    Args:
-        formula: Property or Predicate that must eventually stabilize
-
-    Returns:
-        Eventually(Always(formula)) property
-
-    Example:
-        # Temperature eventually stabilizes below 70 degrees
-        eventually_always(Signal("Temperature").less_than(70))
-
-        # Equivalent fluent form:
-        Signal("Temperature").less_than(70).always().eventually()
-
-    Note: Helper exists for clarity when expressing this common LTL pattern.
-
-    """
-    return formula.always().eventually()
-
-
-def never(formula: Property | Predicate) -> Property:
-    """G(not phi) - Property never holds (strongest safety property).
-
-    Equivalent to always(not(formula)) but more readable.
-
-    Args:
-        formula: Property or Predicate that must never hold
-
-    Returns:
-        Always(Not(formula)) property
-
-    Example:
-        # Critical fault never occurs
-        never(Signal("CriticalFault").equals(1))
-
-        # Equivalent to:
-        Signal("CriticalFault").equals(1).not_().always()
-
-    """
-    return formula.not_().always()
 
 
 __all__ = [

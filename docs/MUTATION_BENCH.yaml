@@ -130,8 +130,9 @@ bindings:
       # from the repository and load the kernel, so the runner sweeps a
       # scratch copy of the whole tree, names it to the tests as
       # ALETHEIA_REPO_ROOT and the tree's built kernel as ALETHEIA_LIB, and
-      # skips the doc-example harness. Without the two variables the unmutated
-      # suite fails at its first test and every mutant reads as killed.
+      # skips the doc-example harness and the Example functions. Without the
+      # two variables the unmutated suite fails at its first test and every
+      # mutant reads as killed.
       #
       # Each sweep's copy is a new directory, which the tests read through
       # ALETHEIA_REPO_ROOT, so a warm cache still times one run of the suite,

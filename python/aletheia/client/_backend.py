@@ -560,19 +560,21 @@ class MockBackend:  # pylint: disable=too-many-public-methods
     Tracks ``FEATURE_MATRIX.yaml`` row ``mock_backend`` for the Python
     binding.
 
-    Usage::
+    Usage:
 
-        from aletheia import AletheiaClient, MockBackend
+    ```python
+    from aletheia import AletheiaClient, MockBackend
 
-        backend = MockBackend([
-            b'{"status":"success","dbc":{...},"warnings":[]}',  # parse_dbc
-            b'{"status":"ack"}',                                # send_frame
-        ])
-        with AletheiaClient(backend=backend) as client:
-            client.parse_dbc(dbc)
-            client.send_frame(0, 0x100, 0, b"\x00")
+    backend = MockBackend([
+        b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parse_dbc
+        b'{"status":"ack"}',  # send_frame
+    ])
+    with AletheiaClient(backend=backend) as client:
+        client.parse_dbc(dbc)
+        client.send_frame(0, 0x100, 1, b"\x00")
 
-        assert len(backend.inputs) == 2
+    assert len(backend.inputs) == 2
+    ```
 
     Concurrency: instances are NOT thread-safe.  Each test should
     construct its own instance.  Cross-binding note: Go's MockBackend

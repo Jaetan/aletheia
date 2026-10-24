@@ -55,7 +55,11 @@ Always-on invariants, checked without running the mutation tools (which take
    failure here rather than a check that names nothing.  The Rust lane also
    skips the benchmark program's tests, every test of
    ``rust/tests/benchmark_program.rs``, which build the benchmark example
-   with a cargo of their own, and the skip must reach each of them.
+   with a cargo of their own, and the skip must reach each of them.  The
+   examples a binding's source carries are held to the binding the same way
+   and kept out alike: the Go lane's skip reaches every Example function,
+   which go test checks against its Output, and the Rust lane selects its
+   targets so cargo runs no doctest.
 
 7. **Every recorded C++ slice weight is a file a slice can claim**, and the
    partition claims the whole domain once.

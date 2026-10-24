@@ -328,12 +328,7 @@ func WrapValidationError(msg string, cause error) *Error {
 // InputBoundExceededError, the C++ aletheia::InputBoundExceededError and
 // the Rust Error::InputBoundExceeded.
 //
-// Use [errors.As] to inspect:
-//
-//	var bex *aletheia.InputBoundExceededError
-//	if errors.As(err, &bex) {
-//		log.Printf("rejected %s = %d (limit %d)", bex.BoundKind, bex.Observed, bex.Limit)
-//	}
+// Use [errors.As] to inspect it, as the example does.
 type InputBoundExceededError struct {
 	// BoundKind names the bound, one of the BoundKind constants in limits.go.
 	BoundKind string
@@ -397,14 +392,7 @@ func newInputBoundExceededError(kind string, observed, limit uint64, code, field
 // Rust returns Error::ValidationFailed for the same refusal; C++ carries
 // it on its one error class, under ErrorCode::HandlerValidationFailed.
 //
-// Use [errors.As] to inspect:
-//
-//	var vfe *aletheia.ValidationFailedError
-//	if errors.As(err, &vfe) {
-//		for _, issue := range vfe.Issues {
-//			log.Printf("[%s] %s: %s", issue.Severity, issue.Code, issue.Detail)
-//		}
-//	}
+// Use [errors.As] to inspect it, as the example does.
 type ValidationFailedError struct {
 	// Issues are the structural validation findings in wire order,
 	// with the same element shape as [ValidationResult].Issues.
@@ -444,14 +432,7 @@ func newValidationFailedError(issues []ValidationIssue, hasErrors bool, code, ms
 // Error::TextRoundtripFailed; C++ carries it on its one error class, under
 // ErrorCode::HandlerTextRoundtripFailed.
 //
-// Use [errors.As] to inspect:
-//
-//	var trte *aletheia.TextRoundTripFailedError
-//	if errors.As(err, &trte) {
-//		for _, issue := range trte.Issues {
-//			log.Printf("[%s] %s: %s", issue.Severity, issue.Code, issue.Detail)
-//		}
-//	}
+// Use [errors.As] to inspect it, as the example does.
 type TextRoundTripFailedError struct {
 	// Issues are the round-trip diagnostics in wire order, led by the
 	// error-severity text_roundtrip_divergence issue.

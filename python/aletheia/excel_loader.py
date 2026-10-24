@@ -9,43 +9,52 @@ Designed for automotive technicians who define checks in spreadsheet
 templates — no code, no YAML, just fill in cells.
 
 Usage:
-    from aletheia import load_checks_from_excel, load_dbc_from_excel
 
-    # Load signal checks
-    checks = load_checks_from_excel("my_checks.xlsx")
-    client.set_properties([c.to_dict() for c in checks])
+```python
+from aletheia import create_template, load_checks_from_excel, load_dbc_from_excel
 
-    # Load DBC definition
-    dbc = load_dbc_from_excel("my_dbc.xlsx")
-    client.parse_dbc(dbc)
+# Load signal checks
+checks = load_checks_from_excel("my_checks.xlsx")
+client.set_properties([c.to_dict() for c in checks])
 
-    # Create a blank template for technicians
-    create_template("template.xlsx")
+# Load DBC definition
+dbc = load_dbc_from_excel("my_dbc.xlsx")
+client.parse_dbc(dbc)
+
+# Create a blank template for technicians
+create_template("template.xlsx")
+```
 
 Excel Template Layout
 =====================
 
 The workbook has three sheets:
 
-**DBC** — one row per signal::
+**DBC**, one row per signal:
 
-    Message ID | Message Name | Extended | DLC | Signal | Start Bit |
-    Length | Byte Order | Signed | Factor | Offset | Min | Max | Unit |
-    Multiplexor | Multiplex Value
+~~~text
+Message ID | Message Name | Extended | DLC | Signal | Start Bit |
+Length | Byte Order | Signed | Factor | Offset | Min | Max | Unit |
+Multiplexor | Multiplex Value
+~~~
 
 Extended is optional (defaults to False — standard 11-bit ID — when empty).
 Multiplexor and Multiplex Value are optional. If both are filled in, the
 signal is multiplexed; if both are empty, the signal is always-present.
 
-**Checks** — one row per simple check::
+**Checks**, one row per simple check:
 
-    Check Name | Signal | Condition | Value | Min | Max | Time (ms) | Severity
+~~~text
+Check Name | Signal | Condition | Value | Min | Max | Time (ms) | Severity
+~~~
 
-**When-Then** — one row per causal check::
+**When-Then**, one row per causal check:
 
-    Check Name | When Signal | When Condition | When Value |
-    Then Signal | Then Condition | Then Value | Then Min | Then Max |
-    Within (ms) | Severity
+~~~text
+Check Name | When Signal | When Condition | When Value |
+Then Signal | Then Condition | Then Value | Then Min | Then Max |
+Within (ms) | Severity
+~~~
 """
 
 from __future__ import annotations

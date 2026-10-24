@@ -12,6 +12,36 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **A predicate is an operand of until and release.** `Predicate` gains
+  `until`, `release`, `metric_until` and `metric_release`, and a property's
+  four take a predicate on their right, so Python relates two states as C++
+  does with `until(atomic(p), atomic(q))`. Before, both sides had to be
+  properties, each lifted with `.always()` or `.eventually()`. The API
+  guide's examples of implication, until, release and their metric forms
+  decided nothing: on a trace their comment says holds and on one it says
+  fails, each gave one verdict for both, two always holding and three always
+  failing. They are rewritten, the until and release ones on predicates, and
+  `python/tests/test_doc_example_semantics.py` streams twenty of the
+  documentation's temporal examples through the kernel on a trace each should
+  hold on and one each should fail on, past its first frame where the example
+  is an `always`.
+
+- **Every example in the code's own comments runs.** The Python harness runs
+  the fences of the package's docstrings, 53 in 13 modules, read from each
+  module's source; a fence opened `python runner:ProgramRunner` is a whole
+  program, run in a process of its own because it starts the async client's
+  threads. The C++ harness compiles and runs the examples in the comments of
+  `check.hpp`, `log.hpp` and `yaml.hpp`. Go's package examples are seven
+  `Example` functions `go test` holds to their output, in place of the code
+  blocks of the package comments, and the Rust doc comments' two `no_run`
+  examples run. Every fence of the C++ and Go READMEs is also built as
+  written, a complete program with nothing the harness adds, and each binding
+  refuses a code example in its comments that its harness would not run.
+  Running them found examples that could not run: a decimal built before any
+  client had started the runtime, names nothing defined, a mock backend fed a
+  reply that is not JSON and a frame its DLC does not size, and async examples
+  that defined a coroutine and never called it.
+
 - **The private-import whitelist reads every Python file under `python/tests/`,
   the helper modules and `conftest.py` included.** A reach-through into a
   `_`-prefixed client module moved into a helper was invisible to the gate;

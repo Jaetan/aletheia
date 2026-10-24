@@ -7,41 +7,19 @@
 // Agda-verified core, and this package owns the session lifecycle, the JSON
 // protocol and the Go types.
 //
-// Basic usage:
-//
-//	backend, err := aletheia.NewFFIBackend("/path/to/libaletheia-ffi.so")
-//	if err != nil { log.Fatal(err) }
-//
-//	client, err := aletheia.NewClient(backend)
-//	if err != nil { log.Fatal(err) }
-//	defer client.Close()
-//
-//	ctx := context.Background()
-//	parsed, err := client.ParseDBC(ctx, dbc)
-//	if err != nil { log.Fatal(err) }
-//	_ = parsed.Warnings // non-fatal validation issues, if any
-//	result, err := client.ExtractSignals(ctx, canID, dlc, frameData)
+// The package example shows the basic use: a backend over the library, a
+// client over the backend, a DBC parsed, a frame's signals extracted.
+// [NewFFIBackend] takes the library's path; [NewFFIBackendFromEnv] reads it from
+// ALETHEIA_LIB.
 //
 // Every operation method takes a context.Context first and honours
 // cancellation at FFI boundaries; docs/architecture/CANCELLATION.md is the
 // contract. NewClient and Close take no context: construction and teardown
 // are synchronous and cannot be cancelled.
 //
-// Functional options:
-//
-//	backend, err := aletheia.NewFFIBackend(
-//	    "/path/to/libaletheia-ffi.so",
-//	    aletheia.WithRTSCores(4),
-//	    aletheia.WithFFILogger(slog.Default()),
-//	)
-//	if err != nil { log.Fatal(err) }
-//
-//	client, err := aletheia.NewClient(
-//	    backend,
-//	    aletheia.WithLogger(slog.Default()),
-//	    aletheia.WithDefaultChecks(defaultCheck),
-//	)
-//	if err != nil { log.Fatal(err) }
+// Both constructors take functional options, as the options example shows:
+// [WithRTSCores] and [WithFFILogger] for the backend, [WithLogger] and
+// [WithDefaultChecks] for the client.
 //
 // Streaming adequacy: the streaming evaluator is sound, and it asks of the
 // trace that every property's signal be observed at least once, the

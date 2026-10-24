@@ -144,6 +144,22 @@ CPP_DOC_HARNESS = "tests/doc_example_tests.cpp"
 RUST_PROGRAM_TESTS = REPO_ROOT / "rust" / "tests" / "benchmark_program.rs"
 
 MUTANTS_TOML_PATH = REPO_ROOT / "rust" / ".cargo" / "mutants.toml"
+# The cargo test flags that select targets; given any, cargo runs no doctest.
+# ``--doc`` runs the doctests alone, and cargo refuses it beside another.
+_CARGO_TARGET_FLAGS = frozenset(
+    {
+        "--lib",
+        "--bin",
+        "--bins",
+        "--example",
+        "--examples",
+        "--test",
+        "--tests",
+        "--bench",
+        "--benches",
+        "--all-targets",
+    }
+)
 CMAKE_PATH = REPO_ROOT / "cpp" / "CMakeLists.txt"
 
 # A Go test as the go command finds one: a top-level function taking a
@@ -151,6 +167,12 @@ CMAKE_PATH = REPO_ROOT / "cpp" / "CMakeLists.txt"
 # gofmt keeps it, and named ``Test`` followed by no lowercase letter, which the
 # check reading this filters for; ``TestMain`` takes a ``*testing.M``.
 _GO_TEST_RE = re.compile(r"^func (Test\w*)\(\s*(?:\w+\s+)?\*testing\.T,?\s*\)", re.MULTILINE)
+# A Go example as the go command finds one: a top-level function taking and
+# returning nothing, named ``Example`` followed by no lowercase letter, which
+# the check reading this filters for; go test runs it only when its body, up to
+# the brace gofmt puts in the first column, holds an Output comment.
+_GO_EXAMPLE_RE = re.compile(r"^func (Example\w*)\(\)\s*\{(.*?)^\}", re.MULTILINE | re.DOTALL)
+_GO_OUTPUT_RE = re.compile(r"^\s*//\s*(?:unordered\s+)?output:", re.MULTILINE | re.IGNORECASE)
 # The pattern of a ``-skip`` flag in GOFLAGS.
 _GO_SKIP_RE = re.compile(r"(?:^|\s)-skip=(\S+)")
 # A Rust test: a function under ``#[test]``, whatever attributes (their
@@ -328,18 +350,28 @@ def python_lane_runs_no_doc_harness() -> list[Prose]:
 
 
 def go_lane_runs_no_doc_harness() -> list[Prose]:
-    """Hold the Go lane's ``-skip`` to the doc-example harness and nothing else.
+    """Hold the Go lane's ``-skip`` to the doc-example harness and the examples, and nothing else.
 
     The flag is read from the ``GOFLAGS`` the runner gives gremlins, the last
     ``-skip`` being the one go keeps, and matched as go matches a top-level
-    test, unanchored; Python's ``re`` under ``re.ASCII`` reads the pattern's
-    anchors and word characters as RE2 does.
+    test or example, unanchored; Python's ``re`` under ``re.ASCII`` reads the
+    pattern's anchors and word characters as RE2 does.
     """
+    sources = [
+        read_or_exit(path)
+        for path in listed_or_exit(REPO_ROOT / "go" / "aletheia", Glob("*_test.go"))
+    ]
     names = [
         TestName(match.group(1))
-        for path in listed_or_exit(REPO_ROOT / "go" / "aletheia", Glob("*_test.go"))
-        for match in _GO_TEST_RE.finditer(read_or_exit(path))
+        for source in sources
+        for match in _GO_TEST_RE.finditer(source)
         if not match.group(1)[4:5].islower()
+    ]
+    examples = [
+        TestName(match.group(1))
+        for source in sources
+        for match in _GO_EXAMPLE_RE.finditer(source)
+        if not match.group(1)[7:8].islower() and _GO_OUTPUT_RE.search(match.group(2))
     ]
     skips = [match.group(1) for match in _GO_SKIP_RE.finditer(go_sweep_goflags(GoFlags("")))]
     if not skips:
@@ -351,7 +383,17 @@ def go_lane_runs_no_doc_harness() -> list[Prose]:
         ]
     pattern = re.compile(skips[-1], re.ASCII)
     skipped = [name for name in names if pattern.search(name)]
-    return _skips_the_harness_alone("go", TestName(GO_DOC_HARNESS), names, skipped)
+    return [
+        *_skips_the_harness_alone("go", TestName(GO_DOC_HARNESS), names, skipped),
+        *(
+            Prose(
+                f"[go/examples] every mutant's run reaches {name}, an Example function go test "
+                + "checks against its Output: the lane's skip does not match it"
+            )
+            for name in examples
+            if not pattern.search(name)
+        ),
+    ]
 
 
 def rust_lane_runs_no_doc_harness() -> list[Prose]:
@@ -361,7 +403,10 @@ def rust_lane_runs_no_doc_harness() -> list[Prose]:
     test``, where those after ``--`` reach the test binaries, an example's
     tests among them; libtest skips a test whose module path contains a
     filter, or equals it under ``--exact``.  The tests are read by bare name,
-    so a filter naming a path is refused rather than matched.
+    so a filter naming a path is refused rather than matched.  Those before
+    ``--`` reach cargo, which runs the doctests unless a target is selected,
+    so the lane must select one; ``--doc`` runs the doctests alone, and cargo
+    refuses it beside another target.
     """
     args = strings_or_exit(
         MUTANTS_TOML_PATH,
@@ -369,6 +414,25 @@ def rust_lane_runs_no_doc_harness() -> list[Prose]:
         Prose("additional_cargo_test_args"),
     )
     binary_args = args[args.index(TomlString("--")) + 1 :] if "--" in args else []
+    cargo_args = args[: args.index(TomlString("--"))] if "--" in args else args
+    flags = [arg.split("=", 1)[0] for arg in cargo_args]
+    doctests = (
+        [
+            Prose(
+                "[rust/doctests] the lane's cargo arguments name --doc, with which cargo runs "
+                + "the doctests alone, or refuses the command beside another target"
+            )
+        ]
+        if "--doc" in flags
+        else [
+            Prose(
+                "[rust/doctests] every mutant's run reaches the crate's doctests: the lane's "
+                + "cargo arguments select no target, so cargo test runs them"
+            )
+        ]
+        if not _CARGO_TARGET_FLAGS.intersection(flags)
+        else []
+    )
     filters = [
         arg.removeprefix("--skip=")
         for i, arg in enumerate(binary_args)
@@ -376,11 +440,15 @@ def rust_lane_runs_no_doc_harness() -> list[Prose]:
     ]
     if pathed := [f for f in filters if "::" in f]:
         return [
-            Prose(
-                f"[rust/doc-harness] the lane's skip names {f!r}, a path libtest matches against "
-                + "a test's module path, which this gate reads by bare name: name the test alone"
-            )
-            for f in pathed
+            *doctests,
+            *(
+                Prose(
+                    f"[rust/doc-harness] the lane's skip names {f!r}, a path libtest matches "
+                    + "against a test's module path, which this gate reads by bare name: name "
+                    + "the test alone"
+                )
+                for f in pathed
+            ),
         ]
     exact = "--exact" in binary_args
     names = [
@@ -395,6 +463,7 @@ def rust_lane_runs_no_doc_harness() -> list[Prose]:
         for match in _RUST_TEST_RE.finditer(read_or_exit(RUST_PROGRAM_TESTS))
     ]
     return [
+        *doctests,
         *_skips_the_harness_alone(
             "rust", RUST_DOC_HARNESS, names, [name for name in skipped if name not in program]
         ),

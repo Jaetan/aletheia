@@ -13,28 +13,32 @@ an exact call: no test needs a thread, a timer or a second task.  It lives in
 the package proper, beside the client it serves, so consumers testing their
 own async usage have it too.
 
-Usage::
+Usage:
 
-    import asyncio
-    from aletheia import AletheiaClient
-    from aletheia.asyncio import AletheiaClient as AsyncClient
-    from aletheia.asyncio.testing import CallCount, TurnExecutor
+```python
+import asyncio
+from aletheia import AletheiaClient, CANFrameTuple, load_can_log
+from aletheia.asyncio import AletheiaClient as AsyncClient
+from aletheia.asyncio.testing import CallCount, TurnExecutor
 
-    async def run() -> None:
-        executor = TurnExecutor()
-        sync = AletheiaClient()
-        async with AsyncClient(sync_client=sync, run_in_thread=executor) as client:
-            await client.parse_dbc(dbc)
-            await client.set_properties(properties)
-            await client.start_stream()
-            task = asyncio.current_task()
-            assert task is not None
-            executor.cancel_at(task, after=CallCount(2))  # frames 0 and 1 run
-            try:
-                await client.send_frames(frames)
-            except asyncio.CancelledError:
-                task.uncancel()
-            await client.end_stream()
+async def run(frames: list[CANFrameTuple]) -> None:
+    executor = TurnExecutor()
+    sync = AletheiaClient()
+    async with AsyncClient(sync_client=sync, run_in_thread=executor) as client:
+        await client.parse_dbc(dbc)
+        await client.set_properties(properties)
+        await client.start_stream()
+        task = asyncio.current_task()
+        assert task is not None
+        executor.cancel_at(task, after=CallCount(2))  # frames 0 and 1 run
+        try:
+            await client.send_frames(frames)
+        except asyncio.CancelledError:
+            task.uncancel()
+        await client.end_stream()
+
+asyncio.run(run(load_can_log("drive.log")))
+```
 """
 
 from __future__ import annotations

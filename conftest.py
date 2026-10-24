@@ -3,8 +3,10 @@
 """Repo-root conftest — harness for `pytest --markdown-docs`.
 
 Doc-example harness per AGENTS/python.md cat 32. Every Python fence of the
-documents ``DOC_EXAMPLE_DOCS`` names in ``tools/_ci_steps.py`` is collected
-and executed end-to-end against the real FFI.
+documents ``DOC_EXAMPLE_DOCS`` names in ``tools/_ci_steps.py``, and of the
+docstrings of the package ``DOC_EXAMPLE_PACKAGE`` names, is collected and
+executed end-to-end against the real FFI. A module's docstrings are read from
+its source (``source_docstring_fences``), never by importing it.
 
 A fence that names a file shipped under ``examples/`` (``vehicle.dbc``,
 ``drive.log``) runs against that file, so its checks are held to the signals a
@@ -42,14 +44,23 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
+import sys
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, override
 
 import pytest
 from _stand_in import StandInName, stand_in_kernel
-from pytest_markdown_docs.plugin import MarkdownInlinePythonItem
+from pytest_markdown_docs._runners import DefaultRunner, register_runner
+from pytest_markdown_docs.plugin import (
+    FenceSyntax,
+    MarkdownDocstringCodeModule,
+    MarkdownInlinePythonItem,
+    extract_fence_tests,
+)
 
+from tools._hosted_markdown import SourceText, docstrings
 from tools.check_fence_marks import harness_markdown_it
 
 import aletheia
@@ -87,6 +98,7 @@ if TYPE_CHECKING:
     from typing import TypeAliasType
 
     from markdown_it import MarkdownIt
+    from pytest_markdown_docs.definitions import FenceTestDefinition
 
     from aletheia import DBCDefinition
 
@@ -320,6 +332,87 @@ def pytest_markdown_docs_globals() -> _DocGlobals:
     return _make_globals()
 
 
+def source_docstring_fences(
+    self: MarkdownDocstringCodeModule,
+) -> Generator[MarkdownInlinePythonItem]:
+    """Yield a Python file's docstring fences, read from its source, not from the imported module.
+
+    The plugin's own collector imports the module and walks it with
+    ``inspect.getmembers``, which on Python 3.14 evaluates every function's
+    deferred annotations and fails on a name imported under ``TYPE_CHECKING``.
+    Read from the source, every docstring is reached, nested ones included, and
+    nothing runs at collection, ``__main__`` included; each fence is run as the
+    plugin runs a Markdown fence, numbered by the file line it opens on.
+    """
+    syntax = FenceSyntax(str(self.config.getoption("markdowndocs_syntax")))
+    for hosted in docstrings(SourceText(self.path.read_text(encoding="utf-8"))):
+        tests = extract_fence_tests(
+            harness_markdown_it(),
+            hosted.text,
+            hosted.start - 1,
+            source_path=self.path,
+            fence_syntax=syntax,
+        )
+        for i, test in enumerate(tests, start=1):
+            yield MarkdownInlinePythonItem.from_parent(
+                self,
+                name=f"{hosted.owner}[CodeFence#{i}][line:{test.start_line}]",
+                test_definition=test,
+            )
+
+
+# The plugin's collector of a Python file collects it this way.
+MarkdownDocstringCodeModule.collect = source_docstring_fences
+
+
+@register_runner()
+class ProgramRunner(DefaultRunner):
+    """Run a fence as a reader would: a program of its own, in a process of its own.
+
+    A fence opened ``python runner:ProgramRunner`` is a whole program, one that
+    runs a real clock or the async client's worker threads, which belong to its
+    process and not to the test's. It runs in the fence's sandbox directory
+    against the forwarding stand-in kernel the session names, so its refusals
+    are read as any fence's, reads no harness global, and fails unless it exits
+    zero. Its lines keep their document numbers, the fence's source being padded
+    to its opening line.
+    """
+
+    @override
+    def runtest(
+        self,
+        test: FenceTestDefinition,
+        args: dict[str, object],
+        *,
+        asyncio_runner: None = None,
+    ) -> None:
+        del args, asyncio_runner  # the program reads no harness global and runs its own loop
+        program = Path("fence.py")
+        _ = program.write_text(test.source, encoding="utf-8")
+        ran = subprocess.run(
+            [sys.executable, str(program)], capture_output=True, text=True, check=False
+        )
+        if ran.returncode != 0:
+            msg = (
+                f"{test.source_path}: the program exited {ran.returncode}\n{ran.stdout}{ran.stderr}"
+            )
+            raise AssertionError(msg)
+
+
+def pytest_collectstart(collector: pytest.Collector) -> None:
+    """Refuse a docstring collector that collects otherwise than ``source_docstring_fences``."""
+    if (
+        isinstance(collector, MarkdownDocstringCodeModule)
+        and type(collector).collect is not source_docstring_fences
+    ):
+        msg = (
+            f"{collector.path}: pytest-markdown-docs built a docstring collector of its own,"
+            + " which imports the module; its class no longer takes the collect conftest.py"
+            + " gives MarkdownDocstringCodeModule"
+        )
+        raise pytest.UsageError(msg)
+
+
 def pytest_markdown_docs_markdown_it() -> MarkdownIt:
     """pytest-markdown-docs hook: the harness collects through a parser that runs no tilde fence."""
     return harness_markdown_it()
@@ -371,7 +464,8 @@ def _stated_refusals(item: MarkdownInlinePythonItem) -> list[ErrorCode]:
     lines = item.path.read_text(encoding="utf-8").splitlines()
     # start_line is the 1-based line opening the fence, so the line above it is list index - 2.
     above = lines[item.start_line - 2] if item.start_line > 1 else ""
-    stated = _REFUSES.fullmatch(above)
+    # A docstring's lines carry its indentation, which getdoc removes.
+    stated = _REFUSES.fullmatch(above.strip() if item.path.suffix == ".py" else above)
     return [ErrorCode(code) for code in stated.group(1).split()] if stated else []
 
 

@@ -11,10 +11,10 @@
 //! benchmarks field-for-field, so `benchmarks/run_all.sh` compares like with
 //! like. Point `ALETHEIA_LIB` at the built core and select a mode:
 //!
-//! ```sh
+//! ~~~sh
 //! ALETHEIA_LIB=/path/to/build/libaletheia-ffi.so \
 //!     cargo run --release --example benchmark -- throughput --frames 10000 --runs 5 --json
-//! ```
+//! ~~~
 //!
 //! Modes: `throughput` (`--frames N --runs N`), `latency` (`--ops N`),
 //! `scaling` (`--runs N --quick`; sweeps of trace size CAN 2.0B / CAN-FD,

@@ -12,7 +12,7 @@ longer produces.  And the
 sweep itself: gremlins runs in a copy of the tree as it stands, handed the
 copy as the repository, the tree's own kernel, the copy's configuration file
 by name and none of the caller's gremlins settings, and the doc-example harness
-skipped.
+and the Example functions skipped.
 """
 
 from __future__ import annotations
@@ -334,7 +334,7 @@ def test_the_sweep_runs_in_a_copy_named_as_the_repository(
     assert seen.env == {
         "ALETHEIA_REPO_ROOT": str(copy),
         "ALETHEIA_LIB": str(repo / "build" / "libaletheia-ffi.so"),
-        "GOFLAGS": "-mod=mod -count=1 -skip=^TestDocExamples$",
+        "GOFLAGS": r"-mod=mod -count=1 -skip=^(TestDocExamples|Example\w*)$",
     }
 
 
@@ -382,10 +382,10 @@ def test_a_variable_is_dropped_only_where_it_names_a_gremlins_setting() -> None:
 
 
 def test_the_sweep_s_flags_are_the_whole_goflags_when_none_was_set() -> None:
-    """With no GOFLAGS of the caller's, caching off and the harness's skip are all there is."""
+    """With no GOFLAGS of the caller's, caching off and the harness's and examples' skip are all."""
     assert (
         mutation_run.go_sweep_goflags(mutation_run.GoFlags(""))
-        == "-count=1 -skip=^TestDocExamples$"
+        == r"-count=1 -skip=^(TestDocExamples|Example\w*)$"
     )
 
 

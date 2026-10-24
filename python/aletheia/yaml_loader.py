@@ -6,56 +6,65 @@ Loads check definitions from YAML files or strings and compiles them
 through the Check API into LTL properties.
 
 Usage:
-    from pathlib import Path
-    from aletheia import AletheiaClient, load_checks
 
-    # The kernel reads every number of a document, so a client is open first
-    with AletheiaClient() as client:
-        # From a file (must be a pathlib.Path)
-        checks = load_checks(Path("my_checks.yaml"))
+```python
+from pathlib import Path
+from aletheia import AletheiaClient, load_checks
 
-        # From an inline YAML string (must be a str)
-        checks = load_checks('''
-        checks:
-          - name: "Speed limit"
-            signal: VehicleSpeed
-            condition: never_exceeds
-            value: 220
-            severity: critical
-        ''')
+# The kernel reads every number of a document, so a client is open first
+with AletheiaClient() as client:
+    client.parse_dbc(dbc)
 
-        client.set_properties([c.to_dict() for c in checks])
+    # From a file (must be a pathlib.Path)
+    checks = load_checks(Path("my_checks.yaml"))
+
+    # From an inline YAML string (must be a str)
+    checks = load_checks('''
+    checks:
+      - name: "Speed limit"
+        signal: VehicleSpeed
+        condition: never_exceeds
+        value: 220
+        severity: critical
+    ''')
+
+    client.set_properties([c.to_dict() for c in checks])
+```
 
 YAML Schema
 ============
 
-Simple checks (single signal)::
+Simple checks (single signal):
 
-    checks:
-      - name: "Speed limit"          # optional
-        signal: VehicleSpeed
-        condition: never_exceeds      # never_exceeds|never_below|stays_between|
-                                      # never_equals|equals|settles_between
-        value: 220                    # for value-based conditions
-        min: 11.5                     # for range-based conditions
-        max: 14.5
-        within_ms: 5000              # required for settles_between
-        severity: critical           # optional
+~~~yaml
+checks:
+  - name: "Speed limit"          # optional
+    signal: VehicleSpeed
+    condition: never_exceeds      # never_exceeds|never_below|stays_between|
+                                  # never_equals|equals|settles_between
+    value: 220                    # for value-based conditions
+    min: 11.5                     # for range-based conditions
+    max: 14.5
+    within_ms: 5000              # required for settles_between
+    severity: critical           # optional
+~~~
 
-When/Then checks (causal)::
+When/Then checks (causal):
 
-    checks:
-      - name: "Brake response"
-        when:
-          signal: BrakePedal
-          condition: exceeds          # exceeds|equals|drops_below
-          value: 50
-        then:
-          signal: BrakeLight
-          condition: equals           # equals|exceeds|stays_between
-          value: 1
-        within_ms: 100
-        severity: safety
+~~~yaml
+checks:
+  - name: "Brake response"
+    when:
+      signal: BrakePedal
+      condition: exceeds          # exceeds|equals|drops_below
+      value: 50
+    then:
+      signal: BrakeLight
+      condition: equals           # equals|exceeds|stays_between
+      value: 1
+    within_ms: 100
+    severity: safety
+~~~
 """
 
 from __future__ import annotations

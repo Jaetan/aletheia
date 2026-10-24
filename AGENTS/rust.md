@@ -115,7 +115,10 @@ ones `PATH_DOCS` names, and two structural gates hold the lists to the tree
 both ways, the way the Python harness's list is held. A third refuses
 a Rust fence hidden behind a suffixed info word (`rust,ignore`, which a reader
 takes for Rust and the extractor neither runs nor counts), and a fourth holds a
-floor under the number of Rust fences the listed documents carry together.
+floor under the number of Rust fences the listed documents carry together. The
+doc comments' examples are ```rust doctests, which `cargo test` runs against
+the kernel; `tools/check_fence_marks.py` refuses any other backtick fence in a
+library crate's doc comments, `no_run` included, and every one elsewhere.
 
 `rust/tests/feature_matrix.rs` is the cross-binding parity gate: it parses
 `docs/FEATURE_MATRIX.yaml` and, for every row marked `implemented` on the `rust`

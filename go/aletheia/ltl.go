@@ -84,9 +84,7 @@ type SignalBuilder struct {
 	name SignalName
 }
 
-// Signal names the signal a predicate is about:
-//
-//	aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220))
+// Signal names the signal a predicate is about, as in the example.
 //
 // The predicate it returns goes inside [Atomic], or straight into [Always],
 // [Eventually] and the rest through it.

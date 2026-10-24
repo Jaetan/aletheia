@@ -172,14 +172,24 @@ with AletheiaClient() as client:
 
 For asyncio code, `aletheia.asyncio.AletheiaClient` mirrors the synchronous surface as `async def` methods, cancellable through `asyncio.CancelledError`. Both clients expose `send_frames_iter`, which takes frames one at a time, for a source that is a live producer such as a queue, a socket or a generator, where materialising the whole trace is wasteful or impossible.
 
-```python
+```python runner:ProgramRunner
 import asyncio
+
+from aletheia import Signal
 from aletheia.asyncio import AletheiaClient
+from aletheia.can_log import iter_can_log
+from aletheia.dbc import dbc_to_json
+
+def live_frames():
+    yield from iter_can_log("drive.log")  # a live producer stands here: a queue, a socket
+
+def handle(violation):
+    print("violation at", violation["timestamp"], "us")
 
 async def watch(timeout_s: float):
     async with AletheiaClient() as client:
-        await client.parse_dbc(dbc_json)
-        await client.set_properties([prop.to_dict()])
+        await client.parse_dbc(dbc_to_json("vehicle.dbc"))
+        await client.set_properties([Signal("VehicleSpeed").less_than(120).always().to_dict()])
         await client.start_stream()
         try:
             async with asyncio.timeout(timeout_s):
@@ -189,6 +199,8 @@ async def watch(timeout_s: float):
         except TimeoutError:
             pass  # committed prefix is durable
         await client.end_stream()
+
+asyncio.run(watch(timeout_s=5.0))
 ```
 
 See the [Cancellation contract](docs/architecture/CANCELLATION.md) for the behavioural parity guarantees Python, C++, Go and Rust all share.
