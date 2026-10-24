@@ -50,7 +50,9 @@ bindings:
       # behaviour, and the gate fails on a survivor. Two kinds are excluded
       # at the source instead, with a pragma: a type argument of a cast,
       # which no runtime reads, and the case of a codec name, which the
-      # standard library normalises.
+      # standard library normalises. Four more pragmas mark a value or a
+      # branch their comments call unobservable, which AGENTS.md's rule
+      # counts a defect of the code they sit in.
       #
       # What the set is made of, by mutmut's operators over these modules:
       # most of it is an argument dropped from a call, then a string literal
@@ -66,9 +68,9 @@ bindings:
       # reads the wire kills, or a message meant for a person, which only a
       # test pinning its wording kills.
       survivors: 0
-      total_mutants: 906
+      total_mutants: 910
       score_pct: 100
-      run_at: "2026-10-19"
+      run_at: "2026-10-24"
       # A mutant mutmut ended at its timeout is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a sweep in which
       # the cap fired, and a timed-out mutant is a hang to remove, never a cap

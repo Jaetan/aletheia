@@ -243,6 +243,7 @@ class TestRTSState:
         assert RTSState.refcount == 0
         RTSState.refcount = saved
 
+    @pytest.mark.runtime_cores("a client asking a started runtime for another count is warned")
     def test_rts_cores_mismatch_warns(self, caplog: pytest.LogCaptureFixture) -> None:
         """Second client with different rts_cores logs a warning."""
         with AletheiaClient(rts_cores=1), caplog.at_level("WARNING", logger="aletheia"):
