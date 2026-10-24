@@ -477,3 +477,94 @@ class TestNestedTemporalOperators:
         assert eventually_formula["operator"] == "eventually"
         always_formula = cast("AlwaysFormula", eventually_formula["formula"])
         assert always_formula["operator"] == "always"
+
+
+# ============================================================================
+# A PREDICATE AS AN OPERAND OF UNTIL AND RELEASE
+# ============================================================================
+
+
+class TestPredicateOperands:
+    """Until and release relate a predicate as the atom it is, on either side."""
+
+    def test_predicate_until(self) -> None:
+        """Predicate.until puts the predicate on the left, as an atom."""
+        brake, light = Signal("Brake").equals(1), Signal("BrakeLight").equals(1)
+        assert brake.until(light).to_dict() == {
+            "operator": "until",
+            "left": brake.to_formula(),
+            "right": light.to_formula(),
+        }
+
+    def test_predicate_until_a_property(self) -> None:
+        """Predicate.until takes a property as its right operand."""
+        brake, light = Signal("Brake").equals(1), Signal("BrakeLight").equals(1).eventually()
+        assert brake.until(light).to_dict() == {
+            "operator": "until",
+            "left": brake.to_formula(),
+            "right": light.to_formula(),
+        }
+
+    def test_predicate_release(self) -> None:
+        """Predicate.release puts the predicate on the left, as an atom."""
+        ignition, brake = Signal("Ignition").equals(1), Signal("Brake").equals(1)
+        assert ignition.release(brake).to_dict() == {
+            "operator": "release",
+            "left": ignition.to_formula(),
+            "right": brake.to_formula(),
+        }
+
+    def test_predicate_metric_until(self) -> None:
+        """Predicate.metric_until carries its bound in microseconds."""
+        speed, brake = Signal("Speed").greater_than(50), Signal("Brake").equals(1)
+        assert speed.metric_until(1000, brake).to_dict() == {
+            "operator": "metricUntil",
+            "timebound": 1_000_000,
+            "left": speed.to_formula(),
+            "right": brake.to_formula(),
+        }
+
+    def test_predicate_metric_release(self) -> None:
+        """Predicate.metric_release carries its bound in microseconds."""
+        ignition, brake = Signal("Ignition").equals(1), Signal("Brake").equals(1)
+        assert ignition.metric_release(5000, brake).to_dict() == {
+            "operator": "metricRelease",
+            "timebound": 5_000_000,
+            "left": ignition.to_formula(),
+            "right": brake.to_formula(),
+        }
+
+    def test_predicate_metric_operators_refuse_a_negative_bound(self) -> None:
+        """A negative bound is refused on a predicate as on a property."""
+        speed, brake = Signal("Speed").greater_than(50), Signal("Brake").equals(1)
+        with pytest.raises(ValidationError, match="non-negative"):
+            speed.metric_until(-1, brake)
+        with pytest.raises(ValidationError, match="non-negative"):
+            speed.metric_release(-1, brake)
+
+    def test_property_operators_take_a_predicate(self) -> None:
+        """Each binary temporal operator of a property takes a predicate on its right."""
+        held = Signal("Brake").equals(1).always()
+        light = Signal("BrakeLight").equals(1)
+        assert held.until(light).to_dict() == {
+            "operator": "until",
+            "left": held.to_formula(),
+            "right": light.to_formula(),
+        }
+        assert held.release(light).to_dict() == {
+            "operator": "release",
+            "left": held.to_formula(),
+            "right": light.to_formula(),
+        }
+        assert held.metric_until(5, light).to_dict() == {
+            "operator": "metricUntil",
+            "timebound": 5000,
+            "left": held.to_formula(),
+            "right": light.to_formula(),
+        }
+        assert held.metric_release(5, light).to_dict() == {
+            "operator": "metricRelease",
+            "timebound": 5000,
+            "left": held.to_formula(),
+            "right": light.to_formula(),
+        }

@@ -170,6 +170,10 @@ DOC_EXAMPLE_DOCS: tuple[Path, ...] = (
     Path("examples/README.md"),
 )
 
+# The package whose docstrings' Python fences the doc-example harness runs:
+# every module of it, read from its source by the repo-root conftest.py.
+DOC_EXAMPLE_PACKAGE = Path("python/aletheia")
+
 
 def in_every_go_module(cmd: str) -> str:
     """Return a ``/bin/sh`` command running ``cmd`` in every module of the Go workspace.
@@ -341,6 +345,7 @@ def _run_binding_tests(runner: Runner) -> None:
             "-o",
             "pythonpath=python/tests",
             *(str(doc) for doc in DOC_EXAMPLE_DOCS),
+            str(DOC_EXAMPLE_PACKAGE),
         ],
         cwd=runner.repo_root,
         lane="python",

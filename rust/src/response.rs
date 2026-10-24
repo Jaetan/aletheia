@@ -686,7 +686,7 @@ fn read_u32_ne(bytes: &[u8]) -> u32 {
 /// kernel and every binding run on one host, so `from_ne_bytes` is the faithful
 /// read (identical to little-endian on the supported x86_64 / aarch64 hosts):
 ///
-/// ```text
+/// ~~~text
 /// header:  u16 nValues, u16 nErrors, u16 nAbsent, u32 reasonBytes = 10 bytes
 /// values:  nValues x (u16 index, i64 numerator, i64 denominator)  = 18 bytes
 /// errors:  nErrors x (u16 index, u8 code)                         =  3 bytes
@@ -696,7 +696,7 @@ fn read_u32_ne(bytes: &[u8]) -> u32 {
 ///          (all three verified before any reason is sliced)
 /// reasons: reasonBytes of UTF-8; error i's reason = bytes [off[i], off[i+1])
 /// absent:  nAbsent x (u16 index)                                  =  2 bytes
-/// ```
+/// ~~~
 ///
 /// The reason strings are kernel-minted and byte-identical to what the JSON
 /// path surfaces for the same error, so [`SignalError::reason`] carries the

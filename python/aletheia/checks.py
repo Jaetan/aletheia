@@ -7,14 +7,20 @@ automotive technicians can define signal checks without knowing
 temporal logic.
 
 Usage:
-    from aletheia.checks import signal, when
 
-    # Simple signal bounds
-    signal("Speed").never_exceeds(220)
+```python
+from aletheia import AletheiaClient, from_decimal
+from aletheia.checks import signal, when
+
+# Simple signal bounds
+signal("Speed").never_exceeds(220)
+# The kernel reads every decimal, so a client is open first
+with AletheiaClient():
     signal("Voltage").stays_between(from_decimal("11.5"), from_decimal("14.5"))
 
-    # Causal / response checks
-    when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+# Causal / response checks
+when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+```
 
 Every check compiles to the same LTL Property used by the DSL layer.
 """
@@ -382,10 +388,12 @@ class WhenSignal:
 def signal(name: str) -> CheckSignal:
     """Start a single-signal check.
 
-    Example::
+    Example:
+    ```python
+    from aletheia.checks import signal
+    signal("Speed").never_exceeds(220)
+    ```
 
-        from aletheia.checks import signal
-        signal("Speed").never_exceeds(220)
     """
     return CheckSignal(name)
 
@@ -393,10 +401,12 @@ def signal(name: str) -> CheckSignal:
 def when(signal_name: str) -> WhenSignal:
     """Start a causal when/then check.
 
-    Example::
+    Example:
+    ```python
+    from aletheia.checks import when
+    when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+    ```
 
-        from aletheia.checks import when
-        when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
     """
     return WhenSignal(signal_name)
 

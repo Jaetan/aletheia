@@ -121,6 +121,7 @@ DISMISSED: Mapping[Dismissal, Prose] = {
     Dismissal(PYTHON, NetWord("subprocess.DEVNULL"), None): Prose("a stream redirection"),
     Dismissal(PYTHON, NetWord("subprocess.PIPE"), None): Prose("a stream redirection"),
     Dismissal(PYTHON, NetWord("subprocess.STDOUT"), None): Prose("a stream redirection"),
+    Dismissal(PYTHON, NetWord("subprocess.run"), RelPath("conftest.py")): _FENCES,
     Dismissal(PYTHON, NetWord("wait("), None): Prose("a wait for a child's exit, with no duration"),
     Dismissal(CPP, NetWord("atomic"), None): (
         Prose("an atomic read or write on the test's one thread")

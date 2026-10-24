@@ -6,13 +6,15 @@
 // Loads check definitions from YAML files or strings and compiles them
 // through the Check API into LTL properties.
 //
-//   auto checks = load_checks_from_yaml("my_checks.yaml");
-//   auto checks = load_checks_from_yaml_string(R"(
-//     checks:
-//       - signal: VehicleSpeed
-//         condition: never_exceeds
-//         value: 220
-//   )");
+// ```cpp
+// auto from_file = load_checks_from_yaml("checks.yaml");
+// auto from_text = load_checks_from_yaml_string(R"(
+// checks:
+//   - signal: VehicleSpeed
+//     condition: never_exceeds
+//     value: 220
+// )");
+// ```
 //
 #pragma once
 

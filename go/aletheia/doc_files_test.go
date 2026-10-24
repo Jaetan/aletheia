@@ -4,15 +4,22 @@
 // The documents the doc-example harness runs, the extractor it reads their Go
 // fences with, and the gates around them: a tracked document with a Go fence
 // is listed and a listed one is tracked and carries one, the way the Python
-// harness's list is held; no tracked document hides a Go fence from the
-// extractor behind a suffixed info word; and the listed files keep a floor of
-// fences. None of it needs the kernel, so it builds without cgo.
+// harness's list is held; every fence of a whole-program document declares
+// package main; no tracked document hides a Go fence from the extractor
+// behind a suffixed info word; the listed files keep a floor of fences; and
+// the library packages' comments hold no code, which Example functions hold,
+// their cgo preambles, the C source cgo compiles, apart.
+// None of it needs the kernel, so it builds without cgo.
 
 package aletheia_test
 
 import (
 	"bufio"
 	"fmt"
+	"go/ast"
+	"go/doc/comment"
+	goparser "go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +45,12 @@ var docFiles = []string{
 	"docs/guides/TUTORIAL.md",
 }
 
+// wholeProgramDocs is the listed documents whose fences are each a whole
+// program, which a reader builds as it stands.
+var wholeProgramDocs = []string{
+	"go/README.md",
+}
+
 // goFence is one Go fence of a listed file.
 type goFence struct {
 	file    string   // path relative to the repository root
@@ -61,6 +74,17 @@ func statedRefusals(line string) []string {
 
 func (f goFence) name() string {
 	return fmt.Sprintf("%s:L%d", f.file, f.line)
+}
+
+// packageName is the name a fence's package clause declares, as the Go parser
+// reads it, comments before it included, or "" when the fence opens with
+// anything else.
+func packageName(body string) string {
+	file, err := goparser.ParseFile(token.NewFileSet(), "", body, goparser.PackageClauseOnly)
+	if err != nil {
+		return ""
+	}
+	return file.Name.Name
 }
 
 // fenceOpening is what a line opens, read by the first word of its info
@@ -188,6 +212,24 @@ func TestEveryListedDocumentIsTrackedAndCarriesAGoFence(t *testing.T) {
 			t.Errorf("%s carries no Go fence, so the harness runs nothing in it", doc)
 		}
 	}
+	for i, doc := range wholeProgramDocs {
+		if slices.Contains(wholeProgramDocs[:i], doc) {
+			t.Errorf("%s is listed twice as a whole-program document", doc)
+		}
+		if !slices.Contains(docFiles, doc) {
+			t.Errorf("%s is a whole-program document the harness does not run", doc)
+		}
+	}
+}
+
+func TestEveryFenceOfAWholeProgramDocumentDeclaresPackageMain(t *testing.T) {
+	for _, doc := range wholeProgramDocs {
+		for _, f := range extractGoFences(t, doc) {
+			if got := packageName(f.content); got != "main" {
+				t.Errorf("%s opens with package %q, not main: a reader builds it as it stands", f.name(), got)
+			}
+		}
+	}
 }
 
 func TestNoGoFenceHidesBehindASuffix(t *testing.T) {
@@ -247,4 +289,82 @@ func TestEveryDocFileHasAtLeastOneGoFenceCollectively(t *testing.T) {
 	if total < minFences {
 		t.Fatalf("expected at least %d Go fences across the listed files, saw %d", minFences, total)
 	}
+}
+
+// textBlocks is every preformatted block of the library packages' comments
+// that is no example, named by its file and first line: godoc gives a block no
+// language, so each is listed here, and any other block is code, which an
+// Example function holds so that go test runs it. A cgo preamble, the comment
+// above import "C", is the C source cgo compiles, so it is not read.
+var textBlocks = map[string]string{
+	"go/aletheia/doc.go":           "rts.cores_mismatch              (FFIBackend, Warn)",
+	"go/aletheia/json_response.go": "Header:  [nvals:u16][nerrs:u16][nabss:u16][reasonBytes:u32]  (10 bytes)",
+}
+
+func TestTheLibraryCommentsHoldNoCodeBlock(t *testing.T) {
+	root := aletheia.RepoRoot(t)
+	seen := map[string]bool{}
+	var parser comment.Parser
+	for _, dir := range []string{"go/aletheia", "go/excel"} {
+		paths, err := filepath.Glob(filepath.Join(root, dir, "*.go"))
+		if err != nil {
+			t.Fatalf("glob %s: %v", dir, err)
+		}
+		for _, path := range paths {
+			if strings.HasSuffix(path, "_test.go") {
+				continue
+			}
+			file, err := goparser.ParseFile(token.NewFileSet(), path, nil, goparser.ParseComments)
+			if err != nil {
+				t.Fatalf("parse %s: %v", path, err)
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				t.Fatalf("relative path of %s: %v", path, err)
+			}
+			rel = filepath.ToSlash(rel)
+			preambles := cgoPreambles(file)
+			for _, group := range file.Comments {
+				if preambles[group] {
+					continue
+				}
+				for _, block := range parser.Parse(group.Text()).Content {
+					code, ok := block.(*comment.Code)
+					if !ok {
+						continue
+					}
+					first, _, _ := strings.Cut(code.Text, "\n")
+					if textBlocks[rel] == first {
+						seen[rel] = true
+						continue
+					}
+					t.Errorf("%s: a comment holds a code block opening %q, which no test runs; "+
+						"write it as an Example function", rel, first)
+				}
+			}
+		}
+	}
+	for rel, first := range textBlocks {
+		if !seen[rel] {
+			t.Errorf("%s holds no text block opening %q", rel, first)
+		}
+	}
+}
+
+// cgoPreambles is every comment of a file that documents an import of "C".
+func cgoPreambles(file *ast.File) map[*ast.CommentGroup]bool {
+	preambles := map[*ast.CommentGroup]bool{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.IMPORT {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			if imp, ok := spec.(*ast.ImportSpec); ok && imp.Path.Value == `"C"` {
+				preambles[gen.Doc] = true
+				preambles[imp.Doc] = true
+			}
+		}
+	}
+	return preambles
 }

@@ -3,9 +3,11 @@
 """Internal implementation of the Aletheia client — **not** public API.
 
 ``aletheia`` is the single canonical public package; import the client
-surface from there::
+surface from there:
 
-    from aletheia import AletheiaClient, AletheiaError, Signal, dlc_to_bytes
+```python
+from aletheia import AletheiaClient, AletheiaError, Signal, dlc_to_bytes
+```
 
 This sub-package holds the FFI loader, the streaming protocol, response
 parsers, and the strong-typed exception/result hierarchy as ``_``-prefixed

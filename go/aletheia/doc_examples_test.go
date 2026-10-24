@@ -92,7 +92,7 @@ func substitutePaths(body, libPath, yamlFix, excelFix string) string {
 // has its discarded errors checked (rewriteDiscards) and carries the
 // function that checks them.
 func wrapFence(body, doc string, opening int, funcs map[string]bool) string {
-	if hasPackageDecl(body) {
+	if packageName(body) != "" {
 		return rewriteDiscards(body, "", "", doc, opening, funcs) + discardedErrors
 	}
 	if hasImportBlock(body) {
@@ -100,17 +100,6 @@ func wrapFence(body, doc string, opening int, funcs map[string]bool) string {
 		return head + rewriteDiscards(body, head, "", doc, opening, funcs) + "\nfunc main() {}\n" + discardedErrors
 	}
 	return wrapBodyFragment(rewriteDiscards(body, fragmentHead, fragmentTail, doc, opening, funcs), doc, opening)
-}
-
-func hasPackageDecl(body string) bool {
-	for _, line := range strings.Split(body, "\n") {
-		t := strings.TrimSpace(line)
-		if t == "" || strings.HasPrefix(t, "//") || strings.HasPrefix(t, "/*") {
-			continue
-		}
-		return strings.HasPrefix(t, "package ")
-	}
-	return false
 }
 
 func hasImportBlock(body string) bool {

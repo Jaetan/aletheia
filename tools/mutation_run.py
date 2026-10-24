@@ -430,8 +430,8 @@ def run_go(artifact_dir: Path) -> MutationReport:
     runs from (``scratch_worktree``), and ``ALETHEIA_LIB`` the tree's own
     built library, which the copy does not carry.  Without them every test
     that reads the repository fails in gremlins' copy, and every mutant reads
-    as killed whatever it changed.  The doc-example harness is skipped
-    (``go_sweep_goflags``).
+    as killed whatever it changed.  The doc-example harness and the Example
+    functions are skipped (``go_sweep_goflags``).
 
     The stage (``go_stage``) selects the whole package, one shard of it, or
     the merge of the shards' sweeps (``tools/mutation_go.py``).
@@ -509,14 +509,16 @@ def _go_tools(binding: Binding) -> tuple[Path, Path] | MutationReport:
 GoFlags = NewType("GoFlags", str)
 
 # The Go doc-example harness, which builds and runs every Go fence of the
-# documents as a program of its own: it holds the documents to the package,
-# the unit tests hold the package's behaviour, and the sweep skips it rather
-# than pay its whole run once per mutant.
+# documents as a program of its own, and the package's Example functions, which
+# go test checks against their Output: they hold the documentation to the
+# package, the unit tests hold the package's behaviour, and the sweep skips
+# them rather than pay their runs once per mutant.
 GO_DOC_HARNESS = "TestDocExamples"
+GO_EXAMPLES = r"Example\w*"
 
 
 def go_sweep_goflags(caller: GoFlags) -> GoFlags:
-    """Return the caller's ``GOFLAGS`` with test caching off and the doc-example harness skipped.
+    """Return the caller's ``GOFLAGS`` with test caching off, the harness and the examples skipped.
 
     ``go test`` reads both from ``GOFLAGS``, the one route to a test flag
     gremlins leaves open, and its coverage run and every mutant's run inherit
@@ -526,7 +528,7 @@ def go_sweep_goflags(caller: GoFlags) -> GoFlags:
     same tree, stops every mutant before its tests end: measured on one shard
     at gremlins' default multiple of three, 362 of 382 mutants timed out.
     """
-    return GoFlags(f"{caller} -count=1 -skip=^{GO_DOC_HARNESS}$".strip())
+    return GoFlags(f"{caller} -count=1 -skip=^({GO_DOC_HARNESS}|{GO_EXAMPLES})$".strip())
 
 
 # One mutant gremlins reported, by the verdict its log line opens with.

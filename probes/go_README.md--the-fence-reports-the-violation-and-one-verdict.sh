@@ -3,12 +3,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes go/README.md.
-# Claim: the Go fence in the README is a complete program that builds against
-# the local module the same way the doc-example harness builds a fence, runs
-# to exit 0 against the built kernel, and prints the violation its own comment
-# says the frame produces followed by one end-of-stream verdict. Non-zero
-# exit: the fence is not a complete program, does not build, does not run to
-# exit 0, or no longer demonstrates what its comments claim. Exits 2 when
+# Claim: the Go fence in the README, built against the local module the way
+# the doc-example harness builds a fence, prints the violation its own comment
+# says the frame produces followed by one end-of-stream verdict. That the
+# fence is a whole program that builds and runs to exit 0 is held by the
+# doc-example harness and its whole-program gate. Non-zero exit: the fence no
+# longer demonstrates what its comments claim. Exits 2 when
 # build/libaletheia-ffi.so or the Go toolchain is missing.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -18,8 +18,6 @@ command -v go > /dev/null || exit 2
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
 awk '/^```go$/{flag=1; next} /^```$/{flag=0} flag' go/README.md > "$scratch/main.go"
-grep -q '^package main' "$scratch/main.go" || { echo "fence is not a complete program"; exit 1; }
-grep -q '^func main' "$scratch/main.go" || { echo "fence has no main"; exit 1; }
 cat > "$scratch/go.mod" <<EOF
 module readme_fence
 

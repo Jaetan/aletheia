@@ -831,7 +831,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     #
     # Mirror of python/tests/test_doc_examples_harness.py + repo-root
     # conftest.py and go/aletheia/doc_examples_test.go. Every ```cpp fence
-    # in the tracked user-facing markdown files is extracted, wrapped,
+    # in the tracked user-facing markdown files and in the comments of the
+    # headers the harness lists is extracted, wrapped,
     # compiled by ${CMAKE_CXX_COMPILER}, and executed end-to-end. Failing
     # fences (compile or runtime) report `file:Lline` precision through
     # Catch2's DYNAMIC_SECTION. The harness case skips when libaletheia-ffi.so

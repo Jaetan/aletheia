@@ -24,7 +24,7 @@ from aletheia import AletheiaClient, Signal
 from aletheia.types import DBCDefinition, DLCCode
 
 if TYPE_CHECKING:
-    from aletheia.dsl import UntilFormula
+    from aletheia.types import UntilFormula
 
 
 def test_raw_until_satisfied_drops_from_active_set(simple_dbc: DBCDefinition) -> None:

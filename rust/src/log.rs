@@ -10,7 +10,7 @@
 //! `docs/LOG_EVENTS.yaml`) and the caller bridges them to whatever logging
 //! backend they use.
 //!
-//! ```no_run
+//! ```rust
 //! use aletheia::{Client, LogLevel};
 //! let client = Client::builder()
 //!     .logger(|rec: &aletheia::LogRecord| eprintln!("{}: {}", rec.level, rec.event))

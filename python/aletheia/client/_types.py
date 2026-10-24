@@ -377,12 +377,17 @@ class FrameResult:
     ``[]FrameResponse``.
 
     The ``violation`` property returns the response only when it is a
-    ``fails`` verdict, supporting the canonical iter pattern from
-    docs/architecture/CANCELLATION.md §4.1::
+    ``fails`` verdict, supporting the per-frame iter pattern, whose async form
+    is docs/architecture/CANCELLATION.md §4.1:
 
-        async for result in client.send_frames_iter(frames):
-            if result.violation is not None:
-                handle(result.violation)
+    ```python
+    client.set_properties([Signal("VehicleSpeed").less_than(220).always().to_dict()])
+    client.start_stream()
+    for result in client.send_frames_iter(load_can_log("drive.log")):
+        if result.violation is not None:
+            print(result.violation)
+    client.end_stream()
+    ```
     """
 
     frame_index: int

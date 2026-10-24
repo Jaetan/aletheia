@@ -127,6 +127,10 @@ hints:
     text: "bytes"
     count: 2
   - file: conftest.py
+    text: "dict[str, object]"
+    count: 1
+    reason: "pytest-markdown-docs's runner interface (_Runner.runtest) hands every runner the fence globals, values of any type; ProgramRunner overrides it and reads none of them"
+  - file: conftest.py
     text: "int"
     count: 3
   - file: conftest.py
@@ -267,6 +271,9 @@ hints:
   - file: python/aletheia/_dbc_types.py
     text: "str"
     count: 28
+  - file: python/aletheia/_dsl_property.py
+    text: "int"
+    count: 3
   - file: python/aletheia/_loader_utils.py
     text: "Mapping[str, JSONValue]"
     count: 8
@@ -716,7 +723,7 @@ hints:
     count: 4
   - file: python/aletheia/dsl.py
     text: "int"
-    count: 5
+    count: 4
   - file: python/aletheia/dsl.py
     text: "str"
     count: 2

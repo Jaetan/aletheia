@@ -12,13 +12,16 @@ Subcommands:
     template   — write a blank Excel workbook to fill in with a DBC and checks
 
 Usage:
-    python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
-    python -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
-    python -m aletheia signals --dbc vehicle.dbc
-    python -m aletheia format-dbc --dbc vehicle.dbc
-    python -m aletheia mux-query --dbc vehicle.dbc 0x100
-    python -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
-    python -m aletheia template checks.xlsx
+
+~~~sh
+python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+python -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
+python -m aletheia signals --dbc vehicle.dbc
+python -m aletheia format-dbc --dbc vehicle.dbc
+python -m aletheia mux-query --dbc vehicle.dbc 0x100
+python -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
+python -m aletheia template checks.xlsx
+~~~
 """
 
 from __future__ import annotations

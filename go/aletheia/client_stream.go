@@ -277,12 +277,8 @@ func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameRespons
 // Use it when the source is a live producer (a channel, a socket, a log
 // reader): frames are pulled from the input one at a time and each response is
 // yielded immediately, so neither the full input slice nor the full response
-// slice is ever materialized. Wrap an existing slice with slices.Values:
-//
-//	for resp, err := range client.SendFramesSeq(ctx, slices.Values(frames)) {
-//		if err != nil { /* handle; iteration has stopped */ break }
-//		_ = resp
-//	}
+// slice is ever materialized. Wrap an existing slice with slices.Values, as
+// the example does.
 //
 // Contract (commit-prefix-and-report, per CANCELLATION.md §3.2): each yielded
 // (resp, nil) is a frame already committed to the stream state — durable, not

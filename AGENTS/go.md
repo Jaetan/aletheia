@@ -115,7 +115,13 @@ fence, and two more structural gates beside it hold it to the tree both ways,
 the way the Python
 harness's list is held: a document that gains a Go fence fails the suite
 until it is listed, and a listed one that is untracked or carries none fails
-it too. The harness skips itself when `libaletheia-ffi.so` is missing (run
+it too. Every fence of a document `wholeProgramDocs` lists (the Go README)
+declares `package main`, so a reader builds it as it stands. The package's own
+examples are Example functions (`go/aletheia/example_test.go`), which godoc
+shows beside what they illustrate and `go test` runs against their `// Output:`;
+`TestTheLibraryCommentsHoldNoCodeBlock` refuses a code block in the library
+packages' comments, the two text blocks it names and the cgo preambles (the C
+source cgo compiles) apart. The harness skips itself when `libaletheia-ffi.so` is missing (run
 `cabal run shake -- build` first); the structural gates need neither the
 library nor cgo.
 

@@ -7,10 +7,10 @@
 //! real shared library — the loop every production consumer sits in. Run it
 //! release-built, pointing `ALETHEIA_LIB` at the built core:
 //!
-//! ```sh
+//! ~~~sh
 //! ALETHEIA_LIB=/path/to/build/libaletheia-ffi.so \
 //!     cargo run --release --example bench_send_frame [frames]
-//! ```
+//! ~~~
 //!
 //! The workload mirrors `tests/typed_client.rs`: parse the shared corpus DBC,
 //! bind one property (`G(EngineSpeed < 1000)`), start the stream, then send

@@ -374,16 +374,16 @@ error1 = Signal("Error1").equals(1)
 error2 = Signal("Error2").equals(1)
 any_error = error1.or_(error2).never()
 
-# Implication: if brake pressed, speed must decrease within 100ms
+# Implication: whenever the brake is pressed, speed decreases within 100ms
 brake = Signal("BrakePedal").greater_than(0)
 decel = Signal("Speed").changed_by(-5)
-brake.implies(decel.within(100))
+brake.implies(decel.within(100)).always()
 
-# Until: start button never active until ACC mode
+# Until: whenever the power is off, the start button stays released until ACC mode
 power_off = Signal("PowerMode").equals(0)
-power_acc = Signal("PowerMode").equals(2).eventually()  # a Property (until's arg)
+power_acc = Signal("PowerMode").equals(2)
 start_btn = Signal("StartButton").equals(1)
-power_off.implies(start_btn.never().until(power_acc))
+power_off.implies(start_btn.not_().until(power_acc)).always()
 ```
 
 ### Step 4: Advanced Operators
@@ -391,13 +391,13 @@ power_off.implies(start_btn.never().until(power_acc))
 ```python
 # Release: dual of Until
 # Brake must stay engaged until ignition releases it
-ignition = Signal("Ignition").equals(1).eventually()
-brake = Signal("Brake").equals(1).always()
+ignition = Signal("Ignition").equals(1)
+brake = Signal("Brake").equals(1)
 ignition.release(brake)
 
 # Metric Until: time-bounded until
-speed_ok = Signal("Speed").greater_than(50).always()
-brake_evt = Signal("Brake").equals(1).eventually()
+speed_ok = Signal("Speed").greater_than(50)
+brake_evt = Signal("Brake").equals(1)
 speed_ok.metric_until(1000, brake_evt)    # within 1 second
 
 # Metric Release: time-bounded release

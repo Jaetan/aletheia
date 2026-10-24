@@ -8,7 +8,10 @@ the repo-root ``conftest.py`` supplying the globals.  The CI step, the command
 AGENTS/python.md prints and these tests read that one list, and these tests
 hold it to the tree: every tracked Markdown file with a Python fence is on it,
 and every document on it is tracked, carries a Python fence and has every one
-of them run.
+of them run. The step reads the docstrings of the package ``DOC_EXAMPLE_PACKAGE``
+names too, from each module's source, and every Python fence of a module's
+docstrings is run. A fence that defines a function names it, so no example is
+a definition nothing runs.
 
 A fence that is not runnable opens with tildes, which the harness's parser
 (``tools.check_fence_marks.harness_markdown_it``) reads as code rather than as a
@@ -21,6 +24,7 @@ harness collects with, so a fence it skips for any reason fails here.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 from typing import NewType
@@ -28,8 +32,9 @@ from typing import NewType
 import pytest
 from pytest_markdown_docs.plugin import extract_fence_tests
 
-from tools._ci_steps import DOC_EXAMPLE_DOCS
+from tools._ci_steps import DOC_EXAMPLE_DOCS, DOC_EXAMPLE_PACKAGE
 from tools._common import RelPath, git_ls_files
+from tools._hosted_markdown import SourceText, docstrings
 from tools.check_fence_marks import harness_markdown_it
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +44,9 @@ FenceLine = NewType("FenceLine", int)
 # A Markdown document's text, and a fence's info string within it.
 MarkdownText = NewType("MarkdownText", str)
 FenceInfo = NewType("FenceInfo", str)
+# A function a fence defines, by its name, and a fence's source as the plugin runs it.
+FunctionName = NewType("FunctionName", str)
+FenceSource = NewType("FenceSource", str)
 
 # The fence languages the plugin runs as Python, and the suffixes it reads as Markdown.
 _PYTHON_LANGUAGES = frozenset({"py", "python", "python3"})
@@ -150,3 +158,109 @@ def test_the_listed_documents_keep_a_floor_of_python_fences() -> None:
     """The listed documents together carry at least the floor's Python fences."""
     total = sum(len(_run_fences(doc)) for doc in DOC_EXAMPLE_DOCS)
     assert total >= _MIN_FENCES, f"expected at least {_MIN_FENCES} Python fences, saw {total}"
+
+
+def _docstring_fence_lines(module: Path) -> tuple[set[FenceLine], set[FenceLine]]:
+    """Return the file lines of the docstring fences a reader takes for Python, and of those run."""
+    source = SourceText((REPO_ROOT / module).read_text(encoding="utf-8"))
+    read: set[FenceLine] = set()
+    run: set[FenceLine] = set()
+    for hosted in docstrings(source):
+        read |= {
+            FenceLine(hosted.start + token.map[0])
+            for token in harness_markdown_it().parse(hosted.text)
+            if token.type == "fence" and token.map and _is_python(FenceInfo(token.info))
+        }
+        run |= {
+            FenceLine(fence.start_line)
+            for fence in extract_fence_tests(
+                harness_markdown_it(), hosted.text, hosted.start - 1, source_path=REPO_ROOT / module
+            )
+        }
+    return read, run
+
+
+@pytest.fixture(scope="module", name="package_modules")
+def _package_modules() -> list[Path]:
+    """Return the tracked modules of the package whose docstrings the harness runs."""
+    return [Path(rel) for rel in git_ls_files(REPO_ROOT, f"{DOC_EXAMPLE_PACKAGE}/*.py")]
+
+
+@pytest.mark.process("git's own index decides which modules of the package are tracked")
+def test_the_harness_runs_every_python_fence_of_the_package_docstrings(
+    package_modules: list[Path],
+) -> None:
+    """Every Python fence of a package module's docstrings is one the harness runs."""
+    assert package_modules, f"{DOC_EXAMPLE_PACKAGE} holds no tracked module"
+    skipped = {
+        str(module): sorted(read - run)
+        for module in package_modules
+        for read, run in [_docstring_fence_lines(module)]
+        if read - run
+    }
+    assert not skipped, f"the harness skips these docstring fences, by file line: {skipped}"
+
+
+def test_a_docstring_fence_is_read_on_its_file_line() -> None:
+    """A docstring's fence is numbered by the line of the file it opens on."""
+    source = SourceText(
+        'def f() -> None:\n    """Summary.\n\n    ```python\n    x = 1\n    ```\n    """\n'
+        + 'class C:\n    """\n    ```python\n    y = 2\n    ```\n    """\n'
+    )
+    hosted = docstrings(source)
+    assert [(text.owner, text.start) for text in hosted] == [("f", 2), ("C", 10)]
+    lines = [
+        fence.start_line
+        for text in hosted
+        for fence in extract_fence_tests(
+            harness_markdown_it(), text.text, text.start - 1, source_path=Path("m.py")
+        )
+    ]
+    assert lines == [4, 10]
+
+
+def _uncalled(source: FenceSource) -> list[FunctionName]:
+    """Return the functions a fence defines at its top level and names nowhere in it."""
+    tree = ast.parse(source)
+    named = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    return [
+        FunctionName(node.name)
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name not in named
+    ]
+
+
+@pytest.mark.process("git's own index decides which modules of the package are tracked")
+def test_every_function_a_fence_defines_is_called(package_modules: list[Path]) -> None:
+    """A fence that defines a function names it, so the example runs what it shows."""
+    fences = [
+        fence
+        for doc in DOC_EXAMPLE_DOCS
+        for fence in extract_fence_tests(
+            harness_markdown_it(),
+            (REPO_ROOT / doc).read_text(encoding="utf-8"),
+            start_line_offset=0,
+            source_path=REPO_ROOT / doc,
+            markdown_type=doc.suffix.removeprefix("."),
+        )
+    ] + [
+        fence
+        for module in package_modules
+        for hosted in docstrings(SourceText((REPO_ROOT / module).read_text(encoding="utf-8")))
+        for fence in extract_fence_tests(
+            harness_markdown_it(), hosted.text, hosted.start - 1, source_path=REPO_ROOT / module
+        )
+    ]
+    uncalled = {
+        f"{fence.source_path.relative_to(REPO_ROOT)}:{fence.start_line}": names
+        for fence in fences
+        if (names := _uncalled(FenceSource(fence.source)))
+    }
+    assert not uncalled, f"fences defining a function nothing in them runs: {uncalled}"
+
+
+def test_a_defined_function_named_nowhere_is_found() -> None:
+    """A definition the fence never names is reported; one it calls or passes is not."""
+    assert _uncalled(FenceSource("async def watch():\n    pass\n")) == ["watch"]
+    assert _uncalled(FenceSource("def f():\n    pass\n\nf()\n")) == []
+    assert _uncalled(FenceSource("def f():\n    pass\n\nrun(f)\n")) == []

@@ -256,24 +256,23 @@ powered = charging.or_(engine_running)
 #### Implication
 
 ```python
-# If brake pressed, then speed must decrease within 100ms
+# Whenever the brake is pressed, the speed decreases within 100 ms
 brake_pressed = Signal("BrakePedal").greater_than(0)
 speed_decreasing = Signal("Speed").changed_by(-5)
 
-brake_pressed.implies(speed_decreasing.within(100))
+brake_pressed.implies(speed_decreasing.within(100)).always()
 ```
 
 #### Until
 
 ```python
-# Power mode transition: Start button never active until ACC mode
+# Power mode transition: whenever the power is off, the start button stays
+# released until the power mode reaches ACC
 power_off = Signal("PowerMode").equals(0)
 power_acc = Signal("PowerMode").equals(2)
 power_start = Signal("StartButton").equals(1)
 
-power_off.implies(
-    power_start.never().until(power_acc)
-)
+power_off.implies(power_start.not_().until(power_acc)).always()
 ```
 
 ---
@@ -286,12 +285,12 @@ The Release operator is the dual of Until: `phi R psi` means psi holds until phi
 
 ```python
 # Brake must stay engaged until ignition turns on
-ignition_on = Signal("Ignition").equals(1).eventually()
-brake_engaged = Signal("Brake").equals(1).always()
+ignition_on = Signal("Ignition").equals(1)
+brake_engaged = Signal("Brake").equals(1)
 property = ignition_on.release(brake_engaged)
 ```
 
-**Semantics**: The right-hand side (brake_engaged) must remain true until the left-hand side (ignition_on) becomes true and "releases" the obligation. If the left side never holds, the right side must hold forever.
+**Semantics**: The right-hand side (brake_engaged) must remain true up to and including the frame the left-hand side (ignition_on) becomes true and "releases" the obligation. If the left side never holds, the right side must hold forever.
 
 #### Metric Until
 
@@ -299,8 +298,8 @@ Time-bounded Until: `phi U_{<=t} psi` means phi holds until psi becomes true wit
 
 ```python
 # Speed must stay above 50 until brake pressed (within 1 second)
-speed_ok = Signal("Speed").greater_than(50).always()
-brake = Signal("Brake").equals(1).eventually()
+speed_ok = Signal("Speed").greater_than(50)
+brake = Signal("Brake").equals(1)
 property = speed_ok.metric_until(1000, brake)
 ```
 
@@ -311,9 +310,9 @@ property = speed_ok.metric_until(1000, brake)
 Time-bounded Release: `phi R_{<=t} psi` means psi holds until phi releases it within t milliseconds.
 
 ```python
-# Safety: Brake engaged until ignition on (within 5 seconds)
-ignition = Signal("Ignition").equals(1).eventually()
-brake = Signal("Brake").equals(1).always()
+# Safety: Brake engaged through the first 5 seconds, released sooner once the ignition is on
+ignition = Signal("Ignition").equals(1)
+brake = Signal("Brake").equals(1)
 property = ignition.metric_release(5000, brake)
 ```
 
@@ -479,9 +478,7 @@ stopped = Signal("VehicleSpeed").equals(0)
 released = Signal("BrakeActive").equals(0)
 accelerating = Signal("Acceleration").greater_than(0)
 
-property = stopped.implies(
-    accelerating.never().until(released)
-)
+property = stopped.implies(accelerating.not_().until(released)).always()
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)

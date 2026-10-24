@@ -20,12 +20,13 @@ namespace aletheia {
 // which is why hot paths test `enabled()` before building one.
 //
 // Usage (single sink):
-//   auto logger = aletheia::Logger([](const aletheia::LogRecord& r) {
-//       std::cerr << r.event;
-//       for (auto& [k, v] : r.fields) { /* format k=v */ }
-//   }, aletheia::LogLevel::Info);
-//
-//   auto client = aletheia::AletheiaClient(std::move(backend), logger);
+// ```cpp
+// auto logger = aletheia::Logger([](const aletheia::LogRecord& r) {
+//     std::cerr << r.event;
+//     for (auto const& [k, v] : r.fields) { /* format k=v */ }
+// }, aletheia::LogLevel::Info);
+// auto client = aletheia::AletheiaClient(std::move(backend), logger);
+// ```
 //
 // Multiple sinks: construct with the primary callback and call
 // `add_sink(cb)` for each additional one.  Every sink sees the same

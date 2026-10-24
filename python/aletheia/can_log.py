@@ -6,15 +6,21 @@ Read industry-standard CAN log files and convert frames for Aletheia analysis.
 Supports ASC, BLF, CSV, DB, candump .log, MF4, and TRC formats via python-can.
 
 Example:
-    from aletheia import load_can_log, iter_can_log
+```python
+from aletheia import load_can_log, iter_can_log
 
-    # Eager: load entire file
-    frames = load_can_log("drive.blf")
-    responses = client.send_frames(frames)
+# Eager: load entire file, one stream per log
+client.start_stream()
+frames = load_can_log("drive.blf")
+responses = client.send_frames(frames)
+client.end_stream()
 
-    # Lazy: iterate one frame at a time
-    for ts, can_id, dlc, data, ext, brs, esi in iter_can_log("highway.asc"):
-        response = client.send_frame(ts, can_id, dlc, data, extended=ext, brs=brs, esi=esi)
+# Lazy: iterate one frame at a time
+client.start_stream()
+for ts, can_id, dlc, data, ext, brs, esi in iter_can_log("highway.asc"):
+    response = client.send_frame(ts, can_id, dlc, data, extended=ext, brs=brs, esi=esi)
+client.end_stream()
+```
 
 """
 

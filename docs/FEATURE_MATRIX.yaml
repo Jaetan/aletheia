@@ -675,21 +675,21 @@ features:
 
   - id: doc_example_gate_checks
     name: Executable doc examples
-    description: Every fenced code block in README + docs/ runs as part of the default test battery.
+    description: Every fenced code block of the documents and of the code's own comments runs as part of the default test battery.
     bindings:
       python:
         status: implemented
         entry: "aletheia.AletheiaClient"
-        notes: "pytest --markdown-docs with repo-root conftest.py, over every tracked Markdown file with a Python fence (DOC_EXAMPLE_DOCS in tools/_ci_steps.py); a fence no harness runs opens with tildes."
+        notes: "pytest --markdown-docs with repo-root conftest.py, over every tracked Markdown file with a Python fence (DOC_EXAMPLE_DOCS in tools/_ci_steps.py) and the docstrings of the package (DOC_EXAMPLE_PACKAGE), read from each module's source; a fence opened python runner:ProgramRunner runs in a process of its own; a fence no harness runs opens with tildes."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#AletheiaClient"
-        notes: "2026-05-04 — Catch2 harness in cpp/tests/doc_example_tests.cpp reads every tracked Markdown file carrying a C++ fence (k_doc_files, held to the tree both ways; the Tutorial's C++ path joined and run as one program), wraps each fence (3 shapes: full int main / #include + decls / body fragment with using-namespace globals), shells out to ${CMAKE_CXX_COMPILER} per fence, links against $<TARGET_FILE:aletheia-cpp> + yaml-cpp + OpenXLSX statics, and runs the binary. Companion structural gates refuse a C++ fence hidden behind a suffixed info word and enforce a ≥6 collective minimum. The `AletheiaClient` entry parallels Python's `aletheia.AletheiaClient` and Go's `Client`."
+        notes: "Catch2 harness in cpp/tests/doc_example_tests.cpp reads every tracked Markdown file carrying a C++ fence (k_doc_files, held to the tree both ways; the Tutorial's C++ path joined and run as one program; every fence of a k_whole_program_docs document also built as it stands, with nothing the harness adds) and the fences in the comments of the headers k_header_files lists, wraps each fence (3 shapes: full int main / #include + decls / body fragment with using-namespace globals), shells out to ${CMAKE_CXX_COMPILER} per fence, links against $<TARGET_FILE:aletheia-cpp> + yaml-cpp + OpenXLSX statics, and runs the binary. Companion structural gates refuse a C++ fence hidden behind a suffixed info word and enforce a ≥6 collective minimum. The `AletheiaClient` entry parallels Python's `aletheia.AletheiaClient` and Go's `Client`."
       go:
         status: implemented
         entry: Client
-        notes: "TestDocExamples in go/aletheia/doc_examples_test.go reads every tracked Markdown file carrying a Go fence (docFiles in doc_files_test.go, held to the tree both ways), wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), builds them with one `go build` and runs each in turn. Companion structural gate TestNoGoFenceHidesBehindASuffix refuses a Go fence hidden behind a suffixed info word; a fence that cannot run opens with tildes. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
+        notes: "TestDocExamples in go/aletheia/doc_examples_test.go reads every tracked Markdown file carrying a Go fence (docFiles in doc_files_test.go, held to the tree both ways; every fence of a wholeProgramDocs document declaring package main), wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), builds them with one `go build` and runs each in turn; the package's examples are Example functions go test runs against their Output. Companion structural gate TestNoGoFenceHidesBehindASuffix refuses a Go fence hidden behind a suffixed info word; a fence that cannot run opens with tildes. The `Client` entry parallels Python's `aletheia.AletheiaClient`, the runtime class doc fences exercise."
       rust:
         status: implemented
         entry: Client
-        notes: "rust/tests/doc_examples.rs builds every Rust fence of every tracked Markdown file carrying one (DOC_FILES, held to the tree both ways; the Tutorial's Rust path joined and run as one program) as a binary of one scratch crate and runs it against the kernel: a fence declaring fn main as it stands, any other inside a synthesised main under `use aletheia::*` with client, ts, id, dlc and data predeclared. The `Client` entry parallels Go's `Client`."
+        notes: "the doc comments' examples are doctests cargo test runs; rust/tests/doc_examples.rs builds every Rust fence of every tracked Markdown file carrying one (DOC_FILES, held to the tree both ways; the Tutorial's Rust path joined and run as one program) as a binary of one scratch crate and runs it against the kernel: a fence declaring fn main as it stands, any other inside a synthesised main under `use aletheia::*` with client, ts, id, dlc and data predeclared. The `Client` entry parallels Go's `Client`."

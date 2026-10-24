@@ -36,11 +36,15 @@ error_values = ["crate::Error::Protocol(String::new())"]
 # doc-example harness every Rust fence of the documents, and the benchmark
 # program's tests the benchmark example.  They hold the documents and the
 # example to the crate, and a sweep with them and one without gave the same
-# verdict on every mutant, so the sweep runs every test but theirs.
+# verdict on every mutant, so the sweep skips both.
 # cargo-mutants appends these to `cargo test` without reading the separator,
 # and the runner passes no test argument of its own, so this `--` is the one
-# that hands `--skip` to the test binaries.
+# that hands `--skip` to the test binaries.  Before it, `--tests` selects the
+# library's, the binaries' and the integration tests and every example built
+# with `test = true`, the targets `cargo test` runs but the doctests, which hold
+# the doc comments' examples to the crate rather than its behaviour.
 additional_cargo_test_args = [
+    "--tests",
     "--",
     "--skip", "every_rust_fence_of_the_listed_documents_builds_and_runs",
     "--skip", "an_unknown_mode_exits_1_before_the_banner",
