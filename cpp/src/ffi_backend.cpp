@@ -481,8 +481,8 @@ auto allocated_bytes() -> std::optional<std::uint64_t> {
 }
 
 auto make_ffi_backend_from_env(int rts_cores) -> std::unique_ptr<IBackend> {
-    // std::getenv returns nullptr when unset, but a valid pointer to "" when
-    // set-but-empty (ALETHEIA_LIB=) — guard BOTH, or we would dlopen("").
+    // std::getenv answers null when the variable is unset and "" when it is
+    // set empty; both are refused here, naming the variable.
     const char* env = std::getenv("ALETHEIA_LIB");
     if (env == nullptr || *env == '\0')
         throw AletheiaException(
