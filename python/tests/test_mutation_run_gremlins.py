@@ -10,7 +10,8 @@ more of them than the record or with one the ledger does not name, and a
 record the run has outgrown: fewer of them, or a recorded row the run no
 longer produces.  And the
 sweep itself: gremlins runs in a copy of the tree as it stands, handed the
-copy as the repository, the tree's own kernel, and the doc-example harness
+copy as the repository, the tree's own kernel, the copy's configuration file
+by name and none of the caller's gremlins settings, and the doc-example harness
 skipped.
 """
 
@@ -25,7 +26,8 @@ from _scratch_copies import install as install_copies
 from _stand_in import ScriptSource, ToolName, install_stand_in
 
 from tools import mutation_run
-from tools.mutation_go import GremlinsLog
+from tools._common import EnvName, EnvValue
+from tools.mutation_go import GO_CONFIG, GremlinsLog, without_gremlins_settings
 from tools.mutation_report import MutantCount, MutationReport, Observed, load_spec
 
 from aletheia.common_types import Prose
@@ -255,6 +257,7 @@ class _Sweep:
     argv: list[CommandWord]
     cwd: Path
     env: dict[_LaneVariable, Prose | None]
+    names: frozenset[Prose]
     source: Prose
 
 
@@ -273,6 +276,7 @@ class _Gremlins:
                 cmd,
                 cwd,
                 {name: env.get(Prose(name)) for name in _LANE_VARIABLES},
+                frozenset(env),
                 Prose((cwd / "aletheia" / "client.go").read_text(encoding="utf-8")),
             )
         )
@@ -319,12 +323,61 @@ def test_the_sweep_runs_in_a_copy_named_as_the_repository(
     assert not ran_in.is_relative_to(repo)
     assert not ran_in.exists()
     assert not copy.exists()
-    assert seen.argv == [str(tmp_path / "bin" / "gremlins"), "unleash", "./aletheia"]
+    assert seen.argv == [
+        str(tmp_path / "bin" / "gremlins"),
+        "unleash",
+        "--config",
+        str(copy / GO_CONFIG),
+        "./aletheia",
+    ]
     assert seen.source == "uncommitted edit\n"
     assert seen.env == {
         "ALETHEIA_REPO_ROOT": str(copy),
         "ALETHEIA_LIB": str(repo / "build" / "libaletheia-ffi.so"),
         "GOFLAGS": "-mod=mod -count=1 -skip=^TestDocExamples$",
+    }
+
+
+def test_no_variable_gremlins_reads_a_setting_from_reaches_the_sweep(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The caller's ``GREMLINS_`` variables are dropped, and every other variable is kept.
+
+    gremlins reads a setting from ``GREMLINS_<KEY>`` ahead of the configuration
+    file, and any non-empty value of a mutator's ``ENABLED`` key, ``true``
+    included, turns that kind off; the tests gremlins runs read the rest of
+    the environment as the caller set it.
+    """
+    repo = _go_repo(tmp_path / "repo")
+    gremlins = _fake_gremlins(tmp_path, monkeypatch)
+    _ = install_copies(monkeypatch, tmp_path / "copies")
+    monkeypatch.setenv("GREMLINS_MUTANTS_INVERT_LOGICAL_ENABLED", "true")
+    monkeypatch.setenv("GREMLINS_UNLEASH_TIMEOUT_COEFFICIENT", "3")
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", repo)
+    report = mutation_run.run_go(tmp_path)
+    assert report.error is None
+    [seen] = gremlins.sweeps
+    assert not {name for name in seen.names if name.startswith("GREMLINS_")}
+    assert "PATH" in seen.names
+
+
+def test_a_variable_is_dropped_only_where_it_names_a_gremlins_setting() -> None:
+    """A setting's variable is ``GREMLINS_`` and the key; a name only beginning alike is kept."""
+    caller = {
+        EnvName(name): EnvValue(value)
+        for name, value in (
+            ("GREMLINS_MUTANTS_INVERT_LOGICAL_ENABLED", "true"),
+            ("GREMLINS_SILENT", "1"),
+            ("GREMLINS", "kept"),
+            ("GREMLINSNOT_A_SETTING", "kept"),
+            ("PATH", "/usr/bin"),
+        )
+    }
+    assert without_gremlins_settings(caller) == {
+        "GREMLINS": "kept",
+        "GREMLINSNOT_A_SETTING": "kept",
+        "PATH": "/usr/bin",
     }
 
 

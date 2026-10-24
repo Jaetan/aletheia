@@ -40,9 +40,11 @@ from typing import TYPE_CHECKING, NewType
 
 if TYPE_CHECKING:
     import re
-    from collections.abc import Callable, Generator, Iterable, Mapping
+    from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
     from concurrent.futures import Executor
     from typing import IO
+
+    from _typeshed import SupportsItems
 
 # A path relative to the repository root, spelled as git prints it: `git ls-files`
 # and `git diff --name-only` both use this spelling, and only a git listing mints one.
@@ -53,6 +55,12 @@ GateName = NewType("GateName", str)
 
 # How many calls a pool may run at once.
 WorkerCount = NewType("WorkerCount", int)
+
+# A variable's name and value in a process's environment, and one word of a command line.
+EnvName = NewType("EnvName", str)
+EnvValue = NewType("EnvValue", str)
+CommandWord = NewType("CommandWord", str)
+
 
 # What builds the executor a tool runs its concurrent calls on, given how many
 # may run at once: a thread pool in a run, and in a test an executor that runs
@@ -189,20 +197,23 @@ def find_executable(name: str) -> str:
 
 
 def run_capture(
-    cmd: list[str],
+    cmd: Sequence[str],
     *,
     cwd: Path | None = None,
     check: bool = False,
-    env: dict[str, str] | None = None,
+    env: SupportsItems[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run ``cmd`` in text mode, capturing stdout and stderr.
 
     A thin wrapper over ``subprocess.run`` with the project's standard options.
     ``cmd[0]`` should be an absolute path (see ``find_executable``).  ``env``
     replaces the whole environment, as ``subprocess.run`` does, so a caller
-    adding one variable passes ``os.environ | {...}``.
+    adding one variable passes ``os.environ | {...}``.  It is read through its
+    items alone, whose key is covariant where ``Mapping``'s is not, so an
+    environment keyed by ``EnvName`` passes as ``os.environ`` does.
     """
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=check, env=env)
+    variables = None if env is None else dict(env.items())
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=check, env=variables)
 
 
 def run_guarded(
@@ -255,10 +266,10 @@ def run_guarded(
 
 
 def run_streaming(
-    cmd: list[str],
+    cmd: Sequence[str],
     *,
     cwd: Path | None = None,
-    env: dict[str, str] | None = None,
+    env: SupportsItems[str, str] | None = None,
     sink: Callable[[str], object] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run ``cmd``, emitting each output line as it arrives and returning the whole.
@@ -276,7 +287,8 @@ def run_streaming(
 
     ``sink`` receives one call per line, newline included (default: write to
     stderr and flush, which is where this package's own progress goes).  The
-    child's environment gains ``PYTHONUNBUFFERED=1``: a Python child block
+    child's environment, ``env`` read as ``run_capture`` reads it, gains
+    ``PYTHONUNBUFFERED=1``: a Python child block
     buffers its stdout when it is a pipe rather than a terminal, which would
     defeat the whole point for a line this side flushes diligently.
 
@@ -286,7 +298,9 @@ def run_streaming(
     on the mutation lane draw one (mutmut a spinner, mull-runner a bar).
     """
     write_line = sink if sink is not None else _emit_progress
-    child_env = (env if env is not None else os.environ.copy()) | {"PYTHONUNBUFFERED": "1"}
+    child_env = (dict(env.items()) if env is not None else os.environ.copy()) | {
+        "PYTHONUNBUFFERED": "1"
+    }
     lines: list[str] = []
     with subprocess.Popen(
         cmd,

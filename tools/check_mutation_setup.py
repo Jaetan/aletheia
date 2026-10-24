@@ -62,14 +62,12 @@ Always-on invariants, checked without running the mutation tools (which take
 
 8. **The Go lane turns on every mutator gremlins ships off.**
    ``go/.gremlins.yaml`` sets ``enabled: true`` under each, read as gremlins
-   reads it: YAML 1.2, every key lowercased, and a file its reader refuses,
-   one repeating a key among them, dropped whole.  A kind left off makes no
-   mutants, and only the lane's recorded ``generated`` count says so.  What
-   gremlins reads ahead of the file is outside this gate: a
-   ``GREMLINS_MUTANTS_<NAME>_ENABLED`` variable in the lane's environment,
-   with any non-empty value, leaves the kind off, and a ``.gremlins.yaml``
-   under ``/etc/gremlins``, the XDG config home or the user's ``.gremlins``
-   replaces this file whole; the ``generated`` count alone shows either.
+   reads it: YAML 1.2 and every key lowercased.  A kind left off makes no
+   mutants, and only the lane's recorded ``generated`` count says so.  The
+   lane names this file to gremlins and strips every ``GREMLINS_`` variable
+   from its environment, so no other configuration file and no variable
+   overrides it, and a file its reader refuses, one repeating a key among
+   them, stops gremlins before it sweeps.
 
 9. **The mutation build links the C++ library statically.** The Mull runner
    finds mutants in the test executable, and a shared library hides most of
@@ -94,8 +92,8 @@ Usage:
 Exits 0 if every invariant holds, 1 otherwise (with a precise diagnostic naming
 the offending entries), 2 when a file or directory this module reads cannot be
 read, or TOML, CMake or a test's Python it cannot parse; a ``go/.gremlins.yaml``
-gremlins' reader refuses is invariant 8's refusal instead, since gremlins drops
-it.
+gremlins' reader refuses is invariant 8's refusal instead, since it is a defect
+of the file, which the lane's gremlins stops on.
 """
 
 from __future__ import annotations

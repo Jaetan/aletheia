@@ -254,6 +254,15 @@ which gremlins    # expect: ~/go/bin/gremlins
 
 `~/go/bin` should already be in `$PATH`; verify with `echo $PATH`.
 
+The lane's gremlins reads no configuration but `go/.gremlins.yaml`.  The lane
+names the file by `--config`, so a `.gremlins.yaml` under `/etc/gremlins`, the
+XDG config home or `~/.gremlins`, any of which gremlins would otherwise read in
+its place, is never read, and it starts gremlins with every `GREMLINS_`
+variable removed from its environment: gremlins reads such a variable ahead of
+the file, and any non-empty value of a mutator's `ENABLED` key, `true`
+included, turns that kind off (`tools/mutation_go.py`).  Named, a file
+gremlins' reader refuses stops gremlins before it sweeps.
+
 (Per the table above, `gremlins` substitutes for the AGENTS.md-named
 `go-mutesting`; both reach the same operator set.)
 

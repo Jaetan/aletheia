@@ -190,6 +190,8 @@ from typing import TYPE_CHECKING, Literal, NewType
 
 from tools._branch_diff import branch_changes
 from tools._common import (
+    EnvName,
+    EnvValue,
     RelPath,
     prepare_artifact_dir,
     run_capture,
@@ -210,12 +212,14 @@ from tools.mutation_go import (
     cut_go_shard,
     go_refusal,
     go_stage,
+    gremlins_command,
     is_go_shard,
     merge_go_shards,
     parse_gremlins_summary,
     record_go_shard,
     shard_binding,
     shard_log_name,
+    without_gremlins_settings,
 )
 from tools.mutation_report import (
     SPEC_PATH,
@@ -447,15 +451,17 @@ def run_go(artifact_dir: Path) -> MutationReport:
     with scratch_tree_or_report(REPO_ROOT, "go", "gremlins") as tree:
         if isinstance(tree, MutationReport):
             return tree
-        env = dict(os.environ)
-        env["ALETHEIA_REPO_ROOT"] = str(tree)
-        env["ALETHEIA_LIB"] = str(lib)
-        env["GOFLAGS"] = go_sweep_goflags(GoFlags(env.get("GOFLAGS", "")))
+        env = without_gremlins_settings({EnvName(k): EnvValue(v) for k, v in os.environ.items()})
+        env[EnvName("ALETHEIA_REPO_ROOT")] = EnvValue(str(tree))
+        env[EnvName("ALETHEIA_LIB")] = EnvValue(str(lib))
+        env[EnvName("GOFLAGS")] = EnvValue(
+            go_sweep_goflags(GoFlags(env.get(EnvName("GOFLAGS"), "")))
+        )
         # gremlins targets the package directory and runs the package's tests
         # against each mutant: the canonical aletheia/ subpackage, the only Go
         # module holding runtime code.
         cut = None if stage is None else cut_go_shard(tree, stage)
-        proc = run_streaming([str(gremlins), "unleash", "./aletheia"], cwd=tree / "go", env=env)
+        proc = run_streaming(gremlins_command(gremlins, tree), cwd=tree / "go", env=env)
         if stage is not None and cut is not None:
             # The census comes after the sweep, under the package's own
             # configuration: before it, the dry run would leave the package
@@ -463,7 +469,7 @@ def run_go(artifact_dir: Path) -> MutationReport:
             # (tools/mutation_go.py).
             _ = (tree / GO_CONFIG).write_text(cut.package_config, encoding="utf-8")
             dry = run_capture(
-                [str(gremlins), "unleash", "--dry-run", "./aletheia"], cwd=tree / "go", env=env
+                gremlins_command(gremlins, tree, "--dry-run"), cwd=tree / "go", env=env
             )
             recorded = record_go_shard(stage, cut, GremlinsLog(dry.stdout), artifact_dir)
             if recorded is None:
