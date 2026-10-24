@@ -15,6 +15,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
@@ -452,10 +453,11 @@ _EnvValue = NewType("_EnvValue", str)
 
 @dataclass
 class _GremlinsCall:
-    """One run of gremlins: its words, the directory it ran in, and what it read there."""
+    """One run of gremlins: its words, the directory it ran in, and the configuration it read."""
 
     words: list[CommandWord]
     cwd: Path
+    config: Path
     files: list[PackageFile]
     goflags: mutation_run.GoFlags
 
@@ -467,7 +469,7 @@ class _GremlinsCall:
 
 @dataclass
 class _Gremlins:
-    """gremlins as the lane runs it, reading the configuration it finds as gremlins does.
+    """gremlins as the lane runs it, reading the one configuration file its command names.
 
     A dry run lists one mutant per file the configuration does not hold out, a
     sweep kills one per such file, and every call is recorded with the
@@ -480,8 +482,8 @@ class _Gremlins:
         self, cmd: list[CommandWord], *, cwd: Path, env: Mapping[_EnvName, _EnvValue]
     ) -> subprocess.CompletedProcess[GremlinsLog]:
         """Record the call and answer with the lines gremlins prints for it."""
-        config_text = (cwd / ".gremlins.yaml").read_text(encoding="utf-8")
-        config = cast("_Config", yaml.safe_load(config_text))
+        [named] = [Path(after) for before, after in pairwise(cmd) if before == "--config"]
+        config = cast("_Config", yaml.safe_load(named.read_text(encoding="utf-8")))
         held = [re.compile(pattern) for pattern in config["unleash"]["exclude-files"]]
         names = sorted(
             PackageFile(path.name)
@@ -489,7 +491,7 @@ class _Gremlins:
             if not path.name.endswith("_test.go")
             and not any(pattern.search(path.name) for pattern in held)
         )
-        call = _GremlinsCall(cmd, cwd, names, mutation_run.GoFlags(env[_EnvName("GOFLAGS")]))
+        call = _GremlinsCall(cmd, cwd, named, names, mutation_run.GoFlags(env[_EnvName("GOFLAGS")]))
         self.calls.append(call)
         mark = "    RUNNABLE" if call.dry else "      KILLED"
         lines = [f"{mark} CONDITIONALS_NEGATION at {name}:1:1\n" for name in names]
@@ -575,12 +577,13 @@ def test_a_shard_sweeps_its_files_then_takes_the_census_of_the_whole_package(
     assert record["files"] == ["go/aletheia/a.go"]
     assert record["census"] == {"go/aletheia/a.go": 1, "go/aletheia/b.go": 1, "go/aletheia/c.go": 1}
     assert (artifacts / shard_log_name(ShardNumber(1))).is_file()
-    assert [call.words[1:] for call in seen] == [
-        ["unleash", "./aletheia"],
-        ["unleash", "--dry-run", "./aletheia"],
-    ]
     assert lane.copies.asked == [repo]
     (copy,) = lane.copies.made
+    config = str(copy / GO_CONFIG)
+    assert [call.words[1:] for call in seen] == [
+        ["unleash", "--config", config, "./aletheia"],
+        ["unleash", "--config", config, "--dry-run", "./aletheia"],
+    ]
     assert [call.cwd for call in seen] == [copy / "go", copy / "go"]
     assert lane.listings.asked == [_Listing(copy, (RelPath(GO_PACKAGE),))]
     assert not copy.exists()

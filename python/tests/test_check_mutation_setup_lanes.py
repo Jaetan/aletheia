@@ -232,10 +232,10 @@ def _left_off(name: GremlinsMutator) -> Prose:
 
 
 def _repeats(key: Prose) -> Prose:
-    """Return the diagnostic for a file gremlins drops because a mapping repeats ``key``."""
+    """Return the diagnostic for a file gremlins refuses because a mapping repeats ``key``."""
     return Prose(
         f"[go/mutators] {GO_CONFIG} repeats the key {key!r}, which gremlins' YAML reader "
-        + "refuses, so gremlins drops it and every mutator it ships off stays off"
+        + "refuses, so the lane's gremlins stops before it sweeps"
     )
 
 
@@ -340,7 +340,7 @@ def test_a_kind_whose_block_is_no_mapping_is_named(
 def test_a_config_gremlins_refuses_for_a_repeated_key_is_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: Prose, key: Prose
 ) -> None:
-    """A key a mapping holds twice, which PyYAML reads past, is a file gremlins drops."""
+    """A key a mapping holds twice, which PyYAML reads past, is a file gremlins refuses."""
     _plant_gremlins_text(tmp_path, monkeypatch, text)
     assert check_mutation_setup_lanes.go_lane_turns_on_the_default_off_mutators() == [_repeats(key)]
 
@@ -364,7 +364,7 @@ def test_a_config_gremlins_refuses_for_a_repeated_key_is_named(
 def test_a_config_gremlins_cannot_read_is_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: Prose, problem: Prose
 ) -> None:
-    """A file gremlins' YAML reader refuses is named with the reader's reason, every kind off.
+    """A file gremlins' YAML reader refuses is named with the reader's reason.
 
     The reason is PyYAML's, or the gate's own for a boolean spelled as YAML 1.1 does.
     """
@@ -373,9 +373,7 @@ def test_a_config_gremlins_cannot_read_is_named(
     assert len(diagnostics) == 1
     assert diagnostics[0].startswith(f"[go/mutators] {GO_CONFIG} is no YAML gremlins reads (")
     assert problem in diagnostics[0]
-    assert diagnostics[0].endswith(
-        "), so gremlins drops it and every mutator it ships off stays off"
-    )
+    assert diagnostics[0].endswith("), so the lane's gremlins stops before it sweeps")
 
 
 def test_a_key_with_a_capital_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

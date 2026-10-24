@@ -40,14 +40,14 @@ from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast,
 
 import yaml
 
-from tools._common import RelPath, git_ls_files
+from tools._common import CommandWord, EnvName, EnvValue, RelPath, git_ls_files
 from tools.mutation_cpp_slices import MutantCounts, Slice, partition
 from tools.mutation_report import MutantCount, MutationReport, Observed
 
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
 # Shards the Go sweep is cut into.  Two, because the heaviest file holds two
 # fifths of the package's mutants, so no partition gets a shard under that
@@ -55,8 +55,8 @@ if TYPE_CHECKING:
 # clock, each further shard paying the job's setup again for less.
 GO_SHARDS = 2
 
-# The package gremlins sweeps, and the configuration it reads from the module
-# root, both repository-relative.
+# The package gremlins sweeps, and the configuration file the lane names to it,
+# both repository-relative.
 GO_PACKAGE = "go/aletheia"
 GO_CONFIG = "go/.gremlins.yaml"
 
@@ -183,6 +183,42 @@ def go_stage() -> ShardNumber | Literal["merge"] | None:
         msg = f"{GO_STAGE_ENV}={stage!r} is not a shard of 1 to {GO_SHARDS} or {GO_MERGE_STAGE!r}"
         raise ValueError(msg)
     return ShardNumber(int(stage))
+
+
+# What every variable gremlins reads a setting from begins with: viper reads the
+# setting's key, and each key above it, upper-cased after it, its dots and dashes
+# as underscores.
+GREMLINS_SETTING_PREFIX = "GREMLINS_"
+
+
+def gremlins_command(gremlins: Path, tree: Path, *flags: Literal["--dry-run"]) -> list[CommandWord]:
+    """Spell gremlins' sweep of the package in ``tree``, reading that tree's configuration alone.
+
+    Without ``--config``, gremlins reads the first ``.gremlins`` file, bare or
+    with an extension viper reads, in ``/etc/gremlins``,
+    ``$XDG_CONFIG_HOME/gremlins/gremlins``, ``~/.gremlins``, the module root
+    and the working directory, so one at home replaces the tree's whole, and
+    runs on its defaults past one its reader refuses.  Named, the file is read
+    or gremlins stops before it sweeps.  A shard writes its configuration to
+    the same path in its tree.
+    """
+    words = [str(gremlins), "unleash", "--config", str(tree / GO_CONFIG), *flags, "./aletheia"]
+    return [CommandWord(word) for word in words]
+
+
+def without_gremlins_settings(caller: Mapping[EnvName, EnvValue]) -> dict[EnvName, EnvValue]:
+    """Return the caller's environment without a variable gremlins reads a setting from.
+
+    gremlins reads such a variable ahead of its configuration file, and reads
+    a mutator's ``ENABLED`` key as a boolean only when it is one, which text
+    from the environment never is: any non-empty value, ``true`` included,
+    turns the kind off.  The tests gremlins runs inherit the rest.
+    """
+    return {
+        name: value
+        for name, value in caller.items()
+        if not name.startswith(GREMLINS_SETTING_PREFIX)
+    }
 
 
 def _config(config_path: Path) -> _GremlinsConfig:

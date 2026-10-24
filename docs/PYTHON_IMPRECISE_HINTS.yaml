@@ -2078,6 +2078,14 @@ hints:
     text: "Mapping[str, object]"
     count: 1
   - file: tools/_common.py
+    text: "Sequence[str]"
+    count: 2
+    reason: "subprocess takes a command of any str words; run_capture and run_streaming pass it any Sequence, a list of NewType words included"
+  - file: tools/_common.py
+    text: "SupportsItems[str, str] | None"
+    count: 2
+    reason: "subprocess takes an environment of any str names and values; run_capture and run_streaming read it through its items, whose key is covariant, so os.environ and NewType-keyed environments pass"
+  - file: tools/_common.py
     text: "bytes"
     count: 1
   - file: tools/_common.py
@@ -2085,9 +2093,6 @@ hints:
     count: 1
   - file: tools/_common.py
     text: "dict[str, str]"
-    count: 2
-  - file: tools/_common.py
-    text: "dict[str, str] | None"
     count: 2
   - file: tools/_common.py
     text: "float"
@@ -2106,7 +2111,7 @@ hints:
     count: 2
   - file: tools/_common.py
     text: "list[str]"
-    count: 13
+    count: 11
   - file: tools/_common.py
     text: "object"
     count: 1

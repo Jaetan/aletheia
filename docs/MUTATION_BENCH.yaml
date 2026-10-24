@@ -103,9 +103,9 @@ bindings:
       - go/aletheia/ffi_nocgo.go
       - go/aletheia/enrich.go
     config:
-      # gremlins reads this from the directory it runs in. It holds the
-      # stringer outputs out of the sweep: a mutant in generated code measures
-      # the generator, and no test written here can be the one that kills it.
+      # The runner names this file to gremlins. It holds the stringer outputs
+      # out of the sweep: a mutant in generated code measures the generator,
+      # and no test written here can be the one that kills it.
       exclude: go/.gremlins.yaml
     invocation: |
       # The runner's, which sweeps a scratch copy of the tree from its go/.

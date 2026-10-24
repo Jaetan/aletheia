@@ -560,8 +560,8 @@ def go_lane_turns_on_the_default_off_mutators() -> list[Prose]:
 
     The file is read as gremlins reads it.  Its YAML reader reads the first
     document and leaves any other unread; it refuses a repeated key or a
-    boolean YAML 1.2 does not spell, and gremlins then drops the whole file
-    without a word; it lowercases every key, so a key with a capital can stand
+    boolean YAML 1.2 does not spell, and gremlins, named the file, then stops
+    before it sweeps; it lowercases every key, so a key with a capital can stand
     in for the one this gate reads; and it asserts the value's type, so a
     quoted ``"true"``, or a ``yes`` or an ``on`` that PyYAML would read as
     true, leaves the kind off.  The switch is read nested under ``mutants:``,
@@ -576,8 +576,8 @@ def go_lane_turns_on_the_default_off_mutators() -> list[Prose]:
         return [
             Prose(
                 f"[go/mutators] {GO_CONFIG} is no YAML gremlins reads "
-                + f"({' '.join(str(exc).split())}), so gremlins drops it and every mutator "
-                + "it ships off stays off"
+                + f"({' '.join(str(exc).split())}), so the lane's gremlins stops before it "
+                + "sweeps"
             )
         ]
     keys = mapping_keys(node)
@@ -586,8 +586,7 @@ def go_lane_turns_on_the_default_off_mutators() -> list[Prose]:
         return [
             Prose(
                 f"[go/mutators] {GO_CONFIG} repeats the key {repeated!r}, which gremlins' "
-                + "YAML reader refuses, so gremlins drops it and every mutator it ships off "
-                + "stays off"
+                + "YAML reader refuses, so the lane's gremlins stops before it sweeps"
             )
         ]
     capitalised = [key for mapping in keys for key in mapping if key != key.lower()]
