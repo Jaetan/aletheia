@@ -3,8 +3,9 @@
 """Tests for the runtime guard, ``tools/_determinism_guard.py``, run on planted tests.
 
 The guard holds what a test reaches, the code under test included: no clock, no
-wait on a duration, no thread, and no process unless the test's mark says
-which claim needs it.  Each plant is a test run in a session inside this one,
+wait on a duration, no thread, no process unless the test's mark says which
+claim needs it, and no core count but the default asked of the runtime unless a
+mark says why and the runtime is started.  Each plant is a test run in a session inside this one,
 under the guard: what it does must fail it, or must not.  The plants are
 strings, so the static gate reads them as the fixtures they are.
 """
@@ -16,7 +17,7 @@ import textwrap
 import pytest
 
 from tools import _determinism_guard
-from tools._determinism_guard import AuditEvent
+from tools._determinism_guard import AuditEvent, CoreCount, MarkName
 from tools.check_test_determinism import SourceText
 
 
@@ -25,6 +26,10 @@ def _run_guarded(pytester: pytest.Pytester, test: SourceText) -> pytest.RunResul
     _ = pytester.makeconftest('pytest_plugins = ["tools._determinism_guard"]')
     _ = pytester.makepyfile(test_plant=textwrap.dedent(test))
     return pytester.runpytest_inprocess("-p", "no:cacheprovider")
+
+
+# What a refusal of a clock, a wait or a thread says, after the call it refuses.
+_TIME_RULE = "a test reads no clock, waits on no duration and starts no thread"
 
 
 @pytest.mark.parametrize(
@@ -97,6 +102,55 @@ def test_the_guard_fails_a_test_whose_code_caught_the_refusal(pytester: pytest.P
             """
         ),
     )
+    result.assert_outcomes(passed=1, errors=1)
+    result.stdout.fnmatch_lines([f"*Failed: time.sleep(0): {_TIME_RULE}"])
+
+
+def test_every_refusal_the_code_caught_is_reported(pytester: pytest.Pytester) -> None:
+    """A test whose code caught two refusals fails at teardown naming both."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            import time
+            def test_plant():
+                for secs in (0, 1):
+                    try:
+                        time.sleep(secs)
+                    except BaseException:
+                        pass
+            """
+        ),
+    )
+    result.assert_outcomes(passed=1, errors=1)
+    result.stdout.fnmatch_lines(
+        [f"*Failed: time.sleep(0): {_TIME_RULE}", f"*time.sleep(1): {_TIME_RULE}"]
+    )
+
+
+def _module_fixture_plant(body: SourceText) -> SourceText:
+    """Plant a test whose module fixture, set up before its own fixtures, runs ``body``."""
+    return SourceText(
+        "import time\nimport pytest\n\n"
+        + '@pytest.fixture(scope="module")\n'
+        + f"def sleeper():\n    {body}\n\n"
+        + "def test_plant(sleeper):\n    pass\n"
+    )
+
+
+def test_a_module_fixture_s_refusal_fails_its_test_s_setup(pytester: pytest.Pytester) -> None:
+    """A module fixture's refusal fails the test it was set up for, not the session's runner."""
+    result = _run_guarded(pytester, _module_fixture_plant(SourceText("time.sleep(0)")))
+    result.assert_outcomes(errors=1)
+    assert "time.sleep(0)" in result.stdout.str()
+
+
+def test_a_module_fixture_s_caught_refusal_fails_its_test_s_teardown(
+    pytester: pytest.Pytester,
+) -> None:
+    """A refusal a module fixture's code caught fails its test at teardown, as a test's own does."""
+    caught = "try:\n        time.sleep(0)\n    except BaseException:\n        pass"
+    result = _run_guarded(pytester, _module_fixture_plant(SourceText(caught)))
     result.assert_outcomes(passed=1, errors=1)
     assert "time.sleep(0)" in result.stdout.str()
 
@@ -224,24 +278,46 @@ def test_a_marked_test_starts_the_process_its_claim_needs(pytester: pytest.Pytes
     result.assert_outcomes(passed=1)
 
 
+@pytest.mark.parametrize("name", [MarkName("process"), MarkName("runtime_cores")])
 @pytest.mark.parametrize(
-    "mark",
-    [
-        SourceText("@pytest.mark.process"),
-        SourceText('@pytest.mark.process("")'),
-        SourceText('@pytest.mark.process("  ")'),
-        SourceText('@pytest.mark.process(reason="the claim")'),
-    ],
+    "arguments",
+    [SourceText(""), SourceText('("")'), SourceText('("  ")'), SourceText('(reason="the claim")')],
+    ids=["bare", "empty", "blank", "keyword"],
 )
-def test_a_process_mark_without_one_reason_fails_at_setup(
-    pytester: pytest.Pytester, mark: SourceText
+def test_a_mark_without_one_reason_fails_at_setup(
+    pytester: pytest.Pytester, name: MarkName, arguments: SourceText
 ) -> None:
-    """A process mark gives one non-empty reason, positionally, or its test fails before it runs."""
+    """A process or cores mark gives one reason that is not blank, positionally, or fails first."""
+    plant = f"import pytest\n\n@pytest.mark.{name}{arguments}\ndef test_plant():\n    pass\n"
+    result = _run_guarded(pytester, SourceText(plant))
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines([f'*@pytest.mark.{name} takes one reason, as "<reason>"'])
+
+
+def test_a_mark_without_a_reason_fails_before_the_test_s_fixtures(
+    pytester: pytest.Pytester,
+) -> None:
+    """The mark's own check runs first, so a fixture's refusal cannot hide it."""
     result = _run_guarded(
-        pytester, SourceText(f"import pytest\n\n{mark}\ndef test_plant():\n    pass\n")
+        pytester,
+        SourceText(
+            """\
+            import time
+            import pytest
+
+            @pytest.fixture
+            def sleeper():
+                time.sleep(0)
+
+            @pytest.mark.runtime_cores
+            def test_plant(sleeper):
+                pass
+            """
+        ),
     )
     result.assert_outcomes(errors=1)
-    result.stdout.fnmatch_lines(["*@pytest.mark.process takes one reason*"])
+    result.stdout.fnmatch_lines(['*@pytest.mark.runtime_cores takes one reason, as "<reason>"'])
+    assert "time.sleep(0)" not in result.stdout.str()
 
 
 def test_a_mark_on_a_test_that_starts_no_process_fails(pytester: pytest.Pytester) -> None:
@@ -327,3 +403,185 @@ def test_a_process_started_at_import_fails_the_collection(pytester: pytest.Pytes
     )
     result.assert_outcomes(errors=1)
     result.stdout.fnmatch_lines([f"*a process started outside any test (*): {_PROCESS_RULE}"])
+
+
+# --- The runtime's cores.
+
+# What a refusal of a core count says, after the request it refuses.
+_CORES_RULE = (
+    "a client starts the runtime on the default core count, and a test asks a started"
+    + " runtime for another only where the answer is its claim, saying which with"
+    + ' @pytest.mark.runtime_cores("<reason>")'
+)
+
+
+# A test asking ``count`` of a runtime a first client started, and of one not yet started.
+_STARTED = """\
+from aletheia import AletheiaClient
+
+def test_plant():
+    with AletheiaClient(), AletheiaClient(rts_cores={count}):
+        pass
+"""
+_UNSTARTED = """\
+from aletheia import RTSState
+
+def test_plant(monkeypatch):
+    monkeypatch.setattr(RTSState, "initialized", False)
+    RTSState.acquire(None, {count})
+"""
+
+
+@pytest.mark.parametrize(
+    ("plant", "count"),
+    [
+        pytest.param(SourceText(_STARTED), CoreCount(2), id="started"),
+        pytest.param(SourceText(_UNSTARTED), CoreCount(2), id="unstarted"),
+        # A count below the default is another count too.
+        pytest.param(SourceText(_UNSTARTED), CoreCount(0), id="below"),
+    ],
+)
+def test_the_guard_fails_a_test_that_asks_another_core_count_unmarked(
+    pytester: pytest.Pytester, plant: SourceText, count: CoreCount
+) -> None:
+    """Another count fails an unmarked test, started runtime or not, before the runtime sees it."""
+    result = _run_guarded(pytester, SourceText(plant.format(count=count)))
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [f"*test_plant.py::test_plant asked the runtime for {count} cores: {_CORES_RULE}"]
+    )
+
+
+def test_an_ask_without_a_count_asks_the_default(pytester: pytest.Pytester) -> None:
+    """``RTSState.acquire`` called without a count asks the default, as the real one does."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            from aletheia import AletheiaClient, RTSState
+
+            def test_plant():
+                with AletheiaClient():
+                    RTSState.acquire(RTSState.lib)
+                    RTSState.release()
+            """
+        ),
+    )
+    result.assert_outcomes(passed=1)
+
+
+def test_a_module_fixture_s_ask_is_held_to_its_test(pytester: pytest.Pytester) -> None:
+    """A module fixture asks in its first user's setup, so its test's mark decides the request."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            import pytest
+            from aletheia import RTSState
+
+            @pytest.fixture(scope="module")
+            def runtime():
+                with pytest.MonkeyPatch.context() as patch:
+                    patch.setattr(RTSState, "initialized", False)
+                    RTSState.acquire(None, 2)
+
+            def test_plant(runtime):
+                pass
+            """
+        ),
+    )
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines(
+        [f"*test_plant.py::test_plant asked the runtime for 2 cores: {_CORES_RULE}"]
+    )
+
+
+def test_an_ask_at_import_fails_the_collection(pytester: pytest.Pytester) -> None:
+    """A module that asks another count when imported asks it outside any test, and fails."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            import pytest
+            from aletheia import RTSState
+
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(RTSState, "initialized", False)
+                RTSState.acquire(None, 2)
+
+            def test_plant():
+                pass
+            """
+        ),
+    )
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines(
+        [f"*the runtime was asked for 2 cores outside any test: {_CORES_RULE}"]
+    )
+
+
+def test_a_marked_test_asks_a_started_runtime_another_count(pytester: pytest.Pytester) -> None:
+    """A test whose mark gives its reason asks a started runtime another count, and is warned."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            import pytest
+            from aletheia import AletheiaClient
+
+            @pytest.mark.runtime_cores("the warning is the claim")
+            def test_plant(caplog):
+                with caplog.at_level("WARNING", logger="aletheia"), AletheiaClient():
+                    with AletheiaClient(rts_cores=4):
+                        pass
+                assert "rts.cores_mismatch" in caplog.text
+            """
+        ),
+    )
+    result.assert_outcomes(passed=1)
+
+
+def test_a_mark_never_lets_a_test_start_the_runtime_on_another_count(
+    pytester: pytest.Pytester,
+) -> None:
+    """A marked test asks a started runtime only: the count a runtime starts on is the default."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            import pytest
+            from aletheia import RTSState
+
+            @pytest.mark.runtime_cores("the warning is the claim")
+            def test_plant(monkeypatch):
+                monkeypatch.setattr(RTSState, "initialized", False)
+                RTSState.acquire(None, 4)
+            """
+        ),
+    )
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [f"*test_plant.py::test_plant would start the runtime on 4 cores: {_CORES_RULE}"]
+    )
+
+
+def test_a_cores_mark_on_a_test_that_asks_the_default_fails(pytester: pytest.Pytester) -> None:
+    """A mark that allows a count its test never asks is standing permission, and fails."""
+    result = _run_guarded(
+        pytester,
+        SourceText(
+            """\
+            import pytest
+            from aletheia import AletheiaClient
+
+            @pytest.mark.runtime_cores("the warning is the claim")
+            def test_plant():
+                with AletheiaClient():
+                    pass
+            """
+        ),
+    )
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        ["*test_plant: its runtime_cores mark allows a core count it never asks"]
+    )

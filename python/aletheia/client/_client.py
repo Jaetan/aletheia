@@ -168,10 +168,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
     def __init__(
         self,
         default_checks: list[CheckResult] | None = None,
-        # rts_cores feeds FFIBackend's once-per-process GHC RTS init; the global
-        # RTS is already initialized by an earlier client in-suite, so the
-        # default value is not observable by any in-process test.
-        rts_cores: int = 1,  # pragma: no mutate
+        rts_cores: int = 1,
         *,
         backend: Backend | None = None,
     ) -> None:
@@ -200,14 +197,10 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         # Per-message signal name/index lookup, populated by ``parse_dbc``.
         self._signal_lookup: dict[tuple[int, bool], SignalLookup] = {}
         # Backend factory: non-None iff the Client owns the backend
-        # lifecycle (closes over rts_cores; cleared on ``close()``).
+        # lifecycle (closes over rts_cores).
         # User-injected backends are caller-owned: factory stays None.
-        # The FFIBackend(rts_cores=...) value feeds the process-global GHC RTS
-        # init, so (like the rts_cores default) it is unobservable in-suite.
         self._make_backend: Callable[[], Backend] | None = (
-            None
-            if backend is not None
-            else (lambda rc=rts_cores: FFIBackend(rts_cores=rc))  # pragma: no mutate
+            None if backend is not None else (lambda rc=rts_cores: FFIBackend(rts_cores=rc))
         )
         # Hot-path send_frame_binary bound method; rebound on __enter__,
         # cleared back to the stub on ``close()``.  The stub-vs-None initial

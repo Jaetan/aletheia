@@ -55,7 +55,7 @@ class TestCANFDFrames:
 
     def test_canfd_extract_12_byte_frame(self) -> None:
         """Extract signals from a 12-byte CAN-FD frame (DLC code 9)."""
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(self.CANFD_DBC_12)
             data = bytearray(12)
             data[0] = 42  # BaseSignal = 42
@@ -68,7 +68,7 @@ class TestCANFDFrames:
 
     def test_canfd_extract_64_byte_frame(self) -> None:
         """Extract signals from a 64-byte CAN-FD frame (DLC code 15)."""
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(self.CANFD_DBC_64)
             data = bytearray(64)
             data[0] = 99  # FirstByte = 99
@@ -81,7 +81,7 @@ class TestCANFDFrames:
 
     def test_canfd_build_12_byte_frame(self) -> None:
         """Build a 12-byte CAN-FD frame from signal values."""
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(self.CANFD_DBC_12)
             frame = client.build_frame(
                 can_id=0x200,
@@ -96,7 +96,7 @@ class TestCANFDFrames:
 
     def test_canfd_build_64_byte_frame(self) -> None:
         """Build a 64-byte CAN-FD frame from signal values."""
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(self.CANFD_DBC_64)
             frame = client.build_frame(
                 can_id=0x300,
@@ -110,7 +110,7 @@ class TestCANFDFrames:
 
     def test_canfd_update_frame(self) -> None:
         """Update signals in a CAN-FD frame."""
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(self.CANFD_DBC_12)
             original = client.build_frame(
                 can_id=0x200,
@@ -141,7 +141,7 @@ class TestCANFDFrames:
                 ),
             ]
         )
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(dbc_def)
             for dlc_int in range(16):
                 dlc_code = DLCCode(dlc_int)
@@ -177,7 +177,7 @@ class TestCANFDFrames:
 
     def test_canfd_byte_count_mismatch(self) -> None:
         """Payload byte count must match DLC."""
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(self.CANFD_DBC_12)
             # DLC 9 expects 12 bytes, send 11 — backend rejects the mismatch
             data = bytearray(11)
@@ -186,7 +186,7 @@ class TestCANFDFrames:
 
     def test_canfd_ltl_streaming(self) -> None:
         """Stream CAN-FD frames with LTL property checking."""
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(self.CANFD_DBC_12)
             client.set_properties([Signal("WideSignal").less_than(50000).always().to_dict()])
             client.start_stream()
@@ -228,7 +228,7 @@ class TestCANFDFrames:
         passing every combination of ``brs`` / ``esi`` ∈ ``{None, True,
         False}`` returns ``ack`` for an otherwise-valid frame.
         """
-        with AletheiaClient(rts_cores=2) as client:
+        with AletheiaClient() as client:
             client.parse_dbc(self.CANFD_DBC_12)
             client.start_stream()
 

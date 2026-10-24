@@ -36,6 +36,21 @@ reason fails the test at its setup, and so does a mark on a test that runs to
 its end without starting a process, itself or through a fixture recorded as
 starting one: a fixture cached for a module or a session starts its process
 once, in its first user's setup, so its later users rely on that record.
+
+The GHC runtime starts once per process, on the core count its first client
+asks for, and a later client asking another count is warned
+(``rts.cores_mismatch``): a test that started it on another count would have
+every later default client warned, in the output of any test reading the
+``aletheia`` logger, the command line's among them.  So a client in the suite
+starts the runtime on the default count alone, whichever test runs first.  A
+request for another count fails the test that makes it, before the runtime
+sees it, unless the test says why with ``@pytest.mark.runtime_cores("<reason>")``
+and the runtime is already started; one made outside any test fails the
+collection.  A mark that does not give one reason that is not blank,
+positionally, fails the test at its setup, and a mark on a test that asks no
+other count by the end of its call fails it there.  The count held is the one
+a client asks: a ``-N`` that ``ALETHEIA_RTS_OPTS`` hands the runtime is not,
+and the warning does not compare it.
 """
 
 from __future__ import annotations
@@ -49,15 +64,17 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Never, NewType, Self
 
 import pytest
 
+from aletheia.client._ffi import DEFAULT_RTS_CORES, RTSState
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     import contextvars
+    import ctypes
     from collections.abc import Callable, Generator, Iterable, Iterator
 
     from _typeshed import FileDescriptorLike
@@ -110,10 +127,6 @@ class Clock:
 
 CLOCK = Clock()
 
-# One list per running test, innermost last: a session run inside a test (the
-# guard's own tests) records its refusals apart from the test that runs it.
-_REFUSALS: list[list[Prose]] = []
-
 
 # What a test may not do, as a refusal states it.
 _TIME_RULE = Prose("a test reads no clock, waits on no duration and starts no thread")
@@ -121,13 +134,25 @@ _PROCESS_RULE = Prose(
     "a test starts a process only where its claim is that process's own answer,"
     + ' and says which with @pytest.mark.process("<reason>")'
 )
+_CORES_RULE = Prose(
+    "a client starts the runtime on the default core count, and a test asks a started"
+    + " runtime for another only where the answer is its claim, saying which with"
+    + ' @pytest.mark.runtime_cores("<reason>")'
+)
 
 
-def _refuse(what: Prose, rule: Prose = _TIME_RULE, *, in_a_test: bool = True) -> Never:
-    """Fail the running test, or the collection outside any test, at a call that breaks ``rule``."""
+def _refuse(what: Prose, rule: Prose = _TIME_RULE) -> Never:
+    """Fail the running test, or the collection outside any test, at a call that breaks ``rule``.
+
+    The running test records the refusal, and its teardown fails on any its call
+    did not report: the ones the code under test caught, a refusal in a fixture's
+    setup included.  A session run inside a test records its own tests'
+    refusals, apart from the test that runs it.
+    """
     message = Prose(f"{what}: {rule}")
-    if in_a_test and _REFUSALS:
-        _REFUSALS[-1].append(message)
+    running = _RUNNING[-1] if _RUNNING else None
+    if running is not None:
+        running.refusals.append(message)
     pytest.fail(message)
 
 
@@ -289,8 +314,6 @@ def _setitimer(
 
 # An audit event's name, as ``sys.audit`` raises it.
 AuditEvent = NewType("AuditEvent", str)
-# How many process starts a running test has made.
-StartCount = NewType("StartCount", int)
 # A fixture as the guard records it: the node it is defined in, and its name.
 FixtureKey = NewType("FixtureKey", str)
 # The name a test or a fixture asks a fixture by.
@@ -313,18 +336,27 @@ _PROCESS_EVENTS = frozenset(
 
 
 @dataclass
+class _Allowance:
+    """What a test's mark lets it do that the guard refuses: the reason, and whether it did."""
+
+    reason: Prose | None
+    used: bool = False
+
+
+@dataclass
 class _Running:
-    """A test while it runs: its mark's reason, the fixtures it asks for, its starts.
+    """A test while it runs: the fixtures it asks for, its marks' allowances, its refusals.
 
     ``scopes`` are the node ids of the test and of every collector above it, where
     a fixture it can see is defined, as pytest matches a fixture to a test.
     """
 
     nodeid: Prose
-    reason: Prose | None
     fixtures: frozenset[FixtureName]
     scopes: frozenset[Prose]
-    started: StartCount = StartCount(0)
+    process: _Allowance
+    cores: _Allowance
+    refusals: list[Prose] = field(default_factory=list[Prose])
 
 
 # The tests running, innermost last, each session's opened by None: a session
@@ -340,9 +372,15 @@ def _fixture_key(baseid: Prose, name: FixtureName) -> FixtureKey:
     return FixtureKey(f"{baseid}::{name}")
 
 
-def _marked_reason(item: pytest.Item) -> Prose | None:
-    """Return the reason ``item``'s process mark gives, or None for no mark or no reason."""
-    marker = item.get_closest_marker("process")
+# The marks that let a test do what the guard refuses, each giving the reason.
+MarkName = NewType("MarkName", str)
+_PROCESS_MARK = MarkName("process")
+_CORES_MARK = MarkName("runtime_cores")
+
+
+def _marked_reason(item: pytest.Item, mark: MarkName) -> Prose | None:
+    """Return the reason ``item``'s ``mark`` gives, or None for no mark or no reason."""
+    marker = item.get_closest_marker(mark)
     if marker is None or marker.kwargs or len(marker.args) != 1:
         return None
     reason = marker.args[0]
@@ -365,10 +403,10 @@ def _audit(event: AuditEvent) -> None:
     running = _RUNNING[-1] if _RUNNING else None
     if running is None:
         outside = Prose(f"a process started outside any test ({event})")
-        _refuse(outside, _PROCESS_RULE, in_a_test=False)
-    if running.reason is None:
+        _refuse(outside, _PROCESS_RULE)
+    if running.process.reason is None:
         _refuse(Prose(f"{running.nodeid} started a process ({event})"), _PROCESS_RULE)
-    running.started = StartCount(running.started + 1)
+    running.process.used = True
     if _SETTING_UP:
         _STARTING_FIXTURES.add(_SETTING_UP[-1])
 
@@ -377,6 +415,34 @@ def _audit_hook(event: str, _args: tuple[object, ...]) -> None:
     """Hand a process start to :func:`_audit`; every other event passes untouched."""
     if event in _PROCESS_EVENTS:
         _audit(AuditEvent(event))
+
+
+# --- The runtime's cores.
+
+# A count of the GHC runtime's cores, as a client asks for them.
+CoreCount = NewType("CoreCount", int)
+_DEFAULT_CORES = CoreCount(DEFAULT_RTS_CORES)
+_real_acquire = RTSState.acquire
+
+
+def _hold_cores(cores: CoreCount) -> None:
+    """Refuse another core count than the default, but a marked test's ask of a started runtime."""
+    if cores == _DEFAULT_CORES:
+        return
+    running = _RUNNING[-1] if _RUNNING else None
+    if running is None:
+        outside = Prose(f"the runtime was asked for {cores} cores outside any test")
+        _refuse(outside, _CORES_RULE)
+    if running.cores.reason is None:
+        _refuse(Prose(f"{running.nodeid} asked the runtime for {cores} cores"), _CORES_RULE)
+    if not RTSState.initialized:
+        _refuse(Prose(f"{running.nodeid} would start the runtime on {cores} cores"), _CORES_RULE)
+    running.cores.used = True
+
+
+def _acquire(_cls: type[RTSState], lib: ctypes.CDLL, rts_cores: CoreCount = _DEFAULT_CORES) -> None:
+    _hold_cores(rts_cores)
+    _real_acquire(lib, rts_cores)
 
 
 # The audit hook, added once per interpreter: a hook cannot be removed, so it
@@ -422,17 +488,23 @@ def _install() -> None:
     _REPLACED.setattr(select, "select", _select)
     _REPLACED.setattr(signal, "alarm", _alarm)
     _REPLACED.setattr(signal, "setitimer", _setitimer)
+    _REPLACED.setattr(RTSState, "acquire", classmethod(_acquire))
 
 
 def installed() -> bool:
-    """Say whether the guard holds the clock and the waits, as it does while a session runs."""
+    """Say whether the guard holds the clock, the waits and the cores, as while a session runs."""
     return threading.Thread.start is _thread_start
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Replace the clock and the waits when the first session starts, and hold its processes."""
+    """Replace the clock, the waits and the runtime's acquire as the first session starts."""
     config.addinivalue_line(
         "markers", "process(reason): the test starts a process, whose answer is its claim"
+    )
+    config.addinivalue_line(
+        "markers",
+        "runtime_cores(reason): the test asks a started runtime for another core count,"
+        + " whose answer is its claim",
     )
     if not _SESSIONS:
         _install()
@@ -443,7 +515,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
-    """Put the real clock and waits back when the last session ends."""
+    """Put the real clock, waits and acquire back when the last session ends."""
     _SESSIONS.remove(config)
     if not _SESSIONS:
         _REPLACED.undo()
@@ -461,10 +533,18 @@ def pytest_sessionfinish() -> None:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_protocol(item: pytest.Item) -> Generator[None]:
-    """Hold a test's process starts to its mark, from its first fixture to its last."""
+    """Hold a test's process starts and core counts to its marks, first fixture to last."""
     fixtures = frozenset(FixtureName(name) for name in getattr(item, "fixturenames", ()))
     scopes = frozenset(Prose(node.nodeid) for node in item.iter_parents())
-    _RUNNING.append(_Running(Prose(item.nodeid), _marked_reason(item), fixtures, scopes))
+    _RUNNING.append(
+        _Running(
+            Prose(item.nodeid),
+            fixtures,
+            scopes,
+            _Allowance(_marked_reason(item, _PROCESS_MARK)),
+            _Allowance(_marked_reason(item, _CORES_MARK)),
+        )
+    )
     try:
         yield
     finally:
@@ -473,9 +553,10 @@ def pytest_runtest_protocol(item: pytest.Item) -> Generator[None]:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item: pytest.Item) -> None:
-    """Fail a test whose process mark gives no reason, before its fixtures run."""
-    if item.get_closest_marker("process") is not None and _marked_reason(item) is None:
-        pytest.fail(f'{item.nodeid}: @pytest.mark.process takes one reason, as "<reason>"')
+    """Fail a test whose process or cores mark gives no reason, before its fixtures run."""
+    for mark in (_PROCESS_MARK, _CORES_MARK):
+        if item.get_closest_marker(mark) is not None and _marked_reason(item, mark) is None:
+            pytest.fail(f'{item.nodeid}: @pytest.mark.{mark} takes one reason, as "<reason>"')
 
 
 @pytest.hookimpl(wrapper=True)
@@ -490,32 +571,32 @@ def pytest_fixture_setup[V](fixturedef: pytest.FixtureDef[V]) -> Generator[None,
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call() -> Generator[None]:
-    """Report a refusal once, and fail a process mark its test had no use for."""
+    """Report a refusal its call raised once, and fail a mark its test had no use for."""
+    running = _RUNNING[-1] if _RUNNING else None
     try:
         yield
     except pytest.fail.Exception as failure:
-        if _REFUSALS and failure.msg is not None and failure.msg in _REFUSALS[-1]:
-            _REFUSALS[-1].remove(Prose(failure.msg))
+        if running is not None and failure.msg is not None and failure.msg in running.refusals:
+            running.refusals.remove(Prose(failure.msg))
         raise
-    running = _RUNNING[-1] if _RUNNING else None
+    if running is None:
+        return
+    process, cores = running.process, running.cores
     if (
-        running is not None
-        and running.reason is not None
-        and running.started == 0
+        process.reason is not None
+        and not process.used
         and not _relies_on_a_starting_fixture(running)
     ):
         pytest.fail(f"{running.nodeid}: its process mark allows a process it never starts")
+    if cores.reason is not None and not cores.used:
+        pytest.fail(f"{running.nodeid}: its runtime_cores mark allows a core count it never asks")
 
 
 @pytest.fixture(autouse=True)
 def clock() -> Iterator[Clock]:
-    """Start each test at the same instant, and fail it at teardown on a refusal its code caught."""
+    """Start each test at the same instant, and fail it at teardown on a refusal not reported."""
     CLOCK.reset()
-    refusals: list[Prose] = []
-    _REFUSALS.append(refusals)
-    try:
-        yield CLOCK
-    finally:
-        _ = _REFUSALS.pop()
-    if refusals:
-        pytest.fail("\n".join(refusals))
+    yield CLOCK
+    running = _RUNNING[-1] if _RUNNING else None
+    if running is not None and running.refusals:
+        pytest.fail("\n".join(running.refusals))
