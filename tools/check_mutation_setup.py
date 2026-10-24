@@ -6,19 +6,20 @@ Always-on invariants, checked without running the mutation tools (which take
 30 min - 2 hours wall):
 
 1. **Hot-path sources exist.** Parses ``docs/MUTATION_BENCH.yaml`` and verifies,
-   for every binding, that the declared hot-path source files exist on disk —
-   catches silent removal or rename of a hot-path file.
+   for every binding, that the declared hot-path source files exist on disk,
+   which catches the silent removal or rename of a hot-path file.
 
 2. **Tools-importing tests are excluded from the Python mutmut lane.** Every
-   ``python/tests/test_*.py`` that imports the repo-root ``tools`` package must
-   appear as ``--ignore=tests/<name>.py`` (full filename, extension included) in
-   ``[tool.mutmut].pytest_add_cli_args``.
-   Such a test ModuleNotFound-aborts pytest collection inside mutmut's relocated
-   ``mutants/`` work-tree (which has no ``tools``), which kills the baseline
-   stats phase -> *zero* mutants run -> the (advisory) lane silently goes red.
-   This gate is in the REQUIRED sweep, so it surfaces the drift at PR time.
-   (Reproduced 2026-06-20: ``tests/test_check_changelog.py`` landed in #51
-   importing ``tools`` without an ignore, crashing the lane unnoticed for days.)
+   ``python/tests/test_*.py`` whose collection imports the repo-root ``tools``
+   package, itself or through a helper module of ``python/tests/``, must
+   appear as ``--ignore=tests/<name>.py`` (full filename, extension included)
+   in ``[tool.mutmut].pytest_add_cli_args``, and ``python/tests/conftest.py``,
+   which pytest imports for every test, must import it nowhere.
+   Such a test holds the repository's tools, not the package's hot paths, and
+   reads the tree above ``python/`` through them, which mutmut's relocated
+   ``mutants/`` work-tree lacks (invariant 3); run per mutant it costs its
+   whole run each time.  The conftest puts the repository root on the path, so
+   the import itself resolves there too.
 
 3. **A test that reads the tree above ``python/`` either skips or is excluded.**
    mutmut copies ``python/`` alone into ``mutants/``, so a test resolving
@@ -27,9 +28,6 @@ Always-on invariants, checked without running the mutation tools (which take
    that answers that by skipping is fine wherever it runs; one that asserts
    fails the baseline instead, which is the same zero-mutant outcome as an
    aborted collection, so it must carry an ``--ignore=`` too.
-   (Reproduced 2026-09-20: ``tests/test_doc_only_path_exemption.py`` read
-   ``.github/workflows`` through ``parents[2]``, found nothing under
-   ``mutants/`` and failed the lane on its own assertion.)
 
 4. **The record has one block per binding the runner drives, and no other.**
    A binding the runner can sweep with no block is a lane with no baseline,
@@ -48,9 +46,8 @@ Always-on invariants, checked without running the mutation tools (which take
 6. **No lane's per-mutant run reaches its binding's doc-example harness.**
    A harness builds and runs every fence of the documents as a program of
    its own, holding the documents to the binding; the unit tests hold the
-   binding's behaviour.  Run per mutant it costs its whole run each time, and
-   the Rust sweep with it and without it gave the same verdict on every
-   mutant.  Python's is the pytest option that collects the fences, absent
+   binding's behaviour.  Run per mutant it costs its whole run each time.
+   Python's is the pytest option that collects the fences, absent
    from what mutmut runs; Go's and Rust's are one test each, which the lane
    skips by name, and the skip must reach that test and no other; C++'s is its
    own binary's source, which the binary the Mull runner runs must not
@@ -60,64 +57,104 @@ Always-on invariants, checked without running the mutation tools (which take
    ``rust/tests/benchmark_program.rs``, which build the benchmark example
    with a cargo of their own, and the skip must reach each of them.
 
-The dynamic counterpart is ``tools/mutation_run.py``, which actually drives
-each binding's mutation tool against this list and writes per-binding
-survivor counts.
+7. **Every recorded C++ slice weight is a file a slice can claim**, and the
+   partition claims the whole domain once.
+
+8. **The Go lane turns on every mutator gremlins ships off.**
+   ``go/.gremlins.yaml`` sets ``enabled: true`` under each, read as gremlins
+   reads it: YAML 1.2, every key lowercased, and a file its reader refuses,
+   one repeating a key among them, dropped whole.  A kind left off makes no
+   mutants, and only the lane's recorded ``generated`` count says so.  What
+   gremlins reads ahead of the file is outside this gate: a
+   ``GREMLINS_MUTANTS_<NAME>_ENABLED`` variable in the lane's environment,
+   with any non-empty value, leaves the kind off, and a ``.gremlins.yaml``
+   under ``/etc/gremlins``, the XDG config home or the user's ``.gremlins``
+   replaces this file whole; the ``generated`` count alone shows either.
+
+9. **The mutation build links the C++ library statically.** The Mull runner
+   finds mutants in the test executable, and a shared library hides most of
+   them from it, so ``cpp/CMakeLists.txt``, read as CMake reads it, sets
+   ``ALETHEIA_CPP_LINKAGE`` to ``STATIC`` first under ``ALETHEIA_MUTATION``,
+   nowhere else but in that branch's ``else()``, and the library takes that
+   form.
+
+10. **Every measured block records the counts its lane is judged by.** The
+    runner holds a sweep's ``total_mutants``, and on the lanes whose tool
+    reports one its ``generated``, to the record only where the record holds
+    them, so a block recording its ``survivors`` records those too.
+
+Invariants 6, 8 and 9 are checked by ``tools/check_mutation_setup_lanes.py``.  The
+dynamic counterpart is ``tools/mutation_run.py``, which actually drives each
+binding's mutation tool against this list and writes per-binding survivor
+counts.
 
 Usage:
-  python3 tools/check_mutation_setup.py
+  python -m tools.check_mutation_setup
 
 Exits 0 if every invariant holds, 1 otherwise (with a precise diagnostic naming
-the offending entries).
-
-Forward-revert verified 2026-05-09 (invariant 1): rename one hot-path entry in
-the YAML to a non-existent path -> this gate fires; restore the path -> exit 0.
-Forward-revert verified 2026-06-20 (invariant 2): drop the
-``test_check_changelog.py`` ignore -> this gate fires; restore it -> exit 0.
-Forward-revert verified 2026-09-26 (invariant 4): rename the Rust block to a
-binding no runner has -> this gate fires twice, by name; restore it -> exit 0
-(``probes/tools_check_mutation_setup.py--a-binding-without-a-block-is-caught.sh``).
-Forward-revert verified 2026-10-01 (invariant 6): each lane in turn made to
-reach its harness, to skip another test beside it, or to name a harness
-renamed away -> this gate fires, by binding; restore it -> exit 0
-(``probes/tools_check_mutation_setup.py--a-lane-that-runs-a-doc-harness-is-caught.sh``).
+the offending entries), 2 when a file or directory this module reads cannot be
+read, or TOML, CMake or a test's Python it cannot parse; a ``go/.gremlins.yaml``
+gremlins' reader refuses is invariant 8's refusal instead, since gremlins drops
+it.
 """
 
 from __future__ import annotations
 
 import argparse
-import collections
+import ast
+import importlib.util
 import re
 import sys
-import tomllib
-from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NewType, TypedDict, cast
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, NewType, NoReturn, cast
 
 import yaml
 
-from tools._common import RelPath, emit
-from tools.mutation_cpp import CPP_TEST_TARGET
+from tools._common import emit
+from tools.check_mutation_setup_lanes import (
+    GO_DEFAULT_OFF_MUTATORS,
+    PYPROJECT_PATH,
+    REPO_ROOT,
+    Glob,
+    TomlString,
+    cpp_lane_links_the_library_statically,
+    cpp_lane_runs_no_doc_harness,
+    exit_unreadable,
+    go_lane_runs_no_doc_harness,
+    go_lane_turns_on_the_default_off_mutators,
+    listed_or_exit,
+    python_lane_runs_no_doc_harness,
+    read_or_exit,
+    rust_lane_runs_no_doc_harness,
+    strings_or_exit,
+    table_or_exit,
+    toml_or_exit,
+)
 from tools.mutation_cpp_slices import partition, slice_domain
-from tools.mutation_run import GO_DOC_HARNESS, RUNNERS, GoFlags, go_sweep_goflags
+from tools.mutation_run import RUNNERS
 
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping, Sequence
+    from pathlib import Path
+
     from tools.mutation_cpp_slices import FileRuns
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
-PYPROJECT_PATH = REPO_ROOT / "python" / "pyproject.toml"
 PY_TESTS_DIR = REPO_ROOT / "python" / "tests"
 
-# A column-0 (top-level) ``import tools`` / ``from tools ...`` — the only form
-# that runs, and aborts collection, at pytest import time.  An INDENTED import
-# (inside a function, an ``if TYPE_CHECKING:`` block, or a ``try/except
-# ImportError`` guard) is deliberately NOT matched: it either does not execute
-# during collection or is guarded, so it does not crash the mutmut baseline —
-# matching it would be a false positive.  (A transitive import via a helper is
-# also not caught; it likewise does not abort collection at the test module.)
-_TOOLS_IMPORT_RE = re.compile(r"^(?:from|import)[ \t]+tools(?:\.|[ \t]|$)", re.MULTILINE)
+# A binding as the record names its block.
+BindingName = NewType("BindingName", str)
+# A module as an import statement names it.
+ModuleName = NewType("ModuleName", str)
+# A function as its ``def`` names it.
+FunctionName = NewType("FunctionName", str)
+# A decorator as a name spells it.
+DecoratorName = NewType("DecoratorName", str)
+# The functions a name reaches in one scope, each name's every definition.
+type Scope = Mapping[FunctionName, Sequence[ast.FunctionDef]]
+
 # An ``--ignore=tests/<name>.py`` entry in the mutmut pytest args.
 _IGNORE_ARG_RE = re.compile(r"^--ignore=(tests/[\w./-]+\.py)$")
 # A path built above ``python/``: ``parents[2]`` and up from a file in
@@ -129,108 +166,507 @@ _SKIPS_RE = re.compile(r"pytest\.skip|skipif|importorskip")
 
 
 def _load_bindings() -> dict[str, object]:
-    """Load and validate ``SPEC_PATH``, returning its ``bindings`` mapping.
-
-    Exits 2 with a precise stderr diagnostic if the spec is missing,
-    malformed, or its ``bindings`` entry is not a mapping.
-    """
-    if not SPEC_PATH.is_file():
-        _ = sys.stderr.write(f"ERROR: spec missing at {SPEC_PATH}\n")
-        sys.exit(2)
-    spec: object = yaml.safe_load(SPEC_PATH.read_text())
+    """Return the record's ``bindings`` mapping, or stop the gate with exit 2 naming why not."""
+    try:
+        spec: object = yaml.safe_load(read_or_exit(SPEC_PATH))
+    except yaml.YAMLError as exc:
+        exit_unreadable(SPEC_PATH, Prose(" ".join(str(exc).split())))
     if not isinstance(spec, dict) or "bindings" not in spec:
-        _ = sys.stderr.write(f"ERROR: malformed spec at {SPEC_PATH}\n")
-        sys.exit(2)
+        exit_unreadable(SPEC_PATH, Prose("it holds no mapping with a bindings entry"))
     bindings = cast("dict[str, object]", spec)["bindings"]
     if not isinstance(bindings, dict):
-        _ = sys.stderr.write("ERROR: spec.bindings must be a mapping\n")
-        sys.exit(2)
+        exit_unreadable(SPEC_PATH, Prose("its bindings entry is not a mapping"))
     return cast("dict[str, object]", bindings)
 
 
-def _collect_failures(bindings: dict[str, object]) -> list[str]:
+def _baseline(bindings: dict[str, object], binding: BindingName) -> dict[str, object]:
+    """Return one block's ``baseline``, empty where the block or its baseline is no mapping."""
+    spec = bindings.get(binding)
+    if not isinstance(spec, dict):
+        return {}
+    baseline = cast("dict[str, object]", spec).get("baseline", {})
+    return cast("dict[str, object]", baseline) if isinstance(baseline, dict) else {}
+
+
+def every_block_names_its_tool_and_hot_paths(bindings: dict[str, object]) -> list[Prose]:
     """Return one diagnostic per spec defect across every binding entry."""
-    failures: list[str] = []
+    failures: list[Prose] = []
     for binding_name, binding_spec in bindings.items():
         if not isinstance(binding_spec, dict):
-            failures.append(
-                f"[{binding_name}] binding spec must be a mapping",
-            )
+            failures.append(Prose(f"[{binding_name}] binding spec must be a mapping"))
             continue
         spec = cast("dict[str, object]", binding_spec)
         tool = spec.get("tool")
         if not isinstance(tool, str) or not tool:
-            failures.append(
-                f"[{binding_name}] missing 'tool' field in spec",
-            )
+            failures.append(Prose(f"[{binding_name}] missing 'tool' field in spec"))
         hot_path = spec.get("hot_path", [])
         if not isinstance(hot_path, list) or not hot_path:
-            failures.append(
-                f"[{binding_name}] missing or empty 'hot_path' field",
-            )
+            failures.append(Prose(f"[{binding_name}] missing or empty 'hot_path' field"))
             continue
         for rel in cast("list[object]", hot_path):
             if not isinstance(rel, str):
-                continue
-            full = REPO_ROOT / rel
-            if not full.is_file():
-                failures.append(
-                    f"[{binding_name}] hot-path source does not exist: {rel}",
-                )
+                failures.append(Prose(f"[{binding_name}] hot-path entry is not a path: {rel!r}"))
+            elif not (REPO_ROOT / rel).is_file():
+                failures.append(Prose(f"[{binding_name}] hot-path source does not exist: {rel}"))
     return failures
 
 
-def _mutmut_ignored_tests() -> set[str]:
+# A test file as ``[tool.mutmut]`` names it: ``tests/<name>.py``.
+TestPath = NewType("TestPath", str)
+
+
+def _mutmut_ignored_tests() -> set[TestPath]:
     """Return the ``tests/<name>.py`` files excluded via ``--ignore`` in [tool.mutmut].
 
-    Exits 2 if pyproject.toml is missing or its ``[tool.mutmut]`` section absent —
-    those would silently make the invariant-2 check vacuous.
+    Exits 2 if ``pyproject.toml`` cannot be read or has no ``[tool.mutmut]``
+    section: invariants 2 and 3 would name every test they match, each told to
+    join a section that does not exist.
     """
-    if not PYPROJECT_PATH.is_file():
-        _ = sys.stderr.write(f"ERROR: pyproject.toml missing at {PYPROJECT_PATH}\n")
-        sys.exit(2)
-    data = tomllib.loads(PYPROJECT_PATH.read_text())
-    mutmut = data.get("tool", {}).get("mutmut")
-    if not isinstance(mutmut, dict):
-        _ = sys.stderr.write(f"ERROR: no [tool.mutmut] section in {PYPROJECT_PATH}\n")
-        sys.exit(2)
-    args = cast("dict[str, object]", mutmut).get("pytest_add_cli_args", [])
-    ignored: set[str] = set()
-    if isinstance(args, list):
-        for arg in cast("list[object]", args):
-            if isinstance(arg, str):
-                match = _IGNORE_ARG_RE.match(arg)
-                if match:
-                    ignored.add(match.group(1))
-    return ignored
+    tool = table_or_exit(
+        PYPROJECT_PATH, toml_or_exit(PYPROJECT_PATH).get(TomlString("tool"), {}), Prose("tool")
+    )
+    if TomlString("mutmut") not in tool:
+        exit_unreadable(PYPROJECT_PATH, Prose("it has no [tool.mutmut] section"))
+    mutmut = table_or_exit(PYPROJECT_PATH, tool[TomlString("mutmut")], Prose("tool.mutmut"))
+    return {
+        TestPath(match.group(1))
+        for arg in strings_or_exit(
+            PYPROJECT_PATH,
+            mutmut.get(TomlString("pytest_add_cli_args"), []),
+            Prose("tool.mutmut.pytest_add_cli_args"),
+        )
+        if (match := _IGNORE_ARG_RE.match(arg))
+    }
 
 
-def _tools_importing_tests_unignored() -> list[str]:
-    """One diagnostic per ``tools``-importing test missing from the mutmut ignore list.
+def _test_files() -> list[Path]:
+    """Return every ``test_*.py`` of ``python/tests/``, or stop the gate with exit 2 without one.
 
-    Exits 2 if ``python/tests/`` is absent — returning ``[]`` there would make
-    invariant 2 silently vacuous (the gate passes despite being unable to
-    enforce the rule), mirroring the missing-pyproject / missing-[tool.mutmut]
-    hard failures in ``_mutmut_ignored_tests``.
+    Without the directory every check of it would pass holding nothing.
     """
-    if not PY_TESTS_DIR.is_dir():
-        _ = sys.stderr.write(f"ERROR: python tests dir missing at {PY_TESTS_DIR}\n")
-        sys.exit(2)
+    return listed_or_exit(PY_TESTS_DIR, Glob("test_*.py"))
+
+
+def every_tools_importing_test_is_ignored() -> list[Prose]:
+    """One diagnostic per test whose collection imports ``tools`` and the lane runs.
+
+    A helper of ``python/tests/`` the test imports is read as the test is, so
+    an import two modules down aborts the collection as one at the top does.
+    """
+    paths = _test_files()
     ignored = _mutmut_ignored_tests()
-    failures: list[str] = []
-    for path in sorted(PY_TESTS_DIR.glob("test_*.py")):
-        if _TOOLS_IMPORT_RE.search(path.read_text(encoding="utf-8")):
-            rel = f"tests/{path.name}"
-            if rel not in ignored:
-                failures.append(
-                    f"[python/mutmut] {rel} imports the repo-root `tools` package but is "
-                    + f"not excluded — add `--ignore={rel}` to [tool.mutmut].pytest_add_cli_args "
-                    + "(else it aborts mutmut's baseline collection in mutants/ -> zero mutants)",
+    failures: list[Prose] = []
+    for path in paths:
+        rel = TestPath(f"tests/{path.name}")
+        route = _tools_route(path, set())
+        if route is not None and rel not in ignored:
+            failures.append(
+                Prose(
+                    f"[python/mutmut] {rel} imports the repo-root `tools` package"
+                    + f"{_through(route)} but is not excluded: add `--ignore={rel}` to "
+                    + "[tool.mutmut].pytest_add_cli_args (it holds the tools, not a hot "
+                    + "path, and costs every mutant its run)"
                 )
+            )
+    conftest = PY_TESTS_DIR / "conftest.py"
+    route = _tools_route(conftest, set()) if conftest.is_file() else None
+    if route is not None:
+        failures.append(
+            Prose(
+                "[python/mutmut] tests/conftest.py imports the repo-root `tools` package"
+                + f"{_through(route)}: pytest imports it for every test, so no `--ignore=` "
+                + "keeps the tools out of a mutant's run"
+            )
+        )
     return failures
 
 
-def _above_tree_tests_unignored() -> list[str]:
+def _through(route: list[ModuleName]) -> Prose:
+    """Name the helpers an import of ``tools`` goes through, or nothing for a direct one."""
+    return Prose(f" through {', '.join(f'tests/{name}.py' for name in route)}" if route else "")
+
+
+def _tools_route(path: Path, visited: set[Path]) -> list[ModuleName] | None:
+    """Return the helpers through which collecting ``path`` imports ``tools``, or None.
+
+    The list is empty for a module that imports ``tools`` itself, whatever
+    else it imports.  A helper is a module or a package of ``python/tests/``
+    imported by its name, as pytest's path makes them importable, a dotted
+    name reaching each package on its way; one already read is not read
+    again, so a cycle ends.
+    """
+    visited.add(path)
+    try:
+        tree = ast.parse(read_or_exit(path), filename=path)
+    except SyntaxError as exc:
+        exit_unreadable(path, Prose(f"{exc.msg} at line {exc.lineno}"))
+    imported = list(_imports_at_collection(tree, path))
+    if any(module.partition(".")[0] == "tools" for module in imported):
+        return []
+    for module in imported:
+        for helper in _helper_files(module):
+            if helper not in visited:
+                route = _tools_route(helper, visited)
+                if route is not None:
+                    name = helper.relative_to(PY_TESTS_DIR).with_suffix("").as_posix()
+                    return [ModuleName(name), *route]
+    return None
+
+
+def _helper_files(module: ModuleName) -> list[Path]:
+    """Return the files of ``python/tests/`` importing ``module`` runs, outermost first."""
+    files: list[Path] = []
+    parts = module.split(".")
+    for depth in range(1, len(parts) + 1):
+        stem = PY_TESTS_DIR.joinpath(*parts[:depth])
+        candidates = (stem.with_suffix(".py"), stem / "__init__.py")
+        found = next((f for f in candidates if f.is_file()), None)
+        if found is None:
+            break
+        files.append(found)
+    return files
+
+
+def _imports_at_collection(tree: ast.Module, path: Path) -> Iterator[ModuleName]:
+    """Yield each module an import under ``tree`` names, where importing the module runs it.
+
+    The walk reads the source as written, never as Python resolves it: a
+    name is read as it is spelled, in the scope where it is written, and
+    every branch is read as running.  So every statement's body is read, a
+    class's, a ``try``'s, each handler's and each loop's among them, and ``if
+    TYPE_CHECKING:`` reads its ``else`` alone.  A function's body is read
+    where a statement read calls it by its own name, a bare decorator
+    included, the name looked up in the scope of the call (the module's, a
+    class body's or a function body's own definitions, the enclosing ones
+    behind them, every definition of a name kept since a later one hiding an
+    earlier is a lint failure) and the body read once, in the scope it
+    closes over, which a class body's names are not part of.  An annotation
+    is read where pytest's collection evaluates a signature: a ``test*``
+    function's or coroutine's, a ``pytest_*`` hook's and a fixture's, in the
+    module or a ``Test*`` class of it, none where the module imports
+    ``annotations`` from ``__future__``.  A fixture is a function decorated
+    by a name or an attribute spelled ``fixture``, or by the name ``from
+    pytest import fixture as`` binds.
+
+    What Python reaches through a name it resolves as it runs is left
+    unread: a function called through an attribute, an alias or a
+    rebinding; what constructing a class runs (``__init__``,
+    ``__init_subclass__``, a metaclass); a test, class or fixture pytest
+    finds under another name (bound to a ``test*`` or ``Test*`` name,
+    inherited from a class otherwise named, built in a called function, a
+    fixture made by calling ``fixture``); a fixture of a unittest class not
+    named ``Test*``; a helper's function; and code run from a string by
+    ``exec`` or ``eval``.  So is what Python defers, even where the code
+    runs it at once: a lambda's body, a generator expression's past its
+    first iterable, a coroutine's, a type parameter, a ``type`` alias's
+    value.  What the walk reads but neither Python nor pytest runs is read
+    all the same: a branch not taken, a definition a later one hides or
+    ``del`` removes, a test a decorator replaces, a decorator spelled
+    ``fixture`` that is not pytest's, a helper module's tests and fixtures,
+    a ``pytest_*`` function pytest does not call, a test or ``Test*`` class
+    whose own or module's ``__test__`` is false, a ``Test*`` class pytest
+    passes over for an ``__init__`` or a ``__new__``, and the test methods
+    of a ``Test*`` unittest class, whose signatures pytest leaves
+    unevaluated.
+
+    A call of ``__import__`` names the module its first argument spells; one
+    of ``import_module`` names it relative to the package its second spells;
+    either naming a module by an expression stops the gate, since the gate
+    reads a name spelled, and ``path`` names the file then.  ``from p import
+    n`` names ``p`` and ``p.n``, since ``n`` may be a module of the package
+    ``p``.  A relative import names a module of the helper package it sits
+    in, and nothing in a test, since the tests are no package.
+    """
+    run = not _postpones_annotations(tree)
+    walk = _Walk(path, _package_of(path), _fixture_spellings(tree))
+    return _imports_run_by(tree, {}, walk, annotations_run=run)
+
+
+@dataclass
+class _Walk:
+    """What one module's walk carries.
+
+    Its file and helper package, the names its fixtures are spelled by, each
+    function's scope, and the functions read.
+    """
+
+    path: Path
+    package: ModuleName
+    fixtures: frozenset[DecoratorName]
+    scopes: dict[ast.FunctionDef, Scope] = field(default_factory=dict)
+    entered: set[ast.FunctionDef] = field(default_factory=set)
+
+
+def _imports_run_by(
+    node: ast.AST, outer: Scope, walk: _Walk, *, annotations_run: bool
+) -> Iterator[ModuleName]:
+    """Yield each module an import under ``node`` names, as running ``node`` runs it.
+
+    ``outer`` is the scope around ``node``, whose own definitions hide its
+    names; a function called by name is read once, in the scope it closes over.
+    ``annotations_run`` says whether pytest's collection evaluates the
+    annotations of the tests and fixtures ``node``'s own statements define.
+    """
+    defined = _functions_defined(node)
+    scope: Scope = {**outer, **defined}
+    closure = outer if isinstance(node, ast.ClassDef) else scope
+    for functions in defined.values():
+        for function in functions:
+            _ = walk.scopes.setdefault(function, closure)
+    for child in _statements_run(node):
+        yield from _modules_named(child, walk)
+        if not isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+            within = annotations_run and _collected_within(child)
+            yield from _imports_run_by(child, scope, walk, annotations_run=within)
+        for called in _called_by_name(child):
+            yield from _imports_of_calling(called, scope, walk)
+        for annotation in _signature_collected(child, walk) if annotations_run else []:
+            yield from _modules_named(annotation, walk)
+            for called in _called_by_name(annotation):
+                yield from _imports_of_calling(called, scope, walk)
+
+
+def _imports_of_calling(called: FunctionName, scope: Scope, walk: _Walk) -> Iterator[ModuleName]:
+    """Yield what calling ``called`` imports: each function the name has in ``scope``, read once."""
+    for function in scope.get(called, ()):
+        if function not in walk.entered:
+            walk.entered.add(function)
+            yield from _imports_run_by(function, walk.scopes[function], walk, annotations_run=False)
+
+
+def _collected_within(statement: ast.AST) -> bool:
+    """Say whether pytest collects in ``statement``'s body where it collects around it.
+
+    A compound statement's body is its scope's; a class is collected by its
+    ``Test`` prefix.
+    """
+    return not isinstance(statement, ast.ClassDef) or statement.name.startswith("Test")
+
+
+def _signature_collected(statement: ast.AST, walk: _Walk) -> list[ast.Expr]:
+    """Return the annotations pytest's collection evaluates in ``statement``'s signature.
+
+    It reads a ``test*`` function's or coroutine's, a ``pytest_*`` hook's and a
+    fixture's; each annotation is returned as the expression statement it then
+    runs as.
+    """
+    if not isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef) or not (
+        statement.name.startswith(("test", "pytest_"))
+        or any(_names_fixture(decorator, walk) for decorator in statement.decorator_list)
+    ):
+        return []
+    arguments = statement.args
+    parameters = (
+        *arguments.posonlyargs,
+        *arguments.args,
+        *arguments.kwonlyargs,
+        arguments.vararg,
+        arguments.kwarg,
+    )
+    annotations = [
+        parameter.annotation
+        for parameter in parameters
+        if parameter is not None and parameter.annotation is not None
+    ]
+    if statement.returns is not None:
+        annotations.append(statement.returns)
+    return [ast.Expr(value=annotation) for annotation in annotations]
+
+
+def _postpones_annotations(tree: ast.Module) -> bool:
+    """Say whether ``tree`` imports ``annotations`` from ``__future__``, making each a string."""
+    return any(
+        isinstance(statement, ast.ImportFrom)
+        and statement.module == "__future__"
+        and any(alias.name == "annotations" for alias in statement.names)
+        for statement in tree.body
+    )
+
+
+def _fixture_spellings(tree: ast.Module) -> frozenset[DecoratorName]:
+    """Return the names a decorator spells pytest's ``fixture`` by in ``tree``.
+
+    ``fixture`` itself, and each name ``from pytest import fixture as`` binds.
+    """
+    return frozenset(
+        {DecoratorName("fixture")}
+        | {
+            DecoratorName(alias.asname)
+            for statement in tree.body
+            if isinstance(statement, ast.ImportFrom) and statement.module == "pytest"
+            for alias in statement.names
+            if alias.name == "fixture" and alias.asname is not None
+        }
+    )
+
+
+def _names_fixture(decorator: ast.expr, walk: _Walk) -> bool:
+    """Say whether ``decorator`` spells pytest's ``fixture``, bare, as an attribute or called."""
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return (isinstance(target, ast.Name) and DecoratorName(target.id) in walk.fixtures) or (
+        isinstance(target, ast.Attribute) and target.attr == "fixture"
+    )
+
+
+def _package_of(path: Path) -> ModuleName:
+    """Return the package of the module at ``path``, as Python sets its ``__package__``.
+
+    It is the dotted path of the module's directory below ``python/tests/``,
+    empty for a test or helper beside it, where a relative import has no
+    package to resolve in.
+    """
+    return ModuleName(".".join(path.parent.relative_to(PY_TESTS_DIR).parts))
+
+
+def _modules_named(statement: ast.AST, walk: _Walk) -> Iterator[ModuleName]:
+    """Yield each module ``statement`` names itself: an import's, or a call's in its expressions."""
+    if isinstance(statement, ast.Import):
+        yield from (ModuleName(alias.name) for alias in statement.names)
+    elif isinstance(statement, ast.ImportFrom):
+        base = _from_base(statement, walk.package)
+        if base is not None:
+            yield base
+            yield from (ModuleName(f"{base}.{alias.name}") for alias in statement.names)
+    for expression in _expressions_run(statement):
+        if isinstance(expression, ast.Call):
+            named = _module_a_call_imports(expression, walk.path)
+            if named is not None:
+                yield named
+
+
+def _from_base(statement: ast.ImportFrom, package: ModuleName) -> ModuleName | None:
+    """Return the module ``from ... import`` reads its names from, None where none resolves.
+
+    A relative one resolves in ``package``; outside a package, or above its
+    top, Python refuses it, and it names nothing.
+    """
+    if statement.level == 0:
+        return None if statement.module is None else ModuleName(statement.module)
+    relative = "." * statement.level + (statement.module or "")
+    try:
+        return ModuleName(importlib.util.resolve_name(relative, package))
+    except ImportError:
+        return None
+
+
+def _functions_defined(node: ast.AST) -> dict[FunctionName, list[ast.FunctionDef]]:
+    """Return the functions ``node``'s own running statements define, each name's every one.
+
+    A nested function's or class's body defines its own, not read here.
+    """
+    defined: dict[FunctionName, list[ast.FunctionDef]] = {}
+    pending: list[ast.AST] = [node]
+    while pending:
+        for child in _statements_run(pending.pop()):
+            if isinstance(child, ast.FunctionDef):
+                defined.setdefault(FunctionName(child.name), []).append(child)
+            elif not isinstance(child, ast.AsyncFunctionDef | ast.ClassDef):
+                pending.append(child)
+    return defined
+
+
+def _statements_run(node: ast.AST) -> list[ast.AST]:
+    """Return what nested in ``node`` runs when ``node`` does, as module import runs it."""
+    if isinstance(node, ast.If) and _names_type_checking(node.test):
+        return [*node.orelse]
+    return [
+        child
+        for child in ast.iter_child_nodes(node)
+        if isinstance(child, ast.stmt | ast.ExceptHandler | ast.match_case)
+    ]
+
+
+def _expressions_run(node: ast.AST) -> Iterator[ast.expr]:
+    """Yield every expression that runs when ``node`` does, a nested statement's left to it."""
+    for child in _children_run(node):
+        if isinstance(child, ast.expr):
+            yield child
+        yield from _expressions_run(child)
+
+
+def _children_run(node: ast.AST) -> list[ast.AST]:
+    """Return the children of ``node`` that run when it does.
+
+    A nested statement runs on its own; an annotation, a type parameter and a
+    ``type`` alias's value are deferred; of a lambda its defaults run, of a
+    generator expression its first iterable.
+    """
+    if isinstance(node, ast.Lambda):
+        return [node.args]
+    if isinstance(node, ast.GeneratorExp):
+        return [node.generators[0].iter]
+    deferred = {id(getattr(node, name, None)) for name in ("annotation", "returns")}
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.TypeAlias):
+        deferred |= {id(parameter) for parameter in node.type_params}
+    if isinstance(node, ast.TypeAlias):
+        deferred.add(id(node.value))
+    return [
+        child
+        for child in ast.iter_child_nodes(node)
+        if id(child) not in deferred and not isinstance(child, ast.stmt)
+    ]
+
+
+def _called_by_name(statement: ast.AST) -> Iterator[FunctionName]:
+    """Yield each function a running ``statement`` calls by bare name, bare decorators included."""
+    for expression in _expressions_run(statement):
+        if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Name):
+            yield FunctionName(expression.func.id)
+    if isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        yield from (
+            FunctionName(decorator.id)
+            for decorator in statement.decorator_list
+            if isinstance(decorator, ast.Name)
+        )
+
+
+def _names_type_checking(test: ast.expr) -> bool:
+    """Say whether ``test`` is ``TYPE_CHECKING``, bare or as an attribute."""
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
+def _module_a_call_imports(call: ast.Call, path: Path) -> ModuleName | None:
+    """Return the module a ``__import__`` or ``import_module`` call spells, None for another call.
+
+    A module, or the package a relative one rests on, that the call names by
+    an expression stops the gate, naming ``path``.
+    """
+    callee = call.func
+    name = (
+        callee.id
+        if isinstance(callee, ast.Name)
+        else callee.attr
+        if isinstance(callee, ast.Attribute)
+        else None
+    )
+    if name not in {"__import__", "import_module"}:
+        return None
+    first = call.args[0] if call.args else None
+    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+        _exit_at(call, path, Prose("by an expression, which this gate reads only spelled"))
+    if name == "__import__" or not first.value.startswith("."):
+        return ModuleName(first.value)
+    package = (
+        call.args[1]
+        if len(call.args) > 1
+        else next((keyword.value for keyword in call.keywords if keyword.arg == "package"), None)
+    )
+    if not (isinstance(package, ast.Constant) and isinstance(package.value, str)):
+        _exit_at(call, path, Prose("relative to a package it does not spell"))
+    try:
+        return ModuleName(importlib.util.resolve_name(first.value, package.value))
+    except ImportError as exc:
+        _exit_at(call, path, Prose(f"above its package: {exc}"))
+
+
+def _exit_at(call: ast.Call, path: Path, how: Prose) -> NoReturn:
+    """Stop the gate at a dynamic import whose module it cannot name, saying ``how`` it is named."""
+    exit_unreadable(path, Prose(f"the import at line {call.lineno} names its module {how}"))
+
+
+def every_above_tree_test_skips_or_is_ignored() -> list[Prose]:
     """One diagnostic per test that reads above ``python/``, cannot skip, and is not ignored.
 
     The three properties are one finding together: reaching above the copied
@@ -238,23 +674,27 @@ def _above_tree_tests_unignored() -> list[str]:
     absent; it is the test that asserts on what it found there that fails
     mutmut's baseline and leaves the lane with no mutants at all.
     """
+    paths = _test_files()
     ignored = _mutmut_ignored_tests()
-    failures: list[str] = []
-    for path in sorted(PY_TESTS_DIR.glob("test_*.py")):
-        source = path.read_text(encoding="utf-8")
+    failures: list[Prose] = []
+    for path in paths:
+        source = read_or_exit(path)
         if not _ABOVE_TREE_RE.search(source) or _SKIPS_RE.search(source):
             continue
-        rel = f"tests/{path.name}"
+        rel = TestPath(f"tests/{path.name}")
         if rel not in ignored:
             failures.append(
-                f"[python/mutmut] {rel} reads the tree above python/ and cannot skip, but "
-                + f"is not excluded — add `--ignore={rel}` to [tool.mutmut].pytest_add_cli_args, "
-                + "or make it skip when the path is absent (under mutants/ it is)",
+                Prose(
+                    f"[python/mutmut] {rel} reads the tree above python/ and cannot skip, but "
+                    + f"is not excluded: add `--ignore={rel}` to "
+                    + "[tool.mutmut].pytest_add_cli_args, or make it skip when the path is "
+                    + "absent (under mutants/ it is)"
+                )
             )
     return failures
 
 
-def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str]:
+def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[Prose]:
     """Hold the recorded weights to the files a slice can actually claim.
 
     The slices are cut on the recorded weights, so a record with none is
@@ -266,45 +706,93 @@ def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str
     the whole domain, once each, which is the property every other refusal in
     the lane is written against.
     """
-    spec = cast("dict[str, object]", bindings.get("cpp", {}))
-    baseline = cast("dict[str, object]", spec.get("baseline", {}))
-    recorded = cast("FileRuns", baseline.get("runs_by_file", {}))
+    recorded = cast("FileRuns", _baseline(bindings, BindingName("cpp")).get("runs_by_file", {}))
     if not recorded:
         return [
-            "[cpp/slices] runs_by_file records nothing, so the slices are cut on "
-            + "nothing: re-take it from a run's cpp-runs.json",
+            Prose(
+                "[cpp/slices] runs_by_file records nothing, so the slices are cut on "
+                + "nothing: re-take it from a run's cpp-runs.json"
+            )
         ]
-    domain = slice_domain(REPO_ROOT, REPO_ROOT / "cpp" / "mull.yml")
+    config = REPO_ROOT / "cpp" / "mull.yml"
+    try:
+        domain = slice_domain(REPO_ROOT, config)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError) as exc:
+        exit_unreadable(config, Prose(" ".join(str(exc).split())))
     failures = [
-        f"[cpp/slices] {path} carries a recorded weight and is not a file a slice "
-        + "can claim: it is untracked, renamed, or held out by cpp/mull.yml, so "
-        + "its weight counts toward no slice"
+        Prose(
+            f"[cpp/slices] {path} carries a recorded weight and is not a file a slice "
+            + "can claim: it is untracked, renamed, or held out by cpp/mull.yml, so "
+            + "its weight counts toward no slice"
+        )
         for path in sorted(set(recorded) - set(domain))
     ]
     claimed = [path for claims in partition(domain, recorded) for path in claims]
     if sorted(claimed) != sorted(domain):
         failures.append(
-            f"[cpp/slices] the partition claims {len(claimed)} of the domain's "
-            + f"{len(domain)} files; a file in no slice is mutated by every slice, "
-            + "and one in two is swept twice",
+            Prose(
+                f"[cpp/slices] the partition claims {len(claimed)} of the domain's "
+                + f"{len(domain)} files; a file in no slice is mutated by every slice, "
+                + "and one in two is swept twice"
+            )
         )
     return failures
 
 
-def every_runner_has_a_block(bindings: dict[str, object]) -> list[str]:
+def every_runner_has_a_block(bindings: dict[str, object]) -> list[Prose]:
     """Hold the record to one block per binding the runner drives, and no other."""
     known = {name for name, _skip_var, _runner in RUNNERS}
     return [
-        f"[bindings] no block for {name}, which the runner sweeps: its first run would "
-        + "report first_run and gate nothing"
+        Prose(
+            f"[bindings] no block for {name}, which the runner sweeps: its first run would "
+            + "report first_run and gate nothing"
+        )
         for name in sorted(known - set(bindings))
     ] + [
-        f"[bindings/{name}] the runner has no such binding, so nothing reads this block"
+        Prose(f"[bindings/{name}] the runner has no such binding, so nothing reads this block")
         for name in sorted(set(bindings) - known)
     ]
 
 
-def ledger_rows_still_name_their_line(bindings: dict[str, object]) -> list[str]:
+# The lanes whose tool reports every mutant it made, which the runner holds
+# to the record's ``generated`` (tools/mutation_go.py, tools/mutation_rust.py).
+_GENERATING_LANES = frozenset({BindingName("go"), BindingName("rust")})
+
+
+def every_block_records_its_counts(bindings: dict[str, object]) -> list[Prose]:
+    """Hold each measured block to the counts the runner judges a sweep against.
+
+    The runner compares a sweep's count with the record's only where the
+    record holds one, so a count dropped from a block is a comparison dropped
+    from its lane, and nothing else says so.
+    """
+    failures: list[Prose] = []
+    for name in map(BindingName, bindings):
+        baseline = _baseline(bindings, name)
+        if "survivors" not in baseline:
+            continue
+        counts = ["total_mutants", *(["generated"] if name in _GENERATING_LANES else [])]
+        failures += [
+            Prose(
+                f"[{name}/baseline] records its survivors and no {count} count, so the "
+                + f"lane holds a sweep's {count} to nothing"
+            )
+            for count in counts
+            if not isinstance(baseline.get(count), int) or isinstance(baseline.get(count), bool)
+        ]
+    return failures
+
+
+# A ledger a block's baseline records rows in.
+LedgerName = NewType("LedgerName", str)
+_LEDGERS = (
+    LedgerName("survivors_ledger"),
+    LedgerName("unobserved_ledger"),
+    LedgerName("not_covered_ledger"),
+)
+
+
+def ledger_rows_still_name_their_line(bindings: dict[str, object]) -> list[Prose]:
     """Hold every recorded ledger row to a file and a line the tree still has.
 
     Every ledger keys a row on the text of its source line rather than on the
@@ -317,273 +805,43 @@ def ledger_rows_still_name_their_line(bindings: dict[str, object]) -> list[str]:
     whose count exceeds the times the text occurs is not a defect: several
     mutants of one line share it, and the tree does not say how many.
     """
-    failures: list[str] = []
-    for binding_name, binding_spec in bindings.items():
-        if not isinstance(binding_spec, dict):
-            continue
-        spec = cast("dict[str, object]", binding_spec)
-        baseline = cast("dict[str, object]", spec.get("baseline", {}))
-        for name in ("survivors_ledger", "unobserved_ledger", "not_covered_ledger"):
+    failures: list[Prose] = []
+    for binding_name in map(BindingName, bindings):
+        baseline = _baseline(bindings, binding_name)
+        for name in _LEDGERS:
             rows = baseline.get(name, [])
             if not isinstance(rows, list):
-                failures.append(f"[{binding_name}/{name}] must be a list of rows")
+                failures.append(Prose(f"[{binding_name}/{name}] must be a list of rows"))
                 continue
             for row in cast("list[object]", rows):
                 if not isinstance(row, dict):
-                    failures.append(f"[{binding_name}/{name}] every row must be a mapping")
+                    failures.append(Prose(f"[{binding_name}/{name}] every row must be a mapping"))
                     continue
                 failures += _row_names_its_line(binding_name, name, cast("dict[str, object]", row))
     return failures
 
 
-def _row_names_its_line(binding_name: str, ledger: str, row: dict[str, object]) -> list[str]:
+def _row_names_its_line(
+    binding_name: BindingName, ledger: LedgerName, row: dict[str, object]
+) -> list[Prose]:
     """Say why one ledger row no longer names a line of the tree, or nothing."""
     file, text = row.get("file"), row.get("text")
     if not isinstance(file, str) or not isinstance(text, str):
-        return [f"[{binding_name}/{ledger}] a row must carry a 'file' and a 'text'"]
+        return [Prose(f"[{binding_name}/{ledger}] a row must carry a 'file' and a 'text'")]
     source = REPO_ROOT / file
     if not source.is_file():
         return [
-            f"[{binding_name}/{ledger}] {file} is not a file of the tree: the row records a "
-            + "line of a source that was renamed or removed, and nothing else reads it",
-        ]
-    if not any(line.strip() == text for line in source.read_text(encoding="utf-8").split("\n")):
-        return [
-            f"[{binding_name}/{ledger}] {file} holds no line reading {text!r}: the row was "
-            + "recorded against a line the tree has since reworded, so re-take the ledger "
-            + "from a sweep or delete the row with the change that made it stale",
-        ]
-    return []
-
-
-# One argument of a command line the lane runs its tests with.
-PytestArg = NewType("PytestArg", str)
-CargoTestArg = NewType("CargoTestArg", str)
-# A test as its runner selects it by name.
-TestName = NewType("TestName", str)
-
-# Each binding's doc-example harness, as the lane that must not run it would
-# name it; Go's is the runner's own ``GO_DOC_HARNESS``.
-PYTHON_DOC_HARNESS = PytestArg("--markdown-docs")
-RUST_DOC_HARNESS = TestName("every_rust_fence_of_the_listed_documents_builds_and_runs")
-CPP_DOC_HARNESS = "tests/doc_example_tests.cpp"
-# The tests that build the benchmark example with a cargo of their own and run
-# it, every test of this file; the Rust lane skips them beside its harness.
-RUST_PROGRAM_TESTS = REPO_ROOT / "rust" / "tests" / "benchmark_program.rs"
-
-MUTANTS_TOML_PATH = REPO_ROOT / "rust" / ".cargo" / "mutants.toml"
-CMAKE_PATH = REPO_ROOT / "cpp" / "CMakeLists.txt"
-
-# A Go test: a top-level function the go command runs, TestMain excluded by its signature.
-_GO_TEST_RE = re.compile(r"^func (Test\w*)\(\w+ \*testing\.T\)", re.MULTILINE)
-# The pattern of a ``-skip`` flag in GOFLAGS.
-_GO_SKIP_RE = re.compile(r"(?:^|\s)-skip=(\S+)")
-# A Rust test: a function under ``#[test]``, whatever attributes follow it.
-_RUST_TEST_RE = re.compile(r"#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?fn\s+(\w+)")
-# A CMake command that names a target's sources.
-_CMAKE_SOURCES_RE = re.compile(r"\b(?:add_executable|target_sources)\s*\(([^)]*)\)")
-
-
-class _PytestIni(TypedDict, total=False):
-    addopts: list[PytestArg]
-
-
-class _PytestTool(TypedDict, total=False):
-    ini_options: _PytestIni
-
-
-class _MutmutTool(TypedDict, total=False):
-    pytest_add_cli_args: list[PytestArg]
-    pytest_add_cli_args_test_selection: list[PytestArg]
-
-
-class _Tools(TypedDict, total=False):
-    mutmut: _MutmutTool
-    pytest: _PytestTool
-
-
-class _Pyproject(TypedDict, total=False):
-    tool: _Tools
-
-
-class _MutantsToml(TypedDict, total=False):
-    additional_cargo_test_args: list[CargoTestArg]
-
-
-def no_lane_runs_a_doc_harness() -> list[Prose]:
-    """Hold each lane's per-mutant run to its binding's tests less the doc-example harness."""
-    return [
-        *python_lane_runs_no_doc_harness(),
-        *go_lane_runs_no_doc_harness(),
-        *rust_lane_runs_no_doc_harness(),
-        *cpp_lane_runs_no_doc_harness(),
-    ]
-
-
-def python_lane_runs_no_doc_harness() -> list[Prose]:
-    """Refuse the fence-collecting option among the arguments mutmut runs pytest with.
-
-    mutmut runs pytest with its own arguments and the project's ``addopts``;
-    the harness is the run-ci step that passes the option, found there first.
-    """
-    steps = (REPO_ROOT / "tools" / "_ci_steps.py").read_text(encoding="utf-8")
-    if f'"{PYTHON_DOC_HARNESS}"' not in steps:
-        return [
             Prose(
-                f"[python/doc-harness] tools/_ci_steps.py passes no {PYTHON_DOC_HARNESS}: the "
-                + "harness is spelled another way now, and this check would name nothing"
+                f"[{binding_name}/{ledger}] {file} is not a file of the tree: the row records a "
+                + "line of a source that was renamed or removed, and nothing else reads it"
             )
         ]
-    tool = cast("_Pyproject", tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))).get(
-        "tool", {}
-    )
-    mutmut = tool.get("mutmut", {})
-    runs = [
-        *mutmut.get("pytest_add_cli_args", []),
-        *mutmut.get("pytest_add_cli_args_test_selection", []),
-        *tool.get("pytest", {}).get("ini_options", {}).get("addopts", []),
-    ]
-    if PYTHON_DOC_HARNESS in runs:
+    if not any(line.strip() == text for line in str(read_or_exit(source)).split("\n")):
         return [
             Prose(
-                f"[python/doc-harness] mutmut runs pytest with {PYTHON_DOC_HARNESS}, so every "
-                + "mutant's run collects the documents' fences, which no mutant reaches"
-            )
-        ]
-    return []
-
-
-def go_lane_runs_no_doc_harness() -> list[Prose]:
-    """Hold the Go lane's ``-skip`` to the doc-example harness and nothing else.
-
-    The flag is read from the ``GOFLAGS`` the runner gives gremlins, the last
-    ``-skip`` being the one go keeps, and matched as go matches a top-level
-    test, unanchored; Python's ``re`` reads the pattern's anchors and word
-    characters as RE2 does.
-    """
-    package = REPO_ROOT / "go" / "aletheia"
-    names = [
-        TestName(match.group(1))
-        for path in sorted(package.glob("*_test.go"))
-        for match in _GO_TEST_RE.finditer(path.read_text(encoding="utf-8"))
-    ]
-    skips = [match.group(1) for match in _GO_SKIP_RE.finditer(go_sweep_goflags(GoFlags("")))]
-    if not skips:
-        return [
-            Prose(
-                "[go/doc-harness] the GOFLAGS the runner gives gremlins carry no -skip, so "
-                + f"every mutant's run reaches {GO_DOC_HARNESS}"
-            )
-        ]
-    pattern = re.compile(skips[-1])
-    skipped = [name for name in names if pattern.search(name)]
-    return _skips_the_harness_alone("go", TestName(GO_DOC_HARNESS), names, skipped)
-
-
-def rust_lane_runs_no_doc_harness() -> list[Prose]:
-    """Hold the Rust lane's ``--skip`` filters to the harness and the program's tests alone.
-
-    cargo-mutants appends the configuration's test arguments to ``cargo
-    test``, where those after ``--`` reach the test binaries, an example's
-    tests among them; libtest skips a test whose name contains a filter, or
-    equals it under ``--exact``.
-    """
-    config = cast("_MutantsToml", tomllib.loads(MUTANTS_TOML_PATH.read_text(encoding="utf-8")))
-    args = config.get("additional_cargo_test_args", [])
-    binary_args = args[args.index(CargoTestArg("--")) + 1 :] if "--" in args else []
-    filters = [
-        arg.removeprefix("--skip=")
-        for i, arg in enumerate(binary_args)
-        if arg.startswith("--skip=") or (i > 0 and binary_args[i - 1] == "--skip")
-    ]
-    exact = "--exact" in binary_args
-    names = [
-        TestName(match.group(1))
-        for directory in ("src", "tests", "examples")
-        for path in sorted((REPO_ROOT / "rust" / directory).rglob("*.rs"))
-        for match in _RUST_TEST_RE.finditer(path.read_text(encoding="utf-8"))
-    ]
-    skipped = [name for name in names if any(name == f if exact else f in name for f in filters)]
-    program = [
-        TestName(match.group(1))
-        for match in _RUST_TEST_RE.finditer(RUST_PROGRAM_TESTS.read_text(encoding="utf-8"))
-    ]
-    return [
-        *_skips_the_harness_alone(
-            "rust", RUST_DOC_HARNESS, names, [name for name in skipped if name not in program]
-        ),
-        *(
-            Prose(
-                f"[rust/program-tests] every mutant's run reaches {name}, which builds the "
-                + "benchmark example with a cargo of its own: the lane's skip does not match it"
-            )
-            for name in program
-            if name not in skipped
-        ),
-    ]
-
-
-def _skips_the_harness_alone(
-    binding: Literal["go", "rust"],
-    harness: TestName,
-    names: list[TestName],
-    skipped: list[TestName],
-) -> list[Prose]:
-    """Say why a lane's skip does not drop the harness alone from the tests it runs, or nothing."""
-    defined = names.count(harness)
-    if defined != 1:
-        return [
-            Prose(
-                f"[{binding}/doc-harness] {harness} is defined {defined} times among the "
-                + "binding's tests rather than once: the harness was renamed or duplicated, "
-                + "and the lane's skip is checked against a name the tree does not settle"
-            )
-        ]
-    failures: list[Prose] = []
-    if harness not in skipped:
-        failures.append(
-            Prose(
-                f"[{binding}/doc-harness] every mutant's run reaches {harness}: the lane's "
-                + "skip does not match it"
-            )
-        )
-    failures += [
-        Prose(
-            f"[{binding}/doc-harness] the lane's skip also drops {name}, which is not the "
-            + "doc-example harness, so no mutant is tested against it"
-        )
-        for name in sorted(set(skipped) - {harness})
-    ]
-    return failures
-
-
-def cpp_lane_runs_no_doc_harness() -> list[Prose]:
-    """Refuse the doc-example harness's source among those of the binary the Mull runner runs.
-
-    Every ``add_executable`` and ``target_sources`` of ``cpp/CMakeLists.txt``
-    is read, comments dropped, so a source folded into the test binary under
-    the mutation build counts as the unconditional ones do.
-    """
-    text = "\n".join(
-        line.split("#", 1)[0] for line in CMAKE_PATH.read_text(encoding="utf-8").splitlines()
-    )
-    sources: dict[RelPath, list[RelPath]] = collections.defaultdict(list)
-    for match in _CMAKE_SOURCES_RE.finditer(text):
-        target, *rest = match.group(1).split()
-        sources[RelPath(target)] += [RelPath(word) for word in rest]
-    building = sorted(target for target, words in sources.items() if CPP_DOC_HARNESS in words)
-    if not building:
-        return [
-            Prose(
-                f"[cpp/doc-harness] no target of cpp/CMakeLists.txt compiles {CPP_DOC_HARNESS}: "
-                + "the harness moved, and this check would name nothing"
-            )
-        ]
-    if CPP_TEST_TARGET in building:
-        return [
-            Prose(
-                f"[cpp/doc-harness] {CPP_TEST_TARGET}, the binary the Mull runner runs once per "
-                + f"mutant, compiles {CPP_DOC_HARNESS}"
+                f"[{binding_name}/{ledger}] {file} holds no line reading {text!r}: the row was "
+                + "recorded against a line the tree has since reworded, so re-take the ledger "
+                + "from a sweep or delete the row with the change that made it stale"
             )
         ]
     return []
@@ -592,12 +850,9 @@ def cpp_lane_runs_no_doc_harness() -> list[Prose]:
 def _ledger_rows(bindings: dict[str, object]) -> int:
     """Count the ledger rows the record carries, over every binding and every ledger."""
     total = 0
-    for binding_spec in bindings.values():
-        if not isinstance(binding_spec, dict):
-            continue
-        spec = cast("dict[str, object]", binding_spec)
-        baseline = cast("dict[str, object]", spec.get("baseline", {}))
-        for name in ("survivors_ledger", "unobserved_ledger", "not_covered_ledger"):
+    for binding_name in map(BindingName, bindings):
+        baseline = _baseline(bindings, binding_name)
+        for name in _LEDGERS:
             rows = baseline.get(name, [])
             if isinstance(rows, list):
                 total += len(cast("list[object]", rows))
@@ -617,16 +872,22 @@ def _total_hot_paths(bindings: dict[str, object]) -> int:
 
 
 def main() -> int:
-    """Check hot paths exist, tools-tests are ignored, and the slices are of the tree."""
+    """Run every check of the module docstring, naming each failure on stderr."""
     argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     bindings = _load_bindings()
-    failures = _collect_failures(bindings)
-    failures += _tools_importing_tests_unignored()
-    failures += _above_tree_tests_unignored()
+    failures = every_block_names_its_tool_and_hot_paths(bindings)
+    failures += every_tools_importing_test_is_ignored()
+    failures += every_above_tree_test_skips_or_is_ignored()
     failures += cpp_slice_weights_are_of_the_domain(bindings)
     failures += every_runner_has_a_block(bindings)
     failures += ledger_rows_still_name_their_line(bindings)
-    failures += no_lane_runs_a_doc_harness()
+    failures += python_lane_runs_no_doc_harness()
+    failures += go_lane_runs_no_doc_harness()
+    failures += rust_lane_runs_no_doc_harness()
+    failures += cpp_lane_runs_no_doc_harness()
+    failures += go_lane_turns_on_the_default_off_mutators()
+    failures += cpp_lane_links_the_library_statically()
+    failures += every_block_records_its_counts(bindings)
 
     if failures:
         _ = sys.stderr.write("Mutation-setup coverage gate FAILED:\n")
@@ -635,11 +896,12 @@ def main() -> int:
         _ = sys.stderr.write(
             f"\n{len(failures)} issue(s) above.  For a missing hot-path source: "
             + f"restore it or update {SPEC_PATH.relative_to(REPO_ROOT)} to reflect "
-            + "the rename (AGENTS.md cat 14(g) has the canonical lists).  For a "
-            + "test that the mutated tree cannot satisfy: add its `--ignore=` to "
-            + "[tool.mutmut], or let it skip.  For a doc-example harness a lane "
-            + "reaches: skip it in that lane's per-mutant run, and it alone, the Rust "
-            + "lane the benchmark program's tests beside it.\n",
+            + "the rename.  For a test that the mutated tree cannot satisfy: add its "
+            + "`--ignore=` to [tool.mutmut], or let it skip.  For a doc-example harness "
+            + "a lane reaches: skip it in that lane's per-mutant run, and it alone, the "
+            + "Rust lane the benchmark program's tests beside it.  For a mutator or the "
+            + "library's link form: restore it in go/.gremlins.yaml or cpp/CMakeLists.txt.  "
+            + "For a count: re-take it from a sweep.\n",
         )
         return 1
 
@@ -651,7 +913,10 @@ def main() -> int:
         + "every recorded C++ slice weight is a file the partition claims; "
         + "one block per binding the runner drives; "
         + f"each of {_ledger_rows(bindings)} ledger rows names a line the tree holds; "
-        + "no lane's per-mutant run reaches its doc-example harness.",
+        + "no lane's per-mutant run reaches its doc-example harness; "
+        + f"the Go lane turns on the {len(GO_DEFAULT_OFF_MUTATORS)} mutators gremlins ships off; "
+        + "the mutation build links the C++ library statically; "
+        + "every measured block records its counts.",
     )
     return 0
 

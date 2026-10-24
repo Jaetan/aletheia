@@ -11,29 +11,16 @@ import re
 from collections.abc import Callable
 from typing import IO, ClassVar
 
+# PyYAML defines its errors in ``yaml.error`` and re-exports them, as this stub does.
+from yaml.error import Mark as Mark
+from yaml.error import MarkedYAMLError as MarkedYAMLError
+from yaml.error import YAMLError as YAMLError
+
 def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> object: ...
 
 # Returns the document as text when no stream is given, which is the only way
 # it is called here: the C++ mutation lane writes a slice's configuration.
 def safe_dump(data: object, *, sort_keys: bool = True) -> str: ...
-
-class YAMLError(Exception):
-    """Every error PyYAML raises for a document it cannot read."""
-
-class Mark:
-    """A position in the document, printed as its line, column and snippet."""
-
-class MarkedYAMLError(YAMLError):
-    """A ``YAMLError`` naming its problem and where in the document it lies."""
-
-    def __init__(
-        self,
-        context: str | None = None,
-        context_mark: Mark | None = None,
-        problem: str | None = None,
-        problem_mark: Mark | None = None,
-        note: str | None = None,
-    ) -> None: ...
 
 class Node:
     """Subset of ``yaml.nodes.Node`` used by the number-tag constructor."""
@@ -41,23 +28,28 @@ class Node:
     # ``scalar``, ``sequence`` or ``mapping``.
     id: ClassVar[str]
     tag: str
-    value: object
+    # Read-only, so each kind narrows it to what it holds.
+    @property
+    def value(self) -> object: ...
     start_mark: Mark
 
 class ScalarNode(Node):
     """A scalar node; ``value`` is the scalar's literal text."""
 
-    value: str
+    @property
+    def value(self) -> str: ...
 
 class MappingNode(Node):
     """A mapping node; ``value`` is its key and value nodes, in document order."""
 
-    value: list[tuple[Node, Node]]
+    @property
+    def value(self) -> list[tuple[Node, Node]]: ...
 
 class SequenceNode(Node):
     """A sequence node; ``value`` is its item nodes, in document order."""
 
-    value: list[Node]
+    @property
+    def value(self) -> list[Node]: ...
 
 class SafeLoader:
     """Subset of ``yaml.SafeLoader`` used by the loader subclass that keeps numbers as text.
@@ -74,6 +66,11 @@ class SafeLoader:
     def __init__(self, stream: str | bytes | IO[str] | IO[bytes]) -> None: ...
     def get_single_data(self) -> object: ...
     def get_single_node(self) -> Node | None: ...
+    # Whether a document remains, the stream's start dropped; then that document.
+    def check_data(self) -> bool: ...
+    def check_node(self) -> bool: ...
+    def get_data(self) -> object: ...
+    def get_node(self) -> Node | None: ...
     def dispose(self) -> None: ...
     @classmethod
     def add_constructor(

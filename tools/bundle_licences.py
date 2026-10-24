@@ -213,18 +213,19 @@ def libffi_release(header: Prose) -> LibffiRelease | None:
     return None if found is None else LibffiRelease(found[1])
 
 
-def _repeated_key(node: Node) -> Prose | None:
-    """Return the first key a mapping under ``node`` holds twice, or None."""
-    children: list[Node] = []
+def mapping_keys(node: Node | None) -> list[list[Prose]]:
+    """Return the keys of every mapping under ``node``, a mapping's before those below it."""
     if isinstance(node, MappingNode):
-        keys = [Prose(str(key.value)) for key, _ in node.value]
-        repeated = next((key for at, key in enumerate(keys) if key in keys[:at]), None)
-        if repeated is not None:
-            return repeated
-        children = [value for _, value in node.value]
-    elif isinstance(node, SequenceNode):
-        children = node.value
-    return next((key for child in children if (key := _repeated_key(child)) is not None), None)
+        own = [[Prose(str(key.value)) for key, _ in node.value]]
+        return own + [keys for _, value in node.value for keys in mapping_keys(value)]
+    if isinstance(node, SequenceNode):
+        return [keys for item in node.value for keys in mapping_keys(item)]
+    return []
+
+
+def repeated_key(mappings: list[list[Prose]]) -> Prose | None:
+    """Return the first key one of ``mappings``, each a mapping's keys, holds twice, or None."""
+    return next((key for keys in mappings for at, key in enumerate(keys) if key in keys[:at]), None)
 
 
 def _load(text: Prose, where: Path) -> Record | Audit:
@@ -238,7 +239,7 @@ def _load(text: Prose, where: Path) -> Record | Audit:
         node = loader.get_single_node()
     finally:
         loader.dispose()
-    repeated = None if node is None else _repeated_key(node)
+    repeated = repeated_key(mapping_keys(node))
     if repeated is not None:
         message = f"{where} repeats the key {repeated!r}"
         raise LicenceUnreadError(message)

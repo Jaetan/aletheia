@@ -20,6 +20,7 @@ mutation lane is a per-PR signal, not per-commit (cost is high: 30 min to
 ~~~
 docs/MUTATION_BENCH.yaml           SSOT: per-binding tool, hot-path module list, baseline
 tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
+tools/check_mutation_setup_lanes.py The static gate's lane checks: doc harnesses, Go mutators, C++ link form
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
 tools/mutation_scope.py            Whether a lane sweeps, asked before it installs a toolchain
 tools/mutation_cpp.py              The C++ lane: Mull over the tree, in legs
@@ -42,14 +43,14 @@ benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
 ~~~
 
 The static gate (`tools/check_mutation_setup.py`) runs always-on
-(`check-mutation-setup`) in `tools/run_ci.py`; it fires when a hot-path
-source file is renamed or deleted without updating the YAML, and when a
-lane's per-mutant run reaches its binding's doc-example harness, which holds
-the documents to the binding and costs its whole run once per mutant: the Go
-and Rust lanes skip theirs by name, and the gate holds each skip to that test
-alone, the Rust lane's to it and the benchmark program's tests, which build the
-example with a cargo of their own.  The dynamic runner is opt-in via
-`ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
+(`check-mutation-setup`) in `tools/run_ci.py` and holds the invariants its
+module docstring lists; among them, no lane's per-mutant run reaches its
+binding's doc-example harness, which holds the documents to the binding and
+costs its whole run once per mutant: the Go and Rust lanes skip theirs by
+name, and the gate holds each skip to that test alone, the Rust lane's to it
+and the benchmark program's tests, which build the example with a cargo of
+their own.  The dynamic runner is opt-in via `ALETHEIA_MUTATION_CHECK=1` or
+`tools/run_ci.py --mutation`.
 
 In CI the runner is invoked once per binding, in parallel lanes with their own
 budgets, each told to skip the others (`ALETHEIA_MUTATION_SKIP_PYTHON` /
@@ -544,7 +545,7 @@ python/.venv/bin/python -m tools.check_mutation_setup
 # Restore.
 git checkout docs/MUTATION_BENCH.yaml
 python/.venv/bin/python -m tools.check_mutation_setup
-# Expect: exit 0, naming every hot-path source present.
+# Expect: exit 0, its OK line counting the hot-path sources present.
 ~~~
 
 ### Drift gate (per binding)
@@ -570,10 +571,9 @@ ALETHEIA_MUTATION_CHECK=1 python/.venv/bin/python -m tools.run_ci
 | Static gate (`check-mutation-setup`) | Every push (via pre-push hook) | <1 sec | Always-on (`check-mutation-setup`) in `run_ci.py` |
 | Dynamic gate (`mutation testing`) | Per PR | ~30 min - 2 hrs | Opt-in via `--mutation` / `ALETHEIA_MUTATION_CHECK=1` |
 
-The static gate guards against a hot-path file renamed or removed without a
-YAML update, which leaves the YAML's hot-path paths out of step with the tree.
-The dynamic gate is the actual mutation pass; per AGENTS.md "once per PR is
-sufficient; per-commit is overkill".
+The static gate holds the invariants its module docstring lists, a hot-path
+file renamed or removed without a YAML update among them.  The dynamic gate is
+the actual mutation pass; per AGENTS/python.md, "once per PR is sufficient".
 
 ## The C++ lane's slices, and the weights they are cut on
 

@@ -175,9 +175,9 @@ def test_a_renamed_file_fails_the_static_gate() -> None:
     assert "is not a file of the tree" in failures[0]
 
 
-@pytest.mark.parametrize("ledger", ["survivors_ledger", "unobserved_ledger"])
-def test_both_ledgers_are_held_to_their_lines(ledger: str) -> None:
-    """The survivors' rows carry the same exposure and are checked the same way."""
+@pytest.mark.parametrize("ledger", ["survivors_ledger", "unobserved_ledger", "not_covered_ledger"])
+def test_every_ledger_is_held_to_its_lines(ledger: str) -> None:
+    """Every ledger's rows carry the same exposure and are checked the same way."""
     row: UnobservedRow = {**_ROW, "text": "a line no source of this tree has"}
     assert len(ledger_rows_still_name_their_line(_spec(row, ledger))) == 1
 
