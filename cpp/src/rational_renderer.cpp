@@ -70,11 +70,9 @@ static auto state() -> RendererState& {
 
 // Package-static preferred library path, registered by
 // `make_ffi_backend(lib_path, ...)` before any Check builder triggers
-// `format_rational_ffi`.  Function-static + mutex so writes from
-// `register_default_lib_path()` are serialized; the read in
-// `find_library_path()` happens inside `std::call_once(init)` so
-// reader sees a stable value.  Stored as `std::string` (not `path`)
-// to avoid the path's variant-of-string allocation on the read path.
+// `format_rational_ffi`.  Function-static, and every write by
+// `register_default_lib_path()` and read by `find_library_path()` holds its
+// mutex.
 namespace {
 struct DefaultPathState {
     std::mutex mu;
@@ -92,9 +90,8 @@ static auto default_path_state() -> DefaultPathState& {
 // and both benchmarks. It lives here because the registered path it consults
 // is the state in this file, written by a make_ffi_backend call, and that
 // consultation is what keeps the renderer and the backend on the same library.
-// Runs once per process, on the first render, and the first FfiBackend of a
-// process has registered its path by then; so the order below is held by a
-// probe in a process of its own, not by the suite.
+// It takes what it reads as arguments, so a test reaches each route whatever
+// the process already holds.
 auto search_ffi_library(const char* env_path, std::string_view registered_path,
                         const std::filesystem::path& cwd) -> std::filesystem::path {
     namespace fs = std::filesystem;

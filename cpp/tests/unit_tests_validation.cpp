@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Unit tests: payload length / timestamp / bytes_to_dlc / Rational validation.
-//
-// Payload-length mismatches, negative-timestamp rejection (send_frame,
-// send_error, send_remote), bytes_to_dlc CAN 2.0B / CAN-FD coverage, and
-// Rational comparison operators.
+// Unit tests: the client's payload and timestamp checks, the DLC table,
+// Rational's order, and the FFI backend: how it and the renderer find, open
+// and refuse a library, what it hands the kernel and frees, the exception it
+// throws, and the kernel's allocation count it reads.
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -19,6 +19,8 @@
 #include <aletheia/aletheia.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -26,8 +28,10 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -124,7 +128,7 @@ TEST_CASE("send_frame accepts CAN-FD payload", "[client][validation]") {
 }
 
 // ===========================================================================
-// Negative timestamp validation test
+// Timestamp validation
 // ===========================================================================
 
 TEST_CASE("send_frame rejects negative timestamp", "[client][validation]") {
@@ -178,37 +182,39 @@ TEST_CASE("send_remote rejects negative timestamp", "[client][validation]") {
 }
 
 // ===========================================================================
-// bytes_to_dlc error paths
+// DLC table
 // ===========================================================================
 
-TEST_CASE("bytes_to_dlc valid CAN 2.0B sizes", "[types]") {
-    auto const r7 = bytes_to_dlc(7);
-    REQUIRE(r7.has_value());
-    CHECK(r7->value() == 7);
-
-    auto const r8 = bytes_to_dlc(8);
-    REQUIRE(r8.has_value());
-    CHECK(r8->value() == 8);
-}
-
-TEST_CASE("bytes_to_dlc valid CAN-FD sizes", "[types]") {
-    auto const r12 = bytes_to_dlc(12);
-    REQUIRE(r12.has_value());
-    CHECK(r12->value() == 9);
-
-    auto const r64 = bytes_to_dlc(64);
-    REQUIRE(r64.has_value());
-    CHECK(r64->value() == 15);
-}
-
-TEST_CASE("bytes_to_dlc invalid sizes return error", "[types]") {
-    auto const r9 = bytes_to_dlc(9);
-    REQUIRE_FALSE(r9.has_value());
-    CHECK_THAT(r9.error(), ContainsSubstring("invalid DLC"));
-
-    auto const r65 = bytes_to_dlc(65);
-    REQUIRE_FALSE(r65.has_value());
-    CHECK_THAT(r65.error(), ContainsSubstring("invalid DLC"));
+TEST_CASE("every DLC code maps to its byte count and back, and no other count has a code",
+          "[types]") {
+    // The byte counts are written here, not read from the header's table, so a
+    // wrong entry there is caught.
+    constexpr std::array<std::size_t, 16> bytes_by_code{0, 1,  2,  3,  4,  5,  6,  7,
+                                                        8, 12, 16, 20, 24, 32, 48, 64};
+    for (auto const [index, bytes] : std::views::enumerate(bytes_by_code)) {
+        auto const code = static_cast<std::uint8_t>(index);
+        INFO("code " << int{code});
+        auto const dlc = Dlc::create(code);
+        REQUIRE(dlc.has_value());
+        CHECK(dlc_to_bytes(*dlc) == bytes);
+        auto const back = bytes_to_dlc(bytes);
+        REQUIRE(back.has_value());
+        CHECK(back->value() == code);
+    }
+    auto const has_no_code = [&](std::size_t count) {
+        return !std::ranges::contains(bytes_by_code, count);
+    };
+    auto const refused = [](std::size_t count) {
+        INFO("byte count " << count);
+        auto const answer = bytes_to_dlc(count);
+        REQUIRE_FALSE(answer.has_value());
+        CHECK_THAT(answer.error(), ContainsSubstring("invalid DLC"));
+    };
+    auto const up_to_65 = std::views::iota(std::size_t{0}, std::size_t{66});
+    std::ranges::for_each(up_to_65 | std::views::filter(has_no_code), refused);
+    // Counts past the table that name an entry once narrowed to 8, 16 or 32 bits.
+    constexpr std::array<std::size_t, 3> aliases{256 + 8, 65'536 + 8, 4'294'967'296 + 8};
+    std::ranges::for_each(aliases, refused);
 }
 
 // ===========================================================================
@@ -224,11 +230,15 @@ TEST_CASE("Rational operator<=> and operator==", "[types]") {
     SECTION("equality") {
         CHECK(a == b);
         CHECK_FALSE(a == c);
+        CHECK(Rational{0, 1} == Rational{0, 5});
+        CHECK(Rational{std::numeric_limits<std::int64_t>::max(),
+                       std::numeric_limits<std::int64_t>::max()} == Rational{1, 1});
     }
 
     SECTION("less than") {
         CHECK(a < c);
         CHECK(d < a);
+        CHECK(Rational{1, 3} < Rational{1, 2});
         CHECK_FALSE(c < a);
     }
 
@@ -247,17 +257,27 @@ TEST_CASE("Rational operator<=> and operator==", "[types]") {
         const Rational neg{-3, 4};
         CHECK(neg < a);
         CHECK(d == Rational{-1, 2});
+        CHECK(Rational{-5, 7} == Rational{-10, 14});
+        CHECK(Rational{-1, 3} < Rational{1, 3});
+    }
+
+    SECTION("pairs whose cross products pass 64 bits, or that a double cannot tell apart") {
+        constexpr auto max = std::numeric_limits<std::int64_t>::max();
+        CHECK(Rational{max, 1} > Rational{max - 1, 1});
+        CHECK(Rational{max, 2} < Rational{max - 1, 1});
+        CHECK(Rational{-max, 3} < Rational{-(max - 1), 3});
+        CHECK(Rational{1, max} < Rational{1, max - 1});
     }
 }
 
 // ===========================================================================
-// FFI error emission
+// The FFI backend and the renderer
 // ===========================================================================
 //
 // `ErrorKind::Ffi` is declared in error.hpp for a library-load or runtime-init
-// failure, and mirrors Python's FFIError and Go's ErrFFI. These cases assert
-// the kind is emitted on the boundary-failure paths, so a silent downgrade to
-// a plain runtime error or to another kind trips here.
+// failure, and mirrors Python's FFIError and Go's ErrFFI. A case asserting a
+// kind holds it to the path that emits it, so a failure downgraded to a plain
+// runtime error or to another kind trips here.
 
 TEST_CASE("make_ffi_backend with nonexistent library throws Ffi-kinded exception", "[ffi][error]") {
     // dlopen of a path that does not exist returns null + sets dlerror;
@@ -375,12 +395,13 @@ TEST_CASE("make_ffi_backend_from_env opens the library ALETHEIA_LIB names", "[ff
     CHECK(backend->init());
 }
 
-TEST_CASE("make_ffi_backend_from_env with ALETHEIA_LIB unset throws Validation-kinded exception",
+TEST_CASE("make_ffi_backend_from_env refuses ALETHEIA_LIB unset or empty as a usage error",
           "[ffi][validation]") {
-    // Unset is a caller-usage error, not an FFI failure. The distinct kind (vs
-    // the dlopen Ffi case below) is what gives the empty-check mutation coverage
-    // WITHOUT needing a real .so.
-    const ScopedAletheiaLib guard{nullptr};
+    // Unset and empty are one case, the caller's error rather than an FFI
+    // failure, refused naming the variable; the constructor's own refusal of
+    // an empty path names none.
+    auto const* const value = GENERATE(as<const char*>{}, nullptr, "");
+    const ScopedAletheiaLib guard{value};
     try {
         static_cast<void>(make_ffi_backend_from_env(1));
         FAIL("expected AletheiaException");
@@ -393,8 +414,8 @@ TEST_CASE("make_ffi_backend_from_env with ALETHEIA_LIB unset throws Validation-k
 TEST_CASE(
     "make_ffi_backend_from_env with a nonexistent ALETHEIA_LIB path throws Ffi-kinded exception",
     "[ffi][error]") {
-    // A set-but-missing path must reach dlopen (Ffi), NOT the unset guard —
-    // dropping/inverting the empty-check would collapse this into the case above.
+    // A set path that does not exist reaches dlopen (Ffi), not the unset
+    // guard: a guard refusing every set value would answer as the case above.
     const ScopedAletheiaLib guard{"/nonexistent/aletheia/libaletheia-ffi.so"};
     try {
         static_cast<void>(make_ffi_backend_from_env(1));
@@ -459,6 +480,11 @@ TEST_CASE("the library search answers by route, on existence alone", "[ffi][sear
         CHECK(search_ffi_library(nullptr, "", tree.path) == std::filesystem::canonical(candidate));
         CHECK(search_ffi_library(nowhere.c_str(), nowhere.string(), tree.path) ==
               std::filesystem::canonical(candidate));
+    }
+    SECTION("an empty environment value is no route") {
+        CHECK(search_ffi_library("", registered_file.path.string(), tree.path) ==
+              registered_file.path);
+        CHECK(search_ffi_library("", "", tree.path) == std::filesystem::canonical(candidate));
     }
     SECTION("no route answering is the empty path") {
         CHECK(search_ffi_library(nullptr, "", nowhere).empty());
