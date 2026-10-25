@@ -11,12 +11,9 @@ import pytest
 from _canonical_dbc import CANONICAL_DBC, make_dbc
 from _hypothesis_profiles import register_profiles
 
-from aletheia import FFIBackend, Signal
-from aletheia.client._ffi import RTSState
+from aletheia import RTSState, Signal, start_runtime
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from aletheia.dsl import Property
     from aletheia.types import DBCDefinition
 
@@ -53,25 +50,27 @@ class CANFrame:
 
 
 @pytest.fixture(scope="module")
-def rts_up() -> Iterator[FFIBackend]:
-    """Bring the GHC RTS up for renderer-dependent tests, lazily.
+def rts_up() -> None:
+    """Start the GHC runtime for tests that render thresholds or read decimals, lazily.
 
-    Since point 2 the rational renderer no longer self-initialises the RTS — an
-    ``FFIBackend`` is the sole initialiser — so ``format_formula`` /
-    ``build_diagnostic`` (which render rational thresholds) need a live RTS.
+    The renderer and the decimal parser never start the runtime, so
+    ``format_formula`` / ``build_diagnostic`` and ``from_decimal`` need it up.
     Request it module-wide with ``pytestmark = pytest.mark.usefixtures("rts_up")``
-    rather than at import: the RTS comes up when the module's tests run, not during
-    collection. ``RTSState.acquire`` is idempotent (refcounted), so this composes
-    with any client a test creates.
+    rather than at import: the runtime starts when the module's tests run, not
+    during collection.  A start of a runtime already up on the default count
+    changes nothing and takes no reference, so this composes with any client a
+    test opens.
     """
-    backend = FFIBackend()
-    try:
-        yield backend
-    finally:
-        # Balance the RTSState.acquire() in FFIBackend.__init__ so the module's
-        # refcount nets to zero. release() does NOT call hs_exit — the RTS is
-        # one-shot and stays up for the rest of the process.
-        RTSState.release()
+    start_runtime(1)
+
+
+@pytest.fixture
+def unstarted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the test a runtime latch nothing has set, restored after it."""
+    monkeypatch.setattr(RTSState, "lib", None)
+    monkeypatch.setattr(RTSState, "initialized", False)
+    monkeypatch.setattr(RTSState, "refcount", 0)
+    monkeypatch.setattr(RTSState, "cores", 0)
 
 
 @pytest.fixture

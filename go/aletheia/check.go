@@ -95,8 +95,8 @@ func (r CheckResult) CheckSeverity() string { return r.severity }
 func (r CheckResult) SignalName() SignalName { return SignalName(r.signalName) }
 
 // ConditionDesc returns the condition in words, thresholds rendered by the
-// kernel renderer, so it needs a live GHC runtime (an FFIBackend) and returns
-// the renderer's error without one. Construction never fails; only this does.
+// kernel renderer, so it needs the GHC runtime up ([StartRuntime] or a
+// backend) and returns the renderer's error without it. Construction never fails; only this does.
 func (r CheckResult) ConditionDesc() (string, error) { return renderDesc(r.descParts) }
 
 // requireOrdered is the error for an inverted range, nil when lo <= hi; op

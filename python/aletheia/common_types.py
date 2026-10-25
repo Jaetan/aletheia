@@ -32,6 +32,11 @@ DocumentKey = NewType("DocumentKey", str)
 # between two such reads, as the scaling program counts one load's.
 AllocatedBytes = NewType("AllocatedBytes", int)
 
+# A count of the GHC runtime's cores (its ``-N``), as ``aletheia.start_runtime``,
+# a client or a backend asks for them, or as the runtime counts the CPUs the
+# process may use.
+CoreCount = NewType("CoreCount", int)
+
 
 @dataclass(frozen=True)
 class Gt[T]:

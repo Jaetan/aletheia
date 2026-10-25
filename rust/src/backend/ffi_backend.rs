@@ -11,9 +11,9 @@ use std::ffi::c_char;
 use libloading::Symbol;
 
 use super::{
-    check_buffer_status, encode_opt_bool, ensure_rts, frame_len, symbols, take_extraction_buffer,
-    take_response, Backend, FfiBuffer, FfiDecimal, FfiFrame, FfiRational, FfiSignalValues, FfiText,
-    FrameBinFn, SignalInjection, StateHandle, Symbols, RTS_INIT,
+    check_buffer_status, encode_opt_bool, ensure_rts, frame_len, rts_started, symbols,
+    take_extraction_buffer, take_response, Backend, FfiBuffer, FfiDecimal, FfiFrame, FfiRational,
+    FfiSignalValues, FfiText, FrameBinFn, SignalInjection, StateHandle, Symbols,
 };
 use crate::error::Error;
 use crate::log::{LogLevel, Logger};
@@ -71,35 +71,26 @@ impl FfiFrame {
 /// Render a [`Rational`] via the verified Agda kernel's `formatℚ` (the FFI export
 /// `aletheia_format_rational`) — the single source of truth for rational display,
 /// byte-identical to the Python / Go / C++ bindings by construction (no local
-/// fallback). Loads `libaletheia-ffi.so` for its symbols, but is *vocal*: it never
-/// initialises the GHC RTS itself. An [`FfiBackend`] (via a [`Client`](crate::Client))
-/// is the sole initialiser (it owns the bus-count `-N`), so a render with the RTS
-/// down returns an error rather than self-initialising — and the error is returned
-/// *before* the FFI call, because invoking the MAlonzo export with the RTS down is
-/// undefined behaviour. Mirrors Go (#104), C++ (#105), and Python (#106).
+/// fallback). It is *vocal*: it never starts the GHC runtime, since a start fixes
+/// the core count for the process, so a render with the runtime down returns an
+/// error, *before* the FFI call, because invoking the MAlonzo export with the
+/// runtime down is undefined behaviour. Mirrors Go, C++ and Python.
 ///
 /// # Errors
-/// [`Error::RtsNotInitialized`] if the GHC runtime is not initialised (no backend
-/// created), or [`Error::Protocol`] in the unreachable case of a null return (an
-/// ABI/kernel malfunction). A library-load / missing-symbol failure cannot surface
-/// here: the RTS gate passing implies the symbol table is already latched
-/// ([`FfiBackend::new`] resolves the table before `ensure_rts`, and it is the sole
-/// RTS initialiser). The call cannot fail for a well-formed rational once a
-/// backend is up: the kernel never emits a zero denominator and the input's
-/// denominator is positive by construction.
+/// [`Error::RtsNotInitialized`] if the GHC runtime has not started (no
+/// [`start_runtime`] and no client), or [`Error::Protocol`] in the unreachable
+/// case of a null return (an ABI/kernel malfunction). A library-load /
+/// missing-symbol failure cannot surface here: a started runtime implies the
+/// symbol table is latched (every start resolves the table before it starts the
+/// runtime). The call cannot fail for a well-formed rational once the runtime is
+/// up: the kernel never emits a zero denominator and the input's denominator is
+/// positive by construction.
 pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
-    // Check the RTS BEFORE loading the library. The renderer never initialises the
-    // RTS — an FfiBackend is the sole initialiser, so RTS_INIT is Some exactly when
-    // a real backend has run ensure_rts (which also loaded the .so). Returning
-    // first means a caller that renders before any backend exists (e.g. a
-    // check-builder validation error) fails fast without attempting a dlopen —
-    // and, when the .so is absent, without re-attempting it on every call (the
-    // library()/symbols() OnceLocks cache only successes). Invoking the MAlonzo
-    // export with the RTS down is undefined behaviour, not a catchable error.
-    match RTS_INIT.get() {
-        None => return Err(Error::RtsNotInitialized),
-        Some(Err(e)) => return Err(e.clone()),
-        Some(Ok(())) => {}
+    // The runtime first: a caller that renders before anything started it (e.g. a
+    // check-builder validation error) fails fast, without a dlopen, and the
+    // symbol lookup below loads nothing once it runs.
+    if !rts_started() {
+        return Err(Error::RtsNotInitialized);
     }
     let syms = symbols()?;
     let value = FfiRational {
@@ -127,15 +118,15 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
 /// never a float). The accepted grammar is the kernel's: `-?digits` or
 /// `-?digits.digits+` — no `+` sign, no leading/trailing `.`, no exponent.
 ///
-/// Like [`format_rational`], this is *vocal*: it never initialises the GHC RTS
-/// (an [`FfiBackend`] is the sole initialiser, owning the bus-count `-N`), so it
-/// returns [`Error::RtsNotInitialized`] *before* the FFI call if the RTS is down
-/// (invoking the MAlonzo export with the RTS down is undefined behaviour).
+/// Like [`format_rational`], this is *vocal*: it never starts the GHC runtime, so
+/// it returns [`Error::RtsNotInitialized`] *before* the FFI call while the
+/// runtime is down (invoking the MAlonzo export with it down is undefined
+/// behaviour).
 ///
 /// # Errors
-/// [`Error::RtsNotInitialized`] if no backend is up (as for [`format_rational`],
-/// the RTS gate passing implies the symbol table is already latched, so a
-/// library-load / missing-symbol failure cannot surface here). A refusal is the
+/// [`Error::RtsNotInitialized`] if the runtime has not started (as for
+/// [`format_rational`], a started runtime implies the symbol table is latched,
+/// so a library-load / missing-symbol failure cannot surface here). A refusal is the
 /// kernel's error envelope, read by [`super::buffer_refusal`] as every
 /// binary-output entry's is and then by [`decimal_refusal`]:
 /// [`Error::Validation`] with `code` `Some("text_parse_failure")` (the text is
@@ -149,13 +140,11 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
 /// refusal without an error envelope, the envelope is malformed, or the
 /// answered denominator is not positive (each an ABI or kernel malfunction).
 pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
-    // Vocal, exactly like format_rational (and in the same order: RTS gate first,
-    // symbols second): never self-init the RTS; return before the FFI call (the
-    // MAlonzo export with the RTS down is UB) — see format_rational's rationale.
-    match RTS_INIT.get() {
-        None => return Err(Error::RtsNotInitialized),
-        Some(Err(e)) => return Err(e.clone()),
-        Some(Ok(())) => {}
+    // Vocal, exactly like format_rational (and in the same order: the runtime
+    // first, symbols second): return before the FFI call, the MAlonzo export
+    // with the runtime down being UB.
+    if !rts_started() {
+        return Err(Error::RtsNotInitialized);
     }
     let syms = symbols()?;
     let input = FfiText::of(s);
@@ -185,12 +174,12 @@ pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
 }
 
 /// The bytes the kernel's runtime has allocated in this process since it
-/// started, or `None` before a backend has started the runtime.
+/// started, or `None` before it has started.
 ///
 /// The count covers the whole process, every client and thread, so the
 /// difference of two reads is what ran between them allocated. It is read
 /// through the library the runtime was started with, and never starts the
-/// runtime itself: a [`Client`](crate::Client) over the library does.
+/// runtime itself: [`start_runtime`] or a [`Client`](crate::Client) does.
 /// Each read runs a collection first, so a read belongs outside any span a
 /// caller times.
 #[must_use]
@@ -198,13 +187,33 @@ pub fn allocated_bytes() -> Option<u64> {
     // The runtime first, as for format_rational: calling the entry with the
     // runtime down is undefined behaviour, and a started runtime implies the
     // symbol table is latched, so the lookup below loads nothing.
-    if !matches!(RTS_INIT.get(), Some(Ok(()))) {
+    if !rts_started() {
         return None;
     }
     let syms = symbols().ok()?;
     // SAFETY: `aletheia_allocated_bytes` is `uint64_t aletheia_allocated_bytes(void)`,
     // and the runtime it reads is started (checked above).
     Some(unsafe { (syms.allocated_bytes)() })
+}
+
+/// Start the kernel's GHC runtime on `cores` capabilities, unless it runs: 1 for
+/// one bus, the number of buses when several threads each monitor their own.
+///
+/// The kernel reads every number a check carries ([`Rational::from_decimal`],
+/// [`load_checks_from_yaml`](crate::load_checks_from_yaml)), so a program that
+/// loads checks before it builds a client starts the runtime first; a client
+/// built later without [`ClientBuilder::rts_cores`](crate::ClientBuilder::rts_cores)
+/// asks for the count running. The library is the one `ALETHEIA_LIB` names, or
+/// the dynamic loader finds, as a client's. A runtime already up keeps its
+/// count, and another count asked of it is warned about on `logger`
+/// (`rts.cores_mismatch`); `None` logs nothing.
+///
+/// # Errors
+/// [`Error::Validation`] for a count outside 1 to the CPUs the process may use;
+/// [`Error::LibraryLoad`], [`Error::AbiMismatch`] or [`Error::SymbolMissing`] when
+/// the library cannot serve.
+pub fn start_runtime(cores: u32, logger: Option<&dyn Logger>) -> Result<(), Error> {
+    ensure_rts(symbols()?, Some(cores), logger, LogLevel::Warn)
 }
 
 /// The rational the decimal entry answered. The kernel answers lowest terms
@@ -255,10 +264,10 @@ pub(crate) struct FfiBackend {
 }
 
 impl FfiBackend {
-    /// Load the core, initialise the GHC RTS once per process, and allocate a
-    /// fresh `StreamState`. `logger`/`min_level` are used only to emit the
-    /// `rts.cores_mismatch` warning if a later backend requests a different
-    /// core count than the first one latched.
+    /// Load the core, start the GHC runtime unless it runs, and allocate a fresh
+    /// `StreamState`. `None` cores asks for the count running. `logger` and
+    /// `min_level` are used only to emit the `rts.cores_mismatch` warning when
+    /// the runtime runs on another count than the one asked.
     pub(crate) fn new(
         cores: Option<u32>,
         logger: Option<&dyn Logger>,

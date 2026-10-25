@@ -293,16 +293,21 @@ TEST_CASE("make_ffi_backend with nonexistent library throws Ffi-kinded exception
     }
 }
 
-TEST_CASE("make_ffi_backend with rts_cores < 1 throws Validation-kinded exception",
+TEST_CASE("make_ffi_backend with a count outside the CPUs the library counts throws Validation",
           "[ffi][validation]") {
-    // The constructor's rts_cores guard is caller-argument validation, not
-    // an FFI failure — mirrors Go/Python kind semantics for argument rejection.
-    try {
-        static_cast<void>(make_ffi_backend("/nonexistent/aletheia/libaletheia-ffi.so", 0));
-        FAIL("expected AletheiaException");
-    } catch (const AletheiaException& e) {
-        CHECK(e.kind() == ErrorKind::Validation);
-        CHECK_THAT(std::string{e.what()}, ContainsSubstring("rts_cores must be >= 1"));
+    // The constructor's count guard is caller-argument validation, not an FFI
+    // failure, as in Go and Python. The bound is read from the library opened,
+    // and the recording kernel counts four CPUs whatever the machine.
+    for (auto const cores : {0, 5}) {
+        try {
+            static_cast<void>(make_ffi_backend(stand_in(ALETHEIA_TEST_RECORDING_KERNEL), cores));
+            FAIL("expected AletheiaException");
+        } catch (const AletheiaException& e) {
+            CHECK(e.kind() == ErrorKind::Validation);
+            CHECK(std::string_view{e.what()} ==
+                  "core count " + std::to_string(cores) +
+                      " is outside 1 to 4, the CPUs this process may use");
+        }
     }
 }
 
@@ -407,8 +412,38 @@ TEST_CASE("make_ffi_backend_from_env refuses ALETHEIA_LIB unset or empty as a us
         FAIL("expected AletheiaException");
     } catch (const AletheiaException& e) {
         CHECK(e.kind() == ErrorKind::Validation);
-        CHECK_THAT(std::string{e.what()}, ContainsSubstring("ALETHEIA_LIB is not set"));
+        CHECK(std::string_view{e.what()} == "ALETHEIA_LIB is not set: set it to the path of "
+                                            "libaletheia-ffi.so, or call make_ffi_backend(path)");
     }
+}
+
+TEST_CASE("start_runtime_from_env refuses ALETHEIA_LIB unset or empty, naming its counted twin",
+          "[ffi][validation]") {
+    auto const* const value = GENERATE(as<const char*>{}, nullptr, "");
+    const ScopedAletheiaLib guard{value};
+    try {
+        static_cast<void>(start_runtime_from_env(1));
+        FAIL("expected AletheiaException");
+    } catch (const AletheiaException& e) {
+        CHECK(e.kind() == ErrorKind::Validation);
+        CHECK(std::string_view{e.what()} ==
+              "ALETHEIA_LIB is not set: set it to the path of "
+              "libaletheia-ffi.so, or call start_runtime(path, cores)");
+    }
+}
+
+TEST_CASE("start_runtime_from_env and the count-less factory open the library ALETHEIA_LIB names",
+          "[ffi][validation]") {
+    // The listener started the runtime on one core, so a start asking one and a
+    // backend asking none both find it running as asked.
+    auto const lib = find_ffi_library();
+    if (lib.empty())
+        SKIP("no kernel library to name");
+    const ScopedAletheiaLib guard{lib.c_str()};
+    CHECK_FALSE(start_runtime_from_env(1).has_value());
+    auto const backend = make_ffi_backend_from_env();
+    REQUIRE(backend != nullptr);
+    CHECK_FALSE(backend->rts_mismatch_info().has_value());
 }
 
 TEST_CASE(
@@ -492,54 +527,41 @@ TEST_CASE("the library search answers by route, on existence alone", "[ffi][sear
     }
 }
 
-TEST_CASE("the renderer names why a library will not serve it", "[ffi][renderer]") {
-    using aletheia::detail::renderer_load_error;
-    SECTION("no library found") {
-        CHECK_THAT(renderer_load_error({}), ContainsSubstring("libaletheia-ffi.so not found"));
+TEST_CASE("a start refuses a library that will not serve it, and leaves it unmapped",
+          "[ffi][runtime]") {
+    // The listener started the runtime, so a start of a library that serves
+    // answers the running count, and one that does not throws before it is
+    // read further, closing what it opened.
+    auto const refused = [](const std::filesystem::path& lib, std::string_view why) {
+        CHECK_THROWS_WITH(start_runtime(lib, 1), ContainsSubstring(std::string{why}));
+        const aletheia::test::LoadedLibrary still_mapped{
+            dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+        CHECK(still_mapped == nullptr);
+    };
+    SECTION("an empty path") {
+        CHECK_THROWS_WITH(start_runtime({}, 1),
+                          "library path is empty: pass the path of libaletheia-ffi.so");
     }
     SECTION("a path that does not open") {
-        CHECK_THAT(renderer_load_error("/nonexistent/aletheia/libaletheia-ffi.so"),
-                   ContainsSubstring("renderer dlopen failed"));
+        CHECK_THROWS_WITH(start_runtime("/nonexistent/aletheia/libaletheia-ffi.so", 1),
+                          ContainsSubstring("dlopen failed"));
     }
-    SECTION("a library without the renderer's entries, closed again") {
-        auto const lib = stand_in(ALETHEIA_TEST_SYMBOLLESS_LIB);
-        CHECK_THAT(renderer_load_error(lib),
-                   ContainsSubstring("renderer dlsym aletheia_abi_version"));
-        const aletheia::test::LoadedLibrary still_mapped{
-            dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
-        CHECK(still_mapped == nullptr);
+    SECTION("a library without the version entry") {
+        refused(stand_in(ALETHEIA_TEST_SYMBOLLESS_LIB), "dlsym failed for aletheia_abi_version");
     }
-    SECTION("a library at this ABI version without the renderer's entries, closed again") {
-        auto const lib = stand_in(ALETHEIA_TEST_ABI_ONLY_LIB);
-        CHECK_THAT(renderer_load_error(lib),
-                   ContainsSubstring("renderer dlsym aletheia_format_rational"));
-        const aletheia::test::LoadedLibrary still_mapped{
-            dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
-        CHECK(still_mapped == nullptr);
+    SECTION("a library at this ABI version without the runtime's start entry") {
+        refused(stand_in(ALETHEIA_TEST_ABI_ONLY_LIB), "dlsym failed for hs_init_with_rtsopts");
     }
-    SECTION("a library at another ABI version, closed again") {
-        auto const lib = stand_in(ALETHEIA_TEST_STALE_ABI_KERNEL);
-        CHECK_THAT(renderer_load_error(lib),
-                   ContainsSubstring("renderer: the library implements ABI version " +
-                                     std::to_string(aletheia::detail::abi_version + 1)));
-        const aletheia::test::LoadedLibrary still_mapped{
-            dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
-        CHECK(still_mapped == nullptr);
+    SECTION("a library at another ABI version") {
+        refused(stand_in(ALETHEIA_TEST_STALE_ABI_KERNEL),
+                "the library implements ABI version " +
+                    std::to_string(aletheia::detail::abi_version + 1));
     }
     SECTION("the kernel library itself, which serves") {
         auto const lib = find_ffi_library();
         if (lib.empty())
             SKIP("no kernel library to load");
-        CHECK(renderer_load_error(lib).empty());
-    }
-    SECTION("the library named is the one loaded, and it stays mapped") {
-        // The stand-in carries the renderer's entries, so it serves; a load
-        // that opened some other library, or none, would leave it unmapped.
-        const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
-        REQUIRE(renderer_load_error(stand_in).empty());
-        const aletheia::test::LoadedLibrary mapped{
-            dlopen(stand_in.c_str(), RTLD_NOW | RTLD_NOLOAD)};
-        CHECK(mapped != nullptr);
+        CHECK_FALSE(start_runtime(lib, 1).has_value());
     }
 }
 
@@ -669,8 +691,8 @@ TEST_CASE("a later backend leaves the allocation count on the library that start
     CHECK(entry() == before + 1);
 }
 
-TEST_CASE("the renderer's default library path is the first one registered", "[ffi][renderer]") {
-    // The backend registers the library it loaded as the renderer's default,
+TEST_CASE("the search's default library path is the first one registered", "[ffi][search]") {
+    // The start registers the library it loaded as the search's default,
     // first write wins; a later registration of another library, here one that
     // exists but carries no entry, changes nothing the lookup answers. With the
     // environment unset the lookup reads the default, which is what is compared.

@@ -2,16 +2,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Regression: ``aletheia check`` with a DECIMAL threshold in a fresh process.
 
-A decimal check threshold (e.g. ``value: 199.5`` — ubiquitous in automotive:
+A decimal check threshold (e.g. ``value: 199.5``, ubiquitous in automotive:
 voltages, pressures, speeds) is parsed exactly through the kernel's
-``from_decimal`` SSOT, which is RTS-gated and *vocal*: it never self-initialises
-the GHC runtime. ``_cmd_check`` used to load the check files BEFORE any client
-(and thus any ``FFIBackend``) existed, so in a fresh process (RTS down) the load
-raised ``GHC runtime not initialized ... from_decimal does not self-initialise
-the RTS`` and the command died with exit 2 before streaming a single frame —
-breaking ``check`` on *any* check file with a decimal threshold. The fix brings
-the RTS up first (constructing the production ``FFIBackend``) and injects it into
-the client, so the check files load with the runtime already up.
+``from_decimal``, which needs the GHC runtime up and never starts it.  In a fresh
+process the runtime is down until something starts it, so ``_cmd_check`` starts
+it (``start_runtime``) before it loads the check files; loaded first, they are
+refused with ``GHC runtime not initialized`` and the command exits 2 before
+streaming a frame.
 
 Fixtures are generated in ``tmp_path`` (self-contained — no committed asset). See
 ``_cli_check_helpers`` for the shared scaffolding.  The claim is about a process
@@ -41,7 +38,7 @@ _SIGNAL = 'EngineSpeed : 0|16@1+ (0.25,0) [0|8000] "rpm"'
 
 _IN_A_FRESH_RUNTIME = (
     "the GHC runtime starts once per process, so a check whose decimal threshold is parsed"
-    + " before any backend has started it runs in a fresh one"
+    + " before anything has started it runs in a fresh one"
 )
 
 
@@ -51,7 +48,7 @@ def test_check_decimal_threshold_streams_end_to_end(tmp_path: Path) -> None:
 
     Would have caught the RTS-ordering bug: on the unpatched code this run dies
     with exit 2 and ``GHC runtime not initialized`` on stderr, because the
-    decimal threshold is parsed before any backend brings the runtime up.
+    decimal threshold is parsed before anything starts the runtime.
     """
     skip_without_ffi()
 

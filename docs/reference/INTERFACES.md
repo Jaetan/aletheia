@@ -89,25 +89,33 @@ _ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: 
 **YAML loader** — load a check file:
 ```python
 from pathlib import Path
+from aletheia import load_checks, start_runtime
+start_runtime(1)  # the kernel reads every number of the checks
 checks = load_checks(Path("checks.yaml"))
 ```
 ```cpp
+[[maybe_unused]] auto const mismatch = aletheia::start_runtime_from_env(1);  // the kernel reads every number of the checks
 auto checks = aletheia::load_checks_from_yaml("checks.yaml");
 ```
 ```go
+_ = aletheia.StartRuntimeFromEnv(1, nil) // the kernel reads every number of the checks
 checks, err := aletheia.LoadChecksFromYAMLFile("checks.yaml")
 _, _ = checks, err
 ```
 
 **Excel loader** — load checks from a workbook:
 ```python
+from aletheia import load_checks_from_excel, start_runtime
+start_runtime(1)  # the kernel reads every number of the checks
 checks = load_checks_from_excel("checks.xlsx")
 ```
 ```cpp
+[[maybe_unused]] auto const mismatch = aletheia::start_runtime_from_env(1);  // the kernel reads every number of the checks
 auto checks = aletheia::load_checks_from_excel("checks.xlsx");
 ```
 ```go
 // requires the separate go/excel/ module
+_ = aletheia.StartRuntimeFromEnv(1, nil) // the kernel reads every number of the checks
 checks, err := excel.LoadChecks("checks.xlsx")
 _, _ = checks, err
 ```
@@ -345,6 +353,10 @@ from aletheia import load_checks
 ```python
 from pathlib import Path
 
+from aletheia import start_runtime
+
+start_runtime(1)  # the kernel reads every number of the checks, so its runtime starts first
+
 # From a file (must be a pathlib.Path)
 checks = load_checks(Path("checks.yaml"))
 
@@ -541,7 +553,10 @@ Leave cells empty (not zero) for fields that don't apply to a condition.
 **5. Load and run:**
 
 ```python
-from aletheia import AletheiaClient, load_checks_from_excel, load_dbc_from_excel
+from aletheia import AletheiaClient, load_checks_from_excel, load_dbc_from_excel, start_runtime
+
+# The kernel reads every number of the workbook, so its runtime starts first
+start_runtime(1)
 
 # Load DBC and checks from the same workbook (or separate ones)
 dbc = load_dbc_from_excel("vehicle_checks.xlsx")
@@ -758,14 +773,14 @@ let client = Client::builder()
 
 **Command lines.** `python -m aletheia`, the Go `aletheia` and `aletheia-cli` each attach a WARNING-level logger writing every record to stderr as its event name and fields, so a run's warnings are seen with no configuration; nothing below WARNING is written.
 
-**Emission point of `rts.cores_mismatch`.**  All four bindings emit the warning the second (and subsequent) time a process initialises the GHC RTS with a different `-N` value than the first call.  The exact moment differs by binding:
+**Emission point of `rts.cores_mismatch`.**  The GHC runtime starts once per process, by `start_runtime` or the first backend, on the count it asks; a later start asking another count, `start_runtime`'s or a backend's, keeps the running count and is warned about.  A start naming no count asks for the count running and is never warned about.  Where the warning goes differs by binding:
 
-- **Go** — emitted from `NewFFIBackend` via the `WithFFILogger` slog handler.  Fires before any `Client` exists.
-- **Python** — emitted from `LibraryHandle.acquire`, which runs during `AletheiaClient.__init__` (the FFI is acquired lazily on first client construction).  Goes through the module-level `aletheia` logger, so a Python application sees it via the standard `logging` configuration without per-client wiring.
-- **C++** — captured at `make_ffi_backend()` time but emitted from the `AletheiaClient` constructor through the `Logger` passed to that constructor (the FFI backend has no logger of its own).  Wire one up to the client to observe it.
-- **Rust** — emitted from `FfiBackend::new` (via `ensure_rts`) during `ClientBuilder::build`, routed through the `logger` closure configured on the builder.  The process-global RTS-init latch replays the first init's outcome on later calls.
+- **Go**: logged by `StartRuntime` on the logger it is given, and by `NewFFIBackend` on its `WithFFILogger` handler, before any `Client` exists; a nil logger logs nothing.
+- **Python**: logged by `aletheia.start_runtime` and by the backend `AletheiaClient` opens, on the module-level `aletheia` logger, so an application sees it through the standard `logging` configuration without per-client wiring.
+- **C++**: `start_runtime` answers it as the `{active, requested}` pair it returns; a backend captures it at `make_ffi_backend()` and the `AletheiaClient` constructor logs it through the `Logger` passed to that constructor (the FFI backend has no logger of its own).
+- **Rust**: logged by `start_runtime` on the logger it is given, and by `ClientBuilder::build` on the builder's `logger`.
 
-The wire format (`active_cores` and `requested_cores` as integer fields, level `WARNING`) is identical across bindings.  The choice of emission point is a layering trade-off: Go gives the FFI layer its own logger so backend-level events are observable without a client; Python relies on the global logging tree; C++ keeps the backend logger-free and routes everything through the client.
+The record (`active_cores` and `requested_cores` as integer fields, level `WARNING`) is identical across bindings.  The choice of emission point is a layering trade-off: Go gives the FFI layer its own logger so backend-level events are observable without a client; Python relies on the global logging tree; C++ keeps the backend logger-free and routes everything through the client.
 
 ---
 

@@ -38,9 +38,9 @@ from typing import TYPE_CHECKING, NoReturn, TextIO, cast
 from aletheia._cli_parser import build_parser
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
 from aletheia.checks_runner import CheckRunResult, Violation, run_checks
-from aletheia.client._backend import FFIBackend
 from aletheia.client._client import AletheiaClient
 from aletheia.client._enrichment import format_rational
+from aletheia.client._ffi import start_runtime
 from aletheia.client._types import (
     AletheiaError,
     DBCValidationFailedError,
@@ -625,18 +625,12 @@ def _cmd_check(args: argparse.Namespace) -> int:
     logfile: str = args.logfile
 
     try:
-        # Bring the GHC RTS up BEFORE loading the check files.  The check
-        # loaders read every number through the kernel's ``from_decimal``,
-        # which is RTS-gated and never starts the runtime itself.  Constructing
-        # the production FFIBackend here acquires the RTS (the same resolution
-        # the client's own factory uses); injecting that backend into the client
-        # keeps "one client, one DBC parse" while ``default_checks`` still flow
-        # through the constructor (applied at ``start_stream``), so they are
-        # NOT dropped.
-        backend = FFIBackend()
+        # The check loaders read every number through the kernel, which needs
+        # its runtime up, so the runtime starts before the check files load.
+        start_runtime(1)
         checks = _load_checks_from_args(args)
         default_checks = _load_defaults(args)
-        with AletheiaClient(default_checks=default_checks, backend=backend) as client:
+        with AletheiaClient(default_checks=default_checks) as client:
             dbc, _ = _load_dbc_with(client, args)
             result = run_checks(dbc, checks, logfile, default_checks, client=client)
     except (FileNotFoundError, AletheiaError) as exc:

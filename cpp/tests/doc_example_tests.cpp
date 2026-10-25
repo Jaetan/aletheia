@@ -67,14 +67,22 @@
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "doc_example_wrapping.hpp"
 #include "repo_root.hpp"
 #include "temp_path.hpp"
 #include "text_file.hpp"
 
 using aletheia::test::AsDirectory;
+using aletheia::test::HarnessUse;
+using aletheia::test::k_unread_check;
+using aletheia::test::names_harness;
 using aletheia::test::repo_root;
+using aletheia::test::reported_harness_uses;
 using aletheia::test::scratch_dir;
 using aletheia::test::TempPath;
+using aletheia::test::with_harness_client;
+using aletheia::test::wrap_body_fragment;
+using aletheia::test::wrap_unread_results;
 
 using aletheia::test::read_text_file;
 
@@ -320,266 +328,6 @@ static auto has_include(std::string_view body) -> bool {
     return std::regex_search(body.cbegin(), body.cend(), inc_re);
 }
 
-// Body-fragment wrapper: matches the globals the Python harness predeclares
-// in the repository's conftest.py.
-//
-// Predeclared globals:
-//   - libPath        : string, ALETHEIA_LIB env var
-//   - backend        : std::unique_ptr<aletheia::IBackend> (FFI)
-//   - client         : aletheia::AletheiaClient (parsed against an in-memory DBC)
-//   - ts             : aletheia::Timestamp
-//   - can_id, canID  : aletheia::CanId (StandardId{0x100})
-//   - dlc            : aletheia::Dlc{8}
-//   - data_storage   : std::vector<std::byte>(8)
-//   - data           : std::span<const std::byte> over data_storage
-//   - frames         : std::vector<aletheia::Frame>
-//   - dbc            : aletheia::DbcDefinition (the in-memory DBC parsed into client)
-//
-// `using namespace aletheia;` keeps doc snippets idiomatic.
-constexpr std::string_view k_prologue =
-    R"CPP(// Auto-generated wrapper: doc-example harness.
-#include <chrono>
-#include <cstddef>
-#include <cstdlib>
-#include <iostream>
-#include <memory>
-#include <span>
-#include <stop_token>
-#include <utility>
-#include <variant>
-#include <vector>
-
-#include <aletheia/backend.hpp>
-#include <aletheia/check.hpp>
-#include <aletheia/client.hpp>
-#include <aletheia/dbc.hpp>
-#include <aletheia/error.hpp>
-#include <aletheia/excel.hpp>
-#include <aletheia/log.hpp>
-#include <aletheia/ltl.hpp>
-#include <aletheia/types.hpp>
-#include <aletheia/yaml.hpp>
-#include <ranges>
-
-using namespace aletheia;
-
-namespace doc_harness_detail {
-
-inline auto build_doc_dbc() -> DbcDefinition {
-auto rat = [](std::int64_t n, std::int64_t d) {
-    return Rational{n, d};
-};
-auto signal_def = [&](std::string_view name, std::uint16_t start_bit,
-                      std::uint8_t bit_length, std::int64_t max_val) {
-    return DbcSignal{
-        .name = SignalName{std::string(name)},
-        .start_bit = BitPosition{start_bit},
-        .bit_length = BitLength{bit_length},
-        .byte_order = ByteOrder::LittleEndian,
-        .is_signed = false,
-        .factor = RationalFactor{rat(1, 1)},
-        .offset = RationalOffset{rat(0, 1)},
-        .minimum = RationalBound{rat(0, 1)},
-        .maximum = RationalBound{rat(max_val, 1)},
-        .unit = Unit{""},
-        .presence = AlwaysPresent{},
-        .receivers = {},
-    };
-};
-
-DbcMessage vehicle_state{
-    .id = StandardId::create(0x100).value(),
-    .name = MessageName{"VehicleState"},
-    .dlc = Dlc::create(8).value(),
-    .sender = NodeName{"ECU"},
-    .senders = {},
-    .signals = {
-        signal_def("VehicleSpeed", 0, 16, 65535),
-        signal_def("Speed", 16, 16, 65535),
-        signal_def("BrakePedal", 32, 8, 255),
-        signal_def("EngineRPM", 40, 8, 255),
-        signal_def("FaultCode", 48, 8, 255),
-        signal_def("ParkingBrake", 56, 1, 1),
-    },
-};
-DbcMessage voltages{
-    .id = StandardId::create(0x110).value(),
-    .name = MessageName{"Voltages"},
-    .dlc = Dlc::create(8).value(),
-    .sender = NodeName{"BMS"},
-    .senders = {},
-    .signals = {
-        signal_def("Voltage", 0, 16, 65535),
-        signal_def("BatteryVoltage", 16, 16, 65535),
-        signal_def("CoolantTemp", 32, 8, 255),
-    },
-};
-return DbcDefinition{
-    .version = "1.0",
-    .messages = {std::move(vehicle_state), std::move(voltages)},
-};
-}
-
-} // namespace doc_harness_detail
-
-int main() {
-auto* env_lib = std::getenv("ALETHEIA_LIB");
-std::string libPath = (env_lib != nullptr) ? env_lib : "";
-
-// Two backends: one consumed by the wrapper-scope `client`, one left free
-// for a fence that constructs its own. GHC RTS init is idempotent in
-// `make_ffi_backend`, so the second call is cheap (dlopen handle and
-// StablePtr only).
-auto initial_backend = make_ffi_backend(libPath);
-DbcDefinition dbc = doc_harness_detail::build_doc_dbc();
-AletheiaClient client{std::move(initial_backend)};
-if (auto parsed = client.parse_dbc(std::stop_token{}, dbc); !parsed) {
-    std::cerr << "the harness's DBC does not parse: " << parsed.error().message() << '\n';
-    return 1;
-}
-
-[[maybe_unused]] auto backend = make_ffi_backend(libPath);
-[[maybe_unused]] Timestamp ts{0};
-[[maybe_unused]] CanId can_id = StandardId::create(0x100).value();
-[[maybe_unused]] CanId canID = can_id;
-[[maybe_unused]] Dlc dlc = Dlc::create(8).value();
-[[maybe_unused]] std::vector<std::byte> data_storage(8, std::byte{0});
-[[maybe_unused]] std::span<const std::byte> data{data_storage};
-[[maybe_unused]] std::vector<Frame> frames;
-
-// Fence body runs in a nested block so fences that redeclare backend /
-// client / ts / can_id / dlc / data via `auto x = ...` shadow the outer
-// scope's names cleanly. This matches the Go harness's nested-block
-// strategy for the body-fragment wrapper.
-{
-)CPP";
-
-constexpr std::string_view k_epilogue = R"CPP(
-}
-
-return 0;
-}
-)CPP";
-
-// The check a result the example keeps and never reads is handed to: the
-// forwarding stand-in kernel sees only the kernel's refusals, and a binding
-// refuses some inputs itself (an identifier out of range, a DLC above 15),
-// so an example keeping such a refusal unread would pass on its exit status.
-// It ends the run naming the line when the result holds an error, an
-// AletheiaError or a factory's message alike; a type without one passes
-// through, the branch reading it never instantiated.
-constexpr std::string_view k_unread_check = R"CPP(#include <cstdlib>
-#include <iostream>
-#include <utility>
-
-template <typename T>
-auto docExampleUnread(const char* where, T&& kept) -> T&& {
-    if constexpr (requires { kept.has_value(); kept.error(); }) {
-        if (!kept.has_value()) {
-            std::cerr << "the example discards an error at " << where;
-            if constexpr (requires { kept.error().text(); })
-                std::cerr << ": " << kept.error().text();
-            else if constexpr (requires { std::cerr << kept.error(); })
-                std::cerr << ": " << kept.error();
-            std::cerr << '\n';
-            std::exit(1);
-        }
-    }
-    return std::forward<T>(kept);
-}
-)CPP";
-
-// The offset of the `;` ending the statement whose text starts at `from`: the
-// first outside brackets, string and character literals and line comments.
-static auto statement_end(std::string_view text, std::size_t from) -> std::size_t {
-    enum class In : std::uint8_t { Code, Literal, Escape, Slash, Comment };
-    auto in = In::Code;
-    auto quote = '"';
-    int depth = 0;
-    for (auto const [k, c] : std::views::enumerate(text.substr(from))) {
-        switch (in) {
-        case In::Literal:
-            if (c == '\\')
-                in = In::Escape;
-            else if (c == quote)
-                in = In::Code;
-            continue;
-        case In::Escape:
-            in = In::Literal;
-            continue;
-        case In::Comment:
-            in = c == '\n' ? In::Code : In::Comment;
-            continue;
-        case In::Slash:
-            in = In::Code;
-            if (c == '/') {
-                in = In::Comment;
-                continue;
-            }
-            break;
-        case In::Code:
-            break;
-        }
-        if (c == '"' || c == '\'') {
-            quote = c;
-            in = In::Literal;
-        } else if (c == '/') {
-            in = In::Slash;
-        } else if (c == '(' || c == '{' || c == '[') {
-            ++depth;
-        } else if (c == ')' || c == '}' || c == ']') {
-            --depth;
-        } else if (c == ';' && depth == 0) {
-            return from + static_cast<std::size_t>(k);
-        }
-    }
-    return std::string_view::npos;
-}
-
-// The program with each `auto name = ...;` declaration whose initialiser calls
-// something and whose name the rest of the program never names handed to
-// docExampleUnread, so the value is checked where it is kept, which is where
-// it is last seen. `where[k]` names the document line of the program's line k.
-static auto wrap_unread_results(std::string_view program, const std::vector<std::string>& where)
-    -> std::string {
-    static const std::regex kept(
-        R"(^(\s*(?:\[\[maybe_unused\]\]\s*)?auto\s+(?:const\s+)?(\w+)\s*=\s*).*)");
-    static const std::regex calls(R"(\w\s*\()");
-    std::vector<std::size_t> starts{0};
-    for (auto const [i, c] : std::views::enumerate(program)) {
-        if (c == '\n')
-            starts.push_back(static_cast<std::size_t>(i) + 1);
-    }
-    std::string out;
-    std::size_t done = 0;
-    for (auto const [k, start] : std::views::enumerate(starts)) {
-        if (start < done || static_cast<std::size_t>(k) >= where.size())
-            continue;
-        auto const line = std::string{program.substr(start, program.find('\n', start) - start)};
-        std::smatch m;
-        if (!std::regex_match(line, m, kept))
-            continue;
-        // The value starts at its first character, on the next line when the
-        // declaration breaks after its `=`.
-        auto const init =
-            program.find_first_not_of(" \t\n", start + static_cast<std::size_t>(m.length(1)));
-        auto const end = statement_end(program, init);
-        if (end == std::string_view::npos)
-            continue;
-        auto const value = std::string{program.substr(init, end - init)};
-        auto const rest = std::string{program.substr(end)};
-        if (!std::regex_search(value, calls) ||
-            std::regex_search(rest, std::regex{"\\b" + m[2].str() + "\\b"}))
-            continue;
-        out.append(program.substr(done, init - done));
-        out.append("docExampleUnread(\"" + where[static_cast<std::size_t>(k)] + "\", ");
-        out.append(value).append(")");
-        done = end;
-    }
-    out.append(program.substr(done));
-    return out;
-}
-
 // The document line of each line of a fence's content.
 static auto fence_lines(const CppFence& fence) -> std::vector<std::string> {
     auto const count = static_cast<int>(std::ranges::count(fence.content, '\n')) + 1;
@@ -587,15 +335,6 @@ static auto fence_lines(const CppFence& fence) -> std::vector<std::string> {
                return fence.file + ":L" + std::to_string(fence.line + 1 + k);
            }) |
            std::ranges::to<std::vector>();
-}
-
-static auto wrap_body_fragment(std::string body) -> std::string {
-    std::string out;
-    out.reserve(k_prologue.size() + body.size() + k_epilogue.size());
-    out.append(k_prologue);
-    out.append(body);
-    out.append(k_epilogue);
-    return out;
 }
 
 // Pick a wrapper shape based on body content, every shape's unread results
@@ -607,7 +346,7 @@ static auto wrap_fence(std::string body, const CppFence& fence) -> std::string {
     if (has_include(body)) {
         return std::string{k_unread_check} + body + "\n\nint main() { return 0; }\n";
     }
-    return std::string{k_unread_check} + wrap_body_fragment(std::move(body));
+    return std::string{k_unread_check} + wrap_body_fragment(body);
 }
 
 static auto write_file(const fs::path& path, std::string_view content) -> void {
@@ -728,6 +467,78 @@ static auto compile_program(const fs::path& src_path, const fs::path& out_path) 
     REQUIRE(compile_rc == 0);
 }
 
+// The uses of `client` and `backend` the compiler finds no declaration of in
+// the program at `src_path`, from one pass of its front end: the uses the
+// harness's client and backend stand behind, however the program declares its
+// own names.
+static auto harness_uses_of(const fs::path& src_path) -> std::vector<HarnessUse> {
+    std::ostringstream cmd;
+    cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
+        << sh_quote(doc_include_dir()) << " -fsyntax-only -ferror-limit=0 -fno-spell-checking "
+        << sh_quote(src_path.string());
+    auto const [rc, diagnostics] = run_capture(cmd.str());
+    INFO("Harness-name pass: " << cmd.str() << " (exit " << rc << ")\n" << diagnostics);
+    return reported_harness_uses(diagnostics, src_path.string());
+}
+
+TEST_CASE("doc-example harness: the compiler names the uses the harness's client stands behind",
+          "[doc-examples][gate]") {
+    CHECK(reported_harness_uses("p.cpp:3:5: error: use of undeclared identifier 'client'\n"
+                                "q.cpp:1:1: error: use of undeclared identifier 'client'\n"
+                                "p.cpp:4:9: error: use of undeclared identifier 'backend'\n"
+                                "p.cpp:5:1: error: use of undeclared identifier 'load'\n",
+                                "p.cpp") ==
+          std::vector<HarnessUse>{{.line = 3, .column = 5, .client = true},
+                                  {.line = 4, .column = 9, .client = false}});
+    CHECK(with_harness_client("a\n  client.x(backend);\n",
+                              {{.line = 2, .column = 3, .client = true},
+                               {.line = 2, .column = 12, .client = false},
+                               {.line = 2, .column = 3, .client = true}}) ==
+          "a\n  doc_harness_detail::harness_client().x(doc_harness_detail::harness_backend());\n");
+
+    // A use in a loop after a read, and the forms a fragment declares the
+    // names in itself: an own client over the harness's backend, a block's
+    // own, a structured binding, a lambda's parameter, a member; a raw string
+    // and a comment name them too.
+    std::string const written =
+        "auto const limit = 1;\n"
+        "for (int i = 0; i < limit; ++i) {\n"
+        "\t[[maybe_unused]] auto& used = client;\n"
+        "}\n"
+        "{\n"
+        "    AletheiaClient client{std::move(backend)};\n"
+        "    [[maybe_unused]] auto& mine = client;\n"
+        "}\n"
+        "{\n"
+        "    [[maybe_unused]] int const client = 1;\n"
+        "}\n"
+        "{\n"
+        "    std::pair<int, int> const pair_value{3, 4};\n"
+        "    auto [client, n] = pair_value;\n"
+        "    auto f = [](int backend) { return backend + 1; };\n"
+        "    struct Holder {\n"
+        "        int client;\n"
+        "    };\n"
+        "    Holder const holder{f(n) + client};\n"
+        "    [[maybe_unused]] auto const total = holder.client;\n"
+        "}\n"
+        "[[maybe_unused]] auto const* text = R\"x(say \"client\")x\"; // client\n"
+        "[[maybe_unused]] auto& last = backend;\n";
+    auto expected = written;
+    for (auto const& [from, to] : std::to_array<std::pair<std::string_view, std::string_view>>({
+             {"auto& used = client;", "auto& used = doc_harness_detail::harness_client();"},
+             {"std::move(backend)", "std::move(doc_harness_detail::harness_backend())"},
+             {"auto& last = backend;", "auto& last = doc_harness_detail::harness_backend();"},
+         })) {
+        expected.replace(expected.find(from), from.size(), to);
+    }
+    const TempPath scratch{scratch_dir() / "aletheia_doc_harness_names", AsDirectory{}};
+    auto const src_path = scratch.path / "names.cpp";
+    write_file(src_path, wrap_body_fragment(written));
+    CHECK(with_harness_client(wrap_body_fragment(written), harness_uses_of(src_path)) ==
+          wrap_body_fragment(expected));
+}
+
 // Compiles one program against the binding and runs it against the forwarding
 // stand-in kernel, failing the calling test case on either step or on
 // refusals other than the codes `refuses` names.
@@ -770,7 +581,12 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
             auto body = substitute_paths(fence.content, ALETHEIA_DOC_FORWARDING_KERNEL,
                                          fixtures.yaml, fixtures.excel);
             auto const src_path = workdir / ("fence" + std::to_string(i) + ".cpp");
-            write_file(src_path, wrap_fence(std::move(body), fence));
+            auto program = wrap_fence(std::move(body), fence);
+            if (names_harness(fence.content)) {
+                write_file(src_path, program);
+                program = with_harness_client(std::move(program), harness_uses_of(src_path));
+            }
+            write_file(src_path, program);
             compile_and_run(src_path, workdir / ("fence" + std::to_string(i)), lib, fence.refuses);
             if (std::ranges::contains(k_whole_program_docs, fence.file)) {
                 // A reader builds it as it stands, with nothing the harness adds.

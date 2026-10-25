@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 import tools.check_rts_runtime as gate
-from tools.check_rts_runtime import ByteCount, RuntimeSSOT, cap_divergence
+from tools.check_rts_runtime import ByteCount, RuntimeSSOT, SymbolName, cap_divergence
 
 cases = {
     ("-M3G", 3 << 30): False,
@@ -52,7 +52,14 @@ cases = {
 wrong = []
 for (flag, size), refused in cases.items():
     said = cap_divergence(
-        RuntimeSSOT(flag, ByteCount(size), 1, "hs_init_with_rtsopts", "ALETHEIA_RTS_OPTS")
+        RuntimeSSOT(
+            flag,
+            ByteCount(size),
+            1,
+            "hs_init_with_rtsopts",
+            "ALETHEIA_RTS_OPTS",
+            SymbolName("getNumberOfProcessors"),
+        )
     )
     if (said is not None) != refused:
         wrong.append(f"{flag} over {size} bytes: the check said {said!r}")

@@ -3,11 +3,12 @@
 //
 // The rational renderer releases every string the kernel hands it: a render,
 // and a decimal parse's refusal. A process of its own, because the renderer
-// loads its library once per process and keeps it, and the one library whose
-// releases can be read is the recording kernel, which counts them; the suite
-// that shares a process with the real library cannot point the renderer at it.
-// For the same reason the allocation count is read here, the recording kernel
-// being the library that started this process's runtime.
+// calls the library the runtime started on, which happens once per process,
+// and the one library whose releases can be read is the recording kernel,
+// which counts them; the suite that shares a process with the real library
+// cannot point the renderer at it. For the same reason the allocation count is
+// read here, the recording kernel being the library this process's runtime
+// started on.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -23,11 +24,9 @@
 #include "loaded_library.hpp"
 
 TEST_CASE("the renderer frees the strings the kernel hands it", "[rational_renderer]") {
-    // The renderer reads the variable before any registered path, and a
-    // backend on the stand-in marks the runtime up without starting one: its
-    // runtime entry is a no-op.
+    // A backend on the stand-in starts the runtime on it, its runtime entry a
+    // no-op, so the renderer calls the stand-in.
     const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
-    REQUIRE(::setenv("ALETHEIA_LIB", stand_in.c_str(), 1) == 0);
     auto const backend = aletheia::make_ffi_backend(stand_in);
     const aletheia::test::LoadedLibrary handle{dlopen(stand_in.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     REQUIRE(handle != nullptr);
@@ -53,8 +52,8 @@ TEST_CASE("the allocation count comes back whole from the library that started t
     // before, and nothing in this process reads it earlier, so the reads give
     // 2^63 and then one more only when each reached the entry and all 64 bits
     // came back: a read that keeps fewer bits reads another number. Every
-    // backend this process makes is on the stand-in, so it is the one that
-    // started the runtime.
+    // backend this process makes is on the stand-in, so it is the one the
+    // runtime started on.
     auto const backend =
         aletheia::make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL});
     auto const first = aletheia::allocated_bytes();

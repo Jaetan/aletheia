@@ -110,8 +110,8 @@ Harness: `cpp/benchmarks/stability_bench.cpp`, its reads in `cpp/benchmarks/stab
 
 The Python lane drives the RTS profile capture.  When invoked from
 `tools/stability_run.py`, the runner sets `ALETHEIA_RTS_OPTS=-hT`; the
-Python binding's `RTSState.acquire` extends the argv passed to
-`hs_init_with_rtsopts` with those flags.  The GHC RTS emits
+Python binding's runtime start, the first backend's `RTSState.acquire`,
+extends the argv passed to `hs_init_with_rtsopts` with those flags.  The GHC RTS emits
 `aletheia.hp` in the runner's cwd; the runner renames it to
 `benchmarks/stability/<short-sha>/aletheia-ffi.hp`.
 

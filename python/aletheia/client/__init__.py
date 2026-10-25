@@ -16,7 +16,7 @@ modules. The public names live in:
 * ``_client``: :class:`AletheiaClient`
 * ``_backend``: :class:`Backend`, :class:`FFIBackend`, :class:`MockBackend`,
   :class:`BinaryPathUnsupportedError`
-* ``_ffi``: :class:`RTSState`, :func:`allocated_bytes`
+* ``_ffi``: :class:`RTSState`, :func:`allocated_bytes`, :func:`start_runtime`
 * ``_types``: the exception hierarchy, the response TypedDicts, and the
   byte/DLC converters
 

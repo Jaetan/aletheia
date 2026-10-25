@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NewType, cast
 
 from aletheia.client._log import LogEvent, log_event
-from aletheia.client._types import FFIError, ProtocolError
+from aletheia.client._types import FFIError, ProtocolError, ValidationError
+from aletheia.common_types import CoreCount, Prose
 from aletheia.types import JSONValue, is_str_dict
 
 if TYPE_CHECKING:
-    from aletheia.common_types import AllocatedBytes, Prose
+    from aletheia.common_types import AllocatedBytes
     from aletheia.types import Response
 
 # The reply of a kernel entry that answers in JSON, as the bytes it returned.
@@ -86,92 +87,214 @@ RTS_INIT_SYMBOL = "hs_init_with_rtsopts"
 # Environment variable whose whitespace-split flags are appended after the cap.
 RTS_OVERRIDE_ENV = "ALETHEIA_RTS_OPTS"
 
+# The GHC runtime's count of the CPUs the process may use (its affinity set on
+# Linux), callable before the runtime starts: a core count past it is refused.
+RTS_PROCESSORS_SYMBOL = "getNumberOfProcessors"
+
 
 class RTSState:
-    """Module-level GHC RTS management.
+    """The GHC runtime's once-per-process state.
 
-    GHC RTS can only be initialized once per process.  We reference-count
-    clients so ``hs_init()`` is called on first use and the RTS stays
-    alive until process exit (GHC does not support reinitialization after
-    ``hs_exit()``).
+    The runtime starts once per process and stays up until it exits (GHC does
+    not start again after ``hs_exit()``): ``lib`` and ``cores`` are the library
+    and the core count it started with.  ``refcount`` counts the backend
+    references :meth:`acquire` took and :meth:`release` gave back; a start of
+    its own (:func:`start_runtime`) takes none.
     """
 
     lib: ctypes.CDLL | None = None
     refcount: int = 0
     initialized: bool = False
     cores: int = 0
-    _lock: threading.Lock = threading.Lock()
 
     @classmethod
-    def acquire(cls, lib: ctypes.CDLL, rts_cores: int = DEFAULT_RTS_CORES) -> None:
-        """Increment RTS reference count, initializing on first use.
+    def acquire(cls, lib: ctypes.CDLL, rts_cores: int | None = None) -> None:
+        """Take a backend's reference to the runtime, starting it on ``lib`` if nothing has.
 
         Args:
             lib: The loaded shared library.
-            rts_cores: Number of GHC RTS capabilities (``-N`` flag).
-                Use 1 (default) for single-bus monitoring.  Set to the
-                number of CAN buses for multi-bus monitoring from
-                separate Python threads.  Only takes effect on the first
-                ``AletheiaClient`` created in a process.
+            rts_cores: The GHC runtime's capabilities (``-N``), or ``None`` for
+                the count running, 1 if nothing runs.  A runtime already up
+                keeps its count, and another count asked of it is warned.
+
+        Raises:
+            ValidationError: ``rts_cores`` is outside 1 to the CPUs the process may use.
 
         """
-        with cls._lock:
-            if not cls.initialized:
-                # Use hs_init_with_rtsopts so callers can pass arbitrary RTS
-                # flags (e.g., -hT for heap profiling, -p for time profiling)
-                # regardless of the shared library's link-time -rtsopts level
-                # (which has no effect for native-shared libraries per the
-                # GHC linker).
-                init_fn = getattr(lib, RTS_INIT_SYMBOL)
-                init_fn.argtypes = [
-                    ctypes.POINTER(ctypes.c_int),
-                    ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)),
-                ]
-                init_fn.restype = None
-                extra_rts = os.environ.get(RTS_OVERRIDE_ENV, "").split()
-                # The heap cap goes FIRST so a caller-supplied -M in
-                # ALETHEIA_RTS_OPTS lands later and wins (the RTS honours the
-                # last occurrence of a flag).
-                args: list[bytes] = [b"aletheia", b"+RTS", DEFAULT_RTS_HEAP_CAP]
-                if rts_cores > DEFAULT_RTS_CORES:
-                    args.append(b"-N" + str(rts_cores).encode())
-                args.extend(flag.encode("ascii") for flag in extra_rts)
-                args.append(b"-RTS")
-                argc = ctypes.c_int(len(args))
-                argv = (ctypes.c_char_p * len(args))(*args)
-                argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
-                init_fn(ctypes.byref(argc), ctypes.byref(argv_ptr))
-                cls.lib = lib
-                cls.cores = rts_cores
-                cls.initialized = True
-            elif rts_cores != cls.cores:
-                log_event(
-                    logging.getLogger("aletheia"),
-                    logging.WARNING,
-                    LogEvent.RTS_CORES_MISMATCH,
-                    active_cores=cls.cores,
-                    requested_cores=rts_cores,
-                )
+        start_runtime_on(lib, None if rts_cores is None else CoreCount(rts_cores))
+        with _RUNTIME_LOCK:
             cls.refcount += 1
 
     @classmethod
     def release(cls) -> None:
-        """Decrement RTS reference count."""
-        with cls._lock:
+        """Give back a backend's reference."""
+        with _RUNTIME_LOCK:
             if cls.refcount > 0:
                 cls.refcount -= 1
 
 
-def hs_initialized() -> bool:
-    """Return whether the GHC RTS has been initialized.
+_RUNTIME_LOCK = threading.Lock()
 
-    The single source of truth for RTS readiness.  ``RTSState.acquire``
-    (called by :class:`FFIBackend`) is the sole initializer; the rational
-    renderer consults this to stay *vocal* — it must never self-initialize
-    the RTS, because doing so would latch a default ``-N`` and squander a
-    backend's bus-count ``-N`` (the RTS is one-shot per process).
+
+def core_count_refusal(requested: CoreCount, available: CoreCount) -> Prose | None:
+    """Return the refusal of a core count outside 1 to ``available``, or ``None`` inside it."""
+    if 1 <= requested <= available:
+        return None
+    return Prose(
+        f"core count {requested} is outside 1 to {available}, the CPUs this process may use"
+    )
+
+
+def available_cores(lib: ctypes.CDLL) -> CoreCount:
+    """Return the CPUs the process may use, as the GHC runtime of ``lib`` counts them."""
+    count = getattr(lib, RTS_PROCESSORS_SYMBOL)
+    count.argtypes = []
+    count.restype = ctypes.c_uint32
+    cpus: CoreCount = count()
+    return cpus
+
+
+def start_runtime_on(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
+    """Start the GHC runtime on ``lib`` with ``cores`` capabilities, unless it runs.
+
+    The one start every route takes, :func:`start_runtime` and a backend's
+    :meth:`RTSState.acquire`.  ``None`` asks the count running, 1 if nothing
+    runs.  The count is checked against the CPUs the process may use whether or
+    not the runtime runs; a runtime that runs keeps its count, and another one
+    asked of it is the ``rts.cores_mismatch`` warning on the package logger.
+
+    Raises:
+        ValidationError: ``cores`` is outside 1 to the CPUs the process may use.
+
+    """
+    with _RUNTIME_LOCK:
+        running = CoreCount(RTSState.cores) if RTSState.initialized else None
+        if cores is not None:
+            asked = cores
+        else:
+            asked = running if running is not None else CoreCount(DEFAULT_RTS_CORES)
+        refusal = core_count_refusal(asked, available_cores(lib))
+        if refusal is not None:
+            raise ValidationError(refusal)
+        if running is None:
+            _start(lib, asked)
+            RTSState.lib = lib
+            RTSState.cores = asked
+            RTSState.initialized = True
+        elif asked != running:
+            log_event(
+                logging.getLogger("aletheia"),
+                logging.WARNING,
+                LogEvent.RTS_CORES_MISMATCH,
+                active_cores=running,
+                requested_cores=asked,
+            )
+
+
+def _start(lib: ctypes.CDLL, cores: CoreCount) -> None:
+    """Call the runtime's start entry with the heap cap, ``-N`` past one core and the override."""
+    # hs_init_with_rtsopts honours every flag whatever the library's link-time
+    # -rtsopts level (which has no effect for a native shared library), so a
+    # caller can pass a profiling flag through ALETHEIA_RTS_OPTS.
+    init_fn = getattr(lib, RTS_INIT_SYMBOL)
+    init_fn.argtypes = [
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)),
+    ]
+    init_fn.restype = None
+    extra_rts = os.environ.get(RTS_OVERRIDE_ENV, "").split()
+    # The heap cap goes FIRST so a caller-supplied -M in ALETHEIA_RTS_OPTS
+    # lands later and wins (the RTS honours the last occurrence of a flag).
+    args: list[bytes] = [b"aletheia", b"+RTS", DEFAULT_RTS_HEAP_CAP]
+    if cores > DEFAULT_RTS_CORES:
+        args.append(b"-N" + str(cores).encode())
+    args.extend(flag.encode("ascii") for flag in extra_rts)
+    args.append(b"-RTS")
+    argc = ctypes.c_int(len(args))
+    argv = (ctypes.c_char_p * len(args))(*args)
+    argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
+    init_fn(ctypes.byref(argc), ctypes.byref(argv_ptr))
+
+
+def open_library(lib_path: Path | None) -> ctypes.CDLL:
+    """Open ``libaletheia-ffi.so`` at ``lib_path``, or where :func:`find_ffi_library` finds it.
+
+    The ABI version is checked before any entry is configured, so a library laid
+    out for another version runs nothing.
+    """
+    path = lib_path if lib_path is not None else find_ffi_library()
+    lib = ctypes.CDLL(str(path))
+    check_abi_version(lib)
+    configure_ffi_signatures(lib)
+    return lib
+
+
+def start_runtime(cores: int, *, lib_path: Path | None = None) -> None:
+    """Start the kernel's GHC runtime on ``cores`` capabilities, before any client.
+
+    The kernel reads every number a check carries, and its runtime starts once
+    per process, so a program that loads checks before opening a client starts
+    it first:
+
+    ```python
+    from pathlib import Path
+
+    import aletheia
+
+    aletheia.start_runtime(1)
+    checks = aletheia.load_checks(Path("checks.yaml"))
+    with aletheia.AletheiaClient(default_checks=checks) as client:
+        ...
+    ```
+
+    A client opened later naming no core count asks for the count running.  A
+    runtime already up keeps its count, and another count asked of it is
+    warned (``rts.cores_mismatch``) on the ``aletheia`` logger.
+
+    Args:
+        cores: The GHC runtime's capabilities (``-N``): 1 for one bus, the
+            number of buses when several threads each monitor their own.
+        lib_path: ``libaletheia-ffi.so``, or ``None`` for where
+            :func:`find_ffi_library` finds it.
+
+    Raises:
+        ValidationError: ``cores`` is outside 1 to the CPUs the process may use.
+        FileNotFoundError: ``lib_path`` is ``None`` and no library is found.
+        FFIError: the library implements another ABI version.
+
+    """
+    start_runtime_on(open_library(lib_path), CoreCount(cores))
+
+
+def hs_initialized() -> bool:
+    """Return whether the GHC runtime has started, by :func:`start_runtime` or a backend.
+
+    The rational renderer and the decimal parser read it to stay vocal: they
+    never start the runtime themselves, since a start fixes the core count for
+    the process.
     """
     return RTSState.initialized
+
+
+def started_library(reading: Prose) -> ctypes.CDLL:
+    """Return the library the runtime started on, or refuse while it is down.
+
+    The renderer and the decimal parser call the kernel through it, so they read
+    the library :func:`start_runtime` or a backend started and never load one
+    of their own.  ``reading`` names what the caller was doing, for the refusal.
+
+    Raises:
+        FFIError: the runtime has not started.
+
+    """
+    lib = RTSState.lib
+    if not hs_initialized() or lib is None:
+        msg = (
+            "GHC runtime not initialized: call aletheia.start_runtime or open a client"
+            f" before {reading}"
+        )
+        raise FFIError(msg)
+    return lib
 
 
 def allocated_bytes() -> AllocatedBytes | None:
@@ -179,9 +302,9 @@ def allocated_bytes() -> AllocatedBytes | None:
 
     The count covers the whole process, every session and thread, so the
     difference of two reads is what ran between them allocated.  It is read
-    through the library :class:`RTSState` latched when a backend started the
-    runtime, and is ``None`` before one has.  Each read runs a garbage
-    collection first, which a timed span should leave out.
+    through the library :class:`RTSState` latched when the runtime started, and
+    is ``None`` before it has.  Each read runs a garbage collection first, which
+    a timed span should leave out.
     """
     lib = RTSState.lib
     if lib is None:

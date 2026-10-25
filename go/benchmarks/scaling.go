@@ -314,7 +314,7 @@ func jsonLiteralLoad(digits int) openLoad {
 func allocatedBytes() (uint64, error) {
 	allocated, ok := aletheia.AllocatedBytes()
 	if !ok {
-		return 0, errors.New("the kernel's allocation count answered no count: no backend has started the runtime")
+		return 0, errors.New("the kernel's allocation count answered no count: the runtime has not started")
 	}
 	return allocated, nil
 }

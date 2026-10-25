@@ -11,7 +11,7 @@
 // would otherwise report. Its renderer answers the rational it was handed and
 // its allocation count a known value, so a test reads what reached them. It
 // carries every symbol the bindings resolve, at the kernel's own signatures,
-// and its runtime entry is a no-op, so a process whose first backend opens it
+// its count of the process's CPUs is four, and its runtime entry is a no-op, so a process whose first backend opens it
 // reads the runtime as up without one. The build makes it beside the library,
 // where the bindings' tests load it.
 #include "aletheia.h"
@@ -47,6 +47,13 @@ uint32_t aletheia_abi_version(void) {
 void hs_init_with_rtsopts(int *argc, char ***argv) {
     (void)argc;
     (void)argv;
+}
+
+// The CPUs the stand-in says the process may use: four, whatever the machine,
+// so a test asks a count past the bound or within it and reads the same answer
+// on every machine.
+uint32_t getNumberOfProcessors(void) {
+    return 4;
 }
 
 void *aletheia_init(void) {

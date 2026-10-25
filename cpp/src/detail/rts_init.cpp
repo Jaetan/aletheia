@@ -6,7 +6,11 @@
 
 #include "rts_init.hpp"
 
+#include <aletheia/error.hpp>
+
 #include <mutex>
+#include <string>
+#include <string_view>
 
 namespace aletheia::detail {
 
@@ -19,6 +23,17 @@ auto rts_initialized() -> bool {
     auto& s = rts_init_state();
     const std::scoped_lock lk{s.mu};
     return s.initialized;
+}
+
+auto started_entries(std::string_view reading) -> RuntimeEntries {
+    auto& s = rts_init_state();
+    const std::scoped_lock lk{s.mu};
+    if (!s.initialized)
+        throw AletheiaException(AletheiaError{
+            ErrorKind::Ffi,
+            "GHC runtime not initialized: call aletheia::start_runtime or open a client before " +
+                std::string{reading}});
+    return s.entries;
 }
 
 } // namespace aletheia::detail

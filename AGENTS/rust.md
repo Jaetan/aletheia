@@ -100,8 +100,9 @@ target's temporary directory, built by a cargo of its own with none of a
 coverage run's instrumentation, and run against the kernel. A fence declaring
 `fn main` is a program as it stands; any other runs inside a synthesised
 `main` returning `Result<(), aletheia::Error>` under `use aletheia::*`, with
-`client` (the minimal corpus DBC parsed), `ts`, `id`, `dlc` and `data`
-predeclared. The Rust fences of a document `PATH_DOCS` lists (the Tutorial's
+`client` (the minimal corpus DBC parsed, opened at the fence's first
+evaluation of it, so the runtime is down until the fence starts it or
+evaluates the client), `ts`, `id`, `dlc` and `data` predeclared. The Rust fences of a document `PATH_DOCS` lists (the Tutorial's
 Rust path) are one program cut into steps, joined in order and run whole.
 Every program runs against the forwarding stand-in kernel and fails unless
 the kernel refused exactly the codes a `<!-- refuses: <code> ... -->` line

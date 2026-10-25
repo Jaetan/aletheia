@@ -25,16 +25,13 @@ import ctypes
 from collections import deque
 from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 
-from aletheia.client._enrichment import set_renderer_lib
 from aletheia.client._ffi import (
     AletheiaBuffer,
     AletheiaFrame,
     AletheiaSignalValues,
     AletheiaText,
     RTSState,
-    check_abi_version,
-    configure_ffi_signatures,
-    find_ffi_library,
+    open_library,
     take_error_envelope,
 )
 from aletheia.client._refusal import raise_entry_refusal
@@ -299,34 +296,33 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
     """Production :class:`Backend` wrapping ``libaletheia-ffi.so`` via ctypes.
 
     Constructed eagerly: the shared library is ``dlopen``'d and the GHC
-    RTS reference is acquired in :meth:`__init__`.  Mirrors C++
-    ``aletheia::make_ffi_backend(path, rts_cores)`` (lib loaded at factory
-    time) and Go ``aletheia.NewFFIBackend(opts...)`` (functional options
-    pattern).
+    runtime reference is acquired in :meth:`__init__`, the runtime starting
+    there unless :func:`~aletheia.start_runtime` or another backend started
+    it.  Mirrors C++ ``aletheia::make_ffi_backend(path)`` (lib loaded at
+    factory time) and Go ``aletheia.NewFFIBackend(path, opts...)``
+    (functional options pattern).
 
-    Instances are reusable across multiple :class:`AletheiaClient` lifetimes
-    — each ``init()`` returns a fresh state handle; each ``close(state)``
-    frees just that handle's state without unloading the .so or releasing
-    the RTS.  GHC's hs_init / hs_exit can only run once per process, so the
-    RTS reference is held for the FFIBackend's lifetime; multiple FFIBackend
-    instances share the module-level :class:`RTSState` refcount.
+    Instances are reusable across multiple :class:`AletheiaClient` lifetimes:
+    each ``init()`` returns a fresh state handle, and each ``close(state)``
+    frees that handle's state and gives back one runtime reference, without
+    unloading the .so.  The runtime starts once per process and is never
+    stopped; every backend shares the module-level :class:`RTSState` count.
     """
 
     def __init__(
         self,
         *,
-        rts_cores: int = 1,
+        rts_cores: int | None = None,
         lib_path: Path | None = None,
     ) -> None:
-        """Load ``libaletheia-ffi.so`` and acquire a GHC RTS reference.
+        """Load ``libaletheia-ffi.so`` and acquire a GHC runtime reference.
 
         Args:
-            rts_cores: GHC RTS capabilities (``-N`` flag). Use 1
-                (default) for single-bus monitoring. Mismatch with an
-                already-initialized process logs a warning; only the
-                first call has effect.
+            rts_cores: GHC runtime capabilities (``-N``), or ``None`` for the
+                count running, 1 if nothing runs.  A runtime already up keeps
+                its count, and another count asked of it logs a warning.
             lib_path: Explicit path to ``libaletheia-ffi.so``.  When
-                ``None``, :func:`find_ffi_library` resolves it from
+                ``None``, :func:`._ffi.find_ffi_library` resolves it from
                 ``ALETHEIA_LIB`` / install config / build dir / cabal
                 ``dist-newstyle``.
 
@@ -334,19 +330,13 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
             FileNotFoundError: ``lib_path`` is None and no library found.
             PermissionError: Resolved library path is a symlink or
                 group/world-writable (see :func:`._ffi._validate_lib_path`).
+            ValidationError: ``rts_cores`` is outside 1 to the CPUs the
+                process may use.
 
         """
-        path = lib_path if lib_path is not None else find_ffi_library()
-        self._lib: ctypes.CDLL = ctypes.CDLL(str(path))
-        check_abi_version(self._lib)
-        configure_ffi_signatures(self._lib)
+        self._lib: ctypes.CDLL = open_library(lib_path)
         RTSState.acquire(self._lib, rts_cores)
-        self._rts_cores = rts_cores
-        # Register this library as the Rational renderer.  The renderer
-        # loads its symbols lazily but NEVER initialises the RTS itself, so
-        # this backend's RTS init (above) is what makes rendering work — a
-        # caller that renders without any FFIBackend gets a vocal FFIError.
-        set_renderer_lib(self._lib)
+        self._rts_cores = rts_cores if rts_cores is not None else RTSState.cores
 
     @property
     def rts_cores(self) -> int:

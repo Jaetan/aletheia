@@ -7,6 +7,7 @@
 // through the Check API into LTL properties.
 //
 // ```cpp
+// [[maybe_unused]] auto const mismatch = start_runtime_from_env(1); // the kernel reads numbers
 // auto from_file = load_checks_from_yaml("checks.yaml");
 // auto from_text = load_checks_from_yaml_string(R"(
 // checks:

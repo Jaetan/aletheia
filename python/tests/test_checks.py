@@ -19,11 +19,9 @@ from aletheia.checks import CheckResult, signal, when
 from aletheia.dsl import Property, Signal
 
 # ``CheckResult.condition_desc`` renders its rational thresholds via the kernel
-# ``formatℚ`` (B5a-3 — cross-binding-canonical with Go / C++ / Rust), which since
-# the point-2 vocal change requires a live GHC RTS.  Bring it up module-wide via
-# the shared ``rts_up`` conftest fixture (an ``FFIBackend`` is the sole RTS
-# initialiser); ``RTSState.acquire`` is refcounted so this composes with any
-# real-FFI client a test creates.
+# ``formatℚ`` (cross-binding-canonical with Go / C++ / Rust), which needs the GHC
+# runtime up: the shared ``rts_up`` conftest fixture starts it module-wide, and a
+# real-FFI client a test opens joins it.
 pytestmark = pytest.mark.usefixtures("rts_up")
 
 # ============================================================================

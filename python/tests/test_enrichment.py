@@ -3,6 +3,7 @@
 """Tests for formula enrichment: pretty-printer, signal collector, diagnostics."""
 
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -15,10 +16,13 @@ from aletheia.client._enrichment import (
 )
 from aletheia.dsl import Signal
 
+if TYPE_CHECKING:
+    from aletheia.common_types import Prose
+
 # Every test here renders rational thresholds via the kernel (format_formula /
-# build_diagnostic), which since point 2 requires a live GHC RTS — the renderer no
-# longer self-initialises. Request the lazy ``rts_up`` fixture (conftest.py)
-# module-wide so the RTS comes up when these tests RUN, not at collection time.
+# build_diagnostic), which needs the GHC runtime up: the renderer never starts it.
+# The lazy ``rts_up`` fixture (conftest.py) starts it module-wide when these tests
+# RUN, not at collection time.
 pytestmark = pytest.mark.usefixtures("rts_up")
 
 
@@ -396,8 +400,12 @@ class TestRendererVocalWhenRTSDown:
         # chain (RTSState.initialized -> hs_initialized -> the guard) is exercised.
         monkeypatch.setattr("aletheia.client._ffi.RTSState.initialized", False)
         f = Signal("Speed").less_than(220).always().to_dict()
-        with pytest.raises(FFIError, match="runtime not initialized"):
+        with pytest.raises(FFIError) as refused:
             format_formula(f)
+        assert str(refused.value) == (
+            "GHC runtime not initialized: call aletheia.start_runtime or open a client"
+            + " before rendering"
+        )
 
     def test_format_formula_raises_on_null_render(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A null kernel pointer raises ``FFIError``, not a silent ``"0"``."""
@@ -413,10 +421,10 @@ class TestRendererVocalWhenRTSDown:
             def aletheia_free_str(self, _ptr: object) -> None:
                 """No-op: nothing to free when the pointer is null."""
 
-        monkeypatch.setattr(
-            "aletheia.client._enrichment.get_renderer_lib",
-            _NullLib,
-        )
+        def _null_library(_reading: Prose) -> _NullLib:
+            return _NullLib()
+
+        monkeypatch.setattr("aletheia.client._enrichment.started_library", _null_library)
         f = Signal("Speed").less_than(220).always().to_dict()
         with pytest.raises(FFIError, match="null"):
             format_formula(f)

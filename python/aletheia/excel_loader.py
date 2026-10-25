@@ -11,7 +11,10 @@ templates — no code, no YAML, just fill in cells.
 Usage:
 
 ```python
-from aletheia import create_template, load_checks_from_excel, load_dbc_from_excel
+from aletheia import create_template, load_checks_from_excel, load_dbc_from_excel, start_runtime
+
+# The kernel reads every number of a workbook, so its runtime starts first
+start_runtime(1)
 
 # Load signal checks
 checks = load_checks_from_excel("my_checks.xlsx")

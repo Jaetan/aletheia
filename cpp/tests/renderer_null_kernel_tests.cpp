@@ -5,8 +5,9 @@
 // is a wire fault, a Protocol error as in every binding. The null kernel the
 // build makes beside the library answers so, and answers its allocation count
 // with zero, which the binding hands on as it came. A process of its own,
-// because the renderer loads its library once per process and keeps it, and
-// the count is read through the library that started the runtime.
+// because the runtime starts once per process, and the parser and the count
+// read the library it started on; for the same reason the backend that
+// started it is the first to register its path for the search.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -18,11 +19,9 @@
 #include <string_view>
 
 TEST_CASE("a decimal failure without an envelope is a protocol error", "[rational_renderer]") {
-    // The renderer reads the variable before any registered path, and a
-    // backend on the stand-in marks the runtime up without starting one: its
-    // runtime entry is a no-op.
+    // A backend on the stand-in starts the runtime on it, its runtime entry a
+    // no-op, so the parser calls the stand-in.
     const std::filesystem::path stand_in{ALETHEIA_TEST_NULL_KERNEL};
-    REQUIRE(::setenv("ALETHEIA_LIB", stand_in.c_str(), 1) == 0);
     auto const backend = aletheia::make_ffi_backend(stand_in);
     REQUIRE(backend != nullptr);
     try {
@@ -33,6 +32,16 @@ TEST_CASE("a decimal failure without an envelope is a protocol error", "[rationa
         CHECK(e.code() == aletheia::ErrorCode::Unknown);
         CHECK(std::string_view{e.what()} == "aletheia_parse_decimal failed without an error");
     }
+}
+
+TEST_CASE("a backend that starts the runtime registers its library for the search", "[ffi]") {
+    // Nothing else in this process registers a path before the backend above,
+    // and with the variable unset the registered path is the search's first
+    // answer, ahead of the build directories around the working directory.
+    const std::filesystem::path stand_in{ALETHEIA_TEST_NULL_KERNEL};
+    auto const backend = aletheia::make_ffi_backend(stand_in);
+    REQUIRE(::unsetenv("ALETHEIA_LIB") == 0);
+    CHECK(aletheia::find_ffi_library() == stand_in);
 }
 
 TEST_CASE("the allocation count is the kernel's answer, zero included", "[ffi]") {

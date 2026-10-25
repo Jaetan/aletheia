@@ -5,6 +5,8 @@
 
 package aletheia
 
+import "log/slog"
+
 // The FFIBackend of a build without cgo, or off Linux. It carries the whole
 // surface its cgo twin does, so the package and the code calling it compile
 // either way and MockBackend stays usable, and every endpoint refuses, since
@@ -27,6 +29,16 @@ func NewFFIBackend(_ string, _ ...FFIBackendOption) (*FFIBackend, error) {
 // NewFFIBackendFromEnv refuses for the same reason, whatever ALETHEIA_LIB names.
 func NewFFIBackendFromEnv(_ ...FFIBackendOption) (*FFIBackend, error) {
 	return nil, errNoCgo()
+}
+
+// StartRuntime refuses: the runtime is the library's, which this build cannot open.
+func StartRuntime(_ string, _ int, _ *slog.Logger) error {
+	return errNoCgo()
+}
+
+// StartRuntimeFromEnv refuses for the same reason, whatever ALETHEIA_LIB names.
+func StartRuntimeFromEnv(_ int, _ *slog.Logger) error {
+	return errNoCgo()
 }
 
 // StablePtrCount is zero: no session can be opened without cgo.

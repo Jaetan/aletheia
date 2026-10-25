@@ -36,10 +36,7 @@ func BuildDiagnostic(f Formula) PropertyDiagnostic {
 // CollectSignals is collectSignals for the tests; it cannot fail.
 var CollectSignals = collectSignals
 
-// FindFFILibrary is findFFILibrary for the tests, which looked for the library
-// their own way before this: the same environment variable and the same
-// candidates, minus the registered path, which is the one difference a copy
-// cannot help having.
+// FindFFILibrary is findFFILibrary for the tests outside the package.
 var FindFFILibrary = findFFILibrary
 
 // FormatEnrichedReason is formatEnrichedReason for the tests; it cannot fail.

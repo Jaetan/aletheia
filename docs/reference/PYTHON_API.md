@@ -503,21 +503,38 @@ with AletheiaClient() as client:
 
 `AletheiaClient` is the unified client for streaming LTL checking and signal operations. It loads `libaletheia-ffi.so` via ctypes and calls the Agda/Haskell core directly via FFI.
 
+### Starting the runtime
+
+`start_runtime(cores, *, lib_path=None) -> None`
+
+The kernel reads every number a check carries, through `from_decimal` and the YAML and Excel loaders, on a GHC runtime that starts once per process: by `start_runtime`, or by the first client opened. A program that loads checks before it opens a client starts the runtime first; before any start, a number read raises `FFIError` (`GHC runtime not initialized: call aletheia.start_runtime or open a client before parsing decimals`). `cores` is the runtime's capability count, 1 for one bus; a count outside 1 to the CPUs the process may use raises `ValidationError`. A runtime already up keeps its count, and another count asked of it logs `rts.cores_mismatch` on the `aletheia` logger. `lib_path` names `libaletheia-ffi.so`, found as a client finds it when `None`.
+
+```python
+from pathlib import Path
+
+from aletheia import AletheiaClient, load_checks, start_runtime
+
+start_runtime(1)
+safety_checks = load_checks(Path("safety_checks.yaml"))
+with AletheiaClient(default_checks=safety_checks) as client:
+    ...
+```
+
 ### Constructor
 
 ```python
-AletheiaClient(default_checks=None, rts_cores=1)
+AletheiaClient(default_checks=None, rts_cores=None)
 ```
 
 **Parameters**:
-- `default_checks` (`list[CheckResult] | None`): Checks prepended to every `add_checks()` call. Useful for organization-wide safety baselines.
-- `rts_cores` (`int`): Number of GHC RTS capabilities (default 1). Only relevant for advanced multi-bus scenarios.
+- `default_checks` (`list[CheckResult] | None`): Checks prepended to every `add_checks()` call. Useful for organization-wide safety baselines; checks holding numbers are loaded after `start_runtime`.
+- `rts_cores` (`int | None`): Number of GHC runtime capabilities, or `None` (default) for the count running, 1 when nothing runs. Only relevant for multi-bus scenarios.
 
 ### Context Manager
 
 ```python
 with AletheiaClient(default_checks=safety_checks) as client:
-    # Shared library loaded, GHC RTS initialized
+    # Shared library loaded, GHC runtime started unless it runs
     client.parse_dbc(dbc_json)
 
     # Signal operations work anytime after DBC loaded
@@ -1083,7 +1100,7 @@ can branch on the same conceptual error categories across all four bindings:
 
 ~~~
 AletheiaError (base)
-├── FFIError                  # Library load / hs_init / FFI null pointer
+├── FFIError                  # Library load / runtime not started / FFI null pointer
 ├── StateError                # Wrong client lifecycle state (not initialized, no DBC, not streaming)
 ├── ProtocolError             # JSON parse error / wire-shape mismatch / Agda kernel ErrorResponse (carries .code)
 ├── ValidationError           # Caller-supplied bad input (unknown signal, payload length, malformed CAN ID)

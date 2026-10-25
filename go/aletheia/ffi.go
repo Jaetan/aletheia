@@ -6,8 +6,8 @@
 package aletheia
 
 // The FFI backend: libaletheia-ffi.so, opened with dlopen through cgo. The
-// GHC runtime starts once per process, under hsInitMu and hsInitDone, which
-// this file shares with renderer.go, and is never finalised, since hs_exit
+// GHC runtime starts once per process, through the start runtime_start.go
+// holds, which [StartRuntime] shares, and is never finalised, since hs_exit
 // does not allow a second start.
 
 // #cgo LDFLAGS: -ldl
@@ -26,12 +26,6 @@ package aletheia
 // // pointers beside it; the trampoline fills a copy on its own stack, which
 // // lives only for the call.
 //
-// static uint32_t call_abi_version(void *fn) {
-//     return ((uint32_t (*)(void))fn)();
-// }
-// static uint64_t call_allocated_bytes(void *fn) {
-//     return ((uint64_t (*)(void))fn)();
-// }
 // // The state handle crosses as an integer: the kernel's handle is not an
 // // address, and Go may not hold one in a pointer.
 // static uintptr_t call_init(void *fn) {
@@ -101,64 +95,23 @@ package aletheia
 //     ((void (*)(uint8_t*))fn)(ptr);
 // }
 //
-// // The runtime's argument vector, assembled by rtsInitArgv in rts.go, moves
-// // into storage C owns: hs_init_with_rtsopts may keep the array and its
-// // strings for the life of the process, and cgo forbids C to keep a Go
-// // pointer past the call. Nothing frees them, because the runtime offers no
-// // hook to release them and the leak is one small array and a few short
-// // strings, allocated once. The Python, C++ and Rust bindings retain theirs
-// // the same way (aletheia/client/_ffi.py, cpp/src/ffi_backend.cpp,
-// // rust/src/backend.rs).
-// static char** g_alloc_argv(int n) {
-//     return (char**)calloc((size_t)n, sizeof(char*));
-// }
-// static void g_set_argv(char **argv, int i, char *s) {
-//     argv[i] = s;  // s is a CString the Go caller means to leak
-// }
-// static void call_hs_init_argv(void *fn, int argc, char **argv) {
-//     // hs_init_with_rtsopts takes int* and char***; it may rewrite the local
-//     // copies, stripping the span it consumed, and those copies are discarded.
-//     ((void (*)(int*, char***))fn)(&argc, &argv);
-// }
 import "C"
 
 import (
 	"bytes"
-	"context"
 	"fmt"
-	"log/slog"
-	"math"
 	"os"
-	"path/filepath"
 	"runtime"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 )
 
 var (
-	hsInitMu    sync.Mutex
-	hsInitDone  bool
-	hsInitCores int
-	// hsAllocatedBytesFn is aletheia_allocated_bytes of the library the
-	// runtime was started with, kept by the backend that started it.
-	hsAllocatedBytesFn unsafe.Pointer
-
 	// stablePtrCount is how many session handles the process has taken from
 	// the kernel and not yet given back: [FFIBackend.Init] adds one and
 	// [FFIBackend.Close] takes one away.
 	stablePtrCount atomic.Int64
 )
-
-// hsInitialized reports whether a backend has started the GHC runtime. The
-// rational renderer asks before calling the kernel, so that it can answer an
-// error rather than start the runtime itself.
-func hsInitialized() bool {
-	hsInitMu.Lock()
-	defer hsInitMu.Unlock()
-	return hsInitDone
-}
 
 // StablePtrCount is how many sessions the process holds open across every
 // backend: the handles [FFIBackend.Init] took and [FFIBackend.Close] has not
@@ -166,26 +119,6 @@ func hsInitialized() bool {
 // in production needs it.
 func StablePtrCount() int64 {
 	return stablePtrCount.Load()
-}
-
-// AllocatedBytes is how many bytes the kernel's runtime has allocated since
-// it started, a count of the whole process as [StablePtrCount] is: the
-// difference of two reads is what ran between them allocated. It answers
-// false and no count until a backend has started the runtime, and then reads
-// the library that backend opened. Each read runs a collection first, since
-// the runtime counts an allocation area only when it collects it, so a read
-// belongs outside anything timed. The scaling benchmark reads it around a
-// load.
-func AllocatedBytes() (uint64, bool) {
-	hsInitMu.Lock()
-	fn := hsAllocatedBytesFn
-	hsInitMu.Unlock()
-	if fn == nil {
-		return 0, false
-	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	return uint64(C.call_allocated_bytes(fn)), true
 }
 
 // FFIBackend is the [Backend] that calls libaletheia-ffi.so, opened with
@@ -243,28 +176,21 @@ func NewFFIBackendFromEnv(opts ...FFIBackendOption) (*FFIBackend, error) {
 }
 
 // NewFFIBackend opens libaletheia-ffi.so at the path and starts the GHC
-// runtime if no backend has. The handle is never closed on success, since the
-// runtime owns threads that reference the library.
+// runtime unless [StartRuntime] or another backend has, on the count
+// [WithRTSCores] names or the count running. The handle is never closed on
+// success, since the runtime owns threads that reference the library.
 func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error) {
 	// dlerror is per thread, so the lookups below must not migrate.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	libPath = filepath.Clean(libPath)
-	// Clean does not reject a NUL, and C.CString would truncate at one,
-	// opening a different path than the caller named.
-	if strings.ContainsRune(libPath, 0) {
-		return nil, validationError("libPath contains NUL byte")
+	var cfg ffiConfig
+	for _, o := range opts {
+		o(&cfg)
 	}
-	// The renderer loads the library on its own; registering the path here
-	// keeps it on the same one rather than its relative search.
-	RegisterDefaultLibPath(libPath)
-	cPath := C.CString(libPath)
-	defer C.free(unsafe.Pointer(cPath))
-
-	handle := C.dlopen(cPath, C.RTLD_NOW|C.RTLD_LOCAL)
-	if handle == nil {
-		return nil, ffiError("dlopen failed: " + C.GoString(C.dlerror()))
+	handle, err := openKernel(libPath)
+	if err != nil {
+		return nil, err
 	}
 	closeOnErr := true
 	defer func() {
@@ -273,20 +199,9 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		}
 	}()
 
-	// The version first: a library laid out for another ABI is refused
-	// before any other entry is resolved or its runtime is started.
-	abiVersionFn, err := loadSym(handle, "aletheia_abi_version")
-	if err != nil {
-		return nil, err
-	}
-	if err := abiVersionError(uint32(C.call_abi_version(abiVersionFn))); err != nil {
-		return nil, err
-	}
-
-	// aletheia_format_rational is deliberately not among these: the renderer
-	// loads it lazily in renderer.go, so a test that never builds a backend
-	// still renders through the kernel.
-	hsInit, err := loadSym(handle, rtsInitSymbol)
+	// The start's own entries first, its start entry leading, so a library
+	// carrying none of the kernel's is refused naming that entry.
+	syms, err := loadRuntimeSymbols(handle)
 	if err != nil {
 		return nil, err
 	}
@@ -350,41 +265,9 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if err != nil {
 		return nil, err
 	}
-	allocatedBytesFn, err := loadSym(handle, "aletheia_allocated_bytes")
-	if err != nil {
+
+	if _, err := startRuntimeOn(syms, cfg.rtsCores, cfg.rtsCoresNamed, cfg.logger); err != nil {
 		return nil, err
-	}
-
-	cfg := ffiConfig{rtsCores: 1}
-	for _, o := range opts {
-		o(&cfg)
-	}
-	if cfg.rtsCores < 1 {
-		return nil, validationError(fmt.Sprintf("rtsCores must be >= 1, got %d", cfg.rtsCores))
-	}
-	if _, ok := narrow[int32](int64(cfg.rtsCores)); !ok {
-		return nil, validationError(fmt.Sprintf("rtsCores %d exceeds C int range (max %d)", cfg.rtsCores, math.MaxInt32))
-	}
-
-	hsInitMu.Lock()
-	defer hsInitMu.Unlock()
-	if !hsInitDone {
-		// The argument vector always carries the heap cap, whatever the core
-		// count, so the host is contained either way. Its array and strings
-		// are leaked on purpose, as the preamble explains.
-		argv := rtsInitArgv(cfg.rtsCores)
-		cargv := C.g_alloc_argv(C.int(len(argv)))
-		for i, s := range argv {
-			C.g_set_argv(cargv, C.int(i), C.CString(s))
-		}
-		C.call_hs_init_argv(hsInit, C.int(len(argv)), cargv)
-		hsInitCores = cfg.rtsCores
-		hsAllocatedBytesFn = allocatedBytesFn
-		hsInitDone = true
-	} else if cfg.rtsCores != hsInitCores && cfg.logger != nil {
-		cfg.logger.LogAttrs(context.Background(), slog.LevelWarn, "rts.cores_mismatch",
-			slog.Int("active_cores", hsInitCores),
-			slog.Int("requested_cores", cfg.rtsCores))
 	}
 
 	closeOnErr = false

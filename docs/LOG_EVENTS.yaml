@@ -21,7 +21,7 @@
 #                  call-site signatures in cpp/src/client.cpp,
 #                  client_stream.cpp and
 #                  go/aletheia/client.go, client_stream.go, client_enrich.go
-#                  + go/aletheia/ffi.go
+#                  + go/aletheia/runtime_start.go
 #                  (rts.cores_mismatch), and the level assertions in
 #                  rust/tests/log_events.rs.
 #     description: one-sentence summary of when the event fires
@@ -67,7 +67,7 @@ events:
 
   - name: rts.cores_mismatch
     level: warn
-    description: GHC RTS init was requested with an N value that disagrees with an earlier process-wide init — the first wins; emitted once per subsequent mismatching call.
+    description: A start of the GHC runtime, start_runtime's or a backend's, asked for a core count other than the one the runtime started on, which it keeps; emitted once per such start.
 
   # --- Frame processing (debug) ---
 

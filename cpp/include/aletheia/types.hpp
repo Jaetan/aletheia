@@ -155,9 +155,9 @@ public:
     // decimal SSOT (`aletheia_parse_decimal`) — the float principle: a decimal
     // is an exact rational (denominator 2^a*5^b), never a float64. The grammar
     // is the kernel's: `-?digits` or `-?digits.digits+` (no `+` sign, no
-    // leading/trailing `.`, no exponent). RTS-gated and vocal: an FfiBackend
-    // must be live first (it is the sole GHC RTS initialiser), else this throws
-    // `AletheiaException(Ffi)` rather than self-initialising. A refusal is the
+    // leading/trailing `.`, no exponent). The GHC runtime must be up
+    // (`aletheia::start_runtime` or a backend), else this throws
+    // `AletheiaException(Ffi)` rather than starting it. A refusal is the
     // kernel's, decoded by `detail::binary_refusal` and thrown as an
     // `AletheiaException`: the literal is the caller's own text, so a malformed
     // one is kind Validation with code `TextParseFailure` or

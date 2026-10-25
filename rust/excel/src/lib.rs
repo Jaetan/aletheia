@@ -183,7 +183,7 @@ fn get_str(row: &Row, key: &str, ctx: &str) -> Result<String, Error> {
 /// [`Rational::from_decimal`] (the cross-binding single source of truth), and
 /// a refusal of it keeps the kernel's error and gains the row (`ctx`) as its
 /// location and the column header (`key`) as its key. A number-typed cell is
-/// rejected. Requires a live backend (decimal parsing is RTS-gated).
+/// rejected. Needs the GHC runtime up (the kernel reads the number).
 fn get_rational(row: &Row, key: &str, ctx: &str) -> Result<Rational, Error> {
     match row.get(key) {
         Some(Data::String(s)) => Rational::from_decimal(s.trim()).map_err(|e| e.located(ctx, key)),
@@ -208,7 +208,7 @@ fn get_rational(row: &Row, key: &str, ctx: &str) -> Result<Rational, Error> {
 /// the kernel [`Rational::from_decimal`] parses it, a refusal of it located as
 /// [`get_rational`] locates one, and a unit-denominator check rejects a
 /// fractional value. A number cell stores a lossy double and is rejected (the
-/// all-text contract, see [`get_rational`]). Requires a live backend.
+/// all-text contract, see [`get_rational`]). Needs the GHC runtime up.
 fn get_int(row: &Row, key: &str, ctx: &str) -> Result<i64, Error> {
     match row.get(key) {
         Some(Data::String(s)) => {
@@ -291,8 +291,8 @@ fn describe(d: &Data) -> String {
 /// [`Error::InputBoundExceeded`] if a number crosses the rational component
 /// magnitude bound. Both number refusals keep the kernel's message, code and
 /// fields, located (see [`Error::located`]) at `Row <n>` under the column
-/// header; [`Error::RtsNotInitialized`] if no backend is up (decimal parsing
-/// is RTS-gated).
+/// header; [`Error::RtsNotInitialized`] if the runtime has not started
+/// ([`aletheia::start_runtime`] or a client starts it).
 pub fn load_checks_from_excel(path: impl AsRef<Path>) -> Result<Vec<Check>, Error> {
     load_checks_within(path.as_ref(), MAX_INPUT_BYTES)
 }

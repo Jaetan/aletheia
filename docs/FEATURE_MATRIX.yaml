@@ -440,6 +440,15 @@ features:
       go:     { status: implemented, entry: Client.AddChecks }
       rust: { status: implemented, entry: "Client::add_checks" }
 
+  - id: default_checks
+    name: Default checks
+    description: Give a client checks at construction that every add_checks call prepends to the checks it is given, the verdicts' property index counting the defaults first.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#default_checks" }
+      go:     { status: implemented, entry: WithDefaultChecks }
+      rust:   { status: implemented, entry: "ClientBuilder::default_checks" }
+
   - id: yaml_check_loader
     name: YAML check loader
     description: Load a set of named checks from a YAML file.
@@ -470,7 +479,7 @@ features:
 
   - id: decimal_input
     name: Decimal input (kernel SSOT)
-    description: Parse a decimal string into the exact rational it denotes via the verified Agda kernel (aletheia_parse_decimal) — the float principle, where a decimal is an exact rational and a float appears only at print-out. The single source of truth all loaders/builders delegate to; RTS-gated (a backend must be live).
+    description: Parse a decimal string into the exact rational it denotes via the verified Agda kernel (aletheia_parse_decimal) — the float principle, where a decimal is an exact rational and a float appears only at print-out. The single source of truth all loaders/builders delegate to; it needs the GHC runtime up (runtime_start or a client) and never starts it.
     bindings:
       python: { status: implemented, entry: aletheia.from_decimal }
       cpp:    { status: implemented, entry: "aletheia/types.hpp#from_decimal" }
@@ -544,9 +553,18 @@ features:
         entry: "Enrichment"
         notes: "Computed client-side (the core emits no enrichment field): each registered formula yields a PropertyDiagnostic (referenced signals + description) cached at set_properties; on a violation the signals are paired with their last-known values to build an Enrichment on PropertyResult. Mirrors Go enrich.go / Python _enrichment.py; the cache.* / extraction-cache layer is not implemented (cache is a perf optimization, not part of the contract)."
 
+  - id: runtime_start
+    name: Runtime start
+    description: Start the kernel's GHC runtime on a core count before any client, so checks holding decimals load ahead of the client they are given to. One process-level function in every binding, which every backend's own start shares; a runtime already up keeps its count, another count asked of it is the rts.cores_mismatch warning, and a count outside 1 to the CPUs the process may use is refused.
+    bindings:
+      python: { status: implemented, entry: aletheia.start_runtime }
+      cpp:    { status: implemented, entry: "aletheia/backend.hpp#start_runtime" }
+      go:     { status: implemented, entry: StartRuntime }
+      rust:   { status: implemented, entry: "start_runtime" }
+
   - id: rts_cores_config
     name: RTS cores configuration
-    description: Configure the number of RTS cores used by the GHC runtime at backend creation.
+    description: Configure the number of cores the GHC runtime starts on, at a backend's start; a backend naming none asks for the count running, 1 when nothing runs, and a count outside 1 to the CPUs the process may use is refused.
     bindings:
       python: { status: implemented, entry: aletheia.AletheiaClient }
       cpp:    { status: implemented, entry: "aletheia/backend.hpp#make_ffi_backend" }
@@ -554,11 +572,11 @@ features:
       rust:
         status: implemented
         entry: "ClientBuilder::rts_cores"
-        notes: "Client::builder().rts_cores(k) passes +RTS -N<k> -RTS to hs_init. RTS is process-global: the first client latches the count; a later mismatching request is a no-op + a rts.cores_mismatch warning (mirrors Go WithRTSCores / C++ make_ffi_backend)."
+        notes: "Client::builder().rts_cores(k) passes +RTS -N<k> -RTS to hs_init. The runtime is process-global: the first start, start_runtime's or a client's, fixes the count; a later request for another keeps it plus a rts.cores_mismatch warning (mirrors Go WithRTSCores / C++ make_ffi_backend)."
 
   - id: kernel_allocated_bytes
     name: Kernel allocation count
-    description: Read how many bytes the kernel's runtime has allocated in the process since it started, so the difference of two reads is what ran between them allocated; the load scaling benchmark measures a DBC load this way. One process-level function in every binding, the count being the process's, answering no count until a backend has started the runtime.
+    description: Read how many bytes the kernel's runtime has allocated in the process since it started, so the difference of two reads is what ran between them allocated; the load scaling benchmark measures a DBC load this way. One process-level function in every binding, the count being the process's, answering no count until the runtime has started.
     bindings:
       python: { status: implemented, entry: aletheia.allocated_bytes }
       cpp:    { status: implemented, entry: "aletheia/backend.hpp#allocated_bytes" }

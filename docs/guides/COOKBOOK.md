@@ -252,8 +252,9 @@ client.parse_dbc(dbc)
 ### Define DBC in Excel
 
 ```python
-from aletheia import load_dbc_from_excel
+from aletheia import load_dbc_from_excel, start_runtime
 
+start_runtime(1)  # the kernel reads every number of the workbook, so its runtime starts first
 dbc = load_dbc_from_excel("vehicle_checks.xlsx")
 client.parse_dbc(dbc)
 ```
@@ -555,8 +556,9 @@ missing on a `fails` response, that's the cause.
 ```python
 from pathlib import Path
 
-from aletheia import checks, load_checks, load_checks_from_excel
+from aletheia import checks, load_checks, load_checks_from_excel, start_runtime
 
+start_runtime(1)  # the kernel reads every number of the checks, so its runtime starts first
 check_list = []
 check_list.extend(load_checks(Path("base_checks.yaml")))         # YAML (Path → file)
 check_list.extend(load_checks_from_excel("extra_checks.xlsx"))   # Excel

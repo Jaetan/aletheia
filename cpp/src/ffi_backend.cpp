@@ -1,25 +1,15 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// FFI backend — loads libaletheia-ffi.so via dlopen.
-//
-// `aletheia_format_rational` is intentionally NOT loaded here: the
-// cross-binding Rational pretty-printer reaches
-// the Agda kernel via the lazy-load in `rational_renderer.cpp`,
-// independent of FfiBackend, so unit tests that never instantiate a
-// backend still route through the same kernel function.
+// FFI backend: loads libaletheia-ffi.so via dlopen and starts the GHC runtime
+// on it through the start `runtime_start.cpp` holds, unless the runtime runs.
 #include <aletheia/backend.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/types.hpp>
 
-#include "detail/dl_symbol.hpp"
 #include "detail/ffi_abi.hpp"
 #include "detail/ffi_logic.hpp"
-#include "detail/rts_init.hpp"
-#include "detail/rts_params.hpp"
+#include "detail/kernel_library.hpp"
 
-#include <dlfcn.h>
-
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -27,7 +17,6 @@
 #include <filesystem>
 #include <format>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -40,8 +29,6 @@ namespace aletheia {
 
 namespace {
 
-using AletheiaAbiVersionFn = std::uint32_t (*)();
-using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
 using AletheiaProcessFn = char* (*)(void*, const detail::FfiText*);
 using AletheiaSendFrameFn = char* (*)(void*, const detail::FfiFrame*);
@@ -61,9 +48,6 @@ using AletheiaFrameBinFn = std::int8_t (*)(void*, const detail::FfiFrame*,
                                            const detail::FfiSignalValues*, detail::FfiBuffer*);
 using AletheiaExtractBinFn = std::int8_t (*)(void*, const detail::FfiFrame*, detail::FfiBuffer*);
 using AletheiaFreeBufFn = void (*)(std::uint8_t*);
-
-// The runtime's allocation count.
-using AletheiaAllocatedBytesFn = std::uint64_t (*)();
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -184,18 +168,9 @@ class FfiBackend : public IBackend {
     // with `active_cores` / `requested_cores` fields (Go + Python parity).
     std::optional<std::pair<int, int>> rts_mismatch_;
 
-    // The refusal is raised from the error branch alone, so the one place a
-    // missing symbol is told from a found one is detail::dl_symbol, not a test
-    // of its answer repeated once per entry type.
     template<typename Fn>
     static auto load_sym(void* handle, const char* name) -> Fn {
-        return detail::symbol_as<Fn>(
-            detail::dl_symbol(handle, name)
-                .or_else([](std::string detail) -> std::expected<void*, std::string> {
-                    throw AletheiaException(
-                        AletheiaError{ErrorKind::Ffi, "dlsym failed for " + std::move(detail)});
-                })
-                .value());
+        return detail::symbol_as<Fn>(detail::required_symbol(handle, name));
     }
 
     // Wrap an FFI char* result with the standard null-check + RAII deleter
@@ -217,77 +192,19 @@ class FfiBackend : public IBackend {
         return std::string{result};
     }
 
-    // Initialize GHC RTS (once per process, never finalized), keeping the
-    // allocation entry of the library that started it.  The init state is
-    // shared with `rational_renderer.cpp` through `detail::rts_init_state()`,
-    // so the first backend's core count is visible to every later one and a
-    // different request surfaces as the `rts.cores_mismatch` warning instead
-    // of being dropped: the mismatch is what a later backend gets back.
-    static auto start_runtime(HsInitFn hs_init, AletheiaAllocatedBytesFn allocated_bytes_fn,
-                              int rts_cores) -> std::optional<std::pair<int, int>> {
-        auto& rts = detail::rts_init_state();
-        const std::scoped_lock lock(rts.mu);
-        if (rts.initialized)
-            return detail::rts_cores_mismatch(rts_cores, rts.cores);
-        // The argv always carries the containment heap cap.
-        // hs_init_with_rtsopts may retain argv for the whole process
-        // lifetime, so the backing storage must outlive this call:
-        // function-local statics give process-lifetime storage without
-        // a raw owning `new`, and the lines below run exactly once
-        // (guarded by rts.initialized under rts.mu), so their
-        // runtime-valued initialisers evaluate once.
-        const char* override_env = std::getenv(std::string{detail::rts_override_env}.c_str());
-        static auto rts_argv =
-            detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");
-        static auto rts_argv_ptrs = [] {
-            std::vector<char*> ptrs(rts_argv.size());
-            std::ranges::transform(rts_argv, ptrs.begin(),
-                                   [](std::string& arg) { return arg.data(); });
-            return ptrs;
-        }();
-        auto argc = static_cast<int>(rts_argv_ptrs.size());
-        auto** argv = rts_argv_ptrs.data();
-        hs_init(&argc, &argv);
-        rts.cores = rts_cores;
-        rts.allocated_bytes = allocated_bytes_fn;
-        rts.initialized = true;
-        return std::nullopt;
-    }
-
 public:
-    // Both arguments are validated before the library is opened: a refused
-    // construction must load nothing (dlopen of an empty path opens the
-    // calling program, and a handle opened before a throw would leak, since
-    // the destructor deliberately never closes one).
-    explicit FfiBackend(const std::filesystem::path& lib_path, int rts_cores) {
-        if (rts_cores < 1)
-            throw AletheiaException(AletheiaError{
-                ErrorKind::Validation, "rts_cores must be >= 1, got " + std::to_string(rts_cores)});
-        if (lib_path.empty())
-            throw AletheiaException(
-                AletheiaError{ErrorKind::Validation,
-                              "library path is empty: pass the path of libaletheia-ffi.so"});
-        // The handle is owned by this guard until construction completes, so a
-        // refusal on any line below closes what was opened; a completed
-        // construction releases it into the member, which the destructor
-        // deliberately keeps (see the class-level docstring).
-        struct Closer {
-            void operator()(void* handle) const noexcept { dlclose(handle); }
-        };
-        std::unique_ptr<void, Closer> opened{dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)};
-        if (opened == nullptr)
-            throw AletheiaException(
-                AletheiaError{ErrorKind::Ffi, "dlopen failed: " + detail::dl_error_text()});
+    // A refused construction loads nothing: the library is owned by a guard
+    // until construction completes, so a refusal on any line below closes what
+    // was opened, and a completed one releases it into the member, which the
+    // destructor deliberately keeps (see the class-level docstring). The core
+    // count is checked against the CPUs the opened library's runtime counts,
+    // `nullopt` asking for the count running.
+    explicit FfiBackend(const std::filesystem::path& lib_path, std::optional<int> rts_cores) {
+        auto opened = detail::open_kernel(lib_path);
         auto* const handle = opened.get();
-
-        // The version first: a library laid out for another ABI is refused
-        // before any other entry is resolved or its runtime is started.
-        if (auto refusal = detail::abi_version_refusal(
-                load_sym<AletheiaAbiVersionFn>(handle, "aletheia_abi_version")()))
-            throw AletheiaException(AletheiaError{ErrorKind::Ffi, std::move(refusal).value()});
-
-        auto const hs_init =
-            load_sym<HsInitFn>(handle, std::string{detail::rts_init_symbol}.c_str());
+        // The start's own entries first, its start entry leading, so a library
+        // carrying none of the kernel's is refused naming that entry.
+        auto const runtime = detail::runtime_symbols(handle);
         init_fn_ = load_sym<AletheiaInitFn>(handle, "aletheia_init");
         process_fn_ = load_sym<AletheiaProcessFn>(handle, "aletheia_process");
         send_frame_fn_ = load_sym<AletheiaSendFrameFn>(handle, "aletheia_send_frame");
@@ -304,9 +221,7 @@ public:
         extract_signals_bin_fn_ =
             load_sym<AletheiaExtractBinFn>(handle, "aletheia_extract_signals_bin");
         free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle, "aletheia_free_buf");
-        auto const allocated_bytes_fn =
-            load_sym<AletheiaAllocatedBytesFn>(handle, "aletheia_allocated_bytes");
-        rts_mismatch_ = start_runtime(hs_init, allocated_bytes_fn, rts_cores);
+        rts_mismatch_ = detail::start_runtime_on(runtime, rts_cores).mismatch;
         handle_ = opened.release();
     }
 
@@ -457,39 +372,31 @@ protected:
 
 } // anonymous namespace
 
-auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
+// The backend validates its arguments and opens the library; registering the
+// path first would leave the search pointing at a path this call is about to
+// refuse, so the backend is constructed before the registration.
+static auto open_ffi_backend(const std::filesystem::path& lib_path, std::optional<int> rts_cores)
     -> std::unique_ptr<IBackend> {
-    // The backend validates its arguments and opens the library; registering
-    // the path first would leave the renderer pointing at a path this call is
-    // about to refuse, so the backend is constructed before the registration.
     auto backend = std::make_unique<FfiBackend>(lib_path, rts_cores);
-    // The lazy-loaded Rational renderer (`rational_renderer.cpp`) then prefers
-    // the same .so instead of its relative-path heuristic.
     detail::register_default_lib_path(lib_path);
     return backend;
 }
 
-auto allocated_bytes() -> std::optional<std::uint64_t> {
-    auto& rts = detail::rts_init_state();
-    auto const entry = [&rts] {
-        const std::scoped_lock lock(rts.mu);
-        return rts.allocated_bytes;
-    }();
-    if (entry == nullptr)
-        return std::nullopt;
-    return entry();
+auto make_ffi_backend(const std::filesystem::path& lib_path) -> std::unique_ptr<IBackend> {
+    return open_ffi_backend(lib_path, std::nullopt);
+}
+
+auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
+    -> std::unique_ptr<IBackend> {
+    return open_ffi_backend(lib_path, rts_cores);
+}
+
+auto make_ffi_backend_from_env() -> std::unique_ptr<IBackend> {
+    return open_ffi_backend(detail::env_library_path("make_ffi_backend(path)"), std::nullopt);
 }
 
 auto make_ffi_backend_from_env(int rts_cores) -> std::unique_ptr<IBackend> {
-    // std::getenv answers null when the variable is unset and "" when it is
-    // set empty; both are refused here, naming the variable.
-    const char* env = std::getenv("ALETHEIA_LIB");
-    if (env == nullptr || *env == '\0')
-        throw AletheiaException(
-            AletheiaError{ErrorKind::Validation,
-                          "ALETHEIA_LIB is not set — set it to the path of libaletheia-ffi.so, "
-                          "or call make_ffi_backend(path)"});
-    return make_ffi_backend(std::filesystem::path{env}, rts_cores);
+    return open_ffi_backend(detail::env_library_path("make_ffi_backend(path)"), rts_cores);
 }
 
 } // namespace aletheia

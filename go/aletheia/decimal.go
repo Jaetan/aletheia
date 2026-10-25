@@ -7,16 +7,13 @@
 // (aletheia_parse_decimal), which is what the Python, C++ and Rust bindings
 // use too, so the four agree byte for byte and no binding carries a float64
 // on this path. Like the rational renderer this file is a consumer of the GHC
-// runtime, not its owner: it loads the library and its two symbols on first
-// use and never initialises the runtime, which an FFIBackend does with the
-// bus count it was given.
+// runtime, not its owner: it calls the library the runtime started on,
+// through the entries the start recorded, and never starts the runtime, which
+// [StartRuntime] or a backend does with the core count it was given.
 
 package aletheia
 
 /*
-#cgo LDFLAGS: -ldl
-
-#include <dlfcn.h>
 #include "aletheia_abi.h"
 #include <stdlib.h>
 
@@ -36,34 +33,8 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"sync"
 	"unsafe"
 )
-
-var (
-	decimalInitOnce sync.Once
-	decimalInitErr  error
-	decimalParseFn  unsafe.Pointer
-	decimalFreeFn   unsafe.Pointer
-)
-
-// loadDecimalFFI resolves the parse and free symbols through the loader the
-// renderer's file carries; it does not initialise the runtime.
-func loadDecimalFFI() error {
-	syms, err := loadStandaloneSymbols("decimal", "aletheia_parse_decimal", "aletheia_free_str")
-	if err != nil {
-		return err
-	}
-	decimalParseFn, decimalFreeFn = syms[0], syms[1]
-	return nil
-}
-
-func ensureDecimalLoaded() error {
-	decimalInitOnce.Do(func() {
-		decimalInitErr = loadDecimalFFI()
-	})
-	return decimalInitErr
-}
 
 // FromDecimal parses a decimal literal into an exact [Rational] through the
 // kernel: "0.1" is 1/10, "3.14" is 157/50, "42" is 42/1. The grammar is the
@@ -71,9 +42,10 @@ func ensureDecimalLoaded() error {
 // digits; no plus sign, no leading or trailing point, no exponent, so "1e3",
 // ".5", "1." and "+2" are refused.
 //
-// The call needs a live GHC runtime, which an FFIBackend (through a [Client])
-// starts; without one it fails before reaching the FFI rather than starting
-// the runtime with a default bus count.
+// The call needs the GHC runtime up, which [StartRuntime] or a backend starts;
+// without it the call fails before reaching the FFI rather than starting the
+// runtime with a default core count, so a program that reads a decimal before
+// opening a client calls [StartRuntime] first.
 //
 // Errors: the kernel's refusal, read by the envelope reader the binary-output
 // entries share. The literal is the caller's own text, so a refused one is an
@@ -83,14 +55,12 @@ func ensureDecimalLoaded() error {
 // [CodeFFIValidationError] when the shim refused the bytes (an interior NUL, bytes that are not UTF-8);
 // a numerator or denominator whose magnitude is past the kernel's component
 // bound is an [*InputBoundExceededError] with Field "decimal". [ErrFFI] when
-// the runtime is down or the library or symbol is missing; [ErrProtocol] on a
-// null return or a malformed response, which no working kernel produces.
+// the runtime is down; [ErrProtocol] on a null return or a malformed
+// response, which no working kernel produces.
 func FromDecimal(s string) (Rational, error) {
-	if err := ensureDecimalLoaded(); err != nil {
+	entries, err := startedEntries("parsing decimals")
+	if err != nil {
 		return Rational{}, err
-	}
-	if !hsInitialized() {
-		return Rational{}, ffiError("GHC runtime not initialized: create a Client (FFIBackend) before parsing decimals")
 	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -99,11 +69,11 @@ func FromDecimal(s string) (Rational, error) {
 	defer C.free(unsafe.Pointer(cStr))
 	text := C.struct_aletheia_text{data: cStr, size: C.size_t(len(s))}
 	var out C.struct_aletheia_decimal
-	if C.decimal_call_parse(decimalParseFn, &text, &out) != 0 {
+	if C.decimal_call_parse(entries.parseDecimal, &text, &out) != 0 {
 		if out.err == nil {
 			return Rational{}, protocolError("aletheia_parse_decimal failed without an error")
 		}
-		defer C.decimal_call_free_str(decimalFreeFn, out.err)
+		defer C.decimal_call_free_str(entries.freeStr, out.err)
 		return Rational{}, refusedLiteral(binaryRefusal("aletheia_parse_decimal", C.GoString(out.err)))
 	}
 	return decimalValue(int64(out.value.numerator), int64(out.value.denominator))

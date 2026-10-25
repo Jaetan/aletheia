@@ -9,9 +9,8 @@ use crate::response::ValidationIssue;
 
 /// Errors surfaced by the binding.
 ///
-/// `Clone` lets the process-global RTS-init latch (`RTS_INIT`) replay the first
-/// init outcome on every `ensure_rts` call, so the source variants must stay
-/// clonable — wrapped library / JSON errors are flattened to owned `String`s.
+/// The error is `Clone`, so the source variants stay clonable: wrapped library /
+/// JSON errors are flattened to owned `String`s.
 ///
 /// Kernel feature work grows this enum (typed refusals lift new kernel error
 /// codes into variants), so it is `#[non_exhaustive]`: matches outside this
@@ -31,12 +30,12 @@ pub enum Error {
     /// its structures out for, so it is refused before any other entry is
     /// resolved or its runtime is started.
     AbiMismatch { library: u32, binding: u32 },
-    /// The GHC RTS has not been initialised: a render (a check description, a
-    /// formula, or an observed value) was attempted before any `FfiBackend` /
-    /// `Client` brought the runtime up. The renderer is *vocal* — it never
-    /// self-initialises (that would latch a default `-N` and squander the backend's
-    /// bus-count). Distinct from [`Error::Protocol`] (a wire/ABI malfunction) so
-    /// callers can tell a local precondition failure from an actual core problem.
+    /// The GHC runtime has not started: a render (a check description, a formula,
+    /// or an observed value) or a decimal parse was attempted before
+    /// [`start_runtime`](crate::start_runtime) or a `Client` started it. Neither
+    /// starts it itself, since a start fixes the core count for the process.
+    /// Distinct from [`Error::Protocol`] (a wire/ABI malfunction) so callers can
+    /// tell a local precondition failure from an actual core problem.
     RtsNotInitialized,
     /// The core returned a null response pointer.
     NullResponse,
@@ -264,7 +263,8 @@ impl fmt::Display for Error {
             ),
             Error::RtsNotInitialized => write!(
                 f,
-                "GHC runtime not initialized: create a Client (FfiBackend) before rendering"
+                "GHC runtime not initialized: call aletheia::start_runtime or build a Client \
+                 before rendering or parsing a number"
             ),
             Error::NullResponse => write!(f, "core returned a null response"),
             Error::Validation {

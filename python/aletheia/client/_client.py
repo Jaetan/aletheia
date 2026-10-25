@@ -168,7 +168,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
     def __init__(
         self,
         default_checks: list[CheckResult] | None = None,
-        rts_cores: int = 1,
+        rts_cores: int | None = None,
         *,
         backend: Backend | None = None,
     ) -> None:
@@ -177,8 +177,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         Args:
             default_checks: Pre-built checks applied on every ``start_stream``
                 call. Shallow-copied; **do not** mutate originals after passing.
-            rts_cores: GHC RTS capabilities (default 1). Mismatch across
-                clients logs a warning.  Ignored when ``backend`` is
+                Checks holding a decimal are loaded after
+                :func:`~aletheia.start_runtime`, the kernel reading every number.
+            rts_cores: GHC runtime capabilities, or ``None`` (default) for the
+                count running, 1 if nothing runs.  Another count asked of a
+                running runtime logs a warning.  Ignored when ``backend`` is
                 non-None (the injected backend already owns RTS state).
             backend: Optional :class:`Backend` for dependency injection.
                 When ``None`` (default), a :class:`FFIBackend` is

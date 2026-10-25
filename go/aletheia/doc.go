@@ -30,11 +30,11 @@
 // sound. The section "Streaming Semantics: Soundness vs. Completeness" of
 // docs/architecture/PROTOCOL.md is the contract.
 //
-// Log events: with a *slog.Logger wired in through WithLogger or
-// WithFFILogger, the Client and the FFIBackend emit records under these
-// names, which docs/LOG_EVENTS.yaml pins across the four bindings:
+// Log events: with a *slog.Logger wired in through WithLogger, WithFFILogger
+// or StartRuntime, the Client, the FFIBackend and StartRuntime emit records
+// under these names, which docs/LOG_EVENTS.yaml pins across the four bindings:
 //
-//	rts.cores_mismatch              (FFIBackend, Warn)
+//	rts.cores_mismatch              (StartRuntime, FFIBackend, Warn)
 //	dbc.parsed                      (Client, Info)
 //	properties.set                  (Client, Info)
 //	stream.started                  (Client, Info)

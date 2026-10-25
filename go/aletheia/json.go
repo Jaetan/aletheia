@@ -690,8 +690,8 @@ func serializeRational(r Rational) any {
 
 // formatRationalExact renders a rational for a refusal message: through the
 // kernel when its runtime is up, which is the form every binding prints, and
-// as a bare fraction otherwise. Predicate validation runs before any backend
-// exists, so this never fails and never rounds.
+// as a bare fraction otherwise. Predicate validation runs before the runtime
+// need be up, so this never fails and never rounds.
 func formatRationalExact(r Rational) string {
 	if s, err := formatRational(r); err == nil {
 		return s

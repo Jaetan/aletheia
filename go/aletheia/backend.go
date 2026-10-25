@@ -11,16 +11,19 @@ import (
 type FFIBackendOption func(*ffiConfig)
 
 type ffiConfig struct {
-	rtsCores int
-	logger   *slog.Logger
+	rtsCores      int
+	rtsCoresNamed bool
+	logger        *slog.Logger
 }
 
-// WithRTSCores sets the number of GHC RTS capabilities (the -N flag): 1, the
-// default, for one bus; the number of buses when several goroutines each
-// monitor their own. Only the first [NewFFIBackend] call in a process applies
-// it; a later call asking for a different number logs rts.cores_mismatch.
+// WithRTSCores sets the number of GHC runtime capabilities (the -N flag): 1
+// for one bus, the number of buses when several goroutines each monitor their
+// own. A backend without it asks for the count running, 1 when nothing runs.
+// The runtime starts once per process, by [StartRuntime] or the first
+// backend; a later one asking another count logs rts.cores_mismatch through
+// [WithFFILogger].
 func WithRTSCores(n int) FFIBackendOption {
-	return func(c *ffiConfig) { c.rtsCores = n }
+	return func(c *ffiConfig) { c.rtsCores, c.rtsCoresNamed = n, true }
 }
 
 // WithFFILogger sets the logger for backend initialisation events. Nil, the

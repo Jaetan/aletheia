@@ -3,10 +3,11 @@
 //
 // The suites that need a process of their own for the renderer and the
 // runtime, each run as a child of this one: the renderer with the runtime down,
-// with no library to find, releasing the kernel's strings, or handed a decimal
-// failure with no envelope; the allocation count, read beside the renderer in
-// the runtime-down, string and envelope children, answering none with the
-// runtime down, the recording kernel's count whole and the null kernel's zero;
+// releasing the kernel's strings, or handed a decimal failure with no envelope;
+// the runtime started before any client, on the kernel and on the recording
+// kernel's four CPUs; the allocation count, read beside the renderer in each,
+// answering none with the runtime down, the recording kernel's count whole and
+// the null kernel's zero;
 // the runtime's heap cap; and a command holding one long number, which a
 // kernel that echoes it whole answers by ending its process. ctest runs this file
 // as a binary of its own, and the mutation build folds it into the mutation
@@ -34,9 +35,10 @@
 #include "child_process.hpp"
 #include "repo_root.hpp"
 
-#if !defined(ALETHEIA_RUNTIME_DOWN_TESTS) || !defined(ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS) ||  \
-    !defined(ALETHEIA_RENDERER_FREES_TESTS) || !defined(ALETHEIA_RTS_HEAP_CAP_TESTS) ||            \
-    !defined(ALETHEIA_LITERAL_BOUND_TESTS) || !defined(ALETHEIA_RENDERER_NULL_KERNEL_TESTS)
+#if !defined(ALETHEIA_RUNTIME_DOWN_TESTS) || !defined(ALETHEIA_RUNTIME_START_TESTS) ||             \
+    !defined(ALETHEIA_RUNTIME_START_STAND_IN_TESTS) || !defined(ALETHEIA_RENDERER_FREES_TESTS) ||  \
+    !defined(ALETHEIA_RTS_HEAP_CAP_TESTS) || !defined(ALETHEIA_LITERAL_BOUND_TESTS) ||             \
+    !defined(ALETHEIA_RENDERER_NULL_KERNEL_TESTS)
 #error "the fresh-process suites' paths are compile definitions of the build"
 #endif
 
@@ -91,8 +93,13 @@ TEST_CASE("the renderer refuses while the runtime is down", "[fresh_process]") {
     require_passes(ALETHEIA_RUNTIME_DOWN_TESTS);
 }
 
-TEST_CASE("the renderer refuses when it finds no library", "[fresh_process]") {
-    require_passes(ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS);
+TEST_CASE("the runtime starts before any client, and what read a number first keeps nothing",
+          "[fresh_process]") {
+    require_passes(ALETHEIA_RUNTIME_START_TESTS);
+}
+
+TEST_CASE("a core count is held to the CPUs the runtime counts", "[fresh_process]") {
+    require_passes(ALETHEIA_RUNTIME_START_STAND_IN_TESTS);
 }
 
 TEST_CASE("the renderer frees the strings the kernel hands it", "[fresh_process]") {

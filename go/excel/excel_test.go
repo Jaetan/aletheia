@@ -17,15 +17,15 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// TestMain brings the GHC runtime up once for the whole package. The Excel
-// loaders parse every numeric cell through the kernel decimal SSOT
-// (aletheia.FromDecimal), which is RTS-gated, so a throwaway FFIBackend's
-// constructor runs hs_init and the RTS persists process-wide (hs_exit is never
-// called). Best-effort: if the .so is absent, loader tests fail with the kernel's
-// "runtime not initialized" error rather than silently passing.
+// TestMain starts the GHC runtime once for the whole package. The Excel
+// loaders parse every numeric cell through the kernel's decimal parser
+// (aletheia.FromDecimal), which needs the runtime up, and the runtime stays up
+// for the process (hs_exit is never called). Best-effort: if the .so is
+// absent, loader tests fail with the binding's "runtime not initialized"
+// refusal rather than silently passing.
 func TestMain(m *testing.M) {
 	if lib := findFFILib(); lib != "" {
-		if _, err := aletheia.NewFFIBackend(lib); err != nil {
+		if err := aletheia.StartRuntime(lib, 1, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "TestMain: could not start GHC runtime: %v\n", err)
 		}
 	}

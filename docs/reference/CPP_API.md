@@ -40,7 +40,18 @@ int main() {
 }
 ```
 
-`make_ffi_backend(path, rts_cores)` accepts an optional GHC RTS core count (default 1). The loader search order and packaging are covered in the [Distribution Guide](../development/DISTRIBUTION.md).
+`make_ffi_backend(path)` asks for the GHC runtime's count running, 1 when nothing runs; `make_ffi_backend(path, rts_cores)` asks for `rts_cores`, a runtime already up keeping its own count and `rts_mismatch_info()` answering the difference. The loader search order and packaging are covered in the [Distribution Guide](../development/DISTRIBUTION.md).
+
+The kernel reads every number a check carries, through `Rational::from_decimal` and the YAML and Excel loaders, on a GHC runtime that starts once per process: by `aletheia::start_runtime(lib, cores)`, or `start_runtime_from_env(cores)` on the library `ALETHEIA_LIB` names, or by the first backend. A program that loads checks before it builds a client starts the runtime first; before any start, a number read throws `AletheiaException` of kind `Ffi` (`GHC runtime not initialized: call aletheia::start_runtime or open a client before parsing decimals`). `cores` is the runtime's capability count, 1 for one bus; a count outside 1 to the CPUs the process may use throws kind `Validation`. A runtime already up keeps its count, and the start then answers `{active, requested}` when the two differ, `std::nullopt` otherwise.
+
+```cpp
+[[maybe_unused]] auto const mismatch = aletheia::start_runtime_from_env(1);
+auto checks = aletheia::load_checks_from_yaml("checks.yaml");
+if (!checks)
+    return 1;
+auto defaults = aletheia::AletheiaClient{aletheia::make_ffi_backend_from_env(), aletheia::Logger{},
+                                         std::move(checks).value()};
+```
 
 ---
 
@@ -216,6 +227,7 @@ A decimal the YAML or Excel loader reads, such as a check's value or a signal's 
 
 <!-- refuses: text_parse_failure -->
 ```cpp
+[[maybe_unused]] auto const mismatch = aletheia::start_runtime_from_env(1);  // the kernel reads every number
 auto const refused = aletheia::load_checks_from_yaml_string(
     "checks:\n  - name: C\n    signal: Speed\n    condition: never_exceeds\n    value: .5\n");
 if (refused || refused.error().text() !=

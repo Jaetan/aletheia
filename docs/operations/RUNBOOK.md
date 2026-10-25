@@ -110,26 +110,28 @@ expectations; investigate any `extraction.process_failed` /
 
 #### `rts.cores_mismatch`
 
-**Symptom:** warn-level log line at `make_ffi_backend(path, rts_cores)`
-(C++) / `WithRTSCores(N)` (Go) / `ClientBuilder::rts_cores(N)` (Rust) /
-RTS-init equivalent (Python), emitted once per subsequent mismatching call.
+**Symptom:** warn-level log line at `start_runtime` (every binding) or at a
+backend asking a count: `make_ffi_backend(path, rts_cores)` (C++) /
+`WithRTSCores(N)` (Go) / `ClientBuilder::rts_cores(N)` (Rust) /
+`AletheiaClient(rts_cores=N)` (Python), emitted once per such start.
 
-**Cause:** GHC RTS init was requested with a core count that
-disagrees with an earlier process-wide init. The first call wins —
-the GHC RTS can only be initialised once per process.
+**Cause:** a start of the GHC runtime asked for a core count other than
+the one it started on. The first start wins: the GHC runtime starts only
+once per process.
 
-**Action:** Audit the process for multiple Aletheia clients with
-different `rts_cores`. The fix is to standardise on one value at the
-process entry point and pass the same value to every subsequent
-client. If the warning fires from a third-party library that also
+**Action:** Audit the process for starts and clients asking different
+counts. The fix is to start the runtime once at the process entry point
+with `start_runtime(N)` and open every client without a count, so each
+asks for the count running. If the warning fires from a third-party library that also
 uses GHC, this is a host-application coordination issue and the
 warning is informational only.
 
-**Cross-binding wiring asymmetry — wire the logger early:** The event
-fires from different sites depending on the binding (Go: `NewFFIBackend`
-before any client; Python: `LibraryHandle.acquire` during first client
-construction; C++: `AletheiaClient` constructor; Rust: `FfiBackend::new`
-during `ClientBuilder::build`). An operator who has
+**Cross-binding wiring asymmetry, wire the logger early:** The event
+fires from different sites depending on the binding (Go: `StartRuntime`
+and `NewFFIBackend`, on the logger each is given; Python: `start_runtime`
+and a client's backend, on the `aletheia` logger; C++: the pair
+`start_runtime` returns, and the `AletheiaClient` constructor; Rust:
+`start_runtime` and `ClientBuilder::build`, on the logger each is given). An operator who has
 wired the logger only at one point may silently miss the warning.
 The safe pattern: wire the structured logger to the FFI Backend (Go /
 C++ / Python / Rust alike) at the earliest construction step in the host

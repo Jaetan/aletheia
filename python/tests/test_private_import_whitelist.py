@@ -123,9 +123,6 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # reply the kernel escapes is shown decoded by the code the client uses.
         ("_kernel_rows.py", "aletheia.client._ffi", "parse_json_object"),
         ("_kernel_rows.py", "aletheia.client._ffi", "KernelResponse"),
-        # The suite's fixture releases the runtime the first FFIBackend acquired,
-        # so the RTS does not outlive the session that started it.
-        ("conftest.py", "aletheia.client._ffi", "RTSState"),
         (
             "test_types_and_conditions.py",
             "aletheia.client._types",
@@ -216,14 +213,6 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "test_enrichment.py",
             "aletheia.client._enrichment",
             "format_formula",
-        ),
-        # The renderer's own lazy load is the ABI test's claim: it reads the
-        # library's version and refuses another before registering it, which no
-        # public path reaches until a backend has registered a library.
-        (
-            "test_ffi_abi_version.py",
-            "aletheia.client._enrichment",
-            "get_renderer_lib",
         ),
         # FFI loader security test exercises the ALETHEIA_LIB
         # world/group-writable rejection path directly.

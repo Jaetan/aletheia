@@ -18,7 +18,7 @@ binding's named mirror constant matches, in the spirit of
 ``tools/check_wire_codes.py`` (wire-code SSOT ↔ per-binding vocabularies).
 
 Pure source scanning (no Haskell / no build artefact), so the gate is complete
-the moment the mirrors land.  Each binding declares four named constants that
+the moment the mirrors land.  Each binding declares five named constants that
 this gate extracts by an exact-name regex:
 
 * heap-cap flag   — the ``-M…`` string emitted into the RTS argv.
@@ -28,6 +28,8 @@ this gate extracts by an exact-name regex:
                     ``-M`` cap under the ``.so``'s link-time RtsOptsSafeOnly).
 * override env    — ``ALETHEIA_RTS_OPTS``, appended after the cap so a caller
                     ``-M`` wins.
+* processors      — ``getNumberOfProcessors``, the runtime's count of the CPUs
+                    the process may use, the bound of a core count.
 
 The heap cap is a CONTAINMENT bound: when it fires the process TERMINATES (a GHC
 HeapExhausted abort of the foreign-export wrapper) so the host survives — there
@@ -69,6 +71,11 @@ COULD_NOT_CHECK = 2
 
 # A heap size in bytes, as the SSOT states the cap beside its flag.
 ByteCount = NewType("ByteCount", int)
+# The name of an entry the loaded library exports.
+SymbolName = NewType("SymbolName", str)
+# A field of the SSOT, dotted from ``runtime``, and the text one holds.
+SSOTField = NewType("SSOTField", str)
+SSOTText = NewType("SSOTText", str)
 
 
 class RTSRuntimeError(Exception):
@@ -84,11 +91,12 @@ class RuntimeSSOT:
     default_cores: int
     init_symbol: str
     override_env: str
+    processors_symbol: SymbolName
 
 
 @dataclass(frozen=True)
 class BindingMirror:
-    """One binding's source file and the four exact-name constant regexes.
+    """One binding's source file and the five exact-name constant regexes.
 
     Each regex has a single capture group holding the mirrored value.  A group
     that fails to match is reported as a divergence (the mirror constant is
@@ -101,6 +109,7 @@ class BindingMirror:
     default_cores_re: re.Pattern[str]
     init_symbol_re: re.Pattern[str]
     override_env_re: re.Pattern[str]
+    processors_symbol_re: re.Pattern[str]
 
 
 # The four bindings' mirror surfaces.  Each constant is keyed on its EXACT name
@@ -113,6 +122,7 @@ BINDING_MIRRORS: tuple[BindingMirror, ...] = (
         default_cores_re=re.compile(r"DEFAULT_RTS_CORES\s*=\s*(\d+)"),
         init_symbol_re=re.compile(r'RTS_INIT_SYMBOL\s*=\s*"([^"]+)"'),
         override_env_re=re.compile(r'RTS_OVERRIDE_ENV\s*=\s*"([^"]+)"'),
+        processors_symbol_re=re.compile(r'RTS_PROCESSORS_SYMBOL\s*=\s*"([^"]+)"'),
     ),
     BindingMirror(
         name="Go",
@@ -121,6 +131,7 @@ BINDING_MIRRORS: tuple[BindingMirror, ...] = (
         default_cores_re=re.compile(r"rtsDefaultCores\s*=\s*(\d+)"),
         init_symbol_re=re.compile(r'rtsInitSymbol\s*=\s*"([^"]+)"'),
         override_env_re=re.compile(r'rtsOverrideEnv\s*=\s*"([^"]+)"'),
+        processors_symbol_re=re.compile(r'rtsProcessorsSymbol\s*=\s*"([^"]+)"'),
     ),
     BindingMirror(
         name="C++",
@@ -129,6 +140,7 @@ BINDING_MIRRORS: tuple[BindingMirror, ...] = (
         default_cores_re=re.compile(r"rts_default_cores\s*=\s*(\d+)"),
         init_symbol_re=re.compile(r'rts_init_symbol\s*=\s*"([^"]+)"'),
         override_env_re=re.compile(r'rts_override_env\s*=\s*"([^"]+)"'),
+        processors_symbol_re=re.compile(r'rts_processors_symbol\s*=\s*"([^"]+)"'),
     ),
     BindingMirror(
         name="Rust",
@@ -137,6 +149,7 @@ BINDING_MIRRORS: tuple[BindingMirror, ...] = (
         default_cores_re=re.compile(r"RTS_DEFAULT_CORES:\s*u32\s*=\s*(\d+)"),
         init_symbol_re=re.compile(r'RTS_INIT_SYMBOL:\s*&str\s*=\s*"([^"]+)"'),
         override_env_re=re.compile(r'RTS_OVERRIDE_ENV:\s*&str\s*=\s*"([^"]+)"'),
+        processors_symbol_re=re.compile(r'RTS_PROCESSORS_SYMBOL:\s*&str\s*=\s*"([^"]+)"'),
     ),
 )
 
@@ -172,36 +185,37 @@ def load_runtime_ssot(yaml_path: Path) -> RuntimeSSOT:
         raise RTSRuntimeError(message)
     default_cores = cast("dict[object, object]", default_cores_raw)
 
-    flag = heap_cap.get("flag")
     cap_bytes = heap_cap.get("bytes")
-    override_env = heap_cap.get("override_env")
     cores_value = default_cores.get("value")
-    init_symbol = runtime.get("init_symbol")
-
-    if not isinstance(flag, str) or not flag:
-        message = f"{yaml_path}: runtime.heap_cap.flag must be a non-empty string"
-        raise RTSRuntimeError(message)
     if not isinstance(cap_bytes, int) or isinstance(cap_bytes, bool):
         message = f"{yaml_path}: runtime.heap_cap.bytes must be an integer"
-        raise RTSRuntimeError(message)
-    if not isinstance(override_env, str) or not override_env:
-        message = f"{yaml_path}: runtime.heap_cap.override_env must be a non-empty string"
         raise RTSRuntimeError(message)
     # `bool` is an `int` subclass; reject it so `value: true` cannot pass as 1.
     if not isinstance(cores_value, int) or isinstance(cores_value, bool):
         message = f"{yaml_path}: runtime.default_cores.value must be an integer"
         raise RTSRuntimeError(message)
-    if not isinstance(init_symbol, str) or not init_symbol:
-        message = f"{yaml_path}: runtime.init_symbol must be a non-empty string"
-        raise RTSRuntimeError(message)
 
     return RuntimeSSOT(
-        heap_cap_flag=flag,
+        heap_cap_flag=_required_text(heap_cap, SSOTField("runtime.heap_cap.flag"), yaml_path),
         heap_cap_bytes=ByteCount(cap_bytes),
         default_cores=cores_value,
-        init_symbol=init_symbol,
-        override_env=override_env,
+        init_symbol=_required_text(runtime, SSOTField("runtime.init_symbol"), yaml_path),
+        override_env=_required_text(
+            heap_cap, SSOTField("runtime.heap_cap.override_env"), yaml_path
+        ),
+        processors_symbol=SymbolName(
+            _required_text(runtime, SSOTField("runtime.processors_symbol"), yaml_path)
+        ),
     )
+
+
+def _required_text(mapping: dict[object, object], field: SSOTField, yaml_path: Path) -> SSOTText:
+    """Return the non-empty string the SSOT holds at ``field``, or raise ``RTSRuntimeError``."""
+    value = mapping.get(field.rsplit(".", 1)[-1])
+    if not isinstance(value, str) or not value:
+        message = f"{yaml_path}: {field} must be a non-empty string"
+        raise RTSRuntimeError(message)
+    return SSOTText(value)
 
 
 # A GHC ``-M`` flag: a count, which may be a decimal, and an optional unit, a
@@ -233,13 +247,13 @@ def cap_divergence(ssot: RuntimeSSOT) -> Prose | None:
     )
 
 
-def _extract(pattern: re.Pattern[str], text: str) -> str | None:
+def _extract(pattern: re.Pattern[str], text: str) -> SSOTText | None:
     """Return the first capture group of ``pattern`` in ``text``, or None."""
     match = pattern.search(text)
-    return match.group(1) if match else None
+    return SSOTText(match.group(1)) if match else None
 
 
-def check_binding(mirror: BindingMirror, ssot: RuntimeSSOT) -> list[str]:
+def check_binding(mirror: BindingMirror, ssot: RuntimeSSOT) -> list[Prose]:
     """Return the divergences between one binding's mirror and the SSOT.
 
     A missing source file is could-not-check (raised); a missing constant or a
@@ -250,43 +264,30 @@ def check_binding(mirror: BindingMirror, ssot: RuntimeSSOT) -> list[str]:
         message = f"{mirror.name} mirror source not found: {mirror.path}"
         raise RTSRuntimeError(message)
     text = mirror.path.read_text(encoding="utf-8")
+    mirrored = (
+        (Prose("heap cap"), mirror.heap_cap_re, SSOTText(ssot.heap_cap_flag)),
+        (Prose("default cores"), mirror.default_cores_re, SSOTText(str(ssot.default_cores))),
+        (Prose("init symbol"), mirror.init_symbol_re, SSOTText(ssot.init_symbol)),
+        (Prose("override env"), mirror.override_env_re, SSOTText(ssot.override_env)),
+        (Prose("processors symbol"), mirror.processors_symbol_re, SSOTText(ssot.processors_symbol)),
+    )
+    return [
+        divergence
+        for what, pattern, expected in mirrored
+        if (divergence := _divergence(mirror, what, _extract(pattern, text), expected))
+    ]
+
+
+def _divergence(
+    mirror: BindingMirror, what: Prose, found: SSOTText | None, expected: SSOTText
+) -> Prose:
+    """Say how one mirrored constant departs from the SSOT, or answer empty when it agrees."""
     rel = mirror.path.relative_to(REPO_ROOT)
-
-    diffs: list[str] = []
-
-    heap = _extract(mirror.heap_cap_re, text)
-    if heap is None:
-        diffs.append(f"{mirror.name}: no heap-cap mirror constant found in {rel}")
-    elif heap != ssot.heap_cap_flag:
-        diffs.append(
-            f"{mirror.name} heap cap: mirror='{heap}' vs SSOT='{ssot.heap_cap_flag}' ({rel})"
-        )
-
-    cores = _extract(mirror.default_cores_re, text)
-    if cores is None:
-        diffs.append(f"{mirror.name}: no default-cores mirror constant found in {rel}")
-    elif int(cores) != ssot.default_cores:
-        diffs.append(
-            f"{mirror.name} default cores: mirror={cores} vs SSOT={ssot.default_cores} ({rel})"
-        )
-
-    init = _extract(mirror.init_symbol_re, text)
-    if init is None:
-        diffs.append(f"{mirror.name}: no init-symbol mirror constant found in {rel}")
-    elif init != ssot.init_symbol:
-        diffs.append(
-            f"{mirror.name} init symbol: mirror='{init}' vs SSOT='{ssot.init_symbol}' ({rel})"
-        )
-
-    env = _extract(mirror.override_env_re, text)
-    if env is None:
-        diffs.append(f"{mirror.name}: no override-env mirror constant found in {rel}")
-    elif env != ssot.override_env:
-        diffs.append(
-            f"{mirror.name} override env: mirror='{env}' vs SSOT='{ssot.override_env}' ({rel})"
-        )
-
-    return diffs
+    if found is None:
+        return Prose(f"{mirror.name}: no {what} mirror constant found in {rel}")
+    if found != expected:
+        return Prose(f"{mirror.name} {what}: mirror='{found}' vs SSOT='{expected}' ({rel})")
+    return Prose("")
 
 
 def main() -> int:
@@ -295,7 +296,7 @@ def main() -> int:
     try:
         ssot = load_runtime_ssot(DEFAULT_YAML_PATH)
         cap = cap_divergence(ssot)
-        diffs: list[str] = [] if cap is None else [str(cap)]
+        diffs: list[Prose] = [] if cap is None else [cap]
         for mirror in BINDING_MIRRORS:
             diffs.extend(check_binding(mirror, ssot))
     except RTSRuntimeError as exc:
@@ -317,7 +318,8 @@ def main() -> int:
         f"check-rts-runtime: {len(BINDING_MIRRORS)} bindings mirror "
         + f"heap_cap={ssot.heap_cap_flag} ({ssot.heap_cap_bytes} bytes, as the SSOT states) "
         + f"default_cores={ssot.default_cores} "
-        + f"init_symbol={ssot.init_symbol} — all in parity with docs/RESOURCE_BUDGETS.yaml"
+        + f"init_symbol={ssot.init_symbol} processors_symbol={ssot.processors_symbol}"
+        + " — all in parity with docs/RESOURCE_BUDGETS.yaml"
     )
     return 0
 

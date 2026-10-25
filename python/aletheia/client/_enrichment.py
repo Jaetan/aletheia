@@ -3,27 +3,21 @@
 """Formula enrichment helpers — formatting, signal collection, diagnostics.
 
 Module-level functions.  Rational rendering is delegated to the Agda kernel via
-the FFI's ``aletheia_format_rational``.  The FFI library is registered eagerly by
-:class:`FFIBackend`; the renderer never initialises the GHC RTS itself, so
-``format_formula`` / ``build_diagnostic`` (which render rational thresholds)
-require a live client/backend and raise ``FFIError`` when the runtime is down.
+the FFI's ``aletheia_format_rational``.  The renderer never starts the GHC
+runtime itself, so ``format_formula`` / ``build_diagnostic`` (which render
+rational thresholds) need :func:`~aletheia.start_runtime` or a client first, and
+raise ``FFIError`` while the runtime is down.
 """
 
 from __future__ import annotations
 
 import ctypes
-import threading
 from typing import TYPE_CHECKING
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
-from aletheia.client._ffi import (
-    AletheiaRational,
-    check_abi_version,
-    configure_ffi_signatures,
-    find_ffi_library,
-    hs_initialized,
-)
+from aletheia.client._ffi import AletheiaRational, started_library
 from aletheia.client._types import FFIError, PropertyDiagnostic, ValidationError
+from aletheia.common_types import Prose
 from aletheia.limits import MAX_NESTING_DEPTH
 
 if TYPE_CHECKING:
@@ -145,71 +139,6 @@ def _walk_formula(
         _walk_formula(formula["right"], on_atomic, depth + 1)
 
 
-# Module-level FFI library reference for the cross-binding-identical
-# Rational renderer.  Registered eagerly by
-# :meth:`aletheia.client._backend.FFIBackend.__init__` so production
-# paths use the loaded backend's library.  The renderer NEVER initialises
-# the GHC RTS itself: an ``FFIBackend`` is the sole initialiser (it owns the
-# bus-count ``-N``), and rendering is *vocal* — :func:`format_rational`
-# raises ``FFIError`` when the RTS is down.  :func:`get_renderer_lib`
-# lazily loads ``libaletheia-ffi.so`` for its symbols only (no ``hs_init``).
-# Consequence: ``format_formula`` / ``build_diagnostic`` (which render rational
-# thresholds) now require an initialised RTS, i.e. a live client/backend.
-# A one-element cell behind a module constant: the binding is never rebound,
-# so set_renderer_lib / get_renderer_lib mutate the cell contents
-# rather than declaring ``global`` (which would rebind a lowercase module var).
-_RENDERER_LIB: list[ctypes.CDLL | None] = [None]
-_RENDERER_LOCK = threading.Lock()
-
-
-def set_renderer_lib(lib: ctypes.CDLL) -> None:
-    """Register the FFI library used for Rational rendering.
-
-    Called by :meth:`FFIBackend.__init__` after configuring ctypes
-    signatures.  Subsequent calls overwrite the registration; this is
-    safe because the underlying ``.so`` is loaded once per process and
-    every backend instance holds a reference to the same library.
-    """
-    _RENDERER_LIB[0] = lib
-
-
-def get_renderer_lib() -> ctypes.CDLL:
-    """Return the registered FFI library, lazily loading its symbols if needed.
-
-    Shared by :func:`format_rational` and
-    :func:`aletheia.client._helpers.rational.from_decimal` — both delegate to
-    kernel FFI exports configured by :func:`configure_ffi_signatures`.
-
-    Production callers go through :class:`FFIBackend`, which registers
-    eagerly via :func:`set_renderer_lib`.  This loads the ``.so`` for its
-    symbols only — it does NOT initialise the GHC RTS (an ``FFIBackend`` is
-    the sole initialiser).  The lazy path covers the window where the RTS is
-    up but the backend has not yet registered its library; a caller that
-    reaches the renderer with the RTS down gets a vocal ``FFIError`` from
-    :func:`format_rational`, never a silent self-init.
-    """
-    # Thread-safe lazy-load.  Mirrors Go's sync.Once and C++'s
-    # std::call_once — without the lock, two concurrent first-callers
-    # both see _renderer_lib is None, both dlopen the .so, last-write wins.
-    # The race is benign (both handles point at the same .so; no RTS init
-    # happens here); the lock is defensive thread-safety hygiene.
-    with _RENDERER_LOCK:
-        lib = _RENDERER_LIB[0]
-        if lib is None:
-            path = find_ffi_library()
-            lib = ctypes.CDLL(str(path))
-            # The version first, as the backend reads it: a library laid out
-            # for another ABI is refused before its entries are resolved.
-            check_abi_version(lib)
-            # Load the symbols only — do NOT call ``hs_init`` here.  The GHC
-            # RTS is one-shot per process and owned by ``FFIBackend`` (it
-            # carries the bus-count ``-N``); self-initialising would latch a
-            # default ``-N`` and squander the backend's.  See format_rational.
-            configure_ffi_signatures(lib)
-            _RENDERER_LIB[0] = lib
-    return lib
-
-
 def format_rational(value: Fraction) -> str:
     """Render an exact rational via the Agda kernel renderer.
 
@@ -221,19 +150,14 @@ def format_rational(value: Fraction) -> str:
     everywhere.  Predicate values are exact :class:`Fraction` per the
     DecRat universal principle, so the renderer only ever sees ℚ.
 
-    Vocal contract (parity with Go #104 / C++ #105): the renderer NEVER
-    self-initialises the GHC RTS.  If the RTS is down (no ``FFIBackend``
-    created), raise ``FFIError`` rather than fabricating a value; if the
-    kernel returns a null pointer (catastrophic Haskell-side failure),
-    raise rather than returning a silent ``"0"``.
+    Vocal contract, as in the Go, C++ and Rust bindings: the renderer never
+    starts the GHC runtime.  While the runtime is down (no
+    :func:`~aletheia.start_runtime` and no client), raise ``FFIError`` rather
+    than fabricating a value; if the kernel returns a null pointer
+    (catastrophic Haskell-side failure), raise rather than returning a silent
+    ``"0"``.
     """
-    if not hs_initialized():
-        msg = (
-            "GHC runtime not initialized: create an AletheiaClient (or FFIBackend) "
-            "before rendering rationals — the renderer does not self-initialise the RTS"
-        )
-        raise FFIError(msg)
-    lib = get_renderer_lib()
+    lib = started_library(Prose("rendering"))
     rational = AletheiaRational(numerator=value.numerator, denominator=value.denominator)
     raw = lib.aletheia_format_rational(ctypes.byref(rational))
     if not raw:
@@ -306,11 +230,11 @@ def format_formula(
 ) -> str:
     """Format an LTL formula as a human-readable string.
 
-    Renders predicate thresholds via the kernel renderer, so a live GHC RTS (an
-    ``FFIBackend``, via an ``AletheiaClient``) is required.
+    Renders predicate thresholds via the kernel renderer, so the GHC runtime
+    must be up (:func:`~aletheia.start_runtime` or a client).
 
     Raises:
-        FFIError: the GHC runtime is not initialised (no backend created).
+        FFIError: the GHC runtime is not started.
         ValidationError: nesting exceeds ``MAX_NESTING_DEPTH``.
 
     """
@@ -426,7 +350,7 @@ def build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
     """Build a PropertyDiagnostic from a formula.
 
     Renders the formula description via the kernel, so (like :func:`format_formula`)
-    it requires a live GHC RTS and raises ``FFIError`` if the runtime is down.
+    it needs the GHC runtime up and raises ``FFIError`` while it is down.
     """
     return PropertyDiagnostic(
         signals=tuple(collect_signals(formula)),

@@ -6,15 +6,13 @@
 // pretty-printer.
 //
 // Every render in the binding goes through `format_rational` below, which
-// dlopens `libaletheia-ffi.so` lazily on first use via `std::call_once`
-// — no local C++ fallback exists, so output is byte-identical to
-// Python's and Go's by construction rather than via a test corpus.
+// calls the kernel in the library the GHC runtime started on: no local C++
+// fallback exists, so output is byte-identical to Python's and Go's by
+// construction rather than via a test corpus.
 //
-// Throws `AletheiaException` (kind `Ffi`) when the library cannot be
-// located or symbols cannot be resolved.  Callers may rely on that
-// exception propagating; setting the `ALETHEIA_LIB` environment variable
-// is the standard remedy when the search heuristic does not find the .so
-// (e.g. out-of-tree builds).
+// Throws `AletheiaException` (kind `Ffi`) while the runtime is down, naming
+// `aletheia::start_runtime` and a client as the remedy; neither entry starts
+// the runtime itself.
 
 #include <aletheia/types.hpp>
 
@@ -26,9 +24,8 @@
 
 namespace aletheia::detail {
 
-// Render `(num, denom)` via the Agda kernel.  Lazy-initialises the FFI
-// on first call.  Throws `AletheiaException(Ffi)` if the library is
-// not loadable.
+// Render `(num, denom)` via the Agda kernel.  Throws `AletheiaException(Ffi)`
+// while the runtime is down.
 [[nodiscard]] auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
 
 // The one place the binding turns a Rational into text, so the check
@@ -41,27 +38,21 @@ namespace aletheia::detail {
 // `aletheia_parse_decimal`: the rational, or the kernel's raw JSON error
 // envelope (`{"status":"error",...}` on a parse failure or a component past
 // the kernel's magnitude bound).
-// Symmetric with `format_rational_ffi`: it shares the renderer's lazy-load +
-// vocal-RTS contract — it does NOT initialise the GHC RTS (an FfiBackend is the
-// sole initialiser), so it throws `AletheiaException(Ffi)` when the runtime is
-// down rather than self-initialising.  The caller reads the envelope via
-// `detail::binary_refusal` (in json.hpp) — this TU stays JSON-free.  Throws
-// `AletheiaException(Ffi)` if the library is not loadable or the runtime is
-// uninitialised, and `AletheiaException(Protocol)` if the kernel answers a
+// Symmetric with `format_rational_ffi`: it never starts the GHC runtime, so it
+// throws `AletheiaException(Ffi)` while the runtime is down.  The caller reads
+// the envelope via `detail::binary_refusal` (in json.hpp), this TU staying
+// JSON-free.  Throws `AletheiaException(Protocol)` if the kernel answers a
 // failure without an envelope or a non-positive denominator.
 [[nodiscard]] auto parse_decimal_ffi(std::string_view input)
     -> std::expected<Rational, std::string>;
 
-// Register a preferred `libaletheia-ffi.so` path for the lazy-load.
-// Called by `make_ffi_backend(lib_path, ...)` so the renderer (which
-// loads independently of the backend) consults the same .so the user
-// asked for, instead of falling back to its relative-path heuristic.
-// The first registration wins and every later one is ignored; the
-// renderer reads it once, inside its `std::call_once`.  The load takes
-// the first candidate that exists, in the order `ALETHEIA_LIB`, the
-// registered path, the relative heuristic: a variable naming a missing
-// file is skipped, not an error; the search tests in cpp/tests/unit_tests_validation.cpp
-// hold both halves.
+// Register a preferred `libaletheia-ffi.so` path for `aletheia::find_ffi_library`.
+// `start_runtime` and `make_ffi_backend` call it with the path they opened.
+// The first registration wins and every later one is ignored.  The search takes
+// the first candidate that exists, in the order `ALETHEIA_LIB`, the registered
+// path, the relative heuristic: a variable naming a missing file is skipped,
+// not an error; the search tests in cpp/tests/unit_tests_validation.cpp hold
+// both halves.
 void register_default_lib_path(const std::filesystem::path& lib_path);
 
 // The search behind `aletheia::find_ffi_library`, over the inputs it reads:
@@ -70,11 +61,5 @@ void register_default_lib_path(const std::filesystem::path& lib_path);
 // names a file that exists answers; none answering is the empty path.
 [[nodiscard]] auto search_ffi_library(const char* env_path, std::string_view registered_path,
                                       const std::filesystem::path& cwd) -> std::filesystem::path;
-
-// The refusal the renderer records for a library at `lib_path`, or empty
-// when that library loads and carries the renderer's three entries. A refused
-// library is closed again; one that serves stays mapped, as the renderer's
-// own would.
-[[nodiscard]] auto renderer_load_error(const std::filesystem::path& lib_path) -> std::string;
 
 } // namespace aletheia::detail

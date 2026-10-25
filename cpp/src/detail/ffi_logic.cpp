@@ -51,6 +51,13 @@ auto rts_init_args(int rts_cores, std::string_view override_opts) -> std::vector
     return args;
 }
 
+auto core_count_refusal(int requested, int available) -> std::optional<std::string> {
+    if (requested >= 1 && requested <= available)
+        return std::nullopt;
+    return std::format("core count {} is outside 1 to {}, the CPUs this process may use", requested,
+                       available);
+}
+
 auto rts_cores_mismatch(int requested, int active) -> std::optional<std::pair<int, int>> {
     if (requested != active)
         return std::make_pair(active, requested);

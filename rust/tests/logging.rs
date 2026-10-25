@@ -99,12 +99,12 @@ fn min_level_filters_below_threshold() {
 }
 
 #[test]
-fn a_second_core_count_is_warned_about_with_both_specs() {
-    // The first client's core count latches the RTS for the process; a later
-    // client asking for another count keeps the latched one and says so at
+fn a_second_core_count_is_warned_about_with_both_counts() {
+    // The first client's core count is the runtime's for the process; a later
+    // client asking for another count keeps the running one and says so at
     // Warn, naming what it asked for and what is running.  The first client
-    // here asks for the default, so the latch is the default whichever test
-    // in this binary ran first.
+    // here asks for none, so the runtime runs on one whichever test in this
+    // binary ran first.
     let _first = Client::builder()
         .build()
         .expect("init client — is ALETHEIA_LIB set to a built libaletheia-ffi.so?");
@@ -128,7 +128,7 @@ fn a_second_core_count_is_warned_about_with_both_specs() {
         .expect("a second client builds against the latched RTS");
     let records = captured.lock().expect("lock").clone();
     let expected = format!(
-        "{} requested=Str(\"-N2\") active=Str(\"default\")",
+        "{} active_cores=U64(1) requested_cores=U64(2)",
         events::RTS_CORES_MISMATCH
     );
     assert!(

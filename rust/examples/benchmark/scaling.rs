@@ -252,7 +252,7 @@ struct LoadCost {
 /// The bytes the kernel's runtime has allocated so far in the process.
 fn allocated() -> u64 {
     aletheia::allocated_bytes()
-        .expect("an open client has started the runtime, so there is a count to read")
+        .expect("an open client runs on a started runtime, so there is a count to read")
 }
 
 /// The cost of one `load` into a fresh client. Only the call is timed, and
