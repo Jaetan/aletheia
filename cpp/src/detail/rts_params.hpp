@@ -39,4 +39,8 @@ inline constexpr std::string_view rts_init_symbol = "hs_init_with_rtsopts";
 // occurrence).
 inline constexpr std::string_view rts_override_env = "ALETHEIA_RTS_OPTS";
 
+// The runtime's count of the CPUs the process may use (its affinity set on
+// Linux), callable before the runtime starts: a core count past it is refused.
+inline constexpr std::string_view rts_processors_symbol = "getNumberOfProcessors";
+
 } // namespace aletheia::detail

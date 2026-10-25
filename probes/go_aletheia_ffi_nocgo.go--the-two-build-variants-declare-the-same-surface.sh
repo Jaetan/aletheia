@@ -2,29 +2,31 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes go/aletheia/ffi_nocgo.go against go/aletheia/ffi.go.
+# Probes go/aletheia/ffi_nocgo.go and go/aletheia/decimal_nocgo.go against the
+# files the build with cgo compiles in their place.
 # Claim: the build without cgo declares every exported name the build with cgo
 # declares, and no others, so code calling the package compiles either way
-# rather than only the package itself. The two files carry opposite build tags,
-# so the compiler never sees them together: a name added to one and forgotten
-# in the other breaks a consumer of the other build, silently.
-# Non-zero exit: the two surfaces differ, or one of the files is missing.
+# rather than only the package itself. Each build is the package's non-test
+# files under its tag, `cgo && linux` or `!cgo || !linux`, whichever file a
+# name lives in. The two sets carry opposite build tags, so the compiler never
+# sees them together: a name added to one and forgotten in the other breaks a
+# consumer of the other build, silently.
+# Non-zero exit: the two surfaces differ, or a build has no file.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-cgo=go/aletheia/ffi.go
-nocgo=go/aletheia/ffi_nocgo.go
-for f in "$cgo" "$nocgo"; do
-	[ -f "$f" ] || { echo "missing $f"; exit 1; }
-done
+mapfile -t cgo < <(grep -lx '//go:build cgo && linux' go/aletheia/*.go | grep -v '_test\.go$')
+mapfile -t nocgo < <(grep -lx '//go:build !cgo || !linux' go/aletheia/*.go | grep -v '_test\.go$')
+[ "${#cgo[@]}" -gt 0 ] || { echo "no file carries the cgo build's tag"; exit 1; }
+[ "${#nocgo[@]}" -gt 0 ] || { echo "no file carries the build without cgo's tag"; exit 1; }
 
 # Exported functions, and exported methods on the backend, by name.
 surface() {
-	grep -oP '^func (\(\w* ?\*?FFIBackend\) )?\K[A-Z]\w*' "$1" | sort -u
+	grep -ohP '^func (\(\w* ?\*?FFIBackend\) )?\K[A-Z]\w*' "$@" | sort -u
 }
-a=$(surface "$cgo")
-b=$(surface "$nocgo")
+a=$(surface "${cgo[@]}")
+b=$(surface "${nocgo[@]}")
 if [ -z "$a" ]; then
-	echo "no exported name found in $cgo; the probe is reading it wrong"
+	echo "no exported name found in ${cgo[*]}; the probe is reading them wrong"
 	exit 1
 fi
 

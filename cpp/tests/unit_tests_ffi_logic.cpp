@@ -106,6 +106,25 @@ TEST_CASE("rts_cores_mismatch: differing cores report {active, requested}", "[ff
     CHECK(mismatch->second == 4); // requested
 }
 
+// --- core_count_refusal ----------------------------------------------------
+
+TEST_CASE("core_count_refusal: one through the CPUs the runtime counts are taken",
+          "[ffi][logic][rts]") {
+    // Both ends of the range, so a bound moved by one either way is caught.
+    CHECK_FALSE(detail::core_count_refusal(1, 20).has_value());
+    CHECK_FALSE(detail::core_count_refusal(20, 20).has_value());
+}
+
+TEST_CASE("core_count_refusal: below one and past the CPUs are refused, naming the bound",
+          "[ffi][logic][rts]") {
+    CHECK(detail::core_count_refusal(0, 20) ==
+          "core count 0 is outside 1 to 20, the CPUs this process may use");
+    CHECK(detail::core_count_refusal(21, 20) ==
+          "core count 21 is outside 1 to 20, the CPUs this process may use");
+    CHECK(detail::core_count_refusal(-1, 4) ==
+          "core count -1 is outside 1 to 4, the CPUs this process may use");
+}
+
 // --- ffi_error_from_status -------------------------------------------------
 
 TEST_CASE("ffi_error_from_status: status 0 is success, frees nothing", "[ffi][logic][error]") {

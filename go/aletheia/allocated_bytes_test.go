@@ -15,8 +15,8 @@ import (
 // the second above the first. The count is the runtime's own and only grows,
 // so whatever else the process runs between the reads, a load that allocates
 // is enough to raise it, and a read that does not reach the runtime is not.
-// TestMain's backend started the runtime with the real library, so both
-// reads answer a count.
+// TestMain started the runtime with the real library, so both reads answer a
+// count.
 func TestAllocatedBytes_GrowsAcrossALoad(t *testing.T) {
 	client := ffiClient(t)
 	before, ok := aletheia.AllocatedBytes()

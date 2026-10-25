@@ -72,9 +72,9 @@ fn render_desc(parts: &[DescPart]) -> Result<String, Error> {
 fn rat_str(r: Rational) -> String {
     // Exact via the kernel format_rational when the RTS is up (a terminating
     // decimal or fraction, matching enrich.rs and the C++/Go/Python bindings);
-    // else a bare "num/den" fraction fallback — a range-validation error can be
-    // constructed before any backend exists, so this must not depend on the RTS
-    // and must never emit a lossy float.
+    // else a bare "num/den" fraction fallback: a range-validation error can be
+    // constructed before the runtime starts, so this must not depend on it and
+    // must never emit a lossy float.
     if let Ok(s) = format_rational(r) {
         return s;
     }

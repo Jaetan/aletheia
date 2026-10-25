@@ -4,6 +4,8 @@
 // the real libaletheia-ffi.so.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
 
@@ -21,6 +23,7 @@
 
 using aletheia::test::find_lib;
 using aletheia::test::make_integration_dbc;
+using Catch::Matchers::StartsWith;
 
 using namespace aletheia;
 
@@ -277,13 +280,14 @@ TEST_CASE("make_ffi_backend warns on mismatched rts_cores", "[integration][ffi_b
     }
 
     // Second call with rts_cores != 1 must populate the structured mismatch.
-    auto const backend = make_ffi_backend(lib, /*rts_cores=*/8);
+    // Two is within the CPUs of every machine the suite runs on.
+    auto const backend = make_ffi_backend(lib, /*rts_cores=*/2);
     REQUIRE(backend != nullptr);
     auto const mismatch = backend->rts_mismatch_info();
 
     REQUIRE(mismatch.has_value());
     CHECK(mismatch->first == 1);
-    CHECK(mismatch->second == 8);
+    CHECK(mismatch->second == 2);
 }
 
 TEST_CASE("make_ffi_backend is silent on matching rts_cores", "[integration][ffi_backend]") {
@@ -328,11 +332,20 @@ TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
 
 TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]") {
     auto const lib = find_lib();
-    // `rts_cores < 1` raises `AletheiaException(ErrorKind::Validation)` rather
+    // A count below 1 raises `AletheiaException(ErrorKind::Validation)` rather
     // than `std::invalid_argument` so callers can branch on `kind()` like
-    // every other typed FFI error.
-    CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/0), AletheiaException);
-    CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/-1), AletheiaException);
+    // every other typed FFI error; the text names the bound, the CPUs the
+    // runtime counts, which is the machine's.
+    for (auto const cores : {0, -1}) {
+        try {
+            static_cast<void>(make_ffi_backend(lib, cores));
+            FAIL("expected AletheiaException");
+        } catch (const AletheiaException& e) {
+            CHECK(e.kind() == ErrorKind::Validation);
+            CHECK_THAT(std::string{e.what()},
+                       StartsWith("core count " + std::to_string(cores) + " is outside 1 to "));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

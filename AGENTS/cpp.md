@@ -125,12 +125,19 @@ The `ctest` battery includes the doc-example harness
 `k_doc_files` lists and from the `//` comments of the headers `k_header_files`
 lists, wraps each in one of three shapes (a full `int main()`,
 an `#include` block with declarations, or a body fragment under
-`using namespace aletheia` with `client`, `backend`, `ts`, `can_id`, `dlc`,
-`data` and `frames` predeclared), compiles it with `${CMAKE_CXX_COMPILER}`
+`using namespace aletheia` with `client` and `backend` each opened at the
+fragment's first evaluation of it, every use the fragment does not declare
+itself, as clang's `-fsyntax-only` pass names them, calling the harness's
+opener, the runtime down until then, and `ts`,
+`can_id`, `dlc`, `data` and `frames` predeclared), compiles it with `${CMAKE_CXX_COMPILER}`
 against `$<TARGET_FILE:aletheia-cpp>`, and runs it. That target is a shared
 library, so the link carries an `-Wl,-rpath` to the directory holding it and
-the fence can load it. The C++ fences of a document `k_path_docs` lists (the
-Tutorial's C++ path) are one program cut into steps, joined in order, compiled
+the fence can load it. A fragment naming the harness's `client` or `backend`
+in an explicit lambda capture (`[&client]`) declares its own instead: the
+opener's call cannot stand in a capture list, and the compile stops there
+(`expected ',' or ']' in lambda capture list`). The C++ fences of a document
+`k_path_docs` lists (the Tutorial's C++ path) are one program cut into
+steps, joined in order, compiled
 and run whole, and every fence of a document `k_whole_program_docs` lists (the
 README) is also built as written, with nothing the harness adds, as a reader
 builds it. Every program runs against the forwarding stand-in kernel and fails

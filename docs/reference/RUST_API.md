@@ -49,6 +49,18 @@ let client = Client::builder()
 // Testing seam: Client::with_backend(Box::new(MockBackend::new())), no .so needed.
 ```
 
+The kernel reads every number a check carries, through `Rational::from_decimal` and the YAML and Excel loaders, on a GHC runtime that starts once per process: by `aletheia::start_runtime(cores, logger)`, on the library a client loads, or by the first client. A program that loads checks before it builds a client starts the runtime first; before any start, a number read answers `Error::RtsNotInitialized` (`GHC runtime not initialized: call aletheia::start_runtime or build a Client before rendering or parsing a number`). `cores` is the runtime's capability count, 1 for one bus; a count outside 1 to the CPUs the process may use is an `Error::Validation`. A client built without `rts_cores` asks for the count running; a runtime already up keeps its count, and another count asked of it logs `rts.cores_mismatch` on the logger given. `ClientBuilder::default_checks` takes the checks every `add_checks` prepends:
+
+```rust
+use aletheia::{load_checks_from_yaml, Client};
+
+aletheia::start_runtime(1, None)?;
+let checks = load_checks_from_yaml(
+    "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 199.5\n",
+)?;
+let client = Client::builder().default_checks(checks).build()?;
+```
+
 Packaging and the library-path search order are covered in the [Distribution Guide](../development/DISTRIBUTION.md).
 
 ---
@@ -60,6 +72,7 @@ Packaging and the library-path search order are covered in the [Distribution Gui
 ```rust
 use aletheia::{check, Rational};
 
+aletheia::start_runtime(1, None)?;                                     // the kernel reads every decimal
 let speed_limit = check::signal("Speed").never_exceeds(220);           // i64 → Rational
 let coolant = check::signal("Coolant").stays_between(80, 105)?;        // Result<Check, Error>
 let idle = check::signal("Rpm").settles_between(700, 900).within(2000)?; // .within closes it
@@ -110,6 +123,7 @@ Numeric fields are **exact rationals**, with no floating-point drift. CAN IDs an
 ```rust
 use aletheia::{CanId, Dlc, Rational, Timestamp};
 
+aletheia::start_runtime(1, None)?;      // the kernel reads every decimal
 let id = CanId::standard(0x100)?;      // 11-bit standard ID  (Result<CanId, Error>)
 let ext = CanId::extended(0x1FFF_FFFF)?; // 29-bit extended ID
 let dlc = Dlc::new(8)?;                 // DLC code 8 → 8 payload bytes (Dlc::to_bytes)
@@ -240,6 +254,7 @@ The YAML loader (`load_checks_from_yaml`, `load_checks_from_yaml_file`) and the 
 
 <!-- refuses: text_parse_failure -->
 ```rust
+aletheia::start_runtime(1, None)?; // the kernel reads every number
 let refused = load_checks_from_yaml(
     "checks:\n  - name: C\n    signal: Speed\n    condition: never_exceeds\n    value: .5\n",
 )

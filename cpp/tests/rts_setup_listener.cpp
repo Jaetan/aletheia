@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// The rational renderer does not initialise the GHC RTS (see
+// The rational renderer does not start the GHC runtime (see
 // rational_renderer.cpp), so any render-dependent test that does not create a
-// real FfiBackend itself needs the runtime brought up out of band. The test
+// real FfiBackend itself needs the runtime started out of band. The test
 // binaries that link this listener are unit_tests, where a check's
 // condition description and enrichment's value render need it; yaml_tests and
 // excel_tests, whose numeric fields are parsed through the kernel decimal
@@ -15,10 +15,10 @@
 // which is what a default backend asks for, and the tests that assert on a
 // different count establish the count they assert against before asking.
 //
-// This Catch2 listener brings the RTS up once for the whole process
-// (`testRunStarting`) via a throwaway FfiBackend whose constructor runs `hs_init`;
-// the RTS persists process-wide (`hs_exit` is never called), and the backend is
-// held for the run. It is the C++ analogue of Go's package `TestMain`. Best-effort:
+// This Catch2 listener starts the runtime once for the whole process
+// (`testRunStarting`) with `aletheia::start_runtime`; the runtime persists
+// process-wide (`hs_exit` is never called). It is the C++ analogue of Go's
+// package `TestMain`. Best-effort:
 // if the .so is not locatable the render tests fail vocally with the renderer's
 // "runtime not initialized" error. (The dedicated renderer-uninitialised test runs
 // in a process of its own without this listener, so it is not masked.)
@@ -33,11 +33,10 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
-#include <memory>
 #include <string_view>
 
-// Locate libaletheia-ffi.so the way the renderer's find_library_path does, in
-// the same order and with the same checks: ALETHEIA_LIB, which CI pins, then
+// Locate libaletheia-ffi.so the way aletheia::find_ffi_library does, in the
+// same order and with the same checks: ALETHEIA_LIB, which CI pins, then
 // the build-tree paths ctest runs from, each existence-checked so a stale
 // variable cannot shadow a library that is there. The empty path comes back
 // only when every candidate is exhausted, which leaves the runtime down and
@@ -69,15 +68,12 @@ public:
         if (lib.empty())
             return; // best-effort; render tests fail vocally if the runtime is down
         try {
-            // The constructor runs hs_init, bringing the RTS up for the process.
-            backend_ = aletheia::make_ffi_backend(lib);
+            // The runtime starts on one core here, so no mismatch can be answered.
+            static_cast<void>(aletheia::start_runtime(lib, 1));
         } catch (const std::exception&) {
-            backend_ = nullptr; // best-effort: leave the runtime down
+            return; // best-effort: leave the runtime down
         }
     }
-
-private:
-    std::unique_ptr<aletheia::IBackend> backend_;
 };
 } // namespace
 

@@ -61,11 +61,11 @@ def _require_lo_le_hi(lo: int | Fraction, hi: int | Fraction, method_name: str) 
 # is fixed when the check is built; a threshold (``Fraction``) is rendered lazily
 # at ``CheckResult.condition_desc`` read-time via the kernel ``formatℚ`` (the SSOT
 # renderer, ``aletheia.client._enrichment.format_rational``).  Deferring keeps
-# check *construction* infallible — only reading the description can surface an
-# ``FFIError`` (the renderer needs a live GHC RTS since the point-2 vocal change)
-# — so the fluent builder chain (``when().then().equals().within()``) never raises
-# mid-chain.  Mirrors Rust's ``DescPart`` (check.rs) and C++'s deferred
-# ``condition_desc_builder_`` (check.hpp).
+# check *construction* infallible: only reading the description can surface an
+# ``FFIError`` (the renderer needs the GHC runtime up), so the fluent builder
+# chain (``when().then().equals().within()``) never raises mid-chain.  Mirrors
+# Rust's ``DescPart`` (check.rs) and C++'s deferred ``condition_desc_builder_``
+# (check.hpp).
 type _DescPart = str | Fraction
 
 
@@ -95,8 +95,8 @@ def _render_desc(parts: tuple[_DescPart, ...]) -> str:
     ``""`` without touching the FFI.
 
     Raises:
-        FFIError: the GHC runtime is not initialised (no client/backend created)
-            — the renderer is *vocal* and never self-initialises the RTS.
+        FFIError: the GHC runtime is not started (no :func:`~aletheia.start_runtime`
+            and no client): the renderer is *vocal* and never starts it.
 
     """
     return "".join(part if isinstance(part, str) else format_rational(part) for part in parts)
@@ -116,8 +116,8 @@ class CheckResult:
 
     ``condition_desc`` is a *lazy* property, not a stored field: its rational
     thresholds are rendered on read via the kernel ``formatℚ`` (cross-binding-
-    identical with Go / C++ / Rust), so reading it requires a live GHC RTS and
-    raises ``FFIError`` when the runtime is down.  Check *construction* stays
+    identical with Go / C++ / Rust), so reading it needs the GHC runtime up
+    and raises ``FFIError`` while it is down.  Check *construction* stays
     infallible — the structured parts are captured eagerly in ``_desc_parts``.
     """
 
@@ -137,7 +137,8 @@ class CheckResult:
         wrapped directly in a ``CheckResult``.
 
         Raises:
-            FFIError: the GHC runtime is not initialised (no client/backend).
+            FFIError: the GHC runtime is not started (no
+                :func:`~aletheia.start_runtime` and no client).
 
         """
         return _render_desc(self._desc_parts)

@@ -2,16 +2,15 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """``aletheia.allocated_bytes`` reads the kernel runtime's allocation, whole and at each call.
 
-It reads the library ``RTSState`` latched when a backend started the runtime,
-and answers no count before one has.  On the real library a DBC load between
+It reads the library ``RTSState`` latched when the runtime started, and
+answers no count before it has.  On the real library a DBC load between
 two reads makes the second larger.  The recording stand-in answers 2^63 plus
 the reads the process made of it before, so two reads answer exactly that and
 one more only if each reached the stand-in and kept the whole unsigned 64-bit
 count: a narrower or signed read answers another number.  The null stand-in
-answers 0.  A test that reads a stand-in gives the process a latch no backend
+answers 0.  A test that reads a stand-in gives the process a latch nothing
 has set, so the stand-in's backend latches its own library (its runtime entry a
-no-op) and registers it as the renderer in a cell of the test's own, both
-restored after the test.  The stand-ins are the ones
+no-op), restored after the test.  The stand-ins are the ones
 ``cabal run shake -- build`` makes beside the library.
 """
 
@@ -22,7 +21,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 from _stand_in import StandInName, stand_in_kernel
 
-from aletheia import AletheiaClient, FFIBackend, RTSState, allocated_bytes
+from aletheia import AletheiaClient, FFIBackend, allocated_bytes
 
 if TYPE_CHECKING:
     from aletheia.types import DBCDefinition
@@ -36,19 +35,9 @@ _RECORDING_BASE: Final = 1 << 63
 _RECORDING_READS: Final = [0]
 
 
-@pytest.fixture
-def unstarted(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Give the test a runtime latch no backend has set, and a renderer cell of its own."""
-    monkeypatch.setattr(RTSState, "lib", None)
-    monkeypatch.setattr(RTSState, "initialized", False)
-    monkeypatch.setattr(RTSState, "refcount", 0)
-    monkeypatch.setattr(RTSState, "cores", 0)
-    monkeypatch.setattr("aletheia.client._enrichment._RENDERER_LIB", [None])
-
-
 @pytest.mark.usefixtures("unstarted")
-def test_no_count_before_a_backend_starts_the_runtime() -> None:
-    """With no backend having started the runtime, the read answers no count."""
+def test_no_count_before_the_runtime_starts() -> None:
+    """With nothing having started the runtime, the read answers no count."""
     assert allocated_bytes() is None
 
 

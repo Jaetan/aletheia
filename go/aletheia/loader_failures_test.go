@@ -16,10 +16,9 @@ import (
 )
 
 // loaderScenarioEnv names the scenario a child process runs. Each scenario
-// opens a library the parent cannot: the library is opened once per process,
-// the renderer and the decimal parser resolve their symbols once, and the
-// registered default path is written once, so the state each scenario reads
-// exists only in a fresh process.
+// opens a library the parent cannot: the runtime starts once per process, on
+// the library the renderer and the decimal parser then call, so the state
+// each scenario reads exists only in a fresh process.
 const loaderScenarioEnv = "ALETHEIA_TEST_LOADER_SCENARIO"
 
 // standIn is the stand-in kernel the build makes beside the library: every
@@ -39,24 +38,33 @@ func standIn(t *testing.T, lib, name string) string {
 // answers what the child printed.
 func runLoaderChild(t *testing.T, scenario, lib, dir string) string {
 	t.Helper()
+	var extra []string
+	if lib != "" {
+		extra = append(extra, "ALETHEIA_LIB="+lib)
+	}
+	return runScenarioChild(t, "TestLoaderFailuresAreVocal", scenario, dir, extra...)
+}
+
+// runScenarioChild re-runs this binary's test named on one scenario, in dir
+// when it is not empty, with the runtime's start suppressed, ALETHEIA_LIB
+// removed and the variables extra names set, and answers what the child
+// printed.
+func runScenarioChild(t *testing.T, test, scenario, dir string, extra ...string) string {
+	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatalf("the test binary's own path: %v", err)
 	}
-	cmd := exec.Command(exe, "-test.run=^TestLoaderFailuresAreVocal$", "-test.v")
+	cmd := exec.Command(exe, "-test.run=^"+test+"$", "-test.v")
 	cmd.Dir = dir
-	env := make([]string, 0, len(os.Environ())+3)
+	env := make([]string, 0, len(os.Environ())+2+len(extra))
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "ALETHEIA_LIB=") || strings.HasPrefix(e, skipRTSInitEnv+"=") || strings.HasPrefix(e, loaderScenarioEnv+"=") {
 			continue
 		}
 		env = append(env, e)
 	}
-	env = append(env, skipRTSInitEnv+"=1", loaderScenarioEnv+"="+scenario)
-	if lib != "" {
-		env = append(env, "ALETHEIA_LIB="+lib)
-	}
-	cmd.Env = env
+	cmd.Env = append(append(env, skipRTSInitEnv+"=1", loaderScenarioEnv+"="+scenario), extra...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("scenario %s failed (%v):\n%s", scenario, err, out)
@@ -65,12 +73,14 @@ func runLoaderChild(t *testing.T, scenario, lib, dir string) string {
 }
 
 // Every way a library can fail the binding is refused with an error naming
-// the failure, and never a panic or a silent answer: a library that opens but
-// carries none of the kernel's symbols, a file that is not a library, a
-// library laid out for another ABI version, one at this version carrying
-// nothing else, and a kernel that answers null. The search for the library is
-// exercised the same way, with no path in the environment. The null-kernel
-// and recording-kernel scenarios also read what a stand-in answers, its
+// the failure, by a backend and by [StartRuntime] alike, and never a panic or
+// a silent answer: a library that opens but carries none of the kernel's
+// symbols, a file that is not a library, a library laid out for another ABI
+// version, one at this version carrying nothing else, and a kernel that
+// answers null. The renderer and the decimal parser open no library: with the
+// runtime down each refuses on the runtime. The search for the library is
+// exercised with no path in the environment. The null-kernel and
+// recording-kernel scenarios also read what a stand-in answers, its
 // allocation count among it.
 func TestLoaderFailuresAreVocal(t *testing.T) {
 	if scenario := os.Getenv(loaderScenarioEnv); scenario != "" {
@@ -134,6 +144,10 @@ func searchFixture(t *testing.T) string {
 	return dir
 }
 
+// runtimeDown is the refusal the renderer and the decimal parser answer while
+// the runtime is down, after the words naming what each was doing.
+const runtimeDown = "GHC runtime not initialized: call aletheia.StartRuntime or open a client before "
+
 // expect fails the child with a numbered exit when err does not carry the
 // text, so the parent's output names which check refused.
 func expect(err error, text string, code int) {
@@ -170,15 +184,16 @@ func runLoaderScenario(scenario string) {
 	half := Rational{Numerator: 1, Denominator: 2}
 	switch scenario {
 	case "symbolless":
-		// The backend resolves the ABI version first and reports it by
-		// name; the renderer and the parser each ask for their own.
+		// The loader resolves the ABI version first and reports it by name;
+		// the renderer and the parser, opening nothing, refuse on the runtime.
 		_, err := NewFFIBackend(lib)
 		expect(err, "dlsym failed for aletheia_abi_version", 10)
 		expectKind(err, ErrFFI, 11)
+		expect(StartRuntime(lib, 1, nil), "dlsym failed for aletheia_abi_version", 14)
 		_, err = formatRational(half)
-		expect(err, "renderer dlsym aletheia_abi_version", 12)
+		expect(err, runtimeDown+"rendering", 12)
 		_, err = FromDecimal("0.1")
-		expect(err, "decimal dlsym aletheia_abi_version", 13)
+		expect(err, runtimeDown+"parsing decimals", 13)
 	case "stale-abi":
 		// A library laid out for another ABI is refused by the version it
 		// reports, before any other entry is resolved.
@@ -186,32 +201,32 @@ func runLoaderScenario(scenario string) {
 		stale := fmt.Sprintf("the library implements ABI version %d, and this binding needs %d", abiVersion+1, abiVersion)
 		expect(err, stale, 15)
 		expectKind(err, ErrFFI, 16)
-		_, err = formatRational(half)
-		expect(err, stale, 17)
+		expect(StartRuntime(lib, 1, nil), stale, 17)
 		_, err = FromDecimal("0.1")
-		expect(err, stale, 18)
+		expect(err, runtimeDown+"parsing decimals", 18)
 	case "abi-only":
 		// A library at this ABI version with nothing else passes the version
-		// check, and each consumer refuses at the first entry it asks for.
+		// check, and a backend and a start both refuse at the runtime's start
+		// entry, the first they ask for.
 		_, err := NewFFIBackend(lib)
 		expect(err, "dlsym failed for "+rtsInitSymbol, 40)
-		_, err = formatRational(half)
-		expect(err, "renderer dlsym aletheia_format_rational", 41)
-		_, err = FromDecimal("0.1")
-		expect(err, "decimal dlsym aletheia_parse_decimal", 42)
+		expect(StartRuntime(lib, 1, nil), "dlsym failed for "+rtsInitSymbol, 41)
+		if hsInitialized() {
+			fmt.Println("FAIL: a refused library started the runtime")
+			os.Exit(42)
+		}
 	case "not-a-library":
 		_, err := NewFFIBackend(lib)
 		expect(err, "dlopen failed", 20)
 		expectKind(err, ErrFFI, 21)
-		_, err = formatRational(half)
-		expect(err, "renderer dlopen failed", 22)
+		expect(StartRuntime(lib, 1, nil), "dlopen failed", 22)
 	case "null-kernel":
 		// The stand-in's runtime entry is a no-op, so the runtime reads as
 		// up and every null the stand-in answers reaches the caller as the
-		// binding's own refusal of a null. Before it opens, no backend has
+		// binding's own refusal of a null. Before it opens, nothing has
 		// started the runtime, and the allocation count answers none.
 		if allocated, ok := AllocatedBytes(); ok || allocated != 0 {
-			fmt.Printf("FAIL: AllocatedBytes answered %d and %v before any backend started the runtime, want no count\n", allocated, ok)
+			fmt.Printf("FAIL: AllocatedBytes answered %d and %v before the runtime started, want no count\n", allocated, ok)
 			os.Exit(50)
 		}
 		b, err := NewFFIBackend(lib)
@@ -228,7 +243,7 @@ func runLoaderScenario(scenario string) {
 		_, err = b.Process(0, "{}")
 		expect(err, "aletheia_process returned null", 33)
 		// The stand-in counts no allocation, and its zero is a count, read
-		// through the entry the backend that started the runtime kept.
+		// through the entry the start recorded.
 		if allocated, ok := AllocatedBytes(); !ok || allocated != 0 {
 			fmt.Printf("FAIL: AllocatedBytes answered %d and %v, want the stand-in's count of 0\n", allocated, ok)
 			os.Exit(51)
@@ -261,12 +276,10 @@ func runLoaderScenario(scenario string) {
 			}
 		}
 	case "search":
-		// Nothing in the environment: a registered path that is gone is
-		// passed over for the build's own locations, relative to the
-		// working directory; a directory with none of them yields nothing,
-		// which the renderer reports as the library not found, as does one
-		// the process can no longer name.
-		RegisterDefaultLibPath("/nonexistent/libaletheia-ffi.so")
+		// Nothing in the environment: the search answers the build's own
+		// locations, relative to the working directory; a directory with
+		// none of them yields nothing, as does one the process can no longer
+		// name, and the renderer, searching for none, refuses on the runtime.
 		here, err := os.Getwd()
 		if err != nil {
 			fmt.Printf("FAIL: Getwd: %v\n", err)
@@ -285,7 +298,7 @@ func runLoaderScenario(scenario string) {
 		}
 		expectEqual(findFFILibrary(), "", 44)
 		_, err = formatRational(half)
-		expect(err, "libaletheia-ffi.so not found", 47)
+		expect(err, runtimeDown+"rendering", 47)
 		if err := os.Remove(empty); err != nil {
 			fmt.Printf("FAIL: Remove: %v\n", err)
 			os.Exit(45)
@@ -297,30 +310,4 @@ func runLoaderScenario(scenario string) {
 	}
 	fmt.Println("LOADER_OK")
 	os.Exit(0)
-}
-
-// A path a backend registered is what the search answers when the
-// environment names none, and a path in the environment that does not exist
-// is passed over for it. TestMain's backend, the first opened, registered the
-// path the search found, and a later registration does not replace it.
-func TestFindFFILibrary_AnswersTheRegisteredPath(t *testing.T) {
-	lib := findFFILibrary()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
-	}
-	RegisterDefaultLibPath("/elsewhere/libaletheia-ffi.so")
-	defaultLibPathMu.Lock()
-	registered := defaultLibPath
-	defaultLibPathMu.Unlock()
-	if want := filepath.Clean(lib); registered != want {
-		t.Fatalf("registered %q, want %q, the path TestMain's backend opened first", registered, want)
-	}
-	t.Setenv("ALETHEIA_LIB", "")
-	if got := findFFILibrary(); got != registered {
-		t.Errorf("with no path in the environment: got %q, want the registered %q", got, registered)
-	}
-	t.Setenv("ALETHEIA_LIB", "/nonexistent/libaletheia-ffi.so")
-	if got := findFFILibrary(); got != registered {
-		t.Errorf("with a missing path in the environment: got %q, want the registered %q", got, registered)
-	}
 }

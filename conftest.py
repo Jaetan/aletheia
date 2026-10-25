@@ -18,12 +18,23 @@ live code:
 * loader wrappers (``dbc_to_json``, ``iter_can_log``, ...) load a shipped file
   the path names, and otherwise return ``vehicle.dbc`` or an empty iterable;
   this keeps the narrative of the fence faithful while side-stepping missing
-  files. ``load_checks`` parses a ``str`` as the YAML text it is.
+  files. ``load_checks`` parses a ``str`` as the YAML text it is.  A checks or
+  Excel loader given a file the directory does not hold reads one number
+  through the kernel before answering, as a reader's file holding thresholds
+  makes it do.
 * a ``dbc`` loaded from ``vehicle.dbc`` and a ``client`` that parsed it are
   injected, so fences that reuse names from a prior narrative block (e.g.
   PYTHON_API Examples 2–4 referencing the ``dbc`` Example 1 loads from
   ``vehicle.dbc``) resolve without ``continuation``-chaining every block,
   against the DBC that block loads.
+
+Each fence finds the kernel's runtime as a reader's program does: down, until
+the fence starts it (``start_runtime``, or a client it opens) or first
+evaluates a method of a client, the injected one standing for a client the
+reader opened before that line.  The harness's own client started the runtime,
+so after building a fence's globals it hides the runtime's latch, and the first
+start or method lookup restores it: a fence that reads a number before either
+fails here as it would for a reader.
 
 Every fence runs against the forwarding stand-in kernel, which hands each
 call to the built library and logs each refusal the library answers. A fence
@@ -48,7 +59,7 @@ import subprocess
 import sys
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, override
+from typing import TYPE_CHECKING, Concatenate, TypedDict, override
 
 import pytest
 from _stand_in import StandInName, stand_in_kernel
@@ -84,7 +95,8 @@ from aletheia import (
     never,
 )
 from aletheia.can_log import iter_can_log, load_can_log
-from aletheia.client._ffi import find_ffi_library
+from aletheia.client import _ffi
+from aletheia.client._ffi import RTSState, find_ffi_library
 from aletheia.codes import ErrorCode
 from aletheia.dbc import dbc_to_json
 from aletheia.dsl import Predicate, Property
@@ -93,6 +105,7 @@ from aletheia.types import DLCCode
 from aletheia.yaml_loader import load_checks
 
 if TYPE_CHECKING:
+    import ctypes
     from collections.abc import Callable, Generator, Iterator
     from types import ModuleType
     from typing import TypeAliasType
@@ -101,6 +114,7 @@ if TYPE_CHECKING:
     from pytest_markdown_docs.definitions import FenceTestDefinition
 
     from aletheia import DBCDefinition
+    from aletheia.common_types import CoreCount
 
 _REPO_ROOT = Path(__file__).parent
 
@@ -177,9 +191,65 @@ def _text_or_shipped[**P, R](real: Callable[P, R], fake: Callable[[], R]) -> Cal
     return load
 
 
-_harness_load_checks = _text_or_shipped(load_checks, list[CheckResult])
-_harness_load_checks_from_excel = _shipped_or(load_checks_from_excel, list[CheckResult])
-_harness_load_dbc_from_excel = _shipped_or(load_dbc_from_excel, _doc_dbc)
+def _reads_a_number[R](fake: Callable[[], R]) -> Callable[[], R]:
+    """Wrap a loader fake to read one number through the kernel first, as a reader's file would."""
+
+    def load() -> R:
+        _ = aletheia.from_decimal("1")
+        return fake()
+
+    return load
+
+
+_harness_load_checks = _text_or_shipped(load_checks, _reads_a_number(list[CheckResult]))
+_harness_load_checks_from_excel = _shipped_or(
+    load_checks_from_excel, _reads_a_number(list[CheckResult])
+)
+_harness_load_dbc_from_excel = _shipped_or(load_dbc_from_excel, _reads_a_number(_doc_dbc))
+
+
+# What the runtime's latch held before a fence, put back by its first start or client method lookup.
+_HIDDEN = pytest.MonkeyPatch()
+_real_start = _ffi.start_runtime_on
+
+
+def _show_runtime() -> None:
+    """Put back the runtime's latch, the start entry and the client's methods the fence hid."""
+    _HIDDEN.undo()
+
+
+def _start_shown(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
+    _show_runtime()
+    _real_start(lib, cores)
+
+
+def _showing[**P, R](method: Callable[Concatenate[AletheiaClient, P], R]) -> property:
+    """Make a client method put the runtime back when the fence looks it up.
+
+    Python evaluates ``client.add_checks`` before the call's arguments, so a
+    number the arguments read finds the runtime up, as it finds a reader's,
+    whose client was opened before the line.
+    """
+
+    def look_up(client: AletheiaClient) -> Callable[P, R]:
+        _show_runtime()
+
+        def bound(*args: P.args, **kwargs: P.kwargs) -> R:
+            return method(client, *args, **kwargs)
+
+        return bound
+
+    return property(look_up)
+
+
+def _hide_runtime() -> None:
+    """Hide the started runtime until the fence starts it or looks up a client's method."""
+    _HIDDEN.setattr(RTSState, "initialized", False)
+    _HIDDEN.setattr(RTSState, "lib", None)
+    _HIDDEN.setattr(_ffi, "start_runtime_on", _start_shown)
+    for name, method in vars(AletheiaClient).items():
+        if not name.startswith("_") and callable(method):
+            _HIDDEN.setattr(AletheiaClient, name, _showing(method))
 
 
 def _harness_create_template[**P](*_args: P.args, **_kwargs: P.kwargs) -> None:
@@ -251,14 +321,15 @@ def _make_globals() -> _DocGlobals:
     ``parse_dbc``'d but deliberately *not* stream-started: fences that
     document ``add_checks``/``set_properties``/``start_stream`` expect
     the pre-start state, and ``send_frame[s]``/``end_stream`` fences
-    chain onto their ``start_stream`` predecessor via ``continuation``.
+    chain onto their ``start_stream`` predecessor via ``continuation``.  The
+    runtime the client started is hidden once the globals are built.
     """
     client = AletheiaClient()
     client.__enter__()  # pylint: disable=unnecessary-dunder-call
     # Loaded once the client is up: the loader reads every number through the kernel.
     dbc = _doc_dbc()
     client.parse_dbc(dbc)
-    return {
+    names: _DocGlobals = {
         "AletheiaClient": AletheiaClient,
         "Signal": Signal,
         "Predicate": Predicate,
@@ -299,6 +370,8 @@ def _make_globals() -> _DocGlobals:
         "dlc": 8,
         "data": bytes(8),
     }
+    _hide_runtime()
+    return names
 
 
 def pytest_sessionstart() -> None:
@@ -471,13 +544,19 @@ def _stated_refusals(item: MarkdownInlinePythonItem) -> list[ErrorCode]:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
-    """Fail a fence whose refusals are not exactly the codes its ``refuses`` line names."""
+    """Fail a fence whose refusals are not exactly the codes its ``refuses`` line names.
+
+    The runtime a fence hid and never started is put back after it, whatever its outcome.
+    """
     if not isinstance(item, MarkdownInlinePythonItem):
         return (yield)
     # The item resolves its fixtures as it runs, so the log is asked for first.
     log = Path(item.fixture_request.getfixturevalue("refusal_log"))
     before = log.stat().st_size
-    result = yield
+    try:
+        result = yield
+    finally:
+        _show_runtime()
     with log.open(encoding="utf-8") as read:
         _ = read.seek(before)
         envelopes = [line.split("\t", 1)[1] for line in read.read().splitlines()]

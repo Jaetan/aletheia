@@ -32,7 +32,7 @@ use crate::types::{CanId, Dlc, Timestamp};
 
 mod ffi_backend;
 
-pub use ffi_backend::allocated_bytes;
+pub use ffi_backend::{allocated_bytes, start_runtime};
 pub(crate) use ffi_backend::{format_rational, parse_decimal, FfiBackend};
 
 /// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
@@ -67,22 +67,23 @@ const RTS_INIT_SYMBOL: &str = "hs_init_with_rtsopts";
 /// (and after an optional `-N`), so a caller `-M` wins (the RTS honours the
 /// last occurrence).
 const RTS_OVERRIDE_ENV: &str = "ALETHEIA_RTS_OPTS";
+/// The runtime's count of the CPUs the process may use (its affinity set on
+/// Linux), callable before the runtime starts: a core count past it is refused.
+const RTS_PROCESSORS_SYMBOL: &str = "getNumberOfProcessors";
 
 /// Assemble the argv passed to `hs_init_with_rtsopts`, per the SSOT argv_order:
 /// `{progname, +RTS, heap_cap, -N<k> iff k>1, override flags, -RTS}`.  The cap
 /// is ALWAYS present, so the host is contained regardless of the requested core
 /// count.  Pure (no FFI, no env read — `override_opts` is passed in), so it is
 /// unit-testable and the parity test can drive it directly.
-fn build_rts_argv(cores: Option<u32>, override_opts: &str) -> Vec<String> {
+fn build_rts_argv(cores: u32, override_opts: &str) -> Vec<String> {
     let mut argv = vec![
         "aletheia".to_owned(),
         "+RTS".to_owned(),
         RTS_HEAP_CAP_FLAG.to_owned(),
     ];
-    if let Some(k) = cores {
-        if k > RTS_DEFAULT_CORES {
-            argv.push(format!("-N{k}"));
-        }
+    if cores > RTS_DEFAULT_CORES {
+        argv.push(format!("-N{cores}"));
     }
     argv.extend(override_opts.split_whitespace().map(str::to_owned));
     argv.push("-RTS".to_owned());
@@ -182,6 +183,7 @@ type FreeStrFn = unsafe extern "C" fn(*mut c_char);
 type HsInitFn = unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char);
 type AbiVersionFn = unsafe extern "C" fn() -> u32;
 type AllocatedBytesFn = unsafe extern "C" fn() -> u64;
+type ProcessorsFn = unsafe extern "C" fn() -> u32;
 
 /// `ALETHEIA_ABI_VERSION`: the version of the structures and signatures this
 /// crate lays out, which the `abi_layout` tests hold to the header's.
@@ -334,10 +336,16 @@ fn lib_path() -> String {
 /// Process-global handle to the loaded library. The GHC RTS owns threads for the
 /// process lifetime, so the library is loaded once and never unloaded.
 static LIB: OnceLock<Library> = OnceLock::new();
-static RTS_INIT: OnceLock<Result<(), Error>> = OnceLock::new();
-/// The RTS core spec the first init latched (`None` = GHC defaults, `Some(k)` =
-/// `-N<k>`). A later init requesting a different spec is a no-op + a warning.
-static RTS_SPEC: OnceLock<Option<u32>> = OnceLock::new();
+/// The core count the runtime started with, set once it starts. A later start
+/// asking another count keeps this one and is warned about.
+static RTS_CORES: OnceLock<u32> = OnceLock::new();
+
+/// Whether the GHC runtime has started, by [`start_runtime`] or a client. The
+/// renderer, the decimal parser and [`allocated_bytes`] ask before calling the
+/// kernel, which with the runtime down is undefined behaviour.
+pub(crate) fn rts_started() -> bool {
+    RTS_CORES.get().is_some()
+}
 
 fn library() -> Result<&'static Library, Error> {
     if let Some(lib) = LIB.get() {
@@ -397,6 +405,7 @@ pub(crate) struct Symbols {
     close: Symbol<'static, CloseFn>,
     free_str: Symbol<'static, FreeStrFn>,
     hs_init: Symbol<'static, HsInitFn>,
+    processors: Symbol<'static, ProcessorsFn>,
     allocated_bytes: Symbol<'static, AllocatedBytesFn>,
 }
 
@@ -405,8 +414,9 @@ impl Symbols {
     /// `.so` lacks one: at construction, not on the Nth call against a stale
     /// library. The version is checked first, and the header at this version
     /// declares every entry below but the runtime's start,
-    /// [`RTS_INIT_SYMBOL`], which the GHC runtime library the `.so` depends on
-    /// exports with the signature of the `hs_init` the header declares.
+    /// [`RTS_INIT_SYMBOL`], and its count of the CPUs, [`RTS_PROCESSORS_SYMBOL`],
+    /// which the GHC runtime library the `.so` depends on exports, the start
+    /// with the signature of the `hs_init` the header declares.
     fn resolve(lib: &'static Library) -> Result<Self, Error> {
         // The version first: a library laid out for another ABI is refused
         // before any other entry is resolved or its runtime is started.
@@ -446,6 +456,10 @@ impl Symbols {
                 // NUL-terminate the mirrored RTS_INIT_SYMBOL for dlsym.  Plain
                 // hs_init cannot carry the -M cap under RtsOptsSafeOnly.
                 hs_init: symbol::<HsInitFn>(lib, format!("{RTS_INIT_SYMBOL}\0").as_bytes())?,
+                processors: symbol::<ProcessorsFn>(
+                    lib,
+                    format!("{RTS_PROCESSORS_SYMBOL}\0").as_bytes(),
+                )?,
                 allocated_bytes: symbol::<AllocatedBytesFn>(lib, b"aletheia_allocated_bytes\0")?,
             })
         }
@@ -478,69 +492,76 @@ pub(crate) fn symbols() -> Result<&'static Symbols, Error> {
     Ok(SYMBOLS.get().expect("SYMBOLS was just set"))
 }
 
-/// Initialise the GHC RTS exactly once for the process.
+/// The refusal of a core count outside 1 to `available`, the CPUs the runtime
+/// counts the process may use, or `None` for one inside it.
+fn core_count_refusal(requested: u32, available: u32) -> Option<String> {
+    if (1..=available).contains(&requested) {
+        return None;
+    }
+    Some(format!(
+        "core count {requested} is outside 1 to {available}, the CPUs this process may use"
+    ))
+}
+
+/// Start the GHC runtime with `cores` capabilities unless it runs: `None` asks
+/// for the count running, the default when nothing runs.
 ///
 /// Mirrors the Go binding: the RTS cannot be re-initialised after `hs_exit`, so
-/// we start it once and never tear it down. The outcome is latched in a
-/// `OnceLock<Result<…>>` so a second backend after a failed first one fails
-/// identically rather than silently masking a broken `.so`.
+/// we start it once and never tear it down. The count is held to 1 through the
+/// CPUs the process may use, as the runtime counts them, whether or not it
+/// runs. A runtime that runs keeps its count, and another count asked of it is
+/// warned about on `logger`, at `min_level` or below.
 fn ensure_rts(
     syms: &Symbols,
     cores: Option<u32>,
     logger: Option<&dyn Logger>,
     min_level: LogLevel,
 ) -> Result<(), Error> {
-    // The first init's spec wins; a later mismatching request is a no-op + warn.
-    let latched = *RTS_SPEC.get_or_init(|| cores);
-    if latched != cores {
+    let asked = cores.unwrap_or_else(|| RTS_CORES.get().copied().unwrap_or(RTS_DEFAULT_CORES));
+    // SAFETY: `getNumberOfProcessors` is `uint32_t getNumberOfProcessors(void)`,
+    // which reads the process's CPUs and needs no runtime.
+    let available = unsafe { (syms.processors)() };
+    if let Some(refusal) = core_count_refusal(asked, available) {
+        return Err(Error::validation(refusal));
+    }
+    let running = *RTS_CORES.get_or_init(|| {
+        init_rts(syms, asked);
+        asked
+    });
+    if running != asked {
         if let Some(lg) = logger {
             if LogLevel::Warn >= min_level {
-                let requested = spec_str(cores);
-                let active = spec_str(latched);
                 lg.log(&LogRecord {
                     level: LogLevel::Warn,
                     event: events::RTS_CORES_MISMATCH,
                     fields: &[
-                        LogField::new("requested", LogValue::Str(&requested)),
-                        LogField::new("active", LogValue::Str(&active)),
+                        LogField::new("active_cores", LogValue::U64(u64::from(running))),
+                        LogField::new("requested_cores", LogValue::U64(u64::from(asked))),
                     ],
                 });
             }
         }
     }
-    RTS_INIT.get_or_init(|| init_rts(syms, latched)).clone()
+    Ok(())
 }
 
-/// Test-only: bring the GHC RTS up for unit tests that render. The production
-/// renderer no longer self-initialises (an [`FfiBackend`] is the sole initialiser —
-/// see [`format_rational`]), so unit tests that exercise the renderer
-/// (`check.rs`'s `condition_desc`, `enrich.rs`'s diagnostics) bring it up
-/// explicitly. Idempotent via the one-shot [`RTS_INIT`] latch, so a per-test call
-/// is cheap after the first. Mirrors the C++ `rts_setup_listener` / Python `rts_up`
-/// fixture, which bring the RTS up for their render-dependent mock-backend tests.
+/// Test-only: start the GHC runtime for unit tests that render. The renderer
+/// never starts it (see [`format_rational`]), so unit tests that exercise it
+/// (`check.rs`'s `condition_desc`, `enrich.rs`'s diagnostics) start it here, on
+/// the count running or one. Idempotent, so a per-test call is cheap after the
+/// first. Mirrors the C++ `rts_setup_listener` / Python `rts_up` fixture.
 #[cfg(test)]
 pub(crate) fn ensure_rts_for_test() {
     let syms = symbols().expect("load libaletheia-ffi.so for test (is ALETHEIA_LIB set?)");
     ensure_rts(syms, None, None, LogLevel::Warn).expect("init GHC RTS for test");
 }
 
-/// Human spec for the RTS core count (`default` or `-N<k>`).
-fn spec_str(cores: Option<u32>) -> String {
-    cores.map_or_else(|| "default".to_string(), |k| format!("-N{k}"))
-}
-
 /// Run `hs_init_with_rtsopts` with an argv that ALWAYS carries the containment
 /// heap cap ([`build_rts_argv`]), plus `-N<k>` when `cores` exceeds the default
-/// and any `ALETHEIA_RTS_OPTS` flags.  Unlike before, the `cores = None` /
-/// default arm no longer passes NULL argv (and thus no cap) — the host must be
-/// contained no matter the requested core count.  GHC retains the argv pointers
-/// for the process lifetime, so the strings and the array are intentionally
-/// leaked.
-///
-/// Infallible today (the init symbol is pre-resolved in [`Symbols`]), but kept
-/// `Result`-shaped: [`RTS_INIT`] latches a `Result` so a failed first init
-/// would fail every later one identically, and this is its only writer.
-fn init_rts(syms: &Symbols, cores: Option<u32>) -> Result<(), Error> {
+/// and any `ALETHEIA_RTS_OPTS` flags, so the host is contained whatever the
+/// requested core count.  GHC retains the argv pointers for the process
+/// lifetime, so the strings and the array are intentionally leaked.
+fn init_rts(syms: &Symbols, cores: u32) {
     let hs_init = &syms.hs_init;
     let override_opts = std::env::var(RTS_OVERRIDE_ENV).unwrap_or_default();
     // `into_raw` / `Box::leak` deliberately leak: GHC retains argv for the
@@ -559,7 +580,6 @@ fn init_rts(syms: &Symbols, cores: Option<u32>) -> Result<(), Error> {
     // SAFETY: `hs_init` is `void hs_init(int *argc, char ***argv)`; argv is a
     // leaked, NUL-terminated array of leaked C strings, valid for the process.
     unsafe { hs_init(&mut argc, &mut argv_ptr) };
-    Ok(())
 }
 
 /// Copy a C string the core returned, allocated by the GHC RTS, into an owned

@@ -16,13 +16,12 @@ literal is the caller's own text), and a component past the magnitude bound as
 mirroring Go / C++ / Rust.
 
 Decimal parsing is RTS-gated (it runs the kernel's parser and bound), so the
-module brings the GHC RTS up via the shared ``rts_up`` fixture.
+module brings the GHC runtime up via the shared ``rts_up`` fixture.
 """
 
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import TYPE_CHECKING
 
 import pytest
 from _decimal_cases import (
@@ -37,7 +36,14 @@ from _decimal_cases import (
 )
 from _stand_in import StandInName, stand_in_kernel
 
-from aletheia import FFIError, InputBoundExceededError, ProtocolError, ValidationError, from_decimal
+from aletheia import (
+    FFIBackend,
+    FFIError,
+    InputBoundExceededError,
+    ProtocolError,
+    ValidationError,
+    from_decimal,
+)
 from aletheia.client._ffi import AletheiaDecimal, AletheiaRational
 from aletheia.client._helpers.rational import decimal_value
 from aletheia.codes import ErrorCode
@@ -45,9 +51,6 @@ from aletheia.limits import (
     BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
     MAX_RATIONAL_COMPONENT_MAGNITUDE,
 )
-
-if TYPE_CHECKING:
-    import ctypes
 
 pytestmark = pytest.mark.usefixtures("rts_up")
 
@@ -112,19 +115,20 @@ def test_from_decimal_rejects_interior_nul() -> None:
 
 
 def test_from_decimal_vocal_when_rts_down(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Vocal contract: with the RTS down, raise FFIError before the FFI call.
+    """Vocal contract: with the runtime down, raise FFIError naming the remedy, before the FFI call.
 
-    ``from_decimal`` never self-initialises the GHC RTS (an ``FFIBackend`` is the
-    sole initialiser, owning the bus-count ``-N``).  The ``rts_up`` fixture has
-    the RTS genuinely up, so stub ``hs_initialized`` to report it down and assert
-    the guard fires rather than invoking the MAlonzo export (which would be UB).
+    ``from_decimal`` never starts the GHC runtime, since a start fixes the core
+    count for the process.  The ``rts_up`` fixture has the runtime genuinely up,
+    so the latch is set to report it down, and the guard fires rather than the
+    kernel export being called with no runtime.
     """
-    monkeypatch.setattr(
-        "aletheia.client._helpers.rational.hs_initialized",
-        lambda: False,
-    )
-    with pytest.raises(FFIError, match="not initialized"):
+    monkeypatch.setattr("aletheia.client._ffi.RTSState.initialized", False)
+    with pytest.raises(FFIError) as refused:
         from_decimal("1")
+    assert str(refused.value) == (
+        "GHC runtime not initialized: call aletheia.start_runtime or open a client"
+        + " before parsing decimals"
+    )
 
 
 # Lone surrogates, the one text a ``str`` holds that is not UTF-8: each reaches
@@ -142,18 +146,16 @@ def test_from_decimal_refuses_a_lone_surrogate(text: DecimalText) -> None:
     assert str(exc_info.value) == "input is not valid UTF-8"
 
 
-def test_from_decimal_failure_without_an_envelope_is_a_protocol_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.usefixtures("unstarted")
+def test_from_decimal_failure_without_an_envelope_is_a_protocol_error() -> None:
     """A failure the library answers without an error envelope is a wire fault.
 
     The null stand-in kernel answers the decimal entry with failure and no
-    envelope; the renderer loads it in place of the library, as Go's loader
-    test does, and the fault is a ``ProtocolError`` as in Go, C++ and Rust.
+    envelope; its backend starts the runtime on it, under a latch of the test's
+    own, so the parser calls it, and the fault is a ``ProtocolError`` as in Go,
+    C++ and Rust.
     """
-    cell: list[ctypes.CDLL | None] = [None]
-    monkeypatch.setattr("aletheia.client._enrichment._RENDERER_LIB", cell)
-    monkeypatch.setenv("ALETHEIA_LIB", str(stand_in_kernel(StandInName("null_kernel"))))
+    _ = FFIBackend(lib_path=stand_in_kernel(StandInName("null_kernel")))
     with pytest.raises(ProtocolError) as exc_info:
         _ = from_decimal("1")
     assert str(exc_info.value) == "aletheia_parse_decimal failed without an error"

@@ -24,6 +24,12 @@ void hs_init_with_rtsopts(int *argc, char ***argv) {
     (void)argv;
 }
 
+// The CPUs the process may use, as the runtime counts them: one, the count every
+// backend that opens this stand-in asks.
+uint32_t getNumberOfProcessors(void) {
+    return 1;
+}
+
 void *aletheia_init(void) {
     return NULL;
 }

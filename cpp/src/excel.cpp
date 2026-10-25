@@ -245,7 +245,7 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 // authored precision, so numeric fields are authored as text-formatted cells,
 // whose text, its leading and trailing ASCII whitespace trimmed, is parsed
 // exactly by the kernel decimal SSOT (Rational::from_decimal).
-// RTS-gated: an FfiBackend must be live first.  A refusal of the literal, a
+// The runtime must be up (`start_runtime` or a backend).  A refusal of the literal, a
 // Validation error with the kernel's or the shared library's code or the typed
 // bound error, keeps its kind, code and fields and is located at the row and the
 // column header, because the kernel knows the literal and not the workbook

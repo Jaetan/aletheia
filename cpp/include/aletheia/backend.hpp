@@ -189,34 +189,59 @@ protected:
     friend class BackendState;
 };
 
-// Production: loads libaletheia-ffi.so via dlopen
-[[nodiscard]] auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores = 1)
+// Production: loads libaletheia-ffi.so via dlopen and starts the GHC runtime
+// on it unless `start_runtime` or another backend has. The count-less form
+// asks for the count running, 1 when nothing runs; the counted form asks for
+// `rts_cores`, and a runtime already up on another count keeps its own, the
+// difference reported by `rts_mismatch_info()`. Throws
+// AletheiaException(Validation) for a count outside 1 to the CPUs the process
+// may use.
+[[nodiscard]] auto make_ffi_backend(const std::filesystem::path& lib_path)
+    -> std::unique_ptr<IBackend>;
+[[nodiscard]] auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
     -> std::unique_ptr<IBackend>;
 
 // Production, env-configured: loads the library named by the ALETHEIA_LIB
 // environment variable, mirroring the Python and Rust bindings' env-based
-// resolution — the zero-config entry point for a bundled install whose
+// resolution: the zero-config entry point for a bundled install whose
 // install.sh exports ALETHEIA_LIB. Throws AletheiaException(Validation) if
-// ALETHEIA_LIB is unset or empty; for an explicit path use the overload above.
-[[nodiscard]] auto make_ffi_backend_from_env(int rts_cores = 1) -> std::unique_ptr<IBackend>;
+// ALETHEIA_LIB is unset or empty; for an explicit path use the overloads above.
+[[nodiscard]] auto make_ffi_backend_from_env() -> std::unique_ptr<IBackend>;
+[[nodiscard]] auto make_ffi_backend_from_env(int rts_cores) -> std::unique_ptr<IBackend>;
+
+// Starts the kernel's GHC runtime on `cores` capabilities, loading `lib`, unless
+// it runs: 1 for one bus, the number of buses when several threads each
+// monitor their own. The kernel reads every number a check carries
+// (`Rational::from_decimal`, the YAML and Excel loaders), so a program that
+// loads checks before it builds a client calls it first; a backend made later
+// with no count asks for the count running. A runtime already up keeps its
+// count, and the answer is then `{active, requested}` when they differ,
+// `std::nullopt` otherwise. Throws AletheiaException(Validation) for a count
+// outside 1 to the CPUs the process may use or an empty path, and (Ffi) for a
+// library that does not open, is laid out for another ABI version or lacks an
+// entry the start reads.
+[[nodiscard]] auto start_runtime(const std::filesystem::path& lib, int cores)
+    -> std::optional<std::pair<int, int>>;
+
+// `start_runtime` on the library ALETHEIA_LIB names. Throws
+// AletheiaException(Validation) if ALETHEIA_LIB is unset or empty.
+[[nodiscard]] auto start_runtime_from_env(int cores) -> std::optional<std::pair<int, int>>;
 
 // The bytes the kernel's runtime has allocated since it started, a count of the
 // whole process, so the difference of two reads is what ran between them
-// allocated. It is read through the library of the backend that started the
-// runtime, and is `std::nullopt` until one has. Each read runs a collection
-// first, which a timed span should leave out.
+// allocated. It is read through the library the runtime started on, and is
+// `std::nullopt` until it has started. Each read runs a collection first,
+// which a timed span should leave out.
 [[nodiscard]] auto allocated_bytes() -> std::optional<std::uint64_t>;
 
 // Where the binding looks for libaletheia-ffi.so, in one order that every
 // caller shares: the ALETHEIA_LIB variable, which an empty value leaves unset;
-// then the path a make_ffi_backend call registered; then three build
+// then the path a start or a make_ffi_backend call registered; then three build
 // directories relative to the working directory, furthest first.
 //
-// The registered path is why this is one function rather than four. The
-// renderer that formats values and the backend that answers queries must load
-// the same library, because two builds could format the same rational
-// differently, and consulting the registered path is what keeps them together.
-// A caller that searched on its own could pick the other one.
+// The command line and the benchmarks share it, so they find the library one
+// way; after a start it prefers the path the start opened, so a library looked
+// for later is the one the runtime runs on.
 //
 // Returns an empty path when no candidate exists; the caller says what to do
 // about it.

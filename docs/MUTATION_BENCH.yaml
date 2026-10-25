@@ -68,9 +68,9 @@ bindings:
       # reads the wire kills, or a message meant for a person, which only a
       # test pinning its wording kills.
       survivors: 0
-      total_mutants: 910
+      total_mutants: 909
       score_pct: 100
-      run_at: "2026-10-24"
+      run_at: "2026-10-25"
       # A mutant mutmut ended at its timeout is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a sweep in which
       # the cap fired, and a timed-out mutant is a hang to remove, never a cap
@@ -156,12 +156,12 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 734
+      generated: 727
       not_covered: 15
       timeouts: 0
-      total_mutants: 719
+      total_mutants: 712
       score_pct: 100.0
-      run_at: "2026-10-21"
+      run_at: "2026-10-25"
       # A mutant that times out is neither killed nor lived, and no verdict
       # may come from a clock: a survivor runs the whole suite, the slowest
       # run there is, so a cap it reached would hide it as a timeout. A mutant
@@ -416,7 +416,7 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 6
-      total_mutants: 1549
+      total_mutants: 1536
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -480,7 +480,7 @@ bindings:
         cpp/src/yaml.cpp: 24.7
       timeouts: 0
       score_pct: 99.6
-      run_at: "2026-10-21"
+      run_at: "2026-10-25"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -489,10 +489,10 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1517
+        test: 1506
         kernel: 2
         check: 14
-        fault: 10
+        fault: 8
         timeout: 0
         survived: 6
       # Every survivor, by mutator, repository-relative file, the text of its
@@ -598,7 +598,7 @@ bindings:
           refused: bool(__value <= __bound)
           count: 1
         - mutator: cxx_init_const
-          file: cpp/src/ffi_backend.cpp
+          file: cpp/src/runtime_start.cpp
           text: auto argc = static_cast<int>(rts_argv_ptrs.size());
           route: fault
           refused: ''
@@ -610,14 +610,14 @@ bindings:
           refused: '!empty()'
           count: 1
         - mutator: cxx_ne_to_eq
-          file: cpp/src/ffi_backend.cpp
-          text: 'detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");'
+          file: cpp/src/rational_renderer.cpp
+          text: if (env_path != nullptr) {
           route: fault
           refused: ''
           count: 1
         - mutator: cxx_ne_to_eq
-          file: cpp/src/rational_renderer.cpp
-          text: if (env_path != nullptr) {
+          file: cpp/src/runtime_start.cpp
+          text: 'static auto rts_argv = rts_init_args(asked, override_env != nullptr ? override_env : "");'
           route: fault
           refused: ''
           count: 1
@@ -640,14 +640,8 @@ bindings:
           refused: ''
           count: 2
         - mutator: cxx_remove_void_call
-          file: cpp/src/ffi_backend.cpp
-          text: hs_init(&argc, &argv);
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_remove_void_call
-          file: cpp/src/rational_renderer.cpp
-          text: ensure_loaded();
+          file: cpp/src/runtime_start.cpp
+          text: symbols.hs_init(&argc, &argv);
           route: fault
           refused: ''
           count: 1
@@ -656,12 +650,6 @@ bindings:
           text: 'return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;'
           route: check
           refused: get() != pointer()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/rational_renderer.cpp
-          text: if (!rts_initialized())
-          route: fault
-          refused: ''
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/include/aletheia/ltl.hpp
@@ -700,23 +688,23 @@ bindings:
           refused: attempt to dereference a past-the-end iterator.
           count: 1
         - mutator: cxx_replace_scalar_call
-          file: cpp/src/ffi_backend.cpp
-          text: auto argc = static_cast<int>(rts_argv_ptrs.size());
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/ffi_backend.cpp
-          text: std::vector<char*> ptrs(rts_argv.size());
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_replace_scalar_call
           file: cpp/src/json_serialize.cpp
           text: if (r.numerator() == std::numeric_limits<std::int64_t>::min()) {
           route: check
           refused: __val != __gnu_cxx::__int_traits<_Res>::__min
           count: 2
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/runtime_start.cpp
+          text: auto argc = static_cast<int>(rts_argv_ptrs.size());
+          route: fault
+          refused: ''
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/runtime_start.cpp
+          text: std::vector<char*> ptrs(rts_argv.size());
+          route: fault
+          refused: ''
+          count: 1
         - mutator: cxx_sub_to_add
           file: cpp/src/checked.cpp
           text: if (offset > size || count > size - offset)
@@ -792,12 +780,12 @@ bindings:
       # kernel returns is copied and released in one function, with no Drop
       # of its own to remove, and the same count holds that release.
       survivors: 0
-      generated: 380
+      generated: 386
       unviable: 62
       timeouts: 0
-      total_mutants: 318
+      total_mutants: 324
       score_pct: 100.0
-      run_at: "2026-10-19"
+      run_at: "2026-10-25"
       # A mutant cargo-mutants ended at its timeout is neither killed nor
       # alive, and no verdict comes from a clock.  None can hang a run by
       # construction: the lane's files hold no wait, no thread and no loop

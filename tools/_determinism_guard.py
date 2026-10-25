@@ -37,19 +37,20 @@ its end without starting a process, itself or through a fixture recorded as
 starting one: a fixture cached for a module or a session starts its process
 once, in its first user's setup, so its later users rely on that record.
 
-The GHC runtime starts once per process, on the core count its first client
-asks for, and a later client asking another count is warned
-(``rts.cores_mismatch``): a test that started it on another count would have
-every later default client warned, in the output of any test reading the
-``aletheia`` logger, the command line's among them.  So a client in the suite
-starts the runtime on the default count alone, whichever test runs first.  A
-request for another count fails the test that makes it, before the runtime
-sees it, unless the test says why with ``@pytest.mark.runtime_cores("<reason>")``
+The GHC runtime starts once per process, on the core count its first start
+asks for, ``start_runtime``'s or a client's, and a later start asking another
+count is warned (``rts.cores_mismatch``): a test that started it on another
+count would have every later client asking the default warned, in the output
+of any test reading the ``aletheia`` logger, the command line's among them.  So
+the suite starts the runtime on the default count alone, whichever test runs
+first.  A request for another count fails the test that makes it, before the
+runtime sees it, unless the test says why with ``@pytest.mark.runtime_cores("<reason>")``
 and the runtime is already started; one made outside any test fails the
 collection.  A mark that does not give one reason that is not blank,
 positionally, fails the test at its setup, and a mark on a test that asks no
-other count by the end of its call fails it there.  The count held is the one
-a client asks: a ``-N`` that ``ALETHEIA_RTS_OPTS`` hands the runtime is not,
+other count by the end of its call fails it there.  A start naming no count
+asks the one running, which is the default.  The count held is the one a start
+asks: a ``-N`` that ``ALETHEIA_RTS_OPTS`` hands the runtime is not,
 and the warning does not compare it.
 """
 
@@ -69,8 +70,9 @@ from typing import TYPE_CHECKING, Never, NewType, Self
 
 import pytest
 
+from aletheia.client import _ffi
 from aletheia.client._ffi import DEFAULT_RTS_CORES, RTSState
-from aletheia.common_types import Prose
+from aletheia.common_types import CoreCount, Prose
 
 if TYPE_CHECKING:
     import contextvars
@@ -419,10 +421,8 @@ def _audit_hook(event: str, _args: tuple[object, ...]) -> None:
 
 # --- The runtime's cores.
 
-# A count of the GHC runtime's cores, as a client asks for them.
-CoreCount = NewType("CoreCount", int)
 _DEFAULT_CORES = CoreCount(DEFAULT_RTS_CORES)
-_real_acquire = RTSState.acquire
+_real_start = _ffi.start_runtime_on
 
 
 def _hold_cores(cores: CoreCount) -> None:
@@ -440,9 +440,11 @@ def _hold_cores(cores: CoreCount) -> None:
     running.cores.used = True
 
 
-def _acquire(_cls: type[RTSState], lib: ctypes.CDLL, rts_cores: CoreCount = _DEFAULT_CORES) -> None:
-    _hold_cores(rts_cores)
-    _real_acquire(lib, rts_cores)
+def _start(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
+    # No count asks the one running, which the suite starts on the default.
+    if cores is not None:
+        _hold_cores(cores)
+    _real_start(lib, cores)
 
 
 # The audit hook, added once per interpreter: a hook cannot be removed, so it
@@ -488,7 +490,8 @@ def _install() -> None:
     _REPLACED.setattr(select, "select", _select)
     _REPLACED.setattr(signal, "alarm", _alarm)
     _REPLACED.setattr(signal, "setitimer", _setitimer)
-    _REPLACED.setattr(RTSState, "acquire", classmethod(_acquire))
+    # Every start, ``start_runtime``'s and a backend's, goes through this one.
+    _REPLACED.setattr(_ffi, "start_runtime_on", _start)
 
 
 def installed() -> bool:

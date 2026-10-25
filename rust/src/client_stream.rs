@@ -97,16 +97,21 @@ impl Client {
     /// each check's formula is sent to the core; the metadata (name / severity)
     /// stays on the [`Check`] for the caller's reporting.
     ///
-    /// The verdict `property_index` returned during streaming is the position of
-    /// the check in `checks` (so the caller can map a violation back to its
-    /// [`Check`]). Unlike the stateful bindings, there is no constructor-level
-    /// "default checks" set to merge — pass the full list here.
+    /// The builder's [`default_checks`](crate::ClientBuilder::default_checks)
+    /// come first, then `checks`: the verdict `property_index` returned during
+    /// streaming is the position of the check in that list (so the caller can
+    /// map a violation back to its [`Check`]).
     ///
     /// # Errors
     /// [`Error::Validation`] if a formula is invalid, or [`Error::Core`] if the
     /// core rejects the set (e.g. no DBC loaded).
     pub fn add_checks(&self, checks: &[Check]) -> Result<(), Error> {
-        let formulas: Vec<Formula> = checks.iter().map(|c| c.formula().clone()).collect();
+        let formulas: Vec<Formula> = self
+            .default_checks
+            .iter()
+            .chain(checks)
+            .map(|c| c.formula().clone())
+            .collect();
         self.set_properties(&formulas)
     }
 

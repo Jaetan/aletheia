@@ -350,6 +350,7 @@ add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}
     src/json_parse.cpp
     src/json_parse_dbc.cpp
     src/rational_renderer.cpp
+    src/runtime_start.cpp
     src/types.cpp
     src/yaml.cpp)
 
@@ -704,22 +705,25 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     set_tests_properties(excel_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
 
-    # The renderer's suites, each in a process of its own because the renderer
-    # loads its library once per process and the GHC RTS is process-global, run
-    # as children of fresh_process_tests, below: its refusal while the runtime is
-    # down (an FfiBackend is the sole initialiser, so a pre-backend
-    # `format_rational_ffi` must throw) and when it finds no library at all, its
-    # releases of the kernel's strings read from the recording kernel's count,
-    # and its answer to a library that fails the decimal entry with no error
-    # envelope, read from the null kernel. The runtime-down, recording-kernel
-    # and null-kernel processes also read the allocation count, which only the
-    # library that started the runtime answers.
-    foreach(suite rts_init_renderer_uninitialized_tests renderer_missing_library_tests
-            renderer_frees_kernel_strings_tests renderer_null_kernel_tests)
+    # The suites of the runtime's start and of the renderer, each in a process
+    # of its own because the GHC RTS is process-global and starts once, run as
+    # children of fresh_process_tests, below: the renderer's refusal while the
+    # runtime is down (nothing starts it behind a caller, so a pre-start
+    # `format_rational_ffi` must throw), a start before any client, on the
+    # kernel and on the recording kernel's four CPUs, the renderer's releases of
+    # the kernel's strings read from the recording kernel's count, and its
+    # answer to a library that fails the decimal entry with no error envelope,
+    # read from the null kernel. Each also reads the allocation count, which
+    # only the library the runtime started on answers.
+    foreach(suite rts_init_renderer_uninitialized_tests runtime_start_tests
+            runtime_start_stand_in_tests renderer_frees_kernel_strings_tests
+            renderer_null_kernel_tests)
         add_executable(${suite} tests/${suite}.cpp)
         target_link_libraries(${suite} PRIVATE aletheia-cpp Catch2::Catch2WithMain)
     endforeach()
     target_compile_definitions(renderer_frees_kernel_strings_tests PRIVATE
+        ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
+    target_compile_definitions(runtime_start_stand_in_tests PRIVATE
         ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
     target_compile_definitions(renderer_null_kernel_tests PRIVATE
         ALETHEIA_TEST_NULL_KERNEL="${ALETHEIA_STAND_IN_DIR}/null_kernel.so")
@@ -767,11 +771,12 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # mutation build folds into the mutation binary, so the lane sweeps them
     # with the mutant each child inherits.
     set(ALETHEIA_FRESH_PROCESS_BINARIES rts_init_renderer_uninitialized_tests
-        renderer_missing_library_tests renderer_frees_kernel_strings_tests
+        runtime_start_tests runtime_start_stand_in_tests renderer_frees_kernel_strings_tests
         renderer_null_kernel_tests rts_heap_cap_tests rts_heap_cap_workload literal_bound_tests)
     set(ALETHEIA_FRESH_PROCESS_DEFINITIONS
         ALETHEIA_RUNTIME_DOWN_TESTS="$<TARGET_FILE:rts_init_renderer_uninitialized_tests>"
-        ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS="$<TARGET_FILE:renderer_missing_library_tests>"
+        ALETHEIA_RUNTIME_START_TESTS="$<TARGET_FILE:runtime_start_tests>"
+        ALETHEIA_RUNTIME_START_STAND_IN_TESTS="$<TARGET_FILE:runtime_start_stand_in_tests>"
         ALETHEIA_RENDERER_FREES_TESTS="$<TARGET_FILE:renderer_frees_kernel_strings_tests>"
         ALETHEIA_RENDERER_NULL_KERNEL_TESTS="$<TARGET_FILE:renderer_null_kernel_tests>"
         ALETHEIA_RTS_HEAP_CAP_TESTS="$<TARGET_FILE:rts_heap_cap_tests>"

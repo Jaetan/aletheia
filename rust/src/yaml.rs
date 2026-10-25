@@ -14,9 +14,10 @@
 //! single source of truth): the YAML library resolves no integer, hexadecimal,
 //! float or boolean of its own, so the kernel decides what a valid number is
 //! and refuses any other text, located, rather than clamping it; a null or a
-//! missing number is the loader's own refusal. Loading a check requires a live
-//! backend (decimal parsing is RTS-gated). Unknown keys are ignored (matching
-//! the peers).
+//! missing number is the loader's own refusal. Loading a check needs the GHC
+//! runtime up, every number being read by the kernel: a program that loads
+//! before it builds a client calls [`start_runtime`](crate::start_runtime)
+//! first. Unknown keys are ignored (matching the peers).
 
 use std::path::Path;
 
@@ -102,7 +103,7 @@ impl MarkedEventReceiver for ScalarText {
 /// [`Rational::from_decimal`]'s, with the kernel's message, code and fields,
 /// located (see [`Error::located`]) at `Check '<name>'` (`<unnamed>` for a
 /// check with no name) under the number's key; [`Error::RtsNotInitialized`]
-/// if no backend is up (decimal parsing is RTS-gated).
+/// if the runtime has not started.
 pub fn load_checks_from_yaml(content: &str) -> Result<Vec<Check>, Error> {
     load_checks_within(content, MAX_INPUT_BYTES)
 }
@@ -306,8 +307,8 @@ fn decimal(text: &str, key: &str, ctx: &str) -> Result<Rational, Error> {
 /// [`Rational::from_decimal`] from the text the document spells it with (see
 /// [`ScalarText`]), so no float ever materialises. A null, a collection, a
 /// scalar tagged `!!bool` or `!!null`, or a missing key is refused; text the
-/// kernel refuses is refused as [`decimal`] locates it. Because decimal parsing
-/// is RTS-gated, loading a check requires a live backend.
+/// kernel refuses is refused as [`decimal`] locates it. Decimal parsing needs
+/// the GHC runtime up.
 fn number(node: &Yaml, key: &str, ctx: &str, cond: &str) -> Result<Rational, Error> {
     match &node[key] {
         Yaml::String(text) => decimal(text, key, ctx),
@@ -363,10 +364,9 @@ mod tests {
         checks.pop().unwrap()
     }
 
-    /// Bring the GHC RTS up: every number is parsed via the kernel decimal SSOT
-    /// (`Rational::from_decimal`), which is RTS-gated, so any test that loads a
-    /// check needs a live backend first. `Client::new()` is the sole RTS
-    /// initialiser; the process-global one-shot latch keeps it up.
+    /// Start the GHC runtime: every number is parsed via the kernel decimal SSOT
+    /// (`Rational::from_decimal`), which needs it up, so any test that loads a
+    /// check opens a client first; the runtime stays up for the process.
     fn test_backend() -> crate::Client {
         crate::Client::new().expect(
             "init GHC RTS for decimal-loader test (is ALETHEIA_LIB set to a built libaletheia-ffi.so?)",

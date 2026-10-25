@@ -383,6 +383,53 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING: every binding starts the kernel's runtime on its own, with
+  `start_runtime`, so checks holding a decimal load before a client and
+  default checks hold them; a client naming no core count asks for the count
+  running, and a count outside 1 to the CPUs the process may use is refused in
+  all four bindings.** The kernel reads every number a check carries, and its
+  GHC runtime starts once per process, which only a backend did: checks loaded
+  from YAML or Excel, or built with a decimal threshold, were refused before
+  the first client, though a client's constructor is where default checks are
+  given (Python `AletheiaClient(default_checks=...)`, Go `WithDefaultChecks`,
+  C++ `AletheiaClient`). `aletheia.start_runtime(cores, *, lib_path=None)`
+  (Python), `StartRuntime(libPath, cores, logger)` and
+  `StartRuntimeFromEnv(cores, logger)` (Go), `start_runtime(lib, cores)` and
+  `start_runtime_from_env(cores)` (C++, answering the `{active, requested}`
+  pair of a mismatch) and `start_runtime(cores, logger)` (Rust) start it, and
+  every backend's start is the same one. Rust's `ClientBuilder` gains
+  `default_checks`, prepended at `add_checks` as in the other three. A client
+  or backend naming no count (Python's `rts_cores`, now `None` by default, Go
+  without `WithRTSCores`, C++'s new count-less `make_ffi_backend(path)` and
+  `make_ffi_backend_from_env()`, Rust without `rts_cores`) asks for the count
+  running, one when nothing runs, where it asked for one and was warned after
+  a start on another count; the counted C++ forms lose their default argument,
+  their symbols unchanged. A count is held to 1 through the CPUs the process
+  may use, as the runtime's `getNumberOfProcessors` counts them: Python
+  accepted 0 and negative counts, and the four bindings now refuse alike with
+  `core count 0 is outside 1 to <n>, the CPUs this process may use`, where Go
+  and Rust named the C int range and C++ read `rts_cores must be >= 1`. A
+  number read before any start names the remedy, `GHC runtime not initialized:
+  call aletheia.start_runtime or open a client before parsing decimals` in
+  each binding's spelling; Rust's `Error::RtsNotInitialized` reads `GHC
+  runtime not initialized: call aletheia::start_runtime or build a Client
+  before rendering or parsing a number`. In Go and C++ the renderer and the
+  decimal parser call the library the runtime started on, through the entries
+  the start recorded: each had opened a library of its own, so a read before
+  the start that found none kept that refusal after it, and one following
+  `ALETHEIA_LIB` called a library other than the backend's. Rust's
+  `rts.cores_mismatch` record carries `active_cores` and
+  `requested_cores` counts as the other three do, where it carried
+  `requested` and `active` strings. C++'s `make_ffi_backend_from_env` refusal reads `ALETHEIA_LIB is
+  not set: set it to the path of libaletheia-ffi.so, or call
+  make_ffi_backend(path)`. The feature matrix gains `runtime_start` and
+  `default_checks`. The documentation examples that read a number before any
+  client, 22 of them, start the runtime first, and each binding's
+  documentation harness runs each example with the runtime as a reader's
+  program finds it, down until the example starts it or first evaluates the
+  harness's client or backend, where each harness had started it before every
+  example; Python's loader fakes read a number as a reader's file would.
+
 - **BREAKING: the C++ client's object layout moves, and `libaletheia-cpp` is
   installed at `SOVERSION 2`; `cache.full` is logged once per fill in C++, Go
   and Python, and the Python binding prints nothing until the host configures
@@ -3037,6 +3084,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   contradicted; the runtime versions are each file's `system` object.
 
 ### Removed
+
+- **Go's `RegisterDefaultLibPath` (BREAKING).** With the renderer and the
+  decimal parser reading the library the runtime started on, nothing the Go
+  binding ships searches for a library, so the path it registered had no
+  reader.
 
 - **The wire codes `dbc_text_parse_failure`, `dbc_text_trailing_input`,
   `decimal_parse_failed` and `decimal_overflow` (BREAKING).** A text that

@@ -104,8 +104,8 @@ goroutine waiting for the lock is cancelled by its `context.Context` without
 ever acquiring it, which neither `Lock` nor `TryLock` can express (see
 [../docs/architecture/CANCELLATION.md](../docs/architecture/CANCELLATION.md)
 § 2.2). Every call into the library runs on a pinned OS thread
-(`runtime.LockOSThread`), and the GHC RTS is initialised once per process by
-the first `FFIBackend`. See
+(`runtime.LockOSThread`), and the GHC runtime starts once per process, by
+`StartRuntime` or the first `FFIBackend`. See
 [../docs/architecture/CGO_NOTES.md](../docs/architecture/CGO_NOTES.md) for the
 cgo + dlopen rationale.
 

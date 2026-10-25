@@ -8,15 +8,14 @@ import ctypes
 from fractions import Fraction
 from typing import TYPE_CHECKING, TypeGuard
 
-from aletheia.client._enrichment import get_renderer_lib
 from aletheia.client._ffi import (
     AletheiaDecimal,
     AletheiaText,
-    hs_initialized,
+    started_library,
     take_error_envelope,
 )
 from aletheia.client._refusal import raise_entry_refusal
-from aletheia.client._types import FFIError, ProtocolError, ValidationError
+from aletheia.client._types import ProtocolError, ValidationError
 from aletheia.common_types import Prose
 from aletheia.types import is_str_dict
 
@@ -57,10 +56,11 @@ def from_decimal(s: str) -> Fraction:
     Rust ``Rational::from_decimal`` exactly.
 
     Like rational *display* (:func:`~aletheia.client._enrichment.format_rational`),
-    decimal parsing is RTS-gated and **vocal**: it never initialises the GHC
-    RTS (an :class:`FFIBackend` is the sole initialiser, owning the bus-count
-    ``-N``), so it raises before the FFI call when the RTS is down rather than
-    self-initialising.
+    decimal parsing needs the GHC runtime up and is **vocal**: it never starts
+    the runtime, since a start fixes the core count for the process, so it
+    raises before the FFI call while the runtime is down.  A program that reads
+    a decimal before opening a client calls :func:`~aletheia.start_runtime`
+    first.
 
     A refusal is the kernel's error, decoded by the decoder the binary-output
     entries use (:func:`raise_entry_refusal`): a refused literal is the
@@ -68,8 +68,8 @@ def from_decimal(s: str) -> Fraction:
     kernel's ``code``, and a component past the bound the typed bound error.
 
     Raises:
-        FFIError: the GHC runtime is not initialised (no client/backend
-            created).
+        FFIError: the GHC runtime is not started (no
+            :func:`~aletheia.start_runtime` and no client).
         InputBoundExceededError: a component of the exact rational is past
             the kernel's rational component magnitude bound (the kernel's
             ``input_bound_exceeded`` refusal, ``field`` ``"decimal"``).
@@ -85,13 +85,7 @@ def from_decimal(s: str) -> Fraction:
             malfunction).
 
     """
-    if not hs_initialized():
-        msg = (
-            "GHC runtime not initialized: create an AletheiaClient (or FFIBackend) "
-            "before parsing decimals — from_decimal does not self-initialise the RTS"
-        )
-        raise FFIError(msg)
-    lib = get_renderer_lib()
+    lib = started_library(Prose("parsing decimals"))
     out = AletheiaDecimal()
     # A lone surrogate reaches the shim as the bytes ``surrogatepass`` writes,
     # which are not UTF-8, so the shim refuses it as it refuses such bytes from

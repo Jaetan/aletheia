@@ -57,7 +57,7 @@ static auto get_str(const YAML::Node& node, const std::string& key, const std::s
 // hands every scalar as its text, tag and quotes aside, so the kernel reads the
 // number as the document spells it: `11.5`, `!!float 11.5` and `"11.5"` are each
 // 23/2, and `0x1F` or `1e3` is the kernel's refusal rather than a value a YAML
-// resolver chose. RTS-gated: an FfiBackend must be live first. A refusal of the
+// resolver chose. The runtime must be up (`start_runtime` or a backend). A refusal of the
 // literal, a Validation error with the kernel's or the shared library's code or
 // the typed bound error, keeps its kind, code and fields and is located at the
 // check and the key, because the kernel knows the literal and not where the

@@ -430,7 +430,9 @@ All tiers compile to the same LTL formulas. Mix freely:
 ```python
 from pathlib import Path
 
-from aletheia import checks, load_checks, Signal
+from aletheia import checks, load_checks, Signal, start_runtime
+
+start_runtime(1)  # the kernel reads every number of the checks, so its runtime starts first
 
 # Load base checks from YAML
 check_list = load_checks(Path("checks.yaml"))
@@ -470,7 +472,7 @@ int main() {
     std::stop_token stop;  // a real app threads a real token for cancellation
 ```
 
-`make_ffi_backend(path, rts_cores)` takes a count of GHC runtime cores, one by default. The backend is given a path and looks for none. Packaging, and where an installation puts the library, are in the [Distribution Guide](../development/DISTRIBUTION.md).
+`make_ffi_backend(path, rts_cores)` takes a count of GHC runtime cores; `make_ffi_backend(path)` asks for the count running, one when nothing runs. The backend is given a path and looks for none. Packaging, and where an installation puts the library, are in the [Distribution Guide](../development/DISTRIBUTION.md).
 
 ### Step 2: Parse a DBC
 

@@ -16,8 +16,8 @@ func formatRational(r Rational) (string, error) {
 // FormatRational renders a Rational as the display string every binding
 // shares, a terminating decimal ("0.25") or a reduced fraction ("1/3"),
 // through the kernel's renderer (aletheia_format_rational). The renderer
-// loads the library on first use (renderer.go) and never starts the GHC
-// runtime, so the call fails with an error until an FFIBackend has.
+// calls the library the runtime started on (renderer.go) and never starts it,
+// so the call fails with an error until [StartRuntime] or a backend has.
 func FormatRational(r Rational) (string, error) {
 	return formatRational(r)
 }

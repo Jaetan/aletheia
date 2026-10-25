@@ -25,6 +25,7 @@
 // Every entry of the library, resolved once from the kernel it forwards to.
 static struct {
     void (*hs_init_with_rtsopts)(int *, char ***);
+    uint32_t (*get_number_of_processors)(void);
     __typeof__(&aletheia_abi_version) abi_version;
     __typeof__(&aletheia_init) init;
     __typeof__(&aletheia_close) close;
@@ -71,6 +72,7 @@ static void open_kernel(void) {
     if (handle == NULL)
         fail("ALETHEIA_FORWARD_TO", dlerror());
     kernel.hs_init_with_rtsopts = resolve(handle, "hs_init_with_rtsopts");
+    kernel.get_number_of_processors = resolve(handle, "getNumberOfProcessors");
     kernel.abi_version = resolve(handle, "aletheia_abi_version");
     kernel.init = resolve(handle, "aletheia_init");
     kernel.close = resolve(handle, "aletheia_close");
@@ -113,6 +115,11 @@ static void record(const char *entry, const char *reply) {
 void hs_init_with_rtsopts(int *argc, char ***argv) {
     forward();
     kernel.hs_init_with_rtsopts(argc, argv);
+}
+
+uint32_t getNumberOfProcessors(void) {
+    forward();
+    return kernel.get_number_of_processors();
 }
 
 uint32_t aletheia_abi_version(void) {

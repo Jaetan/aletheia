@@ -22,6 +22,9 @@
 //!   [`ClientBuilder::build_with_backend`]): the [`Client`] is built over a
 //!   production FFI backend by default, or a test [`MockBackend`] (or any custom
 //!   double) for unit-testing the client without loading the `.so`.
+//! - The kernel's runtime started before any client ([`start_runtime`]), so
+//!   checks holding decimals load ahead of the client their builder's
+//!   [`ClientBuilder::default_checks`] hands them to.
 //! - The bytes the kernel's runtime has allocated in the process
 //!   ([`allocated_bytes`]), read around work to measure what it allocated.
 //!
@@ -61,7 +64,7 @@ pub mod yaml;
 #[cfg(feature = "async")]
 pub use async_client::AsyncClient;
 use backend::FfiBackend;
-pub use backend::{allocated_bytes, Backend, SignalInjection};
+pub use backend::{allocated_bytes, start_runtime, Backend, SignalInjection};
 pub use check::Check;
 pub use dbc::{
     AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
@@ -135,6 +138,8 @@ pub struct Client {
     logger: Option<Arc<dyn Logger>>,
     /// Minimum level a record must meet to reach the logger.
     min_level: LogLevel,
+    /// The checks [`Client::add_checks`] prepends to the ones it is given.
+    default_checks: Vec<Check>,
     /// Per-property diagnostics derived from the registered formulas (index =
     /// `property_index`); the source for client-side violation enrichment.
     /// `RefCell` because the client methods take `&self`.
@@ -158,25 +163,38 @@ pub struct Client {
     _not_send_sync: PhantomData<*const ()>,
 }
 
-/// Builder for a [`Client`] — a [`Logger`] sink and/or the GHC RTS core count.
+/// Builder for a [`Client`]: a [`Logger`] sink, the GHC runtime core count and
+/// the default checks.
 ///
-/// The RTS is process-global and initialised once: the first client built
-/// latches the core count; a later client requesting a different count gets the
-/// first one plus a `rts.cores_mismatch` warning (mirrors Go `WithRTSCores` /
-/// C++ `make_ffi_backend`).
+/// The runtime is process-global and starts once, by [`start_runtime`] or the
+/// first client built: a client naming no count asks for the count running,
+/// and one asking another keeps the running count plus a `rts.cores_mismatch`
+/// warning (mirrors Go `WithRTSCores` / C++ `make_ffi_backend`).
 #[derive(Default)]
 pub struct ClientBuilder {
     rts_cores: Option<u32>,
     logger: Option<Arc<dyn Logger>>,
     min_level: Option<LogLevel>,
+    default_checks: Vec<Check>,
 }
 
 impl ClientBuilder {
-    /// Request the GHC RTS core count (`+RTS -N<cores>`). Must be ≥ 1. Takes
-    /// effect only on the first client built in the process.
+    /// Request the GHC runtime core count (`+RTS -N<cores>`), 1 through the CPUs
+    /// the process may use. A runtime already up keeps its own count. Without
+    /// it a client asks for the count running, 1 when nothing runs.
     #[must_use]
     pub fn rts_cores(mut self, cores: u32) -> Self {
         self.rts_cores = Some(cores);
+        self
+    }
+
+    /// Set checks prepended to every [`Client::add_checks`] call, as Python's,
+    /// Go's and C++'s clients take them at construction. Checks holding
+    /// decimals are loaded after [`start_runtime`], the kernel reading every
+    /// number.
+    #[must_use]
+    pub fn default_checks(mut self, checks: impl IntoIterator<Item = Check>) -> Self {
+        self.default_checks = checks.into_iter().collect();
         self
     }
 
@@ -196,28 +214,21 @@ impl ClientBuilder {
         self
     }
 
-    /// Build the client: load the core, initialise the RTS once per process, and
+    /// Build the client: load the core, start the runtime unless it runs, and
     /// allocate a fresh `StreamState` (a production `FfiBackend`).
     ///
     /// # Errors
-    /// [`Error::Validation`] if `rts_cores` is 0 or exceeds the C `int` range;
-    /// otherwise [`Error`] if the library cannot be loaded, a required symbol is
-    /// missing, or the core fails to initialise.
+    /// [`Error::Validation`] if `rts_cores` is outside 1 to the CPUs the process
+    /// may use; otherwise [`Error`] if the library cannot be loaded, a required
+    /// symbol is missing, or the core fails to initialise.
     pub fn build(self) -> Result<Client, Error> {
-        if let Some(k) = self.rts_cores {
-            if k == 0 || k > i32::MAX as u32 {
-                return Err(Error::validation(format!(
-                    "rts_cores must be in 1..={}, got {k}",
-                    i32::MAX
-                )));
-            }
-        }
         let min_level = self.min_level.unwrap_or(LogLevel::Debug);
         let backend = FfiBackend::new(self.rts_cores, self.logger.as_deref(), min_level)?;
         Ok(Client::from_parts(
             Box::new(backend),
             self.logger,
             min_level,
+            self.default_checks,
         ))
     }
 
@@ -230,7 +241,7 @@ impl ClientBuilder {
     #[must_use]
     pub fn build_with_backend(self, backend: Box<dyn Backend>) -> Client {
         let min_level = self.min_level.unwrap_or(LogLevel::Debug);
-        Client::from_parts(backend, self.logger, min_level)
+        Client::from_parts(backend, self.logger, min_level, self.default_checks)
     }
 
     /// Build a runtime-agnostic [`AsyncClient`] from this configuration (feature
@@ -275,14 +286,14 @@ impl ClientBuilder {
 }
 
 impl Client {
-    /// Load the core, initialise the GHC RTS, and allocate a fresh `StreamState`
-    /// — with no logger and no explicit RTS core count.
+    /// Load the core, start the GHC runtime unless it runs, and allocate a fresh
+    /// `StreamState`, with no logger and no explicit core count.
     ///
-    /// The RTS is **process-global and initialised once**: `new()` requests GHC
-    /// default flags, but if an earlier client was built with
-    /// [`ClientBuilder::rts_cores`], that first `-N<k>` stays in effect — `new()`
-    /// does not (and cannot) reset the process-wide RTS. Use [`Client::builder`]
-    /// to configure a [`Logger`] or the RTS core count.
+    /// The runtime is **process-global and starts once**: `new()` asks for the
+    /// count running, 1 when nothing runs, so the count of an earlier
+    /// [`start_runtime`] or [`ClientBuilder::rts_cores`] stays in effect. Use
+    /// [`Client::builder`] to configure a [`Logger`], the core count or default
+    /// checks.
     ///
     /// # Errors
     /// Returns [`Error`] if the library cannot be loaded, a required symbol is
@@ -302,7 +313,7 @@ impl Client {
     /// (mirrors Go `NewClient(backend)` / C++ `AletheiaClient(backend)`).
     #[must_use]
     pub fn with_backend(backend: Box<dyn Backend>) -> Self {
-        Self::from_parts(backend, None, LogLevel::Debug)
+        Self::from_parts(backend, None, LogLevel::Debug, Vec::new())
     }
 
     /// Assemble a client from its parts. The single construction point shared by
@@ -312,11 +323,13 @@ impl Client {
         backend: Box<dyn Backend>,
         logger: Option<Arc<dyn Logger>>,
         min_level: LogLevel,
+        default_checks: Vec<Check>,
     ) -> Self {
         Client {
             backend,
             logger,
             min_level,
+            default_checks,
             diags: RefCell::new(Vec::new()),
             last_frames: RefCell::new(HashMap::new()),
             signal_names: RefCell::new(HashMap::new()),

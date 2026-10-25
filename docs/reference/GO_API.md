@@ -47,6 +47,27 @@ func main() {
 
 `NewFFIBackend` takes functional options, among them `aletheia.WithFFILogger` and `aletheia.WithRTSCores`, and `NewClient` takes `aletheia.WithLogger`. The backend is given a path and looks for none; the command-line interface below is what looks. Packaging, and where an installation puts the library, are in the [Distribution Guide](../development/DISTRIBUTION.md).
 
+The kernel reads every number a check carries, through `FromDecimal` and the YAML and Excel loaders, on a GHC runtime that starts once per process: by `aletheia.StartRuntime(libPath, cores, logger)`, or `StartRuntimeFromEnv(cores, logger)` on the library `ALETHEIA_LIB` names, or by the first backend. A program that loads checks before it opens a client starts the runtime first; before any start, a number read answers an `ErrFFI` error (`GHC runtime not initialized: call aletheia.StartRuntime or open a client before parsing decimals`). `cores` is the runtime's capability count, 1 for one bus; a count outside 1 to the CPUs the process may use is an `ErrValidation` error. A backend without `WithRTSCores` asks for the count running; a runtime already up keeps its count, and another count asked of it logs `rts.cores_mismatch` on the logger given, a nil one logging nothing.
+
+```go
+if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+	panic(err)
+}
+checks, err := aletheia.LoadChecksFromYAMLFile("checks.yaml")
+if err != nil {
+	panic(err)
+}
+backend, err := aletheia.NewFFIBackendFromEnv()
+if err != nil {
+	panic(err)
+}
+client, err := aletheia.NewClient(backend, aletheia.WithDefaultChecks(checks...))
+if err != nil {
+	panic(err)
+}
+defer client.Close()
+```
+
 ---
 
 ## Check API
@@ -260,6 +281,9 @@ The YAML loaders (`LoadChecksFromYAML`, `LoadChecksFromYAMLFile`) and the Excel 
 
 <!-- refuses: text_parse_failure -->
 ```go
+if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil { // the kernel reads every number
+	panic(err)
+}
 _, err := aletheia.LoadChecksFromYAML(
 	"checks:\n  - name: C\n    signal: Speed\n    condition: never_exceeds\n    value: .5\n",
 )

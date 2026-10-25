@@ -21,8 +21,8 @@ const skipRTSInitEnv = "ALETHEIA_TEST_SKIP_RTS_INIT"
 
 // TestMain starts the GHC runtime once for the package. The rational renderer
 // and the decimal parser read it and do not start it, so the tests that render
-// need it already up; opening one backend does that, and the runtime stays up
-// for the process, there being no way to take it down. The examples open the
+// need it already up; [StartRuntime] does that, and the runtime stays up for
+// the process, there being no way to take it down. The examples open the
 // library ALETHEIA_LIB names, as a reader's program does, so the variable is
 // set to the one found when the environment leaves it unset, as CI sets it.
 // Without the library the tests that render fail with the renderer's own
@@ -36,8 +36,7 @@ func TestMain(m *testing.M) {
 					fmt.Fprintf(os.Stderr, "TestMain: could not set ALETHEIA_LIB: %v\n", err)
 				}
 			}
-			// The constructor runs hs_init, bringing the RTS up for the package.
-			if _, err := NewFFIBackend(lib); err != nil {
+			if err := StartRuntime(lib, 1, nil); err != nil {
 				fmt.Fprintf(os.Stderr, "TestMain: could not start GHC runtime: %v\n", err)
 			}
 		}

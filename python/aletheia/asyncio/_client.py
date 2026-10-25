@@ -74,7 +74,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     def __init__(
         self,
         default_checks: list[CheckResult] | None = None,
-        rts_cores: int = 1,
+        rts_cores: int | None = None,
         sync_client: _SyncClient | None = None,
         *,
         backend: Backend | None = None,

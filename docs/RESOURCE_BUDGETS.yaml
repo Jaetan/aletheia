@@ -103,6 +103,11 @@ runtime:
   # RtsOptsSafeOnly.
   init_symbol: hs_init_with_rtsopts
 
+  # The runtime's count of the CPUs the process may use (its affinity set on
+  # Linux), which every binding reads through the loaded library before the
+  # runtime starts: a core count outside 1 to it is refused.
+  processors_symbol: getNumberOfProcessors
+
   # The argv every binding assembles for hs_init_with_rtsopts.  cores_if_gt_1 is
   # present only when the requested capability count exceeds default_cores;
   # override_env_flags are the whitespace-split ALETHEIA_RTS_OPTS tokens.

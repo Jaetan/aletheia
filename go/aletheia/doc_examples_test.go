@@ -13,9 +13,11 @@
 // checks.xlsx or tests.xlsx to the demo workbook. A fence is wrapped by its
 // shape: one declaring package main runs verbatim; one opening with an
 // import block gets package main and an empty main; a body fragment is
-// placed inside a synthesised main with predeclared ctx, client, dbc, ts,
-// canID, dlc, data, frames and libPath, and every name it declares with :=
-// is used once so an unused variable cannot fail it. The gates in
+// placed inside a synthesised main with predeclared ctx, dbc, ts, canID, dlc,
+// data, frames and libPath, and backend, client and parsed opened at its first
+// use of one, so a fragment runs with the runtime down until then, as a
+// reader's program does until it starts the runtime; every name it declares
+// with := is used once so an unused variable cannot fail it. The gates in
 // doc_files_test.go hold the list to the tree and refuse a Go fence hidden
 // behind a suffixed info word; a fence that cannot run opens with tildes,
 // which the extractor does not read.
@@ -23,6 +25,7 @@ package aletheia_test
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -31,6 +34,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -117,9 +122,12 @@ func hasImportBlock(body string) bool {
 }
 
 // wrapBodyFragment places a fragment inside a synthesised main whose
-// predeclared names are the Python harness's globals, and hands every name
-// the fragment declares with := and never reads to docExampleDiscarded, so
-// an unused variable cannot fail it and an unread error ends the run.
+// predeclared names are the Python harness's globals, the backend and the
+// client among them opened at the fragment's first evaluation of one
+// (withHarnessClient),
+// and hands every name the fragment declares with := and never reads to
+// docExampleDiscarded, so an unused variable cannot fail it and an unread
+// error ends the run.
 func wrapBodyFragment(body, doc string, opening int) string {
 	suppressors := unusedSuppressors(body, doc, opening)
 	const tmpl = `package main
@@ -206,22 +214,7 @@ func buildDocDBC() aletheia.DBCDefinition {
 func main() {
 	ctx := context.Background()
 	libPath := os.Getenv("ALETHEIA_LIB")
-	backend, err := aletheia.NewFFIBackend(libPath, aletheia.WithFFILogger(slog.Default()))
-	if err != nil {
-		panic(err)
-	}
-	client, err := aletheia.NewClient(backend, aletheia.WithLogger(slog.Default()))
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = client.Close() }()
-
 	dbcDef := buildDocDBC()
-	parsed, err := client.ParseDBC(ctx, dbcDef)
-	if err != nil {
-		panic(err)
-	}
-	_ = parsed
 
 	var ts aletheia.Timestamp
 	canID, _ := aletheia.NewStandardID(0x100)
@@ -231,6 +224,39 @@ func main() {
 	dbc := dbcDef
 	_, _, _, _, _, _ = ts, canID, dlc, data, frames, dbc
 
+	// The harness's backend, a client over it that parsed the DBC above, and
+	// what the parse returned, opened at the fence's first evaluation of one,
+	// which withHarnessClient rewrites to these calls.
+	var docHarness struct {
+		backend *aletheia.FFIBackend
+		client  *aletheia.Client
+		parsed  *aletheia.ParsedDBC
+	}
+	defer func() {
+		if docHarness.client != nil {
+			_ = docHarness.client.Close()
+		}
+	}()
+	docHarnessOpen := func() {
+		if docHarness.client != nil {
+			return
+		}
+		var err error
+		if docHarness.backend, err = aletheia.NewFFIBackend(libPath, aletheia.WithFFILogger(slog.Default())); err != nil {
+			panic(err)
+		}
+		if docHarness.client, err = aletheia.NewClient(docHarness.backend, aletheia.WithLogger(slog.Default())); err != nil {
+			panic(err)
+		}
+		if docHarness.parsed, err = docHarness.client.ParseDBC(ctx, dbcDef); err != nil {
+			panic(err)
+		}
+	}
+	docHarnessBackend := func() *aletheia.FFIBackend { docHarnessOpen(); return docHarness.backend }
+	docHarnessClient := func() *aletheia.Client { docHarnessOpen(); return docHarness.client }
+	docHarnessParsed := func() *aletheia.ParsedDBC { docHarnessOpen(); return docHarness.parsed }
+	_, _, _ = docHarnessBackend, docHarnessClient, docHarnessParsed
+
 	// a nested block, so a fence that redeclares a predeclared name with
 	// := shadows it instead of failing
 	{
@@ -239,12 +265,90 @@ func main() {
 		// ====== FENCE BODY END ======
 %s
 	}
-	_ = ctx
-	_ = backend
-	_ = client
+	_, _ = ctx, libPath
 }
 `
 	return fmt.Sprintf(tmpl, discardedErrors, body, suppressors)
+}
+
+// harnessOpeners are the predeclared names the harness's backend, client and
+// parsed DBC stand behind, each with the main's function that opens the three
+// at its first call.
+var harnessOpeners = map[string]string{
+	"backend": "docHarnessBackend",
+	"client":  "docHarnessClient",
+	"parsed":  "docHarnessParsed",
+}
+
+// namedHarness matches a fragment spelling one of harnessOpeners: only such
+// a fragment needs the compiler's report of its undeclared uses before it runs.
+var namedHarness = regexp.MustCompile(`\b(?:backend|client|parsed)\b`)
+
+// harnessUse is a use of one of harnessOpeners the compiler found no
+// declaration of: the line and the column, a byte's, it reports.
+type harnessUse struct {
+	line, column int
+	name         string
+}
+
+// reportedHarness matches the compiler's `<dir>/main.go:<line>:<column>:
+// undefined: client`, the declarations a fragment writes itself, in any form,
+// being the compiler's to tell apart.
+var reportedHarness = regexp.MustCompile(`(?m)^(?:\./)?(f\d+)/main\.go:(\d+):(\d+): undefined: (backend|client|parsed)$`)
+
+// reportedHarnessUses is the uses a build's output reports undeclared, by the
+// directory of the program holding them.
+func reportedHarnessUses(output string) map[string][]harnessUse {
+	uses := map[string][]harnessUse{}
+	for _, m := range reportedHarness.FindAllStringSubmatch(output, -1) {
+		line, _ := strconv.Atoi(m[2])
+		column, _ := strconv.Atoi(m[3])
+		uses[m[1]] = append(uses[m[1]], harnessUse{line: line, column: column, name: m[4]})
+	}
+	return uses
+}
+
+// withHarnessClient is src with each of uses calling the harness's opener of
+// its name, so the harness's backend and client, and the runtime with them,
+// open at the fragment's first evaluation of one: until then the runtime is
+// down, as a reader's program finds it until it starts the runtime or opens a
+// client, so a fragment reading a number first fails here as it would there.
+func withHarnessClient(src string, uses []harnessUse) string {
+	starts := []int{0}
+	for i, c := range src {
+		if c == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	uses = slices.Clone(uses)
+	slices.SortFunc(uses, func(a, b harnessUse) int {
+		return cmp.Or(cmp.Compare(b.line, a.line), cmp.Compare(b.column, a.column))
+	})
+	uses = slices.Compact(uses)
+	for _, use := range uses {
+		at := starts[use.line-1] + use.column - 1
+		src = src[:at] + harnessOpeners[use.name] + "()" + src[at+len(use.name):]
+	}
+	return src
+}
+
+// harnessUsesOf builds the programs in dirs (directories of root, the module
+// docHarnessSetup writes) once with every compile error reported, and returns
+// the uses of harnessOpeners each leaves undeclared.
+func harnessUsesOf(t *testing.T, root string, env, dirs []string) map[string][]harnessUse {
+	t.Helper()
+	if len(dirs) == 0 {
+		return nil
+	}
+	args := []string{"build", "-gcflags=-e", "-o", t.TempDir() + string(filepath.Separator)}
+	for _, dir := range dirs {
+		args = append(args, "./"+dir)
+	}
+	build := exec.Command("go", args...)
+	build.Dir = root
+	build.Env = env
+	out, _ := build.CombinedOutput()
+	return reportedHarnessUses(string(out))
 }
 
 // unusedSuppressors is one docExampleDiscarded call per name the fragment
@@ -401,10 +505,29 @@ func TestDocExamples(t *testing.T) {
 		wrapped = append(wrapped, wrappedFence{fence: fence, dir: dir, pkgPath: "./f" + strconv.Itoa(i)})
 	}
 
+	env := append(os.Environ(), "GOFLAGS=-mod=mod", "ALETHEIA_LIB="+forwarder, "ALETHEIA_FORWARD_TO="+lib)
+	// a fence naming the harness's backend, client or parsed DBC is built
+	// once first, its undeclared uses taken from the compiler's report
+	var naming []string
+	for _, w := range wrapped {
+		if namedHarness.MatchString(w.fence.content) {
+			naming = append(naming, filepath.Base(w.dir))
+		}
+	}
+	for dir, uses := range harnessUsesOf(t, root, env, naming) {
+		path := filepath.Join(root, dir, "main.go")
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(withHarnessClient(string(src), uses)), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
 	// one build compiles every fence into bin/, a program per fence named
 	// as its directory; a fence that does not compile is named by the
 	// build's own "# aletheia_doc_harness/fN" header, mapped back below
-	env := append(os.Environ(), "GOFLAGS=-mod=mod", "ALETHEIA_LIB="+forwarder, "ALETHEIA_FORWARD_TO="+lib)
 	bin := filepath.Join(root, "bin") + string(filepath.Separator)
 	args := []string{"build", "-o", bin}
 	for _, w := range wrapped {
@@ -463,5 +586,53 @@ func TestDocExamplesFixture_ChecksYAMLLoads(t *testing.T) {
 		if c.Formula() == nil {
 			t.Errorf("a check of the fixture carries no formula: %+v", c)
 		}
+	}
+}
+
+// TestWithHarnessClient holds the report's reading and the rewrite: each
+// reported use calls the opener of its name, a repeated report once.
+func TestWithHarnessClient(t *testing.T) {
+	out := "# aletheia_doc_harness/f3\nf3/main.go:3:5: undefined: client\n./f3/main.go:4:9: undefined: backend\n" +
+		"f4/main.go:1:1: undefined: load\nf5/main.go:2:2: undefined: parsed\n"
+	want := map[string][]harnessUse{
+		"f3": {{line: 3, column: 5, name: "client"}, {line: 4, column: 9, name: "backend"}},
+		"f5": {{line: 2, column: 2, name: "parsed"}},
+	}
+	if got := reportedHarnessUses(out); !reflect.DeepEqual(got, want) {
+		t.Errorf("reportedHarnessUses\n got %v\nwant %v", got, want)
+	}
+	uses := []harnessUse{{line: 2, column: 2, name: "client"}, {line: 2, column: 11, name: "backend"}, {line: 2, column: 2, name: "client"}}
+	if got, want := withHarnessClient("a\n\tclient.X(backend)\n", uses), "a\n\tdocHarnessClient().X(docHarnessBackend())\n"; got != want {
+		t.Errorf("withHarnessClient\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestTheCompilerNamesTheHarnessUses builds a fragment in the forms a fence
+// declares the harness's names in itself (its own client over the harness's
+// backend, a block's own, a parameter, a struct field and a literal's key, a
+// string and a comment) and holds the rewrite to the uses it leaves
+// undeclared: one in a loop after a read, the backend, the parsed DBC.
+func TestTheCompilerNamesTheHarnessUses(t *testing.T) {
+	root := t.TempDir()
+	docHarnessSetup(t, root)
+	written := "limit := 1\nfor range limit {\n\t_ = client\n}\n{\n\tclient, err := aletheia.NewClient(backend)\n" +
+		"\t_, _ = client, err\n}\n{\n\tclient := 1\n\t_ = client\n}\nf := func(backend int) int { return backend + 1 }\n" +
+		"type holder struct{ client int }\nh := holder{client: f(1)}\n_ = h.client\n_ = \"client\" // client\n_ = parsed\n"
+	expected := strings.NewReplacer(
+		"\t_ = client\n}\n{\n\tclient, err", "\t_ = docHarnessClient()\n}\n{\n\tclient, err",
+		"NewClient(backend)", "NewClient(docHarnessBackend())",
+		"_ = parsed\n", "_ = docHarnessParsed()\n",
+	).Replace(written)
+	program := wrapBodyFragment(written, "sample.md", 1)
+	dir := filepath.Join(root, "f0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(program), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	uses := harnessUsesOf(t, root, append(os.Environ(), "GOFLAGS=-mod=mod"), []string{"f0"})
+	if got, want := withHarnessClient(program, uses["f0"]), wrapBodyFragment(expected, "sample.md", 1); got != want {
+		t.Errorf("the rewrite of the compiler's report\n got %s\nwant %s", got, want)
 	}
 }

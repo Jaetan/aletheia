@@ -59,12 +59,11 @@ fn temp(tag: &str) -> PathBuf {
     p
 }
 
-/// Bring the GHC RTS up for a loader test. The typed cell accessors
-/// parse every numeric field through the kernel decimal SSOT
-/// (`Rational::from_decimal`), which is RTS-gated — so any test that loads a
-/// sheet with a numeric field needs a live backend first. `aletheia::Client`
-/// is the sole RTS initialiser; the process-global one-shot latch keeps the
-/// RTS up for the rest of the run, so any one call suffices for all tests.
+/// Start the GHC runtime for a loader test. The typed cell accessors parse
+/// every numeric field through the kernel decimal SSOT
+/// (`Rational::from_decimal`), which needs it up, so any test that loads a
+/// sheet with a numeric field opens a client first; the runtime stays up for
+/// the rest of the run, so any one call suffices for all tests.
 fn test_backend() -> aletheia::Client {
     aletheia::Client::new().expect(
         "init GHC RTS for excel loader test (is ALETHEIA_LIB set to a built libaletheia-ffi.so?)",

@@ -17,8 +17,10 @@ import textwrap
 import pytest
 
 from tools import _determinism_guard
-from tools._determinism_guard import AuditEvent, CoreCount, MarkName
+from tools._determinism_guard import AuditEvent, MarkName
 from tools.check_test_determinism import SourceText
+
+from aletheia.common_types import CoreCount
 
 
 def _run_guarded(pytester: pytest.Pytester, test: SourceText) -> pytest.RunResult:
@@ -430,6 +432,13 @@ def test_plant(monkeypatch):
     monkeypatch.setattr(RTSState, "initialized", False)
     RTSState.acquire(None, {count})
 """
+# A test starting the runtime through the process-level start, the runtime up or not.
+_PROCESS_LEVEL_START = """\
+from aletheia import start_runtime
+
+def test_plant():
+    start_runtime({count})
+"""
 
 
 @pytest.mark.parametrize(
@@ -437,6 +446,7 @@ def test_plant(monkeypatch):
     [
         pytest.param(SourceText(_STARTED), CoreCount(2), id="started"),
         pytest.param(SourceText(_UNSTARTED), CoreCount(2), id="unstarted"),
+        pytest.param(SourceText(_PROCESS_LEVEL_START), CoreCount(2), id="start_runtime"),
         # A count below the default is another count too.
         pytest.param(SourceText(_UNSTARTED), CoreCount(0), id="below"),
     ],
@@ -452,8 +462,8 @@ def test_the_guard_fails_a_test_that_asks_another_core_count_unmarked(
     )
 
 
-def test_an_ask_without_a_count_asks_the_default(pytester: pytest.Pytester) -> None:
-    """``RTSState.acquire`` called without a count asks the default, as the real one does."""
+def test_an_ask_without_a_count_asks_the_running_count(pytester: pytest.Pytester) -> None:
+    """``RTSState.acquire`` called without a count asks the count running, as the real one does."""
     result = _run_guarded(
         pytester,
         SourceText(

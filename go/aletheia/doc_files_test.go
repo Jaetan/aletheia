@@ -297,7 +297,7 @@ func TestEveryDocFileHasAtLeastOneGoFenceCollectively(t *testing.T) {
 // Example function holds so that go test runs it. A cgo preamble, the comment
 // above import "C", is the C source cgo compiles, so it is not read.
 var textBlocks = map[string]string{
-	"go/aletheia/doc.go":           "rts.cores_mismatch              (FFIBackend, Warn)",
+	"go/aletheia/doc.go":           "rts.cores_mismatch              (StartRuntime, FFIBackend, Warn)",
 	"go/aletheia/json_response.go": "Header:  [nvals:u16][nerrs:u16][nabss:u16][reasonBytes:u32]  (10 bytes)",
 }
 

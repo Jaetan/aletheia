@@ -91,7 +91,7 @@ from aletheia.client._backend import (
     MockBackend,
 )
 from aletheia.client._client import AletheiaClient
-from aletheia.client._ffi import RTSState, allocated_bytes
+from aletheia.client._ffi import RTSState, allocated_bytes, start_runtime
 from aletheia.client._helpers.rational import from_decimal
 from aletheia.client._types import (
     AletheiaError,
@@ -212,6 +212,7 @@ __all__ = [
     "load_checks_from_excel",  # pip install aletheia[excel]
     "load_dbc_from_excel",  # pip install aletheia[excel]
     "never",
+    "start_runtime",
 ]
 # ``aletheia.dbc`` names its own public surface; every name in it is public here too.
 __all__ += dbc.__all__

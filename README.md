@@ -134,7 +134,9 @@ For users who do not need full LTL control, three higher-level interfaces compil
 ```python
 from pathlib import Path
 
-from aletheia import checks, load_checks, load_checks_from_excel
+from aletheia import checks, load_checks, load_checks_from_excel, start_runtime
+
+start_runtime(1)  # the kernel reads every number of the checks, so its runtime starts first
 
 # Check API — industry vocabulary
 checks.signal("Speed").never_exceeds(220)

@@ -58,8 +58,8 @@ func startRuntime(t *testing.T, lib string) {
 func TestFFIBackend_RTSCoresMismatchWarns(t *testing.T) {
 	lib := requireFFILib(t)
 	startRuntime(t, lib)
-	output := ffiBackendLog(t, lib, aletheia.WithRTSCores(8))
-	for _, want := range []string{"rts.cores_mismatch", `"level":"WARN"`, `"requested_cores":8`, `"active_cores":1`} {
+	output := ffiBackendLog(t, lib, aletheia.WithRTSCores(2))
+	for _, want := range []string{"rts.cores_mismatch", `"level":"WARN"`, `"requested_cores":2`, `"active_cores":1`} {
 		if !strings.Contains(output, want) {
 			t.Errorf("the log does not carry %s: %s", want, output)
 		}
@@ -111,6 +111,24 @@ func TestNewFFIBackendFromEnv_MissingPathIsFFIError(t *testing.T) {
 	}
 	if e.Kind != aletheia.ErrFFI {
 		t.Errorf("Kind = %v, want ErrFFI: a set path must reach the loader, not the unset guard", e.Kind)
+	}
+}
+
+// The runtime's start reads ALETHEIA_LIB as the backend does: unset is the
+// caller's mistake, named with the counted twin, and a set path reaches the
+// loader. Neither needs the library.
+func TestStartRuntimeFromEnv_UnsetIsValidationErrorAndASetPathReachesTheLoader(t *testing.T) {
+	t.Setenv("ALETHEIA_LIB", "")
+	err := aletheia.StartRuntimeFromEnv(1, nil)
+	var e *aletheia.Error
+	if !errors.As(err, &e) || e.Kind != aletheia.ErrValidation || err.Error() !=
+		"ALETHEIA_LIB is not set: set it to the path of libaletheia-ffi.so, or use StartRuntime(path, cores, logger)" {
+		t.Errorf("unset ALETHEIA_LIB answered %v, want its validation error", err)
+	}
+	t.Setenv("ALETHEIA_LIB", "/nonexistent/libaletheia-ffi.so")
+	err = aletheia.StartRuntimeFromEnv(1, nil)
+	if !errors.As(err, &e) || e.Kind != aletheia.ErrFFI || !strings.Contains(err.Error(), "dlopen failed") {
+		t.Errorf("a path naming nothing answered %v, want the loader's dlopen error", err)
 	}
 }
 

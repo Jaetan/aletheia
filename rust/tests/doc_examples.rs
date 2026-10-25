@@ -7,9 +7,12 @@
 //! the kernel, and a fence that fails to build or to run fails the test under
 //! its file and line. A fence declaring `fn main` is a program as it stands;
 //! any other is a body fragment, placed inside a synthesised `main` returning
-//! `Result<(), aletheia::Error>` under `use aletheia::*`, after a client that
-//! has loaded the kernel and parsed the Rust suite's minimal DBC, and `ts`,
-//! `id`, `dlc` and `data` for one frame of its first message. The Rust fences
+//! `Result<(), aletheia::Error>` under `use aletheia::*`, after `ts`, `id`,
+//! `dlc` and `data` for one frame of the Rust suite's minimal DBC's first
+//! message and a `client` opened, and handed that DBC, at the fragment's
+//! first use of it: before that use the runtime is down, as a reader's
+//! program finds it until it starts the runtime or builds a client, so a
+//! fragment reading a number first fails here as it would there. The Rust fences
 //! of a document [`PATH_DOCS`] lists are one program cut into steps, joined in
 //! order and run whole. A fence that cannot run opens with tildes, which the
 //! extractor does not read.
@@ -573,9 +576,22 @@ fn program(fence: &RustFence) -> String {
          \n\
          const DBC: &str = include_str!({dbc:?});\n\
          \n\
+         // the client the fragment names, opened at its first use\n\
+         struct HarnessClient(std::cell::OnceCell<Client>);\n\
+         \n\
+         impl std::ops::Deref for HarnessClient {{\n\
+         \x20   type Target = Client;\n\
+         \x20   fn deref(&self) -> &Client {{\n\
+         \x20       self.0.get_or_init(|| {{\n\
+         \x20           let client = Client::new().expect(\"the harness's client\");\n\
+         \x20           client.parse_dbc_text(DBC).expect(\"the harness's DBC\");\n\
+         \x20           client\n\
+         \x20       }})\n\
+         \x20   }}\n\
+         }}\n\
+         \n\
          fn main() -> std::result::Result<(), aletheia::Error> {{\n\
-         \x20   let client = Client::new()?;\n\
-         \x20   client.parse_dbc_text(DBC)?;\n\
+         \x20   let client = HarnessClient(std::cell::OnceCell::new());\n\
          \x20   let ts = Timestamp(0);\n\
          \x20   let id = CanId::standard(0x100)?;\n\
          \x20   let dlc = Dlc::new(8)?;\n\

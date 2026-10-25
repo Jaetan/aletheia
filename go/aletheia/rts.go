@@ -36,6 +36,10 @@ const (
 	// cap given there replaces the one above: the runtime takes the last of a
 	// repeated flag.
 	rtsOverrideEnv = "ALETHEIA_RTS_OPTS"
+	// rtsProcessorsSymbol is the runtime's count of the CPUs the process may
+	// use (its affinity set on Linux), callable before the runtime starts: a
+	// core count past it is refused.
+	rtsProcessorsSymbol = "getNumberOfProcessors"
 )
 
 // rtsOverrideFlags are the flags the environment adds, none when it sets

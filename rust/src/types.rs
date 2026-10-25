@@ -181,10 +181,10 @@ impl Rational {
     /// `"0.1" → 1/10`, `"3.14" → 157/50`, `"42" → 42/1`. The accepted grammar is
     /// the kernel's: `-?digits` or `-?digits.digits+` — no `+` sign, no
     /// leading/trailing `.`, no exponent (so `"1e3"`, `".5"`, `"1."`, `"+2"` are
-    /// rejected). Requires a live backend: like rational *display*, decimal
-    /// parsing is RTS-gated (the kernel parses the literal and holds each
-    /// rational component to its magnitude bound), and an `FfiBackend` (via a
-    /// [`Client`](crate::Client)) is the sole RTS initialiser.
+    /// rejected). Like rational *display*, decimal parsing needs the GHC runtime
+    /// up (the kernel parses the literal and holds each rational component to
+    /// its magnitude bound): [`start_runtime`](crate::start_runtime) or a
+    /// [`Client`](crate::Client) starts it, and this never does.
     ///
     /// # Errors
     /// [`Error::Validation`] with `code` `Some("text_parse_failure")` (not a
@@ -195,8 +195,8 @@ impl Rational {
     /// when the numerator or the denominator crosses the rational component
     /// magnitude bound; [`Error::Protocol`] when the entry reports a refusal
     /// without an error envelope, the envelope is malformed, or the answered
-    /// denominator is not positive; [`Error::RtsNotInitialized`] if no backend
-    /// has been created.
+    /// denominator is not positive; [`Error::RtsNotInitialized`] if the runtime
+    /// has not started.
     pub fn from_decimal(s: &str) -> Result<Self, Error> {
         crate::backend::parse_decimal(s)
     }

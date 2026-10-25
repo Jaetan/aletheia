@@ -186,6 +186,8 @@ Agda (all logic + proofs, compiled via the MAlonzo backend)
 Python:
 ```python
 from pathlib import Path
+from aletheia import Signal, checks, load_checks, load_checks_from_excel, start_runtime
+start_runtime(1)                                    # the kernel reads every number
 checks.signal("Speed").never_exceeds(220)           # Check API
 load_checks(Path("checks.yaml"))                    # YAML (Path → file)
 load_checks_from_excel("tests.xlsx")                # Excel
@@ -194,6 +196,7 @@ Signal("Speed").less_than(220).always()             # Full DSL
 
 C++:
 ```cpp
+[[maybe_unused]] auto _start = start_runtime_from_env(1);  // the kernel reads every number
 auto speed = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));
 [[maybe_unused]] auto _yaml  = load_checks_from_yaml("checks.yaml");
 [[maybe_unused]] auto _excel = load_checks_from_excel("tests.xlsx");
@@ -203,6 +206,7 @@ auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalVal
 
 Go:
 ```go
+_ = aletheia.StartRuntimeFromEnv(1, nil) // the kernel reads every number
 aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
 _, _ = aletheia.LoadChecksFromYAMLFile("checks.yaml")
 _, _ = excel.LoadChecks("tests.xlsx")
