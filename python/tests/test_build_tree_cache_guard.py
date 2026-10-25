@@ -15,13 +15,12 @@ the next one.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING
 
-import yaml
+from _workflows import CachePath, every_job
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+if TYPE_CHECKING:
+    from _workflows import JobSteps, Step
 
 # What the presence step is called and what it reads, named once here because
 # the test asserts both halves: the save waits on the step, and the step looks
@@ -39,35 +38,16 @@ THE_TEST = "[ -f build/libaletheia-ffi.so ]"
 # runs rather than by its job's name, which is the thing an edit renames.
 THE_CLEAN_BUILD_GATE = "tools.check_reproducible_build"
 
-type Step = dict[str, object]
-
-
-def _jobs(path: Path) -> dict[str, dict[str, object]]:
-    """Read one workflow's jobs."""
-    document = cast("dict[str, object]", yaml.safe_load(path.read_text(encoding="utf-8")))
-    return cast("dict[str, dict[str, object]]", document.get("jobs", {}))
-
-
-def _steps(job: dict[str, object]) -> list[Step]:
-    """Read one job's steps."""
-    return cast("list[Step]", job.get("steps", []))
-
 
 def _saves_the_build_tree(step: Step) -> bool:
     """Say whether a step saves a build-tree cache entry, by its key rather than its name."""
-    uses = str(step.get("uses", ""))
-    key = str(cast("dict[str, object]", step.get("with", {})).get("key", ""))
-    return "actions/cache/save" in uses and key.startswith("build-tree-")
+    key = step.get("with", {}).get("key", "")
+    return "actions/cache/save" in step.get("uses", "") and key.startswith("build-tree-")
 
 
-def _build_tree_saves() -> list[tuple[Path, str, Step, list[Step]]]:
-    """Every build-tree save in every workflow, with the job's steps beside it."""
-    found: list[tuple[Path, str, Step, list[Step]]] = []
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        for name, job in _jobs(path).items():
-            steps = _steps(job)
-            found.extend((path, name, step, steps) for step in steps if _saves_the_build_tree(step))
-    return found
+def _build_tree_saves() -> list[tuple[JobSteps, Step]]:
+    """Every build-tree save in every workflow, with its job beside it."""
+    return [(job, step) for job in every_job() for step in job.steps if _saves_the_build_tree(step)]
 
 
 def test_the_workflows_still_save_a_build_tree() -> None:
@@ -77,26 +57,22 @@ def test_the_workflows_still_save_a_build_tree() -> None:
 
 def test_every_build_tree_save_waits_on_a_tree_being_there() -> None:
     """Each save is conditioned on the presence step, which reads the artifact itself."""
-    for path, job, step, steps in _build_tree_saves():
-        where = f"{path.name}:{job}"
-        condition = str(step.get("if", ""))
-        assert PRESENCE_CONDITION in condition, (
-            f"{where} saves a build tree without asking whether there is one"
+    for job, step in _build_tree_saves():
+        assert PRESENCE_CONDITION in step.get("if", ""), (
+            f"{job.label} saves a build tree without asking whether there is one"
         )
-        presence = [entry for entry in steps if entry.get("id") == PRESENCE_ID]
-        assert len(presence) == 1, f"{where} has {len(presence)} steps with id {PRESENCE_ID}"
-        script = str(presence[0].get("run", ""))
-        assert THE_TEST in script, (
-            f"{where}'s presence step does not test {THE_TEST}, "
+        presence = [entry for entry in job.steps if entry.get("id") == PRESENCE_ID]
+        assert len(presence) == 1, f"{job.label} has {len(presence)} steps with id {PRESENCE_ID}"
+        assert THE_TEST in presence[0].get("run", ""), (
+            f"{job.label}'s presence step does not test {THE_TEST}, "
             "so a run that failed before the build could still call the tree present"
         )
 
 
-def _restores_the_build_tree(step: Step) -> bool:
-    """Say whether a step restores a build-tree cache entry, by its key."""
-    uses = str(step.get("uses", ""))
-    key = str(cast("dict[str, object]", step.get("with", {})).get("key", ""))
-    return "actions/cache" in uses and key.startswith("build-tree-")
+def _caches_the_build_tree(step: Step) -> bool:
+    """Say whether a step restores or saves a build-tree cache entry, by its key."""
+    key = step.get("with", {}).get("key", "")
+    return "actions/cache" in step.get("uses", "") and key.startswith("build-tree-")
 
 
 def test_the_clean_build_gate_is_handed_no_tree() -> None:
@@ -108,17 +84,15 @@ def test_the_clean_build_gate_is_handed_no_tree() -> None:
     against a rebuild of nothing and pass on both.
     """
     lanes = [
-        (path, name, steps)
-        for path in sorted(WORKFLOWS.glob("*.yml"))
-        for name, job in _jobs(path).items()
-        for steps in [_steps(job)]
-        if any(THE_CLEAN_BUILD_GATE in str(step.get("run", "")) for step in steps)
+        job
+        for job in every_job()
+        if any(THE_CLEAN_BUILD_GATE in step.get("run", "") for step in job.steps)
     ]
     assert lanes, f"no job runs {THE_CLEAN_BUILD_GATE}"
-    for path, name, steps in lanes:
-        restores = [step for step in steps if _restores_the_build_tree(step)]
-        assert not restores, (
-            f"{path.name}:{name} runs the clean-build gate and restores a build tree, "
+    for job in lanes:
+        caches = [step for step in job.steps if _caches_the_build_tree(step)]
+        assert not caches, (
+            f"{job.label} runs the clean-build gate and caches a build tree, "
             "so the gate would compare a restored artifact with itself"
         )
 
@@ -138,21 +112,15 @@ THE_INTERFACE_DIR = "_build"
 THE_WHOLE_TREE_SWEEP = "tools.run_ci --iwyu-all"
 
 
-def _build_tree_cache_steps() -> list[tuple[Path, str, Step]]:
+def _build_tree_cache_steps() -> list[Step]:
     """Every build-tree restore and save in every workflow."""
-    return [
-        (path, name, step)
-        for path in sorted(WORKFLOWS.glob("*.yml"))
-        for name, job in _jobs(path).items()
-        for step in _steps(job)
-        if _restores_the_build_tree(step) or _saves_the_build_tree(step)
-    ]
+    return [step for job in every_job() for step in job.steps if _caches_the_build_tree(step)]
 
 
-def _cached_paths(step: Step) -> list[str]:
+def _cached_paths(step: Step) -> list[CachePath]:
     """Read the path list a cache step names, one entry per line."""
-    raw = str(cast("dict[str, object]", step.get("with", {})).get("path", ""))
-    return [line.strip() for line in raw.splitlines() if line.strip()]
+    raw = step.get("with", {}).get("path", "")
+    return [CachePath(line.strip()) for line in raw.splitlines() if line.strip()]
 
 
 def test_every_build_tree_cache_step_names_one_path_set_holding_the_interfaces() -> None:
@@ -165,7 +133,7 @@ def test_every_build_tree_cache_step_names_one_path_set_holding_the_interfaces()
     """
     steps = _build_tree_cache_steps()
     assert steps, "no workflow caches a build tree"
-    sets = {tuple(_cached_paths(step)) for _, _, step in steps}
+    sets = {tuple(_cached_paths(step)) for step in steps}
     assert len(sets) == 1, f"the build-tree cache steps name {len(sets)} path sets: {sorted(sets)}"
     (paths,) = sets
     assert THE_INTERFACE_DIR in paths, (
@@ -174,9 +142,10 @@ def test_every_build_tree_cache_step_names_one_path_set_holding_the_interfaces()
 
 
 def test_only_the_whole_tree_sweep_saves_the_build_tree() -> None:
-    """Each saver's job runs the sweep that type-checks every module first."""
-    for path, job, _, steps in _build_tree_saves():
-        assert any(THE_WHOLE_TREE_SWEEP in str(step.get("run", "")) for step in steps), (
-            f"{path.name}:{job} saves a build tree without running {THE_WHOLE_TREE_SWEEP}, "
+    """Each saver's job runs the sweep that type-checks every module before the save."""
+    for job, save in _build_tree_saves():
+        before = job.steps[: job.steps.index(save)]
+        assert any(THE_WHOLE_TREE_SWEEP in step.get("run", "") for step in before), (
+            f"{job.label} saves a build tree without running {THE_WHOLE_TREE_SWEEP} first, "
             "so the interfaces it saves are at most the runtime closure's"
         )
