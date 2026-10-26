@@ -401,8 +401,10 @@ def _run_binding_tests(runner: Runner) -> None:
         # same compilation we ship. Bare `clang`/default cc resolves to the
         # runner's clang-18 / g++ (clang < 19 mis-handles the C++23 <expected>
         # libstdc++ ships); clang-23 is version-pinned + installed by the workflow via
-        # apt.llvm.org (no update-alternatives roulette).
-        f"cmake -B build {CPP_COMPILERS} > /dev/null && cmake --build build"
+        # apt.llvm.org (no update-alternatives roulette).  The tree's cache goes
+        # first, as the lint tree's does (see the clang-tidy step).
+        f"rm -f build/CMakeCache.txt && cmake -B build {CPP_COMPILERS} > /dev/null"
+        + " && cmake --build build"
         + f" && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
         cwd=runner.repo_root / "cpp",
     )
@@ -591,23 +593,23 @@ def _run_lints(runner: Runner) -> None:
     # dependencies' headers, both there once the configure ends, and not the
     # objects, so the gate need not wait for the test build: behind it on the
     # runner, clang-tidy started 242 s into the sweep and its lane ended last.
-    # A probe holds the two databases to one set of commands.
+    # Each of the two trees loses its cache before the one configure line, so an
+    # option a configure run by hand gave it, or an environment its first
+    # configure read, does not outlast the sweep; the objects stay, so the test
+    # build recompiles only what the flags change.
+    # python/tests/test_ci_step_commands.py holds the two steps whole, so the
+    # database clang-tidy reads is the one the test build compiles from.
     # run-clang-tidy alone starts one job per CPU of the machine, whatever
     # CPUs the sweep was given, so it is told the step budget iwyu takes.
     runner.step(
         "clang-tidy",
-        f"cmake -B {CPP_LINT_TREE} {CPP_COMPILERS} > /dev/null"
+        f"rm -f {CPP_LINT_TREE}/CMakeCache.txt"
+        + f" && cmake -B {CPP_LINT_TREE} {CPP_COMPILERS} > /dev/null"
         + f" && run-clang-tidy-23 -j {cpu_budget()} -quiet -p {CPP_LINT_TREE}"
         + " cpp/src/ cpp/tests/ cpp/benchmarks/",
         cwd=runner.repo_root / "cpp",
         lane=CPP_LINT_LANE,
     )
-    # Coverage guard: every cpp/src/**/*.cpp must appear in the compile DB, so a
-    # source someone forgets to wire into a CMake target fails CI rather than
-    # being silently unbuilt + unlinted (run-clang-tidy only lints compiled TUs).
-    # It reads the database clang-tidy read, so it runs in that lane after that
-    # step; from the repository root its cwd would infer "misc" and it could
-    # run before the tree is configured.
     # The coverage record (docs/COVERAGE_BENCH.yaml) held to its shape without
     # running a suite: its scope paths exist, its recorded figures are over
     # the floors, and the Rust tool it pins is the one the workflow installs.
@@ -617,6 +619,15 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root,
         lane="misc",
     )
+    # The coverage guard: every source clang-tidy is pointed at, the fuzz
+    # targets aside, must appear in the compile DB, so a source someone forgets
+    # to wire into a CMake target fails CI rather than being silently unbuilt
+    # and unlinted (run-clang-tidy only lints compiled TUs), and must compile at
+    # the project's standard, so a target linking neither the library nor a
+    # dependency carrying it cannot fall back to the compiler's default.
+    # The guard reads the database clang-tidy read, so it runs in that lane
+    # after that step; from the repository root its cwd would infer "misc" and
+    # it could run before the tree is configured.
     runner.step(
         "check-clang-tidy-coverage",
         [runner.python, "-m", "tools.check_clang_tidy_coverage"],

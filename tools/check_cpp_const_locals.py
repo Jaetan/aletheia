@@ -69,21 +69,22 @@ import functools
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, cast
 
 from tools._clang_query import (
     COMPILE_DB,
     CPP_ROOT,
+    CompileArg,
     PrintedPath,
     Query,
     printed_file,
     query_tree,
+    unit_arguments,
 )
 from tools._common import RelPath, WorkerCount, emit
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
@@ -93,7 +94,7 @@ from aletheia.common_types import ExitStatus
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from tools._clang_query import QueryOutput, UnitPath
+    from tools._clang_query import DatabaseEntry, QueryOutput, UnitPath
     from tools._common import ExecutorFactory
 
 # The ratchet's record, repo-root-relative.
@@ -204,12 +205,8 @@ SourceLine = NewType("SourceLine", str)
 SourceText = NewType("SourceText", str)
 LineNo = NewType("LineNo", int)
 Column = NewType("Column", int)
-# What a compiler printed on its error stream; one argument of a compile
-# command, and a whole one as one string; the directory a command runs from.
+# What a compiler printed on its error stream.
 Diagnostics = NewType("Diagnostics", str)
-CompileArg = NewType("CompileArg", str)
-CommandLine = NewType("CommandLine", str)
-DirectoryName = NewType("DirectoryName", str)
 
 
 # One line of a compiler's diagnostics, its kind and its message, and an error with
@@ -284,15 +281,6 @@ class Compiled(NamedTuple):
 
     ok: bool
     diagnostics: Diagnostics
-
-
-class DatabaseEntry(TypedDict):
-    """One compile database entry, as CMake writes it."""
-
-    file: UnitPath
-    directory: DirectoryName
-    arguments: NotRequired[list[CompileArg]]
-    command: NotRequired[CommandLine]
 
 
 class CompileCommand(NamedTuple):
@@ -551,9 +539,7 @@ def compile_commands(repo: Path) -> dict[UnitPath, CompileCommand]:
     )
     commands: dict[UnitPath, CompileCommand] = {}
     for entry in entries:
-        argv = entry.get("arguments") or [
-            CompileArg(arg) for arg in shlex.split(entry.get("command", CommandLine("")))
-        ]
+        argv = unit_arguments(entry)
         kept = [
             arg
             for index, arg in enumerate(argv)

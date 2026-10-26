@@ -12,12 +12,13 @@ the command a document prints for a step is held to the step's.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType
+from typing import TYPE_CHECKING, NamedTuple, NewType
 
 import pytest
 from _ci_runner import ci_runner
@@ -26,6 +27,7 @@ from _git_repo import git
 from _processes import CommandWord
 
 from tools._ci_steps import (
+    CPP_COMPILERS,
     DOC_EXAMPLE_DOCS,
     DOC_EXAMPLE_PACKAGE,
     GO_BUILD_NO_CGO,
@@ -33,6 +35,8 @@ from tools._ci_steps import (
     register_all_steps,
 )
 from tools._common import (
+    CPP_LINT_LANE,
+    CPP_LINT_TREE,
     GateName,
     RelPath,
     find_executable,
@@ -41,6 +45,8 @@ from tools._common import (
     run_capture,
 )
 from tools._markdown import code_blocks
+from tools._resources import cpu_budget
+from tools.run_ci import LaneName, OptInLanes
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -55,15 +61,24 @@ ShellLine = NewType("ShellLine", str)
 _REPO = Path(__file__).resolve().parents[2]
 
 
-def _registered_step(tmp_path: Path, name: GateName) -> Step:
-    """Return the sweep's step ``name``, registered over ``tmp_path`` with the suite's Python.
+def _registered_steps(tmp_path: Path, *, lanes: OptInLanes | None = None) -> tuple[Step, ...]:
+    """Return the sweep's steps, registered over ``tmp_path`` with the suite's Python.
 
     The suite's interpreter sits beside the venv's pinned linters, so a lint
-    step names the binary the sweep runs.
+    step names the binary the sweep runs.  ``lanes`` turns opt-in lanes on, for
+    the steps that read them from the runner as for those that read them from
+    the options handed over.
     """
     runner = ci_runner(tmp_path, python=CommandWord(sys.executable))
+    if lanes is not None:
+        runner.opts.lanes = lanes
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
-    (step,) = (entry for entry in runner.registered_steps if entry.name == name)
+    return runner.registered_steps
+
+
+def _registered_step(tmp_path: Path, name: GateName) -> Step:
+    """Return the sweep's step ``name``, registered over ``tmp_path``."""
+    (step,) = (entry for entry in _registered_steps(tmp_path) if entry.name == name)
     return step
 
 
@@ -180,6 +195,135 @@ def test_the_cgo_free_build_keeps_no_executable(tmp_path: Path) -> None:
     assert step.cmd == in_every_go_module(GO_BUILD_NO_CGO)
     words = shlex.split(GO_BUILD_NO_CGO)
     assert words[words.index("build") + 1 : words.index("./...")] == ["-o", "/dev/null"]
+
+
+# Every opt-in lane, so the steps read are every step the sweep registers on
+# this machine for a tree holding workflows; a step registered only where a tool
+# this machine lacks is installed is outside what the test reads.
+_EVERY_LANE = OptInLanes(repro=True, stability=True, mutation=True, coverage=True)
+
+# The C++ trees the test build and the clang-tidy gate configure, under cpp/.
+_TEST_BUILD, _LINT_TREE = RelPath("build"), RelPath(CPP_LINT_TREE)
+
+
+class HeldStep(NamedTuple):
+    """A step allowed to name either tree, held whole: its command, its directory and its lane."""
+
+    command: ShellLine | list[CommandWord]
+    cwd: Path
+    lane: LaneName
+
+
+def _held_steps(repo: Path) -> dict[GateName, HeldStep]:
+    """Return the steps allowed to name either tree, each held whole.
+
+    The two that configure the trees delete the tree's cache, then run one
+    configure line, the same for both but for the tree, and go on to what each
+    does with its tree.  A step that comes to need either tree is added here,
+    whole, not let through the rule: every later change to it then fails the
+    test first, so the rule relaxes one reviewed command at a time.  What a held
+    step's own text does to a tree is read by that review, not by the test.
+    """
+
+    def configured(tree: RelPath) -> ShellLine:
+        return ShellLine(
+            f"rm -f {tree}/CMakeCache.txt && cmake -B {tree} {CPP_COMPILERS} > /dev/null"
+        )
+
+    lib = shlex.quote(str(repo / "build" / "libaletheia-ffi.so"))
+    return {
+        GateName("ctest"): HeldStep(
+            ShellLine(
+                f"{configured(_TEST_BUILD)} && cmake --build {_TEST_BUILD}"
+                + f" && ALETHEIA_LIB={lib} ctest --test-dir {_TEST_BUILD}"
+            ),
+            repo / "cpp",
+            LaneName("cpp"),
+        ),
+        GateName("clang-tidy"): HeldStep(
+            ShellLine(
+                f"{configured(_LINT_TREE)}"
+                + f" && run-clang-tidy-23 -j {cpu_budget()} -quiet -p {_LINT_TREE}"
+                + " cpp/src/ cpp/tests/ cpp/benchmarks/"
+            ),
+            repo / "cpp",
+            LaneName(CPP_LINT_LANE),
+        ),
+    }
+
+
+def _words(step: Step) -> list[CommandWord]:
+    """Return a step's words: an argv as it is, a shell line split as the shell splits it."""
+    if not isinstance(step.cmd, str):
+        return [CommandWord(word) for word in step.cmd]
+    lexer = shlex.shlex(step.cmd, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    return [CommandWord(word) for word in lexer]
+
+
+def _reaches(step: Step, tree: Path) -> bool:
+    """Say whether ``step`` runs inside ``tree`` or names a path into it.
+
+    A word is read whole, after its first ``=``, and past a short option joined
+    to it, each against the step's directory, so ``build``, ``-Bbuild``,
+    ``--test-dir=build``, ``../cpp/build/CMakeCache.txt`` and an absolute path
+    all reach cpp/build from cpp/.  A tree reached through a variable, a
+    command substitution, a glob, a ``cd`` or ``env -C`` inside the command, or
+    a script the step runs is outside what this reads.
+    """
+    cwd = step.cwd or tree.parents[1]
+    if cwd.is_relative_to(tree):
+        return True
+    for word in _words(step):
+        readings = {word, word.partition("=")[2]}
+        if word.startswith("-") and not word.startswith("--"):
+            readings.add(CommandWord(word[2:]))
+        for reading in readings - {""}:
+            if Path(os.path.normpath(cwd / reading)).is_relative_to(tree):
+                return True
+    return False
+
+
+def test_the_lint_tree_is_configured_as_the_test_build_is(tmp_path: Path) -> None:
+    """The clang-tidy gate's tree and the test build's are configured by one line, the tree aside.
+
+    The gate reads cpp/build-tidy's compile database, configured and never
+    built, so that it need not wait for the test build, and that database names
+    what the test build compiles only while the two trees are configured alike.
+    The two steps that configure them are held whole, as text, so an option
+    given one tree alone, another compiler for one, or a further command on
+    either tree fails, and so does a rewording the shell would run alike; and
+    no other step, in any lane, runs inside either tree or names a path into it
+    as ``_reaches`` reads its command.  A step that comes to need either tree
+    joins the held steps, whole.
+    """
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    steps = _registered_steps(tmp_path, lanes=_EVERY_LANE)
+    held = _held_steps(tmp_path)
+    assert _TEST_BUILD != _LINT_TREE
+    assert set(held) <= {step.name for step in steps}
+    trees = [tmp_path / "cpp" / _TEST_BUILD, tmp_path / "cpp" / _LINT_TREE]
+    for step in steps:
+        whole = held.get(GateName(step.name))
+        if whole is not None:
+            assert (step.cmd, step.cwd, step.lane) == whole, (step.name, step.cmd, step.cwd)
+            continue
+        for tree in trees:
+            assert not _reaches(step, tree), (step.name, tree, step.cmd)
+
+
+def test_the_coverage_guard_runs_after_clang_tidy_in_its_lane(tmp_path: Path) -> None:
+    """The guard reads the database the clang-tidy step configures, so it follows it in its lane.
+
+    Steps run in registration order within a lane, so a guard registered
+    before the step, or in another lane, could read the tree before it is
+    configured.
+    """
+    steps = _registered_steps(tmp_path)
+    names = [step.name for step in steps]
+    tidy, guard = (names.index(name) for name in ("clang-tidy", "check-clang-tidy-coverage"))
+    assert tidy < guard, names
+    assert steps[tidy].lane == steps[guard].lane == CPP_LINT_LANE
 
 
 # The doc-example command AGENTS/python.md prints, its continuation lines

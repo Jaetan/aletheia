@@ -22,14 +22,13 @@ from _executors import DrivenExecutor
 
 from tools import _clang_query as clang_query
 from tools import check_cpp_const_locals as gate
-from tools._clang_query import Query, QueryOutput, UnitPath
+from tools._clang_query import CompileArg, Query, QueryOutput, UnitPath
 from tools._common import RelPath, WorkerCount
 from tools._ratchet import CanonicalText, RowKey, as_row
 from tools.check_cpp_const_locals import (
     BindName,
     Candidate,
     Column,
-    CompileArg,
     CompileCommand,
     Compiled,
     Diagnostics,
