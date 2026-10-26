@@ -17,14 +17,20 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+// runtimeDownEnv marks a child of TestLoadersBeforeAnyStart, in which TestMain
+// starts nothing; its value is the checks workbook's path.
+const runtimeDownEnv = "ALETHEIA_TEST_EXCEL_RUNTIME_DOWN"
+
 // TestMain starts the GHC runtime once for the whole package. The Excel
-// loaders parse every numeric cell through the kernel's decimal parser
-// (aletheia.FromDecimal), which needs the runtime up, and the runtime stays up
-// for the process (hs_exit is never called). Best-effort: if the .so is
-// absent, loader tests fail with the binding's "runtime not initialized"
-// refusal rather than silently passing.
+// loaders parse every numeric cell but a DBC's message ID through the
+// kernel's decimal parser (aletheia.FromDecimal), which needs the runtime
+// up, and the runtime stays up for the process (hs_exit is never called).
+// Best-effort: if the .so is absent, loader tests fail with the binding's
+// "runtime not initialized" refusal rather than silently passing. A child of
+// TestLoadersBeforeAnyStart starts nothing, its claim being about the runtime
+// down.
 func TestMain(m *testing.M) {
-	if lib := findFFILib(); lib != "" {
+	if lib := findFFILib(); lib != "" && os.Getenv(runtimeDownEnv) == "" {
 		if err := aletheia.StartRuntime(lib, 1, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "TestMain: could not start GHC runtime: %v\n", err)
 		}

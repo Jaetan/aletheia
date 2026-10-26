@@ -75,6 +75,9 @@ DISMISSED: Mapping[Dismissal, Prose] = {
     Dismissal(GO, NetWord("exec.Command"), RelPath("go/benchmarks/stability/main_test.go")): (
         _EXIT_STATUS
     ),
+    Dismissal(
+        GO, NetWord("exec.Command"), RelPath("go/excel/runtime_down_test.go")
+    ): _FRESH_RUNTIME,
     Dismissal(PYTHON, NetWord("asyncio.CancelledError"), None): Prose("an exception type"),
     Dismissal(PYTHON, NetWord("asyncio.Task"), None): Prose("a type annotation"),
     Dismissal(PYTHON, NetWord("asyncio.current_task"), None): (
