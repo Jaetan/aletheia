@@ -21,12 +21,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, NotRequired, TypedDict, cast
 
 from tools._common import CPP_LINT_TREE, WorkerCount, emit, git_toplevel
 
@@ -47,10 +48,27 @@ Query = NewType("Query", str)
 QueryOutput = NewType("QueryOutput", str)
 
 
-class CompileCommand(TypedDict):
-    """The part of one compile database entry read here."""
+# One argument of a compile command, and a whole one as one string; the
+# directory a command runs from.
+CompileArg = NewType("CompileArg", str)
+CommandLine = NewType("CommandLine", str)
+DirectoryName = NewType("DirectoryName", str)
+
+
+class DatabaseEntry(TypedDict):
+    """One compile database entry: its file, directory, and command as words or one line."""
 
     file: UnitPath
+    directory: DirectoryName
+    arguments: NotRequired[list[CompileArg]]
+    command: NotRequired[CommandLine]
+
+
+def unit_arguments(entry: DatabaseEntry) -> list[CompileArg]:
+    """Return an entry's command as its arguments, its ``command`` split as a shell would."""
+    return entry.get("arguments") or [
+        CompileArg(arg) for arg in shlex.split(entry.get("command", CommandLine("")))
+    ]
 
 
 # The compile database the lint gate reads, and the directory clang-query
@@ -99,7 +117,7 @@ def translation_units(repo: Path) -> list[UnitPath] | Prose:
             + f" binding first: cd {CPP_ROOT} && cmake -B {BUILD_DIR}"
             + " -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23"
         )
-    entries = cast("list[CompileCommand]", json.loads(database.read_text(encoding="utf-8")))
+    entries = cast("list[DatabaseEntry]", json.loads(database.read_text(encoding="utf-8")))
     return sorted({entry["file"] for entry in entries if VENDORED not in entry["file"]})
 
 

@@ -123,12 +123,7 @@ endif()
 # builds — CI configures a fresh build dir for ctest, the UBSan lane, and the
 # mutation lane each run, recompiling the same translation units.
 #
-# CMake records the launcher only in the build rules, NOT in
-# compile_commands.json, so the `clang-tidy-23 -p build` gate still sees the bare
-# `clang++-23` and is unaffected by ccache (cmake 4.1.2 exports no launcher
-# token, and clang-tidy-23 parses the DB cleanly).
-#
-# A mutation build takes the launcher through `cmake -E env`, because what the
+# A mutation build launches ccache through `cmake -E env`, because what the
 # object depends on there is not all on the command line: the plugin binary
 # reached by -fpass-plugin is named by path and read by content, and the
 # configuration naming the mutators and the held-out paths is not on the line at
