@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 //
 // The suites that need a process of their own for the renderer and the
-// runtime, each run as a child of this one: the renderer with the runtime down,
-// releasing the kernel's strings, or handed a decimal failure with no envelope;
+// runtime, each run as a child of this one: the renderer, the decimal parser
+// and the loaders with the runtime down; the renderer releasing the
+// kernel's strings, or handed a decimal failure with no envelope;
 // the runtime started before any client, on the kernel and on the recording
 // kernel's four CPUs; the allocation count, read beside the renderer in each,
 // answering none with the runtime down, the recording kernel's count whole and
@@ -89,7 +90,8 @@ static void require_passes(const std::string& binary, const std::vector<std::str
     std::_Exit(WIFEXITED(status) ? WEXITSTATUS(status) : EXIT_FAILURE);
 }
 
-TEST_CASE("the renderer refuses while the runtime is down", "[fresh_process]") {
+TEST_CASE("the renderer, the decimal parser and the loaders refuse while the runtime is down",
+          "[fresh_process]") {
     require_passes(ALETHEIA_RUNTIME_DOWN_TESTS);
 }
 

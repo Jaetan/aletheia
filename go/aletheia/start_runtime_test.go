@@ -84,11 +84,16 @@ func fail(code int, format string, args ...any) {
 	os.Exit(code)
 }
 
-// expectText fails the child unless err is exactly an error of kind and text.
+// expectText fails the child unless err is exactly an error of kind and text,
+// unlocated and carrying no wire code.
 func expectText(err error, kind ErrorKind, text string, code int) {
 	var e *Error
-	if !errors.As(err, &e) || e.Kind != kind || err.Error() != text {
-		fail(code, "got %v, want an error of kind %v reading %q", err, kind, text)
+	switch {
+	case !errors.As(err, &e):
+		fail(code, "got %v, want an unlocated %v error with no code reading %q", err, kind, text)
+	case e.Kind != kind || err.Error() != text || e.Location != "" || e.Key != "" || e.Code != "":
+		fail(code, "got %v (kind %v, code %q, location %q, key %q), want an unlocated %v error with no code reading %q",
+			err, e.Kind, e.Code, e.Location, e.Key, kind, text)
 	}
 }
 
@@ -160,12 +165,41 @@ func runStartScenario(scenario string) {
 			fail(20, "the default check holding 199.5 did not fail on 200 rpm: %v", resp)
 		}
 	case "refusals":
-		// Before any start each consumer names the remedy and opens nothing;
-		// after one, both read the library the runtime started on.
+		// Before any start the parser and the renderer name the remedy and
+		// open nothing; after one, both read the library the runtime started on.
 		_, err := FromDecimal("1.5")
 		expectText(err, ErrFFI, "GHC runtime not initialized: call aletheia.StartRuntime or open a client before parsing decimals", 21)
 		_, err = formatRational(half)
 		expectText(err, ErrFFI, "GHC runtime not initialized: call aletheia.StartRuntime or open a client before rendering", 22)
+		// A loader reading a number returns the parser's refusal as it is,
+		// unlocated and with no checks, a when-then check reading its time
+		// bound first; its own refusal of a document answers on the document.
+		const whenThen = "checks:\n  - name: w\n    when:\n      signal: Brake\n      condition: exceeds\n" +
+			"      value: 50\n    then:\n      signal: Light\n      condition: equals\n" +
+			"      value: 1\n    within_ms: 100\n"
+		if err := os.WriteFile("checks.yaml", []byte(startChecks), 0o600); err != nil {
+			fail(27, "writing the checks file: %v", err)
+		}
+		for _, load := range []struct {
+			code int
+			read func() ([]CheckResult, error)
+		}{
+			{28, func() ([]CheckResult, error) { return LoadChecksFromYAML(startChecks) }},
+			{34, func() ([]CheckResult, error) { return LoadChecksFromYAML(whenThen) }},
+			{29, func() ([]CheckResult, error) { return LoadChecksFromYAMLFile("checks.yaml") }},
+			{35, func() ([]CheckResult, error) { return LoadChecksFromYAML("checks.yaml") }},
+		} {
+			checks, err := load.read()
+			if checks != nil {
+				fail(load.code, "a refused load returned checks: %v", checks)
+			}
+			expectText(err, ErrFFI, "GHC runtime not initialized: call aletheia.StartRuntime or open a client before parsing decimals", load.code)
+		}
+		checks, err := LoadChecksFromYAML("not: a checks list\n")
+		if checks != nil {
+			fail(33, "a refused load returned checks: %v", checks)
+		}
+		expectText(err, ErrValidation, "YAML document must contain a 'checks' list", 33)
 		if hsInitialized() {
 			fail(23, "a consumer started the runtime")
 		}

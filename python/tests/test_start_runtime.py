@@ -24,6 +24,13 @@ from typing import TYPE_CHECKING, Never, NewType
 
 import pytest
 from _cli_check_helpers import FFI_LIB, dbc_text, never_exceeds_yaml, run_captured, skip_without_ffi
+from _excel_helpers import (
+    BRAKE_RESPONSE_WT_ROW,
+    ENGINE_RPM_ROW,
+    make_checks_workbook,
+    make_dbc_workbook,
+    make_when_then_workbook,
+)
 from _stand_in import StandInName, stand_in_kernel
 
 from aletheia import AletheiaClient, FFIBackend, RTSState, ValidationError, start_runtime
@@ -113,6 +120,74 @@ def test_a_number_read_before_any_start_is_refused_naming_the_remedy() -> None:
         + " before parsing decimals",
         "FFIError GHC runtime not initialized: call aletheia.start_runtime or open a client"
         + " before rendering",
+    ]
+
+
+_LOADS_BEFORE_A_START = ProgramSource(
+    """\
+import sys
+from pathlib import Path
+import aletheia
+from aletheia import AletheiaError, load_checks, load_checks_from_excel, load_dbc_from_excel
+
+text, when_then, file, checks, when_then_sheet, dbc = sys.argv[1:]
+for load in (
+    lambda: load_checks(text),
+    lambda: load_checks(when_then),
+    lambda: load_checks(Path(file)),
+    lambda: load_checks_from_excel(checks),
+    lambda: load_checks_from_excel(when_then_sheet),
+    lambda: load_dbc_from_excel(dbc),
+    lambda: load_checks("not: a checks list"),
+    lambda: load_checks_from_excel("does-not-exist.xlsx"),
+):
+    try:
+        load()
+        print("loaded")
+    except AletheiaError as refused:
+        print(type(refused).__name__, refused.code, refused.location, refused.key, refused)
+    except OSError as refused:
+        print(type(refused).__name__, refused)
+print("allocated:", aletheia.allocated_bytes())
+"""
+)
+
+
+@pytest.mark.process(_IN_A_FRESH_RUNTIME)
+def test_every_check_and_dbc_loader_raises_the_runtime_refusal_unlocated_before_any_start(
+    tmp_path: Path,
+) -> None:
+    """A check or DBC loader reading a number before any start raises the parser's refusal.
+
+    The refusal carries no code and no location, and the load starts nothing; a YAML
+    when-then check reads its time bound first. A loader's own refusal of its input,
+    a document holding no checks list or a workbook that does not exist, answers on
+    that input.
+    """
+    document = never_exceeds_yaml("Speed limit", "EngineSpeed", "199.5", "critical")
+    when_then = (
+        "checks:\n  - name: w\n    when:\n      signal: Brake\n      condition: exceeds\n"
+        + "      value: 50\n    then:\n      signal: Light\n      condition: equals\n"
+        + "      value: 1\n    within_ms: 100\n"
+    )
+    file = tmp_path / "checks.yaml"
+    _ = file.write_text(document, encoding="utf-8")
+    checks = make_checks_workbook(
+        tmp_path, [[None, "Speed", "never_exceeds", 220, None, None, None, None]], "checks.xlsx"
+    )
+    when_then_sheet = make_when_then_workbook(tmp_path, [BRAKE_RESPONSE_WT_ROW], "when_then.xlsx")
+    dbc = make_dbc_workbook(tmp_path, [ENGINE_RPM_ROW], "dbc.xlsx")
+    arguments = (document, when_then, str(file), str(checks), str(when_then_sheet), str(dbc))
+    out, _ = _run(_LOADS_BEFORE_A_START, *(ProgramArgument(word) for word in arguments))
+    refused = (
+        "FFIError None None None GHC runtime not initialized: call aletheia.start_runtime or"
+        + " open a client before parsing decimals"
+    )
+    assert out == [
+        *[refused] * 6,
+        "ValidationError None None None YAML must contain a 'checks' list",
+        "FileNotFoundError Excel file not found: does-not-exist.xlsx",
+        "allocated: None",
     ]
 
 

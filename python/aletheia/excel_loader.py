@@ -291,8 +291,9 @@ def load_checks_from_excel(
             "Adversarial-input bounds at parser surfaces".  Also raised,
             ``field`` ``"decimal"``, for a number with a component past
             :data:`aletheia.limits.MAX_RATIONAL_COMPONENT_MAGNITUDE`.
-        FFIError: The GHC runtime is not up (no client has started it), so
-            the kernel cannot read a number
+        FFIError: The GHC runtime is not up (neither :func:`~aletheia.start_runtime`
+            nor a backend, a client's included, has started it), so the kernel
+            cannot read a number
         ValidationError: Invalid data in cells, a number the kernel refuses
             carrying the kernel's code
 
@@ -347,8 +348,9 @@ def load_dbc_from_excel(
             "Adversarial-input bounds at parser surfaces".  Also raised,
             ``field`` ``"decimal"``, for a number with a component past
             :data:`aletheia.limits.MAX_RATIONAL_COMPONENT_MAGNITUDE`.
-        FFIError: The GHC runtime is not up (no client has started it), so
-            the kernel cannot read a number
+        FFIError: The GHC runtime is not up (neither :func:`~aletheia.start_runtime`
+            nor a backend, a client's included, has started it), so the kernel
+            cannot read a number
         ValidationError: Invalid or missing data, a number the kernel
             refuses carrying the kernel's code
 

@@ -220,8 +220,9 @@ def load_checks(source: str | Path) -> list[CheckResult]:
             component past
             :data:`aletheia.limits.MAX_RATIONAL_COMPONENT_MAGNITUDE` (``field``
             ``"decimal"``)
-        FFIError: The GHC runtime is not up (no client has started it), so
-            the kernel cannot read a number
+        FFIError: The GHC runtime is not up (neither :func:`~aletheia.start_runtime`
+            nor a backend, a client's included, has started it), so the kernel
+            cannot read a number
         FileNotFoundError: File path doesn't exist
 
     """

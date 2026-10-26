@@ -702,8 +702,9 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
 
     # The suites of the runtime's start and of the renderer, each in a process
     # of its own because the GHC RTS is process-global and starts once, run as
-    # children of fresh_process_tests, below: the renderer's refusal while the
-    # runtime is down (nothing starts it behind a caller, so a pre-start
+    # children of fresh_process_tests, below: the renderer's, the decimal
+    # parser's and every loader's refusal while the runtime is down
+    # (nothing starts it behind a caller, so a pre-start
     # `format_rational_ffi` must throw), a start before any client, on the
     # kernel and on the recording kernel's four CPUs, the renderer's releases of
     # the kernel's strings read from the recording kernel's count, and its
@@ -716,6 +717,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         add_executable(${suite} tests/${suite}.cpp)
         target_link_libraries(${suite} PRIVATE aletheia-cpp Catch2::Catch2WithMain)
     endforeach()
+    # The runtime-down suite writes the workbook its when-then case reads.
+    target_link_libraries(rts_init_renderer_uninitialized_tests PRIVATE OpenXLSX::OpenXLSX)
     target_compile_definitions(renderer_frees_kernel_strings_tests PRIVATE
         ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
     target_compile_definitions(runtime_start_stand_in_tests PRIVATE
