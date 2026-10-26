@@ -248,13 +248,11 @@ proofRules = do
                ++ "to the allowlisted substrate."
 
     phony "check-no-properties-in-runtime" $ do
-        -- EXACT runtime-closure gate: the compiled foreign library
-        -- `libaletheia-ffi.so` must contain NO `Aletheia.DBC.Properties.*` module.
+        -- The foreign library's `other-modules` in aletheia.cabal lists every
+        -- module MAlonzo writes for Main's imports, each compiled into
+        -- `libaletheia-ffi.so`, and must hold NO `Aletheia.DBC.Properties.*` module.
         -- That namespace is RESERVED for proofs (standalone lemmas); the decision
-        -- procedures the runtime needs live in `Aletheia.DBC.Decidable.*`.  The
-        -- foreign-library `other-modules` in aletheia.cabal is the honest closure
-        -- (its `-Werror=missing-home-modules` drift gate keeps it exact), so a
-        -- `DBC.Properties.*` line there means a runtime path reached a proof module.
+        -- procedures the runtime needs live in `Aletheia.DBC.Decidable.*`.
         --
         -- SCOPE: `DBC.Properties.*` ONLY, not every `.Properties`.  The Format-DSL
         -- proofs under `DBC.TextParser.*.Properties.*` ride in the closure BY
@@ -308,6 +306,12 @@ proofRules = do
             error "check-no-properties-in-runtime failed"
         putInfo $ "No DBC.Properties.* modules in the runtime .so closure ("
                ++ show malonzoCount ++ " MAlonzo.Code.* modules checked)."
+        -- What the runtime's code reaches is narrower: a generated module need not
+        -- import every module its Agda module reaches, while each definition it
+        -- uses comes through an import, so the tool walks those imports from the
+        -- shim's modules and refuses the proofs the kernel erases.
+        need ["build/libaletheia-ffi.so"]
+        cmd_ pythonBin "-m" "tools.check_runtime_imports"
 
     phony "check-proof-coverage" $ do
         -- Exhaustiveness gate for the proof checker.  Every module under src/
