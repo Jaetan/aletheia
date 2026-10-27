@@ -13,7 +13,7 @@ import (
 // descPart is one piece of a check's condition description: literal text, or
 // a threshold rendered later by the kernel's rational renderer. Deferring the
 // rendering keeps check construction infallible; only ConditionDesc can fail,
-// when the GHC runtime is down. Rust (DescPart), C++ (condition_desc_builder_)
+// when the GHC runtime is down. Rust (DescPart), C++ (condition_desc_)
 // and Python (_desc_parts) defer the same way.
 type descPart struct {
 	lit   string

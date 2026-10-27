@@ -100,7 +100,7 @@ auto send_frame(std::stop_token stop,
 
 Callers who do not care about cancellation pass a default-constructed `std::stop_token{}`, which never reports `stop_requested()` — equivalent to Go's `context.Background()`.
 
-Two surfaces deliberately do *not* take `std::stop_token`: the destructor `~AletheiaClient()` (destructors are noexcept-by-convention; teardown is best-effort) and the factory `make_ffi_backend(path, rts_cores)` (construction is sync CGO + RTS initialization).
+Opening and closing deliberately do *not* take `std::stop_token`: the destructor `~AletheiaClient()` (destructors are noexcept-by-convention; teardown is best-effort) and the factories `start_runtime`, `make_ffi_backend(path, rts_cores)` and `AletheiaClient::create` (construction is a synchronous `dlopen` and RTS initialization).
 
 Behavior on in-flight FFI mirrors Go's: pre-FFI check at function entry, post-FFI honor. If the token already reports stop_requested at the call site, the method returns `std::unexpected{cancellation_error}` without making the FFI call. If the token fires during an in-flight FFI call, the call runs to completion and returns its real `Result<T>`; the next call fails fast.
 

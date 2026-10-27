@@ -17,6 +17,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 
 #include <cstddef>
@@ -29,7 +30,10 @@
 #include <vector>
 
 #include "repo_root.hpp"
+#include "required.hpp"
 #include "temp_path.hpp"
+
+using aletheia::test::required;
 
 using Catch::Matchers::StartsWith;
 
@@ -65,33 +69,49 @@ TEST_CASE("a number read before any start is refused, and the start afterwards s
     std::filesystem::current_path(nest.path);
 
     CHECK(aletheia::allocated_bytes() == std::nullopt);
-    CHECK_THROWS_WITH(aletheia::Rational::from_decimal("1.5"),
-                      "GHC runtime not initialized: call aletheia::start_runtime or open a "
-                      "client before parsing decimals");
-    CHECK_THROWS_WITH(aletheia::detail::format_rational_ffi(1, 2),
-                      "GHC runtime not initialized: call aletheia::start_runtime or open a "
-                      "client before rendering");
+    // A client opened with no library given finds none to open.
+    auto const unfound = aletheia::AletheiaClient::open();
+    CHECK(aletheia::detail::error_of(unfound).kind() == aletheia::ErrorKind::Ffi);
+    CHECK(aletheia::detail::error_of(unfound).text() ==
+          "libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'");
+    CHECK(aletheia::detail::error_of(aletheia::Rational::from_decimal("1.5")).text() ==
+          "GHC runtime not initialized: call aletheia::start_runtime or open a "
+          "client before parsing decimals");
+    CHECK(aletheia::detail::error_of(aletheia::detail::format_rational_ffi(1, 2)).text() ==
+          "GHC runtime not initialized: call aletheia::start_runtime or open a "
+          "client before rendering");
+    // A check built before the start renders its threshold on every read, so the
+    // refusal read now is not what a read after the start answers.
+    auto const check =
+        aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue::of(1, 2));
+    CHECK(aletheia::detail::error_of(check.condition_desc()).text() ==
+          "GHC runtime not initialized: call aletheia::start_runtime or open a "
+          "client before rendering");
 
     // Zero is outside the bound on every machine; the bound's own figure is the
     // machine's, which the stand-in suite holds whole on its four CPUs.
-    CHECK_THROWS_WITH(aletheia::start_runtime(lib, 0), StartsWith("core count 0 is outside 1 to "));
+    auto const refused = aletheia::start_runtime(lib, 0);
+    CHECK(aletheia::detail::error_of(refused).kind() == aletheia::ErrorKind::Validation);
+    CHECK_THAT(aletheia::detail::error_of(refused).text(),
+               StartsWith("core count 0 is outside 1 to "));
     CHECK(aletheia::allocated_bytes() == std::nullopt);
 
-    CHECK_FALSE(aletheia::start_runtime(lib, 1).has_value());
+    CHECK(aletheia::start_runtime(lib, 1) == std::nullopt);
     CHECK(aletheia::allocated_bytes().has_value());
     CHECK(aletheia::Rational::from_decimal("1.5") == aletheia::Rational{3, 2});
     CHECK(aletheia::detail::format_rational_ffi(1, 2) == "0.5");
+    CHECK(check.condition_desc() == "<= 0.5");
     // With nothing else to find, the search answers the path the start opened.
-    CHECK(aletheia::find_ffi_library() == lib);
+    CHECK(required(aletheia::find_ffi_library()) == lib);
 }
 
 TEST_CASE("default checks holding a decimal, loaded after the start, stream", "[runtime]") {
     auto const lib = aletheia::test::repo_root() / "build" / "libaletheia-ffi.so";
-    static_cast<void>(aletheia::start_runtime(lib, 1));
+    REQUIRE(aletheia::start_runtime(lib, 1).has_value());
     auto checks = aletheia::load_checks_from_yaml_string(k_checks);
     REQUIRE(checks.has_value());
-    aletheia::AletheiaClient client(aletheia::make_ffi_backend(lib), aletheia::Logger{},
-                                    std::move(checks).value());
+    auto client = required(aletheia::AletheiaClient::create(
+        required(aletheia::make_ffi_backend(lib)), aletheia::Logger{}, std::move(checks).value()));
     REQUIRE(client.parse_dbc_text(std::stop_token{}, k_dbc).has_value());
     REQUIRE(client.add_checks(std::stop_token{}, {}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
@@ -107,11 +127,11 @@ TEST_CASE("default checks holding a decimal, loaded after the start, stream", "[
 
 TEST_CASE("a backend naming no count asks for the count running", "[runtime]") {
     auto const lib = aletheia::test::repo_root() / "build" / "libaletheia-ffi.so";
-    CHECK_FALSE(aletheia::start_runtime(lib, 1).has_value());
-    auto const count_less = aletheia::make_ffi_backend(lib);
+    CHECK(aletheia::start_runtime(lib, 1) == std::nullopt);
+    auto const count_less = required(aletheia::make_ffi_backend(lib));
     CHECK_FALSE(count_less->rts_mismatch_info().has_value());
     // Two is within the CPUs of every machine the suite runs on.
-    auto const counted = aletheia::make_ffi_backend(lib, 2);
+    auto const counted = required(aletheia::make_ffi_backend(lib, 2));
     CHECK(counted->rts_mismatch_info() == std::optional<std::pair<int, int>>{{1, 2}});
-    CHECK(aletheia::start_runtime(lib, 2) == std::optional<std::pair<int, int>>{{1, 2}});
+    CHECK(required(aletheia::start_runtime(lib, 2)) == std::optional<std::pair<int, int>>{{1, 2}});
 }

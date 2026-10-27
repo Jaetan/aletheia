@@ -10,17 +10,24 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/mock_backend.hpp"
+#include "required.hpp"
+#include "test_helpers.hpp"
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/enrich.hpp>
 
 #include <chrono>
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
+
+using aletheia::test::make_test_dbc;
+using aletheia::test::required;
 
 using namespace aletheia;
 using Catch::Matchers::ContainsSubstring;
@@ -42,8 +49,10 @@ TEST_CASE("check::signal never_below", "[check]") {
 }
 
 TEST_CASE("check::signal stays_between", "[check]") {
-    auto const result = check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
-                                                               PhysicalValue{Rational{29, 2}});
+    auto const result =
+        check::signal("Voltage")
+            .stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})
+            .value();
     auto const f = result.to_formula();
     CHECK(format_formula(f) == "always(11.5 <= Voltage <= 14.5)");
 }
@@ -69,7 +78,8 @@ TEST_CASE("check::signal settles_between within", "[check]") {
     auto const result =
         check::signal("Temp")
             .settles_between(PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}})
-            .within(500ms);
+            .within(500ms)
+            .value();
     auto const f = result.to_formula();
     CHECK(format_formula(f) == "always within 500ms (60 <= Temp <= 80)");
 }
@@ -84,7 +94,8 @@ TEST_CASE("check::when then equals within", "[check]") {
                             .exceeds(PhysicalValue{Rational{50, 1}})
                             .then("BrakeLight")
                             .equals(PhysicalValue{Rational{1, 1}})
-                            .within(100ms);
+                            .within(100ms)
+                            .value();
     auto const f = result.to_formula();
     CHECK(format_formula(f) ==
           "always(not(Brake > 50) or eventually within 100ms (BrakeLight = 1))");
@@ -96,7 +107,8 @@ TEST_CASE("check::when drops_below then within", "[check]") {
                             .drops_below(PhysicalValue{Rational{11, 1}})
                             .then("Warning")
                             .equals(PhysicalValue{Rational{1, 1}})
-                            .within(50ms);
+                            .within(50ms)
+                            .value();
     auto const f = result.to_formula();
     CHECK(format_formula(f) == "always(not(Voltage < 11) or eventually within 50ms (Warning = 1))");
 }
@@ -108,7 +120,8 @@ TEST_CASE("check::when then stays_between within", "[check]") {
             .exceeds(PhysicalValue{Rational{50, 1}})
             .then("Speed")
             .stays_between(PhysicalValue{Rational{}}, PhysicalValue{Rational{10, 1}})
-            .within(200ms);
+            .within(200ms)
+            .value();
     auto const f = result.to_formula();
     CHECK(format_formula(f) ==
           "always(not(Brake > 50) or eventually within 200ms (0 <= Speed <= 10))");
@@ -120,7 +133,8 @@ TEST_CASE("check::when equals then exceeds within", "[check]") {
                             .equals(PhysicalValue{Rational{1, 1}})
                             .then("FuelPump")
                             .exceeds(PhysicalValue{Rational{}})
-                            .within(50ms);
+                            .within(50ms)
+                            .value();
     auto const f = result.to_formula();
     CHECK(format_formula(f) ==
           "always(not(Ignition = 1) or eventually within 50ms (FuelPump > 0))");
@@ -155,7 +169,8 @@ TEST_CASE("Check when/then metadata", "[check]") {
                             .exceeds(PhysicalValue{Rational{50, 1}})
                             .then("Light")
                             .equals(PhysicalValue{Rational{1, 1}})
-                            .within(100ms);
+                            .within(100ms)
+                            .value();
     CHECK(result.signal_name() == "Light");
     CHECK(result.condition_desc() == "= 1 within 100ms");
 }
@@ -168,51 +183,103 @@ TEST_CASE("Check to_formula non-consuming", "[check]") {
     auto const result = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
     auto const f1 = result.to_formula();
     auto const f2 = result.to_formula();
-    CHECK(format_formula(f1) == format_formula(f2));
+    CHECK(format_formula(f1) == format_formula(f2).value());
 }
 
 // ===========================================================================
 // Check API — error cases
 // ===========================================================================
 
-TEST_CASE("Check settles_between negative time throws", "[check]") {
+// A builder's refusal: kind Validation, no wire code, the message as Go and
+// Rust word it.
+static void check_bound_refused(const Result<CheckResult>& built, std::string_view message) {
+    REQUIRE_FALSE(built.has_value());
+    CHECK(built.error().kind() == ErrorKind::Validation);
+    CHECK(built.error().code() == ErrorCode::Unknown);
+    CHECK(built.error().message() == message);
+}
+
+TEST_CASE("a range whose lo is above its hi is refused, naming both bounds", "[check]") {
+    // As in Rust and Go: stays_between refuses at once, and settles_between and
+    // the then-signal's stays_between at their within, ahead of the time bound.
+    using namespace std::chrono_literals;
+    auto const ten = PhysicalValue{Rational{10, 1}};
+    auto const five = PhysicalValue{Rational{5, 1}};
+    check_bound_refused(check::signal("S").stays_between(ten, five),
+                        "stays_between: lo (10) must be <= hi (5)");
+    check_bound_refused(check::signal("S").settles_between(ten, five).within(-1ms),
+                        "settles_between: lo (10) must be <= hi (5)");
+    check_bound_refused(
+        check::when("A").exceeds(five).then("B").stays_between(ten, five).within(-1ms),
+        "then stays_between: lo (10) must be <= hi (5)");
+    // The kernel renders each bound, so a half reads as a decimal.
+    check_bound_refused(
+        check::signal("S").stays_between(PhysicalValue{Rational{1, 2}}, PhysicalValue{Rational{}}),
+        "stays_between: lo (0.5) must be <= hi (0)");
+    // Equal bounds are a range.
+    CHECK(check::signal("S").stays_between(five, five).has_value());
+    CHECK(check::signal("S").settles_between(five, five).within(1ms).has_value());
+    CHECK(
+        check::when("A").exceeds(five).then("B").stays_between(five, five).within(1ms).has_value());
+}
+
+TEST_CASE("Check settles_between refuses a negative time", "[check]") {
     using namespace std::chrono_literals;
     auto const builder = check::signal("T").settles_between(PhysicalValue{Rational{}},
                                                             PhysicalValue{Rational{100, 1}});
-    CHECK_THROWS_AS(builder.within(-1ms), std::invalid_argument);
+    check_bound_refused(builder.within(-1ms), "time must be non-negative");
 }
 
 TEST_CASE("Check within accepts a zero time", "[check]") {
     using namespace std::chrono_literals;
     auto const settles = check::signal("T").settles_between(PhysicalValue{Rational{}},
                                                             PhysicalValue{Rational{100, 1}});
-    CHECK(settles.within(0ms).condition_desc() == "between 0 and 100 within 0ms");
+    CHECK(settles.within(0ms).value().condition_desc() == "between 0 and 100 within 0ms");
     auto const cond = check::when("A")
                           .exceeds(PhysicalValue{Rational{}})
                           .then("B")
                           .equals(PhysicalValue{Rational{1, 1}});
-    CHECK(cond.within(0ms).condition_desc() == "= 1 within 0ms");
+    CHECK(cond.within(0ms).value().condition_desc() == "= 1 within 0ms");
 }
 
-TEST_CASE("a then-condition without a description describes nothing", "[check]") {
-    // ThenCondition is public, and its builder is whatever the caller
-    // hands it: none, or one that answers with an empty string.
+TEST_CASE("every builder shape describes its condition in full", "[check]") {
     using namespace std::chrono_literals;
-    auto const trigger = ltl::greater_than(SignalName{"A"}, PhysicalValue{Rational{}});
-    auto const then_pred = ltl::equals(SignalName{"B"}, PhysicalValue{Rational{1, 1}});
-    const ThenCondition without(trigger, then_pred, "B", nullptr);
-    CHECK(without.within(5ms).condition_desc().empty());
-    const ThenCondition empty(trigger, then_pred, "B", [] { return std::string{}; });
-    CHECK(empty.within(5ms).condition_desc().empty());
+    auto const lo = PhysicalValue{Rational{23, 2}};
+    auto const hi = PhysicalValue{Rational{29, 2}};
+    auto const one = PhysicalValue{Rational{1, 1}};
+    auto const sig = check::signal("S");
+    CHECK(sig.never_exceeds(one).condition_desc() == "<= 1");
+    CHECK(sig.never_below(one).condition_desc() == ">= 1");
+    CHECK(sig.never_equals(one).condition_desc() == "!= 1");
+    CHECK(sig.stays_between(lo, hi).value().condition_desc() == "between 11.5 and 14.5");
+    CHECK(sig.equals(one).always().condition_desc() == "= 1");
+    CHECK(sig.settles_between(lo, hi).within(7ms).value().condition_desc() ==
+          "between 11.5 and 14.5 within 7ms");
+    auto const then = check::when("A").exceeds(one).then("B");
+    CHECK(then.equals(one).within(7ms).value().condition_desc() == "= 1 within 7ms");
+    CHECK(then.exceeds(lo).within(7ms).value().condition_desc() == "> 11.5 within 7ms");
+    CHECK(then.stays_between(lo, hi).within(7ms).value().condition_desc() ==
+          "between 11.5 and 14.5 within 7ms");
 }
 
-TEST_CASE("Check when/then negative time throws", "[check]") {
+TEST_CASE("a check built from a formula alone describes nothing", "[check]") {
+    // A description of literal text alone reaches no kernel, so it reads the
+    // same whether the runtime is up or not.
+    auto const formula = [] {
+        return ltl::always(ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{Rational{}})));
+    };
+    CHECK(CheckResult{formula()}.condition_desc() == "");
+    CHECK(CheckResult{formula(), "B", ""}.condition_desc() == "");
+    CHECK(CheckResult{formula(), "B", "custom"}.condition_desc() == "custom");
+}
+
+TEST_CASE("Check when/then refuses a negative time", "[check]") {
     using namespace std::chrono_literals;
     auto const cond = check::when("A")
                           .exceeds(PhysicalValue{Rational{}})
                           .then("B")
                           .equals(PhysicalValue{Rational{1, 1}});
-    CHECK_THROWS_AS(cond.within(-1ms), std::invalid_argument);
+    check_bound_refused(cond.within(-1ms), "time must be non-negative");
 }
 
 // ===========================================================================
@@ -224,7 +291,7 @@ TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
         check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}).to_formula();
     auto const manual_f = ltl::always(
         ltl::atomic(ltl::less_than_or_equal(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
-    CHECK(format_formula(check_f) == format_formula(manual_f));
+    CHECK(format_formula(check_f) == format_formula(manual_f).value());
 }
 
 // ===========================================================================
@@ -248,8 +315,8 @@ TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check]
             .equals(PhysicalValue{Rational{1, 1}})
             .within(milliseconds{ms});
     };
-    CHECK_NOTHROW(when_then(k_max_ok));
-    CHECK_THROWS_AS(when_then(k_max_ok + 1), std::invalid_argument);
+    CHECK(when_then(k_max_ok).has_value());
+    check_bound_refused(when_then(k_max_ok + 1), "time overflows microsecond conversion");
 
     // settles_between path (the other within() call site).
     auto const settles = [](std::int64_t ms) {
@@ -257,21 +324,22 @@ TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check]
             .settles_between(PhysicalValue{Rational{0, 1}}, PhysicalValue{Rational{10, 1}})
             .within(milliseconds{ms});
     };
-    CHECK_NOTHROW(settles(k_max_ok));
-    CHECK_THROWS_AS(settles(k_max_ok + 1), std::invalid_argument);
+    CHECK(settles(k_max_ok).has_value());
+    check_bound_refused(settles(k_max_ok + 1), "time overflows microsecond conversion");
 
     // The negative-time guard fires through the same helper.
-    CHECK_THROWS_AS(when_then(-1), std::invalid_argument);
+    check_bound_refused(when_then(-1), "time must be non-negative");
 }
 
 TEST_CASE("Check stays_between matches manual ltl", "[check]") {
     auto const check_f =
         check::signal("V")
             .stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})
+            .value()
             .to_formula();
     auto const manual_f = ltl::always(ltl::atomic(ltl::between(
         SignalName{"V"}, PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})));
-    CHECK(format_formula(check_f) == format_formula(manual_f));
+    CHECK(format_formula(check_f) == format_formula(manual_f).value());
 }
 
 TEST_CASE("Check never_equals matches manual ltl", "[check]") {
@@ -279,7 +347,7 @@ TEST_CASE("Check never_equals matches manual ltl", "[check]") {
         check::signal("Err").never_equals(PhysicalValue{Rational{255, 1}}).to_formula();
     auto const manual_f =
         ltl::never(ltl::equals(SignalName{"Err"}, PhysicalValue{Rational{255, 1}}));
-    CHECK(format_formula(check_f) == format_formula(manual_f));
+    CHECK(format_formula(check_f) == format_formula(manual_f).value());
 }
 
 TEST_CASE("Check settles matches manual ltl", "[check]") {
@@ -288,12 +356,13 @@ TEST_CASE("Check settles matches manual ltl", "[check]") {
         check::signal("T")
             .settles_between(PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}})
             .within(500ms)
+            .value()
             .to_formula();
     auto const manual_f =
         ltl::always_within(Timestamp{500'000},
                            ltl::atomic(ltl::between(SignalName{"T"}, PhysicalValue{Rational{60, 1}},
                                                     PhysicalValue{Rational{80, 1}})));
-    CHECK(format_formula(check_f) == format_formula(manual_f));
+    CHECK(format_formula(check_f) == format_formula(manual_f).value());
 }
 
 // ===========================================================================
@@ -304,12 +373,14 @@ TEST_CASE("add_checks sends properties to backend", "[check][client]") {
     auto mock = std::make_unique<MockBackend>();
     auto const* mock_ptr = mock.get();
     mock->queue_response(R"({"status": "success"})");
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
 
     std::vector<CheckResult> checks;
     checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
-    checks.push_back(check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
-                                                            PhysicalValue{Rational{29, 2}}));
+    checks.push_back(
+        check::signal("Voltage")
+            .stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})
+            .value());
     auto const result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
     REQUIRE(mock_ptr->captured().size() == 1);
@@ -322,11 +393,13 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
     mock->queue_response(R"({"status": "success"})");
 
     std::vector<CheckResult> defaults;
-    defaults.push_back(check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
-                                                              PhysicalValue{Rational{29, 2}}));
+    defaults.push_back(
+        check::signal("Voltage")
+            .stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})
+            .value());
 
     auto const* mock_ptr = mock.get();
-    AletheiaClient client(std::move(mock), {}, std::move(defaults));
+    auto client = required(AletheiaClient::create(std::move(mock), {}, std::move(defaults)));
 
     std::vector<CheckResult> checks;
     checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
@@ -335,6 +408,44 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
     REQUIRE(mock_ptr->captured().size() == 1);
     CHECK(mock_ptr->last_captured().find("\"Voltage\"") <
           mock_ptr->last_captured().find("\"Speed\""));
+}
+
+TEST_CASE("add_checks returns the serializer's refusal of a name that is not UTF-8",
+          "[check][client]") {
+    // The command is serialized before the backend sees it, and the JSON
+    // writer refuses a byte that is not UTF-8; add_checks answers that refusal
+    // as a Validation error rather than letting it escape.
+    auto client = required(AletheiaClient::create(std::make_unique<MockBackend>()));
+    std::vector<CheckResult> checks;
+    checks.push_back(
+        check::signal(std::string{"\xff"}).never_exceeds(PhysicalValue{Rational{1, 1}}));
+    auto const result = client.add_checks(std::stop_token{}, std::move(checks));
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK(result.error().message() ==
+          "[json.exception.type_error.316] invalid UTF-8 byte at index 0: 0xFF");
+}
+
+TEST_CASE("every command and the canonical JSON refuse a name that is not UTF-8, unsent",
+          "[check][client]") {
+    // Each command is serialized before the backend sees it, so the JSON
+    // writer's refusal is the answer, kind Validation, and nothing is sent.
+    auto owned = std::make_unique<MockBackend>();
+    auto const* const mock = owned.get();
+    auto client = required(AletheiaClient::create(std::move(owned)));
+    auto dbc = make_test_dbc();
+    dbc.messages.front().name = MessageName{std::string{"\xff"}};
+    auto const refused = [](const AletheiaError& error) {
+        CHECK(error.kind() == ErrorKind::Validation);
+        CHECK(error.message() ==
+              "[json.exception.type_error.316] invalid UTF-8 byte at index 0: 0xFF");
+    };
+    refused(detail::error_of(client.parse_dbc(std::stop_token{}, dbc)));
+    refused(detail::error_of(client.validate_dbc(std::stop_token{}, dbc)));
+    refused(detail::error_of(client.format_dbc_text(std::stop_token{}, dbc)));
+    refused(detail::error_of(client.parse_dbc_text(std::stop_token{}, "\xff")));
+    refused(detail::error_of(to_canonical_json(dbc)));
+    CHECK(mock->captured().empty());
 }
 
 // ===========================================================================
@@ -374,19 +485,6 @@ TEST_CASE("format_formula plumbs a terminating Rational (decimal shape) via the 
     auto const result = check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
     auto const f = result.to_formula();
     CHECK(format_formula(f) == "always(Voltage >= 11.5)");
-}
-
-TEST_CASE("a check's condition description is built once and read back unchanged", "[check]") {
-    int builds = 0;
-    CheckResult const result{ltl::always(ltl::atomic(ltl::less_than(
-                                 SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))),
-                             "Speed", [&builds] {
-                                 ++builds;
-                                 return std::string{"<= 220"};
-                             }};
-    CHECK(result.condition_desc() == "<= 220");
-    CHECK(result.condition_desc() == "<= 220");
-    CHECK(builds == 1);
 }
 
 TEST_CASE("clone keeps a missing child missing", "[check][ltl]") {

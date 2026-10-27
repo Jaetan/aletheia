@@ -13,6 +13,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <span>
@@ -42,11 +43,19 @@ auto main(int argc, char** argv) -> int {
     std::string dbc_text{std::istreambuf_iterator<char>(dbc_file),
                          std::istreambuf_iterator<char>()};
 
-    // Env-constructor: resolves the shared library through ALETHEIA_LIB.
-    AletheiaClient client(make_ffi_backend_from_env());
+    // The bundle's env script names the library through ALETHEIA_LIB, which
+    // this program holds it to: an unset or empty variable is refused, as the
+    // Go consumer's env-constructor refuses it, rather than left to a search
+    // that could find a library the script did not name.
+    const char* const lib = std::getenv("ALETHEIA_LIB");
+    if (lib == nullptr || *lib == '\0')
+        return fail("ALETHEIA_LIB is not set: the bundle's env script must name the library");
+    auto client = AletheiaClient::open({.library = lib});
+    if (!client.has_value())
+        return fail("opening the client on " + std::string(lib) + ": " + client.error().text());
     std::stop_token stop{};
 
-    auto parsed = client.parse_dbc_text(stop, dbc_text);
+    auto parsed = client->parse_dbc_text(stop, dbc_text);
     if (!parsed.has_value())
         return fail("parse_dbc_text: " + std::string(parsed.error().message()));
     if (parsed->dbc.messages.size() != 2)
@@ -56,9 +65,9 @@ auto main(int argc, char** argv) -> int {
     std::vector<LtlFormula> props;
     props.push_back(ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"VehicleSpeed"}, PhysicalValue{Rational{100, 1}}))));
-    if (auto r = client.set_properties(stop, props); !r.has_value())
+    if (auto r = client->set_properties(stop, props); !r.has_value())
         return fail("set_properties: " + std::string(r.error().message()));
-    if (auto r = client.start_stream(stop); !r.has_value())
+    if (auto r = client->start_stream(stop); !r.has_value())
         return fail("start_stream: " + std::string(r.error().message()));
 
     auto sid = StandardId::create(256);
@@ -69,8 +78,8 @@ auto main(int argc, char** argv) -> int {
 
     // Conforming frame: VehicleSpeed raw 0x1388 (5000) → 50.00 kph (factor 0.01).
     auto conforming = std::array<std::byte, 8>{std::byte{0x88}, std::byte{0x13}};
-    auto ack = client.send_frame(stop, Timestamp{1000}, id, dlc.value(),
-                                 std::span<const std::byte>{conforming});
+    auto ack = client->send_frame(stop, Timestamp{1000}, id, dlc.value(),
+                                  std::span<const std::byte>{conforming});
     if (!ack.has_value())
         return fail("send_frame (conforming): " + std::string(ack.error().message()));
     if (!std::holds_alternative<Ack>(ack.value()))
@@ -78,8 +87,8 @@ auto main(int argc, char** argv) -> int {
 
     // Violating frame: VehicleSpeed raw 0x4E20 (20000) → 200.00 kph, over the bound.
     auto violating = std::array<std::byte, 8>{std::byte{0x20}, std::byte{0x4E}};
-    auto resp = client.send_frame(stop, Timestamp{2000}, id, dlc.value(),
-                                  std::span<const std::byte>{violating});
+    auto resp = client->send_frame(stop, Timestamp{2000}, id, dlc.value(),
+                                   std::span<const std::byte>{violating});
     if (!resp.has_value())
         return fail("send_frame (violating): " + std::string(resp.error().message()));
     auto const* batch = std::get_if<PropertyBatch>(&resp.value());
@@ -98,9 +107,11 @@ auto main(int argc, char** argv) -> int {
         !violation->enrichment->signals.contains(SignalName{"VehicleSpeed"}))
         return fail("the violation should be enriched with the VehicleSpeed value");
 
-    if (auto ended = client.end_stream(stop); !ended.has_value())
+    if (auto ended = client->end_stream(stop); !ended.has_value())
         return fail("end_stream: " + std::string(ended.error().message()));
 
-    std::printf("BUNDLE-CONSUMER cpp: OK — exactly one violation on the expected property\n");
+    std::printf("BUNDLE-CONSUMER cpp: OK, exactly one violation on the expected property, "
+                "library %s\n",
+                lib);
     return 0;
 }

@@ -9,7 +9,7 @@ the build system the single source of truth for coverage: no directory can be
 dropped, as a hand-maintained glob of sources can drop one.
 
 This guard holds, of that database and the gated sources (every ``.cpp`` under
-those directories but the fuzz targets):
+those directories but the fuzz targets and the sources built to fail):
 
 * every gated source is in it: a source on disk that is not wired into any
   CMake target never appears there, so ``run-clang-tidy`` silently skips it,
@@ -315,21 +315,27 @@ def _units(db: list[DatabaseEntry], repo: Path) -> list[Unit]:
     return units
 
 
+# The directories of cpp/tests no test build compiles into the database.
+_UNBUILT_TEST_DIRS = frozenset({"fuzz", "compile_fail"})
+
+
 def _gated_sources(repo: Path) -> set[RelPath]:
     """Return every .cpp the gate lints, repo-relative.
 
     The gate lints the tests and the benchmarks too, so an unwired source in
-    either must fail here rather than go unlinted.  The fuzz targets are the
-    one exclusion: they compile only with ``-DALETHEIA_FUZZ=ON``, in a build
-    tree of their own (the recipe in cpp/tests/fuzz/fuzz_parse_response.cpp),
-    so this database never lists them.
+    either must fail here rather than go unlinted.  Two directories of the
+    tests are left out, since this database never lists them: the fuzz
+    targets compile only with ``-DALETHEIA_FUZZ=ON``, in a build tree of their
+    own (the recipe in cpp/tests/fuzz/fuzz_parse_response.cpp), and the
+    sources under compile_fail are built to fail, each by a test that runs the
+    compiler on it.
     """
     cpp = repo / "cpp"
     found = [*(cpp / "src").rglob("*.cpp"), *(cpp / "benchmarks").rglob("*.cpp")]
     found += [
         p
         for p in (cpp / "tests").rglob("*.cpp")
-        if "fuzz" not in p.relative_to(cpp / "tests").parts
+        if _UNBUILT_TEST_DIRS.isdisjoint(p.relative_to(cpp / "tests").parts)
     ]
     return {RelPath(p.resolve().relative_to(repo).as_posix()) for p in found}
 
@@ -371,7 +377,8 @@ def main(
     if not src_files:
         emit(
             "check-clang-tidy-coverage: FAIL, no gated .cpp sources found under"
-            + f" {repo / 'cpp'}'s src, tests (the fuzz targets aside) or benchmarks."
+            + f" {repo / 'cpp'}'s src, tests (the fuzz targets and compile_fail aside)"
+            + " or benchmarks."
         )
         emit(
             "This gate reports 'every source is covered' by finding none uncovered, so an\n"

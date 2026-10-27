@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "scoped_aletheia_lib.hpp"
 #include "temp_path.hpp"
 
 #include "repo_root.hpp"
@@ -43,9 +44,14 @@ using aletheia::test::TempPath;
 
 using aletheia::test::read_text_file;
 
+// Whether the kernel library is there to run against: ALETHEIA_LIB, set, is
+// the library asked for, and one naming no file fails the test rather than
+// skipping it.
 static auto lib_available() -> bool {
     if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
-        return std::filesystem::exists(env);
+        if (!std::filesystem::exists(env))
+            FAIL("ALETHEIA_LIB=" << env << " does not exist");
+        return true;
     }
     return std::filesystem::exists(repo_root() / "build" / "libaletheia-ffi.so");
 }
@@ -138,6 +144,17 @@ static auto duplicate_signal_dbc() -> std::string {
     }
     text.replace(pos, std::string_view{"EngineTemp"}.size(), "EngineSpeed");
     return text;
+}
+
+// The library asked for is not there: the command answers the search's
+// refusal rather than a library another route finds.
+TEST_CASE("an ALETHEIA_LIB naming no file is the search's refusal", "[cli]") {
+    auto const absent = (aletheia::test::scratch_dir() / "cli-absent.so").string();
+    const aletheia::test::ScopedAletheiaLib guard{absent.c_str()};
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
+    auto const [code, err] = run_capture_err({"validate", "--dbc", dbc});
+    CHECK(code == 2);
+    CHECK(err == "Error: ALETHEIA_LIB=" + absent + " does not exist\n");
 }
 
 TEST_CASE("CLI smoke over the real FFI core", "[cli]") {

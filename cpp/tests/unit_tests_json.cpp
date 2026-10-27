@@ -12,6 +12,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/json.hpp"
+#include "required.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <nlohmann/json.hpp>
@@ -21,6 +22,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+using aletheia::test::required;
 
 using namespace aletheia;
 using Json = nlohmann::json;
@@ -33,7 +36,7 @@ using Catch::Matchers::ContainsSubstring;
 
 TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     auto const dbc = make_test_dbc();
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto j = Json::parse(str);
 
     CHECK(j["type"] == "command");
@@ -70,7 +73,7 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    auto const str = detail::serialize_set_properties(props);
+    auto const str = required(detail::serialize_set_properties(props));
     auto j = Json::parse(str);
 
     CHECK(j["command"] == "setProperties");
@@ -115,7 +118,7 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
         }},
     };
 
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto j = Json::parse(str);
     auto& jsig = j["dbc"]["messages"][0]["signals"][0];
 
@@ -144,7 +147,7 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
         }},
     };
 
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto j = Json::parse(str);
     auto& msg = j["dbc"]["messages"][0];
 
@@ -157,7 +160,7 @@ TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
     auto formula = ltl::always_within(Timestamp{2'000'000}, std::move(inner));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    auto const str = detail::serialize_set_properties(props);
+    auto const str = required(detail::serialize_set_properties(props));
     auto j = Json::parse(str);
 
     CHECK(j["properties"][0]["operator"] == "metricAlways");
@@ -169,7 +172,7 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
         auto formula = ltl::atomic(std::move(p));
         std::vector<LtlFormula> props;
         props.push_back(std::move(formula));
-        auto const str = detail::serialize_set_properties(props);
+        auto const str = required(detail::serialize_set_properties(props));
         auto j = Json::parse(str);
         CHECK(j["properties"][0]["predicate"]["predicate"] == expected);
     };

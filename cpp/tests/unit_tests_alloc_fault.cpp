@@ -16,6 +16,7 @@
 #include "detail/ffi_logic.hpp"
 #include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
+#include "required.hpp"
 #include "test_helpers.hpp"
 #include <aletheia/aletheia.hpp>
 
@@ -32,8 +33,11 @@
 #include <utility>
 #include <vector>
 
+using aletheia::test::required;
+
 using aletheia::test::alloc_fault::allocations_of;
 using aletheia::test::alloc_fault::Arm;
+using aletheia::test::alloc_fault::every_fault_escapes;
 using aletheia::test::alloc_fault::expect_balanced;
 using aletheia::test::alloc_fault::live_blocks;
 using aletheia::test::alloc_fault::measure;
@@ -244,6 +248,28 @@ TEST_CASE("the DBC command encoder releases its temporaries when an allocation f
     expect_balanced([&dbc] { return aletheia::detail::serialize_parse_dbc(dbc); });
 }
 
+// The binding answers every error through Result but std::bad_alloc, so a
+// handler that turns what JSON access throws into an error lets exhaustion
+// through, the decoders', the refusal envelope's and the encoders' alike.
+TEST_CASE("a decoder or an encoder out of memory ends with std::bad_alloc, not an error",
+          "[alloc_fault][json]") {
+    auto const parsed = aletheia::detail::parse_dbc_response(k_dbc_response);
+    REQUIRE(parsed.has_value());
+    auto const& dbc = *parsed;
+    CHECK(every_fault_escapes([] { return aletheia::detail::parse_dbc_response(k_dbc_response); }));
+    CHECK(every_fault_escapes([] {
+        // An envelope carrying issues, which the decoder copies into a list of
+        // its own.
+        return aletheia::detail::binary_refusal(
+            R"({"status": "error", "code": "handler_validation_failed", "message": )"
+            R"("the DBC this command carries fails its validation", "has_errors": true, )"
+            R"("issues": [{"severity": "error", "code": "duplicate_message_id", )"
+            R"("detail": "two messages of this DBC carry the one identifier 0x100"}]})");
+    }));
+    CHECK(every_fault_escapes([&dbc] { return aletheia::detail::serialize_parse_dbc(dbc); }));
+    CHECK(every_fault_escapes([&dbc] { return aletheia::to_canonical_json(dbc); }));
+}
+
 TEST_CASE("the runtime argument builder releases its temporaries when an allocation fails",
           "[alloc_fault][ffi]") {
     expect_balanced([] { return aletheia::detail::rts_init_args(4, "-s -A64m --nonmoving-gc"); });
@@ -256,13 +282,14 @@ TEST_CASE("the check builder releases its temporaries when an allocation fails",
     expect_balanced([] {
         auto mock = std::make_unique<aletheia::MockBackend>();
         mock->queue_response(R"({"status": "success"})");
-        aletheia::AletheiaClient client(std::move(mock));
+        auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
         std::vector<aletheia::CheckResult> checks;
         checks.push_back(aletheia::check::signal("EngineSpeedInRevolutionsPerMinute")
                              .never_exceeds(aletheia::PhysicalValue{aletheia::Rational{6000, 1}}));
         checks.push_back(aletheia::check::signal("VehicleSpeedInKilometresPerHour")
                              .stays_between(aletheia::PhysicalValue{aletheia::Rational{0, 1}},
-                                            aletheia::PhysicalValue{aletheia::Rational{220, 1}}));
+                                            aletheia::PhysicalValue{aletheia::Rational{220, 1}})
+                             .value());
         return client.add_checks(std::stop_token{}, std::move(checks));
     });
 }
@@ -347,7 +374,7 @@ TEST_CASE("the binary extraction decoder allocates each container once and each 
     REQUIRE(dbc.has_value());
     auto mock = std::make_unique<aletheia::test::BinExtractMockBackend>(two_of_each_extraction());
     mock->queue_response(aletheia::test::parsed_dbc_response_for(*dbc));
-    aletheia::AletheiaClient client(std::move(mock));
+    auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
     REQUIRE(client.parse_dbc(std::stop_token{}, *dbc).has_value());
 
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};

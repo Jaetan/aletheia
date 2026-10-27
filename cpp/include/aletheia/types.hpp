@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
+#include <aletheia/error.hpp>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -10,10 +12,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <limits>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -91,28 +94,21 @@ public:
     // to non-bool integral types — a decimal must instead go through
     // `Rational::from_decimal` (the kernel decimal SSOT).  Go/Rust get this for
     // free from their `int64`-typed rationals; this brings C++ to the same bar.
+    // Constant expressions only: `make` checks the pair, so a literal outside
+    // int64 or with a denominator that is not positive fails the build, and a
+    // pair known at run time goes through `make` or `integer`.
     template<std::integral N, std::integral D>
         requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
-    constexpr Rational(N n, D d) : Rational(narrowed(n), narrowed(d), Narrowed{}) {}
+    consteval Rational(N n, D d) : Rational(make(n, d).value()) {}
 
     [[nodiscard]] constexpr auto numerator() const -> std::int64_t { return num_; }
 
 private:
-    // Every integral pair narrows to this one constructor, so the range check
-    // and the stores are written once rather than once per instantiation.
-    struct Narrowed {};
-    template<std::integral I>
-    static constexpr auto narrowed(I v) -> std::int64_t {
-        if (!std::in_range<std::int64_t>(v))
-            throw std::invalid_argument("Rational: numerator/denominator out of int64 range");
-        return static_cast<std::int64_t>(v);
-    }
-    constexpr Rational(std::int64_t n, std::int64_t d, Narrowed /*narrowed*/) : num_(n), den_(d) {
-        if (den_ <= 0) {
-            throw std::invalid_argument("Rational: denominator must be positive (was " +
-                                        std::to_string(den_) + ")");
-        }
-    }
+    // The stores, reached once the pair is known to hold the invariant.
+    struct Unchecked {};
+    constexpr Rational(std::int64_t n, std::int64_t d, Unchecked /*unchecked*/)
+        : num_(n)
+        , den_(d) {}
 
 public:
     [[nodiscard]] constexpr auto denominator() const -> std::int64_t { return den_; }
@@ -135,20 +131,31 @@ public:
         return (*this <=> rhs) == std::strong_ordering::equal;
     }
 
-    // Validated factory: returns an error if denominator is not positive.
-    // Use for untrusted input; direct construction throws in every mode.
+    // Validated factory: a Validation error for a component outside int64 or a
+    // denominator that is not positive.
     template<std::integral N, std::integral D>
         requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
-    [[nodiscard]] static constexpr auto make(N num, D den) -> std::expected<Rational, std::string> {
-        // Validate representability before narrowing (see the ctor): a uint64_t
-        // > INT64_MAX would otherwise wrap to a negative/wrong value before the
-        // den > 0 check, yielding a misleading error or an incorrect Rational.
+    [[nodiscard]] static constexpr auto make(N num, D den) -> Result<Rational> {
+        // Representability before narrowing: a uint64_t > INT64_MAX would
+        // otherwise wrap to a negative/wrong value before the den > 0 check,
+        // yielding a misleading error or an incorrect Rational.
         if (!std::in_range<std::int64_t>(num) || !std::in_range<std::int64_t>(den))
-            return std::unexpected("Rational: numerator/denominator out of int64 range");
+            return detail::validation_refusal("Rational: numerator/denominator out of int64 range");
         auto const den64 = static_cast<std::int64_t>(den);
         if (den64 <= 0)
-            return std::unexpected("Rational denominator must be positive");
-        return Rational{static_cast<std::int64_t>(num), den64};
+            return detail::validation_refusal("Rational denominator must be positive");
+        return Rational{static_cast<std::int64_t>(num), den64, Unchecked{}};
+    }
+
+    // The whole number `n / 1`, which cannot fail: the type holds every value
+    // of `n` within int64, so a `uint64_t`, like a `bool` or a `double`, does
+    // not compile.
+    template<std::integral I>
+        requires(!std::same_as<I, bool> &&
+                 std::in_range<std::int64_t>(std::numeric_limits<I>::min()) &&
+                 std::in_range<std::int64_t>(std::numeric_limits<I>::max()))
+    [[nodiscard]] static constexpr auto integer(I n) -> Rational {
+        return Rational{static_cast<std::int64_t>(n), 1, Unchecked{}};
     }
 
     // Parse a decimal literal into an exact Rational via the Agda kernel's
@@ -156,15 +163,15 @@ public:
     // is an exact rational (denominator 2^a*5^b), never a float64. The grammar
     // is the kernel's: `-?digits` or `-?digits.digits+` (no `+` sign, no
     // leading/trailing `.`, no exponent). The GHC runtime must be up
-    // (`aletheia::start_runtime` or a backend), else this throws
-    // `AletheiaException(Ffi)` rather than starting it. A refusal is the
-    // kernel's, decoded by `detail::binary_refusal` and thrown as an
-    // `AletheiaException`: the literal is the caller's own text, so a malformed
+    // (`aletheia::start_runtime` or a backend), else this returns an error of
+    // kind Ffi rather than starting it. A refusal is the kernel's, decoded by
+    // `detail::binary_refusal`: the literal is the caller's own text, so a malformed
     // one is kind Validation with code `TextParseFailure` or
     // `TextTrailingInput` (`FfiValidationError` when the shared library refused
     // the bytes before the kernel read them), and a component past the kernel's
-    // magnitude bound is kind InputBoundExceeded with `bound_info()`.
-    [[nodiscard]] static auto from_decimal(std::string_view s) -> Rational;
+    // magnitude bound is kind InputBoundExceeded with `bound_info()`. A wire
+    // fault is kind Protocol.
+    [[nodiscard]] static auto from_decimal(std::string_view s) -> Result<Rational>;
 
 private:
     std::int64_t num_ = 0;
@@ -210,6 +217,13 @@ template<typename... Args>
 concept RationalMakeable = requires { Rational::make(std::declval<Args>()...); };
 template<typename StrongT, typename... Args>
 concept StrongOfable = requires { StrongT::of(std::declval<Args>()...); };
+template<typename I>
+concept RationalIntegerable = requires { Rational::integer(std::declval<I>()); };
+// A literal pair the constructor accepts: a constant evaluation that fails in a
+// template argument is a substitution failure, so a refused literal reads false.
+template<auto N, auto D>
+concept RationalLiteral =
+    requires { typename std::integral_constant<std::int64_t, Rational{N, D}.numerator()>; };
 } // namespace detail
 
 static_assert(std::constructible_from<Rational, int, int>, "integer construction must still work");
@@ -225,6 +239,20 @@ static_assert(!detail::StrongOfable<PhysicalValue, double, int>, "of(...) must r
 static_assert(!detail::StrongOfable<PhysicalValue, bool, int>, "of(...) must reject a bool");
 static_assert(!detail::StrongOfable<RationalFactor, double, int>,
               "DBC factor of(...) must reject a double");
+static_assert(detail::RationalIntegerable<int> && detail::RationalIntegerable<std::int64_t> &&
+                  detail::RationalIntegerable<std::uint32_t>,
+              "a whole number of any type within int64 must build");
+static_assert(!detail::RationalIntegerable<std::uint64_t>,
+              "a type passing int64 must not build a whole number");
+static_assert(!detail::RationalIntegerable<double>, "a double must not narrow via integer");
+static_assert(!detail::RationalIntegerable<bool>, "a bool must not pass through integer");
+static_assert(detail::RationalLiteral<1, 10>, "a literal fraction must build");
+static_assert(!detail::RationalLiteral<1, 0>, "a zero denominator must not build");
+static_assert(!detail::RationalLiteral<1, -1>, "a negative denominator must not build");
+static_assert(!detail::RationalLiteral<std::uint64_t{1} << 63U, 1>,
+              "a numerator past int64 must not build");
+static_assert(!detail::RationalLiteral<1, std::uint64_t{1} << 63U>,
+              "a denominator past int64 must not build");
 
 // ---------------------------------------------------------------------------
 // Integer domain types (distinct bit-level types)
@@ -252,10 +280,9 @@ class StandardId {
     static constexpr std::uint16_t max_id = (1U << 11U) - 1; // 11-bit CAN ID
 
 public:
-    [[nodiscard]] static constexpr auto create(std::uint16_t v)
-        -> std::expected<StandardId, std::string> {
+    [[nodiscard]] static constexpr auto create(std::uint16_t v) -> Result<StandardId> {
         if (v > max_id)
-            return std::unexpected("Standard CAN ID must be 0-2047");
+            return detail::validation_refusal("Standard CAN ID must be 0-2047");
         return StandardId{v};
     }
     [[nodiscard]] constexpr auto value() const -> std::uint16_t { return value_; }
@@ -269,10 +296,9 @@ class ExtendedId {
     static constexpr std::uint32_t max_id = (1U << 29U) - 1; // 29-bit CAN ID
 
 public:
-    [[nodiscard]] static constexpr auto create(std::uint32_t v)
-        -> std::expected<ExtendedId, std::string> {
+    [[nodiscard]] static constexpr auto create(std::uint32_t v) -> Result<ExtendedId> {
         if (v > max_id)
-            return std::unexpected("Extended CAN ID must be 0-536870911");
+            return detail::validation_refusal("Extended CAN ID must be 0-536870911");
         return ExtendedId{v};
     }
     [[nodiscard]] constexpr auto value() const -> std::uint32_t { return value_; }
@@ -314,9 +340,9 @@ class Dlc {
     explicit constexpr Dlc(std::uint8_t v) : value_(v) {}
 
 public:
-    [[nodiscard]] static constexpr auto create(std::uint8_t v) -> std::expected<Dlc, std::string> {
+    [[nodiscard]] static constexpr auto create(std::uint8_t v) -> Result<Dlc> {
         if (v > 15)
-            return std::unexpected("DLC must be 0-15");
+            return detail::validation_refusal("DLC must be 0-15");
         return Dlc{v};
     }
     [[nodiscard]] constexpr auto value() const -> std::uint8_t { return value_; }
@@ -340,10 +366,10 @@ inline constexpr std::array<std::size_t, 16> k_dlc_bytes = {0, 1,  2,  3,  4,  5
 // table's own, so the codes it can return are exactly the ones it holds; the
 // factory's answer is returned as it is, so a code outside the table would be
 // its error, read by every caller, and not an assertion inside a dereference.
-[[nodiscard]] inline auto bytes_to_dlc(std::size_t byte_count) -> std::expected<Dlc, std::string> {
+[[nodiscard]] inline auto bytes_to_dlc(std::size_t byte_count) -> Result<Dlc> {
     auto const* const found = std::ranges::find(detail::k_dlc_bytes, byte_count);
     if (found == detail::k_dlc_bytes.end())
-        return std::unexpected("invalid DLC byte count: " + std::to_string(byte_count));
+        return detail::validation_refusal("invalid DLC byte count: " + std::to_string(byte_count));
     return Dlc::create(static_cast<std::uint8_t>(found - detail::k_dlc_bytes.begin()));
 }
 

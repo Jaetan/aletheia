@@ -22,6 +22,7 @@
 
 #include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
+#include "required.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -33,6 +34,8 @@
 #include <string>
 #include <string_view>
 #include <utility>
+
+using aletheia::test::required;
 
 TEST_CASE("InputBoundExceededError carries kind / observed / limit, and no field unless given",
           "[input_bounds]") {
@@ -178,7 +181,7 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds]") {
     // Mock backend that never returns — the bound check fires before any
     // backend call. Construct with no scripted responses.
     auto mock = std::make_unique<aletheia::MockBackend>();
-    aletheia::AletheiaClient client{std::move(mock)};
+    auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
 
     const std::string big_text(aletheia::max_dbc_text_bytes + 1, 'x');
     const std::stop_source stop_source;
@@ -269,7 +272,7 @@ TEST_CASE("every DBC command surfaces a size-bound refusal as InputBoundExceeded
     mock->queue_response(std::string{refusal});
     mock->queue_response(std::string{refusal});
     mock->queue_response(std::string{refusal});
-    aletheia::AletheiaClient client{std::move(mock)};
+    auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
     const aletheia::DbcDefinition dbc{};
 
     check_signal_groups_refusal(client.parse_dbc(std::stop_token{}, dbc));

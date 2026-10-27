@@ -64,8 +64,7 @@ def _require_lo_le_hi(lo: int | Fraction, hi: int | Fraction, method_name: str) 
 # check *construction* infallible: only reading the description can surface an
 # ``FFIError`` (the renderer needs the GHC runtime up), so the fluent builder
 # chain (``when().then().equals().within()``) never raises mid-chain.  Mirrors
-# Rust's ``DescPart`` (check.rs) and C++'s deferred ``condition_desc_builder_``
-# (check.hpp).
+# Rust's ``DescPart`` (check.rs) and C++'s ``detail::DescPart`` (check.hpp).
 type _DescPart = str | Fraction
 
 

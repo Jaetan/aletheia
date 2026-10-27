@@ -136,7 +136,7 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
         auto const result = ExtendedId::create(id_val);
         if (!result)
             throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) + ": " +
-                                     detail::error_of(result));
+                                     std::string{detail::error_of(result).message()});
         return CanId{result.value()};
     }
     // The factory takes the 16 bits a standard id fits in and refuses past 11;
@@ -147,7 +147,7 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
     auto const result = StandardId::create(static_cast<std::uint16_t>(id_val));
     if (!result)
         throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
-                                 detail::error_of(result));
+                                 std::string{detail::error_of(result).message()});
     return CanId{result.value()};
 }
 
@@ -158,7 +158,8 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
 
     auto const dlc_result = bytes_to_dlc(require_uint<std::size_t>(j.at("dlc"), "dlc"));
     if (!dlc_result)
-        throw std::runtime_error("Invalid DLC: " + detail::error_of(dlc_result));
+        throw std::runtime_error("Invalid DLC: " +
+                                 std::string{detail::error_of(dlc_result).message()});
 
     std::vector<DbcSignal> signals;
     for (auto const& s : j.at("signals"))

@@ -467,8 +467,10 @@ The binding wraps `libaletheia-ffi.so` via `dlopen`. Build a backend from the li
 
 int main() {
     using namespace aletheia;
-    auto backend = make_ffi_backend("/opt/aletheia/lib/libaletheia-ffi.so");
-    auto client = AletheiaClient{std::move(backend)};
+    auto opened = AletheiaClient::open({.library = "/opt/aletheia/lib/libaletheia-ffi.so"});
+    if (!opened)
+        return 1;
+    auto& client = *opened;
     std::stop_token stop;  // a real app threads a real token for cancellation
 ```
 

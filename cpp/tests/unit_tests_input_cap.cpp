@@ -10,6 +10,7 @@
 #include <aletheia/limits.hpp>
 
 #include "detail/mock_backend.hpp"
+#include "required.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -18,11 +19,13 @@
 #include <string>
 #include <utility>
 
+using aletheia::test::required;
+
 TEST_CASE("parse_dbc_text passes text at the cap to the backend", "[input_bounds][costly]") {
     auto mock = std::make_unique<aletheia::MockBackend>();
     auto const* mock_ptr = mock.get();
     mock->queue_response(R"({"status": "error", "message": "unparsed"})");
-    aletheia::AletheiaClient client{std::move(mock)};
+    auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
 
     const std::string at_cap(aletheia::max_dbc_text_bytes, 'x');
     auto const result = client.parse_dbc_text(std::stop_token{}, at_cap);

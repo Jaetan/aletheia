@@ -25,6 +25,9 @@
 
 #include "find_lib.hpp"
 #include "integration_fixtures.hpp"
+#include "required.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::find_lib;
 using aletheia::test::make_integration_dbc;
@@ -37,8 +40,8 @@ using namespace aletheia;
 
 TEST_CASE("parse DBC via real FFI", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const result = client.parse_dbc(std::stop_token{}, make_integration_dbc());
     CHECK(result.has_value());
@@ -49,8 +52,8 @@ TEST_CASE("Tier 1 DBC metadata round-trips through real FFI", "[integration][dbc
     // Proves the Agda core preserves signalGroups, environmentVars, and
     // valueTables across parse_dbc → format_dbc.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto dbc = make_integration_dbc();
     dbc.signal_groups.push_back(
@@ -93,8 +96,8 @@ TEST_CASE("env var with non-terminating rational is rejected") {
     auto const lib = find_lib();
     if (lib.empty())
         return;
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // Fraction 1/3 has no 2^a·5^b denominator form, so fromℚ? returns
     // nothing and the parser emits parse_non_terminating_rational: the
@@ -124,8 +127,8 @@ TEST_CASE("signal with non-terminating rational factor is rejected") {
     auto const lib = find_lib();
     if (lib.empty())
         return;
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto dbc = make_integration_dbc();
     // Override the first signal's factor to a repeating rational.
@@ -138,8 +141,8 @@ TEST_CASE("signal with non-terminating rational factor is rejected") {
 
 TEST_CASE("extract signals via real FFI", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const dbc = make_integration_dbc();
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
@@ -177,34 +180,36 @@ public:
 
     // The handle the inner backend hands out closes through that backend, so
     // this decorator neither owns nor releases state and needs no close.
-    auto init() -> BackendState override { return inner_->init(); }
-    auto process(const BackendState& state, std::string_view input) -> std::string override {
+    auto init() -> Result<BackendState> override { return inner_->init(); }
+    auto process(const BackendState& state, std::string_view input)
+        -> Result<std::string> override {
         return inner_->process(state, input);
     }
 
     auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data, std::optional<bool> brs,
-                           std::optional<bool> esi) -> std::string override {
+                           std::optional<bool> esi) -> Result<std::string> override {
         return inner_->send_frame_binary(state, ts, id, dlc, data, brs, esi);
     }
-    auto send_error_binary(const BackendState& state, Timestamp ts) -> std::string override {
+    auto send_error_binary(const BackendState& state, Timestamp ts)
+        -> Result<std::string> override {
         return inner_->send_error_binary(state, ts);
     }
     auto send_remote_binary(const BackendState& state, Timestamp ts, const CanId& id)
-        -> std::string override {
+        -> Result<std::string> override {
         return inner_->send_remote_binary(state, ts, id);
     }
-    auto start_stream_binary(const BackendState& state) -> std::string override {
+    auto start_stream_binary(const BackendState& state) -> Result<std::string> override {
         return inner_->start_stream_binary(state);
     }
-    auto end_stream_binary(const BackendState& state) -> std::string override {
+    auto end_stream_binary(const BackendState& state) -> Result<std::string> override {
         return inner_->end_stream_binary(state);
     }
-    auto format_dbc_binary(const BackendState& state) -> std::string override {
+    auto format_dbc_binary(const BackendState& state) -> Result<std::string> override {
         return inner_->format_dbc_binary(state);
     }
     auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
-                                std::span<const std::byte> data) -> std::string override {
+                                std::span<const std::byte> data) -> Result<std::string> override {
         return inner_->extract_signals_binary(state, id, dlc, data);
     }
 
@@ -218,7 +223,7 @@ public:
 protected:
     // Never called: the handle this decorator hands out belongs to the inner
     // backend and closes there.
-    auto close(void* /*state*/) -> void override {}
+    auto close(void* /*state*/) noexcept -> void override {}
 
 private:
     std::unique_ptr<IBackend> inner_;
@@ -263,9 +268,9 @@ struct WireBuf {
 } // namespace
 
 static auto extract_with_crafted_buf(std::vector<std::byte> buf) -> Result<ExtractionResult> {
-    auto backend = std::make_unique<FixedBinExtractBackend>(make_ffi_backend(find_lib()),
+    auto backend = std::make_unique<FixedBinExtractBackend>(required(make_ffi_backend(find_lib())),
                                                             /*buf=*/std::move(buf));
-    AletheiaClient client(std::move(backend));
+    auto client = required(AletheiaClient::create(std::move(backend)));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -544,7 +549,7 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     const FramePayload data{std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
                             std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
 
-    AletheiaClient bin_client(make_ffi_backend(lib));
+    auto bin_client = required(AletheiaClient::create(required(make_ffi_backend(lib))));
     REQUIRE(bin_client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
     auto const bin = bin_client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(bin.has_value());
@@ -552,10 +557,10 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     // Force the JSON fallback by handing the fixed-result backend a
     // BinaryUnsupported error (the same sentinel MockBackend uses).
     auto json_backend = std::make_unique<FixedBinExtractBackend>(
-        make_ffi_backend(lib),
+        required(make_ffi_backend(lib)),
         std::unexpected(AletheiaError{ErrorKind::BinaryUnsupported,
                                       "binary path not supported by this backend"}));
-    AletheiaClient json_client(std::move(json_backend));
+    auto json_client = required(AletheiaClient::create(std::move(json_backend)));
     REQUIRE(json_client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
     auto const json = json_client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(json.has_value());
@@ -641,16 +646,16 @@ TEST_CASE("binary and JSON extraction refuse a value whose component is past the
     auto const dlc = Dlc::create(8).value();
     auto const dbc = make_wide_signal_dbc(row);
 
-    AletheiaClient bin_client(make_ffi_backend(lib));
+    auto bin_client = required(AletheiaClient::create(required(make_ffi_backend(lib))));
     REQUIRE(bin_client.parse_dbc(std::stop_token{}, dbc).has_value());
     auto const bin = bin_client.extract_signals(std::stop_token{}, id, dlc, row.data);
     REQUIRE(bin.has_value());
 
     auto json_backend = std::make_unique<FixedBinExtractBackend>(
-        make_ffi_backend(lib),
+        required(make_ffi_backend(lib)),
         std::unexpected(AletheiaError{ErrorKind::BinaryUnsupported,
                                       "binary path not supported by this backend"}));
-    AletheiaClient json_client(std::move(json_backend));
+    auto json_client = required(AletheiaClient::create(std::move(json_backend)));
     REQUIRE(json_client.parse_dbc(std::stop_token{}, dbc).has_value());
     auto const json = json_client.extract_signals(std::stop_token{}, id, dlc, row.data);
     REQUIRE(json.has_value());

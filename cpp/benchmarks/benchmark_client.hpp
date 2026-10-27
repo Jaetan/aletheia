@@ -24,8 +24,13 @@ namespace fs = std::filesystem;
 
 // A benchmark must never time a client whose setup failed, so every setup
 // step is checked through require like the timed operations are.
+// A client over the kernel at `lib`, its refusal's text thrown.
+inline auto open_client(const fs::path& lib) -> AletheiaClient {
+    return value_or_throw(AletheiaClient::open({.library = lib}));
+}
+
 inline auto make_client(const fs::path& lib, const DbcDefinition& dbc) -> AletheiaClient {
-    AletheiaClient client(make_ffi_backend(lib));
+    auto client = open_client(lib);
     require(client.parse_dbc(std::stop_token{}, dbc), "parse_dbc");
     return client;
 }

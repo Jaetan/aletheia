@@ -19,6 +19,9 @@
 #include <vector>
 
 #include "find_lib.hpp"
+#include "required.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::find_lib;
 
@@ -111,8 +114,8 @@ TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresol
     // atomic unresolved. Under three-valued Kleene this propagates via
     // And (Atomic) (Always _) as Unsure ∧ Holds = Unsure.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -141,8 +144,8 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
     // Unresolved — the Kleene fixed point persists regardless of progression
     // count.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -174,8 +177,8 @@ TEST_CASE("end_stream: changed_by on one-frame trace → Unresolved",
     // fixed point) and Always on a non-empty trace leaves behind And (Not
     // Atomic) (Always ...) which reduces to Unsure ∧ Holds = Unsure.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -204,8 +207,8 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved",
     // finalizesFails φ = true, and a bare Atomic finalizes to Unsure, so the
     // Or persists and finalizes via Unsure ∨ Fails = Unsure.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -236,8 +239,8 @@ TEST_CASE("end_stream: Eventually on 0 frames still finalizes to Fails",
     // applied directly to Eventually _ which returns Fails (liveness
     // operators do not get three-valued absorption on the empty trace).
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -261,8 +264,8 @@ TEST_CASE("end_stream: 0 frames + Always(missing) → Holds (vacuous)",
     // empty-trace path (direct finalizeL on Always) from the non-empty path
     // (finalizeL after progression leaves an And behind).
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -285,8 +288,8 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
     // via combineAnd Satisfied l. Confirms the Unresolved path only bites
     // when the signal is missing for the entire stream.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -327,8 +330,8 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
     // Speed (never observed → Unsure), right conjunct references Rpm
     // (observed < 100 → Holds). End result must be Unresolved.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -365,8 +368,8 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
     // satisfied finalizes to Fails on a non-empty trace. An Always would not
     // do, since it holds vacuously when nothing matches.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -400,8 +403,8 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     // on the Unresolved branch by checking that reason and enrichment are
     // populated.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -442,8 +445,8 @@ TEST_CASE("end_stream: enrichment carries the newest payload of a repeated CAN i
     // frames carry different values for that reason: with one value the
     // assignment is unobservable and the cache could drop it unnoticed.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
@@ -487,8 +490,8 @@ TEST_CASE("end_stream: the last-frame cache keeps a standard and an extended id 
     // frame would replace the first and enrichment would report one message's
     // bytes under the other's signal.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto dbc = make_two_message_dbc();
     auto const extended_id = CanId{ExtendedId::create(0x100).value()};

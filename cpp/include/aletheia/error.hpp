@@ -50,11 +50,11 @@ enum class ErrorKind {
 /// or, for `FfiValidationError`, by the shared library refusing an argument
 /// it cannot read or a buffer it cannot write to.
 ///
-/// `Unknown` is a forward-compatibility sentinel used by
-/// `error_code_from_string` when the Agda core returns a code the C++
-/// binding does not recognise. In lock-step builds it should never be
-/// produced; its presence here is a deliberate escape hatch, not a mirror
-/// of any Agda constructor.
+/// `Unknown` is the code of an error no wire code names: a refusal the
+/// binding makes itself (a factory's range, a check builder's bound, a
+/// loader's own reading), which Python, Go and Rust report with no code, and
+/// `error_code_from_string`'s answer for a code the C++ binding does not
+/// recognise. It mirrors no Agda constructor.
 enum class ErrorCode {
     Unknown,
     // Parse errors
@@ -171,18 +171,21 @@ class AletheiaError {
     std::optional<Place> place_;
 
 public:
-    AletheiaError(ErrorKind kind, std::string message, ErrorCode code = ErrorCode::Unknown,
-                  std::optional<InputBoundExceededError> bound_info = std::nullopt,
-                  std::optional<std::vector<ValidationIssue>> issues = std::nullopt)
+    // constexpr so the constexpr factories in types.hpp can answer an error in
+    // a constant expression.
+    constexpr AletheiaError(ErrorKind kind, std::string message,
+                            ErrorCode code = ErrorCode::Unknown,
+                            std::optional<InputBoundExceededError> bound_info = std::nullopt,
+                            std::optional<std::vector<ValidationIssue>> issues = std::nullopt)
         : kind_(kind)
         , code_(code)
         , message_(std::move(message))
         , bound_info_(std::move(bound_info))
         , issues_(std::move(issues)) {}
 
-    [[nodiscard]] auto kind() const -> ErrorKind { return kind_; }
-    [[nodiscard]] auto code() const -> ErrorCode { return code_; }
-    [[nodiscard]] auto message() const -> std::string_view { return message_; }
+    [[nodiscard]] constexpr auto kind() const -> ErrorKind { return kind_; }
+    [[nodiscard]] constexpr auto code() const -> ErrorCode { return code_; }
+    [[nodiscard]] constexpr auto message() const -> std::string_view { return message_; }
     [[nodiscard]] auto bound_info() const -> const std::optional<InputBoundExceededError>& {
         return bound_info_;
     }
@@ -219,17 +222,22 @@ public:
 template<typename T>
 using Result = std::expected<T, AletheiaError>;
 
-/// Throwing wrapper around `AletheiaError`.
-///
-/// The C++ binding's primary error-reporting channel is `Result<T> =
-/// std::expected<T, AletheiaError>`.  Constructors (which cannot return
-/// `Result`) and a small number of binary-FFI methods returning raw
-/// `std::string` use exceptions instead; `AletheiaException` carries the
-/// same `AletheiaError` value so callers can branch on `kind()` /
-/// `code()` after a `catch`.  Derives from `std::runtime_error` so
-/// existing `catch (const std::exception&)` blocks keep catching it via
-/// the base; new code can `catch (const AletheiaException&)` to recover
-/// the kind-tagged error.  `what()` is the error's `text()`.
+namespace detail {
+// The refusal of an argument the binding checks itself: kind Validation, no
+// wire code.
+[[nodiscard]] constexpr auto validation_refusal(std::string message)
+    -> std::unexpected<AletheiaError> {
+    return std::unexpected(AletheiaError{ErrorKind::Validation, std::move(message)});
+}
+} // namespace detail
+
+namespace detail {
+// An `AletheiaError` carried as an exception to the boundary that returns it:
+// the YAML and Excel loaders throw it from deep in a document and their public
+// entries return the error it holds, and the command line ends a command with
+// it. Nothing on the public surface throws it; every error the binding answers
+// is a `Result<T>`, and only std::bad_alloc is thrown.  `what()` is the
+// error's `text()`.
 class AletheiaException : public std::runtime_error {
     AletheiaError error_;
 
@@ -242,5 +250,6 @@ public:
     [[nodiscard]] auto kind() const -> ErrorKind { return error_.kind(); }
     [[nodiscard]] auto code() const -> ErrorCode { return error_.code(); }
 };
+} // namespace detail
 
 } // namespace aletheia

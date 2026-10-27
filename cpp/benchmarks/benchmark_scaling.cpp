@@ -45,8 +45,9 @@ using aletheia::AletheiaClient, aletheia::AlwaysPresent, aletheia::BitLength, al
     aletheia::make_ffi_backend;
 using aletheia::bench::bench_streaming, aletheia::bench::can20_dlc, aletheia::bench::can20_frame,
     aletheia::bench::can20_id, aletheia::bench::compute_stats, aletheia::bench::get_system_info,
-    aletheia::bench::iso_timestamp, aletheia::bench::out_file, aletheia::bench::print_header,
-    aletheia::bench::print_separator, aletheia::bench::require;
+    aletheia::bench::iso_timestamp, aletheia::bench::open_client, aletheia::bench::out_file,
+    aletheia::bench::print_header, aletheia::bench::print_separator, aletheia::bench::require,
+    aletheia::bench::value_or_throw;
 namespace ltl = aletheia::ltl;
 namespace fs = std::filesystem;
 
@@ -351,7 +352,7 @@ static auto timed_load(Run run) -> std::pair<LoadCost, std::invoke_result_t<Run>
 // One load's cost on a fresh client. A refused load throws, named by `step`.
 template<std::invocable<AletheiaClient&> Load>
 static auto client_load_cost(const fs::path& lib, std::string_view step, Load load) -> LoadCost {
-    AletheiaClient client(make_ffi_backend(lib));
+    auto client = open_client(lib);
     auto const [cost, answer] = timed_load([&] { return load(client); });
     require(answer, step);
     return cost;
@@ -389,10 +390,11 @@ static void require_accepted(std::string_view step, const std::string& reply) {
 // reads.
 static auto command_load_cost(const fs::path& lib, int digits, std::string_view command)
     -> LoadCost {
-    auto const backend = make_ffi_backend(lib);
-    auto const state = backend->init();
+    auto const backend = value_or_throw(make_ffi_backend(lib));
+    auto const state = value_or_throw(backend->init());
     auto const [cost, reply] = timed_load([&] { return backend->process(state, command); });
-    require_accepted(std::format("process of a {}-digit parseDBC command", digits), reply);
+    require_accepted(std::format("process of a {}-digit parseDBC command", digits),
+                     value_or_throw(reply));
     return cost;
 }
 

@@ -20,7 +20,7 @@
 # holds the figures to the compiler; tools/check_pr_title.py refuses a change to
 # this file without the breaking mark.
 
-soversion: 2
+soversion: 3
 types:
   - name: aletheia::BackendState
     size: 16
@@ -32,10 +32,10 @@ types:
     size: 8
     align: 8
   - name: aletheia::CheckResult
-    size: 240
+    size: 200
     align: 8
   - name: aletheia::CheckSignalPredicate
-    size: 144
+    size: 136
     align: 8
   - name: aletheia::SettlesBuilder
     size: 64
@@ -44,7 +44,7 @@ types:
     size: 32
     align: 8
   - name: aletheia::ThenCondition
-    size: 208
+    size: 240
     align: 8
   - name: aletheia::ThenSignal
     size: 104
@@ -54,6 +54,9 @@ types:
     align: 8
   - name: aletheia::WhenSignal
     size: 32
+    align: 8
+  - name: aletheia::ClientOptions
+    size: 104
     align: 8
   - name: aletheia::AletheiaClient
     size: 320
@@ -201,9 +204,6 @@ types:
     align: 4
   - name: aletheia::AletheiaError
     size: 240
-    align: 8
-  - name: aletheia::AletheiaException
-    size: 256
     align: 8
   - name: aletheia::InputBoundExceededError
     size: 88

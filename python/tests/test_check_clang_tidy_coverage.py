@@ -345,6 +345,24 @@ def test_main_holds_only_the_gated_sources_to_the_standard(
     assert _main_with_stand_ins(repo) == 0
 
 
+@pytest.mark.parametrize(
+    "left_out",
+    [
+        pytest.param(RelPath("cpp/tests/fuzz/fuzz_x.cpp"), id="fuzz-target"),
+        pytest.param(RelPath("cpp/tests/compile_fail/x.cpp"), id="compile-fail"),
+    ],
+)
+def test_main_leaves_out_the_sources_no_test_build_compiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, left_out: RelPath
+) -> None:
+    """End-to-end: a fuzz target and a source built to fail, neither in the database, pass."""
+    repo = _make_repo(tmp_path, [A_CPP, B_CPP])
+    (repo / left_out).parent.mkdir(parents=True)
+    _ = (repo / left_out).write_text("int x;\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_clang_tidy_coverage"])
+    assert _main_with_stand_ins(repo) == 0
+
+
 class Refusal(NamedTuple):
     """A database the gate refuses for b.cpp, and the words naming what b.cpp lacks."""
 

@@ -506,7 +506,7 @@ TEST_CASE("doc-example harness: the compiler names the uses the harness's client
         "\t[[maybe_unused]] auto& used = client;\n"
         "}\n"
         "{\n"
-        "    AletheiaClient client{std::move(backend)};\n"
+        "    auto client = AletheiaClient::create(std::move(backend)).value();\n"
         "    [[maybe_unused]] auto& mine = client;\n"
         "}\n"
         "{\n"

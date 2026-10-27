@@ -93,7 +93,8 @@ static auto harness() -> Harness& {
         auto* mock = owned.get();
         auto const dbc = one_message_dbc();
         mock->queue_response(detail::serialize_parsed_dbc_response(dbc));
-        auto client = std::make_unique<AletheiaClient>(std::move(owned));
+        auto client =
+            std::make_unique<AletheiaClient>(AletheiaClient::create(std::move(owned)).value());
         [[maybe_unused]] auto const parsed = client->parse_dbc(std::stop_token{}, dbc);
         return Harness{.mock = mock, .client = std::move(client)};
     }();

@@ -8,8 +8,10 @@
 // the size of a command's text. It counts the closes and the frees it is
 // handed, so a test reads that a state was closed or a string released, which
 // the real kernel acknowledges without reading and which only a leak checker
-// would otherwise report. Its renderer answers the rational it was handed and
-// its allocation count a known value, so a test reads what reached them. It
+// would otherwise report. Its renderer answers the rational it was handed, but
+// for one numerator it answers with a null string, so a test can follow a
+// render that held with one that failed, and its allocation count is a known
+// value, so a test reads what reached them. It
 // carries every symbol the bindings resolve, at the kernel's own signatures,
 // its count of the process's CPUs is four, and its runtime entry is a no-op, so a process whose first backend opens it
 // reads the runtime as up without one. The build makes it beside the library,
@@ -133,9 +135,14 @@ char *aletheia_send_frame(void *state, const struct aletheia_frame *frame) {
     return refusal(detail);
 }
 
+// The numerator the renderer refuses, answering a null string.
+static const int64_t refused_numerator = 7919;
+
 // The renderer's three entries, so the stand-in serves it too: what the
 // binding hands the kernel is the question, and a render answers nothing.
 char *aletheia_format_rational(const struct aletheia_rational *value) {
+    if (value->numerator == refused_numerator)
+        return NULL;
     char text[64];
     snprintf(text, sizeof text, "%" PRIu64 "/%" PRIu64, (uint64_t)value->numerator,
              (uint64_t)value->denominator);

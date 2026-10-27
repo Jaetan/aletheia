@@ -589,9 +589,10 @@ handler):
   `ParseDBCText`.  Type-assert via
   `if vErr := (*aletheia.ValidationError)(nil); errors.As(err, &vErr) {
   ... vErr.Issues ... }`.
-- **C++**: `aletheia::ValidationError` (subclass of
-  `aletheia::AletheiaException`).  Catch via
-  `catch (const aletheia::ValidationError& e) { ... e.issues() ... }`.
+- **C++**: the `aletheia::AletheiaError` the parse returns, of code
+  `ErrorCode::HandlerValidationFailed`.  Branch via
+  `if (!parsed && parsed.error().code() == aletheia::ErrorCode::HandlerValidationFailed)
+  { ... parsed.error().issues() ... }`.
 - **Rust**: `Error::ValidationFailed` carrying the structured `issues`
   list.  Match via
   `Err(aletheia::Error::ValidationFailed { issues, .. }) => { ... }`.

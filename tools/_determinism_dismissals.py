@@ -161,6 +161,12 @@ DISMISSED: Mapping[Dismissal, Prose] = {
     Dismissal(CPP, NetWord("run_program("), RelPath("cpp/tests/stability_bench_tests.cpp")): (
         _EXIT_STATUS
     ),
+    Dismissal(CPP, NetWord("run_program("), RelPath("cpp/tests/unit_tests_validation.cpp")): (
+        Prose(
+            "a null entry called ends the process that calls it, so the refusal of a library "
+            + "lacking an entry is asked for in a child and the parent reads its exit status"
+        )
+    ),
     Dismissal(CPP, NetWord("popen("), RelPath("cpp/tests/doc_example_tests.cpp")): _FENCES,
     Dismissal(RUST, NetWord("Mutex"), None): Prose("a lock no second thread contends"),
     Dismissal(RUST, NetWord("block_on"), None): (

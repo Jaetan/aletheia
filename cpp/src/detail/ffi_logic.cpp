@@ -84,13 +84,13 @@ auto wire_count_refusal(std::size_t count) -> std::optional<std::string> {
                        count);
 }
 
-auto decimal_value(std::int64_t numerator, std::int64_t denominator) -> Rational {
-    if (denominator <= 0)
-        throw AletheiaException(AletheiaError{
+auto decimal_value(std::int64_t numerator, std::int64_t denominator) -> Result<Rational> {
+    return Rational::make(numerator, denominator).transform_error([denominator](auto const&) {
+        return AletheiaError{
             ErrorKind::Protocol,
             std::format("aletheia_parse_decimal answered a non-positive denominator {}",
-                        denominator)});
-    return Rational{numerator, denominator};
+                        denominator)};
+    });
 }
 
 auto abi_version_refusal(std::uint32_t found) -> std::optional<std::string> {

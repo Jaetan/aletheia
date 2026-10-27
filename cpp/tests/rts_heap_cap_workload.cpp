@@ -59,8 +59,12 @@ static auto run(std::span<char* const> args) -> int {
                 return 2;
             }
         }
-        aletheia::AletheiaClient client(aletheia::make_ffi_backend_from_env());
-        auto const parsed = client.parse_dbc_text(std::stop_token{}, build_dbc(n));
+        auto client = aletheia::AletheiaClient::open();
+        if (!client) {
+            std::println(stderr, "rts_heap_cap_workload: {}", client.error().text());
+            return 2;
+        }
+        auto const parsed = client->parse_dbc_text(std::stop_token{}, build_dbc(n));
         if (!parsed)
             return 3;
     } catch (const std::exception& e) {

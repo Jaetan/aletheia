@@ -22,6 +22,7 @@
 using namespace aletheia;
 using aletheia::bench::latencies_us;
 using aletheia::bench::operations_per_second;
+using aletheia::bench::value_or_throw;
 using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::MessageMatches;
 using Catch::Matchers::WithinRel;
@@ -57,6 +58,15 @@ static auto failing_at(int failing_at, std::vector<int>& calls) {
             return std::unexpected(AletheiaError{ErrorKind::State, "not streaming"});
         return {};
     };
+}
+
+TEST_CASE("value_or_throw passes a value through and throws a refusal's text alone",
+          "[benchmark][measure]") {
+    CHECK(value_or_throw(Result<int>{7}) == 7);
+    CHECK_THROWS_MATCHES(value_or_throw(Result<int>{std::unexpected(
+                             AletheiaError{ErrorKind::Ffi, "dlopen failed: no such file"})}),
+                         std::runtime_error,
+                         MessageMatches(Catch::Matchers::Equals("dlopen failed: no such file")));
 }
 
 TEST_CASE("operations_per_second divides the count by the clock's elapsed seconds",

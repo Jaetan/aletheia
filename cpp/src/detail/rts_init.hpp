@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <aletheia/error.hpp>
+
 #include <cstdint>
 #include <mutex>
 #include <string_view>
@@ -52,8 +54,8 @@ struct RTSInitState {
 // Whether the GHC runtime has started. Acquires `RTSInitState::mu` internally.
 [[nodiscard]] auto rts_initialized() -> bool;
 
-// The recorded entries, or AletheiaException(Ffi) while the runtime is down,
+// The recorded entries, or an error of kind Ffi while the runtime is down,
 // `reading` naming what the caller was doing. Acquires `RTSInitState::mu`.
-[[nodiscard]] auto started_entries(std::string_view reading) -> RuntimeEntries;
+[[nodiscard]] auto started_entries(std::string_view reading) -> Result<RuntimeEntries>;
 
 } // namespace aletheia::detail

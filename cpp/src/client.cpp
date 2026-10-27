@@ -15,7 +15,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <exception>
 #include <expected>
 #include <format>
 #include <memory>
@@ -96,15 +95,40 @@ static auto read_native(std::span<const std::byte> buf, std::size_t off) -> T {
     return std::bit_cast<T>(raw);
 }
 
-AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
+auto AletheiaClient::create(std::unique_ptr<IBackend> backend, Logger logger,
+                            std::vector<CheckResult> default_checks) -> Result<AletheiaClient> {
+    return backend->init()
+        .and_then([](BackendState state) -> Result<BackendState> {
+            if (!state)
+                return std::unexpected(
+                    AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
+            return state;
+        })
+        .transform([&](BackendState state) {
+            return AletheiaClient{std::move(backend), std::move(state), std::move(logger),
+                                  std::move(default_checks)};
+        });
+}
+
+auto AletheiaClient::open(ClientOptions options) -> Result<AletheiaClient> {
+    auto const library = options.library.empty() ? find_ffi_library()
+                                                 : Result<std::filesystem::path>{options.library};
+    if (!library)
+        return std::unexpected(detail::error_of(library));
+    auto backend = options.rts_cores ? make_ffi_backend(library.value(), options.rts_cores.value())
+                                     : make_ffi_backend(library.value());
+    return std::move(backend).and_then([&options](std::unique_ptr<IBackend> opened) {
+        return create(std::move(opened), std::move(options.logger),
+                      std::move(options.default_checks));
+    });
+}
+
+AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, BackendState state, Logger logger,
                                std::vector<CheckResult> default_checks)
     : backend_(std::move(backend))
-    , state_(backend_->init())
+    , state_(std::move(state))
     , logger_(std::move(logger))
     , default_checks_(std::move(default_checks)) {
-    if (!state_)
-        throw AletheiaException(
-            AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
     // Parity with the `rts.cores_mismatch` event of Go (go/aletheia/ffi.go) and
     // Python (python/aletheia/client/_ffi.py), both of which carry
     // `active_cores` and `requested_cores` integer fields.
@@ -174,13 +198,16 @@ void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
     }
 }
 
+auto AletheiaClient::run_command(const Result<std::string>& command) -> Result<std::string> {
+    return command.and_then(
+        [this](const std::string& text) { return backend_->process(state_, text); });
+}
+
 auto AletheiaClient::parse_dbc(std::stop_token stop, const DbcDefinition& dbc)
     -> Result<ParsedDBC> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("parse_dbc"));
-    auto const cmd = detail::serialize_parse_dbc(dbc);
-    auto const resp = backend_->process(state_, cmd);
-    auto result = detail::parse_parsed_dbc(resp);
+    auto result = run_command(detail::serialize_parse_dbc(dbc)).and_then(detail::parse_parsed_dbc);
     if (result.has_value()) {
         populate_signal_lookup(result.value().dbc);
         logger_.info(
@@ -212,9 +239,8 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
                               .limit = max_dbc_text_bytes,
                           }});
     }
-    auto const cmd = detail::serialize_parse_dbc_text(text);
-    auto const resp = backend_->process(state_, cmd);
-    auto result = detail::parse_parsed_dbc(resp);
+    auto result =
+        run_command(detail::serialize_parse_dbc_text(text)).and_then(detail::parse_parsed_dbc);
     if (result.has_value()) {
         populate_signal_lookup(result.value().dbc);
         logger_.info(
@@ -228,25 +254,21 @@ auto AletheiaClient::validate_dbc(std::stop_token stop, const DbcDefinition& dbc
     -> Result<ValidationResult> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("validate_dbc"));
-    auto const cmd = detail::serialize_validate_dbc(dbc);
-    auto const resp = backend_->process(state_, cmd);
-    return detail::parse_validation(resp);
+    return run_command(detail::serialize_validate_dbc(dbc)).and_then(detail::parse_validation);
 }
 
 auto AletheiaClient::format_dbc(std::stop_token stop) -> Result<DbcDefinition> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("format_dbc"));
-    auto const resp = backend_->format_dbc_binary(state_);
-    return detail::parse_dbc_response(resp);
+    return backend_->format_dbc_binary(state_).and_then(detail::parse_dbc_response);
 }
 
 auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& dbc)
     -> Result<DbcText> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("format_dbc_text"));
-    auto const cmd = detail::serialize_format_dbc_text(dbc);
-    auto const resp = backend_->process(state_, cmd);
-    return detail::parse_dbc_text_response(resp);
+    return run_command(detail::serialize_format_dbc_text(dbc))
+        .and_then(detail::parse_dbc_text_response);
 }
 
 // ---------------------------------------------------------------------------
@@ -487,15 +509,12 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
     }
 
     // Fallback: JSON path.
-    auto const resp = backend_->extract_signals_binary(state_, id, dlc, data);
-    return detail::parse_extraction(std::move(resp));
+    return backend_->extract_signals_binary(state_, id, dlc, data)
+        .and_then(detail::parse_extraction);
 }
 
 auto AletheiaClient::ResolvedSignals::injection() const -> Result<SignalInjection> {
-    auto const block = SignalInjection::create(indices, numerators, denominators);
-    if (!block)
-        return std::unexpected(AletheiaError{ErrorKind::Validation, detail::error_of(block)});
-    return block.value();
+    return SignalInjection::create(indices, numerators, denominators);
 }
 
 auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
@@ -605,19 +624,16 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
     // Fallback: JSON path.
     //
     // Matches the binary path above: log and return nullopt for any failure
-    // other than BinaryUnsupported.  AletheiaException from the FFI backend is
-    // caught via its std::runtime_error base; the log warning carries the
-    // message but no kind field, to preserve cross-binding parity with Python
-    // and Go's `extraction.process_failed` event signature.
-    std::string resp;
-    try {
-        resp = backend_->extract_signals_binary(state_, id, dlc, data);
-    } catch (const std::exception& e) {
+    // other than BinaryUnsupported.  The log warning carries the message but no
+    // kind field, to preserve cross-binding parity with Python and Go's
+    // `extraction.process_failed` event signature.
+    auto const resp = backend_->extract_signals_binary(state_, id, dlc, data);
+    if (!resp) {
         logger_.warn("extraction.process_failed", {{"canId", static_cast<std::uint64_t>(id_value)},
-                                                   {"error", std::string_view{e.what()}}});
+                                                   {"error", detail::error_of(resp).message()}});
         return std::nullopt;
     }
-    auto result = detail::parse_extraction(resp);
+    auto result = detail::parse_extraction(resp.value());
     if (!result.has_value()) {
         logger_.warn("extraction.parse_failed", {{"canId", static_cast<std::uint64_t>(id_value)},
                                                  {"error", detail::error_of(result).message()}});

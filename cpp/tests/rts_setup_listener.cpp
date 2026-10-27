@@ -34,26 +34,27 @@
 #include <exception>
 #include <filesystem>
 #include <string_view>
+#include <system_error>
 
-// Locate libaletheia-ffi.so the way aletheia::find_ffi_library does, in the
-// same order and with the same checks: ALETHEIA_LIB, which CI pins, then
-// the build-tree paths ctest runs from, each existence-checked so a stale
-// variable cannot shadow a library that is there. The empty path comes back
-// only when every candidate is exhausted, which leaves the runtime down and
-// the render-dependent tests failing vocally.
+// Locate libaletheia-ffi.so in aletheia::find_ffi_library's order, with its
+// own code so the start of every mutant's run reads none the sweep mutates:
+// ALETHEIA_LIB when set, which CI pins, the file it names or none, then the
+// build-tree paths ctest runs from, a path that cannot be looked at taken not
+// to exist. No library, a stale variable included, is the empty path, which
+// leaves the runtime down and the render-dependent tests failing vocally.
 static auto find_test_lib() -> std::filesystem::path {
     namespace fs = std::filesystem;
+    std::error_code ec;
     if (auto const* env = std::getenv("ALETHEIA_LIB")) {
-        const std::string_view env_sv{env};
-        if (!env_sv.empty()) {
-            if (const fs::path p{env_sv}; fs::exists(p))
-                return p;
+        if (const std::string_view env_sv{env}; !env_sv.empty()) {
+            const fs::path p{env_sv};
+            return fs::exists(p, ec) ? p : fs::path{};
         }
     }
     for (auto const* candidate : {"../../build/libaletheia-ffi.so", "../build/libaletheia-ffi.so",
                                   "build/libaletheia-ffi.so"}) {
-        if (fs::exists(candidate))
-            return fs::canonical(candidate);
+        if (auto p = fs::canonical(candidate, ec); !ec)
+            return p;
     }
     return {};
 }
@@ -67,11 +68,16 @@ public:
         auto const lib = find_test_lib();
         if (lib.empty())
             return; // best-effort; render tests fail vocally if the runtime is down
+        // Best-effort: a refused start leaves the runtime down, which the render
+        // tests then report, and so does a start that throws, a defect of the
+        // binding the tests then name rather than a run that ends before any
+        // test reports. The runtime starts on one core here, so no mismatch can
+        // be answered.
         try {
-            // The runtime starts on one core here, so no mismatch can be answered.
-            static_cast<void>(aletheia::start_runtime(lib, 1));
+            if (!aletheia::start_runtime(lib, 1))
+                return;
         } catch (const std::exception&) {
-            return; // best-effort: leave the runtime down
+            return;
         }
     }
 };

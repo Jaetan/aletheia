@@ -23,8 +23,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <filesystem>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -34,12 +32,12 @@
 #include <variant>
 #include <vector>
 
-#include "repo_root.hpp"
+#include "find_lib.hpp"
+#include "required.hpp"
 
-using aletheia::test::repo_root;
+using aletheia::test::required;
 
 using namespace aletheia;
-namespace fs = std::filesystem;
 
 // Matches python/tests/test_cross_binding_integration.py::_CANONICAL_DBC and
 // go/aletheia/cross_binding_integration_test.go::canonicalDBC. Drift of any
@@ -72,26 +70,12 @@ static auto canonical_dbc() -> DbcDefinition {
     };
 }
 
-static auto find_lib() -> fs::path {
-    // Only when the variable names a file that is there: a stale value must
-    // not shadow a library that is, else the suite fails mid-construction
-    // instead of skipping.
-    if (auto* env = std::getenv("ALETHEIA_LIB")) {
-        if (const fs::path p{env}; !p.empty() && fs::exists(p))
-            return p;
-    }
-    auto const project_root = repo_root();
-    auto lib = project_root / "build" / "libaletheia-ffi.so";
-    if (fs::exists(lib))
-        return lib;
-    SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
-    return {};
-}
+using aletheia::test::find_lib;
 
 TEST_CASE("ParsedDBC response has documented shape", "[cross_binding]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const result = client.parse_dbc(std::stop_token{}, canonical_dbc());
     REQUIRE(result.has_value());
@@ -110,8 +94,8 @@ TEST_CASE("ParsedDBC response has documented shape", "[cross_binding]") {
 
 TEST_CASE("ValidationResult response has documented shape", "[cross_binding]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const result = client.validate_dbc(std::stop_token{}, canonical_dbc());
     REQUIRE(result.has_value());
@@ -124,8 +108,8 @@ TEST_CASE("ValidationResult response has documented shape", "[cross_binding]") {
 
 TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     auto formula = ltl::always(
@@ -147,8 +131,8 @@ TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
 
 TEST_CASE("send_frame violation response has documented shape", "[cross_binding]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     auto formula = ltl::always(
@@ -187,8 +171,8 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
 // (violates at the same frame because 100 > 50).
 TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_binding]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     auto eventually_prop = ltl::eventually(
@@ -232,8 +216,8 @@ TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
     // test_canfd_brs_esi_passthrough + Go's
     // TestCrossBinding_SendFrameBrsEsiPassthrough.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
@@ -280,8 +264,8 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
 
 TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     const std::string name(aletheia::max_identifier_length, 'A');
     auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
@@ -293,8 +277,8 @@ TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
 
 TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     const std::string name(aletheia::max_identifier_length + 1, 'A');
     auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
@@ -328,8 +312,8 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
 // unsuitable for a unit-test budget.
 TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_binding]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     // 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).

@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <expected>
 #include <format>
 #include <iterator>
@@ -46,54 +45,56 @@ static auto validate_timestamp(Timestamp ts) -> Result<void> {
 // Streaming
 // ---------------------------------------------------------------------------
 
+// The diagnostics of `properties`, or the error of the first the renderer
+// cannot build.
+static auto build_diagnostics(std::span<const LtlFormula> properties)
+    -> Result<std::vector<PropertyDiagnostic>> {
+    std::vector<PropertyDiagnostic> diags;
+    for (auto const& f : properties) {
+        auto diag = build_diagnostic(f);
+        if (!diag)
+            return std::unexpected(detail::error_of(diag));
+        diags.push_back(std::move(diag).value());
+    }
+    return diags;
+}
+
 auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFormula> properties)
     -> Result<void> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("set_properties"));
-    auto const cmd = detail::serialize_set_properties(properties);
-    auto const resp = backend_->process(state_, cmd);
-    auto result = detail::parse_success(resp);
+    auto result =
+        run_command(detail::serialize_set_properties(properties)).and_then(detail::parse_success);
     if (!result.has_value())
         return result;
-    // build_diagnostic reaches format_rational_ffi which throws
-    // AletheiaException(Ffi) on missing .so; lower to Result<> to honor
-    // the documented contract (mirrors add_checks below).
-    try {
-        diags_.clear();
-        for (auto const& f : properties)
-            diags_.push_back(build_diagnostic(f));
-        cache_.clear();
-        logger_.info("properties.set", {{"count", static_cast<std::uint64_t>(properties.size())}});
-        return result;
-    } catch (const AletheiaException& e) {
-        return std::unexpected(e.error());
-    } catch (const std::exception& e) {
-        return std::unexpected(AletheiaError{ErrorKind::Ffi, e.what()});
-    }
+    // The kernel now holds these properties, so the old diagnostics and the
+    // frame cache go first; a diagnostic the renderer cannot build leaves none,
+    // as the Python client does, and its error is the answer.
+    diags_.clear();
+    cache_.clear();
+    auto diags = build_diagnostics(properties);
+    if (!diags)
+        return std::unexpected(detail::error_of(diags));
+    diags_ = std::move(diags).value();
+    logger_.info("properties.set", {{"count", static_cast<std::uint64_t>(properties.size())}});
+    return result;
 }
 
 auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> checks)
     -> Result<void> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("add_checks"));
-    try {
-        std::vector<LtlFormula> formulas;
-        auto const to_formula = [](const CheckResult& c) { return c.to_formula(); };
-        std::ranges::transform(default_checks_, std::back_inserter(formulas), to_formula);
-        std::ranges::transform(checks, std::back_inserter(formulas), to_formula);
-        return set_properties(stop, formulas);
-    } catch (const AletheiaException& e) {
-        return std::unexpected(e.error());
-    } catch (const std::exception& e) {
-        return std::unexpected(AletheiaError{ErrorKind::Validation, e.what()});
-    }
+    std::vector<LtlFormula> formulas;
+    auto const to_formula = [](const CheckResult& c) { return c.to_formula(); };
+    std::ranges::transform(default_checks_, std::back_inserter(formulas), to_formula);
+    std::ranges::transform(checks, std::back_inserter(formulas), to_formula);
+    return set_properties(stop, formulas);
 }
 
 auto AletheiaClient::start_stream(std::stop_token stop) -> Result<void> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("start_stream"));
-    auto const resp = backend_->start_stream_binary(state_);
-    auto result = detail::parse_success(resp);
+    auto result = backend_->start_stream_binary(state_).and_then(detail::parse_success);
     if (!result.has_value())
         return result;
     cache_.clear();
@@ -110,8 +111,8 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         return std::unexpected(detail::error_of(t));
     if (auto const v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(detail::error_of(v));
-    auto const resp = backend_->send_frame_binary(state_, ts, id, dlc, data, brs, esi);
-    auto result = detail::parse_frame_response(resp);
+    auto result = backend_->send_frame_binary(state_, ts, id, dlc, data, brs, esi)
+                      .and_then(detail::parse_frame_response);
     if (result.has_value()) {
         auto const id_value = can_id_value(id);
         auto const is_extended = can_id_is_extended(id);
@@ -179,8 +180,7 @@ auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<vo
         return std::unexpected(make_cancellation_error("send_error"));
     if (auto const t = validate_timestamp(ts); !t.has_value())
         return std::unexpected(detail::error_of(t));
-    auto const resp = backend_->send_error_binary(state_, ts);
-    auto r = detail::parse_event_ack(resp);
+    auto r = backend_->send_error_binary(state_, ts).and_then(detail::parse_event_ack);
     if (r.has_value()) {
         logger_.debug("error_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
                                            {"response", std::string_view{"ack"}}});
@@ -193,8 +193,7 @@ auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -
         return std::unexpected(make_cancellation_error("send_remote"));
     if (auto const t = validate_timestamp(ts); !t.has_value())
         return std::unexpected(detail::error_of(t));
-    auto const resp = backend_->send_remote_binary(state_, ts, id);
-    auto r = detail::parse_event_ack(resp);
+    auto r = backend_->send_remote_binary(state_, ts, id).and_then(detail::parse_event_ack);
     if (r.has_value()) {
         logger_.debug("remote_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
                                             {"canId", static_cast<std::uint64_t>(can_id_value(id))},
@@ -207,8 +206,7 @@ auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -
 auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("end_stream"));
-    auto const resp = backend_->end_stream_binary(state_);
-    auto result = detail::parse_stream_result(resp);
+    auto result = backend_->end_stream_binary(state_).and_then(detail::parse_stream_result);
     if (!result.has_value())
         return result;
     if (!diags_.empty())
@@ -261,36 +259,38 @@ static auto collect_matching_signals(const PropertyDiagnostic& diag,
     return values;
 }
 
+// Each observed value of `diag`'s signals as `name = value`, rendered by the
+// kernel formatℚ (the predicate threshold's renderer): exact, never a printf
+// conversion or a cast to double, and byte-identical to the other bindings; or
+// the renderer's error for the first value it cannot render.
+static auto rendered_values(const PropertyDiagnostic& diag,
+                            const std::map<SignalName, PhysicalValue>& values)
+    -> Result<std::vector<std::string>> {
+    std::vector<std::string> parts;
+    for (auto const& sig : diag.signals) {
+        if (!values.contains(sig))
+            continue;
+        auto const value = detail::format_rational(values.at(sig).get());
+        if (!value)
+            return std::unexpected(detail::error_of(value));
+        parts.push_back(std::format("{} = {}", std::string_view{sig}, value.value()));
+    }
+    return parts;
+}
+
 static auto format_enriched_reason(const PropertyDiagnostic& diag,
                                    const std::map<SignalName, PhysicalValue>& values,
                                    std::string_view core_reason) -> std::string {
-    std::string reason;
-    auto const unrendered = "violated: " + diag.formula_desc;
-    // Best-effort on the eval path: rendering the observed values needs the
-    // runtime, which is up here (the frame was processed through it) — so this
-    // is unreachable — but never sink an already-processed frame if the kernel
-    // renderer throws. Degrade to the formula description (no value rendered,
-    // no local fallback). set_properties, by contrast, propagates the throw.
-    try {
-        std::string parts;
-        bool first = true;
-        for (auto const& sig : diag.signals) {
-            if (auto const it = values.find(sig); it != values.end()) {
-                if (!first)
-                    parts += ", ";
-                // Render the observed value via the kernel formatℚ (same renderer
-                // as the predicate threshold): exact, never a printf conversion or a
-                // cast to double, and byte-identical to the other bindings.
-                parts += std::format("{} = {}", std::string_view{sig},
-                                     detail::format_rational_ffi(it->second.get().numerator(),
-                                                                 it->second.get().denominator()));
-                first = false;
-            }
-        }
-        reason = first ? unrendered : parts + " (formula: " + diag.formula_desc + ")";
-    } catch (const AletheiaException&) {
-        reason = unrendered;
-    }
+    // Best-effort on the eval path: a renderer that fails never sinks a frame
+    // the kernel processed, and the reason degrades to the formula description
+    // with no value rendered; on the kernel it cannot fail, the runtime being
+    // up. set_properties, by contrast, returns the error.
+    auto const observed = rendered_values(diag, values);
+    auto reason = !observed || observed.value().empty()
+                      ? "violated: " + diag.formula_desc
+                      : std::ranges::to<std::string>(
+                            std::views::join_with(observed.value(), std::string_view{", "})) +
+                            " (formula: " + diag.formula_desc + ")";
     if (!core_reason.empty())
         reason += " [core: " + std::string{core_reason} + "]";
     return reason;

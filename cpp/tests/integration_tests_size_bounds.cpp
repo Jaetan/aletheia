@@ -25,6 +25,9 @@
 
 #include "bounds_dbc.hpp"
 #include "find_lib.hpp"
+#include "required.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::find_lib;
 using aletheia::test::make_bit_message;
@@ -147,7 +150,7 @@ static void check_bound_refusal(const Result<T>& result, std::string_view bound_
 
 TEST_CASE("parse_dbc refuses a DBC past a size bound, naming the list that crossed it",
           "[integration][dbc][input_bounds][costly]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     struct Case {
         std::string_view context;
         std::uint64_t limit;
@@ -186,7 +189,7 @@ TEST_CASE("parse_dbc refuses a DBC past a size bound, naming the list that cross
 
 TEST_CASE("validate_dbc refuses a DBC past a size bound",
           "[integration][dbc][input_bounds][costly]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     check_bound_refusal(
         client.validate_dbc(std::stop_token{},
                             with_environment_vars(max_environment_variables_per_file + 1)),
@@ -197,7 +200,7 @@ TEST_CASE("validate_dbc refuses a DBC past a size bound",
 
 TEST_CASE("format_dbc_text refuses a DBC past a size bound rather than formatting it",
           "[integration][dbc][format][input_bounds][costly]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
 
     check_bound_refusal(
         client.format_dbc_text(std::stop_token{},
@@ -216,7 +219,7 @@ TEST_CASE("format_dbc_text refuses a DBC past a size bound rather than formattin
 
 TEST_CASE("format_dbc_text counts the nodes it derives from the senders against the node bound",
           "[integration][dbc][format][input_bounds][costly]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     // Two messages sent by ECU, each with its own senders list inside the
     // node bound; with no nodes declared, the formatter derives ECU and both
     // lists, and the derived count is past the bound.

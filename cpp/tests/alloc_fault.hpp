@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <new>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -139,6 +140,46 @@ struct SweepResult {
     auto const before = live_blocks();
     auto const points = sweep(call);
     return {.points = points, .held = live_blocks() - before};
+}
+
+// Whether failing each allocation of its own `call` makes, in turn, ends the
+// call with std::bad_alloc, the one exception the binding throws: a handler
+// that answered the exhaustion as an error would return instead. False when
+// the recording could not hold the call's allocations or the call makes none.
+template<typename Call>
+[[nodiscard]] auto every_fault_escapes(Call call) -> bool {
+    auto const recorded = own_allocations(call);
+    if (!recorded.has_value() || recorded->empty())
+        return false;
+    return std::ranges::all_of(*recorded, [&](std::int64_t nth) {
+        const Arm arm{nth};
+        try {
+            static_cast<void>(call());
+        } catch (const std::bad_alloc&) {
+            return arm.fired();
+        }
+        return false;
+    });
+}
+
+// Whether no failed allocation of its own `call` makes comes back as an
+// error: each ends the call with std::bad_alloc, or is one a library the call
+// reaches recovers from, the call then answering a value. A handler that
+// answered the exhaustion as an error returns that error instead. False when
+// the recording could not hold the call's allocations or the call makes none.
+template<typename Call>
+[[nodiscard]] auto no_fault_answered_as_an_error(Call call) -> bool {
+    auto const recorded = own_allocations(call);
+    if (!recorded.has_value() || recorded->empty())
+        return false;
+    return std::ranges::all_of(*recorded, [&](std::int64_t nth) {
+        const Arm arm{nth};
+        try {
+            return call().has_value();
+        } catch (const std::bad_alloc&) {
+            return arm.fired();
+        }
+    });
 }
 
 // Fails each allocation of `call` in turn and asserts it released everything.

@@ -10,6 +10,7 @@
 #include "test_helpers.hpp"
 
 #include "detail/mock_backend.hpp"
+#include "required.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <algorithm>
@@ -28,6 +29,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+using aletheia::test::required;
 
 using namespace aletheia;
 using aletheia::test::BinExtractMockBackend;
@@ -56,7 +59,7 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
     const Logger logger(
         [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
 
-    AletheiaClient client(std::move(mock), logger);
+    auto client = required(AletheiaClient::create(std::move(mock), logger));
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
@@ -105,7 +108,7 @@ TEST_CASE("a client with no logger runs every emit site", "[client][log]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({"status": "success"})");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
@@ -150,7 +153,7 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
     });
 
     auto mock = std::make_unique<MockBackendWithRtsMismatch>();
-    const AletheiaClient client(std::move(mock), logger);
+    const auto client = required(AletheiaClient::create(std::move(mock), logger));
 
     REQUIRE_FALSE(events.empty());
     CHECK(events[0].level == LogLevel::Warn);
@@ -283,7 +286,7 @@ static auto field(const Event& e, std::string_view key) -> T {
 // backend and logger: the state every enrichment path starts from.
 static auto streaming_client(std::unique_ptr<IBackend> backend, const Logger& logger)
     -> AletheiaClient {
-    AletheiaClient client(std::move(backend), logger);
+    auto client = required(AletheiaClient::create(std::move(backend), logger));
     std::vector<LtlFormula> props;
     props.push_back(ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
@@ -322,7 +325,7 @@ TEST_CASE("dbc.parsed carries the message count on both parse paths", "[client][
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
-    AletheiaClient client(std::move(mock), cap.logger());
+    auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
     REQUIRE(client.parse_dbc_text(std::stop_token{}, "VERSION \"\"").has_value());
@@ -337,7 +340,7 @@ TEST_CASE("properties.set carries the property count", "[client][log][fields]") 
     Capture cap;
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({"status": "success"})");
-    AletheiaClient client(std::move(mock), cap.logger());
+    auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
 
     std::vector<LtlFormula> props;
     props.push_back(ltl::always(
@@ -369,7 +372,7 @@ TEST_CASE("stream.ended counts the verdicts and warnings, and re-emits uncached 
             {"kind": "other", "property_index": 0, "detail": "not re-emitted"}
         ]
     })");
-    AletheiaClient client(std::move(mock), cap.logger());
+    auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
     std::vector<LtlFormula> props;
     for (auto const* name : {"Speed", "RPM", "Voltage"})
         props.push_back(ltl::always(
@@ -428,7 +431,7 @@ TEST_CASE("error and remote events log their timestamp and target", "[client][lo
     mock->queue_response(R"({"status": "success"})"); // start_stream
     mock->queue_response(R"({"status": "ack"})");
     mock->queue_response(R"({"status": "ack"})");
-    AletheiaClient client(std::move(mock), cap.logger());
+    auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -453,7 +456,7 @@ TEST_CASE("a remote event on an extended identifier logs the extended bit set",
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({"status": "success"})"); // start_stream
     mock->queue_response(R"({"status": "ack"})");
-    AletheiaClient client(std::move(mock), cap.logger());
+    auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto const id = CanId{ExtendedId::create(0x18FEF100).value()};
@@ -583,7 +586,7 @@ TEST_CASE("a moved client keeps its extraction cache and whether cache.full was 
 
     send_numbered_frames(client, 0, k_cache_capacity + 1);
     REQUIRE(cap.count("cache.full") == 1);
-    AletheiaClient moved{std::move(client)};
+    auto moved = std::move(client);
     send_numbered_frame(moved, k_cache_capacity + 1);
     CHECK(cap.count("cache.full") == 1);
     auto const hits = cap.count("cache.hit");
@@ -651,7 +654,7 @@ TEST_CASE("without properties, a failing verdict is not an out-of-range index",
         "status": "complete",
         "results": [{"type": "property", "status": "fails", "property_index": 0, "reason": "r"}]
     })");
-    AletheiaClient client(std::move(mock), cap.logger());
+    auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -710,7 +713,7 @@ TEST_CASE("extraction failures on the binary path are logged by kind, and a succ
         mock->queue_response(R"({"status": "success"})"); // set_properties
         mock->queue_response(R"({"status": "success"})"); // start_stream
         mock->queue_response(std::string{k_violation});
-        AletheiaClient client(std::move(mock), cap.logger());
+        auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
         REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
         std::vector<LtlFormula> props;
         props.push_back(ltl::always(
@@ -773,7 +776,7 @@ TEST_CASE("set_properties that the backend refuses logs no properties.set", "[cl
         R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
     std::vector<std::string> events;
     const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
-    AletheiaClient client(std::move(mock), logger);
+    auto client = required(AletheiaClient::create(std::move(mock), logger));
     CHECK_FALSE(
         client.set_properties(std::stop_token{}, std::span<const LtlFormula>{}).has_value());
     CHECK(std::ranges::find(events, "properties.set") == events.end());
@@ -796,7 +799,7 @@ TEST_CASE("an event the backend refuses logs no sent event", "[client][log]") {
         R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
     std::vector<std::string> events;
     const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
-    AletheiaClient client(std::move(mock), logger);
+    auto client = required(AletheiaClient::create(std::move(mock), logger));
     CHECK_FALSE(client.send_error(std::stop_token{}, Timestamp{1}).has_value());
     auto const id = CanId{StandardId::create(0x100).value()};
     CHECK_FALSE(client.send_remote(std::stop_token{}, Timestamp{2}, id).has_value());

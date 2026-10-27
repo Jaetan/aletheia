@@ -10,9 +10,11 @@
 //
 #include "loader_utils.hpp"
 
+#include <aletheia/check.hpp>
 #include <aletheia/detail/checked.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/limits.hpp>
+#include <aletheia/types.hpp>
 
 #include <algorithm>
 #include <array>
@@ -295,6 +297,23 @@ auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<
         return std::unexpected(make_input_bound_error(total.value(), ".xlsx uncompressed size",
                                                       " (ZIP-bomb defence)"));
     return {};
+}
+
+auto read_decimal(std::string_view text, const std::string& location, const std::string& key)
+    -> Rational {
+    auto const value = Rational::from_decimal(text);
+    if (value)
+        return value.value();
+    auto const& error = error_of(value);
+    if (error.kind() != ErrorKind::Validation && error.kind() != ErrorKind::InputBoundExceeded)
+        throw AletheiaException(error);
+    throw AletheiaException(error.located(location, key));
+}
+
+auto built_check(Result<CheckResult> built) -> CheckResult {
+    if (!built)
+        throw AletheiaException(error_of(built));
+    return std::move(built).value();
 }
 
 auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<void> {

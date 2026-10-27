@@ -11,6 +11,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/json.hpp"
+#include "required.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <cstdint>
@@ -18,6 +19,8 @@
 
 #include <string>
 #include <variant>
+
+using aletheia::test::required;
 
 using namespace aletheia;
 using Json = nlohmann::json;
@@ -44,7 +47,7 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
                     DbcValueEntry{.value = 1, .description = "Drive"}},
     });
 
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["signalGroups"].is_array());
@@ -68,7 +71,7 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
 
 TEST_CASE("serialize_parse_dbc emits empty arrays when metadata absent", "[json][serialize][dbc]") {
     auto const dbc = make_test_dbc();
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto j = Json::parse(str);
     REQUIRE(j["dbc"]["signalGroups"].is_array());
     CHECK(j["dbc"]["signalGroups"].empty());
@@ -325,7 +328,7 @@ static auto make_tier2_dbc() -> DbcDefinition {
 TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
           "[json][serialize][parse][dbc][tier2]") {
     auto const dbc = make_tier2_dbc();
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto const j = Json::parse(str);
 
     // Confirm wire shape: every tagged union carries "kind" first.
@@ -369,7 +372,7 @@ TEST_CASE("Tier 2 attribute bounds and values survive the parse leg, each one",
 TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
           "[json][serialize][parse][dbc][tier2]") {
     auto const dbc = make_tier2_dbc();
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto const j = Json::parse(str);
 
     // Route the serialized JSON through parse_dbc_response (wrap as success
@@ -475,7 +478,7 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     REQUIRE(dbc.messages[0].signals.size() == 1);
     dbc.messages[0].signals[0].receivers = {NodeName{"ECU_A"}, NodeName{"ECU_B"}};
 
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["messages"][0]["signals"][0]["receivers"].is_array());
@@ -527,7 +530,7 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     REQUIRE(dbc.messages.size() == 1);
     dbc.messages[0].senders = {NodeName{"ECU_B"}, NodeName{"ECU_C"}};
 
-    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const str = required(detail::serialize_parse_dbc(dbc));
     auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["messages"][0]["senders"].is_array());
@@ -650,7 +653,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     // Serialize via the parse_dbc COMMAND form — the "dbc" body shape is
     // identical to the "dbc" body shape in a parse_dbc RESPONSE, so the
     // wire shape under test is the same one the FFI emits and consumes.
-    auto const cmd_str = detail::serialize_parse_dbc(dbc);
+    auto const cmd_str = required(detail::serialize_parse_dbc(dbc));
     auto cmd_j = Json::parse(cmd_str);
     REQUIRE(cmd_j.contains("dbc"));
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].is_array());

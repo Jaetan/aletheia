@@ -137,24 +137,15 @@ static auto emit_json(const Json& j, int outcome = cli_exit_ok) -> int {
 
 // --- client / DBC loading -------------------------------------------------
 
-static auto resolve_lib() -> std::optional<std::filesystem::path> {
-    auto found = aletheia::find_ffi_library();
-    if (found.empty())
-        return std::nullopt;
-    return found;
-}
-
+// A library that is found and does not load is named a load failure; the
+// search's refusal says where to put one.
 static auto make_client() -> std::expected<AletheiaClient, std::string> {
-    auto const lib = resolve_lib();
+    auto const lib = aletheia::find_ffi_library();
     if (!lib)
-        return std::unexpected<std::string>(
-            "libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'");
-    try {
-        return AletheiaClient(aletheia::make_ffi_backend(lib.value()),
-                              aletheia::cli_logger(std::cerr));
-    } catch (const std::exception& e) {
-        return std::unexpected<std::string>(std::string{"loading FFI backend: "} + e.what());
-    }
+        return std::unexpected(aletheia::detail::error_of(lib).text());
+    return AletheiaClient::open({.library = lib.value(), .logger = aletheia::cli_logger(std::cerr)})
+        .transform_error(
+            [](const aletheia::AletheiaError& e) { return "loading FFI backend: " + e.text(); });
 }
 
 // Reads a `.dbc` text file and parses it through the verified Agda text
@@ -423,10 +414,13 @@ static auto extract_value_to_json(const aletheia::Rational& r) -> Json {
 // kernel renderer (Agda `formatℚ`): a terminating decimal (`1/4` -> "0.25") or an
 // exact fraction (`1/3` -> "1/3"), never a lossy conversion to double.  Byte-identical
 // with Go's FormatRational and Python's format_rational (same kernel FFI).  The
-// CLI always has a live client here, so the RTS is up (format_rational_ffi throws
-// only when it is not).
+// CLI always has a live client here, so the RTS is up; the renderer's error,
+// answered only while it is not, ends the command as an unexpected one.
 static auto render_rational(const aletheia::Rational& r) -> std::string {
-    return aletheia::detail::format_rational_ffi(r.numerator(), r.denominator());
+    auto text = aletheia::detail::format_rational(r);
+    if (!text)
+        throw aletheia::detail::AletheiaException(aletheia::detail::error_of(text));
+    return std::move(text).value();
 }
 
 static auto cmd_extract(const Args& a) -> int {
@@ -496,6 +490,14 @@ static void print_signal_line(std::ostream& out, const aletheia::DbcSignal& sig)
         << sig.unit.get() << '\n';
 }
 
+// The DBC's canonical JSON as the report, or the encoder's refusal.
+static auto emit_canonical_json(const DbcDefinition& dbc) -> int {
+    auto const json = aletheia::to_canonical_json(dbc);
+    if (!json)
+        return die(aletheia::detail::error_of(json).message());
+    return emit_report(json.value() + '\n', cli_exit_ok);
+}
+
 static auto cmd_signals(const Args& a) -> int {
     auto client = make_client();
     if (!client)
@@ -504,7 +506,7 @@ static auto cmd_signals(const Args& a) -> int {
     if (!def)
         return die(aletheia::detail::error_of(def).message);
     if (a.flags.contains("json"))
-        return emit_report(aletheia::to_canonical_json(def.value().dbc) + '\n', cli_exit_ok);
+        return emit_canonical_json(def.value().dbc);
     std::ostringstream out;
     std::size_t total = 0;
     for (auto const& msg : def.value().dbc.messages) {
@@ -529,7 +531,7 @@ static auto cmd_format_dbc(const Args& a) -> int {
     auto const canonical = client.value().format_dbc(std::stop_token{});
     if (!canonical)
         return die(aletheia::detail::error_of(canonical).message());
-    return emit_report(aletheia::to_canonical_json(canonical.value()) + '\n', cli_exit_ok);
+    return emit_canonical_json(canonical.value());
 }
 
 static auto resolve_mux_message(const DbcDefinition& def, const std::string& ident, bool extended)

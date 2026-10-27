@@ -10,6 +10,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 
 #include "aletheia.h"
@@ -35,7 +36,10 @@
 #include "find_lib.hpp"
 #include "integration_fixtures.hpp"
 #include "loaded_library.hpp"
+#include "required.hpp"
 #include "temp_path.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::find_lib;
 using aletheia::test::make_integration_dbc;
@@ -44,8 +48,40 @@ using namespace aletheia;
 namespace fs = std::filesystem;
 
 TEST_CASE("the FFI backend is refused a library path that is empty", "[integration]") {
-    REQUIRE_THROWS_WITH(make_ffi_backend(std::filesystem::path{}),
-                        Catch::Matchers::ContainsSubstring("library path is empty"));
+    auto const backend = make_ffi_backend(std::filesystem::path{});
+    CHECK(detail::error_of(backend).kind() == ErrorKind::Validation);
+    CHECK_THAT(detail::error_of(backend).text(),
+               Catch::Matchers::ContainsSubstring("library path is empty"));
+}
+
+TEST_CASE("open builds a client over the library it names with every option it is given",
+          "[integration]") {
+    // The runtime runs on one core, so a count of two is answered as the
+    // mismatch, logged through the logger given; the default check is the one
+    // property a stream given no further check holds.
+    { auto const first = required(make_ffi_backend(find_lib())); }
+    std::vector<std::string> events;
+    const Logger logger([&events](const LogRecord& r) { events.emplace_back(r.event); });
+    std::vector<CheckResult> defaults;
+    defaults.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
+    auto client = required(AletheiaClient::open({.library = find_lib(),
+                                                 .rts_cores = 2,
+                                                 .logger = logger,
+                                                 .default_checks = std::move(defaults)}));
+    CHECK(std::ranges::count(events, std::string{"rts.cores_mismatch"}) == 1);
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+    REQUIRE(client.add_checks(std::stop_token{}, {}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+    auto const ended = client.end_stream(std::stop_token{});
+    REQUIRE(ended.has_value());
+    CHECK(ended->results.size() == 1);
+}
+
+TEST_CASE("open answers the refusal of a library that does not open", "[integration]") {
+    auto const client =
+        AletheiaClient::open({.library = "/nonexistent/aletheia/libaletheia-ffi.so"});
+    CHECK(detail::error_of(client).kind() == ErrorKind::Ffi);
+    CHECK_THAT(detail::error_of(client).text(), Catch::Matchers::StartsWith("dlopen failed: "));
 }
 
 // A payload whose length is not its DLC's is refused on the backend's own
@@ -53,8 +89,8 @@ TEST_CASE("the FFI backend is refused a library path that is empty", "[integrati
 // payload, so only the exact rule refuses them, one from below and one from
 // above.
 TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", "[integration]") {
-    auto const backend = make_ffi_backend(find_lib());
-    auto const state = backend->init();
+    auto const backend = required(make_ffi_backend(find_lib()));
+    auto const state = required(backend->init());
     auto const id = CanId{StandardId::create(0x100).value()};
     const std::vector<std::uint32_t> indices{0};
     const std::vector<std::int64_t> ones{1};
@@ -65,27 +101,16 @@ TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", 
         CHECK(error.message() ==
               std::format("payload length {} does not match DLC 8 (expected 8 bytes)", length));
     };
-    auto const thrown = [](auto&& call) -> std::optional<AletheiaError> {
-        try {
-            static_cast<void>(call());
-        } catch (const AletheiaException& e) {
-            return e.error();
-        }
-        return std::nullopt;
-    };
     for (auto const length : {std::size_t{7}, std::size_t{20}}) {
         INFO("a payload of " << length << " bytes");
         const std::vector<std::byte> data(length, std::byte{0});
-        auto const sent = thrown([&] {
-            return backend->send_frame_binary(state, Timestamp{0}, id, dlc8, data, std::nullopt,
-                                              std::nullopt);
-        });
-        REQUIRE(sent.has_value());
-        refused(*sent, length);
-        auto const extracted_json =
-            thrown([&] { return backend->extract_signals_binary(state, id, dlc8, data); });
-        REQUIRE(extracted_json.has_value());
-        refused(*extracted_json, length);
+        auto const sent = backend->send_frame_binary(state, Timestamp{0}, id, dlc8, data,
+                                                     std::nullopt, std::nullopt);
+        REQUIRE_FALSE(sent.has_value());
+        refused(sent.error(), length);
+        auto const extracted_json = backend->extract_signals_binary(state, id, dlc8, data);
+        REQUIRE_FALSE(extracted_json.has_value());
+        refused(extracted_json.error(), length);
         auto const updated = backend->update_frame_bin(state, id, dlc8, data, injection, 8);
         REQUIRE_FALSE(updated.has_value());
         refused(updated.error(), length);
@@ -95,13 +120,10 @@ TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", 
     }
     // The exact length passes the guard to the kernel, which answers.
     const std::vector<std::byte> data8(8, std::byte{0});
-    CHECK_FALSE(thrown([&] {
-                    return backend->send_frame_binary(state, Timestamp{0}, id, dlc8, data8,
-                                                      std::nullopt, std::nullopt);
-                }).has_value());
-    CHECK_FALSE(thrown([&] {
-                    return backend->extract_signals_binary(state, id, dlc8, data8);
-                }).has_value());
+    CHECK(
+        backend->send_frame_binary(state, Timestamp{0}, id, dlc8, data8, std::nullopt, std::nullopt)
+            .has_value());
+    CHECK(backend->extract_signals_binary(state, id, dlc8, data8).has_value());
     auto const updated = backend->update_frame_bin(state, id, dlc8, data8, injection, 8);
     REQUIRE_FALSE(updated.has_value());
     CHECK(updated.error().code() == ErrorCode::HandlerNoDbc);
@@ -114,8 +136,8 @@ TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", 
 // client would never make, a command past the JSON cap or a message the DBC
 // lacks, is a legitimate call on that interface and not a fabricated state.
 TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]") {
-    auto const backend = make_ffi_backend(find_lib());
-    auto const state = backend->init();
+    auto const backend = required(make_ffi_backend(find_lib()));
+    auto const state = required(backend->init());
     // No DBC is loaded, so every binary endpoint the kernel reaches refuses.
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(15).value();
@@ -126,7 +148,7 @@ TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]
 
     SECTION("a command past the JSON cap is refused before the kernel sees it") {
         const std::string past_cap(max_json_bytes + 1, 'x');
-        auto const answer = backend->process(state, past_cap);
+        auto const answer = required(backend->process(state, past_cap));
         CHECK(answer.contains(R"("code":"input_bound_exceeded")"));
         CHECK(answer.contains(R"("observed":67108865)"));
     }
@@ -156,8 +178,8 @@ TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]
 // entry the way the backend does, through the library's own symbol.
 TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[integration]") {
     auto const lib = find_lib();
-    auto const backend = make_ffi_backend(lib);
-    auto const state = backend->init();
+    auto const backend = required(make_ffi_backend(lib));
+    auto const state = required(backend->init());
     const aletheia::test::LoadedLibrary handle{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     REQUIRE(handle != nullptr);
     using BuildFn = decltype(&aletheia_build_frame_bin);
@@ -229,8 +251,8 @@ private:
 // names the first such signal instead.
 TEST_CASE("a frame built at a DLC the message outgrows is refused", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -253,7 +275,7 @@ TEST_CASE("a frame built at a DLC the message outgrows is refused", "[integratio
 // longer than any buffer a wrong size could still cover: sixty-four bytes come
 // back from both the build and the update.
 TEST_CASE("a CAN-FD frame is built and updated at its full length", "[integration]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -273,15 +295,15 @@ TEST_CASE("a CAN-FD frame is built and updated at its full length", "[integratio
 // frame before writing into it, and hands back how much it wrote into one
 // longer than the frame, which the backend trims the result to.
 TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[integration]") {
-    auto const backend = make_ffi_backend(find_lib());
-    auto const state = backend->init();
-    REQUIRE(backend
-                ->process(state, R"({"type":"command","command":"parseDBC","dbc":{)"
-                                 R"("version":"1.0","messages":[{"id":256,"name":"M","dlc":8,)"
-                                 R"("sender":"ECU","signals":[{"name":"Speed","startBit":0,)"
-                                 R"("length":16,"byteOrder":"little_endian","signed":false,)"
-                                 R"("factor":1,"offset":0,"minimum":0,"maximum":65535,)"
-                                 R"("unit":"","presence":"always","receivers":[]}]}]}})")
+    auto const backend = required(make_ffi_backend(find_lib()));
+    auto const state = required(backend->init());
+    REQUIRE(required(backend->process(state,
+                                      R"({"type":"command","command":"parseDBC","dbc":{)"
+                                      R"("version":"1.0","messages":[{"id":256,"name":"M","dlc":8,)"
+                                      R"("sender":"ECU","signals":[{"name":"Speed","startBit":0,)"
+                                      R"("length":16,"byteOrder":"little_endian","signed":false,)"
+                                      R"("factor":1,"offset":0,"minimum":0,"maximum":65535,)"
+                                      R"("unit":"","presence":"always","receivers":[]}]}]}})"))
                 .contains(R"("status": "success")"));
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -322,7 +344,7 @@ TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[int
 // this reads it directly, which is the only test in this binary that renders
 // through a library the search had to find.
 TEST_CASE("the kernel renders a rational exactly", "[integration]") {
-    auto const backend = make_ffi_backend(find_lib()); // brings the runtime up
+    auto const backend = required(make_ffi_backend(find_lib())); // brings the runtime up
     CHECK(detail::format_rational_ffi(1, 2) == "0.5");
     CHECK(detail::format_rational_ffi(85, 2) == "42.5");
     CHECK(detail::format_rational_ffi(1, 3) == "1/3");
@@ -334,16 +356,15 @@ TEST_CASE("the kernel renders a rational exactly", "[integration]") {
 // keeps a renderer in a process that moved elsewhere on the backend's library.
 TEST_CASE("the library the first backend loaded is found from anywhere", "[integration]") {
     auto const lib = find_lib();
-    auto const backend = make_ffi_backend(lib);
+    auto const backend = required(make_ffi_backend(lib));
     const HiddenSearchRoutes hidden;
-    auto const found = find_ffi_library();
-    REQUIRE_FALSE(found.empty());
+    auto const found = required(find_ffi_library());
     CHECK(fs::equivalent(found, lib));
 }
 
 TEST_CASE("update then extract round-trip via real FFI", "[integration]") {
-    auto backend = make_ffi_backend(find_lib());
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(std::move(backend)));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -370,8 +391,8 @@ TEST_CASE("update then extract round-trip via real FFI", "[integration]") {
 
 TEST_CASE("build frame via real FFI", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
@@ -393,8 +414,8 @@ TEST_CASE("build frame via real FFI", "[integration]") {
 
 TEST_CASE("build then extract round-trip on an extended CAN ID via real FFI", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // The same message under a 29-bit identifier: the extended bit crosses the
     // wire on every binary call, and the kernel keys its message table on it.
@@ -419,8 +440,8 @@ TEST_CASE("build then extract round-trip on an extended CAN ID via real FFI", "[
 
 TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
@@ -439,8 +460,8 @@ TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[in
 
 TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
@@ -466,7 +487,7 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
 // updating a frame both refuse it, each refusal under its own code.
 TEST_CASE("a value outside the signal's declared range is refused on build and update",
           "[integration]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -501,7 +522,7 @@ TEST_CASE("a value outside the signal's declared range is refused on build and u
 }
 
 TEST_CASE("the declared bounds are written exactly on build and update", "[integration]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -526,7 +547,7 @@ TEST_CASE("the declared bounds are written exactly on build and update", "[integ
 // writes to one bit only the later would remain, so a build and an update
 // both refuse them.
 TEST_CASE("two signals sharing a bit are refused on build and update", "[integration]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     REQUIRE(client
                 .parse_dbc_text(std::stop_token{},
                                 "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n"
@@ -555,7 +576,7 @@ TEST_CASE("two signals sharing a bit are refused on build and update", "[integra
 }
 
 TEST_CASE("a value no raw value scales to is refused on build and update", "[integration]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -594,8 +615,8 @@ TEST_CASE("FFI payload guards accept a payload of its DLC's length, 64 bytes inc
     // no-defense-removal rule the guard stays: this is the complement that
     // proves it accepts the legal length, at the largest DLC.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     const std::vector<std::byte> data64(64, std::byte{0});
@@ -608,18 +629,13 @@ TEST_CASE("FFI payload guards accept a payload of its DLC's length, 64 bytes inc
     auto const mentions_mismatch = [](std::string_view msg) {
         return msg.contains("does not match DLC");
     };
-    // A 64-byte call at DLC 15 must NOT produce the guard's error, whether
-    // the guard reports by throwing or by returning std::unexpected.  The
+    // A 64-byte call at DLC 15 must NOT produce the guard's error.  The
     // original passes the guard (any other outcome is fine); a mutant
     // rejecting the exact length fails the check.
     auto const accepts_64 = [&](auto&& call) {
-        try {
-            auto const result = call();
-            if (!result.has_value())
-                CHECK_FALSE(mentions_mismatch(result.error().message()));
-        } catch (const AletheiaException& e) {
-            CHECK_FALSE(mentions_mismatch(e.what()));
-        }
+        auto const result = call();
+        if (!result.has_value())
+            CHECK_FALSE(mentions_mismatch(result.error().message()));
     };
 
     REQUIRE(client.start_stream(std::stop_token{}).has_value());

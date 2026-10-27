@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // Excel loader tests.
 // Tests Excel check and DBC parsing with programmatically-created workbooks.
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <variant>
 
 #include "excel_workbooks.hpp"
@@ -106,6 +108,48 @@ TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
     REQUIRE(result->size() == 1);
     CHECK(format_formula((*result)[0].to_formula()) ==
           "always(not(BrakePedal > 50) or eventually within 100ms (BrakeLight = 1))");
+}
+
+TEST_CASE("excel: a negative Within (ms) is the bound's own refusal", "[excel][when-then]") {
+    const TempPath tf("excel_wt_negative_within.xlsx");
+    make_wt_workbook(tf.path, {{"", "BrakePedal", "exceeds", "50", "BrakeLight", "equals", "1", "",
+                                "", "-1", ""}});
+    auto const result = load_checks_from_excel(tf.path);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK(result.error().text() == "time must be non-negative");
+}
+
+TEST_CASE("excel: a range whose Min is above its Max is the builder's refusal", "[excel]") {
+    const TempPath checks("excel_inverted_range_checks.xlsx");
+    make_checks_workbook(checks.path, {{"", "Speed", "stays_between", "", "5", "1", "", ""}});
+    const TempPath settles("excel_inverted_range_settles.xlsx");
+    make_checks_workbook(settles.path, {{"", "Speed", "settles_between", "", "5", "1", "100", ""}});
+    const TempPath then("excel_inverted_range_then.xlsx");
+    make_wt_workbook(then.path, {{"", "BrakePedal", "exceeds", "50", "Speed", "stays_between", "",
+                                  "5", "1", "100", ""}});
+    for (auto const& [path, message] :
+         {std::pair{&checks.path, "stays_between: lo (5) must be <= hi (1)"},
+          std::pair{&settles.path, "settles_between: lo (5) must be <= hi (1)"},
+          std::pair{&then.path, "then stays_between: lo (5) must be <= hi (1)"}}) {
+        INFO(message);
+        auto const result = load_checks_from_excel(*path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error().kind() == ErrorKind::Validation);
+        CHECK(result.error().text() == message);
+    }
+}
+
+TEST_CASE("excel: a template path that cannot be looked at is refused, not thrown",
+          "[excel][template]") {
+    // A leaf longer than any name: looking at it fails with something other
+    // than absence, so it is not taken to exist, and the write that follows
+    // answers, as in Go and Rust.
+    auto const leaf = std::string(300, 'x') + ".xlsx";
+    auto const result = create_excel_template(aletheia::test::scratch_dir() / leaf);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(result.error().text(), !ContainsSubstring("File already exists"));
 }
 
 TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {

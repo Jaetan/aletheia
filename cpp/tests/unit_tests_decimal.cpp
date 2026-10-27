@@ -28,7 +28,6 @@
 #include <array>
 #include <cstdint>
 #include <format>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -107,61 +106,58 @@ constexpr std::array<BoundRefusal, 3> k_bound_refusals{{
 
 constexpr std::uint64_t k_magnitude_limit = 9223372036854775807ULL;
 
+// The error from_decimal returned for `input`, each caller's section naming the
+// input; the test fails where it returned a rational.
+static auto refusal_of(std::string_view input) -> AletheiaError {
+    auto const parsed = Rational::from_decimal(input);
+    REQUIRE_FALSE(parsed.has_value());
+    return parsed.error();
+}
+
 // Run from_decimal and assert the kernel refused the literal's grammar: a
-// Validation-kinded AletheiaException carrying the kernel's code and the
-// position its message names.
+// Validation-kinded error carrying the kernel's code and the position its
+// message names.
 static void expect_grammar_refusal(const GrammarRefusal& c) {
-    try {
-        static_cast<void>(Rational::from_decimal(c.input));
-        FAIL("expected Rational::from_decimal to throw for input: " << c.input);
-    } catch (const AletheiaException& e) {
-        CHECK(e.kind() == ErrorKind::Validation);
-        CHECK(e.code() == c.code);
-        CHECK_THAT(std::string{e.what()},
-                   ContainsSubstring(std::format("parse failed at line 1, column {}", c.column)));
-    }
+    auto const e = refusal_of(c.input);
+    CHECK(e.kind() == ErrorKind::Validation);
+    CHECK(e.code() == c.code);
+    CHECK_THAT(e.text(),
+               ContainsSubstring(std::format("parse failed at line 1, column {}", c.column)));
 }
 
 // Run from_decimal and assert the kernel refused a component's magnitude: an
-// InputBoundExceeded AletheiaException whose bound_info names the decimal field,
-// the magnitude bound kind, the limit and the magnitude measured.
+// InputBoundExceeded error whose bound_info names the decimal field, the
+// magnitude bound kind, the limit and the magnitude measured.
 static void expect_bound_refusal(const BoundRefusal& c) {
-    try {
-        static_cast<void>(Rational::from_decimal(c.input));
-        FAIL("expected Rational::from_decimal to throw for input: " << c.input);
-    } catch (const AletheiaException& e) {
-        CHECK(e.kind() == ErrorKind::InputBoundExceeded);
-        CHECK(e.code() == ErrorCode::InputBoundExceeded);
-        auto const& info = e.error().bound_info();
-        REQUIRE(info.has_value());
-        CHECK(info->bound_kind == bound_kind_rational_component_magnitude);
-        CHECK(info->observed == c.observed);
-        CHECK(info->limit == k_magnitude_limit);
-        REQUIRE(info->field.has_value());
-        CHECK(*info->field == "decimal");
-    }
+    auto const e = refusal_of(c.input);
+    CHECK(e.kind() == ErrorKind::InputBoundExceeded);
+    CHECK(e.code() == ErrorCode::InputBoundExceeded);
+    auto const& info = e.bound_info();
+    REQUIRE(info.has_value());
+    CHECK(info->bound_kind == bound_kind_rational_component_magnitude);
+    CHECK(info->observed == c.observed);
+    CHECK(info->limit == k_magnitude_limit);
+    REQUIRE(info->field.has_value());
+    CHECK(*info->field == "decimal");
 }
 
 // Run from_decimal and assert the shim refused the text before the kernel saw
-// it: a Validation-kinded AletheiaException with the code FfiValidationError and
-// the shim's message.
+// it: a Validation-kinded error with the code FfiValidationError and the shim's
+// message.
 static void expect_shim_refusal(std::string_view input, std::string_view message) {
-    try {
-        static_cast<void>(Rational::from_decimal(input));
-        FAIL("expected Rational::from_decimal to throw for input: " << input);
-    } catch (const AletheiaException& e) {
-        CHECK(e.kind() == ErrorKind::Validation);
-        CHECK(e.code() == ErrorCode::FfiValidationError);
-        CHECK(std::string_view{e.what()} == message);
-    }
+    auto const e = refusal_of(input);
+    CHECK(e.kind() == ErrorKind::Validation);
+    CHECK(e.code() == ErrorCode::FfiValidationError);
+    CHECK(e.text() == message);
 }
 
 TEST_CASE("Rational::from_decimal parses valid decimals to exact rationals", "[types][decimal]") {
     for (auto const& c : k_success_cases) {
         DYNAMIC_SECTION("input=" << c.input) {
             auto const r = Rational::from_decimal(c.input);
-            CHECK(r.numerator() == c.numerator);
-            CHECK(r.denominator() == c.denominator);
+            REQUIRE(r.has_value());
+            CHECK(r->numerator() == c.numerator);
+            CHECK(r->denominator() == c.denominator);
         }
     }
 }
@@ -201,9 +197,9 @@ TEST_CASE("Rational ctor/make reject out-of-int64-range integral inputs", "[type
     // must be rejected before the narrowing cast rather than wrapping silently.
     constexpr std::uint64_t too_big = std::uint64_t{1} << 63U;
 
-    SECTION("the constructor throws") {
-        REQUIRE_THROWS_AS(Rational(too_big, std::uint64_t{1}), std::invalid_argument);
-        REQUIRE_THROWS_AS(Rational(std::uint64_t{1}, too_big), std::invalid_argument);
+    SECTION("the constructor does not compile") {
+        STATIC_REQUIRE_FALSE(aletheia::detail::RationalLiteral<too_big, std::uint64_t{1}>);
+        STATIC_REQUIRE_FALSE(aletheia::detail::RationalLiteral<std::uint64_t{1}, too_big>);
     }
     SECTION("make returns an error instead of a wrapped value") {
         REQUIRE_FALSE(Rational::make(too_big, std::uint64_t{1}).has_value());

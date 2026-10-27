@@ -52,30 +52,19 @@ static auto get_str(const YAML::Node& node, const std::string& key, const std::s
     return child.as<std::string>();
 }
 
-// Read a numeric scalar as an exact Rational through the kernel's decimal
-// grammar (`Rational::from_decimal`), so no float ever materialises. yaml-cpp
-// hands every scalar as its text, tag and quotes aside, so the kernel reads the
-// number as the document spells it: `11.5`, `!!float 11.5` and `"11.5"` are each
-// 23/2, and `0x1F` or `1e3` is the kernel's refusal rather than a value a YAML
-// resolver chose. The runtime must be up (`start_runtime` or a backend). A refusal of the
-// literal, a Validation error with the kernel's or the shared library's code or
-// the typed bound error, keeps its kind, code and fields and is located at the
-// check and the key, because the kernel knows the literal and not where the
-// document holds it; a runtime, library or wire fault keeps its own kind all the
-// way out of the loader. An absent key and a node that is not a scalar are the
-// loader's own refusal, naming `expected` as what it reads.
+// Read a numeric scalar as an exact Rational through `detail::read_decimal`,
+// located at the check and the key. yaml-cpp hands every scalar as its text,
+// tag and quotes aside, so the kernel reads the number as the document spells
+// it: `11.5`, `!!float 11.5` and `"11.5"` are each 23/2, and `0x1F` or `1e3` is
+// the kernel's refusal rather than a value a YAML resolver chose. The runtime
+// must be up (`start_runtime` or a backend). An absent key and a node that is
+// not a scalar are the loader's own refusal, naming `expected` as what it reads.
 static auto get_decimal(const YAML::Node& node, const std::string& key, const std::string& ctx,
                         std::string_view expected = "number") -> Rational {
     auto const child = require_child(node, key, ctx, expected);
     if (!child.IsScalar())
         throw missing_or_invalid(ctx, key, expected);
-    try {
-        return Rational::from_decimal(child.as<std::string>());
-    } catch (const AletheiaException& ex) {
-        if (ex.kind() != ErrorKind::Validation && ex.kind() != ErrorKind::InputBoundExceeded)
-            throw;
-        throw AletheiaException(ex.error().located(ctx, key));
-    }
+    return detail::read_decimal(child.as<std::string>(), ctx, key);
 }
 
 // Read `within_ms`, a check's bound in milliseconds, as get_decimal reads a
@@ -92,11 +81,9 @@ static auto get_within_ms(const YAML::Node& node, const std::string& ctx)
         throw std::runtime_error(ctx + ": 'within_ms' must be non-negative, got " +
                                  node["within_ms"].as<std::string>());
     auto const ms = std::chrono::milliseconds{value.numerator()};
-    try {
-        static_cast<void>(detail::checked_ms_to_us(ms));
-    } catch (const std::invalid_argument& ex) {
-        throw std::runtime_error(ctx + ": invalid 'within_ms': " + ex.what());
-    }
+    if (auto const us = detail::checked_ms_to_us(ms); !us)
+        throw std::runtime_error(
+            ctx + ": invalid 'within_ms': " + std::string{detail::error_of(us).message()});
     return ms;
 }
 
@@ -148,7 +135,7 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
                                      "' requires 'min' and 'max'");
         auto const lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
         auto const hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
-        return check::signal(signal).stays_between(lo, hi);
+        return detail::built_check(check::signal(signal).stays_between(lo, hi));
     }
 
     if (detail::is_simple_settles_condition(condition)) {
@@ -161,7 +148,7 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
         auto const lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
         auto const hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
         auto const ms = get_within_ms(entry, ctx(name));
-        return check::signal(signal).settles_between(lo, hi).within(ms);
+        return detail::built_check(check::signal(signal).settles_between(lo, hi).within(ms));
     }
 
     // equals
@@ -272,7 +259,7 @@ static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<Chec
                 AletheiaError{ErrorKind::Validation, "Each check must be a YAML mapping"});
         try {
             results.push_back(parse_check(entry));
-        } catch (const AletheiaException& ex) {
+        } catch (const detail::AletheiaException& ex) {
             // A refused number, located, or a runtime failure keeps the error
             // as thrown; any other defect of the document is a Validation one.
             return std::unexpected(ex.error());

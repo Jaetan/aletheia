@@ -23,6 +23,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <generator>
 #include <map>
@@ -39,6 +40,17 @@
 #include <vector>
 
 namespace aletheia {
+
+// What `AletheiaClient::open` opens; each field may be left out. An empty
+// `library` is the one `find_ffi_library()` finds, no `rts_cores` asks for the
+// count running (1 when nothing runs), and the logger and the default checks
+// are `AletheiaClient::create`'s.
+struct ClientOptions {
+    std::filesystem::path library;
+    std::optional<int> rts_cores;
+    Logger logger;
+    std::vector<CheckResult> default_checks;
+};
 
 // Thread safety: each AletheiaClient owns independent backend state (a separate
 // StablePtr<IORef StreamState> on the Haskell side). Multiple clients may operate
@@ -87,8 +99,15 @@ public:
     ///                 shape as the per-call argument to `add_checks`;
     ///                 useful when the client is constructed with a fixed
     ///                 ruleset and `add_checks` is called repeatedly.
-    explicit AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger = {},
-                            std::vector<CheckResult> default_checks = {});
+    /// Answers the error of the backend's `init()`, or kind Ffi when it hands
+    /// out no state.
+    [[nodiscard]] static auto create(std::unique_ptr<IBackend> backend, Logger logger = {},
+                                     std::vector<CheckResult> default_checks = {})
+        -> Result<AletheiaClient>;
+    /// A client over the kernel library in one call: `make_ffi_backend` on the
+    /// library `options` names, then `create` over it, each refusal theirs. No
+    /// library given and none found is refused with kind Ffi.
+    [[nodiscard]] static auto open(ClientOptions options = {}) -> Result<AletheiaClient>;
     ~AletheiaClient();
 
     AletheiaClient(const AletheiaClient&) = delete;
@@ -232,6 +251,14 @@ public:
     [[nodiscard]] auto end_stream(std::stop_token stop) -> Result<StreamResult>;
 
 private:
+    AletheiaClient(std::unique_ptr<IBackend> backend, BackendState state, Logger logger,
+                   std::vector<CheckResult> default_checks);
+
+    // The kernel's answer to a serialized command, or the error that kept the
+    // command from being built or answered: the step every JSON-command method
+    // shares.
+    auto run_command(const Result<std::string>& command) -> Result<std::string>;
+
     // Signal-to-index resolution for binary FFI build/update paths.
     struct ResolvedSignals {
         std::vector<std::uint32_t> indices;

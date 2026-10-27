@@ -13,9 +13,9 @@
 // (--order decl).
 
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers.hpp>
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 
 #include <filesystem>
@@ -23,24 +23,31 @@
 #include <string>
 #include <utility>
 
+#include "required.hpp"
+
+using aletheia::test::required;
+
 TEST_CASE("a count outside one to the CPUs the runtime counts is refused, naming the bound",
           "[runtime]") {
     const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
     for (auto const cores : {0, 5}) {
         auto const refusal = "core count " + std::to_string(cores) +
                              " is outside 1 to 4, the CPUs this process may use";
-        CHECK_THROWS_WITH(aletheia::start_runtime(stand_in, cores), refusal);
-        CHECK_THROWS_WITH(aletheia::make_ffi_backend(stand_in, cores), refusal);
+        CHECK(aletheia::detail::error_of(aletheia::start_runtime(stand_in, cores)).text() ==
+              refusal);
+        CHECK(aletheia::detail::error_of(aletheia::make_ffi_backend(stand_in, cores)).text() ==
+              refusal);
     }
     CHECK(aletheia::allocated_bytes() == std::nullopt);
 }
 
 TEST_CASE("a start's count is the running one for every later start and backend", "[runtime]") {
     const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
-    CHECK_FALSE(aletheia::start_runtime(stand_in, 2).has_value());
-    CHECK_FALSE(aletheia::make_ffi_backend(stand_in)->rts_mismatch_info().has_value());
-    CHECK(aletheia::make_ffi_backend(stand_in, 1)->rts_mismatch_info() ==
+    CHECK(aletheia::start_runtime(stand_in, 2) == std::nullopt);
+    CHECK_FALSE(required(aletheia::make_ffi_backend(stand_in))->rts_mismatch_info().has_value());
+    CHECK(required(aletheia::make_ffi_backend(stand_in, 1))->rts_mismatch_info() ==
           std::optional<std::pair<int, int>>{{2, 1}});
-    CHECK(aletheia::start_runtime(stand_in, 4) == std::optional<std::pair<int, int>>{{2, 4}});
+    CHECK(required(aletheia::start_runtime(stand_in, 4)) ==
+          std::optional<std::pair<int, int>>{{2, 4}});
     CHECK(aletheia::detail::format_rational_ffi(1, 2) == "1/2");
 }

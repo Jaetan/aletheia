@@ -36,15 +36,18 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <cstdlib>
 #include <filesystem>
 #include <stop_token>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "find_lib.hpp"
 #include "repo_root.hpp"
+#include "required.hpp"
 #include "text_file.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::repo_root;
 
@@ -53,23 +56,7 @@ using aletheia::test::read_text_file;
 using namespace aletheia;
 namespace fs = std::filesystem;
 
-static auto find_lib() -> fs::path {
-    // An empty or stale ALETHEIA_LIB must not shadow a library that is present,
-    // else a missing file becomes a construction failure rather than the skip.
-    if (auto* env = std::getenv("ALETHEIA_LIB")) {
-        if (const fs::path p{env}; !p.empty() && fs::exists(p))
-            return p;
-    }
-    auto const project_root = repo_root();
-    auto lib = project_root / "build" / "libaletheia-ffi.so";
-    if (fs::exists(lib))
-        return lib;
-    auto dist = project_root / "dist" / "aletheia" / "lib" / "libaletheia-ffi.so";
-    if (fs::exists(dist))
-        return dist;
-    SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
-    return {};
-}
+using aletheia::test::find_lib;
 
 static auto corpus_dir() -> fs::path {
     return repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus";
@@ -90,8 +77,8 @@ static auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
 TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",
           "[integration][parity][dbc]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const dir = corpus_dir();
     auto const parity_dir = dir / "parity_snapshots";

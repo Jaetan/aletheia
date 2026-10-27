@@ -8,6 +8,7 @@
 
 #include <aletheia/error.hpp>
 
+#include <expected>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -25,11 +26,11 @@ auto rts_initialized() -> bool {
     return s.initialized;
 }
 
-auto started_entries(std::string_view reading) -> RuntimeEntries {
+auto started_entries(std::string_view reading) -> Result<RuntimeEntries> {
     auto& s = rts_init_state();
     const std::scoped_lock lk{s.mu};
     if (!s.initialized)
-        throw AletheiaException(AletheiaError{
+        return std::unexpected(AletheiaError{
             ErrorKind::Ffi,
             "GHC runtime not initialized: call aletheia::start_runtime or open a client before " +
                 std::string{reading}});

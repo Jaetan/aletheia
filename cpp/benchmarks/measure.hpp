@@ -18,6 +18,7 @@
 #include <ratio>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace aletheia::bench {
@@ -27,6 +28,14 @@ template<typename T>
 void require(const Result<T>& result, std::string_view step) {
     if (!result)
         throw std::runtime_error(std::format("{} failed: {}", step, result.error().message()));
+}
+
+// The value a setup call returned, or its error's text thrown.
+template<typename T>
+auto value_or_throw(Result<T> result) -> T {
+    if (!result)
+        throw std::runtime_error(result.error().text());
+    return std::move(result).value();
 }
 
 // Operations per second over `count` calls of op(i), i counting from zero,

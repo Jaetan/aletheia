@@ -15,6 +15,7 @@
 #include "benchmark_throughput.hpp"
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 
 #include <cstddef>
 #include <nlohmann/json.hpp>
@@ -54,12 +55,11 @@ namespace fs = std::filesystem;
 // the client under test would be measuring something else.
 static auto find_lib() -> fs::path {
     auto found = aletheia::find_ffi_library();
-    if (found.empty()) {
-        std::println(stderr, "ERROR: libaletheia-ffi.so not found.\n"
-                             "Set ALETHEIA_LIB or run 'cabal run shake -- build'.");
+    if (!found) {
+        std::println(stderr, "ERROR: {}", aletheia::detail::error_of(found).text());
         std::exit(1);
     }
-    return found;
+    return std::move(found).value();
 }
 
 // ---------------------------------------------------------------------------

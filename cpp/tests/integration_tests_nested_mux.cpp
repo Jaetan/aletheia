@@ -18,6 +18,9 @@
 
 #include "find_lib.hpp"
 #include "integration_fixtures.hpp"
+#include "required.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::find_lib;
 using aletheia::test::has_warning;
@@ -109,8 +112,8 @@ static auto contains_signal(const std::vector<SignalName>& names, std::string_vi
 
 TEST_CASE("nested mux DBC validates without errors via real FFI", "[integration][nested_mux]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // No error-class issue blocks the nested-mux shape; the validator's
     // warning-class round-trip mirror does flag it (a nested multiplexor
@@ -124,8 +127,8 @@ TEST_CASE("nested mux DBC validates without errors via real FFI", "[integration]
 
 TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integration][nested_mux]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
@@ -146,8 +149,8 @@ TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integratio
 
 TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integration][nested_mux]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
@@ -169,8 +172,8 @@ TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integrat
 TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
           "[integration][nested_mux]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
@@ -191,8 +194,8 @@ TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
 
 TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_mux]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // Two signals A and B that mutually multiplex on each other → cycle.
     auto const sid = StandardId::create(0x301).value();

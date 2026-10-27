@@ -391,7 +391,7 @@ target_link_libraries(aletheia-cpp
         $<BUILD_INTERFACE:OpenXLSX::OpenXLSX>)
 
 set_target_properties(aletheia-cpp PROPERTIES
-    SOVERSION 2
+    SOVERSION 3
     VERSION ${PROJECT_VERSION})
 
 # Namespaced alias so a downstream add_subdirectory() consumer links
@@ -503,6 +503,19 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(static_tests PRIVATE aletheia-cpp)
     add_test(NAME static_tests COMMAND static_tests)
 
+    # A Rational built from values known only at run time does not compile,
+    # the two-argument constructor being consteval: the test passes on the
+    # compiler's refusal of that call and fails when the source compiles. The
+    # compiler is run on the source directly, so it has no target and no entry
+    # in the compile database the lint reads, and the lint's coverage gate
+    # leaves tests/compile_fail out.
+    add_test(NAME rational_runtime_refused
+             COMMAND ${CMAKE_CXX_COMPILER} ${CMAKE_CXX23_EXTENSION_COMPILE_OPTION} -fsyntax-only
+                     -I${CMAKE_CURRENT_SOURCE_DIR}/include
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/compile_fail/rational_runtime.cpp)
+    set_tests_properties(rational_runtime_refused PROPERTIES PASS_REGULAR_EXPRESSION
+        "call to consteval function 'aletheia::Rational::Rational<int, int>' is not a constant")
+
     find_package(Threads REQUIRED)
 
     # Unit tests (mock backend, Catch2). Split across multiple
@@ -608,6 +621,20 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_compile_definitions(unit_tests PRIVATE
         ALETHEIA_TEST_STALE_ABI_KERNEL="${ALETHEIA_STAND_IN_DIR}/stale_abi_kernel.so"
         ALETHEIA_TEST_ABI_ONLY_LIB="${ALETHEIA_STAND_IN_DIR}/abi_only_kernel.so")
+    # The two stand-ins lacking an entry, asked for a start and a backend in a
+    # child process of the unit tests: a check that let a null entry through
+    # ends the child by a signal, which the unit test running it reports as a
+    # failed assertion. It links the library the unit tests link, so in the
+    # mutation build it runs under the mutant it inherits from their
+    # environment.
+    add_executable(missing_entry_workload tests/missing_entry_workload.cpp)
+    target_link_libraries(missing_entry_workload PRIVATE aletheia-cpp)
+    target_compile_definitions(missing_entry_workload PRIVATE
+        ALETHEIA_TEST_SYMBOLLESS_LIB="${ALETHEIA_STAND_IN_DIR}/symbolless.so"
+        ALETHEIA_TEST_ABI_ONLY_LIB="${ALETHEIA_STAND_IN_DIR}/abi_only_kernel.so")
+    target_compile_definitions(unit_tests PRIVATE
+        ALETHEIA_MISSING_ENTRY_WORKLOAD="$<TARGET_FILE:missing_entry_workload>")
+    add_dependencies(unit_tests missing_entry_workload)
     # The allocation-fault sweeps replace the program's allocation functions,
     # which every sanitizer runtime defines as well: the two carry the same
     # symbols and cannot be linked together, so the sweeps build in the trees
@@ -703,22 +730,27 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # The suites of the runtime's start and of the renderer, each in a process
     # of its own because the GHC RTS is process-global and starts once, run as
     # children of fresh_process_tests, below: the renderer's, the decimal
-    # parser's and every loader's refusal while the runtime is down
-    # (nothing starts it behind a caller, so a pre-start
-    # `format_rational_ffi` must throw), a start before any client, on the
+    # parser's, every render's and every loader's refusal while the runtime is
+    # down (nothing starts it behind a caller, so a pre-start
+    # `format_rational_ffi` must refuse), a start before any client, on the
     # kernel and on the recording kernel's four CPUs, the renderer's releases of
     # the kernel's strings read from the recording kernel's count, and its
-    # answer to a library that fails the decimal entry with no error envelope,
-    # read from the null kernel. Each also reads the allocation count, which
-    # only the library the runtime started on answers.
+    # answer to a library that fails the decimal entry with no error envelope
+    # or renders a null string, read from the null kernel. Each also reads the
+    # allocation count, which only the library the runtime started on answers.
     foreach(suite rts_init_renderer_uninitialized_tests runtime_start_tests
             runtime_start_stand_in_tests renderer_frees_kernel_strings_tests
             renderer_null_kernel_tests)
         add_executable(${suite} tests/${suite}.cpp)
         target_link_libraries(${suite} PRIVATE aletheia-cpp Catch2::Catch2WithMain)
     endforeach()
-    # The runtime-down suite writes the workbook its when-then case reads.
+    # The runtime-down suite writes the workbook its when-then case reads, and
+    # drives a client over the test double.
     target_link_libraries(rts_init_renderer_uninitialized_tests PRIVATE OpenXLSX::OpenXLSX)
+    target_include_directories(rts_init_renderer_uninitialized_tests PRIVATE src)
+    # The recording kernel's suite drives a client over the test double whose
+    # diagnostics the stand-in renders, all but one refused value.
+    target_include_directories(renderer_frees_kernel_strings_tests PRIVATE src)
     target_compile_definitions(renderer_frees_kernel_strings_tests PRIVATE
         ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
     target_compile_definitions(runtime_start_stand_in_tests PRIVATE
