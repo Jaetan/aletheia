@@ -416,7 +416,7 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 6
-      total_mutants: 1536
+      total_mutants: 1586
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -480,7 +480,7 @@ bindings:
         cpp/src/yaml.cpp: 24.7
       timeouts: 0
       score_pct: 99.6
-      run_at: "2026-10-25"
+      run_at: "2026-10-27"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -489,7 +489,7 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1506
+        test: 1556
         kernel: 2
         check: 14
         fault: 8
@@ -501,7 +501,7 @@ bindings:
       # longer survives as a stale record, until the change that kills or
       # removes its mutant deletes the row here.
       survivors_ledger:
-        # a re-check of a precondition nothing proves, 3 mutants:
+        # a re-check of a precondition nothing proves, 2 mutants:
         # SignalInjection::create refuses arrays of unequal length and a count
         # past the wire's 32 bits; the tests reach the first through the
         # factory and the second on the count alone. The client sizes its
@@ -510,10 +510,6 @@ bindings:
         # needs. Nothing proves that the client's path meets the factory's
         # precondition, so the client's re-check stands, and the factory keeps
         # its refusals for its direct callers.
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!block)
-          count: 1
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/client.cpp
           text: if (!inj)
@@ -537,6 +533,18 @@ bindings:
         - mutator: cxx_init_const
           file: cpp/benchmarks/stability_snapshot.hpp
           text: std::size_t size = 0;
+          count: 1
+        # the terminate call of a noexcept function, 1 mutant, an equivalent:
+        # every backend's close is noexcept, and the FFI one calls the kernel's
+        # through a pointer whose type allows a throw, so the compiler puts a
+        # call to std::terminate on the path a throw would take, at the same
+        # source line, and the mutator removes it. The kernel's close is a C
+        # function, so that path is never taken. Typing the pointer noexcept
+        # would remove the path, but a call through it to a function declared
+        # without noexcept is undefined ([expr.call]/6, [conv.fctptr]/1).
+        - mutator: cxx_remove_void_call
+          file: cpp/src/ffi_backend.cpp
+          text: 'void close(void* state) noexcept override { fns_.close(state); }'
           count: 1
       # Every kill no test observes by behaviour, by mutator, repository-relative
       # file, the text of its source line, the route it took and what refused
@@ -611,7 +619,7 @@ bindings:
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/rational_renderer.cpp
-          text: if (env_path != nullptr) {
+          text: if (env_path != nullptr && !std::string_view{env_path}.empty()) {
           route: fault
           refused: ''
           count: 1

@@ -40,8 +40,11 @@ examples.
 
 int main() {
     using namespace aletheia;
-    auto backend = make_ffi_backend_from_env(); // loads $ALETHEIA_LIB
-    AletheiaClient client{std::move(backend)};
+    // Opens the library $ALETHEIA_LIB names; it returns a Result, as every method does.
+    auto opened = AletheiaClient::open();
+    if (!opened)
+        return 1;
+    auto& client = *opened;
 
     // std::stop_token{} never reports stop_requested; see CANCELLATION.md.
     std::stop_token stop{};

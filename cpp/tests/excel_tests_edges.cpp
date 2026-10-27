@@ -738,6 +738,29 @@ TEST_CASE("excel: the loaders release their temporaries when an allocation fails
             return create_excel_template(tf.path);
         });
     }
+    // Each loader answers what a workbook's reading throws as an error but
+    // std::bad_alloc, which leaves as it came.
+    SECTION("an allocation the loaders cannot make ends them with std::bad_alloc") {
+        using aletheia::test::alloc_fault::every_fault_escapes;
+        const TempPath checks("excel_alloc_escape_checks.xlsx");
+        make_checks_workbook(checks.path, {{"the engine speed stays under its redline",
+                                            "EngineSpeedInRevolutionsPerMinute", "never_exceeds",
+                                            "6000", "", "", "", ""}});
+        CHECK(every_fault_escapes([&] { return load_checks_from_excel(checks.path); }));
+        const TempPath dbc("excel_alloc_escape_dbc.xlsx");
+        make_dbc_workbook(dbc.path, {{"256", "VehicleSpeedInKilometresPerHour", "8",
+                                      "VehicleSpeedSignalName", "0", "16", "little_endian", "FALSE",
+                                      "0.1", "0", "0", "300", "kilometres per hour", "", "", ""}});
+        CHECK(every_fault_escapes([&] { return load_dbc_from_excel(dbc.path); }));
+        // The spreadsheet library recovers from some failures inside the
+        // writer on its own, which then writes the template; none is an error.
+        using aletheia::test::alloc_fault::no_fault_answered_as_an_error;
+        const TempPath out("excel_alloc_escape_template.xlsx");
+        CHECK(no_fault_answered_as_an_error([&] {
+            std::filesystem::remove(out.path);
+            return create_excel_template(out.path);
+        }));
+    }
 }
 #endif
 

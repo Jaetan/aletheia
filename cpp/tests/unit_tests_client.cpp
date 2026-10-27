@@ -13,6 +13,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/mock_backend.hpp"
+#include "required.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <nlohmann/json.hpp>
@@ -31,6 +32,8 @@
 #include <variant>
 #include <vector>
 
+using aletheia::test::required;
+
 using namespace aletheia;
 using Json = nlohmann::json;
 using aletheia::test::make_test_dbc;
@@ -46,7 +49,7 @@ TEST_CASE("client parse_dbc sends correct JSON and handles success", "[client][m
     auto* mock_ptr = mock.get(); // retain for inspection
     mock_ptr->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const result = client.parse_dbc(std::stop_token{}, make_test_dbc());
 
     CHECK(result.has_value());
@@ -62,7 +65,7 @@ TEST_CASE("client parse_dbc handles error response", "[client][mock]") {
     mock->queue_response(
         R"({"status": "error", "code": "handler_validation_failed", "message": "Invalid DBC"})");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const result = client.parse_dbc(std::stop_token{}, make_test_dbc());
 
     CHECK_FALSE(result.has_value());
@@ -79,7 +82,7 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
         "absent": []
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     const FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
@@ -111,7 +114,7 @@ TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBa
         "absent": []
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     // With the signal-name cache populated, Client tries the binary path
@@ -130,7 +133,7 @@ TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBa
 
 TEST_CASE("client build_frame requires loaded DBC", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const id = CanId{StandardId::create(0x100).value()};
     const std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
@@ -157,7 +160,7 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
         ]
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
@@ -200,7 +203,7 @@ TEST_CASE("client validate_dbc round-trip", "[client][mock]") {
         ]
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const result = client.validate_dbc(std::stop_token{}, make_test_dbc());
 
     REQUIRE(result.has_value());
@@ -229,7 +232,7 @@ TEST_CASE("client format_dbc round-trip", "[client][mock]") {
         }
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const result = client.format_dbc(std::stop_token{});
 
     REQUIRE(result.has_value());
@@ -250,7 +253,7 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
         }]
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     const FramePayload data(8, std::byte{0});
@@ -290,7 +293,7 @@ TEST_CASE("client is movable", "[client]") {
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
-    AletheiaClient client1(std::move(mock));
+    auto client1 = required(AletheiaClient::create(std::move(mock)));
     CHECK(client1.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     auto client2 = std::move(client1);
@@ -318,7 +321,7 @@ TEST_CASE("moved-from client destructor is safe", "[client][lifecycle]") {
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     {
-        AletheiaClient source(std::move(mock));
+        auto source = required(AletheiaClient::create(std::move(mock)));
         {
             auto target = std::move(source);
             CHECK(target.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
@@ -340,10 +343,10 @@ TEST_CASE("move-assignment releases current state before taking new", "[client][
     auto mock_b = std::make_unique<MockBackend>();
     mock_b->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
-    AletheiaClient client_a(std::move(mock_a));
+    auto client_a = required(AletheiaClient::create(std::move(mock_a)));
     CHECK(client_a.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
-    AletheiaClient client_b(std::move(mock_b));
+    auto client_b = required(AletheiaClient::create(std::move(mock_b)));
     // Overwrite client_a — the state_ from mock_a must be closed by the
     // move-assignment operator before client_a adopts mock_b's state.
     client_a = std::move(client_b);
@@ -362,7 +365,7 @@ TEST_CASE("sequential clients in same scope work independently", "[client][lifec
     std::ranges::for_each(std::views::repeat(0, 3), [](auto) {
         auto mock = std::make_unique<MockBackend>();
         mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
-        AletheiaClient client(std::move(mock));
+        auto client = required(AletheiaClient::create(std::move(mock)));
         CHECK(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
     }); // Each call's destructor closes its state_ cleanly.
 }
@@ -376,13 +379,13 @@ TEST_CASE("nested client scopes leave outer state intact", "[client][lifecycle]"
     mock_outer->queue_response(parsed_dbc_response_for(make_test_dbc())); // first outer op
     mock_outer->queue_response(parsed_dbc_response_for(make_test_dbc())); // second outer op
 
-    AletheiaClient outer(std::move(mock_outer));
+    auto outer = required(AletheiaClient::create(std::move(mock_outer)));
     CHECK(outer.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     {
         auto mock_inner = std::make_unique<MockBackend>();
         mock_inner->queue_response(parsed_dbc_response_for(make_test_dbc()));
-        AletheiaClient inner(std::move(mock_inner));
+        auto inner = required(AletheiaClient::create(std::move(mock_inner)));
         CHECK(inner.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
     } // inner destructed
 
@@ -396,7 +399,7 @@ TEST_CASE("nested client scopes leave outer state intact", "[client][lifecycle]"
 
 TEST_CASE("client update_frame requires loaded DBC", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     const FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
@@ -421,7 +424,7 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
     backend->queue_response(R"({"status":"success"})"); // start_stream
     backend->queue_response(R"({"status":"ack"})");     // frame 1
     backend->queue_response(R"({"status":"ack"})");     // frame 2
-    AletheiaClient client(std::move(backend));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
@@ -449,7 +452,7 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
     backend->queue_response(R"({"status":"success"})"); // start_stream
     backend->queue_response(R"({"status":"ack"})");     // frame 1 — ok
     // frame 2 has mismatched DLC/payload — validation error before backend call
-    AletheiaClient client(std::move(backend));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
@@ -484,7 +487,7 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
     backend->queue_response(
         R"({"status":"success","values":[{"name":"Speed","value":350}],"errors":[],"absent":[]})");
     backend->queue_response(R"({"status":"ack"})"); // frame 3
-    AletheiaClient client(std::move(backend));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
@@ -513,7 +516,7 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
     backend->queue_response(R"({"status":"success"})"); // set_properties
     backend->queue_response(R"({"status":"success"})"); // start_stream
     backend->queue_response(R"({"status":"ack"})");     // frame 1
-    AletheiaClient client(std::move(backend));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
@@ -540,7 +543,7 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     backend->queue_response(R"({"status":"success"})"); // set_properties
     backend->queue_response(R"({"status":"success"})"); // start_stream
     backend->queue_response(R"({"status":"ack"})");     // frame 0
-    AletheiaClient client(std::move(backend));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
@@ -579,7 +582,7 @@ TEST_CASE("send_frames empty", "[client][batch]") {
     auto backend = std::make_unique<MockBackend>();
     backend->queue_response(R"({"status":"success"})"); // set_properties
     backend->queue_response(R"({"status":"success"})"); // start_stream
-    AletheiaClient client(std::move(backend));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));

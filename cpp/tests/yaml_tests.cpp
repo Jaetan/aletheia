@@ -26,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 using namespace aletheia;
@@ -449,6 +450,30 @@ TEST_CASE("yaml: a within_ms the check cannot take as its bound is refused at th
             CHECK(result->error().kind() == ErrorKind::Validation);
             CHECK(result->error().message() == row.message);
         }
+    }
+}
+
+// The builder's refusal of a range whose min is above its max is the loader's
+// answer, as Rust's loader returns it.
+TEST_CASE("yaml: a range whose min is above its max is the builder's refusal", "[yaml][error]") {
+    auto const* const range = "    min: 5\n    max: 1\n";
+    auto const stays = load_checks_from_yaml_string(
+        std::string{"checks:\n  - signal: Speed\n    condition: stays_between\n"} + range);
+    auto const settles = load_checks_from_yaml_string(
+        std::string{"checks:\n  - signal: Speed\n    condition: settles_between\n"} + range +
+        "    within_ms: 100\n");
+    auto const then = load_checks_from_yaml_string(
+        "checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n"
+        "    then:\n      signal: Speed\n      condition: stays_between\n      min: 5\n"
+        "      max: 1\n    within_ms: 100\n");
+    for (auto const& [result, message] :
+         {std::pair{&stays, "stays_between: lo (5) must be <= hi (1)"},
+          std::pair{&settles, "settles_between: lo (5) must be <= hi (1)"},
+          std::pair{&then, "then stays_between: lo (5) must be <= hi (1)"}}) {
+        INFO(message);
+        REQUIRE_FALSE(result->has_value());
+        CHECK(result->error().kind() == ErrorKind::Validation);
+        CHECK(result->error().message() == message);
     }
 }
 

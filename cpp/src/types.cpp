@@ -14,16 +14,20 @@
 
 #include "detail/json.hpp"
 
+#include <expected>
+#include <string>
 #include <string_view>
 
 namespace aletheia {
 
-auto Rational::from_decimal(std::string_view s) -> Rational {
-    auto const answer = detail::parse_decimal_ffi(s);
-    if (!answer)
-        throw AletheiaException(
-            detail::binary_refusal(detail::error_of(answer), ErrorKind::Validation));
-    return answer.value();
+auto Rational::from_decimal(std::string_view s) -> Result<Rational> {
+    return detail::parse_decimal_ffi(s).and_then(
+        [](const std::expected<Rational, std::string>& answer) -> Result<Rational> {
+            if (!answer)
+                return std::unexpected(
+                    detail::binary_refusal(detail::error_of(answer), ErrorKind::Validation));
+            return answer.value();
+        });
 }
 
 } // namespace aletheia

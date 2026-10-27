@@ -22,8 +22,9 @@
 // benchmarks/stability/<commit>/cpp.json when invoked through
 // tools/stability_run.py).  The exit status is that runner's contract: 0 when
 // every gate passed, 1 when one failed and the verdict is in the report, and 2
-// for a run with no verdict, such as a refused count, a failed warm-up, cycle
-// or snapshot, or a report that cannot be written.
+// for a run with no verdict, such as a refused count, a library the search
+// refuses, a failed warm-up, cycle or snapshot, or a report that cannot be
+// written.
 //
 // Linux-specific (relies on /proc and glibc malloc_info).
 
@@ -107,9 +108,9 @@ static auto minimal_dbc() -> aletheia::DbcDefinition {
 static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefinition& dbc,
                       int frames_per_cycle) {
     using aletheia::AletheiaClient, aletheia::CanId, aletheia::Dlc, aletheia::FramePayload,
-        aletheia::make_ffi_backend, aletheia::StandardId, aletheia::Timestamp;
-    using aletheia::bench::require;
-    AletheiaClient client(make_ffi_backend(lib));
+        aletheia::IBackend, aletheia::make_ffi_backend, aletheia::StandardId, aletheia::Timestamp;
+    using aletheia::bench::require, aletheia::bench::value_or_throw;
+    auto client = value_or_throw(AletheiaClient::open({.library = lib}));
     require(client.parse_dbc(std::stop_token{}, dbc), "parse_dbc");
     require(client.start_stream(std::stop_token{}), "start_stream");
 
@@ -147,7 +148,12 @@ static auto run() -> int {
         std::println(stderr, "setup: {}", e.what());
         return 2;
     }
-    auto const lib = aletheia::find_ffi_library();
+    auto const found = aletheia::find_ffi_library();
+    if (!found) {
+        std::println(stderr, "setup: {}", aletheia::detail::error_of(found).text());
+        return 2;
+    }
+    auto const& lib = found.value();
     auto const dbc = minimal_dbc();
 
     // Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /

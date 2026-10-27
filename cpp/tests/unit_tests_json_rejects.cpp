@@ -12,13 +12,14 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/json.hpp"
+#include "required.hpp"
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 
 #include <cstdint>
 #include <functional>
 #include <limits>
 #include <nlohmann/json.hpp>
-#include <stdexcept>
 
 #include <algorithm>
 #include <memory>
@@ -28,6 +29,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+using aletheia::test::required;
 
 using namespace aletheia;
 using Json = nlohmann::json;
@@ -42,7 +45,7 @@ using Catch::Matchers::ContainsSubstring;
 // ===========================================================================
 
 static auto base_dbc_response() -> Json {
-    auto const cmd = Json::parse(detail::serialize_parse_dbc(make_test_dbc()));
+    auto const cmd = Json::parse(required(detail::serialize_parse_dbc(make_test_dbc())));
     Json resp;
     resp["status"] = "success";
     resp["dbc"] = cmd.at("dbc");
@@ -411,7 +414,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs keeps an extended CAN ID across se
         .entries = {DbcValueEntry{.value = 0, .description = "Off"}},
     });
 
-    auto const cmd_str = detail::serialize_parse_dbc(dbc);
+    auto const cmd_str = required(detail::serialize_parse_dbc(dbc));
     auto cmd_j = Json::parse(cmd_str);
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].size() == 1);
     CHECK(cmd_j["dbc"]["unresolvedValueDescs"][0]["extended"] == true);
@@ -502,9 +505,10 @@ TEST_CASE("serialize_set_properties refuses a formula nested past the depth boun
         props.push_back(std::move(f));
         return props;
     };
-    CHECK_NOTHROW(detail::serialize_set_properties(nest(max_nesting_depth)));
-    CHECK_THROWS_WITH(detail::serialize_set_properties(nest(max_nesting_depth + 1)),
-                      ContainsSubstring("nesting depth exceeds 64"));
+    CHECK(detail::serialize_set_properties(nest(max_nesting_depth)).has_value());
+    auto const deep = detail::serialize_set_properties(nest(max_nesting_depth + 1));
+    CHECK(detail::error_of(deep).kind() == ErrorKind::Validation);
+    CHECK(detail::error_of(deep).message() == "Formula nesting depth exceeds 64");
 }
 
 TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
@@ -515,7 +519,7 @@ TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
     constexpr auto lowest = std::numeric_limits<std::int64_t>::min();
     std::vector<LtlFormula> props;
     props.push_back(ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{lowest, 1}})));
-    auto const j = Json::parse(detail::serialize_set_properties(props));
+    auto const j = Json::parse(required(detail::serialize_set_properties(props)));
     auto const& value = j.at("properties").at(0).at("predicate").at("value");
     REQUIRE(value.is_object());
     CHECK(value.at("numerator") == lowest);
@@ -524,17 +528,18 @@ TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
 
 // The constructor and make are templates over the integral types, so each
 // width and signedness a caller uses is its own instantiation, and each must
-// refuse the zero and admit the one on its own. A signed one also refuses the
+// refuse the zero and admit the one on its own: the constructor as a literal
+// that does not compile, make as an error. A signed one also refuses the
 // negative; an unsigned one has none to refuse.
 // The two arguments are separate template parameters, so a caller that mixes
 // a wide numerator with a narrow literal denominator instantiates a pair of
 // its own, which refuses the zero like every other pair.
 TEST_CASE("Rational refuses a non-positive denominator when its arguments differ in type",
           "[rational]") {
-    CHECK_THROWS_AS(Rational(std::int64_t{1}, 0), std::invalid_argument);
+    STATIC_CHECK_FALSE(aletheia::detail::RationalLiteral<std::int64_t{1}, 0>);
     CHECK_FALSE(Rational::make(std::int64_t{1}, 0).has_value());
     CHECK(Rational::make(std::int64_t{1}, 1).has_value());
-    CHECK_THROWS_AS(Rational(1, std::uint64_t{0}), std::invalid_argument);
+    STATIC_CHECK_FALSE(aletheia::detail::RationalLiteral<1, std::uint64_t{0}>);
     CHECK_FALSE(Rational::make(1, std::uint64_t{0}).has_value());
 }
 
@@ -542,12 +547,12 @@ TEMPLATE_TEST_CASE("Rational refuses a non-positive denominator on both construc
                    "[rational]", short, int, long, long long, unsigned short, unsigned,
                    unsigned long, unsigned long long) {
     using T = TestType;
-    CHECK_THROWS_AS(Rational(T{1}, T{0}), std::invalid_argument);
+    STATIC_CHECK_FALSE(aletheia::detail::RationalLiteral<T{1}, T{0}>);
     CHECK(Rational(T{1}, T{1}).denominator() == 1);
     CHECK_FALSE(Rational::make(T{1}, T{0}).has_value());
     CHECK(Rational::make(T{1}, T{1}).has_value());
     if constexpr (std::is_signed_v<T>) {
-        CHECK_THROWS_AS(Rational(T{1}, T{-1}), std::invalid_argument);
+        STATIC_CHECK_FALSE(aletheia::detail::RationalLiteral<T{1}, T{-1}>);
         CHECK_FALSE(Rational::make(T{1}, T{-1}).has_value());
     }
 }

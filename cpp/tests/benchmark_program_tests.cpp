@@ -121,18 +121,27 @@ TEST_CASE("an argument the program refuses exits 1 naming it before the kernel i
     CHECK(aletheia::test::read_text_file(report.path).empty());
 }
 
-// Arguments the program takes, with no kernel where ALETHEIA_LIB points or
-// anywhere the search tries from the directory the program runs in.
+// Arguments the program takes, with ALETHEIA_LIB naming no file, or empty with
+// no kernel anywhere the search tries from the directory the program runs in:
+// each is the search's refusal, printed after the program's prefix.
 TEST_CASE("a run that finds no kernel exits 1 saying so", "[benchmark][program]") {
     const TempPath searched{scratch_dir() / "benchmark-searched", AsDirectory{}};
     const TempPath where{searched.path / "one" / "two", AsDirectory{}};
     const TempPath report{"benchmark-report"};
-    auto const [code, errors] =
-        run_benchmark({"throughput", "--frames", "1", "--runs", "1", "--warmup", "0"}, report.path,
-                      searched.path / "absent.so", where.path);
-    CHECK(code == 1);
-    CHECK(errors == "ERROR: libaletheia-ffi.so not found.\n"
-                    "Set ALETHEIA_LIB or run 'cabal run shake -- build'.\n");
+    std::vector<std::string> const arguments{"throughput", "--frames", "1", "--runs",
+                                             "1",          "--warmup", "0"};
+    SECTION("ALETHEIA_LIB naming no file") {
+        auto const absent = searched.path / "absent.so";
+        auto const [code, errors] = run_benchmark(arguments, report.path, absent, where.path);
+        CHECK(code == 1);
+        CHECK(errors == "ERROR: ALETHEIA_LIB=" + absent.string() + " does not exist\n");
+    }
+    SECTION("no kernel anywhere the search looks") {
+        auto const [code, errors] = run_benchmark(arguments, report.path, {}, where.path);
+        CHECK(code == 1);
+        CHECK(errors == "ERROR: libaletheia-ffi.so not found; set $ALETHEIA_LIB or run "
+                        "'cabal run shake -- build'\n");
+    }
     CHECK(aletheia::test::read_text_file(report.path).empty());
 }
 

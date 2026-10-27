@@ -72,7 +72,8 @@ static auto expectation_of(const YAML::Node& expect)
     if (auto const rational = expect["rational"]) {
         REQUIRE_FALSE(expect["milliseconds"].IsDefined());
         REQUIRE_FALSE(expect["kind"].IsDefined());
-        return Rational{rational[0].as<std::int64_t>(), rational[1].as<std::int64_t>()};
+        return Rational::make(rational[0].as<std::int64_t>(), rational[1].as<std::int64_t>())
+            .value();
     }
     if (auto const milliseconds = expect["milliseconds"]) {
         REQUIRE_FALSE(expect["kind"].IsDefined());
@@ -162,7 +163,8 @@ static auto threshold(const CheckResult& check) -> Rational {
 static void check_never_exceeds(const std::vector<CheckResult>& checks, const Rational& want) {
     REQUIRE(checks.size() == 1);
     auto const built = check::signal("Speed").never_exceeds(PhysicalValue{want});
-    CHECK(format_formula(checks.front().to_formula()) == format_formula(built.to_formula()));
+    CHECK(format_formula(checks.front().to_formula()) ==
+          format_formula(built.to_formula()).value());
     check_rational(threshold(checks.front()), want);
 }
 
@@ -180,7 +182,9 @@ static void check_settles_within(const std::vector<CheckResult>& checks,
         check::signal("Speed")
             .settles_between(PhysicalValue{Rational{0, 1}}, PhysicalValue{Rational{100, 1}})
             .within(want);
-    CHECK(format_formula(checks.front().to_formula()) == format_formula(built.to_formula()));
+    REQUIRE(built.has_value());
+    CHECK(format_formula(checks.front().to_formula()) ==
+          format_formula(built->to_formula()).value());
     INFO("loaded " << window(checks.front()).count() << "us, contract " << want.count() << "ms");
     CHECK(window(checks.front()) == want);
 }

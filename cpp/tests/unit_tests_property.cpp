@@ -35,7 +35,7 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
                  -static_cast<std::int64_t>(std::uint64_t{1} << 32U));
     auto const denominator =
         GENERATE(std::int64_t{1}, std::int64_t{2}, std::int64_t{7}, std::int64_t{1000});
-    const Rational original{numerator, denominator};
+    auto const original = Rational::make(numerator, denominator).value();
     // Serialize a wire-form DBC carrying the Rational as a signal factor;
     // round-trip through serialize → parse and assert value equality
     // (cross-multiplication, avoids canonical-form reasoning).

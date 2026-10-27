@@ -29,6 +29,10 @@
 #include <utility>
 #include <vector>
 
+#include "required.hpp"
+
+using aletheia::test::required;
+
 namespace {
 
 using namespace aletheia;
@@ -43,34 +47,36 @@ public:
     auto send_frame_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/,
                            Dlc /*dlc*/, std::span<const std::byte> /*data*/,
                            std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
-        -> std::string override {
+        -> Result<std::string> override {
         return process(state, "");
     }
-    auto send_error_binary(const BackendState& state, Timestamp /*ts*/) -> std::string override {
+    auto send_error_binary(const BackendState& state, Timestamp /*ts*/)
+        -> Result<std::string> override {
         return process(state, "");
     }
     auto send_remote_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/)
-        -> std::string override {
+        -> Result<std::string> override {
         return process(state, "");
     }
-    auto start_stream_binary(const BackendState& state) -> std::string override {
+    auto start_stream_binary(const BackendState& state) -> Result<std::string> override {
         return process(state, "");
     }
-    auto end_stream_binary(const BackendState& state) -> std::string override {
+    auto end_stream_binary(const BackendState& state) -> Result<std::string> override {
         return process(state, "");
     }
-    auto format_dbc_binary(const BackendState& state) -> std::string override {
+    auto format_dbc_binary(const BackendState& state) -> Result<std::string> override {
         return process(state, "");
     }
     auto extract_signals_binary(const BackendState& state, const CanId& /*id*/, Dlc /*dlc*/,
-                                std::span<const std::byte> /*data*/) -> std::string override {
+                                std::span<const std::byte> /*data*/)
+        -> Result<std::string> override {
         return process(state, "");
     }
 
 protected:
     // Every stub below hands out a static sentinel, so there is nothing to
     // release and one definition serves them all.
-    void close(void* /*state*/) override {}
+    void close(void* /*state*/) noexcept override {}
 };
 
 // CancelTriggerBackend deterministically fires the supplied stop_source
@@ -94,10 +100,10 @@ public:
 
     [[nodiscard]] auto call_count() const -> std::size_t { return calls_; }
 
-    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
+    auto init() -> Result<BackendState> override { return BackendState{*this, &sentinel}; }
 
     auto process(const BackendState& /*state*/, std::string_view /*input*/)
-        -> std::string override {
+        -> Result<std::string> override {
         ++calls_;
         if (calls_ == cancel_after_ && source_ != nullptr)
             source_->request_stop();
@@ -111,7 +117,7 @@ TEST_CASE("Client cancellation: pre-FFI guard rejects already-cancelled stop_tok
           "[cancellation]") {
     auto backend_owned = std::make_unique<CancelTriggerBackend>(0, nullptr);
     auto const* backend = backend_owned.get();
-    AletheiaClient client(std::move(backend_owned));
+    auto client = required(AletheiaClient::create(std::move(backend_owned)));
 
     const std::stop_source source;
     source.request_stop(); // cancel BEFORE the call
@@ -130,7 +136,7 @@ TEST_CASE("Client cancellation: mid-batch commit-prefix-and-report", "[cancellat
     std::stop_source source;
     auto backend_owned = std::make_unique<CancelTriggerBackend>(cancel_after, &source);
     auto const* backend = backend_owned.get();
-    AletheiaClient client(std::move(backend_owned));
+    auto client = required(AletheiaClient::create(std::move(backend_owned)));
 
     std::vector<Frame> frames;
     frames.reserve(total);
@@ -161,7 +167,7 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     auto backend_owned =
         std::make_unique<CancelTriggerBackend>(1, &cancel_source, R"({"status":"success"})");
     auto const* backend = backend_owned.get();
-    AletheiaClient client(std::move(backend_owned));
+    auto client = required(AletheiaClient::create(std::move(backend_owned)));
     auto const cancel_token = cancel_source.get_token();
 
     auto const r1 = client.set_properties(cancel_token, std::span<const LtlFormula>{});
@@ -184,7 +190,7 @@ TEST_CASE("Client cancellation: every method's pre-FFI guard rejects a cancelled
           "[cancellation]") {
     auto backend_owned = std::make_unique<CancelTriggerBackend>(0, nullptr);
     auto const* backend = backend_owned.get();
-    AletheiaClient client(std::move(backend_owned));
+    auto client = required(AletheiaClient::create(std::move(backend_owned)));
 
     const std::stop_source source;
     source.request_stop();

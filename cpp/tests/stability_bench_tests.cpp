@@ -4,15 +4,16 @@
 // The stability harness's exit paths, each held by a run of the built harness
 // in a process of its own, since the exit status is the claim. A run that
 // reaches no verdict exits 2 with its line on stderr and nothing on stdout: a
-// refused count, a warm-up the kernel refuses, a snapshot that cannot read
-// the status file, a measured cycle that cannot load the kernel. A report that
-// cannot be written exits 2 naming the write, and a run whose line stderr
-// cannot take exits 2 all the same. A short run exits 0 with its report on
-// stdout, and one that leaks a descriptor between the snapshots exits 1 with
-// the descriptor gate failed. The snapshots fail, the descriptor leaks and the
-// cycle's load fails through status_open_fault, a library preloaded into the
-// harness alone. Each run writes its stdout and its stderr to the files this
-// test names, and runs one cycle of one frame unless its claim needs more.
+// refused count, a library the search refuses, a warm-up the kernel refuses, a
+// snapshot that cannot read the status file, a measured cycle that cannot load
+// the kernel. A report that cannot be written exits 2 naming the write, and a
+// run whose line stderr cannot take exits 2 all the same. A short run exits 0
+// with its report on stdout, and one that leaks a descriptor between the
+// snapshots exits 1 with the descriptor gate failed. The snapshots fail, the
+// descriptor leaks and the cycle's load fails through status_open_fault, a
+// library preloaded into the harness alone. Each run writes its stdout and its
+// stderr to the files this test names, and runs one cycle of one frame unless
+// its claim needs more.
 
 #include "child_process.hpp"
 #include "repo_root.hpp"
@@ -101,6 +102,16 @@ TEST_CASE("a count that is not a whole number from 1 to 2147483647 exits 2 namin
     CHECK(ending.err ==
           std::format("setup: {} must be a whole number from 1 to 2147483647, got '{}'\n", name,
                       value));
+    CHECK(aletheia::test::read_text_file(out.path).empty());
+}
+
+TEST_CASE("an ALETHEIA_LIB naming no file exits 2 with the search's refusal",
+          "[stability][process]") {
+    const TempPath out("stability_bench_stdout");
+    auto const absent = aletheia::test::scratch_dir() / "stability-absent.so";
+    auto const ending = run_harness(out.path, {"ALETHEIA_LIB=" + absent.string()});
+    CHECK(ending.code == 2);
+    CHECK(ending.err == "setup: ALETHEIA_LIB=" + absent.string() + " does not exist\n");
     CHECK(aletheia::test::read_text_file(out.path).empty());
 }
 

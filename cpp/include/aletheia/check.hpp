@@ -9,6 +9,7 @@
 //
 // ```cpp
 // auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));
+// // A Result<CheckResult>: within refuses a negative or overflowing bound.
 // auto brake_light = check::when("Brake").exceeds(PhysicalValue::of(50, 1))
 //                        .then("BrakeLight").equals(PhysicalValue::of(1, 1))
 //                        .within(std::chrono::milliseconds{100});
@@ -21,40 +22,69 @@
 // check.hpp wraps LtlFormula construction and uses SignalName/PhysicalValue
 // throughout its builder API, so callers that include check.hpp always need
 // the ltl and types vocabulary.
-#include <aletheia/detail/rational_renderer.hpp>
+#include <aletheia/detail/checked.hpp>
+#include <aletheia/error.hpp>
 #include <aletheia/ltl.hpp>   // IWYU pragma: export
 #include <aletheia/types.hpp> // IWYU pragma: export
 
 #include <chrono>
 #include <cstdint>
+#include <expected>
 #include <format>
-#include <functional>
 #include <limits>
 #include <optional>
-#include <stdexcept>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace aletheia::detail {
 
-// Render a PhysicalValue through the shared kernel renderer.  Invoked lazily
-// from the `CheckResult::condition_desc()` accessor, so the .so need NOT be
-// loadable at Check builder time, only at the first read.
-[[nodiscard]] inline auto fmt_pv(PhysicalValue v) -> std::string {
-    return format_rational(v.get());
+// One piece of a check's condition description: literal text, or a threshold
+// the kernel renders when the description is read, so building a check needs
+// no runtime and only reading its description can fail. Go (descPart), Rust
+// (DescPart) and Python (_DescPart) hold a description the same way.
+using DescPart = std::variant<std::string, Rational>;
+
+// The text `parts` spell, every threshold rendered by the kernel: the text, or
+// the renderer's error. Defined in enrich.cpp.
+[[nodiscard]] auto render_desc(std::span<const DescPart> parts) -> Result<std::string>;
+
+// The refusal's text for a range whose lo is above its hi, naming the builder
+// `op` and both bounds, or nullopt; Rust and Go word it the same. Defined in
+// enrich.cpp.
+[[nodiscard]] auto range_refusal(std::string_view op, PhysicalValue lo, PhysicalValue hi)
+    -> std::optional<std::string>;
+
+// An operator prefix followed by one threshold, such as "<= " and the value.
+[[nodiscard]] inline auto op_desc(std::string op, PhysicalValue v) -> std::vector<DescPart> {
+    return {DescPart{std::move(op)}, DescPart{v.get()}};
 }
 
-// Convert a millisecond bound into the Timestamp (microsecond) domain, rejecting
+[[nodiscard]] inline auto between_desc(PhysicalValue lo, PhysicalValue hi)
+    -> std::vector<DescPart> {
+    return {DescPart{"between "}, DescPart{lo.get()}, DescPart{" and "}, DescPart{hi.get()}};
+}
+
+[[nodiscard]] inline auto within_desc(std::vector<DescPart> parts, std::chrono::milliseconds ms)
+    -> std::vector<DescPart> {
+    parts.emplace_back(std::format(" within {}ms", ms.count()));
+    return parts;
+}
+
+// Convert a millisecond bound into the Timestamp (microsecond) domain, refusing
 // a negative bound and an ms→µs multiply that would overflow int64.  The overflow
 // is reachable from untrusted input (e.g. a YAML check with `within_ms:
 // 9300000000000000`), where `duration_cast<microseconds>` would otherwise be
 // signed-integer UB.  Mirrors the Go (`check.go`, `MaxInt64/usPerMillisecond`)
 // and Rust overflow guards.
-[[nodiscard]] inline auto checked_ms_to_us(std::chrono::milliseconds ms) -> Timestamp {
+[[nodiscard]] inline auto checked_ms_to_us(std::chrono::milliseconds ms) -> Result<Timestamp> {
     if (ms.count() < 0)
-        throw std::invalid_argument("time must be non-negative");
+        return validation_refusal("time must be non-negative");
     if (ms.count() > std::numeric_limits<Timestamp::rep>::max() / us_per_millisecond)
-        throw std::invalid_argument("time overflows microsecond conversion");
+        return validation_refusal("time overflows microsecond conversion");
     return std::chrono::duration_cast<Timestamp>(ms);
 }
 
@@ -73,16 +103,7 @@ public:
     CheckResult(LtlFormula f, std::string sig, std::string desc)
         : formula_(std::move(f))
         , signal_name_(std::move(sig))
-        , condition_desc_(std::move(desc)) {}
-
-    // Lazy-builder form.  Defers the
-    // `detail::format_rational_ffi` call to the first `condition_desc()`
-    // accessor read, so Check builders work without the .so being loadable
-    // at construction time.  Result is cached after first invocation.
-    CheckResult(LtlFormula f, std::string sig, std::function<std::string()> desc_builder)
-        : formula_(std::move(f))
-        , signal_name_(std::move(sig))
-        , condition_desc_builder_(std::move(desc_builder)) {}
+        , condition_desc_{detail::DescPart{std::move(desc)}} {}
 
     auto named(std::string name) -> CheckResult& {
         name_ = std::move(name);
@@ -101,24 +122,28 @@ public:
     [[nodiscard]] auto name() const -> const std::string& { return name_; }
     [[nodiscard]] auto check_severity() const -> const std::string& { return check_severity_; }
     [[nodiscard]] auto signal_name() const -> const std::string& { return signal_name_; }
-    // The first read renders the description through the kernel and caches it;
-    // the cache is per instance and not synchronised, so concurrent first reads
-    // of one CheckResult from several threads are not supported.
-    [[nodiscard]] auto condition_desc() const -> const std::string& {
-        if (condition_desc_builder_) {
-            condition_desc_ = condition_desc_builder_();
-            condition_desc_builder_ = nullptr;
-        }
-        return condition_desc_;
+    // The condition in words, its thresholds rendered by the kernel on every
+    // read: the text, or an error of kind Ffi while the GHC runtime is down.
+    [[nodiscard]] auto condition_desc() const -> Result<std::string> {
+        return detail::render_desc(condition_desc_);
     }
 
 private:
+    friend class CheckSignal;
+    friend class CheckSignalPredicate;
+    friend class SettlesBuilder;
+    friend class ThenCondition;
+
+    CheckResult(LtlFormula f, std::string sig, std::vector<detail::DescPart> desc)
+        : formula_(std::move(f))
+        , signal_name_(std::move(sig))
+        , condition_desc_(std::move(desc)) {}
+
     LtlFormula formula_;
     std::string name_;
     std::string check_severity_;
     std::string signal_name_;
-    mutable std::string condition_desc_;
-    mutable std::function<std::string()> condition_desc_builder_;
+    std::vector<detail::DescPart> condition_desc_;
 };
 
 // ---------------------------------------------------------------------------
@@ -127,19 +152,21 @@ private:
 
 class CheckSignalPredicate {
 public:
-    CheckSignalPredicate(LtlFormula f, std::string sig, std::function<std::string()> desc_builder)
-        : formula_(std::move(f))
-        , signal_name_(std::move(sig))
-        , condition_desc_builder_(std::move(desc_builder)) {}
-
     [[nodiscard]] auto always() && -> CheckResult {
-        return {std::move(formula_), std::move(signal_name_), std::move(condition_desc_builder_)};
+        return {std::move(formula_), std::move(signal_name_), std::move(condition_desc_)};
     }
 
 private:
+    friend class CheckSignal;
+
+    CheckSignalPredicate(LtlFormula f, std::string sig, std::vector<detail::DescPart> desc)
+        : formula_(std::move(f))
+        , signal_name_(std::move(sig))
+        , condition_desc_(std::move(desc)) {}
+
     LtlFormula formula_;
     std::string signal_name_;
-    std::function<std::string()> condition_desc_builder_;
+    std::vector<detail::DescPart> condition_desc_;
 };
 
 class SettlesBuilder {
@@ -149,14 +176,18 @@ public:
         , lo_(lo)
         , hi_(hi) {}
 
-    [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> CheckResult {
+    // The check, or a Validation error for an inverted range, a negative bound
+    // or one whose microseconds overflow int64.
+    [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> Result<CheckResult> {
+        if (auto refusal = detail::range_refusal("settles_between", lo_, hi_))
+            return detail::validation_refusal(std::move(refusal).value());
         auto const us = detail::checked_ms_to_us(ms);
-        auto f =
-            ltl::always_within(us, ltl::atomic(ltl::between(SignalName{signal_name_}, lo_, hi_)));
-        return {std::move(f), signal_name_, [lo = lo_, hi = hi_, ms] {
-                    return std::format("between {} and {} within {}ms", detail::fmt_pv(lo),
-                                       detail::fmt_pv(hi), ms.count());
-                }};
+        if (!us)
+            return std::unexpected(detail::error_of(us));
+        auto f = ltl::always_within(us.value(),
+                                    ltl::atomic(ltl::between(SignalName{signal_name_}, lo_, hi_)));
+        return CheckResult{std::move(f), signal_name_,
+                           detail::within_desc(detail::between_desc(lo_, hi_), ms)};
     }
 
 private:
@@ -174,36 +205,35 @@ public:
     // never_below's >=; "never exceeds 220" lets 220 pass).
     [[nodiscard]] auto never_exceeds(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::less_than_or_equal(SignalName{name_}, value)));
-        return {std::move(f), name_, [value] { return "<= " + detail::fmt_pv(value); }};
+        return {std::move(f), name_, detail::op_desc("<= ", value)};
     }
 
     [[nodiscard]] auto never_below(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::greater_than_or_equal(SignalName{name_}, value)));
-        return {std::move(f), name_, [value] { return ">= " + detail::fmt_pv(value); }};
+        return {std::move(f), name_, detail::op_desc(">= ", value)};
     }
 
-    [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> CheckResult {
-        if (lo.get() > hi.get())
-            throw std::invalid_argument("stays_between: lo must be <= hi");
+    // The check, or a Validation error for lo above hi.
+    [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const
+        -> Result<CheckResult> {
+        if (auto refusal = detail::range_refusal("stays_between", lo, hi))
+            return detail::validation_refusal(std::move(refusal).value());
         auto f = ltl::always(ltl::atomic(ltl::between(SignalName{name_}, lo, hi)));
-        return {std::move(f), name_, [lo, hi] {
-                    return std::format("between {} and {}", detail::fmt_pv(lo), detail::fmt_pv(hi));
-                }};
+        return CheckResult{std::move(f), name_, detail::between_desc(lo, hi)};
     }
 
     [[nodiscard]] auto never_equals(PhysicalValue value) const -> CheckResult {
         auto f = ltl::never(ltl::equals(SignalName{name_}, value));
-        return {std::move(f), name_, [value] { return "!= " + detail::fmt_pv(value); }};
+        return {std::move(f), name_, detail::op_desc("!= ", value)};
     }
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> CheckSignalPredicate {
         auto f = ltl::always(ltl::atomic(ltl::equals(SignalName{name_}, value)));
-        return {std::move(f), name_, [value] { return "= " + detail::fmt_pv(value); }};
+        return {std::move(f), name_, detail::op_desc("= ", value)};
     }
 
+    // The builder; its within refuses lo above hi, so the chain is read once.
     [[nodiscard]] auto settles_between(PhysicalValue lo, PhysicalValue hi) const -> SettlesBuilder {
-        if (lo.get() > hi.get())
-            throw std::invalid_argument("settles_between: lo must be <= hi");
         return {name_, lo, hi};
     }
 
@@ -217,32 +247,36 @@ private:
 
 class ThenCondition {
 public:
-    ThenCondition(Predicate trigger, Predicate then_pred, std::string then_signal,
-                  std::function<std::string()> then_desc_builder)
-        : trigger_(std::move(trigger))
-        , then_pred_(std::move(then_pred))
-        , then_signal_(std::move(then_signal))
-        , then_desc_builder_(std::move(then_desc_builder)) {}
-
-    [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> CheckResult {
+    // The check, or a Validation error for an inverted stays_between range, a
+    // negative bound or one whose microseconds overflow int64.
+    [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> Result<CheckResult> {
+        if (range_refusal_)
+            return detail::validation_refusal(range_refusal_.value());
         auto const us = detail::checked_ms_to_us(ms);
+        if (!us)
+            return std::unexpected(detail::error_of(us));
         auto f = ltl::always(ltl::either(ltl::negate(ltl::atomic(trigger_)),
-                                         ltl::within(us, ltl::atomic(then_pred_))));
-        return {std::move(f), then_signal_, [builder = then_desc_builder_, ms] {
-                    if (!builder)
-                        return std::string{};
-                    auto const inner = builder();
-                    if (inner.empty())
-                        return std::string{};
-                    return inner + std::format(" within {}ms", ms.count());
-                }};
+                                         ltl::within(us.value(), ltl::atomic(then_pred_))));
+        return CheckResult{std::move(f), then_signal_, detail::within_desc(then_desc_, ms)};
     }
 
 private:
+    friend class ThenSignal;
+
+    ThenCondition(Predicate trigger, Predicate then_pred, std::string then_signal,
+                  std::vector<detail::DescPart> then_desc,
+                  std::optional<std::string> range_refusal = std::nullopt)
+        : trigger_(std::move(trigger))
+        , then_pred_(std::move(then_pred))
+        , then_signal_(std::move(then_signal))
+        , then_desc_(std::move(then_desc))
+        , range_refusal_(std::move(range_refusal)) {}
+
     Predicate trigger_;
     Predicate then_pred_;
     std::string then_signal_;
-    std::function<std::string()> then_desc_builder_;
+    std::vector<detail::DescPart> then_desc_;
+    std::optional<std::string> range_refusal_;
 };
 
 class ThenSignal {
@@ -253,20 +287,18 @@ public:
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::equals(SignalName{then_name_}, value), then_name_,
-                [value] { return "= " + detail::fmt_pv(value); }};
+                detail::op_desc("= ", value)};
     }
 
     [[nodiscard]] auto exceeds(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::greater_than(SignalName{then_name_}, value), then_name_,
-                [value] { return "> " + detail::fmt_pv(value); }};
+                detail::op_desc("> ", value)};
     }
 
+    // The condition; its within refuses lo above hi, so the chain is read once.
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> ThenCondition {
-        if (lo.get() > hi.get())
-            throw std::invalid_argument("stays_between: lo must be <= hi");
-        return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_, [lo, hi] {
-                    return std::format("between {} and {}", detail::fmt_pv(lo), detail::fmt_pv(hi));
-                }};
+        return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_,
+                detail::between_desc(lo, hi), detail::range_refusal("then stays_between", lo, hi)};
     }
 
 private:

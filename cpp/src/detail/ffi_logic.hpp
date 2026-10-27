@@ -74,9 +74,10 @@ namespace aletheia::detail {
 
 // The rational the decimal parser answered. The kernel answers lowest terms
 // over a positive denominator, so any other is the ABI or the kernel
-// malfunctioning, thrown as a protocol error before Rational sees it, which
+// malfunctioning, a protocol error answered before Rational sees it, which
 // would report it as a caller's argument.
-[[nodiscard]] auto decimal_value(std::int64_t numerator, std::int64_t denominator) -> Rational;
+[[nodiscard]] auto decimal_value(std::int64_t numerator, std::int64_t denominator)
+    -> Result<Rational>;
 
 // The refusal of a library whose ABI version is `found` rather than this
 // backend's `abi_version`, or nullopt for a library at that version.

@@ -94,7 +94,8 @@ start_runtime(1)  # the kernel reads every number of the checks
 checks = load_checks(Path("checks.yaml"))
 ```
 ```cpp
-[[maybe_unused]] auto const mismatch = aletheia::start_runtime_from_env(1);  // the kernel reads every number of the checks
+if (!aletheia::start_runtime_from_env(1))  // the kernel reads every number of the checks
+    return 1;
 auto checks = aletheia::load_checks_from_yaml("checks.yaml");
 ```
 ```go
@@ -110,7 +111,8 @@ start_runtime(1)  # the kernel reads every number of the checks
 checks = load_checks_from_excel("checks.xlsx")
 ```
 ```cpp
-[[maybe_unused]] auto const mismatch = aletheia::start_runtime_from_env(1);  // the kernel reads every number of the checks
+if (!aletheia::start_runtime_from_env(1))  // the kernel reads every number of the checks
+    return 1;
 auto checks = aletheia::load_checks_from_excel("checks.xlsx");
 ```
 ```go
@@ -744,7 +746,7 @@ logging.getLogger("aletheia").setLevel(logging.INFO)
 logging.getLogger("aletheia").addHandler(logging.StreamHandler())
 ```
 
-**C++** — pass a `Logger` to `AletheiaClient`'s constructor (callback-based, zero-cost when absent):
+**C++**: pass a `Logger` to `AletheiaClient::create` (callback-based, zero-cost when absent):
 ```cpp
 auto logger = aletheia::Logger{[](const aletheia::LogRecord& r) {
     std::cerr << r.event;
@@ -754,7 +756,7 @@ auto logger = aletheia::Logger{[](const aletheia::LogRecord& r) {
     }
     std::cerr << '\n';
 }};
-auto client = aletheia::AletheiaClient{std::move(backend), std::move(logger)};
+auto client = aletheia::AletheiaClient::create(std::move(backend), std::move(logger));
 ```
 
 **Go** — `WithLogger` on `NewClient` for stream events; `WithFFILogger` on `NewFFIBackend` for FFI/RTS events:
@@ -777,7 +779,7 @@ let client = Client::builder()
 
 - **Go**: logged by `StartRuntime` on the logger it is given, and by `NewFFIBackend` on its `WithFFILogger` handler, before any `Client` exists; a nil logger logs nothing.
 - **Python**: logged by `aletheia.start_runtime` and by the backend `AletheiaClient` opens, on the module-level `aletheia` logger, so an application sees it through the standard `logging` configuration without per-client wiring.
-- **C++**: `start_runtime` answers it as the `{active, requested}` pair it returns; a backend captures it at `make_ffi_backend()` and the `AletheiaClient` constructor logs it through the `Logger` passed to that constructor (the FFI backend has no logger of its own).
+- **C++**: `start_runtime` answers it as the `{active, requested}` pair it returns; a backend captures it at `make_ffi_backend()` and `AletheiaClient::create` logs it through the `Logger` it is given (the FFI backend has no logger of its own).
 - **Rust**: logged by `start_runtime` on the logger it is given, and by `ClientBuilder::build` on the builder's `logger`.
 
 The record (`active_cores` and `requested_cores` as integer fields, level `WARNING`) is identical across bindings.  The choice of emission point is a layering trade-off: Go gives the FFI layer its own logger so backend-level events are observable without a client; Python relies on the global logging tree; C++ keeps the backend logger-free and routes everything through the client.

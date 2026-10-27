@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // JSON parsing: Agda core response strings → C++ types.
+#include "detail/bad_alloc.hpp"
 #include "detail/json.hpp"
 #include "detail/json_parse_helpers.hpp"
 
@@ -141,10 +142,9 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
 // constructors (see `src/Aletheia/Limits.agda`).
 // JSON nesting depth is a client-side guard against malformed *responses*
 // from the kernel — not an inbound kernel input bound — so it doesn't fit
-// any `BoundKind` and the typed shape would be misleading.  The existing
-// `catch (const std::exception&)` block at every parse_* callsite converts
-// the `runtime_error` to a `Result<>` error via `make_error(ErrorKind::Protocol,
-// ...)`, which is the right semantic class (malformed/corrupted server reply).
+// any `BoundKind` and the typed shape would be misleading.  wire_guarded,
+// which every parse_* runs inside, converts the `runtime_error` to a Protocol
+// `Result<>` error, the right semantic class (malformed/corrupted server reply).
 static auto parse_bounded(std::string_view input) -> Json {
     auto const callback = [](int depth, Json::parse_event_t /*event*/, Json& /*parsed*/) -> bool {
         if (std::cmp_greater(depth, max_nesting_depth)) {
@@ -245,10 +245,10 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
                          std::move(bound_info), std::move(issues)};
 }
 
-// Decode a JSON {numerator, denominator} object into a (num, den) pair,
-// validating den > 0.  Caller is responsible for first verifying
+// Decode a JSON {numerator, denominator} object into a Rational, validating
+// den > 0.  Caller is responsible for first verifying
 // `j.is_object() && j.contains("numerator") && j.contains("denominator")`.
-static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::int64_t> {
+static auto parse_rational_dict(const Json& j) -> Rational {
     auto const num = require_int<std::int64_t>(j.at("numerator"), "rational numerator");
     auto const den = require_int<std::int64_t>(j.at("denominator"), "rational denominator");
     // The kernel emits rationals with a positive denominator (the ℕ⁺ invariant),
@@ -257,9 +257,10 @@ static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::i
     // (extract_rational_from_dict), Go (parseRational), and Rust (Rational::new),
     // which all reject den <= 0 at the wire instead of rewriting it, so a
     // malformed payload surfaces rather than hiding.
-    if (den <= 0)
+    auto const rational = Rational::make(num, den);
+    if (!rational)
         throw std::runtime_error("Non-positive denominator in rational: " + j.dump());
-    return {num, den};
+    return rational.value();
 }
 
 // Decode a binary-output entry's refusal envelope (declared in detail/json.hpp)
@@ -273,6 +274,7 @@ auto binary_refusal(std::string_view envelope, ErrorKind coded) -> AletheiaError
                               "Error envelope without status \"error\": " + std::string{envelope});
         return make_json_error(coded, j);
     } catch (const std::exception& e) {
+        rethrow_if_bad_alloc(e);
         return make_error(ErrorKind::Protocol,
                           "Malformed error envelope " + std::string{envelope} + ": " + e.what());
     }
@@ -286,12 +288,10 @@ auto binary_refusal(std::string_view envelope, ErrorKind coded) -> AletheiaError
 // boundary.
 auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
-        return Rational{require_int<std::int64_t>(j, "rational integer"), std::int64_t{1}};
+        return Rational::integer(require_int<std::int64_t>(j, "rational integer"));
     // contains() answers false on anything but an object, so it is the one test.
-    if (j.contains("numerator") && j.contains("denominator")) {
-        auto const [num, den] = parse_rational_dict(j);
-        return Rational{num, den};
-    }
+    if (j.contains("numerator") && j.contains("denominator"))
+        return parse_rational_dict(j);
     throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
 }
 
@@ -368,12 +368,29 @@ static auto parse_rational_as_int(const Json& j) -> std::int64_t {
 // ---------------------------------------------------------------------------
 // Public parsing functions
 //
-// Each function catches exceptions from JSON access and validated-type
-// construction, converting them to Result<> errors at the public boundary.
+// Each function runs inside wire_guarded, which answers what JSON access and
+// validated-type construction throw as a Protocol error: the text is the
+// kernel's reply, so a shape it does not have is a fault of the wire.
 // ---------------------------------------------------------------------------
 
-auto parse_success(std::string_view input) -> Result<void> {
+// The Protocol error a parse's exception is, called from the handler so
+// std::bad_alloc leaves as it came; one function, whatever the parse.
+static auto wire_fault(const std::exception& e) -> std::unexpected<AletheiaError> {
+    rethrow_if_bad_alloc(e);
+    return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
+}
+
+template<typename Parse>
+static auto wire_guarded(Parse parse) -> decltype(parse()) {
     try {
+        return parse();
+    } catch (const std::exception& e) {
+        return wire_fault(e);
+    }
+}
+
+auto parse_success(std::string_view input) -> Result<void> {
+    return wire_guarded([&] -> Result<void> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "success")
@@ -381,13 +398,11 @@ auto parse_success(std::string_view input) -> Result<void> {
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         return std::unexpected(make_error(ErrorKind::Protocol, "Unexpected status: " + status));
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 auto parse_event_ack(std::string_view input) -> Result<void> {
-    try {
+    return wire_guarded([&] -> Result<void> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "ack")
@@ -395,13 +410,11 @@ auto parse_event_ack(std::string_view input) -> Result<void> {
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         return std::unexpected(make_error(ErrorKind::Protocol, "Unexpected status: " + status));
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 auto parse_validation(std::string_view input) -> Result<ValidationResult> {
-    try {
+    return wire_guarded([&] -> Result<ValidationResult> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
@@ -420,13 +433,11 @@ auto parse_validation(std::string_view input) -> Result<ValidationResult> {
             .has_errors = j.value("has_errors", false),
             .issues = std::move(issues),
         };
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
-    try {
+    return wire_guarded([&] -> Result<ExtractionResult> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
@@ -453,13 +464,11 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
             .errors = std::move(errors),
             .absent = std::move(absent),
         };
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
-    try {
+    return wire_guarded([&] -> Result<FramePayload> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
@@ -474,9 +483,7 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
             payload.push_back(
                 static_cast<std::byte>(require_uint<std::uint8_t>(byte_val, "frame data byte")));
         return payload;
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 // Parse one inner per-property verdict object — shared between the
@@ -525,7 +532,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
     if (input == ack_compact || input == ack_spaced)
         return FrameResponse{Ack{}};
 
-    try {
+    return wire_guarded([&] -> Result<FrameResponse> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
 
@@ -554,9 +561,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         return std::unexpected(
             make_error(ErrorKind::Protocol, "Unexpected frame response: status=" + status +
                                                 " type=" + j.value("type", "")));
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 // Parse one entry in the `warnings` array.  Kept apart from
@@ -578,7 +583,7 @@ static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
 }
 
 auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
-    try {
+    return wire_guarded([&] -> Result<StreamResult> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
 
@@ -597,13 +602,11 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
                 warnings.push_back(parse_stream_warning_entry(w));
         }
         return StreamResult{.results = std::move(results), .warnings = std::move(warnings)};
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
-    try {
+    return wire_guarded([&] -> Result<DbcDefinition> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
@@ -615,13 +618,11 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
             return std::unexpected(
                 make_error(ErrorKind::Protocol, "Missing 'dbc' field in response"));
         return parse_dbc_definition(j.at("dbc"));
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
-    try {
+    return wire_guarded([&] -> Result<ParsedDBC> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
@@ -644,13 +645,11 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
             }
         }
         return ParsedDBC{.dbc = std::move(dbc), .warnings = std::move(warnings)};
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
-    try {
+    return wire_guarded([&] -> Result<DbcText> {
         auto const j = parse_bounded(input);
         auto const status = j.value("status", "");
         if (status == "error")
@@ -679,9 +678,7 @@ auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
             }
         }
         return DbcText{.text = j.at("text").get<std::string>(), .issues = std::move(issues)};
-    } catch (const std::exception& e) {
-        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
-    }
+    });
 }
 
 } // namespace aletheia::detail

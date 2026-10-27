@@ -9,6 +9,7 @@
 
 #include "detail/mock_backend.hpp"
 #include "enrich_sentinels.hpp"
+#include "required.hpp"
 #include <aletheia/aletheia.hpp>
 #include <aletheia/enrich.hpp>
 
@@ -20,6 +21,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+using aletheia::test::required;
 
 using namespace aletheia;
 using aletheia::test::count_extraction_sentinels;
@@ -61,7 +64,7 @@ TEST_CASE("end_stream extracts each tracked frame once across properties", "[cli
         "errors": [], "absent": []
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     std::vector<LtlFormula> props;
     props.push_back(ltl::eventually(
         ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}}))));
@@ -121,7 +124,7 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
     })");
     // Deliberately NO extraction response queued — none may be consumed.
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto formula = ltl::eventually(
         ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})));
     std::vector<LtlFormula> props;
@@ -182,7 +185,7 @@ TEST_CASE("end_stream with all properties holding makes zero extraction calls",
     })");
     // Deliberately NO extraction response queued — none may be consumed.
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -230,7 +233,7 @@ TEST_CASE("end_stream frame loop breaks early once the wanted union is covered",
         "errors": [], "absent": []
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -291,7 +294,7 @@ TEST_CASE("end_stream merge is first-frame-wins across tracked frames", "[client
         "errors": [], "absent": []
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -346,7 +349,7 @@ TEST_CASE("end_stream failed extraction warns once per frame, not per property",
     std::vector<std::pair<LogLevel, std::string>> events;
     const Logger logger(
         [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
-    AletheiaClient client(std::move(mock), logger);
+    auto client = required(AletheiaClient::create(std::move(mock), logger));
 
     REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
@@ -404,7 +407,7 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
     std::vector<std::pair<LogLevel, std::string>> events;
     const Logger logger(
         [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
-    AletheiaClient client(std::move(mock), logger);
+    auto client = required(AletheiaClient::create(std::move(mock), logger));
 
     // Only ONE property registered — index 7 is out of bounds.
     std::vector<LtlFormula> props;
@@ -453,7 +456,7 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
         }]
     })");
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     // Set only 1 property — index 999 is out of bounds
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
@@ -503,7 +506,7 @@ TEST_CASE("set_properties replaces the diagnostics and forgets cached extraction
     mock_ptr->queue_response(violation);
     mock_ptr->queue_response(extraction);
 
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     std::vector<LtlFormula> first;
     first.push_back(ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
@@ -551,7 +554,7 @@ TEST_CASE("end_stream forgets the frames of the stream it ends", "[client][enric
         "status": "complete",
         "results": [{"type": "property", "status": "fails", "property_index": 0, "reason": "r"}]
     })");
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     std::vector<LtlFormula> props;
     props.push_back(ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));

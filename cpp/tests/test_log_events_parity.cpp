@@ -49,6 +49,9 @@
 #include <vector>
 
 #include "repo_root.hpp"
+#include "required.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::repo_root;
 
@@ -180,7 +183,7 @@ static auto events_of_one_workflow() -> std::set<std::string> {
     std::vector<std::string> captured;
     const Logger logger([&](const LogRecord& r) { captured.emplace_back(r.event); });
 
-    AletheiaClient client(std::move(mock), logger);
+    auto client = required(AletheiaClient::create(std::move(mock), logger));
 
     // 1. parse_dbc (JSON path)
     const DbcDefinition dbc{.version = "1.0"};

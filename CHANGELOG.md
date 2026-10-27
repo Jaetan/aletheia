@@ -383,6 +383,75 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING: every error the C++ binding answers is a `Result<T>`, only
+  `std::bad_alloc` is thrown, and `AletheiaClient::open` opens a client in one
+  call; `libaletheia-cpp` is installed at `SOVERSION 3`.**
+  `AletheiaClient::open(ClientOptions{...})` opens the library named by
+  `.library`, or the one `find_ffi_library()` finds, with `.rts_cores`,
+  `.logger` and `.default_checks` each optional, and refuses with kind `Ffi`
+  when none is found; `AletheiaClient::create(backend, logger,
+  default_checks)` builds a client over a backend of the caller's, refusing
+  one that hands out no state (kind `Ffi`); both return
+  `Result<AletheiaClient>` and the constructor is private. `start_runtime` and
+  `start_runtime_from_env` return `Result<std::optional<std::pair<int, int>>>`
+  and the four `make_ffi_backend` overloads `Result<std::unique_ptr<IBackend>>`,
+  each refusal of the kind and text it threw. `IBackend::init()` returns
+  `Result<BackendState>` and the eight text endpoints `Result<std::string>`: a
+  null answer from the kernel (kind `Protocol`), a payload whose length is not
+  its DLC's (kind `Validation`) and the test double's empty queue (kind
+  `State`) are returned. A command holding a string that is not UTF-8, or a
+  formula nested past `max_nesting_depth`, is refused by every command,
+  `add_checks` included, with kind `Validation` and the encoder's text, and
+  `to_canonical_json` returns `Result<std::string>` with the same refusal. The
+  JSON decoders and the Excel loaders, which answer what they catch as an
+  error, let `std::bad_alloc` through. `AletheiaException` moves to
+  `aletheia::detail`, nothing public throwing it. The two-argument `Rational`
+  constructor is `consteval`: a literal outside int64 or with a denominator
+  that is not positive fails the build, a pair known at run time goes through
+  `Rational::make`, and `Rational::integer(n)` builds a whole number of any
+  integral type within int64 and cannot fail. `Rational::from_decimal`
+  returns `Result<Rational>`, `format_formula` `Result<std::string>`,
+  `build_diagnostic` `Result<PropertyDiagnostic>` and
+  `CheckResult::condition_desc()` `Result<std::string>`, where each threw
+  `AletheiaException`: the runtime down (kind `Ffi`), the kernel's refusal of a
+  literal (kind `Validation` or `InputBoundExceeded`, its code and fields
+  kept), a wire fault (kind `Protocol`) and a null string from the renderer
+  (kind `Ffi`) are each the returned error, as every other C++ refusal is. A
+  check's description is held as its text and its thresholds and rendered on
+  every read, as in Go, Rust and Python, where the first read rendered it and
+  kept the text. `Rational::make`, `StandardId::create`, `ExtendedId::create`,
+  `Dlc::create`, `bytes_to_dlc` and `SignalInjection::create` return
+  `Result<T>`, their refusal an `AletheiaError` of kind `Validation` with no
+  code, where it was a `std::string`; the four `constexpr` factories still
+  answer in a constant expression. `CheckSignal::stays_between` returns
+  `Result<CheckResult>` and refuses a range whose lo is above its hi at once;
+  `SettlesBuilder::within` and `ThenCondition::within` return
+  `Result<CheckResult>` and refuse such a range of `settles_between` or of the
+  then-signal's `stays_between` first, as Rust's and Go's do, then a negative
+  bound or one whose microseconds overflow int64. Each range refusal names
+  both bounds (`stays_between: lo (5) must be <= hi (1)`, and
+  `then stays_between: ...` for the then-signal's); where these refused, they
+  threw `std::invalid_argument`, the range refusals naming no bound, and the
+  YAML loader let those through. The constructors of `CheckResult`,
+  `CheckSignalPredicate` and `ThenCondition` that took a description closure
+  are gone, the builders making all three, and their sizes move (`CheckResult`
+  240 to 200 bytes, `CheckSignalPredicate` 144 to 136, `ThenCondition` 208 to
+  240). `IBackend::close` is `noexcept`, so a backend's close cannot fail and
+  the handle no longer swallows what one throws. `create_excel_template`
+  answers a path it cannot look at with the write's refusal, where it threw
+  `std::filesystem::filesystem_error`. `find_ffi_library()` returns
+  `Result<std::filesystem::path>`: an `ALETHEIA_LIB` naming no file is refused
+  (kind `Ffi`, `ALETHEIA_LIB=<path> does not exist`, as Python refuses it),
+  where the search went on to another library, and so is no library found,
+  with the text `AletheiaClient::open` gave, where it was an empty path; a
+  build directory the search cannot look at is passed over, where it threw
+  `std::filesystem::filesystem_error`. The benchmark and the stability harness
+  print the search's refusal. Properties the kernel accepted whose diagnostic
+  cannot be rendered leave `set_properties` with no diagnostic and return the
+  renderer's error, as the Python client does. `ErrorCode::Unknown` is
+  documented as the code of a refusal the binding makes itself, which Python,
+  Go and Rust report with no code.
+
 - **BREAKING: every binding starts the kernel's runtime on its own, with
   `start_runtime`, so checks holding a decimal load before a client and
   default checks hold them; a client naming no core count asks for the count

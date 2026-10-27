@@ -34,44 +34,45 @@ class CannedAckBackend : public IBackend {
     static inline char sentinel = 0;
 
 public:
-    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
+    auto init() -> Result<BackendState> override { return BackendState{*this, &sentinel}; }
 
     auto process(const BackendState& /*state*/, std::string_view /*input*/)
-        -> std::string override {
+        -> Result<std::string> override {
         return std::string{k_ack};
     }
 
     auto send_frame_binary(const BackendState& /*state*/, Timestamp /*ts*/, const CanId& /*id*/,
                            Dlc /*dlc*/, std::span<const std::byte> /*data*/,
                            std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
-        -> std::string override {
+        -> Result<std::string> override {
         return std::string{k_ack};
     }
 
     auto send_error_binary(const BackendState& /*state*/, Timestamp /*ts*/)
-        -> std::string override {
+        -> Result<std::string> override {
         return std::string{k_ack};
     }
 
     auto send_remote_binary(const BackendState& /*state*/, Timestamp /*ts*/, const CanId& /*id*/)
-        -> std::string override {
+        -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto start_stream_binary(const BackendState& /*state*/) -> std::string override {
+    auto start_stream_binary(const BackendState& /*state*/) -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto end_stream_binary(const BackendState& /*state*/) -> std::string override {
+    auto end_stream_binary(const BackendState& /*state*/) -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto format_dbc_binary(const BackendState& /*state*/) -> std::string override {
+    auto format_dbc_binary(const BackendState& /*state*/) -> Result<std::string> override {
         return std::string{k_ack};
     }
 
     auto extract_signals_binary(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                                std::span<const std::byte> /*data*/) -> std::string override {
+                                std::span<const std::byte> /*data*/)
+        -> Result<std::string> override {
         return std::string{k_ack};
     }
 
@@ -95,7 +96,7 @@ public:
 
 protected:
     // The state is a static sentinel, so there is nothing to release.
-    void close(void* /*state*/) override {}
+    void close(void* /*state*/) noexcept override {}
 };
 
 } // namespace

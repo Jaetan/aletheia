@@ -5,6 +5,7 @@
 // DbcSignal/DbcMessage embed vocabulary types (SignalName, CanId, Dlc,
 // NodeName, BitPosition, BitLength, ByteOrder, RationalFactor, ...), so
 // callers that include dbc.hpp always need those symbols as well.
+#include <aletheia/error.hpp>
 #include <aletheia/types.hpp> // IWYU pragma: export
 
 #include <cstddef>
@@ -398,7 +399,8 @@ struct DbcDefinition {
 // pretty-printed (2-space indent). This is the public, nlohmann-free way to
 // obtain the canonical JSON (used by the `format-dbc` / `signals --json` CLI
 // subcommands and any caller serializing a DBC for the cross-binding wire
-// protocol); it wraps the same encoder used to send DBCs across the FFI.
-[[nodiscard]] auto to_canonical_json(const DbcDefinition& dbc) -> std::string;
+// protocol); it wraps the same encoder used to send DBCs across the FFI, and
+// refuses (Validation, the encoder's text) a string that is not UTF-8.
+[[nodiscard]] auto to_canonical_json(const DbcDefinition& dbc) -> Result<std::string>;
 
 } // namespace aletheia

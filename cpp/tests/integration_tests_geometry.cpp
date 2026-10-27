@@ -8,6 +8,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/checked.hpp>
 
 #include <cstdint>
 #include <expected>
@@ -20,6 +21,9 @@
 
 #include "find_lib.hpp"
 #include "integration_fixtures.hpp"
+#include "required.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::find_lib;
 using aletheia::test::make_integration_dbc;
@@ -84,8 +88,8 @@ static auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint16_t bit
 TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length_zero",
           "[integration][parse_error]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // BE signal, length=0 → the shared geometry gate's positive-length
     // condition fails → SignalBitLengthZero.
@@ -100,8 +104,8 @@ TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length
 TEST_CASE("parse DBC: LittleEndian signal with length=0 → parse_signal_bit_length_zero",
           "[integration][parse_error]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // LE signal, length=0 → the shared geometry gate's positive-length
     // condition fails → SignalBitLengthZero (identical for both byte orders).
@@ -119,8 +123,8 @@ TEST_CASE(
     "parse DBC: BigEndian signal wider than the frame → parse_signal_bit_length_exceeds_frame",
     "[integration][parse_error]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // BE signal: start_bit=7 (MSB of byte 0), length=33, dlc=4 → 32 bits of
     // frame.  The entry gate refuses the SUBMITTED length against the frame
@@ -137,8 +141,8 @@ TEST_CASE(
 TEST_CASE("parse DBC: BigEndian run past the frame end → parse_signal_big_endian_overflow",
           "[integration][parse_error]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // BE signal: start_bit=0, length=2, dlc=1.  The Motorola MSB anchor is
     // the frame's LAST bit position (physicalBitPos(1, BE, 0) = 0), so a
@@ -157,8 +161,8 @@ TEST_CASE("parse DBC: BigEndian run past the frame end → parse_signal_big_endi
 TEST_CASE("parse DBC: out-of-frame start bit → parse_signal_start_bit_exceeds_frame",
           "[integration][parse_error]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // LE signal whose start bit is the first position past the 1-byte frame.
     auto const dbc =
@@ -177,8 +181,8 @@ TEST_CASE("parse DBC: text-loaded Motorola full-frame signal is accepted back by
     // (MSB at bit 7, descending through the whole DLC-2 frame) loads on the
     // text route, and the SAME document is accepted back by parse_dbc.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     const std::string text = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\n"
                              "BO_ 100 Msg: 2 Engine\n"
@@ -200,8 +204,8 @@ TEST_CASE("parse DBC: full-frame CAN-FD signal decodes back through format_dbc",
     // accept the echo rather than re-rejecting it with a stale classic-CAN
     // bit-length cap — the decode guard is only the type-level ceiling.
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const dbc =
         make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/512, ByteOrder::LittleEndian,
@@ -223,8 +227,8 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
     // as defense-in-depth but is proven unreachable from the public parse
     // routes (Aletheia.DBC.Properties.GeometryGateDeadness).
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     const DbcSignal sig{
         .name = SignalName{"ZeroLenLE"},
@@ -275,13 +279,13 @@ TEST_CASE("make_ffi_backend warns on mismatched rts_cores", "[integration][ffi_b
     // test already initialized with the default (1). Either way, the RTS
     // cores count is 1 after this block.
     {
-        auto const backend = make_ffi_backend(lib);
+        auto const backend = required(make_ffi_backend(lib));
         REQUIRE(backend != nullptr);
     }
 
     // Second call with rts_cores != 1 must populate the structured mismatch.
     // Two is within the CPUs of every machine the suite runs on.
-    auto const backend = make_ffi_backend(lib, /*rts_cores=*/2);
+    auto const backend = required(make_ffi_backend(lib, /*rts_cores=*/2));
     REQUIRE(backend != nullptr);
     auto const mismatch = backend->rts_mismatch_info();
 
@@ -296,12 +300,12 @@ TEST_CASE("make_ffi_backend is silent on matching rts_cores", "[integration][ffi
     // Ensure the RTS is already initialized (1 core) from prior tests or
     // this test's first call.
     {
-        auto const backend = make_ffi_backend(lib);
+        auto const backend = required(make_ffi_backend(lib));
         REQUIRE(backend != nullptr);
     }
 
     // Second call with matching rts_cores (1) must NOT warn.
-    auto const backend = make_ffi_backend(lib, /*rts_cores=*/1);
+    auto const backend = required(make_ffi_backend(lib, /*rts_cores=*/1));
     REQUIRE(backend != nullptr);
 
     CHECK_FALSE(backend->rts_mismatch_info().has_value());
@@ -313,11 +317,11 @@ TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
 
     // First init fixes the core count to 1 (deterministic prior state).
     {
-        auto const backend = make_ffi_backend(lib);
+        auto const backend = required(make_ffi_backend(lib));
         REQUIRE(backend != nullptr);
     }
 
-    auto const backend = make_ffi_backend(lib, /*rts_cores=*/4);
+    auto const backend = required(make_ffi_backend(lib, /*rts_cores=*/4));
     REQUIRE(backend != nullptr);
 
     auto const info = backend->rts_mismatch_info();
@@ -332,19 +336,14 @@ TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
 
 TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]") {
     auto const lib = find_lib();
-    // A count below 1 raises `AletheiaException(ErrorKind::Validation)` rather
-    // than `std::invalid_argument` so callers can branch on `kind()` like
-    // every other typed FFI error; the text names the bound, the CPUs the
-    // runtime counts, which is the machine's.
+    // A count below 1 is refused with kind Validation so callers can branch on
+    // `kind()` like every other typed error; the text names the bound, the
+    // CPUs the runtime counts, which is the machine's.
     for (auto const cores : {0, -1}) {
-        try {
-            static_cast<void>(make_ffi_backend(lib, cores));
-            FAIL("expected AletheiaException");
-        } catch (const AletheiaException& e) {
-            CHECK(e.kind() == ErrorKind::Validation);
-            CHECK_THAT(std::string{e.what()},
-                       StartsWith("core count " + std::to_string(cores) + " is outside 1 to "));
-        }
+        auto const backend = make_ffi_backend(lib, cores);
+        CHECK(detail::error_of(backend).kind() == ErrorKind::Validation);
+        CHECK_THAT(detail::error_of(backend).text(),
+                   StartsWith("core count " + std::to_string(cores) + " is outside 1 to "));
     }
 }
 
@@ -361,8 +360,8 @@ TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]"
 
 TEST_CASE("send_error returns ack via real FFI", "[integration][event_ack]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
     REQUIRE(client.set_properties(std::stop_token{}, {}).has_value());
@@ -379,8 +378,8 @@ TEST_CASE("send_error returns ack via real FFI", "[integration][event_ack]") {
 
 TEST_CASE("send_remote returns ack via real FFI", "[integration][event_ack]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
     REQUIRE(client.set_properties(std::stop_token{}, {}).has_value());

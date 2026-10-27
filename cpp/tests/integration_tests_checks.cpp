@@ -28,6 +28,9 @@
 #include "bounds_dbc.hpp"
 #include "find_lib.hpp"
 #include "integration_fixtures.hpp"
+#include "required.hpp"
+
+using aletheia::test::required;
 
 using aletheia::test::find_lib;
 using aletheia::test::has_warning;
@@ -130,8 +133,8 @@ static auto make_split_master_mux_dbc() -> DbcDefinition {
 
 TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
@@ -172,8 +175,8 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
 
 TEST_CASE("streaming LTL check via real FFI — property violated", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
@@ -223,8 +226,8 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
     // across all bindings, proven in
     // Aletheia.Protocol.FrameProcessor.Properties.Monotonic (PROPERTY 28).
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
@@ -267,8 +270,8 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
 
 TEST_CASE("validate DBC via real FFI", "[integration]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     auto const result = client.validate_dbc(std::stop_token{}, make_integration_dbc());
     REQUIRE(result.has_value());
@@ -279,8 +282,8 @@ TEST_CASE("validate DBC via real FFI", "[integration]") {
 TEST_CASE("VAL_ value descriptions round-trip via real FFI",
           "[integration][dbc][value_descriptions]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     constexpr std::string_view text = R"(VERSION ""
 
@@ -324,8 +327,8 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
 TEST_CASE("format_dbc_text refuses a multi-value mux via real FFI",
           "[integration][dbc][format][roundtrip]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // A multi-value mux selector does not round-trip through .dbc text, so the
     // always-strict formatter refuses it with a typed round-trip error rather
@@ -354,8 +357,8 @@ TEST_CASE("format_dbc_text refuses a multi-value mux via real FFI",
 TEST_CASE("CHECK 23 unknown_value_description_target warning via real FFI",
           "[integration][dbc][value_descriptions][validator]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     constexpr std::string_view text = R"(VERSION ""
 
@@ -382,8 +385,8 @@ VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
 TEST_CASE("CHECK 24 multi_value_mux_selector warning via real FFI",
           "[integration][dbc][validator][mux]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // validate_dbc mirrors the round-trip diagnostic warning-class: the shape
     // loads and streams fine, so has_errors stays false.
@@ -401,8 +404,8 @@ TEST_CASE("CHECK 24 multi_value_mux_selector warning via real FFI",
 TEST_CASE("CHECK 25 mux_master_incoherent warning via real FFI",
           "[integration][dbc][validator][mux]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // The split-master shape passes every error-class mux check, so only the
     // warning-class mirror names it.
@@ -460,7 +463,7 @@ static void check_one_range_issue(std::span<const ValidationIssue> issues,
 
 TEST_CASE("a declared range past the values a signal's bits carry is refused at load",
           "[integration][dbc][validator]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     struct Case {
         Rational minimum;
         Rational maximum;
@@ -493,7 +496,7 @@ TEST_CASE("a declared range past the values a signal's bits carry is refused at 
 }
 
 TEST_CASE("a bound that names no part of a DBC carries no field", "[integration][input_bounds]") {
-    AletheiaClient client(make_ffi_backend(find_lib()));
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(find_lib()))));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_bounds_dbc()).has_value());
     // 63 always-wrappers around an atomic predicate nest the command's JSON
     // past max_nesting_depth.
@@ -514,8 +517,8 @@ TEST_CASE("a bound that names no part of a DBC carries no field", "[integration]
 TEST_CASE("rejected DBC text parse carries typed validation issues via real FFI",
           "[integration][dbc][validation]") {
     auto const lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
+    auto backend = required(make_ffi_backend(lib));
+    auto client = required(AletheiaClient::create(std::move(backend)));
 
     // minimal.dbc's EngineStatus message with EngineTemp renamed to
     // EngineSpeed — a duplicate signal name, an error-severity issue, so the
@@ -580,8 +583,10 @@ static auto verdict_of(const FrameResponse& sent, const StreamResult& ended) -> 
 
 TEST_CASE("interleaved clients have independent state via real FFI", "[integration][concurrent]") {
     auto const lib = find_lib();
-    AletheiaClient lenient(make_ffi_backend(lib)); // Speed 150 < 200 → Holds
-    AletheiaClient strict(make_ffi_backend(lib));  // Speed 150 >= 100 → Fails
+    auto lenient = required(
+        AletheiaClient::create(required(make_ffi_backend(lib)))); // Speed 150 < 200 → Holds
+    auto strict = required(
+        AletheiaClient::create(required(make_ffi_backend(lib)))); // Speed 150 >= 100 → Fails
     const std::array<std::reference_wrapper<AletheiaClient>, 2> clients{lenient, strict};
 
     auto const dbc = make_integration_dbc();

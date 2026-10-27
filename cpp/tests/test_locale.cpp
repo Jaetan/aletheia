@@ -17,8 +17,11 @@
 #include <stop_token>
 #include <string_view>
 
+#include "required.hpp"
+
+using aletheia::test::required;
+
 using aletheia::AletheiaClient;
-using aletheia::AletheiaException;
 using aletheia::ErrorCode;
 using aletheia::ErrorKind;
 using aletheia::Rational;
@@ -35,19 +38,16 @@ constexpr std::string_view k_dbc_text =
 constexpr std::string_view k_raw_command = R"({"type": "°C"})";
 
 TEST_CASE("the kernel's strings do not depend on the locale", "[locale]") {
-    AletheiaClient client(aletheia::make_ffi_backend_from_env());
+    auto client = required(AletheiaClient::create(required(aletheia::make_ffi_backend_from_env())));
     REQUIRE(std::string_view{std::setlocale(LC_CTYPE, nullptr)} == "C");
 
     SECTION("a non-ASCII literal is refused") {
         // The euro sign reaches the kernel as UTF-8, so the kernel reads it and
         // stops in front of it: a trailing-input refusal, not a UTF-8 one.
-        try {
-            static_cast<void>(Rational::from_decimal("1.5\u20ac"));
-            FAIL("Rational::from_decimal accepted 1.5 and a euro sign");
-        } catch (const AletheiaException& e) {
-            CHECK(e.kind() == ErrorKind::Validation);
-            CHECK(e.code() == ErrorCode::TextTrailingInput);
-        }
+        auto const parsed = Rational::from_decimal("1.5\u20ac");
+        REQUIRE_FALSE(parsed.has_value());
+        CHECK(parsed.error().kind() == ErrorKind::Validation);
+        CHECK(parsed.error().code() == ErrorCode::TextTrailingInput);
     }
     SECTION("a non-ASCII unit is refused at its position") {
         auto const parsed = client.parse_dbc_text(std::stop_token{}, k_dbc_text);
@@ -57,8 +57,9 @@ TEST_CASE("the kernel's strings do not depend on the locale", "[locale]") {
         CHECK(error.message().contains("line 10, column 35 (code point 176)"));
     }
     SECTION("a non-ASCII message type is echoed whole") {
-        auto const backend = aletheia::make_ffi_backend_from_env();
-        auto const state = backend->init();
-        CHECK(backend->process(state, k_raw_command).contains("unknown message type '\u00b0C'"));
+        auto const backend = required(aletheia::make_ffi_backend_from_env());
+        auto const state = required(backend->init());
+        CHECK(required(backend->process(state, k_raw_command))
+                  .contains("unknown message type '\u00b0C'"));
     }
 }

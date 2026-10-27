@@ -312,15 +312,16 @@ The installed shared library `libaletheia-cpp` carries a `SOVERSION`, raised by 
 
 ```cpp
 // Functional equivalent of Go's NewFFIBackend + NewClient and Python's
-// AletheiaClient(ffi_path=...). All three load the same libaletheia-ffi.so
+// AletheiaClient(). All three load the same libaletheia-ffi.so
 // via dlopen and hand off to the same verified Agda core.
 #include <aletheia/client.hpp>
 #include <aletheia/backend.hpp>
 
 int main() {
-    auto backend = aletheia::make_ffi_backend("/opt/aletheia/lib/libaletheia-ffi.so");
-    auto client = aletheia::AletheiaClient{std::move(backend)};
-    // ... use client (see JSON Protocol docs for commands) ...
+    auto client = aletheia::AletheiaClient::open({.library = "/opt/aletheia/lib/libaletheia-ffi.so"});
+    if (!client)
+        return 1;
+    // ... use client-> (see JSON Protocol docs for commands) ...
 }
 ```
 
@@ -339,8 +340,8 @@ go get github.com/Jaetan/aletheia/go/v5/aletheia
 #### Usage
 
 ```go
-// Functional equivalent of C++'s make_ffi_backend + AletheiaClient and
-// Python's AletheiaClient(ffi_path=...). All three load the same
+// Functional equivalent of C++'s AletheiaClient::open and Python's
+// AletheiaClient(). All three load the same
 // libaletheia-ffi.so via dlopen and hand off to the same verified Agda core.
 package main
 
@@ -391,8 +392,8 @@ aletheia = { git = "https://github.com/Jaetan/aletheia", package = "aletheia" }
 #### Usage
 
 ```rust
-// Functional equivalent of C++'s make_ffi_backend + AletheiaClient and
-// Python's AletheiaClient(ffi_path=...). Point ALETHEIA_LIB at the built
+// Functional equivalent of C++'s AletheiaClient::open and Python's
+// AletheiaClient(). Point ALETHEIA_LIB at the built
 // libaletheia-ffi.so, then construct a Client — it loads the same verified
 // Agda core via dlopen.
 //

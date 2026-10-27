@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // JSON serialization: C++ types → JSON command strings for the Agda core.
+#include "detail/bad_alloc.hpp"
 #include "detail/json.hpp"
 
 #include <aletheia/limits.hpp>
@@ -9,6 +10,8 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
+#include <expected>
 #include <limits>
 #include <numeric>
 #include <span>
@@ -463,17 +466,38 @@ static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
 // Public serialization functions
 // ---------------------------------------------------------------------------
 
-// Every DBC-carrying command has the same envelope.
-static auto dbc_command(std::string_view command, const DbcDefinition& dbc) -> std::string {
-    return Json{{"type", "command"}, {"command", command}, {"dbc", dbc_to_json(dbc)}}.dump();
+// A command is built from the caller's values, so what the encoder refuses (a
+// string that is not UTF-8, a formula nested deeper than the kernel reads) is
+// the caller's error: kind Validation, with the encoder's own text.
+// The refusal an encoder's exception is, called from the handler so
+// std::bad_alloc leaves as it came; one function, whatever the command.
+static auto encoder_refusal(const std::exception& e) -> std::unexpected<AletheiaError> {
+    rethrow_if_bad_alloc(e);
+    return validation_refusal(e.what());
 }
 
-auto serialize_parse_dbc(const DbcDefinition& dbc) -> std::string {
+template<typename Encode>
+static auto encoded(Encode encode, int indent = -1) -> Result<std::string> {
+    try {
+        return encode().dump(indent);
+    } catch (const std::exception& e) {
+        return encoder_refusal(e);
+    }
+}
+
+// Every DBC-carrying command has the same envelope.
+static auto dbc_command(std::string_view command, const DbcDefinition& dbc) -> Result<std::string> {
+    return encoded(
+        [&] { return Json{{"type", "command"}, {"command", command}, {"dbc", dbc_to_json(dbc)}}; });
+}
+
+auto serialize_parse_dbc(const DbcDefinition& dbc) -> Result<std::string> {
     return dbc_command("parseDBC", dbc);
 }
 
-auto serialize_parse_dbc_text(std::string_view text) -> std::string {
-    return Json{{"type", "command"}, {"command", "parseDBCText"}, {"text", text}}.dump();
+auto serialize_parse_dbc_text(std::string_view text) -> Result<std::string> {
+    return encoded(
+        [text] { return Json{{"type", "command"}, {"command", "parseDBCText"}, {"text", text}}; });
 }
 
 auto serialize_parsed_dbc_response(const DbcDefinition& dbc) -> std::string {
@@ -481,20 +505,21 @@ auto serialize_parsed_dbc_response(const DbcDefinition& dbc) -> std::string {
         .dump();
 }
 
-auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string {
+auto serialize_validate_dbc(const DbcDefinition& dbc) -> Result<std::string> {
     return dbc_command("validateDBC", dbc);
 }
 
-auto serialize_format_dbc_text(const DbcDefinition& dbc) -> std::string {
+auto serialize_format_dbc_text(const DbcDefinition& dbc) -> Result<std::string> {
     return dbc_command("formatDBCText", dbc);
 }
 
-auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string {
-    return Json{
-        {"type", "command"},
-        {"command", "setProperties"},
-        {"properties", json_array(props, [](const LtlFormula& f) { return formula_to_json(f); })}}
-        .dump();
+auto serialize_set_properties(std::span<const LtlFormula> props) -> Result<std::string> {
+    return encoded([props] {
+        return Json{{"type", "command"},
+                    {"command", "setProperties"},
+                    {"properties",
+                     json_array(props, [](const LtlFormula& f) { return formula_to_json(f); })}};
+    });
 }
 
 } // namespace aletheia::detail
@@ -502,11 +527,12 @@ auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string 
 namespace aletheia {
 
 // Public canonical DBC JSON serializer (declared in <aletheia/dbc.hpp>).
-// Reuses the internal `dbc_to_json` encoder — the same one the FFI command
-// serializers wrap — so the output is the Agda core's canonical form. Returns
-// a pretty-printed string, keeping nlohmann out of the public header.
-auto to_canonical_json(const DbcDefinition& dbc) -> std::string {
-    return detail::dbc_to_json(dbc).dump(2);
+// Reuses the internal `dbc_to_json` encoder, the one the FFI command
+// serializers wrap, so the output is the Agda core's canonical form, and it
+// refuses what they refuse. Returns a pretty-printed string, keeping nlohmann
+// out of the public header.
+auto to_canonical_json(const DbcDefinition& dbc) -> Result<std::string> {
+    return detail::encoded([&dbc] { return detail::dbc_to_json(dbc); }, 2);
 }
 
 } // namespace aletheia

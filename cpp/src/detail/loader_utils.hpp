@@ -109,6 +109,23 @@ namespace aletheia::detail {
 [[nodiscard]] auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<void>;
 
 // ---------------------------------------------------------------------------
+// Reads both loaders share
+// ---------------------------------------------------------------------------
+
+/// The rational `text` spells, read by the kernel's decimal grammar
+/// (`Rational::from_decimal`), so no float ever materialises.  A refusal of the
+/// literal, a Validation error with the kernel's or the shared library's code or
+/// the typed bound error, keeps its kind, code and fields and is thrown located
+/// at `location` and `key`, because the kernel knows the literal and not where
+/// the document holds it; a runtime, library or wire fault is thrown as it is.
+[[nodiscard]] auto read_decimal(std::string_view text, const std::string& location,
+                                const std::string& key) -> Rational;
+
+/// The check a builder answered, its refusal thrown as the loader's other
+/// refusals are.
+[[nodiscard]] auto built_check(Result<CheckResult> built) -> CheckResult;
+
+// ---------------------------------------------------------------------------
 // Condition keywords, as both loaders spell them
 // ---------------------------------------------------------------------------
 
@@ -185,14 +202,19 @@ using ThenArm = CheckResult (*)(const ThenSignal&, const ThenSlotValues&, std::s
 inline constexpr std::array<std::pair<std::string_view, ThenArm>, 3> k_then_arms{{
     {k_equals,
      [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
-        std::chrono::milliseconds w) { return b.equals(then_slot(s, c, "value")).within(w); }},
+        std::chrono::milliseconds w) {
+         return built_check(b.equals(then_slot(s, c, "value")).within(w));
+     }},
     {k_exceeds,
      [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
-        std::chrono::milliseconds w) { return b.exceeds(then_slot(s, c, "value")).within(w); }},
+        std::chrono::milliseconds w) {
+         return built_check(b.exceeds(then_slot(s, c, "value")).within(w));
+     }},
     {k_stays_between,
      [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
         std::chrono::milliseconds w) {
-         return b.stays_between(then_slot(s, c, "lo"), then_slot(s, c, "hi")).within(w);
+         return built_check(
+             b.stays_between(then_slot(s, c, "lo"), then_slot(s, c, "hi")).within(w));
      }},
 }};
 

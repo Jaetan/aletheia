@@ -6,6 +6,7 @@
 #include <aletheia/detail/checked.hpp>
 #include <aletheia/excel.hpp>
 
+#include "detail/bad_alloc.hpp"
 #include "detail/loader_utils.hpp"
 
 #include <OpenXLSX.hpp>
@@ -243,13 +244,9 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 // get_decimal requires a TEXT cell holding a decimal literal.  The float
 // principle refuses a number-typed cell: a float64 has already lost the
 // authored precision, so numeric fields are authored as text-formatted cells,
-// whose text, its leading and trailing ASCII whitespace trimmed, is parsed
-// exactly by the kernel decimal SSOT (Rational::from_decimal).
-// The runtime must be up (`start_runtime` or a backend).  A refusal of the literal, a
-// Validation error with the kernel's or the shared library's code or the typed
-// bound error, keeps its kind, code and fields and is located at the row and the
-// column header, because the kernel knows the literal and not the workbook
-// position; a runtime, library or wire fault passes through unchanged.
+// whose text, its leading and trailing ASCII whitespace trimmed, is read by
+// `detail::read_decimal`, located at the row and the column header.  The
+// runtime must be up (`start_runtime` or a backend).
 static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> Rational {
     auto const& cell = require_cell(cells, key, ctx_str, " (expected number)");
@@ -260,13 +257,7 @@ static auto get_decimal(const CellMap& cells, const std::string& key, const std:
     auto const raw = std::string_view{cell.value};
     auto const first = raw.find_first_not_of(ascii_whitespace);
     auto const text = raw.substr(first, raw.find_last_not_of(ascii_whitespace) - first + 1);
-    try {
-        return Rational::from_decimal(text);
-    } catch (const AletheiaException& ex) {
-        if (ex.kind() != ErrorKind::Validation && ex.kind() != ErrorKind::InputBoundExceeded)
-            throw;
-        throw AletheiaException(ex.error().located(ctx_str, key));
-    }
+    return detail::read_decimal(text, ctx_str, key);
 }
 
 // get_int is get_decimal plus a whole-number requirement (DLC / Start Bit /
@@ -388,7 +379,7 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
                                          "' requires 'Min' and 'Max'");
             auto const lo = PhysicalValue{get_decimal(cells, "Min", ctx_str)};
             auto const hi = PhysicalValue{get_decimal(cells, "Max", ctx_str)};
-            return check::signal(signal).stays_between(lo, hi);
+            return detail::built_check(check::signal(signal).stays_between(lo, hi));
         }
         if (detail::is_simple_settles_condition(condition)) {
             if (!has_key(cells, "Min") || !has_key(cells, "Max"))
@@ -400,7 +391,7 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
             auto const lo = PhysicalValue{get_decimal(cells, "Min", ctx_str)};
             auto const hi = PhysicalValue{get_decimal(cells, "Max", ctx_str)};
             auto const ms = std::chrono::milliseconds{get_int(cells, "Time (ms)", ctx_str)};
-            return check::signal(signal).settles_between(lo, hi).within(ms);
+            return detail::built_check(check::signal(signal).settles_between(lo, hi).within(ms));
         }
         auto const value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
         return check::signal(signal).equals(value).always();
@@ -610,12 +601,13 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 
         return results;
 
-    } catch (const AletheiaException& ex) {
+    } catch (const detail::AletheiaException& ex) {
         // A refused number, located, or a runtime failure keeps the error as
         // thrown; any other throw, a cell's defect or the library's, is a
         // Validation error.
         return std::unexpected(ex.error());
     } catch (const std::exception& ex) {
+        detail::rethrow_if_bad_alloc(ex);
         return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
     }
 }
@@ -723,9 +715,10 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
 
         return DbcDefinition{.version = "", .messages = std::move(messages)};
 
-    } catch (const AletheiaException& ex) {
+    } catch (const detail::AletheiaException& ex) {
         return std::unexpected(ex.error());
     } catch (const std::exception& ex) {
+        detail::rethrow_if_bad_alloc(ex);
         return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
     }
 }
@@ -739,7 +732,10 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
     // before letting OpenXLSX raise an opaque exception inside `doc.create`.
     if (auto const v = detail::validate_output_parent_dir(path); !v)
         return std::unexpected(detail::error_of(v));
-    if (std::filesystem::exists(path))
+    // A path that cannot be looked at is not taken to exist: the write below
+    // answers for it, as the Go and Rust template writers let theirs.
+    std::error_code ec;
+    if (std::filesystem::exists(path, ec))
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "File already exists: " + path.string()});
 
@@ -780,6 +776,7 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         return {};
 
     } catch (const std::exception& ex) {
+        detail::rethrow_if_bad_alloc(ex);
         return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
     }
 }

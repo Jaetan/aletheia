@@ -25,7 +25,7 @@ namespace aletheia {
 //     std::cerr << r.event;
 //     for (auto const& [k, v] : r.fields) { /* format k=v */ }
 // }, aletheia::LogLevel::Info);
-// auto client = aletheia::AletheiaClient(std::move(backend), logger);
+// auto client = aletheia::AletheiaClient::create(std::move(backend), logger);
 // ```
 //
 // Multiple sinks: construct with the primary callback and call

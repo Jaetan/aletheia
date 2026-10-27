@@ -92,7 +92,7 @@ TEST_CASE("implies desugars to or(not(antecedent), consequent)", "[enrich]") {
     // either(negate(a), c), matching Go's Implies, Rust's Formula::implies, and
     // Python's .implies(). Asserted structurally via the printer, no literal string.
     CHECK(format_formula(ltl::implies(ante(), cons())) ==
-          format_formula(ltl::either(ltl::negate(ante()), cons())));
+          format_formula(ltl::either(ltl::negate(ante()), cons())).value());
 }
 
 TEST_CASE("format_formula all predicate types", "[enrich]") {

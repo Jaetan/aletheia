@@ -12,7 +12,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <expected>
 #include <format>
 #include <optional>
@@ -25,18 +24,9 @@ namespace aletheia {
 
 // BackendState's out-of-line members: each needs IBackend complete, and the
 // vtable is emitted in this translation unit anyway.
-//
-// release swallows, because it runs from the destructor and from a noexcept
-// move assignment, where a throw would terminate the program. The FFI close
-// path allocates nothing, but another backend may throw.
 void BackendState::release() noexcept {
-    if (backend_ != nullptr && state_ != nullptr) {
-        try {
-            backend_->close(state_);
-        } catch (...) {
-            static_cast<void>(std::current_exception());
-        }
-    }
+    if (backend_ != nullptr && state_ != nullptr)
+        backend_->close(state_);
     backend_ = nullptr;
     state_ = nullptr;
 }
@@ -64,14 +54,14 @@ auto BackendState::operator=(BackendState&& other) noexcept -> BackendState& {
 auto SignalInjection::create(std::span<const std::uint32_t> indices,
                              std::span<const std::int64_t> numerators,
                              std::span<const std::int64_t> denominators)
-    -> std::expected<SignalInjection, std::string> {
+    -> Result<SignalInjection> {
     if (indices.size() != numerators.size() || indices.size() != denominators.size())
-        return std::unexpected(
+        return detail::validation_refusal(
             std::format("signal injection arrays differ in length: {} indices, {} numerators, "
                         "{} denominators",
                         indices.size(), numerators.size(), denominators.size()));
     if (auto refusal = detail::wire_count_refusal(indices.size()))
-        return std::unexpected(std::move(refusal).value());
+        return detail::validation_refusal(std::move(refusal).value());
     SignalInjection block;
     block.indices_ = indices;
     block.numerators_ = numerators;

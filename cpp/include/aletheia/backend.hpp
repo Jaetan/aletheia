@@ -51,8 +51,7 @@ public:
     [[nodiscard]] explicit operator bool() const { return state_ != nullptr; }
 
 private:
-    // Closes what the handle holds, if anything, and leaves it empty. Swallows,
-    // because both callers run where a throw would terminate the program.
+    // Closes what the handle holds, if anything, and leaves it empty.
     void release() noexcept;
 
     IBackend* backend_ = nullptr;
@@ -73,7 +72,7 @@ public:
     [[nodiscard]] static auto create(std::span<const std::uint32_t> indices,
                                      std::span<const std::int64_t> numerators,
                                      std::span<const std::int64_t> denominators)
-        -> std::expected<SignalInjection, std::string>;
+        -> Result<SignalInjection>;
 
     [[nodiscard]] auto count() const -> std::uint32_t {
         return static_cast<std::uint32_t>(indices_.size());
@@ -112,12 +111,16 @@ public:
     // section below so a new backend implementer can read off the surface.
     // ========================================================================
     // init hands out the backend's state as an owning handle, which closes
-    // through this backend when it goes out of scope. The release primitive
-    // itself is protected: the handle is the only caller of close, so no call
-    // site releases state by hand.
-    [[nodiscard]] virtual auto init() -> BackendState = 0;
+    // through this backend when it goes out of scope, or refuses when the
+    // backend has none to give. The release primitive itself is protected: the
+    // handle is the only caller of close, so no call site releases state by
+    // hand.
+    //
+    // Every endpoint answering text returns the kernel's response, or the error
+    // that kept the backend from reaching the kernel or from reading its answer.
+    [[nodiscard]] virtual auto init() -> Result<BackendState> = 0;
     [[nodiscard]] virtual auto process(const BackendState& state, std::string_view input)
-        -> std::string = 0;
+        -> Result<std::string> = 0;
 
     // Binary frame FFI — bypasses JSON serialization on the send path.
     // Returns the raw JSON response string from the backend.
@@ -129,22 +132,25 @@ public:
                                                  const CanId& id, Dlc dlc,
                                                  std::span<const std::byte> data,
                                                  std::optional<bool> brs, std::optional<bool> esi)
-        -> std::string = 0;
+        -> Result<std::string> = 0;
 
     // Streaming / event endpoints — also pure-virtual.  There is no honest
     // generic default: only the binary FFI (FFIBackend) or a test double
     // (MockBackend, which records `<binary:OP>` sentinels) can service these,
     // so every backend declares how it streams.
     [[nodiscard]] virtual auto send_error_binary(const BackendState& state, Timestamp ts)
-        -> std::string = 0;
+        -> Result<std::string> = 0;
     [[nodiscard]] virtual auto send_remote_binary(const BackendState& state, Timestamp ts,
-                                                  const CanId& id) -> std::string = 0;
-    [[nodiscard]] virtual auto start_stream_binary(const BackendState& state) -> std::string = 0;
-    [[nodiscard]] virtual auto end_stream_binary(const BackendState& state) -> std::string = 0;
-    [[nodiscard]] virtual auto format_dbc_binary(const BackendState& state) -> std::string = 0;
+                                                  const CanId& id) -> Result<std::string> = 0;
+    [[nodiscard]] virtual auto start_stream_binary(const BackendState& state)
+        -> Result<std::string> = 0;
+    [[nodiscard]] virtual auto end_stream_binary(const BackendState& state)
+        -> Result<std::string> = 0;
+    [[nodiscard]] virtual auto format_dbc_binary(const BackendState& state)
+        -> Result<std::string> = 0;
     [[nodiscard]] virtual auto extract_signals_binary(const BackendState& state, const CanId& id,
                                                       Dlc dlc, std::span<const std::byte> data)
-        -> std::string = 0;
+        -> Result<std::string> = 0;
 
     // ========================================================================
     // [OPTIONAL] — base class provides a default implementation; specialized
@@ -184,7 +190,9 @@ protected:
 
     // The release primitive, reached only through BackendState's destructor and
     // its move assignment. Every backend implements it; nothing else calls it.
-    virtual auto close(void* state) -> void = 0;
+    // It cannot fail: both callers run where a throw would terminate the
+    // program, and noexcept holds every override to that.
+    virtual auto close(void* state) noexcept -> void = 0;
 
     friend class BackendState;
 };
@@ -193,21 +201,22 @@ protected:
 // on it unless `start_runtime` or another backend has. The count-less form
 // asks for the count running, 1 when nothing runs; the counted form asks for
 // `rts_cores`, and a runtime already up on another count keeps its own, the
-// difference reported by `rts_mismatch_info()`. Throws
-// AletheiaException(Validation) for a count outside 1 to the CPUs the process
-// may use.
+// difference reported by `rts_mismatch_info()`. Refuses as `start_runtime`
+// does: Validation for a count outside 1 to the CPUs the process may use or an
+// empty path, Ffi for a library that does not open, is laid out for another ABI
+// version or lacks an entry the backend reads.
 [[nodiscard]] auto make_ffi_backend(const std::filesystem::path& lib_path)
-    -> std::unique_ptr<IBackend>;
+    -> Result<std::unique_ptr<IBackend>>;
 [[nodiscard]] auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
-    -> std::unique_ptr<IBackend>;
+    -> Result<std::unique_ptr<IBackend>>;
 
 // Production, env-configured: loads the library named by the ALETHEIA_LIB
 // environment variable, mirroring the Python and Rust bindings' env-based
 // resolution: the zero-config entry point for a bundled install whose
-// install.sh exports ALETHEIA_LIB. Throws AletheiaException(Validation) if
-// ALETHEIA_LIB is unset or empty; for an explicit path use the overloads above.
-[[nodiscard]] auto make_ffi_backend_from_env() -> std::unique_ptr<IBackend>;
-[[nodiscard]] auto make_ffi_backend_from_env(int rts_cores) -> std::unique_ptr<IBackend>;
+// install.sh exports ALETHEIA_LIB. Refuses (Validation) if ALETHEIA_LIB is
+// unset or empty; for an explicit path use the overloads above.
+[[nodiscard]] auto make_ffi_backend_from_env() -> Result<std::unique_ptr<IBackend>>;
+[[nodiscard]] auto make_ffi_backend_from_env(int rts_cores) -> Result<std::unique_ptr<IBackend>>;
 
 // Starts the kernel's GHC runtime on `cores` capabilities, loading `lib`, unless
 // it runs: 1 for one bus, the number of buses when several threads each
@@ -216,16 +225,15 @@ protected:
 // loads checks before it builds a client calls it first; a backend made later
 // with no count asks for the count running. A runtime already up keeps its
 // count, and the answer is then `{active, requested}` when they differ,
-// `std::nullopt` otherwise. Throws AletheiaException(Validation) for a count
-// outside 1 to the CPUs the process may use or an empty path, and (Ffi) for a
-// library that does not open, is laid out for another ABI version or lacks an
-// entry the start reads.
+// `std::nullopt` otherwise. Refuses (Validation) a count outside 1 to the CPUs
+// the process may use or an empty path, and (Ffi) a library that does not open,
+// is laid out for another ABI version or lacks an entry the start reads.
 [[nodiscard]] auto start_runtime(const std::filesystem::path& lib, int cores)
-    -> std::optional<std::pair<int, int>>;
+    -> Result<std::optional<std::pair<int, int>>>;
 
-// `start_runtime` on the library ALETHEIA_LIB names. Throws
-// AletheiaException(Validation) if ALETHEIA_LIB is unset or empty.
-[[nodiscard]] auto start_runtime_from_env(int cores) -> std::optional<std::pair<int, int>>;
+// `start_runtime` on the library ALETHEIA_LIB names. Refuses (Validation) if
+// ALETHEIA_LIB is unset or empty.
+[[nodiscard]] auto start_runtime_from_env(int cores) -> Result<std::optional<std::pair<int, int>>>;
 
 // The bytes the kernel's runtime has allocated since it started, a count of the
 // whole process, so the difference of two reads is what ran between them
@@ -239,13 +247,13 @@ protected:
 // then the path a start or a make_ffi_backend call registered; then three build
 // directories relative to the working directory, furthest first.
 //
-// The command line and the benchmarks share it, so they find the library one
-// way; after a start it prefers the path the start opened, so a library looked
-// for later is the one the runtime runs on.
+// AletheiaClient::open, the command line and the benchmarks share it, so they
+// find the library one way; after a start it prefers the path the start
+// opened, so a library looked for later is the one the runtime runs on.
 //
-// Returns an empty path when no candidate exists; the caller says what to do
-// about it.
-[[nodiscard]] auto find_ffi_library() -> std::filesystem::path;
+// Refuses (Ffi) an ALETHEIA_LIB naming no file, as Python does, rather than
+// trying the next route, and refuses when no route finds a library.
+[[nodiscard]] auto find_ffi_library() -> Result<std::filesystem::path>;
 
 // Test: a fixed backend that answers every operation with the wire's
 // acknowledgement and every frame request with a zero-filled payload of the

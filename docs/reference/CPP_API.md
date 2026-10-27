@@ -27,37 +27,41 @@ The C++ binding targets the latest stable Clang only. See [BUILDING.md § Toolch
 
 ## Setup
 
-The binding wraps `libaletheia-ffi.so` via `dlopen`. Construct a backend from the library path, then hand it to an `AletheiaClient`:
+The binding wraps `libaletheia-ffi.so` via `dlopen`. `AletheiaClient::open` opens a client over it in one call, returning a `Result` as every call the binding answers does:
 
 ```cpp
 #include <aletheia/client.hpp>
 #include <aletheia/backend.hpp>
+#include <iostream>
 
 int main() {
-    auto backend = aletheia::make_ffi_backend("/opt/aletheia/lib/libaletheia-ffi.so");
-    auto client = aletheia::AletheiaClient{std::move(backend)};
-    // ... use client (see below) ...
+    auto client = aletheia::AletheiaClient::open({.library = "/opt/aletheia/lib/libaletheia-ffi.so"});
+    if (!client) {
+        std::cerr << client.error().text() << '\n';
+        return 1;
+    }
+    // ... use client-> (see below) ...
 }
 ```
 
-`make_ffi_backend(path)` asks for the GHC runtime's count running, 1 when nothing runs; `make_ffi_backend(path, rts_cores)` asks for `rts_cores`, a runtime already up keeping its own count and `rts_mismatch_info()` answering the difference. The loader search order and packaging are covered in the [Distribution Guide](../development/DISTRIBUTION.md).
+Every field of `ClientOptions` may be left out: an empty `.library` is the one `find_ffi_library()` finds (`ALETHEIA_LIB`, then a path a start or a backend registered, then the build directories), and the search's refusal is `open`'s, kind `Ffi`: an `ALETHEIA_LIB` naming no file (`ALETHEIA_LIB=<path> does not exist`) or no library found; `.rts_cores` unset asks for the GHC runtime's count running, 1 when nothing runs, a runtime already up keeping its own count and the difference logged as `rts.cores_mismatch` through `.logger`; `.default_checks` are applied by every `add_checks`. `open` is `make_ffi_backend(path)` or `make_ffi_backend(path, rts_cores)`, then `AletheiaClient::create(backend, logger, default_checks)`, each callable alone, `create` taking any `IBackend`. The loader search order and packaging are covered in the [Distribution Guide](../development/DISTRIBUTION.md).
 
-The kernel reads every number a check carries, through `Rational::from_decimal` and the YAML and Excel loaders, on a GHC runtime that starts once per process: by `aletheia::start_runtime(lib, cores)`, or `start_runtime_from_env(cores)` on the library `ALETHEIA_LIB` names, or by the first backend. A program that loads checks before it builds a client starts the runtime first; before any start, `Rational::from_decimal` throws `AletheiaException` of kind `Ffi` (`GHC runtime not initialized: call aletheia::start_runtime or open a client before parsing decimals`), and a loader returns that error, unlocated. `cores` is the runtime's capability count, 1 for one bus; a count outside 1 to the CPUs the process may use throws kind `Validation`. A runtime already up keeps its count, and the start then answers `{active, requested}` when the two differ, `std::nullopt` otherwise.
+The kernel reads every number a check carries, through `Rational::from_decimal` and the YAML and Excel loaders, on a GHC runtime that starts once per process: by `aletheia::start_runtime(lib, cores)`, or `start_runtime_from_env(cores)` on the library `ALETHEIA_LIB` names, or by the first backend. A program that loads checks before it builds a client starts the runtime first; before any start, `Rational::from_decimal` returns an error of kind `Ffi` (`GHC runtime not initialized: call aletheia::start_runtime or open a client before parsing decimals`), and a loader returns that error, unlocated. `cores` is the runtime's capability count, 1 for one bus; a count outside 1 to the CPUs the process may use is refused with kind `Validation`. A runtime already up keeps its count, and the start then answers `{active, requested}` when the two differ, `std::nullopt` otherwise.
 
 ```cpp
-[[maybe_unused]] auto const mismatch = aletheia::start_runtime_from_env(1);
+if (!aletheia::start_runtime_from_env(1))
+    return 1;
 auto checks = aletheia::load_checks_from_yaml("checks.yaml");
 if (!checks)
     return 1;
-auto defaults = aletheia::AletheiaClient{aletheia::make_ffi_backend_from_env(), aletheia::Logger{},
-                                         std::move(checks).value()};
+auto defaults = aletheia::AletheiaClient::open({.default_checks = std::move(checks).value()});
 ```
 
 ---
 
 ## Check API
 
-`check::signal(name)` builds a property from a fluent, plain-English condition, the recommended starting point (no LTL knowledge required). Each terminal returns a `CheckResult` you register with `add_checks`.
+`check::signal(name)` builds a property from a fluent, plain-English condition, the recommended starting point (no LTL knowledge required). Each terminal returns a `CheckResult` you register with `add_checks`, and `stays_between` a `Result<CheckResult>`, refusing with kind `Validation` a lo above its hi.
 
 ```cpp
 using namespace aletheia;
@@ -70,15 +74,18 @@ auto gear = check::signal("Gear").never_equals(PhysicalValue{Rational{-1, 1}});
 (void)gear;
 ```
 
-Response-time / causal checks use `check::when(...).then(...)`:
+Response-time / causal checks use `check::when(...).then(...)`. Their `within`, and `settles_between`'s, returns `Result<CheckResult>`, refusing with kind `Validation` a `stays_between` or `settles_between` range whose lo is above its hi, a negative bound, or one whose microseconds overflow int64:
 
 ```cpp
 using namespace aletheia;
 auto brake_response = check::when("Brake").exceeds(PhysicalValue{Rational{50, 1}})
                           .then("Decel").exceeds(PhysicalValue{Rational{2, 1}})
                           .within(std::chrono::milliseconds{500});
-(void)brake_response;
+if (!brake_response)
+    return 1;
 ```
+
+A check's `condition_desc()` is its condition in words, every threshold rendered by the kernel on each read: a `Result<std::string>`, kind `Ffi` while the runtime is down.
 
 ---
 
@@ -106,7 +113,7 @@ auto brakes_apply = ltl::eventually(ltl::atomic(
 
 ## Core Types
 
-Numeric fields are **exact rationals**: `Rational{1, 10}` is a tenth exactly, where the `double` `0.1` is not. CAN IDs and DLC codes are validated newtypes constructed through factory functions that return `std::expected`:
+Numeric fields are **exact rationals**: `Rational{1, 10}` is a tenth exactly, where the `double` `0.1` is not. The two-argument constructor takes constants only, so a pair outside int64 or a denominator that is not positive fails the build; a pair known at run time goes through `Rational::make(n, d)`, which returns `Result<Rational>`, and a whole number through `Rational::integer(n)`, which cannot fail. CAN IDs and DLC codes are validated newtypes constructed through factory functions that return `std::expected`:
 
 ```cpp
 using namespace aletheia;
@@ -136,13 +143,15 @@ The streaming workflow is **parse a DBC → register checks → start the stream
 
 int main() {
     using namespace aletheia;
-    auto backend = make_ffi_backend("/opt/aletheia/lib/libaletheia-ffi.so");
-    auto client = AletheiaClient{std::move(backend)};
     std::stop_token stop;  // a real app threads a real token for cancellation
     auto fail = [](std::string_view step, const AletheiaError& e) {
         std::cerr << step << ": " << e.text() << '\n';
         return 1;
     };
+    auto opened = AletheiaClient::open({.library = "/opt/aletheia/lib/libaletheia-ffi.so"});
+    if (!opened)
+        return fail("opening the client", opened.error());
+    auto& client = *opened;
 
     constexpr std::string_view dbc = R"(VERSION ""
 
@@ -210,7 +219,7 @@ if (rebuilt)
 
 ## Error Handling
 
-Every fallible operation returns `aletheia::Result<T>` (`std::expected<T, AletheiaError>`). There are no exceptions on the normal path. Check `has_value()` / use `operator bool`, and read `error().kind()`, `error().code()` and `error().text()` on failure:
+Every fallible operation returns `aletheia::Result<T>` (`std::expected<T, AletheiaError>`), from opening the runtime, a backend and a client to the last frame; the one exception the binding throws is `std::bad_alloc`. Check `has_value()` / use `operator bool`, and read `error().kind()`, `error().code()` and `error().text()` on failure:
 
 ```cpp
 using namespace aletheia;
@@ -221,13 +230,14 @@ auto describe = [](const AletheiaError& e) -> std::string {
 (void)describe;
 ```
 
-`message()` is the refusal's own text: for a refusal the kernel made, the kernel's message verbatim, the binding only typing it with `kind()`, `code()` and the fields the kernel's answer carries. `text()` is the error as every binding prints it, and an `AletheiaException`'s `what()` is the same string.
+`message()` is the refusal's own text: for a refusal the kernel made, the kernel's message verbatim, the binding only typing it with `kind()`, `code()` and the fields the kernel's answer carries. `text()` is the error as every binding prints it.
 
 A decimal the YAML or Excel loader reads, such as a check's value or a signal's factor, is handed to the kernel as the document spells it (a workbook cell's text with its leading and trailing whitespace trimmed), and a refusal of it, the kernel's or the shared library's, keeps its kind, code and fields: kind `Validation` with its code, or kind `InputBoundExceeded` with `bound_info()`. The loader adds `location()`, `Check '<name>'` for a YAML check (`<unnamed>` for a check without a name) and `Row <n>` for a workbook row, and `key()`, the YAML key or the column header the number sat under, through `located(location, key)`, so `text()` reads `<location>: invalid '<key>': <message>`. Every other error leaves both `std::nullopt`, and its `text()` is its `message()`. The same document gets the same answer in every binding: [LOADER_SCENARIOS.yaml](../LOADER_SCENARIOS.yaml) is that contract.
 
 <!-- refuses: text_parse_failure -->
 ```cpp
-[[maybe_unused]] auto const mismatch = aletheia::start_runtime_from_env(1);  // the kernel reads every number
+if (!aletheia::start_runtime_from_env(1))  // the kernel reads every number
+    return 1;
 auto const refused = aletheia::load_checks_from_yaml_string(
     "checks:\n  - name: C\n    signal: Speed\n    condition: never_exceeds\n    value: .5\n");
 if (refused || refused.error().text() !=

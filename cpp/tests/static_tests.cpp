@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -66,6 +67,12 @@ static_assert(StandardId::create(0x100)->value() == 0x100);
 static_assert(StandardId::create(0)->value() == 0);
 static_assert(StandardId::create(2047)->value() == 2047);
 
+// A factory's refusal is an AletheiaError of kind Validation with no wire code,
+// read in a constant expression.
+static_assert(StandardId::create(2048).error().kind() == ErrorKind::Validation);
+static_assert(StandardId::create(2048).error().code() == ErrorCode::Unknown);
+static_assert(StandardId::create(2048).error().message() == "Standard CAN ID must be 0-2047");
+
 // ===========================================================================
 // ExtendedId — validated construction (constexpr)
 // ===========================================================================
@@ -76,6 +83,10 @@ static_assert(ExtendedId::create(536'870'911).has_value());
 static_assert(!ExtendedId::create(536'870'912).has_value());
 
 static_assert(ExtendedId::create(1'000'000)->value() == 1'000'000);
+
+static_assert(ExtendedId::create(536'870'912).error().kind() == ErrorKind::Validation);
+static_assert(ExtendedId::create(536'870'912).error().message() ==
+              "Extended CAN ID must be 0-536870911");
 
 // ===========================================================================
 // Dlc — validated construction (constexpr)
@@ -88,6 +99,29 @@ static_assert(!Dlc::create(16).has_value());
 static_assert(!Dlc::create(255).has_value());
 
 static_assert(Dlc::create(4)->value() == 4);
+
+static_assert(Dlc::create(16).error().kind() == ErrorKind::Validation);
+static_assert(Dlc::create(16).error().message() == "DLC must be 0-15");
+
+// ===========================================================================
+// Rational::make: validated construction (constexpr)
+// ===========================================================================
+
+static_assert(Rational::make(1, 4).value() == Rational{1, 4});
+static_assert(Rational::make(1, 0).error().kind() == ErrorKind::Validation);
+static_assert(Rational::make(1, 0).error().message() == "Rational denominator must be positive");
+static_assert(Rational::make(1, -1).error().message() == "Rational denominator must be positive");
+static_assert(Rational::make(std::uint64_t{1} << 63U, 1).error().message() ==
+              "Rational: numerator/denominator out of int64 range");
+
+// Rational::integer: the whole number, for every integral type within int64
+static_assert(Rational::integer(5) == Rational{5, 1});
+static_assert(Rational::integer(-5).numerator() == -5);
+static_assert(Rational::integer(-5).denominator() == 1);
+static_assert(Rational::integer(std::numeric_limits<std::int64_t>::min()).numerator() ==
+              std::numeric_limits<std::int64_t>::min());
+static_assert(Rational::integer(std::numeric_limits<std::uint32_t>::max()).numerator() ==
+              std::numeric_limits<std::uint32_t>::max());
 
 // ===========================================================================
 // dlc_to_bytes mapping (CAN-FD non-linear table)

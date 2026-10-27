@@ -48,6 +48,7 @@ inline constexpr std::string_view k_prologue =
 #include <span>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -70,7 +71,7 @@ namespace doc_harness_detail {
 
 inline auto build_doc_dbc() -> DbcDefinition {
 auto rat = [](std::int64_t n, std::int64_t d) {
-    return Rational{n, d};
+    return Rational::make(n, d).value();
 };
 auto signal_def = [&](std::string_view name, std::uint16_t start_bit,
                       std::uint8_t bit_length, std::int64_t max_val) {
@@ -135,9 +136,22 @@ inline auto harness_lib() -> std::string {
     return env_lib != nullptr ? env_lib : "";
 }
 
+// The harness's own setup refused: the fragment cannot run, so the program
+// ends naming why.
+template<typename T>
+inline auto harness_opened(Result<T> opened, std::string_view what) -> T {
+    if (!opened) {
+        std::cerr << "the harness's " << what << " does not open: " << opened.error().text()
+                  << '\n';
+        std::exit(1);
+    }
+    return std::move(opened).value();
+}
+
 inline auto harness_client() -> AletheiaClient& {
     if (!client_cell) {
-        client_cell.emplace(make_ffi_backend(harness_lib()));
+        client_cell.emplace(
+            harness_opened(AletheiaClient::open({.library = harness_lib()}), "client"));
         if (auto parsed = client_cell->parse_dbc(std::stop_token{}, build_doc_dbc()); !parsed) {
             std::cerr << "the harness's DBC does not parse: " << parsed.error().message() << '\n';
             std::exit(1);
@@ -148,7 +162,7 @@ inline auto harness_client() -> AletheiaClient& {
 
 inline auto harness_backend() -> std::unique_ptr<IBackend>& {
     if (!backend_opened) {
-        backend_cell = make_ffi_backend(harness_lib());
+        backend_cell = harness_opened(make_ffi_backend(harness_lib()), "backend");
         backend_opened = true;
     }
     return backend_cell;

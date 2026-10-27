@@ -2,26 +2,33 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
-// Where a test that loads the real kernel finds libaletheia-ffi.so, or skips.
-// Two units of the integration suite load it, so the lookup is written once.
+// Where a test that loads the real kernel finds libaletheia-ffi.so, or skips
+// when it is nowhere. ALETHEIA_LIB, set, is the library asked for, as the
+// binding's own search takes it: one naming no file fails the test, so a
+// mistyped value is a red run rather than skipped tests or another library.
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdlib>
 #include <filesystem>
+#include <string_view>
 
 #include "repo_root.hpp"
 
 namespace aletheia::test {
 
+// The value of ALETHEIA_LIB when it is set and not empty.
+[[nodiscard]] inline auto set_aletheia_lib() -> const char* {
+    const char* env = std::getenv("ALETHEIA_LIB");
+    return env != nullptr && !std::string_view{env}.empty() ? env : nullptr;
+}
+
 [[nodiscard]] inline auto find_lib() -> std::filesystem::path {
-    // The environment first, for CI and custom builds, but only when it names
-    // a file that is there: an empty or stale value must not shadow a library
-    // that is, else a missing file becomes a construction failure rather than
-    // the skip this function exists for.
-    if (auto* env = std::getenv("ALETHEIA_LIB")) {
-        if (const std::filesystem::path p{env}; !p.empty() && std::filesystem::exists(p))
-            return p;
+    if (auto const* env = set_aletheia_lib()) {
+        const std::filesystem::path p{env};
+        if (!std::filesystem::exists(p))
+            FAIL("ALETHEIA_LIB=" << env << " does not exist");
+        return p;
     }
 
     // Default: project build directory
@@ -35,7 +42,7 @@ namespace aletheia::test {
     if (std::filesystem::exists(dist))
         return dist;
 
-    SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    SKIP("libaletheia-ffi.so not found: run 'cabal run shake -- build' first");
     return {};
 }
 

@@ -10,8 +10,10 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/mock_backend.hpp"
+#include "required.hpp"
 #include <aletheia/aletheia.hpp>
 #include <aletheia/detail/cache_keys.hpp>
+#include <aletheia/detail/checked.hpp>
 
 #include <initializer_list>
 
@@ -30,6 +32,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+using aletheia::test::required;
 
 using namespace aletheia;
 using aletheia::test::BinExtractMockBackend;
@@ -60,7 +64,7 @@ static auto streaming_client(std::initializer_list<const char*> frame_responses)
         backend->queue_response(r);
     }
     auto* mock = backend.get();
-    AletheiaClient client(std::move(backend));
+    auto client = required(AletheiaClient::create(std::move(backend)));
     auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
@@ -234,7 +238,7 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
     backend_a->queue_response(R"({"status":"success"})"); // set_properties
     backend_a->queue_response(R"({"status":"success"})"); // start_stream
     backend_a->queue_response(R"({"status":"ack"})");     // send_frame
-    AletheiaClient a(std::move(backend_a));
+    auto a = required(AletheiaClient::create(std::move(backend_a)));
 
     auto const prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
@@ -243,7 +247,7 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
 
     // Target client: separate backend (will be destroyed on assignment).
     auto backend_b = std::make_unique<MockBackend>();
-    AletheiaClient b(std::move(backend_b));
+    auto b = required(AletheiaClient::create(std::move(backend_b)));
 
     // Move-assign: b takes over a's state.
     b = std::move(a);
@@ -266,7 +270,7 @@ TEST_CASE("the public mock factory answers without anything queued", "[client][m
     // refused until its queue was filled would be one they could never call.
     auto const backend = make_mock_backend();
     REQUIRE(backend);
-    auto const state = backend->init();
+    auto const state = required(backend->init());
 
     SECTION("a control-plane command is acknowledged") {
         CHECK(backend->process(state, R"({"command":"startStream"})") == R"({"status":"ack"})");
@@ -300,52 +304,45 @@ TEST_CASE("the two doubles differ on purpose", "[client][mock]") {
     // an answer. The test-internal one refuses, because a suite that silently
     // received a fabricated answer would pass for the wrong reason.
     MockBackend configurable;
-    auto const strict_state = configurable.init();
-    CHECK_THROWS_AS(configurable.process(strict_state, "<binary:sendFrame>"), AletheiaException);
+    auto const strict_state = required(configurable.init());
+    CHECK_FALSE(configurable.process(strict_state, "<binary:sendFrame>").has_value());
 
     auto const fixed = make_mock_backend();
-    auto const fixed_state = fixed->init();
+    auto const fixed_state = required(fixed->init());
     CHECK(fixed->process(fixed_state, "<binary:sendFrame>") == R"({"status":"ack"})");
 }
 
-TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
+TEST_CASE("MockBackend refuses on queue exhaustion", "[client][mock]") {
     MockBackend mock;
-    auto const state = mock.init();
+    auto const state = required(mock.init());
 
-    // Empty queue → exhaustion is a harness misconfiguration: the mock throws
+    // Empty queue → exhaustion is a harness misconfiguration: the mock refuses
     // rather than fabricating a default, as every binding's mock does. The
-    // starved request is recorded BEFORE the throw, so captured() stays
+    // starved request is recorded BEFORE the refusal, so captured() stays
     // populated on the erroring call.  Pin the kind AND exact message so a
     // silent downgrade (wrong ErrorKind, or a drifted op token) trips here.
-    try {
-        static_cast<void>(mock.process(state, "<binary:sendFrame>"));
-        FAIL("expected AletheiaException");
-    } catch (const AletheiaException& e) {
-        CHECK(e.error().kind() == ErrorKind::State);
-        CHECK(std::string{e.error().message()} ==
-              "mock backend: no queued response for <binary:sendFrame>");
-    }
+    auto const starved = mock.process(state, "<binary:sendFrame>");
+    CHECK(aletheia::detail::error_of(starved).kind() == ErrorKind::State);
+    CHECK(aletheia::detail::error_of(starved).message() ==
+          "mock backend: no queued response for <binary:sendFrame>");
     REQUIRE_FALSE(mock.captured().empty());
     CHECK(mock.last_captured() == "<binary:sendFrame>");
 
     // A JSON control-plane command starves the same way, but maps to the
     // generic "process" op token — the JSON→"process" mapping is the one most
     // likely to silently regress, so pin it exactly.
-    try {
-        static_cast<void>(mock.process(state, R"({"command":"setProperties","formulas":[]})"));
-        FAIL("expected AletheiaException");
-    } catch (const AletheiaException& e) {
-        CHECK(e.error().kind() == ErrorKind::State);
-        CHECK(std::string{e.error().message()} == "mock backend: no queued response for process");
-    }
+    auto const starved_json = mock.process(state, R"({"command":"setProperties","formulas":[]})");
+    CHECK(aletheia::detail::error_of(starved_json).kind() == ErrorKind::State);
+    CHECK(aletheia::detail::error_of(starved_json).message() ==
+          "mock backend: no queued response for process");
 
-    // A queued response takes priority over the throw path.
+    // A queued response takes priority over the refusal.
     mock.queue_response(R"({"custom": true})");
     auto const custom = mock.process(state, "<binary:sendFrame>");
     CHECK(custom == R"({"custom": true})");
 
-    // Queue drained again → throws once more.
-    CHECK_THROWS_AS(mock.process(state, "<binary:sendFrame>"), AletheiaException);
+    // Queue drained again → refuses once more.
+    CHECK_FALSE(mock.process(state, "<binary:sendFrame>").has_value());
 }
 
 // Counts the releases of the state it hands out, so the handle's own policy has
@@ -357,7 +354,7 @@ public:
     explicit CountingCloseBackend(int* closes) : closes_(closes) {}
 
 protected:
-    void close(void* state) override {
+    void close(void* state) noexcept override {
         ++*closes_;
         MockBackend::close(state);
     }
@@ -371,7 +368,8 @@ TEST_CASE("the backend state is released exactly once over a client's life", "[c
     SECTION("a move transfers the state rather than closing it") {
         int closes = 0;
         {
-            AletheiaClient client{std::make_unique<CountingCloseBackend>(&closes)};
+            auto client =
+                required(AletheiaClient::create(std::make_unique<CountingCloseBackend>(&closes)));
             CHECK(closes == 0);
             const AletheiaClient moved{std::move(client)};
             CHECK(closes == 0);
@@ -383,8 +381,10 @@ TEST_CASE("the backend state is released exactly once over a client's life", "[c
         int first_closes = 0;
         int second_closes = 0;
         {
-            AletheiaClient first{std::make_unique<CountingCloseBackend>(&first_closes)};
-            AletheiaClient second{std::make_unique<CountingCloseBackend>(&second_closes)};
+            auto first = required(
+                AletheiaClient::create(std::make_unique<CountingCloseBackend>(&first_closes)));
+            auto second = required(
+                AletheiaClient::create(std::make_unique<CountingCloseBackend>(&second_closes)));
             second = std::move(first);
             // The state the target held is gone; the source's has moved across.
             CHECK(second_closes == 1);
@@ -397,7 +397,8 @@ TEST_CASE("the backend state is released exactly once over a client's life", "[c
     SECTION("self-assignment releases nothing") {
         int closes = 0;
         {
-            AletheiaClient client{std::make_unique<CountingCloseBackend>(&closes)};
+            auto client =
+                required(AletheiaClient::create(std::make_unique<CountingCloseBackend>(&closes)));
             auto& alias = client;
             client = std::move(alias);
             CHECK(closes == 0);
@@ -422,14 +423,17 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
         const std::vector<std::int64_t> short_numerators{1};
         auto const block = SignalInjection::create(indices, short_numerators, denominators);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().contains("differ in length: 2 indices, 1 numerators, 2 denominators"));
+        CHECK(block.error().kind() == ErrorKind::Validation);
+        CHECK(block.error().message().contains(
+            "differ in length: 2 indices, 1 numerators, 2 denominators"));
     }
 
     SECTION("a shorter denominator array is refused too") {
         const std::vector<std::int64_t> short_denominators{1};
         auto const block = SignalInjection::create(indices, numerators, short_denominators);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().contains("differ in length: 2 indices, 2 numerators, 1 denominators"));
+        CHECK(block.error().message().contains(
+            "differ in length: 2 indices, 2 numerators, 1 denominators"));
     }
 }
 
@@ -463,7 +467,8 @@ TEST_CASE("SignalInjection refuses a block wider than the wire's count", "[clien
 
     auto const block = SignalInjection::create(indices, values, values);
     REQUIRE_FALSE(block.has_value());
-    CHECK(block.error() ==
+    CHECK(block.error().kind() == ErrorKind::Validation);
+    CHECK(block.error().message() ==
           "signal injection carries 4294967296 values, more than the wire's count holds");
 }
 
@@ -475,7 +480,7 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     // unified cross-binding message, it does NOT throw.  The op token is
     // still recorded on the starved call, matching Go / Python / Rust.
     MockBackend mock;
-    auto const state = mock.init();
+    auto const state = required(mock.init());
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     // The mock ignores the injection contents; an empty block suffices.
@@ -513,7 +518,7 @@ TEST_CASE("MockBackend hands out queued frame buffers in order, each once", "[cl
     // Two buffers queued, two calls: the second call reads the second buffer,
     // which is only so if the first call consumed the first.
     MockBackend mock;
-    auto const state = mock.init();
+    auto const state = required(mock.init());
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     auto const signals = SignalInjection::create({}, {}, {}).value();
@@ -532,7 +537,7 @@ TEST_CASE("parse_dbc_text arms the binary extraction path", "[client][mock]") {
     auto mock = std::make_unique<BinExtractMockBackend>();
     auto* mock_ptr = mock.get();
     mock_ptr->queue_response(parsed_dbc_response_for(make_test_dbc()));
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     REQUIRE(client.parse_dbc_text(std::stop_token{}, "VERSION \"\"").has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -551,7 +556,7 @@ TEST_CASE("reloading a DBC replaces the previous one's signals under the same me
     second.messages[0].signals[0].name = SignalName{"Other"};
     mock_ptr->queue_response(parsed_dbc_response_for(first));
     mock_ptr->queue_response(parsed_dbc_response_for(second));
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     REQUIRE(client.parse_dbc(std::stop_token{}, first).has_value());
     REQUIRE(client.parse_dbc(std::stop_token{}, second).has_value());
 
@@ -578,7 +583,7 @@ TEST_CASE("reloading a DBC replaces the previous one's signals under the same me
 TEST_CASE("build_frame refuses a signal the message does not carry, by name", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
@@ -599,7 +604,7 @@ TEST_CASE("client keys its signal cache on the extended bit for extraction and r
     auto mock = std::make_unique<BinExtractMockBackend>();
     auto* mock_ptr = mock.get();
     mock_ptr->queue_response(parsed_dbc_response_for(dbc));
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
     auto const dlc = Dlc::create(8).value();
@@ -655,21 +660,22 @@ namespace {
 // A backend whose init answers no state at all.
 class NullStateBackend : public MockBackend {
 public:
-    auto init() -> BackendState override { return BackendState{*this, nullptr}; }
+    auto init() -> Result<BackendState> override { return BackendState{*this, nullptr}; }
 };
 
 } // namespace
 
 TEST_CASE("a client refuses a backend whose init returns no state, by name", "[client][mock]") {
-    REQUIRE_THROWS_WITH(AletheiaClient(std::make_unique<NullStateBackend>()),
-                        ContainsSubstring("returned null state"));
+    auto const client = AletheiaClient::create(std::make_unique<NullStateBackend>());
+    CHECK(aletheia::detail::error_of(client).kind() == ErrorKind::Ffi);
+    CHECK(aletheia::detail::error_of(client).message() == "backend init() returned null state");
 }
 
 TEST_CASE("set_properties answers the backend's error and stops there", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(
         R"({"status": "error", "code": "handler_validation_failed", "message": "bad"})");
-    AletheiaClient client(std::move(mock));
+    auto client = required(AletheiaClient::create(std::move(mock)));
     auto const result = client.set_properties(std::stop_token{}, std::span<const LtlFormula>{});
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().message() == "bad");
@@ -683,7 +689,7 @@ TEST_CASE("a stream that fails to start or end logs neither event", "[client][mo
         R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
     std::vector<std::string> events;
     const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
-    AletheiaClient client(std::move(mock), logger);
+    auto client = required(AletheiaClient::create(std::move(mock), logger));
     CHECK_FALSE(client.start_stream(std::stop_token{}).has_value());
     CHECK_FALSE(client.end_stream(std::stop_token{}).has_value());
     CHECK(

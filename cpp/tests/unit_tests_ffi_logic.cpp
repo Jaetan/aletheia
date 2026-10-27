@@ -11,6 +11,7 @@
 // test's own strings, so the mock records whether it was called and with what
 // and never frees.
 
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "detail/ffi_abi.hpp"
@@ -263,14 +264,12 @@ TEST_CASE("decimal_value builds over a positive denominator and refuses any othe
           "[ffi][logic]") {
     CHECK(detail::decimal_value(3, 1) == Rational{3, 1});
     for (auto const denominator : {std::int64_t{0}, std::int64_t{-1}}) {
-        try {
-            static_cast<void>(detail::decimal_value(1, denominator));
-            FAIL("decimal_value admitted the denominator " << denominator);
-        } catch (const AletheiaException& e) {
-            CHECK(e.kind() == ErrorKind::Protocol);
-            CHECK(std::string_view{e.what()} ==
-                  "aletheia_parse_decimal answered a non-positive denominator " +
-                      std::to_string(denominator));
-        }
+        INFO("denominator " << denominator);
+        auto const value = detail::decimal_value(1, denominator);
+        REQUIRE_FALSE(value.has_value());
+        CHECK(value.error().kind() == ErrorKind::Protocol);
+        CHECK(value.error().text() ==
+              "aletheia_parse_decimal answered a non-positive denominator " +
+                  std::to_string(denominator));
     }
 }

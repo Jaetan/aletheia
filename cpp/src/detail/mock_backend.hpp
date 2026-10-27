@@ -30,12 +30,9 @@ class MockBackend : public IBackend {
     std::queue<std::vector<std::byte>> frame_responses_;
 
     // Binary frame-channel exhaustion helper.  Records the `<binary:…>` sentinel
-    // (mirroring process()) then pops the next queued packed-frame byte buffer.
-    // On an empty queue it RETURNS `std::unexpected(...)` rather than throwing:
-    // build_frame_bin / update_frame_bin return `std::expected`, and the Client
-    // forwards that result directly, so the error must flow through the value
-    // channel to preserve the Result contract.  The op token and message mirror
-    // the JSON path and the peer bindings byte-for-byte (#108 unification):
+    // (mirroring process()) then pops the next queued packed-frame byte buffer,
+    // refusing on an empty queue as process() does.  The op token and message
+    // mirror the JSON path and the peer bindings byte-for-byte:
     // ErrorKind::State + "mock backend: no queued response for <op>".
     [[nodiscard]] auto pop_frame(std::string_view op)
         -> std::expected<std::vector<std::byte>, AletheiaError> {
@@ -74,16 +71,17 @@ public:
             frame_responses_.pop();
     }
 
-    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
+    auto init() -> Result<BackendState> override { return BackendState{*this, &sentinel}; }
 
-    auto process(const BackendState& /*state*/, std::string_view input) -> std::string override {
+    auto process(const BackendState& /*state*/, std::string_view input)
+        -> Result<std::string> override {
         // Record the request BEFORE the exhaustion check so `captured()` stays
         // populated on the erroring call (cross-binding contract: the starved
         // call is still logged, matching Go / Rust / Python).
         captured_.emplace_back(input);
         if (responses_.empty()) {
             // Exhaustion is a harness misconfiguration, not a wire response:
-            // throw rather than fabricate a default (which would silently mask
+            // refuse rather than fabricate a default (which would silently mask
             // an under-provisioned test).  The op token matches the other
             // bindings byte-for-byte: the `<binary:OP>` sentinel on the binary
             // paths (input IS the sentinel), and the generic "process" on the
@@ -91,7 +89,7 @@ public:
             // the same condition; the message is the cross-binding unified
             // template (#108).
             auto const op = input.starts_with("<binary:") ? std::string{input} : "process";
-            throw AletheiaException(
+            return std::unexpected(
                 AletheiaError{ErrorKind::State, "mock backend: no queued response for " + op});
         }
         auto r = std::move(responses_.front());
@@ -110,33 +108,35 @@ public:
     auto send_frame_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/,
                            Dlc /*dlc*/, std::span<const std::byte> /*data*/,
                            std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
-        -> std::string override {
+        -> Result<std::string> override {
         return process(state, "<binary:sendFrame>");
     }
 
-    auto send_error_binary(const BackendState& state, Timestamp /*ts*/) -> std::string override {
+    auto send_error_binary(const BackendState& state, Timestamp /*ts*/)
+        -> Result<std::string> override {
         return process(state, "<binary:sendError>");
     }
 
     auto send_remote_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/)
-        -> std::string override {
+        -> Result<std::string> override {
         return process(state, "<binary:sendRemote>");
     }
 
-    auto start_stream_binary(const BackendState& state) -> std::string override {
+    auto start_stream_binary(const BackendState& state) -> Result<std::string> override {
         return process(state, "<binary:startStream>");
     }
 
-    auto end_stream_binary(const BackendState& state) -> std::string override {
+    auto end_stream_binary(const BackendState& state) -> Result<std::string> override {
         return process(state, "<binary:endStream>");
     }
 
-    auto format_dbc_binary(const BackendState& state) -> std::string override {
+    auto format_dbc_binary(const BackendState& state) -> Result<std::string> override {
         return process(state, "<binary:formatDBC>");
     }
 
     auto extract_signals_binary(const BackendState& state, const CanId& /*id*/, Dlc /*dlc*/,
-                                std::span<const std::byte> /*data*/) -> std::string override {
+                                std::span<const std::byte> /*data*/)
+        -> Result<std::string> override {
         return process(state, "<binary:extractAllSignals>");
     }
 
@@ -165,7 +165,7 @@ public:
 protected:
     // Reached only through BackendState; the mock's state is a static sentinel,
     // so there is nothing to release.
-    void close(void* /*state*/) override {}
+    void close(void* /*state*/) noexcept override {}
 };
 
 } // namespace aletheia

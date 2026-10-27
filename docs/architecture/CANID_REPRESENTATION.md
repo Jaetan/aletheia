@@ -22,7 +22,7 @@ This shape is fixed by the Agda kernel's `CANId` ADT
 |---|---|---|---|
 | Python | `CANFrameTuple` | 7-NamedTuple `(timestamp, can_id: int, dlc, data, extended: bool, brs, esi)` | `validate_can_id(can_id, *, extended)` in `python/aletheia/client/_types.py` |
 | Go | `Frame` | 6-struct with `ID: CANID` (sealed interface — `StandardID(uint16) \| ExtendedID(uint32)`) | `NewStandardID(uint16) (StandardID, error)` / `NewExtendedID(uint32) (ExtendedID, error)` factory functions |
-| C++ | `Frame` | 6-aggregate with `id: CanId` (`std::variant<StandardId, ExtendedId>` over private-ctor newtypes) | `StandardId::create(uint16_t)` / `ExtendedId::create(uint32_t)` factories returning `std::expected<…, std::string>` |
+| C++ | `Frame` | 6-aggregate with `id: CanId` (`std::variant<StandardId, ExtendedId>` over private-ctor newtypes) | `StandardId::create(uint16_t)` / `ExtendedId::create(uint32_t)` factories returning `Result<…>` (`std::expected<…, AletheiaError>`) |
 | Rust | `Frame` | struct with `id: CanId` (sealed enum — `Standard(u16) \| Extended(u32)`) | `CanId::standard(u16)` / `CanId::extended(u32)` factories returning `Result<…, Error>` |
 
 ## Why Python is the outlier
