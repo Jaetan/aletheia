@@ -133,7 +133,7 @@ static auto with_multiplex_values(std::uint64_t count) -> DbcDefinition {
 // bound_info names the part of the DBC that crossed the bound, and the
 // message prefixes it with the command that refused.
 template<typename T>
-static void check_bound_refusal(const Result<T>& result, std::string_view bound_kind,
+static void check_bound_refusal(Result<T> const& result, std::string_view bound_kind,
                                 std::string_view field, std::string_view message,
                                 std::uint64_t observed, std::uint64_t limit) {
     REQUIRE_FALSE(result.has_value());

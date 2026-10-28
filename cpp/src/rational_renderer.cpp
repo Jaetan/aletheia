@@ -57,8 +57,8 @@ static auto default_path_state() -> DefaultPathState& {
 // and both benchmarks. It consults the path a start or a backend registered,
 // the state in this file. It takes what it reads as arguments, so a test
 // reaches each route whatever the process already holds.
-auto search_ffi_library(const char* env_path, std::string_view registered_path,
-                        const std::filesystem::path& cwd) -> Result<std::filesystem::path> {
+auto search_ffi_library(char const* env_path, std::string_view registered_path,
+                        std::filesystem::path const& cwd) -> Result<std::filesystem::path> {
     namespace fs = std::filesystem;
     // A path that cannot be looked at is taken not to exist.
     std::error_code ec;
@@ -95,7 +95,7 @@ auto search_ffi_library(const char* env_path, std::string_view registered_path,
 
 static auto find_library_path() -> Result<std::filesystem::path> {
     auto& d = default_path_state();
-    const std::scoped_lock lk{d.mu};
+    std::scoped_lock const lk{d.mu};
     // A working directory that cannot be read leaves the build candidates
     // relative, where they name nothing that resolves.
     std::error_code ec;
@@ -120,14 +120,14 @@ static auto kernel_string(Call call, std::string_view reading, std::string_view 
         return std::unexpected(
             AletheiaError{ErrorKind::Ffi, std::string{returned_null} + " returned a null pointer"});
     auto const deleter = [&entries](char* p) { entries.free_str(p); };
-    const std::unique_ptr<char, decltype(deleter)> guard{raw, deleter};
+    std::unique_ptr<char, decltype(deleter)> const guard{raw, deleter};
     return std::string{raw};
 }
 
 auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> Result<std::string> {
     return kernel_string(
-        [&](const RuntimeEntries& entries) {
-            const FfiRational value{.numerator = num, .denominator = denom};
+        [&](RuntimeEntries const& entries) {
+            FfiRational const value{.numerator = num, .denominator = denom};
             return entries.format_rational(&value);
         },
         "rendering", "aletheia_format_rational");
@@ -145,16 +145,16 @@ auto parse_decimal_ffi(std::string_view input) -> Result<std::expected<Rational,
             return std::unexpected(AletheiaError{ErrorKind::Protocol,
                                                  "aletheia_parse_decimal failed without an error"});
         auto const deleter = [&entries](char* p) { entries.free_str(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{out.err, deleter};
+        std::unique_ptr<char, decltype(deleter)> const guard{out.err, deleter};
         return std::expected<Rational, std::string>{std::unexpect, out.err};
     }
     return decimal_value(out.value.numerator, out.value.denominator)
         .transform([](Rational value) -> std::expected<Rational, std::string> { return value; });
 }
 
-void register_default_lib_path(const std::filesystem::path& lib_path) {
+void register_default_lib_path(std::filesystem::path const& lib_path) {
     auto& d = default_path_state();
-    const std::scoped_lock lk{d.mu};
+    std::scoped_lock const lk{d.mu};
     if (d.path.empty()) // first-write-wins
         d.path = lib_path.string();
 }

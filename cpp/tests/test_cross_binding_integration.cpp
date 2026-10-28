@@ -45,7 +45,7 @@ using namespace aletheia;
 static auto canonical_dbc() -> DbcDefinition {
     auto const sig_id = StandardId::create(256).value();
     auto const dlc = Dlc::create(8).value();
-    const DbcSignal test_sig{
+    DbcSignal const test_sig{
         .name = SignalName{"TestSignal"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -123,7 +123,7 @@ TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
     auto const dlc = Dlc::create(8).value();
     auto const payload = std::array<std::byte, 8>{};
     auto const resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
-                                        std::span<const std::byte>{payload});
+                                        std::span<std::byte const>{payload});
     REQUIRE(resp.has_value());
     // FrameResponse is an acknowledgement or a property batch; 0 < 1000 acks.
     CHECK(std::holds_alternative<Ack>(resp.value()));
@@ -150,7 +150,7 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
         std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0},
     };
     auto const resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
-                                        std::span<const std::byte>{payload});
+                                        std::span<std::byte const>{payload});
     REQUIRE(resp.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
     auto const& b = std::get<PropertyBatch>(resp.value());
@@ -195,7 +195,7 @@ TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_b
         std::byte{0},   std::byte{0}, std::byte{0}, std::byte{0},
     };
     auto const resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
-                                        std::span<const std::byte>{payload});
+                                        std::span<std::byte const>{payload});
     REQUIRE(resp.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
     auto const& b = std::get<PropertyBatch>(resp.value());
@@ -226,7 +226,7 @@ TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
     auto const dlc = Dlc::create(8).value();
     auto const payload = std::array<std::byte, 8>{};
 
-    const std::array<std::optional<bool>, 3> options = {
+    std::array<std::optional<bool>, 3> const options = {
         std::nullopt,
         std::optional<bool>{true},
         std::optional<bool>{false},
@@ -236,7 +236,7 @@ TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
         for (auto const& esi : options) {
             ts += 1000;
             auto const resp = client.send_frame(std::stop_token{}, Timestamp{ts}, CanId{sid}, dlc,
-                                                std::span<const std::byte>{payload}, brs, esi);
+                                                std::span<std::byte const>{payload}, brs, esi);
             REQUIRE(resp.has_value());
             CHECK(std::holds_alternative<Ack>(resp.value()));
         }
@@ -267,7 +267,7 @@ TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
     auto backend = required(make_ffi_backend(lib));
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    const std::string name(aletheia::max_identifier_length, 'A');
+    std::string const name(aletheia::max_identifier_length, 'A');
     auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
     auto const result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE(result.has_value());
@@ -280,7 +280,7 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
     auto backend = required(make_ffi_backend(lib));
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    const std::string name(aletheia::max_identifier_length + 1, 'A');
+    std::string const name(aletheia::max_identifier_length + 1, 'A');
     auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
     auto const result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE_FALSE(result.has_value());

@@ -258,7 +258,7 @@ static auto run(std::span<char* const> argv) -> int try {
     });
 
     return 0;
-} catch (const std::exception& e) {
+} catch (std::exception const& e) {
     std::println(stderr, "benchmark: {}", e.what());
     return 1;
 } catch (...) {

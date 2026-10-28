@@ -24,7 +24,7 @@ namespace aletheia::bench {
 
 auto make_can20_dbc() -> DbcDefinition {
     // EngineStatus: ID=0x100, DLC=8, sender=ECU1
-    const DbcSignal engine_speed{
+    DbcSignal const engine_speed{
         .name = SignalName{"EngineSpeed"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -37,7 +37,7 @@ auto make_can20_dbc() -> DbcDefinition {
         .unit = Unit{"rpm"},
         .presence = AlwaysPresent{},
     };
-    const DbcSignal engine_temp{
+    DbcSignal const engine_temp{
         .name = SignalName{"EngineTemp"},
         .start_bit = BitPosition{16},
         .bit_length = BitLength{8},
@@ -51,7 +51,7 @@ auto make_can20_dbc() -> DbcDefinition {
         .presence = AlwaysPresent{},
     };
 
-    const DbcMessage engine_msg{
+    DbcMessage const engine_msg{
         .id = CanId{StandardId::create(0x100).value()},
         .name = MessageName{"EngineStatus"},
         .dlc = Dlc::create(8).value(),
@@ -60,7 +60,7 @@ auto make_can20_dbc() -> DbcDefinition {
     };
 
     // BrakeStatus: ID=0x200, DLC=8, sender=ECU2
-    const DbcSignal brake_pressure{
+    DbcSignal const brake_pressure{
         .name = SignalName{"BrakePressure"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -73,7 +73,7 @@ auto make_can20_dbc() -> DbcDefinition {
         .unit = Unit{"bar"},
         .presence = AlwaysPresent{},
     };
-    const DbcSignal brake_pressed{
+    DbcSignal const brake_pressed{
         .name = SignalName{"BrakePressed"},
         .start_bit = BitPosition{16},
         .bit_length = BitLength{1},
@@ -87,7 +87,7 @@ auto make_can20_dbc() -> DbcDefinition {
         .presence = AlwaysPresent{},
     };
 
-    const DbcMessage brake_msg{
+    DbcMessage const brake_msg{
         .id = CanId{StandardId::create(0x200).value()},
         .name = MessageName{"BrakeStatus"},
         .dlc = Dlc::create(8).value(),
@@ -100,9 +100,9 @@ auto make_can20_dbc() -> DbcDefinition {
 
 auto make_canfd_dbc() -> DbcDefinition {
     // Helper to build a signal with common defaults
-    auto const sig = [](const char* name, std::uint16_t start, std::uint8_t len, bool is_signed,
+    auto const sig = [](char const* name, std::uint16_t start, std::uint8_t len, bool is_signed,
                         Rational factor, Rational offset, Rational min_val, Rational max_val,
-                        const char* unit) -> DbcSignal {
+                        char const* unit) -> DbcSignal {
         return DbcSignal{
             .name = SignalName{name},
             .start_bit = BitPosition{start},
@@ -118,7 +118,7 @@ auto make_canfd_dbc() -> DbcDefinition {
         };
     };
 
-    const DbcMessage sensor_fusion{
+    DbcMessage const sensor_fusion{
         .id = CanId{StandardId::create(0x200).value()},
         .name = MessageName{"SensorFusion"},
         .dlc = Dlc::create(15).value(),
@@ -167,8 +167,8 @@ auto make_canfd_dbc() -> DbcDefinition {
 
 // The payload fixtures are function-local: a container at namespace scope
 // runs its constructor before main, where a throw cannot be caught.
-auto can20_frame() -> const FramePayload& {
-    static const FramePayload frame = {
+auto can20_frame() -> FramePayload const& {
+    static FramePayload const frame = {
         std::byte{0x40}, std::byte{0x1F}, std::byte{0x82}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
     };
@@ -213,14 +213,14 @@ static auto make_canfd_frame() -> FramePayload {
 
 namespace aletheia::bench {
 
-auto canfd_frame() -> const FramePayload& {
+auto canfd_frame() -> FramePayload const& {
     static auto const frame = make_canfd_frame();
     return frame;
 }
 
 // CAN 2.0B signal values for frame building
-auto can20_signals() -> const std::vector<SignalValue>& {
-    static const std::vector<SignalValue> values = {
+auto can20_signals() -> std::vector<SignalValue> const& {
+    static std::vector<SignalValue> const values = {
         {.name = SignalName{"EngineSpeed"}, .value = PhysicalValue{Rational{2000, 1}}},
         {.name = SignalName{"EngineTemp"}, .value = PhysicalValue{Rational{90, 1}}},
     };
@@ -228,8 +228,8 @@ auto can20_signals() -> const std::vector<SignalValue>& {
 }
 
 // CAN-FD signal values for frame building
-auto canfd_signals() -> const std::vector<SignalValue>& {
-    static const std::vector<SignalValue> values = {
+auto canfd_signals() -> std::vector<SignalValue> const& {
+    static std::vector<SignalValue> const values = {
         {.name = SignalName{"GPSSpeed"}, .value = PhysicalValue{Rational{20, 1}}},
         {.name = SignalName{"YawRate"}, .value = PhysicalValue{Rational{}}},
         {.name = SignalName{"WheelSpeedFL"}, .value = PhysicalValue{Rational{10, 1}}},

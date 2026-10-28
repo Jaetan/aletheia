@@ -29,7 +29,7 @@ namespace aletheia::detail {
 
 // `can_id_value` / `can_id_is_extended` live in `<aletheia/types.hpp>`.
 
-static auto rational_to_json(const Rational& r) -> Json {
+static auto rational_to_json(Rational const& r) -> Json {
     // Normalize via gcd so the wire shape is byte-identical with Python's
     // ``Fraction`` (auto-canonical) and Go's parseRational sign convention,
     // preserving cross-binding wire symmetry.
@@ -55,14 +55,14 @@ static auto rational_to_json(const Rational& r) -> Json {
 
 // A JSON array of the elements of `items`, each through `to_json`.
 template<typename Range, typename ToJson>
-static auto json_array(const Range& items, ToJson to_json) -> Json {
+static auto json_array(Range const& items, ToJson to_json) -> Json {
     auto arr = Json::array();
     for (auto const& item : items)
         arr.push_back(to_json(item));
     return arr;
 }
 
-static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
+static auto presence_to_json(SignalPresence const& p, Json& sig) -> void {
     // Mirror the Agda wire form: every variant carries an explicit
     // "presence" discriminator ("always" / "multiplexed"), as the Agda
     // formatter and the Python and Go serializers do.
@@ -75,7 +75,7 @@ static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
                 sig["presence"] = "multiplexed";
                 sig["multiplexor"] = v.multiplexor.get();
                 sig["multiplex_values"] = json_array(
-                    v.multiplex_values, [](const MultiplexValue& mv) { return mv.get(); });
+                    v.multiplex_values, [](MultiplexValue const& mv) { return mv.get(); });
             } else {
                 static_assert(sizeof(T) == 0, "Unhandled SignalPresence type");
             }
@@ -85,20 +85,20 @@ static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
 
 // The wire form of one {value, description} pair, shared by a signal's inline
 // entries and a value table's rows.
-static auto value_entry_to_json(const DbcValueEntry& e) -> Json {
+static auto value_entry_to_json(DbcValueEntry const& e) -> Json {
     return {{"value", e.value}, {"description", e.description}};
 }
 
 // A node-valued field crosses the wire as the plain string it always was; the
 // type it carries in the definition says which strings are meant.
-static auto node_names_to_json(const std::vector<NodeName>& names) -> Json {
+static auto node_names_to_json(std::vector<NodeName> const& names) -> Json {
     auto out = Json::array();
     for (auto const& n : names)
         out.emplace_back(n.get());
     return out;
 }
 
-static auto signal_def_to_json(const DbcSignal& s) -> Json {
+static auto signal_def_to_json(DbcSignal const& s) -> Json {
     Json sig = {
         {"name", s.name.get()},
         {"startBit", s.start_bit.get()},
@@ -117,7 +117,7 @@ static auto signal_def_to_json(const DbcSignal& s) -> Json {
     return sig;
 }
 
-static auto message_to_json(const DbcMessage& m) -> Json {
+static auto message_to_json(DbcMessage const& m) -> Json {
     Json msg = {
         {"id", can_id_value(m.id)},
         {"name", m.name.get()},
@@ -136,12 +136,12 @@ static auto message_to_json(const DbcMessage& m) -> Json {
     return msg;
 }
 
-static auto signal_group_to_json(const DbcSignalGroup& g) -> Json {
+static auto signal_group_to_json(DbcSignalGroup const& g) -> Json {
     return {{"name", g.name},
-            {"signals", json_array(g.signals, [](const SignalName& sn) { return sn.get(); })}};
+            {"signals", json_array(g.signals, [](SignalName const& sn) { return sn.get(); })}};
 }
 
-static auto env_var_to_json(const DbcEnvironmentVar& ev) -> Json {
+static auto env_var_to_json(DbcEnvironmentVar const& ev) -> Json {
     return {
         {"name", ev.name},
         {"varType", static_cast<int>(ev.var_type)},
@@ -151,7 +151,7 @@ static auto env_var_to_json(const DbcEnvironmentVar& ev) -> Json {
     };
 }
 
-static auto value_table_to_json(const DbcValueTable& t) -> Json {
+static auto value_table_to_json(DbcValueTable const& t) -> Json {
     return {{"name", t.name}, {"entries", json_array(t.entries, value_entry_to_json)}};
 }
 
@@ -162,11 +162,11 @@ static auto value_table_to_json(const DbcValueTable& t) -> Json {
 // when true to match formatCANId's omission on 11-bit IDs.
 // ---------------------------------------------------------------------------
 
-static auto node_to_json(const DbcNode& n) -> Json {
+static auto node_to_json(DbcNode const& n) -> Json {
     return {{"name", n.name.get()}};
 }
 
-static auto attach_can_id(Json& obj, const CanId& id) -> void {
+static auto attach_can_id(Json& obj, CanId const& id) -> void {
     obj["id"] = can_id_value(id);
     if (can_id_is_extended(id))
         obj["extended"] = true;
@@ -216,11 +216,11 @@ static auto target_to_json(auto const& v) -> Json {
     }
 }
 
-static auto comment_target_to_json(const DbcCommentTarget& t) -> Json {
+static auto comment_target_to_json(DbcCommentTarget const& t) -> Json {
     return std::visit([](auto const& v) { return target_to_json(v); }, t);
 }
 
-static auto comment_to_json(const DbcComment& c) -> Json {
+static auto comment_to_json(DbcComment const& c) -> Json {
     return {{"target", comment_target_to_json(c.target)}, {"text", c.text}};
 }
 
@@ -244,7 +244,7 @@ static auto attr_scope_to_json(DbcAttrScope s) -> std::string_view {
     throw std::runtime_error("Invalid DbcAttrScope");
 }
 
-static auto attr_type_to_json(const DbcAttrType& t) -> Json {
+static auto attr_type_to_json(DbcAttrType const& t) -> Json {
     return std::visit(
         [](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
@@ -258,7 +258,7 @@ static auto attr_type_to_json(const DbcAttrType& t) -> Json {
                 return {{"kind", "string"}};
             } else if constexpr (std::is_same_v<T, DbcAttrTypeEnum>) {
                 return {{"kind", "enum"},
-                        {"values", json_array(v.values, [](const std::string& e) { return e; })}};
+                        {"values", json_array(v.values, [](std::string const& e) { return e; })}};
             } else if constexpr (std::is_same_v<T, DbcAttrTypeHex>) {
                 return {{"kind", "hex"}, {"min", v.min}, {"max", v.max}};
             } else {
@@ -268,7 +268,7 @@ static auto attr_type_to_json(const DbcAttrType& t) -> Json {
         t);
 }
 
-static auto attr_value_to_json(const DbcAttrValue& v) -> Json {
+static auto attr_value_to_json(DbcAttrValue const& v) -> Json {
     return std::visit(
         [](auto&& a) -> Json {
             using T = std::decay_t<decltype(a)>;
@@ -288,11 +288,11 @@ static auto attr_value_to_json(const DbcAttrValue& v) -> Json {
         v);
 }
 
-static auto attr_target_to_json(const DbcAttrTarget& t) -> Json {
+static auto attr_target_to_json(DbcAttrTarget const& t) -> Json {
     return std::visit([](auto const& v) { return target_to_json(v); }, t);
 }
 
-static auto attribute_to_json(const DbcAttribute& a) -> Json {
+static auto attribute_to_json(DbcAttribute const& a) -> Json {
     return std::visit(
         [](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
@@ -317,7 +317,7 @@ static auto attribute_to_json(const DbcAttribute& a) -> Json {
 
 // JSON wire form for one unresolved RawValueDesc.
 // Mirrors message_to_json's leading {id, extended} pair via attach_can_id.
-static auto raw_value_desc_to_json(const DbcRawValueDesc& rvd) -> Json {
+static auto raw_value_desc_to_json(DbcRawValueDesc const& rvd) -> Json {
     Json out = {{"id", can_id_value(rvd.can_id)},
                 {"signalName", rvd.signal_name},
                 {"entries", json_array(rvd.entries, value_entry_to_json)}};
@@ -326,7 +326,7 @@ static auto raw_value_desc_to_json(const DbcRawValueDesc& rvd) -> Json {
     return out;
 }
 
-static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
+static auto dbc_to_json(DbcDefinition const& dbc) -> Json {
     return {
         {"version", dbc.version},
         {"messages", json_array(dbc.messages, message_to_json)},
@@ -366,7 +366,7 @@ static constexpr auto predicate_tag() -> std::string_view {
 // Map each predicate variant to its JSON representation for the Agda core.
 // The five value comparisons differ only in their tag, so the bodies below
 // are the four member shapes rather than the eight types.
-static auto predicate_to_json(const Predicate& p) -> Json {
+static auto predicate_to_json(Predicate const& p) -> Json {
     return std::visit(
         [](auto const& v) -> Json {
             using T = std::decay_t<decltype(v)>;
@@ -431,7 +431,7 @@ static constexpr auto formula_tag() -> std::string_view {
 // cap mirrors the kernel's own (`Aletheia.Limits.max-nesting-depth`, exposed
 // as `aletheia::max_nesting_depth`), so a deeper formula is refused here
 // rather than serialized and then rejected on the wire.
-static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
+static auto formula_to_json(LtlFormula const& f, int depth = 0) -> Json {
     if (std::cmp_greater(depth, max_nesting_depth))
         throw std::runtime_error("Formula nesting depth exceeds " +
                                  std::to_string(max_nesting_depth));
@@ -471,7 +471,7 @@ static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
 // the caller's error: kind Validation, with the encoder's own text.
 // The refusal an encoder's exception is, called from the handler so
 // std::bad_alloc leaves as it came; one function, whatever the command.
-static auto encoder_refusal(const std::exception& e) -> std::unexpected<AletheiaError> {
+static auto encoder_refusal(std::exception const& e) -> std::unexpected<AletheiaError> {
     rethrow_if_bad_alloc(e);
     return validation_refusal(e.what());
 }
@@ -480,18 +480,18 @@ template<typename Encode>
 static auto encoded(Encode encode, int indent = -1) -> Result<std::string> {
     try {
         return encode().dump(indent);
-    } catch (const std::exception& e) {
+    } catch (std::exception const& e) {
         return encoder_refusal(e);
     }
 }
 
 // Every DBC-carrying command has the same envelope.
-static auto dbc_command(std::string_view command, const DbcDefinition& dbc) -> Result<std::string> {
+static auto dbc_command(std::string_view command, DbcDefinition const& dbc) -> Result<std::string> {
     return encoded(
         [&] { return Json{{"type", "command"}, {"command", command}, {"dbc", dbc_to_json(dbc)}}; });
 }
 
-auto serialize_parse_dbc(const DbcDefinition& dbc) -> Result<std::string> {
+auto serialize_parse_dbc(DbcDefinition const& dbc) -> Result<std::string> {
     return dbc_command("parseDBC", dbc);
 }
 
@@ -500,25 +500,25 @@ auto serialize_parse_dbc_text(std::string_view text) -> Result<std::string> {
         [text] { return Json{{"type", "command"}, {"command", "parseDBCText"}, {"text", text}}; });
 }
 
-auto serialize_parsed_dbc_response(const DbcDefinition& dbc) -> std::string {
+auto serialize_parsed_dbc_response(DbcDefinition const& dbc) -> std::string {
     return Json{{"status", "success"}, {"dbc", dbc_to_json(dbc)}, {"warnings", Json::array()}}
         .dump();
 }
 
-auto serialize_validate_dbc(const DbcDefinition& dbc) -> Result<std::string> {
+auto serialize_validate_dbc(DbcDefinition const& dbc) -> Result<std::string> {
     return dbc_command("validateDBC", dbc);
 }
 
-auto serialize_format_dbc_text(const DbcDefinition& dbc) -> Result<std::string> {
+auto serialize_format_dbc_text(DbcDefinition const& dbc) -> Result<std::string> {
     return dbc_command("formatDBCText", dbc);
 }
 
-auto serialize_set_properties(std::span<const LtlFormula> props) -> Result<std::string> {
+auto serialize_set_properties(std::span<LtlFormula const> props) -> Result<std::string> {
     return encoded([props] {
         return Json{{"type", "command"},
                     {"command", "setProperties"},
                     {"properties",
-                     json_array(props, [](const LtlFormula& f) { return formula_to_json(f); })}};
+                     json_array(props, [](LtlFormula const& f) { return formula_to_json(f); })}};
     });
 }
 
@@ -531,7 +531,7 @@ namespace aletheia {
 // serializers wrap, so the output is the Agda core's canonical form, and it
 // refuses what they refuse. Returns a pretty-printed string, keeping nlohmann
 // out of the public header.
-auto to_canonical_json(const DbcDefinition& dbc) -> Result<std::string> {
+auto to_canonical_json(DbcDefinition const& dbc) -> Result<std::string> {
     return detail::encoded([&dbc] { return detail::dbc_to_json(dbc); }, 2);
 }
 

@@ -42,7 +42,7 @@ public:
     }
 
     /// Look up a key; returns std::nullopt if absent or not yet built.
-    [[nodiscard]] auto find(const Key& key) const -> std::optional<std::size_t> {
+    [[nodiscard]] auto find(Key const& key) const -> std::optional<std::size_t> {
         if (!cache_)
             return std::nullopt;
         auto const& index = cache_.value();
@@ -122,11 +122,11 @@ struct DbcMessage {
     [[nodiscard]] auto always_present_signals() const -> std::vector<DbcSignal>;
     [[nodiscard]] auto multiplexed_signals() const -> std::vector<DbcSignal>;
     [[nodiscard]] auto multiplexor_names() const -> std::vector<SignalName>;
-    [[nodiscard]] auto multiplex_values(const SignalName& multiplexor) const
+    [[nodiscard]] auto multiplex_values(SignalName const& multiplexor) const
         -> std::vector<MultiplexValue>;
-    [[nodiscard]] auto signals_for_mux_value(const SignalName& multiplexor,
+    [[nodiscard]] auto signals_for_mux_value(SignalName const& multiplexor,
                                              MultiplexValue value) const -> std::vector<DbcSignal>;
-    [[nodiscard]] auto signal_by_name(const SignalName& name) const -> const DbcSignal*;
+    [[nodiscard]] auto signal_by_name(SignalName const& name) const -> DbcSignal const*;
 
     // Lazily populated by signal_by_name(). Mutable so const methods can
     // populate the cache on first access. Public because DbcDefinition
@@ -386,8 +386,8 @@ struct DbcDefinition {
 
     // --- Lookup helpers (defined in dbc.cpp) ---
 
-    [[nodiscard]] auto message_by_id(const CanId& id) const -> const DbcMessage*;
-    [[nodiscard]] auto message_by_name(const MessageName& name) const -> const DbcMessage*;
+    [[nodiscard]] auto message_by_id(CanId const& id) const -> DbcMessage const*;
+    [[nodiscard]] auto message_by_name(MessageName const& name) const -> DbcMessage const*;
 
     // Implementation detail — lazily populated by message_by_id/name().
     mutable detail::LazyIndex<std::string> name_index_cache;
@@ -401,6 +401,6 @@ struct DbcDefinition {
 // subcommands and any caller serializing a DBC for the cross-binding wire
 // protocol); it wraps the same encoder used to send DBCs across the FFI, and
 // refuses (Validation, the encoder's text) a string that is not UTF-8.
-[[nodiscard]] auto to_canonical_json(const DbcDefinition& dbc) -> Result<std::string>;
+[[nodiscard]] auto to_canonical_json(DbcDefinition const& dbc) -> Result<std::string>;
 
 } // namespace aletheia

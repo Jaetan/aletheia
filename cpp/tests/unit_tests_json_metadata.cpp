@@ -377,7 +377,7 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
 
     // Route the serialized JSON through parse_dbc_response (wrap as success
     // envelope) to exercise the parser leg of the round-trip.
-    const Json envelope = {{"status", "success"}, {"dbc", j.at("dbc")}};
+    Json const envelope = {{"status", "success"}, {"dbc", j.at("dbc")}};
     auto const result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
 
@@ -453,7 +453,7 @@ TEST_CASE("a target naming an identifier too wide for its width is refused",
     // value outside the width it claims is refused at the parse boundary rather
     // than stored and handed on. 0x800 needs twelve bits; the target says the
     // identifier is standard, which is eleven.
-    auto const make = [](const char* target) {
+    auto const make = [](char const* target) {
         return std::string{R"({"status":"success","dbc":{"version":"1.0","messages":[],)"} +
                R"("comments":[{"target":)" + target + R"(,"text":"x"}]}})";
     };
@@ -486,7 +486,7 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][0] == "ECU_A");
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][1] == "ECU_B");
 
-    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    Json const envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
     auto const result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
@@ -538,7 +538,7 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     CHECK(j["dbc"]["messages"][0]["senders"][0] == "ECU_B");
     CHECK(j["dbc"]["messages"][0]["senders"][1] == "ECU_C");
 
-    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    Json const envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
     auto const result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
@@ -660,7 +660,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].size() == 1);
 
     // Re-wrap the dbc body as a success response and parse it back.
-    const Json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
+    Json const response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
     auto const parsed = detail::parse_dbc_response(response.dump());
     REQUIRE(parsed.has_value());
     REQUIRE(parsed->unresolved_value_descs.size() == 1);

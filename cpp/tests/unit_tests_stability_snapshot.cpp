@@ -79,7 +79,7 @@ static auto write_fails(int /*options*/, FILE* stream) -> int {
 // A descriptor directory as /proc/self/fd lists one: two links naming a
 // resource, one naming runtime machinery, and an entry that does not read as
 // a link, as a descriptor closed after the listing does not.
-static void plant_descriptors(const std::filesystem::path& dir) {
+static void plant_descriptors(std::filesystem::path const& dir) {
     std::filesystem::create_symlink("/dev/null", dir / "0");
     std::filesystem::create_symlink("pipe:[4242]", dir / "1");
     std::filesystem::create_symlink("anon_inode:[eventfd]", dir / "2");
@@ -107,25 +107,25 @@ TEST_CASE("count_setting refuses anything else, naming the variable and the boun
 
 TEST_CASE("status_field reads the whole number after its field, before the unit",
           "[benchmark][stability]") {
-    const TempPath status("stability_status", status_text);
+    TempPath const status("stability_status", status_text);
     CHECK(status_field(status.path, "VmRSS:") == 7564);
     CHECK(status_field(status.path, "Threads:") == 3);
 }
 
 TEST_CASE("status_field reads a zero as the count it is", "[benchmark][stability]") {
-    const TempPath status("stability_status", "Threads:\t0\n");
+    TempPath const status("stability_status", "Threads:\t0\n");
     CHECK(status_field(status.path, "Threads:") == 0);
 }
 
 TEST_CASE("status_field refuses a file that does not open, naming it", "[benchmark][stability]") {
-    const TempPath missing("stability_no_status");
+    TempPath const missing("stability_no_status");
     auto const read = status_field(missing.path, "VmRSS:");
     REQUIRE_FALSE(read.has_value());
     CHECK(read.error() == std::format("reading {}: the file does not open", missing.string()));
 }
 
 TEST_CASE("status_field refuses a file without the field", "[benchmark][stability]") {
-    const TempPath status("stability_status", "Name:\tstability\nThreads:\t3\n");
+    TempPath const status("stability_status", "Name:\tstability\nThreads:\t3\n");
     auto const read = status_field(status.path, "VmRSS:");
     REQUIRE_FALSE(read.has_value());
     CHECK(read.error() == std::format("reading {}: no VmRSS: line", status.string()));
@@ -133,7 +133,7 @@ TEST_CASE("status_field refuses a file without the field", "[benchmark][stabilit
 
 TEST_CASE("status_field refuses a value that is not a whole number", "[benchmark][stability]") {
     auto const value = GENERATE(as<std::string>{}, "abc", "", "-3", "12x", "99999999999999999999");
-    const TempPath status("stability_status", std::format("Threads:\t{}\n", value));
+    TempPath const status("stability_status", std::format("Threads:\t{}\n", value));
     auto const read = status_field(status.path, "Threads:");
     REQUIRE_FALSE(read.has_value());
     CHECK(read.error() == std::format("reading {}: Threads: reads '{}', not a whole number",
@@ -141,18 +141,18 @@ TEST_CASE("status_field refuses a value that is not a whole number", "[benchmark
 }
 
 TEST_CASE("fd_count counts the links that name a resource", "[benchmark][stability]") {
-    const TempPath dir(scratch_dir() / "stability_fd", AsDirectory{});
+    TempPath const dir(scratch_dir() / "stability_fd", AsDirectory{});
     plant_descriptors(dir.path);
     CHECK(fd_count(dir.path) == 2);
 }
 
 TEST_CASE("fd_count reads an empty listing as zero descriptors", "[benchmark][stability]") {
-    const TempPath dir(scratch_dir() / "stability_fd", AsDirectory{});
+    TempPath const dir(scratch_dir() / "stability_fd", AsDirectory{});
     CHECK(fd_count(dir.path) == 0);
 }
 
 TEST_CASE("fd_count refuses a directory that does not list, naming it", "[benchmark][stability]") {
-    const TempPath missing("stability_no_fd");
+    TempPath const missing("stability_no_fd");
     auto const read = fd_count(missing.path);
     REQUIRE_FALSE(read.has_value());
     CHECK(read.error() ==
@@ -239,8 +239,8 @@ TEST_CASE("malloc_info_bytes refuses a report that fails", "[benchmark][stabilit
 }
 
 TEST_CASE("take_snapshot holds each read, the resident set in bytes", "[benchmark][stability]") {
-    const TempPath status("stability_status", status_text);
-    const TempPath fds(scratch_dir() / "stability_fd", AsDirectory{});
+    TempPath const status("stability_status", status_text);
+    TempPath const fds(scratch_dir() / "stability_fd", AsDirectory{});
     plant_descriptors(fds.path);
     auto const snapshot = take_snapshot(status.path, fds.path, &open_memstream, &write_planted);
     REQUIRE(snapshot.has_value());
@@ -252,8 +252,8 @@ TEST_CASE("take_snapshot holds each read, the resident set in bytes", "[benchmar
 
 TEST_CASE("take_snapshot holds a resident set at the top of a 64-bit count of bytes",
           "[benchmark][stability]") {
-    const TempPath status("stability_status", "VmRSS:\t9007199254740991 kB\nThreads:\t3\n");
-    const TempPath fds(scratch_dir() / "stability_fd", AsDirectory{});
+    TempPath const status("stability_status", "VmRSS:\t9007199254740991 kB\nThreads:\t3\n");
+    TempPath const fds(scratch_dir() / "stability_fd", AsDirectory{});
     auto const snapshot = take_snapshot(status.path, fds.path, &open_memstream, &write_planted);
     REQUIRE(snapshot.has_value());
     CHECK(snapshot.value().rss_bytes == std::int64_t{9007199254740991} * 1024);
@@ -261,8 +261,8 @@ TEST_CASE("take_snapshot holds a resident set at the top of a 64-bit count of by
 
 TEST_CASE("take_snapshot refuses a resident set past a 64-bit count of bytes",
           "[benchmark][stability]") {
-    const TempPath status("stability_status", "VmRSS:\t9007199254740992 kB\nThreads:\t3\n");
-    const TempPath fds(scratch_dir() / "stability_fd", AsDirectory{});
+    TempPath const status("stability_status", "VmRSS:\t9007199254740992 kB\nThreads:\t3\n");
+    TempPath const fds(scratch_dir() / "stability_fd", AsDirectory{});
     auto const snapshot = take_snapshot(status.path, fds.path, &open_memstream, &write_planted);
     REQUIRE_FALSE(snapshot.has_value());
     CHECK(aletheia::detail::error_of(snapshot) ==
@@ -271,10 +271,10 @@ TEST_CASE("take_snapshot refuses a resident set past a 64-bit count of bytes",
 
 TEST_CASE("take_snapshot refuses with the first read that answers no count",
           "[benchmark][stability]") {
-    const TempPath status("stability_status", "VmRSS:\t7564 kB\n");
-    const TempPath fds(scratch_dir() / "stability_fd", AsDirectory{});
-    const TempPath missing("stability_no_status");
-    const TempPath no_fds("stability_no_fd");
+    TempPath const status("stability_status", "VmRSS:\t7564 kB\n");
+    TempPath const fds(scratch_dir() / "stability_fd", AsDirectory{});
+    TempPath const missing("stability_no_status");
+    TempPath const no_fds("stability_no_fd");
     auto const message = std::make_error_code(std::errc::no_such_file_or_directory).message();
 
     SECTION("the status file") {
@@ -294,7 +294,7 @@ TEST_CASE("take_snapshot refuses with the first read that answers no count",
         CHECK(snapshot.error() == std::format("reading {}: no Threads: line", status.string()));
     }
     SECTION("the malloc_info report") {
-        const TempPath complete("stability_complete_status", status_text);
+        TempPath const complete("stability_complete_status", status_text);
         auto const snapshot = take_snapshot(complete.path, fds.path, &open_fails, &write_planted);
         REQUIRE_FALSE(snapshot.has_value());
         CHECK(snapshot.error() == std::format("reading malloc_info: open_memstream failed: {}",

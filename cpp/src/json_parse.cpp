@@ -158,7 +158,7 @@ static auto parse_bounded(std::string_view input) -> Json {
 
 // Defined with the issue-code table further down; needed by the
 // handler_validation_failed lift below.
-static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue>;
+static auto parse_issue_entry(Json const& issue) -> Result<ValidationIssue>;
 
 // Lift the structured issues array from a handler_validation_failed envelope
 // (parseDBC / parseDBCText rejects carry the same {severity, code, detail}
@@ -167,7 +167,7 @@ static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue>;
 // malformed payload degrades to nullopt rather than a Protocol error, so the
 // AletheiaError still carries kind/code/message — the same rule as the
 // bound_info lift, lift_bound_info.
-static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<ValidationIssue>> {
+static auto lift_validation_issues(Json const& j) -> std::optional<std::vector<ValidationIssue>> {
     if (!j.contains("has_errors") || !j.at("has_errors").is_boolean() || !j.contains("issues") ||
         !j.at("issues").is_array())
         return std::nullopt;
@@ -179,7 +179,7 @@ static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<V
                 return std::nullopt;
             issues.push_back(std::move(entry).value());
         }
-    } catch (const Json::exception&) {
+    } catch (Json::exception const&) {
         // A non-object element or an ill-typed field throws from nlohmann's
         // value(); degrade identically to a failed entry parse. Nothing else is
         // caught: a check of this file's own that stops firing propagates.
@@ -193,7 +193,7 @@ static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<V
 // must be present and well-typed, and `field` absent or a string, for the lift
 // to populate; anything else degrades to nullopt rather than to a Protocol
 // error, so the AletheiaError still carries kind/code/message.
-static auto lift_bound_info(const Json& j) -> std::optional<InputBoundExceededError> {
+static auto lift_bound_info(Json const& j) -> std::optional<InputBoundExceededError> {
     if (!j.contains("bound_kind") || !j.at("bound_kind").is_string() || !j.contains("observed") ||
         !j.at("observed").is_number_unsigned() || !j.contains("limit") ||
         !j.at("limit").is_number_unsigned())
@@ -218,7 +218,7 @@ static auto lift_bound_info(const Json& j) -> std::optional<InputBoundExceededEr
 /// non-string value surfaces as a ``Protocol`` error rather than being
 /// papered over with a default, which would turn a malformed response into a
 /// plausible-looking one. Matches Python's ``build_error_response``.
-static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
+static auto make_json_error(ErrorKind kind, Json const& j) -> AletheiaError {
     if (!j.contains("code") || !j.at("code").is_string())
         return make_error(ErrorKind::Protocol, "Error response missing or non-string 'code' field");
     if (!j.contains("message") || !j.at("message").is_string())
@@ -248,7 +248,7 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
 // Decode a JSON {numerator, denominator} object into a Rational, validating
 // den > 0.  Caller is responsible for first verifying
 // `j.is_object() && j.contains("numerator") && j.contains("denominator")`.
-static auto parse_rational_dict(const Json& j) -> Rational {
+static auto parse_rational_dict(Json const& j) -> Rational {
     auto const num = require_int<std::int64_t>(j.at("numerator"), "rational numerator");
     auto const den = require_int<std::int64_t>(j.at("denominator"), "rational denominator");
     // The kernel emits rationals with a positive denominator (the ℕ⁺ invariant),
@@ -273,7 +273,7 @@ auto binary_refusal(std::string_view envelope, ErrorKind coded) -> AletheiaError
             return make_error(ErrorKind::Protocol,
                               "Error envelope without status \"error\": " + std::string{envelope});
         return make_json_error(coded, j);
-    } catch (const std::exception& e) {
+    } catch (std::exception const& e) {
         rethrow_if_bad_alloc(e);
         return make_error(ErrorKind::Protocol,
                           "Malformed error envelope " + std::string{envelope} + ": " + e.what());
@@ -286,7 +286,7 @@ auto binary_refusal(std::string_view envelope, ErrorKind coded) -> AletheiaError
 // than a value to approximate, which is how the Go, Rust and Python decoders
 // treat it too.  Throws on any other shape; callers catch at the public API
 // boundary.
-auto parse_rational(const Json& j) -> Rational {
+auto parse_rational(Json const& j) -> Rational {
     if (j.is_number_integer())
         return Rational::integer(require_int<std::int64_t>(j, "rational integer"));
     // contains() answers false on anything but an object, so it is the one test.
@@ -336,7 +336,7 @@ static auto parse_issue_code(std::string_view s) -> IssueCode {
 
 // Parse one validation-issue entry ({severity, code, detail}); shared by the
 // validate-response and parsed-DBC-warnings decoders.
-static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
+static auto parse_issue_entry(Json const& issue) -> Result<ValidationIssue> {
     auto const sev_str = issue.value("severity", "");
     constexpr auto severities = std::to_array<std::pair<std::string_view, IssueSeverity>>({
         {"error", IssueSeverity::Error},
@@ -358,7 +358,7 @@ static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
 // The same wire shapes in an integer position: the rational must reduce to a
 // whole number (parse_rational_dict has already refused a non-positive
 // denominator, so the division is safe).
-static auto parse_rational_as_int(const Json& j) -> std::int64_t {
+static auto parse_rational_as_int(Json const& j) -> std::int64_t {
     auto const r = parse_rational(j);
     if (r.numerator() % r.denominator() != 0)
         throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
@@ -375,7 +375,7 @@ static auto parse_rational_as_int(const Json& j) -> std::int64_t {
 
 // The Protocol error a parse's exception is, called from the handler so
 // std::bad_alloc leaves as it came; one function, whatever the parse.
-static auto wire_fault(const std::exception& e) -> std::unexpected<AletheiaError> {
+static auto wire_fault(std::exception const& e) -> std::unexpected<AletheiaError> {
     rethrow_if_bad_alloc(e);
     return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
 }
@@ -384,7 +384,7 @@ template<typename Parse>
 static auto wire_guarded(Parse parse) -> decltype(parse()) {
     try {
         return parse();
-    } catch (const std::exception& e) {
+    } catch (std::exception const& e) {
         return wire_fault(e);
     }
 }
@@ -489,7 +489,7 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
 // Parse one inner per-property verdict object — shared between the
 // streaming PropertyBatch path (frame response) and the EndStream
 // StreamResult path (parse_stream_result).
-static auto parse_property_result_entry(const Json& r) -> PropertyResult {
+static auto parse_property_result_entry(Json const& r) -> PropertyResult {
     auto const entry_status = r.value("status", "");
     constexpr auto verdicts = std::to_array<std::pair<std::string_view, Verdict>>({
         {"holds", Verdict::Holds},
@@ -567,7 +567,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
 // Parse one entry in the `warnings` array.  Kept apart from
 // `parse_stream_result` so that function stays under clang-tidy's
 // cognitive-complexity threshold.
-static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
+static auto parse_stream_warning_entry(Json const& w) -> StreamWarning {
     if (!w.contains("property_index"))
         throw std::runtime_error("Warning entry missing required 'property_index' field");
     auto kind = w.value("kind", "");
@@ -705,7 +705,7 @@ auto to_string(IssueCode code) -> std::string_view {
     return "unknown";
 }
 
-auto issue_code_label(const ValidationIssue& issue) -> std::string_view {
+auto issue_code_label(ValidationIssue const& issue) -> std::string_view {
     // Preserve the original wire string for an unrecognized code so a future
     // core code round-trips instead of degrading to the literal "unknown".
     if (issue.code == IssueCode::Unknown && !issue.code_raw.empty())

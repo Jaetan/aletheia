@@ -62,8 +62,8 @@ static auto name_of(std::string_view set) -> std::string_view {
 // with each `NAME=value` of `extra` set and, where `extra` sets none, the
 // kernel to load and one cycle of one frame, and answers its exit code, or -1
 // when a signal ended it.
-static auto exit_code(const std::filesystem::path& out_path, const std::filesystem::path& err_path,
-                      const std::vector<std::string>& extra) -> int {
+static auto exit_code(std::filesystem::path const& out_path, std::filesystem::path const& err_path,
+                      std::vector<std::string> const& extra) -> int {
     auto settings = extra;
     for (auto& set : std::vector<std::string>{
              "ALETHEIA_LIB=" +
@@ -78,9 +78,9 @@ static auto exit_code(const std::filesystem::path& out_path, const std::filesyst
 }
 
 // The same run with its stderr on a file of its own, read back.
-static auto run_harness(const std::filesystem::path& out_path,
-                        const std::vector<std::string>& extra = {}) -> Ending {
-    const TempPath err_path("stability_bench_stderr");
+static auto run_harness(std::filesystem::path const& out_path,
+                        std::vector<std::string> const& extra = {}) -> Ending {
+    TempPath const err_path("stability_bench_stderr");
     auto const code = exit_code(out_path, err_path.path, extra);
     return {.code = code, .err = aletheia::test::read_text_file(err_path.path)};
 }
@@ -96,7 +96,7 @@ TEST_CASE("a count that is not a whole number from 1 to 2147483647 exits 2 namin
         GENERATE(as<std::string>{}, "ALETHEIA_STABILITY_CYCLES", "ALETHEIA_STABILITY_FRAMES");
     auto const value = GENERATE(as<std::string>{}, "abc", "0", "-3", "5x", "", "+5", " 5",
                                 "2147483648", "99999999999999999999");
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     auto const ending = run_harness(out.path, {std::format("{}={}", name, value)});
     CHECK(ending.code == 2);
     CHECK(ending.err ==
@@ -107,7 +107,7 @@ TEST_CASE("a count that is not a whole number from 1 to 2147483647 exits 2 namin
 
 TEST_CASE("an ALETHEIA_LIB naming no file exits 2 with the search's refusal",
           "[stability][process]") {
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     auto const absent = aletheia::test::scratch_dir() / "stability-absent.so";
     auto const ending = run_harness(out.path, {"ALETHEIA_LIB=" + absent.string()});
     CHECK(ending.code == 2);
@@ -117,7 +117,7 @@ TEST_CASE("an ALETHEIA_LIB naming no file exits 2 with the search's refusal",
 
 TEST_CASE("a warm-up the kernel refuses exits 2 naming the step", "[stability][process]") {
     // The stand-in answers every call with a refusal.
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     auto const ending =
         run_harness(out.path, {std::string{"ALETHEIA_LIB="} + ALETHEIA_TEST_RECORDING_KERNEL});
     CHECK(ending.code == 2);
@@ -127,7 +127,7 @@ TEST_CASE("a warm-up the kernel refuses exits 2 naming the step", "[stability][p
 
 TEST_CASE("an opening snapshot that cannot read the status file exits 2 naming it",
           "[stability][process]") {
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     auto const ending = run_harness(out.path, {preload(), "ALETHEIA_TEST_STATUS_OPENS=0"});
     CHECK(ending.code == 2);
     CHECK(ending.err ==
@@ -139,7 +139,7 @@ TEST_CASE("a closing snapshot that cannot read the status file exits 2 naming it
           "[stability][process]") {
     // Each snapshot opens the file twice, for the resident set and for the
     // thread count, so the third open is the closing snapshot's first.
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     auto const ending = run_harness(out.path, {preload(), "ALETHEIA_TEST_STATUS_OPENS=2"});
     CHECK(ending.code == 2);
     CHECK(ending.err ==
@@ -151,7 +151,7 @@ TEST_CASE("a measured cycle that cannot load the kernel exits 2 naming the cycle
           "[stability][process]") {
     // The warm-up loads the kernel, and every load after the opening
     // snapshot's first read of the status file is refused.
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     auto const ending = run_harness(out.path, {preload(), "ALETHEIA_TEST_REFUSE_LATE_LOADS=1"});
     CHECK(ending.code == 2);
     CHECK(ending.err.starts_with("cycle 0: dlopen failed: "));
@@ -168,14 +168,14 @@ TEST_CASE("a report that cannot be written exits 2 naming the write", "[stabilit
 TEST_CASE("a refusal whose line stderr cannot take still exits 2", "[stability][process]") {
     // Writing the refused count's line to a full device throws, and main
     // answers 2 for what leaves the run rather than letting it end the process.
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     CHECK(exit_code(out.path, "/dev/full", {"ALETHEIA_STABILITY_CYCLES=0"}) == 2);
     CHECK(aletheia::test::read_text_file(out.path).empty());
 }
 
 TEST_CASE("a short run exits 0 with its report on stdout", "[stability][process]") {
     // Two frames, so the report's counts tell the cycles from the frames.
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     auto const ending = run_harness(out.path, {"ALETHEIA_STABILITY_FRAMES=2"});
     CHECK(ending.code == 0);
     CHECK(ending.err.empty());
@@ -196,7 +196,7 @@ TEST_CASE("a descriptor leaked between the snapshots exits 1 with the descriptor
           "[stability][process]") {
     // The third open of the status file, the closing snapshot's first, leaks
     // one before the snapshot lists the descriptors.
-    const TempPath out("stability_bench_stdout");
+    TempPath const out("stability_bench_stdout");
     auto const ending = run_harness(out.path, {preload(), "ALETHEIA_TEST_STATUS_LEAK=2"});
     CHECK(ending.code == 1);
     CHECK(ending.err.empty());
@@ -204,7 +204,7 @@ TEST_CASE("a descriptor leaked between the snapshots exits 1 with the descriptor
     CHECK(report.at("passed") == false);
     auto const& checks = report.at("sub_checks");
     auto const fds = std::ranges::find_if(
-        checks, [](const nlohmann::json& check) { return check.at("name") == "fd_count"; });
+        checks, [](nlohmann::json const& check) { return check.at("name") == "fd_count"; });
     REQUIRE(fds != checks.end());
     CHECK(fds->at("delta") == 1);
     CHECK(fds->at("passed") == false);

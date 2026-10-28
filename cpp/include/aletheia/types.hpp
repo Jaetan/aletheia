@@ -53,7 +53,7 @@ public:
         return Strong(T(std::forward<Args>(args)...));
     }
 
-    [[nodiscard]] constexpr auto get() const -> const T& { return value_; }
+    [[nodiscard]] constexpr auto get() const -> T const& { return value_; }
 
     [[nodiscard]] explicit operator std::string_view() const noexcept
         requires std::same_as<T, std::string>
@@ -61,7 +61,7 @@ public:
         return value_;
     }
 
-    auto operator<=>(const Strong&) const = default;
+    auto operator<=>(Strong const&) const = default;
 };
 
 // ---------------------------------------------------------------------------
@@ -121,13 +121,13 @@ public:
     // numerator/denominator pairs, so we refuse to build rather than ship it.
     static_assert(sizeof(__int128) >= 16, "Aletheia requires __int128 support "
                                           "(Clang on Linux — see cpp/CMakeLists.txt).");
-    constexpr auto operator<=>(const Rational& rhs) const {
+    constexpr auto operator<=>(Rational const& rhs) const {
         // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
         auto const lhs_prod = static_cast<__int128>(num_) * rhs.den_;
         auto const rhs_prod = static_cast<__int128>(rhs.num_) * den_;
         return lhs_prod <=> rhs_prod;
     }
-    constexpr auto operator==(const Rational& rhs) const -> bool {
+    constexpr auto operator==(Rational const& rhs) const -> bool {
         return (*this <=> rhs) == std::strong_ordering::equal;
     }
 
@@ -286,7 +286,7 @@ public:
         return StandardId{v};
     }
     [[nodiscard]] constexpr auto value() const -> std::uint16_t { return value_; }
-    auto operator<=>(const StandardId&) const = default;
+    auto operator<=>(StandardId const&) const = default;
 };
 
 class ExtendedId {
@@ -302,7 +302,7 @@ public:
         return ExtendedId{v};
     }
     [[nodiscard]] constexpr auto value() const -> std::uint32_t { return value_; }
-    auto operator<=>(const ExtendedId&) const = default;
+    auto operator<=>(ExtendedId const&) const = default;
 };
 
 using CanId = std::variant<StandardId, ExtendedId>;
@@ -310,13 +310,13 @@ using CanId = std::variant<StandardId, ExtendedId>;
 /// Extract the underlying 11- or 29-bit value from a CanId, regardless
 /// of standard vs extended discrimination, so call sites need not visit
 /// the variant themselves.
-[[nodiscard]] constexpr auto can_id_value(const CanId& id) -> std::uint32_t {
+[[nodiscard]] constexpr auto can_id_value(CanId const& id) -> std::uint32_t {
     return std::visit([](auto const& v) -> std::uint32_t { return v.value(); }, id);
 }
 
 /// Returns true when the CanId carries an `ExtendedId` (29-bit) variant,
 /// false for `StandardId` (11-bit).
-[[nodiscard]] constexpr auto can_id_is_extended(const CanId& id) -> bool {
+[[nodiscard]] constexpr auto can_id_is_extended(CanId const& id) -> bool {
     return std::holds_alternative<ExtendedId>(id);
 }
 
@@ -346,7 +346,7 @@ public:
         return Dlc{v};
     }
     [[nodiscard]] constexpr auto value() const -> std::uint8_t { return value_; }
-    auto operator<=>(const Dlc&) const = default;
+    auto operator<=>(Dlc const&) const = default;
 };
 
 namespace detail {

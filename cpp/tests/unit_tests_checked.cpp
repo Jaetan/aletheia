@@ -23,19 +23,19 @@ using aletheia::detail::error_of;
 using aletheia::detail::subspan_at;
 
 TEST_CASE("error_of reads the error an expected holds and refuses a value", "[checked]") {
-    const std::expected<int, std::string> refused{std::unexpect, "refused"};
+    std::expected<int, std::string> const refused{std::unexpect, "refused"};
     CHECK(error_of(refused) == "refused");
-    const std::expected<int, std::string> held{7};
+    std::expected<int, std::string> const held{7};
     CHECK_THROWS_MATCHES(
         error_of(held), std::logic_error,
         Catch::Matchers::Message("read the error of an expected that holds a value"));
-    const std::expected<void, std::string> done{};
+    std::expected<void, std::string> const done{};
     CHECK_THROWS_AS(error_of(done), std::logic_error);
 }
 
 TEST_CASE("subspan_at slices inside its span and refuses past the end", "[checked]") {
     constexpr std::array bytes{std::byte{1}, std::byte{2}, std::byte{3}};
-    const std::span<const std::byte> all{bytes};
+    std::span<std::byte const> const all{bytes};
 
     auto const middle = subspan_at(all, 1, 1);
     REQUIRE(middle.size() == 1);
@@ -55,7 +55,7 @@ TEST_CASE("subspan_at slices inside its span and refuses past the end", "[checke
 
 TEST_CASE("subspan_at slices any element type", "[checked]") {
     constexpr std::array chars{'a', 'b'};
-    const std::span<const char> all{chars};
+    std::span<char const> const all{chars};
     CHECK(subspan_at(all, 1, 1).front() == 'b');
     CHECK_THROWS_AS(subspan_at(all, 1, 2), std::out_of_range);
 }

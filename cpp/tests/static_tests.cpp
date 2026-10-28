@@ -223,6 +223,42 @@ static_assert(std::is_nothrow_move_assignable_v<AletheiaClient>);
 static_assert(std::is_abstract_v<IBackend>);
 static_assert(std::has_virtual_destructor_v<IBackend>);
 
+// The state crosses as the handle: init hands one out inside a Result, the
+// release primitive is unreachable through the interface, and the operations
+// that read the state take the handle, never an untyped pointer, so no call
+// site holds or closes the state by hand.
+static_assert(std::is_same_v<decltype(std::declval<IBackend&>().init()), Result<BackendState>>);
+// A requirement outside a template is a hard error when it fails, so each
+// operation is a concept over the state's type, false where it does not compile.
+// The release's access is checked only where the backend's type is a parameter.
+template<typename B>
+concept ClosesByHand = requires(B& backend, void* state) { backend.close(state); };
+// A backend publishing the release is one the concept sees.
+namespace {
+struct PublishedClose : IBackend {
+    using IBackend::close;
+};
+} // namespace
+template<typename S>
+concept ProcessesWith =
+    requires(IBackend& backend, S state) { backend.process(state, std::string_view{}); };
+template<typename S>
+concept StartsStreamWith =
+    requires(IBackend& backend, S state) { backend.start_stream_binary(state); };
+template<typename S>
+concept EndsStreamWith = requires(IBackend& backend, S state) { backend.end_stream_binary(state); };
+template<typename S>
+concept FormatsDbcWith = requires(IBackend& backend, S state) { backend.format_dbc_binary(state); };
+template<typename S>
+concept SendsErrorWith =
+    requires(IBackend& backend, S state) { backend.send_error_binary(state, Timestamp{0}); };
+static_assert(ClosesByHand<PublishedClose> && !ClosesByHand<IBackend>);
+static_assert(ProcessesWith<BackendState const&> && !ProcessesWith<void*>);
+static_assert(StartsStreamWith<BackendState const&> && !StartsStreamWith<void*>);
+static_assert(EndsStreamWith<BackendState const&> && !EndsStreamWith<void*>);
+static_assert(FormatsDbcWith<BackendState const&> && !FormatsDbcWith<void*>);
+static_assert(SendsErrorWith<BackendState const&> && !SendsErrorWith<void*>);
+
 // ===========================================================================
 // BackendState: move-only, and its move cannot throw
 // ===========================================================================

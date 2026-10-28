@@ -25,7 +25,7 @@ namespace aletheia::bench {
 
 // Throws the error a step returned, named by the step.
 template<typename T>
-void require(const Result<T>& result, std::string_view step) {
+void require(Result<T> const& result, std::string_view step) {
     if (!result)
         throw std::runtime_error(std::format("{} failed: {}", step, result.error().message()));
 }

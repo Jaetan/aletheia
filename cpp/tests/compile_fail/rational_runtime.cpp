@@ -8,6 +8,6 @@
 #include <aletheia/types.hpp>
 
 auto main(int argc, char** /*argv*/) -> int {
-    const aletheia::Rational refused{argc, 1};
+    aletheia::Rational const refused{argc, 1};
     return static_cast<int>(refused.numerator());
 }

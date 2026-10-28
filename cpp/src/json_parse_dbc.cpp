@@ -26,9 +26,9 @@ namespace aletheia::detail {
 // element goes through `parse_element`.  A required array keeps its own
 // `j.at(...)` loop so a missing one still throws.
 template<typename Parse>
-static auto parse_optional_array(const Json& j, const char* key, Parse parse_element)
-    -> std::vector<std::invoke_result_t<Parse, const Json&>> {
-    std::vector<std::invoke_result_t<Parse, const Json&>> out;
+static auto parse_optional_array(Json const& j, char const* key, Parse parse_element)
+    -> std::vector<std::invoke_result_t<Parse, Json const&>> {
+    std::vector<std::invoke_result_t<Parse, Json const&>> out;
     if (!j.contains(key))
         return out;
     auto const& arr = j.at(key);
@@ -46,7 +46,7 @@ static auto parse_optional_array(const Json& j, const char* key, Parse parse_ele
 // presence of a `multiplexor` field (parity with Go/Rust/Python). A multiplexed
 // signal requires a non-empty multiplexor and a non-empty multiplex_values array
 // of u32 selectors.
-static auto parse_signal_presence(const Json& j) -> SignalPresence {
+static auto parse_signal_presence(Json const& j) -> SignalPresence {
     auto const presence_str = j.value("presence", std::string{});
     if (presence_str == "always")
         return AlwaysPresent{};
@@ -76,14 +76,14 @@ static auto parse_signal_presence(const Json& j) -> SignalPresence {
 
 // One {value, description} pair; the wire shape of an inline VAL_ entry and of
 // a VAL_TABLE_ row.  `context` names the field in a rejection message.
-static auto parse_value_entry(const Json& j, std::string_view context) -> DbcValueEntry {
+static auto parse_value_entry(Json const& j, std::string_view context) -> DbcValueEntry {
     return DbcValueEntry{
         .value = require_int<std::int64_t>(j.at("value"), context),
         .description = j.at("description").get<std::string>(),
     };
 }
 
-static auto parse_signal_def(const Json& j) -> DbcSignal {
+static auto parse_signal_def(Json const& j) -> DbcSignal {
     auto const bo_str = j.value("byteOrder", "little_endian");
     constexpr auto byte_orders = std::to_array<std::pair<std::string_view, ByteOrder>>({
         {"little_endian", ByteOrder::LittleEndian},
@@ -96,8 +96,8 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
     auto presence = parse_signal_presence(j);
 
     auto receivers = parse_optional_array(
-        j, "receivers", [](const Json& elem) { return NodeName{elem.get<std::string>()}; });
-    auto value_descriptions = parse_optional_array(j, "valueDescriptions", [](const Json& elem) {
+        j, "receivers", [](Json const& elem) { return NodeName{elem.get<std::string>()}; });
+    auto value_descriptions = parse_optional_array(j, "valueDescriptions", [](Json const& elem) {
         return parse_value_entry(elem, "valueDescriptions value");
     });
 
@@ -151,7 +151,7 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
     return CanId{result.value()};
 }
 
-static auto parse_message_def(const Json& j) -> DbcMessage {
+static auto parse_message_def(Json const& j) -> DbcMessage {
     auto const id_val = require_uint<std::uint32_t>(j.at("id"), "message id");
     auto const extended = j.value("extended", false);
     auto const id = json_to_can_id(id_val, extended);
@@ -166,7 +166,7 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
         signals.push_back(parse_signal_def(s));
 
     auto senders = parse_optional_array(
-        j, "senders", [](const Json& elem) { return NodeName{elem.get<std::string>()}; });
+        j, "senders", [](Json const& elem) { return NodeName{elem.get<std::string>()}; });
 
     return DbcMessage{
         .id = id,
@@ -178,7 +178,7 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
     };
 }
 
-static auto parse_signal_group(const Json& j) -> DbcSignalGroup {
+static auto parse_signal_group(Json const& j) -> DbcSignalGroup {
     std::vector<SignalName> sigs;
     for (auto const& s : j.at("signals"))
         sigs.emplace_back(s.get<std::string>());
@@ -188,7 +188,7 @@ static auto parse_signal_group(const Json& j) -> DbcSignalGroup {
     };
 }
 
-static auto parse_env_var_type(int raw, const std::string& name) -> DbcVarType {
+static auto parse_env_var_type(int raw, std::string const& name) -> DbcVarType {
     switch (raw) {
     case 0:
         return DbcVarType::Int;
@@ -202,7 +202,7 @@ static auto parse_env_var_type(int raw, const std::string& name) -> DbcVarType {
     }
 }
 
-static auto parse_env_var(const Json& j) -> DbcEnvironmentVar {
+static auto parse_env_var(Json const& j) -> DbcEnvironmentVar {
     auto const name = j.at("name").get<std::string>();
     auto const raw_type = require_int<int>(j.at("varType"), "varType");
     return DbcEnvironmentVar{
@@ -214,7 +214,7 @@ static auto parse_env_var(const Json& j) -> DbcEnvironmentVar {
     };
 }
 
-static auto parse_value_table(const Json& j) -> DbcValueTable {
+static auto parse_value_table(Json const& j) -> DbcValueTable {
     std::vector<DbcValueEntry> entries;
     for (auto const& e : j.at("entries"))
         entries.push_back(parse_value_entry(e, "valueTable entry value"));
@@ -230,7 +230,7 @@ static auto parse_value_table(const Json& j) -> DbcValueTable {
 // error at the public boundary.
 // ---------------------------------------------------------------------------
 
-static auto parse_node(const Json& j) -> DbcNode {
+static auto parse_node(Json const& j) -> DbcNode {
     return DbcNode{.name = NodeName{j.at("name").get<std::string>()}};
 }
 
@@ -238,12 +238,12 @@ static auto parse_node(const Json& j) -> DbcNode {
 // carries a value and an optional flag; the target carries the type they
 // denote, so an identifier too wide for the width it claims is refused here
 // rather than stored and passed on.
-static auto parse_target_can_id(const Json& j) -> CanId {
+static auto parse_target_can_id(Json const& j) -> CanId {
     return json_to_can_id(require_uint<std::uint32_t>(j.at("id"), "CAN id"),
                           j.value("extended", false));
 }
 
-static auto parse_comment_target(const Json& j) -> DbcCommentTarget {
+static auto parse_comment_target(Json const& j) -> DbcCommentTarget {
     auto const kind = j.at("kind").get<std::string>();
     if (kind == "network")
         return DbcCommentTargetNetwork{};
@@ -259,7 +259,7 @@ static auto parse_comment_target(const Json& j) -> DbcCommentTarget {
     throw std::runtime_error("Unknown comment target kind: " + kind);
 }
 
-static auto parse_comment(const Json& j) -> DbcComment {
+static auto parse_comment(Json const& j) -> DbcComment {
     return DbcComment{
         .target = parse_comment_target(j.at("target")),
         .text = j.at("text").get<std::string>(),
@@ -285,7 +285,7 @@ static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
     throw std::runtime_error("Unknown attribute scope: " + std::string{s});
 }
 
-static auto parse_attr_type(const Json& j) -> DbcAttrType {
+static auto parse_attr_type(Json const& j) -> DbcAttrType {
     auto const kind = j.at("kind").get<std::string>();
     if (kind == "int")
         return DbcAttrTypeInt{.min = require_int<std::int64_t>(j.at("min"), "int attribute min"),
@@ -307,7 +307,7 @@ static auto parse_attr_type(const Json& j) -> DbcAttrType {
     throw std::runtime_error("Unknown attribute type kind: " + kind);
 }
 
-static auto parse_attr_value(const Json& j) -> DbcAttrValue {
+static auto parse_attr_value(Json const& j) -> DbcAttrValue {
     auto const kind = j.at("kind").get<std::string>();
     if (kind == "int")
         return DbcAttrValueInt{.value =
@@ -325,7 +325,7 @@ static auto parse_attr_value(const Json& j) -> DbcAttrValue {
     throw std::runtime_error("Unknown attribute value kind: " + kind);
 }
 
-static auto parse_attr_target(const Json& j) -> DbcAttrTarget {
+static auto parse_attr_target(Json const& j) -> DbcAttrTarget {
     auto const kind = j.at("kind").get<std::string>();
     if (kind == "network")
         return DbcAttrTargetNetwork{};
@@ -348,7 +348,7 @@ static auto parse_attr_target(const Json& j) -> DbcAttrTarget {
     throw std::runtime_error("Unknown attribute target kind: " + kind);
 }
 
-static auto parse_attribute(const Json& j) -> DbcAttribute {
+static auto parse_attribute(Json const& j) -> DbcAttribute {
     auto const kind = j.at("kind").get<std::string>();
     if (kind == "definition")
         return DbcAttrDef{
@@ -375,7 +375,7 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
 // optional extended) plus signalName + entries array. Wire shape is fixed
 // at the cross-binding boundary, mirrored by Python `_normalize_raw_value_desc`
 // and Go `parseUnresolvedValueDescs`.
-static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
+static auto parse_raw_value_desc(Json const& j) -> DbcRawValueDesc {
     auto const id_val = require_uint<std::uint32_t>(j.at("id"), "CAN id");
     auto const extended = j.value("extended", false);
     auto const can_id = json_to_can_id(id_val, extended);
@@ -389,7 +389,7 @@ static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
     };
 }
 
-auto parse_dbc_definition(const Json& j) -> DbcDefinition {
+auto parse_dbc_definition(Json const& j) -> DbcDefinition {
     // `messages` is required; every metadata array is optional on the wire and
     // absent reads the same as empty.
     std::vector<DbcMessage> messages;

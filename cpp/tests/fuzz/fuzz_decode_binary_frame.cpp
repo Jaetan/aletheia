@@ -42,8 +42,8 @@ class BinaryMock : public MockBackend {
 public:
     std::vector<std::byte> bytes;
 
-    auto extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                             std::span<const std::byte> /*data*/)
+    auto extract_signals_bin(BackendState const& /*state*/, CanId const& /*id*/, Dlc /*dlc*/,
+                             std::span<std::byte const> /*data*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return bytes;
     }
@@ -51,7 +51,7 @@ public:
 } // namespace
 
 static auto one_message_dbc() -> DbcDefinition {
-    auto const signal = [](const char* name, std::uint16_t start_bit) {
+    auto const signal = [](char const* name, std::uint16_t start_bit) {
         return DbcSignal{
             .name = SignalName{name},
             .start_bit = BitPosition{start_bit},
@@ -101,7 +101,7 @@ static auto harness() -> Harness& {
     return built;
 }
 
-extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
+extern "C" auto LLVMFuzzerTestOneInput(uint8_t const* data, size_t size) -> int {
     // The decoder reads a length-prefixed value table; a buffer longer than a
     // CAN FD frame's own maximum only lengthens the corpus without reaching a
     // new shape.
@@ -109,12 +109,12 @@ extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int 
         return 0;
 
     auto& h = harness();
-    h.mock->bytes.assign(reinterpret_cast<const std::byte*>(data),
-                         reinterpret_cast<const std::byte*>(data) + size);
+    h.mock->bytes.assign(reinterpret_cast<std::byte const*>(data),
+                         reinterpret_cast<std::byte const*>(data) + size);
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const std::vector<std::byte> payload(8, std::byte{0});
+    std::vector<std::byte> const payload(8, std::byte{0});
     [[maybe_unused]] auto const result =
         h.client->extract_signals(std::stop_token{}, id, dlc, std::span{payload});
     return 0;

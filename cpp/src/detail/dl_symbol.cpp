@@ -11,11 +11,11 @@
 namespace aletheia::detail {
 
 auto dl_error_text() -> std::string {
-    const char* text = dlerror();
+    char const* text = dlerror();
     return text != nullptr ? std::string{text} : std::string{"the loader reported no detail"};
 }
 
-auto dl_symbol(void* handle, const char* name) -> std::expected<void*, std::string> {
+auto dl_symbol(void* handle, char const* name) -> std::expected<void*, std::string> {
     auto* sym = dlsym(handle, name);
     if (sym == nullptr)
         return std::unexpected(std::string{name} + ": " + dl_error_text());

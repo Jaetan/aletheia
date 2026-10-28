@@ -10,6 +10,6 @@
 
 namespace aletheia::bench {
 
-void run_scaling(const std::filesystem::path& lib, int num_runs, bool quick, bool emit_json);
+void run_scaling(std::filesystem::path const& lib, int num_runs, bool quick, bool emit_json);
 
 } // namespace aletheia::bench

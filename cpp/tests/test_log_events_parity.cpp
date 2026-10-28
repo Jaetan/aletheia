@@ -181,12 +181,12 @@ static auto events_of_one_workflow() -> std::set<std::string> {
         R"({"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]})");
 
     std::vector<std::string> captured;
-    const Logger logger([&](const LogRecord& r) { captured.emplace_back(r.event); });
+    Logger const logger([&](LogRecord const& r) { captured.emplace_back(r.event); });
 
     auto client = required(AletheiaClient::create(std::move(mock), logger));
 
     // 1. parse_dbc (JSON path)
-    const DbcDefinition dbc{.version = "1.0"};
+    DbcDefinition const dbc{.version = "1.0"};
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
     // 2. parse_dbc_text (the DBC-text path, which emits dbc.parsed too)
@@ -206,7 +206,7 @@ static auto events_of_one_workflow() -> std::set<std::string> {
     auto const dlc = Dlc::create(8).value();
 
     // 5. send_frame ack
-    const FramePayload data_ack(8, std::byte{0});
+    FramePayload const data_ack(8, std::byte{0});
     REQUIRE(
         client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data_ack).has_value());
 

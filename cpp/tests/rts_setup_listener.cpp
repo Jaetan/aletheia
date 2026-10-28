@@ -46,8 +46,8 @@ static auto find_test_lib() -> std::filesystem::path {
     namespace fs = std::filesystem;
     std::error_code ec;
     if (auto const* env = std::getenv("ALETHEIA_LIB")) {
-        if (const std::string_view env_sv{env}; !env_sv.empty()) {
-            const fs::path p{env_sv};
+        if (std::string_view const env_sv{env}; !env_sv.empty()) {
+            fs::path const p{env_sv};
             return fs::exists(p, ec) ? p : fs::path{};
         }
     }
@@ -64,7 +64,7 @@ class RtsSetupListener : public Catch::EventListenerBase {
 public:
     using Catch::EventListenerBase::EventListenerBase;
 
-    void testRunStarting(const Catch::TestRunInfo& /*info*/) override {
+    void testRunStarting(Catch::TestRunInfo const& /*info*/) override {
         auto const lib = find_test_lib();
         if (lib.empty())
             return; // best-effort; render tests fail vocally if the runtime is down
@@ -76,7 +76,7 @@ public:
         try {
             if (!aletheia::start_runtime(lib, 1))
                 return;
-        } catch (const std::exception&) {
+        } catch (std::exception const&) {
             return;
         }
     }

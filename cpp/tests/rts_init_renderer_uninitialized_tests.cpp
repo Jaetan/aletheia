@@ -55,7 +55,7 @@ static auto runtime_down(std::string_view reading) -> std::string {
 // A call made with the runtime down: kind Ffi, no wire code, the refusal naming
 // what the call was doing.
 template<typename T>
-static void requires_runtime_down(const aletheia::Result<T>& answered, std::string_view reading) {
+static void requires_runtime_down(aletheia::Result<T> const& answered, std::string_view reading) {
     REQUIRE_FALSE(answered.has_value());
     CHECK(answered.error().kind() == aletheia::ErrorKind::Ffi);
     CHECK(answered.error().code() == aletheia::ErrorCode::Unknown);
@@ -85,7 +85,7 @@ TEST_CASE("an inverted range's refusal names its bounds while the runtime is dow
           "[check][rts_init]") {
     // A check is built before any start too, so its range refusal prints each
     // bound as `n` or `n/d` rather than failing on the renderer.
-    auto const refused = [](const aletheia::Result<aletheia::CheckResult>& built) {
+    auto const refused = [](aletheia::Result<aletheia::CheckResult> const& built) {
         REQUIRE_FALSE(built.has_value());
         CHECK(built.error().kind() == aletheia::ErrorKind::Validation);
         return std::string{built.error().text()};
@@ -140,14 +140,14 @@ TEST_CASE("the allocation count answers none while the runtime is down", "[ffi][
 // refusal as the parser returned it, unlocated, and the runtime still down
 // after it.
 template<typename T>
-static void requires_the_runtime_refusal(const aletheia::Result<T>& loaded) {
+static void requires_the_runtime_refusal(aletheia::Result<T> const& loaded) {
     requires_runtime_down(loaded, "parsing decimals");
     CHECK(aletheia::allocated_bytes() == std::nullopt);
 }
 
 // A workbook holding a When-Then sheet alone, its one row's numbers written as
 // text, so a load of it reads no other sheet.
-static void write_when_then_workbook(const std::filesystem::path& path) {
+static void write_when_then_workbook(std::filesystem::path const& path) {
     static constexpr std::array<std::string_view, 11> headers{
         "Check Name",  "When Signal",    "When Condition", "When Value",
         "Then Signal", "Then Condition", "Then Value",     "Then Min",
@@ -186,14 +186,14 @@ TEST_CASE("every loader returns the runtime's refusal unlocated while the runtim
         requires_the_runtime_refusal(aletheia::load_checks_from_yaml_string(when_then));
     }
     SECTION("a YAML file") {
-        const aletheia::test::TempPath file("runtime_down_checks.yaml", document);
+        aletheia::test::TempPath const file("runtime_down_checks.yaml", document);
         requires_the_runtime_refusal(aletheia::load_checks_from_yaml(file.path));
     }
     SECTION("a workbook's checks") {
         requires_the_runtime_refusal(aletheia::load_checks_from_excel(workbook));
     }
     SECTION("a workbook's when-then sheet alone") {
-        const aletheia::test::TempPath file("runtime_down_when_then.xlsx");
+        aletheia::test::TempPath const file("runtime_down_when_then.xlsx");
         write_when_then_workbook(file.path);
         requires_the_runtime_refusal(aletheia::load_checks_from_excel(file.path));
     }

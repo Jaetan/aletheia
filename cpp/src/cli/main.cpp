@@ -40,12 +40,12 @@ static void prepare_stdout() noexcept {
 auto main(int argc, char** argv) -> int {
     prepare_stdout();
     try {
-        const std::span<char* const> raw{argv, static_cast<std::size_t>(argc)};
+        std::span<char* const> const raw{argv, static_cast<std::size_t>(argc)};
         std::vector<std::string> args;
         for (auto const* arg : aletheia::detail::subspan_at(raw, 1))
             args.emplace_back(arg);
         return aletheia::run_cli(args);
-    } catch (const std::exception& e) {
+    } catch (std::exception const& e) {
         std::cerr << "Error: " << e.what() << '\n';
         return aletheia::cli_exit_error;
     }

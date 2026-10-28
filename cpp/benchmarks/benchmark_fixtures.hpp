@@ -14,16 +14,16 @@ namespace aletheia::bench {
 auto make_can20_dbc() -> DbcDefinition;
 auto make_canfd_dbc() -> DbcDefinition;
 
-auto can20_frame() -> const FramePayload&;
+auto can20_frame() -> FramePayload const&;
 inline constexpr auto can20_id = CanId{StandardId::create(0x100).value()};
 inline constexpr auto can20_dlc = Dlc::create(8).value();
 
-auto canfd_frame() -> const FramePayload&;
+auto canfd_frame() -> FramePayload const&;
 inline constexpr auto canfd_id = CanId{StandardId::create(0x200).value()};
 inline constexpr auto canfd_dlc = Dlc::create(15).value();
 
-auto can20_signals() -> const std::vector<SignalValue>&;
-auto canfd_signals() -> const std::vector<SignalValue>&;
+auto can20_signals() -> std::vector<SignalValue> const&;
+auto canfd_signals() -> std::vector<SignalValue> const&;
 
 auto make_can20_properties() -> std::vector<LtlFormula>;
 auto make_canfd_properties() -> std::vector<LtlFormula>;

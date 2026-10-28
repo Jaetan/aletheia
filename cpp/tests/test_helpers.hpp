@@ -38,9 +38,9 @@ public:
     explicit BinExtractMockBackend(BinResult result = std::vector<std::byte>(14, std::byte{0}))
         : result_(std::move(result)) {}
 
-    auto extract_signals_bin(const ::aletheia::BackendState& /*state*/,
-                             const ::aletheia::CanId& /*id*/, ::aletheia::Dlc /*dlc*/,
-                             std::span<const std::byte> /*data*/) -> BinResult override {
+    auto extract_signals_bin(::aletheia::BackendState const& /*state*/,
+                             ::aletheia::CanId const& /*id*/, ::aletheia::Dlc /*dlc*/,
+                             std::span<std::byte const> /*data*/) -> BinResult override {
         return result_;
     }
 
@@ -57,7 +57,7 @@ inline auto one_value_at_index_zero() -> std::vector<std::byte> {
     return buf;
 }
 
-inline auto took_json_extraction(const ::aletheia::MockBackend& mock) -> bool {
+inline auto took_json_extraction(::aletheia::MockBackend const& mock) -> bool {
     return std::ranges::contains(mock.captured(), "<binary:extractAllSignals>");
 }
 
@@ -65,7 +65,7 @@ inline auto took_json_extraction(const ::aletheia::MockBackend& mock) -> bool {
 // `{"status":"success","dbc":...,"warnings":[]}` wire image so MockBackend
 // callers can feed it as a parse_dbc / parse_dbc_text response without
 // hand-writing JSON.
-inline auto parsed_dbc_response_for(const ::aletheia::DbcDefinition& dbc) -> std::string {
+inline auto parsed_dbc_response_for(::aletheia::DbcDefinition const& dbc) -> std::string {
     return ::aletheia::detail::serialize_parsed_dbc_response(dbc);
 }
 
@@ -77,7 +77,7 @@ inline auto make_test_dbc() -> ::aletheia::DbcDefinition {
     auto const id = ::aletheia::StandardId::create(0x100).value();
     auto const dlc = ::aletheia::Dlc::create(8).value();
 
-    const ::aletheia::DbcSignal sig{
+    ::aletheia::DbcSignal const sig{
         .name = ::aletheia::SignalName{"Speed"},
         .start_bit = ::aletheia::BitPosition{0},
         .bit_length = ::aletheia::BitLength{16},
@@ -91,7 +91,7 @@ inline auto make_test_dbc() -> ::aletheia::DbcDefinition {
         .presence = ::aletheia::AlwaysPresent{},
     };
 
-    const ::aletheia::DbcMessage msg{
+    ::aletheia::DbcMessage const msg{
         .id = ::aletheia::CanId{id},
         .name = ::aletheia::MessageName{"VehicleSpeed"},
         .dlc = dlc,

@@ -36,42 +36,42 @@ class CannedAckBackend : public IBackend {
 public:
     auto init() -> Result<BackendState> override { return BackendState{*this, &sentinel}; }
 
-    auto process(const BackendState& /*state*/, std::string_view /*input*/)
+    auto process(BackendState const& /*state*/, std::string_view /*input*/)
         -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto send_frame_binary(const BackendState& /*state*/, Timestamp /*ts*/, const CanId& /*id*/,
-                           Dlc /*dlc*/, std::span<const std::byte> /*data*/,
+    auto send_frame_binary(BackendState const& /*state*/, Timestamp /*ts*/, CanId const& /*id*/,
+                           Dlc /*dlc*/, std::span<std::byte const> /*data*/,
                            std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
         -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto send_error_binary(const BackendState& /*state*/, Timestamp /*ts*/)
+    auto send_error_binary(BackendState const& /*state*/, Timestamp /*ts*/)
         -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto send_remote_binary(const BackendState& /*state*/, Timestamp /*ts*/, const CanId& /*id*/)
+    auto send_remote_binary(BackendState const& /*state*/, Timestamp /*ts*/, CanId const& /*id*/)
         -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto start_stream_binary(const BackendState& /*state*/) -> Result<std::string> override {
+    auto start_stream_binary(BackendState const& /*state*/) -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto end_stream_binary(const BackendState& /*state*/) -> Result<std::string> override {
+    auto end_stream_binary(BackendState const& /*state*/) -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto format_dbc_binary(const BackendState& /*state*/) -> Result<std::string> override {
+    auto format_dbc_binary(BackendState const& /*state*/) -> Result<std::string> override {
         return std::string{k_ack};
     }
 
-    auto extract_signals_binary(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                                std::span<const std::byte> /*data*/)
+    auto extract_signals_binary(BackendState const& /*state*/, CanId const& /*id*/, Dlc /*dlc*/,
+                                std::span<std::byte const> /*data*/)
         -> Result<std::string> override {
         return std::string{k_ack};
     }
@@ -80,15 +80,15 @@ public:
     // zero-filled: the one response of the right shape that invents no signal
     // value. The base class's default would refuse instead, and the client
     // forwards these results without a JSON fallback.
-    [[nodiscard]] auto build_frame_bin(const BackendState& /*state*/, const CanId& /*id*/,
+    [[nodiscard]] auto build_frame_bin(BackendState const& /*state*/, CanId const& /*id*/,
                                        Dlc /*dlc*/, SignalInjection /*signals*/,
                                        std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return std::vector<std::byte>(expected_bytes);
     }
 
-    [[nodiscard]] auto update_frame_bin(const BackendState& /*state*/, const CanId& /*id*/,
-                                        Dlc /*dlc*/, std::span<const std::byte> /*data*/,
+    [[nodiscard]] auto update_frame_bin(BackendState const& /*state*/, CanId const& /*id*/,
+                                        Dlc /*dlc*/, std::span<std::byte const> /*data*/,
                                         SignalInjection /*signals*/, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return std::vector<std::byte>(expected_bytes);

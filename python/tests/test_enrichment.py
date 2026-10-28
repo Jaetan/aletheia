@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for formula enrichment: pretty-printer, signal collector, diagnostics."""
 
+import json
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, NewType, TypedDict, cast
 
 import pytest
+import yaml
 
 from aletheia import FFIError, PropertyDiagnostic
 from aletheia.client._enrichment import (
@@ -14,10 +17,48 @@ from aletheia.client._enrichment import (
     format_enriched_reason,
     format_formula,
 )
+from aletheia.client._helpers.rational import decode_wire_rational
 from aletheia.dsl import Signal
+from aletheia.types import JSONValue
 
 if TYPE_CHECKING:
     from aletheia.common_types import Prose
+    from aletheia.types import LTLFormula
+
+# One formula as the wire carries it and the text every binding's printer gives it.
+_RENDERING_CONTRACT: Final = Path(__file__).resolve().parents[2] / "docs" / "FORMULA_RENDERING.yaml"
+
+# The key of a field of a decoded wire object.
+WireField = NewType("WireField", str)
+
+# A decoded wire value, its predicates' rationals read as Fractions.
+type WireTree = JSONValue | Fraction | list[WireTree] | dict[WireField, WireTree]
+
+# The formula as the wire carries it, a JSON text.
+WireText = NewType("WireText", str)
+
+
+class FormulaRendering(TypedDict):
+    """docs/FORMULA_RENDERING.yaml: one formula and the text every binding's printer gives it."""
+
+    rendering: Prose
+    wire: WireText
+
+
+# The predicate fields that hold a rational.
+_RATIONAL_FIELDS: Final = frozenset(
+    {WireField(f) for f in ("value", "min", "max", "delta", "tolerance")}
+)
+
+
+def _rationals_read(node: dict[WireField, WireTree]) -> dict[WireField, WireTree]:
+    """Return a decoded JSON object with a predicate's rational fields read as Fractions."""
+    if not isinstance(node.get(WireField("predicate")), str):
+        return node
+    return {
+        key: decode_wire_rational(v) if key in _RATIONAL_FIELDS else v for key, v in node.items()
+    }
+
 
 # Every test here renders rational thresholds via the kernel (format_formula /
 # build_diagnostic), which needs the GHC runtime up: the renderer never starts it.
@@ -174,6 +215,18 @@ class TestFormatPredicate:
         f = a.metric_release(500, b).to_dict()
         result = format_formula(f)
         assert "release within 500ms" in result
+
+    @pytest.mark.skipif(
+        not _RENDERING_CONTRACT.is_file(),
+        reason="a tree of python/ alone, as mutmut copies, has no docs/",
+    )
+    def test_the_shared_wire_renders_the_shared_text(self) -> None:
+        """docs/FORMULA_RENDERING.yaml: a Python formula is the wire's object, rendered as read."""
+        contract = cast(
+            "FormulaRendering", yaml.safe_load(_RENDERING_CONTRACT.read_text(encoding="utf-8"))
+        )
+        formula: WireTree = json.loads(contract["wire"], object_hook=_rationals_read)
+        assert format_formula(cast("LTLFormula", formula)) == contract["rendering"]
 
 
 class TestFormatRational:

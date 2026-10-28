@@ -33,7 +33,7 @@
 namespace aletheia {
 
 /// Load checks from a YAML file.
-[[nodiscard]] auto load_checks_from_yaml(const std::filesystem::path& path)
+[[nodiscard]] auto load_checks_from_yaml(std::filesystem::path const& path)
     -> Result<std::vector<CheckResult>>;
 
 /// Load checks from a YAML string.

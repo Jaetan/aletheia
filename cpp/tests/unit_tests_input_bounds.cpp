@@ -39,7 +39,7 @@ using aletheia::test::required;
 
 TEST_CASE("InputBoundExceededError carries kind / observed / limit, and no field unless given",
           "[input_bounds]") {
-    const aletheia::InputBoundExceededError err{
+    aletheia::InputBoundExceededError const err{
         .bound_kind = std::string{aletheia::bound_kind_input_length_bytes},
         .observed = 100,
         .limit = 50,
@@ -183,8 +183,8 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds]") {
     auto mock = std::make_unique<aletheia::MockBackend>();
     auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
 
-    const std::string big_text(aletheia::max_dbc_text_bytes + 1, 'x');
-    const std::stop_source stop_source;
+    std::string const big_text(aletheia::max_dbc_text_bytes + 1, 'x');
+    std::stop_source const stop_source;
     auto const result = client.parse_dbc_text(stop_source.get_token(), big_text);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
@@ -211,7 +211,7 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds]") {
 // crafted wire-form JSON that mirrors the FFI backend's synthesis.
 
 TEST_CASE("Input-bound error JSON lifts structured fields into bound_info", "[input_bounds]") {
-    const std::string err_json =
+    std::string const err_json =
         R"({"status":"error",)"
         R"("code":"input_bound_exceeded",)"
         R"("message":"input length (bytes) 100000000 exceeds limit 67108864",)"
@@ -234,7 +234,7 @@ TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt"
           "[input_bounds]") {
     // Older Agda responses emit only `code` and `message`.
     // The kind/code lifting still applies; bound_info() stays nullopt.
-    const std::string err_json = R"({"status":"error",)"
+    std::string const err_json = R"({"status":"error",)"
                                  R"("code":"input_bound_exceeded",)"
                                  R"("message":"input length exceeded"})";
     auto const result = aletheia::detail::parse_success(err_json);
@@ -247,7 +247,7 @@ TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt"
 // The kernel refuses a DBC past a size bound on every command that takes one;
 // the client surfaces that refusal as one typed error whichever command met it.
 template<typename T>
-static void check_signal_groups_refusal(const aletheia::Result<T>& result) {
+static void check_signal_groups_refusal(aletheia::Result<T> const& result) {
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
     CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
@@ -273,7 +273,7 @@ TEST_CASE("every DBC command surfaces a size-bound refusal as InputBoundExceeded
     mock->queue_response(std::string{refusal});
     mock->queue_response(std::string{refusal});
     auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
-    const aletheia::DbcDefinition dbc{};
+    aletheia::DbcDefinition const dbc{};
 
     check_signal_groups_refusal(client.parse_dbc(std::stop_token{}, dbc));
     check_signal_groups_refusal(client.validate_dbc(std::stop_token{}, dbc));

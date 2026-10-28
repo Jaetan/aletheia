@@ -14,7 +14,7 @@ namespace aletheia::test {
 
 // One sentinel per logical full-frame extraction: the call cardinality the
 // extract-once shape pins.
-inline auto count_extraction_sentinels(const MockBackend& mock) -> std::size_t {
+inline auto count_extraction_sentinels(MockBackend const& mock) -> std::size_t {
     return static_cast<std::size_t>(
         std::ranges::count(mock.captured(), "<binary:extractAllSignals>"));
 }

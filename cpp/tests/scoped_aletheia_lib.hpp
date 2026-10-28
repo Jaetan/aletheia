@@ -15,17 +15,17 @@ namespace aletheia::test {
 class ScopedAletheiaLib {
 public:
     // `value` set, or the variable unset for null.
-    explicit ScopedAletheiaLib(const char* value) {
-        if (const char* cur = std::getenv("ALETHEIA_LIB"))
+    explicit ScopedAletheiaLib(char const* value) {
+        if (char const* cur = std::getenv("ALETHEIA_LIB"))
             saved_ = cur;
         if (value != nullptr)
             ::setenv("ALETHEIA_LIB", value, /*overwrite=*/1);
         else
             ::unsetenv("ALETHEIA_LIB");
     }
-    ScopedAletheiaLib(const ScopedAletheiaLib&) = delete;
+    ScopedAletheiaLib(ScopedAletheiaLib const&) = delete;
     ScopedAletheiaLib(ScopedAletheiaLib&&) = delete;
-    auto operator=(const ScopedAletheiaLib&) -> ScopedAletheiaLib& = delete;
+    auto operator=(ScopedAletheiaLib const&) -> ScopedAletheiaLib& = delete;
     auto operator=(ScopedAletheiaLib&&) -> ScopedAletheiaLib& = delete;
     ~ScopedAletheiaLib() {
         if (saved_)

@@ -29,11 +29,11 @@ void require_error(bool holds_value);
 void require_within(std::size_t size, std::size_t offset, std::size_t count);
 
 // The text the C string `text` holds; std::logic_error when it is null.
-[[nodiscard]] auto c_string_view(const char* text) -> std::string_view;
+[[nodiscard]] auto c_string_view(char const* text) -> std::string_view;
 
 // The error `result` holds; std::logic_error when it holds a value.
 template<typename T, typename E>
-[[nodiscard]] auto error_of(const std::expected<T, E>& result) -> const E& {
+[[nodiscard]] auto error_of(std::expected<T, E> const& result) -> E const& {
     require_error(result.has_value());
     return result.error();
 }

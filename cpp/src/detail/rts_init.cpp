@@ -22,13 +22,13 @@ auto rts_init_state() -> RTSInitState& {
 
 auto rts_initialized() -> bool {
     auto& s = rts_init_state();
-    const std::scoped_lock lk{s.mu};
+    std::scoped_lock const lk{s.mu};
     return s.initialized;
 }
 
 auto started_entries(std::string_view reading) -> Result<RuntimeEntries> {
     auto& s = rts_init_state();
-    const std::scoped_lock lk{s.mu};
+    std::scoped_lock const lk{s.mu};
     if (!s.initialized)
         return std::unexpected(AletheiaError{
             ErrorKind::Ffi,

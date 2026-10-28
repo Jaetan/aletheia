@@ -12,8 +12,8 @@
 namespace aletheia::detail {
 
 // Rethrows the exception being handled when `caught` is std::bad_alloc.
-inline void rethrow_if_bad_alloc(const std::exception& caught) {
-    if (dynamic_cast<const std::bad_alloc*>(&caught) != nullptr)
+inline void rethrow_if_bad_alloc(std::exception const& caught) {
+    if (dynamic_cast<std::bad_alloc const*>(&caught) != nullptr)
         throw;
 }
 

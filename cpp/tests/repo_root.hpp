@@ -23,7 +23,7 @@ namespace aletheia::test {
 // The repository root, from the environment.  Throws when the variable is
 // unset or empty, naming who is supposed to set it.
 [[nodiscard]] inline auto repo_root() -> std::filesystem::path {
-    const char* env = std::getenv("ALETHEIA_REPO_ROOT");
+    char const* env = std::getenv("ALETHEIA_REPO_ROOT");
     if (env == nullptr || *env == '\0')
         throw std::runtime_error(
             "ALETHEIA_REPO_ROOT is unset or empty; ctest passes it per target through "

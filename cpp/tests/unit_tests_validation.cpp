@@ -65,7 +65,7 @@ using Catch::Matchers::ContainsSubstring;
 
 // A stand-in kernel `cabal run shake -- build` makes beside the library: one
 // missing is a build that has not run since it was added.
-static auto stand_in(const std::filesystem::path& path) -> std::filesystem::path {
+static auto stand_in(std::filesystem::path const& path) -> std::filesystem::path {
     INFO("stand-in " << path.string() << " not built; run 'cabal run shake -- build'");
     REQUIRE(std::filesystem::exists(path));
     return path;
@@ -81,7 +81,7 @@ TEST_CASE("send_frame rejects payload length mismatch", "[client][validation]") 
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value(); // expects 8 bytes
-    const FramePayload short_data(3, std::byte{0});
+    FramePayload const short_data(3, std::byte{0});
     auto const result =
         client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, short_data);
 
@@ -97,7 +97,7 @@ TEST_CASE("extract_signals rejects payload length mismatch", "[client][validatio
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload long_data(16, std::byte{0}); // 16 bytes but DLC 8 expects 8
+    FramePayload const long_data(16, std::byte{0}); // 16 bytes but DLC 8 expects 8
     auto const result = client.extract_signals(std::stop_token{}, id, dlc, long_data);
 
     CHECK_FALSE(result.has_value());
@@ -110,8 +110,8 @@ TEST_CASE("update_frame rejects payload length mismatch", "[client][validation]"
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload bad_data(5, std::byte{0});
-    const std::vector<SignalValue> signals{
+    FramePayload const bad_data(5, std::byte{0});
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"S"}, .value = PhysicalValue{Rational{1, 1}}}};
     auto const result = client.update_frame(std::stop_token{}, id, dlc, bad_data, signals);
 
@@ -126,7 +126,7 @@ TEST_CASE("send_frame accepts correct payload length", "[client][validation]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0}); // exactly 8 bytes for DLC 8
+    FramePayload const data(8, std::byte{0}); // exactly 8 bytes for DLC 8
     auto const result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
@@ -140,7 +140,7 @@ TEST_CASE("send_frame accepts CAN-FD payload", "[client][validation]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(15).value(); // DLC 15 = 64 bytes
-    const FramePayload data(64, std::byte{0});
+    FramePayload const data(64, std::byte{0});
     auto const result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
@@ -157,7 +157,7 @@ TEST_CASE("send_frame rejects negative timestamp", "[client][validation]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     auto const result = client.send_frame(std::stop_token{}, Timestamp{-1000}, id, dlc, data);
 
     CHECK_FALSE(result.has_value());
@@ -243,10 +243,10 @@ TEST_CASE("every DLC code maps to its byte count and back, and no other count ha
 // ===========================================================================
 
 TEST_CASE("Rational operator<=> and operator==", "[types]") {
-    const Rational a{1, 2};  // 0.5
-    const Rational b{2, 4};  // 0.5
-    const Rational c{3, 4};  // 0.75
-    const Rational d{-1, 2}; // -0.5
+    Rational const a{1, 2};  // 0.5
+    Rational const b{2, 4};  // 0.5
+    Rational const c{3, 4};  // 0.75
+    Rational const d{-1, 2}; // -0.5
 
     SECTION("equality") {
         CHECK(a == b);
@@ -275,7 +275,7 @@ TEST_CASE("Rational operator<=> and operator==", "[types]") {
     }
 
     SECTION("negative values") {
-        const Rational neg{-3, 4};
+        Rational const neg{-3, 4};
         CHECK(neg < a);
         CHECK(d == Rational{-1, 2});
         CHECK(Rational{-5, 7} == Rational{-10, 14});
@@ -332,8 +332,8 @@ TEST_CASE("make_ffi_backend with a count outside the CPUs the library counts ref
 TEST_CASE("a library lacking an entry is refused, never called", "[ffi][validation]") {
     static_cast<void>(stand_in(ALETHEIA_TEST_SYMBOLLESS_LIB));
     static_cast<void>(stand_in(ALETHEIA_TEST_ABI_ONLY_LIB));
-    const aletheia::test::TempPath out{"missing-entry-stdout"};
-    const aletheia::test::TempPath err{"missing-entry-stderr"};
+    aletheia::test::TempPath const out{"missing-entry-stdout"};
+    aletheia::test::TempPath const err{"missing-entry-stderr"};
     auto const code = aletheia::test::run_program(
         {ALETHEIA_MISSING_ENTRY_WORKLOAD}, aletheia::test::environment_with({}),
         aletheia::test::scratch_dir(), out.path, err.path);
@@ -349,7 +349,7 @@ TEST_CASE("a refused construction leaves the library it opened unloaded", "[ffi]
     auto const lib = stand_in(ALETHEIA_TEST_SYMBOLLESS_LIB);
     CHECK_THAT(aletheia::detail::error_of(make_ffi_backend(lib)).text(),
                ContainsSubstring("dlsym failed"));
-    const aletheia::test::LoadedLibrary still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+    aletheia::test::LoadedLibrary const still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     CHECK(still_mapped == nullptr);
 }
 
@@ -362,7 +362,7 @@ TEST_CASE("a backend refuses a library missing an entry it reads, by name", "[ff
     CHECK(aletheia::detail::error_of(backend).kind() == ErrorKind::Ffi);
     CHECK_THAT(aletheia::detail::error_of(backend).text(),
                ContainsSubstring("dlsym failed for hs_init_with_rtsopts"));
-    const aletheia::test::LoadedLibrary still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+    aletheia::test::LoadedLibrary const still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     CHECK(still_mapped == nullptr);
 }
 
@@ -375,7 +375,7 @@ TEST_CASE("a library at another ABI version is refused and left unloaded", "[ffi
     CHECK_THAT(aletheia::detail::error_of(backend).text(),
                ContainsSubstring("the library implements ABI version " +
                                  std::to_string(aletheia::detail::abi_version + 1)));
-    const aletheia::test::LoadedLibrary still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+    aletheia::test::LoadedLibrary const still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     CHECK(still_mapped == nullptr);
 }
 
@@ -383,7 +383,7 @@ TEST_CASE("the loader is read one way, and a refusal never reads a null from it"
     // dlerror holds the loader's text for the failure just made and answers
     // null once that text has been read, so a refusal built after another has
     // read it must stand on a fixed phrase rather than on a null.
-    const aletheia::test::LoadedLibrary symbolless{
+    aletheia::test::LoadedLibrary const symbolless{
         dlopen(stand_in(ALETHEIA_TEST_SYMBOLLESS_LIB).c_str(), RTLD_NOW)};
     REQUIRE(symbolless != nullptr);
     auto const missing = aletheia::detail::dl_symbol(symbolless.get(), "aletheia_abi_version");
@@ -392,7 +392,7 @@ TEST_CASE("the loader is read one way, and a refusal never reads a null from it"
     CHECK_THAT(missing.error(), !ContainsSubstring("the loader reported no detail"));
     CHECK(aletheia::detail::dl_error_text() == "the loader reported no detail");
 
-    const aletheia::test::LoadedLibrary recording{
+    aletheia::test::LoadedLibrary const recording{
         dlopen(stand_in(ALETHEIA_TEST_RECORDING_KERNEL).c_str(), RTLD_NOW)};
     REQUIRE(recording != nullptr);
     auto const present = aletheia::detail::dl_symbol(recording.get(), "aletheia_abi_version");
@@ -404,7 +404,7 @@ TEST_CASE("make_ffi_backend_from_env opens the library ALETHEIA_LIB names", "[ff
     // The route's success, before its two refusals below: a guard on the
     // variable read backwards refuses a set variable, which this reports.
     auto const lib = searched_kernel_library("no kernel library to name");
-    const ScopedAletheiaLib guard{lib.c_str()};
+    ScopedAletheiaLib const guard{lib.c_str()};
     auto const backend = required(make_ffi_backend_from_env(1));
     REQUIRE(backend != nullptr);
     CHECK(required(backend->init()));
@@ -415,8 +415,8 @@ TEST_CASE("make_ffi_backend_from_env refuses ALETHEIA_LIB unset or empty as a us
     // Unset and empty are one case, the caller's error rather than an FFI
     // failure, refused naming the variable; the factory's own refusal of an
     // empty path names none.
-    auto const* const value = GENERATE(as<const char*>{}, nullptr, "");
-    const ScopedAletheiaLib guard{value};
+    auto const* const value = GENERATE(as<char const*>{}, nullptr, "");
+    ScopedAletheiaLib const guard{value};
     auto const backend = make_ffi_backend_from_env(1);
     CHECK(aletheia::detail::error_of(backend).kind() == ErrorKind::Validation);
     CHECK(aletheia::detail::error_of(backend).text() ==
@@ -426,8 +426,8 @@ TEST_CASE("make_ffi_backend_from_env refuses ALETHEIA_LIB unset or empty as a us
 
 TEST_CASE("start_runtime_from_env refuses ALETHEIA_LIB unset or empty, naming its counted twin",
           "[ffi][validation]") {
-    auto const* const value = GENERATE(as<const char*>{}, nullptr, "");
-    const ScopedAletheiaLib guard{value};
+    auto const* const value = GENERATE(as<char const*>{}, nullptr, "");
+    ScopedAletheiaLib const guard{value};
     auto const started = start_runtime_from_env(1);
     CHECK(aletheia::detail::error_of(started).kind() == ErrorKind::Validation);
     CHECK(aletheia::detail::error_of(started).text() ==
@@ -440,7 +440,7 @@ TEST_CASE("start_runtime_from_env and the count-less factory open the library AL
     // The listener started the runtime on one core, so a start asking one and a
     // backend asking none both find it running as asked.
     auto const lib = searched_kernel_library("no kernel library to name");
-    const ScopedAletheiaLib guard{lib.c_str()};
+    ScopedAletheiaLib const guard{lib.c_str()};
     CHECK(start_runtime_from_env(1) == std::nullopt);
     auto const backend = required(make_ffi_backend_from_env());
     REQUIRE(backend != nullptr);
@@ -451,7 +451,7 @@ TEST_CASE("make_ffi_backend_from_env with a nonexistent ALETHEIA_LIB path refuse
           "[ffi][error]") {
     // A set path that does not exist reaches dlopen (Ffi), not the unset
     // guard: a guard refusing every set value would answer as the case above.
-    const ScopedAletheiaLib guard{"/nonexistent/aletheia/libaletheia-ffi.so"};
+    ScopedAletheiaLib const guard{"/nonexistent/aletheia/libaletheia-ffi.so"};
     auto const backend = make_ffi_backend_from_env(1);
     CHECK(aletheia::detail::error_of(backend).kind() == ErrorKind::Ffi);
     CHECK_THAT(aletheia::detail::error_of(backend).text(), ContainsSubstring("dlopen failed"));
@@ -463,10 +463,10 @@ TEST_CASE("the library search takes ALETHEIA_LIB when it names a file that exist
     // file that exists is answered as given, before the registered path, so
     // the answer is the file this test made and not the library the process
     // already holds.
-    const aletheia::test::TempPath file{"search_env_route.so"};
-    { const std::ofstream touch{file.path}; }
+    aletheia::test::TempPath const file{"search_env_route.so"};
+    { std::ofstream const touch{file.path}; }
     REQUIRE(std::filesystem::exists(file.path));
-    const ScopedAletheiaLib guard{file.path.c_str()};
+    ScopedAletheiaLib const guard{file.path.c_str()};
     CHECK(required(find_ffi_library()) == file.path);
 }
 
@@ -478,19 +478,19 @@ TEST_CASE("the library search answers by route, and refuses when none answers", 
     // at taken not to exist; none answering is refused. The search takes its
     // inputs, so each route is reached whatever the process already holds.
     using aletheia::detail::search_ffi_library;
-    const aletheia::test::TempPath env_file{"search_env.so"};
-    const aletheia::test::TempPath registered_file{"search_registered.so"};
-    const aletheia::test::TempPath tree{"search_tree"};
-    { const std::ofstream touch{env_file.path}; }
-    { const std::ofstream touch{registered_file.path}; }
+    aletheia::test::TempPath const env_file{"search_env.so"};
+    aletheia::test::TempPath const registered_file{"search_registered.so"};
+    aletheia::test::TempPath const tree{"search_tree"};
+    { std::ofstream const touch{env_file.path}; }
+    { std::ofstream const touch{registered_file.path}; }
     std::filesystem::create_directories(tree.path / "build");
     auto const candidate = tree.path / "build" / "libaletheia-ffi.so";
-    { const std::ofstream touch{candidate}; }
+    { std::ofstream const touch{candidate}; }
     auto const nowhere = std::filesystem::path{"/nonexistent/aletheia"};
     auto const too_long = (tree.path / std::string(300, 'x')).string();
     std::string const not_found =
         "libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'";
-    auto const refused = [](const Result<std::filesystem::path>& answer) {
+    auto const refused = [](Result<std::filesystem::path> const& answer) {
         REQUIRE_FALSE(answer.has_value());
         CHECK(answer.error().kind() == ErrorKind::Ffi);
         return answer.error().text();
@@ -537,11 +537,11 @@ TEST_CASE("a start refuses a library that will not serve it, and leaves it unmap
     // The listener started the runtime, so a start of a library that serves
     // answers the running count, and one that does not is refused before it is
     // read further, closing what it opened.
-    auto const refused = [](const std::filesystem::path& lib, std::string_view why) {
+    auto const refused = [](std::filesystem::path const& lib, std::string_view why) {
         auto const started = start_runtime(lib, 1);
         CHECK(aletheia::detail::error_of(started).kind() == ErrorKind::Ffi);
         CHECK_THAT(aletheia::detail::error_of(started).text(), ContainsSubstring(std::string{why}));
-        const aletheia::test::LoadedLibrary still_mapped{
+        aletheia::test::LoadedLibrary const still_mapped{
             dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
         CHECK(still_mapped == nullptr);
     };
@@ -604,7 +604,7 @@ TEST_CASE("the FFI backend hands the kernel the timestamp and bus bits it was gi
                ContainsSubstring("send_remote ts=7891 id=256 extended=0"));
 
     auto const dlc = Dlc::create(2).value();
-    const FramePayload data{std::byte{1}, std::byte{2}};
+    FramePayload const data{std::byte{1}, std::byte{2}};
     CHECK_THAT(message(client.send_frame(std::stop_token{}, Timestamp{99}, standard, dlc, data,
                                          true, false)),
                ContainsSubstring("send_frame ts=99 id=256 extended=0 dlc=2 len=2 brs=1/1 esi=1/0"));
@@ -628,7 +628,7 @@ TEST_CASE("the FFI backend hands the kernel every byte of a command", "[ffi][mar
 // One of the recording kernel's counters, which are the one way to read a
 // release the real kernel acknowledges without reading.
 using CountFn = int (*)();
-static auto recording_kernel_counter(const aletheia::test::LoadedLibrary& handle, const char* name)
+static auto recording_kernel_counter(aletheia::test::LoadedLibrary const& handle, char const* name)
     -> CountFn {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto* const count = reinterpret_cast<CountFn>(dlsym(handle.get(), name));
@@ -639,12 +639,12 @@ static auto recording_kernel_counter(const aletheia::test::LoadedLibrary& handle
 TEST_CASE("the FFI backend closes the kernel state it opened", "[ffi][marshal]") {
     static_cast<void>(searched_kernel_library(
         "no kernel library holds the process, so the stand-in must not be its first backend"));
-    const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
-    const aletheia::test::LoadedLibrary handle{dlopen(stand_in.c_str(), RTLD_NOW)};
+    std::filesystem::path const stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
+    aletheia::test::LoadedLibrary const handle{dlopen(stand_in.c_str(), RTLD_NOW)};
     REQUIRE(handle != nullptr);
     auto* const count = recording_kernel_counter(handle, "aletheia_test_close_count");
     auto const before = count();
-    { const auto client = required(AletheiaClient::create(required(make_ffi_backend(stand_in)))); }
+    { auto const client = required(AletheiaClient::create(required(make_ffi_backend(stand_in)))); }
     CHECK(count() == before + 1);
 }
 
@@ -654,8 +654,8 @@ TEST_CASE("the FFI backend frees the string the kernel handed it", "[ffi][marsha
     // release left out leaks, which no test observes by the text alone.
     static_cast<void>(searched_kernel_library(
         "no kernel library holds the process, so the stand-in must not be its first backend"));
-    const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
-    const aletheia::test::LoadedLibrary handle{dlopen(stand_in.c_str(), RTLD_NOW)};
+    std::filesystem::path const stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
+    aletheia::test::LoadedLibrary const handle{dlopen(stand_in.c_str(), RTLD_NOW)};
     REQUIRE(handle != nullptr);
     auto* const count = recording_kernel_counter(handle, "aletheia_test_free_count");
     auto const backend = required(make_ffi_backend(stand_in));
@@ -688,7 +688,7 @@ TEST_CASE("a later backend leaves the allocation count on the library that start
     static_cast<void>(searched_kernel_library(
         "no kernel library holds the process, so the stand-in must not be its first backend"));
     auto const lib = stand_in(ALETHEIA_TEST_RECORDING_KERNEL);
-    const aletheia::test::LoadedLibrary handle{dlopen(lib.c_str(), RTLD_NOW)};
+    aletheia::test::LoadedLibrary const handle{dlopen(lib.c_str(), RTLD_NOW)};
     REQUIRE(handle != nullptr);
     auto const symbol = aletheia::detail::dl_symbol(handle.get(), "aletheia_allocated_bytes");
     REQUIRE(symbol.has_value());
@@ -704,7 +704,7 @@ TEST_CASE("the search's default library path is the first one registered", "[ffi
     // first write wins; a later registration of another library, here one that
     // exists but carries no entry, changes nothing the lookup answers. With the
     // environment unset the lookup reads the default, which is what is compared.
-    const ScopedAletheiaLib unset(nullptr);
+    ScopedAletheiaLib const unset(nullptr);
     auto const before = required(find_ffi_library());
     aletheia::detail::register_default_lib_path(
         std::filesystem::path{ALETHEIA_TEST_SYMBOLLESS_LIB});

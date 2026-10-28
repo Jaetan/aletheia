@@ -19,12 +19,33 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import NamedTuple, NewType
+from typing import TYPE_CHECKING, NamedTuple, NewType
+
+from tools._common import RelPath, TreeScan, scan_tracked_tree
 
 from aletheia.common_types import PositiveInt, Prose
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
 # A source file's text.
 SourceText = NewType("SourceText", str)
+
+
+def scan_tracked_sources(
+    repo: Path,
+    is_not_read: Callable[[RelPath], bool],
+    scan_file: Callable[[RelPath, SourceText], list[Prose]],
+) -> TreeScan:
+    """Run ``scan_file`` over each tracked file of ``repo`` that ``is_not_read`` keeps."""
+    return scan_tracked_tree(
+        repo,
+        lambda rel: is_not_read(RelPath(rel)),
+        lambda rel, text: list(scan_file(RelPath(rel), SourceText(text))),
+    )
+
+
 # What holds a hosted text: a docstring's dotted owner, the module's own being
 # ``<module>``, or the marker a comment run's lines open with.
 Owner = NewType("Owner", str)

@@ -47,8 +47,8 @@ constexpr std::array lacking{
 // Whether `answer` is the refusal naming the entry `stand_in` lacks, printing
 // what `call` answered.
 template<typename T>
-static auto refused(std::string_view call, const Lacking& stand_in,
-                    const aletheia::Result<T>& answer) -> bool {
+static auto refused(std::string_view call, Lacking const& stand_in,
+                    aletheia::Result<T> const& answer) -> bool {
     if (answer) {
         std::println(stderr, "{} of {}: answered a value", call, stand_in.library);
         return false;
@@ -66,7 +66,7 @@ static auto run(std::span<char* const> args) -> int {
     }
     bool all_refused = true;
     for (auto const& stand_in : lacking) {
-        const std::filesystem::path library{stand_in.library};
+        std::filesystem::path const library{stand_in.library};
         all_refused =
             refused("start_runtime", stand_in, aletheia::start_runtime(library, 1)) && all_refused;
         all_refused = refused("make_ffi_backend", stand_in, aletheia::make_ffi_backend(library)) &&

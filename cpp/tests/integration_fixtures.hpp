@@ -22,7 +22,7 @@ inline auto make_integration_dbc() -> DbcDefinition {
     auto const speed_id = StandardId::create(0x100).value();
     auto const speed_dlc = Dlc::create(8).value();
 
-    const DbcSignal speed_sig{
+    DbcSignal const speed_sig{
         .name = SignalName{"Speed"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -36,7 +36,7 @@ inline auto make_integration_dbc() -> DbcDefinition {
         .presence = AlwaysPresent{},
     };
 
-    const DbcSignal rpm_sig{
+    DbcSignal const rpm_sig{
         .name = SignalName{"RPM"},
         .start_bit = BitPosition{16},
         .bit_length = BitLength{16},
@@ -62,8 +62,8 @@ inline auto make_integration_dbc() -> DbcDefinition {
     };
 }
 
-inline auto has_warning(const std::vector<ValidationIssue>& issues, IssueCode code) -> bool {
-    return std::ranges::any_of(issues, [code](const ValidationIssue& issue) {
+inline auto has_warning(std::vector<ValidationIssue> const& issues, IssueCode code) -> bool {
+    return std::ranges::any_of(issues, [code](ValidationIssue const& issue) {
         return issue.code == code && issue.severity == IssueSeverity::Warning;
     });
 }

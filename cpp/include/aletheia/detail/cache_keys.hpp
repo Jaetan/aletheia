@@ -53,7 +53,7 @@ struct FrameKey {
     bool is_extended;
     std::uint8_t dlc;
     FramePayload data;
-    auto operator<=>(const FrameKey&) const = default;
+    auto operator<=>(FrameKey const&) const = default;
 };
 
 // FrameKeyView is a non-owning counterpart to FrameKey used for
@@ -64,7 +64,7 @@ struct FrameKeyView {
     std::uint32_t id_value;
     bool is_extended;
     std::uint8_t dlc;
-    std::span<const std::byte> data;
+    std::span<std::byte const> data;
 };
 
 // Transparent comparator enabling std::map heterogeneous lookup with
@@ -75,23 +75,23 @@ struct FrameKeyView {
 struct FrameKeyLess {
     using is_transparent = void; // NOLINT(readability-identifier-naming) - STL protocol
 
-    [[nodiscard]] static auto prefix(const FrameKey& k)
+    [[nodiscard]] static auto prefix(FrameKey const& k)
         -> std::tuple<std::uint32_t, bool, std::uint8_t> {
         return {k.id_value, k.is_extended, k.dlc};
     }
-    [[nodiscard]] static auto prefix(const FrameKeyView& k)
+    [[nodiscard]] static auto prefix(FrameKeyView const& k)
         -> std::tuple<std::uint32_t, bool, std::uint8_t> {
         return {k.id_value, k.is_extended, k.dlc};
     }
-    [[nodiscard]] static auto payload(const FrameKey& k) -> std::span<const std::byte> {
+    [[nodiscard]] static auto payload(FrameKey const& k) -> std::span<std::byte const> {
         return k.data;
     }
-    [[nodiscard]] static auto payload(const FrameKeyView& k) -> std::span<const std::byte> {
+    [[nodiscard]] static auto payload(FrameKeyView const& k) -> std::span<std::byte const> {
         return k.data;
     }
 
     template<typename A, typename B>
-    [[nodiscard]] auto operator()(const A& a, const B& b) const -> bool {
+    [[nodiscard]] auto operator()(A const& a, B const& b) const -> bool {
         auto const pa = prefix(a);
         auto const pb = prefix(b);
         if (pa != pb)
@@ -106,7 +106,7 @@ struct SignalKey {
     std::uint32_t id_value;
     bool is_extended;
     std::string signal_name;
-    auto operator==(const SignalKey&) const -> bool = default;
+    auto operator==(SignalKey const&) const -> bool = default;
 };
 
 // Folds one more hash into a seed (the usual golden-ratio mixing).
@@ -115,7 +115,7 @@ struct SignalKey {
 }
 
 struct SignalKeyHash {
-    [[nodiscard]] auto operator()(const SignalKey& k) const -> std::size_t {
+    [[nodiscard]] auto operator()(SignalKey const& k) const -> std::size_t {
         auto h = std::hash<std::uint32_t>{}(k.id_value);
         h = hash_combine(h, std::hash<bool>{}(k.is_extended));
         return hash_combine(h, std::hash<std::string>{}(k.signal_name));
@@ -127,7 +127,7 @@ struct SignalKeyHash {
 using MessageKey = std::pair<std::uint32_t, bool>;
 
 struct MessageKeyHash {
-    [[nodiscard]] auto operator()(const MessageKey& k) const -> std::size_t {
+    [[nodiscard]] auto operator()(MessageKey const& k) const -> std::size_t {
         return hash_combine(std::hash<std::uint32_t>{}(k.first), std::hash<bool>{}(k.second));
     }
 };

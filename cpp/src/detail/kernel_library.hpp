@@ -32,7 +32,7 @@ using KernelLibrary = std::unique_ptr<void, LibraryCloser>;
 // Opens the library at `lib_path`, refusing an empty path (Validation: dlopen of
 // one opens the calling program), one that does not open, and one laid out for
 // another ABI version, read before any other entry (Ffi).
-[[nodiscard]] auto open_kernel(const std::filesystem::path& lib_path) -> Result<KernelLibrary>;
+[[nodiscard]] auto open_kernel(std::filesystem::path const& lib_path) -> Result<KernelLibrary>;
 
 // Reads the entries of an opened library and keeps the refusal naming the first
 // one missing, so a caller reads every entry it needs and is answered once.
@@ -41,9 +41,9 @@ public:
     explicit SymbolResolver(void* handle) : handle_(handle) {}
 
     // The entry `name`, or null when the library lacks it.
-    [[nodiscard]] auto entry(const char* name) -> void*;
+    [[nodiscard]] auto entry(char const* name) -> void*;
     template<typename Fn>
-    [[nodiscard]] auto get(const char* name) -> Fn {
+    [[nodiscard]] auto get(char const* name) -> Fn {
         return symbol_as<Fn>(entry(name));
     }
     // `value` when every entry read through this resolver was found, otherwise
@@ -86,7 +86,7 @@ struct StartOutcome {
 // default when nothing runs. The count is held to 1 through the CPUs the
 // process may use, as the runtime counts them, whether or not it runs
 // (Validation).
-[[nodiscard]] auto start_runtime_on(const RuntimeSymbols& symbols, std::optional<int> cores)
+[[nodiscard]] auto start_runtime_on(RuntimeSymbols const& symbols, std::optional<int> cores)
     -> Result<StartOutcome>;
 
 // The library ALETHEIA_LIB names, or a Validation refusal naming

@@ -73,7 +73,7 @@ constexpr std::size_t k_recording_capacity = 1U << 16U;
 // YAML library is spared on the same ground. A library is known by a frame of
 // its own on the stack, since what it allocates it allocates through the
 // standard library's own functions, whose frames name no owner.
-[[nodiscard]] static auto symbol_at(const void* site) -> std::string_view {
+[[nodiscard]] static auto symbol_at(void const* site) -> std::string_view {
     Dl_info info{};
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): dladdr takes a mutable pointer
     if (dladdr(const_cast<void*>(site), &info) == 0 || info.dli_sname == nullptr) {
@@ -91,7 +91,7 @@ constexpr std::size_t k_stack_depth = 8;
 // library's types, as a function of this project's own does when it reads a
 // JSON document; a frame whose mangled name opens on the project's namespace
 // is the code under test, never the library's.
-[[nodiscard]] static auto vendored_frame_among(const std::array<void*, k_stack_depth>& frames,
+[[nodiscard]] static auto vendored_frame_among(std::array<void*, k_stack_depth> const& frames,
                                                int depth) -> bool {
     // take clamps, so a depth the capture never filled reads nothing rather
     // than past the array.

@@ -44,31 +44,31 @@ using namespace aletheia;
 // Subclasses implement init/close/process with the behaviour under test.
 class StubStreamingBackend : public IBackend {
 public:
-    auto send_frame_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/,
-                           Dlc /*dlc*/, std::span<const std::byte> /*data*/,
+    auto send_frame_binary(BackendState const& state, Timestamp /*ts*/, CanId const& /*id*/,
+                           Dlc /*dlc*/, std::span<std::byte const> /*data*/,
                            std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
         -> Result<std::string> override {
         return process(state, "");
     }
-    auto send_error_binary(const BackendState& state, Timestamp /*ts*/)
+    auto send_error_binary(BackendState const& state, Timestamp /*ts*/)
         -> Result<std::string> override {
         return process(state, "");
     }
-    auto send_remote_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/)
+    auto send_remote_binary(BackendState const& state, Timestamp /*ts*/, CanId const& /*id*/)
         -> Result<std::string> override {
         return process(state, "");
     }
-    auto start_stream_binary(const BackendState& state) -> Result<std::string> override {
+    auto start_stream_binary(BackendState const& state) -> Result<std::string> override {
         return process(state, "");
     }
-    auto end_stream_binary(const BackendState& state) -> Result<std::string> override {
+    auto end_stream_binary(BackendState const& state) -> Result<std::string> override {
         return process(state, "");
     }
-    auto format_dbc_binary(const BackendState& state) -> Result<std::string> override {
+    auto format_dbc_binary(BackendState const& state) -> Result<std::string> override {
         return process(state, "");
     }
-    auto extract_signals_binary(const BackendState& state, const CanId& /*id*/, Dlc /*dlc*/,
-                                std::span<const std::byte> /*data*/)
+    auto extract_signals_binary(BackendState const& state, CanId const& /*id*/, Dlc /*dlc*/,
+                                std::span<std::byte const> /*data*/)
         -> Result<std::string> override {
         return process(state, "");
     }
@@ -102,7 +102,7 @@ public:
 
     auto init() -> Result<BackendState> override { return BackendState{*this, &sentinel}; }
 
-    auto process(const BackendState& /*state*/, std::string_view /*input*/)
+    auto process(BackendState const& /*state*/, std::string_view /*input*/)
         -> Result<std::string> override {
         ++calls_;
         if (calls_ == cancel_after_ && source_ != nullptr)
@@ -119,10 +119,10 @@ TEST_CASE("Client cancellation: pre-FFI guard rejects already-cancelled stop_tok
     auto const* backend = backend_owned.get();
     auto client = required(AletheiaClient::create(std::move(backend_owned)));
 
-    const std::stop_source source;
+    std::stop_source const source;
     source.request_stop(); // cancel BEFORE the call
 
-    auto const result = client.set_properties(source.get_token(), std::span<const LtlFormula>{});
+    auto const result = client.set_properties(source.get_token(), std::span<LtlFormula const>{});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().kind() == ErrorKind::Cancellation);
     REQUIRE(std::string_view{result.error().message()}.contains("set_properties"));
@@ -142,7 +142,7 @@ TEST_CASE("Client cancellation: mid-batch commit-prefix-and-report", "[cancellat
     frames.reserve(total);
     auto const sid = StandardId::create(0x123).value();
     auto const dlc = Dlc::create(8).value();
-    const std::vector<std::byte> payload(8, std::byte{0});
+    std::vector<std::byte> const payload(8, std::byte{0});
     for (auto const i : std::views::iota(std::size_t{0}, total)) {
         frames.push_back(Frame{
             .timestamp = Timestamp{static_cast<std::int64_t>((i + 1) * 1000)},
@@ -170,13 +170,13 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     auto client = required(AletheiaClient::create(std::move(backend_owned)));
     auto const cancel_token = cancel_source.get_token();
 
-    auto const r1 = client.set_properties(cancel_token, std::span<const LtlFormula>{});
+    auto const r1 = client.set_properties(cancel_token, std::span<LtlFormula const>{});
     REQUIRE(r1.has_value()); // in-flight call succeeded despite mid-flight cancel
     REQUIRE(backend->call_count() == 1);
     REQUIRE(cancel_token.stop_requested());
 
     // Subsequent call honors the now-cancelled token (sticky).
-    auto const r2 = client.set_properties(cancel_token, std::span<const LtlFormula>{});
+    auto const r2 = client.set_properties(cancel_token, std::span<LtlFormula const>{});
     REQUIRE_FALSE(r2.has_value());
     REQUIRE(r2.error().kind() == ErrorKind::Cancellation);
 }
@@ -192,14 +192,14 @@ TEST_CASE("Client cancellation: every method's pre-FFI guard rejects a cancelled
     auto const* backend = backend_owned.get();
     auto client = required(AletheiaClient::create(std::move(backend_owned)));
 
-    const std::stop_source source;
+    std::stop_source const source;
     source.request_stop();
     auto const token = source.get_token();
 
     auto const id = CanId{StandardId::create(0x123).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload payload(8, std::byte{0});
-    const std::vector<Frame> frames{
+    FramePayload const payload(8, std::byte{0});
+    std::vector<Frame> const frames{
         Frame{.timestamp = Timestamp{1000}, .id = id, .dlc = dlc, .data = payload}};
 
     struct Row {
@@ -211,7 +211,7 @@ TEST_CASE("Client cancellation: every method's pre-FFI guard rejects a cancelled
             return std::nullopt;
         return r.error();
     };
-    const std::vector<Row> rows{
+    std::vector<Row> const rows{
         {.method = "parse_dbc",
          .call = [&] { return error_of(client.parse_dbc(token, DbcDefinition{})); }},
         {.method = "parse_dbc_text",
@@ -227,17 +227,17 @@ TEST_CASE("Client cancellation: every method's pre-FFI guard rejects a cancelled
          .call =
              [&] {
                  return error_of(
-                     client.build_frame(token, id, dlc, std::span<const SignalValue>{}));
+                     client.build_frame(token, id, dlc, std::span<SignalValue const>{}));
              }},
         {.method = "update_frame",
          .call =
              [&] {
                  return error_of(
-                     client.update_frame(token, id, dlc, payload, std::span<const SignalValue>{}));
+                     client.update_frame(token, id, dlc, payload, std::span<SignalValue const>{}));
              }},
         {.method = "set_properties",
          .call =
-             [&] { return error_of(client.set_properties(token, std::span<const LtlFormula>{})); }},
+             [&] { return error_of(client.set_properties(token, std::span<LtlFormula const>{})); }},
         {.method = "add_checks", .call = [&] { return error_of(client.add_checks(token, {})); }},
         {.method = "start_stream", .call = [&] { return error_of(client.start_stream(token)); }},
         {.method = "send_frame",

@@ -31,23 +31,23 @@ namespace aletheia {
 namespace {
 
 using AletheiaInitFn = void* (*)();
-using AletheiaProcessFn = char* (*)(void*, const detail::FfiText*);
-using AletheiaSendFrameFn = char* (*)(void*, const detail::FfiFrame*);
+using AletheiaProcessFn = char* (*)(void*, detail::FfiText const*);
+using AletheiaSendFrameFn = char* (*)(void*, detail::FfiFrame const*);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
 
 // CAN error/remote event endpoints.
-using AletheiaSendErrorFn = char* (*)(void*, const detail::FfiFrame*);
-using AletheiaSendRemoteFn = char* (*)(void*, const detail::FfiFrame*);
+using AletheiaSendErrorFn = char* (*)(void*, detail::FfiFrame const*);
+using AletheiaSendRemoteFn = char* (*)(void*, detail::FfiFrame const*);
 
 // Binary FFI endpoints (no JSON input serialization).
 using AletheiaNoArgFn = char* (*)(void*);
-using AletheiaExtractFn = char* (*)(void*, const detail::FfiFrame*);
+using AletheiaExtractFn = char* (*)(void*, detail::FfiFrame const*);
 
 // Binary output endpoints (return a status code, write into the buffer).
-using AletheiaFrameBinFn = std::int8_t (*)(void*, const detail::FfiFrame*,
-                                           const detail::FfiSignalValues*, detail::FfiBuffer*);
-using AletheiaExtractBinFn = std::int8_t (*)(void*, const detail::FfiFrame*, detail::FfiBuffer*);
+using AletheiaFrameBinFn = std::int8_t (*)(void*, detail::FfiFrame const*,
+                                           detail::FfiSignalValues const*, detail::FfiBuffer*);
+using AletheiaExtractBinFn = std::int8_t (*)(void*, detail::FfiFrame const*, detail::FfiBuffer*);
 using AletheiaFreeBufFn = void (*)(std::uint8_t*);
 } // namespace
 
@@ -61,9 +61,9 @@ using AletheiaFreeBufFn = void (*)(std::uint8_t*);
 // uint8_t is unsigned char on every platform we target (Clang 23 on Linux
 // x86_64/ARM64). The NOLINTs below are centralised so the FFI call
 // sites stay free of noise; every byte-cast flows through these three fns.
-static auto as_u8(const std::byte* p) -> const std::uint8_t* {
+static auto as_u8(std::byte const* p) -> std::uint8_t const* {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    return reinterpret_cast<const std::uint8_t*>(p);
+    return reinterpret_cast<std::uint8_t const*>(p);
 }
 
 static auto as_u8(std::byte* p) -> std::uint8_t* {
@@ -71,9 +71,9 @@ static auto as_u8(std::byte* p) -> std::uint8_t* {
     return reinterpret_cast<std::uint8_t*>(p);
 }
 
-static auto as_byte(const std::uint8_t* p) -> const std::byte* {
+static auto as_byte(std::uint8_t const* p) -> std::byte const* {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    return reinterpret_cast<const std::byte*>(p);
+    return reinterpret_cast<std::byte const*>(p);
 }
 
 // A trace event without payload: a remote frame's timestamp and identifier, or
@@ -93,7 +93,7 @@ static auto event_frame(Timestamp ts, std::uint32_t can_id, std::uint8_t extende
 }
 
 // A frame carrying identifier and DLC only, for the entry that reads no payload.
-static auto header_frame(const CanId& id, Dlc dlc) -> detail::FfiFrame {
+static auto header_frame(CanId const& id, Dlc dlc) -> detail::FfiFrame {
     return {.timestamp = 0,
             .data = nullptr,
             .can_id = can_id_value(id),
@@ -109,7 +109,7 @@ static auto header_frame(const CanId& id, Dlc dlc) -> detail::FfiFrame {
 // A frame carrying identifier, DLC and payload.  The caller has checked that
 // the payload is the byte count its DLC names, at most 64, so the cast of its
 // length to the byte the frame carries loses nothing.
-static auto payload_frame(const CanId& id, Dlc dlc, std::span<const std::byte> data)
+static auto payload_frame(CanId const& id, Dlc dlc, std::span<std::byte const> data)
     -> detail::FfiFrame {
     auto frame = header_frame(id, dlc);
     frame.data = as_u8(data.data());
@@ -117,7 +117,7 @@ static auto payload_frame(const CanId& id, Dlc dlc, std::span<const std::byte> d
     return frame;
 }
 
-static auto signal_values(const SignalInjection& signals) -> detail::FfiSignalValues {
+static auto signal_values(SignalInjection const& signals) -> detail::FfiSignalValues {
     return {.indices = signals.indices().data(),
             .numerators = signals.numerators().data(),
             .denominators = signals.denominators().data(),
@@ -128,7 +128,7 @@ static auto signal_values(const SignalInjection& signals) -> detail::FfiSignalVa
 // kernel holds a frame to.  A payload of any other length is refused here,
 // before the call, which also keeps its length within the byte the frame
 // carries it in.
-static auto payload_length_error(Dlc dlc, std::span<const std::byte> data)
+static auto payload_length_error(Dlc dlc, std::span<std::byte const> data)
     -> std::optional<AletheiaError> {
     auto const expected = dlc_to_bytes(dlc);
     if (data.size() == expected)
@@ -190,7 +190,7 @@ class FfiBackend : public IBackend {
         if (result == nullptr)
             return std::unexpected(AletheiaError{ErrorKind::Protocol, std::string{error_msg}});
         auto const deleter = [this](char* p) { fns_.free_str(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        std::unique_ptr<char, decltype(deleter)> const guard{result, deleter};
         return std::string{result};
     }
 
@@ -205,8 +205,8 @@ public:
     // See class-level docstring for the no-hs_exit / no-dlclose rationale.
     ~FfiBackend() override = default;
 
-    FfiBackend(const FfiBackend&) = delete;
-    FfiBackend& operator=(const FfiBackend&) = delete;
+    FfiBackend(FfiBackend const&) = delete;
+    FfiBackend& operator=(FfiBackend const&) = delete;
     FfiBackend(FfiBackend&&) = delete;
     FfiBackend& operator=(FfiBackend&&) = delete;
 
@@ -216,7 +216,7 @@ public:
 
     auto init() -> Result<BackendState> override { return BackendState{*this, fns_.init()}; }
 
-    auto process(const BackendState& state, std::string_view input)
+    auto process(BackendState const& state, std::string_view input)
         -> Result<std::string> override {
         if (auto refusal = detail::json_input_bound_error(input.size()))
             return std::move(refusal).value();
@@ -224,8 +224,8 @@ public:
         return wrap_str_result(fns_.process(state.get(), &text), "aletheia_process returned null");
     }
 
-    auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
-                           std::span<const std::byte> data, std::optional<bool> brs,
+    auto send_frame_binary(BackendState const& state, Timestamp ts, CanId const& id, Dlc dlc,
+                           std::span<std::byte const> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> Result<std::string> override {
         if (auto const err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
@@ -246,14 +246,14 @@ public:
                                "aletheia_send_frame returned null");
     }
 
-    auto send_error_binary(const BackendState& state, Timestamp ts)
+    auto send_error_binary(BackendState const& state, Timestamp ts)
         -> Result<std::string> override {
         auto const frame = event_frame(ts, 0, 0);
         return wrap_str_result(fns_.send_error(state.get(), &frame),
                                "aletheia_send_error returned null");
     }
 
-    auto send_remote_binary(const BackendState& state, Timestamp ts, const CanId& id)
+    auto send_remote_binary(BackendState const& state, Timestamp ts, CanId const& id)
         -> Result<std::string> override {
         auto const frame = event_frame(ts, can_id_value(id),
                                        static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0));
@@ -261,21 +261,21 @@ public:
                                "aletheia_send_remote returned null");
     }
 
-    auto start_stream_binary(const BackendState& state) -> Result<std::string> override {
+    auto start_stream_binary(BackendState const& state) -> Result<std::string> override {
         return wrap_str_result(fns_.start_stream(state.get()),
                                "aletheia_start_stream returned null");
     }
 
-    auto end_stream_binary(const BackendState& state) -> Result<std::string> override {
+    auto end_stream_binary(BackendState const& state) -> Result<std::string> override {
         return wrap_str_result(fns_.end_stream(state.get()), "aletheia_end_stream returned null");
     }
 
-    auto format_dbc_binary(const BackendState& state) -> Result<std::string> override {
+    auto format_dbc_binary(BackendState const& state) -> Result<std::string> override {
         return wrap_str_result(fns_.format_dbc(state.get()), "aletheia_format_dbc returned null");
     }
 
-    auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
-                                std::span<const std::byte> data) -> Result<std::string> override {
+    auto extract_signals_binary(BackendState const& state, CanId const& id, Dlc dlc,
+                                std::span<std::byte const> data) -> Result<std::string> override {
         if (auto const err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
@@ -283,7 +283,7 @@ public:
                                "aletheia_extract_signals returned null");
     }
 
-    auto build_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
+    auto build_frame_bin(BackendState const& state, CanId const& id, Dlc dlc,
                          SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         auto const frame = header_frame(id, dlc);
@@ -299,8 +299,8 @@ public:
         return buf;
     }
 
-    auto update_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
-                          std::span<const std::byte> data, SignalInjection signals,
+    auto update_frame_bin(BackendState const& state, CanId const& id, Dlc dlc,
+                          std::span<std::byte const> data, SignalInjection signals,
                           std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto const err = payload_length_error(dlc, data))
@@ -318,8 +318,8 @@ public:
         return buf;
     }
 
-    auto extract_signals_bin(const BackendState& state, const CanId& id, Dlc dlc,
-                             std::span<const std::byte> data)
+    auto extract_signals_bin(BackendState const& state, CanId const& id, Dlc dlc,
+                             std::span<std::byte const> data)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto const err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
@@ -331,7 +331,7 @@ public:
         // RAII-owned so a throwing std::vector construction (e.g. bad_alloc on
         // copy) still frees the Haskell-allocated buffer. A bare free call
         // after the copy would leak on that path.
-        const std::unique_ptr<std::uint8_t, AletheiaFreeBufFn> out_guard(out.data, fns_.free_buf);
+        std::unique_ptr<std::uint8_t, AletheiaFreeBufFn> const out_guard(out.data, fns_.free_buf);
         // Guard against the degenerate case where the backend signalled
         // success but produced a null buffer: constructing std::span from a
         // null pointer with non-zero size is undefined behaviour
@@ -339,7 +339,7 @@ public:
         // response — return an empty payload instead of reading through null.
         if (out.data == nullptr)
             return std::vector<std::byte>{};
-        const std::span<const std::byte> out_bytes(as_byte(out.data), out.size);
+        std::span<std::byte const> const out_bytes(as_byte(out.data), out.size);
         return std::vector<std::byte>(out_bytes.begin(), out_bytes.end());
     }
 
@@ -378,7 +378,7 @@ static auto kernel_entries(detail::SymbolResolver& resolver) -> KernelEntries {
 // count is checked against the CPUs the opened library's runtime counts,
 // `nullopt` asking for the count running. Registering the path comes last, so
 // the search never points at a path this call refused.
-static auto open_ffi_backend(const std::filesystem::path& lib_path, std::optional<int> rts_cores)
+static auto open_ffi_backend(std::filesystem::path const& lib_path, std::optional<int> rts_cores)
     -> Result<std::unique_ptr<IBackend>> {
     auto opened = detail::open_kernel(lib_path);
     if (!opened)
@@ -387,10 +387,10 @@ static auto open_ffi_backend(const std::filesystem::path& lib_path, std::optiona
     auto const runtime = detail::runtime_symbols(resolver);
     auto const entries = kernel_entries(resolver);
     return resolver.resolved(runtime)
-        .and_then([rts_cores](const detail::RuntimeSymbols& symbols) {
+        .and_then([rts_cores](detail::RuntimeSymbols const& symbols) {
             return detail::start_runtime_on(symbols, rts_cores);
         })
-        .transform([&](const detail::StartOutcome& outcome) -> std::unique_ptr<IBackend> {
+        .transform([&](detail::StartOutcome const& outcome) -> std::unique_ptr<IBackend> {
             auto backend =
                 std::make_unique<FfiBackend>(opened.value().release(), entries, outcome.mismatch);
             detail::register_default_lib_path(lib_path);
@@ -398,23 +398,23 @@ static auto open_ffi_backend(const std::filesystem::path& lib_path, std::optiona
         });
 }
 
-auto make_ffi_backend(const std::filesystem::path& lib_path) -> Result<std::unique_ptr<IBackend>> {
+auto make_ffi_backend(std::filesystem::path const& lib_path) -> Result<std::unique_ptr<IBackend>> {
     return open_ffi_backend(lib_path, std::nullopt);
 }
 
-auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
+auto make_ffi_backend(std::filesystem::path const& lib_path, int rts_cores)
     -> Result<std::unique_ptr<IBackend>> {
     return open_ffi_backend(lib_path, rts_cores);
 }
 
 auto make_ffi_backend_from_env() -> Result<std::unique_ptr<IBackend>> {
     return detail::env_library_path("make_ffi_backend(path)")
-        .and_then([](const std::filesystem::path& lib) { return make_ffi_backend(lib); });
+        .and_then([](std::filesystem::path const& lib) { return make_ffi_backend(lib); });
 }
 
 auto make_ffi_backend_from_env(int rts_cores) -> Result<std::unique_ptr<IBackend>> {
     return detail::env_library_path("make_ffi_backend(path)")
-        .and_then([rts_cores](const std::filesystem::path& lib) {
+        .and_then([rts_cores](std::filesystem::path const& lib) {
             return make_ffi_backend(lib, rts_cores);
         });
 }

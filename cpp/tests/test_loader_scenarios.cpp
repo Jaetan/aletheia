@@ -60,14 +60,14 @@ struct Scenario {
 
 } // namespace
 
-static auto kind_of(const std::string& kind) -> ErrorKind {
+static auto kind_of(std::string const& kind) -> ErrorKind {
     REQUIRE((kind == "validation" || kind == "input_bound_exceeded"));
     return kind == "validation" ? ErrorKind::Validation : ErrorKind::InputBoundExceeded;
 }
 
 // A row gives one answer, a rational, milliseconds or a refusal; a reading
 // given with anything else is a mistake in the contract.
-static auto expectation_of(const YAML::Node& expect)
+static auto expectation_of(YAML::Node const& expect)
     -> std::variant<Rational, std::chrono::milliseconds, Refusal> {
     if (auto const rational = expect["rational"]) {
         REQUIRE_FALSE(expect["milliseconds"].IsDefined());
@@ -97,7 +97,7 @@ static auto expectation_of(const YAML::Node& expect)
     };
 }
 
-static auto scenarios(const char* section) -> std::vector<Scenario> {
+static auto scenarios(char const* section) -> std::vector<Scenario> {
     auto const path = repo_root() / "docs" / "LOADER_SCENARIOS.yaml";
     REQUIRE(std::filesystem::exists(path));
     auto const root = YAML::LoadFile(path.string());
@@ -125,7 +125,7 @@ static auto scenarios(const char* section) -> std::vector<Scenario> {
 
 // The loaded value, or a failure printing the refusal in its place.
 template<typename T>
-static auto loaded(const Result<T>& result) -> const T& {
+static auto loaded(Result<T> const& result) -> T const& {
     if (!result.has_value())
         FAIL("refused where the contract loads: " << result.error().text());
     return *result;
@@ -133,7 +133,7 @@ static auto loaded(const Result<T>& result) -> const T& {
 
 // The refusal, or a failure where the loader loaded the number.
 template<typename T>
-static auto refused(const Result<T>& result) -> const AletheiaError& {
+static auto refused(Result<T> const& result) -> AletheiaError const& {
     if (result.has_value())
         FAIL("loaded where the contract refuses");
     return result.error();
@@ -141,18 +141,18 @@ static auto refused(const Result<T>& result) -> const AletheiaError& {
 
 // A member the error lacks reads as "(absent)", which no row expects, so the
 // comparison fails and prints it.
-static auto shown(const std::optional<std::string>& member) -> std::string {
+static auto shown(std::optional<std::string> const& member) -> std::string {
     return member.value_or("(absent)");
 }
 
-static void check_rational(const Rational& got, const Rational& want) {
+static void check_rational(Rational const& got, Rational const& want) {
     INFO("loaded " << got.numerator() << "/" << got.denominator() << ", contract "
                    << want.numerator() << "/" << want.denominator());
     CHECK(got == want);
 }
 
 // The bound of a never_exceeds check: the value under its Always and Atomic.
-static auto threshold(const CheckResult& check) -> Rational {
+static auto threshold(CheckResult const& check) -> Rational {
     auto const& always = std::get<Always>(check.formula().value);
     auto const& atomic = std::get<Atomic>(always.formula->value);
     return std::get<LessThanOrEqual>(atomic.predicate).value.get();
@@ -160,7 +160,7 @@ static auto threshold(const CheckResult& check) -> Rational {
 
 // Every rational row's check: Speed never exceeding the row's value, as the
 // Check API builds it.
-static void check_never_exceeds(const std::vector<CheckResult>& checks, const Rational& want) {
+static void check_never_exceeds(std::vector<CheckResult> const& checks, Rational const& want) {
     REQUIRE(checks.size() == 1);
     auto const built = check::signal("Speed").never_exceeds(PhysicalValue{want});
     CHECK(format_formula(checks.front().to_formula()) ==
@@ -169,13 +169,13 @@ static void check_never_exceeds(const std::vector<CheckResult>& checks, const Ra
 }
 
 // The bound of a settles_between check: the window of its MetricAlways.
-static auto window(const CheckResult& check) -> Timestamp {
+static auto window(CheckResult const& check) -> Timestamp {
     return std::get<MetricAlways>(check.formula().value).bound;
 }
 
 // Every milliseconds row's check: Speed settling between 0 and 100 within the
 // row's bound, as the Check API builds it.
-static void check_settles_within(const std::vector<CheckResult>& checks,
+static void check_settles_within(std::vector<CheckResult> const& checks,
                                  std::chrono::milliseconds want) {
     REQUIRE(checks.size() == 1);
     auto const built =
@@ -189,7 +189,7 @@ static void check_settles_within(const std::vector<CheckResult>& checks,
     CHECK(window(checks.front()) == want);
 }
 
-static void check_refusal(const AletheiaError& error, const Refusal& want) {
+static void check_refusal(AletheiaError const& error, Refusal const& want) {
     INFO("wire code " << want.code << ", message " << error.message());
     auto const code = error_code_from_string(want.code);
     REQUIRE(code != ErrorCode::Unknown);
@@ -211,7 +211,7 @@ static void check_refusal(const AletheiaError& error, const Refusal& want) {
 }
 
 // The contract's check document with the row's value written verbatim.
-static auto yaml_document(const std::string& value) -> std::string {
+static auto yaml_document(std::string const& value) -> std::string {
     return "checks:\n"
            "  - name: \"C\"\n"
            "    signal: Speed\n"
@@ -221,7 +221,7 @@ static auto yaml_document(const std::string& value) -> std::string {
 }
 
 // The contract's settles_between document with the row's bound written verbatim.
-static auto yaml_within_ms_document(const std::string& value) -> std::string {
+static auto yaml_within_ms_document(std::string const& value) -> std::string {
     return "checks:\n"
            "  - name: \"C\"\n"
            "    signal: Speed\n"
@@ -264,7 +264,7 @@ TEST_CASE("loader scenarios: the Excel loaders answer each number as the contrac
     for (auto const& scenario : scenarios("excel")) {
         DYNAMIC_SECTION("excel scenario " << scenario.name) {
             REQUIRE((scenario.sheet == "Checks" || scenario.sheet == "DBC"));
-            const TempPath tf("loader_scenario_" + scenario.name + ".xlsx");
+            TempPath const tf("loader_scenario_" + scenario.name + ".xlsx");
             if (scenario.sheet == "Checks") {
                 make_checks_workbook(
                     tf.path, {{"C", "Speed", "never_exceeds", scenario.value, "", "", "", ""}});

@@ -48,7 +48,7 @@ OptionValue = NewType("OptionValue", str)
 Digest = NewType("Digest", str)
 
 # The digest of the configuration cpp/.clang-format gives under clang-format 23.1.3.
-RECORDED_DIGEST = Digest("f60007f6fbec9d4cf84ee06061de48fbf8b913fbf44841a21ecc5d7bbc3cced7")
+RECORDED_DIGEST = Digest("32336237ea95dd33fae120ac4e262c137ab6e0f8c97b059167c856638bda428c")
 
 # The file's keys that choose a configuration rather than set an option of it.
 _LANGUAGE = ConfigKey("Language")

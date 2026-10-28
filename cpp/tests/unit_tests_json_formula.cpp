@@ -3,11 +3,19 @@
 // Unit tests: format_formula, the pretty-printer violation enrichment uses
 // to render a failed formula into a human-readable string.
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <aletheia/aletheia.hpp>
 #include <aletheia/enrich.hpp>
 
+#include "detail/json.hpp"
+#include "every_alternative.hpp"
+#include "repo_root.hpp"
+
 #include <memory>
+#include <span>
+#include <string>
 
 using namespace aletheia;
 
@@ -147,4 +155,20 @@ TEST_CASE("format_formula metric release", "[enrich]") {
                       .right = std::make_unique<LtlFormula>(
                           ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{Rational{}})))}};
     CHECK(format_formula(f) == "A = 1 release within 500ms B = 0");
+}
+
+// docs/FORMULA_RENDERING.yaml holds one formula as the wire carries it and the
+// text every binding's printer gives it; this binding builds the formula in
+// code, so its serialisation is held to the wire, compared as JSON, and its
+// rendering to the text.
+TEST_CASE("the shared formula serialises to the shared wire and renders the shared text",
+          "[enrich]") {
+    auto const contract =
+        YAML::LoadFile((aletheia::test::repo_root() / "docs" / "FORMULA_RENDERING.yaml").string());
+    auto const f = aletheia::test::every_alternative();
+    auto const serialised = detail::serialize_set_properties(std::span<LtlFormula const>{&f, 1});
+    REQUIRE(serialised.has_value());
+    CHECK(nlohmann::json::parse(*serialised).at("properties").at(0) ==
+          nlohmann::json::parse(contract["wire"].as<std::string>()));
+    CHECK(format_formula(f) == contract["rendering"].as<std::string>());
 }

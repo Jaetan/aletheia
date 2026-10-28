@@ -29,7 +29,7 @@ using aletheia::test::count_extraction_sentinels;
 using Catch::Matchers::ContainsSubstring;
 
 // Occurrences of a named log event in a captured level-and-event sequence.
-static auto count_log_event(const std::vector<std::pair<LogLevel, std::string>>& events,
+static auto count_log_event(std::vector<std::pair<LogLevel, std::string>> const& events,
                             std::string_view name) -> std::size_t {
     return static_cast<std::size_t>(
         std::ranges::count_if(events, [name](auto const& e) { return e.second == name; }));
@@ -76,7 +76,7 @@ TEST_CASE("end_stream extracts each tracked frame once across properties", "[cli
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
     auto const end_result = client.end_stream(std::stop_token{});
@@ -191,7 +191,7 @@ TEST_CASE("end_stream with all properties holding makes zero extraction calls",
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
     auto const end_result = client.end_stream(std::stop_token{});
@@ -238,7 +238,7 @@ TEST_CASE("end_stream frame loop breaks early once the wanted union is covered",
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     auto const id1 = CanId{StandardId::create(0x100).value()};
     auto const id2 = CanId{StandardId::create(0x200).value()};
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id1, dlc, data).has_value());
@@ -299,7 +299,7 @@ TEST_CASE("end_stream merge is first-frame-wins across tracked frames", "[client
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     auto const id1 = CanId{StandardId::create(0x100).value()};
     auto const id2 = CanId{StandardId::create(0x200).value()};
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id1, dlc, data).has_value());
@@ -347,8 +347,8 @@ TEST_CASE("end_stream failed extraction warns once per frame, not per property",
     mock_ptr->queue_response(R"({"status": "error", "code": "decode_error", "message": "boom"})");
 
     std::vector<std::pair<LogLevel, std::string>> events;
-    const Logger logger(
-        [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+    Logger const logger(
+        [&](LogRecord const& r) { events.emplace_back(r.level, std::string{r.event}); });
     auto client = required(AletheiaClient::create(std::move(mock), logger));
 
     REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
@@ -356,7 +356,7 @@ TEST_CASE("end_stream failed extraction warns once per frame, not per property",
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
     auto const end_result = client.end_stream(std::stop_token{});
@@ -405,8 +405,8 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
     })");
 
     std::vector<std::pair<LogLevel, std::string>> events;
-    const Logger logger(
-        [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+    Logger const logger(
+        [&](LogRecord const& r) { events.emplace_back(r.level, std::string{r.event}); });
     auto client = required(AletheiaClient::create(std::move(mock), logger));
 
     // Only ONE property registered — index 7 is out of bounds.
@@ -418,7 +418,7 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
     auto const end_result = client.end_stream(std::stop_token{});
@@ -468,7 +468,7 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     auto const result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
@@ -488,14 +488,14 @@ TEST_CASE("set_properties replaces the diagnostics and forgets cached extraction
     auto* mock_ptr = mock.get();
     mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
-    const std::string violation = R"({
+    std::string const violation = R"({
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
                     "property_index": 0, "timestamp": 1000000
         }]
     })";
-    const std::string extraction = R"({
+    std::string const extraction = R"({
         "status": "success",
         "values": [{"name": "Speed", "value": 245}],
         "errors": [], "absent": []
@@ -515,7 +515,7 @@ TEST_CASE("set_properties replaces the diagnostics and forgets cached extraction
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     auto const r1 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
     auto const* v1 = std::get<PropertyBatch>(*r1).first_violation();
@@ -561,7 +561,7 @@ TEST_CASE("end_stream forgets the frames of the stream it ends", "[client][enric
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = CanId{StandardId::create(0x100).value()};
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, Dlc::create(8).value(), data)
                 .has_value());
     REQUIRE(client.end_stream(std::stop_token{}).has_value());

@@ -48,6 +48,7 @@ _LIBRARY_SOURCE = CppSource("""\
 #include <array>
 #include <cstddef>
 #include <expected>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -73,6 +74,19 @@ auto r(const std::array<int, 2>& v) -> int { return v.back(); } // unchecked end
 auto s(const std::string& t) -> char { return t.front(); } // unchecked end
 auto t(std::string_view u) -> char { return u.back(); } // unchecked end
 auto x(const std::string& s) -> std::size_t { const std::size_t size = s.length(); return size; }
+
+// Two declarations the restated-type rule must not bind: a written type reached
+// through a user-defined conversion, which `auto` would deduce as the proxy, and
+// one already deduced under a pointer, which has no type to restate.
+struct Proxy {
+    operator std::string() const { return {}; }
+};
+auto proxy() -> Proxy;
+void conversions() {
+    const std::string through_conversion = proxy();
+    auto* const already_deduced = std::addressof(through_conversion);
+    (void)already_deduced;
+}
 
 auto checked(std::optional<int> o, std::expected<int, int> e, const std::vector<int>& v,
              std::string_view s, std::span<const int> w) -> std::size_t {

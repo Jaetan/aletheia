@@ -50,11 +50,11 @@ using LogField = std::pair<std::string_view, LogValue>;
 struct LogRecord {
     LogLevel level;
     std::string_view event;
-    std::span<const LogField> fields;
+    std::span<LogField const> fields;
     std::source_location location;
 };
 
-using LogCallback = std::function<void(const LogRecord&)>;
+using LogCallback = std::function<void(LogRecord const&)>;
 
 class Logger {
 public:
@@ -78,9 +78,9 @@ public:
              std::source_location loc = std::source_location::current()) const {
         if (!enabled(lvl))
             return;
-        const LogRecord rec{.level = lvl,
+        LogRecord const rec{.level = lvl,
                             .event = event,
-                            .fields = std::span<const LogField>{fields.begin(), fields.end()},
+                            .fields = std::span<LogField const>{fields.begin(), fields.end()},
                             .location = loc};
         for (auto const& cb : sinks_)
             cb(rec);

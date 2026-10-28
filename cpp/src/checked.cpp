@@ -21,7 +21,7 @@ void require_within(std::size_t size, std::size_t offset, std::size_t count) {
             std::format("{} elements at {} pass the end of a span of {}", count, offset, size));
 }
 
-auto c_string_view(const char* text) -> std::string_view {
+auto c_string_view(char const* text) -> std::string_view {
     if (text == nullptr)
         throw std::logic_error("read the text of a null C string");
     return text;

@@ -38,7 +38,7 @@ using Catch::Matchers::ContainsSubstring;
 // ===========================================================================
 
 TEST_CASE("excel: never_exceeds", "[excel][simple]") {
-    const TempPath tf("excel_never_exceeds.xlsx");
+    TempPath const tf("excel_never_exceeds.xlsx");
     // Check Name, Signal, Condition, Value, Min, Max, Time (ms), Severity
     make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "220", "", "", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
@@ -48,7 +48,7 @@ TEST_CASE("excel: never_exceeds", "[excel][simple]") {
 }
 
 TEST_CASE("excel: never_below", "[excel][simple]") {
-    const TempPath tf("excel_never_below.xlsx");
+    TempPath const tf("excel_never_below.xlsx");
     make_checks_workbook(tf.path, {{"", "Voltage", "never_below", "11.5", "", "", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -57,7 +57,7 @@ TEST_CASE("excel: never_below", "[excel][simple]") {
 }
 
 TEST_CASE("excel: stays_between", "[excel][simple]") {
-    const TempPath tf("excel_stays_between.xlsx");
+    TempPath const tf("excel_stays_between.xlsx");
     make_checks_workbook(tf.path, {{"", "Voltage", "stays_between", "", "11.5", "14.5", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -66,7 +66,7 @@ TEST_CASE("excel: stays_between", "[excel][simple]") {
 }
 
 TEST_CASE("excel: never_equals", "[excel][simple]") {
-    const TempPath tf("excel_never_equals.xlsx");
+    TempPath const tf("excel_never_equals.xlsx");
     make_checks_workbook(tf.path, {{"", "ErrorCode", "never_equals", "99", "", "", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -75,7 +75,7 @@ TEST_CASE("excel: never_equals", "[excel][simple]") {
 }
 
 TEST_CASE("excel: equals always", "[excel][simple]") {
-    const TempPath tf("excel_equals.xlsx");
+    TempPath const tf("excel_equals.xlsx");
     make_checks_workbook(tf.path, {{"", "ParkingBrake", "equals", "0", "", "", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -84,7 +84,7 @@ TEST_CASE("excel: equals always", "[excel][simple]") {
 }
 
 TEST_CASE("excel: settles_between", "[excel][simple]") {
-    const TempPath tf("excel_settles.xlsx");
+    TempPath const tf("excel_settles.xlsx");
     make_checks_workbook(tf.path, {{"", "Coolant", "settles_between", "", "85", "95", "5000", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -97,7 +97,7 @@ TEST_CASE("excel: settles_between", "[excel][simple]") {
 // ===========================================================================
 
 TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
-    const TempPath tf("excel_wt_exc_eq.xlsx");
+    TempPath const tf("excel_wt_exc_eq.xlsx");
     // Check Name, When Signal, When Condition, When Value,
     // Then Signal, Then Condition, Then Value, Then Min, Then Max,
     // Within (ms), Severity
@@ -111,7 +111,7 @@ TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
 }
 
 TEST_CASE("excel: a negative Within (ms) is the bound's own refusal", "[excel][when-then]") {
-    const TempPath tf("excel_wt_negative_within.xlsx");
+    TempPath const tf("excel_wt_negative_within.xlsx");
     make_wt_workbook(tf.path, {{"", "BrakePedal", "exceeds", "50", "BrakeLight", "equals", "1", "",
                                 "", "-1", ""}});
     auto const result = load_checks_from_excel(tf.path);
@@ -121,11 +121,11 @@ TEST_CASE("excel: a negative Within (ms) is the bound's own refusal", "[excel][w
 }
 
 TEST_CASE("excel: a range whose Min is above its Max is the builder's refusal", "[excel]") {
-    const TempPath checks("excel_inverted_range_checks.xlsx");
+    TempPath const checks("excel_inverted_range_checks.xlsx");
     make_checks_workbook(checks.path, {{"", "Speed", "stays_between", "", "5", "1", "", ""}});
-    const TempPath settles("excel_inverted_range_settles.xlsx");
+    TempPath const settles("excel_inverted_range_settles.xlsx");
     make_checks_workbook(settles.path, {{"", "Speed", "settles_between", "", "5", "1", "100", ""}});
-    const TempPath then("excel_inverted_range_then.xlsx");
+    TempPath const then("excel_inverted_range_then.xlsx");
     make_wt_workbook(then.path, {{"", "BrakePedal", "exceeds", "50", "Speed", "stays_between", "",
                                   "5", "1", "100", ""}});
     for (auto const& [path, message] :
@@ -153,7 +153,7 @@ TEST_CASE("excel: a template path that cannot be looked at is refused, not throw
 }
 
 TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
-    const TempPath tf("excel_wt_eq_exc.xlsx");
+    TempPath const tf("excel_wt_eq_exc.xlsx");
     make_wt_workbook(
         tf.path, {{"", "Gear", "equals", "1", "ReverseLight", "exceeds", "0", "", "", "200", ""}});
     auto const result = load_checks_from_excel(tf.path);
@@ -164,7 +164,7 @@ TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
 }
 
 TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
-    const TempPath tf("excel_wt_drop_sb.xlsx");
+    TempPath const tf("excel_wt_drop_sb.xlsx");
     make_wt_workbook(tf.path, {{"", "FuelLevel", "drops_below", "10", "FuelWarning",
                                 "stays_between", "", "1", "1", "500", ""}});
     auto const result = load_checks_from_excel(tf.path);
@@ -179,7 +179,7 @@ TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
 // ===========================================================================
 
 TEST_CASE("excel: check name applied", "[excel][metadata]") {
-    const TempPath tf("excel_meta_name.xlsx");
+    TempPath const tf("excel_meta_name.xlsx");
     make_checks_workbook(tf.path,
                          {{"Speed limit", "Speed", "never_exceeds", "220", "", "", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
@@ -188,7 +188,7 @@ TEST_CASE("excel: check name applied", "[excel][metadata]") {
 }
 
 TEST_CASE("excel: severity applied", "[excel][metadata]") {
-    const TempPath tf("excel_meta_sev.xlsx");
+    TempPath const tf("excel_meta_sev.xlsx");
     make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "220", "", "", "", "critical"}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -196,7 +196,7 @@ TEST_CASE("excel: severity applied", "[excel][metadata]") {
 }
 
 TEST_CASE("excel: name and severity together", "[excel][metadata]") {
-    const TempPath tf("excel_meta_both.xlsx");
+    TempPath const tf("excel_meta_both.xlsx");
     make_checks_workbook(
         tf.path, {{"Speed limit", "Speed", "never_exceeds", "220", "", "", "", "critical"}});
     auto const result = load_checks_from_excel(tf.path);
@@ -206,7 +206,7 @@ TEST_CASE("excel: name and severity together", "[excel][metadata]") {
 }
 
 TEST_CASE("excel: defaults when no name or severity", "[excel][metadata]") {
-    const TempPath tf("excel_meta_defaults.xlsx");
+    TempPath const tf("excel_meta_defaults.xlsx");
     make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "200", "", "", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -215,7 +215,7 @@ TEST_CASE("excel: defaults when no name or severity", "[excel][metadata]") {
 }
 
 TEST_CASE("excel: when-then with metadata", "[excel][metadata]") {
-    const TempPath tf("excel_meta_wt.xlsx");
+    TempPath const tf("excel_meta_wt.xlsx");
     make_wt_workbook(tf.path, {{"Brake response", "BrakePedal", "exceeds", "50", "BrakeLight",
                                 "equals", "1", "", "", "100", "safety"}});
     auto const result = load_checks_from_excel(tf.path);
@@ -229,7 +229,7 @@ TEST_CASE("excel: when-then with metadata", "[excel][metadata]") {
 // ===========================================================================
 
 TEST_CASE("excel: DBC single signal", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_single.xlsx");
+    TempPath const tf("excel_dbc_single.xlsx");
     // Message ID, Message Name, DLC, Signal, Start Bit, Length,
     // Byte Order, Signed, Factor, Offset, Min, Max, Unit,
     // Multiplexor, Multiplex Value
@@ -256,7 +256,7 @@ TEST_CASE("excel: DBC single signal", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC message grouping", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_group.xlsx");
+    TempPath const tf("excel_dbc_group.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "Msg1", "8", "Sig1", "0", "8", "little_endian", "FALSE",
                                     "1", "0", "0", "255", "", "", "", ""},
@@ -275,7 +275,7 @@ TEST_CASE("excel: DBC message grouping", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC hex message ID", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_hex.xlsx");
+    TempPath const tf("excel_dbc_hex.xlsx");
     make_dbc_workbook(tf.path, {{"0x100", "HexMsg", "8", "Sig", "0", "8", "little_endian", "FALSE",
                                  "1", "0", "0", "255", "", "", "", ""}});
     auto const result = load_dbc_from_excel(tf.path);
@@ -287,7 +287,7 @@ TEST_CASE("excel: DBC hex message ID", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC signed variants", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_signed.xlsx");
+    TempPath const tf("excel_dbc_signed.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "M1", "8", "S1", "0", "8", "little_endian", "TRUE", "1",
                                     "0", "-128", "127", "", "", "", ""},
@@ -305,7 +305,7 @@ TEST_CASE("excel: DBC signed variants", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC missing unit defaults to empty", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_no_unit.xlsx");
+    TempPath const tf("excel_dbc_no_unit.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
                                  "0", "0", "255", "", "", "", ""}});
     auto const result = load_dbc_from_excel(tf.path);
@@ -318,7 +318,7 @@ TEST_CASE("excel: DBC missing unit defaults to empty", "[excel][dbc]") {
 // ===========================================================================
 
 TEST_CASE("excel: DBC always present signal", "[excel][mux]") {
-    const TempPath tf("excel_mux_always.xlsx");
+    TempPath const tf("excel_mux_always.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
                                  "0", "0", "255", "", "", "", ""}});
     auto const result = load_dbc_from_excel(tf.path);
@@ -327,7 +327,7 @@ TEST_CASE("excel: DBC always present signal", "[excel][mux]") {
 }
 
 TEST_CASE("excel: DBC multiplexed signal", "[excel][mux]") {
-    const TempPath tf("excel_mux_muxed.xlsx");
+    TempPath const tf("excel_mux_muxed.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "MuxSig", "0", "8", "little_endian", "FALSE",
                                  "1", "0", "0", "255", "", "Selector", "3", ""}});
     auto const result = load_dbc_from_excel(tf.path);
@@ -341,7 +341,7 @@ TEST_CASE("excel: DBC multiplexed signal", "[excel][mux]") {
 }
 
 TEST_CASE("excel: DBC mixed always and mux", "[excel][mux]") {
-    const TempPath tf("excel_mux_mixed.xlsx");
+    TempPath const tf("excel_mux_mixed.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "Msg", "8", "AlwaysSig", "0", "8", "little_endian",
                                     "FALSE", "1", "0", "0", "255", "", "", "", ""},
@@ -356,7 +356,7 @@ TEST_CASE("excel: DBC mixed always and mux", "[excel][mux]") {
 }
 
 TEST_CASE("excel: DBC partial mux error", "[excel][mux]") {
-    const TempPath tf("excel_mux_partial.xlsx");
+    TempPath const tf("excel_mux_partial.xlsx");
     // Only Multiplexor provided, no Multiplex Value
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
                                  "0", "0", "255", "", "Selector", "", ""}});
@@ -371,14 +371,14 @@ TEST_CASE("excel: DBC partial mux error", "[excel][mux]") {
 // ===========================================================================
 
 TEST_CASE("excel: create template", "[excel][template]") {
-    const TempPath tf("excel_template_test.xlsx");
+    TempPath const tf("excel_template_test.xlsx");
     auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
     CHECK(std::filesystem::exists(tf.path));
 }
 
 TEST_CASE("excel: template has 3 sheets", "[excel][template]") {
-    const TempPath tf("excel_template_sheets.xlsx");
+    TempPath const tf("excel_template_sheets.xlsx");
     auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
@@ -393,17 +393,17 @@ TEST_CASE("excel: template has 3 sheets", "[excel][template]") {
 }
 
 TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
-    const TempPath tf("excel_template_hdr.xlsx");
+    TempPath const tf("excel_template_hdr.xlsx");
     auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
     auto const ws = doc.workbook().worksheet("DBC");
-    const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
-    const OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
-    const OpenXLSX::XLCellValue v5 = ws.cell(1, 5).value();
-    const OpenXLSX::XLCellValue v16 = ws.cell(1, 16).value();
+    OpenXLSX::XLCellValue const v1 = ws.cell(1, 1).value();
+    OpenXLSX::XLCellValue const v3 = ws.cell(1, 3).value();
+    OpenXLSX::XLCellValue const v5 = ws.cell(1, 5).value();
+    OpenXLSX::XLCellValue const v16 = ws.cell(1, 16).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Message ID");
@@ -413,7 +413,7 @@ TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
 }
 
 TEST_CASE("excel: template headers are bold", "[excel][template]") {
-    const TempPath tf("excel_template_bold.xlsx");
+    TempPath const tf("excel_template_bold.xlsx");
     auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
@@ -433,16 +433,16 @@ TEST_CASE("excel: template headers are bold", "[excel][template]") {
 }
 
 TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
-    const TempPath tf("excel_template_checks_hdr.xlsx");
+    TempPath const tf("excel_template_checks_hdr.xlsx");
     auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
     auto const ws = doc.workbook().worksheet("Checks");
-    const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
-    const OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
-    const OpenXLSX::XLCellValue v8 = ws.cell(1, 8).value();
+    OpenXLSX::XLCellValue const v1 = ws.cell(1, 1).value();
+    OpenXLSX::XLCellValue const v3 = ws.cell(1, 3).value();
+    OpenXLSX::XLCellValue const v8 = ws.cell(1, 8).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Check Name");
@@ -451,16 +451,16 @@ TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
 }
 
 TEST_CASE("excel: template When-Then headers correct", "[excel][template]") {
-    const TempPath tf("excel_template_wt_hdr.xlsx");
+    TempPath const tf("excel_template_wt_hdr.xlsx");
     auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
     auto const ws = doc.workbook().worksheet("When-Then");
-    const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
-    const OpenXLSX::XLCellValue v10 = ws.cell(1, 10).value();
-    const OpenXLSX::XLCellValue v11 = ws.cell(1, 11).value();
+    OpenXLSX::XLCellValue const v1 = ws.cell(1, 1).value();
+    OpenXLSX::XLCellValue const v10 = ws.cell(1, 10).value();
+    OpenXLSX::XLCellValue const v11 = ws.cell(1, 11).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Check Name");
@@ -469,7 +469,7 @@ TEST_CASE("excel: template When-Then headers correct", "[excel][template]") {
 }
 
 TEST_CASE("excel: template no overwrite", "[excel][template]") {
-    const TempPath tf("excel_template_nooverwrite.xlsx");
+    TempPath const tf("excel_template_nooverwrite.xlsx");
     auto const first = create_excel_template(tf.path);
     REQUIRE(first.has_value());
     auto const second = create_excel_template(tf.path);
@@ -488,7 +488,7 @@ TEST_CASE("excel: file not found", "[excel][error]") {
 }
 
 TEST_CASE("excel: no checks or when-then sheet", "[excel][error]") {
-    const TempPath tf("excel_no_sheets.xlsx");
+    TempPath const tf("excel_no_sheets.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     // Default sheet is Sheet1, not Checks or When-Then
@@ -500,7 +500,7 @@ TEST_CASE("excel: no checks or when-then sheet", "[excel][error]") {
 }
 
 TEST_CASE("excel: unknown simple condition", "[excel][error]") {
-    const TempPath tf("excel_err_cond.xlsx");
+    TempPath const tf("excel_err_cond.xlsx");
     make_checks_workbook(tf.path, {{"", "Speed", "bogus_cond", "100", "", "", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
@@ -509,7 +509,7 @@ TEST_CASE("excel: unknown simple condition", "[excel][error]") {
 }
 
 TEST_CASE("excel: missing min for stays_between", "[excel][error]") {
-    const TempPath tf("excel_err_min.xlsx");
+    TempPath const tf("excel_err_min.xlsx");
     make_checks_workbook(tf.path, {{"", "Voltage", "stays_between", "", "", "14.5", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
@@ -518,7 +518,7 @@ TEST_CASE("excel: missing min for stays_between", "[excel][error]") {
 }
 
 TEST_CASE("excel: missing time for settles_between", "[excel][error]") {
-    const TempPath tf("excel_err_time.xlsx");
+    TempPath const tf("excel_err_time.xlsx");
     make_checks_workbook(tf.path, {{"", "Coolant", "settles_between", "", "85", "95", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
@@ -526,7 +526,7 @@ TEST_CASE("excel: missing time for settles_between", "[excel][error]") {
 }
 
 TEST_CASE("excel: unknown when condition", "[excel][error]") {
-    const TempPath tf("excel_err_when.xlsx");
+    TempPath const tf("excel_err_when.xlsx");
     make_wt_workbook(
         tf.path, {{"", "Brake", "bogus_when", "50", "Light", "equals", "1", "", "", "100", ""}});
     auto const result = load_checks_from_excel(tf.path);
@@ -536,7 +536,7 @@ TEST_CASE("excel: unknown when condition", "[excel][error]") {
 }
 
 TEST_CASE("excel: unknown then condition", "[excel][error]") {
-    const TempPath tf("excel_err_then.xlsx");
+    TempPath const tf("excel_err_then.xlsx");
     make_wt_workbook(
         tf.path, {{"", "Brake", "exceeds", "50", "Light", "bogus_then", "1", "", "", "100", ""}});
     auto const result = load_checks_from_excel(tf.path);
@@ -546,7 +546,7 @@ TEST_CASE("excel: unknown then condition", "[excel][error]") {
 }
 
 TEST_CASE("excel: DBC invalid byte order", "[excel][error]") {
-    const TempPath tf("excel_err_byte_order.xlsx");
+    TempPath const tf("excel_err_byte_order.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "wrong_order", "FALSE", "1",
                                  "0", "0", "255", "", "", "", ""}});
     auto const result = load_dbc_from_excel(tf.path);
@@ -556,7 +556,7 @@ TEST_CASE("excel: DBC invalid byte order", "[excel][error]") {
 }
 
 TEST_CASE("excel: DBC invalid message ID", "[excel][error]") {
-    const TempPath tf("excel_err_msgid.xlsx");
+    TempPath const tf("excel_err_msgid.xlsx");
     make_dbc_workbook(tf.path, {{"not_a_number", "Msg", "8", "Sig", "0", "8", "little_endian",
                                  "FALSE", "1", "0", "0", "255", "", "", "", ""}});
     auto const result = load_dbc_from_excel(tf.path);
@@ -571,7 +571,7 @@ TEST_CASE("excel: DBC file not found", "[excel][error]") {
 }
 
 TEST_CASE("excel: DBC no sheet", "[excel][error]") {
-    const TempPath tf("excel_dbc_no_sheet.xlsx");
+    TempPath const tf("excel_dbc_no_sheet.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.save();
@@ -586,7 +586,7 @@ TEST_CASE("excel: DBC no sheet", "[excel][error]") {
 // ===========================================================================
 
 TEST_CASE("excel: empty rows are skipped", "[excel][simple]") {
-    const TempPath tf("excel_empty_rows.xlsx");
+    TempPath const tf("excel_empty_rows.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("Checks");
@@ -614,7 +614,7 @@ TEST_CASE("excel: empty rows are skipped", "[excel][simple]") {
 // ===========================================================================
 
 TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_int_factor.xlsx");
+    TempPath const tf("excel_dbc_int_factor.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
                                  "0", "0", "255", "", "", "", ""}});
     auto const result = load_dbc_from_excel(tf.path);
@@ -626,7 +626,7 @@ TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_frac_factor.xlsx");
+    TempPath const tf("excel_dbc_frac_factor.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE",
                                  "0.1", "0", "0", "300", "km/h", "", "", ""}});
     auto const result = load_dbc_from_excel(tf.path);
@@ -642,7 +642,7 @@ TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
 // ===========================================================================
 
 TEST_CASE("excel: DBC extended CAN ID via Extended column", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_extended_id.xlsx");
+    TempPath const tf("excel_dbc_extended_id.xlsx");
     // ID 0x10000 (65536) with Extended=TRUE — must produce ExtendedId
     make_dbc_workbook(tf.path, {{"65536", "ExtMsg", "8", "Sig1", "0", "16", "little_endian",
                                  "FALSE", "1", "0", "0", "65535", "", "", "", "TRUE"}});
@@ -657,7 +657,7 @@ TEST_CASE("excel: DBC extended CAN ID via Extended column", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC standard ID with Extended=FALSE", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_std_explicit.xlsx");
+    TempPath const tf("excel_dbc_std_explicit.xlsx");
     // ID 256 with Extended=FALSE — must produce StandardId
     make_dbc_workbook(tf.path, {{"256", "StdMsg", "8", "Sig1", "0", "8", "little_endian", "FALSE",
                                  "1", "0", "0", "255", "", "", "", "FALSE"}});
@@ -669,7 +669,7 @@ TEST_CASE("excel: DBC standard ID with Extended=FALSE", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC standard ID without Extended column", "[excel][dbc]") {
-    const TempPath tf("excel_dbc_std_empty.xlsx");
+    TempPath const tf("excel_dbc_std_empty.xlsx");
     // Extended column empty — defaults to standard
     make_dbc_workbook(tf.path, {{"256", "StdMsg2", "8", "Sig1", "0", "8", "little_endian", "FALSE",
                                  "1", "0", "0", "255", "", "", "", ""}});
@@ -684,7 +684,7 @@ TEST_CASE("excel: DBC standard ID without Extended column", "[excel][dbc]") {
 // ===========================================================================
 
 TEST_CASE("excel: template roundtrip — load checks from empty template", "[excel][template]") {
-    const TempPath tf("excel_template_roundtrip.xlsx");
+    TempPath const tf("excel_template_roundtrip.xlsx");
     auto const create_result = create_excel_template(tf.path);
     REQUIRE(create_result.has_value());
 

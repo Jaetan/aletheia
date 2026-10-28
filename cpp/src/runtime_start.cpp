@@ -41,7 +41,7 @@ void LibraryCloser::operator()(void* handle) const noexcept {
     dlclose(handle);
 }
 
-auto open_kernel(const std::filesystem::path& lib_path) -> Result<KernelLibrary> {
+auto open_kernel(std::filesystem::path const& lib_path) -> Result<KernelLibrary> {
     if (lib_path.empty())
         return validation_refusal("library path is empty: pass the path of libaletheia-ffi.so");
     KernelLibrary opened{dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)};
@@ -59,7 +59,7 @@ auto open_kernel(const std::filesystem::path& lib_path) -> Result<KernelLibrary>
         });
 }
 
-auto SymbolResolver::entry(const char* name) -> void* {
+auto SymbolResolver::entry(char const* name) -> void* {
     auto const found = dl_symbol(handle_, name);
     if (!found) {
         // The first entry missing is the one the refusal names.
@@ -77,9 +77,9 @@ auto runtime_symbols(SymbolResolver& resolver) -> RuntimeSymbols {
         .entries = RuntimeEntries{
             .allocated_bytes = resolver.get<std::uint64_t (*)()>("aletheia_allocated_bytes"),
             .format_rational =
-                resolver.get<char* (*)(const FfiRational*)>("aletheia_format_rational"),
+                resolver.get<char* (*)(FfiRational const*)>("aletheia_format_rational"),
             .free_str = resolver.get<void (*)(char*)>("aletheia_free_str"),
-            .parse_decimal = resolver.get<std::int8_t (*)(const FfiText*, FfiDecimal*)>(
+            .parse_decimal = resolver.get<std::int8_t (*)(FfiText const*, FfiDecimal*)>(
                 "aletheia_parse_decimal"),
         }};
 }
@@ -92,10 +92,10 @@ static auto resolved_runtime_symbols(void* handle) -> Result<RuntimeSymbols> {
     return resolver.resolved(symbols);
 }
 
-auto start_runtime_on(const RuntimeSymbols& symbols, std::optional<int> cores)
+auto start_runtime_on(RuntimeSymbols const& symbols, std::optional<int> cores)
     -> Result<StartOutcome> {
     auto& rts = rts_init_state();
-    const std::scoped_lock lock(rts.mu);
+    std::scoped_lock const lock(rts.mu);
     auto const asked = cores.value_or(rts.initialized ? rts.cores : rts_default_cores);
     if (auto refusal = core_count_refusal(asked, static_cast<int>(symbols.processors())))
         return validation_refusal(std::move(refusal).value());
@@ -108,7 +108,7 @@ auto start_runtime_on(const RuntimeSymbols& symbols, std::optional<int> cores)
     // a raw owning `new`, and the lines below run exactly once
     // (guarded by rts.initialized under rts.mu), so their
     // runtime-valued initialisers evaluate once.
-    const char* const override_env = std::getenv(std::string{rts_override_env}.c_str());
+    char const* const override_env = std::getenv(std::string{rts_override_env}.c_str());
     static auto rts_argv = rts_init_args(asked, override_env != nullptr ? override_env : "");
     static auto rts_argv_ptrs = [] {
         std::vector<char*> ptrs(rts_argv.size());
@@ -127,7 +127,7 @@ auto start_runtime_on(const RuntimeSymbols& symbols, std::optional<int> cores)
 auto env_library_path(std::string_view counted_twin) -> Result<std::filesystem::path> {
     // std::getenv answers null when the variable is unset and "" when it is
     // set empty; both are refused here, naming the variable.
-    const char* env = std::getenv("ALETHEIA_LIB");
+    char const* env = std::getenv("ALETHEIA_LIB");
     if (env == nullptr || *env == '\0')
         return validation_refusal(
             "ALETHEIA_LIB is not set: set it to the path of libaletheia-ffi.so, or call " +
@@ -139,17 +139,17 @@ auto env_library_path(std::string_view counted_twin) -> Result<std::filesystem::
 
 namespace aletheia {
 
-auto start_runtime(const std::filesystem::path& lib, int cores)
+auto start_runtime(std::filesystem::path const& lib, int cores)
     -> Result<std::optional<std::pair<int, int>>> {
     auto opened = detail::open_kernel(lib);
     return opened
-        .and_then([](const detail::KernelLibrary& library) {
+        .and_then([](detail::KernelLibrary const& library) {
             return detail::resolved_runtime_symbols(library.get());
         })
-        .and_then([cores](const detail::RuntimeSymbols& symbols) {
+        .and_then([cores](detail::RuntimeSymbols const& symbols) {
             return detail::start_runtime_on(symbols, cores);
         })
-        .transform([&lib, &opened](const detail::StartOutcome& outcome) {
+        .transform([&lib, &opened](detail::StartOutcome const& outcome) {
             detail::register_default_lib_path(lib);
             // The library the runtime started on stays open, since the runtime
             // owns threads that reference it; any other was opened only to be read.
@@ -161,13 +161,13 @@ auto start_runtime(const std::filesystem::path& lib, int cores)
 
 auto start_runtime_from_env(int cores) -> Result<std::optional<std::pair<int, int>>> {
     return detail::env_library_path("start_runtime(path, cores)")
-        .and_then([cores](const std::filesystem::path& lib) { return start_runtime(lib, cores); });
+        .and_then([cores](std::filesystem::path const& lib) { return start_runtime(lib, cores); });
 }
 
 auto allocated_bytes() -> std::optional<std::uint64_t> {
     auto& rts = detail::rts_init_state();
     auto const entry = [&rts] {
-        const std::scoped_lock lock(rts.mu);
+        std::scoped_lock const lock(rts.mu);
         return rts.entries.allocated_bytes;
     }();
     if (entry == nullptr)

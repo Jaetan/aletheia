@@ -9,7 +9,9 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
+#include "every_alternative.hpp"
 #include "required.hpp"
 #include "test_helpers.hpp"
 #include <aletheia/aletheia.hpp>
@@ -20,6 +22,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -192,7 +195,7 @@ TEST_CASE("Check to_formula non-consuming", "[check]") {
 
 // A builder's refusal: kind Validation, no wire code, the message as Go and
 // Rust word it.
-static void check_bound_refused(const Result<CheckResult>& built, std::string_view message) {
+static void check_bound_refused(Result<CheckResult> const& built, std::string_view message) {
     REQUIRE_FALSE(built.has_value());
     CHECK(built.error().kind() == ErrorKind::Validation);
     CHECK(built.error().code() == ErrorCode::Unknown);
@@ -435,7 +438,7 @@ TEST_CASE("every command and the canonical JSON refuse a name that is not UTF-8,
     auto client = required(AletheiaClient::create(std::move(owned)));
     auto dbc = make_test_dbc();
     dbc.messages.front().name = MessageName{std::string{"\xff"}};
-    auto const refused = [](const AletheiaError& error) {
+    auto const refused = [](AletheiaError const& error) {
         CHECK(error.kind() == ErrorKind::Validation);
         CHECK(error.message() ==
               "[json.exception.type_error.316] invalid UTF-8 byte at index 0: 0xFF");
@@ -485,6 +488,18 @@ TEST_CASE("format_formula plumbs a terminating Rational (decimal shape) via the 
     auto const result = check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
     auto const f = result.to_formula();
     CHECK(format_formula(f) == "always(Voltage >= 11.5)");
+}
+
+TEST_CASE("clone copies every alternative unchanged and owns its children", "[check][ltl]") {
+    auto original = std::make_unique<LtlFormula>(aletheia::test::every_alternative());
+    auto const before =
+        detail::serialize_set_properties(std::span<LtlFormula const>{original.get(), 1});
+    auto const copy = ltl::clone(*original);
+    original.reset();
+    auto const after = detail::serialize_set_properties(std::span<LtlFormula const>{&copy, 1});
+    REQUIRE(before.has_value());
+    REQUIRE(after.has_value());
+    CHECK(*after == *before);
 }
 
 TEST_CASE("clone keeps a missing child missing", "[check][ltl]") {

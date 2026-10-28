@@ -48,7 +48,7 @@ using aletheia::test::read_text_file;
 // the library asked for, and one naming no file fails the test rather than
 // skipping it.
 static auto lib_available() -> bool {
-    if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
+    if (char const* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
         if (!std::filesystem::exists(env))
             FAIL("ALETHEIA_LIB=" << env << " does not exist");
         return true;
@@ -150,7 +150,7 @@ static auto duplicate_signal_dbc() -> std::string {
 // refusal rather than a library another route finds.
 TEST_CASE("an ALETHEIA_LIB naming no file is the search's refusal", "[cli]") {
     auto const absent = (aletheia::test::scratch_dir() / "cli-absent.so").string();
-    const aletheia::test::ScopedAletheiaLib guard{absent.c_str()};
+    aletheia::test::ScopedAletheiaLib const guard{absent.c_str()};
     auto const dbc = (repo_root() / "examples" / "example.dbc").string();
     auto const [code, err] = run_capture_err({"validate", "--dbc", dbc});
     CHECK(code == 2);
@@ -224,7 +224,7 @@ TEST_CASE("signals text renders a fine-resolution factor exactly via format_rati
     // render: a float64 path drops the tail. example.dbc has no such fine
     // factor, so the test writes its own, its maximum the most the sixteen bits
     // carry, 65535/8192.
-    const TempPath dbc{
+    TempPath const dbc{
         "aletheia_fine_factor.dbc",
         "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
         "BO_ 1024 FineMsg: 8 ECU4\n"
@@ -238,7 +238,7 @@ TEST_CASE("validate renders the issue list and exits 1 when the parser rejects t
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    TempPath const dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     auto const [code, out] = run_capture({"validate", "--dbc", dbc.string()});
     CHECK(code == 1);
     CHECK(out.contains("Validation FAILED"));
@@ -251,7 +251,7 @@ TEST_CASE("validate --json emits the has_errors fail shape when the parser rejec
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    TempPath const dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     auto const [code, out] = run_capture({"validate", "--dbc", dbc.string(), "--json"});
     // The exit code reflects the validation outcome in both output modes:
     // --json on a has_errors result exits 1 like text mode.
@@ -288,11 +288,11 @@ TEST_CASE("rejected and unparseable DBCs stay fatal outside the validate report 
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
     // Non-validate subcommands die with the stringified parse error.
-    const TempPath dup{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    TempPath const dup{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     CHECK(run({"signals", "--dbc", dup.string()}) == 2);
     // A syntactically unparseable DBC has no issues payload; validate keeps
     // the fatal-error path.
-    const TempPath garbage{"aletheia_garbage.dbc", "this is not a dbc file\n"};
+    TempPath const garbage{"aletheia_garbage.dbc", "this is not a dbc file\n"};
     CHECK(run({"validate", "--dbc", garbage.string()}) == 2);
 }
 
@@ -304,22 +304,22 @@ TEST_CASE("each text report prints its lines exactly", "[cli]") {
     auto const mux =
         (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "multiplexing.dbc")
             .string();
-    const std::string header = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n";
-    const TempPath clean{"aletheia_cli_clean.dbc",
+    std::string const header = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n";
+    TempPath const clean{"aletheia_cli_clean.dbc",
                          header + "BO_ 256 Clean: 1 ECU\n"
                                   " SG_ Level : 0|8@1+ (1,0) [0|255] \"%\" Vector__XXX\n"};
     // Every value Small's bits carry above 100 is out of bounds, so a frame of
     // 0xFF decodes no value and one error.
-    const TempPath narrow{"aletheia_cli_narrow.dbc",
+    TempPath const narrow{"aletheia_cli_narrow.dbc",
                           header + "BO_ 512 Narrow: 1 ECU\n"
                                    " SG_ Small : 0|8@1+ (1,0) [0|100] \"\" Vector__XXX\n"};
-    const TempPath dup{"aletheia_cli_text_duplicate.dbc", duplicate_signal_dbc()};
+    TempPath const dup{"aletheia_cli_text_duplicate.dbc", duplicate_signal_dbc()};
     struct Row {
         std::vector<std::string> args;
         std::string text;
         int code = 0;
     };
-    const std::vector<Row> rows{
+    std::vector<Row> const rows{
         {.args = {"validate", "--dbc", clean.string()},
          .text = "Validation passed: no issues found\n"},
         {.args = {"validate", "--dbc", dbc},
@@ -375,8 +375,8 @@ TEST_CASE("a report that cannot be written exits 2 naming the reason", "[cli]") 
             .string();
     // The duplicate-signal rows exit 1 when their report is written, so they
     // show a failed write outranks the validation outcome.
-    const TempPath dup{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
-    const std::vector<std::vector<std::string>> reports{
+    TempPath const dup{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    std::vector<std::vector<std::string>> const reports{
         {"validate", "--dbc", dbc},
         {"validate", "--dbc", dbc, "--json"},
         {"validate", "--dbc", dup.string()},
@@ -407,7 +407,7 @@ TEST_CASE("a subcommand refuses a positional it does not take", "[cli]") {
     // path that resolves nowhere is still refused for its stray.
     auto const dbc = (repo_root() / "examples" / "example.dbc").string();
     auto const missing = (repo_root() / "examples" / "missing.dbc").string();
-    const std::vector<std::pair<std::vector<std::string>, std::string>> rows{
+    std::vector<std::pair<std::vector<std::string>, std::string>> const rows{
         {{"validate", "--dbc", dbc, "stray"}, "Error: unrecognized arguments: stray\n"},
         {{"validate", "stray", "--dbc", dbc, "--json"}, "Error: unrecognized arguments: stray\n"},
         {{"validate", "--dbc", missing, "stray"}, "Error: unrecognized arguments: stray\n"},
@@ -428,8 +428,8 @@ TEST_CASE("a subcommand that takes a fixed count names its extras apart from a s
     // they need no .so and a DBC path that resolves nowhere is refused for its
     // count.
     auto const missing = (repo_root() / "examples" / "missing.dbc").string();
-    const TempPath book{"aletheia_cli_template_extra.xlsx"};
-    const std::vector<std::pair<std::vector<std::string>, std::string>> rows{
+    TempPath const book{"aletheia_cli_template_extra.xlsx"};
+    std::vector<std::pair<std::vector<std::string>, std::string>> const rows{
         {{"extract", "--dbc", missing, "0x100", "102700000A000000", "stray"},
          "Error: unrecognized arguments: stray\n"},
         {{"extract", "--dbc", missing, "0x100", "102700000A000000", "a", "--json", "b"},
@@ -483,7 +483,7 @@ TEST_CASE("a value flag before -- is still read", "[cli]") {
 TEST_CASE("a token after -- spelled like a flag is a stray positional", "[cli]") {
     // The refusal comes before any DBC is read, so it needs no .so.
     auto const dbc = (repo_root() / "examples" / "example.dbc").string();
-    const std::vector<std::pair<std::vector<std::string>, std::string>> rows{
+    std::vector<std::pair<std::vector<std::string>, std::string>> const rows{
         {{"validate", "--dbc", dbc, "--", "--json"}, "Error: unrecognized arguments: --json\n"},
         {{"validate", "--", "--dbc", dbc}, "Error: unrecognized arguments: --dbc " + dbc + "\n"},
     };
@@ -504,7 +504,7 @@ TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]"
 
 TEST_CASE("template writes the workbook the Excel loaders read", "[cli][template]") {
     // Writing the workbook goes through the binding's loader module, not the core.
-    const TempPath out{"aletheia_cli_template.xlsx"};
+    TempPath const out{"aletheia_cli_template.xlsx"};
     auto const [code, text] = run_capture({"template", out.string()});
     CHECK(code == 0);
     CHECK(text == "Template written to " + out.string() + "\n");
@@ -518,7 +518,7 @@ TEST_CASE("template writes the workbook the Excel loaders read", "[cli][template
 }
 
 TEST_CASE("template refuses a path that exists and leaves it as it was", "[cli][template]") {
-    const TempPath existing{"aletheia_cli_template_existing.xlsx", "not a workbook\n"};
+    TempPath const existing{"aletheia_cli_template_existing.xlsx", "not a workbook\n"};
     auto const [code, err] = run_capture_err({"template", existing.string()});
     CHECK(code == 2);
     CHECK(err == "Error: File already exists: " + existing.string() + "\n");
@@ -526,7 +526,7 @@ TEST_CASE("template refuses a path that exists and leaves it as it was", "[cli][
 }
 
 TEST_CASE("template exits 2 on a missing parent and on a wrong argument count", "[cli][template]") {
-    const TempPath parent{"aletheia_cli_template_missing_parent"};
+    TempPath const parent{"aletheia_cli_template_missing_parent"};
     auto const target = parent.path / "checks.xlsx";
     CHECK(run({"template", target.string()}) == 2);
     CHECK_FALSE(std::filesystem::exists(parent.path));
@@ -536,7 +536,7 @@ TEST_CASE("template exits 2 on a missing parent and on a wrong argument count", 
 }
 
 TEST_CASE("template takes its path after --, which is not a positional itself", "[cli][template]") {
-    const TempPath out{"aletheia_cli_template_escaped.xlsx"};
+    TempPath const out{"aletheia_cli_template_escaped.xlsx"};
     auto const [code, text] = run_capture({"template", "--", out.string()});
     CHECK(code == 0);
     CHECK(text == "Template written to " + out.string() + "\n");
@@ -547,7 +547,7 @@ TEST_CASE("template whose confirmation cannot be written exits 2 naming the reas
           "[cli][template]") {
     for (auto const where : k_refusals) {
         CAPTURE(where == Refusal::AtWrite);
-        const TempPath out{"aletheia_cli_template_unreported.xlsx"};
+        TempPath const out{"aletheia_cli_template_unreported.xlsx"};
         auto const [code, err] = run_unwritable({"template", out.string()}, where);
         CHECK(code == 2);
         CHECK(err == unwritable_line());
@@ -558,7 +558,7 @@ TEST_CASE("a report on a stream that failed before it names the stream's error",
           "[cli][template]") {
     // A stream already failed takes nothing and sets no errno, so the reason
     // is the stream's own, never an errno an earlier call left behind.
-    const TempPath out{"aletheia_cli_template_failed_stream.xlsx"};
+    TempPath const out{"aletheia_cli_template_failed_stream.xlsx"};
     std::cout.setstate(std::ios_base::badbit);
     errno = EACCES;
     auto const [code, err] = run_capture_err({"template", out.string()});

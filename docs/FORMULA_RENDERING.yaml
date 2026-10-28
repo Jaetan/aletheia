@@ -1,0 +1,185 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Aletheia Cross-Binding Formula Rendering
+#
+# One formula holding every operator of the LTL grammar, every predicate, a
+# change of either sign, and a time bound in seconds, in milliseconds and in
+# microseconds, nested so a binary operator is the operand of another.  `wire`
+# is the formula as a property on the wire and `rendering` the text every
+# binding's formula printer gives it, the same in each.  A binding that builds
+# formulas in code builds this one, holds its serialisation, compared as JSON,
+# to `wire`, and its rendering to `rendering`; Python, whose formulas are the
+# wire's own objects, renders `wire` itself.
+#
+# Read by:
+#   cpp/tests/unit_tests_enrich.cpp
+#   go/aletheia/formula_rendering_test.go
+#   rust/src/enrich.rs                  -- its tests
+#   python/tests/test_enrichment.py
+rendering: "(never Speed = 1 and (next(Speed < 1.5) and (weak_next(Speed > 7) or not(Speed <= 220)))) and ((always(RPM >= 0) until (eventually(-40 <= Temp <= 215) release ΔPos >= 2.5)) or (((ΔNeg <= -2.5 until within 2s |ΔVolt| <= 0.01) release within 1500μs eventually within 7μs (Speed = 1)) and always within 250ms (Speed < 1.5)))"
+wire: |
+  {
+    "left": {
+      "left": {
+        "formula": {
+          "formula": {
+            "operator": "atomic",
+            "predicate": {
+              "predicate": "equals",
+              "signal": "Speed",
+              "value": 1
+            }
+          },
+          "operator": "not"
+        },
+        "operator": "always"
+      },
+      "operator": "and",
+      "right": {
+        "left": {
+          "formula": {
+            "operator": "atomic",
+            "predicate": {
+              "predicate": "lessThan",
+              "signal": "Speed",
+              "value": {
+                "denominator": 2,
+                "numerator": 3
+              }
+            }
+          },
+          "operator": "next"
+        },
+        "operator": "and",
+        "right": {
+          "left": {
+            "formula": {
+              "operator": "atomic",
+              "predicate": {
+                "predicate": "greaterThan",
+                "signal": "Speed",
+                "value": 7
+              }
+            },
+            "operator": "weakNext"
+          },
+          "operator": "or",
+          "right": {
+            "formula": {
+              "operator": "atomic",
+              "predicate": {
+                "predicate": "lessThanOrEqual",
+                "signal": "Speed",
+                "value": 220
+              }
+            },
+            "operator": "not"
+          }
+        }
+      }
+    },
+    "operator": "and",
+    "right": {
+      "left": {
+        "left": {
+          "formula": {
+            "operator": "atomic",
+            "predicate": {
+              "predicate": "greaterThanOrEqual",
+              "signal": "RPM",
+              "value": 0
+            }
+          },
+          "operator": "always"
+        },
+        "operator": "until",
+        "right": {
+          "left": {
+            "formula": {
+              "operator": "atomic",
+              "predicate": {
+                "max": 215,
+                "min": -40,
+                "predicate": "between",
+                "signal": "Temp"
+              }
+            },
+            "operator": "eventually"
+          },
+          "operator": "release",
+          "right": {
+            "operator": "atomic",
+            "predicate": {
+              "delta": {
+                "denominator": 2,
+                "numerator": 5
+              },
+              "predicate": "changedBy",
+              "signal": "Pos"
+            }
+          }
+        }
+      },
+      "operator": "or",
+      "right": {
+        "left": {
+          "left": {
+            "left": {
+              "operator": "atomic",
+              "predicate": {
+                "delta": {
+                  "denominator": 2,
+                  "numerator": -5
+                },
+                "predicate": "changedBy",
+                "signal": "Neg"
+              }
+            },
+            "operator": "metricUntil",
+            "right": {
+              "operator": "atomic",
+              "predicate": {
+                "predicate": "stableWithin",
+                "signal": "Volt",
+                "tolerance": {
+                  "denominator": 100,
+                  "numerator": 1
+                }
+              }
+            },
+            "timebound": 2000000
+          },
+          "operator": "metricRelease",
+          "right": {
+            "formula": {
+              "operator": "atomic",
+              "predicate": {
+                "predicate": "equals",
+                "signal": "Speed",
+                "value": 1
+              }
+            },
+            "operator": "metricEventually",
+            "timebound": 7
+          },
+          "timebound": 1500
+        },
+        "operator": "and",
+        "right": {
+          "formula": {
+            "operator": "atomic",
+            "predicate": {
+              "predicate": "lessThan",
+              "signal": "Speed",
+              "value": {
+                "denominator": 2,
+                "numerator": 3
+              }
+            }
+          },
+          "operator": "metricAlways",
+          "timebound": 250000
+        }
+      }
+    }
+  }

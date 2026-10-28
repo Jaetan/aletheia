@@ -109,7 +109,7 @@ TEST_CASE("parse_dbc_response rejects a CAN id above the 32-bit position",
     // The id position narrows to 32 bits.  2^32 wraps to zero, which is a
     // valid standard id, so the message would decode under an id the document
     // never stated.
-    auto const make = [](const std::string& id) {
+    auto const make = [](std::string const& id) {
         return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
                R"("id":)" + id +
                R"(,"name":"M","dlc":8,"sender":"","extended":true,"signals":[]}]}})";
@@ -273,7 +273,7 @@ TEST_CASE("parse_dbc_response rejects truncating standard CAN ID (70000)", "[jso
 }
 
 TEST_CASE("ExtractionResult::get helper", "[response]") {
-    const ExtractionResult result{
+    ExtractionResult const result{
         .values =
             {
                 {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{120, 1}}},

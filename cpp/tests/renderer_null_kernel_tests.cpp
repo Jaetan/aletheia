@@ -30,7 +30,7 @@ using aletheia::test::required;
 TEST_CASE("a decimal failure without an envelope is a protocol error", "[rational_renderer]") {
     // A backend on the stand-in starts the runtime on it, its runtime entry a
     // no-op, so the parser calls the stand-in.
-    const std::filesystem::path stand_in{ALETHEIA_TEST_NULL_KERNEL};
+    std::filesystem::path const stand_in{ALETHEIA_TEST_NULL_KERNEL};
     auto const backend = required(aletheia::make_ffi_backend(stand_in));
     REQUIRE(backend != nullptr);
     auto const parsed = aletheia::Rational::from_decimal("1");
@@ -67,7 +67,7 @@ TEST_CASE("each text endpoint's null answer is a protocol error, and no state re
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};
     auto const dlc = aletheia::Dlc::create(0).value();
     auto const ts = aletheia::Timestamp{0};
-    auto const refused = [](const aletheia::Result<std::string>& answer, std::string_view text) {
+    auto const refused = [](aletheia::Result<std::string> const& answer, std::string_view text) {
         CHECK(aletheia::detail::error_of(answer).kind() == aletheia::ErrorKind::Protocol);
         CHECK(aletheia::detail::error_of(answer).message() == text);
     };
@@ -90,7 +90,7 @@ TEST_CASE("a backend that starts the runtime registers its library for the searc
     // Nothing else in this process registers a path before the backend above,
     // and with the variable unset the registered path is the search's first
     // answer, ahead of the build directories around the working directory.
-    const std::filesystem::path stand_in{ALETHEIA_TEST_NULL_KERNEL};
+    std::filesystem::path const stand_in{ALETHEIA_TEST_NULL_KERNEL};
     auto const backend = required(aletheia::make_ffi_backend(stand_in));
     REQUIRE(::unsetenv("ALETHEIA_LIB") == 0);
     CHECK(required(aletheia::find_ffi_library()) == stand_in);

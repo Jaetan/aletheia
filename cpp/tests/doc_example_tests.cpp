@@ -133,8 +133,8 @@ struct CppFence {
 // Repo root + include dir via env vars rather than compile-time defines, so
 // the binary is bit-identical across build locations.  See
 // cpp/tests/test_feature_matrix_parity.cpp.
-static auto getenv_required(const char* name) -> std::string {
-    if (const char* env = std::getenv(name); env != nullptr && *env != '\0') {
+static auto getenv_required(char const* name) -> std::string {
+    if (char const* env = std::getenv(name); env != nullptr && *env != '\0') {
         return env;
     }
     throw std::runtime_error(
@@ -212,8 +212,8 @@ static auto cpp_fence_opening(std::string_view line) -> FenceOpening {
 
 // The codes a line names when it is the mark directly above a fence that shows
 // refusals, in the order the kernel answers them; none for any other line.
-static auto stated_refusals(const std::string& line) -> std::vector<std::string> {
-    static const std::regex mark(R"(<!-- refuses: ([a-z0-9_]+(?: [a-z0-9_]+)*) -->)");
+static auto stated_refusals(std::string const& line) -> std::vector<std::string> {
+    static std::regex const mark(R"(<!-- refuses: ([a-z0-9_]+(?: [a-z0-9_]+)*) -->)");
     std::smatch m;
     if (!std::regex_match(line, m, mark))
         return {};
@@ -242,7 +242,7 @@ static auto comment_text(std::string_view line) -> std::optional<std::string> {
 }
 
 // Extracts every ```cpp fence from one file, read where `host` says.
-static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path,
+static auto extract_cpp_fences(fs::path const& abs_path, std::string_view rel_path,
                                FenceHost host = FenceHost::Lines) -> std::vector<CppFence> {
     std::ifstream in(abs_path);
     if (!in) {
@@ -296,8 +296,8 @@ static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_pa
 }
 
 // Substitute hardcoded doc paths to fixture paths (mirror the Go harness).
-static auto substitute_paths(std::string body, const std::string& lib_path,
-                             const std::string& yaml_fix, const std::string& excel_fix)
+static auto substitute_paths(std::string body, std::string const& lib_path,
+                             std::string const& yaml_fix, std::string const& excel_fix)
     -> std::string {
     auto const replace_all = [](std::string& s, std::string_view from, std::string_view to) {
         std::size_t pos = 0;
@@ -316,7 +316,7 @@ static auto substitute_paths(std::string body, const std::string& lib_path,
 
 // Heuristic: does the body contain a top-level `int main(` declaration?
 static auto has_main(std::string_view body) -> bool {
-    static const std::regex main_re(
+    static std::regex const main_re(
         R"((^|\n)\s*(?:\[\[[^\]]+\]\]\s*)?(?:static\s+|inline\s+|constexpr\s+)?)"
         R"((?:int\s+main\s*\(|auto\s+main\s*\([^)]*\)\s*->\s*int\b))");
     return std::regex_search(body.cbegin(), body.cend(), main_re);
@@ -324,12 +324,12 @@ static auto has_main(std::string_view body) -> bool {
 
 // Heuristic: does the body contain a #include directive?
 static auto has_include(std::string_view body) -> bool {
-    static const std::regex inc_re(R"((^|\n)\s*#\s*include\b)");
+    static std::regex const inc_re(R"((^|\n)\s*#\s*include\b)");
     return std::regex_search(body.cbegin(), body.cend(), inc_re);
 }
 
 // The document line of each line of a fence's content.
-static auto fence_lines(const CppFence& fence) -> std::vector<std::string> {
+static auto fence_lines(CppFence const& fence) -> std::vector<std::string> {
     auto const count = static_cast<int>(std::ranges::count(fence.content, '\n')) + 1;
     return std::views::iota(0, count) | std::views::transform([&](int k) {
                return fence.file + ":L" + std::to_string(fence.line + 1 + k);
@@ -339,7 +339,7 @@ static auto fence_lines(const CppFence& fence) -> std::vector<std::string> {
 
 // Pick a wrapper shape based on body content, every shape's unread results
 // handed to the check its program opens with.
-static auto wrap_fence(std::string body, const CppFence& fence) -> std::string {
+static auto wrap_fence(std::string body, CppFence const& fence) -> std::string {
     body = wrap_unread_results(body, fence_lines(fence));
     if (has_main(body))
         return std::string{k_unread_check} + body;
@@ -349,14 +349,14 @@ static auto wrap_fence(std::string body, const CppFence& fence) -> std::string {
     return std::string{k_unread_check} + wrap_body_fragment(body);
 }
 
-static auto write_file(const fs::path& path, std::string_view content) -> void {
+static auto write_file(fs::path const& path, std::string_view content) -> void {
     std::ofstream out(path, std::ios::binary);
     out.write(content.data(), static_cast<std::streamsize>(content.size()));
     out.close();
 }
 
 // Run a shell command, capturing stdout+stderr. Returns (exit_code, output).
-static auto run_capture(const std::string& cmd) -> std::pair<int, std::string> {
+static auto run_capture(std::string const& cmd) -> std::pair<int, std::string> {
     std::string captured;
     auto* fp = popen((cmd + " 2>&1").c_str(), "r");
     if (fp == nullptr)
@@ -388,7 +388,7 @@ static auto sh_quote(std::string_view s) -> std::string {
 }
 
 // The fences, read once: Catch2 re-enters a test case for each of its sections.
-static auto fence_cache() -> const std::vector<CppFence>& {
+static auto fence_cache() -> std::vector<CppFence> const& {
     static auto const cached = [] {
         std::vector<CppFence> out;
         auto const root = repo_root();
@@ -413,7 +413,7 @@ struct Fixtures {
 };
 } // namespace
 
-static auto doc_fixtures(const fs::path& root) -> Fixtures {
+static auto doc_fixtures(fs::path const& root) -> Fixtures {
     Fixtures fixtures{
         .yaml = (root / "cpp" / "tests" / "testdata" / "doc_examples" / "checks.yaml").string(),
         .excel = (root / "examples" / "demo" / "demo_workbook.xlsx").string(),
@@ -425,8 +425,8 @@ static auto doc_fixtures(const fs::path& root) -> Fixtures {
 
 // The code of each refusal the forwarding stand-in logged, in order: a line is
 // the entry, a tab and the kernel's envelope. No file is no refusal.
-static auto refusal_codes(const fs::path& log) -> std::vector<std::string> {
-    static const std::regex code(R"re("code": "([a-z0-9_]+)")re");
+static auto refusal_codes(fs::path const& log) -> std::vector<std::string> {
+    static std::regex const code(R"re("code": "([a-z0-9_]+)")re");
     std::vector<std::string> codes;
     std::ifstream in(log);
     std::string line;
@@ -442,7 +442,7 @@ static auto refusal_codes(const fs::path& log) -> std::vector<std::string> {
 
 // Compiles and links one program against the binding, failing the calling test
 // case when it does not build.
-static auto compile_program(const fs::path& src_path, const fs::path& out_path) -> void {
+static auto compile_program(fs::path const& src_path, fs::path const& out_path) -> void {
     // The library is shared and carries its own dependencies, so a program
     // links it alone and needs its directory on the run-time search path;
     // linking by file name gives the linker the path but not the loader.
@@ -471,7 +471,7 @@ static auto compile_program(const fs::path& src_path, const fs::path& out_path) 
 // the program at `src_path`, from one pass of its front end: the uses the
 // harness's client and backend stand behind, however the program declares its
 // own names.
-static auto harness_uses_of(const fs::path& src_path) -> std::vector<HarnessUse> {
+static auto harness_uses_of(fs::path const& src_path) -> std::vector<HarnessUse> {
     std::ostringstream cmd;
     cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
         << sh_quote(doc_include_dir()) << " -fsyntax-only -ferror-limit=0 -fno-spell-checking "
@@ -532,7 +532,7 @@ TEST_CASE("doc-example harness: the compiler names the uses the harness's client
          })) {
         expected.replace(expected.find(from), from.size(), to);
     }
-    const TempPath scratch{scratch_dir() / "aletheia_doc_harness_names", AsDirectory{}};
+    TempPath const scratch{scratch_dir() / "aletheia_doc_harness_names", AsDirectory{}};
     auto const src_path = scratch.path / "names.cpp";
     write_file(src_path, wrap_body_fragment(written));
     CHECK(with_harness_client(wrap_body_fragment(written), harness_uses_of(src_path)) ==
@@ -542,8 +542,8 @@ TEST_CASE("doc-example harness: the compiler names the uses the harness's client
 // Compiles one program against the binding and runs it against the forwarding
 // stand-in kernel, failing the calling test case on either step or on
 // refusals other than the codes `refuses` names.
-static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
-                            const std::string& lib, const std::vector<std::string>& refuses)
+static auto compile_and_run(fs::path const& src_path, fs::path const& out_path,
+                            std::string const& lib, std::vector<std::string> const& refuses)
     -> void {
     compile_program(src_path, out_path);
     auto const log = fs::path{out_path.string() + ".refusals"};
@@ -573,7 +573,7 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
 
     // A scratch directory that removes itself, so a failing fence (whose
     // assertion throws out of the loop) cannot leave its wrapper sources behind.
-    const TempPath scratch{scratch_dir() / "aletheia_doc_harness", AsDirectory{}};
+    TempPath const scratch{scratch_dir() / "aletheia_doc_harness", AsDirectory{}};
     auto const& workdir = scratch.path;
 
     for (auto const [i, fence] : std::views::enumerate(fences)) {
@@ -623,7 +623,7 @@ TEST_CASE("doc-example harness: every path document's ```cpp fences run as one p
     auto const root = repo_root();
     auto const fixtures = doc_fixtures(root);
 
-    const TempPath scratch{scratch_dir() / "aletheia_doc_paths", AsDirectory{}};
+    TempPath const scratch{scratch_dir() / "aletheia_doc_paths", AsDirectory{}};
     for (auto const [i, rel] : std::views::enumerate(k_path_docs)) {
         DYNAMIC_SECTION("Path " << rel) {
             std::string program;
@@ -654,7 +654,7 @@ TEST_CASE("doc-example harness: every path document's ```cpp fences run as one p
 
 // Every tracked file the pathspecs name, as git lists it: the set a fresh
 // checkout holds, so an untracked file in the working tree is never read.
-static auto tracked_files(const fs::path& root, std::string_view pathspecs)
+static auto tracked_files(fs::path const& root, std::string_view pathspecs)
     -> std::vector<std::string> {
     auto const [rc, out] = run_capture("git -C " + sh_quote(root.string()) + " ls-files -z -- " +
                                        std::string{pathspecs});
@@ -669,11 +669,11 @@ static auto tracked_files(const fs::path& root, std::string_view pathspecs)
     return paths;
 }
 
-static auto tracked_markdown(const fs::path& root) -> std::vector<std::string> {
+static auto tracked_markdown(fs::path const& root) -> std::vector<std::string> {
     return tracked_files(root, "'*.md' '*.mdx' '*.svx'");
 }
 
-static auto tracked_cpp(const fs::path& root) -> std::vector<std::string> {
+static auto tracked_cpp(fs::path const& root) -> std::vector<std::string> {
     return tracked_files(root, "'*.cpp' '*.hpp' '*.h'");
 }
 

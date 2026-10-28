@@ -80,11 +80,11 @@ inline auto count_setting(std::string_view name, std::string_view text)
 
 // The number after `field` ("VmRSS:" or "Threads:") on its line of the status
 // file at `status`, up to the blank before its unit.
-inline auto status_field(const std::filesystem::path& status, std::string_view field) -> Reading {
+inline auto status_field(std::filesystem::path const& status, std::string_view field) -> Reading {
     std::ifstream in(status);
     if (!in)
         return refused(status.string(), "the file does not open");
-    const std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+    std::string const text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
     auto lines = text | std::views::split('\n') |
                  std::views::transform([](auto const line) { return std::string_view{line}; });
     auto const line = std::ranges::find_if(
@@ -103,7 +103,7 @@ inline auto status_field(const std::filesystem::path& status, std::string_view f
 // anon_inode target (eventfd, eventpoll, timerfd, signalfd) is I/O multiplexer
 // machinery the GHC RTS and glibc allocate lazily as the workload grows, and
 // counting it defeats a hard-zero gate.
-inline auto fd_count(const std::filesystem::path& dir) -> Reading {
+inline auto fd_count(std::filesystem::path const& dir) -> Reading {
     std::error_code ec;
     std::int64_t count = 0;
     for (std::filesystem::directory_iterator it(dir, ec);
@@ -137,7 +137,7 @@ inline auto malloc_info_total(std::string_view xml) -> Reading {
     bool counted = false;
     // Each tag of the aggregate, as the text after its '<'.
     for (auto const piece : aggregate | std::views::split('<')) {
-        const std::string_view tag(piece.begin(), piece.end());
+        std::string_view const tag(piece.begin(), piece.end());
         if (!tag.starts_with("total type="))
             continue;
         // The element up to its closing '>', or up to the next tag.
@@ -180,7 +180,7 @@ inline auto malloc_info_bytes(OpenStream open = &open_memstream,
     // Closing the stream publishes its buffer into `text` and `size`, whether
     // or not the write succeeded, so the buffer is owned from here on.
     stream.reset();
-    const std::unique_ptr<char, decltype(&std::free)> text_owner(text, &std::free);
+    std::unique_ptr<char, decltype(&std::free)> const text_owner(text, &std::free);
     if (written != 0)
         return refused(source, std::format("malloc_info failed: {}",
                                            std::generic_category().message(write_error)));
@@ -193,7 +193,7 @@ inline auto malloc_info_bytes(OpenStream open = &open_memstream,
 // the snapshot holds bytes, so a VmRSS past a 64-bit count of bytes answers no
 // count. The first of those reads that answers no count is the snapshot's
 // refusal.
-inline auto take_snapshot(const std::filesystem::path& status, const std::filesystem::path& fds,
+inline auto take_snapshot(std::filesystem::path const& status, std::filesystem::path const& fds,
                           OpenStream open = &open_memstream, WriteMallocInfo write = &malloc_info)
     -> std::expected<Snapshot, std::string> {
     constexpr std::int64_t bytes_per_kib = 1024;

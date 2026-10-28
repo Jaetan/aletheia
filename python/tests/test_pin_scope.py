@@ -179,6 +179,13 @@ def test_the_prefix_map_line_runs_the_plugin_gate_and_another_line_does_not(
     assert pin_change(PinGate.MULL_PLUGIN_FACTS, _ROOT) is None
 
 
+def test_a_change_to_the_backend_runs_the_plugin_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The gate reads the backend's call lines, so a branch moving them runs it."""
+    backend = RelPath("cpp/src/ffi_backend.cpp")
+    _ = _branch(monkeypatch, [backend])
+    assert pin_change(PinGate.MULL_PLUGIN_FACTS, _ROOT) == Prose(f"the branch changes {backend}")
+
+
 def test_a_plugin_patch_runs_both_gates_on_the_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
     """What the plugin emits and which mutants a slice carries both rest on its patches."""
     _ = _branch(monkeypatch, [_PLUGIN_PATCH])

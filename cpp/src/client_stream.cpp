@@ -47,7 +47,7 @@ static auto validate_timestamp(Timestamp ts) -> Result<void> {
 
 // The diagnostics of `properties`, or the error of the first the renderer
 // cannot build.
-static auto build_diagnostics(std::span<const LtlFormula> properties)
+static auto build_diagnostics(std::span<LtlFormula const> properties)
     -> Result<std::vector<PropertyDiagnostic>> {
     std::vector<PropertyDiagnostic> diags;
     for (auto const& f : properties) {
@@ -59,7 +59,7 @@ static auto build_diagnostics(std::span<const LtlFormula> properties)
     return diags;
 }
 
-auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFormula> properties)
+auto AletheiaClient::set_properties(std::stop_token stop, std::span<LtlFormula const> properties)
     -> Result<void> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("set_properties"));
@@ -85,7 +85,7 @@ auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> c
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("add_checks"));
     std::vector<LtlFormula> formulas;
-    auto const to_formula = [](const CheckResult& c) { return c.to_formula(); };
+    auto const to_formula = [](CheckResult const& c) { return c.to_formula(); };
     std::ranges::transform(default_checks_, std::back_inserter(formulas), to_formula);
     std::ranges::transform(checks, std::back_inserter(formulas), to_formula);
     return set_properties(stop, formulas);
@@ -103,7 +103,7 @@ auto AletheiaClient::start_stream(std::stop_token stop) -> Result<void> {
 }
 
 auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dlc dlc,
-                                std::span<const std::byte> data, std::optional<bool> brs,
+                                std::span<std::byte const> data, std::optional<bool> brs,
                                 std::optional<bool> esi) -> Result<FrameResponse> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_frame"));
@@ -143,7 +143,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
     return result;
 }
 
-auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> frames)
+auto AletheiaClient::send_frames(std::stop_token stop, std::span<Frame const> frames)
     -> BatchResult {
     BatchResult batch;
     for (auto const [i, frame] : std::views::enumerate(frames)) {
@@ -217,7 +217,7 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
     return result;
 }
 
-void AletheiaClient::log_end_stream_summary(const StreamResult& result) {
+void AletheiaClient::log_end_stream_summary(StreamResult const& result) {
     std::uint64_t num_fails = 0;
     std::uint64_t num_unresolved = 0;
     for (auto const& pr : result.results) {
@@ -244,8 +244,8 @@ void AletheiaClient::log_end_stream_summary(const StreamResult& result) {
 // Enrichment internals
 // ---------------------------------------------------------------------------
 
-static auto collect_matching_signals(const PropertyDiagnostic& diag,
-                                     const ExtractionResult& extraction)
+static auto collect_matching_signals(PropertyDiagnostic const& diag,
+                                     ExtractionResult const& extraction)
     -> std::map<SignalName, PhysicalValue> {
     std::map<SignalName, PhysicalValue> values;
     for (auto const& sig : diag.signals) {
@@ -263,8 +263,8 @@ static auto collect_matching_signals(const PropertyDiagnostic& diag,
 // kernel formatℚ (the predicate threshold's renderer): exact, never a printf
 // conversion or a cast to double, and byte-identical to the other bindings; or
 // the renderer's error for the first value it cannot render.
-static auto rendered_values(const PropertyDiagnostic& diag,
-                            const std::map<SignalName, PhysicalValue>& values)
+static auto rendered_values(PropertyDiagnostic const& diag,
+                            std::map<SignalName, PhysicalValue> const& values)
     -> Result<std::vector<std::string>> {
     std::vector<std::string> parts;
     for (auto const& sig : diag.signals) {
@@ -278,8 +278,8 @@ static auto rendered_values(const PropertyDiagnostic& diag,
     return parts;
 }
 
-static auto format_enriched_reason(const PropertyDiagnostic& diag,
-                                   const std::map<SignalName, PhysicalValue>& values,
+static auto format_enriched_reason(PropertyDiagnostic const& diag,
+                                   std::map<SignalName, PhysicalValue> const& values,
                                    std::string_view core_reason) -> std::string {
     // Best-effort on the eval path: a renderer that fails never sinks a frame
     // the kernel processed, and the reason degrades to the formula description
@@ -297,7 +297,7 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
 }
 
 void AletheiaClient::finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
-                                             std::span<const std::byte> data,
+                                             std::span<std::byte const> data,
                                              std::uint32_t id_value, bool is_extended) {
     if (std::holds_alternative<PropertyBatch>(fr) && !diags_.empty()) {
         bool has_fail = false;
@@ -321,7 +321,7 @@ void AletheiaClient::finalize_frame_response(FrameResponse& fr, Timestamp ts, Ca
 }
 
 void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
-                                      std::span<const std::byte> data, std::uint32_t id_value,
+                                      std::span<std::byte const> data, std::uint32_t id_value,
                                       bool is_extended) {
     auto& v = pr;
     auto const idx = v.property_index.get();
@@ -379,8 +379,8 @@ void AletheiaClient::enrich_end_stream_results(StreamResult& result) {
 }
 
 auto AletheiaClient::collect_enrichable_results(StreamResult& result)
-    -> std::vector<std::pair<PropertyResult*, const PropertyDiagnostic*>> {
-    std::vector<std::pair<PropertyResult*, const PropertyDiagnostic*>> todo;
+    -> std::vector<std::pair<PropertyResult*, PropertyDiagnostic const*>> {
+    std::vector<std::pair<PropertyResult*, PropertyDiagnostic const*>> todo;
     for (auto& pr : result.results) {
         if (pr.verdict != Verdict::Fails && pr.verdict != Verdict::Unresolved)
             continue;
@@ -397,13 +397,13 @@ auto AletheiaClient::collect_enrichable_results(StreamResult& result)
     return todo;
 }
 
-auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,
-                                           std::span<const std::byte> data, std::uint32_t id_value,
+auto AletheiaClient::extract_signal_values(PropertyDiagnostic const& diag, CanId id, Dlc dlc,
+                                           std::span<std::byte const> data, std::uint32_t id_value,
                                            bool is_extended)
     -> std::map<SignalName, PhysicalValue> {
     // Heterogeneous lookup via FrameKeyView — avoids copying the payload into
     // a FramePayload on cache hits (the common hot-path case).
-    const detail::FrameKeyView lookup{
+    detail::FrameKeyView const lookup{
         .id_value = id_value, .is_extended = is_extended, .dlc = dlc.value(), .data = data};
 
     auto cache_it = cache_.entries.find(lookup);

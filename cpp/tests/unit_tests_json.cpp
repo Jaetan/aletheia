@@ -92,7 +92,7 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
     auto const id = StandardId::create(0x200).value();
     auto const dlc = Dlc::create(8).value();
 
-    const DbcSignal sig{
+    DbcSignal const sig{
         .name = SignalName{"MuxedTemp"},
         .start_bit = BitPosition{16},
         .bit_length = BitLength{8},
@@ -107,7 +107,7 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
                                 .multiplex_values = {MultiplexValue{3}}},
     };
 
-    const DbcDefinition dbc{
+    DbcDefinition const dbc{
         .version = "",
         .messages = {DbcMessage{
             .id = CanId{id},
@@ -136,7 +136,7 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
     auto const id = ExtendedId::create(0x18FEF100).value();
     auto const dlc = Dlc::create(8).value();
 
-    const DbcDefinition dbc{
+    DbcDefinition const dbc{
         .version = "",
         .messages = {DbcMessage{
             .id = CanId{id},
@@ -168,7 +168,7 @@ TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
 }
 
 TEST_CASE("serialize all predicate types", "[json][serialize]") {
-    auto const check = [](Predicate p, const std::string& expected) {
+    auto const check = [](Predicate p, std::string const& expected) {
         auto formula = ltl::atomic(std::move(p));
         std::vector<LtlFormula> props;
         props.push_back(std::move(formula));
@@ -390,7 +390,7 @@ TEST_CASE("parse_dbc_response rejects a float startBit instead of truncating",
     // boundary: the float is rejected, and integer 5 at the same position still
     // decodes to start_bit == 5.  (Removing the require_uint guard flips the
     // first CHECK_FALSE green->red.)
-    auto const make = [](const std::string& start_bit) {
+    auto const make = [](std::string const& start_bit) {
         return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
                R"("id":256,"name":"M","dlc":8,"sender":"","extended":false,"signals":[{)" +
                R"("name":"S","startBit":)" + start_bit +
@@ -409,7 +409,7 @@ TEST_CASE("parse_dbc_response rejects a float in unsigned id and dlc positions",
           "[json][parse][validation]") {
     // CAN id and dlc are unsigned positions (require_uint).  A float in either
     // truncates to an in-range integer without the guard.
-    auto const make = [](const std::string& id, const std::string& dlc) {
+    auto const make = [](std::string const& id, std::string const& dlc) {
         return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
                R"("id":)" + id + R"(,"name":"M","dlc":)" + dlc +
                R"(,"sender":"","extended":false,"signals":[]}]}})";

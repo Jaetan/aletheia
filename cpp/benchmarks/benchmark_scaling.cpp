@@ -184,7 +184,7 @@ struct ScalingResults {
 
 // LtlFormula owns unique_ptr children (not copyable): clone the whole vector so
 // each streaming pass gets its own tree.
-static auto clone_props(const std::vector<LtlFormula>& props) -> std::vector<LtlFormula> {
+static auto clone_props(std::vector<LtlFormula> const& props) -> std::vector<LtlFormula> {
     std::vector<LtlFormula> out;
     out.reserve(props.size());
     for (auto const& p : props)
@@ -195,8 +195,8 @@ static auto clone_props(const std::vector<LtlFormula>& props) -> std::vector<Ltl
 // mean_fps averages streaming fps over num_runs passes (the robust methodology,
 // identical across the bindings; noise on an un-averaged baseline would
 // multiply into every `relative` in the sweep).
-static auto mean_fps(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
-                     const FramePayload& frame, const std::vector<LtlFormula>& props,
+static auto mean_fps(fs::path const& lib, DbcDefinition const& dbc, CanId id, Dlc dlc,
+                     FramePayload const& frame, std::vector<LtlFormula> const& props,
                      int num_frames, int num_runs) -> double {
     std::vector<double> fps_runs;
     fps_runs.reserve(num_runs);
@@ -351,20 +351,20 @@ static auto timed_load(Run run) -> std::pair<LoadCost, std::invoke_result_t<Run>
 
 // One load's cost on a fresh client. A refused load throws, named by `step`.
 template<std::invocable<AletheiaClient&> Load>
-static auto client_load_cost(const fs::path& lib, std::string_view step, Load load) -> LoadCost {
+static auto client_load_cost(fs::path const& lib, std::string_view step, Load load) -> LoadCost {
     auto client = open_client(lib);
     auto const [cost, answer] = timed_load([&] { return load(client); });
     require(answer, step);
     return cost;
 }
 
-static auto dbc_load_cost(const fs::path& lib, const DbcDefinition& dbc) -> LoadCost {
+static auto dbc_load_cost(fs::path const& lib, DbcDefinition const& dbc) -> LoadCost {
     return client_load_cost(
         lib, std::format("parse_dbc of a {}-message DBC", dbc.messages.size()),
         [&](AletheiaClient& client) { return client.parse_dbc(std::stop_token{}, dbc); });
 }
 
-static auto text_load_cost(const fs::path& lib, int digits, std::string_view text) -> LoadCost {
+static auto text_load_cost(fs::path const& lib, int digits, std::string_view text) -> LoadCost {
     return client_load_cost(
         lib, std::format("parse_dbc_text of a {}-digit literal", digits),
         [&](AletheiaClient& client) { return client.parse_dbc_text(std::stop_token{}, text); });
@@ -373,7 +373,7 @@ static auto text_load_cost(const fs::path& lib, int digits, std::string_view tex
 // Throws unless `reply` is the kernel accepting the command: a reply that does
 // not decode, or one whose status is not success, names the step and, for the
 // second, the reply's status, code and message.
-static void require_accepted(std::string_view step, const std::string& reply) {
+static void require_accepted(std::string_view step, std::string const& reply) {
     auto const answer = nlohmann::json::parse(reply, nullptr, false);
     if (!answer.is_object())
         throw std::runtime_error(
@@ -388,7 +388,7 @@ static void require_accepted(std::string_view step, const std::string& reply) {
 // One load's cost through the raw command path, on a fresh session of a fresh
 // backend: the command is sent by `process` and its reply checked after both
 // reads.
-static auto command_load_cost(const fs::path& lib, int digits, std::string_view command)
+static auto command_load_cost(fs::path const& lib, int digits, std::string_view command)
     -> LoadCost {
     auto const backend = value_or_throw(make_ffi_backend(lib));
     auto const state = value_or_throw(backend->init());
@@ -415,12 +415,12 @@ static auto least_load_cost(int num_runs, Measure measure) -> LoadCost {
 
 // always_between / always_less_than build the Always-wrapped atomic predicates
 // the scaling sweeps share; the exact signals/bounds mirror scaling.py.
-static auto always_between(const char* sig, Rational lo, Rational hi) -> LtlFormula {
+static auto always_between(char const* sig, Rational lo, Rational hi) -> LtlFormula {
     return ltl::always(
         ltl::atomic(ltl::between(SignalName{sig}, PhysicalValue{lo}, PhysicalValue{hi})));
 }
 
-static auto always_less_than(const char* sig, Rational value) -> LtlFormula {
+static auto always_less_than(char const* sig, Rational value) -> LtlFormula {
     return ltl::always(ltl::atomic(ltl::less_than(SignalName{sig}, PhysicalValue{value})));
 }
 
@@ -470,13 +470,13 @@ static auto complexity_levels() -> std::vector<std::pair<std::string, std::vecto
 // The scaling payload. Written through ordered_json rather than the default,
 // because the schema pins the sub-benchmark key order and the whole document
 // has to preserve insertion order end to end.
-static void emit_scaling_json(int num_runs, bool quick, const ScalingResults& sweeps) {
+static void emit_scaling_json(int num_runs, bool quick, ScalingResults const& sweeps) {
     // ordered_json (NOT default json, which sorts object keys alphabetically):
     // the schema pins the sub-benchmark key order, so the whole payload must
     // preserve insertion order end-to-end.
     using Ordered = nlohmann::ordered_json;
 
-    auto const trace_json = [](const std::vector<TraceSizeRow>& rows) -> Ordered {
+    auto const trace_json = [](std::vector<TraceSizeRow> const& rows) -> Ordered {
         auto arr = Ordered::array();
         for (auto const& r : rows)
             arr.push_back({
@@ -515,7 +515,7 @@ static void emit_scaling_json(int num_runs, bool quick, const ScalingResults& sw
             {"relative", round3(r.relative)},
         });
 
-    auto const literal_json = [](const std::vector<LiteralLengthRow>& rows) -> Ordered {
+    auto const literal_json = [](std::vector<LiteralLengthRow> const& rows) -> Ordered {
         auto arr = Ordered::array();
         for (auto const& r : rows)
             arr.push_back({
@@ -550,7 +550,7 @@ static void emit_scaling_json(int num_runs, bool quick, const ScalingResults& sw
 
 // The property-count sweep: the same trace measured against a growing bundle,
 // each count's rate reported against the first as a baseline.
-static auto scan_property_count(const fs::path& lib, const DbcDefinition& dbc, int num_frames,
+static auto scan_property_count(fs::path const& lib, DbcDefinition const& dbc, int num_frames,
                                 int num_runs) -> std::vector<PropCountRow> {
     std::println(out_file(), "");
     print_header("Property Count Scaling");
@@ -582,7 +582,7 @@ static auto scan_property_count(const fs::path& lib, const DbcDefinition& dbc, i
 
 // The property-complexity sweep (CAN 2.0B): the same trace measured against
 // five labelled bundles, each level's rate reported against the first.
-static auto scan_property_complexity(const fs::path& lib, const DbcDefinition& dbc, int num_frames,
+static auto scan_property_complexity(fs::path const& lib, DbcDefinition const& dbc, int num_frames,
                                      int num_runs) -> std::vector<ComplexityRow> {
     std::println(out_file(), "");
     print_header("Property Complexity Scaling");
@@ -608,7 +608,7 @@ static auto scan_property_complexity(const fs::path& lib, const DbcDefinition& d
 // The DBC-size sweep: a warm-up load whose cost is discarded, then each size's
 // least load time and least allocated bytes over num_runs loads, its rate
 // reported against the first size's.
-static auto scan_dbc_size(const fs::path& lib, int num_runs, bool quick)
+static auto scan_dbc_size(fs::path const& lib, int num_runs, bool quick)
     -> std::vector<DbcSizeRow> {
     [[maybe_unused]] auto const warmed = dbc_load_cost(lib, make_sized_dbc(500));
     std::println(out_file(), "");
@@ -644,8 +644,8 @@ static auto scan_dbc_size(const fs::path& lib, int num_runs, bool quick)
 // makes once lands in no point, then each length's least load time and least
 // allocated bytes over num_runs loads, its rate reported against the first
 // length's.
-template<std::invocable<int> Source, std::invocable<const fs::path&, int, std::string_view> Load>
-static auto scan_literal_length(const fs::path& lib, int num_runs, bool quick,
+template<std::invocable<int> Source, std::invocable<fs::path const&, int, std::string_view> Load>
+static auto scan_literal_length(fs::path const& lib, int num_runs, bool quick,
                                 std::string_view heading, Source source, Load load)
     -> std::vector<LiteralLengthRow> {
     [[maybe_unused]] auto const warmed = load(lib, 1000, source(1000));
@@ -678,7 +678,7 @@ static auto scan_literal_length(const fs::path& lib, int num_runs, bool quick,
 
 namespace aletheia::bench {
 
-void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit_json) {
+void run_scaling(fs::path const& lib, int num_runs, bool quick, bool emit_json) {
     print_header("Aletheia Scaling Benchmark (C++)");
     std::println(out_file(), "Runs: {}", num_runs);
     std::println(out_file(), "Quick: {}", quick ? "true" : "false");
@@ -698,9 +698,9 @@ void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit_json) 
     std::println(out_file(), "Done.");
 
     // 1./2. Trace-size sweeps (CAN 2.0B, then CAN-FD).
-    auto const scan_trace = [&](const char* title, const DbcDefinition& dbc, CanId id, Dlc dlc,
-                                const FramePayload& frame,
-                                const std::vector<LtlFormula>& props) -> std::vector<TraceSizeRow> {
+    auto const scan_trace = [&](char const* title, DbcDefinition const& dbc, CanId id, Dlc dlc,
+                                FramePayload const& frame,
+                                std::vector<LtlFormula> const& props) -> std::vector<TraceSizeRow> {
         std::println(out_file(), "");
         print_header(title);
         std::println(out_file(), "{:>10} {:>12} {:>10}", "Frames", "Frames/sec", "Relative");

@@ -117,12 +117,14 @@ PIN_SCOPES: Mapping[PinGate, tuple[PinScope, ...]] = {
         PinScope(RelPath("tools/check_json_cleanup_abort.py")),
     ),
     # The Mull release and patches the plugin is built from, the configuration
-    # naming its mutators, the flag the build withholds from it, and the toolchain.
+    # naming its mutators, the flag the build withholds from it, the backend
+    # whose calls the call mutators must reach, and the toolchain.
     PinGate.MULL_PLUGIN_FACTS: (
         PinScope(RelPath("tools/build_mull.sh")),
         PinScope(RelPath("tools/mull/")),
         PinScope(RelPath("cpp/mull.yml")),
         PinScope(RelPath("cpp/CMakeLists.txt"), PinLine(r"ffile-prefix-map")),
+        PinScope(RelPath("cpp/src/ffi_backend.cpp")),
         _CLANG_TOOLCHAIN,
         PinScope(RelPath("tools/check_mull_plugin_facts.py")),
     ),

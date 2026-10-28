@@ -279,6 +279,111 @@ mod tests {
         Rational::integer(n)
     }
 
+    // The formula docs/FORMULA_RENDERING.yaml holds, built in code: every
+    // operator of the grammar, every predicate, a change of either sign and a
+    // time bound in seconds, in milliseconds and in microseconds, a binary
+    // operator the operand of another.
+    fn every_alternative() -> Formula {
+        let rat = |n, d| Rational::new(n, d).unwrap();
+        let b = Box::new;
+        let eq = Formula::Atomic(Predicate::Equals {
+            signal: "Speed".into(),
+            value: rat(1, 1),
+        });
+        let lt = Formula::Atomic(Predicate::LessThan {
+            signal: "Speed".into(),
+            value: rat(3, 2),
+        });
+        let gt = Formula::Atomic(Predicate::GreaterThan {
+            signal: "Speed".into(),
+            value: rat(7, 1),
+        });
+        let le = Formula::Atomic(Predicate::LessThanOrEqual {
+            signal: "Speed".into(),
+            value: rat(220, 1),
+        });
+        let ge = Formula::Atomic(Predicate::GreaterThanOrEqual {
+            signal: "RPM".into(),
+            value: rat(0, 1),
+        });
+        let bt = Formula::Atomic(Predicate::Between {
+            signal: "Temp".into(),
+            min: rat(-40, 1),
+            max: rat(215, 1),
+        });
+        let rise = Formula::Atomic(Predicate::ChangedBy {
+            signal: "Pos".into(),
+            delta: rat(5, 2),
+        });
+        let fall = Formula::Atomic(Predicate::ChangedBy {
+            signal: "Neg".into(),
+            delta: rat(-5, 2),
+        });
+        let steady = Formula::Atomic(Predicate::StableWithin {
+            signal: "Volt".into(),
+            tolerance: rat(1, 100),
+        });
+        // Always(Not(P)) is the shape the printer writes as `never P`.
+        let never_eq = Formula::Always(b(Formula::Not(b(eq.clone()))));
+        let unary = Formula::And(
+            b(Formula::Next(b(lt.clone()))),
+            b(Formula::Or(
+                b(Formula::WeakNext(b(gt))),
+                b(Formula::Not(b(le))),
+            )),
+        );
+        let temporal = Formula::Until(
+            b(Formula::Always(b(ge))),
+            b(Formula::Release(b(Formula::Eventually(b(bt))), b(rise))),
+        );
+        // Two seconds, then 1500 microseconds, which is no whole millisecond, then 7.
+        let metric_until = Formula::MetricUntil {
+            bound: TimeBound(2_000_000),
+            left: b(fall),
+            right: b(steady),
+        };
+        let metric_release = Formula::MetricRelease {
+            bound: TimeBound(1_500),
+            left: b(metric_until),
+            right: b(Formula::MetricEventually {
+                bound: TimeBound(7),
+                inner: b(eq),
+            }),
+        };
+        let metric_always = Formula::MetricAlways {
+            bound: TimeBound(250_000),
+            inner: b(lt),
+        };
+        Formula::And(
+            b(Formula::And(b(never_eq), b(unary))),
+            b(Formula::Or(
+                b(temporal),
+                b(Formula::And(b(metric_release), b(metric_always))),
+            )),
+        )
+    }
+
+    // docs/FORMULA_RENDERING.yaml holds one formula as the wire carries it and
+    // the text every binding's printer gives it; this binding builds the
+    // formula in code, so its serialisation is held to the wire, compared as
+    // JSON, and its rendering to the text.
+    #[test]
+    fn the_shared_formula_serialises_to_the_shared_wire_and_renders_the_shared_text() {
+        ensure_rts_for_test(); // the printer renders thresholds through the kernel
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/FORMULA_RENDERING.yaml");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let contract = &yaml_rust2::YamlLoader::load_from_str(&text).unwrap()[0];
+        let wire: serde_json::Value =
+            serde_json::from_str(contract["wire"].as_str().unwrap()).unwrap();
+        let f = every_alternative();
+        assert_eq!(f.to_value().unwrap(), wire);
+        assert_eq!(
+            format_formula(&f).unwrap(),
+            contract["rendering"].as_str().unwrap()
+        );
+    }
+
     #[test]
     fn never_shape_and_signals() {
         ensure_rts_for_test(); // build_diagnostic renders the formula description

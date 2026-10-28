@@ -19,13 +19,13 @@
 #include <string>
 #include <string_view>
 
-extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
+extern "C" auto LLVMFuzzerTestOneInput(uint8_t const* data, size_t size) -> int {
     // Wrap the fuzzer's input as the two numeric members of a property result,
     // "property_index" and "timestamp", so the rational-number parser runs on
     // a nested value. A property result reaches that parser only inside a
     // batch envelope, which is what the frame-response parser dispatches on;
     // everything around the two numbers is constant.
-    auto const numeric = std::string_view{reinterpret_cast<const char*>(data), size};
+    auto const numeric = std::string_view{reinterpret_cast<char const*>(data), size};
     std::string envelope = R"({"type":"property_batch","results":[{"status":"fails")"
                            R"(,"property_index":)";
     envelope.append(numeric);

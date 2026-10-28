@@ -40,9 +40,9 @@ using aletheia::test::required;
 TEST_CASE("the renderer frees the strings the kernel hands it", "[rational_renderer]") {
     // A backend on the stand-in starts the runtime on it, its runtime entry a
     // no-op, so the renderer calls the stand-in.
-    const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
+    std::filesystem::path const stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
     auto const backend = required(aletheia::make_ffi_backend(stand_in));
-    const aletheia::test::LoadedLibrary handle{dlopen(stand_in.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+    aletheia::test::LoadedLibrary const handle{dlopen(stand_in.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     REQUIRE(handle != nullptr);
     using CountFn = int (*)();
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -72,7 +72,7 @@ TEST_CASE("properties whose diagnostic is refused leave none of the last ones", 
     auto mock = std::make_unique<aletheia::MockBackend>();
     // Two set_properties and the start of the stream are accepted.
     std::ranges::for_each(std::views::repeat(std::string{R"({"status": "success"})"}, 3),
-                          [&mock](const std::string& accepted) { mock->queue_response(accepted); });
+                          [&mock](std::string const& accepted) { mock->queue_response(accepted); });
     mock->queue_response(R"({"type": "property_batch", "results": [{"status": "fails",)"
                          R"( "type": "property", "property_index": 0, "timestamp": 1000,)"
                          R"( "reason": "core"}]})");
@@ -91,7 +91,7 @@ TEST_CASE("properties whose diagnostic is refused leave none of the last ones", 
           "aletheia_format_rational returned a null pointer");
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};
-    const aletheia::FramePayload data(8, std::byte{0});
+    aletheia::FramePayload const data(8, std::byte{0});
     auto const sent = client.send_frame(std::stop_token{}, aletheia::Timestamp{1000}, id,
                                         aletheia::Dlc::create(8).value(), data);
     REQUIRE(sent.has_value());
@@ -110,7 +110,7 @@ TEST_CASE("a violation whose observed value is refused keeps its frame and names
     auto mock = std::make_unique<aletheia::MockBackend>();
     // set_properties and the start of the stream are accepted.
     std::ranges::for_each(std::views::repeat(std::string{R"({"status": "success"})"}, 2),
-                          [&mock](const std::string& accepted) { mock->queue_response(accepted); });
+                          [&mock](std::string const& accepted) { mock->queue_response(accepted); });
     mock->queue_response(R"({"type": "property_batch", "results": [{"status": "fails",)"
                          R"( "type": "property", "property_index": 0, "timestamp": 1000,)"
                          R"( "reason": "core"}]})");
@@ -124,7 +124,7 @@ TEST_CASE("a violation whose observed value is refused keeps its frame and names
     REQUIRE(client.set_properties(std::stop_token{}, properties).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};
-    const aletheia::FramePayload data(8, std::byte{0});
+    aletheia::FramePayload const data(8, std::byte{0});
     auto const sent = client.send_frame(std::stop_token{}, aletheia::Timestamp{1000}, id,
                                         aletheia::Dlc::create(8).value(), data);
     REQUIRE(sent.has_value());

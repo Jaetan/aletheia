@@ -47,7 +47,7 @@ using Catch::Matchers::ContainsSubstring;
 // send_frames_lazy (lazy streaming variant — std::generator)
 // ===========================================================================
 
-static auto count_sentinel(const std::vector<std::string>& log, std::string_view want)
+static auto count_sentinel(std::vector<std::string> const& log, std::string_view want)
     -> std::size_t {
     return static_cast<std::size_t>(std::ranges::count(log, want));
 }
@@ -55,7 +55,7 @@ static auto count_sentinel(const std::vector<std::string>& log, std::string_view
 // A mock-backed client already past set_properties + start_stream, with the
 // given per-frame responses queued. Returns the client and a borrowed pointer
 // to its (now client-owned) mock for call-log inspection.
-static auto streaming_client(std::initializer_list<const char*> frame_responses)
+static auto streaming_client(std::initializer_list<char const*> frame_responses)
     -> std::pair<AletheiaClient, MockBackend*> {
     auto backend = std::make_unique<MockBackend>();
     backend->queue_response(R"({"status":"success"})"); // set_properties
@@ -75,7 +75,7 @@ static auto streaming_client(std::initializer_list<const char*> frame_responses)
 static auto ack_frames(std::size_t count) -> std::vector<Frame> {
     auto const dlc = Dlc::create(8).value();
     auto const sid = StandardId::create(0x100).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     std::vector<Frame> frames;
     frames.reserve(count);
     for (auto const i : std::views::iota(std::size_t{0}, count)) {
@@ -93,7 +93,7 @@ TEST_CASE("send_frames_lazy yields one value per frame", "[client][batch][lazy]"
     auto const frames = ack_frames(3);
 
     std::size_t n = 0;
-    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<Frame const>(frames))) {
         REQUIRE(r.has_value());
         CHECK(std::holds_alternative<Ack>(*r));
         ++n;
@@ -108,7 +108,7 @@ TEST_CASE("send_frames_lazy stops after first error with frame index", "[client]
     auto const sid = StandardId::create(0x100).value();
     FramePayload const good(8, std::byte{0});
     FramePayload const bad(3, std::byte{0}); // 3 bytes vs DLC 8
-    const std::vector<Frame> frames{
+    std::vector<Frame> const frames{
         {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = good},
         {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = bad},
         {.timestamp = Timestamp{3000}, .id = CanId{sid}, .dlc = dlc, .data = good},
@@ -116,7 +116,7 @@ TEST_CASE("send_frames_lazy stops after first error with frame index", "[client]
 
     std::size_t oks = 0;
     std::string err_msg;
-    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<Frame const>(frames))) {
         if (!r.has_value()) {
             err_msg = std::string(r.error().message());
             break;
@@ -139,7 +139,7 @@ TEST_CASE("send_frames_lazy surfaces violations and continues", "[client][batch]
     auto const frames = ack_frames(3);
 
     std::vector<FrameResponse> got;
-    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<Frame const>(frames))) {
         REQUIRE(r.has_value());
         got.push_back(*r);
     }
@@ -152,10 +152,10 @@ TEST_CASE("send_frames_lazy surfaces violations and continues", "[client][batch]
 
 TEST_CASE("send_frames_lazy empty source yields nothing", "[client][batch][lazy]") {
     auto [client, mock] = streaming_client({});
-    const std::vector<Frame> none;
+    std::vector<Frame> const none;
 
     std::size_t n = 0;
-    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(none))) {
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<Frame const>(none))) {
         (void)r;
         ++n;
     }
@@ -170,7 +170,7 @@ TEST_CASE("send_frames_lazy commits only the consumed prefix", "[client][batch][
     auto const frames = ack_frames(5);
 
     std::size_t got = 0;
-    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<Frame const>(frames))) {
         REQUIRE(r.has_value());
         if (++got == 2) {
             break; // stop pulling — commit-prefix
@@ -191,7 +191,7 @@ TEST_CASE("send_frames_lazy matches send_frames", "[client][batch][lazy]") {
     auto const lazy_frames = ack_frames(3);
     std::vector<FrameResponse> lazy;
     for (auto&& r :
-         lazy_client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(lazy_frames))) {
+         lazy_client.send_frames_lazy(std::stop_token{}, std::span<Frame const>(lazy_frames))) {
         REQUIRE(r.has_value());
         lazy.push_back(*r);
     }
@@ -211,11 +211,11 @@ TEST_CASE("send_frames_lazy honors stop_token mid-stream", "[client][batch][lazy
     auto [client, mock] =
         streaming_client({R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"});
     auto const frames = ack_frames(3);
-    const std::stop_source source;
+    std::stop_source const source;
 
     std::size_t oks = 0;
     bool saw_cancellation = false;
-    for (auto&& r : client.send_frames_lazy(source.get_token(), std::span<const Frame>(frames))) {
+    for (auto&& r : client.send_frames_lazy(source.get_token(), std::span<Frame const>(frames))) {
         if (!r.has_value()) {
             saw_cancellation = r.error().kind() == ErrorKind::Cancellation;
             break;
@@ -254,7 +254,7 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
 
     auto const id = StandardId::create(0x100).value();
     auto const dlc = Dlc::create(8).value();
-    const std::array<std::byte, 8> data{};
+    std::array<std::byte, 8> const data{};
     auto const resp = b.send_frame(std::stop_token{}, Timestamp{1000}, CanId{id}, dlc, data);
     REQUIRE(resp.has_value());
     CHECK(std::holds_alternative<Ack>(resp.value()));
@@ -371,7 +371,7 @@ TEST_CASE("the backend state is released exactly once over a client's life", "[c
             auto client =
                 required(AletheiaClient::create(std::make_unique<CountingCloseBackend>(&closes)));
             CHECK(closes == 0);
-            const AletheiaClient moved{std::move(client)};
+            AletheiaClient const moved{std::move(client)};
             CHECK(closes == 0);
         }
         CHECK(closes == 1);
@@ -408,9 +408,9 @@ TEST_CASE("the backend state is released exactly once over a client's life", "[c
 }
 
 TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][injection]") {
-    const std::vector<std::uint32_t> indices{0, 1};
-    const std::vector<std::int64_t> numerators{1, 2};
-    const std::vector<std::int64_t> denominators{1, 2};
+    std::vector<std::uint32_t> const indices{0, 1};
+    std::vector<std::int64_t> const numerators{1, 2};
+    std::vector<std::int64_t> const denominators{1, 2};
 
     SECTION("three arrays of equal length are accepted") {
         auto const block = SignalInjection::create(indices, numerators, denominators);
@@ -420,7 +420,7 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
     }
 
     SECTION("a shorter numerator array is refused, not truncated") {
-        const std::vector<std::int64_t> short_numerators{1};
+        std::vector<std::int64_t> const short_numerators{1};
         auto const block = SignalInjection::create(indices, short_numerators, denominators);
         REQUIRE_FALSE(block.has_value());
         CHECK(block.error().kind() == ErrorKind::Validation);
@@ -429,7 +429,7 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
     }
 
     SECTION("a shorter denominator array is refused too") {
-        const std::vector<std::int64_t> short_denominators{1};
+        std::vector<std::int64_t> const short_denominators{1};
         auto const block = SignalInjection::create(indices, numerators, short_denominators);
         REQUIRE_FALSE(block.has_value());
         CHECK(block.error().message().contains(
@@ -452,8 +452,8 @@ TEST_CASE("SignalInjection refuses a block wider than the wire's count", "[clien
     public:
         Reservation(void* start, std::size_t length) : start_{start}, length_{length} {}
         ~Reservation() { munmap(start_, length_); }
-        Reservation(const Reservation&) = delete;
-        auto operator=(const Reservation&) -> Reservation& = delete;
+        Reservation(Reservation const&) = delete;
+        auto operator=(Reservation const&) -> Reservation& = delete;
         Reservation(Reservation&&) = delete;
         auto operator=(Reservation&&) -> Reservation& = delete;
 
@@ -461,9 +461,9 @@ TEST_CASE("SignalInjection refuses a block wider than the wire's count", "[clien
         void* start_;
         std::size_t length_;
     };
-    const Reservation reservation{region, bytes};
-    const std::span<const std::uint32_t> indices{static_cast<const std::uint32_t*>(region), count};
-    const std::span<const std::int64_t> values{static_cast<const std::int64_t*>(region), count};
+    Reservation const reservation{region, bytes};
+    std::span<std::uint32_t const> const indices{static_cast<std::uint32_t const*>(region), count};
+    std::span<std::int64_t const> const values{static_cast<std::int64_t const*>(region), count};
 
     auto const block = SignalInjection::create(indices, values, values);
     REQUIRE_FALSE(block.has_value());
@@ -497,7 +497,7 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
 
     {
         auto const result =
-            mock.update_frame_bin(state, id, dlc, std::span<const std::byte>{}, signals, 8);
+            mock.update_frame_bin(state, id, dlc, std::span<std::byte const>{}, signals, 8);
         CHECK_FALSE(result.has_value());
         CHECK(result.error().kind() == ErrorKind::State);
         CHECK(std::string{result.error().message()} ==
@@ -563,7 +563,7 @@ TEST_CASE("reloading a DBC replaces the previous one's signals under the same me
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     SECTION("the old signal no longer resolves") {
-        const std::vector<SignalValue> signals{
+        std::vector<SignalValue> const signals{
             {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{1, 1}}}};
         auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
         REQUIRE_FALSE(built.has_value());
@@ -587,7 +587,7 @@ TEST_CASE("build_frame refuses a signal the message does not carry, by name", "[
     REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
-    const std::vector<SignalValue> signals{
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"Nope"}, .value = PhysicalValue{Rational{1, 1}}}};
     auto const built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
     REQUIRE_FALSE(built.has_value());
@@ -608,19 +608,19 @@ TEST_CASE("client keys its signal cache on the extended bit for extraction and r
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
 
     SECTION("extraction of an extended-ID frame takes the binary path") {
         auto const result = client.extract_signals(std::stop_token{}, id, dlc, data);
         REQUIRE(result.has_value());
         CHECK(result->values.empty());
-        CHECK(std::ranges::none_of(mock_ptr->captured(), [](const std::string& call) {
+        CHECK(std::ranges::none_of(mock_ptr->captured(), [](std::string const& call) {
             return call == "<binary:extractAllSignals>";
         }));
     }
     SECTION("frame building resolves the extended-ID message") {
         mock_ptr->queue_frame_bytes(std::vector<std::byte>(8, std::byte{0}));
-        const std::vector<SignalValue> signals{
+        std::vector<SignalValue> const signals{
             {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{1, 1}}}};
         auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
         REQUIRE(built.has_value());
@@ -630,12 +630,12 @@ TEST_CASE("client keys its signal cache on the extended bit for extraction and r
 TEST_CASE("the cache keys hash every field they carry", "[client][cache]") {
     // Two keys that differ in one field must not collide, whichever field it
     // is, or the map would serve one message's signals for another's.
-    const detail::SignalKeyHash sig_hash;
-    const detail::SignalKey base{.id_value = 1, .is_extended = false, .signal_name = "a"};
+    detail::SignalKeyHash const sig_hash;
+    detail::SignalKey const base{.id_value = 1, .is_extended = false, .signal_name = "a"};
     CHECK(sig_hash(base) != sig_hash({.id_value = 2, .is_extended = false, .signal_name = "a"}));
     CHECK(sig_hash(base) != sig_hash({.id_value = 1, .is_extended = true, .signal_name = "a"}));
     CHECK(sig_hash(base) != sig_hash({.id_value = 1, .is_extended = false, .signal_name = "b"}));
-    const detail::MessageKeyHash msg_hash;
+    detail::MessageKeyHash const msg_hash;
     CHECK(msg_hash({1, false}) != msg_hash({2, false}));
     CHECK(msg_hash({1, false}) != msg_hash({1, true}));
 }
@@ -676,7 +676,7 @@ TEST_CASE("set_properties answers the backend's error and stops there", "[client
     mock->queue_response(
         R"({"status": "error", "code": "handler_validation_failed", "message": "bad"})");
     auto client = required(AletheiaClient::create(std::move(mock)));
-    auto const result = client.set_properties(std::stop_token{}, std::span<const LtlFormula>{});
+    auto const result = client.set_properties(std::stop_token{}, std::span<LtlFormula const>{});
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().message() == "bad");
 }
@@ -688,7 +688,7 @@ TEST_CASE("a stream that fails to start or end logs neither event", "[client][mo
     mock->queue_response(
         R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
     std::vector<std::string> events;
-    const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
+    Logger const logger([&](LogRecord const& r) { events.emplace_back(r.event); });
     auto client = required(AletheiaClient::create(std::move(mock), logger));
     CHECK_FALSE(client.start_stream(std::stop_token{}).has_value());
     CHECK_FALSE(client.end_stream(std::stop_token{}).has_value());
@@ -697,7 +697,7 @@ TEST_CASE("a stream that fails to start or end logs neither event", "[client][mo
 }
 
 TEST_CASE("an extraction has errors exactly when its error list is not empty", "[client]") {
-    const ExtractionResult none;
+    ExtractionResult const none;
     CHECK_FALSE(none.has_errors());
     ExtractionResult some;
     some.errors.push_back(SignalError{.name = SignalName{"S"}, .reason = "r"});

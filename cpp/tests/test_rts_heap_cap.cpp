@@ -38,7 +38,7 @@
 // test's environment, which fresh_process_tests sets.  Its stdout comes back through a pipe
 // so the positive case can read the success sentinel rather than infer it from
 // the exit code; stderr flows to this process's, where a failure shows it.
-static auto run_workload(const std::string& n, const char* rts_opts)
+static auto run_workload(std::string const& n, char const* rts_opts)
     -> std::pair<int, std::string> {
     std::array<int, 2> out{};
     REQUIRE(pipe(out.data()) == 0);
@@ -64,7 +64,7 @@ static auto run_workload(const std::string& n, const char* rts_opts)
         // vector without a C-style ellipsis, and both take the same strings.
         std::string bin{ALETHEIA_RTS_WORKLOAD_BIN};
         std::string count{n};
-        const std::array<char*, 3> args{bin.data(), count.data(), nullptr};
+        std::array<char*, 3> const args{bin.data(), count.data(), nullptr};
         execv(bin.c_str(), args.data());
         _exit(127); // exec failed
     }

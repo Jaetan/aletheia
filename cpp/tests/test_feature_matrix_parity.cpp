@@ -72,7 +72,7 @@ static auto is_ident_char(char c) -> bool {
 // immediately left of the quote.  Reading a separator as a quote opens a
 // literal that runs to the next apostrophe, and every symbol in that span is
 // blanked out of the search.
-static auto is_digit_separator(const std::string& text, std::size_t pos) -> bool {
+static auto is_digit_separator(std::string const& text, std::size_t pos) -> bool {
     if (pos == 0 || pos + 1 >= text.size())
         return false;
     if (!is_ident_char(text[pos - 1]) || !is_ident_char(text[pos + 1]))
@@ -133,7 +133,7 @@ static auto strip_lexical_noise(std::string text) -> std::string {
     return text;
 }
 
-static auto symbol_present(const std::string& text, const std::string& symbol) -> bool {
+static auto symbol_present(std::string const& text, std::string const& symbol) -> bool {
     if (symbol.empty()) {
         return false;
     }

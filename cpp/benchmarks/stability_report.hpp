@@ -46,7 +46,7 @@ struct SubCheck {
 };
 
 // Each resource the harness watches, as the pair of snapshots it is judged on.
-inline auto build_sub_checks(const Snapshot& start, const Snapshot& end) -> std::vector<SubCheck> {
+inline auto build_sub_checks(Snapshot const& start, Snapshot const& end) -> std::vector<SubCheck> {
     return {
         {.name = "rss",
          .gate = "soft_threshold",
@@ -81,14 +81,14 @@ inline auto build_sub_checks(const Snapshot& start, const Snapshot& end) -> std:
 }
 
 // The run's verdict: every check passed.
-inline auto all_passed(const std::vector<SubCheck>& sub_checks) -> bool {
+inline auto all_passed(std::vector<SubCheck> const& sub_checks) -> bool {
     return std::ranges::all_of(sub_checks, &SubCheck::passed);
 }
 
 // The JSON report of `cycles` cycles of `frames` frames each, measured over
 // `elapsed_seconds`: the counts, each check, and the verdict.
 inline auto report_text(int cycles, int frames, double elapsed_seconds,
-                        const std::vector<SubCheck>& sub_checks) -> std::string {
+                        std::vector<SubCheck> const& sub_checks) -> std::string {
     auto text =
         std::format("{{\n"
                     "  \"binding\": \"cpp\",\n"

@@ -306,6 +306,8 @@ find_package(aletheia-cpp REQUIRED)
 target_link_libraries(my_app PRIVATE aletheia::aletheia-cpp)
 ~~~
 
+Option 2 is held by `tools/check_cpp_installed_consumer.py`, a step of `tools/run_ci.py` and so of the required check, on a change to what the package installs: a project of its own finds the installed package and links and runs the client, the YAML loader and the Excel loader.
+
 The installed shared library `libaletheia-cpp` carries a `SOVERSION`, raised by every change to the size or alignment of a public type (`docs/CPP_LAYOUT.yaml`), so a program linked against an older one is rebuilt rather than run against a layout it was not compiled for.
 
 #### Usage

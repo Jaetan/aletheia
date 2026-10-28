@@ -20,18 +20,18 @@ namespace aletheia {
 // pipe form of ranges::to only works from a libstdc++ point release newer
 // than the one the build's own CI pins, and the break shows up nowhere but
 // there, on a machine whose standard library is older than the developer's.
-static auto signals_where(const std::vector<DbcSignal>& signals, auto pred)
+static auto signals_where(std::vector<DbcSignal> const& signals, auto pred)
     -> std::vector<DbcSignal> {
     std::vector<DbcSignal> out;
     std::ranges::copy_if(signals, std::back_inserter(out), pred);
     return out;
 }
 
-static auto is_always_present(const DbcSignal& s) -> bool {
+static auto is_always_present(DbcSignal const& s) -> bool {
     return std::holds_alternative<AlwaysPresent>(s.presence);
 }
 
-static auto is_multiplexed_signal(const DbcSignal& s) -> bool {
+static auto is_multiplexed_signal(DbcSignal const& s) -> bool {
     return std::holds_alternative<Multiplexed>(s.presence);
 }
 
@@ -40,8 +40,8 @@ static auto is_multiplexed_signal(const DbcSignal& s) -> bool {
 // replaced in place since the index was built, so a stale index could be out
 // of bounds or name the wrong element; either failure reads as not found.
 template<typename Item, typename Matches>
-static auto cached_element(std::optional<std::size_t> idx, const std::vector<Item>& items,
-                           Matches matches) -> const Item* {
+static auto cached_element(std::optional<std::size_t> idx, std::vector<Item> const& items,
+                           Matches matches) -> Item const* {
     if (!idx || idx.value() >= items.size() || !matches(items.at(idx.value())))
         return nullptr;
     return &items.at(idx.value());
@@ -76,7 +76,7 @@ auto DbcMessage::multiplexor_names() const -> std::vector<SignalName> {
     return out;
 }
 
-auto DbcMessage::multiplex_values(const SignalName& multiplexor) const
+auto DbcMessage::multiplex_values(SignalName const& multiplexor) const
     -> std::vector<MultiplexValue> {
     std::set<MultiplexValue> seen;
     std::vector<MultiplexValue> out;
@@ -94,23 +94,23 @@ auto DbcMessage::multiplex_values(const SignalName& multiplexor) const
     return out;
 }
 
-auto DbcMessage::signals_for_mux_value(const SignalName& multiplexor, MultiplexValue value) const
+auto DbcMessage::signals_for_mux_value(SignalName const& multiplexor, MultiplexValue value) const
     -> std::vector<DbcSignal> {
-    return signals_where(signals, [&](const DbcSignal& s) {
+    return signals_where(signals, [&](DbcSignal const& s) {
         auto const* m = std::get_if<Multiplexed>(&s.presence);
         return is_always_present(s) || (m != nullptr && m->multiplexor == multiplexor &&
                                         std::ranges::contains(m->multiplex_values, value));
     });
 }
 
-auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal* {
+auto DbcMessage::signal_by_name(SignalName const& name) const -> DbcSignal const* {
     signal_index_cache.ensure([this](auto& map) {
         for (auto const [i, signal] : std::views::enumerate(signals)) {
             map.emplace(signal.name.get(), static_cast<std::size_t>(i));
         }
     });
     return cached_element(signal_index_cache.find(name.get()), signals,
-                          [&](const DbcSignal& s) { return s.name == name; });
+                          [&](DbcSignal const& s) { return s.name == name; });
 }
 
 // ---------------------------------------------------------------------------
@@ -121,12 +121,12 @@ auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal
 // standard/extended discriminator in bit 32 (a standard and an extended frame
 // may share a numeric id). Single source of truth for the cache build, the
 // lookup, and the stale-index validation below.
-static auto message_key(const CanId& id) -> std::uint64_t {
+static auto message_key(CanId const& id) -> std::uint64_t {
     return static_cast<std::uint64_t>(can_id_value(id)) |
            (can_id_is_extended(id) ? (1ULL << 32U) : 0);
 }
 
-auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
+auto DbcDefinition::message_by_id(CanId const& id) const -> DbcMessage const* {
     id_index_cache.ensure([this](auto& map) {
         for (auto const [i, message] : std::views::enumerate(messages)) {
             map.emplace(message_key(message.id), static_cast<std::size_t>(i));
@@ -134,17 +134,17 @@ auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
     });
     auto const key = message_key(id);
     return cached_element(id_index_cache.find(key), messages,
-                          [&](const DbcMessage& m) { return message_key(m.id) == key; });
+                          [&](DbcMessage const& m) { return message_key(m.id) == key; });
 }
 
-auto DbcDefinition::message_by_name(const MessageName& name) const -> const DbcMessage* {
+auto DbcDefinition::message_by_name(MessageName const& name) const -> DbcMessage const* {
     name_index_cache.ensure([this](auto& map) {
         for (auto const [i, message] : std::views::enumerate(messages)) {
             map.emplace(message.name.get(), static_cast<std::size_t>(i));
         }
     });
     return cached_element(name_index_cache.find(name.get()), messages,
-                          [&](const DbcMessage& m) { return m.name == name; });
+                          [&](DbcMessage const& m) { return m.name == name; });
 }
 
 } // namespace aletheia

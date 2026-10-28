@@ -27,7 +27,7 @@ TEST_CASE("parse_dbc_text passes text at the cap to the backend", "[input_bounds
     mock->queue_response(R"({"status": "error", "message": "unparsed"})");
     auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
 
-    const std::string at_cap(aletheia::max_dbc_text_bytes, 'x');
+    std::string const at_cap(aletheia::max_dbc_text_bytes, 'x');
     auto const result = client.parse_dbc_text(std::stop_token{}, at_cap);
     // The backend, not the bound, answered.
     REQUIRE(mock_ptr->captured().size() == 1);

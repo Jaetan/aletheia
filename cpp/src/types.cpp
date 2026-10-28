@@ -22,7 +22,7 @@ namespace aletheia {
 
 auto Rational::from_decimal(std::string_view s) -> Result<Rational> {
     return detail::parse_decimal_ffi(s).and_then(
-        [](const std::expected<Rational, std::string>& answer) -> Result<Rational> {
+        [](std::expected<Rational, std::string> const& answer) -> Result<Rational> {
             if (!answer)
                 return std::unexpected(
                     detail::binary_refusal(detail::error_of(answer), ErrorKind::Validation));
