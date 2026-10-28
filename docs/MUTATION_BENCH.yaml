@@ -25,7 +25,7 @@ bindings:
 
   python:
     tool: mutmut
-    version: "==3.8.0"
+    version: "==3.8.1"
     install: |
       python/.venv/bin/pip install -e 'python/.[mutation]'
     hot_path:
@@ -70,7 +70,7 @@ bindings:
       survivors: 0
       total_mutants: 909
       score_pct: 100
-      run_at: "2026-10-25"
+      run_at: "2026-10-28"
       # A mutant mutmut ended at its timeout is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a sweep in which
       # the cap fired, and a timed-out mutant is a hang to remove, never a cap
