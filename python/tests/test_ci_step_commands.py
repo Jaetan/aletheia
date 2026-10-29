@@ -30,6 +30,7 @@ from tools._ci_steps import (
     CPP_COMPILERS,
     DOC_EXAMPLE_DOCS,
     DOC_EXAMPLE_PACKAGE,
+    FAST_STEPS,
     GO_BUILD_NO_CGO,
     in_every_go_module,
     register_all_steps,
@@ -46,7 +47,8 @@ from tools._common import (
 )
 from tools._markdown import code_blocks
 from tools._resources import cpu_budget
-from tools.run_ci import LaneName, OptInLanes
+from tools._run_ci_options import LaneName, OptInLanes
+from tools._scheduler import unmet_needs
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -218,8 +220,8 @@ def _held_steps(repo: Path) -> dict[GateName, HeldStep]:
     """Return the steps allowed to name either tree, each held whole.
 
     The two that configure the trees delete the tree's cache, then run one
-    configure line, the same for both but for the tree, and go on to what each
-    does with its tree.  A step that comes to need either tree is added here,
+    configure line, the same for both but for the tree; each step after them
+    does one thing with its tree.  A step that comes to need either tree is added here,
     whole, not let through the rule: every later change to it then fails the
     test first, so the rule relaxes one reviewed command at a time.  What a held
     step's own text does to a tree is read by that review, not by the test.
@@ -231,23 +233,23 @@ def _held_steps(repo: Path) -> dict[GateName, HeldStep]:
         )
 
     lib = shlex.quote(str(repo / "build" / "libaletheia-ffi.so"))
+    cpp, lint = LaneName("cpp"), LaneName(CPP_LINT_LANE)
     return {
-        GateName("ctest"): HeldStep(
-            ShellLine(
-                f"{configured(_TEST_BUILD)} && cmake --build {_TEST_BUILD}"
-                + f" && ALETHEIA_LIB={lib} ctest --test-dir {_TEST_BUILD}"
-            ),
-            repo / "cpp",
-            LaneName("cpp"),
+        GateName("cpp configure"): HeldStep(configured(_TEST_BUILD), repo / "cpp", cpp),
+        GateName("cpp build"): HeldStep(
+            ShellLine(f"cmake --build {_TEST_BUILD}"), repo / "cpp", cpp
         ),
+        GateName("ctest"): HeldStep(
+            ShellLine(f"ALETHEIA_LIB={lib} ctest --test-dir {_TEST_BUILD}"), repo / "cpp", cpp
+        ),
+        GateName("clang-tidy configure"): HeldStep(configured(_LINT_TREE), repo / "cpp", lint),
         GateName("clang-tidy"): HeldStep(
             ShellLine(
-                f"{configured(_LINT_TREE)}"
-                + f" && run-clang-tidy-23 -j {cpu_budget()} -quiet -p {_LINT_TREE}"
+                f"run-clang-tidy-23 -j {cpu_budget()} -quiet -p {_LINT_TREE}"
                 + " cpp/src/ cpp/tests/ cpp/benchmarks/"
             ),
             repo / "cpp",
-            LaneName(CPP_LINT_LANE),
+            lint,
         ),
     }
 
@@ -313,7 +315,7 @@ def test_the_lint_tree_is_configured_as_the_test_build_is(tmp_path: Path) -> Non
 
 
 def test_the_coverage_guard_runs_after_clang_tidy_in_its_lane(tmp_path: Path) -> None:
-    """The guard reads the database the clang-tidy step configures, so it follows it in its lane.
+    """The guard reads the database the lint tree's configure writes, so it follows it in its lane.
 
     Steps run in registration order within a lane, so a guard registered
     before the step, or in another lane, could read the tree before it is
@@ -321,9 +323,87 @@ def test_the_coverage_guard_runs_after_clang_tidy_in_its_lane(tmp_path: Path) ->
     """
     steps = _registered_steps(tmp_path)
     names = [step.name for step in steps]
-    tidy, guard = (names.index(name) for name in ("clang-tidy", "check-clang-tidy-coverage"))
-    assert tidy < guard, names
-    assert steps[tidy].lane == steps[guard].lane == CPP_LINT_LANE
+    configure, guard = (
+        names.index(name) for name in ("clang-tidy configure", "check-clang-tidy-coverage")
+    )
+    assert configure < guard, names
+    assert steps[configure].lane == steps[guard].lane == CPP_LINT_LANE
+
+
+# What each step needs, read from what it reads: the library and the generated
+# code the build writes, or a tree another step of its lane configures or
+# builds.  Two steps that only share a directory or a toolchain need nothing of
+# each other, and every step this does not name needs nothing: the Agda gates
+# reach the build's output through Shake, which runs every target not reading
+# it, and the Rust licence gate reads the registry the test builds fill before
+# they compile.  The two mutation-tree gates read trees the mutation sweep
+# configures whenever it runs, which is whenever the build passed.
+_NEEDS: dict[GateName, tuple[GateName, ...]] = {
+    GateName(name): tuple(GateName(need) for need in needs)
+    for name, needs in {
+        "build staleness": ("build",),
+        "pytest": ("build",),
+        "check-bench-schema": ("build",),
+        "pytest --markdown-docs": ("build",),
+        "pytest -X dev": ("build",),
+        "pytest --random-order": ("build",),
+        "go test -race": ("build",),
+        "cpp build": ("cpp configure",),
+        "ctest": ("build", "cpp build"),
+        "pytest (cli parity)": ("build", "cpp build"),
+        "check-cpp-installed-consumer": ("cpp configure",),
+        "check-json-cleanup-abort": ("cpp configure",),
+        "cargo test": ("build", "cargo build (tests)"),
+        "cargo test (excel crate)": ("build", "cargo build (tests, excel crate)"),
+        "clang-tidy": ("clang-tidy configure",),
+        "check-clang-tidy-coverage": ("clang-tidy configure",),
+        "check-cpp-ast": ("clang-tidy configure",),
+        "check-cpp-const-locals": ("clang-tidy configure",),
+        "check-install-freshness": ("build",),
+        "ubsan ctest": ("build",),
+        "asan ctest": ("build",),
+        "stability bench": ("build",),
+        "mutation testing": ("build",),
+        "coverage python": ("build",),
+        "coverage go": ("build",),
+        "coverage cpp": ("build",),
+        "coverage rust": ("build",),
+        "check-mull-plugin-facts": ("build",),
+        "check-cpp-slices-census-build": ("build",),
+        "check-cpp-slices-census": ("check-cpp-slices-census-build",),
+    }.items()
+}
+
+
+def test_each_step_needs_the_steps_whose_output_it_reads(tmp_path: Path) -> None:
+    """Every step needs what the census says, and a step the census does not name needs nothing.
+
+    A step needing another is not run when that one did not pass, so a need
+    the census lacks lets a step read a stale or absent output, and a need it
+    does not hold hides a check behind a failure the check does not rest on.
+    """
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    steps = _registered_steps(tmp_path, lanes=_EVERY_LANE)
+    needs = {GateName(step.name): tuple(map(GateName, step.needs)) for step in steps if step.needs}
+    assert needs == _NEEDS
+
+
+def test_every_need_is_answered_where_the_step_runs(tmp_path: Path) -> None:
+    """A need is the build or an earlier step of the lane, and the fast tier's steps need none.
+
+    The build runs before the lanes and each lane runs in order, so those are
+    the steps whose outcome is known when a step starts; the fast tier runs
+    without the build.
+    """
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    steps = _registered_steps(tmp_path, lanes=_EVERY_LANE)
+    lanes: dict[LaneName, list[Step]] = {}
+    for step in steps:
+        if step.name != "build":
+            lanes.setdefault(LaneName(step.lane), []).append(step)
+    assert not unmet_needs(list(lanes.values()), frozenset({GateName("build")}))
+    fast = [step for step in steps if step.name in FAST_STEPS]
+    assert not unmet_needs([fast], frozenset())
 
 
 # The doc-example command AGENTS/python.md prints, its continuation lines

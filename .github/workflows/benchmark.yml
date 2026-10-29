@@ -107,6 +107,10 @@ jobs:
       - name: Does this diff move a measurement?
         run: python/.venv/bin/python3 -m tools.benchmark_scope
 
+      - name: Nothing to measure on this diff
+        if: env.LANE_MEASURES == '0'
+        run: echo "This diff moves no binding, the kernel or the benchmark harness, so nothing was measured or gated."
+
       - name: Set up GHC + cabal
         if: env.LANE_MEASURES != '0'
         run: |
@@ -325,24 +329,9 @@ jobs:
           set -euo pipefail
           cd go && go build -o benchmarks/benchmark ./benchmarks/
 
-      # Full-teeth cross-binding schema check: all four binaries are built here
-      # (C++/Go above, Rust below, Python via the venv), so this asserts the
-      # "same measurement, same name" contract (benchmarks/SCHEMA.yaml) across
-      # every binding — the run_ci copy only reaches the Python reference. Runs
-      # BEFORE the measurement so a schema regression fails fast.
-      - name: Cross-binding benchmark-schema conformance
-        if: env.LANE_MEASURES != '0'
-        run: |
-          set -euo pipefail
-          cargo build --release --example benchmark --manifest-path rust/Cargo.toml
-          source python/.venv/bin/activate
-          # --built: all four binaries are freshly built in this job, so require +
-          # check every binding (full teeth). run_ci uses the default python-only
-          # mode, which never runs a possibly-stale on-disk compiled binary.
-          python3 -m tools.check_bench_schema --built
-
       - name: Select the arguments the chosen mode reads
         if: env.LANE_MEASURES != '0'
+        id: ready
         run: |
           set -euo pipefail
           # run_all.sh refuses a flag the selected mode does not read, rather
@@ -361,8 +350,29 @@ jobs:
           esac
           echo "BENCH_ARGS=${args}" >> "${GITHUB_ENV}"
 
+      # The job's setup ends at `ready`: each check below waits on it having
+      # passed rather than on every step before it, so one failing check stops
+      # no other (python/tests/test_workflow_check_steps.py).
+      # Full-teeth cross-binding schema check: all four binaries are built here
+      # (C++/Go above, Rust below, Python via the venv), so this asserts the
+      # "same measurement, same name" contract (benchmarks/SCHEMA.yaml) across
+      # every binding — the run_ci copy only reaches the Python reference.  The
+      # measurement after it builds its own Rust binary and reads nothing this
+      # step writes, so a schema failure stops no measurement.
+      - name: Cross-binding benchmark-schema conformance
+        if: ${{ env.LANE_MEASURES != '0' && !cancelled() && steps.ready.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          cargo build --release --example benchmark --manifest-path rust/Cargo.toml
+          source python/.venv/bin/activate
+          # --built: all four binaries are freshly built in this job, so require +
+          # check every binding (full teeth). run_ci uses the default python-only
+          # mode, which never runs a possibly-stale on-disk compiled binary.
+          python3 -m tools.check_bench_schema --built
+
       - name: Run the cross-language benchmark
-        if: env.LANE_MEASURES != '0'
+        if: ${{ env.LANE_MEASURES != '0' && !cancelled() && steps.ready.outcome == 'success' }}
+        id: measure
         run: |
           set -euo pipefail
           # Activate the venv so run_all.sh's `python3 -m benchmarks.<bench>`
@@ -394,8 +404,9 @@ jobs:
       # count retries across runs with:
       #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
       #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
+      # It reads the results the measurement writes, so it waits on that step.
       - name: Regression gate (throughput retries once with re-measure)
-        if: env.LANE_MEASURES != '0' && github.event_name == 'pull_request'
+        if: ${{ env.LANE_MEASURES != '0' && github.event_name == 'pull_request' && !cancelled() && steps.measure.outcome == 'success' }}
         run: |
           set -euo pipefail
           gate=(--bench "${BENCH}")
@@ -475,7 +486,3 @@ jobs:
         with:
           path: cpp/build/_deps
           key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
-
-      - name: Nothing to measure on this diff
-        if: env.LANE_MEASURES == '0'
-        run: echo "This diff moves no binding, the kernel or the benchmark harness, so nothing was measured or gated."

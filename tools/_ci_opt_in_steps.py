@@ -13,10 +13,11 @@ from __future__ import annotations
 import shlex
 from typing import TYPE_CHECKING
 
-from tools._common import CPP_COMPILERS
+from tools._common import BUILD_STEP, CPP_COMPILERS
 
 if TYPE_CHECKING:
-    from tools.run_ci import OptInOptions, Runner
+    from tools._run_ci_options import OptInOptions
+    from tools.run_ci import Runner
 
 
 def register_opt_in_steps(runner: Runner, opts: OptInOptions) -> None:
@@ -50,6 +51,7 @@ def register_opt_in_steps(runner: Runner, opts: OptInOptions) -> None:
         # runs concurrently with the cpp lane's ctest on build/ —
         # splitting the local C++ bottleneck (~305s → ~180s, measured 2026-06-14).
         lane="ubsan",
+        needs=(BUILD_STEP,),
     )
     runner.step(
         "asan ctest",
@@ -63,6 +65,7 @@ def register_opt_in_steps(runner: Runner, opts: OptInOptions) -> None:
         sanitizer_ctest_cmd("address", cpp_lib, env="ASAN_OPTIONS=detect_stack_use_after_return=1"),
         cwd=runner.repo_root / "cpp",
         lane="asan",
+        needs=(BUILD_STEP,),
     )
 
     # Opt-in: reproducible-build gate ────────────────────────────
@@ -85,6 +88,7 @@ def register_opt_in_steps(runner: Runner, opts: OptInOptions) -> None:
             "stability bench",
             [runner.python, "-m", "tools.stability_run"],
             cwd=runner.repo_root,
+            needs=(BUILD_STEP,),
         )
     else:
         runner.announce_skip(
@@ -101,6 +105,7 @@ def register_opt_in_steps(runner: Runner, opts: OptInOptions) -> None:
             "mutation testing",
             [runner.python, "-m", "tools.mutation_run"],
             cwd=runner.repo_root,
+            needs=(BUILD_STEP,),
         )
     else:
         runner.announce_skip(
@@ -123,6 +128,7 @@ def register_opt_in_steps(runner: Runner, opts: OptInOptions) -> None:
                 [runner.python, "-m", "tools.coverage_run", "--binding", binding],
                 cwd=runner.repo_root,
                 lane=binding,
+                needs=(BUILD_STEP,),
             )
     else:
         runner.announce_skip(

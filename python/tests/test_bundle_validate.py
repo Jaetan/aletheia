@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from tools.bundle_validate import (
     BINDINGS,
+    CONSUMER_RUNNERS,
     FIXTURE_DIR,
     BundleValidationError,
     assert_consumer_ok,
@@ -35,6 +37,7 @@ from tools.bundle_validate import (
     read_go_module,
     recipe_shape_errors,
     retarget_go_consumer,
+    run_consumers,
     self_test,
 )
 
@@ -372,3 +375,41 @@ class TestCppConsumerBuild:
         target = cpp_consumer_build_command("cmake", tmp_path)[-1]
         cmake_lists = (FIXTURE_DIR / "consumer_cpp" / "CMakeLists.txt").read_text()
         assert f"add_executable({target} " in cmake_lists
+
+
+def test_a_failing_consumer_hides_no_later_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The C++ consumer failing and Go's toolchain missing, Rust still runs; both are named."""
+    cpp = Mock(side_effect=BundleValidationError("the C++ consumer did not configure"))
+    rust = Mock(return_value=None)
+    monkeypatch.setitem(CONSUMER_RUNNERS, "cpp", cpp)
+    monkeypatch.setitem(CONSUMER_RUNNERS, "rust", rust)
+    go_absent = {"go": "toolchain absent (test)"}.get
+    monkeypatch.setattr("tools.bundle_validate.missing_tool", go_absent)
+    cfg, _run = parse_args([str(tmp_path / "aletheia.tar.gz"), "--require", "cpp,go,rust"])
+    recipes = {binding: list[str]() for binding in BINDINGS}
+    with pytest.raises(BundleValidationError) as refused:
+        _ = run_consumers(cfg, tmp_path, recipes, tmp_path / "libaletheia-ffi.so")
+    assert (cpp.call_count, rust.call_count) == (1, 1)
+    assert "the C++ consumer did not configure" in str(refused.value)
+    assert "go is required but its toolchain is missing" in str(refused.value)
+
+
+def test_a_consumer_that_cannot_run_is_one_more_named_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A consumer whose program cannot even start keeps the failures before it, and is named."""
+    cpp = Mock(side_effect=BundleValidationError("the C++ consumer did not configure"))
+    go = Mock(side_effect=FileNotFoundError(2, "No such file or directory", "consumer"))
+    rust = Mock(return_value=None)
+    for binding, runner in (("cpp", cpp), ("go", go), ("rust", rust)):
+        monkeypatch.setitem(CONSUMER_RUNNERS, binding, runner)
+    monkeypatch.setattr("tools.bundle_validate.missing_tool", dict[str, str]().get)
+    cfg, _run = parse_args([str(tmp_path / "aletheia.tar.gz"), "--require", "cpp,go,rust"])
+    recipes = {binding: list[str]() for binding in BINDINGS}
+    with pytest.raises(BundleValidationError) as refused:
+        _ = run_consumers(cfg, tmp_path, recipes, tmp_path / "libaletheia-ffi.so")
+    assert rust.call_count == 1
+    assert "the C++ consumer did not configure" in str(refused.value)
+    assert "go: its consumer could not run: " in str(refused.value)

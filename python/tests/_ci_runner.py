@@ -21,8 +21,9 @@ from _step_runs import StepRuns, ends, install, passes
 
 from tools import run_ci
 from tools._common import RelPath
+from tools._run_ci_options import OptInLanes, OptInOptions
 from tools.check_gate_claim import is_build_source
-from tools.run_ci import OptInLanes, OptInOptions, RunContext, Runner
+from tools.run_ci import RunContext, Runner
 from tools.sweep_evidence import TreeId
 
 from aletheia.common_types import ExitStatus
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 
     import pytest
 
-    from tools.run_ci import LaneName
+    from tools._run_ci_options import LaneName
 
 # The digest of the build sources a sweep observes, as its header records it.
 SourcesDigest = NewType("SourcesDigest", str)

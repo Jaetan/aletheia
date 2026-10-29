@@ -1590,9 +1590,6 @@ hints:
     text: "object"
     count: 1
   - file: python/tests/test_install_hooks.py
-    text: "Callable[[Path], int]"
-    count: 1
-  - file: python/tests/test_install_hooks.py
     text: "dict[str, object]"
     count: 1
   - file: python/tests/test_install_hooks.py
@@ -2050,7 +2047,7 @@ hints:
     count: 2
   - file: tools/_ci_steps.py
     text: "list[str]"
-    count: 4
+    count: 3
   - file: tools/_ci_steps.py
     text: "str"
     count: 4
@@ -2216,7 +2213,7 @@ hints:
     count: 1
   - file: tools/_scheduler.py
     text: "int"
-    count: 3
+    count: 2
   - file: tools/_scheduler.py
     text: "int | None"
     count: 2
@@ -3334,6 +3331,21 @@ hints:
   - file: tools/review_db.py
     text: "type ReportResult = tuple[list[tuple[object, ...]], list[str]]"
     count: 1
+  - file: tools/_run_ci_options.py
+    text: "int"
+    count: 2
+  - file: tools/_run_ci_options.py
+    text: "int | None"
+    count: 1
+  - file: tools/_run_ci_options.py
+    text: "list[str] | None"
+    count: 1
+  - file: tools/_run_ci_options.py
+    text: "str"
+    count: 6
+  - file: tools/_run_ci_options.py
+    text: "str | None"
+    count: 1
   - file: tools/run_ci.py
     text: "Sequence[str] | str"
     count: 1
@@ -3351,25 +3363,19 @@ hints:
     count: 1
   - file: tools/run_ci.py
     text: "int"
-    count: 8
-  - file: tools/run_ci.py
-    text: "int | None"
-    count: 1
+    count: 6
   - file: tools/run_ci.py
     text: "list[str]"
     count: 1
   - file: tools/run_ci.py
     text: "list[str] | None"
-    count: 2
+    count: 1
   - file: tools/run_ci.py
     text: "list[tuple[str, str]]"
     count: 1
   - file: tools/run_ci.py
     text: "str"
-    count: 20
-  - file: tools/run_ci.py
-    text: "str | None"
-    count: 1
+    count: 14
   - file: tools/run_ci.py
     text: "tuple[str, ...]"
     count: 1

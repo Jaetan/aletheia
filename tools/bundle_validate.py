@@ -447,29 +447,48 @@ def run_rust_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> 
     assert_consumer_ok("rust", scenario.stdout)
 
 
-_CONSUMER_RUNNERS: dict[str, Callable[[Path, list[str], Path, Config], None]] = {
+CONSUMER_RUNNERS: dict[str, Callable[[Path, list[str], Path, Config], None]] = {
     "cpp": run_cpp_consumer,
     "go": run_go_consumer,
     "rust": run_rust_consumer,
 }
 
 
-def _run_consumers(
+def run_consumers(
     cfg: Config, work: Path, recipes: dict[str, list[str]], lib: Path
 ) -> list[ConsumerOutcome]:
-    """Run each selected consumer; skip-with-reason on a missing toolchain."""
+    """Run each selected consumer, every one whatever another answered.
+
+    A missing toolchain skips its consumer with the reason, or fails it where
+    the binding is required, and a consumer that cannot run fails.  Once every
+    consumer ran, any failure fails the validation, naming each.
+    """
     outcomes: list[ConsumerOutcome] = []
+    failures: list[BundleValidationError] = []
     for binding in cfg.bindings:
         problem = missing_tool(binding)
         if problem is not None:
             if binding in cfg.require:
                 message = f"{binding} is required but its toolchain is missing: {problem}"
-                raise BundleValidationError(message)
-            emit(f"[bundle] skip {binding}: {problem}")
-            outcomes.append(ConsumerOutcome(binding, "skip", problem))
+                failures.append(BundleValidationError(message))
+            else:
+                emit(f"[bundle] skip {binding}: {problem}")
+                outcomes.append(ConsumerOutcome(binding, "skip", problem))
             continue
-        _CONSUMER_RUNNERS[binding](work, recipes[binding], lib, cfg)
+        try:
+            CONSUMER_RUNNERS[binding](work, recipes[binding], lib, cfg)
+        except BundleValidationError as failure:
+            failures.append(failure)
+            continue
+        except (OSError, RuntimeError, ValueError) as error:
+            # A program that cannot start, a tool not found, output that does
+            # not decode: the consumer fails, and the failures before it stay.
+            message = f"{binding}: its consumer could not run: {error}"
+            failures.append(BundleValidationError(message))
+            continue
         outcomes.append(ConsumerOutcome(binding, "ok"))
+    if failures:
+        raise BundleValidationError("; ".join(str(failure) for failure in failures))
     return outcomes
 
 
@@ -495,7 +514,7 @@ def _validate_in(cfg: Config, work: Path) -> list[ConsumerOutcome]:
         raise BundleValidationError(message)
     recipes = _installer_recipes(bundle, cfg.shell)
     lib = _resolve_lib(bundle, cfg.shell)
-    return _run_consumers(cfg, work, recipes, lib)
+    return run_consumers(cfg, work, recipes, lib)
 
 
 def validate(cfg: Config) -> int:

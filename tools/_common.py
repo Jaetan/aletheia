@@ -74,10 +74,15 @@ CPP_COMPILERS = "-DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23"
 # cpp/: configured with the binding's compiler and never built, so those gates
 # start when its configure ends rather than after the test build in cpp/build.
 CPP_LINT_TREE = "build-tidy"
-# The lane of the gates that read that tree's compile database: clang-tidy
-# first, which configures the tree, then the checks that read it, then the
-# gate on what the toolchain's clang-tidy does, which reads none.
+# The lane of the gates that read that tree's compile database: its configure
+# first, then clang-tidy and the checks that read it, then the gate on what the
+# toolchain's clang-tidy does, which reads none.
 CPP_LINT_LANE = "cpp-lint"
+# The sweep's steps whose output steps registered in more than one module read:
+# the build, which writes the library and the generated code, and the
+# configure of the C++ test tree, which fetches the C++ dependencies' sources.
+BUILD_STEP = GateName("build")
+CPP_CONFIGURE_STEP = GateName("cpp configure")
 # What every run of the whole Python suite passes pytest, from python/: the
 # cross-CLI parity harness is left out, since run_ci runs it in the cpp lane
 # once the C++ CLI it needs is built, and the property tests draw the ``ci``

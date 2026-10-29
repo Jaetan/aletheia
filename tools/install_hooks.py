@@ -13,8 +13,8 @@ Hooks installed:
     later at pre-push.  Unstaged + untracked changes are stashed for the
     duration so the gates see exactly what is being committed, then restored.
     Then runs ``tools/iwyu.py --check`` on the staged .agda files as a
-    BLOCKING import gate, queued behind a running Agda tool rather than
-    refused beside it.
+    BLOCKING import gate, whatever the FAST tier answered, queued behind a
+    running Agda tool rather than refused beside it.
 
   * pre-push — allows a push once ``tools/run_ci.py`` has passed on the
     tree of the commit each pushed ref names.  A recorded passing sweep of
@@ -179,10 +179,12 @@ that fails refuses the commit; if a restore ever fails, the stash is kept
 and the message says where the work is and the commands that write it back.
 
 Then runs the `.agda` IWYU import gate (`tools/iwyu.py --check`) on the
-staged `.agda` files and BLOCKS on any finding, and on a run that never
-reached a verdict.  The gate queues behind a running Agda tool (`--wait-lock`)
-rather than refusing to start beside it, so a commit made during a sweep
-waits for the sweep instead of going through unchecked.
+staged `.agda` files, whatever the FAST tier answered, so one refusal reports
+both, and BLOCKS on any finding, and on a run that never reached a verdict.
+The gate queues behind a running Agda tool (`--wait-lock`) rather than
+refusing to start beside it, so a commit made during a sweep waits for the
+sweep instead of going through unchecked, its findings reported whatever the
+FAST tier answered.
 
 Bypass: `git commit --no-verify`.
 """
@@ -516,8 +518,9 @@ def main() -> int:
                     "pre-commit: fix the reported format/lint/hygiene issues, or bypass "
                     "with `git commit --no-verify`.\\n"
                 )
-            else:
-                rc = _iwyu_gate(root)
+            # IWYU runs whatever the FAST tier answered, so one refusal reports both.
+            iwyu = _iwyu_gate(root)
+            rc = rc or iwyu
     finally:
         # The entry goes once everything it held is back in place.
         if stash_sha and _restore_stash(root, stash_sha):
@@ -534,8 +537,8 @@ if __name__ == "__main__":
 # body runs is named here.
 PRE_COMMIT_SUMMARY = (
     "every `git commit` runs the FAST static gates (`tools/run_ci.py --fast`) on the "
-    "staged content, then `tools/iwyu.py --check` on staged `.agda` files, and blocks "
-    "on failure; bypass with `--no-verify`"
+    "staged content and `tools/iwyu.py --check` on staged `.agda` files, both whatever "
+    "the other answers, and blocks on either's failure; bypass with `--no-verify`"
 )
 PRE_PUSH_SUMMARY = (
     "every `git push` asks `tools/sweep_evidence.py` for a passing full sweep of the "
