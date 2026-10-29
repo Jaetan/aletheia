@@ -11,8 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
-from aletheia.client._types import ValidationError
+from aletheia.client._helpers.property_check import check_formula
 
 if TYPE_CHECKING:
     from aletheia.dsl import Predicate
@@ -30,18 +29,6 @@ if TYPE_CHECKING:
         UntilFormula,
         WeakNextFormula,
     )
-
-
-def require_non_negative_time_ms(time_ms: int) -> None:
-    """Reject negative durations in metric temporal operators.
-
-    Raises:
-        ValidationError: When *time_ms* is negative.
-
-    """
-    if time_ms < 0:
-        msg = f"time_ms must be non-negative, got {time_ms}"
-        raise ValidationError(msg)
 
 
 def implies_formula(antecedent: LTLFormula, consequent: LTLFormula) -> OrFormula:
@@ -102,6 +89,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         speed_ok = Signal("Speed").less_than(220).always()
         voltage_ok = Signal("Voltage").between(11, 15).always()
         speed_ok.and_(voltage_ok)
@@ -126,6 +117,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         charging = Signal("Charger").equals(1).eventually()
         engine_running = Signal("EngineRPM").greater_than(0).eventually()
         charging.or_(engine_running)
@@ -148,9 +143,13 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # Whenever the ignition has been on for a second, the engine runs within 500 ms
-        ignition_held = Signal("Ignition").equals(1).for_at_least(1000)
-        ignition_held.implies(Signal("EngineRunning").equals(1).within(500)).always()
+        ignition_held = Signal("Ignition").equals(1).for_at_least(1_000_000)
+        ignition_held.implies(Signal("EngineRunning").equals(1).within(500_000)).always()
         ```
 
         """
@@ -167,6 +166,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # The brake light follows the brake until the ignition turns off, which it does
         follows = Signal("Brake").equals(1).implies(Signal("BrakeLight").equals(1))
         follows.until(Signal("Ignition").equals(0))
@@ -191,9 +194,13 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # The brake stays engaged up to the frame the ignition has been on for a
         # second, and forever if that never happens
-        ignition_held = Signal("Ignition").equals(1).for_at_least(1000)
+        ignition_held = Signal("Ignition").equals(1).for_at_least(1_000_000)
         ignition_held.release(Signal("Brake").equals(1))
         ```
 
@@ -205,69 +212,83 @@ class Property:
         }
         return Property(formula)
 
-    def metric_until(self, time_ms: int, other: Property | Predicate) -> Property:
-        """Temporal until with time bound: self holds until other, within time_ms.
+    def metric_until(self, time_us: int, other: Property | Predicate) -> Property:
+        """Temporal until with time bound: self holds until other, within time_us.
 
         More robust than Next for checking "next frame" conditions.
         Tolerates CAN jitter and ECU timing uncertainty.
 
         Args:
-            time_ms: Time bound in milliseconds (must be >= 0)
-            other: Property or Predicate that must hold within time_ms
+            time_us: Time bound in whole microseconds, at most 2^64-1
+            other: Property or Predicate that must hold within time_us
 
         Returns:
             Metric Until property
 
         Raises:
-            ValidationError: ``time_ms`` is negative.
+            FFIError: the GHC runtime is not started.
+            ValidationError: the kernel refused the time bound (``time_us`` is
+                negative), its text the kernel's reason.
+            InputBoundExceededError: ``time_us`` is past 2^64-1.
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # The speed holds above 50 for 100 ms at every frame until the brake is
-        # pressed, which happens within 1000 ms
-        speed_held = Signal("Speed").greater_than(50).for_at_least(100)
-        speed_held.metric_until(1000, Signal("Brake").equals(1))
+        # pressed, which happens within 1 s
+        speed_held = Signal("Speed").greater_than(50).for_at_least(100_000)
+        speed_held.metric_until(1_000_000, Signal("Brake").equals(1))
         ```
 
         """
-        require_non_negative_time_ms(time_ms)
         formula: MetricUntilFormula = {
             "operator": "metricUntil",
-            "timebound": time_ms * MICROSECONDS_PER_MILLISECOND,
+            "timebound": time_us,
             "left": self._formula,
             "right": other.to_formula(),
         }
+        check_formula(formula)
         return Property(formula)
 
-    def metric_release(self, time_ms: int, other: Property | Predicate) -> Property:
-        """Temporal release with time bound: other holds until self releases it, within time_ms.
+    def metric_release(self, time_us: int, other: Property | Predicate) -> Property:
+        """Temporal release with time bound: other holds until self releases it, within time_us.
 
         Args:
-            time_ms: Time bound in milliseconds (must be >= 0)
+            time_us: Time bound in whole microseconds, at most 2^64-1
             other: Property or Predicate that must hold until released
 
         Returns:
             Metric Release property
 
         Raises:
-            ValidationError: ``time_ms`` is negative.
+            FFIError: the GHC runtime is not started.
+            ValidationError: the kernel refused the time bound (``time_us`` is
+                negative), its text the kernel's reason.
+            InputBoundExceededError: ``time_us`` is past 2^64-1.
 
         Example:
         ```python
-        # The brake stays engaged through the first 5000 ms, released sooner once the
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
+        # The brake stays engaged through the first 5 s, released sooner once the
         # ignition has been on for a second
-        ignition_held = Signal("Ignition").equals(1).for_at_least(1000)
-        ignition_held.metric_release(5000, Signal("Brake").equals(1))
+        ignition_held = Signal("Ignition").equals(1).for_at_least(1_000_000)
+        ignition_held.metric_release(5_000_000, Signal("Brake").equals(1))
         ```
 
         """
-        require_non_negative_time_ms(time_ms)
         formula: MetricReleaseFormula = {
             "operator": "metricRelease",
-            "timebound": time_ms * MICROSECONDS_PER_MILLISECOND,
+            "timebound": time_us,
             "left": self._formula,
             "right": other.to_formula(),
         }
+        check_formula(formula)
         return Property(formula)
 
     def always(self) -> Property:
@@ -278,6 +299,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # G(F(p)) - infinitely often pattern
         Signal("Speed").greater_than(100).eventually().always()
         ```
@@ -294,6 +319,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # F(G(p)) - eventually always (stability) pattern
         Signal("Temperature").less_than(70).always().eventually()
         ```
@@ -310,6 +339,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # G(not F(p)) - never occurs pattern
         fault_eventually = Signal("Fault").equals(1).eventually()
         fault_eventually.not_().always()
@@ -327,6 +360,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         property = Signal("VehicleSpeed").less_than(220).always()
         client.set_properties([property.to_dict()])
         ```
@@ -343,7 +380,7 @@ class Property:
         """Apply Next operator to nested formula.
 
         **DISCOURAGED on CAN networks.** See :meth:`Predicate.next` for the
-        full rationale; prefer ``.within(time_ms)`` in practice.
+        full rationale; prefer ``.within(time_us)`` in practice.
 
         Use this for nested temporal operators like X(G(phi)), "next, then
         always", when working on deterministic replay traces where the
@@ -354,6 +391,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # X(G(p)): next frame, then always
         Signal("State").equals(1).always().next()
         ```
@@ -373,6 +414,10 @@ class Property:
 
         Example:
         ```python
+        from aletheia import start_runtime
+
+        start_runtime(1)
+
         # WX(G(p)): weak next frame, then always
         Signal("State").equals(1).always().weak_next()
         ```

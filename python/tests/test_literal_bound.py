@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """A command or a DBC text holding one long number is refused, and the process lives.
 
-The kernel refuses a number whose rational components pass the signed 64-bit
-range, and its refusal reports the measured magnitude up to 2^64 - 1 and that
-ceiling past it, with "at least" before the ceiling in the message. A command of
-about 100 KB whose one number has 100,001 digits gets that refusal, and so does a
-DBC text whose one VAL_ key has 100,000 digits, naming the field. Each is sent
+The kernel refuses a number whose rational components pass 2^128 - 1, the
+largest magnitude a refusal reports, so the refusal reports that ceiling and its
+message names no number. A command of about 100 KB whose one number has 100,001
+digits gets that refusal, and so does a DBC text whose one VAL_ key has 100,000
+digits, naming the field and the key's own limit. Each is sent
 from a child process: a kernel that echoes or folds the number whole ends the
 process that called it, so the parent reads the child's reply and exit status
 rather than sharing its end.
@@ -33,8 +33,11 @@ from aletheia.client._response_parsers import raise_if_input_bound_exceeded
 if TYPE_CHECKING:
     from aletheia.types import Response
 
-# The largest `observed` a refusal reports, `observed-ceiling` in Aletheia.Limits.
-_OBSERVED_CEILING = 2**64 - 1
+# The largest `observed` a bound refusal reports, `bound-ceiling` in Aletheia.Limits.
+_OBSERVED_CEILING = 2**128 - 1
+
+# The kernel's own limit on a value description key's magnitude.
+_KEY_LIMIT = 2**128 - 1
 
 # The digits after the leading 1 of the command's one number.
 _ZEROS = 100_000
@@ -59,7 +62,7 @@ finally:
     + " and the parent reads the refusal the child received"
 )
 def test_a_long_literal_is_refused_at_the_ceiling() -> None:
-    """The 100,001-digit number is refused, its magnitude reported as at least the ceiling."""
+    """The 100,001-digit number is refused, its magnitude reported as the ceiling."""
     try:
         find_ffi_library()
     except FileNotFoundError:
@@ -83,8 +86,7 @@ def test_a_long_literal_is_refused_at_the_ceiling() -> None:
         _OBSERVED_CEILING,
         limits.MAX_RATIONAL_COMPONENT_MAGNITUDE,
         None,
-        f"rational component magnitude at least {_OBSERVED_CEILING}"
-        + f" exceeds limit {limits.MAX_RATIONAL_COMPONENT_MAGNITUDE}",
+        f"rational component magnitude exceeds limit {limits.MAX_RATIONAL_COMPONENT_MAGNITUDE}",
     )
 
 
@@ -137,8 +139,8 @@ def test_a_long_dbc_text_key_is_refused_at_the_ceiling() -> None:
     assert (err.kind, err.observed, err.limit, err.field, str(err)) == (
         limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
         _OBSERVED_CEILING,
-        limits.MAX_RATIONAL_COMPONENT_MAGNITUDE,
+        _KEY_LIMIT,
         "value description key",
-        "ParseDBCText: value description key: rational component magnitude at least"
-        + f" {_OBSERVED_CEILING} exceeds limit {limits.MAX_RATIONAL_COMPONENT_MAGNITUDE}",
+        "ParseDBCText: value description key: rational component magnitude exceeds limit"
+        + f" {_KEY_LIMIT}",
     )

@@ -1,29 +1,28 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Real-FFI regression tests for the Int64 bound on an extracted value.
+"""Real-FFI regression tests for the 128-bit bound on an extracted value.
 
 The kernel computes exact unbounded rationals, and reduction alone can
-push a component past the Int64 range even when every DBC field and frame
-byte is in range.  The kernel's batch categoriser
+push a component past 2^128-1 even when every DBC field and frame byte is
+in range.  The kernel's batch categoriser
 (``Aletheia.CAN.BatchExtraction.wireFits``) refuses an extracted value
 whose reduced ``|numerator|`` or denominator is above
-``MAX_RATIONAL_COMPONENT_MAGNITUDE`` (a symmetric magnitude bound) on both
-extraction paths, the JSON-answering entry and the binary buffer, as a
-per-signal error entry carrying the ``ValueExceedsWireRange`` code and
-one message.  The binary wire's int64 slots therefore only ever carry a
-value the kernel kept.
+``MAX_RATIONAL_COMPONENT_MAGNITUDE`` (a magnitude bound, the sign carried
+apart) on both extraction paths, the JSON-answering entry and the binary
+buffer, as a per-signal error entry carrying the ``ValueExceedsWireRange``
+code and one message.  The binary wire's 128-bit slots therefore only ever
+carry a value the kernel kept.
 
 Regression pinned here: without the bound, an over-range component was
 narrowed with a silently wrapping conversion, so ``extract_signals``
-returned a *wrong* value (observed as a sign-flipped garbage number) with
-an empty error list.
+returned a *wrong* value with an empty error list.
 """
 
 import json
 from fractions import Fraction
 from typing import TYPE_CHECKING, NewType
 
-from _dbc_helpers import dbc, message, signal
+from _dbc_helpers import FrameNumber, dbc, extract_fd, message, signal
 
 from aletheia import AletheiaClient, FFIBackend
 from aletheia.limits import MAX_RATIONAL_COMPONENT_MAGNITUDE
@@ -32,14 +31,14 @@ from aletheia.types import DLCCode, ParseDBCCommand, dump_json
 if TYPE_CHECKING:
     from aletheia.types import DBCDefinition
 
-# The signed 64-bit wire range shared by the binary FFI's rational slots
-# and the JSON ingestion bound (one Int64 bound on every wire).
-_INT64_MAX = MAX_RATIONAL_COMPONENT_MAGNITUDE
+# The magnitude bound shared by the binary FFI's 128-bit rational slots and
+# the JSON ingestion bound (one bound on every wire).
+_LIMIT = MAX_RATIONAL_COMPONENT_MAGNITUDE
 
 _FRAME = bytearray([0xFF, 0xFF, 0, 0, 0, 0, 0, 0])
 
 # The message the kernel puts on every over-range refusal, on both paths.
-_WIRE_RANGE_MESSAGE = "extracted value's numerator or denominator exceeds the Int64 wire range"
+_WIRE_RANGE_MESSAGE = f"extracted value's numerator or denominator magnitude exceeds {_LIMIT}"
 
 # The data bytes of one CAN 2.0B frame, DLC 8.
 FramePayload = NewType("FramePayload", bytes)
@@ -97,12 +96,12 @@ class TestExtractionValueExceedsWireRange:
     """Over-range exact values become typed per-signal error entries."""
 
     def test_numerator_overflow_refused_as_error_entry(self) -> None:
-        """17-significant-digit factor × 16-bit all-ones raw: no silent wrap.
+        """38-significant-digit factor × 16-bit all-ones raw: no silent wrap.
 
         The exact value passes the signal's own ``[minimum, maximum]``
-        bounds, but its reduced numerator exceeds the Int64 wire slot.
+        bounds, but its reduced numerator exceeds the 128-bit wire slot.
         The signal must be ABSENT from ``values`` and carry exactly one
-        error entry naming the Int64 wire range.  The signal is 17 bits
+        error entry naming the bound.  The signal is 17 bits
         wide so that its declared maximum lies within what its bits carry;
         the frame sets only the low 16.
 
@@ -113,12 +112,12 @@ class TestExtractionValueExceedsWireRange:
         value.  Completing in normal test time (under the client's default
         RTS heap cap) IS the regression pin.
         """
-        factor = Fraction(12345678901234567, 10**17)
+        factor = Fraction(12345678901234567890123456789012345678, 10**38)
         exact = factor * 0xFFFF
         # Fixture self-check: the scenario is adversarial only while the
         # reduced numerator actually exceeds the wire range.
-        assert exact.numerator > _INT64_MAX
-        assert exact.denominator <= _INT64_MAX
+        assert exact.numerator > _LIMIT
+        assert exact.denominator <= _LIMIT
 
         wrap_dbc = dbc(
             [
@@ -136,11 +135,11 @@ class TestExtractionValueExceedsWireRange:
 
         assert "Speed" not in result.values, dict(result.values)
         assert list(result.errors) == ["Speed"], dict(result.errors)
-        assert "Int64 wire range" in result.errors["Speed"]
+        assert result.errors["Speed"] == _WIRE_RANGE_MESSAGE
         assert result.absent == ()
 
     def test_denominator_overflow_refused_as_error_entry(self) -> None:
-        """Reduced denominator past Int64 (numerator in range): same refusal.
+        """Reduced denominator past the bound (numerator in range): same refusal.
 
         ``factor + offset`` denominators are each in range and terminating
         (2/5-smooth, so ``parse_dbc`` accepts them), but their lcm — the
@@ -148,12 +147,12 @@ class TestExtractionValueExceedsWireRange:
         the numerator still fits.  Pins the bound's denominator arm
         independently of the numerator arm.
         """
-        factor = Fraction(1, 2**62)
-        offset = Fraction(1, 5**26)
+        factor = Fraction(1, 2**126)
+        offset = Fraction(1, 5**54)
         exact = factor * 1 + offset
         # Fixture self-check: denominator-only overflow.
-        assert abs(exact.numerator) <= _INT64_MAX
-        assert exact.denominator > _INT64_MAX
+        assert abs(exact.numerator) <= _LIMIT
+        assert exact.denominator > _LIMIT
 
         den_dbc = dbc(
             [
@@ -167,7 +166,7 @@ class TestExtractionValueExceedsWireRange:
                             offset=offset,
                             # The bits carry [offset, offset + factor × 0xFFFF];
                             # the maximum leaves the offset out, whose sum with it
-                            # has a denominator past Int64, and stays inside them.
+                            # has a denominator past the bound, and stays inside them.
                             minimum=offset,
                             maximum=factor * 0xFFFF,
                         )
@@ -188,7 +187,7 @@ class TestExtractionValueExceedsWireRange:
 
         assert "S" not in result.values, dict(result.values)
         assert list(result.errors) == ["S"], dict(result.errors)
-        assert "Int64 wire range" in result.errors["S"]
+        assert result.errors["S"] == _WIRE_RANGE_MESSAGE
 
     def test_error_message_is_the_exact_wire_range_message(self) -> None:
         """The error entry carries the kernel's reason verbatim.
@@ -199,7 +198,7 @@ class TestExtractionValueExceedsWireRange:
         tell the bound's refusal apart from another extraction failure, so
         its exact public text is part of the contract.
         """
-        factor = Fraction(12345678901234567, 10**17)
+        factor = Fraction(12345678901234567890123456789012345678, 10**38)
         wrap_dbc = dbc(
             [
                 message(
@@ -215,7 +214,7 @@ class TestExtractionValueExceedsWireRange:
         assert result.errors["Speed"] == _WIRE_RANGE_MESSAGE
 
     def test_both_components_past_the_bound_refused_on_both_paths(self) -> None:
-        """A 64-bit signal whose value has both components past Int64 is refused alike.
+        """A 64-bit signal whose value has both components past the bound is refused alike.
 
         The factor and offset denominators (a power of two and a power of
         five) are each in range, but at raw ``2**63 + 1`` the exact value's
@@ -224,61 +223,64 @@ class TestExtractionValueExceedsWireRange:
         one error entry named ``Big`` with the kernel's message, no value,
         nothing absent.
         """
-        factor = Fraction(1, 2**62)
-        offset = Fraction(1, 5**27)
+        factor = Fraction(1, 2**126)
+        offset = Fraction(1, 5**55)
         raw = 2**63 + 1
         exact = factor * raw + offset
         # Fixture self-check: both components are past the bound.
-        assert exact.numerator > _INT64_MAX
-        assert exact.denominator > _INT64_MAX
+        assert exact.numerator > _LIMIT
+        assert exact.denominator > _LIMIT
 
         _assert_refused_on_both_paths(
             FramePayload(raw.to_bytes(8, "little")),
             factor=factor,
             offset=offset,
             minimum=offset,
-            maximum=Fraction(3),
+            # The largest value the bits carry leaves the offset out, so it
+            # lies inside them, above the raw value read.
+            maximum=factor * (2**64 - 1),
         )
 
-    def test_numerator_exactly_minus_two_to_the_63_refused_on_both_paths(self) -> None:
-        """A numerator of exactly ``-(2**63)`` is refused: the bound is symmetric.
+    def test_numerator_of_magnitude_two_to_the_128_refused(self) -> None:
+        """A numerator of exactly ``-(2**128)`` is refused: the magnitude is what is bounded.
 
-        ``-(2**63)`` fits an int64 slot, but the kernel holds a component's
-        magnitude to ``MAX_RATIONAL_COMPONENT_MAGNITUDE`` on both sides of
-        zero.  Raw ``2**63`` scaled by ``-1/5`` lands the reduced numerator
-        exactly there with the denominator in range; the signal's minimum
-        is what its bits carry, so the range check accepts the value and
-        the magnitude bound is what refuses it, on both paths alike.
+        The sign travels apart, so the negative side has the positive side's
+        bound.  A 129-bit CAN-FD signal at raw ``2**128`` scaled by ``-1/5``
+        lands the reduced numerator exactly there with the denominator in
+        range; the signal's minimum lies within what its bits carry, so the
+        range check accepts the value and the magnitude bound refuses it.
         """
         factor = Fraction(-1, 5)
-        raw = 2**63
+        raw = 2**128
         exact = factor * raw
-        # Fixture self-check: the numerator sits one past the negative bound.
-        assert exact.numerator == -(2**63)
-        assert -exact.numerator == _INT64_MAX + 1
-        assert exact.denominator <= _INT64_MAX
+        # Fixture self-check: the numerator's magnitude sits one past the bound.
+        assert -exact.numerator == _LIMIT + 1
+        assert exact.denominator <= _LIMIT
 
-        _assert_refused_on_both_paths(
-            FramePayload(raw.to_bytes(8, "little")),
+        wide = signal(
+            "Wide",
+            length=129,
             factor=factor,
-            offset=Fraction(0),
-            minimum=Fraction(-(2**64 - 1), 5),
+            minimum=Fraction(-7 * 10**37),
             maximum=Fraction(0),
         )
+        result = extract_fd(wide, FrameNumber(raw))
+        assert result.errors == {"Wide": _WIRE_RANGE_MESSAGE}, dict(result.errors)
+        assert result.values == {}, dict(result.values)
 
 
 class TestWireRangeBoundaryAccepted:
-    """Components exactly at Int64 max travel the wire exactly (tightness)."""
+    """Components exactly at the bound travel the wire exactly (tightness)."""
 
-    def test_value_with_numerator_at_int64_max_travels_exactly(self) -> None:
-        """A 1-bit signal scaled to exactly Int64 max round-trips exactly.
+    def test_value_with_numerator_at_the_bound_travels_exactly(self) -> None:
+        """A 1-bit signal scaled to exactly the bound round-trips exactly.
 
         The guard must not over-refuse: components AT the wire range are
         representable and must come back as the exact ``Fraction``, not an
         error entry.  Together with the overflow tests this pins the
         boundary from both sides.
         """
-        edge = Fraction(_INT64_MAX)
+        edge = Fraction(_LIMIT)
         edge_dbc = dbc(
             [
                 message(
@@ -299,18 +301,18 @@ class TestWireRangeBoundaryAccepted:
         assert result.errors == {}, dict(result.errors)
         value = result.values["S"]
         assert value == edge
-        assert value.numerator == _INT64_MAX
+        assert value.numerator == _LIMIT
         assert value.denominator == 1
 
-    def test_value_with_negative_numerator_at_int64_max_travels_exactly(self) -> None:
-        """The negative side of the signed wire slot round-trips exactly too.
+    def test_value_with_negative_numerator_at_the_bound_travels_exactly(self) -> None:
+        """The negative side of the wire slot round-trips exactly too.
 
-        An offset of exactly −(Int64 max) with raw value 0 lands the
-        exact value on the slot's negative boundary (the magnitude limit
-        is symmetric); it must come back as the exact negative
-        ``Fraction``, not an error entry.
+        An offset of exactly −(the bound) with raw value 0 lands the exact
+        value on the slot's negative boundary (the sign travels apart); it
+        must come back as the exact negative ``Fraction``, not an error
+        entry.
         """
-        edge = Fraction(_INT64_MAX)
+        edge = Fraction(_LIMIT)
         edge_dbc = dbc(
             [
                 message(
@@ -340,5 +342,5 @@ class TestWireRangeBoundaryAccepted:
         assert result.errors == {}, dict(result.errors)
         value = result.values["S"]
         assert value == -edge
-        assert value.numerator == -_INT64_MAX
+        assert value.numerator == -_LIMIT
         assert value.denominator == 1

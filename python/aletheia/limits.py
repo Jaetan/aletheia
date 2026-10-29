@@ -117,9 +117,9 @@ MAX_ATOM_COUNT_PER_PROPERTY: Final[Limit] = 1024
 MAX_PROPERTIES_PER_STREAM: Final[Limit] = 1024
 
 # Magnitude cap on a JSON number's rational components (|numerator| and
-# denominator of the exact rational it denotes): the signed 64-bit wire
-# range shared with the binary FFI's rational slots and the decimal SSOT.
-MAX_RATIONAL_COMPONENT_MAGNITUDE: Final[Limit] = 9223372036854775807
+# denominator of the exact rational it denotes): 2^128 - 1, the unsigned
+# 128-bit magnitude the binary FFI's rational slots and the decimal entry carry.
+MAX_RATIONAL_COMPONENT_MAGNITUDE: Final[Limit] = 340282366920938463463374607431768211455
 
 
 __all__ = [

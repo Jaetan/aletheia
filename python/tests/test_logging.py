@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
     from aletheia.common_types import Prose
 
+# The kernel checks a property as it is built, so the runtime is up first.
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 # A frame's place in its stream, from 0; a log record's rendered message.
 FrameOrdinal = NewType("FrameOrdinal", int)
 LogLine = NewType("LogLine", str)

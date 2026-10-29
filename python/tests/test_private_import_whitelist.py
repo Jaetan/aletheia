@@ -72,6 +72,9 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._client_bin",
             "parse_extraction_buffer",
         ),
+        # The magnitude a 128-bit word pair carries, naming what a hand-packed
+        # value entry holds.
+        ("test_binary_extraction.py", "aletheia.client._ffi", "Magnitude"),
         # Decode-validation lockstep — exercises the private decoders
         # directly to assert they reject malformed core output (out-of-range
         # ids/bits, bad presence discriminator, trailing extraction bytes).
@@ -237,11 +240,16 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "AletheiaText"),
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "configure_ffi_signatures"),
+        ("test_parse_decimal_ffi.py", "aletheia.client._helpers.rational", "decimal_value"),
         # The rational the decimal entry answers is read by one helper, held on
-        # the out-parameters the kernel never writes (a non-positive
-        # denominator), which no public path reaches.
+        # the out-parameters the kernel never writes (a zero denominator, a sign
+        # byte past 1), which no public path reaches, laid out by the helpers
+        # the binding packs a rational with.
         ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_from_decimal.py", "aletheia.client._ffi", "Magnitude"),
+        ("test_from_decimal.py", "aletheia.client._ffi", "wire_rational"),
+        ("test_from_decimal.py", "aletheia.client._ffi", "wire_uint128"),
         ("test_from_decimal.py", "aletheia.client._helpers.rational", "decimal_value"),
         # Demo-script gate: runs every examples/demo/*.py as a subprocess and
         # resolves the .so the same way the binding does, passing it through as
@@ -305,11 +313,18 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaFrame"),
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaSignalValues"),
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaText"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaUint128"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaTimeBound"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaPropertyCheck"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaBuffer"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaFrame"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaSignalValues"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaText"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaTimeBound"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaPropertyCheck"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "wire_rational"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "configure_ffi_signatures"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "find_ffi_library"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "KernelResponse"),

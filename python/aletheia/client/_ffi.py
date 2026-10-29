@@ -18,6 +18,8 @@ from aletheia.common_types import CoreCount, Prose
 from aletheia.types import JSONValue, is_str_dict
 
 if TYPE_CHECKING:
+    from fractions import Fraction
+
     from aletheia.common_types import AllocatedBytes
     from aletheia.types import Response
 
@@ -315,7 +317,7 @@ def allocated_bytes() -> AllocatedBytes | None:
 
 # ``ALETHEIA_ABI_VERSION``: the version of the structures and signatures this
 # binding lays out, which ``test_ffi_abi_version.py`` holds to the header's.
-ABI_VERSION = 3
+ABI_VERSION = 4
 
 
 def check_abi_version(lib: ctypes.CDLL) -> None:
@@ -368,13 +370,67 @@ class AletheiaFrame(ctypes.Structure):  # pylint: disable=too-few-public-methods
     )
 
 
+class AletheiaUint128(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_uint128``: an unsigned 128-bit number, ``lo + hi * 2**64``."""
+
+    _fields_ = (
+        ("lo", ctypes.c_uint64),
+        ("hi", ctypes.c_uint64),
+    )
+
+
+class AletheiaRational(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_rational``: numerator / denominator, negated when negative is not 0."""
+
+    _fields_ = (
+        ("numerator", AletheiaUint128),
+        ("denominator", AletheiaUint128),
+        ("negative", ctypes.c_uint8),
+    )
+
+
+# One word of ``struct aletheia_uint128``, below ``2**64``.
+Word = NewType("Word", int)
+
+# A number one ``struct aletheia_uint128`` carries, below ``2**128``: a
+# rational component's magnitude.
+Magnitude = NewType("Magnitude", int)
+
+_WORD_BITS = 64
+_WORD_MASK = (1 << _WORD_BITS) - 1
+
+
+def wire_uint128(magnitude: Magnitude) -> AletheiaUint128:
+    """Split a magnitude below ``2**128`` into the two words of ``struct aletheia_uint128``."""
+    return AletheiaUint128(lo=magnitude & _WORD_MASK, hi=magnitude >> _WORD_BITS)
+
+
+def wire_rational(value: Fraction) -> AletheiaRational:
+    """Lay out a rational whose components fit 128 bits as ``struct aletheia_rational``.
+
+    The sign travels in its own byte, 0 for zero as the header asks, so each
+    component crosses as its magnitude.
+    """
+    return AletheiaRational(
+        numerator=wire_uint128(Magnitude(abs(value.numerator))),
+        denominator=wire_uint128(Magnitude(value.denominator)),
+        negative=1 if value < 0 else 0,
+    )
+
+
+def uint128_value(words: AletheiaUint128) -> Magnitude:
+    """Read the number the two words of ``struct aletheia_uint128`` spell."""
+    lo: Word = words.lo
+    hi: Word = words.hi
+    return Magnitude(lo | hi << _WORD_BITS)
+
+
 class AletheiaSignalValues(ctypes.Structure):  # pylint: disable=too-few-public-methods
-    """``struct aletheia_signal_values``: parallel signal indices and rationals."""
+    """``struct aletheia_signal_values``: signal indices and the rationals to write."""
 
     _fields_ = (
         ("indices", ctypes.POINTER(ctypes.c_uint32)),
-        ("numerators", ctypes.POINTER(ctypes.c_int64)),
-        ("denominators", ctypes.POINTER(ctypes.c_int64)),
+        ("values", ctypes.POINTER(AletheiaRational)),
         ("count", ctypes.c_uint32),
     )
 
@@ -390,15 +446,6 @@ class AletheiaBuffer(ctypes.Structure):  # pylint: disable=too-few-public-method
     )
 
 
-class AletheiaRational(ctypes.Structure):  # pylint: disable=too-few-public-methods
-    """``struct aletheia_rational``: an exact rational."""
-
-    _fields_ = (
-        ("numerator", ctypes.c_int64),
-        ("denominator", ctypes.c_int64),
-    )
-
-
 class AletheiaDecimal(ctypes.Structure):  # pylint: disable=too-few-public-methods
     """``struct aletheia_decimal``: a parsed decimal, or the error the parser set."""
 
@@ -409,9 +456,29 @@ class AletheiaDecimal(ctypes.Structure):  # pylint: disable=too-few-public-metho
     )
 
 
-def take_error_envelope(
-    lib: ctypes.CDLL, out: AletheiaBuffer | AletheiaDecimal, missing: Prose
-) -> Response:
+class AletheiaTimeBound(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_time_bound``: a parsed time bound, or the error the kernel set."""
+
+    _fields_ = (
+        ("microseconds", ctypes.c_uint64),
+        # A raw address, not ``c_char_p``, so the string can be freed after reading.
+        ("err", ctypes.c_void_p),
+    )
+
+
+class AletheiaPropertyCheck(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_property_check``: the error the kernel set on refusing a property."""
+
+    _fields_ = (
+        # A raw address, not ``c_char_p``, so the string can be freed after reading.
+        ("err", ctypes.c_void_p),
+    )
+
+
+type EntryOut = AletheiaBuffer | AletheiaDecimal | AletheiaTimeBound | AletheiaPropertyCheck
+
+
+def take_error_envelope(lib: ctypes.CDLL, out: EntryOut, missing: Prose) -> Response:
     """Read and free the error envelope a failed entry left in *out*.
 
     A failure without one is a wire fault, raised as :class:`ProtocolError`
@@ -483,15 +550,14 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     # Returns a CString that the caller must free via ``aletheia_free_str``.
     # Display path only — bindings call this to render predicate values for
     # human-readable diagnostics.
-    # The rational crosses as one ``struct aletheia_rational``; the shim moves
-    # a negative denominator's sign to the numerator.
+    # The rational crosses as one ``struct aletheia_rational``.
     lib.aletheia_format_rational.argtypes = [ctypes.POINTER(AletheiaRational)]
     lib.aletheia_format_rational.restype = ctypes.c_void_p
 
     # Cross-binding decimal → exact rational SSOT (the float principle).
     # Takes a decimal string and writes a ``struct aletheia_decimal``: the
-    # rational on success (status 0), or on a parse failure / Int64 overflow
-    # a ``{"status":"error",...}`` envelope in ``err`` (status 1), freed via
+    # rational on success (status 0), or on a parse failure or a component past
+    # the bound a ``{"status":"error",...}`` envelope in ``err`` (status 1), freed via
     # ``aletheia_free_str``.  Consumed by
     # ``aletheia.client._helpers.rational.from_decimal``.
     lib.aletheia_parse_decimal.argtypes = [
@@ -499,6 +565,24 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
         ctypes.POINTER(AletheiaDecimal),
     ]
     lib.aletheia_parse_decimal.restype = ctypes.c_int8
+
+    # A time bound's text, whole microseconds, read as a property's time bound
+    # is read: the microseconds on success (status 0), or the kernel's refusal
+    # envelope in ``err`` (status 1).  Consumed by the loaders' ``within_us``.
+    lib.aletheia_parse_time_bound.argtypes = [
+        ctypes.POINTER(AletheiaText),
+        ctypes.POINTER(AletheiaTimeBound),
+    ]
+    lib.aletheia_parse_time_bound.restype = ctypes.c_int8
+
+    # A property's JSON read as set_properties reads one, its signal names
+    # decided as identifiers only: status 0 on acceptance, or the kernel's
+    # refusal envelope in ``err`` (status 1).  Consumed by the builders.
+    lib.aletheia_check_property.argtypes = [
+        ctypes.POINTER(AletheiaText),
+        ctypes.POINTER(AletheiaPropertyCheck),
+    ]
+    lib.aletheia_check_property.restype = ctypes.c_int8
 
     # The bytes the runtime has allocated since it started, read after a
     # collection.  It needs the runtime started, so :func:`allocated_bytes`

@@ -15,10 +15,10 @@ answers ``text_parse_failure`` (nothing parsed, with the ``line`` and ``column``
 of the failure) or ``text_trailing_input`` (a literal parsed and input remains,
 with the ``line``/``column`` where the parse stopped and the
 ``statement_line``/``statement_column`` where the unparsed statement starts).  A
-component of the exact rational past the Int64 magnitude answers
-``input_bound_exceeded`` with ``field`` ``"decimal"`` and the observed magnitude,
-which the kernel saturates at 18446744073709551615, its message then saying
-"at least".
+component of the exact rational past the magnitude bound 2^128-1 answers
+``input_bound_exceeded`` with ``field`` ``"decimal"``; the bound is the ceiling
+the kernel reports a magnitude up to, so ``observed`` reads the bound and the
+message names no number.
 """
 
 from __future__ import annotations
@@ -51,8 +51,11 @@ SUCCESS_CASES = [
     ("0.000", 0, 1),  # trailing-zero fraction canonicalises
     ("0.10", 1, 10),  # trailing zero trimmed
     ("00.1", 1, 10),  # leading zeros accepted
-    ("9223372036854775807", 9223372036854775807, 1),  # the magnitude bound fits
-    ("-9223372036854775807", -9223372036854775807, 1),  # and so does its negative
+    ("9223372036854775807", 9223372036854775807, 1),  # past 64 signed bits
+    ("-9223372036854775808", -9223372036854775808, 1),
+    ("99999999999999999999.5", 199999999999999999999, 2),  # past 64 bits
+    (str(2**128 - 1), 2**128 - 1, 1),  # the magnitude bound fits
+    (str(-(2**128 - 1)), -(2**128 - 1), 1),  # and so does its negative
 ]
 
 
@@ -139,27 +142,22 @@ class BoundRefusal(TypedDict):
 
 
 class OverflowCase(NamedTuple):
-    """A literal whose exact rational has a component past the magnitude bound.
-
-    ``observed`` is the magnitude the kernel reports; ``saturated`` says it is
-    the ceiling 18446744073709551615 standing for a larger magnitude, which the
-    message spells "at least".
-    """
+    """A literal whose exact rational has a component past the magnitude bound."""
 
     text: DecimalText
-    observed: PositiveInt
-    saturated: bool
+
+    @property
+    def observed(self) -> PositiveInt:
+        """The magnitude the kernel reports: the ceiling, which is the bound."""
+        return MAX_RATIONAL_COMPONENT_MAGNITUDE
 
     def envelope(self) -> BoundRefusal:
         """Return the exact bound-refusal envelope the kernel answers for ``text``."""
-        magnitude = f"{'at least ' if self.saturated else ''}{self.observed}"
         limit = MAX_RATIONAL_COMPONENT_MAGNITUDE
         return {
             "status": "error",
             "code": ErrorCode.INPUT_BOUND_EXCEEDED,
-            "message": Prose(
-                f"decimal: rational component magnitude {magnitude} exceeds limit {limit}"
-            ),
+            "message": Prose(f"decimal: rational component magnitude exceeds limit {limit}"),
             "field": BoundField("decimal"),
             "bound_kind": BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
             "observed": self.observed,
@@ -168,9 +166,11 @@ class OverflowCase(NamedTuple):
 
 
 OVERFLOW_CASES = [
-    OverflowCase(DecimalText("99999999999999999999.5"), 18446744073709551615, saturated=True),
-    OverflowCase(DecimalText("0.0000000000000000001"), 10000000000000000000, saturated=False),
+    # A 40-digit integer part, 10^39, is past 2^128-1.
+    OverflowCase(DecimalText("1" + "0" * 39)),
+    # 39 places force a denominator of 10^39.
+    OverflowCase(DecimalText("0." + "0" * 38 + "1")),
     # One past the bound on the negative side: the magnitude is what is bounded.
-    OverflowCase(DecimalText("-9223372036854775808"), 9223372036854775808, saturated=False),
+    OverflowCase(DecimalText(str(-(2**128)))),
 ]
 OVERFLOW_IDS = [case.text for case in OVERFLOW_CASES]

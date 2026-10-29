@@ -144,19 +144,27 @@ CANFD_SPEC: FrameSpec = FrameSpec(
 # all converged on the same baseline LTL property set per frame type.
 # Duplicating them across files triggered R0801 duplicate-code.  These are
 # the canonical defaults; a benchmark that needs a different shape (e.g.
-# scaling.py exercising different formula counts) builds its own list.
+# scaling.py exercising different formula counts) builds its own list.  The
+# kernel checks each as it is built, so a benchmark builds them once the
+# runtime is up.
 # ============================================================================
 
-DEFAULT_CAN20_PROPERTIES: list[LTLFormula] = [
-    Signal("EngineSpeed").between(0, 8000).always().to_dict(),
-    Signal("EngineTemp").between(-40, 215).always().to_dict(),
-]
 
-DEFAULT_CANFD_PROPERTIES: list[LTLFormula] = [
-    Signal("GPSSpeed").between(0, 655).always().to_dict(),
-    Signal("YawRate").between(-327, 327).always().to_dict(),
-    Signal("WheelSpeedFL").between(0, 655).always().to_dict(),
-]
+def default_can20_properties() -> list[LTLFormula]:
+    """Return the CAN 2.0B property bundle, built through the started runtime."""
+    return [
+        Signal("EngineSpeed").between(0, 8000).always().to_dict(),
+        Signal("EngineTemp").between(-40, 215).always().to_dict(),
+    ]
+
+
+def default_canfd_properties() -> list[LTLFormula]:
+    """Return the CAN-FD property bundle, built through the started runtime."""
+    return [
+        Signal("GPSSpeed").between(0, 655).always().to_dict(),
+        Signal("YawRate").between(-327, 327).always().to_dict(),
+        Signal("WheelSpeedFL").between(0, 655).always().to_dict(),
+    ]
 
 
 # ============================================================================

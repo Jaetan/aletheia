@@ -12,15 +12,16 @@ overrides without changing the wire format.
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, NewType, TypedDict
 
 from aletheia import AletheiaClient
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.types import DLCByteCount
+from aletheia.types import DLCByteCount, DLCCode
 
 if TYPE_CHECKING:
     from typing import Unpack
 
+    from aletheia import SignalExtractionResult
     from aletheia._dbc_types import ByteOrder, SignalPresence
     from aletheia.types import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
 
@@ -161,3 +162,17 @@ def assert_non_terminating_rational(bad: DBCDefinition, field: str) -> None:
     assert result["status"] == "error"
     assert result["code"] == "parse_non_terminating_rational"
     assert field in result["message"]
+
+
+# A CAN-FD frame's 64 data bytes, read as one little-endian number.
+FrameNumber = NewType("FrameNumber", int)
+
+
+def extract_fd(sig: DBCSignal, frame: FrameNumber) -> SignalExtractionResult:
+    """Load one 64-byte CAN-FD message 0x300 holding ``sig`` and extract it from ``frame``."""
+    with AletheiaClient() as client:
+        parsed = client.parse_dbc(dbc([message(0x300, "Fd", [sig], dlc=64)]))
+        assert parsed["status"] == "success", parsed
+        return client.extract_signals(
+            can_id=0x300, dlc=DLCCode(15), data=bytearray(frame.to_bytes(64, "little"))
+        )

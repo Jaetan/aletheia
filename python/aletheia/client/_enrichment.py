@@ -15,7 +15,7 @@ import ctypes
 from typing import TYPE_CHECKING
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
-from aletheia.client._ffi import AletheiaRational, started_library
+from aletheia.client._ffi import started_library, wire_rational
 from aletheia.client._types import FFIError, PropertyDiagnostic, ValidationError
 from aletheia.common_types import Prose
 from aletheia.limits import MAX_NESTING_DEPTH
@@ -158,7 +158,7 @@ def format_rational(value: Fraction) -> str:
     ``"0"``.
     """
     lib = started_library(Prose("rendering"))
-    rational = AletheiaRational(numerator=value.numerator, denominator=value.denominator)
+    rational = wire_rational(value)
     raw = lib.aletheia_format_rational(ctypes.byref(rational))
     if not raw:
         msg = "aletheia_format_rational returned a null pointer"

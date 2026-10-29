@@ -98,11 +98,11 @@ print("\nProperty 1 — Speed limit:")
 print("  speed.less_than(120).always()")
 
 # Temporal property: brake response time
-brake_response = speed.greater_than(80).implies(brake.greater_than(0).within(500)).always()
+brake_response = speed.greater_than(80).implies(brake.greater_than(0).within(500_000)).always()
 
 print("\nProperty 2 — Brake response:")
 print("  speed.greater_than(80).implies(")
-print("      brake.greater_than(0).within(500)")
+print("      brake.greater_than(0).within(500_000)")
 print("  ).always()")
 
 print("\nSerialized to JSON:")
@@ -195,17 +195,17 @@ print("\n2. Sensor range validity:")
 print("   brake.between(0, 10000).always()")
 
 print("\n3. Brake hold (debounce):")
-print("   brake.greater_than(100).for_at_least(100)")
+print("   brake.greater_than(100).for_at_least(100_000)")
 
 print("\n4. Brake response time:")
 print("   speed.greater_than(80).implies(")
-print("       brake.greater_than(0).within(500)")
+print("       brake.greater_than(0).within(500_000)")
 print("   ).always()")
 
 accel = Signal("Acceleration")
 print("\n5. Deceleration response:")
 print("   speed.greater_than(100).implies(")
-print("       accel.less_than(0).within(1000)")
+print("       accel.less_than(0).within(1_000_000)")
 print("   ).always()")
 
 

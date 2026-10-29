@@ -5,14 +5,16 @@
 The bindings never pass a NULL structure or a buffer smaller than the frame,
 so the refusals the shim holds for them are reachable only from here: a NULL
 frame, NULL signal values or a NULL result buffer is refused cleanly, a result
-buffer that cannot hold the frame is refused before a byte is written, and a
-build reports the count it wrote.
+buffer that cannot hold the frame is refused before a byte is written, a build
+reports the count it wrote, and a text the header refuses or a NULL result is
+refused by every entry reading a text.
 """
 
 from __future__ import annotations
 
 import ctypes
 import json
+from fractions import Fraction
 from typing import TYPE_CHECKING, NewType
 
 import pytest
@@ -22,12 +24,16 @@ from aletheia.client._ffi import (
     AletheiaBuffer,
     AletheiaDecimal,
     AletheiaFrame,
+    AletheiaPropertyCheck,
+    AletheiaRational,
     AletheiaSignalValues,
     AletheiaText,
+    AletheiaTimeBound,
     KernelResponse,
     configure_ffi_signatures,
     find_ffi_library,
     parse_json_object,
+    wire_rational,
 )
 from aletheia.types import ParseDBCCommand, dump_json
 
@@ -92,8 +98,7 @@ def _error(buffer: AletheiaBuffer) -> str:
 def _values() -> AletheiaSignalValues:
     return AletheiaSignalValues(
         indices=(ctypes.c_uint32 * 2)(0, 1),
-        numerators=(ctypes.c_int64 * 2)(1000, 3000),
-        denominators=(ctypes.c_int64 * 2)(1, 1),
+        values=(AletheiaRational * 2)(wire_rational(Fraction(1000)), wire_rational(Fraction(3000))),
         count=2,
     )
 
@@ -169,8 +174,8 @@ def test_a_build_reports_the_count_it_wrote(state: StateHandle) -> None:
         assert bytes(target)[8:] == bytes([_SET]) * (_CAPACITY - 8)
 
 
-def test_a_text_the_header_refuses_is_refused_by_both_entries(state: StateHandle) -> None:
-    """A text the header refuses is refused by both entries before a byte is read.
+def test_a_text_the_header_refuses_is_refused_by_every_text_entry(state: StateHandle) -> None:
+    """A text the header refuses is refused by every entry reading one before a byte is read.
 
     That is a NULL text, NULL data under a non-zero size, and a size past what
     the library can index; NULL data of size 0 is the empty text, which
@@ -185,9 +190,28 @@ def test_a_text_the_header_refuses_is_refused_by_both_entries(state: StateHandle
         response = json.loads(_take_response(_LIB.aletheia_process(state, argument)))
         assert response == {"status": "error", "code": "ffi_validation_error", "message": reason}
         decimal = AletheiaDecimal()
-        assert _LIB.aletheia_parse_decimal(argument, ctypes.byref(decimal)) == 1
-        envelope = json.loads(_take_response(decimal.err))
-        assert envelope == {"status": "error", "code": "ffi_validation_error", "message": reason}
+        time_bound = AletheiaTimeBound()
+        check = AletheiaPropertyCheck()
+        for entry, out in (
+            (_LIB.aletheia_parse_decimal, decimal),
+            (_LIB.aletheia_parse_time_bound, time_bound),
+            (_LIB.aletheia_check_property, check),
+        ):
+            assert entry(argument, ctypes.byref(out)) == 1
+            envelope = json.loads(_take_response(out.err))
+            expected = {"status": "error", "code": "ffi_validation_error", "message": reason}
+            assert envelope == expected
     empty_text = ctypes.byref(AletheiaText(None, 0))
     empty = json.loads(_take_response(_LIB.aletheia_process(state, empty_text)))
     assert empty["code"] == "dispatch_invalid_json"
+
+
+def test_a_null_result_is_refused_by_every_text_entry() -> None:
+    """With nowhere to write even an error, an entry reading a text answers failure alone."""
+    text = AletheiaText(b"1", 1)
+    for entry in (
+        _LIB.aletheia_parse_decimal,
+        _LIB.aletheia_parse_time_bound,
+        _LIB.aletheia_check_property,
+    ):
+        assert entry(ctypes.byref(text), None) == 1

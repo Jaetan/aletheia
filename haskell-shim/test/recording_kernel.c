@@ -10,8 +10,10 @@
 // the real kernel acknowledges without reading and which only a leak checker
 // would otherwise report. Its renderer answers the rational it was handed, but
 // for one numerator it answers with a null string, so a test can follow a
-// render that held with one that failed, and its allocation count is a known
-// value, so a test reads what reached them. It
+// render that held with one that failed, its property check accepts every
+// property, as the kernel accepts a well-formed one, so a binding builds a
+// check against it, and its allocation count is a known value, so a test reads
+// what reached them. It
 // carries every symbol the bindings resolve, at the kernel's own signatures,
 // its count of the process's CPUs is four, and its runtime entry is a no-op, so a process whose first backend opens it
 // reads the runtime as up without one. The build makes it beside the library,
@@ -164,9 +166,8 @@ int8_t aletheia_parse_time_bound(const struct aletheia_text *, struct aletheia_t
     return 1;
 }
 
-int8_t aletheia_check_property(const struct aletheia_text *, struct aletheia_property_check *out) {
-    out->err = refusal("check_property");
-    return 1;
+int8_t aletheia_check_property(const struct aletheia_text *, struct aletheia_property_check *) {
+    return 0;
 }
 
 // The allocation count is 2^63 plus the reads made before this one: a read

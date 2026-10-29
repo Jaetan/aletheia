@@ -11,7 +11,7 @@ parity between the binary wire and the JSON fallback path.
 import struct
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 from _dbc_helpers import dbc, message, signal
@@ -21,6 +21,7 @@ from aletheia.client._client_bin import (
     ExtractionErrorCode,
     parse_extraction_buffer,
 )
+from aletheia.client._ffi import Magnitude
 from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
@@ -39,6 +40,28 @@ _AGDA_SKIP_REASON = (
 )
 
 
+# One packed 35-byte value entry of the extraction buffer.
+ValueEntry = NewType("ValueEntry", bytes)
+
+# A value entry's sign byte, any byte but 0 meaning negative.
+SignByte = NewType("SignByte", int)
+
+# A signal's index on the wire.
+WireIndex = NewType("WireIndex", int)
+
+
+def _value_entry(
+    idx: WireIndex, negative: SignByte, magnitude: Magnitude, den: Magnitude
+) -> ValueEntry:
+    """Pack one 35-byte value entry: the index, the sign byte, then both 128-bit magnitudes."""
+    mask = (1 << 64) - 1
+    return ValueEntry(
+        struct.pack(
+            "<HBQQQQ", idx, negative, magnitude & mask, magnitude >> 64, den & mask, den >> 64
+        )
+    )
+
+
 def _extraction_buffer(
     values: Sequence[tuple[int, int, int]] = (),
     errors: Sequence[tuple[int, int, str]] = (),
@@ -46,7 +69,8 @@ def _extraction_buffer(
 ) -> bytes:
     """Pack a wire-conformant extraction response buffer.
 
-    ``values`` entries are (signal_index, numerator, denominator);
+    ``values`` entries are (signal_index, numerator, denominator), each packed
+    as the sign byte and the two magnitudes' low and high words;
     ``errors`` entries are (signal_index, code, reason).  The offsets
     table and reasons blob are derived from the reasons' UTF-8 byte
     lengths, matching the layout in the ``processExtractBin`` header
@@ -57,7 +81,12 @@ def _extraction_buffer(
     for blob in reason_blobs:
         offsets.append(offsets[-1] + len(blob))
     parts = [struct.pack("<HHHI", len(values), len(errors), len(absent), offsets[-1])]
-    parts.extend(struct.pack("<Hqq", idx, num, den) for idx, num, den in values)
+    parts.extend(
+        _value_entry(
+            WireIndex(idx), SignByte(1 if num < 0 else 0), Magnitude(abs(num)), Magnitude(den)
+        )
+        for idx, num, den in values
+    )
     parts.extend(struct.pack("<HB", idx, code) for idx, code, _ in errors)
     parts.append(struct.pack(f"<{len(errors) + 1}I", *offsets))
     parts.extend(reason_blobs)
@@ -210,6 +239,23 @@ class TestParseExtractionBuffer:
         )
         with pytest.raises(ProtocolError, match="Invalid UTF-8"):
             parse_extraction_buffer(buf, NAMES)
+
+    def test_128_bit_components_read_exactly(self) -> None:
+        """Both words of each magnitude are read, on either sign."""
+        widest = 2**128 - 1
+        buf = _extraction_buffer(values=[(0, widest, 1), (1, -1, widest), (2, -(2**64), 3)])
+        result = parse_extraction_buffer(buf, NAMES)
+        assert result.values == {
+            "Speed": Fraction(widest),
+            "RPM": Fraction(-1, widest),
+            "Temp": Fraction(-(2**64), 3),
+        }
+
+    def test_any_sign_byte_but_zero_is_negative(self) -> None:
+        """The header reads any sign byte but 0 as negative, and so does the reader."""
+        entry = _value_entry(WireIndex(0), SignByte(2), Magnitude(5), Magnitude(2))
+        buf = struct.pack("<HHHI", 1, 0, 0, 0) + entry + struct.pack("<I", 0)
+        assert parse_extraction_buffer(buf, NAMES).values == {"Speed": Fraction(-5, 2)}
 
     def test_fraction_exact_roundtrip(self) -> None:
         """Extraction preserves exact rationals (no float quantization)."""

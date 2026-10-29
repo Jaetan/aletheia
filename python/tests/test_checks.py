@@ -107,7 +107,7 @@ class TestCheckSignal:
 
     def test_settles_between_within(self) -> None:
         """settles_between().within() produces G_t(lo <= s <= hi)."""
-        result = signal("Temp").settles_between(60, 80).within(500)
+        result = signal("Temp").settles_between(60, 80).within(500_000)
         assert isinstance(result, CheckResult)
         assert result.to_dict() == {
             "operator": "metricAlways",
@@ -125,7 +125,7 @@ class TestCheckSignal:
 
     def test_settles_negative_time_rejected(self) -> None:
         """settles_between().within(-1) is rejected."""
-        with pytest.raises(ValidationError, match="non-negative"):
+        with pytest.raises(ValidationError, match=r"^timebound -1 is negative$"):
             signal("Temp").settles_between(60, 80).within(-1)
 
 
@@ -139,13 +139,13 @@ class TestCheckWhenThen:
 
     def test_when_exceeds_then_equals(self) -> None:
         """when().exceeds().then().equals().within() produces G(p -> F_t(q))."""
-        result = when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+        result = when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100_000)
         assert isinstance(result, CheckResult)
         # G( Brake > 50 → F≤100(BrakeLight == 1) )
         expected = (
             Signal("Brake")
             .greater_than(50)
-            .implies(Signal("BrakeLight").equals(1).within(100))
+            .implies(Signal("BrakeLight").equals(1).within(100_000))
             .always()
             .to_dict()
         )
@@ -153,11 +153,11 @@ class TestCheckWhenThen:
 
     def test_when_equals_then_exceeds(self) -> None:
         """when().equals() trigger with then().exceeds() response."""
-        result = when("Ignition").equals(1).then("RPM").exceeds(500).within(2000)
+        result = when("Ignition").equals(1).then("RPM").exceeds(500).within(2_000_000)
         expected = (
             Signal("Ignition")
             .equals(1)
-            .implies(Signal("RPM").greater_than(500).within(2000))
+            .implies(Signal("RPM").greater_than(500).within(2_000_000))
             .always()
             .to_dict()
         )
@@ -166,12 +166,12 @@ class TestCheckWhenThen:
     def test_when_drops_below_then_stays_between(self) -> None:
         """when().drops_below() trigger with then().stays_between() response."""
         result = (
-            when("FuelLevel").drops_below(10).then("FuelWarning").stays_between(1, 1).within(50)
+            when("FuelLevel").drops_below(10).then("FuelWarning").stays_between(1, 1).within(50_000)
         )
         expected = (
             Signal("FuelLevel")
             .less_than(10)
-            .implies(Signal("FuelWarning").between(1, 1).within(50))
+            .implies(Signal("FuelWarning").between(1, 1).within(50_000))
             .always()
             .to_dict()
         )
@@ -179,7 +179,7 @@ class TestCheckWhenThen:
 
     def test_when_then_negative_time_rejected(self) -> None:
         """when/then .within(-1) is rejected."""
-        with pytest.raises(ValidationError, match="non-negative"):
+        with pytest.raises(ValidationError, match=r"^timebound -1 is negative$"):
             when("Brake").exceeds(50).then("Light").equals(1).within(-1)
 
 
@@ -282,17 +282,17 @@ class TestCheckEquivalence:
 
     def test_settles_between_eq_dsl(self) -> None:
         """settles_between.within matches Signal.between.for_at_least."""
-        check = signal("Temp").settles_between(60, 80).within(500).to_dict()
-        dsl = Signal("Temp").between(60, 80).for_at_least(500).to_dict()
+        check = signal("Temp").settles_between(60, 80).within(500_000).to_dict()
+        dsl = Signal("Temp").between(60, 80).for_at_least(500_000).to_dict()
         assert check == dsl
 
     def test_when_then_eq_dsl(self) -> None:
         """when/then matches implies.within.always."""
-        check = when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
+        check = when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100_000).to_dict()
         dsl = (
             Signal("Brake")
             .greater_than(50)
-            .implies(Signal("BrakeLight").equals(1).within(100))
+            .implies(Signal("BrakeLight").equals(1).within(100_000))
             .always()
             .to_dict()
         )
@@ -300,11 +300,11 @@ class TestCheckEquivalence:
 
     def test_when_equals_then_exceeds_eq_dsl(self) -> None:
         """when(equals)/then(exceeds) matches DSL equivalent."""
-        check = when("Ignition").equals(1).then("RPM").exceeds(500).within(2000).to_dict()
+        check = when("Ignition").equals(1).then("RPM").exceeds(500).within(2_000_000).to_dict()
         dsl = (
             Signal("Ignition")
             .equals(1)
-            .implies(Signal("RPM").greater_than(500).within(2000))
+            .implies(Signal("RPM").greater_than(500).within(2_000_000))
             .always()
             .to_dict()
         )
@@ -313,12 +313,17 @@ class TestCheckEquivalence:
     def test_when_drops_below_then_stays_between_eq_dsl(self) -> None:
         """when(drops_below)/then(stays_between) matches DSL equivalent."""
         check = (
-            when("Fuel").drops_below(10).then("Warning").stays_between(1, 1).within(50).to_dict()
+            when("Fuel")
+            .drops_below(10)
+            .then("Warning")
+            .stays_between(1, 1)
+            .within(50_000)
+            .to_dict()
         )
         dsl = (
             Signal("Fuel")
             .less_than(10)
-            .implies(Signal("Warning").between(1, 1).within(50))
+            .implies(Signal("Warning").between(1, 1).within(50_000))
             .always()
             .to_dict()
         )
@@ -365,27 +370,27 @@ class TestCheckDiagnostics:
 
     def test_settles_between_within(self) -> None:
         """Verify settles between within."""
-        r = signal("Temp").settles_between(60, 80).within(500)
+        r = signal("Temp").settles_between(60, 80).within(500_000)
         assert r.signal_name == "Temp"
-        assert r.condition_desc == "between 60 and 80 within 500ms"
+        assert r.condition_desc == "between 60 and 80 within 500000µs"
 
     def test_when_then_equals(self) -> None:
         """Verify when then equals."""
-        r = when("Brake").exceeds(50).then("Light").equals(1).within(100)
+        r = when("Brake").exceeds(50).then("Light").equals(1).within(100_000)
         assert r.signal_name == "Light"
-        assert r.condition_desc == "= 1 within 100ms"
+        assert r.condition_desc == "= 1 within 100000µs"
 
     def test_when_then_exceeds(self) -> None:
         """Verify when then exceeds."""
-        r = when("Ignition").equals(1).then("RPM").exceeds(500).within(2000)
+        r = when("Ignition").equals(1).then("RPM").exceeds(500).within(2_000_000)
         assert r.signal_name == "RPM"
-        assert r.condition_desc == "> 500 within 2000ms"
+        assert r.condition_desc == "> 500 within 2000000µs"
 
     def test_when_then_stays_between(self) -> None:
         """Verify when then stays between."""
-        r = when("Fuel").drops_below(10).then("Warn").stays_between(1, 1).within(50)
+        r = when("Fuel").drops_below(10).then("Warn").stays_between(1, 1).within(50_000)
         assert r.signal_name == "Warn"
-        assert r.condition_desc == "between 1 and 1 within 50ms"
+        assert r.condition_desc == "between 1 and 1 within 50000µs"
 
     def test_raw_property_defaults_empty(self) -> None:
         """Raw Property wrapped in CheckResult has empty diagnostic metadata."""
@@ -409,8 +414,8 @@ class TestCheckDiagnostics:
         """
         assert signal("Speed").never_exceeds(120).condition_desc == "<= 120"
         assert signal("V").stays_between(1, 2).condition_desc == "between 1 and 2"
-        assert when("B").exceeds(50).then("L").equals(1).within(100).condition_desc == (
-            "= 1 within 100ms"
+        assert when("B").exceeds(50).then("L").equals(1).within(100_000).condition_desc == (
+            "= 1 within 100000µs"
         )
 
     def test_condition_desc_propagates_render_failure(

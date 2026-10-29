@@ -68,6 +68,7 @@ from aletheia._dbc_types import (
 
 if TYPE_CHECKING:
     from aletheia.codes import ValidationIssue
+    from aletheia.limits import BoundField
 
 # ─── Public wire helpers ───────────────────────────────────────────────────
 # Promoted here from the client internals so non-client modules
@@ -181,7 +182,7 @@ class PredicateType(StrEnum):
 # ============================================================================
 # All formulas use "operator" key (not "type").
 # Predicates use {"operator": "atomic", "predicate": {...}} format.
-# Time bounds use "timebound" key (not "time_ms").
+# Time bounds use "timebound" key (not "time_us").
 # "never" and "implies" are desugared by Python before sending to Agda.
 
 # -- Signal Predicates (inside "predicate" object) --
@@ -330,7 +331,7 @@ class EventuallyFormula(TypedDict):
 class NextFormula(TypedDict):
     """Next: X(formula).
 
-    Discouraged in CAN analysis — prefer ``within(time_ms)`` /
+    Discouraged in CAN analysis: prefer ``within(time_us)`` /
     ``metric_until``. CAN timing jitter makes frame-exact semantics
     unreliable; kept for standard-LTLf completeness.
     """
@@ -342,7 +343,7 @@ class NextFormula(TypedDict):
 class WeakNextFormula(TypedDict):
     """Weak Next: WX(formula) — holds vacuously at end of stream.
 
-    Discouraged in CAN analysis — prefer ``within(time_ms)`` /
+    Discouraged in CAN analysis: prefer ``within(time_us)`` /
     ``metric_until``. CAN timing jitter makes frame-exact semantics
     unreliable; kept for standard-LTLf completeness.
     """
@@ -523,7 +524,9 @@ class ErrorResponse(TypedDict):
     The ``bound_kind`` / ``observed`` / ``limit`` triple is present on
     InputBoundExceeded errors (``code == "input_bound_exceeded"``) and
     absent on all other error codes; the Agda kernel emits the typed
-    payload via ``Protocol/ResponseFormat.errorExtras``.  A DBC command
+    payload via ``Protocol/ResponseFormat.errorExtras``, with ``field``
+    beside it when the refusal names the part of the input that crossed
+    the bound (``"time bound"``).  A DBC command
     raises its bound refusal as :class:`~aletheia.InputBoundExceededError`
     instead, so the triple reaches an ``ErrorResponse`` from the other
     commands only.
@@ -542,6 +545,7 @@ class ErrorResponse(TypedDict):
     bound_kind: NotRequired[str]
     observed: NotRequired[int]
     limit: NotRequired[int]
+    field: NotRequired[BoundField]
     has_errors: NotRequired[bool]
     issues: NotRequired[list[ValidationIssue]]
 

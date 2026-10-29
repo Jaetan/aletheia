@@ -40,7 +40,9 @@ Exit codes:
 A constant flagged OPTIONAL is a list-cardinality bound the kernel enforces
 after parsing, so a mirror may omit it: pre-rejection at the language boundary
 buys nothing there.  A REQUIRED constant is an input-length or structural
-bound, where refusing before the buffer crosses is strictly preferable.
+bound, where refusing before the buffer crosses is strictly preferable.  A
+constant in ``KERNEL_ONLY`` is a limit the kernel alone decides and the bindings
+do not know: no mirror may carry it, so no table maps it.
 
 Changing ``MaxMessagesPerFile = 10000`` to ``9999`` in the Go mirror fires
 this script; reverting returns to exit 0.
@@ -54,7 +56,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 from tools._common import emit
 
@@ -66,6 +68,25 @@ AGDA_LIMITS = REPO_ROOT / "src" / "Aletheia" / "Limits.agda"
 GO_LIMITS = REPO_ROOT / "go" / "aletheia" / "limits.go"
 PYTHON_LIMITS = REPO_ROOT / "python" / "aletheia" / "limits.py"
 CPP_LIMITS = REPO_ROOT / "cpp" / "include" / "aletheia" / "limits.hpp"
+
+
+# An Agda limit's kebab-case name, as ``Aletheia.Limits`` defines it.
+AgdaLimitName = NewType("AgdaLimitName", str)
+
+# The per-field limits the kernel decides when it reads a DBC or a property and
+# proves of every reply; the bindings print its refusal and mirror none of them.
+KERNEL_ONLY: frozenset[AgdaLimitName] = frozenset(
+    AgdaLimitName(name)
+    for name in (
+        "max-start-bit",
+        "max-bit-length",
+        "max-multiplex-value",
+        "max-value-description-key-magnitude",
+        "max-var-type",
+        "max-attribute-magnitude",
+        "max-time-bound",
+    )
+)
 
 
 # Manual mapping from Agda kebab-case names to Go PascalCase names.
@@ -559,9 +580,23 @@ def _check_agda_drift(agda_consts: dict[str, int], agda_boundkind: dict[str, str
         f"max-constant: Agda has '{name}={value}' "
         + "but NAME_MAPPING in check_limits_parity.py has no entry — "
         + "add it (REQUIRED if input-size / structural, OPTIONAL if "
-        + "list-cardinality enforced kernel-only)"
+        + "list-cardinality enforced kernel-only), or name it in KERNEL_ONLY "
+        + "if no binding may know it"
         for name, value in agda_consts.items()
-        if name not in NAME_MAPPING
+        if name not in NAME_MAPPING and name not in KERNEL_ONLY
+    )
+    diffs.extend(
+        f"max-constant: KERNEL_ONLY names '{name}', which Agda does not define"
+        for name in sorted(KERNEL_ONLY - agda_consts.keys())
+    )
+    diffs.extend(
+        f"max-constant: '{name}' is KERNEL_ONLY but {table} maps it to a mirror"
+        for table, mapping in (
+            ("NAME_MAPPING", NAME_MAPPING),
+            ("PYTHON_NAME_MAPPING", PYTHON_NAME_MAPPING),
+            ("CPP_NAME_MAPPING", CPP_NAME_MAPPING),
+        )
+        for name in sorted(KERNEL_ONLY & mapping.keys())
     )
     return diffs
 

@@ -113,13 +113,17 @@ for read in (lambda: from_decimal("1.5"), render):
 
 @pytest.mark.process(_IN_A_FRESH_RUNTIME)
 def test_a_number_read_before_any_start_is_refused_naming_the_remedy() -> None:
-    """Parsing a decimal and rendering a threshold before any start each name ``start_runtime``."""
+    """Parsing a decimal and building a check before any start each name ``start_runtime``.
+
+    The kernel checks a check as it is built, so its build is refused before
+    its threshold could render.
+    """
     out, _ = _run(_REFUSED_BEFORE_A_START)
     assert out == [
         "FFIError GHC runtime not initialized: call aletheia.start_runtime or open a client"
         + " before parsing decimals",
         "FFIError GHC runtime not initialized: call aletheia.start_runtime or open a client"
-        + " before rendering",
+        + " before building a check",
     ]
 
 
@@ -168,7 +172,7 @@ def test_every_check_and_dbc_loader_raises_the_runtime_refusal_unlocated_before_
     when_then = (
         "checks:\n  - name: w\n    when:\n      signal: Brake\n      condition: exceeds\n"
         + "      value: 50\n    then:\n      signal: Light\n      condition: equals\n"
-        + "      value: 1\n    within_ms: 100\n"
+        + "      value: 1\n    within_us: 100000\n"
     )
     file = tmp_path / "checks.yaml"
     _ = file.write_text(document, encoding="utf-8")
@@ -183,8 +187,14 @@ def test_every_check_and_dbc_loader_raises_the_runtime_refusal_unlocated_before_
         "FFIError None None None GHC runtime not initialized: call aletheia.start_runtime or"
         + " open a client before parsing decimals"
     )
+    refused_time = (
+        "FFIError None None None GHC runtime not initialized: call aletheia.start_runtime or"
+        + " open a client before reading a time bound"
+    )
     assert out == [
-        *[refused] * 6,
+        refused,
+        refused_time,
+        *[refused] * 4,
         "ValidationError None None None YAML must contain a 'checks' list",
         "FileNotFoundError Excel file not found: does-not-exist.xlsx",
         "allocated: None",

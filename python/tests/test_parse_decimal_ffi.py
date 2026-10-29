@@ -43,6 +43,7 @@ from aletheia.client._ffi import (
     configure_ffi_signatures,
     find_ffi_library,
 )
+from aletheia.client._helpers.rational import decimal_value
 
 # The parser MAlonzo code needs a live GHC RTS; the module-scoped fixture brings
 # it up (idempotent, refcounted) for every test here.  Loading the .so below
@@ -66,7 +67,8 @@ def _parse_decimal(text: str) -> dict[str, object]:
     raw = text.encode(errors="surrogateescape")
     text_arg = ctypes.byref(AletheiaText(raw, len(raw)))
     if _LIB.aletheia_parse_decimal(text_arg, ctypes.byref(out)) == 0:
-        return {"numerator": out.value.numerator, "denominator": out.value.denominator}
+        value = decimal_value(out)
+        return {"numerator": value.numerator, "denominator": value.denominator}
     err: int | None = out.err
     assert err is not None
     try:

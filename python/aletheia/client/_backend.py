@@ -23,16 +23,19 @@ from __future__ import annotations
 
 import ctypes
 from collections import deque
+from fractions import Fraction
 from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 
 from aletheia.client._ffi import (
     AletheiaBuffer,
     AletheiaFrame,
+    AletheiaRational,
     AletheiaSignalValues,
     AletheiaText,
     RTSState,
     open_library,
     take_error_envelope,
+    wire_rational,
 )
 from aletheia.client._refusal import raise_entry_refusal
 from aletheia.client._types import (
@@ -279,10 +282,12 @@ def _signal_values(
 ) -> AletheiaSignalValues:
     """Pack the parallel signal arrays into one ``struct aletheia_signal_values``."""
     n = len(indices)
+    rationals = (
+        wire_rational(Fraction(num, den)) for num, den in zip(numerators, denominators, strict=True)
+    )
     return AletheiaSignalValues(
         indices=(ctypes.c_uint32 * n)(*indices),
-        numerators=(ctypes.c_int64 * n)(*numerators),
-        denominators=(ctypes.c_int64 * n)(*denominators),
+        values=(AletheiaRational * n)(*rationals),
         count=n,
     )
 

@@ -26,6 +26,10 @@ Problem-driven recipes. Each recipe is self-contained: title, code, done.
 ### Signal never exceeds a value
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 checks.signal("VehicleSpeed").never_exceeds(120)
 ```
 
@@ -38,6 +42,10 @@ checks.signal("VehicleSpeed").never_exceeds(120)
 ### Signal never drops below a value
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 checks.signal("Acceleration").never_below(-30)
 ```
 
@@ -52,6 +60,10 @@ checks.signal("Acceleration").never_below(-30)
 ```python
 from fractions import Fraction
 
+from aletheia import start_runtime
+
+start_runtime(1)
+
 checks.signal("BrakePressure").stays_between(Fraction("0"), Fraction("6553.5"))
 ```
 
@@ -65,6 +77,10 @@ checks.signal("BrakePressure").stays_between(Fraction("0"), Fraction("6553.5"))
 ### Signal never equals a forbidden value
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # 655.35 kph is the 0xFFFF saturation reading — flag a pegged sensor.
 checks.signal("VehicleSpeed").never_equals(Fraction("655.35"))
 ```
@@ -78,7 +94,11 @@ checks.signal("VehicleSpeed").never_equals(Fraction("655.35"))
 ### Signal settles into range within time
 
 ```python
-checks.signal("Acceleration").settles_between(-1, 1).within(5000)
+from aletheia import start_runtime
+
+start_runtime(1)
+
+checks.signal("Acceleration").settles_between(-1, 1).within(5_000_000)
 ```
 
 ~~~yaml
@@ -86,7 +106,7 @@ checks.signal("Acceleration").settles_between(-1, 1).within(5000)
   condition: settles_between
   min: -1.0
   max: 1.0
-  within_ms: 5000
+  within_us: 5000000
 ~~~
 
 ---
@@ -98,6 +118,10 @@ These predicates use frame-to-frame delta tracking and are available via the DSL
 ### Flag when a signal drops by at least N
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Speed must never drop by 10+ in a single frame (violations = detections)
 Signal("VehicleSpeed").changed_by(-10).never()
 ```
@@ -107,6 +131,10 @@ Positive delta means "increased by at least delta"; negative means "decreased by
 ### Require that a signal increases by at least N
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # RPM must jump up by 500+ at some point (e.g., engine must start)
 Signal("EngineRPM").changed_by(500).eventually()
 ```
@@ -114,6 +142,10 @@ Signal("EngineRPM").changed_by(500).eventually()
 ### Check signal stays stable within tolerance
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Temperature stable within ±2 degrees frame-to-frame
 Signal("CoolantTemp").stable_within(2).always()
 ```
@@ -121,8 +153,12 @@ Signal("CoolantTemp").stable_within(2).always()
 ### Combine stability with a time window
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # After warmup, temperature must stabilize within ±1 degree
-Signal("CoolantTemp").stable_within(1).within(30000)
+Signal("CoolantTemp").stable_within(1).within(30_000_000)
 ```
 
 ---
@@ -132,9 +168,13 @@ Signal("CoolantTemp").stable_within(1).within(30000)
 ### When A happens, B must follow within T ms
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 checks.when("BrakePressure").exceeds(500) \
      .then("BrakeActive").equals(1) \
-     .within(100)
+     .within(100_000)
 ```
 
 ~~~yaml
@@ -147,7 +187,7 @@ checks.when("BrakePressure").exceeds(500) \
     signal: BrakeActive
     condition: equals
     value: 1
-  within_ms: 100
+  within_us: 100000
 ~~~
 
 ### Engine must start within T ms of ignition
@@ -156,9 +196,13 @@ Illustrative — assumes a DBC that defines `Ignition` and `EngineRPM`; swap in
 your own signals to run it against your bus.
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 checks.when("Ignition").equals(1) \
      .then("EngineRPM").exceeds(500) \
-     .within(2000)
+     .within(2_000_000)
 ```
 
 ### Signal settles after trigger
@@ -166,9 +210,13 @@ checks.when("Ignition").equals(1) \
 Illustrative — assumes a DBC that defines `FuelLevel` and `FuelWarning`.
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 checks.when("FuelLevel").drops_below(10) \
      .then("FuelWarning").stays_between(1, 1) \
-     .within(50)
+     .within(50_000)
 ```
 
 ---
@@ -625,6 +673,10 @@ Pass an `int` (already exact) or an exact `Fraction`:
 
 ```python
 from fractions import Fraction
+
+from aletheia import start_runtime
+
+start_runtime(1)
 
 # Whole numbers are already exact:
 checks.signal("VehicleSpeed").never_exceeds(120)

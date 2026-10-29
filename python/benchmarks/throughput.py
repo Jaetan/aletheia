@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, NamedTuple, TextIO, TypedDict
 # that any wheel/setuptools shim overhead shows up in the numbers — matches
 # how end users measure Aletheia in production.  Do not reintroduce
 # ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
-from aletheia import AletheiaClient
+from aletheia import AletheiaClient, start_runtime
 
 # Shared benchmark vocabulary — frame specs, default property bundles, JSON
 # envelope, system info.  Consolidated in ``_common.py`` to keep the suite
@@ -31,13 +31,13 @@ from aletheia import AletheiaClient
 from benchmarks._common import (
     CAN20_SPEC,
     CANFD_SPEC,
-    DEFAULT_CAN20_PROPERTIES,
-    DEFAULT_CANFD_PROPERTIES,
     BenchmarkConfig,
     FrameCount,
     FrameSpec,
     RunCount,
     ThroughputParameters,
+    default_can20_properties,
+    default_canfd_properties,
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
@@ -168,6 +168,8 @@ def _build_benchmarks(
     pylint ``too-many-locals`` cap; also makes the benchmark inventory
     easy to spot independently of the run loop.
     """
+    can20_properties = default_can20_properties()
+    canfd_properties = default_canfd_properties()
     # Builder scratchpad: the explicit element type gives the lambdas their
     # ``n: int`` context (pyright does not infer it through the NamedBenchmark
     # constructor), then each pair is wrapped into the public NamedBenchmark.
@@ -175,14 +177,14 @@ def _build_benchmarks(
         # --- CAN 2.0B ---
         (
             "CAN 2.0B: Stream LTL (2 props)",
-            lambda n: benchmark_streaming(dbc, n, CAN20_SPEC, DEFAULT_CAN20_PROPERTIES),
+            lambda n: benchmark_streaming(dbc, n, CAN20_SPEC, can20_properties),
         ),
         ("CAN 2.0B: Signal Extraction", lambda n: benchmark_signal_extraction(dbc, n, CAN20_SPEC)),
         ("CAN 2.0B: Frame Building", lambda n: benchmark_frame_building(dbc, n, CAN20_SPEC)),
         # --- CAN-FD ---
         (
             "CAN-FD:   Stream LTL (3 props)",
-            lambda n: benchmark_streaming(canfd_dbc, n, CANFD_SPEC, DEFAULT_CANFD_PROPERTIES),
+            lambda n: benchmark_streaming(canfd_dbc, n, CANFD_SPEC, canfd_properties),
         ),
         (
             "CAN-FD:   Signal Extraction",
@@ -250,6 +252,9 @@ def _run() -> None:
     print(f"Runs: {cfg.num_runs}", file=out)
     print(f"Warmup runs: {cfg.warmup_runs}", file=out)
 
+    # Every client here runs on one core; the kernel checks the property
+    # bundles as they are built, before any client opens.
+    start_runtime(1)
     benchmarks = _build_benchmarks(load_dbc(), load_canfd_dbc())
 
     results: list[_BenchResult] = []

@@ -139,9 +139,6 @@ hints:
   - file: examples/demo/dbc_validation.py
     text: "str"
     count: 1
-  - file: examples/demo/dbc_validation.py
-    text: "str | None"
-    count: 1
   - file: examples/demo/demo_ltl_bug.py
     text: "int"
     count: 1
@@ -273,22 +270,22 @@ hints:
     count: 28
   - file: python/aletheia/_dsl_property.py
     text: "int"
-    count: 3
+    count: 2
   - file: python/aletheia/_loader_utils.py
     text: "Mapping[str, JSONValue]"
-    count: 8
+    count: 7
   - file: python/aletheia/_loader_utils.py
     text: "TypeGuard[str]"
     count: 1
   - file: python/aletheia/_loader_utils.py
     text: "int"
-    count: 2
+    count: 1
   - file: python/aletheia/_loader_utils.py
     text: "object"
     count: 1
   - file: python/aletheia/_loader_utils.py
     text: "str"
-    count: 17
+    count: 15
   - file: python/aletheia/_time_units.py
     text: "Final[int]"
     count: 2
@@ -327,10 +324,10 @@ hints:
     count: 2
   - file: python/aletheia/checks.py
     text: "int | Fraction"
-    count: 22
+    count: 20
   - file: python/aletheia/checks.py
     text: "str"
-    count: 18
+    count: 17
   - file: python/aletheia/checks.py
     text: "type _DescPart = str | Fraction"
     count: 1
@@ -573,7 +570,7 @@ hints:
     count: 1
   - file: python/aletheia/client/_helpers/rational.py
     text: "int"
-    count: 3
+    count: 2
   - file: python/aletheia/client/_helpers/rational.py
     text: "int | Fraction"
     count: 1

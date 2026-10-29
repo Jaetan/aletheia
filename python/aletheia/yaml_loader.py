@@ -45,7 +45,7 @@ checks:
     value: 220                    # for value-based conditions
     min: 11.5                     # for range-based conditions
     max: 14.5
-    within_ms: 5000              # required for settles_between
+    within_us: 5000000           # required for settles_between
     severity: critical           # optional
 ~~~
 
@@ -62,7 +62,7 @@ checks:
       signal: BrakeLight
       condition: equals           # equals|exceeds|stays_between
       value: 1
-    within_ms: 100
+    within_us: 100000
     severity: safety
 ~~~
 """
@@ -91,12 +91,14 @@ from aletheia._check_conditions import (
 from aletheia._loader_utils import (
     NumberText,
     get_dict,
-    get_int,
     get_number,
     get_str,
+    get_time_bound,
+    locate_refusal,
     reject_symlink_loader_path,
 )
-from aletheia.client._types import ValidationError, check_dbc_text_size_bound
+from aletheia.client._types import AletheiaError, ValidationError, check_dbc_text_size_bound
+from aletheia.common_types import DocumentKey, Location
 from aletheia.types import is_object_list, is_str_dict
 
 if TYPE_CHECKING:
@@ -182,6 +184,10 @@ def _safe_load_text_numbers(stream: str | TextIO) -> object:
     except yaml.YAMLError as exc:
         msg = f"invalid YAML: {exc}"
         raise ValidationError(msg) from exc
+
+
+# The key a check's time window sits under, whole microseconds.
+_WITHIN = DocumentKey("within_us")
 
 
 def _ctx(name: str) -> str:
@@ -286,15 +292,23 @@ def _load_yaml(source: str | Path) -> object:
 
 
 def _parse_check(entry: Mapping[str, JSONValue]) -> CheckResult:
-    """Parse a single check entry from the YAML."""
-    if "when" in entry:
-        result = _parse_when_then_check(entry)
-    elif "signal" in entry:
-        result = _parse_simple_check(entry)
-    else:
-        name = _check_name(entry)
-        msg = f"Check '{name}': must have 'signal' or 'when'/'then'"
-        raise ValidationError(msg)
+    """Parse a single check entry from the YAML.
+
+    A refusal the kernel answered for the check as its builder made it is
+    located at the check, as ``Check '<name>': <reason>``.
+    """
+    try:
+        if "when" in entry:
+            result = _parse_when_then_check(entry)
+        elif "signal" in entry:
+            result = _parse_simple_check(entry)
+        else:
+            name = _check_name(entry)
+            msg = f"Check '{name}': must have 'signal' or 'when'/'then'"
+            raise ValidationError(msg)
+    except AletheiaError as exc:
+        locate_refusal(Location(_ctx(_check_name(entry))), exc)
+        raise
 
     # Apply metadata — CheckResult is immutable so re-bind on each call.
     raw_name = entry.get("name")
@@ -345,8 +359,8 @@ def _parse_settles_condition(
     if "min" not in entry or "max" not in entry:
         msg = f"Check '{name}': condition 'settles_between' requires 'min' and 'max'"
         raise ValidationError(msg)
-    if "within_ms" not in entry:
-        msg = f"Check '{name}': condition 'settles_between' requires 'within_ms'"
+    if _WITHIN not in entry:
+        msg = f"Check '{name}': condition 'settles_between' requires '{_WITHIN}'"
         raise ValidationError(msg)
     return (
         checks.signal(signal)
@@ -354,7 +368,7 @@ def _parse_settles_condition(
             get_number(entry, "min", _ctx(name)),
             get_number(entry, "max", _ctx(name)),
         )
-        .within(get_int(entry, "within_ms", _ctx(name)))
+        .within(get_time_bound(entry.get(_WITHIN), _WITHIN, Location(_ctx(name))))
     )
 
 
@@ -431,13 +445,13 @@ def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     if "then" not in entry:
         msg = f"Check '{name}': must have 'signal' or 'when'/'then'"
         raise ValidationError(msg)
-    if "within_ms" not in entry:
-        msg = f"Check '{name}': when/then checks require 'within_ms'"
+    if _WITHIN not in entry:
+        msg = f"Check '{name}': when/then checks require '{_WITHIN}'"
         raise ValidationError(msg)
 
     when = get_dict(entry, "when", _ctx(name))
     then = get_dict(entry, "then", _ctx(name))
-    within_ms = get_int(entry, "within_ms", _ctx(name))
+    within_us = get_time_bound(entry.get(_WITHIN), _WITHIN, Location(_ctx(name)))
 
     # Validate when clause
     when_cond = get_str(when, "condition", _ctx(name))
@@ -460,7 +474,7 @@ def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     then_builder = when_result.then(then_signal)
 
     return dispatch_then(then_builder, then_cond, _then_values(then, then_cond, name)).within(
-        within_ms
+        within_us
     )
 
 

@@ -82,7 +82,7 @@ api_speed = signal("VehicleSpeed").never_exceeds(220).to_dict()
 print(f"\n  YAML 'Speed limit' == Check API: {yaml_speed == api_speed}")
 
 yaml_brake = checks[6].to_dict()
-api_brake = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
+api_brake = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100_000).to_dict()
 print(f"  YAML 'Brake light response' == Check API: {yaml_brake == api_brake}")
 
 
@@ -104,7 +104,7 @@ Simple check:
       value: 220               # for value-based conditions
       min: 11.5                # for range-based conditions
       max: 14.5
-      within_ms: 5000          # for settles_between
+      within_us: 5000000       # for settles_between
       severity: critical       # optional
 
 When/Then check:
@@ -118,7 +118,7 @@ When/Then check:
         signal: BrakeLight
         condition: equals | exceeds | stays_between
         value: 1
-      within_ms: 100
+      within_us: 100000
       severity: safety""")
 
 

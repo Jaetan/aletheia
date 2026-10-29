@@ -62,7 +62,7 @@ extractResult result =
 
 -- | The JSON envelope of a binary-output refusal.  Mirrors kernelErrorOut in
 -- BinaryOutput.hs.
-envelope :: AgdaError.T_Error_484 -> T.Text
+envelope :: AgdaError.T_Error_486 -> T.Text
 envelope err = unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text
 
 -- | Extract (state, Either envelope bytes) from a binary-out Σ pair.

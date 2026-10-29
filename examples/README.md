@@ -83,7 +83,9 @@ The example script demonstrates three temporal properties:
 Aletheia provides a fluent Signal interface for building LTL properties:
 
 ```python
-from aletheia import Signal
+from aletheia import Signal, start_runtime
+
+start_runtime(1)
 
 # Basic predicates
 Signal("Speed").equals(0)
@@ -97,12 +99,12 @@ Signal("Speed").equals(0).eventually()  # ◇(Speed = 0)
 Signal("Speed").equals(0).never()  # □¬(Speed = 0)
 
 # Bounded temporal operators
-Signal("DoorClosed").equals(1).within(100)  # Within 100ms
+Signal("DoorClosed").equals(1).within(100_000)  # Within 100ms
 
 # Composition
 brake = Signal("BrakePressed").equals(1)
 stopped = Signal("Speed").equals(0)
-brake.implies(stopped.within(500))  # Brake → Stop within 500ms
+brake.implies(stopped.within(500_000))  # Brake → Stop within 500ms
 ```
 
 See `python/aletheia/dsl.py` for complete DSL documentation.

@@ -13,10 +13,9 @@ from fractions import Fraction
 from typing import NewType
 
 import pytest
-from _dbc_helpers import dbc, message, signal
+from _dbc_helpers import FrameNumber, dbc, extract_fd, message, signal
 
-from aletheia import AletheiaClient, Signal
-from aletheia.client._types import InputBoundExceededError
+from aletheia import AletheiaClient, InputBoundExceededError, Signal, ValidationError
 from aletheia.types import DLCCode
 
 # The statements of a DBC text after its message header, or a whole DBC text.
@@ -76,12 +75,7 @@ class TestRationalReach:
         raw = _LIMIT * 10 - 1
         assert Fraction(raw, 10).numerator > _LIMIT
         wide = signal("Wide", length=132, factor=Fraction(1, 10), maximum=_LIMIT)
-        with AletheiaClient() as client:
-            parsed = client.parse_dbc(dbc([message(0x300, "Fd", [wide], dlc=64)]))
-            assert parsed["status"] == "success", parsed
-            result = client.extract_signals(
-                can_id=0x300, dlc=DLCCode(15), data=bytearray(raw.to_bytes(64, "little"))
-            )
+        result = extract_fd(wide, FrameNumber(raw))
         assert dict(result.errors) == {"Wide": _WIRE_RANGE_MESSAGE}, dict(result.errors)
         assert not result.values
 
@@ -140,9 +134,31 @@ class TestIntegerFieldReach:
         entries = rpm["valueDescriptions"]
         assert {"value": -32768, "description": "SNA"} in entries, entries
 
+    def test_a_negative_value_table_key_loads_and_reads_back(self) -> None:
+        """A value table's key is signed too, and the client reads the table back."""
+        text = DBCText(
+            'VERSION ""\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n'
+            + 'VAL_TABLE_ Levels -1 "Below" 0 "Zero" ;\n\n'
+            + 'BO_ 256 M: 8 ECU\n SG_ S : 0|8@1- (1,0) [-128|127] "" ECU\n'
+        )
+        with AletheiaClient() as client:
+            parsed = client.parse_dbc_text(text)
+        assert parsed["status"] == "success", parsed
+        tables = parsed["dbc"]["valueTables"]
+        assert tables == [
+            {
+                "name": "Levels",
+                "entries": [
+                    {"value": -1, "description": "Below"},
+                    {"value": 0, "description": "Zero"},
+                ],
+            }
+        ], tables
 
+
+@pytest.mark.usefixtures("rts_up")
 class TestTimeBound:
-    """A time bound is microseconds, decided by the kernel against 2^64-1."""
+    """A time bound is microseconds, decided by the kernel against 2^64-1 as it is built."""
 
     def test_a_time_window_is_written_in_microseconds(self) -> None:
         """Within takes microseconds: the timebound sent is the argument itself."""
@@ -150,26 +166,19 @@ class TestTimeBound:
         assert formula["operator"] == "metricEventually", formula
         assert formula["timebound"] == 1500, formula
 
-    def test_a_negative_time_bound_is_refused_by_the_kernel(self) -> None:
-        """The client builds the property; the kernel refuses it, saying why."""
-        text = _dbc_text(DBCText(' SG_ S : 0|8@1+ (1,0) [0|255] "" ECU\n'))
-        prop = Signal("S").less_than(10).within(-1).to_dict()
-        with AletheiaClient() as client:
-            assert client.parse_dbc_text(text)["status"] == "success"
-            reply = client.set_properties([prop])
-        assert reply["status"] == "error", reply
-        assert reply["code"] == "handler_property_parse_failed", reply
-        assert reply["message"] == "SetProperties: property 0: timebound -1 is negative", reply
+    def test_a_negative_time_bound_is_refused_at_build(self) -> None:
+        """The kernel refuses the window where it is built, saying why."""
+        with pytest.raises(ValidationError) as refused:
+            Signal("S").less_than(10).within(-1)
+        assert refused.value.code == "handler_property_parse_failed"
+        assert str(refused.value) == "timebound -1 is negative"
 
-    def test_a_time_bound_past_the_timestamp_range_is_refused(self) -> None:
+    def test_a_time_bound_past_the_timestamp_range_is_refused_at_build(self) -> None:
         """2^64 microseconds is past every timestamp: refused with the time bound's own limit."""
-        text = _dbc_text(DBCText(' SG_ S : 0|8@1+ (1,0) [0|255] "" ECU\n'))
-        prop = Signal("S").less_than(10).within(2**64).to_dict()
-        with AletheiaClient() as client:
-            assert client.parse_dbc_text(text)["status"] == "success"
-            reply = client.set_properties([prop])
-        assert reply["status"] == "error", reply
-        assert reply["code"] == "input_bound_exceeded", reply
-        assert reply.get("limit") == _U64_MAX, reply
-        assert reply.get("observed") == 2**64, reply
-        assert "time bound" in reply["message"], reply
+        with pytest.raises(InputBoundExceededError) as refused:
+            Signal("S").less_than(10).within(2**64)
+        err = refused.value
+        assert (err.observed, err.limit, err.field) == (2**64, _U64_MAX, "time bound")
+        assert str(err) == (
+            f"time bound: rational component magnitude {2**64} exceeds limit {_U64_MAX}"
+        )

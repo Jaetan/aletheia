@@ -31,7 +31,7 @@ from aletheia import (
 )
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.codes import ErrorCode
-from aletheia.common_types import Gt, PositiveInt, Prose
+from aletheia.common_types import Gt, PositiveInt
 from aletheia.dbc import dbc_to_json
 from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
 from aletheia.yaml_loader import load_checks
@@ -292,14 +292,14 @@ class TestLimitsConstants:
         assert limits.BOUND_KIND_PROPERTY_COUNT == "property_count"
         assert limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE == "rational_component_magnitude"
 
-    def test_max_rational_component_magnitude_is_int64_max(self) -> None:
-        """Rational-component cap is the signed 64-bit wire range.
+    def test_max_rational_component_magnitude_is_the_128_bit_magnitude(self) -> None:
+        """Rational-component cap is the unsigned 128-bit magnitude, the sign carried apart.
 
         Mirrors ``max-rational-component-magnitude`` in ``Aletheia.Limits``:
         the same range the binary FFI's rational slots and the decimal SSOT
-        enforce, so one Int64 bound covers every wire.
+        carry, so one bound covers every wire.
         """
-        assert limits.MAX_RATIONAL_COMPONENT_MAGNITUDE == 2**63 - 1
+        assert limits.MAX_RATIONAL_COMPONENT_MAGNITUDE == 2**128 - 1
 
     def test_per_section_cardinalities(self) -> None:
         """Cardinality bounds for messages / signals / attributes / VAL_."""
@@ -614,20 +614,22 @@ class TestListCardinalityBound:
 
 
 class TestRationalComponentMagnitudeBound:
-    """Typed Int64 bound on every JSON number's rational components.
+    """Typed 128-bit bound on every JSON number's rational components.
 
     Post-parse tree bound at the ``processJSONLine`` surface (companion
     to the nesting-depth check): ``jsonMaxComponent`` measures the
     largest ``|numerator|`` / denominator of the exact rational any JSON
     number in the parsed tree denotes, and anything past
-    ``max-rational-component-magnitude``, the signed 64-bit range the
-    binary wire's rational slots and the decimal SSOT enforce, is refused
+    ``max-rational-component-magnitude``, the 128-bit magnitude the binary
+    wire's rational slots and the decimal SSOT carry, is refused
     with ``input_bound_exceeded``, so a bare JSON integer cannot carry a
     component the wire cannot represent.  ``parse_dbc`` raises the refusal,
     naming no field; ``set_properties`` returns it as its ``ErrorResponse``.
 
     Boundary pinned tight from both sides: the refusal cases sit exactly
-    one past the limit, the acceptance cases exactly at it.
+    one past the limit, the acceptance cases exactly at it.  The limit is the
+    largest ``observed`` a refusal reports, so every refusal reports the
+    limit and its message names no number.
     """
 
     _LIMIT = limits.MAX_RATIONAL_COMPONENT_MAGNITUDE
@@ -643,75 +645,51 @@ class TestRationalComponentMagnitudeBound:
         assert r["status"] == "error", r
         assert r["code"] == "input_bound_exceeded", r
         assert r.get("bound_kind") == limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE, r
-        assert r.get("observed") == self._LIMIT + 1, r
+        assert r.get("observed") == self._LIMIT, r
         assert r.get("limit") == self._LIMIT, r
 
-    # The largest `observed` a refusal reports, `observed-ceiling` in Aletheia.Limits.
-    _CEILING = 2**64 - 1
-
-    def _assert_parse_dbc_reports(
-        self, factor: Fraction, observed: PositiveInt, shown: Prose
-    ) -> None:
-        """Assert ``parse_dbc`` refuses ``factor`` reporting ``observed``, printed as ``shown``."""
+    def _assert_parse_dbc_refuses(self, factor: Fraction) -> None:
+        """Assert ``parse_dbc`` refuses ``factor``, reporting the limit and naming no field."""
         with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
             client.parse_dbc(self._factor_dbc(factor))
         err = exc_info.value
         assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
             limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
-            observed,
+            self._LIMIT,
             self._LIMIT,
             None,
             "input_bound_exceeded",
-            f"rational component magnitude {shown} exceeds limit {self._LIMIT}",
+            f"rational component magnitude exceeds limit {self._LIMIT}",
         )
 
-    def _assert_parse_dbc_refuses(self, factor: Fraction) -> None:
-        """Assert ``parse_dbc`` refuses a factor one past the bound, naming no field."""
-        past = self._LIMIT + 1
-        self._assert_parse_dbc_reports(factor, past, Prose(str(past)))
-
-    def test_parse_dbc_component_one_past_int64_refused(self) -> None:
-        """A factor numerator one past Int64 max refuses with the triple."""
+    def test_parse_dbc_component_one_past_the_bound_refused(self) -> None:
+        """A factor numerator one past the bound refuses with the triple."""
         self._assert_parse_dbc_refuses(Fraction(self._LIMIT + 1))
-
-    def test_parse_dbc_component_at_the_ceiling_reported_as_it_is(self) -> None:
-        """A component of 2^64 - 1, the largest value a refusal reports, is reported exactly."""
-        self._assert_parse_dbc_reports(
-            Fraction(self._CEILING), self._CEILING, Prose(str(self._CEILING))
-        )
 
     @pytest.mark.parametrize(
         "factor",
-        [Fraction(2**64), Fraction(10**3999)],
-        ids=["two-to-the-64", "four-thousand-digits"],
+        [Fraction(2**129), Fraction(10**3999)],
+        ids=["two-to-the-129", "four-thousand-digits"],
     )
-    def test_parse_dbc_component_past_the_ceiling_reported_as_at_least(
-        self, factor: Fraction
-    ) -> None:
-        """A component past 2^64 - 1 is reported as the ceiling, "at least" in the message."""
-        self._assert_parse_dbc_reports(factor, self._CEILING, Prose(f"at least {self._CEILING}"))
+    def test_parse_dbc_component_far_past_the_bound_refused_alike(self, factor: Fraction) -> None:
+        """A component far past the bound is reported as one just past it."""
+        self._assert_parse_dbc_refuses(factor)
 
-    def test_parse_dbc_component_at_int64_max_accepted(self) -> None:
-        """The same position exactly at Int64 max is accepted (tightness)."""
+    def test_parse_dbc_component_at_the_bound_accepted(self) -> None:
+        """The same position exactly at the bound is accepted (tightness)."""
         with AletheiaClient() as client:
             r = client.parse_dbc(self._factor_dbc(Fraction(self._LIMIT)))
             assert r["status"] == "success", r
 
     def test_parse_dbc_negative_component_at_magnitude_refused(self) -> None:
-        """Numerator −2⁶³ is refused: the limit is symmetric in magnitude.
-
-        The single Int64 value with magnitude one past the positive cap
-        would fit the binary wire's two's-complement slot, but the kernel
-        keeps ONE symmetric magnitude limit so the structured
-        ``observed`` / ``limit`` pair stays a plain magnitude comparison.
-        """
+        """Numerator −2¹²⁸ is refused: the limit bounds the magnitude, the sign carried apart."""
         self._assert_parse_dbc_refuses(Fraction(-(self._LIMIT + 1)))
 
     def test_set_properties_bare_integer_one_past_refused(self) -> None:
         """The bound covers every command surface, not just ``parseDBC``.
 
         A bare-integer predicate value in ``setProperties`` is a rational
-        position on the JSON wire; one past Int64 max refuses with the
+        position on the JSON wire; one past the bound refuses with the
         same typed envelope.
         """
         over = cast(
@@ -730,7 +708,7 @@ class TestRationalComponentMagnitudeBound:
             self._assert_bound_refusal(client.set_properties([over]))
 
     def test_set_properties_bare_integer_at_max_accepted(self) -> None:
-        """The same predicate value exactly at Int64 max is accepted."""
+        """The same predicate value exactly at the bound is accepted."""
         at = cast(
             "LTLFormula",
             {

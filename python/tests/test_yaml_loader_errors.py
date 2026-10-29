@@ -139,23 +139,23 @@ class TestSimpleCheckErrors:
         """Reject settles_between with 'min' but no 'max' (the and/or guard)."""
         body = (
             "checks:\n  - name: C\n    signal: S\n    condition: settles_between\n"
-            "    min: 1\n    within_ms: 10"
+            "    min: 1\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': condition 'settles_between' requires 'min' and 'max'"
 
-    def test_settles_requires_within_ms(self) -> None:
-        """Reject settles_between without 'within_ms'."""
+    def test_settles_requires_within_us(self) -> None:
+        """Reject settles_between without 'within_us'."""
         body = (
             "checks:\n  - name: C\n    signal: S\n    condition: settles_between\n"
             "    min: 1\n    max: 2"
         )
-        assert _err(body) == "Check 'C': condition 'settles_between' requires 'within_ms'"
+        assert _err(body) == "Check 'C': condition 'settles_between' requires 'within_us'"
 
     def test_settles_min_not_a_number(self) -> None:
         """Reject settles_between with a non-numeric 'min'."""
         body = (
             "checks:\n  - name: C\n    signal: S\n    condition: settles_between\n"
-            "    min: abc\n    max: 2\n    within_ms: 10"
+            "    min: abc\n    max: 2\n    within_us: 10"
         )
         assert _err(body).startswith("Check 'C': invalid 'min':")
 
@@ -163,17 +163,17 @@ class TestSimpleCheckErrors:
         """Reject settles_between with a non-numeric 'max'."""
         body = (
             "checks:\n  - name: C\n    signal: S\n    condition: settles_between\n"
-            "    min: 1\n    max: abc\n    within_ms: 10"
+            "    min: 1\n    max: abc\n    within_us: 10"
         )
         assert _err(body).startswith("Check 'C': invalid 'max':")
 
-    def test_settles_within_ms_not_an_int(self) -> None:
-        """Reject settles_between with a non-integer 'within_ms'."""
+    def test_settles_within_us_not_a_number(self) -> None:
+        """Reject settles_between with a non-number 'within_us'."""
         body = (
             "checks:\n  - name: C\n    signal: S\n    condition: settles_between\n"
-            "    min: 1\n    max: 2\n    within_ms: abc"
+            "    min: 1\n    max: 2\n    within_us: abc"
         )
-        assert _err(body).startswith("Check 'C': invalid 'within_ms':")
+        assert _err(body).startswith("Check 'C': invalid 'within_us':")
 
     def test_equals_requires_value(self) -> None:
         """Reject equals without 'value' (naming the condition)."""
@@ -192,19 +192,19 @@ class TestSimpleCheckErrors:
 class TestWhenThenCheckErrors:
     """_parse_when_then_check validation branches."""
 
-    def test_within_ms_not_an_int(self) -> None:
-        """Reject a when/then check with a non-integer 'within_ms'."""
+    def test_within_us_not_a_number(self) -> None:
+        """Reject a when/then check with a non-number 'within_us'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: equals, signal: B, value: 2}\n    within_ms: abc"
+            "    then: {condition: equals, signal: B, value: 2}\n    within_us: abc"
         )
-        assert _err(body).startswith("Check 'C': invalid 'within_ms':")
+        assert _err(body).startswith("Check 'C': invalid 'within_us':")
 
     def test_when_not_a_mapping(self) -> None:
         """Reject a when/then check with a non-mapping 'when'."""
         body = (
             "checks:\n  - name: C\n    when: 5\n"
-            "    then: {condition: equals, signal: B, value: 2}\n    within_ms: 10"
+            "    then: {condition: equals, signal: B, value: 2}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': missing or invalid 'when' (expected mapping)"
 
@@ -212,7 +212,7 @@ class TestWhenThenCheckErrors:
         """Reject a when/then check with a non-mapping 'then'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: 5\n    within_ms: 10"
+            "    then: 5\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': missing or invalid 'then' (expected mapping)"
 
@@ -220,7 +220,7 @@ class TestWhenThenCheckErrors:
         """Reject a when clause without 'condition'."""
         body = (
             "checks:\n  - name: C\n    when: {signal: A, value: 1}\n"
-            "    then: {condition: equals, signal: B, value: 2}\n    within_ms: 10"
+            "    then: {condition: equals, signal: B, value: 2}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': missing or invalid 'condition' (expected string)"
 
@@ -228,7 +228,7 @@ class TestWhenThenCheckErrors:
         """Reject a when clause with an unrecognized condition."""
         body = (
             "checks:\n  - name: C\n    when: {condition: bogus, signal: A, value: 1}\n"
-            "    then: {condition: equals, signal: B, value: 2}\n    within_ms: 10"
+            "    then: {condition: equals, signal: B, value: 2}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': unknown when condition 'bogus'"
 
@@ -236,7 +236,7 @@ class TestWhenThenCheckErrors:
         """Reject a when clause without 'signal'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, value: 1}\n"
-            "    then: {condition: equals, signal: B, value: 2}\n    within_ms: 10"
+            "    then: {condition: equals, signal: B, value: 2}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': missing or invalid 'signal' (expected string)"
 
@@ -244,7 +244,7 @@ class TestWhenThenCheckErrors:
         """Reject a when clause with a non-numeric 'value'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: abc}\n"
-            "    then: {condition: equals, signal: B, value: 2}\n    within_ms: 10"
+            "    then: {condition: equals, signal: B, value: 2}\n    within_us: 10"
         )
         assert _err(body).startswith("Check 'C': invalid 'value':")
 
@@ -252,7 +252,7 @@ class TestWhenThenCheckErrors:
         """Reject a then clause without 'condition'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {signal: B, value: 2}\n    within_ms: 10"
+            "    then: {signal: B, value: 2}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': missing or invalid 'condition' (expected string)"
 
@@ -260,7 +260,7 @@ class TestWhenThenCheckErrors:
         """Reject a then clause with an unrecognized condition."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: bogus, signal: B, value: 2}\n    within_ms: 10"
+            "    then: {condition: bogus, signal: B, value: 2}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': unknown then condition 'bogus'"
 
@@ -268,7 +268,7 @@ class TestWhenThenCheckErrors:
         """Reject a then clause without 'signal'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: equals, value: 2}\n    within_ms: 10"
+            "    then: {condition: equals, value: 2}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': missing or invalid 'signal' (expected string)"
 
@@ -276,7 +276,7 @@ class TestWhenThenCheckErrors:
         """Reject a then 'equals' clause with a non-numeric 'value'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: equals, signal: B, value: abc}\n    within_ms: 10"
+            "    then: {condition: equals, signal: B, value: abc}\n    within_us: 10"
         )
         assert _err(body).startswith("Check 'C': invalid 'value':")
 
@@ -284,7 +284,7 @@ class TestWhenThenCheckErrors:
         """Reject a then 'exceeds' clause with a non-numeric 'value'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: exceeds, signal: B, value: abc}\n    within_ms: 10"
+            "    then: {condition: exceeds, signal: B, value: abc}\n    within_us: 10"
         )
         assert _err(body).startswith("Check 'C': invalid 'value':")
 
@@ -292,7 +292,7 @@ class TestWhenThenCheckErrors:
         """Reject a then 'stays_between' clause without 'min'/'max'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: stays_between, signal: B}\n    within_ms: 10"
+            "    then: {condition: stays_between, signal: B}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': then condition 'stays_between' requires 'min' and 'max'"
 
@@ -300,7 +300,7 @@ class TestWhenThenCheckErrors:
         """Reject a then 'stays_between' with 'min' but no 'max' (the and/or guard)."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: stays_between, signal: B, min: 1}\n    within_ms: 10"
+            "    then: {condition: stays_between, signal: B, min: 1}\n    within_us: 10"
         )
         assert _err(body) == "Check 'C': then condition 'stays_between' requires 'min' and 'max'"
 
@@ -308,7 +308,7 @@ class TestWhenThenCheckErrors:
         """Reject a then 'stays_between' clause with a non-numeric 'min'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: stays_between, signal: B, min: abc, max: 1}\n    within_ms: 10"
+            "    then: {condition: stays_between, signal: B, min: abc, max: 1}\n    within_us: 10"
         )
         assert _err(body).startswith("Check 'C': invalid 'min':")
 
@@ -316,6 +316,6 @@ class TestWhenThenCheckErrors:
         """Reject a then 'stays_between' clause with a non-numeric 'max'."""
         body = (
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
-            "    then: {condition: stays_between, signal: B, min: 1, max: abc}\n    within_ms: 10"
+            "    then: {condition: stays_between, signal: B, min: 1, max: abc}\n    within_us: 10"
         )
         assert _err(body).startswith("Check 'C': invalid 'max':")

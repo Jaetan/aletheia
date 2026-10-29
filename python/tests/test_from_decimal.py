@@ -44,7 +44,13 @@ from aletheia import (
     ValidationError,
     from_decimal,
 )
-from aletheia.client._ffi import AletheiaDecimal, AletheiaRational
+from aletheia.client._ffi import (
+    AletheiaDecimal,
+    AletheiaRational,
+    Magnitude,
+    wire_rational,
+    wire_uint128,
+)
 from aletheia.client._helpers.rational import decimal_value
 from aletheia.codes import ErrorCode
 from aletheia.limits import (
@@ -162,21 +168,28 @@ def test_from_decimal_failure_without_an_envelope_is_a_protocol_error() -> None:
     assert exc_info.value.code is None
 
 
-@pytest.mark.parametrize(
-    "rational",
-    [AletheiaRational(numerator=1, denominator=0), AletheiaRational(numerator=1, denominator=-1)],
-    ids=["zero", "negative"],
-)
-def test_decimal_value_refuses_a_non_positive_denominator(rational: AletheiaRational) -> None:
+def test_decimal_value_refuses_a_zero_denominator() -> None:
     """A rational the kernel never answers is a wire fault, worded as Go, C++ and Rust word it."""
-    with pytest.raises(ProtocolError) as exc_info:
-        _ = decimal_value(AletheiaDecimal(value=rational))
-    assert str(exc_info.value) == (
-        f"aletheia_parse_decimal answered a non-positive denominator {rational.denominator}"
+    zero = AletheiaRational(
+        numerator=wire_uint128(Magnitude(1)), denominator=wire_uint128(Magnitude(0))
     )
+    with pytest.raises(ProtocolError) as exc_info:
+        _ = decimal_value(AletheiaDecimal(value=zero))
+    assert str(exc_info.value) == "aletheia_parse_decimal answered a zero denominator"
 
 
-def test_decimal_value_reads_the_answered_rational() -> None:
-    """A positive denominator is the kernel's answer, read as the exact fraction."""
-    out = AletheiaDecimal(value=AletheiaRational(numerator=-157, denominator=50))
-    assert decimal_value(out) == Fraction(-157, 50)
+@pytest.mark.parametrize(
+    "value",
+    [Fraction(-157, 50), Fraction(2**128 - 1), Fraction(-1, 2**128 - 1), Fraction(0)],
+    ids=["negative", "widest", "widest-denominator", "zero"],
+)
+def test_decimal_value_reads_the_answered_rational(value: Fraction) -> None:
+    """The sign and both 128-bit magnitudes are the kernel's answer, read as the exact fraction."""
+    assert decimal_value(AletheiaDecimal(value=wire_rational(value))) == value
+
+
+def test_decimal_value_reads_any_sign_byte_but_zero_as_negative() -> None:
+    """The header reads any byte but 0 as negative, and so does the binding."""
+    rational = wire_rational(Fraction(3, 4))
+    rational.negative = 2
+    assert decimal_value(AletheiaDecimal(value=rational)) == Fraction(-3, 4)

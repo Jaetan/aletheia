@@ -7,10 +7,11 @@ they produce identical LTL formulas:
 
     Excel -> YAML -> Check API -> DSL -> same verified Agda core
 
-Decimals are exact `Fraction`s in code, and the YAML/Excel loaders parse every
+Decimals are exact `Fraction`s in code, the YAML/Excel loaders parse every
 number of a check via the verified Agda kernel (the float principle: never a lossy
-float), so a live client must be up while loading, hence the `with AletheiaClient()`
-blocks. Build the library first: `cabal run shake -- build`.
+float), and the kernel checks every check as it is built, so the demo starts the
+kernel's runtime before its first check. Build the library first:
+`cabal run shake -- build`.
 """
 
 # Standalone teaching demos intentionally repeat small setup/teardown
@@ -29,14 +30,17 @@ from aletheia import (
     Signal,
     load_checks,
     load_checks_from_excel,
+    start_runtime,
 )
 from aletheia.checks import signal, when
 from aletheia.types import dump_json
 
+start_runtime(1)
+
 # The 3 checks:
 #   1. VehicleSpeed never_exceeds 220
 #   2. BatteryVoltage stays_between 11.5, 14.5
-#   3. BrakePedal > 50 => BrakeLight = 1 within 100ms
+#   3. BrakePedal > 50 => BrakeLight = 1 within 100 ms (100000 µs)
 
 CHECKS_HEADERS = [
     "Check Name",
@@ -45,7 +49,7 @@ CHECKS_HEADERS = [
     "Value",
     "Min",
     "Max",
-    "Time (ms)",
+    "Time (µs)",
     "Severity",
 ]
 WHEN_THEN_HEADERS = [
@@ -58,7 +62,7 @@ WHEN_THEN_HEADERS = [
     "Then Value",
     "Then Min",
     "Then Max",
-    "Within (ms)",
+    "Within (µs)",
     "Severity",
 ]
 
@@ -76,7 +80,7 @@ dsl_2 = Signal("BatteryVoltage").between(Fraction("11.5"), Fraction("14.5")).alw
 dsl_3 = (
     Signal("BrakePedal")
     .greater_than(50)
-    .implies(Signal("BrakeLight").equals(1).within(100))
+    .implies(Signal("BrakeLight").equals(1).within(100_000))
     .always()
     .to_dict()
 )
@@ -84,7 +88,7 @@ dsl_3 = (
 print("\n  Signal('VehicleSpeed').less_than_or_equal(220).always()")
 print("  Signal('BatteryVoltage').between(11.5, 14.5).always()")
 print("  Signal('BrakePedal').greater_than(50)")
-print("      .implies(Signal('BrakeLight').equals(1).within(100)).always()")
+print("      .implies(Signal('BrakeLight').equals(1).within(100_000)).always()")
 
 
 # =============================================================================
@@ -97,12 +101,12 @@ print("=" * 60)
 
 api_1 = signal("VehicleSpeed").never_exceeds(220).to_dict()
 api_2 = signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5")).to_dict()
-api_3 = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
+api_3 = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100_000).to_dict()
 
 print("\n  signal('VehicleSpeed').never_exceeds(220)")
 print("  signal('BatteryVoltage').stays_between(11.5, 14.5)")
 print("  when('BrakePedal').exceeds(50)")
-print("      .then('BrakeLight').equals(1).within(100)")
+print("      .then('BrakeLight').equals(1).within(100_000)")
 
 
 # =============================================================================
@@ -132,7 +136,7 @@ checks:
       signal: BrakeLight
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
 """
 
 # Loading parses the YAML's numbers via the verified kernel (RTS-gated).
@@ -168,7 +172,19 @@ with tempfile.TemporaryDirectory() as tmpdir:
     ws_wt = wb.create_sheet("When-Then")
     ws_wt.append(WHEN_THEN_HEADERS)
     ws_wt.append(
-        [None, "BrakePedal", "exceeds", "50", "BrakeLight", "equals", "1", None, None, "100", None]
+        [
+            None,
+            "BrakePedal",
+            "exceeds",
+            "50",
+            "BrakeLight",
+            "equals",
+            "1",
+            None,
+            None,
+            "100000",
+            None,
+        ]
     )
 
     xlsx_path = Path(tmpdir) / "checks.xlsx"
@@ -182,7 +198,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
 print("\n  Checks sheet:    | VehicleSpeed | never_exceeds | 220 |")
 print("                   | BatteryVoltage | stays_between | | 11.5 | 14.5 |")
-print("  When-Then sheet: | BrakePedal | exceeds | 50 | BrakeLight | equals | 1 | 100ms |")
+print("  When-Then sheet: | BrakePedal | exceeds | 50 | BrakeLight | equals | 1 | 100000 |")
 
 
 # =============================================================================
@@ -207,7 +223,7 @@ print(f"     DSL == Check API == YAML == Excel: {match_2}")
 
 match_3 = dsl_3 == api_3 == yaml_3 == excel_3
 all_pass = all_pass and match_3
-print("\n  3. BrakePedal > 50 => BrakeLight = 1 within 100ms")
+print("\n  3. BrakePedal > 50 => BrakeLight = 1 within 100 ms")
 print(f"     DSL == Check API == YAML == Excel: {match_3}")
 
 print("\n  Shared formula:")

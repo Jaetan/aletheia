@@ -31,7 +31,7 @@ checks:
     condition: settles_between
     min: 80
     max: 100
-    within_ms: 5000
+    within_us: 5000000
     severity: info
 
   - name: "Fault code exclusion"
@@ -63,7 +63,7 @@ checks:
       signal: BrakeLight
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
     severity: safety
 
   - name: "Engine start response"
@@ -75,7 +75,7 @@ checks:
       signal: EngineRPM
       condition: exceeds
       value: 500
-    within_ms: 2000
+    within_us: 2000000
     severity: warning
 
   - name: "Fuel warning activation"
@@ -88,5 +88,5 @@ checks:
       condition: stays_between
       min: 1
       max: 1
-    within_ms: 50
+    within_us: 50000
     severity: info

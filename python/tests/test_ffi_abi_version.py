@@ -26,7 +26,7 @@ _SHIM = Path(__file__).resolve().parents[2] / "haskell-shim"
 def test_the_binding_version_is_the_header_s() -> None:
     """``ABI_VERSION`` is the ``ALETHEIA_ABI_VERSION`` the header defines."""
     header = (_SHIM / "include" / "aletheia.h").read_text(encoding="utf-8")
-    match = re.search(r"enum \{ ALETHEIA_ABI_VERSION = (\d+) \};", header)
+    match = re.search(r"constexpr uint32_t ALETHEIA_ABI_VERSION = (\d+);", header)
     assert match is not None
     assert int(match[1]) == ABI_VERSION
 

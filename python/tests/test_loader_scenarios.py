@@ -3,8 +3,8 @@
 """The Python YAML and Excel loaders held to the contract ``docs/LOADER_SCENARIOS.yaml``.
 
 Each scenario spells one number in a YAML check document or in an Excel row and
-states what the loader answers: the exact rational it reads (the milliseconds,
-for a ``within_ms``), or the kernel's refusal, which keeps the kernel's kind,
+states what the loader answers: the exact rational it reads (the microseconds,
+for a ``within_us``), or the kernel's refusal, which keeps the kernel's kind,
 code and fields and gains the location the loader read the number at and the
 key it sat under, its string form being
 ``<location>: invalid '<key>': <message>``.  The Go, C++ and Rust loaders are
@@ -52,8 +52,8 @@ NumberText = NewType("NumberText", str)
 # The numerator or the denominator of the rational a loader reads.
 Component = NewType("Component", int)
 
-# The time bound a loader reads from ``within_ms``, in milliseconds.
-Milliseconds = NewType("Milliseconds", int)
+# The time bound a loader reads from ``within_us``, in microseconds.
+Microseconds = NewType("Microseconds", int)
 
 # The kinds of refusal the contract names.
 type RefusalKind = Literal["validation", "input_bound_exceeded"]
@@ -69,9 +69,9 @@ class Reading(TypedDict):
 
 
 class TimeReading(TypedDict):
-    """The time bound a loader reads from ``within_ms``."""
+    """The time bound a loader reads from ``within_us``."""
 
-    milliseconds: Milliseconds
+    microseconds: Microseconds
 
 
 class Bound(TypedDict):
@@ -103,7 +103,7 @@ class YamlScenario(TypedDict):
 
 
 class WithinScenario(TypedDict):
-    """A number written as the ``within_ms`` of the contract's one settles_between check."""
+    """A number written as the ``within_us`` of the contract's one settles_between check."""
 
     name: ScenarioName
     value: NumberText
@@ -120,10 +120,10 @@ class ExcelScenario(TypedDict):
 
 
 class LoaderContract(TypedDict):
-    """The contract file: its YAML scenarios, its ``within_ms`` ones and its Excel ones."""
+    """The contract file: its YAML scenarios, its ``within_us`` ones and its Excel ones."""
 
     yaml: list[YamlScenario]
-    yaml_within_ms: list[WithinScenario]
+    yaml_within_us: list[WithinScenario]
     excel: list[ExcelScenario]
 
 
@@ -131,7 +131,7 @@ def _read_contract() -> LoaderContract:
     """Return the contract file as the YAML reader gives it.
 
     A section without a row, or a row whose ``expect`` gives other than one
-    answer (a rational, milliseconds or a refusal), is a mistake in the
+    answer (a rational, microseconds or a refusal), is a mistake in the
     contract, refused here rather than read as a skipped test or as one of its
     answers.
     """
@@ -139,13 +139,13 @@ def _read_contract() -> LoaderContract:
         contract = cast("LoaderContract", yaml.safe_load(fh))
     sections = (
         ("yaml", contract["yaml"]),
-        ("yaml_within_ms", contract["yaml_within_ms"]),
+        ("yaml_within_us", contract["yaml_within_us"]),
         ("excel", contract["excel"]),
     )
     for section, rows in sections:
         assert rows, f"{_CONTRACT_PATH}: no {section} scenarios"
         for row in rows:
-            answers = [key for key in ("rational", "milliseconds", "kind") if key in row["expect"]]
+            answers = [key for key in ("rational", "microseconds", "kind") if key in row["expect"]]
             assert len(answers) == 1, (
                 f"scenario {row['name']}: the contract's expect gives {answers}"
             )
@@ -163,7 +163,7 @@ checks:
     value: {value}
 """
 
-# The check document of a ``within_ms`` scenario, its number in the ``within_ms`` key.
+# The check document of a ``within_us`` scenario, its number in the ``within_us`` key.
 _WITHIN_DOCUMENT: Final = """\
 checks:
   - name: "C"
@@ -171,7 +171,7 @@ checks:
     condition: settles_between
     min: 0
     max: 100
-    within_ms: {value}
+    within_us: {value}
 """
 
 
@@ -219,8 +219,8 @@ def _factor(expect: Reading) -> list[Fraction]:
 
 
 def _settles_within(expect: TimeReading) -> list[LTLFormula]:
-    """Return the formula of the one check a ``within_ms`` document holds, at the bound read."""
-    return [signal("Speed").settles_between(0, 100).within(expect["milliseconds"]).to_dict()]
+    """Return the formula of the one check a ``within_us`` document holds, at the bound read."""
+    return [signal("Speed").settles_between(0, 100).within(expect["microseconds"]).to_dict()]
 
 
 def _refused(expect: Reading | TimeReading | Refusal) -> TypeIs[Refusal]:
@@ -287,15 +287,15 @@ def test_yaml_loader_answers_the_contract(scenario: YamlScenario, tmp_path: Path
 
 @pytest.mark.parametrize(
     "scenario",
-    _CONTRACT["yaml_within_ms"],
-    ids=[row["name"] for row in _CONTRACT["yaml_within_ms"]],
+    _CONTRACT["yaml_within_us"],
+    ids=[row["name"] for row in _CONTRACT["yaml_within_us"]],
 )
-def test_yaml_within_ms_answers_the_contract(scenario: WithinScenario, tmp_path: Path) -> None:
-    """The ``within_ms`` reads as the scenario's milliseconds, or is refused as it states."""
+def test_yaml_within_us_answers_the_contract(scenario: WithinScenario, tmp_path: Path) -> None:
+    """The ``within_us`` reads as the scenario's microseconds, or is refused as it states."""
     path = tmp_path / "checks.yaml"
     path.write_text(_WITHIN_DOCUMENT.format(value=scenario["value"]), encoding="utf-8")
     expect = scenario["expect"]
-    want = _settles_within(expect) if "milliseconds" in expect else None
+    want = _settles_within(expect) if "microseconds" in expect else None
     _hold(scenario["name"], expect, path, _yaml_formulas, want)
 
 

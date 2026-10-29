@@ -140,7 +140,7 @@ start_runtime(1)  # the kernel reads every number of the checks, so its runtime 
 
 # Check API — industry vocabulary
 checks.signal("Speed").never_exceeds(220)
-checks.when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100)
+checks.when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100_000)
 
 # YAML — declarative config files
 check_list = load_checks(Path("checks.yaml"))  # a str is read as YAML text

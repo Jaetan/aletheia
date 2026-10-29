@@ -9,8 +9,10 @@ temporal logic.
 Usage:
 
 ```python
-from aletheia import AletheiaClient, from_decimal
+from aletheia import AletheiaClient, from_decimal, start_runtime
 from aletheia.checks import signal, when
+
+start_runtime(1)
 
 # Simple signal bounds
 signal("Speed").never_exceeds(220)
@@ -19,7 +21,7 @@ with AletheiaClient():
     signal("Voltage").stays_between(from_decimal("11.5"), from_decimal("14.5"))
 
 # Causal / response checks
-when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100_000)
 ```
 
 Every check compiles to the same LTL Property used by the DSL layer.
@@ -32,12 +34,10 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from aletheia.client._enrichment import format_rational
-from aletheia.client._types import ValidationError
 from aletheia.dsl import (
     Predicate,
     Property,
     Signal,
-    require_non_negative_time_ms,
     to_predicate_fraction,
 )
 
@@ -45,27 +45,17 @@ if TYPE_CHECKING:
     from aletheia.types import LTLFormula
 
 
-def _require_lo_le_hi(lo: int | Fraction, hi: int | Fraction, method_name: str) -> None:
-    """Reject inverted intervals in two-bound check builders.
-
-    Raises:
-        ValidationError: When *lo* exceeds *hi*.
-
-    """
-    if lo > hi:
-        msg = f"{method_name}: lo must be <= hi"
-        raise ValidationError(msg)
-
-
 # One piece of a check's deferred condition description.  Literal text (``str``)
 # is fixed when the check is built; a threshold (``Fraction``) is rendered lazily
 # at ``CheckResult.condition_desc`` read-time via the kernel ``formatℚ`` (the SSOT
 # renderer, ``aletheia.client._enrichment.format_rational``).  Deferring keeps
-# check *construction* infallible: only reading the description can surface an
-# ``FFIError`` (the renderer needs the GHC runtime up), so the fluent builder
-# chain (``when().then().equals().within()``) never raises mid-chain.  Mirrors
-# Rust's ``DescPart`` (check.rs) and C++'s ``detail::DescPart`` (check.hpp).
+# rendering out of construction: a builder raises only the kernel's refusal of
+# the check it built.  Mirrors Rust's ``DescPart`` (check.rs) and C++'s
+# ``detail::DescPart`` (check.hpp).
 type _DescPart = str | Fraction
+
+# A check's time window as its description ends it: the microseconds as given.
+_WITHIN_DESC = " within {}µs"
 
 
 def _op_desc(op: str, value: int | Fraction) -> tuple[_DescPart, ...]:
@@ -116,8 +106,9 @@ class CheckResult:
     ``condition_desc`` is a *lazy* property, not a stored field: its rational
     thresholds are rendered on read via the kernel ``formatℚ`` (cross-binding-
     identical with Go / C++ / Rust), so reading it needs the GHC runtime up
-    and raises ``FFIError`` while it is down.  Check *construction* stays
-    infallible — the structured parts are captured eagerly in ``_desc_parts``.
+    and raises ``FFIError`` while it is down.  Check *construction* raises only
+    the kernel's refusal of the check it built; the structured parts are
+    captured eagerly in ``_desc_parts``.
     """
 
     _property: Property
@@ -192,29 +183,31 @@ class CheckSignalPredicate:  # pylint: disable=too-few-public-methods
 
 
 class SettlesBuilder:  # pylint: disable=too-few-public-methods
-    """Intermediate for ``settles_between(lo, hi).within(ms)``."""
+    """Intermediate for ``settles_between(lo, hi).within(us)``."""
 
     def __init__(self, signal_name: str, lo: int | Fraction, hi: int | Fraction) -> None:
-        """Capture the signal name and the (lo, hi) bound pair."""
+        """Capture the signal name and the range, refused by the kernel if it cannot hold."""
         self._signal_name = signal_name
         self._lo = lo
         self._hi = hi
+        self._between = Signal(signal_name).between(lo, hi)
 
-    def within(self, time_ms: int) -> CheckResult:
-        """Signal must settle between *lo* and *hi* within *time_ms* ms.
+    def within(self, time_us: int) -> CheckResult:
+        """Signal must settle between *lo* and *hi* within *time_us* microseconds.
 
-        Compiles to ``Signal(s).between(lo, hi).for_at_least(time_ms)``.
+        Compiles to ``Signal(s).between(lo, hi).for_at_least(time_us)``.
 
         Raises:
-            ValidationError: ``time_ms`` is negative.
+            ValidationError: the kernel refused the time bound (``time_us`` is
+                negative), its text the kernel's reason.
+            InputBoundExceededError: ``time_us`` is past 2^64-1.
 
         """
-        require_non_negative_time_ms(time_ms)
-        prop = Signal(self._signal_name).between(self._lo, self._hi).for_at_least(time_ms)
+        prop = self._between.for_at_least(time_us)
         return CheckResult(
             _property=prop,
             signal_name=self._signal_name,
-            _desc_parts=(*_between_desc(self._lo, self._hi), f" within {time_ms}ms"),
+            _desc_parts=(*_between_desc(self._lo, self._hi), _WITHIN_DESC.format(time_us)),
         )
 
 
@@ -252,7 +245,6 @@ class CheckSignal:
 
     def stays_between(self, lo: int | Fraction, hi: int | Fraction) -> CheckResult:
         """``Signal(s).between(lo, hi).always()`` — G(lo <= s <= hi)."""
-        _require_lo_le_hi(lo, hi, "stays_between")
         prop = Signal(self._name).between(lo, hi).always()
         return CheckResult(
             _property=prop,
@@ -277,8 +269,7 @@ class CheckSignal:
         return CheckSignalPredicate(prop, self._name, _op_desc("= ", value))
 
     def settles_between(self, lo: int | Fraction, hi: int | Fraction) -> SettlesBuilder:
-        """Begin a ``settles_between(lo, hi).within(ms)`` chain."""
-        _require_lo_le_hi(lo, hi, "settles_between")
+        """Begin a ``settles_between(lo, hi).within(us)`` chain."""
         return SettlesBuilder(self._name, lo, hi)
 
 
@@ -288,7 +279,7 @@ class CheckSignal:
 
 
 class ThenCondition:  # pylint: disable=too-few-public-methods
-    """Holds trigger + then predicates; needs ``.within(ms)`` to finish."""
+    """Holds trigger + then predicates; needs ``.within(us)`` to finish."""
 
     def __init__(
         self,
@@ -303,11 +294,10 @@ class ThenCondition:  # pylint: disable=too-few-public-methods
         self._then_signal = then_signal
         self._then_desc = then_desc
 
-    def within(self, time_ms: int) -> CheckResult:
-        """``G(trigger → F≤t(then_predicate))``."""
-        require_non_negative_time_ms(time_ms)
-        prop = self._trigger.implies(self._then_pred.within(time_ms)).always()
-        desc = (*self._then_desc, f" within {time_ms}ms") if self._then_desc else ()
+    def within(self, time_us: int) -> CheckResult:
+        """``G(trigger → F≤t(then_predicate))``, *t* in microseconds."""
+        prop = self._trigger.implies(self._then_pred.within(time_us)).always()
+        desc = (*self._then_desc, _WITHIN_DESC.format(time_us)) if self._then_desc else ()
         return CheckResult(
             _property=prop,
             signal_name=self._then_signal,
@@ -335,7 +325,6 @@ class ThenSignal:
 
     def stays_between(self, lo: int | Fraction, hi: int | Fraction) -> ThenCondition:
         """Then-signal stays between *lo* and *hi*."""
-        _require_lo_le_hi(lo, hi, "stays_between")
         pred = Signal(self._then_name).between(lo, hi)
         return ThenCondition(
             self._trigger,
@@ -391,6 +380,9 @@ def signal(name: str) -> CheckSignal:
     Example:
     ```python
     from aletheia.checks import signal
+    from aletheia import start_runtime
+
+    start_runtime(1)
     signal("Speed").never_exceeds(220)
     ```
 
@@ -404,7 +396,10 @@ def when(signal_name: str) -> WhenSignal:
     Example:
     ```python
     from aletheia.checks import when
-    when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+    from aletheia import start_runtime
+
+    start_runtime(1)
+    when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100_000)
     ```
 
     """

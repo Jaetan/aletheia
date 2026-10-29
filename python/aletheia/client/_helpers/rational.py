@@ -6,17 +6,29 @@ from __future__ import annotations
 
 import ctypes
 from fractions import Fraction
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, NewType, TypeGuard
 
 from aletheia.client._ffi import (
     AletheiaDecimal,
     AletheiaText,
+    AletheiaTimeBound,
     started_library,
     take_error_envelope,
+    uint128_value,
 )
 from aletheia.client._refusal import raise_entry_refusal
-from aletheia.client._types import ProtocolError, ValidationError
-from aletheia.common_types import Prose
+from aletheia.client._types import (
+    InputBoundExceededError,
+    KernelRefusal,
+    ProtocolError,
+    ValidationError,
+)
+from aletheia.common_types import Microseconds, Prose
+from aletheia.limits import (
+    BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
+    MAX_RATIONAL_COMPONENT_MAGNITUDE,
+    BoundField,
+)
 from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
@@ -24,11 +36,12 @@ if TYPE_CHECKING:
 
     from aletheia.types import JSONValue
 
-# int64 bounds match the Haskell ``Int64`` numerator/denominator that the
-# Agda core consumes; the binary FFI wire packs each component as ``<q``
-# little-endian, so a value outside this range cannot cross the boundary.
-_INT64_MAX = (1 << 63) - 1
-_INT64_MIN = -(1 << 63)
+# A time window's text, whole microseconds as a loader's document spells them.
+TimeBoundText = NewType("TimeBoundText", str)
+
+# The part of a build a value wider than its wire slot names, as the kernel
+# names the part of a JSON number past the bound.
+_SIGNAL_VALUE_FIELD = BoundField("signal value")
 
 
 def is_pure_int(v: object) -> TypeGuard[int]:
@@ -98,23 +111,57 @@ def from_decimal(s: str) -> Fraction:
     return decimal_value(out)
 
 
+def parse_time_bound(s: TimeBoundText) -> Microseconds:
+    """Read a time window's text as the whole microseconds the kernel reads it as.
+
+    The kernel reads *s* as :func:`from_decimal` reads a decimal, then as it
+    reads a property's time bound: a whole, non-negative number of
+    microseconds at most 2^64-1.  Vocal, as :func:`from_decimal` is: it never
+    starts the runtime.
+
+    Raises:
+        FFIError: the GHC runtime is not started (no
+            :func:`~aletheia.start_runtime` and no client).
+        InputBoundExceededError: the number is past 2^64-1 (``field``
+            ``"time bound"``), or a component of the decimal is past the
+            rational bound (``field`` ``"decimal"``).
+        ValidationError: the text was refused, its ``code`` saying how: a text
+            that is no decimal as :func:`from_decimal` refuses it, or
+            ``handler_property_parse_failed`` for a negative or fractional
+            number (``timebound -1500 is negative``, ``timebound 1.5 is not a
+            whole number``).
+
+    """
+    lib = started_library(Prose("reading a time bound"))
+    out = AletheiaTimeBound()
+    raw = s.encode(errors="surrogatepass")
+    text = AletheiaText(raw, len(raw))
+    if lib.aletheia_parse_time_bound(ctypes.byref(text), ctypes.byref(out)) != 0:
+        missing = Prose("aletheia_parse_time_bound failed without an error")
+        raise_entry_refusal(take_error_envelope(lib, out, missing), error=ValidationError)
+    microseconds: Microseconds = out.microseconds
+    return microseconds
+
+
 def decimal_value(out: AletheiaDecimal) -> Fraction:
     """Read the rational the decimal entry answered into *out*.
 
-    The kernel answers lowest terms over a positive denominator; anything else
-    is the ABI or the kernel malfunctioning, which ``Fraction`` would hide by
-    moving the sign.
+    The kernel answers lowest terms over a positive denominator; a zero one is
+    the ABI or the kernel malfunctioning, which ``Fraction`` would raise as its
+    own error.  Any sign byte but 0 is negative, as the header reads one.
 
     Raises:
-        ProtocolError: the denominator is not positive.
+        ProtocolError: the denominator is zero.
 
     """
-    numerator: int = out.value.numerator
-    denominator: int = out.value.denominator
-    if denominator <= 0:
-        msg = f"aletheia_parse_decimal answered a non-positive denominator {denominator}"
+    numerator = uint128_value(out.value.numerator)
+    denominator = uint128_value(out.value.denominator)
+    if denominator == 0:
+        msg = "aletheia_parse_decimal answered a zero denominator"
         raise ProtocolError(msg)
-    return Fraction(numerator, denominator)
+    value = Fraction(numerator, denominator)
+    negative: int = out.value.negative
+    return -value if negative else value
 
 
 def to_exact_fraction(value: int | Fraction) -> Fraction:
@@ -204,20 +251,33 @@ def reject_inexact(value: object, ctx: str) -> None:
 def fraction_to_wire_pair(value: Fraction) -> tuple[int, int]:
     """Convert a Fraction to (numerator, denominator) for the binary frame FFI.
 
-    Exact int64 numerator/denominator extraction required by the binary-frame
-    endpoints (``aletheia_build_frame_bin`` / ``aletheia_update_frame_bin``,
-    which take ``POINTER(c_int64)`` arrays): the Agda core works in ℚ and the
-    wire carries int64 numerator/denominator pairs, so a Fraction flows through
-    losslessly.
+    The binary-frame endpoints (``aletheia_build_frame_bin`` /
+    ``aletheia_update_frame_bin``) take each value as a sign and two unsigned
+    128-bit magnitudes, so a Fraction whose components fit flows through
+    losslessly.  A wider one would be truncated by ctypes, so it is refused
+    before packing, as the kernel refuses a JSON number past the bound: the
+    magnitude it measured is past the reported ceiling, so the refusal names
+    only the limit.
 
     Raises:
-        ValidationError: If either component overflows the Int64 wire range.
+        InputBoundExceededError: the numerator's magnitude or the denominator
+            exceeds :data:`~aletheia.limits.MAX_RATIONAL_COMPONENT_MAGNITUDE`
+            (``field`` ``"signal value"``).
 
     """
     n, d = value.numerator, value.denominator
-    if not _INT64_MIN <= n <= _INT64_MAX or not _INT64_MIN <= d <= _INT64_MAX:
-        msg = f"Fraction {value!r} components exceed int64 range"
-        raise ValidationError(msg)
+    if max(abs(n), d) > MAX_RATIONAL_COMPONENT_MAGNITUDE:
+        message = Prose(
+            f"{_SIGNAL_VALUE_FIELD}: rational component magnitude exceeds limit "
+            + f"{MAX_RATIONAL_COMPONENT_MAGNITUDE}"
+        )
+        raise InputBoundExceededError(
+            BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
+            MAX_RATIONAL_COMPONENT_MAGNITUDE,
+            MAX_RATIONAL_COMPONENT_MAGNITUDE,
+            code="input_bound_exceeded",
+            refusal=KernelRefusal(message, _SIGNAL_VALUE_FIELD),
+        )
     return (n, d)
 
 

@@ -47,15 +47,6 @@ if TYPE_CHECKING:
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
 
-# Signal bit-layout sanity ceilings mirroring the core's type-level bounds
-# (Aletheia.CAN.Constants.max-physical-bits — the largest CAN-FD frame).
-# Per-frame fit is the kernel's authoritative check at DBC entry; these
-# guards only reject values no frame could ever hold.
-_MAX_START_BIT = 511
-_MAX_BIT_LENGTH = 512
-# Multiplex selector values are u32 (cross-binding parity with Go/C++/Rust).
-_MAX_MULTIPLEX_VALUE = (1 << 32) - 1
-
 # Fields in a DBCEnvironmentVar that carry ℚ on the Agda wire.
 _NUMERIC_ENV_VAR_FIELDS = ("initial", "minimum", "maximum")
 
@@ -211,14 +202,18 @@ def normalize_signal(raw_sig: Mapping[str, JSONValue]) -> DBCSignal:
 
 
 def _validate_signal_bits(sig: Mapping[str, object]) -> None:
-    """Reject an out-of-range startBit (0-511) or bit length (1-512)."""
+    """Reject a startBit or bit length that is not an integer.
+
+    Their ranges are the kernel's, decided when it read the DBC and proven of
+    every reply, so the reader holds only the kind.
+    """
     start_bit = sig.get("startBit")
-    if not is_pure_int(start_bit) or not 0 <= start_bit <= _MAX_START_BIT:
-        msg = f"Expected signal 'startBit' in 0-{_MAX_START_BIT}, got {start_bit!r}"
+    if not is_pure_int(start_bit):
+        msg = f"Expected signal 'startBit' to be int, got {start_bit!r}"
         raise ProtocolError(msg)
     length = sig.get("length")
-    if not is_pure_int(length) or not 1 <= length <= _MAX_BIT_LENGTH:
-        msg = f"Expected signal 'length' in 1-{_MAX_BIT_LENGTH}, got {length!r}"
+    if not is_pure_int(length):
+        msg = f"Expected signal 'length' to be int, got {length!r}"
         raise ProtocolError(msg)
 
 
@@ -227,8 +222,8 @@ def _validate_signal_presence(sig: Mapping[str, object]) -> None:
 
     Mirrors the Rust binding: ``presence`` is required and must be ``"always"``
     or ``"multiplexed"``; a multiplexed signal additionally requires a non-empty
-    ``multiplexor`` and a non-empty ``multiplex_values`` list of non-negative
-    integers.
+    ``multiplexor`` and a non-empty ``multiplex_values`` list of integers, whose
+    range the kernel decided and proves of every reply.
     """
     presence = sig.get("presence")
     if presence == "always":
@@ -243,10 +238,8 @@ def _validate_signal_presence(sig: Mapping[str, object]) -> None:
             msg = "Multiplexed signal requires a non-empty 'multiplex_values' array"
             raise ProtocolError(msg)
         for entry in cast("list[object]", values):
-            if not is_pure_int(entry) or not 0 <= entry <= _MAX_MULTIPLEX_VALUE:
-                msg = (
-                    f"Expected 'multiplex_values' entry in 0-{_MAX_MULTIPLEX_VALUE}, got {entry!r}"
-                )
+            if not is_pure_int(entry):
+                msg = f"Expected 'multiplex_values' entry to be int, got {entry!r}"
                 raise ProtocolError(msg)
         return
     msg = f"Expected signal 'presence' to be 'always' or 'multiplexed', got {presence!r}"
@@ -299,10 +292,13 @@ def _normalize_environment_var(raw: Mapping[str, JSONValue]) -> DBCEnvironmentVa
 
 
 def _normalize_value_entry(raw: Mapping[str, JSONValue]) -> DBCValueEntry:
-    """Normalize one ``entries`` item from a ``valueTables`` entry."""
+    """Normalize one ``entries`` item from a ``valueTables`` entry.
+
+    A key is signed, its range the kernel's, so the reader holds only the kind.
+    """
     value_raw = raw.get("value")
-    if not is_pure_int(value_raw) or value_raw < 0:
-        msg = f"Expected value table entry 'value' to be non-negative int, got {value_raw!r}"
+    if not is_pure_int(value_raw):
+        msg = f"Expected value table entry 'value' to be int, got {value_raw!r}"
         raise ProtocolError(msg)
     desc = raw.get("description")
     if not isinstance(desc, str):

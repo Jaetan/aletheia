@@ -6,7 +6,8 @@ The Check API provides industry-vocabulary wrappers over the LTL DSL.
 Every check compiles to the same verified LTL property used by the DSL layer.
 
 Decimal thresholds are exact `Fraction`s (the float principle: never a lossy
-float). Building checks needs no FFI; serializing a formula uses `dump_json`
+float). The verified kernel checks every check as it is built, so the demo
+starts its runtime first; serializing a formula uses `dump_json`
 (Fraction-aware).
 """
 
@@ -17,9 +18,11 @@ float). Building checks needs no FFI; serializing a formula uses `dump_json`
 
 from fractions import Fraction
 
-from aletheia import Signal
+from aletheia import Signal, start_runtime
 from aletheia.checks import signal, when
 from aletheia.types import dump_json
+
+start_runtime(1)
 
 # =============================================================================
 # SECTION 1: Simple Signal Checks
@@ -35,8 +38,8 @@ print("\n1. signal('VehicleSpeed').never_exceeds(220)")
 check2 = signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))
 print('2. signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))')
 
-check3 = signal("CoolantTemp").settles_between(80, 100).within(5000)
-print("3. signal('CoolantTemp').settles_between(80, 100).within(5000)")
+check3 = signal("CoolantTemp").settles_between(80, 100).within(5_000_000)
+print("3. signal('CoolantTemp').settles_between(80, 100).within(5_000_000)")
 
 check4 = signal("FaultCode").never_equals(255)
 print("4. signal('FaultCode').never_equals(255)")
@@ -56,17 +59,17 @@ print("\n" + "=" * 60)
 print("SECTION 2: When/Then Causal Checks")
 print("=" * 60)
 
-check7 = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100)
+check7 = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100_000)
 print("\n7. when('BrakePedal').exceeds(50)")
-print("       .then('BrakeLight').equals(1).within(100)")
+print("       .then('BrakeLight').equals(1).within(100_000)")
 
-check8 = when("Ignition").equals(1).then("EngineRPM").exceeds(500).within(2000)
+check8 = when("Ignition").equals(1).then("EngineRPM").exceeds(500).within(2_000_000)
 print("\n8. when('Ignition').equals(1)")
-print("       .then('EngineRPM').exceeds(500).within(2000)")
+print("       .then('EngineRPM').exceeds(500).within(2_000_000)")
 
-check9 = when("FuelLevel").drops_below(10).then("FuelWarning").stays_between(1, 1).within(50)
+check9 = when("FuelLevel").drops_below(10).then("FuelWarning").stays_between(1, 1).within(50_000)
 print("\n9. when('FuelLevel').drops_below(10)")
-print("       .then('FuelWarning').stays_between(1, 1).within(50)")
+print("       .then('FuelWarning').stays_between(1, 1).within(50_000)")
 
 
 # =============================================================================
@@ -112,16 +115,16 @@ print(f"  Identical: {dsl_formula == check_formula}")
 dsl_wt = (
     Signal("BrakePedal")
     .greater_than(50)
-    .implies(Signal("BrakeLight").equals(1).within(100))
+    .implies(Signal("BrakeLight").equals(1).within(100_000))
     .always()
     .to_dict()
 )
-check_wt = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
+check_wt = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100_000).to_dict()
 
 print("\n  Check API: when('BrakePedal').exceeds(50)")
-print("                 .then('BrakeLight').equals(1).within(100)")
+print("                 .then('BrakeLight').equals(1).within(100_000)")
 print("  Raw DSL:   Signal('BrakePedal').greater_than(50)")
-print("                 .implies(Signal('BrakeLight').equals(1).within(100))")
+print("                 .implies(Signal('BrakeLight').equals(1).within(100_000))")
 print("                 .always()")
 print(f"  Identical: {dsl_wt == check_wt}")
 

@@ -64,6 +64,10 @@ Aletheia provides:
 
 1. **Multi-language APIs**: Familiar interfaces for automotive engineers
    ```python
+   from aletheia import start_runtime
+
+   start_runtime(1)
+
    speed_limit = checks.signal("Speed").never_exceeds(220)  # Python
    ```
    ```cpp

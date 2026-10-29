@@ -25,6 +25,7 @@ from aletheia.client._types import (
     ProtocolError,
     TextRoundTripFailedError,
 )
+from aletheia.limits import BoundField
 from aletheia.types import (
     AckResponse,
     CompleteWarning,
@@ -178,6 +179,9 @@ def build_error_response(response: Response) -> ErrorResponse:
     triple = extract_bound_triple(response)
     if triple is not None:
         out["bound_kind"], out["observed"], out["limit"] = triple
+        field = response.get("field")
+        if isinstance(field, str):
+            out["field"] = BoundField(field)
     if response.get("code") in ISSUES_CARRYING_CODES:
         lifted = _extract_issues_payload(response)
         if lifted is not None:

@@ -38,7 +38,8 @@ class AletheiaError(Exception):
     """Base exception for all Aletheia errors.
 
     The string form is the message, prefixed for an error a loader located:
-    ``<location>: invalid '<key>': <message>``.
+    ``<location>: invalid '<key>': <message>``, or ``<location>: <message>``
+    for one no single key holds, such as a check its builder refused.
 
     Attributes:
         message: The error's text; for an error the kernel answered, the
@@ -52,8 +53,8 @@ class AletheiaError(Exception):
         location: Where a YAML or Excel loader read the value the error
             refuses (``Check 'C'``, ``Row 2``), or ``None`` for an error no
             loader located.
-        key: The key or the column header the refused value sat under, set
-            with ``location``.
+        key: The key or the column header the refused value sat under, or
+            ``None`` for an error no loader located or no single key holds.
 
     """
 
@@ -69,8 +70,8 @@ class AletheiaError(Exception):
         self.location = None
         self.key = None
 
-    def locate(self, location: Location, key: DocumentKey) -> None:
-        """Record where a loader read the refused value and the key it sat under."""
+    def locate(self, location: Location, key: DocumentKey | None = None) -> None:
+        """Record where a loader read the refused value and the key it sat under, if one."""
         self.location = location
         self.key = key
 
@@ -79,6 +80,8 @@ class AletheiaError(Exception):
         """Return the message, after the location and the key when a loader set them."""
         if self.location is None:
             return self.message
+        if self.key is None:
+            return Prose(f"{self.location}: {self.message}")
         return Prose(f"{self.location}: invalid '{self.key}': {self.message}")
 
 
@@ -150,8 +153,8 @@ class InputBoundExceededError(AletheiaError):
 
     Mirrors the Agda ``Error.InputBoundExceeded`` constructor.  Attributes
     carry the bound kind (e.g. ``"input_length_bytes"``), the observed value
-    (``2**64 - 1`` when the kernel measured more, its message then saying
-    "at least"), the canonical limit per :mod:`aletheia.limits`, and the
+    (``2**128 - 1`` when the kernel measured more, its message then naming no
+    number), the limit the refusal names, and the
     part of the input that crossed the bound as the kernel names it (a DBC's
     ``"senders array"`` or ``"signal factor"``, a decimal's ``"decimal"``),
     or ``None`` for a bound that names no field.

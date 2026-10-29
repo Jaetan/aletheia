@@ -114,7 +114,7 @@ class TestLoadSimpleChecks:
                 condition: settles_between
                 min: 80
                 max: 100
-                within_ms: 5000
+                within_us: 5000
         """)
         )
         assert len(checks) == 1
@@ -165,7 +165,7 @@ class TestLoadWhenThenChecks:
                   signal: BrakeLight
                   condition: equals
                   value: 1
-                within_ms: 100
+                within_us: 100
         """)
         )
         assert len(checks) == 1
@@ -185,7 +185,7 @@ class TestLoadWhenThenChecks:
                   signal: RPM
                   condition: exceeds
                   value: 500
-                within_ms: 2000
+                within_us: 2000
         """)
         )
         expected = when("Ignition").equals(1).then("RPM").exceeds(500).within(2000).to_dict()
@@ -205,7 +205,7 @@ class TestLoadWhenThenChecks:
                   condition: stays_between
                   min: 1
                   max: 1
-                within_ms: 50
+                within_us: 50
         """)
         )
         expected = (
@@ -295,7 +295,7 @@ class TestLoadMetadata:
                   signal: BrakeLight
                   condition: equals
                   value: 1
-                within_ms: 100
+                within_us: 100
                 severity: safety
         """)
         )
@@ -444,9 +444,9 @@ class TestLoadErrors:
             """)
             )
 
-    def test_settles_between_missing_within_ms(self) -> None:
-        """Verify settles between missing within ms."""
-        with pytest.raises(ValidationError, match="requires 'within_ms'"):
+    def test_settles_between_missing_within_us(self) -> None:
+        """Verify settles between missing within us."""
+        with pytest.raises(ValidationError, match="requires 'within_us'"):
             load_checks(
                 textwrap.dedent("""\
                 checks:
@@ -465,7 +465,7 @@ class TestLoadErrors:
                 checks:
                   - signal: Temp
                     condition: settles_between
-                    within_ms: 5000
+                    within_us: 5000
             """)
             )
 
@@ -491,13 +491,13 @@ class TestLoadErrors:
                       signal: Brake
                       condition: exceeds
                       value: 50
-                    within_ms: 100
+                    within_us: 100
             """)
             )
 
-    def test_when_then_missing_within_ms(self) -> None:
-        """Verify when then missing within ms."""
-        with pytest.raises(ValidationError, match="require 'within_ms'"):
+    def test_when_then_missing_within_us(self) -> None:
+        """Verify when then missing within us."""
+        with pytest.raises(ValidationError, match="require 'within_us'"):
             load_checks(
                 textwrap.dedent("""\
                 checks:
@@ -526,7 +526,7 @@ class TestLoadErrors:
                       signal: BrakeLight
                       condition: equals
                       value: 1
-                    within_ms: 100
+                    within_us: 100
             """)
             )
 
@@ -544,7 +544,7 @@ class TestLoadErrors:
                       signal: BrakeLight
                       condition: bogus
                       value: 1
-                    within_ms: 100
+                    within_us: 100
             """)
             )
 

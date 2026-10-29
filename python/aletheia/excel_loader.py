@@ -48,7 +48,7 @@ signal is multiplexed; if both are empty, the signal is always-present.
 **Checks**, one row per simple check:
 
 ~~~text
-Check Name | Signal | Condition | Value | Min | Max | Time (ms) | Severity
+Check Name | Signal | Condition | Value | Min | Max | Time (µs) | Severity
 ~~~
 
 **When-Then**, one row per causal check:
@@ -56,7 +56,7 @@ Check Name | Signal | Condition | Value | Min | Max | Time (ms) | Severity
 ~~~text
 Check Name | When Signal | When Condition | When Value |
 Then Signal | Then Condition | Then Value | Then Min | Then Max |
-Within (ms) | Severity
+Within (µs) | Severity
 ~~~
 """
 
@@ -91,12 +91,15 @@ from aletheia._loader_utils import (
     get_bool,
     get_excel_int,
     get_excel_number,
+    get_excel_time_bound,
     get_str,
     is_str,
+    locate_refusal,
     reject_symlink_loader_path,
     require_present_file,
 )
 from aletheia.client._types import AletheiaError, ValidationError, check_dbc_text_size_bound
+from aletheia.common_types import DocumentKey, Location
 from aletheia.types import (
     DBCDefinition,
     DBCMessage,
@@ -184,7 +187,7 @@ CHECKS_HEADERS = [
     "Value",
     "Min",
     "Max",
-    "Time (ms)",
+    "Time (µs)",
     "Severity",
 ]
 
@@ -198,7 +201,7 @@ WHEN_THEN_HEADERS = [
     "Then Value",
     "Then Min",
     "Then Max",
-    "Within (ms)",
+    "Within (µs)",
     "Severity",
 ]
 
@@ -217,6 +220,11 @@ _DBC_NO_TRANSMITTER = "Vector__XXX"
 # ============================================================================
 # Row helpers
 # ============================================================================
+
+
+# The columns a check's time window sits in, whole microseconds.
+_TIME = DocumentKey("Time (µs)")
+_WITHIN = DocumentKey("Within (µs)")
 
 
 def _row_ctx(row_num: int) -> str:
@@ -451,7 +459,12 @@ def _load_simple_checks(ws: Worksheet) -> list[CheckResult]:
         d = _row_to_dict(headers, row)
         if not d:
             continue  # skip empty rows
-        results.append(_parse_simple_row(d, row_idx))
+        try:
+            results.append(_parse_simple_row(d, row_idx))
+        except AletheiaError as exc:
+            # A refusal the kernel answered for the row's check, at the row.
+            locate_refusal(Location(_row_ctx(row_idx)), exc)
+            raise
     return results
 
 
@@ -467,7 +480,12 @@ def _load_when_then_checks(ws: Worksheet) -> list[CheckResult]:
         d = _row_to_dict(headers, row)
         if not d:
             continue  # skip empty rows
-        results.append(_parse_when_then_row(d, row_idx))
+        try:
+            results.append(_parse_when_then_row(d, row_idx))
+        except AletheiaError as exc:
+            # A refusal the kernel answered for the row's check, at the row.
+            locate_refusal(Location(_row_ctx(row_idx)), exc)
+            raise
     return results
 
 
@@ -510,8 +528,8 @@ def _parse_simple_row(d: Mapping[str, CellValue], row_num: int) -> CheckResult:
         if "Min" not in d or "Max" not in d:
             msg = f"Row {row_num}: condition 'settles_between' requires 'Min' and 'Max'"
             raise ValidationError(msg)
-        if "Time (ms)" not in d:
-            msg = f"Row {row_num}: condition 'settles_between' requires 'Time (ms)'"
+        if _TIME not in d:
+            msg = f"Row {row_num}: condition 'settles_between' requires '{_TIME}'"
             raise ValidationError(msg)
         result = (
             checks.signal(signal)
@@ -519,7 +537,7 @@ def _parse_simple_row(d: Mapping[str, CellValue], row_num: int) -> CheckResult:
                 get_excel_number(d, "Min", _row_ctx(row_num)),
                 get_excel_number(d, "Max", _row_ctx(row_num)),
             )
-            .within(get_excel_int(d, "Time (ms)", _row_ctx(row_num)))
+            .within(get_excel_time_bound(d.get(_TIME), _TIME, Location(_row_ctx(row_num))))
         )
     elif condition in SIMPLE_EQUALS_CONDITIONS:
         value = get_excel_number(d, "Value", _row_ctx(row_num))
@@ -577,7 +595,9 @@ def _parse_when_then_row(d: Mapping[str, CellValue], row_num: int) -> CheckResul
     then_builder = when_result.then(then_signal)
 
     then_result = dispatch_then(then_builder, then_cond, _then_values(d, then_cond, row_num))
-    result = then_result.within(get_excel_int(d, "Within (ms)", _row_ctx(row_num)))
+    result = then_result.within(
+        get_excel_time_bound(d.get(_WITHIN), _WITHIN, Location(_row_ctx(row_num)))
+    )
     return _apply_metadata(result, d)
 
 

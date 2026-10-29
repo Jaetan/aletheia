@@ -207,8 +207,11 @@ class SignalOpsMixin(ClientHostState):
         Raises:
             StateError: If the client is not initialized or no DBC is loaded
             ValidationError: If ``frame`` does not match ``dlc``, the DLC or
-                CAN ID is invalid, no DBC message has the CAN ID, a signal name
-                is unknown, or a value overflows the Int64 wire range
+                CAN ID is invalid, no DBC message has the CAN ID, or a signal
+                name is unknown
+            InputBoundExceededError: If a value's numerator magnitude or
+                denominator exceeds 2^128-1, the build's slots (``field``
+                ``"signal value"``)
             TypeError: If a value is a ``bool`` or a ``float``
             ProtocolError: If the kernel refuses the update; ``code`` names the
                 refusal, among them ``frame_value_out_of_range`` for a value
@@ -265,8 +268,10 @@ class SignalOpsMixin(ClientHostState):
         Raises:
             StateError: If the client is not initialized or no DBC is loaded
             ValidationError: If the DLC or CAN ID is invalid, no DBC message has
-                the CAN ID, a signal name is unknown, or a value overflows the
-                Int64 wire range
+                the CAN ID, or a signal name is unknown
+            InputBoundExceededError: If a value's numerator magnitude or
+                denominator exceeds 2^128-1, the build's slots (``field``
+                ``"signal value"``)
             TypeError: If a value is a ``bool`` or a ``float``
             ProtocolError: If the kernel refuses the build; ``code`` names the
                 refusal, among them ``frame_value_out_of_range`` for a value

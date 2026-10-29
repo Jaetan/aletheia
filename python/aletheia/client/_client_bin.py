@@ -15,7 +15,8 @@ The canonical wire doc is the ``processExtractBin`` header comment in
 
 - Header:  ``<HHHI`` — nValues, nErrors, nAbsent (``u16`` each) +
   reasonBytes (``u32``)
-- Values:  nValues × (idx ``u16``, numerator ``i64``, denominator ``i64``)
+- Values:  nValues × (idx ``u16``, negative ``u8``, numerator and
+  denominator each an unsigned 128-bit ``lo``, ``hi`` pair of ``u64``)
 - Errors:  nErrors × (idx ``u16``, code ``u8``)
 - Offsets: (nErrors + 1) × ``u32`` cumulative byte offsets into Reasons —
   always present (a single 0 when nErrors is 0)
@@ -47,8 +48,11 @@ if TYPE_CHECKING:
 _HEADER_FMT = "<HHHI"
 _HEADER_BYTES = struct.calcsize(_HEADER_FMT)
 
-# Fixed per-entry sizes of the four count-driven segments.
-_VALUE_ENTRY_BYTES = struct.calcsize("<Hqq")
+# Fixed per-entry sizes of the four count-driven segments.  A value entry is
+# packed: the index, the sign byte, then the numerator's and the denominator's
+# 16 little-endian bytes, 35 bytes.
+_VALUE_ENTRY_FMT = "<HB16s16s"
+_VALUE_ENTRY_BYTES = struct.calcsize(_VALUE_ENTRY_FMT)
 _ERROR_ENTRY_BYTES = struct.calcsize("<HB")
 _OFFSET_ENTRY_BYTES = struct.calcsize("<I")
 _ABSENT_ENTRY_BYTES = struct.calcsize("<H")
@@ -80,9 +84,9 @@ class ExtractionErrorCode(IntEnum):
     BIT_EXTRACTION_FAILED = 2
     # Agda: ``Aletheia.CAN.BatchExtraction.ValueExceedsWireRange``: the
     # exact value's reduced numerator magnitude or denominator exceeds
-    # 9223372036854775807, the symmetric bound of the wire's rational slots;
-    # the kernel's batch categoriser refuses the value with this code on
-    # both extraction paths, so the int64 slot never wraps.
+    # 340282366920938463463374607431768211455, the bound of the wire's
+    # 128-bit rational slots; the kernel's batch categoriser refuses the value
+    # with this code on both extraction paths, so no slot wraps.
     VALUE_EXCEEDS_WIRE_RANGE = 3
     # Agda: ``Aletheia.CAN.BatchExtraction.MuxSignalNotFound``
     MUX_SIGNAL_NOT_FOUND = 4
@@ -134,22 +138,25 @@ def _parse_values_segment(
     count: int,
     names: Sequence[str],
 ) -> tuple[dict[str, Fraction], int]:
-    """Parse the values segment: ``count`` × ``<Hqq`` (18 bytes each).
+    """Parse the values segment: ``count`` × ``<HB16s16s`` (35 bytes each).
 
     Returns Fraction values to preserve exact rational precision from the
-    Agda core — the wire format already carries int64 numerator/denominator
-    pairs, so no quantization is needed.
+    Agda core: the wire carries a sign and two 128-bit magnitudes, so no
+    quantization is needed.  Any sign byte but 0 is negative, as the header
+    reads one.
     """
     values: dict[str, Fraction] = {}
     n_names = len(names)
     for _ in range(count):
-        idx, num, den = map(int, struct.unpack_from("<Hqq", buf, off))
+        idx, negative, num_bytes, den_bytes = struct.unpack_from(_VALUE_ENTRY_FMT, buf, off)
         off += _VALUE_ENTRY_BYTES
         name = names[idx] if idx < n_names else f"signal_{idx}"
+        den = int.from_bytes(den_bytes, "little")
         if den == 0:
             msg = f"Zero denominator in extraction value for {name!r}"
             raise ProtocolError(msg)
-        values[name] = Fraction(num, den)
+        value = Fraction(int.from_bytes(num_bytes, "little"), den)
+        values[name] = -value if negative else value
     return values, off
 
 

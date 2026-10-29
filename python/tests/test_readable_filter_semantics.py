@@ -75,7 +75,8 @@ def _props() -> list[LTLFormula]:
     return [
         Signal("Level").changed_by(50).eventually().to_dict(),  # delta: reads cached prev
         Signal("Speed").less_than(600).always().to_dict(),  # value pred; Speed goes absent
-        Signal("Speed").less_than(600).for_at_least(3000).to_dict(),  # metric-LTL over absent sig
+        # metric-LTL over an absent signal
+        Signal("Speed").less_than(600).for_at_least(3_000_000).to_dict(),
         Signal("Level").less_than(150).always().to_dict(),  # violates; fallback on A frames
     ]
 
