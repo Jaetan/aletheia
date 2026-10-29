@@ -40,7 +40,7 @@ static constexpr int ITERATIONS = 5'000'000;
 static constexpr int WARMUP = 500'000;
 
 template<typename F>
-auto bench(const char* name, F&& func, int iterations = ITERATIONS) -> double {
+auto bench(char const* name, F&& func, int iterations = ITERATIONS) -> double {
     // Warmup
     for (int i = 0; i < WARMUP; ++i)
         func();
@@ -80,7 +80,7 @@ int main() {
     });
 
     // 2. std::string construction from C string (simulates CString → string)
-    const char* c_ack = ack_str.c_str();
+    char const* c_ack = ack_str.c_str();
     auto t_str = bench("std::string from c_str", [&] {
         std::string s{c_ack};
         do_not_optimize(s);
@@ -132,7 +132,7 @@ int main() {
     // --- Violation path (for reference) ---
     std::puts("\n=== Violation response (rare) ===");
 
-    const char* c_viol = viol_str.c_str();
+    char const* c_viol = viol_str.c_str();
     bench(
         "std::string from c_str (violation)",
         [&] {

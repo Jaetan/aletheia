@@ -56,9 +56,9 @@ public:
         frame_responses_.push(std::move(bytes));
     }
 
-    [[nodiscard]] auto captured() const -> const std::vector<std::string>& { return captured_; }
+    [[nodiscard]] auto captured() const -> std::vector<std::string> const& { return captured_; }
 
-    [[nodiscard]] auto last_captured() const -> const std::string& {
+    [[nodiscard]] auto last_captured() const -> std::string const& {
         assert(!captured_.empty());
         return captured_.back();
     }
@@ -73,7 +73,7 @@ public:
 
     auto init() -> Result<BackendState> override { return BackendState{*this, &sentinel}; }
 
-    auto process(const BackendState& /*state*/, std::string_view input)
+    auto process(BackendState const& /*state*/, std::string_view input)
         -> Result<std::string> override {
         // Record the request BEFORE the exhaustion check so `captured()` stays
         // populated on the erroring call (cross-binding contract: the starved
@@ -105,37 +105,37 @@ public:
     // made; argument values are verified end-to-end by the real-`.so` round-trip
     // tests (e.g. the BRS/ESI passthrough cross-binding test).  Mirrors the
     // Python and Go mock backends exactly (cross-binding mock uniformity).
-    auto send_frame_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/,
-                           Dlc /*dlc*/, std::span<const std::byte> /*data*/,
+    auto send_frame_binary(BackendState const& state, Timestamp /*ts*/, CanId const& /*id*/,
+                           Dlc /*dlc*/, std::span<std::byte const> /*data*/,
                            std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
         -> Result<std::string> override {
         return process(state, "<binary:sendFrame>");
     }
 
-    auto send_error_binary(const BackendState& state, Timestamp /*ts*/)
+    auto send_error_binary(BackendState const& state, Timestamp /*ts*/)
         -> Result<std::string> override {
         return process(state, "<binary:sendError>");
     }
 
-    auto send_remote_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/)
+    auto send_remote_binary(BackendState const& state, Timestamp /*ts*/, CanId const& /*id*/)
         -> Result<std::string> override {
         return process(state, "<binary:sendRemote>");
     }
 
-    auto start_stream_binary(const BackendState& state) -> Result<std::string> override {
+    auto start_stream_binary(BackendState const& state) -> Result<std::string> override {
         return process(state, "<binary:startStream>");
     }
 
-    auto end_stream_binary(const BackendState& state) -> Result<std::string> override {
+    auto end_stream_binary(BackendState const& state) -> Result<std::string> override {
         return process(state, "<binary:endStream>");
     }
 
-    auto format_dbc_binary(const BackendState& state) -> Result<std::string> override {
+    auto format_dbc_binary(BackendState const& state) -> Result<std::string> override {
         return process(state, "<binary:formatDBC>");
     }
 
-    auto extract_signals_binary(const BackendState& state, const CanId& /*id*/, Dlc /*dlc*/,
-                                std::span<const std::byte> /*data*/)
+    auto extract_signals_binary(BackendState const& state, CanId const& /*id*/, Dlc /*dlc*/,
+                                std::span<std::byte const> /*data*/)
         -> Result<std::string> override {
         return process(state, "<binary:extractAllSignals>");
     }
@@ -148,15 +148,15 @@ public:
     // empty queue), matching the Python / Go / Rust mocks (#108).  Argument
     // values are ignored here; the real FfiBackend verifies them end-to-end via
     // the real-`.so` round-trip tests.
-    [[nodiscard]] auto build_frame_bin(const BackendState& /*state*/, const CanId& /*id*/,
+    [[nodiscard]] auto build_frame_bin(BackendState const& /*state*/, CanId const& /*id*/,
                                        Dlc /*dlc*/, SignalInjection /*signals*/,
                                        std::size_t /*expected_bytes*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return pop_frame("<binary:buildFrameBin>");
     }
 
-    [[nodiscard]] auto update_frame_bin(const BackendState& /*state*/, const CanId& /*id*/,
-                                        Dlc /*dlc*/, std::span<const std::byte> /*data*/,
+    [[nodiscard]] auto update_frame_bin(BackendState const& /*state*/, CanId const& /*id*/,
+                                        Dlc /*dlc*/, std::span<std::byte const> /*data*/,
                                         SignalInjection /*signals*/, std::size_t /*expected_bytes*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return pop_frame("<binary:updateFrameBin>");

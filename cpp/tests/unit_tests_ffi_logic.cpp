@@ -58,7 +58,7 @@ static void reset_free() {
 
 TEST_CASE("rts_init_args: the heap cap is ALWAYS present, single-core adds no -N",
           "[ffi][logic][rts]") {
-    const std::string cap{detail::rts_heap_cap_flag};
+    std::string const cap{detail::rts_heap_cap_flag};
     // Kills `rts_cores > rts_default_cores` → `>=`: a >= mutant would inject -N
     // at the default core count.  The cap must be present regardless.
     auto const one = detail::rts_init_args(1, "");
@@ -68,7 +68,7 @@ TEST_CASE("rts_init_args: the heap cap is ALWAYS present, single-core adds no -N
 }
 
 TEST_CASE("rts_init_args: multi-core requests append -N<n> after the cap", "[ffi][logic][rts]") {
-    const std::string cap{detail::rts_heap_cap_flag};
+    std::string const cap{detail::rts_heap_cap_flag};
     // Kills `rts_cores > rts_default_cores` → `<=`: a <= mutant would omit -N at cores == 4.
     auto const four = detail::rts_init_args(4, "");
     CHECK(four == std::vector<std::string>{"aletheia", "+RTS", cap, "-N4", "-RTS"});
@@ -78,7 +78,7 @@ TEST_CASE("rts_init_args: multi-core requests append -N<n> after the cap", "[ffi
 
 TEST_CASE("rts_init_args: ALETHEIA_RTS_OPTS flags land after the cap (so a caller -M wins)",
           "[ffi][logic][rts]") {
-    const std::string cap{detail::rts_heap_cap_flag};
+    std::string const cap{detail::rts_heap_cap_flag};
     // Override flags are whitespace-split and appended after the cap and any
     // -N, before the closing -RTS — so a caller -M occurs LAST and wins.
     auto const over = detail::rts_init_args(1, "  -M12M   -hT ");

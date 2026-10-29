@@ -29,7 +29,7 @@ using aletheia::test::required;
 
 TEST_CASE("a count outside one to the CPUs the runtime counts is refused, naming the bound",
           "[runtime]") {
-    const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
+    std::filesystem::path const stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
     for (auto const cores : {0, 5}) {
         auto const refusal = "core count " + std::to_string(cores) +
                              " is outside 1 to 4, the CPUs this process may use";
@@ -42,7 +42,7 @@ TEST_CASE("a count outside one to the CPUs the runtime counts is refused, naming
 }
 
 TEST_CASE("a start's count is the running one for every later start and backend", "[runtime]") {
-    const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
+    std::filesystem::path const stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
     CHECK(aletheia::start_runtime(stand_in, 2) == std::nullopt);
     CHECK_FALSE(required(aletheia::make_ffi_backend(stand_in))->rts_mismatch_info().has_value());
     CHECK(required(aletheia::make_ffi_backend(stand_in, 1))->rts_mismatch_info() ==

@@ -214,6 +214,14 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._enrichment",
             "format_formula",
         ),
+        # The shared formula's wire (docs/FORMULA_RENDERING.yaml) writes a
+        # rational as a reply does; the rendering test reads it with the
+        # decoder the client reads replies with.
+        (
+            "test_enrichment.py",
+            "aletheia.client._helpers.rational",
+            "decode_wire_rational",
+        ),
         # FFI loader security test exercises the ALETHEIA_LIB
         # world/group-writable rejection path directly.
         # ``find_ffi_library`` is binding-internal — public callers go

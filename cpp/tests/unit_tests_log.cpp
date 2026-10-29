@@ -56,8 +56,8 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
 
     // Collect log events
     std::vector<std::pair<LogLevel, std::string>> events;
-    const Logger logger(
-        [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+    Logger const logger(
+        [&](LogRecord const& r) { events.emplace_back(r.level, std::string{r.event}); });
 
     auto client = required(AletheiaClient::create(std::move(mock), logger));
 
@@ -71,7 +71,7 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
     REQUIRE(client.end_stream(std::stop_token{}).has_value());
 
@@ -145,7 +145,7 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
     };
     std::vector<CapturedEvent> events;
 
-    const Logger logger([&](const LogRecord& r) {
+    Logger const logger([&](LogRecord const& r) {
         CapturedEvent evt{.level = r.level, .event = std::string{r.event}, .fields = {}};
         for (auto const& [k, v] : r.fields)
             evt.fields.push_back(CapturedField{.key = std::string{k}, .value = v});
@@ -153,7 +153,7 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
     });
 
     auto mock = std::make_unique<MockBackendWithRtsMismatch>();
-    const auto client = required(AletheiaClient::create(std::move(mock), logger));
+    auto const client = required(AletheiaClient::create(std::move(mock), logger));
 
     REQUIRE_FALSE(events.empty());
     CHECK(events[0].level == LogLevel::Warn);
@@ -175,27 +175,27 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
 // "debug-never-fires" / "debug-always-fires" failures.
 TEST_CASE("Logger::enabled() reflects sink + min-level state", "[log][enabled]") {
     SECTION("no sinks → false at every level") {
-        const Logger logger;
+        Logger const logger;
         CHECK_FALSE(logger.enabled(LogLevel::Debug));
         CHECK_FALSE(logger.enabled(LogLevel::Info));
         CHECK_FALSE(logger.enabled(LogLevel::Warn));
         CHECK_FALSE(logger.enabled(LogLevel::Error));
     }
     SECTION("sink registered, level below min → false") {
-        const Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        Logger const logger([](LogRecord const&) {}, LogLevel::Warn);
         CHECK_FALSE(logger.enabled(LogLevel::Debug));
         CHECK_FALSE(logger.enabled(LogLevel::Info));
     }
     SECTION("sink registered, level == min → true (boundary)") {
-        const Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        Logger const logger([](LogRecord const&) {}, LogLevel::Warn);
         CHECK(logger.enabled(LogLevel::Warn));
     }
     SECTION("sink registered, level above min → true") {
-        const Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        Logger const logger([](LogRecord const&) {}, LogLevel::Warn);
         CHECK(logger.enabled(LogLevel::Error));
     }
     SECTION("default min_level (Debug) accepts all levels with sink") {
-        const Logger logger([](const LogRecord&) {});
+        Logger const logger([](LogRecord const&) {});
         CHECK(logger.enabled(LogLevel::Debug));
         CHECK(logger.enabled(LogLevel::Info));
         CHECK(logger.enabled(LogLevel::Warn));
@@ -208,13 +208,13 @@ TEST_CASE("Logger::enabled() mirrors log()'s short-circuit exactly", "[log][enab
     // becomes wrong (either logs fire when they shouldn't, or vice versa).
     // Cross-check at every level / min_level combination.
     int callback_count = 0;
-    auto const bump = [&](const LogRecord&) { ++callback_count; };
+    auto const bump = [&](LogRecord const&) { ++callback_count; };
 
     for (auto const min_level :
          {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
         for (auto const call_level :
              {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
-            const Logger logger(bump, min_level);
+            Logger const logger(bump, min_level);
             callback_count = 0;
             auto const en = logger.enabled(call_level);
             logger.log(call_level, "test", {});
@@ -246,7 +246,7 @@ struct Capture {
     // The Logger copies its sink, and the sink points back here, so a
     // Capture outlives every client its logger is handed to.
     [[nodiscard]] auto logger() -> Logger {
-        return Logger([this](const LogRecord& r) {
+        return Logger([this](LogRecord const& r) {
             Event e{.level = r.level, .name = std::string{r.event}, .fields = {}};
             for (auto const& [k, v] : r.fields)
                 e.fields.emplace(std::string{k},
@@ -265,26 +265,26 @@ struct Capture {
 
     [[nodiscard]] auto count(std::string_view name) const -> std::size_t {
         return static_cast<std::size_t>(
-            std::ranges::count_if(events, [name](const Event& e) { return e.name == name; }));
+            std::ranges::count_if(events, [name](Event const& e) { return e.name == name; }));
     }
 
     // The one event of that name; a count other than one fails the test here.
-    [[nodiscard]] auto only(std::string_view name) const -> const Event& {
+    [[nodiscard]] auto only(std::string_view name) const -> Event const& {
         REQUIRE(count(name) == 1);
-        return *std::ranges::find_if(events, [name](const Event& e) { return e.name == name; });
+        return *std::ranges::find_if(events, [name](Event const& e) { return e.name == name; });
     }
 };
 
 } // namespace
 
 template<typename T>
-static auto field(const Event& e, std::string_view key) -> T {
+static auto field(Event const& e, std::string_view key) -> T {
     return std::get<T>(e.fields.at(std::string{key}));
 }
 
 // A client with one property on Speed, its stream open, over the given
 // backend and logger: the state every enrichment path starts from.
-static auto streaming_client(std::unique_ptr<IBackend> backend, const Logger& logger)
+static auto streaming_client(std::unique_ptr<IBackend> backend, Logger const& logger)
     -> AletheiaClient {
     auto client = required(AletheiaClient::create(std::move(backend), logger));
     std::vector<LtlFormula> props;
@@ -406,12 +406,12 @@ TEST_CASE("frame.processed classifies the response and names the frame", "[clien
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
-    for (const std::int64_t ts : {1000, 2000, 3000})
+    FramePayload const data(8, std::byte{0});
+    for (std::int64_t const ts : {1000, 2000, 3000})
         REQUIRE(client.send_frame(std::stop_token{}, Timestamp{ts}, id, dlc, data).has_value());
 
     REQUIRE(cap.count("frame.processed") == 3);
-    const std::vector<std::string> expected{"ack", "satisfaction", "violation"};
+    std::vector<std::string> const expected{"ack", "satisfaction", "violation"};
     std::size_t i = 0;
     for (auto const& e : cap.events) {
         if (e.name != "frame.processed")
@@ -479,7 +479,7 @@ TEST_CASE("cache.miss then cache.hit name the frame that was extracted", "[clien
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, dlc, data).has_value());
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{2000}, id, dlc, data).has_value());
 
@@ -630,7 +630,7 @@ TEST_CASE("enrichment.property_index_oob names the index and the count on both p
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, dlc, data).has_value());
     REQUIRE(client.end_stream(std::stop_token{}).has_value());
 
@@ -659,7 +659,7 @@ TEST_CASE("without properties, a failing verdict is not an out-of-range index",
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, dlc, data).has_value());
     REQUIRE(client.end_stream(std::stop_token{}).has_value());
     CHECK(cap.count("enrichment.property_index_oob") == 0);
@@ -775,17 +775,17 @@ TEST_CASE("set_properties that the backend refuses logs no properties.set", "[cl
     mock->queue_response(
         R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
     std::vector<std::string> events;
-    const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
+    Logger const logger([&](LogRecord const& r) { events.emplace_back(r.event); });
     auto client = required(AletheiaClient::create(std::move(mock), logger));
     CHECK_FALSE(
-        client.set_properties(std::stop_token{}, std::span<const LtlFormula>{}).has_value());
+        client.set_properties(std::stop_token{}, std::span<LtlFormula const>{}).has_value());
     CHECK(std::ranges::find(events, "properties.set") == events.end());
 }
 
 TEST_CASE("a sink added after construction takes events", "[log]") {
     Logger logger{nullptr};
     std::vector<std::string> events;
-    logger.add_sink([&](const LogRecord& r) { events.emplace_back(r.event); });
+    logger.add_sink([&](LogRecord const& r) { events.emplace_back(r.event); });
     CHECK(logger.enabled(LogLevel::Info));
     logger.info("added");
     CHECK(events == std::vector<std::string>{"added"});
@@ -798,7 +798,7 @@ TEST_CASE("an event the backend refuses logs no sent event", "[client][log]") {
     mock->queue_response(
         R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
     std::vector<std::string> events;
-    const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
+    Logger const logger([&](LogRecord const& r) { events.emplace_back(r.event); });
     auto client = required(AletheiaClient::create(std::move(mock), logger));
     CHECK_FALSE(client.send_error(std::stop_token{}, Timestamp{1}).has_value());
     auto const id = CanId{StandardId::create(0x100).value()};

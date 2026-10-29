@@ -56,12 +56,12 @@ struct Refusal {
 
 // Runs the program in `where` with `arguments`, its stdout on `report` and
 // `library` as the kernel it searches for first, and answers how it ended.
-static auto run_benchmark(const std::vector<std::string>& arguments,
-                          const std::filesystem::path& report, const std::filesystem::path& library,
-                          const std::filesystem::path& where) -> Ended {
+static auto run_benchmark(std::vector<std::string> const& arguments,
+                          std::filesystem::path const& report, std::filesystem::path const& library,
+                          std::filesystem::path const& where) -> Ended {
     std::vector<std::string> words{ALETHEIA_BENCHMARK_BIN};
     words.insert(words.end(), arguments.begin(), arguments.end());
-    const TempPath errors{"benchmark-stderr"};
+    TempPath const errors{"benchmark-stderr"};
     auto const code = aletheia::test::run_program(
         std::move(words), aletheia::test::environment_with({"ALETHEIA_LIB=" + library.string()}),
         where, report, errors.path);
@@ -107,9 +107,9 @@ TEST_CASE("an argument the program refuses exits 1 naming it before the kernel i
          .usage = false},
     }));
     CAPTURE(refusal.arguments);
-    const TempPath searched{scratch_dir() / "benchmark-searched", AsDirectory{}};
-    const TempPath where{searched.path / "one" / "two", AsDirectory{}};
-    const TempPath report{"benchmark-report"};
+    TempPath const searched{scratch_dir() / "benchmark-searched", AsDirectory{}};
+    TempPath const where{searched.path / "one" / "two", AsDirectory{}};
+    TempPath const report{"benchmark-report"};
     auto const [code, errors] =
         run_benchmark(refusal.arguments, report.path, searched.path / "absent.so", where.path);
     CHECK(code == 1);
@@ -125,9 +125,9 @@ TEST_CASE("an argument the program refuses exits 1 naming it before the kernel i
 // no kernel anywhere the search tries from the directory the program runs in:
 // each is the search's refusal, printed after the program's prefix.
 TEST_CASE("a run that finds no kernel exits 1 saying so", "[benchmark][program]") {
-    const TempPath searched{scratch_dir() / "benchmark-searched", AsDirectory{}};
-    const TempPath where{searched.path / "one" / "two", AsDirectory{}};
-    const TempPath report{"benchmark-report"};
+    TempPath const searched{scratch_dir() / "benchmark-searched", AsDirectory{}};
+    TempPath const where{searched.path / "one" / "two", AsDirectory{}};
+    TempPath const report{"benchmark-report"};
     std::vector<std::string> const arguments{"throughput", "--frames", "1", "--runs",
                                              "1",          "--warmup", "0"};
     SECTION("ALETHEIA_LIB naming no file") {
@@ -155,24 +155,24 @@ TEST_CASE("a report that cannot be written exits 1 naming the mode", "[benchmark
     std::vector<std::string> args{"throughput", "--frames", "1", "--runs", "1", "--warmup", "0"};
     if (json)
         args.emplace_back("--json");
-    const TempPath where{scratch_dir() / "benchmark-where", AsDirectory{}};
+    TempPath const where{scratch_dir() / "benchmark-where", AsDirectory{}};
     auto const [code, errors] = run_benchmark(args, "/dev/full", library, where.path);
     CHECK(code == 1);
     CHECK_THAT(errors, ContainsSubstring("benchmark: writing the throughput report failed: "));
 }
 
 TEST_CASE("the launcher reads a program a signal ends as no exit code", "[program]") {
-    const TempPath out{"launcher-stdout"};
-    const TempPath err{"launcher-stderr"};
+    TempPath const out{"launcher-stdout"};
+    TempPath const err{"launcher-stderr"};
     CHECK(aletheia::test::run_program({"/bin/sh", "-c", "kill -KILL $$"},
                                       aletheia::test::environment_with({}),
                                       std::filesystem::current_path(), out.path, err.path) == -1);
 }
 
 TEST_CASE("the launcher runs the program in the directory it names", "[program]") {
-    const TempPath where{scratch_dir() / "launcher-where", AsDirectory{}};
-    const TempPath out{"launcher-stdout"};
-    const TempPath err{"launcher-stderr"};
+    TempPath const where{scratch_dir() / "launcher-where", AsDirectory{}};
+    TempPath const out{"launcher-stdout"};
+    TempPath const err{"launcher-stderr"};
     CHECK(aletheia::test::run_program({"/bin/sh", "-c", "pwd -P"},
                                       aletheia::test::environment_with({}), where.path, out.path,
                                       err.path) == 0);

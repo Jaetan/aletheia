@@ -80,6 +80,6 @@ struct ValidationIssue {
 // canonical `to_string(code)` spelling (which is "unknown" for an Unknown code
 // with no recorded wire string). Use this rather than `to_string(issue.code)`
 // at presentation boundaries.
-[[nodiscard]] auto issue_code_label(const ValidationIssue& issue) -> std::string_view;
+[[nodiscard]] auto issue_code_label(ValidationIssue const& issue) -> std::string_view;
 
 } // namespace aletheia

@@ -6,7 +6,8 @@
 // and a backend made with no count asks for the count running. A call that
 // reads a number before the start is refused and keeps nothing: after the
 // start the renderer and the parser read the library the runtime started on,
-// with no library in the working directory or the environment to find.
+// with no library in the working directory or the environment to find. A
+// backend refused for an empty path or a zero count maps no kernel.
 //
 // A child of fresh_process_tests, a process of its own because the claims are
 // about one whose runtime nothing has started; the cases run in the order the
@@ -22,6 +23,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <stop_token>
 #include <string>
@@ -36,6 +38,17 @@
 using aletheia::test::required;
 
 using Catch::Matchers::StartsWith;
+
+// Whether the process maps the kernel library, read from its own mappings.
+static auto kernel_is_mapped() -> bool {
+    std::ifstream maps{"/proc/self/maps"};
+    for (std::string line; std::getline(maps, line);) {
+        if (line.contains("libaletheia-ffi.so")) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // EngineSpeed's factor 0.25 decodes raw 800 to 200 rpm, past the 199.5 limit.
 static constexpr auto k_dbc = R"(VERSION ""
@@ -64,7 +77,7 @@ TEST_CASE("a number read before any start is refused, and the start afterwards s
     // directory holds no build, so a reader that searched would find none.
     auto const lib = aletheia::test::repo_root() / "build" / "libaletheia-ffi.so";
     REQUIRE(::unsetenv("ALETHEIA_LIB") == 0);
-    const aletheia::test::TempPath nest{aletheia::test::scratch_dir() / "outer" / "inner",
+    aletheia::test::TempPath const nest{aletheia::test::scratch_dir() / "outer" / "inner",
                                         aletheia::test::AsDirectory{}};
     std::filesystem::current_path(nest.path);
 
@@ -96,7 +109,16 @@ TEST_CASE("a number read before any start is refused, and the start afterwards s
                StartsWith("core count 0 is outside 1 to "));
     CHECK(aletheia::allocated_bytes() == std::nullopt);
 
+    // An empty path is refused rather than handed to dlopen, which would open
+    // the program itself, and a zero count before the library is opened.
+    CHECK(aletheia::detail::error_of(aletheia::make_ffi_backend("")).kind() ==
+          aletheia::ErrorKind::Validation);
+    CHECK(aletheia::detail::error_of(aletheia::make_ffi_backend(lib, 0)).kind() ==
+          aletheia::ErrorKind::Validation);
+    CHECK_FALSE(kernel_is_mapped());
+
     CHECK(aletheia::start_runtime(lib, 1) == std::nullopt);
+    CHECK(kernel_is_mapped());
     CHECK(aletheia::allocated_bytes().has_value());
     CHECK(aletheia::Rational::from_decimal("1.5") == aletheia::Rational{3, 2});
     CHECK(aletheia::detail::format_rational_ffi(1, 2) == "0.5");
@@ -117,7 +139,7 @@ TEST_CASE("default checks holding a decimal, loaded after the start, stream", "[
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};
     auto const dlc = aletheia::Dlc::create(8).value();
-    const aletheia::FramePayload data{std::byte{0x20}, std::byte{0x03}, std::byte{0}, std::byte{0},
+    aletheia::FramePayload const data{std::byte{0x20}, std::byte{0x03}, std::byte{0}, std::byte{0},
                                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
     auto const result =
         client.send_frame(std::stop_token{}, aletheia::Timestamp{1'000}, id, dlc, data);

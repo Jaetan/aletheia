@@ -643,7 +643,7 @@ TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
     auto const tmp = aletheia::test::scratch_dir() / "yaml_oversize.yaml";
     {
         std::ofstream ofs(tmp, std::ios::binary);
-        const std::vector<char> chunk(1024UL * 1024, 'a');
+        std::vector<char> const chunk(1024UL * 1024, 'a');
         // 65 MiB, one mebibyte at a time: the count is the point, not a position.
         std::ranges::for_each(std::views::repeat(0, 65), [&](auto) {
             ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
@@ -663,7 +663,7 @@ TEST_CASE("yaml: inline string size cap rejected", "[yaml][hardening]") {
     // The inline loader must enforce the same 64 MiB bound as the file loader
     // (and Go/Rust inline loaders) — an untrusted in-memory payload is a trust
     // boundary too.
-    const std::string oversize(65UL * 1024 * 1024, 'a'); // 65 MiB > 64 MiB cap
+    std::string const oversize(65UL * 1024 * 1024, 'a'); // 65 MiB > 64 MiB cap
     auto const result = load_checks_from_yaml_string(oversize);
     REQUIRE(!result.has_value());
     CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);

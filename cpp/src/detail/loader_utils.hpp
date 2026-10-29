@@ -55,7 +55,7 @@ namespace aletheia::detail {
 ///   - Path doesn't exist           → `ErrorKind::Validation`
 ///   - Path is a symbolic link      → `ErrorKind::Validation`
 ///   - Path is not a regular file   → `ErrorKind::Validation`
-[[nodiscard]] auto validate_loader_path(const std::filesystem::path& path, std::string_view kind)
+[[nodiscard]] auto validate_loader_path(std::filesystem::path const& path, std::string_view kind)
     -> Result<void>;
 
 /// Reject if the file's raw byte count exceeds `max_dbc_text_bytes`.
@@ -64,7 +64,7 @@ namespace aletheia::detail {
 /// with structured `bound_info = {kind="input_length_bytes",
 /// observed=file_size, limit=max_dbc_text_bytes}` so the cross-binding
 /// `InputBoundExceededError` shape (Python / Go / C++) stays identical.
-[[nodiscard]] auto check_file_size_bound(const std::filesystem::path& path) -> Result<void>;
+[[nodiscard]] auto check_file_size_bound(std::filesystem::path const& path) -> Result<void>;
 
 /// Reject if an in-memory input's byte length exceeds `max_dbc_text_bytes`.
 /// The inline-string analogue of `check_file_size_bound`, for loaders that
@@ -91,7 +91,7 @@ namespace aletheia::detail {
 ///   - Multi-disk / spanning archive             → `ErrorKind::Validation`
 ///   - Sum of uncompressed sizes overflows / exceeds bound
 ///                                                → `ErrorKind::InputBoundExceeded`
-[[nodiscard]] auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<void>;
+[[nodiscard]] auto check_xlsx_uncompressed_bound(std::filesystem::path const& path) -> Result<void>;
 
 // Fills `out` from the stream at `offset`, and says whether it could: a read
 // the stream cut short, or refused, is false, and `out` then holds bytes the
@@ -106,7 +106,7 @@ namespace aletheia::detail {
 /// Validate that the parent directory of `path` exists and is itself a
 /// directory (not a file, not missing).  Empty parent (i.e. cwd-relative)
 /// is allowed.  `ErrorKind::Validation` on failure.
-[[nodiscard]] auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<void>;
+[[nodiscard]] auto validate_output_parent_dir(std::filesystem::path const& path) -> Result<void>;
 
 // ---------------------------------------------------------------------------
 // Reads both loaders share
@@ -118,8 +118,8 @@ namespace aletheia::detail {
 /// the typed bound error, keeps its kind, code and fields and is thrown located
 /// at `location` and `key`, because the kernel knows the literal and not where
 /// the document holds it; a runtime, library or wire fault is thrown as it is.
-[[nodiscard]] auto read_decimal(std::string_view text, const std::string& location,
-                                const std::string& key) -> Rational;
+[[nodiscard]] auto read_decimal(std::string_view text, std::string const& location,
+                                std::string const& key) -> Rational;
 
 /// The check a builder answered, its refusal thrown as the loader's other
 /// refusals are.
@@ -147,7 +147,7 @@ inline constexpr std::string_view k_drops_below = "drops_below";
 // one lookup, so the one refusal each carries is the refusal of a word the
 // table does not hold, and no arm is the "else" of the arms before it.
 template<typename Table>
-[[nodiscard]] auto arm_for(const Table& table, std::string_view condition, std::string_view kind) {
+[[nodiscard]] auto arm_for(Table const& table, std::string_view condition, std::string_view kind) {
     auto const found =
         std::ranges::find(table, condition, [](auto const& arm) { return arm.first; });
     if (found == table.end())
@@ -188,7 +188,7 @@ inline constexpr std::array<std::pair<std::string_view, WhenArm>, 3> k_when_arms
 using ThenSlotValues = std::map<std::string_view, PhysicalValue>;
 
 // The slot a then arm reads, or the refusal of one the loader did not pass.
-[[nodiscard]] inline auto then_slot(const ThenSlotValues& slots, std::string_view condition,
+[[nodiscard]] inline auto then_slot(ThenSlotValues const& slots, std::string_view condition,
                                     std::string_view name) -> PhysicalValue {
     auto const found = slots.find(name);
     if (found == slots.end())
@@ -197,29 +197,29 @@ using ThenSlotValues = std::map<std::string_view, PhysicalValue>;
     return found->second;
 }
 
-using ThenArm = CheckResult (*)(const ThenSignal&, const ThenSlotValues&, std::string_view,
+using ThenArm = CheckResult (*)(ThenSignal const&, ThenSlotValues const&, std::string_view,
                                 std::chrono::milliseconds);
 inline constexpr std::array<std::pair<std::string_view, ThenArm>, 3> k_then_arms{{
     {k_equals,
-     [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
+     [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c,
         std::chrono::milliseconds w) {
          return built_check(b.equals(then_slot(s, c, "value")).within(w));
      }},
     {k_exceeds,
-     [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
+     [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c,
         std::chrono::milliseconds w) {
          return built_check(b.exceeds(then_slot(s, c, "value")).within(w));
      }},
     {k_stays_between,
-     [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
+     [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c,
         std::chrono::milliseconds w) {
          return built_check(
              b.stays_between(then_slot(s, c, "lo"), then_slot(s, c, "hi")).within(w));
      }},
 }};
 
-[[nodiscard]] inline auto dispatch_then(const ThenSignal& builder, std::string_view condition,
-                                        const ThenSlotValues& slots,
+[[nodiscard]] inline auto dispatch_then(ThenSignal const& builder, std::string_view condition,
+                                        ThenSlotValues const& slots,
                                         std::chrono::milliseconds within) -> CheckResult {
     return arm_for(k_then_arms, condition, "then")(builder, slots, condition, within);
 }

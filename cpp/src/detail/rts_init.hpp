@@ -32,9 +32,9 @@ namespace aletheia::detail {
 // session calls. The library stays open for the process, so the addresses do.
 struct RuntimeEntries {
     std::uint64_t (*allocated_bytes)() = nullptr;
-    char* (*format_rational)(const FfiRational*) = nullptr;
+    char* (*format_rational)(FfiRational const*) = nullptr;
     void (*free_str)(char*) = nullptr;
-    std::int8_t (*parse_decimal)(const FfiText*, FfiDecimal*) = nullptr;
+    std::int8_t (*parse_decimal)(FfiText const*, FfiDecimal*) = nullptr;
 };
 
 struct RTSInitState {

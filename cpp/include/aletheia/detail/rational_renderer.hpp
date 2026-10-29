@@ -31,7 +31,7 @@ namespace aletheia::detail {
 
 // The one place the binding turns a Rational into text, so the check
 // builder's thresholds and the enrichment renderer's values cannot drift.
-[[nodiscard]] inline auto format_rational(const Rational& r) -> Result<std::string> {
+[[nodiscard]] inline auto format_rational(Rational const& r) -> Result<std::string> {
     return format_rational_ffi(r.numerator(), r.denominator());
 }
 
@@ -52,13 +52,13 @@ namespace aletheia::detail {
 // path, the relative heuristic: a variable naming a missing file is skipped,
 // not an error; the search tests in cpp/tests/unit_tests_validation.cpp hold
 // both halves.
-void register_default_lib_path(const std::filesystem::path& lib_path);
+void register_default_lib_path(std::filesystem::path const& lib_path);
 
 // The search behind `aletheia::find_ffi_library`, over the inputs it reads:
 // the `ALETHEIA_LIB` value or null, the registered path or empty, and the
 // directory the build-tree candidates are relative to.
-[[nodiscard]] auto search_ffi_library(const char* env_path, std::string_view registered_path,
-                                      const std::filesystem::path& cwd)
+[[nodiscard]] auto search_ffi_library(char const* env_path, std::string_view registered_path,
+                                      std::filesystem::path const& cwd)
     -> Result<std::filesystem::path>;
 
 } // namespace aletheia::detail

@@ -44,7 +44,7 @@ struct LatencyResult {
 };
 } // namespace
 
-static void print_latency(std::string_view name, const LatencyStats& s) {
+static void print_latency(std::string_view name, LatencyStats const& s) {
     std::println(out_file(), "\n{}:", name);
     std::println(out_file(), "--------------------------------------------------");
     std::println(out_file(), "  Count:    {} operations", s.count);
@@ -59,9 +59,9 @@ static void print_latency(std::string_view name, const LatencyStats& s) {
         std::println(out_file(), "  Implied:  {:.0f} ops/sec (from mean)", 1'000'000.0 / s.mean_us);
 }
 
-static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& dbc,
+static auto bench_latency_streaming(fs::path const& lib, DbcDefinition const& dbc,
                                     std::vector<LtlFormula> properties, CanId id, Dlc dlc,
-                                    const FramePayload& frame, int warmup, int ops)
+                                    FramePayload const& frame, int warmup, int ops)
     -> LatencyStats {
     auto client = make_streaming_client(lib, dbc, properties);
     // The stream reads timestamps in order, so the warmup frames carry the
@@ -73,8 +73,8 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
     return compute_latency_stats(latencies);
 }
 
-static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& dbc, CanId id,
-                                     Dlc dlc, const FramePayload& frame, int warmup, int ops)
+static auto bench_latency_extraction(fs::path const& lib, DbcDefinition const& dbc, CanId id,
+                                     Dlc dlc, FramePayload const& frame, int warmup, int ops)
     -> LatencyStats {
     auto client = make_client(lib, dbc);
     auto latencies = latencies_us(warmup, ops, "extract_signals", [&](auto) {
@@ -83,8 +83,8 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
     return compute_latency_stats(latencies);
 }
 
-static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
-                                   const std::vector<SignalValue>& signals, int warmup, int ops)
+static auto bench_latency_building(fs::path const& lib, DbcDefinition const& dbc, CanId id, Dlc dlc,
+                                   std::vector<SignalValue> const& signals, int warmup, int ops)
     -> LatencyStats {
     auto client = make_client(lib, dbc);
     auto latencies = latencies_us(warmup, ops, "build_frame", [&](auto) {
@@ -95,7 +95,7 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
 
 namespace aletheia::bench {
 
-void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json) {
+void run_latency(fs::path const& lib, int ops, int warmup, bool emit_json) {
     print_header("Aletheia Latency Benchmark (C++)");
     std::println(out_file(), "Operations: {}", ops);
     std::println(out_file(), "Warmup: {}", warmup);
@@ -105,9 +105,9 @@ void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json) {
 
     std::vector<LatencyResult> results;
 
-    auto const run_suite = [&](const char* label, const DbcDefinition& dbc,
+    auto const run_suite = [&](char const* label, DbcDefinition const& dbc,
                                std::vector<LtlFormula> properties, CanId id, Dlc dlc,
-                               const FramePayload& frame, const std::vector<SignalValue>& signals) {
+                               FramePayload const& frame, std::vector<SignalValue> const& signals) {
         std::println(out_file(), "\nBenchmarking {} streaming...", label);
         auto const s1 =
             bench_latency_streaming(lib, dbc, std::move(properties), id, dlc, frame, warmup, ops);
@@ -160,7 +160,7 @@ void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json) {
                 {"p999_us", std::round(r.stats.p999_us * 10) / 10},
             });
         }
-        const Json output = {
+        Json const output = {
             {"benchmark", "latency"},
             {"language", "cpp"},
             {"timestamp", iso_timestamp()},

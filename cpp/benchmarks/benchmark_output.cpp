@@ -44,13 +44,13 @@ void print_separator() {
 }
 
 void write_mode_report(std::FILE* report, std::string_view mode,
-                       const std::function<void()>& lane) {
+                       std::function<void()> const& lane) {
     auto const refused = [mode](std::error_code reason) {
         return std::system_error{reason, std::format("writing the {} report failed", mode)};
     };
     try {
         lane();
-    } catch (const std::system_error& e) {
+    } catch (std::system_error const& e) {
         // The print path throws when a write it makes to the stream fails; the
         // report's error indicator tells that failure from the lane's own.
         if (std::ferror(report) == 0)

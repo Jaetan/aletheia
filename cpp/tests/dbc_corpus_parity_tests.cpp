@@ -62,7 +62,7 @@ static auto corpus_dir() -> fs::path {
     return repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus";
 }
 
-static auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
+static auto canonical_dbc_json(DbcDefinition const& dbc) -> std::string {
     // Round-trip via the existing detail::serialize_parsed_dbc_response so
     // we don't duplicate the dbc_to_json walker; extract the "dbc" field
     // back out and dump(2). nlohmann::json is std::map-backed so dump

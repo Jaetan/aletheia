@@ -50,9 +50,9 @@ public:
     explicit Destination(std::FILE* stream) : replaced_{std::exchange(out_file(), stream)} {}
     ~Destination() { out_file() = replaced_; }
 
-    Destination(const Destination&) = delete;
+    Destination(Destination const&) = delete;
     Destination(Destination&&) = delete;
-    auto operator=(const Destination&) -> Destination& = delete;
+    auto operator=(Destination const&) -> Destination& = delete;
     auto operator=(Destination&&) -> Destination& = delete;
 
 private:
@@ -92,7 +92,7 @@ TEST_CASE("a report over the buffer that cannot be written names the mode", "[be
     auto reason = std::error_code{};
     try {
         std::println(unchecked.get(), "{}", line);
-    } catch (const std::system_error& e) {
+    } catch (std::system_error const& e) {
         reason = e.code();
     }
     REQUIRE(reason);
@@ -167,12 +167,12 @@ TEST_CASE("an error the lane raises passes through unchanged", "[benchmark][repo
 
 // What `print` writes to the report's destination, read back from a stream
 // over memory.
-static auto printed(const std::function<void()>& print) -> std::string {
+static auto printed(std::function<void()> const& print) -> std::string {
     Buffer memory{};
-    const File report{fmemopen(memory.data(), memory.size(), "w")};
+    File const report{fmemopen(memory.data(), memory.size(), "w")};
     REQUIRE(report != nullptr);
     {
-        const Destination destination{report.get()};
+        Destination const destination{report.get()};
         print();
     }
     REQUIRE(std::fflush(report.get()) == 0);

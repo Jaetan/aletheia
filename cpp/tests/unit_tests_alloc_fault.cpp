@@ -149,12 +149,12 @@ TEST_CASE("the allocation-fault harness fails the allocation it arms", "[alloc_f
     bool fired = false;
     std::size_t produced = 0;
     {
-        const Arm arm{1};
+        Arm const arm{1};
         try {
             // A call the compiler cannot see through, so the allocation it
             // makes is one it cannot elide.
             produced = aletheia::detail::rts_init_args(4, "").size();
-        } catch (const std::bad_alloc&) {
+        } catch (std::bad_alloc const&) {
             refused = true;
         }
         fired = arm.fired();
@@ -379,7 +379,7 @@ TEST_CASE("the binary extraction decoder allocates each container once and each 
 
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};
     auto const dlc = aletheia::Dlc::create(8).value();
-    const aletheia::FramePayload data(8);
+    aletheia::FramePayload const data(8);
     auto const call = [&] { return client.extract_signals(std::stop_token{}, id, dlc, data); };
     auto const decoded = call();
     REQUIRE(decoded.has_value());

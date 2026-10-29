@@ -266,8 +266,8 @@ namespace ltl {
 // alternative is one of five aggregate shapes, which the branches below name
 // by their members rather than by type; an alternative of a new shape fails
 // the final static_assert.
-[[nodiscard]] inline auto clone(const LtlFormula& f) -> LtlFormula {
-    auto const cp = [](const std::unique_ptr<LtlFormula>& p) -> std::unique_ptr<LtlFormula> {
+[[nodiscard]] inline auto clone(LtlFormula const& f) -> LtlFormula {
+    auto const cp = [](std::unique_ptr<LtlFormula> const& p) -> std::unique_ptr<LtlFormula> {
         return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;
     };
     return f.visit([&cp](auto const& v) -> LtlFormula {

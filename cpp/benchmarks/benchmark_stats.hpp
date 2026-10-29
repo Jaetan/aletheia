@@ -16,7 +16,7 @@ struct Stats {
     double max_val = 0;
 };
 
-auto compute_stats(const std::vector<double>& data) -> Stats;
+auto compute_stats(std::vector<double> const& data) -> Stats;
 
 struct LatencyStats {
     std::size_t count = 0;

@@ -117,9 +117,9 @@ IDENTIFIER_SHAPE = re.compile(r"^[a-z_]+:.+:\d+:\d+:\d+:\d+:[0-9a-f]{1,8}\.\d+$"
 _SITE = r'store ptr @"(cxx_[a-z_]+|negate_mutator):[^"]*?/cpp/src/{unit}:(\d+):(\d+):'
 # The lines of the backend the call mutators must reach, by the mutator that reaches each.
 REACHED_CALLS: Mapping[MutatorName, LinePattern] = {
-    MutatorName("cxx_remove_void_call"): LinePattern(r"close_fn_\(state\)"),
-    MutatorName("cxx_replace_scalar_call"): LinePattern(r"build_frame_bin_fn_\("),
-    MutatorName("cxx_replace_pointer_call_null"): LinePattern(r"process_fn_\(state"),
+    MutatorName("cxx_remove_void_call"): LinePattern(r"fns_\.close\(state\)"),
+    MutatorName("cxx_replace_scalar_call"): LinePattern(r"fns_\.build_frame_bin\("),
+    MutatorName("cxx_replace_pointer_call_null"): LinePattern(r"fns_\.process\(state"),
 }
 
 

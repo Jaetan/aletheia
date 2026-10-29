@@ -57,7 +57,7 @@ struct WireCodeRow {
 };
 } // namespace
 
-static auto load_section(const char* section) -> std::vector<WireCodeRow> {
+static auto load_section(char const* section) -> std::vector<WireCodeRow> {
     auto const path = repo_root() / "docs" / "WIRE_CODES.yaml";
     REQUIRE(std::filesystem::exists(path));
     auto const root = YAML::LoadFile(path.string());
@@ -76,7 +76,7 @@ static auto load_section(const char* section) -> std::vector<WireCodeRow> {
     return out;
 }
 
-static auto name_set(const std::vector<WireCodeRow>& rows) -> std::set<std::string> {
+static auto name_set(std::vector<WireCodeRow> const& rows) -> std::set<std::string> {
     std::set<std::string> names;
     for (auto const& row : rows) {
         INFO("duplicate name: " << row.name);

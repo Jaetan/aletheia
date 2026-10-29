@@ -288,11 +288,11 @@ inline auto statement_end(std::string_view text, std::size_t from) -> std::size_
 // something and whose name the rest of the program never names handed to
 // docExampleUnread, so the value is checked where it is kept, which is where
 // it is last seen. `where[k]` names the document line of the program's line k.
-inline auto wrap_unread_results(std::string_view program, const std::vector<std::string>& where)
+inline auto wrap_unread_results(std::string_view program, std::vector<std::string> const& where)
     -> std::string {
-    static const std::regex kept(
+    static std::regex const kept(
         R"(^(\s*(?:\[\[maybe_unused\]\]\s*)?auto\s+(?:const\s+)?(\w+)\s*=\s*).*)");
-    static const std::regex calls(R"(\w\s*\()");
+    static std::regex const calls(R"(\w\s*\()");
     std::vector<std::size_t> starts{0};
     for (auto const [i, c] : std::views::enumerate(program)) {
         if (c == '\n')
@@ -332,7 +332,7 @@ inline auto wrap_unread_results(std::string_view program, const std::vector<std:
 // client and backend stand behind: only such a fragment needs the compiler's
 // report of its undeclared uses before it runs.
 inline auto names_harness(std::string_view body) -> bool {
-    static const std::regex named(R"(\b(?:client|backend)\b)");
+    static std::regex const named(R"(\b(?:client|backend)\b)");
     return std::regex_search(body.begin(), body.end(), named);
 }
 
@@ -343,7 +343,7 @@ struct HarnessUse {
     std::size_t column = 0;
     bool client = false;
 
-    friend auto operator==(const HarnessUse&, const HarnessUse&) -> bool = default;
+    friend auto operator==(HarnessUse const&, HarnessUse const&) -> bool = default;
 };
 
 // The uses clang's output on `file` reports undeclared, as `<file>:<line>:
@@ -351,7 +351,7 @@ struct HarnessUse {
 // a fragment writes itself, in any form, are the compiler's to tell apart.
 inline auto reported_harness_uses(std::string_view diagnostics, std::string_view file)
     -> std::vector<HarnessUse> {
-    static const std::regex reported(
+    static std::regex const reported(
         R"(^(.*):(\d+):(\d+): error: use of undeclared identifier '(client|backend)')");
     std::vector<HarnessUse> uses;
     for (auto const line : diagnostics | std::views::split('\n')) {
@@ -376,7 +376,7 @@ inline auto with_harness_client(std::string program, std::vector<HarnessUse> use
         if (c == '\n')
             starts.push_back(static_cast<std::size_t>(i) + 1);
     }
-    auto const place = [](const HarnessUse& use) { return std::pair{use.line, use.column}; };
+    auto const place = [](HarnessUse const& use) { return std::pair{use.line, use.column}; };
     std::ranges::sort(uses, std::ranges::greater{}, place);
     auto const repeated = std::ranges::unique(uses, {}, place);
     uses.erase(repeated.begin(), repeated.end());
@@ -390,7 +390,7 @@ inline auto with_harness_client(std::string program, std::vector<HarnessUse> use
 
 // The fragment inside the wrapper, its uses of the harness's names as it
 // wrote them: with_harness_client gives them the harness's client.
-inline auto wrap_body_fragment(const std::string& body) -> std::string {
+inline auto wrap_body_fragment(std::string const& body) -> std::string {
     return std::string{k_prologue} + body + std::string{k_epilogue};
 }
 

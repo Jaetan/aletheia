@@ -110,7 +110,7 @@ static auto die(std::string_view msg) -> int {
 
 // Refuses the positionals a subcommand does not take, in the words the Python
 // CLI's argument parser uses for them.
-static auto refuse_unrecognized(std::span<const std::string> extras) -> int {
+static auto refuse_unrecognized(std::span<std::string const> extras) -> int {
     return die("unrecognized arguments: " +
                (extras | std::views::join_with(' ') | std::ranges::to<std::string>()));
 }
@@ -131,7 +131,7 @@ static auto emit_report(std::string_view report, int outcome) -> int {
                          : std::make_error_code(std::io_errc::stream).message()));
 }
 
-static auto emit_json(const Json& j, int outcome = cli_exit_ok) -> int {
+static auto emit_json(Json const& j, int outcome = cli_exit_ok) -> int {
     return emit_report(j.dump(k_json_indent) + '\n', outcome);
 }
 
@@ -145,7 +145,7 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
         return std::unexpected(aletheia::detail::error_of(lib).text());
     return AletheiaClient::open({.library = lib.value(), .logger = aletheia::cli_logger(std::cerr)})
         .transform_error(
-            [](const aletheia::AletheiaError& e) { return "loading FFI backend: " + e.text(); });
+            [](aletheia::AletheiaError const& e) { return "loading FFI backend: " + e.text(); });
 }
 
 // Reads a `.dbc` text file and parses it through the verified Agda text
@@ -161,8 +161,8 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
 static auto latin1_to_utf8(std::string_view bytes) -> std::string {
     std::string out;
     out.reserve(bytes.size());
-    for (const unsigned char byte : bytes) {
-        const unsigned value = byte;
+    for (unsigned char const byte : bytes) {
+        unsigned const value = byte;
         if (value < 0x80U) {
             out.push_back(static_cast<char>(value));
         } else {
@@ -173,7 +173,7 @@ static auto latin1_to_utf8(std::string_view bytes) -> std::string {
     return out;
 }
 
-static auto load_dbc_text(AletheiaClient& client, const std::string& path)
+static auto load_dbc_text(AletheiaClient& client, std::string const& path)
     -> std::expected<aletheia::ParsedDBC, DbcLoadError> {
     if (path.empty())
         return std::unexpected(DbcLoadError{.message = "no DBC source (use --dbc <file>.dbc)"});
@@ -186,7 +186,7 @@ static auto load_dbc_text(AletheiaClient& client, const std::string& path)
                 "reading " + path + ": " + std::string{aletheia::detail::error_of(bound).message()},
             .core = aletheia::detail::error_of(bound),
         });
-    const std::ifstream in{path};
+    std::ifstream const in{path};
     if (!in)
         return std::unexpected(DbcLoadError{.message = "reading " + path});
     std::ostringstream buf;
@@ -215,7 +215,7 @@ static auto parse_can_id(std::string_view s) -> std::optional<std::uint32_t> {
     // on a past-the-end iterator ([pointer.conversion] requires no dereference),
     // and data()+size() would trip cppcoreguidelines-pro-bounds-pointer-arithmetic.
     // Cold path.
-    const std::string str{s};
+    std::string const str{s};
     std::uint32_t value = 0;
     auto const* const end = std::to_address(str.end());
     auto const [ptr, ec] = std::from_chars(str.data(), end, value, base);
@@ -250,7 +250,7 @@ static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std:
     std::vector<std::byte> out;
     out.reserve(view.size() / 2);
     for (auto const octet_chars : view | std::views::chunk(2)) {
-        const std::string octet{octet_chars.begin(), octet_chars.end()};
+        std::string const octet{octet_chars.begin(), octet_chars.end()};
         std::uint8_t byte = 0;
         auto const* const end = std::to_address(octet.end());
         auto const [ptr, ec] = std::from_chars(octet.data(), end, byte, 16);
@@ -268,15 +268,15 @@ static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std:
 // and "--flag=value" are both accepted. The first bare "--" ends the flags:
 // it is neither a flag nor a positional, and every token after it is a
 // positional, one spelled like a flag included.
-static auto parse_args(std::span<const std::string> args, const std::set<std::string>& value_flags,
-                       const std::set<std::string>& bool_flags)
+static auto parse_args(std::span<std::string const> args, std::set<std::string> const& value_flags,
+                       std::set<std::string> const& bool_flags)
     -> std::expected<Args, std::string> {
     Args out;
     // A cursor rather than a counter: a value flag consumes the argument after
     // it, so the step is a variable number of elements and the consumption is
     // what the loop says.
     while (!args.empty()) {
-        const std::string& a = args.front();
+        std::string const& a = args.front();
         args = aletheia::detail::subspan_at(args, 1);
         if (a == "--") {
             out.positionals.append_range(args);
@@ -310,7 +310,7 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
     return out;
 }
 
-static auto opt_or(const Args& a, const std::string& key) -> std::string {
+static auto opt_or(Args const& a, std::string const& key) -> std::string {
     auto const it = a.opts.find(key);
     return it == a.opts.end() ? std::string{} : it->second;
 }
@@ -319,7 +319,7 @@ static auto opt_or(const Args& a, const std::string& key) -> std::string {
 
 // The human-readable validation report: a one-line verdict, then the
 // numbered issue list when there is one.
-static auto validation_text(bool has_errors, const std::vector<aletheia::ValidationIssue>& issues)
+static auto validation_text(bool has_errors, std::vector<aletheia::ValidationIssue> const& issues)
     -> std::string {
     if (issues.empty())
         return "Validation passed: no issues found\n";
@@ -343,7 +343,7 @@ static auto validation_text(bool has_errors, const std::vector<aletheia::Validat
 // issues), so both print the identical report shape. The exit code reflects
 // the validation outcome in both output modes: a pipeline running --json
 // still needs exit 1 on failure.
-static auto render_validation(bool has_errors, const std::vector<aletheia::ValidationIssue>& issues,
+static auto render_validation(bool has_errors, std::vector<aletheia::ValidationIssue> const& issues,
                               bool as_json) -> int {
     auto const outcome = has_errors ? cli_exit_validation_failed : cli_exit_ok;
     if (!as_json)
@@ -363,13 +363,13 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
 // `has_errors` for a rejected parse is derived from the decoded issue
 // severities (the kernel only rejects when at least one error is present;
 // the wire flag was already required well-typed by the decoder's lift).
-static auto has_error_issue(const std::vector<aletheia::ValidationIssue>& issues) -> bool {
-    return std::ranges::any_of(issues, [](const aletheia::ValidationIssue& i) {
+static auto has_error_issue(std::vector<aletheia::ValidationIssue> const& issues) -> bool {
+    return std::ranges::any_of(issues, [](aletheia::ValidationIssue const& i) {
         return i.severity == aletheia::IssueSeverity::Error;
     });
 }
 
-static auto cmd_validate(const Args& a) -> int {
+static auto cmd_validate(Args const& a) -> int {
     auto client = make_client();
     if (!client)
         return die(aletheia::detail::error_of(client));
@@ -404,7 +404,7 @@ static auto cmd_validate(const Args& a) -> int {
 // are kernel-canonical (reduced, positive denominator), so no gcd / INT64_MIN
 // normalisation is needed (unlike `rational_to_json`, which guards arbitrary
 // caller-built rationals on the DBC-serialize path).
-static auto extract_value_to_json(const aletheia::Rational& r) -> Json {
+static auto extract_value_to_json(aletheia::Rational const& r) -> Json {
     if (r.denominator() == 1)
         return r.numerator();
     return Json{{"numerator", r.numerator()}, {"denominator", r.denominator()}};
@@ -416,14 +416,14 @@ static auto extract_value_to_json(const aletheia::Rational& r) -> Json {
 // with Go's FormatRational and Python's format_rational (same kernel FFI).  The
 // CLI always has a live client here, so the RTS is up; the renderer's error,
 // answered only while it is not, ends the command as an unexpected one.
-static auto render_rational(const aletheia::Rational& r) -> std::string {
+static auto render_rational(aletheia::Rational const& r) -> std::string {
     auto text = aletheia::detail::format_rational(r);
     if (!text)
         throw aletheia::detail::AletheiaException(aletheia::detail::error_of(text));
     return std::move(text).value();
 }
 
-static auto cmd_extract(const Args& a) -> int {
+static auto cmd_extract(Args const& a) -> int {
     if (a.positionals.size() < 2)
         return die("extract requires <can_id> <data> positional arguments");
     if (a.positionals.size() > 2)
@@ -480,10 +480,10 @@ static auto cmd_extract(const Args& a) -> int {
     return emit_report(std::move(out).str(), cli_exit_ok);
 }
 
-static void print_signal_line(std::ostream& out, const aletheia::DbcSignal& sig) {
-    const std::string_view order =
+static void print_signal_line(std::ostream& out, aletheia::DbcSignal const& sig) {
+    std::string_view const order =
         sig.byte_order == aletheia::ByteOrder::LittleEndian ? "LE" : "BE";
-    const std::string_view sign = sig.is_signed ? "signed" : "unsigned";
+    std::string_view const sign = sig.is_signed ? "signed" : "unsigned";
     out << "  " << sig.name.get() << " bits[" << sig.start_bit.get() << ":"
         << static_cast<unsigned>(sig.bit_length.get()) << "] " << order << " " << sign << " x"
         << render_rational(sig.factor.get()) << " " << render_rational(sig.offset.get()) << " "
@@ -491,14 +491,14 @@ static void print_signal_line(std::ostream& out, const aletheia::DbcSignal& sig)
 }
 
 // The DBC's canonical JSON as the report, or the encoder's refusal.
-static auto emit_canonical_json(const DbcDefinition& dbc) -> int {
+static auto emit_canonical_json(DbcDefinition const& dbc) -> int {
     auto const json = aletheia::to_canonical_json(dbc);
     if (!json)
         return die(aletheia::detail::error_of(json).message());
     return emit_report(json.value() + '\n', cli_exit_ok);
 }
 
-static auto cmd_signals(const Args& a) -> int {
+static auto cmd_signals(Args const& a) -> int {
     auto client = make_client();
     if (!client)
         return die(aletheia::detail::error_of(client));
@@ -521,7 +521,7 @@ static auto cmd_signals(const Args& a) -> int {
     return emit_report(std::move(out).str(), cli_exit_ok);
 }
 
-static auto cmd_format_dbc(const Args& a) -> int {
+static auto cmd_format_dbc(Args const& a) -> int {
     auto client = make_client();
     if (!client)
         return die(aletheia::detail::error_of(client));
@@ -534,8 +534,8 @@ static auto cmd_format_dbc(const Args& a) -> int {
     return emit_canonical_json(canonical.value());
 }
 
-static auto resolve_mux_message(const DbcDefinition& def, const std::string& ident, bool extended)
-    -> const DbcMessage* {
+static auto resolve_mux_message(DbcDefinition const& def, std::string const& ident, bool extended)
+    -> DbcMessage const* {
     if (auto const can_id = parse_can_id(ident))
         if (auto const id = make_can_id(can_id.value(), extended))
             if (auto const* msg = def.message_by_id(id.value()))
@@ -545,14 +545,14 @@ static auto resolve_mux_message(const DbcDefinition& def, const std::string& ide
 
 // The line both mux-query modes open with, and the one the Go and Python
 // interfaces print: the identifier, the name and the payload length.
-static void print_message_header(std::ostream& out, const DbcMessage& msg) {
+static void print_message_header(std::ostream& out, DbcMessage const& msg) {
     out << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
         << msg.name.get() << " (DLC " << aletheia::dlc_to_bytes(msg.dlc) << ")\n";
 }
 
 // The signal names of one mux value, comma-separated, as the other two
 // interfaces print them.
-static auto join_signal_names(std::span<const DbcSignal> sigs) -> std::string {
+static auto join_signal_names(std::span<DbcSignal const> sigs) -> std::string {
     std::string out;
     for (auto const& s : sigs) {
         if (!out.empty())
@@ -563,7 +563,7 @@ static auto join_signal_names(std::span<const DbcSignal> sigs) -> std::string {
 }
 
 // mux-query selector mode: the signals present for one (multiplexor, value).
-static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uint32_t value,
+static auto mux_selector(DbcMessage const& msg, std::string const& mux, std::uint32_t value,
                          bool as_json) -> int {
     auto const sigs =
         msg.signals_for_mux_value(aletheia::SignalName{mux}, aletheia::MultiplexValue{value});
@@ -586,7 +586,7 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
 }
 
 // mux-query summary mode: every multiplexor, its values, and their signals.
-static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
+static auto mux_summary(DbcMessage const& msg, bool as_json) -> int {
     if (as_json) {
         auto muxes = Json::array();
         for (auto const& name : msg.multiplexor_names()) {
@@ -621,7 +621,7 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
     return emit_report(std::move(out).str(), cli_exit_ok);
 }
 
-static auto cmd_mux_query(const Args& a) -> int {
+static auto cmd_mux_query(Args const& a) -> int {
     if (a.positionals.empty())
         return die("mux-query requires a <message> positional argument (CAN ID or name)");
     if (a.positionals.size() > 1)
@@ -646,7 +646,7 @@ static auto cmd_mux_query(const Args& a) -> int {
     if (!has_mux)
         return mux_summary(*msg, a.flags.contains("json"));
 
-    const std::string& vstr = a.opts.at("value");
+    std::string const& vstr = a.opts.at("value");
     std::uint32_t value = 0;
     auto const* const vend = std::to_address(vstr.end());
     if (auto const [ptr, ec] = std::from_chars(vstr.data(), vend, value);
@@ -658,7 +658,7 @@ static auto cmd_mux_query(const Args& a) -> int {
 
 // Writes the blank workbook the Excel loaders read; a path that exists is
 // refused and left as it was.
-static auto cmd_template(const Args& a) -> int {
+static auto cmd_template(Args const& a) -> int {
     if (a.positionals.empty())
         return die("template requires one <path> positional argument");
     if (a.positionals.size() > 1)
@@ -685,8 +685,8 @@ constexpr std::string_view k_usage =
 
 // Dispatch the parsed command; separated from run_cli so run_cli stays
 // exception-free (bugprone-exception-escape) via a single try/catch.
-static auto dispatch(const std::string& cmd, std::span<const std::string> rest) -> int {
-    const std::set<std::string> bool_flags{"json", "extended"};
+static auto dispatch(std::string const& cmd, std::span<std::string const> rest) -> int {
+    std::set<std::string> const bool_flags{"json", "extended"};
     if (cmd == "validate" || cmd == "signals" || cmd == "format-dbc") {
         auto const parsed = parse_args(rest, {"dbc"}, bool_flags);
         if (!parsed)
@@ -736,7 +736,7 @@ namespace aletheia {
 
 auto cli_logger(std::ostream& out) -> Logger {
     return Logger(
-        [&out](const LogRecord& r) {
+        [&out](LogRecord const& r) {
             out << r.event;
             for (auto const& [key, value] : r.fields) {
                 out << ' ' << key << '=';
@@ -754,14 +754,14 @@ auto cli_logger(std::ostream& out) -> Logger {
         LogLevel::Warn);
 }
 
-auto run_cli(std::span<const std::string> args) noexcept -> int {
+auto run_cli(std::span<std::string const> args) noexcept -> int {
     try {
         if (args.empty()) {
             std::cerr << k_usage << '\n';
             return cli_exit_error;
         }
         return dispatch(args.front(), aletheia::detail::subspan_at(args, 1));
-    } catch (const std::exception& e) {
+    } catch (std::exception const& e) {
         return die(std::string{"unexpected error: "} + e.what());
     } catch (...) {
         return die("unexpected error");

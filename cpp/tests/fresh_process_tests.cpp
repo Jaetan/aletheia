@@ -49,7 +49,7 @@
 // status. The child dies with the thread that started it: the mutation runner
 // ends a run by killing this process alone and then waits for its pipes to
 // close, which a child left running would hold.
-static auto run_child(const std::string& binary, const std::vector<std::string>& extra) -> int {
+static auto run_child(std::string const& binary, std::vector<std::string> const& extra) -> int {
     auto environment = aletheia::test::environment_with(extra);
     auto const envp = aletheia::test::exec_array(environment);
     std::vector<std::string> arguments{binary, "--order", "decl"};
@@ -76,7 +76,7 @@ static auto run_child(const std::string& binary, const std::vector<std::string>&
 // ended, which no assertion here could report as faithfully. Catch2 ends a run
 // in which every case skipped with 4, so a child that found nothing to run
 // does not pass.
-static void require_passes(const std::string& binary, const std::vector<std::string>& extra = {}) {
+static void require_passes(std::string const& binary, std::vector<std::string> const& extra = {}) {
     auto const status = run_child(binary, extra);
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
         SUCCEED();

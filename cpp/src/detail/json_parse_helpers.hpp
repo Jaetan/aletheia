@@ -25,7 +25,7 @@ namespace aletheia {
 // Every string-to-enum table the JSON parsers keep is an array scanned
 // linearly, which is fine on these cold paths.
 template<typename Table>
-auto lookup(const Table& table, std::string_view wire)
+auto lookup(Table const& table, std::string_view wire)
     -> std::optional<typename Table::value_type::second_type> {
     for (auto const& [name, value] : table)
         if (name == wire)
@@ -60,7 +60,7 @@ using Json = nlohmann::json;
 // byte of 256 reads as zero.  The refusal names the position's own range, as
 // the kernel names the bound it refuses at its own entry.
 template<typename T>
-auto out_of_range(const Json& j, std::string_view context) -> std::runtime_error {
+auto out_of_range(Json const& j, std::string_view context) -> std::runtime_error {
     return std::runtime_error(std::string{context} + " is out of range (" +
                               std::to_string(std::numeric_limits<T>::min()) + " to " +
                               std::to_string(std::numeric_limits<T>::max()) +
@@ -68,7 +68,7 @@ auto out_of_range(const Json& j, std::string_view context) -> std::runtime_error
 }
 
 template<typename T>
-auto require_int(const Json& j, std::string_view context) -> T {
+auto require_int(Json const& j, std::string_view context) -> T {
     if (!j.is_number_integer())
         throw std::runtime_error(std::string{context} + " must be an integer, got: " + j.dump());
     // A signed value always fits a 64-bit target, so that branch is a check
@@ -84,7 +84,7 @@ auto require_int(const Json& j, std::string_view context) -> T {
 }
 
 template<typename T>
-auto require_uint(const Json& j, std::string_view context) -> T {
+auto require_uint(Json const& j, std::string_view context) -> T {
     if (!j.is_number_unsigned())
         throw std::runtime_error(std::string{context} +
                                  " must be a non-negative integer, got: " + j.dump());
@@ -98,7 +98,7 @@ auto require_uint(const Json& j, std::string_view context) -> T {
     return static_cast<T>(wide);
 }
 
-auto parse_rational(const Json& j) -> Rational;
-auto parse_dbc_definition(const Json& j) -> DbcDefinition;
+auto parse_rational(Json const& j) -> Rational;
+auto parse_dbc_definition(Json const& j) -> DbcDefinition;
 
 } // namespace aletheia::detail

@@ -47,7 +47,7 @@ static auto make_two_message_dbc() -> DbcDefinition {
     auto const rpm_id = StandardId::create(0x200).value();
     auto const dlc = Dlc::create(8).value();
 
-    const DbcSignal speed_sig{
+    DbcSignal const speed_sig{
         .name = SignalName{"Speed"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -61,7 +61,7 @@ static auto make_two_message_dbc() -> DbcDefinition {
         .presence = AlwaysPresent{},
     };
 
-    const DbcSignal rpm_sig{
+    DbcSignal const rpm_sig{
         .name = SignalName{"Rpm"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},

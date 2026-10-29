@@ -51,9 +51,9 @@ auto BackendState::operator=(BackendState&& other) noexcept -> BackendState& {
 
 // SignalInjection refuses the two shapes the FFI would read past: three arrays
 // that are not the same length, and a length its 32-bit count cannot carry.
-auto SignalInjection::create(std::span<const std::uint32_t> indices,
-                             std::span<const std::int64_t> numerators,
-                             std::span<const std::int64_t> denominators)
+auto SignalInjection::create(std::span<std::uint32_t const> indices,
+                             std::span<std::int64_t const> numerators,
+                             std::span<std::int64_t const> denominators)
     -> Result<SignalInjection> {
     if (indices.size() != numerators.size() || indices.size() != denominators.size())
         return detail::validation_refusal(
@@ -82,21 +82,21 @@ auto IBackend::rts_mismatch_info() const -> std::optional<std::pair<int, int>> {
     return std::nullopt;
 }
 
-auto IBackend::build_frame_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+auto IBackend::build_frame_bin(BackendState const& /*state*/, CanId const& /*id*/, Dlc /*dlc*/,
                                SignalInjection /*signals*/, std::size_t /*expected_bytes*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
     return binary_unsupported();
 }
 
-auto IBackend::update_frame_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                                std::span<const std::byte> /*data*/, SignalInjection /*signals*/,
+auto IBackend::update_frame_bin(BackendState const& /*state*/, CanId const& /*id*/, Dlc /*dlc*/,
+                                std::span<std::byte const> /*data*/, SignalInjection /*signals*/,
                                 std::size_t /*expected_bytes*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
     return binary_unsupported();
 }
 
-auto IBackend::extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                                   std::span<const std::byte> /*data*/)
+auto IBackend::extract_signals_bin(BackendState const& /*state*/, CanId const& /*id*/, Dlc /*dlc*/,
+                                   std::span<std::byte const> /*data*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
     return binary_unsupported();
 }

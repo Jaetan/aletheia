@@ -12,8 +12,8 @@
 #include <cstdint>
 #include <string_view>
 
-extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
-    auto const input = std::string_view{reinterpret_cast<const char*>(data), size};
+extern "C" auto LLVMFuzzerTestOneInput(uint8_t const* data, size_t size) -> int {
+    auto const input = std::string_view{reinterpret_cast<char const*>(data), size};
     // The DBC body parser receives wire JSON; assert no UB / no leak / no
     // exception escape on adversarial input.
     [[maybe_unused]] auto const r = aletheia::detail::parse_dbc_response(input);

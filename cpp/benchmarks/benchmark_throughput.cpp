@@ -51,16 +51,16 @@ struct ThroughputResult {
 };
 } // namespace
 
-static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
-                             const FramePayload& frame, int num_frames) -> double {
+static auto bench_extraction(fs::path const& lib, DbcDefinition const& dbc, CanId id, Dlc dlc,
+                             FramePayload const& frame, int num_frames) -> double {
     auto client = make_client(lib, dbc);
     return operations_per_second(num_frames, "extract_signals", [&](auto) {
         return client.extract_signals(std::stop_token{}, id, dlc, frame);
     });
 }
 
-static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
-                           const std::vector<SignalValue>& signals, int num_frames) -> double {
+static auto bench_building(fs::path const& lib, DbcDefinition const& dbc, CanId id, Dlc dlc,
+                           std::vector<SignalValue> const& signals, int num_frames) -> double {
     auto client = make_client(lib, dbc);
     return operations_per_second(num_frames, "build_frame", [&](auto) {
         return client.build_frame(std::stop_token{}, id, dlc, signals);
@@ -97,7 +97,7 @@ static auto run_throughput_bench(std::string name, auto bench_fn, int num_frames
 
 // The six measurements the throughput mode takes, in the order the summary
 // table prints them.
-static auto collect_throughput_results(const fs::path& lib, int num_frames, int num_runs,
+static auto collect_throughput_results(fs::path const& lib, int num_frames, int num_runs,
                                        int warmup) -> std::vector<ThroughputResult> {
     auto const dbc_20 = make_can20_dbc();
     auto const dbc_fd = make_canfd_dbc();
@@ -146,7 +146,7 @@ static auto collect_throughput_results(const fs::path& lib, int num_frames, int 
 
 namespace aletheia::bench {
 
-void run_throughput(const fs::path& lib, int num_frames, int num_runs, int warmup, bool emit_json) {
+void run_throughput(fs::path const& lib, int num_frames, int num_runs, int warmup, bool emit_json) {
     print_header("Aletheia Throughput Benchmark (C++)");
     std::println(out_file(), "Frames per run: {}", num_frames);
     std::println(out_file(), "Runs: {}", num_runs);
@@ -181,7 +181,7 @@ void run_throughput(const fs::path& lib, int num_frames, int num_runs, int warmu
                 {"us_per_frame", std::round(us * 10) / 10},
             });
         }
-        const Json output = {
+        Json const output = {
             {"benchmark", "throughput"},
             {"language", "cpp"},
             {"timestamp", iso_timestamp()},

@@ -41,8 +41,8 @@ public:
     BackendState(IBackend& backend, void* state) : backend_(&backend), state_(state) {}
     ~BackendState();
 
-    BackendState(const BackendState&) = delete;
-    auto operator=(const BackendState&) -> BackendState& = delete;
+    BackendState(BackendState const&) = delete;
+    auto operator=(BackendState const&) -> BackendState& = delete;
     BackendState(BackendState&& other) noexcept;
     auto operator=(BackendState&& other) noexcept -> BackendState&;
 
@@ -69,26 +69,26 @@ private:
 // read past.
 class SignalInjection {
 public:
-    [[nodiscard]] static auto create(std::span<const std::uint32_t> indices,
-                                     std::span<const std::int64_t> numerators,
-                                     std::span<const std::int64_t> denominators)
+    [[nodiscard]] static auto create(std::span<std::uint32_t const> indices,
+                                     std::span<std::int64_t const> numerators,
+                                     std::span<std::int64_t const> denominators)
         -> Result<SignalInjection>;
 
     [[nodiscard]] auto count() const -> std::uint32_t {
         return static_cast<std::uint32_t>(indices_.size());
     }
-    [[nodiscard]] auto indices() const -> std::span<const std::uint32_t> { return indices_; }
-    [[nodiscard]] auto numerators() const -> std::span<const std::int64_t> { return numerators_; }
-    [[nodiscard]] auto denominators() const -> std::span<const std::int64_t> {
+    [[nodiscard]] auto indices() const -> std::span<std::uint32_t const> { return indices_; }
+    [[nodiscard]] auto numerators() const -> std::span<std::int64_t const> { return numerators_; }
+    [[nodiscard]] auto denominators() const -> std::span<std::int64_t const> {
         return denominators_;
     }
 
 private:
     SignalInjection() = default;
 
-    std::span<const std::uint32_t> indices_;
-    std::span<const std::int64_t> numerators_;
-    std::span<const std::int64_t> denominators_;
+    std::span<std::uint32_t const> indices_;
+    std::span<std::int64_t const> numerators_;
+    std::span<std::int64_t const> denominators_;
 };
 
 // ---------------------------------------------------------------------------
@@ -99,8 +99,8 @@ class IBackend {
 public:
     virtual ~IBackend() = default;
 
-    IBackend(const IBackend&) = delete;
-    IBackend& operator=(const IBackend&) = delete;
+    IBackend(IBackend const&) = delete;
+    IBackend& operator=(IBackend const&) = delete;
     IBackend(IBackend&&) = delete;
     IBackend& operator=(IBackend&&) = delete;
 
@@ -119,7 +119,7 @@ public:
     // Every endpoint answering text returns the kernel's response, or the error
     // that kept the backend from reaching the kernel or from reading its answer.
     [[nodiscard]] virtual auto init() -> Result<BackendState> = 0;
-    [[nodiscard]] virtual auto process(const BackendState& state, std::string_view input)
+    [[nodiscard]] virtual auto process(BackendState const& state, std::string_view input)
         -> Result<std::string> = 0;
 
     // Binary frame FFI — bypasses JSON serialization on the send path.
@@ -128,9 +128,9 @@ public:
     // passed as std::optional<bool> — std::nullopt for CAN 2.0B frames
     // where the bits do not exist.  The Aletheia kernel does not consume
     // BRS / ESI; they are pass-through metadata for binding consumers.
-    [[nodiscard]] virtual auto send_frame_binary(const BackendState& state, Timestamp ts,
-                                                 const CanId& id, Dlc dlc,
-                                                 std::span<const std::byte> data,
+    [[nodiscard]] virtual auto send_frame_binary(BackendState const& state, Timestamp ts,
+                                                 CanId const& id, Dlc dlc,
+                                                 std::span<std::byte const> data,
                                                  std::optional<bool> brs, std::optional<bool> esi)
         -> Result<std::string> = 0;
 
@@ -138,18 +138,18 @@ public:
     // generic default: only the binary FFI (FFIBackend) or a test double
     // (MockBackend, which records `<binary:OP>` sentinels) can service these,
     // so every backend declares how it streams.
-    [[nodiscard]] virtual auto send_error_binary(const BackendState& state, Timestamp ts)
+    [[nodiscard]] virtual auto send_error_binary(BackendState const& state, Timestamp ts)
         -> Result<std::string> = 0;
-    [[nodiscard]] virtual auto send_remote_binary(const BackendState& state, Timestamp ts,
-                                                  const CanId& id) -> Result<std::string> = 0;
-    [[nodiscard]] virtual auto start_stream_binary(const BackendState& state)
+    [[nodiscard]] virtual auto send_remote_binary(BackendState const& state, Timestamp ts,
+                                                  CanId const& id) -> Result<std::string> = 0;
+    [[nodiscard]] virtual auto start_stream_binary(BackendState const& state)
         -> Result<std::string> = 0;
-    [[nodiscard]] virtual auto end_stream_binary(const BackendState& state)
+    [[nodiscard]] virtual auto end_stream_binary(BackendState const& state)
         -> Result<std::string> = 0;
-    [[nodiscard]] virtual auto format_dbc_binary(const BackendState& state)
+    [[nodiscard]] virtual auto format_dbc_binary(BackendState const& state)
         -> Result<std::string> = 0;
-    [[nodiscard]] virtual auto extract_signals_binary(const BackendState& state, const CanId& id,
-                                                      Dlc dlc, std::span<const std::byte> data)
+    [[nodiscard]] virtual auto extract_signals_binary(BackendState const& state, CanId const& id,
+                                                      Dlc dlc, std::span<std::byte const> data)
         -> Result<std::string> = 0;
 
     // ========================================================================
@@ -163,18 +163,18 @@ public:
     // ========================================================================
 
     // Binary output endpoints — raw payload bytes on success, AletheiaError on failure.
-    [[nodiscard]] virtual auto build_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
+    [[nodiscard]] virtual auto build_frame_bin(BackendState const& state, CanId const& id, Dlc dlc,
                                                SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
-    [[nodiscard]] virtual auto update_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
-                                                std::span<const std::byte> data,
+    [[nodiscard]] virtual auto update_frame_bin(BackendState const& state, CanId const& id, Dlc dlc,
+                                                std::span<std::byte const> data,
                                                 SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
     // Binary extraction (no JSON on input or output) — packed buffer on success.
-    [[nodiscard]] virtual auto extract_signals_bin(const BackendState& state, const CanId& id,
-                                                   Dlc dlc, std::span<const std::byte> data)
+    [[nodiscard]] virtual auto extract_signals_bin(BackendState const& state, CanId const& id,
+                                                   Dlc dlc, std::span<std::byte const> data)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
     // Startup diagnostic for the GHC RTS cores-mismatch case — emitted by
@@ -205,9 +205,9 @@ protected:
 // does: Validation for a count outside 1 to the CPUs the process may use or an
 // empty path, Ffi for a library that does not open, is laid out for another ABI
 // version or lacks an entry the backend reads.
-[[nodiscard]] auto make_ffi_backend(const std::filesystem::path& lib_path)
+[[nodiscard]] auto make_ffi_backend(std::filesystem::path const& lib_path)
     -> Result<std::unique_ptr<IBackend>>;
-[[nodiscard]] auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
+[[nodiscard]] auto make_ffi_backend(std::filesystem::path const& lib_path, int rts_cores)
     -> Result<std::unique_ptr<IBackend>>;
 
 // Production, env-configured: loads the library named by the ALETHEIA_LIB
@@ -228,7 +228,7 @@ protected:
 // `std::nullopt` otherwise. Refuses (Validation) a count outside 1 to the CPUs
 // the process may use or an empty path, and (Ffi) a library that does not open,
 // is laid out for another ABI version or lacks an entry the start reads.
-[[nodiscard]] auto start_runtime(const std::filesystem::path& lib, int cores)
+[[nodiscard]] auto start_runtime(std::filesystem::path const& lib, int cores)
     -> Result<std::optional<std::pair<int, int>>>;
 
 // `start_runtime` on the library ALETHEIA_LIB names. Refuses (Validation) if

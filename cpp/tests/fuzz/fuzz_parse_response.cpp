@@ -28,8 +28,8 @@
 #include <cstdint>
 #include <string_view>
 
-extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
-    auto const input = std::string_view{reinterpret_cast<const char*>(data), size};
+extern "C" auto LLVMFuzzerTestOneInput(uint8_t const* data, size_t size) -> int {
+    auto const input = std::string_view{reinterpret_cast<char const*>(data), size};
     // Each parser entry must not crash on adversarial input.  Errors are
     // expected; the contract is no UB / no exception escape past the API.
     [[maybe_unused]] auto const r1 = aletheia::detail::parse_success(input);

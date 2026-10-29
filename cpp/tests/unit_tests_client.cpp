@@ -85,7 +85,7 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
+    FramePayload const data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                             std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
     auto const result = client.extract_signals(std::stop_token{}, id, dlc, data);
 
@@ -122,7 +122,7 @@ TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBa
     // Client falls through to the JSON path.
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data{std::byte{0x37}, std::byte{0}, std::byte{0}, std::byte{0},
+    FramePayload const data{std::byte{0x37}, std::byte{0}, std::byte{0}, std::byte{0},
                             std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
     auto const result = client.extract_signals(std::stop_token{}, id, dlc, data);
 
@@ -135,7 +135,7 @@ TEST_CASE("client build_frame requires loaded DBC", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto const id = CanId{StandardId::create(0x100).value()};
-    const std::vector<SignalValue> signals{
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
     };
     auto const result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
@@ -172,7 +172,7 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     auto const frame_result =
         client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(frame_result.has_value());
@@ -256,7 +256,7 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     auto const result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
@@ -402,9 +402,9 @@ TEST_CASE("client update_frame requires loaded DBC", "[client][mock]") {
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
+    FramePayload const data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                             std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
-    const std::vector<SignalValue> signals{
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},
     };
 
@@ -434,7 +434,7 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
     auto const dlc = Dlc::create(8).value();
     auto const sid = StandardId::create(0x100).value();
     FramePayload const data(8, std::byte{0});
-    const std::vector<Frame> frames{
+    std::vector<Frame> const frames{
         {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = data},
         {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = data},
     };
@@ -463,7 +463,7 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
     auto const sid = StandardId::create(0x100).value();
     FramePayload const good(8, std::byte{0});
     FramePayload const bad(3, std::byte{0}); // 3 bytes vs DLC 8
-    const std::vector<Frame> frames{
+    std::vector<Frame> const frames{
         {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = good},
         {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = bad},
     };
@@ -497,7 +497,7 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
     auto const dlc = Dlc::create(8).value();
     auto const sid = StandardId::create(0x100).value();
     FramePayload const data(8, std::byte{0});
-    const std::vector<Frame> frames{
+    std::vector<Frame> const frames{
         {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = data},
         {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = data},
         {.timestamp = Timestamp{3000}, .id = CanId{sid}, .dlc = dlc, .data = data},
@@ -526,7 +526,7 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
     auto const dlc = Dlc::create(8).value();
     auto const sid = StandardId::create(0x100).value();
     FramePayload const data(8, std::byte{0});
-    const std::vector<Frame> frames{
+    std::vector<Frame> const frames{
         {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = data},
         {.timestamp = Timestamp{-1}, .id = CanId{sid}, .dlc = dlc, .data = data},
     };
@@ -553,8 +553,8 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     auto const sid = CanId{StandardId::create(0x100).value()};
     auto const dlc8 = Dlc::create(8).value();
     auto const dlc4 = Dlc::create(4).value();
-    const std::array<std::byte, 8> good{};
-    const std::array<std::byte, 8> bad{}; // 8 bytes but DLC says 4
+    std::array<std::byte, 8> const good{};
+    std::array<std::byte, 8> const bad{}; // 8 bytes but DLC says 4
 
     std::vector<Frame> frames;
     frames.push_back({.timestamp = Timestamp{1000},

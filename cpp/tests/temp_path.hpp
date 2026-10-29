@@ -55,7 +55,7 @@ public:
     /// `wait` says; `owns` reports the outcome.  A read mode stream is what
     /// opens a directory without a variadic call, and the descriptor behind
     /// it is all this uses.
-    explicit ScratchLock(const std::filesystem::path& dir, LockWait wait = LockWait::No)
+    explicit ScratchLock(std::filesystem::path const& dir, LockWait wait = LockWait::No)
         : file_(std::fopen(dir.c_str(), "re"))
         , held_(file_ != nullptr &&
                 ::flock(::fileno(file_), LOCK_EX | (wait == LockWait::No ? LOCK_NB : 0)) == 0) {}
@@ -65,16 +65,16 @@ public:
             (void)std::fclose(file_);
     }
 
-    ScratchLock(const ScratchLock&) = delete;
+    ScratchLock(ScratchLock const&) = delete;
     ScratchLock(ScratchLock&&) = delete;
-    auto operator=(const ScratchLock&) -> ScratchLock& = delete;
+    auto operator=(ScratchLock const&) -> ScratchLock& = delete;
     auto operator=(ScratchLock&&) -> ScratchLock& = delete;
 
     /// True when the lock was taken and `dir` still names the directory it was
     /// taken on.  A sweep that removed the directory between this object's
     /// open and its lock leaves the lock held on an inode no path reaches, and
     /// every file the owner would write into it fails.
-    [[nodiscard]] auto owns(const std::filesystem::path& dir) const -> bool {
+    [[nodiscard]] auto owns(std::filesystem::path const& dir) const -> bool {
         struct ::stat locked = {};
         struct ::stat named = {};
         return held_ && ::fstat(::fileno(file_), &locked) == 0 &&
@@ -110,7 +110,7 @@ inline void reap_dead_scratch_dirs() {
         // otherwise be read as the directory it points at.
         if (!std::filesystem::is_directory(std::filesystem::symlink_status(dir, entry)))
             continue;
-        const ScratchLock lock{dir};
+        ScratchLock const lock{dir};
         if (!lock.owns(dir))
             continue;
         std::filesystem::remove_all(dir, entry);
@@ -119,13 +119,13 @@ inline void reap_dead_scratch_dirs() {
 
 /// Waits until whoever holds `dir`'s lock lets go: the kernel's blocking
 /// `flock`, taken and dropped at once.
-inline void wait_until_free(const std::filesystem::path& dir) {
-    const ScratchLock waited{dir, LockWait::UntilFree};
+inline void wait_until_free(std::filesystem::path const& dir) {
+    ScratchLock const waited{dir, LockWait::UntilFree};
 }
 
 /// How a try waits on a lock another holder has: `wait_until_free`, or in a
 /// test a stand-in that plays the holder letting go.
-using LockWaiter = std::function<void(const std::filesystem::path&)>;
+using LockWaiter = std::function<void(std::filesystem::path const&)>;
 
 /// One try at owning `dir`: creates it and takes its lock into `lock`,
 /// answering whether the lock it took is the directory still at that path.
@@ -134,8 +134,8 @@ using LockWaiter = std::function<void(const std::filesystem::path&)>;
 /// removal; the try then waits on that lock through `wait`, never on time,
 /// and answers false once the peer lets go, so that the next try creates the
 /// directory afresh.
-inline auto take_scratch_dir(const std::filesystem::path& dir, std::optional<ScratchLock>& lock,
-                             const LockWaiter& wait = wait_until_free) -> bool {
+inline auto take_scratch_dir(std::filesystem::path const& dir, std::optional<ScratchLock>& lock,
+                             LockWaiter const& wait = wait_until_free) -> bool {
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     if (ec)
@@ -152,8 +152,8 @@ inline auto take_scratch_dir(const std::filesystem::path& dir, std::optional<Scr
 /// removal took the directory from under a try; the first try that holds is
 /// the last.  Throws when the directory cannot be created, or when the tries
 /// run out, which takes a fresh peer removal per try.
-inline void hold_scratch_dir(const std::filesystem::path& dir, std::optional<ScratchLock>& lock,
-                             const LockWaiter& wait = wait_until_free) {
+inline void hold_scratch_dir(std::filesystem::path const& dir, std::optional<ScratchLock>& lock,
+                             LockWaiter const& wait = wait_until_free) {
     constexpr int tries = 64;
     if (std::ranges::any_of(std::views::repeat(0, tries),
                             [&](auto) { return take_scratch_dir(dir, lock, wait); }))
@@ -165,7 +165,7 @@ inline void hold_scratch_dir(const std::filesystem::path& dir, std::optional<Scr
 /// when the process ends, or by the next run when this one is killed before it
 /// can.  A sweep that runs the suite once per mutant would otherwise leave one
 /// directory per killed run behind.
-[[nodiscard]] inline auto scratch_dir() -> const std::filesystem::path& {
+[[nodiscard]] inline auto scratch_dir() -> std::filesystem::path const& {
     struct Owned {
         std::filesystem::path dir = std::filesystem::temp_directory_path() /
                                     (std::string(scratch_prefix) + std::to_string(::getpid()));
@@ -188,12 +188,12 @@ inline void hold_scratch_dir(const std::filesystem::path& dir, std::optional<Scr
             lock.reset();
         }
 
-        Owned(const Owned&) = delete;
+        Owned(Owned const&) = delete;
         Owned(Owned&&) = delete;
-        auto operator=(const Owned&) -> Owned& = delete;
+        auto operator=(Owned const&) -> Owned& = delete;
         auto operator=(Owned&&) -> Owned& = delete;
     };
-    static const Owned owned;
+    static Owned const owned;
     return owned.dir;
 }
 
@@ -221,15 +221,15 @@ public:
         std::filesystem::create_directories(path);
     }
 
-    TempPath(const TempPath&) = delete;
+    TempPath(TempPath const&) = delete;
     TempPath(TempPath&&) = delete;
-    auto operator=(const TempPath&) -> TempPath& = delete;
+    auto operator=(TempPath const&) -> TempPath& = delete;
     auto operator=(TempPath&&) -> TempPath& = delete;
     ~TempPath() { clear(); }
 
     [[nodiscard]] auto string() const -> std::string { return path.string(); }
 
-    const std::filesystem::path path;
+    std::filesystem::path const path;
 
 private:
     void clear() const {

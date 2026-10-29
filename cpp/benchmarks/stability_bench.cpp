@@ -82,7 +82,7 @@ static auto minimal_dbc() -> aletheia::DbcDefinition {
         aletheia::Dlc, aletheia::MessageName, aletheia::NodeName, aletheia::Rational,
         aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset,
         aletheia::SignalName, aletheia::StandardId, aletheia::Unit;
-    const DbcSignal engine_speed{
+    DbcSignal const engine_speed{
         .name = SignalName{"EngineSpeed"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -95,7 +95,7 @@ static auto minimal_dbc() -> aletheia::DbcDefinition {
         .unit = Unit{"rpm"},
         .presence = AlwaysPresent{},
     };
-    const DbcMessage engine_msg{
+    DbcMessage const engine_msg{
         .id = CanId{StandardId::create(0x100).value()},
         .name = MessageName{"EngineStatus"},
         .dlc = Dlc::create(8).value(),
@@ -105,7 +105,7 @@ static auto minimal_dbc() -> aletheia::DbcDefinition {
     return DbcDefinition{.version = "", .messages = {engine_msg}};
 }
 
-static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefinition& dbc,
+static void run_cycle(std::filesystem::path const& lib, aletheia::DbcDefinition const& dbc,
                       int frames_per_cycle) {
     using aletheia::AletheiaClient, aletheia::CanId, aletheia::Dlc, aletheia::FramePayload,
         aletheia::IBackend, aletheia::make_ffi_backend, aletheia::StandardId, aletheia::Timestamp;
@@ -116,7 +116,7 @@ static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefin
 
     constexpr auto id = CanId{StandardId::create(0x100).value()};
     constexpr auto dlc = Dlc::create(8).value();
-    const FramePayload frame{std::byte{0x40}, std::byte{0x1F}, std::byte{0x82}, std::byte{0x00},
+    FramePayload const frame{std::byte{0x40}, std::byte{0x1F}, std::byte{0x82}, std::byte{0x00},
                              std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}};
     for (auto const i : std::views::iota(0, frames_per_cycle))
         require(client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame), "send_frame");
@@ -128,8 +128,8 @@ static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefin
 // A count variable is unset, and its default applies, or sets a count as
 // count_setting reads one; anything else is a setup error, never a silent
 // fallback to the default.
-static auto env_count(const char* name, int default_value) -> int {
-    const char* const env = std::getenv(name);
+static auto env_count(char const* name, int default_value) -> int {
+    char const* const env = std::getenv(name);
     if (env == nullptr)
         return default_value;
     auto const count = aletheia::bench::count_setting(name, env);
@@ -144,7 +144,7 @@ static auto run() -> int {
     try {
         cycles = env_count("ALETHEIA_STABILITY_CYCLES", 10);
         frames = env_count("ALETHEIA_STABILITY_FRAMES", 100000);
-    } catch (const std::exception& e) {
+    } catch (std::exception const& e) {
         std::println(stderr, "setup: {}", e.what());
         return 2;
     }
@@ -161,7 +161,7 @@ static auto run() -> int {
     try {
         std::ranges::for_each(std::views::repeat(0, k_warmup_cycles),
                               [&](auto) { run_cycle(lib, dbc, frames); });
-    } catch (const std::exception& e) {
+    } catch (std::exception const& e) {
         std::println(stderr, "warm-up: {}", e.what());
         return 2;
     }
@@ -176,7 +176,7 @@ static auto run() -> int {
     for (auto const i : std::views::iota(0, cycles)) {
         try {
             run_cycle(lib, dbc, frames);
-        } catch (const std::exception& e) {
+        } catch (std::exception const& e) {
             std::println(stderr, "cycle {}: {}", i, e.what());
             return 2;
         }

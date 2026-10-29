@@ -72,12 +72,12 @@ TEST_CASE("parse_dbc_response rejects a non-boolean extended flag",
 // decoder's)
 TEST_CASE("parse_dbc_response rejects out-of-range startBit/length",
           "[json][parse][dbc][validation]") {
-    auto const reject = [](const char* field, int value) {
+    auto const reject = [](char const* field, int value) {
         auto j = base_dbc_response();
         first_signal(j)[field] = value;
         return !detail::parse_dbc_response(j.dump()).has_value();
     };
-    auto const accept = [](const char* field, int value) {
+    auto const accept = [](char const* field, int value) {
         auto j = base_dbc_response();
         first_signal(j)[field] = value;
         return detail::parse_dbc_response(j.dump()).has_value();
@@ -108,7 +108,7 @@ TEST_CASE("parse_dbc_response rejects an unknown or missing presence",
 // multiplexed presence requires non-empty multiplexor + values
 TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
           "[json][parse][dbc][validation]") {
-    auto const make_mux = [](const char* mux, Json values) {
+    auto const make_mux = [](char const* mux, Json values) {
         auto j = base_dbc_response();
         auto& sig = first_signal(j);
         sig["presence"] = "multiplexed";
@@ -419,7 +419,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs keeps an extended CAN ID across se
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].size() == 1);
     CHECK(cmd_j["dbc"]["unresolvedValueDescs"][0]["extended"] == true);
 
-    const Json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
+    Json const response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
     auto const parsed = detail::parse_dbc_response(response.dump());
     REQUIRE(parsed.has_value());
     REQUIRE(parsed->unresolved_value_descs.size() == 1);

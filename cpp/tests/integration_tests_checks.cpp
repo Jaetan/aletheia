@@ -46,7 +46,7 @@ static auto make_multi_value_mux_dbc() -> DbcDefinition {
     auto const id = StandardId::create(0x123).value();
     auto const dlc = Dlc::create(8).value();
 
-    const DbcSignal selector{
+    DbcSignal const selector{
         .name = SignalName{"Selector"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{8},
@@ -59,7 +59,7 @@ static auto make_multi_value_mux_dbc() -> DbcDefinition {
         .unit = Unit{""},
         .presence = AlwaysPresent{},
     };
-    const DbcSignal payload{
+    DbcSignal const payload{
         .name = SignalName{"Payload"},
         .start_bit = BitPosition{8},
         .bit_length = BitLength{8},
@@ -153,7 +153,7 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     // Speed 100, 120 and 150 km/h at the DBC's factor of one tenth, all
     // under the threshold.
     for (auto const raw : {std::uint16_t{1000}, std::uint16_t{1200}, std::uint16_t{1500}}) {
-        const FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+        FramePayload const data{static_cast<std::byte>(raw & 0xFFU),
                                 static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                                 std::byte{0},
                                 std::byte{0},
@@ -196,7 +196,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     // Speed 100, 110 and 150 km/h at the DBC's factor of one tenth; the last
     // one breaks the threshold.
     for (auto const raw : {std::uint16_t{1000}, std::uint16_t{1100}, std::uint16_t{1500}}) {
-        const FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+        FramePayload const data{static_cast<std::byte>(raw & 0xFFU),
                                 static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                                 std::byte{0},
                                 std::byte{0},
@@ -241,7 +241,7 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload payload{std::byte{10}, std::byte{0}, std::byte{0}, std::byte{0},
+    FramePayload const payload{std::byte{10}, std::byte{0}, std::byte{0}, std::byte{0},
                                std::byte{0},  std::byte{0}, std::byte{0}, std::byte{0}};
 
     // First frame at t=5000 µs — accepted.
@@ -376,7 +376,7 @@ VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
 
     auto const parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE(parsed.has_value());
-    auto const hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
+    auto const hit = std::ranges::any_of(parsed->warnings, [](ValidationIssue const& issue) {
         return issue.code == IssueCode::UnknownValueDescriptionTarget;
     });
     CHECK(hit);
@@ -450,10 +450,10 @@ static auto make_range_dbc(Rational minimum, Rational maximum) -> DbcDefinition 
 }
 
 // The issues naming range_exceeds_bits: exactly one, an error, with `detail`.
-static void check_one_range_issue(std::span<const ValidationIssue> issues,
+static void check_one_range_issue(std::span<ValidationIssue const> issues,
                                   std::string_view detail) {
     std::vector<ValidationIssue> named;
-    std::ranges::copy_if(issues, std::back_inserter(named), [](const ValidationIssue& issue) {
+    std::ranges::copy_if(issues, std::back_inserter(named), [](ValidationIssue const& issue) {
         return issue.code == IssueCode::RangeExceedsBits;
     });
     REQUIRE(named.size() == 1);
@@ -543,7 +543,7 @@ BO_ 256 EngineStatus: 8 Engine
     CHECK(std::string{parsed.error().message()}.contains("duplicate signal name"));
     REQUIRE(parsed.error().issues().has_value());
     auto const hit =
-        std::ranges::any_of(*parsed.error().issues(), [](const ValidationIssue& issue) {
+        std::ranges::any_of(*parsed.error().issues(), [](ValidationIssue const& issue) {
             return issue.severity == IssueSeverity::Error &&
                    issue.code == IssueCode::DuplicateSignalName;
         });
@@ -575,7 +575,7 @@ static auto speed_below(PhysicalValue threshold) -> std::vector<LtlFormula> {
     return props;
 }
 
-static auto verdict_of(const FrameResponse& sent, const StreamResult& ended) -> Verdict {
+static auto verdict_of(FrameResponse const& sent, StreamResult const& ended) -> Verdict {
     auto const mid_violation = std::holds_alternative<PropertyBatch>(sent);
     return (mid_violation || ended.results[0].verdict == Verdict::Fails) ? Verdict::Fails
                                                                          : Verdict::Holds;
@@ -587,7 +587,7 @@ TEST_CASE("interleaved clients have independent state via real FFI", "[integrati
         AletheiaClient::create(required(make_ffi_backend(lib)))); // Speed 150 < 200 → Holds
     auto strict = required(
         AletheiaClient::create(required(make_ffi_backend(lib)))); // Speed 150 >= 100 → Fails
-    const std::array<std::reference_wrapper<AletheiaClient>, 2> clients{lenient, strict};
+    std::array<std::reference_wrapper<AletheiaClient>, 2> const clients{lenient, strict};
 
     auto const dbc = make_integration_dbc();
     for (AletheiaClient& client : clients)
@@ -601,8 +601,8 @@ TEST_CASE("interleaved clients have independent state via real FFI", "[integrati
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const std::uint16_t raw = 1500; // Speed 150 km/h at factor one tenth
-    const FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+    std::uint16_t const raw = 1500; // Speed 150 km/h at factor one tenth
+    FramePayload const data{static_cast<std::byte>(raw & 0xFFU),
                             static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                             std::byte{0},
                             std::byte{0},

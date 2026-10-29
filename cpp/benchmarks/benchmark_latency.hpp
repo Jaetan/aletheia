@@ -8,6 +8,6 @@
 
 namespace aletheia::bench {
 
-void run_latency(const std::filesystem::path& lib, int ops, int warmup, bool emit_json);
+void run_latency(std::filesystem::path const& lib, int ops, int warmup, bool emit_json);
 
 } // namespace aletheia::bench

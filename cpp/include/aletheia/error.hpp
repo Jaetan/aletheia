@@ -186,20 +186,20 @@ public:
     [[nodiscard]] constexpr auto kind() const -> ErrorKind { return kind_; }
     [[nodiscard]] constexpr auto code() const -> ErrorCode { return code_; }
     [[nodiscard]] constexpr auto message() const -> std::string_view { return message_; }
-    [[nodiscard]] auto bound_info() const -> const std::optional<InputBoundExceededError>& {
+    [[nodiscard]] auto bound_info() const -> std::optional<InputBoundExceededError> const& {
         return bound_info_;
     }
-    [[nodiscard]] auto issues() const -> const std::optional<std::vector<ValidationIssue>>& {
+    [[nodiscard]] auto issues() const -> std::optional<std::vector<ValidationIssue>> const& {
         return issues_;
     }
     /// Where a loader read the refused number: a check of a YAML document or a
     /// row of a workbook.
     [[nodiscard]] auto location() const -> std::optional<std::string> {
-        return place_.transform([](const Place& place) { return place.location; });
+        return place_.transform([](Place const& place) { return place.location; });
     }
     /// The key or column header the refused number sat under.
     [[nodiscard]] auto key() const -> std::optional<std::string> {
-        return place_.transform([](const Place& place) { return place.key; });
+        return place_.transform([](Place const& place) { return place.key; });
     }
 
     /// This error, kind, code and fields kept, with the location and the key a
@@ -246,7 +246,7 @@ public:
         : std::runtime_error(error.text())
         , error_(std::move(error)) {}
 
-    [[nodiscard]] auto error() const -> const AletheiaError& { return error_; }
+    [[nodiscard]] auto error() const -> AletheiaError const& { return error_; }
     [[nodiscard]] auto kind() const -> ErrorKind { return error_.kind(); }
     [[nodiscard]] auto code() const -> ErrorCode { return error_.code(); }
 };

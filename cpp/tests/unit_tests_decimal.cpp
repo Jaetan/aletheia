@@ -117,7 +117,7 @@ static auto refusal_of(std::string_view input) -> AletheiaError {
 // Run from_decimal and assert the kernel refused the literal's grammar: a
 // Validation-kinded error carrying the kernel's code and the position its
 // message names.
-static void expect_grammar_refusal(const GrammarRefusal& c) {
+static void expect_grammar_refusal(GrammarRefusal const& c) {
     auto const e = refusal_of(c.input);
     CHECK(e.kind() == ErrorKind::Validation);
     CHECK(e.code() == c.code);
@@ -128,7 +128,7 @@ static void expect_grammar_refusal(const GrammarRefusal& c) {
 // Run from_decimal and assert the kernel refused a component's magnitude: an
 // InputBoundExceeded error whose bound_info names the decimal field, the
 // magnitude bound kind, the limit and the magnitude measured.
-static void expect_bound_refusal(const BoundRefusal& c) {
+static void expect_bound_refusal(BoundRefusal const& c) {
     auto const e = refusal_of(c.input);
     CHECK(e.kind() == ErrorKind::InputBoundExceeded);
     CHECK(e.code() == ErrorCode::InputBoundExceeded);

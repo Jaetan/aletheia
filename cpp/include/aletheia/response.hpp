@@ -49,7 +49,7 @@ struct ExtractionResult {
     std::vector<SignalError> errors;
     std::vector<SignalName> absent;
 
-    [[nodiscard]] auto get(const SignalName& name,
+    [[nodiscard]] auto get(SignalName const& name,
                            PhysicalValue fallback = PhysicalValue{Rational{}}) const
         -> PhysicalValue {
         for (auto const& sv : values)
@@ -108,7 +108,7 @@ struct PropertyBatch {
     template<typename Self>
     [[nodiscard]] auto first_violation(this Self& self) {
         auto const it = std::ranges::find_if(
-            self.results, [](const PropertyResult& r) { return r.verdict == Verdict::Fails; });
+            self.results, [](PropertyResult const& r) { return r.verdict == Verdict::Fails; });
         using Pointer = decltype(&*it);
         return it == self.results.end() ? Pointer{} : &*it;
     }

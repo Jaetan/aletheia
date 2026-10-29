@@ -99,8 +99,8 @@ using aletheia::test::TempPath;
 
 // A file of exactly `size` bytes, sparse, so a bound at the size of the
 // text cap costs no writing.
-static void make_sparse_file(const std::filesystem::path& path, std::uintmax_t size) {
-    { const std::ofstream touch{path, std::ios::binary}; }
+static void make_sparse_file(std::filesystem::path const& path, std::uintmax_t size) {
+    { std::ofstream const touch{path, std::ios::binary}; }
     std::filesystem::resize_file(path, size);
 }
 
@@ -146,7 +146,7 @@ struct ZipImage {
         u32(cd_offset);
         u16(0); // comment length
     }
-    void write(const std::filesystem::path& path) const {
+    void write(std::filesystem::path const& path) const {
         std::ofstream out{path, std::ios::binary};
         for (auto const b : bytes)
             out.put(static_cast<char>(b));
@@ -162,10 +162,10 @@ TEST_CASE("the text cap admits the cap itself and refuses one byte more", "[load
         CHECK(past.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
     }
     SECTION("on a file") {
-        const TempPath at_cap("loader_at_cap.dbc");
+        TempPath const at_cap("loader_at_cap.dbc");
         make_sparse_file(at_cap.path, max_dbc_text_bytes);
         CHECK(check_file_size_bound(at_cap.path).has_value());
-        const TempPath past_cap("loader_past_cap.dbc");
+        TempPath const past_cap("loader_past_cap.dbc");
         make_sparse_file(past_cap.path, max_dbc_text_bytes + 1);
         auto const past = check_file_size_bound(past_cap.path);
         REQUIRE_FALSE(past.has_value());
@@ -189,7 +189,7 @@ TEST_CASE("a path through a regular file is absence, on both loader path checks"
     // ENOTDIR: a component that exists but is not a directory. Go's loader
     // answers absence for it, and so do both checks here. The output path's
     // parent is itself below the file, so its own status fails the same way.
-    const TempPath file("loader_not_a_dir.txt", "x");
+    TempPath const file("loader_not_a_dir.txt", "x");
     auto const through = file.path / "sub" / "inner.yaml";
     auto const loader = validate_loader_path(through, "YAML");
     REQUIRE_FALSE(loader.has_value());
@@ -232,7 +232,7 @@ TEST_CASE("an archive that cannot be opened is reported as such, not as malforme
     // opens anything, so under root there is no such file to make.
     if (::geteuid() == 0)
         SKIP("root opens a file whatever its mode");
-    const TempPath f("loader_unreadable.xlsx");
+    TempPath const f("loader_unreadable.xlsx");
     make_sparse_file(f.path, 4096);
     std::filesystem::permissions(f.path, std::filesystem::perms::none);
     auto const r = check_xlsx_uncompressed_bound(f.path);
@@ -245,21 +245,21 @@ TEST_CASE("an archive that cannot be opened is reported as such, not as malforme
 TEST_CASE("the archive walker finds the end-of-directory record at every size it can",
           "[loader][zip]") {
     SECTION("one byte short of a record is not an archive") {
-        const TempPath f("loader_short.xlsx");
+        TempPath const f("loader_short.xlsx");
         make_sparse_file(f.path, 21);
         auto const r = check_xlsx_uncompressed_bound(f.path);
         REQUIRE_FALSE(r.has_value());
         CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Not a valid .xlsx"));
     }
     SECTION("an empty archive is exactly one record, and holds nothing") {
-        const TempPath f("loader_empty.xlsx");
+        TempPath const f("loader_empty.xlsx");
         ZipImage z;
         z.eocd(0, 0, 0);
         z.write(f.path);
         CHECK(check_xlsx_uncompressed_bound(f.path).has_value());
     }
     SECTION("a file with no record anywhere in its tail is not an archive") {
-        const TempPath f("loader_no_record.xlsx");
+        TempPath const f("loader_no_record.xlsx");
         make_sparse_file(f.path, 4096);
         auto const r = check_xlsx_uncompressed_bound(f.path);
         REQUIRE_FALSE(r.has_value());
@@ -272,7 +272,7 @@ TEST_CASE("the archive walker bounds the central directory by the file's own siz
     // Each forged record puts the directory exactly at the file's edge, which
     // is where a bound drawn one byte off would refuse a well-formed archive
     // or read past a malformed one.
-    const TempPath f("loader_cd_edge.xlsx");
+    TempPath const f("loader_cd_edge.xlsx");
     SECTION("a directory that starts at the end of the file is empty, and allowed") {
         ZipImage z;
         z.eocd(0, 0, 22);
@@ -313,7 +313,7 @@ TEST_CASE("the archive walker sums every entry, stepping over each entry's varia
     // Two entries whose sizes together pass the cap while each alone does
     // not, the first carrying a name, an extra field and a comment the walker
     // must step over to find the second.
-    const TempPath f("loader_two_entries.xlsx");
+    TempPath const f("loader_two_entries.xlsx");
     ZipImage z;
     constexpr auto half = static_cast<std::uint32_t>(max_dbc_text_bytes / 2);
     z.cd_entry(half + 1, 3, 4, 5);
@@ -329,7 +329,7 @@ TEST_CASE("the archive walker sums every entry, stepping over each entry's varia
 }
 
 TEST_CASE("the archive walker admits an uncompressed total at the cap", "[loader][zip]") {
-    const TempPath f("loader_at_cap.xlsx");
+    TempPath const f("loader_at_cap.xlsx");
     ZipImage z;
     z.cd_entry(static_cast<std::uint32_t>(max_dbc_text_bytes), 0, 0, 0);
     auto const cd_size = static_cast<std::uint32_t>(z.bytes.size());
@@ -343,7 +343,7 @@ TEST_CASE("a directory is refused as a loader path, and a file as an output pare
     auto const loader = validate_loader_path(std::filesystem::temp_directory_path(), "YAML");
     REQUIRE_FALSE(loader.has_value());
     CHECK_THAT(std::string{loader.error().message()}, ContainsSubstring("not a regular file"));
-    const TempPath file("loader_parent_is_a_file.txt", "x");
+    TempPath const file("loader_parent_is_a_file.txt", "x");
     auto const parent = validate_output_parent_dir(file.path / "out.xlsx");
     REQUIRE_FALSE(parent.has_value());
     CHECK_THAT(std::string{parent.error().message()},
@@ -354,7 +354,7 @@ TEST_CASE("the archive walker steps over a name longer than a byte holds", "[loa
     // A name length past 255 sets the high byte of its 16-bit field, which a
     // reader assembling the field from the low byte alone would misplace the
     // entry after it by.
-    const TempPath f("loader_long_name.xlsx");
+    TempPath const f("loader_long_name.xlsx");
     ZipImage z;
     constexpr auto half = static_cast<std::uint32_t>(max_dbc_text_bytes / 2);
     z.cd_entry(half + 1, 300, 0, 0);

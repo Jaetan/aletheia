@@ -42,7 +42,7 @@ namespace aletheia {
 // `sv.data() + sv.size()` trips cppcoreguidelines-pro-bounds-pointer-arithmetic;
 // `std::to_address(sv.end())` is arithmetic-free and equivalent since C++20
 // string_view::iterator is a contiguous iterator.
-static auto sv_end_ptr(std::string_view sv) -> const char* {
+static auto sv_end_ptr(std::string_view sv) -> char const* {
     return std::to_address(sv.end());
 }
 
@@ -53,8 +53,8 @@ static auto sv_end_ptr(std::string_view sv) -> const char* {
 // Construct-on-first-use: function-local statics make any (vector-allocation)
 // throw happen lazily on first call — catchable — rather than during static
 // initialization before main() (bugprone-throwing-static-initialization).
-static auto dbc_headers() -> const std::vector<std::string>& {
-    static const std::vector<std::string> h = {
+static auto dbc_headers() -> std::vector<std::string> const& {
+    static std::vector<std::string> const h = {
         "Message ID",  "Message Name",    "Extended", "DLC",    "Signal", "Start Bit", "Length",
         "Byte Order",  "Signed",          "Factor",   "Offset", "Min",    "Max",       "Unit",
         "Multiplexor", "Multiplex Value",
@@ -62,15 +62,15 @@ static auto dbc_headers() -> const std::vector<std::string>& {
     return h;
 }
 
-static auto checks_headers() -> const std::vector<std::string>& {
-    static const std::vector<std::string> h = {
+static auto checks_headers() -> std::vector<std::string> const& {
+    static std::vector<std::string> const h = {
         "Check Name", "Signal", "Condition", "Value", "Min", "Max", "Time (ms)", "Severity",
     };
     return h;
 }
 
-static auto when_then_headers() -> const std::vector<std::string>& {
-    static const std::vector<std::string> h = {
+static auto when_then_headers() -> std::vector<std::string> const& {
+    static std::vector<std::string> const h = {
         "Check Name",  "When Signal",    "When Condition", "When Value",
         "Then Signal", "Then Condition", "Then Value",     "Then Min",
         "Then Max",    "Within (ms)",    "Severity",
@@ -95,7 +95,7 @@ static auto row_ctx(int row_num) -> std::string {
 /// them as the garbage they are). Returns "" for a missing or empty <v>: the
 /// element carries no attributes, so its opening tag is the three bytes
 /// searched for, and a self-closing <v/> is not found, which reads as empty.
-static auto raw_stored_v_text(const OpenXLSX::XLCell& cell) -> std::string {
+static auto raw_stored_v_text(OpenXLSX::XLCell const& cell) -> std::string {
     std::ostringstream os;
     cell.print(os);
     auto const xml = os.str();
@@ -128,9 +128,9 @@ static auto is_signed_digit_run(std::string_view s) -> bool {
 /// truthfully, naming the stored text. Float values render shortest
 /// round-trip: they are only ever echoed in rejection messages, and a
 /// fixed-precision rendering would misstate the stored value.
-static auto cell_to_string(const OpenXLSX::XLCell& cell, const std::string& header, int row_num)
+static auto cell_to_string(OpenXLSX::XLCell const& cell, std::string const& header, int row_num)
     -> std::string {
-    const OpenXLSX::XLCellValue val = cell.value();
+    OpenXLSX::XLCellValue const val = cell.value();
     switch (val.type()) {
     case OpenXLSX::XLValueType::String:
         return val.get<std::string>();
@@ -185,7 +185,7 @@ constexpr std::string_view ascii_whitespace = " \t\n\v\f\r";
 /// as the Python, Go and Rust loaders read them; a column with no header
 /// name is keyed by that empty name, which no field reads.
 static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
-                       const std::vector<std::string>& headers) -> CellMap {
+                       std::vector<std::string> const& headers) -> CellMap {
     CellMap result;
     for (auto const [i, header] : std::views::enumerate(headers)) {
         auto const cell = ws.cell(row, static_cast<std::uint16_t>(i + 1));
@@ -206,7 +206,7 @@ static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
 // holds a value of another kind; the wording is shared with the Python
 // loader, so it has one owner here. `expected` is the parenthesised kind the
 // reader wanted, and empty for the reader that takes any.
-static auto missing_or_invalid(const std::string& ctx_str, const std::string& key,
+static auto missing_or_invalid(std::string const& ctx_str, std::string const& key,
                                std::string_view expected) -> std::runtime_error {
     return std::runtime_error(ctx_str + ": missing or invalid '" + key + "'" +
                               std::string{expected});
@@ -215,8 +215,8 @@ static auto missing_or_invalid(const std::string& ctx_str, const std::string& ke
 // The cell a column names, refused in the loader's words when the row has no
 // such column. Every reader takes its cell through here, so a row is never
 // read past the map's end.
-static auto require_cell(const CellMap& cells, const std::string& key, const std::string& ctx_str,
-                         std::string_view expected) -> const CellMap::mapped_type& {
+static auto require_cell(CellMap const& cells, std::string const& key, std::string const& ctx_str,
+                         std::string_view expected) -> CellMap::mapped_type const& {
     auto const it = cells.find(key);
     if (it == cells.end())
         throw missing_or_invalid(ctx_str, key, expected);
@@ -225,7 +225,7 @@ static auto require_cell(const CellMap& cells, const std::string& key, const std
 
 // get_str requires a text cell — strict, matching the Python reference: a
 // number or boolean cell is rejected rather than silently stringified.
-static auto get_str(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+static auto get_str(CellMap const& cells, std::string const& key, std::string const& ctx_str)
     -> std::string {
     auto const& cell = require_cell(cells, key, ctx_str, " (expected string)");
     if (!cell.is_text)
@@ -236,7 +236,7 @@ static auto get_str(const CellMap& cells, const std::string& key, const std::str
 
 // get_any returns a present cell's value regardless of type — used only for
 // Message ID, which legitimately accepts a hex string or a native number.
-static auto get_any(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+static auto get_any(CellMap const& cells, std::string const& key, std::string const& ctx_str)
     -> std::string {
     return require_cell(cells, key, ctx_str, "").value;
 }
@@ -247,7 +247,7 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 // whose text, its leading and trailing ASCII whitespace trimmed, is read by
 // `detail::read_decimal`, located at the row and the column header.  The
 // runtime must be up (`start_runtime` or a backend).
-static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+static auto get_decimal(CellMap const& cells, std::string const& key, std::string const& ctx_str)
     -> Rational {
     auto const& cell = require_cell(cells, key, ctx_str, " (expected number)");
     if (!cell.is_text)
@@ -263,7 +263,7 @@ static auto get_decimal(const CellMap& cells, const std::string& key, const std:
 // get_int is get_decimal plus a whole-number requirement (DLC / Start Bit /
 // Length / Multiplex Value / Time), so it inherits the text-cell contract and
 // the kernel refusal handling.
-static auto get_int(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+static auto get_int(CellMap const& cells, std::string const& key, std::string const& ctx_str)
     -> std::int64_t {
     auto const value = get_decimal(cells, key, ctx_str);
     if (value.denominator() != 1)
@@ -275,7 +275,7 @@ static auto get_int(const CellMap& cells, const std::string& key, const std::str
 // Refuse a whole-number cell that does not fit the field's type, naming the
 // field and the bound it crossed.
 template<typename T>
-static auto checked_cast(std::int64_t value, std::string_view field, const std::string& ctx_str)
+static auto checked_cast(std::int64_t value, std::string_view field, std::string const& ctx_str)
     -> T {
     if (value < 0 || std::cmp_greater(value, std::numeric_limits<T>::max()))
         throw std::runtime_error(std::format("{}: '{}' out of range [0, {}]: {}", ctx_str, field,
@@ -286,7 +286,7 @@ static auto checked_cast(std::int64_t value, std::string_view field, const std::
 // get_bool accepts the multi-form boolean the peer bindings accept: a native
 // boolean, an integral 1/0, or TRUE/FALSE/1/0 text (case-insensitive). Booleans
 // are exempt from the all-text contract (which governs only numeric cells).
-static auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+static auto get_bool(CellMap const& cells, std::string const& key, std::string const& ctx_str)
     -> bool {
     auto upper = require_cell(cells, key, ctx_str, " (expected TRUE/FALSE)").value;
     std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
@@ -299,7 +299,7 @@ static auto get_bool(const CellMap& cells, const std::string& key, const std::st
     throw missing_or_invalid(ctx_str, key, " (expected TRUE/FALSE)");
 }
 
-static auto has_key(const CellMap& cells, const std::string& key) -> bool {
+static auto has_key(CellMap const& cells, std::string const& key) -> bool {
     return cells.contains(key);
 }
 
@@ -316,7 +316,7 @@ static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::uint16_t coun
     for (auto const col : std::views::iota(std::uint32_t{1}, std::uint32_t{count} + 1)) {
         // Lossless: the counter never exceeds the bound, which is of the
         // narrower type the cell accessor takes.
-        const OpenXLSX::XLCellValue val = ws.cell(1, static_cast<std::uint16_t>(col)).value();
+        OpenXLSX::XLCellValue const val = ws.cell(1, static_cast<std::uint16_t>(col)).value();
         if (val.type() == OpenXLSX::XLValueType::String)
             result.push_back(val.get<std::string>());
         else
@@ -329,7 +329,7 @@ static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::uint16_t coun
 // Message ID parsing
 // ---------------------------------------------------------------------------
 
-static auto parse_message_id(const std::string& val, const std::string& ctx_str) -> std::uint32_t {
+static auto parse_message_id(std::string const& val, std::string const& ctx_str) -> std::uint32_t {
     // std::from_chars is locale-independent (unlike std::stoul).
     auto lower = val;
     std::ranges::transform(lower, lower.begin(), [](unsigned char ch) -> char {
@@ -352,15 +352,15 @@ static auto parse_message_id(const std::string& val, const std::string& ctx_str)
 // ---------------------------------------------------------------------------
 
 // The optional Check Name / Severity columns, applied to a built check.
-static void apply_row_metadata(CheckResult& result, const CellMap& cells,
-                               const std::string& ctx_str) {
+static void apply_row_metadata(CheckResult& result, CellMap const& cells,
+                               std::string const& ctx_str) {
     if (has_key(cells, "Check Name"))
         result.named(get_str(cells, "Check Name", ctx_str));
     if (has_key(cells, "Severity"))
         result.severity(get_str(cells, "Severity", ctx_str));
 }
 
-static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
+static auto parse_simple_row(CellMap const& cells, int row_num) -> CheckResult {
     auto const ctx_str = row_ctx(row_num);
     auto const signal = get_str(cells, "Signal", ctx_str);
     auto const condition = get_str(cells, "Condition", ctx_str);
@@ -405,7 +405,7 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
 // When-Then sheet parser
 // ---------------------------------------------------------------------------
 
-static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
+static auto parse_when_then_row(CellMap const& cells, int row_num) -> CheckResult {
     auto const ctx_str = row_ctx(row_num);
     auto const when_signal = get_str(cells, "When Signal", ctx_str);
     auto const when_cond = get_str(cells, "When Condition", ctx_str);
@@ -458,7 +458,7 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
 // DBC signal parser
 // ---------------------------------------------------------------------------
 
-static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
+static auto parse_dbc_signal(CellMap const& cells, int row_num) -> DbcSignal {
     auto const ctx_str = row_ctx(row_num);
 
     auto const byte_order_str = get_str(cells, "Byte Order", ctx_str);
@@ -542,7 +542,7 @@ static auto collect_data_rows(OpenXLSX::XLWorksheet const& ws) -> std::vector<Da
 
 // The entry guards every Excel reader runs before handing the path to
 // OpenXLSX: no symlink, raw size, uncompressed size (see loader_utils.hpp).
-static auto harden_excel_path(const std::filesystem::path& path) -> Result<void> {
+static auto harden_excel_path(std::filesystem::path const& path) -> Result<void> {
     if (auto const v = detail::validate_loader_path(path, "Excel"); !v)
         return std::unexpected(detail::error_of(v));
     if (auto const v = detail::check_file_size_bound(path); !v)
@@ -555,7 +555,7 @@ static auto harden_excel_path(const std::filesystem::path& path) -> Result<void>
 // ---------------------------------------------------------------------------
 
 static void write_header_row(OpenXLSX::XLWorksheet const& ws,
-                             const std::vector<std::string>& headers,
+                             std::vector<std::string> const& headers,
                              OpenXLSX::XLStyleIndex header_fmt) {
     for (auto const [i, header] : std::views::enumerate(headers)) {
         auto cell = ws.cell(1, static_cast<std::uint16_t>(i + 1));
@@ -568,7 +568,7 @@ static void write_header_row(OpenXLSX::XLWorksheet const& ws,
 // Public API: Checks from Excel
 // ===========================================================================
 
-auto load_checks_from_excel(const std::filesystem::path& path, std::string_view checks_sheet,
+auto load_checks_from_excel(std::filesystem::path const& path, std::string_view checks_sheet,
                             std::string_view when_then_sheet) -> Result<std::vector<CheckResult>> {
     if (auto const v = harden_excel_path(path); !v)
         return std::unexpected(detail::error_of(v));
@@ -601,12 +601,12 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 
         return results;
 
-    } catch (const detail::AletheiaException& ex) {
+    } catch (detail::AletheiaException const& ex) {
         // A refused number, located, or a runtime failure keeps the error as
         // thrown; any other throw, a cell's defect or the library's, is a
         // Validation error.
         return std::unexpected(ex.error());
-    } catch (const std::exception& ex) {
+    } catch (std::exception const& ex) {
         detail::rethrow_if_bad_alloc(ex);
         return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
     }
@@ -622,7 +622,7 @@ using MessageKeyExt = std::tuple<std::uint32_t, std::string, std::int64_t, bool>
 // Group data rows by message key, in first-seen order. Each row becomes one
 // signal in its parent message. The transient position map exists only so
 // grouping stays a single pass; the returned vector needs no key re-lookup.
-static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
+static auto group_rows_by_message(std::vector<DataRow> const& data_rows)
     -> std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> {
     std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> groups;
     std::map<MessageKeyExt, std::size_t> positions;
@@ -644,9 +644,9 @@ static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
 
 // Build one DbcMessage from its group of rows; surfaces validation errors as
 // an unexpected Result so the top-level loop stays linear.
-static auto build_message_from_group(const MessageKeyExt& key,
-                                     const std::vector<std::size_t>& indices,
-                                     const std::vector<DataRow>& data_rows) -> Result<DbcMessage> {
+static auto build_message_from_group(MessageKeyExt const& key,
+                                     std::vector<std::size_t> const& indices,
+                                     std::vector<DataRow> const& data_rows) -> Result<DbcMessage> {
     std::vector<DbcSignal> signals;
     std::ranges::transform(indices, std::back_inserter(signals), [&](std::size_t idx) {
         return parse_dbc_signal(data_rows.at(idx).cells, data_rows.at(idx).number);
@@ -686,7 +686,7 @@ static auto build_message_from_group(const MessageKeyExt& key,
     };
 }
 
-auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view sheet)
+auto load_dbc_from_excel(std::filesystem::path const& path, std::string_view sheet)
     -> Result<DbcDefinition> {
     if (auto const v = harden_excel_path(path); !v)
         return std::unexpected(detail::error_of(v));
@@ -715,9 +715,9 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
 
         return DbcDefinition{.version = "", .messages = std::move(messages)};
 
-    } catch (const detail::AletheiaException& ex) {
+    } catch (detail::AletheiaException const& ex) {
         return std::unexpected(ex.error());
-    } catch (const std::exception& ex) {
+    } catch (std::exception const& ex) {
         detail::rethrow_if_bad_alloc(ex);
         return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
     }
@@ -727,7 +727,7 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
 // Public API: Template creation
 // ===========================================================================
 
-auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
+auto create_excel_template(std::filesystem::path const& path) -> Result<void> {
     // Validate the destination's parent dir
     // before letting OpenXLSX raise an opaque exception inside `doc.create`.
     if (auto const v = detail::validate_output_parent_dir(path); !v)
@@ -755,9 +755,9 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         // One workbook handle, and each sheet's name held once: the library
         // takes names as strings, and a name given twice is a string made twice.
         auto workbook = doc.workbook();
-        const std::string dbc_name{"DBC"};
-        const std::string checks_name{"Checks"};
-        const std::string when_then_name{"When-Then"};
+        std::string const dbc_name{"DBC"};
+        std::string const checks_name{"Checks"};
+        std::string const when_then_name{"When-Then"};
 
         // The workbook starts with one default sheet; it becomes the DBC sheet.
         workbook.worksheet(1).setName(dbc_name);
@@ -775,7 +775,7 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         doc.save();
         return {};
 
-    } catch (const std::exception& ex) {
+    } catch (std::exception const& ex) {
         detail::rethrow_if_bad_alloc(ex);
         return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
     }

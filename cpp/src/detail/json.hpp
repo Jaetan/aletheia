@@ -27,15 +27,15 @@ namespace aletheia::detail {
 
 // Each command builder refuses (Validation, the encoder's text) a string that is
 // not UTF-8 or a formula nested deeper than `max_nesting_depth`.
-[[nodiscard]] auto serialize_parse_dbc(const DbcDefinition& dbc) -> Result<std::string>;
+[[nodiscard]] auto serialize_parse_dbc(DbcDefinition const& dbc) -> Result<std::string>;
 [[nodiscard]] auto serialize_parse_dbc_text(std::string_view text) -> Result<std::string>;
 // Build a successful ParsedDBCResponse JSON wire image from a DBC body.
 // Test-only helper: lets MockBackend feed parse_dbc / parse_dbc_text the
 // canonical {status, dbc, warnings} envelope without standing up the FFI core.
-[[nodiscard]] auto serialize_parsed_dbc_response(const DbcDefinition& dbc) -> std::string;
-[[nodiscard]] auto serialize_validate_dbc(const DbcDefinition& dbc) -> Result<std::string>;
-[[nodiscard]] auto serialize_format_dbc_text(const DbcDefinition& dbc) -> Result<std::string>;
-[[nodiscard]] auto serialize_set_properties(std::span<const LtlFormula> props)
+[[nodiscard]] auto serialize_parsed_dbc_response(DbcDefinition const& dbc) -> std::string;
+[[nodiscard]] auto serialize_validate_dbc(DbcDefinition const& dbc) -> Result<std::string>;
+[[nodiscard]] auto serialize_format_dbc_text(DbcDefinition const& dbc) -> Result<std::string>;
+[[nodiscard]] auto serialize_set_properties(std::span<LtlFormula const> props)
     -> Result<std::string>;
 
 // ---------------------------------------------------------------------------

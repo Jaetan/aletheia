@@ -18,14 +18,14 @@
 namespace aletheia::test {
 
 // The value of ALETHEIA_LIB when it is set and not empty.
-[[nodiscard]] inline auto set_aletheia_lib() -> const char* {
-    const char* env = std::getenv("ALETHEIA_LIB");
+[[nodiscard]] inline auto set_aletheia_lib() -> char const* {
+    char const* env = std::getenv("ALETHEIA_LIB");
     return env != nullptr && !std::string_view{env}.empty() ? env : nullptr;
 }
 
 [[nodiscard]] inline auto find_lib() -> std::filesystem::path {
     if (auto const* env = set_aletheia_lib()) {
-        const std::filesystem::path p{env};
+        std::filesystem::path const p{env};
         if (!std::filesystem::exists(p))
             FAIL("ALETHEIA_LIB=" << env << " does not exist");
         return p;

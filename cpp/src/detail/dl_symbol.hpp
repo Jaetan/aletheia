@@ -19,6 +19,6 @@ namespace aletheia::detail {
 
 // The symbol `name` of the library `handle` opened, or `name` with what the
 // loader says of its absence.
-[[nodiscard]] auto dl_symbol(void* handle, const char* name) -> std::expected<void*, std::string>;
+[[nodiscard]] auto dl_symbol(void* handle, char const* name) -> std::expected<void*, std::string>;
 
 } // namespace aletheia::detail

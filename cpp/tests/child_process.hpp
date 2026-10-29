@@ -28,7 +28,7 @@ namespace aletheia::test {
 
 // The environment this process was started with, one `NAME=value` entry each,
 // with each `NAME=value` of `extra` in place of any NAME it holds.
-[[nodiscard]] inline auto environment_with(const std::vector<std::string>& extra)
+[[nodiscard]] inline auto environment_with(std::vector<std::string> const& extra)
     -> std::vector<std::string> {
     for (auto const& set : extra)
         REQUIRE(set.contains('='));
@@ -67,13 +67,13 @@ inline constexpr int not_started = 127;
 // its exit code, or -1 when a signal ended it.
 [[nodiscard]] inline auto run_program(std::vector<std::string> words,
                                       std::vector<std::string> environment,
-                                      const std::filesystem::path& where,
-                                      const std::filesystem::path& out_path,
-                                      const std::filesystem::path& err_path) -> int {
+                                      std::filesystem::path const& where,
+                                      std::filesystem::path const& out_path,
+                                      std::filesystem::path const& err_path) -> int {
     auto const argv = exec_array(words);
     auto const envp = exec_array(environment);
-    const File out{std::fopen(out_path.c_str(), "we")};
-    const File err{std::fopen(err_path.c_str(), "we")};
+    File const out{std::fopen(out_path.c_str(), "we")};
+    File const err{std::fopen(err_path.c_str(), "we")};
     REQUIRE(out != nullptr);
     REQUIRE(err != nullptr);
     auto const out_fd = ::fileno(out.get());

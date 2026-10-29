@@ -43,7 +43,7 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
     REQUIRE(sid.has_value());
     auto const dlc = Dlc::create(8);
     REQUIRE(dlc.has_value());
-    const DbcSignal sig{
+    DbcSignal const sig{
         .name = SignalName{"S"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{16},
@@ -56,7 +56,7 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
         .unit = Unit{""},
         .presence = AlwaysPresent{},
     };
-    const DbcDefinition dbc{
+    DbcDefinition const dbc{
         .version = "1.0",
         .messages = {DbcMessage{
             .id = CanId{*sid},

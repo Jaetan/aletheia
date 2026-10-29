@@ -26,7 +26,7 @@ inline constexpr int cli_exit_error = 2;
 // validate, extract, signals, format-dbc, mux-query, template. There is no `check`
 // subcommand: the binding has no CAN-log reader. Behavior lives in
 // cpp/src/cli/cli.cpp.
-[[nodiscard]] auto run_cli(std::span<const std::string> args) noexcept -> int;
+[[nodiscard]] auto run_cli(std::span<std::string const> args) noexcept -> int;
 
 // The command line's logger: every record at Warn or above written to `out`
 // as `event key=value ...`, one per line, as the Python and Go command lines

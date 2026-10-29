@@ -560,8 +560,10 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # the reports' tests write into streams they open, and the reads' test
     # points them at planted files, the default malloc_info calls apart.
     target_include_directories(unit_tests PRIVATE src benchmarks)
+    # yaml-cpp reads docs/FORMULA_RENDERING.yaml, the formula every binding
+    # renders alike.
     target_link_libraries(unit_tests
-        PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
+        PRIVATE aletheia-cpp nlohmann_json::nlohmann_json yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     # Mutation lane: the test sources compile with the plugin too, not for
     # their own mutants (cpp/mull.yml holds cpp/tests out: a mutant in a test
     # measures the harness, and one in a fixture's write loop filled the temp
@@ -655,6 +657,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         set_target_properties(json_cleanup_abort PROPERTIES ENABLE_EXPORTS ON)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
+    set_tests_properties(unit_tests PROPERTIES ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # Integration tests (real .so, Catch2, threads for concurrent test). The
     # size-bound tests are their own unit, which the mutation binary takes

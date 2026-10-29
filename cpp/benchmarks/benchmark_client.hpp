@@ -25,27 +25,27 @@ namespace fs = std::filesystem;
 // A benchmark must never time a client whose setup failed, so every setup
 // step is checked through require like the timed operations are.
 // A client over the kernel at `lib`, its refusal's text thrown.
-inline auto open_client(const fs::path& lib) -> AletheiaClient {
+inline auto open_client(fs::path const& lib) -> AletheiaClient {
     return value_or_throw(AletheiaClient::open({.library = lib}));
 }
 
-inline auto make_client(const fs::path& lib, const DbcDefinition& dbc) -> AletheiaClient {
+inline auto make_client(fs::path const& lib, DbcDefinition const& dbc) -> AletheiaClient {
     auto client = open_client(lib);
     require(client.parse_dbc(std::stop_token{}, dbc), "parse_dbc");
     return client;
 }
 
-inline auto make_streaming_client(const fs::path& lib, const DbcDefinition& dbc,
-                                  std::span<const LtlFormula> properties) -> AletheiaClient {
+inline auto make_streaming_client(fs::path const& lib, DbcDefinition const& dbc,
+                                  std::span<LtlFormula const> properties) -> AletheiaClient {
     auto client = make_client(lib, dbc);
     require(client.set_properties(std::stop_token{}, properties), "set_properties");
     require(client.start_stream(std::stop_token{}), "start_stream");
     return client;
 }
 
-inline auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
+inline auto bench_streaming(fs::path const& lib, DbcDefinition const& dbc,
                             std::vector<LtlFormula> properties, CanId id, Dlc dlc,
-                            const FramePayload& frame, int num_frames) -> double {
+                            FramePayload const& frame, int num_frames) -> double {
     auto client = make_streaming_client(lib, dbc, properties);
     auto const fps = operations_per_second(num_frames, "send_frame", [&](int i) {
         return client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);

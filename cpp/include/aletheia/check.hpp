@@ -50,7 +50,7 @@ using DescPart = std::variant<std::string, Rational>;
 
 // The text `parts` spell, every threshold rendered by the kernel: the text, or
 // the renderer's error. Defined in enrich.cpp.
-[[nodiscard]] auto render_desc(std::span<const DescPart> parts) -> Result<std::string>;
+[[nodiscard]] auto render_desc(std::span<DescPart const> parts) -> Result<std::string>;
 
 // The refusal's text for a range whose lo is above its hi, naming the builder
 // `op` and both bounds, or nullopt; Rust and Go word it the same. Defined in
@@ -117,11 +117,11 @@ public:
 
     [[nodiscard]] auto to_formula() const -> LtlFormula { return ltl::clone(formula_); }
 
-    [[nodiscard]] auto formula() const -> const LtlFormula& { return formula_; }
+    [[nodiscard]] auto formula() const -> LtlFormula const& { return formula_; }
 
-    [[nodiscard]] auto name() const -> const std::string& { return name_; }
-    [[nodiscard]] auto check_severity() const -> const std::string& { return check_severity_; }
-    [[nodiscard]] auto signal_name() const -> const std::string& { return signal_name_; }
+    [[nodiscard]] auto name() const -> std::string const& { return name_; }
+    [[nodiscard]] auto check_severity() const -> std::string const& { return check_severity_; }
+    [[nodiscard]] auto signal_name() const -> std::string const& { return signal_name_; }
     // The condition in words, its thresholds rendered by the kernel on every
     // read: the text, or an error of kind Ffi while the GHC runtime is down.
     [[nodiscard]] auto condition_desc() const -> Result<std::string> {

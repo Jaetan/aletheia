@@ -46,9 +46,9 @@ class Arm {
 public:
     explicit Arm(std::int64_t nth);
     ~Arm();
-    Arm(const Arm&) = delete;
+    Arm(Arm const&) = delete;
     Arm(Arm&&) = delete;
-    auto operator=(const Arm&) -> Arm& = delete;
+    auto operator=(Arm const&) -> Arm& = delete;
     auto operator=(Arm&&) -> Arm& = delete;
 
     // Whether the armed allocation was reached.
@@ -89,9 +89,9 @@ template<typename Call>
 // whether every fault was reached: one that was not says the call does not
 // allocate the same way twice, rather than that it leaks.
 template<typename Call>
-[[nodiscard]] auto fault_each(Call call, const std::vector<std::int64_t>& ordinals) -> bool {
+[[nodiscard]] auto fault_each(Call call, std::vector<std::int64_t> const& ordinals) -> bool {
     return std::ranges::all_of(ordinals, [&](std::int64_t nth) {
-        const Arm arm{nth};
+        Arm const arm{nth};
         try {
             // The call answers with what it decoded, which the sweep does not read.
             static_cast<void>(call());
@@ -152,10 +152,10 @@ template<typename Call>
     if (!recorded.has_value() || recorded->empty())
         return false;
     return std::ranges::all_of(*recorded, [&](std::int64_t nth) {
-        const Arm arm{nth};
+        Arm const arm{nth};
         try {
             static_cast<void>(call());
-        } catch (const std::bad_alloc&) {
+        } catch (std::bad_alloc const&) {
             return arm.fired();
         }
         return false;
@@ -173,10 +173,10 @@ template<typename Call>
     if (!recorded.has_value() || recorded->empty())
         return false;
     return std::ranges::all_of(*recorded, [&](std::int64_t nth) {
-        const Arm arm{nth};
+        Arm const arm{nth};
         try {
             return call().has_value();
-        } catch (const std::bad_alloc&) {
+        } catch (std::bad_alloc const&) {
             return arm.fired();
         }
     });

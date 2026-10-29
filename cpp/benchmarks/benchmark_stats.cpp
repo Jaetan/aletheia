@@ -17,7 +17,7 @@
 
 namespace aletheia::bench {
 
-auto compute_stats(const std::vector<double>& data) -> Stats {
+auto compute_stats(std::vector<double> const& data) -> Stats {
     if (data.empty())
         return {};
     auto const n = static_cast<double>(data.size());
@@ -37,7 +37,7 @@ auto compute_stats(const std::vector<double>& data) -> Stats {
 
 } // namespace aletheia::bench
 
-static auto percentile(const std::vector<double>& sorted, double p) -> double {
+static auto percentile(std::vector<double> const& sorted, double p) -> double {
     if (sorted.empty())
         return 0.0;
     auto const k = static_cast<double>(sorted.size() - 1) * p / 100.0;

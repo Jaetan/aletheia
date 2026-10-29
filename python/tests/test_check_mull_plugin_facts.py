@@ -138,10 +138,16 @@ def _backend_ir(*, void_call: bool = True) -> IrText:
 def _backend_source(*, close_call: bool = True) -> SourceText:
     """Return a backend source whose three calls stand on the lines the IR names."""
     lines = [""] * _CLOSE_LINE
-    lines[_PROCESS_LINE - 1] = "        return wrap_str_result(process_fn_(state.get(), &text), m);"
-    lines[_BUILD_LINE - 1] = "        auto const status = build_frame_bin_fn_(state.get(), &frame);"
+    lines[_PROCESS_LINE - 1] = (
+        "        return wrap_str_result(fns_.process(state.get(), &text), m);"
+    )
+    lines[_BUILD_LINE - 1] = (
+        "        auto const status = fns_.build_frame_bin(state.get(), &frame);"
+    )
     if close_call:
-        lines[_CLOSE_LINE - 1] = "    void close(void* state) override { close_fn_(state); }"
+        lines[_CLOSE_LINE - 1] = (
+            "    void close(void* state) noexcept override { fns_.close(state); }"
+        )
     return SourceText("\n".join(lines))
 
 
@@ -233,7 +239,7 @@ def test_a_line_the_fact_names_that_no_longer_exists_is_no_answer() -> None:
     sites = mutant_sites(_backend_ir(), REACH_UNIT)
     assert reach_findings(sites, _backend_source(close_call=False)) == [
         Finding(
-            ExitStatus(2), Prose(r"no line of cpp/src/ffi_backend.cpp matches close_fn_\(state\)")
+            ExitStatus(2), Prose(r"no line of cpp/src/ffi_backend.cpp matches fns_\.close\(state\)")
         )
     ]
 
@@ -485,7 +491,7 @@ def test_a_source_line_gone_is_no_answer_beside_a_refusal(
     assert capsys.readouterr().out == (
         f"{_GATE}: the plugin now accepts -ffile-prefix-map;"
         + " cpp/CMakeLists.txt can apply it to the mutation build\n"
-        + f"{_GATE}: no line of cpp/src/ffi_backend.cpp matches close_fn_\\(state\\)\n"
+        + f"{_GATE}: no line of cpp/src/ffi_backend.cpp matches fns_\\.close\\(state\\)\n"
     )
 
 

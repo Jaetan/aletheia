@@ -151,7 +151,7 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
     // RPM   = 3000 raw * 1.0 factor = 3000 rpm
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data{std::byte{0xE8}, std::byte{0x03}, // 1000 LE
+    FramePayload const data{std::byte{0xE8}, std::byte{0x03}, // 1000 LE
                             std::byte{0xB8}, std::byte{0x0B}, // 3000 LE
                             std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
 
@@ -181,41 +181,41 @@ public:
     // The handle the inner backend hands out closes through that backend, so
     // this decorator neither owns nor releases state and needs no close.
     auto init() -> Result<BackendState> override { return inner_->init(); }
-    auto process(const BackendState& state, std::string_view input)
+    auto process(BackendState const& state, std::string_view input)
         -> Result<std::string> override {
         return inner_->process(state, input);
     }
 
-    auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
-                           std::span<const std::byte> data, std::optional<bool> brs,
+    auto send_frame_binary(BackendState const& state, Timestamp ts, CanId const& id, Dlc dlc,
+                           std::span<std::byte const> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> Result<std::string> override {
         return inner_->send_frame_binary(state, ts, id, dlc, data, brs, esi);
     }
-    auto send_error_binary(const BackendState& state, Timestamp ts)
+    auto send_error_binary(BackendState const& state, Timestamp ts)
         -> Result<std::string> override {
         return inner_->send_error_binary(state, ts);
     }
-    auto send_remote_binary(const BackendState& state, Timestamp ts, const CanId& id)
+    auto send_remote_binary(BackendState const& state, Timestamp ts, CanId const& id)
         -> Result<std::string> override {
         return inner_->send_remote_binary(state, ts, id);
     }
-    auto start_stream_binary(const BackendState& state) -> Result<std::string> override {
+    auto start_stream_binary(BackendState const& state) -> Result<std::string> override {
         return inner_->start_stream_binary(state);
     }
-    auto end_stream_binary(const BackendState& state) -> Result<std::string> override {
+    auto end_stream_binary(BackendState const& state) -> Result<std::string> override {
         return inner_->end_stream_binary(state);
     }
-    auto format_dbc_binary(const BackendState& state) -> Result<std::string> override {
+    auto format_dbc_binary(BackendState const& state) -> Result<std::string> override {
         return inner_->format_dbc_binary(state);
     }
-    auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
-                                std::span<const std::byte> data) -> Result<std::string> override {
+    auto extract_signals_binary(BackendState const& state, CanId const& id, Dlc dlc,
+                                std::span<std::byte const> data) -> Result<std::string> override {
         return inner_->extract_signals_binary(state, id, dlc, data);
     }
 
     // The method under test: hand back the caller-supplied result verbatim.
-    auto extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                             std::span<const std::byte> /*data*/)
+    auto extract_signals_bin(BackendState const& /*state*/, CanId const& /*id*/, Dlc /*dlc*/,
+                             std::span<std::byte const> /*data*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return buf_;
     }
@@ -275,7 +275,7 @@ static auto extract_with_crafted_buf(std::vector<std::byte> buf) -> Result<Extra
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     return client.extract_signals(std::stop_token{}, id, dlc, data);
 }
 
@@ -293,8 +293,8 @@ TEST_CASE("binary extraction decodes values, wire reasons, and absent exactly", 
     // one absent signal.  The second error carries an unknown u8 code (42):
     // codes are transported, never rejected — the wire reason is
     // authoritative.
-    const std::string_view reason_a = "value Δ out of bounds: 16383.75 not in [0, 8000]";
-    const std::string_view reason_b = "signal 'X' not found in message";
+    std::string_view const reason_a = "value Δ out of bounds: 16383.75 not in [0, 8000]";
+    std::string_view const reason_b = "signal 'X' not found in message";
     WireBuf w;
     w.header(/*nvals=*/1, /*nerrs=*/2, /*nabss=*/1,
              static_cast<std::uint32_t>(reason_a.size() + reason_b.size()));
@@ -470,7 +470,7 @@ TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integra
 
 // One error whose reason is exactly `reason`, so the validator sees the
 // sequence at the start and the end of a slice at once.
-static auto single_reason_buf(std::span<const std::uint8_t> reason) -> std::vector<std::byte> {
+static auto single_reason_buf(std::span<std::uint8_t const> reason) -> std::vector<std::byte> {
     WireBuf w;
     w.header(/*nvals=*/0, /*nerrs=*/1, /*nabss=*/0, static_cast<std::uint32_t>(reason.size()));
     w.u16(0);
@@ -546,7 +546,7 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     // Speed raw 0xFFFF → 6553.5 km/h, above the DBC maximum of 655.35.
-    const FramePayload data{std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
+    FramePayload const data{std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
                             std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
 
     auto bin_client = required(AletheiaClient::create(required(make_ffi_backend(lib))));
@@ -589,8 +589,8 @@ struct WideSignalRow {
 };
 } // namespace
 
-static auto make_wide_signal_dbc(const WideSignalRow& row) -> DbcDefinition {
-    const DbcSignal big{
+static auto make_wide_signal_dbc(WideSignalRow const& row) -> DbcDefinition {
+    DbcSignal const big{
         .name = SignalName{"Big"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{64},

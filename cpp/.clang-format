@@ -20,6 +20,9 @@ ColumnLimit: 100
 PointerAlignment: Left
 ReferenceAlignment: Left
 
+# Qualifiers after what they qualify (east const): `auto const`, `T const&`
+QualifierAlignment: Right
+
 # Alignment
 AlignConsecutiveAssignments: None
 AlignConsecutiveDeclarations: None

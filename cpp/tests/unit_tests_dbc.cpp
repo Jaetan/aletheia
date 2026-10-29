@@ -219,17 +219,17 @@ TEST_CASE("DbcDefinition::message_by_id", "[dbc]") {
 TEST_CASE("DbcDefinition::message_by_id with extended ID", "[dbc]") {
     auto const std_id = StandardId::create(0x200).value();
     auto const ext_id = ExtendedId::create(0x200).value();
-    const DbcMessage std_msg{.id = CanId{std_id},
+    DbcMessage const std_msg{.id = CanId{std_id},
                              .name = MessageName{"StdMsg"},
                              .dlc = Dlc::create(8).value(),
                              .sender = NodeName{"ECU"},
                              .signals = {}};
-    const DbcMessage ext_msg{.id = CanId{ext_id},
+    DbcMessage const ext_msg{.id = CanId{ext_id},
                              .name = MessageName{"ExtMsg"},
                              .dlc = Dlc::create(8).value(),
                              .sender = NodeName{"ECU"},
                              .signals = {}};
-    const DbcDefinition dbc{.version = "1.0", .messages = {std_msg, ext_msg}};
+    DbcDefinition const dbc{.version = "1.0", .messages = {std_msg, ext_msg}};
 
     auto const* found_std = dbc.message_by_id(CanId{std_id});
     REQUIRE(found_std != nullptr);
@@ -249,7 +249,7 @@ TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
     CHECK(dbc.message_by_name(MessageName{"NoSuch"}) == nullptr);
 
     // Empty DBC returns nullptr.
-    const DbcDefinition empty{.version = "1.0", .messages = {}};
+    DbcDefinition const empty{.version = "1.0", .messages = {}};
     CHECK(empty.message_by_name(MessageName{"Anything"}) == nullptr);
 }
 

@@ -69,7 +69,7 @@ auto ffi_error_from_status(std::int8_t status, char* err_str, void (*free_str)(c
     // The Haskell-owned envelope is released by the deleter on every path out,
     // after it is decoded, and a null one (unique_ptr skips the deleter) reads
     // as unknown.
-    const std::unique_ptr<char, void (*)(char*)> owned{err_str, free_str};
+    std::unique_ptr<char, void (*)(char*)> const owned{err_str, free_str};
     if (status == 0)
         return std::nullopt;
     if (!owned)

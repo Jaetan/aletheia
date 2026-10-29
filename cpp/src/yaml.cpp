@@ -27,7 +27,7 @@ namespace aletheia {
 // The refusal every field reader below throws, for a key that is absent or
 // that names a node of another kind; the wording is shared with the Python
 // loader, so it has one owner here.
-static auto missing_or_invalid(const std::string& ctx, const std::string& key,
+static auto missing_or_invalid(std::string const& ctx, std::string const& key,
                                std::string_view expected) -> std::runtime_error {
     return std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected " +
                               std::string{expected} + ")");
@@ -36,7 +36,7 @@ static auto missing_or_invalid(const std::string& ctx, const std::string& key,
 // The child a key names, refused in the loader's words when absent. Every
 // reader takes its child through here, so an undefined node never reaches a
 // kind test, whose refusal would be yaml-cpp's rather than the loader's.
-static auto require_child(const YAML::Node& node, const std::string& key, const std::string& ctx,
+static auto require_child(YAML::Node const& node, std::string const& key, std::string const& ctx,
                           std::string_view expected) -> YAML::Node {
     auto const child = node[key];
     if (!child)
@@ -44,7 +44,7 @@ static auto require_child(const YAML::Node& node, const std::string& key, const 
     return child;
 }
 
-static auto get_str(const YAML::Node& node, const std::string& key, const std::string& ctx)
+static auto get_str(YAML::Node const& node, std::string const& key, std::string const& ctx)
     -> std::string {
     auto const child = require_child(node, key, ctx, "string");
     if (!child.IsScalar())
@@ -59,7 +59,7 @@ static auto get_str(const YAML::Node& node, const std::string& key, const std::s
 // the kernel's refusal rather than a value a YAML resolver chose. The runtime
 // must be up (`start_runtime` or a backend). An absent key and a node that is
 // not a scalar are the loader's own refusal, naming `expected` as what it reads.
-static auto get_decimal(const YAML::Node& node, const std::string& key, const std::string& ctx,
+static auto get_decimal(YAML::Node const& node, std::string const& key, std::string const& ctx,
                         std::string_view expected = "number") -> Rational {
     auto const child = require_child(node, key, ctx, expected);
     if (!child.IsScalar())
@@ -71,7 +71,7 @@ static auto get_decimal(const YAML::Node& node, const std::string& key, const st
 // number, so the kernel decides what the text is. The loader refuses at the
 // check a reading that is not whole, one that is negative, and one whose
 // microseconds the check builder's conversion refuses as overflowing int64.
-static auto get_within_ms(const YAML::Node& node, const std::string& ctx)
+static auto get_within_ms(YAML::Node const& node, std::string const& ctx)
     -> std::chrono::milliseconds {
     auto const value = get_decimal(node, "within_ms", ctx, "integer");
     if (value.denominator() != 1)
@@ -87,7 +87,7 @@ static auto get_within_ms(const YAML::Node& node, const std::string& ctx)
     return ms;
 }
 
-static auto get_map(const YAML::Node& node, const std::string& key, const std::string& ctx)
+static auto get_map(YAML::Node const& node, std::string const& key, std::string const& ctx)
     -> YAML::Node {
     auto const child = require_child(node, key, ctx, "mapping");
     if (!child.IsMap())
@@ -99,14 +99,14 @@ static auto get_map(const YAML::Node& node, const std::string& key, const std::s
 // Check name extraction
 // ---------------------------------------------------------------------------
 
-static auto check_name(const YAML::Node& entry) -> std::string {
+static auto check_name(YAML::Node const& entry) -> std::string {
     auto const name_node = entry["name"];
     if (name_node && name_node.IsScalar())
         return name_node.as<std::string>();
     return "<unnamed>";
 }
 
-static auto ctx(const std::string& name) -> std::string {
+static auto ctx(std::string const& name) -> std::string {
     return "Check '" + name + "'";
 }
 
@@ -114,7 +114,7 @@ static auto ctx(const std::string& name) -> std::string {
 // Simple check parser
 // ---------------------------------------------------------------------------
 
-static auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> CheckResult {
+static auto parse_simple_check(YAML::Node const& entry, std::string const& name) -> CheckResult {
     auto const condition = get_str(entry, "condition", ctx(name));
     auto const signal = get_str(entry, "signal", ctx(name));
 
@@ -162,7 +162,7 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
 // When/Then check parser
 // ---------------------------------------------------------------------------
 
-static auto parse_when_then_check(const YAML::Node& entry, const std::string& name) -> CheckResult {
+static auto parse_when_then_check(YAML::Node const& entry, std::string const& name) -> CheckResult {
     if (!entry["then"])
         throw std::runtime_error(ctx(name) + ": must have 'signal' or 'when'/'then'");
     if (!entry["within_ms"])
@@ -216,7 +216,7 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
 // Single check entry parser
 // ---------------------------------------------------------------------------
 
-static auto parse_check(const YAML::Node& entry) -> CheckResult {
+static auto parse_check(YAML::Node const& entry) -> CheckResult {
     auto const name = check_name(entry);
 
     auto result = [&] {
@@ -242,7 +242,7 @@ static auto parse_check(const YAML::Node& entry) -> CheckResult {
 // Top-level YAML parser
 // ---------------------------------------------------------------------------
 
-static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<CheckResult>> {
+static auto parse_yaml_checks(YAML::Node const& root) -> Result<std::vector<CheckResult>> {
     if (!root.IsMap() || !root["checks"])
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "YAML must contain a 'checks' list"});
@@ -259,11 +259,11 @@ static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<Chec
                 AletheiaError{ErrorKind::Validation, "Each check must be a YAML mapping"});
         try {
             results.push_back(parse_check(entry));
-        } catch (const detail::AletheiaException& ex) {
+        } catch (detail::AletheiaException const& ex) {
             // A refused number, located, or a runtime failure keeps the error
             // as thrown; any other defect of the document is a Validation one.
             return std::unexpected(ex.error());
-        } catch (const std::runtime_error& ex) {
+        } catch (std::runtime_error const& ex) {
             return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
         }
     }
@@ -274,7 +274,7 @@ static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<Chec
 // Public API
 // ---------------------------------------------------------------------------
 
-auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vector<CheckResult>> {
+auto load_checks_from_yaml(std::filesystem::path const& path) -> Result<std::vector<CheckResult>> {
     // Reject symlinks and cap the raw size before handing the path to yaml-cpp.
     // YAML has no compressed container, so the uncompressed-size walk the .xlsx
     // loader does over its ZIP entries has no counterpart here.
@@ -286,7 +286,7 @@ auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vec
     try {
         auto const root = YAML::LoadFile(path.string());
         return parse_yaml_checks(root);
-    } catch (const YAML::Exception& ex) {
+    } catch (YAML::Exception const& ex) {
         return std::unexpected(AletheiaError{ErrorKind::Validation, std::string(ex.what())});
     }
 }
@@ -301,7 +301,7 @@ auto load_checks_from_yaml_string(std::string_view yaml) -> Result<std::vector<C
     try {
         auto const root = YAML::Load(std::string(yaml));
         return parse_yaml_checks(root);
-    } catch (const YAML::Exception& ex) {
+    } catch (YAML::Exception const& ex) {
         return std::unexpected(AletheiaError{ErrorKind::Validation, std::string(ex.what())});
     }
 }

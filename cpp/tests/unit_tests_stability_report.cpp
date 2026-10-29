@@ -185,13 +185,13 @@ TEST_CASE("write_report_text puts the whole text on its stream", "[benchmark][st
     CHECK(write_report_text(stream.get(), "{\"passed\": true}\n").has_value());
     // Closing the stream publishes its buffer.
     stream.reset();
-    const std::unique_ptr<char, decltype(&std::free)> owner(written, &std::free);
+    std::unique_ptr<char, decltype(&std::free)> const owner(written, &std::free);
     CHECK(std::string_view{written, size} == "{\"passed\": true}\n");
 }
 
 TEST_CASE("write_report_text answers why a stream that buffers the text cannot flush it",
           "[benchmark][stability]") {
-    const File full{std::fopen("/dev/full", "we")};
+    File const full{std::fopen("/dev/full", "we")};
     REQUIRE(full != nullptr);
     auto const written = write_report_text(full.get(), "{\"passed\": true}\n");
     REQUIRE_FALSE(written.has_value());
@@ -200,7 +200,7 @@ TEST_CASE("write_report_text answers why a stream that buffers the text cannot f
 
 TEST_CASE("write_report_text answers why a stream that does not buffer cannot take the text",
           "[benchmark][stability]") {
-    const File full{std::fopen("/dev/full", "we")};
+    File const full{std::fopen("/dev/full", "we")};
     REQUIRE(full != nullptr);
     REQUIRE(std::setvbuf(full.get(), nullptr, _IONBF, 0) == 0);
     auto const written = write_report_text(full.get(), "{\"passed\": true}\n");
@@ -214,7 +214,7 @@ TEST_CASE("write_report_text answers why a stream that does not buffer cannot ta
 TEST_CASE("write_report_text refuses a stream whose error indicator is set",
           "[benchmark][stability]") {
     std::array<char, 64> memory{};
-    const File stream{fmemopen(memory.data(), memory.size(), "w")};
+    File const stream{fmemopen(memory.data(), memory.size(), "w")};
     REQUIRE(stream != nullptr);
     REQUIRE(std::fgetc(stream.get()) == EOF);
     REQUIRE(std::ferror(stream.get()) != 0);

@@ -25,7 +25,7 @@
 
 namespace {
 
-auto fail(const std::string& message) -> int {
+auto fail(std::string const& message) -> int {
     std::fprintf(stderr, "BUNDLE-CONSUMER cpp: FAIL — %s\n", message.c_str());
     return 1;
 }
@@ -47,7 +47,7 @@ auto main(int argc, char** argv) -> int {
     // this program holds it to: an unset or empty variable is refused, as the
     // Go consumer's env-constructor refuses it, rather than left to a search
     // that could find a library the script did not name.
-    const char* const lib = std::getenv("ALETHEIA_LIB");
+    char const* const lib = std::getenv("ALETHEIA_LIB");
     if (lib == nullptr || *lib == '\0')
         return fail("ALETHEIA_LIB is not set: the bundle's env script must name the library");
     auto client = AletheiaClient::open({.library = lib});
@@ -79,7 +79,7 @@ auto main(int argc, char** argv) -> int {
     // Conforming frame: VehicleSpeed raw 0x1388 (5000) → 50.00 kph (factor 0.01).
     auto conforming = std::array<std::byte, 8>{std::byte{0x88}, std::byte{0x13}};
     auto ack = client->send_frame(stop, Timestamp{1000}, id, dlc.value(),
-                                  std::span<const std::byte>{conforming});
+                                  std::span<std::byte const>{conforming});
     if (!ack.has_value())
         return fail("send_frame (conforming): " + std::string(ack.error().message()));
     if (!std::holds_alternative<Ack>(ack.value()))
@@ -88,7 +88,7 @@ auto main(int argc, char** argv) -> int {
     // Violating frame: VehicleSpeed raw 0x4E20 (20000) → 200.00 kph, over the bound.
     auto violating = std::array<std::byte, 8>{std::byte{0x20}, std::byte{0x4E}};
     auto resp = client->send_frame(stop, Timestamp{2000}, id, dlc.value(),
-                                   std::span<const std::byte>{violating});
+                                   std::span<std::byte const>{violating});
     if (!resp.has_value())
         return fail("send_frame (violating): " + std::string(resp.error().message()));
     auto const* batch = std::get_if<PropertyBatch>(&resp.value());

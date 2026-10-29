@@ -14,7 +14,7 @@
 
 namespace aletheia::detail {
 
-auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void>;
+auto validate_payload(Dlc dlc, std::span<std::byte const> data) -> Result<void>;
 auto make_cancellation_error(std::string_view method) -> AletheiaError;
 
 } // namespace aletheia::detail

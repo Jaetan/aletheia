@@ -49,7 +49,7 @@ using namespace aletheia;
 // bit_length, byte order, and the message DLC.
 static auto make_single_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length,
                                    ByteOrder byte_order, std::uint8_t dlc_bytes) -> DbcDefinition {
-    const DbcSignal sig{
+    DbcSignal const sig{
         .name = SignalName{"Bad"},
         .start_bit = BitPosition{start_bit},
         .bit_length = BitLength{bit_length},
@@ -184,7 +184,7 @@ TEST_CASE("parse DBC: text-loaded Motorola full-frame signal is accepted back by
     auto backend = required(make_ffi_backend(lib));
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    const std::string text = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\n"
+    std::string const text = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\n"
                              "BO_ 100 Msg: 2 Engine\n"
                              " SG_ Sig : 7|16@0+ (1,0) [0|0] \"\" Engine\n";
     auto const loaded = client.parse_dbc_text(std::stop_token{}, text);
@@ -230,7 +230,7 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
     auto backend = required(make_ffi_backend(lib));
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    const DbcSignal sig{
+    DbcSignal const sig{
         .name = SignalName{"ZeroLenLE"},
         .start_bit = BitPosition{0},
         .bit_length = BitLength{0},
@@ -243,7 +243,7 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
         .unit = Unit{""},
         .presence = AlwaysPresent{},
     };
-    const DbcDefinition dbc{
+    DbcDefinition const dbc{
         .version = "1.0",
         .messages = {DbcMessage{
             .id = CanId{StandardId::create(0x100).value()},

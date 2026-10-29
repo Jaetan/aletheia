@@ -2042,6 +2042,9 @@ hints:
   - file: tools/_agda_opens.py
     text: "type Name = str"
     count: 1
+  - file: tools/_ci_opt_in_steps.py
+    text: "str"
+    count: 4
   - file: tools/_ci_steps.py
     text: "frozenset[str]"
     count: 2
@@ -2050,7 +2053,7 @@ hints:
     count: 4
   - file: tools/_ci_steps.py
     text: "str"
-    count: 8
+    count: 4
   - file: tools/_ci_steps.py
     text: "tuple[str, ...]"
     count: 2

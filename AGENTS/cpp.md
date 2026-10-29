@@ -17,7 +17,7 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 2. **Formatting** -- .clang-format compliance
 3. **Include hygiene** -- minimal includes, no implementation details leaking into public headers
 4. **Dead code** -- no unused types, functions, or includes
-5. **const-correctness** -- const where possible, no unnecessary mutability; a const-qualified `auto` is spelled `auto const` (`auto const&`, `auto const*`), never `const auto`, and a probe holds every source to it; `tools/check_cpp_const_locals.py` (Tooling gates above) holds the locals `misc-const-correctness` passes over
+5. **const-correctness** -- const where possible, no unnecessary mutability; every qualifier follows what it qualifies (east const: `auto const`, `T const&`, `auto const*`), held in the sources by the clang-format step (`QualifierAlignment: Right` in `cpp/.clang-format`), and a const-qualified `auto` is `auto const`, never `const auto`, in the C++ examples of the documentation and of comments too, held by `tools/check_cpp_fence_const_auto.py`; `tools/check_cpp_const_locals.py` (Tooling gates above) holds the locals `misc-const-correctness` passes over
 6. **Comment quality** -- explains "why" not "what"; no stale comments
 
 ### Type & Safety (4)

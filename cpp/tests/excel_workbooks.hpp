@@ -37,7 +37,7 @@ inline constexpr std::array<std::string_view, 16> dbc_hdr = {
 };
 
 inline void write_header(OpenXLSX::XLWorksheet const& ws,
-                         std::span<const std::string_view> headers) {
+                         std::span<std::string_view const> headers) {
     for (auto const [i, header] : std::views::enumerate(headers))
         ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = std::string{header};
 }
@@ -51,9 +51,9 @@ inline void write_header(OpenXLSX::XLWorksheet const& ws,
 /// number deliberately stored as a *native number* cell (the strict-rejection
 /// tests), write it directly with an int64/double value.
 inline void write_row(OpenXLSX::XLWorksheet const& ws, int row,
-                      const std::vector<std::string>& values) {
+                      std::vector<std::string> const& values) {
     for (auto const [i, value] : std::views::enumerate(values)) {
-        const std::string& s = value;
+        std::string const& s = value;
         if (s.empty())
             continue;
         auto const col = static_cast<std::uint16_t>(i + 1);
@@ -72,9 +72,9 @@ inline void write_row(OpenXLSX::XLWorksheet const& ws, int row,
 
 /// Create a one-sheet workbook: the sheet renamed, its header row written and
 /// one data row per entry from row 2 down.
-inline void make_workbook(const std::filesystem::path& path, const std::string& sheet,
-                          std::span<const std::string_view> headers,
-                          const std::vector<std::vector<std::string>>& rows) {
+inline void make_workbook(std::filesystem::path const& path, std::string const& sheet,
+                          std::span<std::string_view const> headers,
+                          std::vector<std::vector<std::string>> const& rows) {
     OpenXLSX::XLDocument doc;
     doc.create(path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName(sheet);
@@ -86,18 +86,18 @@ inline void make_workbook(const std::filesystem::path& path, const std::string& 
     doc.close();
 }
 
-inline void make_checks_workbook(const std::filesystem::path& path,
-                                 const std::vector<std::vector<std::string>>& rows) {
+inline void make_checks_workbook(std::filesystem::path const& path,
+                                 std::vector<std::vector<std::string>> const& rows) {
     make_workbook(path, "Checks", checks_hdr, rows);
 }
 
-inline void make_wt_workbook(const std::filesystem::path& path,
-                             const std::vector<std::vector<std::string>>& rows) {
+inline void make_wt_workbook(std::filesystem::path const& path,
+                             std::vector<std::vector<std::string>> const& rows) {
     make_workbook(path, "When-Then", wt_hdr, rows);
 }
 
-inline void make_dbc_workbook(const std::filesystem::path& path,
-                              const std::vector<std::vector<std::string>>& rows) {
+inline void make_dbc_workbook(std::filesystem::path const& path,
+                              std::vector<std::vector<std::string>> const& rows) {
     make_workbook(path, "DBC", dbc_hdr, rows);
 }
 

@@ -110,8 +110,8 @@ public:
     [[nodiscard]] static auto open(ClientOptions options = {}) -> Result<AletheiaClient>;
     ~AletheiaClient();
 
-    AletheiaClient(const AletheiaClient&) = delete;
-    AletheiaClient& operator=(const AletheiaClient&) = delete;
+    AletheiaClient(AletheiaClient const&) = delete;
+    AletheiaClient& operator=(AletheiaClient const&) = delete;
     AletheiaClient(AletheiaClient&& other) noexcept;
     AletheiaClient& operator=(AletheiaClient&& other) noexcept;
 
@@ -119,11 +119,11 @@ public:
     // Both parse paths run the structural validator alongside the parser.
     // On success the returned ParsedDBC carries the canonical body plus any
     // non-error issues (warnings).  Errors short-circuit to Result<>::error.
-    [[nodiscard]] auto parse_dbc(std::stop_token stop, const DbcDefinition& dbc)
+    [[nodiscard]] auto parse_dbc(std::stop_token stop, DbcDefinition const& dbc)
         -> Result<ParsedDBC>;
     [[nodiscard]] auto parse_dbc_text(std::stop_token stop, std::string_view text)
         -> Result<ParsedDBC>;
-    [[nodiscard]] auto validate_dbc(std::stop_token stop, const DbcDefinition& dbc)
+    [[nodiscard]] auto validate_dbc(std::stop_token stop, DbcDefinition const& dbc)
         -> Result<ValidationResult>;
     [[nodiscard]] auto format_dbc(std::stop_token stop) -> Result<DbcDefinition>;
     // Render a DbcDefinition as .dbc file text via the verified Agda formatter,
@@ -146,24 +146,24 @@ public:
     // code InputBoundExceeded, with bound_info() naming the bound kind, the
     // field that crossed it, the observed size and the limit.  With no nodes
     // declared, the nodes counted are those derived from the message senders.
-    [[nodiscard]] auto format_dbc_text(std::stop_token stop, const DbcDefinition& dbc)
+    [[nodiscard]] auto format_dbc_text(std::stop_token stop, DbcDefinition const& dbc)
         -> Result<DbcText>;
 
     // --- Signals ---
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.
     [[nodiscard]] auto extract_signals(std::stop_token stop, CanId id, Dlc dlc,
-                                       std::span<const std::byte> data) -> Result<ExtractionResult>;
+                                       std::span<std::byte const> data) -> Result<ExtractionResult>;
     [[nodiscard]] auto build_frame(std::stop_token stop, CanId id, Dlc dlc,
-                                   std::span<const SignalValue> signals) -> Result<FramePayload>;
+                                   std::span<SignalValue const> signals) -> Result<FramePayload>;
     [[nodiscard]] auto update_frame(std::stop_token stop, CanId id, Dlc dlc,
-                                    std::span<const std::byte> data,
-                                    std::span<const SignalValue> signals) -> Result<FramePayload>;
+                                    std::span<std::byte const> data,
+                                    std::span<SignalValue const> signals) -> Result<FramePayload>;
 
     // --- Streaming ---
     // Expected workflow: set_properties → start_stream → send_frame* → end_stream.
     // start_stream() resets the extraction cache and last-frame tracking.
     // set_properties() may be called again after end_stream() to install new properties.
-    [[nodiscard]] auto set_properties(std::stop_token stop, std::span<const LtlFormula> properties)
+    [[nodiscard]] auto set_properties(std::stop_token stop, std::span<LtlFormula const> properties)
         -> Result<void>;
     [[nodiscard]] auto add_checks(std::stop_token stop, std::vector<CheckResult> checks)
         -> Result<void>;
@@ -180,11 +180,11 @@ public:
     // the JSON wire shape.
     // For batch operations, see send_frames().
     [[nodiscard]] auto send_frame(std::stop_token stop, Timestamp ts, CanId id, Dlc dlc,
-                                  std::span<const std::byte> data,
+                                  std::span<std::byte const> data,
                                   std::optional<bool> brs = std::nullopt,
                                   std::optional<bool> esi = std::nullopt) -> Result<FrameResponse>;
     // Convenience: send a Frame directly.
-    [[nodiscard]] auto send_frame(std::stop_token stop, const Frame& f) -> Result<FrameResponse> {
+    [[nodiscard]] auto send_frame(std::stop_token stop, Frame const& f) -> Result<FrameResponse> {
         return send_frame(stop, f.timestamp, f.id, f.dlc, f.data, f.brs, f.esi);
     }
     // CAN error event (no ID, no payload). Acknowledged without LTL evaluation.
@@ -199,7 +199,7 @@ public:
     // of docs/architecture/CANCELLATION.md): if
     // stop fires mid-batch, BatchResult::responses holds the committed prefix
     // and BatchResult::error carries ErrorKind::Cancellation.
-    [[nodiscard]] auto send_frames(std::stop_token stop, std::span<const Frame> frames)
+    [[nodiscard]] auto send_frames(std::stop_token stop, std::span<Frame const> frames)
         -> BatchResult;
     // Lazy streaming variant of send_frames: a std::generator that pulls one
     // Frame from `frames` per resumption and co_yields its Result<FrameResponse>,
@@ -224,7 +224,7 @@ public:
     // logging, and cancellation as a single send); the eager send_frames is its
     // collecting sibling.
     template<std::ranges::input_range R>
-        requires std::convertible_to<std::ranges::range_reference_t<R>, const Frame&>
+        requires std::convertible_to<std::ranges::range_reference_t<R>, Frame const&>
     [[nodiscard]] auto send_frames_lazy(std::stop_token stop, R frames)
         -> std::generator<Result<FrameResponse>> {
         std::size_t index = 0;
@@ -257,7 +257,7 @@ private:
     // The kernel's answer to a serialized command, or the error that kept the
     // command from being built or answered: the step every JSON-command method
     // shares.
-    auto run_command(const Result<std::string>& command) -> Result<std::string>;
+    auto run_command(Result<std::string> const& command) -> Result<std::string>;
 
     // Signal-to-index resolution for binary FFI build/update paths.
     struct ResolvedSignals {
@@ -268,12 +268,12 @@ private:
         // here, but the block's own contract is what the FFI reads.
         [[nodiscard]] auto injection() const -> Result<SignalInjection>;
     };
-    auto resolve_signals(std::string_view method, CanId id, std::span<const SignalValue> signals)
+    auto resolve_signals(std::string_view method, CanId id, std::span<SignalValue const> signals)
         -> Result<ResolvedSignals>;
     // Takes a single PropertyResult (one entry from a
     // PropertyBatch.results) rather than a top-level Violation struct.
     // The caller iterates the batch and invokes this per fails entry.
-    void enrich_violation(PropertyResult& pr, CanId id, Dlc dlc, std::span<const std::byte> data,
+    void enrich_violation(PropertyResult& pr, CanId id, Dlc dlc, std::span<std::byte const> data,
                           std::uint32_t id_value, bool is_extended);
     // Post-parse hook for streaming frame responses.
     // Iterates a PropertyBatch's results, enriches each fails entry, and
@@ -281,7 +281,7 @@ private:
     // send_frame so that function stays under clang-tidy's cognitive-
     // complexity threshold.
     void finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
-                                 std::span<const std::byte> data, std::uint32_t id_value,
+                                 std::span<std::byte const> data, std::uint32_t id_value,
                                  bool is_extended);
     // End-of-stream enrichment, extract-once shape (uniform across bindings):
     // pass 1 collects the Fails/Unresolved results paired with their
@@ -292,20 +292,20 @@ private:
     // once per tracked frame rather than once per property and frame.
     void enrich_end_stream_results(StreamResult& result);
     auto collect_enrichable_results(StreamResult& result)
-        -> std::vector<std::pair<PropertyResult*, const PropertyDiagnostic*>>;
+        -> std::vector<std::pair<PropertyResult*, PropertyDiagnostic const*>>;
     auto merge_last_known_values(std::set<SignalName> remaining)
         -> std::map<SignalName, PhysicalValue>;
-    void log_end_stream_summary(const StreamResult& result);
-    auto extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,
-                               std::span<const std::byte> data, std::uint32_t id_value,
+    void log_end_stream_summary(StreamResult const& result);
+    auto extract_signal_values(PropertyDiagnostic const& diag, CanId id, Dlc dlc,
+                               std::span<std::byte const> data, std::uint32_t id_value,
                                bool is_extended) -> std::map<SignalName, PhysicalValue>;
-    auto extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data,
+    auto extract_signals_internal(CanId id, Dlc dlc, std::span<std::byte const> data,
                                   std::uint32_t id_value, bool is_extended)
         -> std::optional<ExtractionResult>;
 
     // Refresh signal name → index cache from a parsed DBC.  Shared between
     // parse_dbc() and parse_dbc_text(); both paths land here on success.
-    void populate_signal_lookup(const DbcDefinition& dbc);
+    void populate_signal_lookup(DbcDefinition const& dbc);
 
     // Declaration order is load-bearing: state_ is destroyed before backend_,
     // so the handle closes through a backend that is still alive.

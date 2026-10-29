@@ -8,7 +8,7 @@
 
 namespace aletheia::bench {
 
-void run_throughput(const std::filesystem::path& lib, int num_frames, int num_runs, int warmup,
+void run_throughput(std::filesystem::path const& lib, int num_frames, int num_runs, int warmup,
                     bool emit_json);
 
 } // namespace aletheia::bench

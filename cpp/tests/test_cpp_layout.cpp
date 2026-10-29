@@ -53,7 +53,7 @@ static auto measured() -> std::vector<std::pair<std::string, Layout>> {
 }
 
 // The record's rows as this toolchain would write them, for the failure message.
-static auto record_rows(const std::vector<std::pair<std::string, Layout>>& rows) -> std::string {
+static auto record_rows(std::vector<std::pair<std::string, Layout>> const& rows) -> std::string {
     std::string text;
     for (auto const& [name, layout] : rows) {
         text += "  - name: " + name + "\n    size: " + std::to_string(layout.size) +

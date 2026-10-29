@@ -23,7 +23,7 @@
 
 namespace aletheia {
 
-auto detail::render_desc(std::span<const DescPart> parts) -> Result<std::string> {
+auto detail::render_desc(std::span<DescPart const> parts) -> Result<std::string> {
     std::string out;
     for (auto const& part : parts) {
         if (auto const* text = std::get_if<std::string>(&part)) {
@@ -41,7 +41,7 @@ auto detail::render_desc(std::span<const DescPart> parts) -> Result<std::string>
 // A bound as an inverted range's refusal prints it: the kernel's rendering, or
 // `n` or `n/d` while the runtime is down, since a check is built before any
 // start too.
-static auto bound_text(const Rational& r) -> std::string {
+static auto bound_text(Rational const& r) -> std::string {
     auto rendered = detail::format_rational(r);
     if (rendered)
         return std::move(rendered).value();
@@ -90,7 +90,7 @@ static constexpr auto comparison_token() -> std::string_view {
 
 // Every predicate is one of four shapes, named below by its members rather
 // than by its type; a predicate of a new shape fails the final static_assert.
-static auto format_predicate(const Predicate& p) -> Result<std::string> {
+static auto format_predicate(Predicate const& p) -> Result<std::string> {
     return std::visit(
         [](auto const& v) -> Result<std::string> {
             using T = std::decay_t<decltype(v)>;
@@ -124,13 +124,13 @@ static auto format_predicate(const Predicate& p) -> Result<std::string> {
         p);
 }
 
-static auto predicate_signal(const Predicate& p) -> SignalName {
+static auto predicate_signal(Predicate const& p) -> SignalName {
     return std::visit([](auto const& v) -> SignalName { return v.signal; }, p);
 }
 
 // Walks the tree by shape (a predicate, two children, or one), so an
 // alternative of an existing shape needs no branch here.
-static void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals) {
+static void collect_signals_into(LtlFormula const& f, std::vector<SignalName>& signals) {
     f.visit([&signals](auto const& v) {
         using T = std::decay_t<decltype(v)>;
         if constexpr (requires { v.predicate; }) {
@@ -151,7 +151,7 @@ static void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& s
     });
 }
 
-static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary)
+static auto format_formula_inner(LtlFormula const& f, bool parenthesize_binary)
     -> Result<std::string>;
 
 static auto wrap_if_binary(std::string s, bool parenthesize) -> std::string {
@@ -160,7 +160,7 @@ static auto wrap_if_binary(std::string s, bool parenthesize) -> std::string {
 
 // `<left> <infix><right>`, each child parenthesized when binary.
 template<typename Node>
-static auto format_infix(const Node& v, std::string infix, bool parenthesize)
+static auto format_infix(Node const& v, std::string infix, bool parenthesize)
     -> Result<std::string> {
     return format_formula_inner(*v.left, true).and_then([&](auto const& left) {
         return format_formula_inner(*v.right, true).transform([&](auto const& right) {
@@ -170,19 +170,19 @@ static auto format_infix(const Node& v, std::string infix, bool parenthesize)
 }
 
 template<typename Node>
-static auto format_binary(const Node& v, std::string_view op, bool parenthesize)
+static auto format_binary(Node const& v, std::string_view op, bool parenthesize)
     -> Result<std::string> {
     return format_infix(v, std::string{op} + " ", parenthesize);
 }
 
 template<typename Node>
-static auto format_metric_binary(const Node& v, std::string_view op, bool parenthesize)
+static auto format_metric_binary(Node const& v, std::string_view op, bool parenthesize)
     -> Result<std::string> {
     return format_infix(v, std::string{op} + " within " + format_timebound(v.bound), parenthesize);
 }
 
 // `<prefix>(<child>)`, the child never parenthesized again.
-static auto format_unary(std::string_view prefix, const LtlFormula& child) -> Result<std::string> {
+static auto format_unary(std::string_view prefix, LtlFormula const& child) -> Result<std::string> {
     return format_formula_inner(child, false).transform([prefix](auto const& inner) {
         return std::string{prefix} + "(" + inner + ")";
     });
@@ -190,7 +190,7 @@ static auto format_unary(std::string_view prefix, const LtlFormula& child) -> Re
 
 // The Never pattern Always{Not{Atomic{p}}} as `never <p>`, or nullopt for any
 // other Always.
-static auto try_format_never(const Always& v) -> std::optional<Result<std::string>> {
+static auto try_format_never(Always const& v) -> std::optional<Result<std::string>> {
     if (auto* n = std::get_if<Not>(&v.formula->value))
         if (auto const* a = std::get_if<Atomic>(&n->formula->value))
             return format_predicate(a->predicate).transform([](auto const& predicate) {
@@ -203,7 +203,7 @@ static auto try_format_never(const Always& v) -> std::optional<Result<std::strin
 // they appear as children of other binary operators.  The whole rendering is
 // byte-identical to the Python and Go formatters; a probe under probes/
 // compares this formatter against Python's over every alternative.
-static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary)
+static auto format_formula_inner(LtlFormula const& f, bool parenthesize_binary)
     -> Result<std::string> {
     return f.visit([parenthesize_binary](auto const& v) -> Result<std::string> {
         using T = std::decay_t<decltype(v)>;
@@ -243,17 +243,17 @@ static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary)
     });
 }
 
-auto format_formula(const LtlFormula& f) -> Result<std::string> {
+auto format_formula(LtlFormula const& f) -> Result<std::string> {
     return format_formula_inner(f, false);
 }
 
-auto collect_signals(const LtlFormula& f) -> std::vector<SignalName> {
+auto collect_signals(LtlFormula const& f) -> std::vector<SignalName> {
     std::vector<SignalName> signals;
     collect_signals_into(f, signals);
     return signals;
 }
 
-auto build_diagnostic(const LtlFormula& f) -> Result<PropertyDiagnostic> {
+auto build_diagnostic(LtlFormula const& f) -> Result<PropertyDiagnostic> {
     return format_formula(f).transform([&f](std::string desc) {
         return PropertyDiagnostic{
             .signals = collect_signals(f),

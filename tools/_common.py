@@ -67,6 +67,9 @@ CommandWord = NewType("CommandWord", str)
 # each call on the test's own thread, since a test starts no thread.
 type ExecutorFactory = Callable[[WorkerCount], Executor]
 
+# The compilers every C++ tree of the sweep is configured with: clang-23, the
+# supported toolchain, pinned rather than left to whatever cc resolves to.
+CPP_COMPILERS = "-DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23"
 # The C++ tree the compile-database gates read, clang-tidy among them, under
 # cpp/: configured with the binding's compiler and never built, so those gates
 # start when its configure ends rather than after the test build in cpp/build.

@@ -26,6 +26,6 @@ void print_separator();
 // that failed, or EIO's "Input/output error" when the report's error indicator
 // alone records it. Any other error the lane raises passes through as it was
 // raised.
-void write_mode_report(std::FILE* report, std::string_view mode, const std::function<void()>& lane);
+void write_mode_report(std::FILE* report, std::string_view mode, std::function<void()> const& lane);
 
 } // namespace aletheia::bench

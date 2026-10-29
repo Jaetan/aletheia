@@ -44,7 +44,7 @@ namespace aletheia::detail {
 
 // The little-endian integer the `width` bytes at `off` spell, no wider than
 // four: each byte at its place, the first byte lowest.
-static auto load_le(std::span<const char> buf, std::size_t off, std::size_t width)
+static auto load_le(std::span<char const> buf, std::size_t off, std::size_t width)
     -> std::uint32_t {
     constexpr std::array<unsigned, 4> places{0U, 8U, 16U, 24U};
     std::uint32_t value = 0;
@@ -53,11 +53,11 @@ static auto load_le(std::span<const char> buf, std::size_t off, std::size_t widt
     return value;
 }
 
-static auto load_le16(std::span<const char> buf, std::size_t off) -> std::uint16_t {
+static auto load_le16(std::span<char const> buf, std::size_t off) -> std::uint16_t {
     return static_cast<std::uint16_t>(load_le(buf, off, 2));
 }
 
-static auto load_le32(std::span<const char> buf, std::size_t off) -> std::uint32_t {
+static auto load_le32(std::span<char const> buf, std::size_t off) -> std::uint32_t {
     return load_le(buf, off, 4);
 }
 
@@ -121,15 +121,15 @@ static auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::option
     for (auto const window : tail |
                                  std::views::slide(static_cast<std::ptrdiff_t>(k_eocd_min_size)) |
                                  std::views::reverse) {
-        std::span<const char> const at{window};
+        std::span<char const> const at{window};
         if (load_le32(at, 0) != k_eocd_sig)
             continue;
-        const std::uint16_t disk_num = load_le16(at, 4);
-        const std::uint16_t cd_disk = load_le16(at, 6);
-        const std::uint16_t entries_this = load_le16(at, 8);
-        const std::uint16_t entries_total = load_le16(at, 10);
-        const std::uint32_t cd_size = load_le32(at, 12);
-        const std::uint32_t cd_off = load_le32(at, 16);
+        std::uint16_t const disk_num = load_le16(at, 4);
+        std::uint16_t const cd_disk = load_le16(at, 6);
+        std::uint16_t const entries_this = load_le16(at, 8);
+        std::uint16_t const entries_total = load_le16(at, 10);
+        std::uint32_t const cd_size = load_le32(at, 12);
+        std::uint32_t const cd_off = load_le32(at, 16);
         // Reject multi-disk / spanned archives — .xlsx is single-disk.
         if (disk_num != 0 || cd_disk != 0 || entries_this != entries_total)
             return std::nullopt;
@@ -170,18 +170,18 @@ static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
     // the next read without an offset compared against a length.  The
     // iteration count is the directory's own declared entry count.
     std::uint64_t total = 0;
-    std::span<const char> rest{cd};
+    std::span<char const> rest{cd};
     for (auto i = decltype(eocd.total_entries){0}; i < eocd.total_entries; ++i) {
         if (rest.size() < k_cd_entry_min)
             return std::nullopt;
         if (load_le32(rest, 0) != k_cd_entry_sig)
             return std::nullopt;
-        const std::uint32_t uncompressed = load_le32(rest, 24);
-        const std::uint16_t name_len = load_le16(rest, 28);
-        const std::uint16_t extra_len = load_le16(rest, 30);
-        const std::uint16_t comment_len = load_le16(rest, 32);
+        std::uint32_t const uncompressed = load_le32(rest, 24);
+        std::uint16_t const name_len = load_le16(rest, 28);
+        std::uint16_t const extra_len = load_le16(rest, 30);
+        std::uint16_t const comment_len = load_le16(rest, 32);
         total += uncompressed;
-        const std::size_t entry_size = k_cd_entry_min + name_len + extra_len + comment_len;
+        std::size_t const entry_size = k_cd_entry_min + name_len + extra_len + comment_len;
         if (rest.size() < entry_size)
             return std::nullopt;
         rest = detail::subspan_at(rest, entry_size);
@@ -193,7 +193,7 @@ static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
 // Public helpers
 // ===========================================================================
 
-auto validate_loader_path(const std::filesystem::path& path, std::string_view kind)
+auto validate_loader_path(std::filesystem::path const& path, std::string_view kind)
     -> Result<void> {
     std::error_code ec;
     auto const status = std::filesystem::symlink_status(path, ec);
@@ -242,7 +242,7 @@ static auto make_input_bound_error(std::uint64_t observed, std::string_view subj
                          ErrorCode::InputBoundExceeded, std::move(info)};
 }
 
-auto check_file_size_bound(const std::filesystem::path& path) -> Result<void> {
+auto check_file_size_bound(std::filesystem::path const& path) -> Result<void> {
     std::error_code ec;
     auto const size = std::filesystem::file_size(path, ec);
     if (ec)
@@ -260,7 +260,7 @@ auto check_input_size_bound(std::uint64_t observed) -> Result<void> {
     return {};
 }
 
-auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<void> {
+auto check_xlsx_uncompressed_bound(std::filesystem::path const& path) -> Result<void> {
     std::error_code ec;
     auto const file_size = std::filesystem::file_size(path, ec);
     if (ec)
@@ -299,7 +299,7 @@ auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<
     return {};
 }
 
-auto read_decimal(std::string_view text, const std::string& location, const std::string& key)
+auto read_decimal(std::string_view text, std::string const& location, std::string const& key)
     -> Rational {
     auto const value = Rational::from_decimal(text);
     if (value)
@@ -316,7 +316,7 @@ auto built_check(Result<CheckResult> built) -> CheckResult {
     return std::move(built).value();
 }
 
-auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<void> {
+auto validate_output_parent_dir(std::filesystem::path const& path) -> Result<void> {
     auto const parent = path.parent_path();
     if (parent.empty())
         return {};

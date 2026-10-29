@@ -31,7 +31,7 @@ template<typename Fn>
 
 // struct aletheia_text: size bytes of UTF-8 from data, with no terminating NUL.
 struct FfiText {
-    const char* data;
+    char const* data;
     std::size_t size;
 };
 
@@ -44,7 +44,7 @@ struct FfiText {
 // struct aletheia_frame: one CAN frame.
 struct FfiFrame {
     std::uint64_t timestamp;
-    const std::uint8_t* data;
+    std::uint8_t const* data;
     std::uint32_t can_id;
     std::uint8_t extended;
     std::uint8_t dlc;
@@ -57,9 +57,9 @@ struct FfiFrame {
 
 // struct aletheia_signal_values: count parallel signal indices and rationals.
 struct FfiSignalValues {
-    const std::uint32_t* indices;
-    const std::int64_t* numerators;
-    const std::int64_t* denominators;
+    std::uint32_t const* indices;
+    std::int64_t const* numerators;
+    std::int64_t const* denominators;
     std::uint32_t count;
 };
 

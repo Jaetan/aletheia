@@ -61,7 +61,7 @@ TEST_CASE("open builds a client over the library it names with every option it i
     // property a stream given no further check holds.
     { auto const first = required(make_ffi_backend(find_lib())); }
     std::vector<std::string> events;
-    const Logger logger([&events](const LogRecord& r) { events.emplace_back(r.event); });
+    Logger const logger([&events](LogRecord const& r) { events.emplace_back(r.event); });
     std::vector<CheckResult> defaults;
     defaults.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
     auto client = required(AletheiaClient::open({.library = find_lib(),
@@ -92,18 +92,18 @@ TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", 
     auto const backend = required(make_ffi_backend(find_lib()));
     auto const state = required(backend->init());
     auto const id = CanId{StandardId::create(0x100).value()};
-    const std::vector<std::uint32_t> indices{0};
-    const std::vector<std::int64_t> ones{1};
+    std::vector<std::uint32_t> const indices{0};
+    std::vector<std::int64_t> const ones{1};
     auto const injection = SignalInjection::create(indices, ones, ones).value();
     auto const dlc8 = Dlc::create(8).value();
-    auto const refused = [](const AletheiaError& error, std::size_t length) {
+    auto const refused = [](AletheiaError const& error, std::size_t length) {
         CHECK(error.kind() == ErrorKind::Validation);
         CHECK(error.message() ==
               std::format("payload length {} does not match DLC 8 (expected 8 bytes)", length));
     };
     for (auto const length : {std::size_t{7}, std::size_t{20}}) {
         INFO("a payload of " << length << " bytes");
-        const std::vector<std::byte> data(length, std::byte{0});
+        std::vector<std::byte> const data(length, std::byte{0});
         auto const sent = backend->send_frame_binary(state, Timestamp{0}, id, dlc8, data,
                                                      std::nullopt, std::nullopt);
         REQUIRE_FALSE(sent.has_value());
@@ -119,7 +119,7 @@ TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", 
         refused(extracted.error(), length);
     }
     // The exact length passes the guard to the kernel, which answers.
-    const std::vector<std::byte> data8(8, std::byte{0});
+    std::vector<std::byte> const data8(8, std::byte{0});
     CHECK(
         backend->send_frame_binary(state, Timestamp{0}, id, dlc8, data8, std::nullopt, std::nullopt)
             .has_value());
@@ -141,13 +141,13 @@ TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]
     // No DBC is loaded, so every binary endpoint the kernel reaches refuses.
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(15).value();
-    const std::vector<std::byte> data64(64, std::byte{0});
-    const std::vector<std::uint32_t> indices{0};
-    const std::vector<std::int64_t> ones{1};
+    std::vector<std::byte> const data64(64, std::byte{0});
+    std::vector<std::uint32_t> const indices{0};
+    std::vector<std::int64_t> const ones{1};
     auto const injection = SignalInjection::create(indices, ones, ones).value();
 
     SECTION("a command past the JSON cap is refused before the kernel sees it") {
-        const std::string past_cap(max_json_bytes + 1, 'x');
+        std::string const past_cap(max_json_bytes + 1, 'x');
         auto const answer = required(backend->process(state, past_cap));
         CHECK(answer.contains(R"("code":"input_bound_exceeded")"));
         CHECK(answer.contains(R"("observed":67108865)"));
@@ -155,7 +155,7 @@ TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]
     SECTION("a kernel refusal on a binary endpoint is surfaced with its code, not swallowed") {
         // The entry hands back the kernel's error envelope; the error carries
         // the envelope's code and message, as a JSON response's would.
-        auto const no_dbc = [](const AletheiaError& error) {
+        auto const no_dbc = [](AletheiaError const& error) {
             CHECK(error.kind() == ErrorKind::Protocol);
             CHECK(error.code() == ErrorCode::HandlerNoDbc);
             CHECK(error.message() == "DBC not loaded");
@@ -180,7 +180,7 @@ TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[i
     auto const lib = find_lib();
     auto const backend = required(make_ffi_backend(lib));
     auto const state = required(backend->init());
-    const aletheia::test::LoadedLibrary handle{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+    aletheia::test::LoadedLibrary const handle{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     REQUIRE(handle != nullptr);
     using BuildFn = decltype(&aletheia_build_frame_bin);
     using FreeFn = decltype(&aletheia_free_str);
@@ -196,7 +196,7 @@ TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[i
     aletheia_frame frame{};
     frame.can_id = 0x100;
     frame.dlc = 42;
-    const aletheia_signal_values values{};
+    aletheia_signal_values const values{};
     std::array<std::uint8_t, 64> out_bytes{};
     aletheia_buffer out{.data = out_bytes.data(),
                         .err = nullptr,
@@ -205,7 +205,7 @@ TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[i
     // The kernel allocated the message; it is released by the kernel's own
     // free, from a destructor rather than from a line this test must reach.
     auto const release = [free_str](char* message) { free_str(message); };
-    const std::unique_ptr<char, decltype(release)> error{out.err, release};
+    std::unique_ptr<char, decltype(release)> const error{out.err, release};
     CHECK(status == 1);
     REQUIRE(error != nullptr);
     // The error is the kernel's envelope, naming the refusal by its code.
@@ -219,7 +219,7 @@ namespace {
 class HiddenSearchRoutes {
 public:
     HiddenSearchRoutes() : cwd_{fs::current_path()} {
-        if (const char* cur = std::getenv("ALETHEIA_LIB"))
+        if (char const* cur = std::getenv("ALETHEIA_LIB"))
             saved_ = cur;
         ::unsetenv("ALETHEIA_LIB");
         // Two levels down, so no relative candidate the search tries from
@@ -234,9 +234,9 @@ public:
         if (saved_)
             ::setenv("ALETHEIA_LIB", saved_->c_str(), /*overwrite=*/1);
     }
-    HiddenSearchRoutes(const HiddenSearchRoutes&) = delete;
+    HiddenSearchRoutes(HiddenSearchRoutes const&) = delete;
     HiddenSearchRoutes(HiddenSearchRoutes&&) = delete;
-    auto operator=(const HiddenSearchRoutes&) -> HiddenSearchRoutes& = delete;
+    auto operator=(HiddenSearchRoutes const&) -> HiddenSearchRoutes& = delete;
     auto operator=(HiddenSearchRoutes&&) -> HiddenSearchRoutes& = delete;
 
 private:
@@ -256,7 +256,7 @@ TEST_CASE("a frame built at a DLC the message outgrows is refused", "[integratio
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
-    const std::vector<SignalValue> speed{
+    std::vector<SignalValue> const speed{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
 
     // Speed occupies the first sixteen bits, so one byte cannot hold it.
@@ -280,7 +280,7 @@ TEST_CASE("a CAN-FD frame is built and updated at its full length", "[integratio
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(15).value();
-    const std::vector<SignalValue> speed{
+    std::vector<SignalValue> const speed{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
 
     auto const built = client.build_frame(std::stop_token{}, id, dlc, speed);
@@ -308,10 +308,10 @@ TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[int
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const std::vector<std::byte> data(8, std::byte{0});
-    const std::vector<std::uint32_t> indices{0};
-    const std::vector<std::int64_t> numerators{1000};
-    const std::vector<std::int64_t> denominators{1};
+    std::vector<std::byte> const data(8, std::byte{0});
+    std::vector<std::uint32_t> const indices{0};
+    std::vector<std::int64_t> const numerators{1000};
+    std::vector<std::int64_t> const denominators{1};
     auto const injection = SignalInjection::create(indices, numerators, denominators).value();
 
     SECTION("a buffer shorter than the frame is refused") {
@@ -326,7 +326,7 @@ TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[int
         CHECK(updated.error().message() == "aletheia_update_frame_bin: out size 4 < 8 frame bytes");
     }
     SECTION("a buffer longer than the frame comes back at the frame's length") {
-        const std::vector<std::byte> speed{std::byte{0xE8}, std::byte{0x03}};
+        std::vector<std::byte> const speed{std::byte{0xE8}, std::byte{0x03}};
         auto const built = backend->build_frame_bin(state, id, dlc, injection, 64);
         REQUIRE(built.has_value());
         REQUIRE(built->size() == 8);
@@ -357,7 +357,7 @@ TEST_CASE("the kernel renders a rational exactly", "[integration]") {
 TEST_CASE("the library the first backend loaded is found from anywhere", "[integration]") {
     auto const lib = find_lib();
     auto const backend = required(make_ffi_backend(lib));
-    const HiddenSearchRoutes hidden;
+    HiddenSearchRoutes const hidden;
     auto const found = required(find_ffi_library());
     CHECK(fs::equivalent(found, lib));
 }
@@ -369,7 +369,7 @@ TEST_CASE("update then extract round-trip via real FFI", "[integration]") {
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const std::vector<SignalValue> both{
+    std::vector<SignalValue> const both{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},
     };
@@ -379,7 +379,7 @@ TEST_CASE("update then extract round-trip via real FFI", "[integration]") {
     // Only RPM is written; Speed must come back as built, since the update
     // crosses the wire with the payload, its length, the DLC and the count
     // of values, and a wrong one of those loses a signal or refuses the frame.
-    const std::vector<SignalValue> rpm_only{
+    std::vector<SignalValue> const rpm_only{
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1234, 1}}}};
     auto const updated = client.update_frame(std::stop_token{}, id, dlc, *built, rpm_only);
     REQUIRE(updated.has_value());
@@ -397,7 +397,7 @@ TEST_CASE("build frame via real FFI", "[integration]") {
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
-    const std::vector<SignalValue> signals{
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}, // raw = 1000
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},  // raw = 3000
     };
@@ -424,7 +424,7 @@ TEST_CASE("build then extract round-trip on an extended CAN ID via real FFI", "[
     dbc.messages[0].id = id;
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
-    const std::vector<SignalValue> signals{
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{85, 2}}},
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1500, 1}}},
     };
@@ -449,7 +449,7 @@ TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[in
     // missing message ("no DBC message for CAN ID"), distinct from the per-signal
     // "signal not found", matching Go (resolveSignalIndices) and Python.
     auto const id = CanId{StandardId::create(0x200).value()};
-    const std::vector<SignalValue> signals{
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
     };
     auto const result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
@@ -466,7 +466,7 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto const id = CanId{StandardId::create(0x100).value()};
-    const std::vector<SignalValue> signals{
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{85, 2}}},
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1500, 1}}},
     };
@@ -492,7 +492,7 @@ TEST_CASE("a value outside the signal's declared range is refused on build and u
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const std::vector<std::byte> data(8, std::byte{0});
+    std::vector<std::byte> const data(8, std::byte{0});
     // RPM is [0, 65535] at factor 1: 70000 and -1 each have a raw value, and
     // each lies past one bound.
     struct Case {
@@ -506,7 +506,7 @@ TEST_CASE("a value outside the signal's declared range is refused on build and u
               .message = "value -1 for signal 'RPM' is outside [0, 65535]"},
          })) {
         CAPTURE(message);
-        const std::vector<SignalValue> rpm{
+        std::vector<SignalValue> const rpm{
             {.name = SignalName{"RPM"}, .value = PhysicalValue{value}}};
 
         auto const built = client.build_frame(std::stop_token{}, id, dlc, rpm);
@@ -527,9 +527,9 @@ TEST_CASE("the declared bounds are written exactly on build and update", "[integ
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    const std::vector<std::byte> data(8, std::byte{0});
+    std::vector<std::byte> const data(8, std::byte{0});
     for (auto const value : {Rational{0, 1}, Rational{65535, 1}}) {
-        const std::vector<SignalValue> rpm{
+        std::vector<SignalValue> const rpm{
             {.name = SignalName{"RPM"}, .value = PhysicalValue{value}}};
         auto const built = client.build_frame(std::stop_token{}, id, dlc, rpm);
         REQUIRE(built.has_value());
@@ -559,7 +559,7 @@ TEST_CASE("two signals sharing a bit are refused on build and update", "[integra
 
     auto const id = CanId{StandardId::create(100).value()};
     auto const dlc = Dlc::create(8).value();
-    const std::vector<SignalValue> both{
+    std::vector<SignalValue> const both{
         {.name = SignalName{"PayloadA"}, .value = PhysicalValue{Rational{1, 1}}},
         {.name = SignalName{"PayloadB"}, .value = PhysicalValue{Rational{1, 1}}}};
 
@@ -568,7 +568,7 @@ TEST_CASE("two signals sharing a bit are refused on build and update", "[integra
     CHECK(built.error().code() == ErrorCode::FrameSignalsOverlap);
     CHECK(built.error().message() == "signals overlap");
 
-    const std::vector<std::byte> data(8, std::byte{0});
+    std::vector<std::byte> const data(8, std::byte{0});
     auto const updated = client.update_frame(std::stop_token{}, id, dlc, data, both);
     REQUIRE_FALSE(updated.has_value());
     CHECK(updated.error().code() == ErrorCode::FrameSignalsOverlap);
@@ -582,7 +582,7 @@ TEST_CASE("a value no raw value scales to is refused on build and update", "[int
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     // RPM is factor 1, offset 0: 1.5 lies in its range, and between two raw values.
-    const std::vector<SignalValue> rpm{
+    std::vector<SignalValue> const rpm{
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3, 2}}}};
     constexpr std::string_view message =
         "no integer raw value scales to value 1.5 for signal 'RPM' (factor 1, offset 0)";
@@ -592,7 +592,7 @@ TEST_CASE("a value no raw value scales to is refused on build and update", "[int
     CHECK(built.error().code() == ErrorCode::FrameValueNotRepresentable);
     CHECK(built.error().message() == message);
 
-    const std::vector<std::byte> data(8, std::byte{0});
+    std::vector<std::byte> const data(8, std::byte{0});
     auto const updated = client.update_frame(std::stop_token{}, id, dlc, data, rpm);
     REQUIRE_FALSE(updated.has_value());
     CHECK(updated.error().code() == ErrorCode::FrameValueNotRepresentable);
@@ -619,11 +619,11 @@ TEST_CASE("FFI payload guards accept a payload of its DLC's length, 64 bytes inc
     auto client = required(AletheiaClient::create(std::move(backend)));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
-    const std::vector<std::byte> data64(64, std::byte{0});
+    std::vector<std::byte> const data64(64, std::byte{0});
     auto const dlc = Dlc::create(15).value();                      // CAN-FD DLC 15 = 64 bytes
     auto const known = CanId{StandardId::create(0x100).value()};   // in the DBC → binary path
     auto const unknown = CanId{StandardId::create(0x7FF).value()}; // not in DBC → JSON fallback
-    const std::vector<SignalValue> signals{
+    std::vector<SignalValue> const signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
 
     auto const mentions_mismatch = [](std::string_view msg) {
