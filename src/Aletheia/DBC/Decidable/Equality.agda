@@ -18,6 +18,7 @@ open import Data.List.NonEmpty using (List⁺) renaming (_∷_ to _∷⁺_)
 open import Data.List.Properties using (≡-dec)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Properties using (_≟_)
+open import Data.Integer using (ℤ) renaming (_≟_ to _≟ℤ_)
 open import Aletheia.DBC.DecRat using (_≟ᵈ_)
 open import Data.Bool.Properties using () renaming (_≟_ to _≟ᵇ_)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
@@ -70,9 +71,9 @@ s₁ ≟-SignalDef s₂
 
 -- Decidable equality for one (value, description) pair from `valueDescriptions`.
 -- PUBLIC (de-privatized): consumed by `Properties.Equality.Full` for
--- `_≟-ValueTable_` / `_≟-RawValueDesc_` (both carry `entries : List (ℕ × List Char)`).
-_≟-vd_ : (e₁ e₂ : ℕ × List Char) → Dec (e₁ ≡ e₂)
-(n₁ , cs₁) ≟-vd (n₂ , cs₂) with n₁ ≟ n₂ | ≡-dec _≟ᶜ_ cs₁ cs₂
+-- `_≟-ValueTable_` / `_≟-RawValueDesc_` (both carry `entries : List (ℤ × List Char)`).
+_≟-vd_ : (e₁ e₂ : ℤ × List Char) → Dec (e₁ ≡ e₂)
+(n₁ , cs₁) ≟-vd (n₂ , cs₂) with n₁ ≟ℤ n₂ | ≡-dec _≟ᶜ_ cs₁ cs₂
 ... | yes refl | yes refl = yes refl
 ... | no n≢   | _        = no (λ { refl → n≢ refl })
 ... | _        | no cs≢  = no (λ { refl → cs≢ refl })

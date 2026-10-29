@@ -83,8 +83,8 @@ mutual
 -- (the parsed, reduced components — reduction only shrinks magnitudes,
 -- so a bounded submitted literal stays bounded).  Companion to
 -- `jsonDepth`: direct measurement of the parsed tree, consumed by the
--- post-parse `max-rational-component-magnitude` bound (the Int64 wire
--- range) at the `processJSONLine` surface.  Primitives without numeric
+-- post-parse `max-rational-component-magnitude` bound (the 128-bit
+-- magnitude range) at the `processJSONLine` surface.  Primitives without numeric
 -- content and empty containers contribute 0.
 mutual
   jsonMaxComponent : JSON → ℕ

@@ -24,6 +24,7 @@ open import Aletheia.DBC.DecRat.Refinement using
 
 open import Data.Bool using (T)
 open import Data.Char using (Char)
+open import Data.Integer using (ℤ)
 open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (map-∘)
@@ -46,7 +47,7 @@ open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;
   AttrDef; AttrDefault; AttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
   RawValueDesc; mkRawValueDesc)
-open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON;
+open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON; identJSON;
   formatSignalGroup; formatEnvironmentVar; formatValueTable; formatValueEntry;
   formatNode; formatComment; formatCommentTarget;
   formatAttribute; formatAttrScope; formatAttrType;
@@ -212,16 +213,16 @@ environmentVar-list-roundtrip =
 -- ============================================================================
 
 private
-  valueEntryFields : ℕ × List Char → List (String × JSON)
-  valueEntryFields (n , s) =
-    ("value"       , ℕtoJSON n) ∷
+  valueEntryFields : ℤ × List Char → List (String × JSON)
+  valueEntryFields (z , s) =
+    ("value"       , ℤtoJSON z) ∷
     ("description" , JString s) ∷
     []
 
 valueEntry-roundtrip : ∀ e
   → parseValueEntry (valueEntryFields e) ≡ inj₂ e
-valueEntry-roundtrip (n , s)
-  rewrite getNat-ℕtoJSON n = refl
+valueEntry-roundtrip (z , s)
+  rewrite getInt-ℤtoJSON z = refl
 
 valueEntry-list-roundtrip : ∀ es
   → parseValueEntryList (map formatValueEntry es) ≡ inj₂ es
@@ -265,21 +266,21 @@ private
     []
 
   rvd-canId-std : ∀ rawId .(pf : T (rawId <ᵇ standard-can-id-max))
-                    (n : Identifier) (es : List (ℕ × List Char))
+                    (n : Identifier) (es : List (ℤ × List Char))
     → parseCANId "rawValueDesc" rawId
         (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
       ≡ inj₂ (Standard rawId pf)
   rvd-canId-std rawId pf n es = ifᵀ-witness _ _ pf
 
   rvd-canId-ext : ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max))
-                    (n : Identifier) (es : List (ℕ × List Char))
+                    (n : Identifier) (es : List (ℤ × List Char))
     → parseCANId "rawValueDesc" rawId
         (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
       ≡ inj₂ (Extended rawId pf)
   rvd-canId-ext rawId pf n es = ifᵀ-witness _ _ pf
 
   rvd-msgId-std : ∀ rawId .(pf : T (rawId <ᵇ standard-can-id-max))
-                    (n : Identifier) (es : List (ℕ × List Char))
+                    (n : Identifier) (es : List (ℤ × List Char))
     → parseMessageId "rawValueDesc"
         (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
       ≡ inj₂ (Standard rawId pf)
@@ -288,7 +289,7 @@ private
     = rvd-canId-std rawId pf n es
 
   rvd-msgId-ext : ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max))
-                    (n : Identifier) (es : List (ℕ × List Char))
+                    (n : Identifier) (es : List (ℤ × List Char))
     → parseMessageId "rawValueDesc"
         (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
       ≡ inj₂ (Extended rawId pf)
@@ -298,7 +299,7 @@ private
 
   rawValueDesc-roundtrip-std :
       ∀ rawId .(pf : T (rawId <ᵇ standard-can-id-max))
-        (n : Identifier) (es : List (ℕ × List Char))
+        (n : Identifier) (es : List (ℤ × List Char))
     → parseRawValueDesc (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
       ≡ inj₂ (mkRawValueDesc (Standard rawId pf) n es)
   rawValueDesc-roundtrip-std rawId pf n es
@@ -309,7 +310,7 @@ private
 
   rawValueDesc-roundtrip-ext :
       ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max))
-        (n : Identifier) (es : List (ℕ × List Char))
+        (n : Identifier) (es : List (ℤ × List Char))
     → parseRawValueDesc (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
       ≡ inj₂ (mkRawValueDesc (Extended rawId pf) n es)
   rawValueDesc-roundtrip-ext rawId pf n es

@@ -35,7 +35,7 @@ module Aletheia.DBC.TextFormatter.ValueTables where
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
-open import Data.Nat using (ℕ)
+open import Data.Integer using (ℤ)
 open import Data.Product using (_×_; _,_)
 open import Data.String using (toList)
 
@@ -45,20 +45,20 @@ open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
 open import Aletheia.DBC.TextParser.ValueDescriptions using (collectFromMessages)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (showℕ-dec-chars; quoteStringLit-chars)
+  (showℕ-dec-chars; showℤ-dec-chars; quoteStringLit-chars)
 
 -- ============================================================================
 -- ENTRY EMITTER
 -- ============================================================================
 
--- One `nat ws string-lit` pair, preceded by a single space.  Called in a
+-- One `int ws string-lit` pair, preceded by a single space.  Called in a
 -- right fold where the accumulator carries the trailing ` ;\n` terminator,
--- so each entry slot in the grammar just contributes ` <nat> "<str>"`.
+-- so each entry slot in the grammar just contributes ` <int> "<str>"`.
 -- `desc : List Char` (matches `ValueTable.entries
--- : List (ℕ × List Char)` and `quoteStringLit-chars : List Char → List Char`).
-emitValueEntry-chars : (ℕ × List Char) → List Char
+-- : List (ℤ × List Char)` and `quoteStringLit-chars : List Char → List Char`).
+emitValueEntry-chars : (ℤ × List Char) → List Char
 emitValueEntry-chars (v , desc) =
-  ' ' ∷ showℕ-dec-chars v ++ₗ ' ' ∷ quoteStringLit-chars desc
+  ' ' ∷ showℤ-dec-chars v ++ₗ ' ' ∷ quoteStringLit-chars desc
 
 -- ============================================================================
 -- VAL_TABLE_ LINE

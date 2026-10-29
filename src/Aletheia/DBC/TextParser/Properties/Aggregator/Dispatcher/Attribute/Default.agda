@@ -18,7 +18,7 @@ open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
-open import Aletheia.DBC.Bounds using (SmallValue)
+open import Aletheia.DBC.Bounds using (SmallValue; smallAttr-small)
 open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; intDecRat-small; natDecRat-small)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
@@ -435,10 +435,10 @@ parseAttrLine-on-emit-RawDefault defs pos
     on-AVFloat defs pos name d outer ss-NL small
 parseAttrLine-on-emit-RawDefault defs pos
   (mkAttrDefault name (AVInt z')) outer _ ss-NL small =
-    on-AVInt defs pos name z' outer ss-NL (intDecRat-small z' small)
+    on-AVInt defs pos name z' outer ss-NL (intDecRat-small z' (smallAttr-small (IntDecRat.value z') small))
 parseAttrLine-on-emit-RawDefault defs pos
   (mkAttrDefault name (AVHex n)) outer _ ss-NL small =
-    on-AVHex defs pos name n outer ss-NL (natDecRat-small n small)
+    on-AVHex defs pos name n outer ss-NL (natDecRat-small n (smallAttr-small (NatDecRat.value n) small))
 parseAttrLine-on-emit-RawDefault defs pos
   (mkAttrDefault name (AVEnum n)) outer
   (wfDefault _ (mkAttrDef defname defscope (ATEnum labels)) lookup-eq (VMTEnum _) _)

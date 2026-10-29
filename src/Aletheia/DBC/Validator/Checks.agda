@@ -32,6 +32,7 @@ open import Aletheia.DBC.Types using
   ; GlobalNameCollision; MinExceedsMax; SignalExceedsDLC
   ; SignalOverlap; BitLengthZero; DuplicateMessageName
   ; OffsetScaleRange; EmptyMessage; RangeExceedsBits
+  ; ValueDescriptionKeyOutOfRange
   ; StartBitOutOfRange; BitLengthExcessive
   ; MultiplexorNonUnitScaling
   ; DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender
@@ -39,9 +40,13 @@ open import Aletheia.DBC.Types using
   ; RawValueDesc
   ; Node; DBCComment
   ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
-  ; EnvironmentVar
+  ; EnvironmentVar; envVarNameStr
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
+  ; AttrDef; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   )
+open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
+open import Aletheia.DBC.RationalRenderer using (formatℚ)
+open import Aletheia.CAN.Encoding.Arithmetic using (rawRange)
 open import Aletheia.DBC.Decidable using (signalPairValid?)
 open import Aletheia.DBC.Decidable.SignalGeometry using
   (startBitInFrame?; bitLengthInFrame?; signalFitsFrame?)
@@ -59,9 +64,10 @@ open import Data.Nat using (ℕ; zero; suc)
 open import Data.Nat.Properties using (_≟_)
 open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
 open import Data.Rational using (ℚ)
+open import Data.Rational.Literals using (fromℤ)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
-open import Data.Integer using (+_)
+open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Product using (proj₁; proj₂)
 open import Relation.Nullary using (yes; no)
@@ -254,17 +260,57 @@ checkAllGlobalNameCollisions msgs = map globalNameIssue (sharedKeyGroups (signal
 -- CHECK 7: MIN EXCEEDS MAX
 -- ============================================================================
 
+-- A range whose minimum exceeds its maximum admits no value: a signal's,
+-- a numeric attribute definition's and an environment variable's alike are
+-- refused at load, the text naming the subject and both numbers.
+
+-- The subject a per-signal issue opens with.
+signalSubject : String → DBCSignal → String
+signalSubject msgName sig = "Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig ++ₛ "'"
+
+minMaxIssue : String → DecRat → DecRat → List ValidationIssue
+minMaxIssue subject lo hi =
+  requireDec (lo ≤?ᵈ hi)
+             (mkIssue IsError MinExceedsMax
+               (subject ++ₛ ": minimum " ++ₛ formatℚ (toℚ lo)
+                ++ₛ " exceeds maximum " ++ₛ formatℚ (toℚ hi)))
+
 checkMinMaxSig : String → DBCSignal → List ValidationIssue
 checkMinMaxSig msgName sig =
-  requireDec (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵈ
-              SignalDef.maximum (DBCSignal.signalDef sig))
-             (mkIssue IsWarning MinExceedsMax
-               ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                ++ₛ signalNameStr sig
-                ++ₛ "': minimum exceeds maximum"))
+  minMaxIssue (signalSubject msgName sig)
+              (SignalDef.minimum (DBCSignal.signalDef sig))
+              (SignalDef.maximum (DBCSignal.signalDef sig))
 
 checkAllMinMax : List DBCMessage → List ValidationIssue
 checkAllMinMax = liftPerSignal checkMinMaxSig
+
+attrTypeMinMax : String → AttrType → List ValidationIssue
+attrTypeMinMax subject (ATInt lo hi)   = minMaxIssue subject (IntDecRat.value lo) (IntDecRat.value hi)
+attrTypeMinMax subject (ATFloat lo hi) = minMaxIssue subject lo hi
+attrTypeMinMax _       ATString        = []
+attrTypeMinMax _       (ATEnum _)      = []
+attrTypeMinMax subject (ATHex lo hi)   = minMaxIssue subject (NatDecRat.value lo) (NatDecRat.value hi)
+
+attrSubject : AttrDef → String
+attrSubject d = "Attribute '" ++ₛ attrDefNameStr d ++ₛ "'"
+
+checkAttrMinMax : DBCAttribute → List ValidationIssue
+checkAttrMinMax (DBCAttrDef d)     = attrTypeMinMax (attrSubject d) (AttrDef.attrType d)
+checkAttrMinMax (DBCAttrDefault _) = []
+checkAttrMinMax (DBCAttrAssign _)  = []
+
+checkAllAttrMinMax : List DBCAttribute → List ValidationIssue
+checkAllAttrMinMax = concatMap checkAttrMinMax
+
+envVarSubject : EnvironmentVar → String
+envVarSubject ev = "Environment variable '" ++ₛ envVarNameStr ev ++ₛ "'"
+
+checkEnvVarMinMax : EnvironmentVar → List ValidationIssue
+checkEnvVarMinMax ev =
+  minMaxIssue (envVarSubject ev) (EnvironmentVar.minimum ev) (EnvironmentVar.maximum ev)
+
+checkAllEnvVarMinMax : List EnvironmentVar → List ValidationIssue
+checkAllEnvVarMinMax = concatMap checkEnvVarMinMax
 
 -- ============================================================================
 -- CHECK 8: SIGNAL EXCEEDS DLC
@@ -388,6 +434,30 @@ checkRangeExceedsBitsSig msgName sig =
 
 checkAllRangeExceedsBits : List DBCMessage → List ValidationIssue
 checkAllRangeExceedsBits = liftPerSignal checkRangeExceedsBitsSig
+
+-- ============================================================================
+-- VALUE DESCRIPTION KEY OUT OF RANGE
+-- ============================================================================
+-- A value description labels a raw value; a key no raw value of the
+-- signal's bits takes (a negative key on an unsigned signal, a key past the
+-- bits) labels nothing, and a DBC carrying one is refused at load.
+
+checkKeyRange : String → SignalDef → ℤ → List ValidationIssue
+checkKeyRange subject sd k =
+  let raw   = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
+      issue = mkIssue IsError ValueDescriptionKeyOutOfRange
+                (subject ++ₛ ": value description key " ++ₛ formatℚ (fromℤ k)
+                 ++ₛ " lies outside the values its bits carry")
+  in requireDec (proj₁ raw ≤?ᵣ fromℤ k) issue
+     ++ₗ requireDec (fromℤ k ≤?ᵣ proj₂ raw) issue
+
+checkKeyRangeSig : String → DBCSignal → List ValidationIssue
+checkKeyRangeSig msgName sig =
+  concatMap (checkKeyRange (signalSubject msgName sig) (DBCSignal.signalDef sig) ∘ proj₁)
+            (DBCSignal.valueDescriptions sig)
+
+checkAllKeyRange : List DBCMessage → List ValidationIssue
+checkAllKeyRange = liftPerSignal checkKeyRangeSig
 
 -- ============================================================================
 -- CHECK 14: EMPTY MESSAGE

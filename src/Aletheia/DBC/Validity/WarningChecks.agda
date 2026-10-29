@@ -21,7 +21,6 @@ open import Aletheia.DBC.Types using
 open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Aletheia.DBC.Validator using
   ( globalNameIssue; checkAllGlobalNameCollisions
-  ; checkMinMaxSig; checkAllMinMax
   ; duplicateNameIssue; checkAllDuplicateMessageNames
   ; checkRangeLow; checkRangeHigh
   ; checkOffsetScaleRange; checkAllOffsetScaleRange
@@ -50,7 +49,7 @@ open import Aletheia.DBC.Validator.Targets using (_∈?_; nodeNames; findMessage
 open import Aletheia.Data.Dec0 using (_because₀_)
 open import Data.Bool using (true; false)
 open import Aletheia.DBC.Validity using
-  ( MinLeqMax; DistinctMessageNames; NonEmptySignals
+  ( DistinctMessageNames; NonEmptySignals
   ; StartBitInRange; BitLengthInRange; DisjointSignalNames
   ; RangeLowOK; RangeHighOK; BitsWithinRange
   ; MuxScalingOK; MuxUnitScaling
@@ -67,7 +66,7 @@ open import Data.List.Relation.Unary.All.Properties using (++⁺; map⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
-open import Aletheia.DBC.DecRat using (0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
+open import Aletheia.DBC.DecRat using (0ᵈ; 1ᵈ; toℚ; _≟ᵈ_)
 open import Data.Maybe using (just; nothing)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
@@ -110,56 +109,6 @@ checkAllGlobalNameCollisions-complete : ∀ msgs →
   checkAllGlobalNameCollisions msgs ≡ []
 checkAllGlobalNameCollisions-complete msgs d =
   cong (map globalNameIssue) (signalNamesDisjoint-complete msgs d)
-
--- ============================================================================
--- CHECK 7: MIN EXCEEDS MAX — Severity
--- ============================================================================
-
-checkMinMaxSig-allW : ∀ msgName sig → All W (checkMinMaxSig msgName sig)
-checkMinMaxSig-allW msgName sig
-  with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵈ
-       SignalDef.maximum (DBCSignal.signalDef sig)
-... | yes _ = []
-... | no  _ = refl ∷ []
-
-
-checkAllMinMax-allW : ∀ msgs → All W (checkAllMinMax msgs)
-checkAllMinMax-allW [] = []
-checkAllMinMax-allW (msg ∷ rest) =
-  ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
-         (checkAllMinMax-allW rest)
-  where
-    go : ∀ sigs → All (λ sig → All W (checkMinMaxSig (messageNameStr msg) sig)) sigs
-    go [] = []
-    go (sig ∷ sigs) = checkMinMaxSig-allW (messageNameStr msg) sig ∷ go sigs
-
--- ============================================================================
--- CHECK 7: MIN EXCEEDS MAX — Soundness/Completeness
--- ============================================================================
-
-checkMinMaxSig-sound : ∀ msgName sig →
-  checkMinMaxSig msgName sig ≡ [] → MinLeqMax sig
-checkMinMaxSig-sound _ sig =
-  requireDec-sound (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵈ
-                    SignalDef.maximum (DBCSignal.signalDef sig)) _
-
-checkMinMaxSig-complete : ∀ msgName sig →
-  MinLeqMax sig → checkMinMaxSig msgName sig ≡ []
-checkMinMaxSig-complete _ sig =
-  requireDec-complete (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵈ
-                       SignalDef.maximum (DBCSignal.signalDef sig)) _
-
-checkAllMinMax-sound : ∀ msgs →
-  checkAllMinMax msgs ≡ [] →
-  All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs
-checkAllMinMax-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkMinMaxSig-sound (messageNameStr msg)) _
-
-checkAllMinMax-complete : ∀ msgs →
-  All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs →
-  checkAllMinMax msgs ≡ []
-checkAllMinMax-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkMinMaxSig-complete (messageNameStr msg)) _
 
 -- ============================================================================
 -- CHECK 11: DUPLICATE MESSAGE NAME — Severity

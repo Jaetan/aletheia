@@ -86,8 +86,8 @@ parseMuxRange = do
 -- `"," ws? mux-range` — each repeated range after the first.  Called
 -- under `many`, which terminates when the next character is not `,`
 -- (the `char ','` mismatch backtracks cleanly so the caller sees the
--- terminator).  Mirrors `parseValueEntry` in `TextParser.ValueTables`
--- in its "mandatory leading separator fails first" termination stance.
+-- terminator).  Like a value entry (`Format.ValueTable.ValueEntry-format`),
+-- it terminates because its mandatory leading separator fails first.
 parseSubsequentMuxRange : Parser ⊤
 parseSubsequentMuxRange = do
   _ ← char ','

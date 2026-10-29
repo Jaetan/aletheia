@@ -171,7 +171,7 @@ map-just f p pos input () | w , nothing
 -- `parseNatural` reads back a natural within the component bound: the
 -- digits are read by `parseDigits-showNat-chars`, and the literal core
 -- reads them exactly (`natLiteral-showNat-chars`).  A larger natural is
--- held at 2^64 by the core, so the bound is the premise.
+-- held at 2^128 by the core, so the bound is the premise.
 parseNatural-showNat-chars : ∀ pos n (suffix : List Char) →
   n ≤ max-rational-component-magnitude →
   SuffixStops isDigit suffix →

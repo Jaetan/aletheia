@@ -28,6 +28,7 @@ open import Aletheia.DBC.Validator using
   ; checkAllUnknownAdditionalSenders
   ; checkAllUnknownValueDescriptionTargets
   ; checkAllMultiValueMuxSelectors
+  ; checkAllKeyRange; checkAllAttrMinMax; checkAllEnvVarMinMax
   )
 open import Aletheia.DBC.Validity using (IsValidDBC)
 open import Aletheia.DBC.Bounds using (IsBoundedDBC)
@@ -38,6 +39,7 @@ open import Aletheia.DBC.Validity.Composition using
   ; checkAllFactorZero-allE; checkAllMuxFound-allE
   ; checkAllMuxCycle-allE; checkAllSignalExceedsDLC-allE
   ; checkAllSignalOverlaps-allE; checkAllBitLengthZero-allE; checkAllRangeExceedsBits-allE
+  ; checkAllMinMax-allE; checkAllKeyRange-allE; checkAllAttrMinMax-allE; checkAllEnvVarMinMax-allE
   )
 open import Aletheia.DBC.Validity.ErrorChecks using
   ( checkAllDuplicateMessageIds-sound; checkAllDuplicateMessageIds-complete
@@ -51,10 +53,14 @@ open import Aletheia.DBC.Validity.ErrorChecks using
   ; checkAllSignalOverlaps-sound; checkAllSignalOverlaps-complete
   ; checkAllBitLengthZero-sound; checkAllBitLengthZero-complete
   ; checkAllRangeExceedsBits-sound; checkAllRangeExceedsBits-complete
+  ; checkAllMinMax-sound; checkAllMinMax-complete
+  ; checkAllKeyRange-sound; checkAllKeyRange-complete
+  ; checkAllAttrMinMax-sound; checkAllAttrMinMax-complete
+  ; checkAllEnvVarMinMax-sound; checkAllEnvVarMinMax-complete
   )
 open import Aletheia.DBC.Validity.WarningChecks using
   ( checkAllMuxScaling-allW; checkAllGlobalNameCollisions-allW
-  ; checkAllMinMax-allW; checkAllDuplicateMessageNames-allW
+  ; checkAllDuplicateMessageNames-allW
   ; checkAllOffsetScaleRange-allW; checkAllEmptyMessage-allW
   ; checkAllStartBitOutOfRange-allW; checkAllBitLengthExcessive-allW
   ; checkAllDuplicateAttributeNames-allW; checkAllUnknownCommentTargets-allW
@@ -92,10 +98,20 @@ soundness dbc b eq₀ = record
       (errorIssues-allE-nil _ (checkAllBitLengthZero-allE msgs) (proj₁ s₁₀))
   ; rangesWithinBits = checkAllRangeExceedsBits-sound msgs
       (errorIssues-allE-nil _ (checkAllRangeExceedsBits-allE msgs) (proj₁ s₁₁))
+  ; minLeqMax        = checkAllMinMax-sound msgs
+      (errorIssues-allE-nil _ (checkAllMinMax-allE msgs) (proj₁ s₇))
+  ; keysInRange      = checkAllKeyRange-sound msgs
+      (errorIssues-allE-nil _ (checkAllKeyRange-allE msgs) (proj₁ s₁₂))
+  ; attrMinLeqMax    = checkAllAttrMinMax-sound attrs
+      (errorIssues-allE-nil _ (checkAllAttrMinMax-allE attrs) (proj₁ s₁₃))
+  ; envVarMinLeqMax  = checkAllEnvVarMinMax-sound envVars
+      (errorIssues-allE-nil _ (checkAllEnvVarMinMax-allE envVars) (proj₁ s₁₄))
   ; bounded          = b
   }
   where
-    msgs = DBC.messages dbc
+    msgs    = DBC.messages dbc
+    attrs   = DBC.attributes dbc
+    envVars = DBC.environmentVars dbc
     s₁  = ei-split (checkAllDuplicateMessageIds msgs) _ eq₀
     s₂  = ei-split (checkAllDuplicateSignalNames msgs) _ (proj₂ s₁)
     s₃  = ei-split (checkAllFactorZero msgs) _ (proj₂ s₂)
@@ -108,6 +124,9 @@ soundness dbc b eq₀ = record
     s₉  = ei-split (checkAllSignalOverlaps msgs) _ (proj₂ s₈)
     s₁₀ = ei-split (checkAllBitLengthZero msgs) _ (proj₂ s₉)
     s₁₁ = ei-split (checkAllRangeExceedsBits msgs) _ (proj₂ s₁₀)
+    s₁₂ = ei-split (checkAllKeyRange msgs) _ (proj₂ s₁₁)
+    s₁₃ = ei-split (checkAllAttrMinMax attrs) _ (proj₂ s₁₂)
+    s₁₄ = ei-split (checkAllEnvVarMinMax envVars) _ (proj₂ s₁₃)
 
 -- ============================================================================
 -- COMPLETENESS: DBC is valid ⟹ no errors reported
@@ -130,7 +149,7 @@ completeness dbc v =
   (ei-combine (checkAllGlobalNameCollisions msgs) _
     (errorIssues-allW _ (checkAllGlobalNameCollisions-allW msgs))
   (ei-combine (checkAllMinMax msgs) _
-    (errorIssues-allW _ (checkAllMinMax-allW msgs))
+    (ei-from-≡[] _ (checkAllMinMax-complete msgs (IsValidDBC.minLeqMax v)))
   (ei-combine (checkAllSignalExceedsDLC msgs) _
     (ei-from-≡[] _ (checkAllSignalExceedsDLC-complete msgs (IsValidDBC.bitsInFrame v)))
   (ei-combine (checkAllSignalOverlaps msgs) _
@@ -139,6 +158,12 @@ completeness dbc v =
     (ei-from-≡[] _ (checkAllBitLengthZero-complete msgs (IsValidDBC.nonZeroBitLengths v)))
   (ei-combine (checkAllRangeExceedsBits msgs) _
     (ei-from-≡[] _ (checkAllRangeExceedsBits-complete msgs (IsValidDBC.rangesWithinBits v)))
+  (ei-combine (checkAllKeyRange msgs) _
+    (ei-from-≡[] _ (checkAllKeyRange-complete msgs (IsValidDBC.keysInRange v)))
+  (ei-combine (checkAllAttrMinMax attrs) _
+    (ei-from-≡[] _ (checkAllAttrMinMax-complete attrs (IsValidDBC.attrMinLeqMax v)))
+  (ei-combine (checkAllEnvVarMinMax envVars) _
+    (ei-from-≡[] _ (checkAllEnvVarMinMax-complete envVars (IsValidDBC.envVarMinLeqMax v)))
   (ei-combine (checkAllDuplicateMessageNames msgs) _
     (errorIssues-allW _ (checkAllDuplicateMessageNames-allW msgs))
   (ei-combine (checkAllOffsetScaleRange msgs) _
@@ -164,7 +189,7 @@ completeness dbc v =
   (ei-combine (checkAllMultiValueMuxSelectors msgs) _
     (errorIssues-allW _ (checkAllMultiValueMuxSelectors-allW msgs))
     (errorIssues-allW _ (checkAllMuxMasterIncoherent-allW msgs))
-  )))))))))))))))))))))))
+  ))))))))))))))))))))))))))
   where
     msgs    = DBC.messages dbc
     nodes   = DBC.nodes dbc

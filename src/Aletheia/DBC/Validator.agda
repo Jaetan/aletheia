@@ -46,6 +46,9 @@ validateDBCFull dbc =
      ++ₗ checkAllSignalOverlaps msgs
      ++ₗ checkAllBitLengthZero msgs
      ++ₗ checkAllRangeExceedsBits msgs
+     ++ₗ checkAllKeyRange msgs
+     ++ₗ checkAllAttrMinMax attrs
+     ++ₗ checkAllEnvVarMinMax envVars
      ++ₗ checkAllDuplicateMessageNames msgs
      ++ₗ checkAllOffsetScaleRange msgs
      ++ₗ checkAllEmptyMessage msgs

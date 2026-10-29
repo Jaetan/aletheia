@@ -45,9 +45,10 @@ open import Aletheia.CAN.Endianness using
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.DBC.Bounds using
   ( IsBoundedDBC; DBCMagnitudes; SignalMagnitudes; EnvVarMagnitudes; AttributeMagnitudes
-  ; SmallKeys; SmallSelectors; SmallType; SmallValue )
+  ; SmallKeys; SmallSelectors; SmallType; SmallValue
+  ; startBit-small; bitLength-small; smallAttr-small; SmallKey )
 open import Aletheia.DBC.DecRat using (mkDecRat; toℚ; 2^a·5^b-NonZero)
-open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ)
+open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; IntDecRat; NatDecRat)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.DecRat.Magnitude using
   ( SmallNat; SmallInt; SmallDecRat; smallDecRat-components; smallNat-by-eval
@@ -231,8 +232,8 @@ varType-small StringVar = smallNat-by-eval 2 tt
 presence-within Always      _   = tt , tt
 presence-within (When _ vs) sel = tt , tt , mapAll-within ℕtoJSON-within (List⁺.toList vs) sel , tt
 
-@0 entry-within : ∀ e → SmallNat (proj₁ e) → Within (formatValueEntry e)
-entry-within (n , _) small = ℕtoJSON-within n small , tt , tt
+@0 entry-within : ∀ e → SmallKey e → Within (formatValueEntry e)
+entry-within (z , _) small = ℤtoJSON-within z small , tt , tt
 
 @0 entries-within : ∀ es → SmallKeys es → ListWithin (map formatValueEntry es)
 entries-within = mapAll-within entry-within
@@ -243,8 +244,8 @@ signal-within fb fb≤64 sig m =
   let def = DBCSignal.signalDef sig in
   tt
   , ℕtoJSON-within _ (unconvertStartBit-small fb (DBCSignal.byteOrder sig) _ _ fb≤64
-                        (SignalMagnitudes.startBit m))
-  , ℕtoJSON-within _ (SignalMagnitudes.bitLength m)
+                        (startBit-small (SignalMagnitudes.startBit m)))
+  , ℕtoJSON-within _ (bitLength-small (SignalMagnitudes.bitLength m))
   , tt
   , tt
   , toℚ-within (SignalDef.factor def) (SignalMagnitudes.factor m)
@@ -302,19 +303,21 @@ comment-within c = commentTarget-within (DBCComment.target c) , tt , tt
 
 @0 attrType-within : ∀ t → SmallType t → FieldsWithin (formatAttrType t)
 attrType-within (ATInt mn mx) (l , h) =
-  tt , ℤtoJSON-within (intDecRatToℤ mn) (intDecRat-small mn l) , ℤtoJSON-within (intDecRatToℤ mx) (intDecRat-small mx h) , tt
+  tt , ℤtoJSON-within (intDecRatToℤ mn) (intDecRat-small mn (smallAttr-small (IntDecRat.value mn) l))
+     , ℤtoJSON-within (intDecRatToℤ mx) (intDecRat-small mx (smallAttr-small (IntDecRat.value mx) h)) , tt
 attrType-within (ATFloat mn mx) (l , h) = tt , toℚ-within mn l , toℚ-within mx h , tt
 attrType-within ATString _ = tt , tt
 attrType-within (ATEnum labels) _ = tt , map-within (λ _ → tt) labels , tt
 attrType-within (ATHex mn mx) (l , h) =
-  tt , ℕtoJSON-within _ (natDecRat-small mn l) , ℕtoJSON-within _ (natDecRat-small mx h) , tt
+  tt , ℕtoJSON-within _ (natDecRat-small mn (smallAttr-small (NatDecRat.value mn) l))
+     , ℕtoJSON-within _ (natDecRat-small mx (smallAttr-small (NatDecRat.value mx) h)) , tt
 
 @0 attrValue-within : ∀ v → SmallValue v → FieldsWithin (formatAttrValue v)
-attrValue-within (AVInt v)    s = tt , ℤtoJSON-within (intDecRatToℤ v) (intDecRat-small v s) , tt
+attrValue-within (AVInt v)    s = tt , ℤtoJSON-within (intDecRatToℤ v) (intDecRat-small v (smallAttr-small (IntDecRat.value v) s)) , tt
 attrValue-within (AVFloat v)  s = tt , toℚ-within v s , tt
 attrValue-within (AVString _) _ = tt , tt , tt
-attrValue-within (AVEnum v)   s = tt , ℕtoJSON-within _ (natDecRat-small v s) , tt
-attrValue-within (AVHex v)    s = tt , ℕtoJSON-within _ (natDecRat-small v s) , tt
+attrValue-within (AVEnum v)   s = tt , ℕtoJSON-within _ (natDecRat-small v (smallAttr-small (NatDecRat.value v) s)) , tt
+attrValue-within (AVHex v)    s = tt , ℕtoJSON-within _ (natDecRat-small v (smallAttr-small (NatDecRat.value v) s)) , tt
 
 @0 attrTarget-within : ∀ t → FieldsWithin (formatAttrTarget t)
 attrTarget-within ATgtNetwork          = tt , tt

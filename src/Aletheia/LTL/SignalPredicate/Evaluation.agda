@@ -96,13 +96,13 @@ evalValuePredicate (LessThan _ v) x           = x <ℚ v
 evalValuePredicate (GreaterThan _ v) x        = x >ℚ v
 evalValuePredicate (LessThanOrEqual _ v) x    = x ≤ℚ v
 evalValuePredicate (GreaterThanOrEqual _ v) x = x ≥ℚ v
-evalValuePredicate (Between _ lo hi) x        = lo ≤ℚ x ∧ x ≤ℚ hi
+evalValuePredicate (Between _ lo hi _) x      = lo ≤ℚ x ∧ x ≤ℚ hi
 
 evalDeltaPredicate : DeltaPredicate → ℚ → ℚ → Bool
 evalDeltaPredicate (ChangedBy _ delta) prev curr =
   let diff = curr Rat.- prev
   in  if 0ℚ ≤ℚ delta then delta ≤ℚ diff else diff ≤ℚ delta
-evalDeltaPredicate (StableWithin _ tol) prev curr = ∣ curr Rat.- prev ∣ ≤ℚ tol
+evalDeltaPredicate (StableWithin _ tol _) prev curr = ∣ curr Rat.- prev ∣ ≤ℚ tol
 
 -- ============================================================================
 -- THREE-VALUED PREDICATE EVALUATION

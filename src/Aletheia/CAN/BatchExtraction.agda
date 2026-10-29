@@ -160,7 +160,7 @@ data ExtractionErrorCode : Set where
   OutOfBounds         : ExtractionErrorCode  -- 1: extracted value outside min/max range
   BitExtractionFailed : ExtractionErrorCode  -- 2: bit-level read or scaling step failed
   -- 3: the exact value's reduced numerator magnitude or denominator exceeds
-  -- `max-rational-component-magnitude`, the signed 64-bit range of the
+  -- `max-rational-component-magnitude`, the 128-bit magnitude range of the
   -- binary wire's rational slots.  Minted by categorizeWith on both paths
   -- when `wireFits` refuses a Success, so the shim's encoder pokes only
   -- values the kernel proved fit (string twin:

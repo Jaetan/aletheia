@@ -28,7 +28,7 @@ open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (here; there)
-open import Data.Nat using (ℕ)
+open import Data.Integer using (ℤ)
 open import Data.Product using (_×_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; cong)
@@ -95,7 +95,7 @@ any-matchesSigᵇ-from-∈ rvd s (s' ∷ rest) (there s∈rest) name-eq
 -- ----------------------------------------------------------------------------
 
 matchesMsgᵇ-mkRawValueDesc :
-    ∀ (msg : DBCMessage) (s : DBCSignal) (vds : List (ℕ × List Char))
+    ∀ (msg : DBCMessage) (s : DBCSignal) (vds : List (ℤ × List Char))
   → s ∈ DBCMessage.signals msg
   → matchesMsgᵇ (mkRawValueDesc (DBCMessage.id msg) (DBCSignal.name s) vds) msg
     ≡ true

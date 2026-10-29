@@ -50,7 +50,7 @@ open import Aletheia.DBC.DecRat.Literal using (natLiteral)
 parseDigits : Parser (List Char)
 parseDigits = some (satisfy isDigit)
 
--- A natural number: its digits, or 2^64 when the run holds at least 65
+-- A natural number: its digits, or 2^128 when the run holds at least 129
 -- significant digits (`Aletheia.DBC.DecRat.Literal.natLiteral`), which the
 -- bound checks after the parse refuse.
 parseNatural : Parser ℕ

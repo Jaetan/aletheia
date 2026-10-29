@@ -26,7 +26,7 @@
 -- component past `max-rational-component-magnitude` is refused with the
 -- bound error naming the field `decimal`.  The shim only reads the verdict:
 -- an error is rendered as every kernel refusal is, and a `WireRational`'s
--- two components fit the wire's signed 64-bit slots by its erased proof.
+-- two components fit the wire's 128-bit magnitude slots by its erased proof.
 module Aletheia.DBC.TextParser.DecimalEntry where
 
 open import Data.Char using (Char)

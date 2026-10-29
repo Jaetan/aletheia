@@ -82,7 +82,7 @@ issue_codes:
     description: Signals of two or more messages share a name; one issue names those messages.
 
   - name: min_exceeds_max
-    description: A signal's physical minimum exceeds its maximum.
+    description: A minimum exceeds its maximum, on a signal, a numeric attribute definition or an environment variable.
 
   - name: signal_exceeds_dlc
     description: A signal's bit range extends past the message's DLC byte count.
@@ -154,6 +154,9 @@ issue_codes:
 
   - name: range_exceeds_bits
     description: A signal's declared minimum or maximum lies beyond the values its bits carry after scaling.
+
+  - name: value_description_key_out_of_range
+    description: A value description key is no raw value of its signal's bits, the signedness and the bit length deciding.
 
 # ── Error codes (the *ErrorCode families + errorCode, Error.agda) ──
 error_codes:

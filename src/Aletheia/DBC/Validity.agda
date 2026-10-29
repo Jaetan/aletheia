@@ -17,7 +17,12 @@
 module Aletheia.DBC.Validity where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBC; DBCMessage; DBCSignal; SignalPresence; Always; When
+  ; EnvironmentVar; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
+  ; AttrDef; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex)
+open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
+open import Aletheia.CAN.Encoding.Arithmetic using (rawRange)
+open import Data.Rational.Literals using (fromℤ)
 open import Aletheia.DBC.Validator using (walkMux)
 open import Aletheia.DBC.Bounds using (IsBoundedDBC)
 open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange; SignalFacts)
@@ -35,10 +40,11 @@ open import Data.Nat.Properties using (n≢0⇒n>0)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any)
 open import Data.Nat using (ℕ; _+_; _*_; _≤_; _<_)
-open import Data.Integer using (+_)
+open import Data.Integer using (ℤ; +_)
 open import Data.Rational using (ℚ; 0ℚ) renaming (_≤_ to _≤ᵣ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤)
+open import Function using (_∘_)
 open import Data.Empty using (⊥)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong; trans; sym)
 open import Data.String using (String)
@@ -111,6 +117,42 @@ RangeWithinBits sig =
   in (proj₁ (bitsRange sd) ≤ᵣ toℚ (SignalDef.minimum sd))
      × (toℚ (SignalDef.maximum sd) ≤ᵣ proj₂ (bitsRange sd))
 
+-- Condition 10 (check 7): a signal's minimum does not exceed its maximum.
+MinLeqMax : DBCSignal → Set
+MinLeqMax sig =
+  SignalDef.minimum (DBCSignal.signalDef sig) ≤ᵈ
+  SignalDef.maximum (DBCSignal.signalDef sig)
+
+-- Condition 11: every value description key is a raw value the signal's
+-- bits take.
+KeyInRange : SignalDef → ℤ → Set
+KeyInRange sd k =
+  let raw = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
+  in (proj₁ raw ≤ᵣ fromℤ k) × (fromℤ k ≤ᵣ proj₂ raw)
+
+KeysInRange : DBCSignal → Set
+KeysInRange sig =
+  All (KeyInRange (DBCSignal.signalDef sig) ∘ proj₁) (DBCSignal.valueDescriptions sig)
+
+-- Condition 12: a numeric attribute definition's minimum does not exceed
+-- its maximum.
+AttrTypeMinLeqMax : AttrType → Set
+AttrTypeMinLeqMax (ATInt lo hi)   = IntDecRat.value lo ≤ᵈ IntDecRat.value hi
+AttrTypeMinLeqMax (ATFloat lo hi) = lo ≤ᵈ hi
+AttrTypeMinLeqMax ATString        = ⊤
+AttrTypeMinLeqMax (ATEnum _)      = ⊤
+AttrTypeMinLeqMax (ATHex lo hi)   = NatDecRat.value lo ≤ᵈ NatDecRat.value hi
+
+AttrMinLeqMax : DBCAttribute → Set
+AttrMinLeqMax (DBCAttrDef d)     = AttrTypeMinLeqMax (AttrDef.attrType d)
+AttrMinLeqMax (DBCAttrDefault _) = ⊤
+AttrMinLeqMax (DBCAttrAssign _)  = ⊤
+
+-- Condition 13: an environment variable's minimum does not exceed its
+-- maximum.
+EnvVarMinLeqMax : EnvironmentVar → Set
+EnvVarMinLeqMax ev = EnvironmentVar.minimum ev ≤ᵈ EnvironmentVar.maximum ev
+
 -- ============================================================================
 -- IsValidDBC: conjunction of the error-severity conditions
 -- ============================================================================
@@ -144,7 +186,15 @@ record IsValidDBC (dbc : DBC) : Set where
     nonZeroBitLengths : All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs
     -- 9. Declared ranges within what the bits carry
     rangesWithinBits  : All (λ m → All RangeWithinBits (DBCMessage.signals m)) msgs
-    -- 10. Every list and text within its size bound
+    -- 10. Signal minima within their maxima
+    minLeqMax         : All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs
+    -- 11. Value description keys within the raw values their bits take
+    keysInRange       : All (λ m → All KeysInRange (DBCMessage.signals m)) msgs
+    -- 12. Numeric attribute definitions' minima within their maxima
+    attrMinLeqMax     : All AttrMinLeqMax (DBC.attributes dbc)
+    -- 13. Environment variables' minima within their maxima
+    envVarMinLeqMax   : All EnvVarMinLeqMax (DBC.environmentVars dbc)
+    -- 14. Every list and text within its size bound
     bounded           : IsBoundedDBC dbc
 
 -- A DBC with the proof that it is valid.  The validator's verdict is its
@@ -176,12 +226,6 @@ signalFacts {sig = sig} v m∈ s∈ = record
 -- ============================================================================
 -- WARNING PREDICATES (advisory, not part of IsValidDBC)
 -- ============================================================================
-
--- Check 7: Signal minimum ≤ maximum (DecRat-level ordering).
-MinLeqMax : DBCSignal → Set
-MinLeqMax sig =
-  SignalDef.minimum (DBCSignal.signalDef sig) ≤ᵈ
-  SignalDef.maximum (DBCSignal.signalDef sig)
 
 -- Check 11: Message names pairwise distinct
 DistinctMessageNames : DBCMessage → DBCMessage → Set

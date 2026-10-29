@@ -58,7 +58,7 @@ extractResult result =
 
 -- | The JSON envelope of a binary-output refusal.  Mirrors kernelErrorOut in
 -- BinaryOutput.hs.
-envelope :: AgdaError.T_Error_388 -> T.Text
+envelope :: AgdaError.T_Error_484 -> T.Text
 envelope err = unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text
 
 -- | Extract (state, Either envelope bytes) from a binary-out Σ pair.
@@ -85,7 +85,7 @@ extractSumIER result =
 -- | Process a JSON command (used in setup).
 processJSON :: AgdaState.T_StreamState_32 -> String
             -> (AgdaState.T_StreamState_32, T.Text)
-processJSON state input = extractResult (AgdaJSON.d_processJSONLine_74 state (T.pack input))
+processJSON state input = extractResult (AgdaJSON.d_processJSONLine_70 state (T.pack input))
 
 -- | Walk PartitionedResults — forces field dispatch + full list traversals
 -- of values / errors / absent. Mirrors packPartitionedResults in
@@ -199,7 +199,7 @@ main = do
 
     -- ------------------------------------------------------------------------
     -- Setup: load DBC + properties + start stream.
-    --   exercises: d_initialState_44, d_processJSONLine_74,
+    --   exercises: d_initialState_44, d_processJSONLine_70,
     --              d_processStartStreamDirect_28
     -- ------------------------------------------------------------------------
     let state0 = AgdaState.d_initialState_44

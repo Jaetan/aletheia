@@ -20,7 +20,7 @@ open import Data.Integer using (+_; -[1+_]; -≤-; +≤+)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
-open import Data.Nat using (_≤_; _<_; s≤s)
+open import Data.Nat using (_≤_; _<_; s≤s; suc)
 open import Data.Nat.Properties using (≤-<-trans; ≤-trans; <ᵇ⇒<; ≤ᵇ⇒≤)
 open import Data.Product using (_,_)
 open import Data.Rational using (mkℚ)
@@ -28,7 +28,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (tt)
 
 open import Aletheia.DBC.DecRat.Literal using (heldMagnitude)
-open import Aletheia.Limits using (observed-ceiling)
+open import Aletheia.Limits using (bound-ceiling)
 open import Aletheia.Parser.Position using (initialPosition)
 open import Aletheia.Protocol.JSON.Format using (formatJSONChars)
 open import Aletheia.Protocol.JSON.Properties.Roundtrip using (ReadExactly; parseJSON-formatJSONChars)
@@ -42,16 +42,16 @@ open import Aletheia.Protocol.ResponseFormat.Properties using (InReaderRange; sa
 -- ============================================================================
 
 private
-  ceiling<held : observed-ceiling < heldMagnitude
-  ceiling<held = <ᵇ⇒< observed-ceiling heldMagnitude tt
+  ceiling<held : bound-ceiling < heldMagnitude
+  ceiling<held = <ᵇ⇒< bound-ceiling heldMagnitude tt
 
-  2^63<held : 9223372036854775808 < heldMagnitude
-  2^63<held = <ᵇ⇒< 9223372036854775808 heldMagnitude tt
+  floor<held : suc 340282366920938463463374607431768211454 < heldMagnitude
+  floor<held = <ᵇ⇒< (suc 340282366920938463463374607431768211454) heldMagnitude tt
 
 -- A rational every reader decodes is one the parser reads exactly.
 readable-exact : ∀ q → InReaderRange q → ReadExactly q
 readable-exact (mkℚ (+ n)    d _) (_ , +≤+ n≤ , d≤)     = ≤-<-trans n≤ ceiling<held , ≤-<-trans d≤ ceiling<held
-readable-exact (mkℚ -[1+ n ] d _) (-≤- n≤ , _ , d≤)     = ≤-<-trans (s≤s n≤) 2^63<held , ≤-<-trans d≤ ceiling<held
+readable-exact (mkℚ -[1+ n ] d _) (-≤- n≤ , _ , d≤)     = ≤-<-trans (s≤s n≤) floor<held , ≤-<-trans d≤ ceiling<held
 
 -- THEOREM: every reply's characters are RFC 8259 JSON text.  Erased, since
 -- it reads the erased proofs the replies carry.

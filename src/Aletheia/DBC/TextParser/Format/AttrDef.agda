@@ -59,7 +59,7 @@ open import Aletheia.DBC.TextFormatter.Emitter
          quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop)
-open import Aletheia.DBC.Bounds using (SmallType)
+open import Aletheia.DBC.Bounds using (SmallType; smallAttr-small)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; stringLit; quotedIdent; pair; iso; many;
@@ -428,7 +428,7 @@ build-EmitsOK-attrTypeFmt (RatInt mn mx) rest small =
     -- Innermost: `intDecRat mx` with suffix `' ' ∷ rest`.  Both witnesses
     -- close: head `' '` is non-digit; `'.' ≢ ' '`.
     mx-emits : EmitsOK intDecRat mx (' ' ∷ rest)
-    mx-emits = proj₂ small , ∷-stop refl , (λ ())
+    mx-emits = smallAttr-small (IntDecRat.value mx) (proj₂ small) , ∷-stop refl , (λ ())
     -- Leading ws of `withWS intDecRat` (between mn and mx) requires
     -- `SuffixStops isHSpace (showInt-chars zmx ++ ' ' ∷ rest)` — head
     -- of `showInt-chars zmx` is non-hspace.
@@ -441,7 +441,7 @@ build-EmitsOK-attrTypeFmt (RatInt mn mx) rest small =
     -- `' ' ∷ (showInt-chars zmx ++ ' ' ∷ rest)` — head `' '`, both
     -- witnesses close as for mx-emits.
     mn-emits : EmitsOK intDecRat mn ((' ' ∷ showInt-chars zmx) ++ₗ (' ' ∷ rest))
-    mn-emits = proj₁ small , ∷-stop refl , (λ ())
+    mn-emits = smallAttr-small (IntDecRat.value mn) (proj₁ small) , ∷-stop refl , (λ ())
     pair-emits : EmitsOK (pair intDecRat (withWS intDecRat))
                           (mn , mx) (' ' ∷ rest)
     pair-emits = mn-emits , mx-withws
@@ -558,14 +558,14 @@ build-EmitsOK-attrTypeFmt (RatHex mn mx) rest small =
     nmn = natDecRatToℕ mn
     nmx = natDecRatToℕ mx
     mx-emits : EmitsOK natDecRat mx (' ' ∷ rest)
-    mx-emits = proj₂ small , ∷-stop refl , (λ ())
+    mx-emits = smallAttr-small (NatDecRat.value mx) (proj₂ small) , ∷-stop refl , (λ ())
     ws-mid : SuffixStops isHSpace (showNat-chars nmx ++ₗ (' ' ∷ rest))
     ws-mid = showNat-chars-head-stop nmx (' ' ∷ rest)
     mx-withws : EmitsOK (withWS natDecRat) mx (' ' ∷ rest)
     mx-withws = ws-mid , mx-emits
     mn-emits : EmitsOK natDecRat mn
                  ((' ' ∷ showNat-chars nmx) ++ₗ (' ' ∷ rest))
-    mn-emits = proj₁ small , ∷-stop refl , (λ ())
+    mn-emits = smallAttr-small (NatDecRat.value mn) (proj₁ small) , ∷-stop refl , (λ ())
     pair-emits : EmitsOK (pair natDecRat (withWS natDecRat))
                           (mn , mx) (' ' ∷ rest)
     pair-emits = mn-emits , mx-withws

@@ -24,7 +24,7 @@ open import Aletheia.Protocol.Message using (Response; Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
 import Aletheia.Error as Err
-open import Aletheia.Limits using (BoundKind; boundKindCode; saturateObserved)
+open import Aletheia.Limits using (BoundKind; boundKindCode; saturateObserved; saturateBound)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData; Warning; WarningKind; UncachedAtom)
 open import Aletheia.LTL.Incremental using (formatLTLReason)
 open import Aletheia.Trace.Time using (tsValue)
@@ -39,7 +39,7 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   TextRoundTripDivergence; MultiValueMuxSelector; MuxMasterIncoherent;
   UnknownAttributeName; AttributeValueTypeMismatch;
   AttributeEnumEmpty; AttributeEnumDefaultUnstable; RangeExceedsBits;
-  ValidationIssue)
+  ValueDescriptionKeyOutOfRange; ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
 -- A natural written as a JSON number through `saturateObserved`: the
@@ -47,6 +47,11 @@ open import Aletheia.DBC.Validator using (hasAnyError)
 -- every binding's reader holds (`ResponseFormat.Properties.formatResponse-readable`).
 saturated : ℕ → JSON
 saturated n = JNumber (ℕtoℚ (saturateObserved n))
+
+-- A bound refusal's `observed` or `limit` written through `saturateBound`,
+-- at most `bound-ceiling`, the 128-bit range every binding's bound refusal holds.
+boundSaturated : ℕ → JSON
+boundSaturated n = JNumber (ℕtoℚ (saturateBound n))
 
 -- Shared header + variant-specific extras for PropertyResult JSON output.
 -- Every PropertyResult variant emits the same `type`/`status`/`property_index`
@@ -138,6 +143,7 @@ formatIssueCode AttributeValueTypeMismatch    = "attribute_value_type_mismatch"
 formatIssueCode AttributeEnumEmpty            = "attribute_enum_empty"
 formatIssueCode AttributeEnumDefaultUnstable  = "attribute_enum_default_unstable"
 formatIssueCode RangeExceedsBits              = "range_exceeds_bits"
+formatIssueCode ValueDescriptionKeyOutOfRange = "value_description_key_out_of_range"
 
 formatValidationIssue : ValidationIssue → JSON
 formatValidationIssue issue =
@@ -163,14 +169,15 @@ formatValidationIssue issue =
 --     exposes `field` + `keyword`.
 --   * `ValidationFailed` / `TextRoundTripFailed` expose `has_errors` + `issues`.
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
--- Every natural here goes through `saturated`: a position or a limit is
--- written at most as the ceiling, as `observed` is.
+-- Every natural here goes through `saturated`, a position written at most as
+-- the 64-bit ceiling, but a bound refusal's `observed` and `limit`, which go
+-- through `boundSaturated`.
 private
   boundInfoFields : BoundKind → ℕ → ℕ → List (String × JSON)
   boundInfoFields kind observed limit =
     ("bound_kind" , JStringS (boundKindCode kind)) ∷
-    ("observed"   , saturated observed) ∷
-    ("limit"      , saturated limit) ∷
+    ("observed"   , boundSaturated observed) ∷
+    ("limit"      , boundSaturated limit) ∷
     []
 
 errorExtras : Err.Error → List (String × JSON)

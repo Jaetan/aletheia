@@ -14,7 +14,8 @@ module Aletheia.LTL.SignalPredicate.Types where
 
 open import Aletheia.Prelude using (Bool; List; false; true; ℚ)
 open import Data.Char using (Char)
-open import Data.Rational using ()
+open import Data.Bool using (T)
+open import Data.Rational using (0ℚ; _≤ᵇ_)
 open import Aletheia.DBC.Identifier using (Identifier)
 
 -- ============================================================================
@@ -74,7 +75,9 @@ data ValuePredicate : Set where
   GreaterThan        : (signalName : Identifier) → (value : ℚ) → ValuePredicate
   LessThanOrEqual    : (signalName : Identifier) → (value : ℚ) → ValuePredicate
   GreaterThanOrEqual : (signalName : Identifier) → (value : ℚ) → ValuePredicate
-  Between            : (signalName : Identifier) → (min : ℚ) → (max : ℚ) → ValuePredicate
+  -- The kernel's parse admits a range only in order, and the predicate
+  -- carries that decision.
+  Between            : (signalName : Identifier) → (min : ℚ) → (max : ℚ) → T (min ≤ᵇ max) → ValuePredicate
 
 -- Extract signal name from a value predicate.  Projects the underlying
 -- `Identifier.name` (a `List Char`) so the streaming evaluation + cache
@@ -86,17 +89,18 @@ valuePredicateSignal (LessThan n _)           = Identifier.name n
 valuePredicateSignal (GreaterThan n _)        = Identifier.name n
 valuePredicateSignal (LessThanOrEqual n _)    = Identifier.name n
 valuePredicateSignal (GreaterThanOrEqual n _) = Identifier.name n
-valuePredicateSignal (Between n _ _)          = Identifier.name n
+valuePredicateSignal (Between n _ _ _)        = Identifier.name n
 
 -- Delta predicates: require two values (previous and current)
 data DeltaPredicate : Set where
   ChangedBy    : (signalName : Identifier) → (delta : ℚ) → DeltaPredicate
-  StableWithin : (signalName : Identifier) → (tolerance : ℚ) → DeltaPredicate
+  -- A tolerance is a distance, never negative, and the predicate carries it.
+  StableWithin : (signalName : Identifier) → (tolerance : ℚ) → T (0ℚ ≤ᵇ tolerance) → DeltaPredicate
 
 -- Extract signal name from a delta predicate
 deltaPredicateSignal : DeltaPredicate → List Char
 deltaPredicateSignal (ChangedBy n _)    = Identifier.name n
-deltaPredicateSignal (StableWithin n _) = Identifier.name n
+deltaPredicateSignal (StableWithin n _ _) = Identifier.name n
 
 -- Combined signal predicate type
 data SignalPredicate : Set where

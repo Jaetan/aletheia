@@ -27,7 +27,7 @@ open import Data.Bool using (Bool; true; false)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.Validity using (ValidDBC; IsValidDBC)
-open import Aletheia.DBC.JSONParser using (parseDBCWithErrors; identError)
+open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull)
 open import Aletheia.DBC.Formatter using (formatDBC)
 -- Erased proofs the responses carry: every number the formatter writes for a
@@ -37,7 +37,8 @@ open import Aletheia.CAN.Batch.WireFits using (extractAllSignals-values-fit)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Coalgebra using (finalizeL; initProc)
-open import Aletheia.LTL.JSON using (parseProperty; ParseFail; Shape; BadSignal; UnknownSignalName)
+open import Aletheia.LTL.JSON using (parseProperty; parseFailError)
+open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.CAN.DBCHelpers using (dbcHasSignal)
 open import Aletheia.LTL.Syntax using (atomCount)
 open import Aletheia.Protocol.JSON using (JSON)
@@ -47,17 +48,17 @@ open import Aletheia.Trace.Time using (μs; mkTs)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; PartitionedResults)
 open import Aletheia.Error as Err using
-  ( HandlerErr; WithContext
+  ( Error; HandlerErr; WithContext
   ; InputBoundExceeded
   ; HandlerError; NoDBC; AlreadyStreaming; NotStreaming; StreamActive
-  ; PropertyParseFailed; UnknownSignal
+  ; PropertyParseFailed; PropertyRefused; PropertyRefusal
   )
 open import Aletheia.Limits using
   ( AtomCount; PropertyCount
   ; max-atom-count-per-property
   ; max-properties-per-stream
   )
-open import Data.Char using ()
+open import Data.Char using (Char)
 
 -- Import state types from StreamState (no circular dependency: Handlers → StreamState types only)
 open import Aletheia.Protocol.StreamState using
@@ -134,59 +135,40 @@ withIndices : ∀ {A : Set} (xs : List A) → List (Fin (length xs) × A)
 withIndices []       = []
 withIndices (x ∷ xs) = (fzero , x) ∷ map (λ p → fsuc (Data.Product.proj₁ p) , Data.Product.proj₂ p) (withIndices xs)
 
--- Parse property list (extracted from where-block for proof access).
---
--- Distinguishes two rejection paths at the handler boundary:
---   * Shape malformed (`parseProperty` → `inj₁ Shape`): emit untyped
---     `HandlerErr (PropertyParseFailed idx)` (code
---     `handler_property_parse_failed`).
---   * Shape OK but atom count > `max-atom-count-per-property` (1024):
---     emit typed `WithContext "SetProperties" (InputBoundExceeded AtomCount
---     observed limit)` (code `input_bound_exceeded` + structured
---     `bound_kind / observed / limit`), decided here at the handler boundary
---     once the property's shape is known.
---
--- The `Fin n` index threaded through the JSON list is the static
--- property identifier; `toℕ` lifts it to `ℕ` only for the wire-side
--- `PropertyParseFailed` envelope (which carries `ℕ`, the error message
--- reaching the user regardless of `n`).
+-- One property read as both routes read it: its parse against `known`, then
+-- its atom count against `max-atom-count-per-property`, decided once the
+-- property's shape is known.
+readProperty : (List Char → Bool) → (PropertyRefusal → HandlerError) → JSON
+  → Error ⊎ LTL SignalPredicate
+readProperty known place json with parseProperty known json
+... | inj₁ pf   = inj₁ (parseFailError place pf)
+... | inj₂ prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
+...   | false | observed = inj₁ (InputBoundExceeded AtomCount observed max-atom-count-per-property)
+...   | true  | _        = inj₂ prop
 
--- Signal names are decided as they are read, on the SINGLE parse path:
--- `parseProperty` takes the loaded DBC's signal predicate and carries the
--- typed reason out as `ParseFail`, so there is no second walk to keep in
--- sync.  Map the verdict directly to the wire error:
---   * `Shape`                   — malformed JSON shape → untyped
---                                 `HandlerErr (PropertyParseFailed idx)`.
---   * `BadSignal cs r`          — `cs` refused by the identifier decision →
---                                 the error a parsed DBC's name gets for `r`
---                                 (`identError`), read from the `signal` slot.
---   * `UnknownSignalName cs`    — no signal of the DBC carries the name →
---                                 `HandlerErr (UnknownSignal …)`.
-parseFailResponse : StreamState → ℕ → ParseFail → StreamState × Response
-parseFailResponse state propIdx Shape =
-      (state , Response.Error (WithContext "SetProperties"
-                                (HandlerErr (PropertyParseFailed propIdx))))
-parseFailResponse state _ (BadSignal cs r) =
-      (state , Response.Error (WithContext "SetProperties" (identError "signal" cs r)))
-parseFailResponse state _ (UnknownSignalName cs) =
-      (state , Response.Error (WithContext "SetProperties"
-                                (HandlerErr (UnknownSignal (fromList cs)))))
-
+-- Parse property list (extracted from where-block for proof access).  The
+-- `Fin n` index threaded through the JSON list is the static property
+-- identifier; `toℕ` lifts it to `ℕ` for the reason's place.  Signal names are
+-- decided as they are read, on the SINGLE parse path: `parseProperty` takes
+-- the loaded DBC's signal predicate and carries the typed reason out as
+-- `ParseFail`, so there is no second walk to keep in sync.
 parseAllProperties : (n : ℕ) → StreamState → ValidDBC → List (Fin n × JSON) → List (PropertyState n) → StreamState × Response
 parseAllProperties n _ vdbc [] acc =
   (ReadyToStream n vdbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
 parseAllProperties n state vdbc ((idx , json) ∷ rest) acc
-  with parseProperty (dbcHasSignal (ValidDBC.dbc vdbc)) json
-... | inj₁ pf   = parseFailResponse state (toℕ idx) pf
-... | inj₂ prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
-...   | false | observed = (state , Response.Error
-                              (WithContext "SetProperties"
-                                (InputBoundExceeded AtomCount observed max-atom-count-per-property)))
-...   | true  | _        =
+  with readProperty (dbcHasSignal (ValidDBC.dbc vdbc)) (PropertyParseFailed (toℕ idx)) json
+... | inj₁ e    = (state , Response.Error (WithContext "SetProperties" e))
+... | inj₂ prop =
        let atoms = collectAtoms prop
            proc = initProc (indexFormula prop)
            propState = mkPropertyState idx prop atoms proc
        in parseAllProperties n state vdbc rest (propState ∷ acc)
+
+-- The build-time property check: one property's JSON read as set_properties
+-- reads it, every signal name decided as an identifier and its presence in a
+-- DBC left to set_properties.
+checkProperty : JSON → Error ⊎ LTL SignalPredicate
+checkProperty = readProperty (λ _ → true) PropertyRefused
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response

@@ -20,8 +20,8 @@ open import Data.Bool using (true; false; T)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; map)
 open import Data.List.Relation.Unary.All using (All) renaming ([] to []ᵃ; _∷_ to _∷ᵃ_)
-open import Data.Nat using (suc; _≤_; _<_; _<ᵇ_; _^_; _∸_; s≤s; z≤n)
-open import Data.Nat.Properties using (<ᵇ⇒<; <⇒<ᵇ; <⇒≤; ≤⇒≯; ≮⇒≥; ≤-refl; ≤-trans; ≤ᵇ⇒≤)
+open import Data.Nat using (suc; _≤_; _<_; _<ᵇ_; _^_; _∸_; s≤s; z≤n; s≤s⁻¹)
+open import Data.Nat.Properties using (<ᵇ⇒<; <⇒<ᵇ; ≤⇒≯; ≮⇒≥; ≤-refl; ≤-trans; ≤ᵇ⇒≤)
 open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣; -≤-; -≤+; +≤+) renaming (_≤_ to _≤ᶻ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Product using (_×_; _,_; ∃-syntax; proj₁; proj₂)
@@ -31,9 +31,9 @@ open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst)
 
 import Aletheia.Error as Err
-open import Aletheia.Error using (showObserved)
+open import Aletheia.Error using (showObserved; showBoundObserved)
 open import Aletheia.Limits using
-  (boundKindCode; boundKindLabel; observed-ceiling; saturateObserved; max-rational-component-magnitude)
+  (boundKindCode; boundKindLabel; observed-ceiling; saturateObserved; bound-ceiling; saturateBound; max-rational-component-magnitude)
 open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.CAN.Batch.WireFits using (Fits; wireFits-components)
@@ -124,24 +124,66 @@ showObserved-past {o} c<o with observed-ceiling <ᵇ o in eq
 ... | true  = refl
 ... | false = ⊥-elim (≤⇒≯ (not-past eq) c<o)
 
--- A bound refusal's message prints its measured value through `showObserved`
--- and its fields write it and the limit through `saturateObserved`; the `At`
--- form delegates to both and adds `field`.
+-- The bound refusals' ceiling, read the same way.
+private
+  bound-past : ∀ {o} → (bound-ceiling <ᵇ o) ≡ true → bound-ceiling < o
+  bound-past {o} eq = <ᵇ⇒< bound-ceiling o (subst T (sym eq) tt)
+
+  bound-not-past : ∀ {o} → (bound-ceiling <ᵇ o) ≡ false → o ≤ bound-ceiling
+  bound-not-past eq = ≮⇒≥ (λ c<o → subst T eq (<⇒<ᵇ c<o))
+
+-- The bound refusals' ceiling is the top of the unsigned 128-bit range.
+bound-ceiling-is : bound-ceiling ≡ 2 ^ 128 ∸ 1
+bound-ceiling-is = refl
+
+-- A bound refusal's reported value never passes its ceiling ...
+saturateBound-≤ : ∀ o → saturateBound o ≤ bound-ceiling
+saturateBound-≤ o with bound-ceiling <ᵇ o in eq
+... | true  = ≤-refl
+... | false = bound-not-past eq
+
+-- ... is reported as it is at or below the ceiling ...
+saturateBound-exact : ∀ {o} → o ≤ bound-ceiling → saturateBound o ≡ o
+saturateBound-exact {o} o≤c with bound-ceiling <ᵇ o in eq
+... | true  = ⊥-elim (≤⇒≯ o≤c (bound-past eq))
+... | false = refl
+
+-- ... and as the ceiling past it.
+saturateBound-past : ∀ {o} → bound-ceiling < o → saturateBound o ≡ bound-ceiling
+saturateBound-past {o} c<o with bound-ceiling <ᵇ o in eq
+... | true  = refl
+... | false = ⊥-elim (≤⇒≯ (bound-not-past eq) c<o)
+
+-- The message prints a measured value at or below the ceiling as it is ...
+showBoundObserved-exact : ∀ {o} → o ≤ bound-ceiling → showBoundObserved o ≡ " " ++ₛ showℕ o
+showBoundObserved-exact {o} o≤c with bound-ceiling <ᵇ o in eq
+... | true  = ⊥-elim (≤⇒≯ o≤c (bound-past eq))
+... | false = refl
+
+-- ... and names no value past it.
+showBoundObserved-past : ∀ {o} → bound-ceiling < o → showBoundObserved o ≡ ""
+showBoundObserved-past {o} c<o with bound-ceiling <ᵇ o in eq
+... | true  = refl
+... | false = ⊥-elim (≤⇒≯ (bound-not-past eq) c<o)
+
+-- A bound refusal's message prints its measured value through
+-- `showBoundObserved` and its fields write it and the limit through
+-- `saturateBound`; the `At` form delegates to both and adds `field`.
 formatError-bound : ∀ k o l → Err.formatError (Err.InputBoundExceeded k o l) ≡
-  boundKindLabel k ++ₛ " " ++ₛ showObserved o ++ₛ " exceeds limit " ++ₛ showℕ l
+  boundKindLabel k ++ₛ showBoundObserved o ++ₛ " exceeds limit " ++ₛ showℕ l
 formatError-bound _ _ _ = refl
 
 errorExtras-bound : ∀ k o l → errorExtras (Err.InputBoundExceeded k o l) ≡
   ("bound_kind" , JStringS (boundKindCode k)) ∷
-  ("observed"   , JNumber (ℕtoℚ (saturateObserved o))) ∷
-  ("limit"      , JNumber (ℕtoℚ (saturateObserved l))) ∷ []
+  ("observed"   , JNumber (ℕtoℚ (saturateBound o))) ∷
+  ("limit"      , JNumber (ℕtoℚ (saturateBound l))) ∷ []
 errorExtras-bound _ _ _ = refl
 
 -- An entry of a reply's fields keyed `observed` carries a natural at most the
--- ceiling.
+-- bound refusals' ceiling.
 ObservedWithin : String × JSON → Set
 ObservedWithin (key , value) =
-  key ≡ "observed" → ∃[ m ] (value ≡ JNumber (ℕtoℚ m) × m ≤ observed-ceiling)
+  key ≡ "observed" → ∃[ m ] (value ≡ JNumber (ℕtoℚ m) × m ≤ bound-ceiling)
 
 -- The fields of a reply's top-level object.
 replyFields : JSON → List (String × JSON)
@@ -151,7 +193,7 @@ replyFields _                = []
 private
   bound-within : ∀ k o l → All ObservedWithin (errorExtras (Err.InputBoundExceeded k o l))
   bound-within _ o _ =
-    (λ ()) ∷ᵃ (λ _ → saturateObserved o , refl , saturateObserved-≤ o) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
+    (λ ()) ∷ᵃ (λ _ → saturateBound o , refl , saturateBound-≤ o) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
 
   parse-within : ∀ pe → All ObservedWithin (errorExtras (Err.ParseErr pe))
   parse-within (Err.InvalidIdentifier (Err.InPart _) _) = (λ ()) ∷ᵃ []ᵃ
@@ -190,7 +232,8 @@ private
   handler-within Err.NotStreaming                = []ᵃ
   handler-within Err.StreamNotStarted            = []ᵃ
   handler-within Err.StreamActive                = []ᵃ
-  handler-within (Err.PropertyParseFailed _)     = []ᵃ
+  handler-within (Err.PropertyParseFailed _ _)   = []ᵃ
+  handler-within (Err.PropertyRefused _)         = []ᵃ
   handler-within (Err.UnknownSignal _)           = []ᵃ
   handler-within (Err.ValidationFailed _)        = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
   handler-within (Err.TextRoundTripFailed _)     = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
@@ -236,37 +279,41 @@ formatResponse-error-observed-within e =
 -- EVERY NUMBER A REPLY WRITES IS IN THE READERS' RANGE
 -- ============================================================================
 
--- Every binding's reader decodes a numerator in [-2^63, 2^64-1] and a
--- denominator at most 2^64-1.  A natural the formatter saturates is at most
--- the ceiling; a timestamp arrives with its bound
+-- Every binding's reader decodes a numerator as a sign and a magnitude of at
+-- most 2^128-1, and a denominator at most 2^128-1.  A natural the formatter
+-- saturates is at most its ceiling, the 64-bit one or the bound refusals'
+-- 128-bit one; a timestamp arrives with its bound
 -- (`CounterexampleData.tsBounded`); a DBC's numbers and an extracted value's
--- components are within `max-rational-component-magnitude`, which is below
--- the ceiling and at most 2^63-1, so a negative numerator among them is at
--- least -(2^63-1).
+-- components are within `max-rational-component-magnitude`, which is the
+-- 128-bit ceiling.
 
--- The least numerator a reader decodes, -2^63, as the integer -[1+ (2^63-1)].
+-- The least numerator a reader decodes, -(2^128-1), as -[1+ (2^128-2)].
 reader-floor : ℤ
-reader-floor = -[1+ 9223372036854775807 ]
+reader-floor = -[1+ 340282366920938463463374607431768211454 ]
 
 -- A rational every reader decodes.
 InReaderRange : ℚ → Set
 InReaderRange q =
-  reader-floor ≤ᶻ ℚ.numerator q × ℚ.numerator q ≤ᶻ + observed-ceiling
-  × suc (ℚ.denominator-1 q) ≤ observed-ceiling
+  reader-floor ≤ᶻ ℚ.numerator q × ℚ.numerator q ≤ᶻ + bound-ceiling
+  × suc (ℚ.denominator-1 q) ≤ bound-ceiling
 
--- The component bound against the ceiling and the floor's magnitude, by evaluation.
-magnitude≤ceiling : max-rational-component-magnitude ≤ observed-ceiling
-magnitude≤ceiling = ≤ᵇ⇒≤ max-rational-component-magnitude observed-ceiling tt
+-- The component bound and the 64-bit ceiling against the 128-bit one, and
+-- the component bound against the floor's magnitude, by evaluation.
+magnitude≤ceiling : max-rational-component-magnitude ≤ bound-ceiling
+magnitude≤ceiling = ≤ᵇ⇒≤ max-rational-component-magnitude bound-ceiling tt
 
-magnitude≤floor : max-rational-component-magnitude ≤ 9223372036854775807
-magnitude≤floor = ≤ᵇ⇒≤ max-rational-component-magnitude 9223372036854775807 tt
+observed≤bound : observed-ceiling ≤ bound-ceiling
+observed≤bound = ≤ᵇ⇒≤ observed-ceiling bound-ceiling tt
+
+magnitude≤floor : max-rational-component-magnitude ≤ suc 340282366920938463463374607431768211454
+magnitude≤floor = ≤ᵇ⇒≤ max-rational-component-magnitude (suc 340282366920938463463374607431768211454) tt
 
 -- An integer of magnitude at most the component bound lies between the floor
 -- and the ceiling.
 int-in-range : ∀ z → ∣ z ∣ ≤ max-rational-component-magnitude
-  → reader-floor ≤ᶻ z × z ≤ᶻ + observed-ceiling
+  → reader-floor ≤ᶻ z × z ≤ᶻ + bound-ceiling
 int-in-range (+ n)    n≤ = -≤+ , +≤+ (≤-trans n≤ magnitude≤ceiling)
-int-in-range -[1+ n ] n≤ = -≤- (≤-trans (<⇒≤ n≤) magnitude≤floor) , -≤+
+int-in-range -[1+ n ] n≤ = -≤- (s≤s⁻¹ (≤-trans n≤ magnitude≤floor)) , -≤+
 
 -- A rational with both components within the bound is one every reader decodes.
 components-readable : ∀ q → ComponentsWithin max-rational-component-magnitude q → InReaderRange q
@@ -315,10 +362,14 @@ mapAll-readable : ∀ {A : Set} {f : A → JSON} {P : A → Set}
 mapAll-readable h []       []ᵃ        = tt
 mapAll-readable h (x ∷ xs) (p ∷ᵃ ps) = h x p , mapAll-readable h xs ps
 
--- A natural at most the ceiling, written as a JSON number: its numerator is
--- `+ n` and its denominator 1.
+-- A natural at most the 128-bit ceiling, written as a JSON number: its
+-- numerator is `+ n` and its denominator 1.
+wide-nat-readable : ∀ {n} → n ≤ bound-ceiling → Readable (JNumber (ℕtoℚ n))
+wide-nat-readable n≤ = -≤+ , +≤+ n≤ , s≤s z≤n
+
+-- A natural at most the 64-bit ceiling.
 nat-readable : ∀ {n} → n ≤ observed-ceiling → Readable (JNumber (ℕtoℚ n))
-nat-readable n≤ = -≤+ , +≤+ n≤ , s≤s z≤n
+nat-readable n≤ = wide-nat-readable (≤-trans n≤ observed≤bound)
 
 -- A saturated natural is at most the ceiling.
 saturated-readable : ∀ n → Readable (saturated n)
@@ -350,7 +401,7 @@ signalError-readable _ = tt , tt , tt
 -- Every number an error reply's structured fields carry is saturated.
 private
   bound-readable : ∀ k o l → FieldsReadable (errorExtras (Err.InputBoundExceeded k o l))
-  bound-readable _ o l = tt , saturated-readable o , saturated-readable l , tt
+  bound-readable _ o l = tt , wide-nat-readable (saturateBound-≤ o) , wide-nat-readable (saturateBound-≤ l) , tt
 
   parse-readable : ∀ pe → FieldsReadable (errorExtras (Err.ParseErr pe))
   parse-readable (Err.InvalidIdentifier (Err.InPart _) _) = tt , tt
@@ -390,7 +441,8 @@ private
   handler-readable Err.NotStreaming                = tt
   handler-readable Err.StreamNotStarted            = tt
   handler-readable Err.StreamActive                = tt
-  handler-readable (Err.PropertyParseFailed _)     = tt
+  handler-readable (Err.PropertyParseFailed _ _)   = tt
+  handler-readable (Err.PropertyRefused _)         = tt
   handler-readable (Err.UnknownSignal _)           = tt
   handler-readable (Err.ValidationFailed issues)   = tt , map-readable issue-readable issues , tt
   handler-readable (Err.TextRoundTripFailed issues) = tt , map-readable issue-readable issues , tt
@@ -432,7 +484,7 @@ errorExtras-readable (Err.KeywordName (Err.AtText pos) _) =
   saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , tt , tt
 
 -- THEOREM: every number `formatResponse` writes, for any reply, has a
--- numerator in [-2^63, 2^64-1] and a denominator at most 2^64-1, the range
+-- numerator of magnitude at most 2^128-1 and a denominator at most 2^128-1, the range
 -- every binding's reader decodes.  Erased, since it reads the erased proofs
 -- the replies carry.
 @0 formatResponse-readable : ∀ r → NumbersSatisfy InReaderRange (formatResponse r)
@@ -512,7 +564,8 @@ private
   handler-shallow k Err.NotStreaming                 = tt
   handler-shallow k Err.StreamNotStarted             = tt
   handler-shallow k Err.StreamActive                 = tt
-  handler-shallow k (Err.PropertyParseFailed _)      = tt
+  handler-shallow k (Err.PropertyParseFailed _ _)    = tt
+  handler-shallow k (Err.PropertyRefused _)          = tt
   handler-shallow k (Err.UnknownSignal _)            = tt
   handler-shallow k (Err.ValidationFailed issues)    = tt , map-shallow formatValidationIssue (issue-shallow k) issues , tt
   handler-shallow k (Err.TextRoundTripFailed issues) = tt , map-shallow formatValidationIssue (issue-shallow k) issues , tt

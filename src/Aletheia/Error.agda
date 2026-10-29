@@ -27,7 +27,7 @@ open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.DBC.Validator.Formatting using (formatIssuesText; errorIssues)
 open import Aletheia.Parser.Position using (Position)
 open import Data.Bool using (if_then_else_)
-open import Aletheia.Limits using (BoundKind; boundKindLabel; observed-ceiling; observedSaturates)
+open import Aletheia.Limits using (BoundKind; boundKindLabel; observed-ceiling; observedSaturates; boundSaturates; max-rational-component-magnitude)
 
 -- ============================================================================
 -- PARSE ERRORS (DBC/JSONParser.agda, CAN/Frame/Parse.agda)
@@ -117,6 +117,11 @@ data ParseError : Set where
 showObserved : ℕ → String
 showObserved o =
   if observedSaturates o then "at least " ++ₛ showℕ observed-ceiling else showℕ o
+
+-- A bound refusal's measured value as its message prints it: " " and the
+-- value, or nothing when the value is past the bound refusals' ceiling.
+showBoundObserved : ℕ → String
+showBoundObserved o = if boundSaturates o then "" else " " ++ₛ showℕ o
 
 formatParseError : ParseError → String
 formatParseError (MissingField f) =
@@ -224,7 +229,7 @@ data ExtractionError : Set where
   MuxChainCycle          : ExtractionError
   MuxExtractionFailed    : String → ExtractionError  -- multiplexor signal name
   -- The extracted exact value cannot travel a binary-wire rational slot:
-  -- its reduced numerator or denominator exceeds the signed 64-bit range.
+  -- its reduced numerator or denominator exceeds the 128-bit magnitude range.
   -- The code is minted here (the wire-code SSOT); the batch categorisers
   -- (`CAN.BatchExtraction.wireFits`) refuse the value on the JSON and the
   -- binary path alike, so the shim pokes only what the kernel kept.
@@ -249,7 +254,7 @@ formatExtractionError (SignalPastFrameEnd bytes) =
 formatExtractionError (MuxExtractionFailed name) =
   "failed to extract multiplexor signal '" ++ₛ name ++ₛ "'"
 formatExtractionError ValueExceedsWireRange =
-  "extracted value's numerator or denominator exceeds the Int64 wire range"
+  "extracted value's numerator or denominator magnitude exceeds " ++ₛ showℕ max-rational-component-magnitude
 formatExtractionError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatExtractionError inner
 
@@ -349,6 +354,68 @@ routeErrorCode MissingPropsField        = "route_missing_props_field"
 routeErrorCode (InContext _ inner)      = routeErrorCode inner
 
 -- ============================================================================
+-- PROPERTY REFUSALS (LTL/JSON.agda)
+-- ============================================================================
+
+-- The kind of JSON value a property's field holds.
+data FieldKind : Set where
+  AString AnObject ANumber ARational : FieldKind
+
+kindText : FieldKind → String
+kindText AString   = "a string"
+kindText AnObject  = "an object"
+kindText ANumber   = "a number"
+kindText ARational = "a rational"
+
+-- The two whole numbers of a {numerator, denominator} object.
+data FractionPart : Set where
+  NumeratorPart DenominatorPart : FractionPart
+
+partText : FractionPart → String
+partText NumeratorPart   = "numerator"
+partText DenominatorPart = "denominator"
+
+-- Why a property's JSON is no property.  A predicate's own field carries
+-- the predicate's name (`InPredicate`); a time bound past its limit is a
+-- bound refusal, not one of these.
+data PropertyRefusal : Set where
+  NotAnObject            : PropertyRefusal
+  FieldMissing           : String → PropertyRefusal
+  FieldNotOfKind         : String → FieldKind → PropertyRefusal
+  UnknownOperator        : String → PropertyRefusal
+  UnknownPredicate       : String → PropertyRefusal
+  PartNotWhole           : String → FractionPart → ℚ → PropertyRefusal
+  DenominatorNotPositive : String → ℚ → PropertyRefusal
+  MinExceedsMax          : ℚ → ℚ → PropertyRefusal
+  ToleranceNegative      : ℚ → PropertyRefusal
+  TimeBoundNegative      : ℚ → PropertyRefusal
+  TimeBoundNotWhole      : ℚ → PropertyRefusal
+  InPredicate            : String → PropertyRefusal → PropertyRefusal
+
+-- The reason as it follows "property N: ".
+formatPropertyRefusal : PropertyRefusal → String
+formatPropertyRefusal NotAnObject = "is not an object"
+formatPropertyRefusal (FieldMissing k) = "field '" ++ₛ k ++ₛ "' is missing"
+formatPropertyRefusal (FieldNotOfKind k t) = "field '" ++ₛ k ++ₛ "' is not " ++ₛ kindText t
+formatPropertyRefusal (UnknownOperator op) = "operator '" ++ₛ op ++ₛ "' is unknown"
+formatPropertyRefusal (UnknownPredicate p) = "predicate '" ++ₛ p ++ₛ "' is unknown"
+formatPropertyRefusal (PartNotWhole k part q) =
+  k ++ₛ " " ++ₛ partText part ++ₛ " " ++ₛ formatℚ q ++ₛ " is not a whole number"
+formatPropertyRefusal (DenominatorNotPositive k q) =
+  k ++ₛ " denominator " ++ₛ formatℚ q ++ₛ " is not positive"
+formatPropertyRefusal (MinExceedsMax lo hi) =
+  "min " ++ₛ formatℚ lo ++ₛ " exceeds max " ++ₛ formatℚ hi
+formatPropertyRefusal (ToleranceNegative q) = "tolerance " ++ₛ formatℚ q ++ₛ " is negative"
+formatPropertyRefusal (TimeBoundNegative q) = "timebound " ++ₛ formatℚ q ++ₛ " is negative"
+formatPropertyRefusal (TimeBoundNotWhole q) = "timebound " ++ₛ formatℚ q ++ₛ " is not a whole number"
+formatPropertyRefusal (InPredicate p r) = p ++ₛ ": " ++ₛ formatPropertyRefusal r
+
+-- The reason standing alone, as the build-time property check answers it.
+formatStandaloneRefusal : PropertyRefusal → String
+formatStandaloneRefusal NotAnObject = "property is not an object"
+formatStandaloneRefusal r           = formatPropertyRefusal r
+
+-- ============================================================================
 -- HANDLER/STATE ERRORS (Protocol/Handlers.agda, StreamState.agda)
 -- ============================================================================
 
@@ -358,7 +425,10 @@ data HandlerError : Set where
   NotStreaming           : HandlerError
   StreamNotStarted       : HandlerError
   StreamActive           : HandlerError
-  PropertyParseFailed    : ℕ → HandlerError
+  -- The property at an index of the list is no property, and why.
+  PropertyParseFailed    : ℕ → PropertyRefusal → HandlerError
+  -- One property is no property, and why, its position not in question.
+  PropertyRefused        : PropertyRefusal → HandlerError
   -- A property names a signal no signal of the loaded DBC carries.
   UnknownSignal          : String → HandlerError
   -- Carries the FULL structured list of validation issues produced by
@@ -393,8 +463,9 @@ formatHandlerError AlreadyStreaming      = "stream already active"
 formatHandlerError NotStreaming          = "stream not active"
 formatHandlerError StreamNotStarted      = "stream not started"
 formatHandlerError StreamActive          = "stream still active"
-formatHandlerError (PropertyParseFailed idx) =
-  "property parse failure at index " ++ₛ showℕ idx
+formatHandlerError (PropertyParseFailed idx r) =
+  "property " ++ₛ showℕ idx ++ₛ ": " ++ₛ formatPropertyRefusal r
+formatHandlerError (PropertyRefused r) = formatStandaloneRefusal r
 formatHandlerError (UnknownSignal s) = "signal '" ++ₛ s ++ₛ "' not found in DBC"
 -- The message flattens only the error-level issues (byte-identical to the
 -- pre-full-list wire text); warnings travel in the structured `issues`
@@ -416,7 +487,8 @@ handlerErrorCode AlreadyStreaming      = "handler_already_streaming"
 handlerErrorCode NotStreaming          = "handler_not_streaming"
 handlerErrorCode StreamNotStarted      = "handler_stream_not_started"
 handlerErrorCode StreamActive          = "handler_stream_active"
-handlerErrorCode (PropertyParseFailed _) = "handler_property_parse_failed"
+handlerErrorCode (PropertyParseFailed _ _) = "handler_property_parse_failed"
+handlerErrorCode (PropertyRefused _)    = "handler_property_parse_failed"
 handlerErrorCode (UnknownSignal _)     = "handler_unknown_signal"
 handlerErrorCode (ValidationFailed _)  = "handler_validation_failed"
 handlerErrorCode (TextRoundTripFailed _) = "handler_text_roundtrip_failed"
@@ -562,7 +634,7 @@ formatError (DispatchErr de)                    = formatDispatchError de
 formatError (DBCTextParseErr de)                = formatDBCTextParseError de
 formatError (WithContext ctx inner)             = ctx ++ₛ ": " ++ₛ formatError inner
 formatError (InputBoundExceeded kind obs limit) =
-  boundKindLabel kind ++ₛ " " ++ₛ showObserved obs ++ₛ " exceeds limit " ++ₛ showℕ limit
+  boundKindLabel kind ++ₛ showBoundObserved obs ++ₛ " exceeds limit " ++ₛ showℕ limit
 formatError (InputBoundExceededAt (InPart part) kind obs limit) =
   part ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit)
 formatError (InputBoundExceededAt (AtText pos) kind obs limit) =

@@ -61,9 +61,10 @@ class IssueCode(StrEnum):
     ATTRIBUTE_VALUE_TYPE_MISMATCH = "attribute_value_type_mismatch"
     ATTRIBUTE_ENUM_EMPTY = "attribute_enum_empty"
     ATTRIBUTE_ENUM_DEFAULT_UNSTABLE = "attribute_enum_default_unstable"
-    # A structural-validation error, after the round-trip codes in the order
+    # Structural-validation errors, after the round-trip codes in the order
     # the kernel declares its codes.
     RANGE_EXCEEDS_BITS = "range_exceeds_bits"
+    VALUE_DESCRIPTION_KEY_OUT_OF_RANGE = "value_description_key_out_of_range"
 
 
 class ValidationIssue(TypedDict):

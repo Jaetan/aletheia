@@ -11,7 +11,7 @@
 -- a literal whose value, once those zeros are stripped, has `digitCutoff`
 -- or more digits before the decimal point, `placeCutoff` or more after
 -- it, or `digitCutoff` or more significant digits, is *held* instead, as
--- a value with one component exactly 2^64, without its digits ever being
+-- a value with one component exactly 2^128, without its digits ever being
 -- folded into a number.  The bound checks that
 -- follow every parse (`max-rational-component-magnitude`) refuse a held
 -- value the way they refuse any value past the bound, so the cost of
@@ -19,7 +19,7 @@
 -- literal that fits the bound is ever held.
 --
 -- `Aletheia.DBC.DecRat.Literal.Properties` proves both directions: a held
--- literal's exact value has a component of at least 2^64, and a literal
+-- literal's exact value has a component of at least 2^128, and a literal
 -- that is not held reads to exactly the value the digit fold gives.
 module Aletheia.DBC.DecRat.Literal where
 
@@ -77,26 +77,26 @@ significand cs = significandFrom (dropZeros cs)
 -- THE CUTOFF
 -- ============================================================================
 
--- A significand of this many digits, or more, is at least 10^64, past
+-- A significand of this many digits, or more, is at least 10^128, past
 -- every component bound.
 digitCutoff : ℕ
-digitCutoff = 65
+digitCutoff = 129
 
--- A denominator of this many decimal places, or more, is at least 2^64
--- or 5^64 after reduction, since a significand ends in a nonzero digit.
+-- A denominator of this many decimal places, or more, is at least 2^128
+-- or 5^128 after reduction, since a significand ends in a nonzero digit.
 placeCutoff : ℕ
-placeCutoff = 64
+placeCutoff = 128
 
--- The component a held literal carries: 2^64, one past the largest
--- `observed` a refusal reports.
+-- The component a held literal carries: 2^128, one past the largest
+-- `observed` a bound refusal reports.
 heldMagnitude : ℕ
-heldMagnitude = 18446744073709551616
+heldMagnitude = 340282366920938463463374607431768211456
 
--- A held value whose numerator crossed: 2^64 / 1.
+-- A held value whose numerator crossed: 2^128 / 1.
 heldNumerator : ℕ × ℕ × ℕ
 heldNumerator = heldMagnitude , 0 , 0
 
--- A held value whose denominator crossed: 1 / 2^64, already canonical.
+-- A held value whose denominator crossed: 1 / 2^128, already canonical.
 heldDenominator : ℕ × ℕ × ℕ
 heldDenominator = 1 , placeCutoff , 0
 
@@ -133,7 +133,7 @@ rawFromSignificand (sig , t) places power =
 rawLiteral : List Char → ℕ → ℕ → ℕ × ℕ × ℕ
 rawLiteral digits = rawFromSignificand (significand digits)
 
--- A natural-number literal: its digits, or 2^64 when there are at least
+-- A natural-number literal: its digits, or 2^128 when there are at least
 -- `digitCutoff` significant ones.
 natLiteral : List Char → ℕ
 natLiteral digits = proj₁ (rawLiteral digits 0 0)

@@ -25,7 +25,16 @@ open import Aletheia.DBC.Validator using
   ; checkAllSignalOverlaps
   ; checkBitLengthZero; checkAllBitLengthZero
   ; checkRangeExceedsBitsSig; checkAllRangeExceedsBits
+  ; signalSubject; minMaxIssue; checkAllMinMax
+  ; attrTypeMinMax; checkAttrMinMax; checkAllAttrMinMax
+  ; envVarSubject; checkAllEnvVarMinMax
+  ; checkKeyRange; checkAllKeyRange
   )
+open import Aletheia.DBC.Types using (DBCAttrDef; DBCAttrDefault; DBCAttrAssign; AttrDef
+  ; ATInt; ATFloat; ATString; ATEnum; ATHex; EnvironmentVar)
+open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
+open import Aletheia.CAN.Encoding.Arithmetic using (rawRange)
+open import Data.Rational.Literals using (fromℤ)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Validity.Combinators using (requireDec-allE; rejectDec-allE)
 open import Aletheia.DBC.Decidable using (signalPairValid?)
@@ -40,7 +49,7 @@ open import Data.Nat using (_+_; _*_)
 open import Data.Nat.Properties using (_≤?_; _≟_)
 open import Data.Integer using (+_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
-open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.DecRat using (DecRat; toℚ; _≤?ᵈ_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Data.Bool using (true; false)
 open import Aletheia.CAN.DLC using (dlcBytes)
@@ -198,6 +207,53 @@ checkAllRangeExceedsBits-allE : ∀ msgs → All E (checkAllRangeExceedsBits msg
 checkAllRangeExceedsBits-allE msgs = All-concatMap (universal (λ msg →
   All-concatMap (universal (checkRangeExceedsBitsSig-allE (messageNameStr msg))
                          (DBCMessage.signals msg))) msgs)
+
+-- Check 7, every subject
+minMaxIssue-allE : ∀ subject lo hi → All E (minMaxIssue subject lo hi)
+minMaxIssue-allE _ lo hi = requireDec-allE (lo ≤?ᵈ hi) _ refl
+
+checkAllMinMax-allE : ∀ msgs → All E (checkAllMinMax msgs)
+checkAllMinMax-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (λ sig →
+    minMaxIssue-allE (signalSubject (messageNameStr msg) sig)
+                     (SignalDef.minimum (DBCSignal.signalDef sig))
+                     (SignalDef.maximum (DBCSignal.signalDef sig)))
+    (DBCMessage.signals msg))) msgs)
+
+attrTypeMinMax-allE : ∀ subject t → All E (attrTypeMinMax subject t)
+attrTypeMinMax-allE s (ATInt lo hi)   = minMaxIssue-allE s (IntDecRat.value lo) (IntDecRat.value hi)
+attrTypeMinMax-allE s (ATFloat lo hi) = minMaxIssue-allE s lo hi
+attrTypeMinMax-allE _ ATString        = []
+attrTypeMinMax-allE _ (ATEnum _)      = []
+attrTypeMinMax-allE s (ATHex lo hi)   = minMaxIssue-allE s (NatDecRat.value lo) (NatDecRat.value hi)
+
+checkAllAttrMinMax-allE : ∀ attrs → All E (checkAllAttrMinMax attrs)
+checkAllAttrMinMax-allE attrs = All-concatMap (universal go attrs)
+  where
+    go : ∀ a → All E (checkAttrMinMax a)
+    go (DBCAttrDef d)     = attrTypeMinMax-allE _ (AttrDef.attrType d)
+    go (DBCAttrDefault _) = []
+    go (DBCAttrAssign _)  = []
+
+checkAllEnvVarMinMax-allE : ∀ evs → All E (checkAllEnvVarMinMax evs)
+checkAllEnvVarMinMax-allE evs = All-concatMap (universal (λ ev →
+  minMaxIssue-allE (envVarSubject ev) (EnvironmentVar.minimum ev) (EnvironmentVar.maximum ev)) evs)
+
+-- Value description key out of range
+checkKeyRange-allE : ∀ subject sd k → All E (checkKeyRange subject sd k)
+checkKeyRange-allE _ sd k =
+  ++⁺ (requireDec-allE (proj₁ raw ≤?ᵣ fromℤ k) _ refl)
+      (requireDec-allE (fromℤ k ≤?ᵣ proj₂ raw) _ refl)
+  where
+    raw = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
+
+checkAllKeyRange-allE : ∀ msgs → All E (checkAllKeyRange msgs)
+checkAllKeyRange-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (λ sig →
+    All-concatMap (universal (λ e →
+      checkKeyRange-allE (signalSubject (messageNameStr msg) sig) (DBCSignal.signalDef sig) (proj₁ e))
+      (DBCSignal.valueDescriptions sig)))
+    (DBCMessage.signals msg))) msgs)
 
 -- Check 3
 checkAllFactorZero-allE : ∀ msgs → All E (checkAllFactorZero msgs)

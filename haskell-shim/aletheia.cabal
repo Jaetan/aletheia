@@ -175,6 +175,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.LTL.SignalPredicate.Types
                       MAlonzo.Code.Aletheia.LTL.Simplify
                       MAlonzo.Code.Aletheia.LTL.Syntax
+                      MAlonzo.Code.Aletheia.LTL.TimeBoundEntry
                       MAlonzo.Code.Aletheia.Limits
                       MAlonzo.Code.Aletheia.Main
                       MAlonzo.Code.Aletheia.Main.Binary

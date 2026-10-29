@@ -99,7 +99,7 @@ aletheia_process statePtr inputPtr = do
     case input of
       Left reason -> errorJSON reason
       Right inputStr ->
-        runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_74 s (T.pack inputStr))
+        runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_70 s (T.pack inputStr))
 
 -- ============================================================================
 -- BINARY-INPUT JSON ENTRY POINTS (binary in, JSON out)

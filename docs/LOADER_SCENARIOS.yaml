@@ -132,31 +132,49 @@ yaml:
       printed: "Check 'C': invalid 'value': parse failed at line 1, column 2 (first unparseable statement starts at line 1, column 2)"
   - name: int64_minimum
     value: "-9223372036854775808"
-    expect:
-      kind: input_bound_exceeded
-      code: input_bound_exceeded
-      location: "Check 'C'"
-      key: value
-      printed: "Check 'C': invalid 'value': decimal: rational component magnitude 9223372036854775808 exceeds limit 9223372036854775807"
-      bound: {kind: rational_component_magnitude, observed: 9223372036854775808, limit: 9223372036854775807, field: decimal}
+    expect: {rational: [-9223372036854775808, 1]}
   - name: int64_minimum_quoted
     value: "\"-9223372036854775808\""
-    expect:
-      kind: input_bound_exceeded
-      code: input_bound_exceeded
-      location: "Check 'C'"
-      key: value
-      printed: "Check 'C': invalid 'value': decimal: rational component magnitude 9223372036854775808 exceeds limit 9223372036854775807"
-      bound: {kind: rational_component_magnitude, observed: 9223372036854775808, limit: 9223372036854775807, field: decimal}
+    expect: {rational: [-9223372036854775808, 1]}
   - name: twenty_digits
     value: "99999999999999999999"
+    expect: {rational: [99999999999999999999, 1]}
+  - name: bound_reach
+    value: "340282366920938463463374607431768211455"
+    expect: {rational: [340282366920938463463374607431768211455, 1]}
+  - name: bound_reach_negative
+    value: "-340282366920938463463374607431768211455"
+    expect: {rational: [-340282366920938463463374607431768211455, 1]}
+  - name: past_bound
+    value: "340282366920938463463374607431768211456"
     expect:
       kind: input_bound_exceeded
       code: input_bound_exceeded
       location: "Check 'C'"
       key: value
-      printed: "Check 'C': invalid 'value': decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"
-      bound: {kind: rational_component_magnitude, observed: 18446744073709551615, limit: 9223372036854775807, field: decimal}
+      printed: "Check 'C': invalid 'value': decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"
+      bound: {kind: rational_component_magnitude, observed: 340282366920938463463374607431768211455, limit: 340282366920938463463374607431768211455, field: decimal}
+  - name: forty_digits
+    value: "9999999999999999999999999999999999999999"
+    expect:
+      kind: input_bound_exceeded
+      code: input_bound_exceeded
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"
+      bound: {kind: rational_component_magnitude, observed: 340282366920938463463374607431768211455, limit: 340282366920938463463374607431768211455, field: decimal}
+  - name: places_reach
+    value: "0.0000000000000000000000000000000000000058774717541114375398436826861112283890933277838604376075437585313920862972736358642578125"
+    expect: {rational: [1, 170141183460469231731687303715884105728]}
+  - name: places_past
+    value: "0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
+    expect:
+      kind: input_bound_exceeded
+      code: input_bound_exceeded
+      location: "Check 'C'"
+      key: value
+      printed: "Check 'C': invalid 'value': decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"
+      bound: {kind: rational_component_magnitude, observed: 340282366920938463463374607431768211455, limit: 340282366920938463463374607431768211455, field: decimal}
 
   - name: boolean
     value: "true"
@@ -276,13 +294,17 @@ excel:
   - name: checks_twenty_digits
     sheet: Checks
     value: "99999999999999999999"
+    expect: {rational: [99999999999999999999, 1]}
+  - name: checks_past_bound
+    sheet: Checks
+    value: "340282366920938463463374607431768211456"
     expect:
       kind: input_bound_exceeded
       code: input_bound_exceeded
       location: "Row 2"
       key: Value
-      printed: "Row 2: invalid 'Value': decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"
-      bound: {kind: rational_component_magnitude, observed: 18446744073709551615, limit: 9223372036854775807, field: decimal}
+      printed: "Row 2: invalid 'Value': decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"
+      bound: {kind: rational_component_magnitude, observed: 340282366920938463463374607431768211455, limit: 340282366920938463463374607431768211455, field: decimal}
   - name: dbc_decimal
     sheet: DBC
     value: "0.25"
@@ -299,10 +321,14 @@ excel:
   - name: dbc_twenty_digits
     sheet: DBC
     value: "99999999999999999999"
+    expect: {rational: [99999999999999999999, 1]}
+  - name: dbc_past_bound
+    sheet: DBC
+    value: "340282366920938463463374607431768211456"
     expect:
       kind: input_bound_exceeded
       code: input_bound_exceeded
       location: "Row 2"
       key: Factor
-      printed: "Row 2: invalid 'Factor': decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"
-      bound: {kind: rational_component_magnitude, observed: 18446744073709551615, limit: 9223372036854775807, field: decimal}
+      printed: "Row 2: invalid 'Factor': decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"
+      bound: {kind: rational_component_magnitude, observed: 340282366920938463463374607431768211455, limit: 340282366920938463463374607431768211455, field: decimal}

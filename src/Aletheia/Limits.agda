@@ -189,24 +189,45 @@ max-properties-per-stream = 1024
 -- denominator of the exact rational it denotes, measured on the parsed
 -- (reduced) form, for a JSON number, a DBC literal and a decimal entered
 -- through `aletheia_parse_decimal` alike (`DBC.Bounds.magnitude`).
--- 2^63 - 1, the signed 64-bit range of the binary FFI's rational slots.
--- The limit is a magnitude: the one Int64 value of magnitude 2^63
--- (numerator -2^63) is refused even though a two's-complement slot could
--- carry it, keeping the structured `observed` / `limit` pair a plain
--- comparison.
+-- 2^128 - 1, the unsigned 128-bit magnitude of the binary FFI's rational
+-- slots, whose sign is a field of its own.
 max-rational-component-magnitude : ℕ
-max-rational-component-magnitude = 9223372036854775807
+max-rational-component-magnitude = 340282366920938463463374607431768211455
+
+-- A signal's start bit and length: the bits of a 64-byte frame.
+max-start-bit : ℕ
+max-start-bit = 511
+
+max-bit-length : ℕ
+max-bit-length = 512
+
+-- A multiplex value names a raw value of its multiplexor; a value-description
+-- key names a raw value of its signal, signed, so its magnitude is bounded.
+max-multiplex-value : ℕ
+max-multiplex-value = 340282366920938463463374607431768211455
+
+max-value-description-key-magnitude : ℕ
+max-value-description-key-magnitude = 340282366920938463463374607431768211455
+
+-- An attribute's INT, HEX or ENUM value or bound, in magnitude.
+max-attribute-magnitude : ℕ
+max-attribute-magnitude = 9223372036854775807
+
+-- A metric operator's time bound, in microseconds: the timestamp range, so
+-- every accepted window can close within a stream.
+max-time-bound : ℕ
+max-time-bound = 18446744073709551615
 
 
 -- ============================================================================
 -- REPORTED OBSERVED VALUE
 -- ============================================================================
 
--- The largest `observed` a bound refusal reports: 2^64 - 1, the top of the
--- unsigned 64-bit range, which every binding's typed `observed` holds.  A
--- measured value past it is reported as this ceiling, and the message puts
--- "at least" before it, so a refusal never renders its measured value in
--- more than twenty digits however long the input that crossed the bound.
+-- The largest natural a reply writes for a timestamp, a position, an index
+-- or a count: 2^64 - 1, the top of the unsigned 64-bit range, which every
+-- binding's typed field holds.  A measured value past it is reported as this
+-- ceiling, and the message puts "at least" before it, so a refusal never
+-- renders such a value in more than twenty digits however long its input.
 observed-ceiling : ℕ
 observed-ceiling = 18446744073709551615
 
@@ -215,7 +236,20 @@ observed-ceiling = 18446744073709551615
 observedSaturates : ℕ → Bool
 observedSaturates o = observed-ceiling <ᵇ o
 
--- The `observed` a refusal reports: the measured value, or the ceiling when
--- the measured value is past it.
+-- The natural a reply writes: the measured value, or the ceiling when the
+-- measured value is past it.
 saturateObserved : ℕ → ℕ
 saturateObserved o = if observedSaturates o then observed-ceiling else o
+
+-- The largest `observed` and `limit` a bound refusal reports: 2^128 - 1, the
+-- unsigned 128-bit range every binding's typed bound refusal holds.  A
+-- measured value past it is reported as this ceiling, and the message then
+-- names no measured value, only the limit.
+bound-ceiling : ℕ
+bound-ceiling = 340282366920938463463374607431768211455
+
+boundSaturates : ℕ → Bool
+boundSaturates o = bound-ceiling <ᵇ o
+
+saturateBound : ℕ → ℕ
+saturateBound o = if boundSaturates o then bound-ceiling else o

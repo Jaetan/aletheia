@@ -92,9 +92,9 @@ formatPresence (When mux vs) = ("presence" , JStringS "multiplexed")
 -- Format a single (value, description) entry for a value table OR a signal's
 -- valueDescriptions.  Hoisted above formatDBCSignal so the signal formatter
 -- can use it for its `"valueDescriptions"` array.
-formatValueEntry : ℕ × List Char → JSON
-formatValueEntry (n , s) = JObject (
-  ("value" , ℕtoJSON n) ∷
+formatValueEntry : ℤ × List Char → JSON
+formatValueEntry (z , s) = JObject (
+  ("value" , ℤtoJSON z) ∷
   ("description" , JString s) ∷
   [])
 

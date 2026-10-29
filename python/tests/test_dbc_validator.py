@@ -167,7 +167,7 @@ class TestFactorZero:
 
 
 def test_min_exceeds_max_detected() -> None:
-    """Verify min exceeds max detected."""
+    """A signal whose minimum exceeds its maximum is an error naming both numbers."""
     dbc = single_message_dbc(
         [
             make_signal("BadRange", minimum=100, maximum=50),
@@ -176,10 +176,13 @@ def test_min_exceeds_max_detected() -> None:
     with AletheiaClient() as client:
         result = client.validate_dbc(dbc)
 
-    # min_exceeds_max is a warning, not an error
-    assert result["has_errors"] is False
-    codes = [i["code"] for i in result["issues"]]
-    assert "min_exceeds_max" in codes
+    assert result["has_errors"] is True
+    expected: ValidationIssue = {
+        "severity": IssueSeverity.ERROR,
+        "code": IssueCode.MIN_EXCEEDS_MAX,
+        "detail": "Message 'Msg1', signal 'BadRange': minimum 100 exceeds maximum 50",
+    }
+    assert expected in result["issues"]
 
 
 # Check 6: Signal names must be globally unique across all messages.
