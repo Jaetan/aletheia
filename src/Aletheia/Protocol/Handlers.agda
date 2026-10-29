@@ -32,7 +32,7 @@ open import Aletheia.DBC.Validator using (validateDBCFull)
 open import Aletheia.DBC.Formatter using (formatDBC)
 -- Erased proofs the responses carry: every number the formatter writes for a
 -- bounded DBC, and every extracted value the categoriser kept, fits the wire.
-open import Aletheia.DBC.Formatter.Bounded using (formatDBC-within; formatDBC-shallow)
+open import Aletheia.DBC.Formatter.Bounded using (formatDBC-in-range; formatDBC-shallow)
 open import Aletheia.CAN.Batch.WireFits using (extractAllSignals-values-fit)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
@@ -283,12 +283,13 @@ handleValidateDBC dbcJSON state = withParsedDBC "ValidateDBC" dbcJSON state λ d
     validateHelper (inj₂ b) = (state , Response.ValidationResponse (validateDBCFull (BoundedDBC.dbc b)))
 
 -- Format DBC: returns the loaded DBC as JSON, with the erased proof that
--- every number in it is within the bound, read from the DBC's validity.
+-- every number in it is in the range of its place, read from the DBC's
+-- validity.
 handleFormatDBC : StreamState → StreamState × Response
 handleFormatDBC state = withDBCContext "FormatDBC" state λ vdbc →
   let dbc = ValidDBC.dbc vdbc
   in (state , Response.DBCResponse (formatDBC dbc)
-                (formatDBC-within dbc (IsValidDBC.bounded (ValidDBC.isValid vdbc)) , formatDBC-shallow dbc))
+                (formatDBC-in-range dbc (IsValidDBC.bounded (ValidDBC.isValid vdbc)) , formatDBC-shallow dbc))
 
 -- ============================================================================
 -- COMMAND DISPATCH

@@ -4,10 +4,10 @@
 
 -- Correctness properties for response formatting.
 --
--- Purpose: Prove format-response injectivity (Ack uniqueness), that an
--- error reply's `observed` never passes `observed-ceiling`, and that every
--- number any reply writes is in the range every binding's reader decodes
--- (`formatResponse-readable`).
+-- Purpose: Prove format-response injectivity (Ack uniqueness), that every
+-- number any reply writes is in the range `replyRange` gives its place
+-- (`formatResponse-in-range`), and so in the range every binding's reader
+-- decodes (`formatResponse-readable`).
 -- Risk mitigated: Ack formatted as Violation or vice versa would cause
 -- language bindings to misinterpret the result; a bound refusal echoing a
 -- measured value of unbounded length would cost the host process its heap
@@ -18,13 +18,13 @@ module Aletheia.Protocol.ResponseFormat.Properties where
 
 open import Data.Bool using (true; false; T)
 open import Data.Empty using (⊥-elim)
-open import Data.List using (List; []; _∷_; map)
-open import Data.List.Relation.Unary.All using (All) renaming ([] to []ᵃ; _∷_ to _∷ᵃ_)
+open import Data.List using (List; []; _∷_)
 open import Data.Nat using (suc; _≤_; _<_; _<ᵇ_; _^_; _∸_; s≤s; z≤n; s≤s⁻¹)
 open import Data.Nat.Properties using (<ᵇ⇒<; <⇒<ᵇ; ≤⇒≯; ≮⇒≥; ≤-refl; ≤-trans; ≤ᵇ⇒≤)
 open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣; -≤-; -≤+; +≤+) renaming (_≤_ to _≤ᶻ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
-open import Data.Product using (_×_; _,_; ∃-syntax; proj₁; proj₂)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Rational using (ℚ)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Unit using (tt)
@@ -45,10 +45,13 @@ open import Aletheia.Protocol.JSON.Shallow using (shallow-depth; map-shallow)
 open import Aletheia.Protocol.Message using (Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
-open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData; Warning)
+open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData; mkWarning; UncachedAtom)
 open import Aletheia.Protocol.ResponseFormat using
-  ( formatResponse; errorExtras; saturated; formatPropertyResult
+  ( formatResponse; errorExtras; formatPropertyResult
   ; formatWarning; formatValidationIssue; formatSignalValue; formatSignalError )
+open import Aletheia.Protocol.ReplyRange using
+  ( NumbersAt; FieldsNumbersAt; InRange; replyRange; naturalAtMost; integerAtMost; rationalWithin
+  ; natural-in; map-at; mapAll-at; at-satisfies )
 
 -- ============================================================================
 -- FORMAT-RESPONSE INJECTIVITY (Ack uniqueness)
@@ -179,113 +182,14 @@ errorExtras-bound : ∀ k o l → errorExtras (Err.InputBoundExceeded k o l) ≡
   ("limit"      , JNumber (ℕtoℚ (saturateBound l))) ∷ []
 errorExtras-bound _ _ _ = refl
 
--- An entry of a reply's fields keyed `observed` carries a natural at most the
--- bound refusals' ceiling.
-ObservedWithin : String × JSON → Set
-ObservedWithin (key , value) =
-  key ≡ "observed" → ∃[ m ] (value ≡ JNumber (ℕtoℚ m) × m ≤ bound-ceiling)
-
--- The fields of a reply's top-level object.
-replyFields : JSON → List (String × JSON)
-replyFields (JObject fields) = fields
-replyFields _                = []
-
-private
-  bound-within : ∀ k o l → All ObservedWithin (errorExtras (Err.InputBoundExceeded k o l))
-  bound-within _ o _ =
-    (λ ()) ∷ᵃ (λ _ → saturateBound o , refl , saturateBound-≤ o) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-
-  parse-within : ∀ pe → All ObservedWithin (errorExtras (Err.ParseErr pe))
-  parse-within (Err.InvalidIdentifier (Err.InPart _) _) = (λ ()) ∷ᵃ []ᵃ
-  parse-within (Err.InvalidIdentifier (Err.AtText _) _) = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-  parse-within (Err.MissingField _) = []ᵃ
-  parse-within (Err.InvalidByteOrder _) = []ᵃ
-  parse-within (Err.InvalidPresence _) = []ᵃ
-  parse-within Err.MissingSigned = []ᵃ
-  parse-within (Err.InvalidSigned _) = []ᵃ
-  parse-within (Err.NotAnObject _ _) = []ᵃ
-  parse-within (Err.ExtCANIdOutOfRange _) = []ᵃ
-  parse-within (Err.StdCANIdOutOfRange _) = []ᵃ
-  parse-within (Err.DefaultCANIdOutOfRange _) = []ᵃ
-  parse-within (Err.InvalidDLCBytes _) = []ᵃ
-  parse-within Err.RootNotObject = []ᵃ
-  parse-within Err.MissingSignalName = []ᵃ
-  parse-within Err.SignalBitLengthZero = []ᵃ
-  parse-within (Err.SignalStartBitExceedsFrame _ _) = []ᵃ
-  parse-within (Err.SignalBitLengthExceedsFrame _ _) = []ᵃ
-  parse-within (Err.SignalBigEndianOverflow _ _ _) = []ᵃ
-  parse-within (Err.InvalidKind _ _) = []ᵃ
-  parse-within (Err.NonTerminatingRational _) = []ᵃ
-  parse-within Err.NonIntegerMultiplexValue = []ᵃ
-  parse-within (Err.NonNaturalField _) = []ᵃ
-  parse-within (Err.DLCCodeOutOfRange _) = []ᵃ
-  parse-within (Err.PayloadLengthMismatch _ _) = []ᵃ
-  parse-within (Err.PayloadByteOutOfRange _ _) = []ᵃ
-  parse-within (Err.NonPositiveDenominator _) = []ᵃ
-  parse-within (Err.SignalArrayLengthMismatch _ _ _) = []ᵃ
-  parse-within (Err.TimestampPastWire _) = []ᵃ
-  parse-within (Err.InContext _ _) = []ᵃ
-
-  handler-within : ∀ h → All ObservedWithin (errorExtras (Err.HandlerErr h))
-  handler-within Err.NoDBC                       = []ᵃ
-  handler-within Err.AlreadyStreaming            = []ᵃ
-  handler-within Err.NotStreaming                = []ᵃ
-  handler-within Err.StreamNotStarted            = []ᵃ
-  handler-within Err.StreamActive                = []ᵃ
-  handler-within (Err.PropertyParseFailed _ _)   = []ᵃ
-  handler-within (Err.PropertyRefused _)         = []ᵃ
-  handler-within (Err.UnknownSignal _)           = []ᵃ
-  handler-within (Err.ValidationFailed _)        = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-  handler-within (Err.TextRoundTripFailed _)     = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-  handler-within (Err.NonMonotonicTimestamp _ _) = []ᵃ
-  handler-within (Err.WrappedParse _)            = []ᵃ
-  handler-within (Err.WrappedFrame _)            = []ᵃ
-  handler-within (Err.InContext _ inner)         = handler-within inner
-
--- Every `observed` an error reply's fields carry is at most the ceiling,
--- whatever wraps the refusal.
-errorExtras-observed-within : ∀ e → All ObservedWithin (errorExtras e)
-errorExtras-observed-within (Err.ParseErr pe)     = parse-within pe
-errorExtras-observed-within (Err.FrameErr _)      = []ᵃ
-errorExtras-observed-within (Err.ExtractionErr _) = []ᵃ
-errorExtras-observed-within (Err.RouteErr _)      = []ᵃ
-errorExtras-observed-within (Err.HandlerErr h)    = handler-within h
-errorExtras-observed-within (Err.DispatchErr Err.MissingTypeField)       = []ᵃ
-errorExtras-observed-within (Err.DispatchErr (Err.UnknownMessageType _)) = []ᵃ
-errorExtras-observed-within (Err.DispatchErr (Err.InvalidJSON _))        = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-errorExtras-observed-within (Err.DispatchErr Err.RequestNotObject)       = []ᵃ
-errorExtras-observed-within (Err.DBCTextParseErr (Err.ParseFailure _))   = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-errorExtras-observed-within (Err.DBCTextParseErr (Err.TrailingInput _ _)) =
-  (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-errorExtras-observed-within (Err.DBCTextParseErr (Err.AttributeRefinementFailed _ _)) = []ᵃ
-errorExtras-observed-within (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = []ᵃ
-errorExtras-observed-within (Err.WithContext _ inner)          = errorExtras-observed-within inner
-errorExtras-observed-within (Err.InputBoundExceeded k o l)     = bound-within k o l
-errorExtras-observed-within (Err.InputBoundExceededAt (Err.InPart _) k o l) = (λ ()) ∷ᵃ bound-within k o l
-errorExtras-observed-within (Err.InputBoundExceededAt (Err.AtText _) k o l) = (λ ()) ∷ᵃ (λ ()) ∷ᵃ bound-within k o l
-errorExtras-observed-within (Err.InvalidCharacter (Err.InField _ _) _) = (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-errorExtras-observed-within (Err.InvalidCharacter (Err.InText _) _)    = (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-errorExtras-observed-within (Err.KeywordName (Err.InPart _) _)         = (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-errorExtras-observed-within (Err.KeywordName (Err.AtText _) _)         = (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ []ᵃ
-
--- The theorem over the whole reply: every top-level `observed` an error
--- response writes is at most `observed-ceiling`.
-formatResponse-error-observed-within :
-  ∀ e → All ObservedWithin (replyFields (formatResponse (Error e)))
-formatResponse-error-observed-within e =
-  (λ ()) ∷ᵃ (λ ()) ∷ᵃ (λ ()) ∷ᵃ errorExtras-observed-within e
-
 -- ============================================================================
 -- EVERY NUMBER A REPLY WRITES IS IN THE READERS' RANGE
 -- ============================================================================
 
 -- Every binding's reader decodes a numerator as a sign and a magnitude of at
--- most 2^128-1, and a denominator at most 2^128-1.  A natural the formatter
--- saturates is at most its ceiling, the 64-bit one or the bound refusals'
--- 128-bit one; a timestamp arrives with its bound
--- (`CounterexampleData.tsBounded`); a DBC's numbers and an extracted value's
--- components are within `max-rational-component-magnitude`, which is the
--- 128-bit ceiling.
+-- most 2^128-1, and a denominator at most 2^128-1.  Every row of
+-- `replyRange` names a limit within that range, so a number in its place's
+-- range is one every reader decodes.
 
 -- The least numerator a reader decodes, -(2^128-1), as -[1+ (2^128-2)].
 reader-floor : ℤ
@@ -297,13 +201,10 @@ InReaderRange q =
   reader-floor ≤ᶻ ℚ.numerator q × ℚ.numerator q ≤ᶻ + bound-ceiling
   × suc (ℚ.denominator-1 q) ≤ bound-ceiling
 
--- The component bound and the 64-bit ceiling against the 128-bit one, and
--- the component bound against the floor's magnitude, by evaluation.
+-- The component bound against the 128-bit ceiling and the floor's
+-- magnitude, by evaluation.
 magnitude≤ceiling : max-rational-component-magnitude ≤ bound-ceiling
 magnitude≤ceiling = ≤ᵇ⇒≤ max-rational-component-magnitude bound-ceiling tt
-
-observed≤bound : observed-ceiling ≤ bound-ceiling
-observed≤bound = ≤ᵇ⇒≤ observed-ceiling bound-ceiling tt
 
 magnitude≤floor : max-rational-component-magnitude ≤ suc 340282366920938463463374607431768211454
 magnitude≤floor = ≤ᵇ⇒≤ max-rational-component-magnitude (suc 340282366920938463463374607431768211454) tt
@@ -341,167 +242,174 @@ mutual
   fields-satisfy-map h []        _        = tt
   fields-satisfy-map h (kv ∷ fs) (p , ps) = satisfy-map h (proj₂ kv) p , fields-satisfy-map h fs ps
 
--- Every number in the readers' range.
-Readable : JSON → Set
-Readable = NumbersSatisfy InReaderRange
-
-ListReadable : List JSON → Set
-ListReadable = ListNumbersSatisfy InReaderRange
-
-FieldsReadable : List (String × JSON) → Set
-FieldsReadable = FieldsNumbersSatisfy InReaderRange
-
--- An array of formatted elements, each readable ...
-map-readable : ∀ {A : Set} {f : A → JSON} → (∀ x → Readable (f x)) → ∀ xs → ListReadable (map f xs)
-map-readable h []       = tt
-map-readable h (x ∷ xs) = h x , map-readable h xs
-
--- ... and the same with a premise per element.
-mapAll-readable : ∀ {A : Set} {f : A → JSON} {P : A → Set}
-  → (∀ x → P x → Readable (f x)) → ∀ xs → All P xs → ListReadable (map f xs)
-mapAll-readable h []       []ᵃ        = tt
-mapAll-readable h (x ∷ xs) (p ∷ᵃ ps) = h x p , mapAll-readable h xs ps
-
 -- A natural at most the 128-bit ceiling, written as a JSON number: its
 -- numerator is `+ n` and its denominator 1.
-wide-nat-readable : ∀ {n} → n ≤ bound-ceiling → Readable (JNumber (ℕtoℚ n))
+wide-nat-readable : ∀ {n} → n ≤ bound-ceiling → InReaderRange (ℕtoℚ n)
 wide-nat-readable n≤ = -≤+ , +≤+ n≤ , s≤s z≤n
 
--- A natural at most the 64-bit ceiling.
-nat-readable : ∀ {n} → n ≤ observed-ceiling → Readable (JNumber (ℕtoℚ n))
-nat-readable n≤ = wide-nat-readable (≤-trans n≤ observed≤bound)
+-- Every row's range lies within the readers' range: its limit is within the
+-- component bound (the form's instance argument).
+@0 form-readable : ∀ m q → InRange m q → InReaderRange q
+form-readable nothing _ ()
+form-readable (just (naturalAtMost l ⦃ b ⦄)) _ (n , refl , n≤) =
+  wide-nat-readable (≤-trans n≤ (≤-trans (≤ᵇ⇒≤ l max-rational-component-magnitude b) magnitude≤ceiling))
+form-readable (just (integerAtMost l ⦃ b ⦄)) _ (z , refl , z≤) =
+  let r = int-in-range z (≤-trans z≤ (≤ᵇ⇒≤ l max-rational-component-magnitude b))
+  in proj₁ r , proj₂ r , s≤s z≤n
+form-readable (just (rationalWithin l ⦃ b ⦄)) q (n≤ , d≤) =
+  let l≤ = ≤ᵇ⇒≤ l max-rational-component-magnitude b
+  in components-readable q (≤-trans n≤ l≤ , ≤-trans d≤ l≤)
 
--- A saturated natural is at most the ceiling.
-saturated-readable : ∀ n → Readable (saturated n)
-saturated-readable n = nat-readable (saturateObserved-≤ n)
+-- ============================================================================
+-- EVERY NUMBER A REPLY WRITES IS IN ITS PLACE'S RANGE
+-- ============================================================================
 
--- A validation issue carries strings only.
-issue-readable : ∀ i → Readable (formatValidationIssue i)
-issue-readable _ = tt , tt , tt , tt
-
--- A property result's index is saturated; a violation's timestamp carries
--- its bound from the frame entry.
-@0 propertyResult-readable : ∀ r → Readable (formatPropertyResult r)
-propertyResult-readable (PropertyResult.Violation idx ce) =
-  tt , tt , saturated-readable idx , nat-readable (CounterexampleData.tsBounded ce) , tt , tt
-propertyResult-readable (PropertyResult.Satisfaction idx) = tt , tt , saturated-readable idx , tt
-propertyResult-readable (PropertyResult.Unresolved idx _) = tt , tt , saturated-readable idx , tt , tt
-
-warning-readable : ∀ w → Readable (formatWarning w)
-warning-readable w = tt , saturated-readable (Warning.propertyIndex w) , tt , tt
-
--- An extracted value the categoriser kept has both components within the
--- component bound, so every reader decodes it; an extraction error is strings.
-@0 value-readable : ∀ p → Fits p → Readable (formatSignalValue p)
-value-readable (_ , q) fits = tt , components-readable q (wireFits-components q fits) , tt
-
-signalError-readable : ∀ e → Readable (formatSignalError e)
-signalError-readable _ = tt , tt , tt
-
--- Every number an error reply's structured fields carry is saturated.
 private
-  bound-readable : ∀ k o l → FieldsReadable (errorExtras (Err.InputBoundExceeded k o l))
-  bound-readable _ o l = tt , wide-nat-readable (saturateBound-≤ o) , wide-nat-readable (saturateBound-≤ l) , tt
+  @0 At : List String → Maybe String → JSON → Set
+  At = NumbersAt replyRange
 
-  parse-readable : ∀ pe → FieldsReadable (errorExtras (Err.ParseErr pe))
-  parse-readable (Err.InvalidIdentifier (Err.InPart _) _) = tt , tt
-  parse-readable (Err.InvalidIdentifier (Err.AtText pos) _) =
-    saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , tt
-  parse-readable (Err.MissingField _) = tt
-  parse-readable (Err.InvalidByteOrder _) = tt
-  parse-readable (Err.InvalidPresence _) = tt
-  parse-readable Err.MissingSigned = tt
-  parse-readable (Err.InvalidSigned _) = tt
-  parse-readable (Err.NotAnObject _ _) = tt
-  parse-readable (Err.ExtCANIdOutOfRange _) = tt
-  parse-readable (Err.StdCANIdOutOfRange _) = tt
-  parse-readable (Err.DefaultCANIdOutOfRange _) = tt
-  parse-readable (Err.InvalidDLCBytes _) = tt
-  parse-readable Err.RootNotObject = tt
-  parse-readable Err.MissingSignalName = tt
-  parse-readable Err.SignalBitLengthZero = tt
-  parse-readable (Err.SignalStartBitExceedsFrame _ _) = tt
-  parse-readable (Err.SignalBitLengthExceedsFrame _ _) = tt
-  parse-readable (Err.SignalBigEndianOverflow _ _ _) = tt
-  parse-readable (Err.InvalidKind _ _) = tt
-  parse-readable (Err.NonTerminatingRational _) = tt
-  parse-readable Err.NonIntegerMultiplexValue = tt
-  parse-readable (Err.NonNaturalField _) = tt
-  parse-readable (Err.DLCCodeOutOfRange _) = tt
-  parse-readable (Err.PayloadLengthMismatch _ _) = tt
-  parse-readable (Err.PayloadByteOutOfRange _ _) = tt
-  parse-readable (Err.NonPositiveDenominator _) = tt
-  parse-readable (Err.SignalArrayLengthMismatch _ _ _) = tt
-  parse-readable (Err.TimestampPastWire _) = tt
-  parse-readable (Err.InContext _ _) = tt
+  @0 FieldsAt : List String → Maybe String → List (String × JSON) → Set
+  FieldsAt = FieldsNumbersAt replyRange
 
-  handler-readable : ∀ h → FieldsReadable (errorExtras (Err.HandlerErr h))
-  handler-readable Err.NoDBC                       = tt
-  handler-readable Err.AlreadyStreaming            = tt
-  handler-readable Err.NotStreaming                = tt
-  handler-readable Err.StreamNotStarted            = tt
-  handler-readable Err.StreamActive                = tt
-  handler-readable (Err.PropertyParseFailed _ _)   = tt
-  handler-readable (Err.PropertyRefused _)         = tt
-  handler-readable (Err.UnknownSignal _)           = tt
-  handler-readable (Err.ValidationFailed issues)   = tt , map-readable issue-readable issues , tt
-  handler-readable (Err.TextRoundTripFailed issues) = tt , map-readable issue-readable issues , tt
-  handler-readable (Err.NonMonotonicTimestamp _ _) = tt
-  handler-readable (Err.WrappedParse _)            = tt
-  handler-readable (Err.WrappedFrame _)            = tt
-  handler-readable (Err.InContext _ inner)         = handler-readable inner
+  -- A natural through `saturateObserved` and one through `saturateBound`,
+  -- each at most its ceiling.
+  @0 saturated-in : ∀ n → InRange (just (naturalAtMost observed-ceiling)) (ℕtoℚ (saturateObserved n))
+  saturated-in n = natural-in _ (saturateObserved-≤ n)
 
-errorExtras-readable : ∀ e → FieldsReadable (errorExtras e)
-errorExtras-readable (Err.ParseErr pe)     = parse-readable pe
-errorExtras-readable (Err.FrameErr _)      = tt
-errorExtras-readable (Err.ExtractionErr _) = tt
-errorExtras-readable (Err.RouteErr _)      = tt
-errorExtras-readable (Err.HandlerErr h)    = handler-readable h
-errorExtras-readable (Err.DispatchErr Err.MissingTypeField)       = tt
-errorExtras-readable (Err.DispatchErr (Err.UnknownMessageType _)) = tt
-errorExtras-readable (Err.DispatchErr (Err.InvalidJSON pos))      =
-  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , tt
-errorExtras-readable (Err.DispatchErr Err.RequestNotObject)       = tt
-errorExtras-readable (Err.DBCTextParseErr (Err.ParseFailure pos)) =
-  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , tt
-errorExtras-readable (Err.DBCTextParseErr (Err.TrailingInput pos stmt)) =
-  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) ,
-  saturated-readable (Position.line stmt) , saturated-readable (Position.column stmt) , tt
-errorExtras-readable (Err.DBCTextParseErr (Err.AttributeRefinementFailed _ _)) = tt
-errorExtras-readable (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = tt
-errorExtras-readable (Err.WithContext _ inner)          = errorExtras-readable inner
-errorExtras-readable (Err.InputBoundExceeded k o l)     = bound-readable k o l
-errorExtras-readable (Err.InputBoundExceededAt (Err.InPart _) k o l) = tt , bound-readable k o l
-errorExtras-readable (Err.InputBoundExceededAt (Err.AtText pos) k o l) =
-  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , bound-readable k o l
-errorExtras-readable (Err.InvalidCharacter (Err.InField _ i) cp) =
-  tt , saturated-readable i , saturated-readable cp , tt
-errorExtras-readable (Err.InvalidCharacter (Err.InText pos) cp) =
-  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) ,
-  saturated-readable cp , tt
-errorExtras-readable (Err.KeywordName (Err.InPart _) _) = tt , tt , tt
-errorExtras-readable (Err.KeywordName (Err.AtText pos) _) =
-  saturated-readable (Position.line pos) , saturated-readable (Position.column pos) , tt , tt
+  @0 boundSaturated-in : ∀ n → InRange (just (naturalAtMost bound-ceiling)) (ℕtoℚ (saturateBound n))
+  boundSaturated-in n = natural-in _ (saturateBound-≤ n)
+
+  -- A validation issue, an extraction error and an absent signal's name
+  -- carry strings only, wherever they sit.
+  @0 issue-at : ∀ p t i → At p t (formatValidationIssue i)
+  issue-at _ _ _ = tt , tt , tt , tt
+
+  @0 signalError-at : ∀ p t e → At p t (formatSignalError e)
+  signalError-at _ _ _ = tt , tt , tt
+
+  -- A property result's index is saturated; a violation's timestamp carries
+  -- its bound from the frame entry.
+  @0 propertyResult-at : ∀ r → At ("results" ∷ []) nothing (formatPropertyResult r)
+  propertyResult-at (PropertyResult.Violation idx ce) =
+    tt , tt , saturated-in idx , natural-in _ (CounterexampleData.tsBounded ce) , tt , tt
+  propertyResult-at (PropertyResult.Satisfaction idx) = tt , tt , saturated-in idx , tt
+  propertyResult-at (PropertyResult.Unresolved idx _) = tt , tt , saturated-in idx , tt , tt
+
+  @0 warning-at : ∀ w → At ("warnings" ∷ []) nothing (formatWarning w)
+  warning-at (mkWarning UncachedAtom idx _) = tt , saturated-in idx , tt , tt
+
+  -- An extracted value the categoriser kept has both components within the
+  -- component bound.
+  @0 value-at : ∀ p → Fits p → At ("values" ∷ []) nothing (formatSignalValue p)
+  value-at (_ , q) fits = tt , wireFits-components q fits , tt
+
+  -- Every number an error reply's structured fields carry is saturated.
+  @0 bound-at : ∀ k o l → FieldsAt [] nothing (errorExtras (Err.InputBoundExceeded k o l))
+  bound-at _ o l = tt , boundSaturated-in o , boundSaturated-in l , tt
+
+  @0 parse-at : ∀ pe → FieldsAt [] nothing (errorExtras (Err.ParseErr pe))
+  parse-at (Err.InvalidIdentifier (Err.InPart _) _) = tt , tt
+  parse-at (Err.InvalidIdentifier (Err.AtText pos) _) =
+    saturated-in (Position.line pos) , saturated-in (Position.column pos) , tt
+  parse-at (Err.MissingField _) = tt
+  parse-at (Err.InvalidByteOrder _) = tt
+  parse-at (Err.InvalidPresence _) = tt
+  parse-at Err.MissingSigned = tt
+  parse-at (Err.InvalidSigned _) = tt
+  parse-at (Err.NotAnObject _ _) = tt
+  parse-at (Err.ExtCANIdOutOfRange _) = tt
+  parse-at (Err.StdCANIdOutOfRange _) = tt
+  parse-at (Err.DefaultCANIdOutOfRange _) = tt
+  parse-at (Err.InvalidDLCBytes _) = tt
+  parse-at Err.RootNotObject = tt
+  parse-at Err.MissingSignalName = tt
+  parse-at Err.SignalBitLengthZero = tt
+  parse-at (Err.SignalStartBitExceedsFrame _ _) = tt
+  parse-at (Err.SignalBitLengthExceedsFrame _ _) = tt
+  parse-at (Err.SignalBigEndianOverflow _ _ _) = tt
+  parse-at (Err.InvalidKind _ _) = tt
+  parse-at (Err.NonTerminatingRational _) = tt
+  parse-at Err.NonIntegerMultiplexValue = tt
+  parse-at (Err.NonNaturalField _) = tt
+  parse-at (Err.DLCCodeOutOfRange _) = tt
+  parse-at (Err.PayloadLengthMismatch _ _) = tt
+  parse-at (Err.PayloadByteOutOfRange _ _) = tt
+  parse-at (Err.NonPositiveDenominator _) = tt
+  parse-at (Err.SignalArrayLengthMismatch _ _ _) = tt
+  parse-at (Err.TimestampPastWire _) = tt
+  parse-at (Err.InContext _ _) = tt
+
+  @0 handler-at : ∀ h → FieldsAt [] nothing (errorExtras (Err.HandlerErr h))
+  handler-at Err.NoDBC                        = tt
+  handler-at Err.AlreadyStreaming             = tt
+  handler-at Err.NotStreaming                 = tt
+  handler-at Err.StreamNotStarted             = tt
+  handler-at Err.StreamActive                 = tt
+  handler-at (Err.PropertyParseFailed _ _)    = tt
+  handler-at (Err.PropertyRefused _)          = tt
+  handler-at (Err.UnknownSignal _)            = tt
+  handler-at (Err.ValidationFailed issues)    = tt , map-at (issue-at ("issues" ∷ []) nothing) issues , tt
+  handler-at (Err.TextRoundTripFailed issues) = tt , map-at (issue-at ("issues" ∷ []) nothing) issues , tt
+  handler-at (Err.NonMonotonicTimestamp _ _)  = tt
+  handler-at (Err.WrappedParse _)             = tt
+  handler-at (Err.WrappedFrame _)             = tt
+  handler-at (Err.InContext _ inner)          = handler-at inner
+
+  @0 errorExtras-at : ∀ e → FieldsAt [] nothing (errorExtras e)
+  errorExtras-at (Err.ParseErr pe)     = parse-at pe
+  errorExtras-at (Err.FrameErr _)      = tt
+  errorExtras-at (Err.ExtractionErr _) = tt
+  errorExtras-at (Err.RouteErr _)      = tt
+  errorExtras-at (Err.HandlerErr h)    = handler-at h
+  errorExtras-at (Err.DispatchErr Err.MissingTypeField)       = tt
+  errorExtras-at (Err.DispatchErr (Err.UnknownMessageType _)) = tt
+  errorExtras-at (Err.DispatchErr (Err.InvalidJSON pos))      =
+    saturated-in (Position.line pos) , saturated-in (Position.column pos) , tt
+  errorExtras-at (Err.DispatchErr Err.RequestNotObject)       = tt
+  errorExtras-at (Err.DBCTextParseErr (Err.ParseFailure pos)) =
+    saturated-in (Position.line pos) , saturated-in (Position.column pos) , tt
+  errorExtras-at (Err.DBCTextParseErr (Err.TrailingInput pos stmt)) =
+    saturated-in (Position.line pos) , saturated-in (Position.column pos) ,
+    saturated-in (Position.line stmt) , saturated-in (Position.column stmt) , tt
+  errorExtras-at (Err.DBCTextParseErr (Err.AttributeRefinementFailed _ _)) = tt
+  errorExtras-at (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = tt
+  errorExtras-at (Err.WithContext _ inner)          = errorExtras-at inner
+  errorExtras-at (Err.InputBoundExceeded k o l)     = bound-at k o l
+  errorExtras-at (Err.InputBoundExceededAt (Err.InPart _) k o l) = tt , bound-at k o l
+  errorExtras-at (Err.InputBoundExceededAt (Err.AtText pos) k o l) =
+    saturated-in (Position.line pos) , saturated-in (Position.column pos) , bound-at k o l
+  errorExtras-at (Err.InvalidCharacter (Err.InField _ i) cp) =
+    tt , saturated-in i , saturated-in cp , tt
+  errorExtras-at (Err.InvalidCharacter (Err.InText pos) cp) =
+    saturated-in (Position.line pos) , saturated-in (Position.column pos) , saturated-in cp , tt
+  errorExtras-at (Err.KeywordName (Err.InPart _) _) = tt , tt , tt
+  errorExtras-at (Err.KeywordName (Err.AtText pos) _) =
+    saturated-in (Position.line pos) , saturated-in (Position.column pos) , tt , tt
+
+-- THEOREM: every number `formatResponse` writes, for any reply, is in the
+-- range `replyRange` gives its place.  Erased, since it reads the erased
+-- proofs the replies carry.
+@0 formatResponse-in-range : ∀ r → NumbersAt replyRange [] nothing (formatResponse r)
+formatResponse-in-range (Success _) = tt , tt , tt
+formatResponse-in-range (Error e)   = tt , tt , tt , errorExtras-at e
+formatResponse-in-range (ExtractionResultsResponse values errors absent fit) =
+  tt , mapAll-at value-at values fit , map-at (signalError-at ("errors" ∷ []) nothing) errors , map-at (λ _ → tt) absent , tt
+formatResponse-in-range (PropertyResponse results) = tt , map-at propertyResult-at results , tt
+formatResponse-in-range Ack = tt , tt
+formatResponse-in-range (Complete results warnings) =
+  tt , map-at propertyResult-at results , map-at warning-at warnings , tt
+formatResponse-in-range (DBCResponse json w) = tt , proj₁ w , tt
+formatResponse-in-range (ValidationResponse issues) = tt , tt , map-at (issue-at ("issues" ∷ []) nothing) issues , tt
+formatResponse-in-range (ParsedDBCResponse json w warnings) =
+  tt , proj₁ w , map-at (issue-at ("warnings" ∷ []) nothing) warnings , tt
+formatResponse-in-range (DBCTextResponse _ issues) = tt , tt , map-at (issue-at ("issues" ∷ []) nothing) issues , tt
 
 -- THEOREM: every number `formatResponse` writes, for any reply, has a
--- numerator of magnitude at most 2^128-1 and a denominator at most 2^128-1, the range
--- every binding's reader decodes.  Erased, since it reads the erased proofs
--- the replies carry.
+-- numerator of magnitude at most 2^128-1 and a denominator at most 2^128-1,
+-- the range every binding's reader decodes.
 @0 formatResponse-readable : ∀ r → NumbersSatisfy InReaderRange (formatResponse r)
-formatResponse-readable (Success _) = tt , tt , tt
-formatResponse-readable (Error e)   = tt , tt , tt , errorExtras-readable e
-formatResponse-readable (ExtractionResultsResponse values errors absent fit) =
-  tt , mapAll-readable value-readable values fit , map-readable signalError-readable errors
-     , map-readable (λ _ → tt) absent , tt
-formatResponse-readable (PropertyResponse results) = tt , map-readable propertyResult-readable results , tt
-formatResponse-readable Ack = tt , tt
-formatResponse-readable (Complete results warnings) =
-  tt , map-readable propertyResult-readable results , map-readable warning-readable warnings , tt
-formatResponse-readable (DBCResponse json w) = tt , satisfy-map components-readable json (proj₁ w) , tt
-formatResponse-readable (ValidationResponse issues) = tt , tt , map-readable issue-readable issues , tt
-formatResponse-readable (ParsedDBCResponse json w warnings) =
-  tt , satisfy-map components-readable json (proj₁ w) , map-readable issue-readable warnings , tt
-formatResponse-readable (DBCTextResponse _ issues) = tt , tt , map-readable issue-readable issues , tt
+formatResponse-readable r =
+  at-satisfies (λ p t → form-readable (replyRange p t)) [] nothing (formatResponse r) (formatResponse-in-range r)
 
 -- ============================================================================
 -- DEPTH

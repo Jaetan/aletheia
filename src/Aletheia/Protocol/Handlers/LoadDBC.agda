@@ -30,8 +30,8 @@ open import Aletheia.DBC.Bounds using (BoundedDBC; checkBounds)
 open import Aletheia.DBC.Validated using (validate)
 open import Aletheia.DBC.Formatter using (formatDBC)
 -- Erased: the response carries the proof that every number the formatter
--- writes for the bounded DBC is within the bound.
-open import Aletheia.DBC.Formatter.Bounded using (formatDBC-within; formatDBC-shallow)
+-- writes for the bounded DBC is in the range of its place.
+open import Aletheia.DBC.Formatter.Bounded using (formatDBC-in-range; formatDBC-shallow)
 open import Aletheia.LTL.SignalPredicate using (emptyCache)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState using (StreamState; ReadyToStream)
@@ -41,14 +41,14 @@ private
   -- Validate a DBC within its bounds and load it: an error-severity issue
   -- refuses with `ValidationFailed`; otherwise the session loads the
   -- `ValidDBC` and the response carries the DBC, the erased proof that its
-  -- numbers are within the bound, and its warnings.
+  -- numbers are in their places' ranges, and its warnings.
   loadValidatedEpilogue : String → BoundedDBC → StreamState → StreamState × Response
   loadValidatedEpilogue cmdCtx b state with validate b
   ... | inj₁ issues = (state , Response.Error (WithContext cmdCtx (HandlerErr (ValidationFailed issues))))
   ... | inj₂ (vdbc , warnings) =
     let dbc = BoundedDBC.dbc b
     in (ReadyToStream 0 vdbc [] emptyCache
-       , Response.ParsedDBCResponse (formatDBC dbc) (formatDBC-within dbc (BoundedDBC.isBounded b) , formatDBC-shallow dbc) warnings)
+       , Response.ParsedDBCResponse (formatDBC dbc) (formatDBC-in-range dbc (BoundedDBC.isBounded b) , formatDBC-shallow dbc) warnings)
 
 loadValidatedDBC : String → DBC → StreamState → StreamState × Response
 loadValidatedDBC cmdCtx dbc state with checkBounds dbc

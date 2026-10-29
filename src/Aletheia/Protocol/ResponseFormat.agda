@@ -42,9 +42,9 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   ValueDescriptionKeyOutOfRange; ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
--- A natural written as a JSON number through `saturateObserved`: the
--- formatter writes no natural above `observed-ceiling`, the top of the range
--- every binding's reader holds (`ResponseFormat.Properties.formatResponse-readable`).
+-- A natural written as a JSON number through `saturateObserved`: at most
+-- `observed-ceiling`, the range of the places a position, an index or a
+-- count sits (`ResponseFormat.Properties.formatResponse-in-range`).
 saturated : ℕ → JSON
 saturated n = JNumber (ℕtoℚ (saturateObserved n))
 

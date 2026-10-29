@@ -4,33 +4,36 @@
 
 -- What `formatDBC` writes for a bounded DBC stays within the bounds the DBC
 -- met: an array it writes for a list has that list's length, and every
--- number it writes has both reduced components within
--- `max-rational-component-magnitude` (`formatDBC-within`).  Every
--- definition is erased, so a runtime module can carry the proof beside the
--- JSON it formats and MAlonzo compiles none of it.
+-- number it writes is in the range `replyRange` gives its place under a
+-- reply's `dbc` key (`formatDBC-in-range`).  Every definition is erased, so
+-- a runtime module can carry the proof beside the JSON it formats and
+-- MAlonzo compiles none of it.
 --
 -- The length lemmas reduce to `length-map`, since every array the formatter
 -- writes is `JArray (map format-… field)`.  The number proof walks the
--- formatter one helper at a time.  A `DecRat` field, a signal's start bit,
--- length, multiplex values and value keys, a value table's and an unresolved
--- description's keys, and an attribute's components are within the bound
--- by `IsBoundedDBC` (its `DBCMagnitudes`).  The other numbers the formatter
--- writes are small by construction: a CAN id is below 2^29 (its
--- constructor's witness), a DLC's byte count is at most 64, a Motorola
--- start bit is below 8 times the frame's bytes, and a variable type is at
--- most 2.
+-- formatter one helper at a time.  A signal's start bit, length, `DecRat`
+-- fields, multiplex values and value keys, a value table's and an
+-- unresolved description's keys, an environment variable's numbers and an
+-- attribute's are in their rows' ranges by `IsBoundedDBC` (its
+-- `DBCMagnitudes`); a big-endian start bit is a position in a frame of at
+-- most 64 bytes.  The other numbers are in range by construction: a CAN id
+-- is below its constructor's maximum (its witness), a DLC's byte count is
+-- at most 64, and a variable type at most 2.
 module Aletheia.DBC.Formatter.Bounded where
 
+open import Data.Bool using (T)
 open import Data.Bool.Properties using (T?)
 open import Data.Empty using (⊥-elim)
-open import Data.List using (List; []; _∷_; length; map) renaming (_++_ to _++ₗ_)
+open import Data.Integer using (∣_∣)
+open import Data.List using (List; []; _∷_; _∷ʳ_; length; map) renaming (_++_ to _++ₗ_)
 open import Data.List.NonEmpty as List⁺ using ()
 open import Data.List.Properties using (length-map)
-open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_; _^_; _≤_; _<ᵇ_; _/_; _%_; z≤n)
+open import Data.List.Relation.Unary.All using (All)
+open import Data.Maybe using (Maybe; nothing)
+open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_; _^_; _≤_; _<ᵇ_; _/_; _%_; z≤n; s≤s)
 open import Data.Nat.DivMod using (m%n<n)
 open import Data.Nat.Properties using
-  ( ≤-refl; ≤-trans; ≤-pred; <⇒≤; <ᵇ⇒<; m≤m+n; 1+n≰n; m∸n≤m; ∸-monoˡ-≤
+  ( ≤-refl; ≤-trans; ≤-pred; <ᵇ⇒<; m≤m+n; 1+n≰n; m∸n≤m; ∸-monoˡ-≤
   ; *-monoˡ-≤; +-mono-≤; suc-pred; ≤ᵇ⇒≤ )
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (String)
@@ -38,27 +41,25 @@ open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (sym; subst)
 open import Relation.Nullary.Decidable using (recompute)
 
-open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
+open import Aletheia.CAN.Constants using
+  (standard-can-id-max; extended-can-id-max; max-can-id; max-frame-bytes)
 open import Aletheia.CAN.DLC using (mkDLC; dlcToBytes; dlcBytes)
 open import Aletheia.CAN.Endianness using
   (ByteOrder; LittleEndian; BigEndian; physicalBitPos; unconvertStartBit)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.DBC.Bounds using
   ( IsBoundedDBC; DBCMagnitudes; SignalMagnitudes; EnvVarMagnitudes; AttributeMagnitudes
-  ; SmallKeys; SmallSelectors; SmallType; SmallValue
-  ; startBit-small; bitLength-small; smallAttr-small; SmallKey )
+  ; SmallKeys; SmallSelectors; SmallType; SmallValue )
 open import Aletheia.DBC.DecRat using (mkDecRat; toℚ; 2^a·5^b-NonZero)
-open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; IntDecRat; NatDecRat)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.DecRat.Magnitude using
-  ( SmallNat; SmallInt; SmallDecRat; smallDecRat-components; smallNat-by-eval
-  ; intDecRat-small; natDecRat-small )
+  (SmallDecRat; smallDecRat-components; intDecRat-≤; natDecRat-≤)
 open import Aletheia.DBC.Formatter using
-  ( ℕtoJSON; ℤtoJSON; formatCANId; formatPresence; formatValueEntry
+  ( ℕtoJSON; formatCANId; formatPresence; formatValueEntry
   ; formatDBCSignal; formatDBCMessage; formatSignalGroup; formatEnvironmentVar
   ; formatValueTable; formatRawValueDesc; formatNode; formatCommentTarget
   ; formatComment; formatAttrType; formatAttrValue; formatAttrTarget
-  ; formatAttribute; formatDBC )
+  ; formatAttribute; formatDBC; identJSON )
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; DBCSignal; SignalPresence; Always; When
   ; EnvironmentVar; ValueTable; RawValueDesc; DBCComment
@@ -68,11 +69,15 @@ open import Aletheia.DBC.Types using
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar; ATgtNodeMsg; ATgtNodeSig
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign )
-open import Aletheia.Limits using (max-rational-component-magnitude)
+open import Aletheia.Limits using
+  (max-rational-component-magnitude; max-start-bit; max-var-type; max-value-description-key-magnitude)
+open import Aletheia.Prelude using (ℕtoℚ; fromℤ)
 open import Aletheia.Protocol.JSON.Types using
-  (JSON; JNumber; JString; NumbersWithin; ListNumbersWithin; FieldsNumbersWithin; Shallow; FieldsShallow)
+  (JSON; JString; ComponentsWithin; Shallow; FieldsShallow)
 open import Aletheia.Protocol.JSON.Shallow using (shallow-≤; map-shallow; fields-++)
-open import Aletheia.DBC.Formatter using (identJSON)
+open import Aletheia.Protocol.ReplyRange using
+  ( NumbersAt; ListNumbersAt; FieldsNumbersAt; InRange; replyRange
+  ; natural-in; integer-in; map-at; mapAll-at )
 
 -- ============================================================================
 -- ARRAY LENGTHS
@@ -114,49 +119,20 @@ formatDBCMessage-signals-bounded frameBytes msg n =
 -- NUMBERS
 -- ============================================================================
 
--- The claim at the kernel's component bound, for a value, an array's
--- elements and an object's fields.
-@0 Within : JSON → Set
-Within = NumbersWithin max-rational-component-magnitude
+-- Every number at its place under a reply's `dbc` key, for a value and an
+-- object's fields.
+@0 At : List String → Maybe String → JSON → Set
+At = NumbersAt replyRange
 
-@0 ListWithin : List JSON → Set
-ListWithin = ListNumbersWithin max-rational-component-magnitude
-
-@0 FieldsWithin : List (String × JSON) → Set
-FieldsWithin = FieldsNumbersWithin max-rational-component-magnitude
-
--- ---- Lists and field lists ----
-
--- A list whose every element the formatter writes within the bound.
-@0 map-within : ∀ {A : Set} {f : A → JSON}
-  → (∀ x → Within (f x)) → ∀ xs → ListWithin (map f xs)
-map-within h []       = tt
-map-within h (x ∷ xs) = h x , map-within h xs
-
--- The same, with a premise per element.
-@0 mapAll-within : ∀ {A : Set} {f : A → JSON} {P : A → Set}
-  → (∀ x → P x → Within (f x)) → ∀ xs → All P xs → ListWithin (map f xs)
-mapAll-within h []       []       = tt
-mapAll-within h (x ∷ xs) (p ∷ ps) = h x p , mapAll-within h xs ps
-
-@0 ++-within : ∀ xs {ys} → FieldsWithin xs → FieldsWithin ys → FieldsWithin (xs ++ₗ ys)
-++-within []       _        q = q
-++-within (_ ∷ xs) (p , ps) q = p , ++-within xs ps q
+@0 FieldsAt : List String → Maybe String → List (String × JSON) → Set
+FieldsAt = FieldsNumbersAt replyRange
 
 -- ---- One number ----
 
--- A natural within the bound: numerator `n`, denominator 1.
-@0 ℕtoJSON-within : ∀ n → SmallNat n → Within (ℕtoJSON n)
-ℕtoJSON-within _ small = small , smallNat-by-eval 1 tt
-
--- An integer within the bound: numerator `z`, denominator 1.
-@0 ℤtoJSON-within : ∀ z → SmallInt z → Within (ℤtoJSON z)
-ℤtoJSON-within _ small = small , smallNat-by-eval 1 tt
-
 -- A small `DecRat`: `toℚ` keeps its numerator and its denominator 2^a·5^b,
 -- the two components `SmallDecRat` bounds.
-@0 toℚ-within : ∀ d → SmallDecRat d → Within (JNumber (toℚ d))
-toℚ-within (mkDecRat num a b c) small =
+@0 toℚ-components : ∀ d → SmallDecRat d → ComponentsWithin max-rational-component-magnitude (toℚ d)
+toℚ-components (mkDecRat num a b c) small =
   let parts = smallDecRat-components (mkDecRat num a b c) small
   in proj₁ parts
    , subst (_≤ max-rational-component-magnitude)
@@ -165,22 +141,32 @@ toℚ-within (mkDecRat num a b c) small =
 
 -- ---- Numbers small by construction ----
 
--- A CAN id is below its constructor's maximum, 2^11 or 2^29; the witness is
--- irrelevant, so it is recomputed from the decidable test.
-@0 canId-within : ∀ cid → FieldsWithin (formatCANId cid)
-canId-within (Standard n p) =
-  ℕtoJSON-within n
-    (≤-trans (<⇒≤ (<ᵇ⇒< n standard-can-id-max (recompute (T? (n <ᵇ standard-can-id-max)) p)))
-             (smallNat-by-eval standard-can-id-max tt))
-  , tt
-canId-within (Extended n p) =
-  ℕtoJSON-within n
-    (≤-trans (<⇒≤ (<ᵇ⇒< n extended-can-id-max (recompute (T? (n <ᵇ extended-can-id-max)) p)))
-             (smallNat-by-eval extended-can-id-max tt))
-  , tt , tt
+-- A CAN id is at most `max-can-id`: below its constructor's maximum, 2^11
+-- or 2^29, the witness recomputed from the decidable test since it is
+-- irrelevant.
+@0 canId-≤ : ∀ {n} → T (n <ᵇ standard-can-id-max) → n ≤ max-can-id
+canId-≤ {n} p =
+  ≤-trans (≤-pred (<ᵇ⇒< n standard-can-id-max p)) (≤ᵇ⇒≤ 2047 max-can-id tt)
+
+@0 extCanId-≤ : ∀ {n} → T (n <ᵇ extended-can-id-max) → n ≤ max-can-id
+extCanId-≤ {n} p = ≤-pred (<ᵇ⇒< n extended-can-id-max p)
+
+-- A CAN id's fields, alone or before others, the `id` in the range its
+-- place gives every CAN id.
+@0 canId-at : ∀ p t cid
+  → (∀ n → n ≤ max-can-id → InRange (replyRange (p ∷ʳ "id") t) (ℕtoℚ n))
+  → FieldsAt p t (formatCANId cid)
+canId-at p t (Standard n q) h = h n (canId-≤ (recompute (T? (n <ᵇ standard-can-id-max)) q)) , tt
+canId-at p t (Extended n q) h = h n (extCanId-≤ (recompute (T? (n <ᵇ extended-can-id-max)) q)) , tt , tt
+
+@0 canId-++ : ∀ p t cid {ys}
+  → (∀ n → n ≤ max-can-id → InRange (replyRange (p ∷ʳ "id") t) (ℕtoℚ n))
+  → FieldsAt p t ys → FieldsAt p t (formatCANId cid ++ₗ ys)
+canId-++ p t (Standard n q) h rest = h n (canId-≤ (recompute (T? (n <ᵇ standard-can-id-max)) q)) , rest
+canId-++ p t (Extended n q) h rest = h n (extCanId-≤ (recompute (T? (n <ᵇ extended-can-id-max)) q)) , tt , rest
 
 -- A DLC code below 16 maps to at most 64 bytes.
-@0 dlcToBytes-≤64 : ∀ c → c ≤ 15 → dlcToBytes c ≤ 64
+@0 dlcToBytes-≤64 : ∀ c → c ≤ 15 → dlcToBytes c ≤ max-frame-bytes
 dlcToBytes-≤64  0 _ = z≤n
 dlcToBytes-≤64  1 _ = m≤m+n 1 63
 dlcToBytes-≤64  2 _ = m≤m+n 2 62
@@ -201,11 +187,11 @@ dlcToBytes-≤64 (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (su
   ⊥-elim (1+n≰n (≤-trans c≤15 (m≤m+n 15 k)))
 
 -- A validated DLC's byte count, through its erased bound.
-@0 dlcBytes-≤64 : ∀ d → dlcBytes d ≤ 64
+@0 dlcBytes-≤64 : ∀ d → dlcBytes d ≤ max-frame-bytes
 dlcBytes-≤64 (mkDLC code bounded) = dlcToBytes-≤64 code (≤-pred (<ᵇ⇒< code 16 bounded))
 
 -- A Motorola bit position in a frame of at most 64 bytes is below 512.
-@0 physicalBitPos-≤ : ∀ fb b → fb ≤ 64 → physicalBitPos fb BigEndian b ≤ 511
+@0 physicalBitPos-≤ : ∀ fb b → fb ≤ 64 → physicalBitPos fb BigEndian b ≤ max-start-bit
 physicalBitPos-≤ fb b fb≤64 =
   let bytes : ((fb ∸ 1) ∸ (b / 8)) * 8 ≤ 504
       bytes = *-monoˡ-≤ 8 (≤-trans (m∸n≤m (fb ∸ 1) (b / 8)) (∸-monoˡ-≤ 1 fb≤64))
@@ -215,140 +201,137 @@ physicalBitPos-≤ fb b fb≤64 =
 
 -- The start bit the formatter writes: the stored one for little endian, a
 -- position in the frame for big endian.
-@0 unconvertStartBit-small : ∀ fb bo s l → fb ≤ 64 → SmallNat s
-  → SmallNat (unconvertStartBit fb bo s l)
-unconvertStartBit-small _  LittleEndian s _ _     small = small
-unconvertStartBit-small fb BigEndian    s l fb≤64 _     =
-  ≤-trans (physicalBitPos-≤ fb (s + l ∸ 1) fb≤64) (smallNat-by-eval 511 tt)
+@0 unconvertStartBit-≤ : ∀ fb bo s l → fb ≤ 64 → s ≤ max-start-bit
+  → unconvertStartBit fb bo s l ≤ max-start-bit
+unconvertStartBit-≤ _  LittleEndian _ _ _     s≤ = s≤
+unconvertStartBit-≤ fb BigEndian    s l fb≤64 _  = physicalBitPos-≤ fb (s + l ∸ 1) fb≤64
 
-@0 varType-small : ∀ t → SmallNat (varTypeToℕ t)
-varType-small IntVar    = z≤n
-varType-small FloatVar  = smallNat-by-eval 1 tt
-varType-small StringVar = smallNat-by-eval 2 tt
+@0 varType-≤ : ∀ t → varTypeToℕ t ≤ max-var-type
+varType-≤ IntVar    = z≤n
+varType-≤ FloatVar  = s≤s z≤n
+varType-≤ StringVar = ≤-refl
 
 -- ---- The formatter's helpers ----
 
-@0 presence-within : ∀ p → SmallSelectors p → FieldsWithin (formatPresence p)
-presence-within Always      _   = tt , tt
-presence-within (When _ vs) sel = tt , tt , mapAll-within ℕtoJSON-within (List⁺.toList vs) sel , tt
+@0 presence-at : ∀ p → SmallSelectors p
+  → FieldsAt ("dbc" ∷ "messages" ∷ "signals" ∷ []) nothing (formatPresence p)
+presence-at Always      _   = tt , tt
+presence-at (When _ vs) sel = tt , tt , mapAll-at natural-in (List⁺.toList vs) sel , tt
 
-@0 entry-within : ∀ e → SmallKey e → Within (formatValueEntry e)
-entry-within (z , _) small = ℤtoJSON-within z small , tt , tt
+-- A value-description entry at the place of the array holding it.
+@0 entries-at : ∀ p es
+  → (∀ z → ∣ z ∣ ≤ max-value-description-key-magnitude → InRange (replyRange (p ∷ʳ "value") nothing) (fromℤ z))
+  → SmallKeys es → ListNumbersAt replyRange p nothing (map formatValueEntry es)
+entries-at p es h = mapAll-at (λ { (z , _) small → h z small , tt , tt }) es
 
-@0 entries-within : ∀ es → SmallKeys es → ListWithin (map formatValueEntry es)
-entries-within = mapAll-within entry-within
-
-@0 signal-within : ∀ fb → fb ≤ 64 → ∀ sig → SignalMagnitudes sig
-  → Within (formatDBCSignal fb sig)
-signal-within fb fb≤64 sig m =
+@0 signal-at : ∀ fb → fb ≤ 64 → ∀ sig → SignalMagnitudes sig
+  → At ("dbc" ∷ "messages" ∷ "signals" ∷ []) nothing (formatDBCSignal fb sig)
+signal-at fb fb≤64 sig m =
   let def = DBCSignal.signalDef sig in
   tt
-  , ℕtoJSON-within _ (unconvertStartBit-small fb (DBCSignal.byteOrder sig) _ _ fb≤64
-                        (startBit-small (SignalMagnitudes.startBit m)))
-  , ℕtoJSON-within _ (bitLength-small (SignalMagnitudes.bitLength m))
+  , natural-in _ (unconvertStartBit-≤ fb (DBCSignal.byteOrder sig) _ _ fb≤64 (SignalMagnitudes.startBit m))
+  , natural-in _ (SignalMagnitudes.bitLength m)
   , tt
   , tt
-  , toℚ-within (SignalDef.factor def) (SignalMagnitudes.factor m)
-  , toℚ-within (SignalDef.offset def) (SignalMagnitudes.offset m)
-  , toℚ-within (SignalDef.minimum def) (SignalMagnitudes.minimum m)
-  , toℚ-within (SignalDef.maximum def) (SignalMagnitudes.maximum m)
+  , toℚ-components (SignalDef.factor def) (SignalMagnitudes.factor m)
+  , toℚ-components (SignalDef.offset def) (SignalMagnitudes.offset m)
+  , toℚ-components (SignalDef.minimum def) (SignalMagnitudes.minimum m)
+  , toℚ-components (SignalDef.maximum def) (SignalMagnitudes.maximum m)
   , tt
-  , map-within (λ _ → tt) _
-  , entries-within _ (SignalMagnitudes.keys m)
-  , presence-within _ (SignalMagnitudes.selectors m)
+  , map-at (λ _ → tt) _
+  , entries-at _ _ integer-in (SignalMagnitudes.keys m)
+  , presence-at _ (SignalMagnitudes.selectors m)
 
-@0 message-within : ∀ msg → All SignalMagnitudes (DBCMessage.signals msg)
-  → Within (formatDBCMessage msg)
-message-within msg ms =
-  ++-within _ (canId-within (DBCMessage.id msg))
+@0 message-at : ∀ msg → All SignalMagnitudes (DBCMessage.signals msg)
+  → At ("dbc" ∷ "messages" ∷ []) nothing (formatDBCMessage msg)
+message-at msg ms =
+  canId-++ _ _ (DBCMessage.id msg) natural-in
     ( tt
-    , ℕtoJSON-within _ (≤-trans (dlcBytes-≤64 (DBCMessage.dlc msg)) (smallNat-by-eval 64 tt))
+    , natural-in _ (dlcBytes-≤64 (DBCMessage.dlc msg))
     , tt
-    , map-within (λ _ → tt) _
-    , mapAll-within (signal-within _ (dlcBytes-≤64 (DBCMessage.dlc msg))) _ ms
+    , map-at (λ _ → tt) _
+    , mapAll-at (signal-at _ (dlcBytes-≤64 (DBCMessage.dlc msg))) _ ms
     , tt )
 
-@0 signalGroup-within : ∀ sg → Within (formatSignalGroup sg)
-signalGroup-within _ = tt , map-within (λ _ → tt) _ , tt
+@0 signalGroup-at : ∀ sg → At ("dbc" ∷ "signalGroups" ∷ []) nothing (formatSignalGroup sg)
+signalGroup-at _ = tt , map-at (λ _ → tt) _ , tt
 
-@0 envVar-within : ∀ ev → EnvVarMagnitudes ev → Within (formatEnvironmentVar ev)
-envVar-within ev m =
+@0 envVar-at : ∀ ev → EnvVarMagnitudes ev → At ("dbc" ∷ "environmentVars" ∷ []) nothing (formatEnvironmentVar ev)
+envVar-at ev m =
   tt
-  , ℕtoJSON-within _ (varType-small (EnvironmentVar.varType ev))
-  , toℚ-within (EnvironmentVar.initial ev) (EnvVarMagnitudes.initial m)
-  , toℚ-within (EnvironmentVar.minimum ev) (EnvVarMagnitudes.minimum m)
-  , toℚ-within (EnvironmentVar.maximum ev) (EnvVarMagnitudes.maximum m)
+  , natural-in _ (varType-≤ (EnvironmentVar.varType ev))
+  , toℚ-components (EnvironmentVar.initial ev) (EnvVarMagnitudes.initial m)
+  , toℚ-components (EnvironmentVar.minimum ev) (EnvVarMagnitudes.minimum m)
+  , toℚ-components (EnvironmentVar.maximum ev) (EnvVarMagnitudes.maximum m)
   , tt
 
-@0 valueTable-within : ∀ vt → SmallKeys (ValueTable.entries vt) → Within (formatValueTable vt)
-valueTable-within _ ks = tt , entries-within _ ks , tt
+@0 valueTable-at : ∀ vt → SmallKeys (ValueTable.entries vt) → At ("dbc" ∷ "valueTables" ∷ []) nothing (formatValueTable vt)
+valueTable-at _ ks = tt , entries-at _ _ integer-in ks , tt
 
-@0 rawValueDesc-within : ∀ rvd → SmallKeys (RawValueDesc.entries rvd)
-  → Within (formatRawValueDesc rvd)
-rawValueDesc-within rvd ks =
-  ++-within _ (canId-within (RawValueDesc.canId rvd)) (tt , entries-within _ ks , tt)
+@0 rawValueDesc-at : ∀ rvd → SmallKeys (RawValueDesc.entries rvd)
+  → At ("dbc" ∷ "unresolvedValueDescs" ∷ []) nothing (formatRawValueDesc rvd)
+rawValueDesc-at rvd ks =
+  canId-++ _ _ (RawValueDesc.canId rvd) natural-in (tt , entries-at _ _ integer-in ks , tt)
 
-@0 node-within : ∀ n → Within (formatNode n)
-node-within _ = tt , tt
+@0 node-at : ∀ n → At ("dbc" ∷ "nodes" ∷ []) nothing (formatNode n)
+node-at _ = tt , tt
 
-@0 commentTarget-within : ∀ t → FieldsWithin (formatCommentTarget t)
-commentTarget-within CTNetwork       = tt , tt
-commentTarget-within (CTNode _)      = tt , tt , tt
-commentTarget-within (CTMessage id)  = tt , canId-within id
-commentTarget-within (CTSignal id _) = tt , ++-within _ (canId-within id) (tt , tt)
-commentTarget-within (CTEnvVar _)    = tt , tt , tt
+@0 commentTarget-at : ∀ t → FieldsAt ("dbc" ∷ "comments" ∷ "target" ∷ []) nothing (formatCommentTarget t)
+commentTarget-at CTNetwork       = tt , tt
+commentTarget-at (CTNode _)      = tt , tt , tt
+commentTarget-at (CTMessage id)  = tt , canId-at _ _ id natural-in
+commentTarget-at (CTSignal id _) = tt , canId-++ _ _ id natural-in (tt , tt)
+commentTarget-at (CTEnvVar _)    = tt , tt , tt
 
-@0 comment-within : ∀ c → Within (formatComment c)
-comment-within c = commentTarget-within (DBCComment.target c) , tt , tt
+@0 comment-at : ∀ c → At ("dbc" ∷ "comments" ∷ []) nothing (formatComment c)
+comment-at c = commentTarget-at (DBCComment.target c) , tt , tt
 
-@0 attrType-within : ∀ t → SmallType t → FieldsWithin (formatAttrType t)
-attrType-within (ATInt mn mx) (l , h) =
-  tt , ℤtoJSON-within (intDecRatToℤ mn) (intDecRat-small mn (smallAttr-small (IntDecRat.value mn) l))
-     , ℤtoJSON-within (intDecRatToℤ mx) (intDecRat-small mx (smallAttr-small (IntDecRat.value mx) h)) , tt
-attrType-within (ATFloat mn mx) (l , h) = tt , toℚ-within mn l , toℚ-within mx h , tt
-attrType-within ATString _ = tt , tt
-attrType-within (ATEnum labels) _ = tt , map-within (λ _ → tt) labels , tt
-attrType-within (ATHex mn mx) (l , h) =
-  tt , ℕtoJSON-within _ (natDecRat-small mn (smallAttr-small (NatDecRat.value mn) l))
-     , ℕtoJSON-within _ (natDecRat-small mx (smallAttr-small (NatDecRat.value mx) h)) , tt
+@0 attrType-at : ∀ t → SmallType t → FieldsAt ("dbc" ∷ "attributes" ∷ "attrType" ∷ []) nothing (formatAttrType t)
+attrType-at (ATInt mn mx) (l , h) =
+  tt , integer-in _ (intDecRat-≤ mn l) , integer-in _ (intDecRat-≤ mx h) , tt
+attrType-at (ATFloat mn mx) (l , h) = tt , toℚ-components mn l , toℚ-components mx h , tt
+attrType-at ATString _ = tt , tt
+attrType-at (ATEnum labels) _ = tt , map-at (λ _ → tt) labels , tt
+attrType-at (ATHex mn mx) (l , h) =
+  tt , natural-in _ (natDecRat-≤ mn l) , natural-in _ (natDecRat-≤ mx h) , tt
 
-@0 attrValue-within : ∀ v → SmallValue v → FieldsWithin (formatAttrValue v)
-attrValue-within (AVInt v)    s = tt , ℤtoJSON-within (intDecRatToℤ v) (intDecRat-small v (smallAttr-small (IntDecRat.value v) s)) , tt
-attrValue-within (AVFloat v)  s = tt , toℚ-within v s , tt
-attrValue-within (AVString _) _ = tt , tt , tt
-attrValue-within (AVEnum v)   s = tt , ℕtoJSON-within _ (natDecRat-small v (smallAttr-small (NatDecRat.value v) s)) , tt
-attrValue-within (AVHex v)    s = tt , ℕtoJSON-within _ (natDecRat-small v (smallAttr-small (NatDecRat.value v) s)) , tt
+@0 attrValue-at : ∀ v → SmallValue v → FieldsAt ("dbc" ∷ "attributes" ∷ "value" ∷ []) nothing (formatAttrValue v)
+attrValue-at (AVInt v)    s = tt , integer-in _ (intDecRat-≤ v s) , tt
+attrValue-at (AVFloat v)  s = tt , toℚ-components v s , tt
+attrValue-at (AVString _) _ = tt , tt , tt
+attrValue-at (AVEnum v)   s = tt , natural-in _ (natDecRat-≤ v s) , tt
+attrValue-at (AVHex v)    s = tt , natural-in _ (natDecRat-≤ v s) , tt
 
-@0 attrTarget-within : ∀ t → FieldsWithin (formatAttrTarget t)
-attrTarget-within ATgtNetwork          = tt , tt
-attrTarget-within (ATgtNode _)         = tt , tt , tt
-attrTarget-within (ATgtMessage id)     = tt , canId-within id
-attrTarget-within (ATgtSignal id _)    = tt , ++-within _ (canId-within id) (tt , tt)
-attrTarget-within (ATgtEnvVar _)       = tt , tt , tt
-attrTarget-within (ATgtNodeMsg _ id)   = tt , tt , canId-within id
-attrTarget-within (ATgtNodeSig _ id _) = tt , tt , ++-within _ (canId-within id) (tt , tt)
+@0 attrTarget-at : ∀ t → FieldsAt ("dbc" ∷ "attributes" ∷ "target" ∷ []) nothing (formatAttrTarget t)
+attrTarget-at ATgtNetwork          = tt , tt
+attrTarget-at (ATgtNode _)         = tt , tt , tt
+attrTarget-at (ATgtMessage id)     = tt , canId-at _ _ id natural-in
+attrTarget-at (ATgtSignal id _)    = tt , canId-++ _ _ id natural-in (tt , tt)
+attrTarget-at (ATgtEnvVar _)       = tt , tt , tt
+attrTarget-at (ATgtNodeMsg _ id)   = tt , tt , canId-at _ _ id natural-in
+attrTarget-at (ATgtNodeSig _ id _) = tt , tt , canId-++ _ _ id natural-in (tt , tt)
 
-@0 attribute-within : ∀ a → AttributeMagnitudes a → Within (formatAttribute a)
-attribute-within (DBCAttrDef d)     m = tt , tt , tt , attrType-within _ m , tt
-attribute-within (DBCAttrDefault d) m = tt , tt , attrValue-within _ m , tt
-attribute-within (DBCAttrAssign a)  m = tt , tt , attrTarget-within _ , attrValue-within _ m , tt
+@0 attribute-at : ∀ a → AttributeMagnitudes a → At ("dbc" ∷ "attributes" ∷ []) nothing (formatAttribute a)
+attribute-at (DBCAttrDef d)     m = tt , tt , tt , attrType-at _ m , tt
+attribute-at (DBCAttrDefault d) m = tt , tt , attrValue-at _ m , tt
+attribute-at (DBCAttrAssign a)  m = tt , tt , attrTarget-at _ , attrValue-at _ m , tt
 
 -- ---- The theorem ----
 
--- Every number `formatDBC` writes for a bounded DBC has both reduced
--- components within `max-rational-component-magnitude`.
-@0 formatDBC-within : ∀ dbc → IsBoundedDBC dbc → Within (formatDBC dbc)
-formatDBC-within dbc b =
+-- Every number `formatDBC` writes for a bounded DBC is in the range of its
+-- place under a reply's `dbc` key.
+@0 formatDBC-in-range : ∀ dbc → IsBoundedDBC dbc → At ("dbc" ∷ []) nothing (formatDBC dbc)
+formatDBC-in-range dbc b =
   let m = IsBoundedDBC.magnitudes b
   in tt
-   , mapAll-within message-within _ (DBCMagnitudes.signals m)
-   , map-within signalGroup-within _
-   , mapAll-within envVar-within _ (DBCMagnitudes.environmentVars m)
-   , mapAll-within valueTable-within _ (DBCMagnitudes.valueTables m)
-   , map-within node-within _
-   , map-within comment-within _
-   , mapAll-within attribute-within _ (DBCMagnitudes.attributes m)
-   , mapAll-within rawValueDesc-within _ (DBCMagnitudes.unresolvedValueDescs m)
+   , mapAll-at message-at _ (DBCMagnitudes.signals m)
+   , map-at signalGroup-at _
+   , mapAll-at envVar-at _ (DBCMagnitudes.environmentVars m)
+   , mapAll-at valueTable-at _ (DBCMagnitudes.valueTables m)
+   , map-at node-at _
+   , map-at comment-at _
+   , mapAll-at attribute-at _ (DBCMagnitudes.attributes m)
+   , mapAll-at rawValueDesc-at _ (DBCMagnitudes.unresolvedValueDescs m)
    , tt
 
 -- ============================================================================

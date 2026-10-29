@@ -209,6 +209,10 @@ max-multiplex-value = 340282366920938463463374607431768211455
 max-value-description-key-magnitude : ℕ
 max-value-description-key-magnitude = 340282366920938463463374607431768211455
 
+-- An environment variable's type code: 0 integer, 1 float, 2 string.
+max-var-type : ℕ
+max-var-type = 2
+
 -- An attribute's INT, HEX or ENUM value or bound, in magnitude.
 max-attribute-magnitude : ℕ
 max-attribute-magnitude = 9223372036854775807

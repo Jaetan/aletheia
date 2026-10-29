@@ -133,16 +133,6 @@ mutual
 ComponentsWithin : ℕ → ℚ → Set
 ComponentsWithin bound q = ∣ ℚ.numerator q ∣ ≤ bound × suc (ℚ.denominator-1 q) ≤ bound
 
--- Every number in a JSON value has both components within the bound.
-NumbersWithin : ℕ → JSON → Set
-NumbersWithin bound = NumbersSatisfy (ComponentsWithin bound)
-
-ListNumbersWithin : ℕ → List JSON → Set
-ListNumbersWithin bound = ListNumbersSatisfy (ComponentsWithin bound)
-
-FieldsNumbersWithin : ℕ → List (String × JSON) → Set
-FieldsNumbersWithin bound = FieldsNumbersSatisfy (ComponentsWithin bound)
-
 -- A JSON value nested at most `k` deep: each array or object takes one
 -- level, so a primitive is within any depth and a container within `suc k`
 -- when its elements are within `k`.  A `Set`, the claim `jsonDepth`

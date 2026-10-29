@@ -13,19 +13,20 @@ module Aletheia.Protocol.Message where
 
 open import Data.Bool using (T)
 open import Data.String using (String)
-open import Data.List using (List)
+open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All)
+open import Data.Maybe using (nothing)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_; proj₂)
 open import Aletheia.Protocol.Response using (PropertyResult; Warning)
 -- JSON.Types (not the Protocol.JSON umbrella): only the JSON value type
--- and the number predicate are needed here; the umbrella re-exports the
+-- and the depth predicate are needed here; the umbrella re-exports the
 -- parser, which would put the message vocabulary inside every combinator
 -- change's recheck closure.
-open import Aletheia.Protocol.JSON.Types using (JSON; NumbersWithin; Shallow)
+open import Aletheia.Protocol.JSON.Types using (JSON; Shallow)
+open import Aletheia.Protocol.ReplyRange using (NumbersAt; replyRange)
 open import Aletheia.CAN.BatchExtraction using (wireFits)
 open import Aletheia.DBC.Types using (ValidationIssue)
-open import Aletheia.Limits using (max-rational-component-magnitude)
 import Aletheia.Error as Err
 
 -- ============================================================================
@@ -68,10 +69,10 @@ data StreamCommand : Set where
 -- ============================================================================
 
 -- Response types for the streaming protocol
--- What the formatter's JSON of a DBC is known to be: every number with both
--- components within the bound, and nested at most 7 deep.
-FormattedDBC : JSON → Set
-FormattedDBC json = NumbersWithin max-rational-component-magnitude json × Shallow 7 json
+-- What the formatter's JSON of a DBC is known to be: every number in the
+-- range of its place under a reply's `dbc` key, and nested at most 7 deep.
+@0 FormattedDBC : JSON → Set
+FormattedDBC json = NumbersAt replyRange ("dbc" ∷ []) nothing json × Shallow 7 json
 
 data Response : Set where
   -- Generic success with message
@@ -116,8 +117,8 @@ data Response : Set where
 
   -- Formatted DBC as JSON (emitted by the format-DBC handler, reached via
   -- the binary `processFormatDBCDirect` entry point), with the erased proofs
-  -- that every number in it has both components within the bound and that
-  -- it nests at most 7 deep (`Aletheia.DBC.Formatter.Bounded.formatDBC-within`,
+  -- that every number in it is in the range of its place and that it nests
+  -- at most 7 deep (`Aletheia.DBC.Formatter.Bounded.formatDBC-in-range`,
   -- `formatDBC-shallow`).
   DBCResponse : (json : JSON) → @0 FormattedDBC json → Response
 
