@@ -191,7 +191,7 @@ impossible on `main`.
   (cached). Expect this section to go red first.
 - **Diff base.** Every gate scoped by the branch reads what it changed
   against a local `main` ref: the mutation, coverage and benchmark lanes, the
-  build step's staleness choice and the pin gates through
+  sweep's staleness choice and the pin gates through
   `tools/_branch_diff.py` (`git diff main...HEAD`), and `run_ci`'s IWYU
   `--diff` through `changed_agda_files` (`git diff --merge-base main`, the
   working tree). The checkout needs `fetch-depth: 0` **and** a local `main`

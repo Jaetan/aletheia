@@ -582,7 +582,7 @@ cabal run shake -- gen-ffi-modules
 
 **Import analysis without a rebuild.** `cabal run shake -- iwyu` regenerates the relevant `.agdai` interfaces via Agda's interface cache and runs the import (IWYU) analysis with no `.hs`/`.so` rebuild. The IWYU gate is described in [`CI_LOCAL.md`](CI_LOCAL.md).
 
-**The build's incrementality is itself gated.** `tools/check_build_incremental.py` is a behavioral regression test that the build rebuilds what changed, only that, and never ships stale; it runs as `run_ci`'s `build` prerequisite. Its mechanics (when it runs, the `--build-staleness` modes) are documented in [`CI_LOCAL.md`](CI_LOCAL.md).
+**The build's incrementality is itself gated.** `tools/check_build_incremental.py` is a behavioral regression test that the build rebuilds what changed, only that, and never ships stale; it runs as `run_ci`'s `build staleness` step, after the lanes. Its mechanics (when it runs, the `--build-staleness` modes) are documented in [`CI_LOCAL.md`](CI_LOCAL.md).
 
 ### Type-Checking Without Compilation
 

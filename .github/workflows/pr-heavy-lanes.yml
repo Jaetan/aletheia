@@ -234,6 +234,7 @@ jobs:
           cache-dependency-path: python/pyproject.toml
 
       - name: Create the dev venv with the [mutation] extra (mutmut)
+        id: venv
         run: |
           set -euo pipefail
           python3.14 -m venv python/.venv
@@ -254,15 +255,6 @@ jobs:
       # is what keeps the required context reported by a job that ran.
       - name: Does this lane's binding sweep on this diff?
         run: python/.venv/bin/python3 -m tools.mutation_scope --binding "${{ matrix.binding }}"
-
-      # What the pinned mutmut has no operator for, which the Python record
-      # carries as refusals the lane cannot see.  The gate reads the branch's
-      # diff against `main` and runs only where it moved the pin, the gate or
-      # the scoping, logging which; the venv above holds the mutmut it reads,
-      # so it costs the lane nothing to install.
-      - name: mutmut operator facts (when its pin moved)
-        if: env.LANE_SWEEPS != '0' && matrix.binding == 'python'
-        run: python/.venv/bin/python3 -m tools.check_mutmut_operators
 
       - name: Set up GHC + cabal
         if: env.LANE_SWEEPS != '0'
@@ -387,32 +379,27 @@ jobs:
       # cargo-mutants is pinned to the version docs/MUTATION_BENCH.yaml
       # records, which the runner refuses to run under any other, and cached
       # by that version, as the coverage lane caches cargo-llvm-cov.
+      # The Rust toolchain and cargo-mutants wait on the venv, not on the GHC
+      # steps above them, which the shard facts gate below reads nothing of.
       - name: Set up Rust (stable)
-        if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust'
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && steps.venv.outcome == 'success' }}
+        id: rust
         run: |
           set -euo pipefail
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
           rustc --version && cargo --version
       - name: Cache cargo-mutants
-        if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust'
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && steps.rust.outcome == 'success' }}
         id: cargo-mutants
         uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-mutants
           key: cargo-mutants-27.1.0-${{ runner.os }}
       - name: Install cargo-mutants (cache miss)
-        if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && steps.cargo-mutants.outputs.cache-hit != 'true'
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && steps.rust.outcome == 'success' && steps.cargo-mutants.outputs.cache-hit != 'true' }}
+        id: cargo-mutants-install
         run: cargo install cargo-mutants --version 27.1.0 --locked
-      # Every shard count the Rust runner deals partitions the listing the
-      # pinned cargo-mutants gives, so the two jobs' shards are the whole
-      # surface once.  The gate reads the branch's diff against `main` and runs
-      # only where it moved the pin, the runner, the gate or the scoping,
-      # logging which; one job asks, since the listing is one.  Its cost is a
-      # listing, no sweep, in the budget above.
-      - name: cargo-mutants shard facts (when its pin moved)
-        if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && matrix.rust_job == '1'
-        run: python/.venv/bin/python3 -m tools.check_cargo_mutants_shards
 
       - name: Cache clang-23 + LLVM-23-dev .debs (large download)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
@@ -574,11 +561,39 @@ jobs:
           restore-keys: |
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
 
+      # The lane's setup ends here.  Each check after it waits on the steps
+      # making what it reads rather than on every step before it, so one check's
+      # failure stops no other: the two pin-fact gates on their tools, the sweep
+      # on this step (or on nothing, where the scope sweeps nothing), and the
+      # gates reading the sweep's trees on the sweep having run
+      # (python/tests/test_workflow_check_steps.py).
       - name: Build the FFI library (needed by every lane's suite)
         if: env.LANE_SWEEPS != '0'
+        id: ready
         run: cabal run shake -- build
 
+      # What the pinned mutmut has no operator for, which the Python record
+      # carries as refusals the lane cannot see.  The gate reads the branch's
+      # diff against `main` and runs only where it moved the pin, the gate or
+      # the scoping, logging which; the venv above holds the mutmut it reads,
+      # so it costs the lane nothing to install.
+      - name: mutmut operator facts (when its pin moved)
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python' && steps.venv.outcome == 'success' }}
+        run: python/.venv/bin/python3 -m tools.check_mutmut_operators
+
+      # Every shard count the Rust runner deals partitions the listing the
+      # pinned cargo-mutants gives, so the two jobs' shards are the whole
+      # surface once.  The gate reads the branch's diff against `main` and runs
+      # only where it moved the pin, the runner, the gate or the scoping,
+      # logging which; one job asks, since the listing is one.  Its cost is a
+      # listing, no sweep, in the budget above.
+      - name: cargo-mutants shard facts (when its pin moved)
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && matrix.rust_job == '1' && (steps.cargo-mutants.outputs.cache-hit == 'true' || steps.cargo-mutants-install.outcome == 'success') }}
+        run: python/.venv/bin/python3 -m tools.check_cargo_mutants_shards
+
       - name: Mutation testing (${{ matrix.lane }})
+        if: ${{ !cancelled() && (env.LANE_SWEEPS == '0' || steps.ready.outcome == 'success') }}
+        id: sweep
         env:
           ALETHEIA_MUTATION_CHECK: '1'
           # The runner drives every binding it is not told to skip, and logs
@@ -608,10 +623,11 @@ jobs:
       # The gate reads the branch's diff against `main` and runs only where it
       # moved the Mull pin, a patch, the configuration, that flag, the
       # toolchain, the gate or the scoping, logging which.  Its cost is the
-      # gate's own compiles, in every leg's budget; `!cancelled()`, so a leg
-      # whose sweep failed still reports the plugin's facts.
+      # gate's own compiles, in every leg's budget.  It reads the compile
+      # commands of a tree the sweep configures, so it waits on the sweep having
+      # run, and a leg whose sweep failed still reports the plugin's facts.
       - name: Mull plugin facts (when its pin moved)
-        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' }}
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
         run: python/.venv/bin/python3 -m tools.check_mull_plugin_facts
 
       # The whole tree's census, taken on the first leg once its slice is
@@ -623,7 +639,7 @@ jobs:
       # leg alone, inside its budget; the census leaves with the leg's reports
       # in the upload below.
       - name: Whole-tree census for the slices check (when its pin moved)
-        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && matrix.stage == '1' }}
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && matrix.stage == '1' && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
         run: python/.venv/bin/python3 -m tools.check_cpp_slices_census --census
 
       # Every lane's reports leave the runner whatever ended the lane: a C++
@@ -726,13 +742,19 @@ jobs:
           pattern: mutation-go-*
           path: go-shards
 
+      # The job's setup ends here: each check below waits on this step having
+      # passed rather than on every step before it, so the census compare, which
+      # reads the legs' reports and nothing the merge writes, runs whatever the
+      # merge answered.
       - name: Download the Rust jobs' reports
+        id: ready
         uses: actions/download-artifact@v8
         with:
           pattern: mutation-rust-*
           path: rust-jobs
 
       - name: Merge the C++ legs, the Go shards and the Rust jobs (the drift gates)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         env:
           ALETHEIA_MUTATION_CHECK: '1'
           ALETHEIA_MUTATION_SKIP_PYTHON: '1'
@@ -750,6 +772,7 @@ jobs:
       # runs only where it moved what decides a slice's mutants, logging which;
       # it reads reports alone, so this job needs no compiler for it.
       - name: Slices union against the whole-tree census (when its pin moved)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: python/.venv/bin/python3 -m tools.check_cpp_slices_census --compare mutation-legs
 
       - name: Upload the merged reports

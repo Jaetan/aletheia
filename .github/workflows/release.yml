@@ -28,7 +28,11 @@
 # the runtime-image build (whose in-Dockerfile verify stages build/load every
 # compiled binding against the image's own /opt/aletheia and check every
 # package in the image carries its licence text).  Each matches the
-# repo rule that a gate which cannot fail has a bug.
+# repo rule that a gate which cannot fail has a bug.  Each check waits on the
+# steps making what it reads rather than on every step before it, and a setup
+# step after a check waits on the setup before it, so one run reports every
+# check that fails; publishing runs only once every step passed
+# (python/tests/test_workflow_check_steps.py).
 #
 # Ordering: every artifact — tarball, packages, image — is built AND verified
 # BEFORE anything is published anywhere, so a failure leaves nothing
@@ -202,13 +206,16 @@ jobs:
           cosign version
 
       - name: Build + keyless-sign the distribution tarball
+        id: dist
         env:
           # Selects the Shakefile's keyless sign branch; cosign auto-detects the
           # ambient GitHub Actions OIDC token (id-token: write above).  No key.
           ALETHEIA_COSIGN_KEYLESS: '1'
-        run: cabal run shake -- dist
+        # --keep-going: every gate dist needs reports, whichever fails first.
+        run: cabal run shake -- --keep-going dist
 
       - name: Self-verify the signed tarball (gates publish)
+        if: ${{ !cancelled() && steps.dist.outcome == 'success' }}
         run: |
           set -euo pipefail
           # GITHUB_WORKFLOW_REF is the exact identity Fulcio put in the cert:
@@ -224,6 +231,7 @@ jobs:
           echo "Self-verify OK — signature matches this workflow's OIDC identity."
 
       - name: Smoke-test the bundle (unpack, source env.sh from a foreign cwd, load the .so)
+        if: ${{ !cancelled() && steps.dist.outcome == 'success' }}
         run: |
           set -euo pipefail
           # Functional gate: a presence-only check passes on a bundle that cannot
@@ -253,78 +261,17 @@ jobs:
             PYTHONPATH="${work}/site" python3.14 -c 'import aletheia; from aletheia import FFIBackend, AletheiaClient; print("bundle import OK", aletheia.__version__); FFIBackend(); AletheiaClient(); print("bundle smoke OK: env.sh -> ALETHEIA_LIB -> .so load -> client")'
           )
 
-      # ── Bundle validation across the compiled bindings (gates publish) ──────
-      # tools/bundle_validate.py unpacks dist/aletheia.tar.gz, runs the bundled
-      # installers capturing their printed per-language recipes, EXECUTES those
-      # exact recipe lines (the recipes users read are the recipes CI runs),
-      # and drives one consumer program per compiled binding through the
-      # verified kernel: env-constructor -> parse a real .dbc -> LTL property
-      # -> conforming + violating frame -> exactly one violation.  --require
-      # turns a missing-toolchain skip into a failure, so the toolchain steps
-      # below are load-bearing.  They are copied from pr-full-ci.yml with the
-      # same cache keys, so the caches seeded there are shared.
-      - name: Set up Go (bundle consumer toolchain)
-        uses: actions/setup-go@v7
-        with:
-          go-version: 'stable'
-          cache-dependency-path: |
-            go/go.sum
-            go/excel/go.sum
-
-      # The runner ships rustup; a stable toolchain with the minimal profile is
-      # all the consumer build needs (no clippy/rustfmt here — the consumer is
-      # built, not linted).
-      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
-          rustc --version && cargo --version
-
-      - name: Cache clang-23 .debs (Clang is a large download)
-        uses: actions/cache@v6
-        with:
-          path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v1
-      # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
-      # enforces Clang (cpp/CMakeLists.txt), so install clang-23 (the supported
-      # toolchain) from apt.llvm.org.  Same package set + cache key as
-      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
-      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
-
-      # The bundle ships install.fish / env.fish; with fish on PATH the
-      # validator also runs the fish installer, checks bash/fish recipe
-      # parity, and sources env.fish — the multi-shell divergence class the
-      # v4.0.0 review caught by hand.
-      - name: Install fish (recipe-parity leg of the bundle validation)
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fish
-
-      # FETCHCONTENT_BASE_DIR for the C++ consumer configure: without it every
-      # run re-downloads nlohmann/json + yaml-cpp + OpenXLSX into the per-run
-      # temp tree.  Keyed on cpp/CMakeLists.txt, which pins the dependency
-      # versions (the bundled binding is staged from the same tree).
-      - name: Cache C++ FetchContent deps (bundle consumer)
-        uses: actions/cache@v6
-        with:
-          path: ~/fetchcontent-cache
-          key: bundle-cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
-
-      - name: Validate the bundle across the compiled bindings (gates publish)
-        run: |
-          set -euo pipefail
-          python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
-            --require cpp,go,rust \
-            --fetchcontent-cache "${HOME}/fetchcontent-cache"
-
       # ── Native packages (.deb + .rpm) over the validated payload ────────────
+      # The packaging tools install here, before the toolchain steps below add
+      # apt sources of their own, so a source those break cannot fail this
+      # step's apt-get update; the packages are built after the validation.
       # nfpm is installed SHA-pinned exactly like cosign (pin recorded in
       # packaging/nfpm.yaml's header comment — keep the two in sync).  rpm is
       # installed for the `shake packages` .rpm payload self-check and the
       # structural check below.
       - name: Install nfpm (SHA-pinned) + rpm
+        if: ${{ !cancelled() && steps.dist.outcome == 'success' }}
+        id: nfpm
         env:
           NFPM_VERSION: '2.47.0'
           NFPM_SHA256: '0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783'
@@ -340,6 +287,84 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends rpm
 
+      # ── Bundle validation across the compiled bindings (gates publish) ──────
+      # tools/bundle_validate.py unpacks dist/aletheia.tar.gz, runs the bundled
+      # installers capturing their printed per-language recipes, EXECUTES those
+      # exact recipe lines (the recipes users read are the recipes CI runs),
+      # and drives one consumer program per compiled binding through the
+      # verified kernel: env-constructor -> parse a real .dbc -> LTL property
+      # -> conforming + violating frame -> exactly one violation.  --require
+      # turns a missing-toolchain skip into a failure, so the toolchain steps
+      # below are load-bearing.  They are copied from pr-full-ci.yml with the
+      # same cache keys, so the caches seeded there are shared.
+      - name: Set up Go (bundle consumer toolchain)
+        if: ${{ !cancelled() && steps.dist.outcome == 'success' }}
+        id: go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      # The runner ships rustup; a stable toolchain with the minimal profile is
+      # all the consumer build needs (no clippy/rustfmt here — the consumer is
+      # built, not linted).
+      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+        if: ${{ !cancelled() && steps.go.outcome == 'success' }}
+        id: rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version && cargo --version
+
+      - name: Cache clang-23 .debs (Clang is a large download)
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang23-libstdcxx15-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
+      # enforces Clang (cpp/CMakeLists.txt), so install clang-23 (the supported
+      # toolchain) from apt.llvm.org.  Same package set + cache key as
+      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        id: clang
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+
+      # The bundle ships install.fish / env.fish; with fish on PATH the
+      # validator also runs the fish installer, checks bash/fish recipe
+      # parity, and sources env.fish — the multi-shell divergence class the
+      # v4.0.0 review caught by hand.
+      - name: Install fish (recipe-parity leg of the bundle validation)
+        if: ${{ !cancelled() && steps.clang.outcome == 'success' }}
+        id: fish
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fish
+
+      # FETCHCONTENT_BASE_DIR for the C++ consumer configure: without it every
+      # run re-downloads nlohmann/json + yaml-cpp + OpenXLSX into the per-run
+      # temp tree.  Keyed on cpp/CMakeLists.txt, which pins the dependency
+      # versions (the bundled binding is staged from the same tree).
+      - name: Cache C++ FetchContent deps (bundle consumer)
+        if: ${{ !cancelled() && steps.fish.outcome == 'success' }}
+        id: toolchains
+        uses: actions/cache@v6
+        with:
+          path: ~/fetchcontent-cache
+          key: bundle-cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
+
+      - name: Validate the bundle across the compiled bindings (gates publish)
+        if: ${{ !cancelled() && steps.toolchains.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
+            --require cpp,go,rust \
+            --fetchcontent-cache "${HOME}/fetchcontent-cache"
+
       # `shake packages` re-needs `dist` (a Shake phony re-runs), so the
       # tarball is rebuilt + re-signed here.  That is sound because the dist
       # tarball is byte-reproducible for a given commit + toolchain (commit-
@@ -351,15 +376,20 @@ jobs:
       # sidecar + keyless signature each), NOT bit-reproducible end-to-end —
       # see the reproducibility note on the Shakefile `packages` rule.
       - name: Build + keyless-sign the native packages (.deb + .rpm)
+        if: ${{ !cancelled() && steps.nfpm.outcome == 'success' }}
+        id: packages
         env:
           ALETHEIA_COSIGN_KEYLESS: '1'
-        run: cabal run shake -- packages
+        run: cabal run shake -- --keep-going packages
 
       # A partial verify loop is the classic gate-that-cannot-fail bug: every
       # signed artifact must verify against THIS workflow's OIDC identity or
       # nothing is published.  The count assertion keeps the loop honest — a
-      # glob that matches nothing would otherwise verify nothing and pass.
+      # glob that matches nothing would otherwise verify nothing and pass.  The
+      # loop verifies every artifact whatever an earlier one answered, then
+      # fails naming each that did not verify.
       - name: Self-verify EVERY signed artifact (gates publish)
+        if: ${{ !cancelled() && steps.packages.outcome == 'success' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -368,15 +398,23 @@ jobs:
             echo "expected exactly 3 signed artifacts (tarball + .deb + .rpm), found ${#artifacts[@]}: ${artifacts[*]}" >&2
             exit 1
           fi
+          unverified=()
           for artifact in "${artifacts[@]}"; do
-            cosign verify-blob \
+            if cosign verify-blob \
               --certificate "${artifact}.crt" \
               --signature "${artifact}.sig" \
               --certificate-identity "https://github.com/${GITHUB_WORKFLOW_REF}" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              "${artifact}"
-            echo "Self-verify OK: ${artifact}"
+              "${artifact}"; then
+              echo "Self-verify OK: ${artifact}"
+            else
+              unverified+=("${artifact}")
+            fi
           done
+          if [ "${#unverified[@]}" -ne 0 ]; then
+            echo "did not verify: ${unverified[*]}" >&2
+            exit 1
+          fi
 
       # Functional gate for the .deb: a real `dpkg -i` on this runner, then
       # the exact consumer chain the package README promises — source
@@ -385,8 +423,10 @@ jobs:
       # gets a structural payload check only: a dnf-container install smoke
       # is out of scope for this lane (the `shake packages` self-check has
       # already proven both formats pack the same contents map, and the .deb
-      # leg exercises those payload bytes functionally).
-      - name: Package install smoke (.deb) + payload structural check (.rpm)
+      # leg exercises those payload bytes functionally).  Two steps, so a .deb
+      # failure hides no .rpm finding.
+      - name: Package install smoke (.deb)
+        if: ${{ !cancelled() && steps.packages.outcome == 'success' }}
         run: |
           set -euo pipefail
           sudo dpkg -i dist/aletheia_*_amd64.deb
@@ -411,11 +451,21 @@ jobs:
             echo "dpkg -r left /opt/aletheia behind" >&2
             exit 1
           fi
+
+      - name: Package payload structural check (.rpm)
+        if: ${{ !cancelled() && steps.packages.outcome == 'success' }}
+        run: |
+          set -euo pipefail
           listing="$(rpm -qlp dist/aletheia-*.x86_64.rpm)"
           test -n "${listing}"
+          missing=()
           for entry in /opt/aletheia/lib/libaletheia-ffi.so /opt/aletheia/env.sh /opt/aletheia/env.fish /opt/aletheia/bindings/python/pyproject.toml; do
-            grep -qx "${entry}" <<<"${listing}"
+            grep -qx "${entry}" <<<"${listing}" || missing+=("${entry}")
           done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "rpm payload lacks: ${missing[*]}" >&2
+            exit 1
+          fi
           echo "rpm payload listing OK"
 
       # ── Runtime container image (built + verified BEFORE any publish) ───────
@@ -424,8 +474,11 @@ jobs:
       # image's kernel), the bundled Rust crate + C++ binding (clang-23)
       # build against the image's own /opt/aletheia, and every package in
       # the image carries its licence text.  The push to GHCR
-      # happens only after the Release publish succeeds, further below.
+      # happens only after the Release publish succeeds, further below.  It
+      # reads dist/aletheia/, which dist stages and the packages step stages
+      # again, so it waits on dist and on the packages step not having failed.
       - name: Build the runtime image (in-build cross-binding verification)
+        if: ${{ !cancelled() && steps.dist.outcome == 'success' && steps.packages.outcome != 'failure' }}
         run: docker build -t aletheia:release -f Dockerfile.runtime .
 
       - name: Publish the GitHub Release (draft; tag pushes only)

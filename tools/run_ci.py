@@ -27,20 +27,26 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
 ═══ ALWAYS-ON STEPS ═══
 
-Steps register into per-toolchain lanes; ``build`` runs first (every lane needs
-its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
-(``--parallel`` — see ``tools/_scheduler.py``).  ``--lanes`` runs the named
+Steps register into per-toolchain lanes; ``build`` runs first and alone (it
+writes the ``.so`` and the generated code the lanes read), then the lanes run
+serially (default) or concurrently (``--parallel`` — see
+``tools/_scheduler.py``).  Every step runs unless a step it needs did not
+pass: a step names, as its ``needs``, the build or the earlier steps of its
+lane whose output it reads, and the summary counts and names each step not
+run with the step it needed.  ``--lanes`` runs the named
 lanes alone, ``build`` still first: full CI runs the sweep in two parts on two
 runners (``.github/workflows/pr-full-ci.yml``), and a sweep of some lanes
 records no build-source digest.  The always-on steps, by lane:
 
   Agda gates:
-    - build           — produces libaletheia-ffi.so (separate prereq; a build
-      failure short-circuits the whole sweep before the lanes spawn).  Runs the
-      staleness gate (tools/check_build_incremental.py — ~2 .so relinks) only
-      when a build-graph file changed (--build-staleness=auto, the default) or
-      always on push:main (--build-staleness=always); otherwise a plain
-      `cabal run shake -- build` (warm-cache no-op).
+    - build           — produces libaletheia-ffi.so with a plain
+      `cabal run shake -- build` (warm-cache no-op; separate prereq; a build
+      failure stops only the steps that need it).
+    - build staleness — the staleness gate (tools/check_build_incremental.py —
+      ~2 .so relinks), only when a build-graph file changed
+      (--build-staleness=auto, the default) or always on push:main
+      (--build-staleness=always); it relinks the .so, so it runs alone after
+      every lane.
     - agda gates      — every remaining cabal-shake gate folded into ONE
       `cabal run shake -- <targets>` call (AGDA_SHAKE_TARGETS).  Shake runs the
       independent phony rules concurrently (shakeThreads=0) — the two heavy proof
@@ -50,8 +56,9 @@ records no build-source digest.  The always-on steps, by lane:
       startup + build-graph re-validation once instead of once per gate.  The
       targets are `AGDA_SHAKE_TARGETS` in tools/_ci_steps.py, and
       `tools/check_gates_reached.py` holds every Shake check target to that list
-      or to a rule that needs it.  Shake fails fast on the first
-      failing target and names it on stderr (surfaced in the failure tail).
+      or to a rule that needs it.  Shake runs every target whatever another
+      answered (`--keep-going`) and names each that failed on stderr
+      (surfaced in the failure tail).
   Branch-scoped IWYU gates (separate — they read the .agdai the gates write):
     - iwyu — `tools/iwyu.py --check --diff` (or `--all` under --iwyu-all, the
       merge-gate scope) on .agda files.  The single `.agdai`-reader tool judges
@@ -68,10 +75,12 @@ records no build-source digest.  The always-on steps, by lane:
     - Python pytest --random-order (Cat 14f test-isolation; AGENTS.md "both
       lanes must stay green")
     - Go test -race
-    - C++ ctest
-    - Rust cargo test (tracer-bullet FFI lifecycle; ALETHEIA_LIB → built .so)
+    - C++ ctest, after the test tree's configure and build, each a step
+    - Rust cargo test, after a step building each crate's tests (FFI
+      lifecycle; ALETHEIA_LIB → built .so)
   Lints:
-    - ruff check + format --check (Python — `select=["ALL"]`)
+    - ruff check, and ruff format --check as a step of its own (Python —
+      `select=["ALL"]`)
     - basedpyright (Python — zero errors, zero warnings)
     - pylint (Python — any message fails the run)
       ruff reads python/ whole, the other two its aletheia/ tests/ benchmarks/;
@@ -81,7 +90,8 @@ records no build-source digest.  The always-on steps, by lane:
       the wider net's other words to tools/_determinism_dismissals.py)
     - gofmt -l + go vet (Go)
     - clang-format --dry-run --Werror (C++)
-    - clang-tidy -p build-tidy (C++ — mandatory per AGENTS.md § Step 4)
+    - clang-tidy -p build-tidy, after that tree's configure (C++ — mandatory
+      per AGENTS.md § Step 4)
     - Rust cargo fmt --check + clippy -D warnings
   GHA meta-checks:
     - actionlint (workflow YAML lint, skipped if not installed)
@@ -150,7 +160,6 @@ rather than silently skipping.
 
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 import os
 import re
@@ -161,12 +170,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType, TextIO
+from typing import TYPE_CHECKING, NamedTuple, NewType, TextIO
 
-from tools._ci_steps import FAST_STEPS, HEAVY_STEPS, register_all_steps
-from tools._common import emit, find_executable, git_toplevel
+from tools import _run_ci_options
+from tools._ci_steps import BUILD_STALENESS_STEP, FAST_STEPS, HEAVY_STEPS, register_all_steps
+from tools._common import GateName, emit, find_executable, git_toplevel
 from tools._resources import cpu_budget
-from tools._scheduler import Step, StepEvent, StepResult, run_lanes
+from tools._run_ci_options import LaneName, OptInOptions
+from tools._scheduler import Step, StepEvent, StepNotRun, StepResult, run_lanes, unmet_needs
 from tools.check_gate_claim import (
     SOURCES_ENV,
     SOURCES_LINE,
@@ -187,11 +198,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from tools._common import ExecutorFactory
-
-# A lane's name, as a step registers into it (``Step.lane``), and the text
-# ``--lanes`` takes: lane names separated by commas.
-LaneName = NewType("LaneName", str)
-LaneSpec = NewType("LaneSpec", str)
+    from tools._scheduler import StepOutcome
 
 # Why a requested subset of lanes is refused, as the sweep prints it.
 LaneRefusal = NewType("LaneRefusal", str)
@@ -242,258 +249,17 @@ def _git_value(repo_root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-@dataclass
-class OptInLanes:
-    """The opt-in lanes, each adding its steps to the sweep when enabled."""
-
-    repro: bool
-    stability: bool
-    mutation: bool
-    coverage: bool
-
-
-@dataclass
-class OptInOptions:
-    """Resolved opt-in state.  CLI > env > default-off precedence."""
-
-    lanes: OptInLanes
-    # Mode flag, NOT a timing lane: switches the IWYU gate (step 9) from
-    # `--diff` (branch-scoped, fast — local pre-push-hook parity) to `--all`
-    # (whole-tree, airtight against cross-file deadness — the server-side
-    # merge gate).  It adds no step and does not change total_steps.
-    iwyu_all: bool = False
-    # Lane-parallel gate execution + the heavy-step concurrency cap.  Default
-    # serial (run_lanes executor=None): exit-code-identical to today.  --parallel
-    # opts into the lane scheduler; heavy_limit bounds concurrent big-memory
-    # steps (the OOM guard) and is only consulted in parallel mode.
-    parallel: bool = False
-    heavy_limit: int = 2
-    # Build-staleness scheduling for the `build` step (see tools/_ci_steps
-    # should_run_staleness): "auto" (default) runs the staleness gate
-    # (check_build_incremental, ~2 .so relinks) only when a build-graph file
-    # changed; "always" is the push:main backstop, "never" an escape hatch.
-    # Not a lane — it picks the build COMMAND, not the step count.
-    build_staleness: str = "auto"
-    # Pre-commit FAST tier: restrict the sweep to the compile-free static gates
-    # (tools._ci_steps.FAST_STEPS) and skip the `build` prereq.  Used by the
-    # pre-commit hook to block non-conforming commits in seconds; pre-push still
-    # runs the full sweep.  A no-op subset filter, so it never changes a step's
-    # command — no gate drift between commit-time and push-time definitions.
-    fast: bool = False
-    # Run only these lanes, and the `build` prereq they all need: how the
-    # full-CI workflow spreads one sweep over two runners.  Empty runs every
-    # lane.  Like the fast tier, a subset filter that never alters a step's
-    # command, and a subset sweep vouches for no build-source digest, since it
-    # is no evidence that every gate observed the tree.
-    only_lanes: tuple[LaneName, ...] = ()
-
-
-def _lane_list(spec: LaneSpec) -> tuple[LaneName, ...] | None:
-    """Read ``--lanes``: its lane names, or None where one of them is empty."""
-    names = tuple(LaneName(name.strip()) for name in spec.split(","))
-    return names if all(names) else None
-
-
-def _resolve_flag(*, cli_value: bool | None, env_var: str) -> bool:
-    """Resolve a tri-state CLI flag against an env-var fallback.
-
-    The flag is ``--lane`` / ``--no-lane`` / unset; returns True iff the lane
-    should run.
-    """
-    if cli_value is not None:
-        return cli_value
-    return os.environ.get(env_var) == "1"
-
-
-def _resolve_heavy_limit(cli_value: int | None) -> int:
-    """Resolve the OOM heavy-step limit: CLI > env > default, clamped to >= 1.
-
-    A non-integer ``ALETHEIA_CI_HEAVY_LIMIT`` falls back to the default rather
-    than crashing the sweep, and a non-positive value is clamped to 1 so the
-    startup banner and the scheduler's ``Semaphore(max(1, n))`` agree on the
-    effective limit (no misleading "heavy-limit 0").
-    """
-    default = 2
-    if cli_value is not None:
-        return max(1, cli_value)
-    try:
-        return max(1, int(os.environ.get("ALETHEIA_CI_HEAVY_LIMIT", str(default))))
-    except ValueError:
-        return default
-
-
-_BUILD_STALENESS_MODES = ("auto", "always", "never")
-
-
-def _resolve_build_staleness(cli_value: str | None) -> str:
-    """Resolve build-staleness mode: CLI > env > "auto" default; invalid env → "auto"."""
-    if cli_value in _BUILD_STALENESS_MODES:
-        return cli_value
-    env = os.environ.get("ALETHEIA_BUILD_STALENESS")
-    return env if env in _BUILD_STALENESS_MODES else "auto"
-
-
-def parse_args(argv: list[str] | None = None) -> OptInOptions:
-    """Parse argv into resolved opt-in lane state (CLI > env > default-off)."""
-    parser = argparse.ArgumentParser(
-        prog="tools/run_ci.py",
-        description="Offline CI orchestrator.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Opt-in lanes can be enabled via CLI flags, env vars, or `--full`.\n"
-            "CLI flags override env vars; env vars override the default (off).\n"
-            "\n"
-            "Examples:\n"
-            "  tools/run_ci.py                       # always-on steps only "
-            "(incl. UBSan; ~22-27 min)\n"
-            "  tools/run_ci.py --full                # everything (45-85 min)\n"
-            "  tools/run_ci.py --stability --repro   # two specific opt-in lanes\n"
-            "  tools/run_ci.py --full --no-mutation  # all opt-ins except mutation\n"
-            "  ALETHEIA_REPRO_CHECK=1 tools/run_ci.py  # legacy env-var trigger\n"
-            "\n"
-            "See also docs/development/CI_LOCAL.md.\n"
-        ),
-    )
-
-    def _add_lane(flag: str, env: str, help_msg: str) -> None:
-        # argparse `--name / --no-name` pattern: action=BooleanOptionalAction
-        # gives us both forms with paired help + None-default for "not set".
-        parser.add_argument(
-            f"--{flag}",
-            action=argparse.BooleanOptionalAction,
-            default=None,
-            help=f"{help_msg} (env: {env}=1)",
-        )
-
-    _add_lane(
-        "repro",
-        "ALETHEIA_REPRO_CHECK",
-        "reproducible-build hash gate (~10 min cold)",
-    )
-    _add_lane(
-        "stability",
-        "ALETHEIA_STABILITY_CHECK",
-        "long-run stability bench (~5 min cold)",
-    )
-    _add_lane(
-        "mutation",
-        "ALETHEIA_MUTATION_CHECK",
-        "mutation testing across 3 bindings (~30 min+)",
-    )
-    _add_lane(
-        "coverage",
-        "ALETHEIA_COVERAGE_CHECK",
-        "coverage floors across 4 bindings (~3 min)",
-    )
-
-    parser.add_argument(
-        "--full",
-        action="store_true",
-        help=(
-            "Enable every opt-in lane (equivalent to --repro --stability "
-            "--mutation --coverage).  Individual --no-<lane> flags can still subtract from "
-            "the --full set (e.g. --full --no-mutation runs everything except "
-            "mutation testing)."
-        ),
-    )
-
-    parser.add_argument(
-        "--iwyu-all",
-        action="store_true",
-        default=False,
-        help=(
-            "Run the IWYU import gate (step 9) over the WHOLE tree (`--all`) "
-            "instead of the branch diff (`--diff`).  Airtight against "
-            "cross-file deadness; this is what the server-side PR merge gate "
-            "uses.  (env: ALETHEIA_IWYU_ALL=1)"
-        ),
-    )
-
-    parser.add_argument(
-        "--fast",
-        action="store_true",
-        default=False,
-        help=(
-            "Pre-commit FAST tier: run ONLY the compile-free static gates "
-            "(format checks, SPDX/review-mark/venv hygiene, ruff, pylint) and "
-            "skip the build prereq.  Seconds, not minutes; no build artifacts "
-            "needed.  Used by the pre-commit hook; a push asks for a full sweep."
-        ),
-    )
-    parser.add_argument(
-        "--parallel",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help=(
-            "Run independent toolchain lanes concurrently (Agda / Python / Go / "
-            "C++ / Rust / meta) rather than serially.  Default off — serial is "
-            "exit-code-identical to the historic sweep.  (env: ALETHEIA_CI_PARALLEL=1)"
-        ),
-    )
-    parser.add_argument(
-        "--ci-heavy-limit",
-        type=int,
-        default=None,
-        help=(
-            "Max big-memory steps run at once in --parallel mode (the OOM guard); "
-            "default 2.  (env: ALETHEIA_CI_HEAVY_LIMIT)"
-        ),
-    )
-    parser.add_argument(
-        "--build-staleness",
-        choices=_BUILD_STALENESS_MODES,
-        default=None,
-        help=(
-            "When the `build` step runs the staleness gate (check_build_incremental, "
-            "~2 .so relinks) vs a plain incremental build.  `auto` (default) runs it "
-            "only when the diff vs `main` touches a build-graph file (Shakefile.hs, "
-            "shake/, shake.cabal, aletheia.agda-lib, the haskell-shim/, "
-            "tools/check_build_incremental.py, tools/_warm.py); `always` is the "
-            "push:main backstop, `never` an escape hatch.  (env: ALETHEIA_BUILD_STALENESS)"
-        ),
-    )
-
-    parser.add_argument(
-        "--lanes",
-        default=None,
-        help=(
-            "Run only the named lanes (comma-separated, e.g. cpp,ubsan,asan) and the "
-            "build prereq; an unknown lane name is refused.  How full CI spreads the "
-            "sweep over two runners; a subset sweep vouches for no build-source digest."
-        ),
-    )
-    args = parser.parse_args(argv)
-    only_lanes = () if args.lanes is None else _lane_list(LaneSpec(args.lanes))
-    if only_lanes is None:
-        parser.error(f"--lanes takes comma-separated lane names, got {args.lanes!r}")
-
-    # --full sets every unset CLI flag to True; explicit --no-<lane> keeps False.
-    # The order matters: apply --full BEFORE _resolve_flag so the env var still
-    # gets to enable a lane that --full + --no-<other> didn't touch.
-    if args.full:
-        for lane in ("repro", "stability", "mutation", "coverage"):
-            if getattr(args, lane) is None:
-                setattr(args, lane, True)
-
-    return OptInOptions(
-        lanes=OptInLanes(
-            repro=_resolve_flag(cli_value=args.repro, env_var="ALETHEIA_REPRO_CHECK"),
-            stability=_resolve_flag(cli_value=args.stability, env_var="ALETHEIA_STABILITY_CHECK"),
-            mutation=_resolve_flag(cli_value=args.mutation, env_var="ALETHEIA_MUTATION_CHECK"),
-            coverage=_resolve_flag(cli_value=args.coverage, env_var="ALETHEIA_COVERAGE_CHECK"),
-        ),
-        iwyu_all=args.iwyu_all or os.environ.get("ALETHEIA_IWYU_ALL") == "1",
-        parallel=_resolve_flag(cli_value=args.parallel, env_var="ALETHEIA_CI_PARALLEL"),
-        heavy_limit=_resolve_heavy_limit(args.ci_heavy_limit),
-        build_staleness=_resolve_build_staleness(args.build_staleness),
-        fast=args.fast or os.environ.get("ALETHEIA_CI_FAST") == "1",
-        only_lanes=only_lanes,
-    )
-
-
 def _now_utc() -> dt.datetime:
     """Return the current timezone-aware UTC moment."""
     return dt.datetime.now(dt.UTC)
+
+
+class Partition(NamedTuple):
+    """The registered steps as a sweep runs them: the build, the lanes, the staleness gate."""
+
+    build: Step | None
+    lanes: list[list[Step]]
+    last: Step | None
 
 
 @dataclass(frozen=True)
@@ -670,6 +436,7 @@ class Runner:
         *,
         cwd: Path | None = None,
         lane: str = "misc",
+        needs: Sequence[GateName] = (),
     ) -> None:
         """Register a step in its toolchain lane (executed later by :meth:`run`).
 
@@ -679,13 +446,22 @@ class Runner:
         across lanes.  Left default, ``lane`` is inferred from the toolchain
         directory the cwd lies in, the first one below the repository root
         (``_LANE_BY_DIR``); pass it explicitly for Shake steps (cwd=None).
+        ``needs`` names the steps whose output this one reads, the build or
+        earlier steps of its lane: it runs only once each of them passed.
         "heavy" (OOM-gated in parallel mode) is derived from ``HEAVY_STEPS``.
         """
         if lane == "misc" and cwd is not None and cwd.is_relative_to(self.repo_root):
             top = cwd.relative_to(self.repo_root).parts[:1]
             lane = _LANE_BY_DIR.get(top[0], "misc") if top else "misc"
         self._registry.append(
-            Step(name=name, cmd=cmd, cwd=cwd, heavy=name in HEAVY_STEPS, lane=lane),
+            Step(
+                name=name,
+                cmd=cmd,
+                cwd=cwd,
+                heavy=name in HEAVY_STEPS,
+                lane=lane,
+                needs=tuple(needs),
+            ),
         )
 
     def announce_skip(self, name: str, reason: str) -> None:
@@ -709,21 +485,21 @@ class Runner:
         via :meth:`_emit`, so the log reads identically run-to-run while the
         terminal shows what is happening as it happens.
         """
-        if event.result is None:
+        result = event.result
+        if result is None:
             line = f"  ▶ {event.name} …"
-        elif event.result.returncode == 0:
-            line = f"  ✓ {event.name} ({int(event.result.duration)}s)"
+        elif isinstance(result, StepNotRun):
+            line = f"  ⊘ {event.name} not run (needs {result.needs})"
+        elif result.returncode == 0:
+            line = f"  ✓ {event.name} ({int(result.duration)}s)"
         else:
-            line = (
-                f"  ✗ {event.name} FAILED "
-                f"(exit {event.result.returncode}, {int(event.result.duration)}s)"
-            )
+            line = f"  ✗ {event.name} FAILED (exit {result.returncode}, {int(result.duration)}s)"
         with self._progress_lock:
             _ = sys.stderr.write(line + "\n")
             sys.stderr.flush()
 
-    def _emit(self, result: StepResult) -> None:
-        """Record one step's deterministic block in the LOG (header, body, ✓/✗).
+    def _emit(self, result: StepOutcome) -> None:
+        """Record one step's deterministic block in the LOG (header, body, ✓/✗/⊘).
 
         Nothing here reaches the terminal on success: the terminal's record is
         the live :meth:`_progress` channel, and teeing the headers too left the
@@ -731,8 +507,15 @@ class Runner:
         The log alone keeps the deterministic lane-then-step blocks — dense,
         with no filler blank lines: the header rule is the block separator,
         and an empty output contributes nothing.  A failure's output tail
-        still goes to stderr (the live ✗ line carries no detail).
+        still goes to stderr (the live ✗ line carries no detail).  A step not
+        run has no block, only its line naming the step it needed.
         """
+        if isinstance(result, StepNotRun):
+            _ = self.log_fh.write(
+                f"  ⊘ {result.name} not run: it needs {result.needs}, which did not pass\n"
+            )
+            self.log_fh.flush()
+            return
         _ = self.log_fh.write(f"─── {result.name} ({int(result.duration)}s) ───\n")
         if result.output:
             _ = self.log_fh.write(result.output)
@@ -814,54 +597,85 @@ class Runner:
             else:
                 os.environ[SOURCES_ENV] = previous
 
+    def _partition(self) -> Partition:
+        """Split the registry into the build, the lanes, and the staleness gate.
+
+        `build` writes the .so and the generated code the lanes read, so it
+        runs first and alone; when it fails, only the steps needing it stop.
+        The staleness gate relinks the .so, so it runs alone after the lanes.
+        """
+        alone = ("build", BUILD_STALENESS_STEP)
+        build, last = (next((s for s in self._registry if s.name == n), None) for n in alone)
+        lanes = self._group_lanes([s for s in self._registry if s.name not in alone])
+        return Partition(build, lanes, last)
+
+    def _refuses_unmet_needs(
+        self, build: Step | None, lanes: list[list[Step]], last: Step | None
+    ) -> bool:
+        """Name each need neither the build nor an earlier step of its lane answers, if any."""
+        checked = [*lanes, [last]] if last is not None else lanes
+        unmet = unmet_needs(checked, {GateName(build.name)} if build is not None else ())
+        for step, need in unmet:
+            self._tee_err(
+                f"run-ci: {step} needs {need}, which is neither the build nor an earlier "
+                + "step of its lane"
+            )
+        return bool(unmet)
+
     def _run_steps(self, executor: ExecutorFactory) -> int:
-        """Run the registered steps and finalize; the body of :meth:`run`."""
+        """Run the registered steps and finalize; the body of :meth:`run`.
+
+        A need the sweep cannot answer, one that is neither the build nor an
+        earlier step of its lane, refuses the sweep before any step runs.
+        """
+        build, lanes, last = self._partition()
+        if self._refuses_unmet_needs(build, lanes, last):
+            self.log_fh.close()
+            return 2
         total = len(self._registry)
         self._header(total)
         for name, reason in self._skips:
             self._tee_err(f"  ⊘ {name} skipped ({reason})")
 
-        results: list[StepResult] = []
-        # `build` produces the .so / .agdai every other lane needs, so it runs
-        # first and alone; a build failure short-circuits the whole sweep.
-        build = next((s for s in self._registry if s.name == "build"), None)
-        rest = [s for s in self._registry if s.name != "build"]
+        results: list[StepOutcome] = []
         if build is not None:
-            (built,) = run_lanes(
-                [[build]],
-                max_workers=1,
-                heavy_limit=1,
-                progress=self._progress,
-                executor=None,
-            )
-            self._emit(built)
-            results.append(built)
-            if built.returncode != 0:
-                return self._finalize(results, total)
+            built = run_lanes([[build]], heavy_limit=1, progress=self._progress, executor=None)
+            self._emit(built[0])
+            results.extend(built)
 
         lane_results = run_lanes(
-            self._group_lanes(rest),
-            max_workers=cpu_budget(),
+            lanes,
             heavy_limit=self.opts.heavy_limit,
             progress=self._progress,
             executor=executor if self.opts.parallel else None,
+            before=results,
         )
         for result in lane_results:
             self._emit(result)
+        if last is not None:
+            (staleness,) = run_lanes(
+                [[last]], heavy_limit=1, progress=self._progress, executor=None, before=results
+            )
+            self._emit(staleness)
+            lane_results.append(staleness)
         results.extend(lane_results)
         return self._finalize(results, total)
 
-    def _finalize(self, results: list[StepResult], total: int) -> int:
+    def _finalize(self, results: list[StepOutcome], total: int) -> int:
         """Tee the summary, close the log, return 0 iff every step passed.
 
         A passing sweep re-measures the build sources before it vouches for
         them: an edit to one while the steps ran leaves a tree no step is
         known to have observed, so the record it would write is refused and
-        the sweep fails, naming the digest it found.
+        the sweep fails, naming the digest it found.  A failed sweep counts
+        every step as passed, failed or not run, and names the last two, each
+        step not run with the step it needed.
         """
         elapsed = int(time.time() - self.start)
-        failures = [r.name for r in results if r.returncode != 0]
-        vouching = not failures and not self._is_subset
+        ran = [r for r in results if isinstance(r, StepResult)]
+        failures = [r.name for r in ran if r.returncode != 0]
+        not_run = [r for r in results if isinstance(r, StepNotRun)]
+        vouching = not failures and not not_run and not self._is_subset
         if vouching and sources_digest_of_worktree(self.ctx.repo_root) != self.ctx.sources:
             self._tee_err("")
             self._tee_err(
@@ -871,7 +685,7 @@ class Runner:
             self._tee_err(f"Full log: {self.ctx.log_path}")
             self.log_fh.close()
             return 1
-        if not failures:
+        if not failures and not not_run:
             self._tee(
                 "\n".join(
                     [
@@ -890,8 +704,15 @@ class Runner:
             return 0
         self._tee_err("")
         self._tee_err(
-            f"═══ CI FAILED — {len(failures)} step(s) failed: {', '.join(failures)} ═══",
+            f"═══ CI FAILED — of {total} steps, {len(ran) - len(failures)} passed, "
+            + f"{len(failures)} failed, {len(not_run)} not run ═══",
         )
+        if failures:
+            self._tee_err(f"Failed:   {', '.join(failures)}")
+        if not_run:
+            self._tee_err(
+                "Not run:  " + ", ".join(f"{step.name} (needs {step.needs})" for step in not_run)
+            )
         self._tee_err(f"Full log: {self.ctx.log_path}")
         self.log_fh.close()
         return 1
@@ -899,7 +720,7 @@ class Runner:
 
 def main(argv: list[str] | None = None) -> int:
     """Run the full offline CI sweep, returning the process exit code."""
-    opts = parse_args(argv)
+    opts = _run_ci_options.parse_args(argv)
     repo_root = _git_root()
     os.chdir(repo_root)
     runner = Runner(opts, RunContext.discover(repo_root))

@@ -192,7 +192,8 @@ jobs:
       # bindings, not provenance — signing stays a release.yml concern, and
       # the release-replay job below verifies a published signature.
       - name: Build the distribution tarball (unsigned)
-        run: cabal run shake -- dist
+        # --keep-going: every gate dist needs reports, whichever fails first.
+        run: cabal run shake -- --keep-going dist
 
       # Consumer toolchains — copied from pr-full-ci.yml with the same cache
       # keys, so the caches seeded there are shared.  --require below turns a
@@ -235,13 +236,20 @@ jobs:
       # FETCHCONTENT_BASE_DIR for the C++ consumer configure — keyed on
       # cpp/CMakeLists.txt, which pins the dependency versions (the bundled
       # binding is staged from the same tree).  Same key as release.yml.
+      # The job's setup ends here: the validation waits on this step having
+      # passed rather than on every step before it, and the self-test on the
+      # validation, since its pass presumes the pristine bundle validates
+      # (python/tests/test_workflow_check_steps.py).
       - name: Cache C++ FetchContent deps (bundle consumer)
+        id: ready
         uses: actions/cache@v6
         with:
           path: ~/fetchcontent-cache
           key: bundle-cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
 
       - name: Validate the bundle across the compiled bindings
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        id: validate
         run: |
           set -euo pipefail
           python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
@@ -249,6 +257,7 @@ jobs:
             --fetchcontent-cache "${HOME}/fetchcontent-cache"
 
       - name: Self-test the validator (corrupted bundles must fail)
+        if: ${{ !cancelled() && steps.validate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz --self-test
@@ -359,8 +368,10 @@ jobs:
 
       # System python3 (3.14 via setup-python): tools.bundle_validate is
       # stdlib-only, and this job never builds the repo, so creating the dev
-      # venv would be pure overhead (precedent: pr-heavy-lanes.yml's
-      # reproducible-build lane invokes its tool the same way).
+      # venv would be pure overhead (precedent: pr-build-lanes.yml's
+      # reproducible-build lane invokes its tool the same way).  It waits on
+      # every step before it, the provenance check included: it runs the
+      # downloaded bundle, which only a verified provenance makes safe to run.
       - name: Validate the downloaded bundle across the compiled bindings
         run: |
           set -euo pipefail

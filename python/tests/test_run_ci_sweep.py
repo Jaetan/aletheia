@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for the sweep a ``tools.run_ci.Runner`` runs: its exit code, its record.
 
-A failing step MUST make ``run()`` return 1 (never a silent green), a ``build``
-failure MUST short-circuit the sweep, and serial and parallel modes must agree
-on pass/fail.  A full sweep records the build sources it observed and the tree
+A failing step MUST make ``run()`` return 1 (never a silent green), a failure,
+the ``build``'s included, stops only the steps that need the failed one, each
+named and counted as not run, and serial and parallel modes must agree on
+pass/fail.  A full sweep records the build sources it observed and the tree
 it swept, exports the digest to its steps, and vouches for neither once they
 moved under it; a sweep of a subset vouches for nothing.  Each step's command
 is answered in-process by a stand-in (``_step_runs``) and the sweep's measures
@@ -14,17 +15,22 @@ timing asserts.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
+import pytest
 from _ci_runner import EXIT_0, EXIT_1, ci_runner, exits, measured_in_process, tree_of
 from _executors import DrivenExecutor
 from _processes import CommandWord
 from _step_runs import Answer, StepCall, ends, install, passes
 
+from tools._common import GateName
+from tools._run_ci_options import LaneName
 from tools.check_gate_claim import SOURCES_ENV, SOURCES_LINE, SOURCES_UNRECORDED, evidence_for
-from tools.run_ci import LaneName, Runner
+from tools.run_ci import Runner
 from tools.sweep_evidence import (
     TREE_LINE,
     TREE_MOVED,
@@ -37,8 +43,6 @@ from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
     from tools._common import WorkerCount
 
@@ -62,21 +66,159 @@ def test_failure_returns_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert runner.run() == 1
 
 
-def test_build_failure_short_circuits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A failing ``build`` aborts the sweep before any lane runs."""
-    after = CommandWord("echo SHOULD_NOT_RUN; exit 0")
+class SweepRun(NamedTuple):
+    """What a sweep answered: its exit code and what it wrote to stderr."""
+
+    code: ExitStatus
+    stderr: Prose
+
+
+def _run(runner: Runner) -> SweepRun:
+    """Run the sweep, returning its exit code and what it wrote to stderr."""
+    captured = io.StringIO()
+    with contextlib.redirect_stderr(captured):
+        code = ExitStatus(runner.run())
+    return SweepRun(code, Prose(captured.getvalue()))
+
+
+def test_a_build_failure_leaves_the_steps_that_do_not_need_it_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing ``build`` stops no step that does not need it, in any lane."""
+    lint = CommandWord("echo LINTED; exit 0")
     measured_in_process(monkeypatch)
     runs = install(
-        monkeypatch,
-        {EXIT_1: ends(ExitStatus(1)), after: ends(ExitStatus(0), Prose("SHOULD_NOT_RUN\n"))},
+        monkeypatch, {EXIT_1: ends(ExitStatus(1)), lint: ends(ExitStatus(0), Prose("LINTED\n"))}
     )
     runner = ci_runner(tmp_path)
     runner.step("build", EXIT_1, lane="agda")
-    runner.step("after", after, lane="x")
+    runner.step("lint", lint, lane="x")
     assert runner.run() == 1
-    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
-    assert "SHOULD_NOT_RUN" not in log  # the post-build step never executed
+    assert runs.commands == [EXIT_1, lint]
+    assert "LINTED" in (tmp_path / "ci.log").read_text(encoding="utf-8")
+
+
+def test_a_step_needing_the_failed_build_is_reported_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A step needing the build that failed runs nowhere and is named, with its need, everywhere.
+
+    The live channel and the log each carry a line for it, and the summary
+    names it with the step it needed.
+    """
+    uses = CommandWord("uses")
+    measured_in_process(monkeypatch)
+    runs = install(monkeypatch, {EXIT_1: ends(ExitStatus(1)), uses: passes})
+    runner = ci_runner(tmp_path)
+    runner.step("build", EXIT_1, lane="agda")
+    runner.step("uses", uses, lane="x", needs=(GateName("build"),))
+    run = _run(runner)
+    assert run.code == 1
     assert runs.commands == [EXIT_1]
+    assert "  ⊘ uses not run (needs build)\n" in run.stderr
+    assert "Not run:  uses (needs build)\n" in run.stderr
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert "  ⊘ uses not run: it needs build, which did not pass\n" in log
+
+
+def test_the_staleness_gate_runs_alone_after_the_lanes_and_hides_none_of_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate relinks the library, so it runs after every lane; its failure stops no step.
+
+    A step reading the build's library runs on the plain build's verdict, so a
+    staleness failure leaves it running, and the summary names the one failure.
+    """
+    plain, stale, uses = CommandWord("plain"), CommandWord("stale"), CommandWord("uses")
+    measured_in_process(monkeypatch)
+    runs = install(monkeypatch, {plain: passes, stale: ends(ExitStatus(1)), uses: passes})
+    runner = ci_runner(tmp_path)
+    runner.step("build", plain, lane="agda")
+    runner.step("build staleness", stale, lane="agda", needs=(GateName("build"),))
+    runner.step("uses", uses, lane="x", needs=(GateName("build"),))
+    run = _run(runner)
+    assert run.code == 1
+    assert runs.commands == [plain, uses, stale]
+    assert "Failed:   build staleness\n" in run.stderr
+
+
+def test_the_lanes_are_logged_before_the_staleness_gate_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupt during the staleness gate's relinks loses no lane's outcome from the log."""
+    plain, uses = CommandWord("plain"), CommandWord("echo USED; exit 1")
+
+    def interrupted(_call: StepCall) -> Answer:
+        raise KeyboardInterrupt
+
+    measured_in_process(monkeypatch)
+    _ = install(
+        monkeypatch,
+        {
+            plain: passes,
+            uses: ends(ExitStatus(1), Prose("USED\n")),
+            CommandWord("stale"): interrupted,
+        },
+    )
+    runner = ci_runner(tmp_path)
+    runner.step("build", plain, lane="agda")
+    runner.step("build staleness", CommandWord("stale"), lane="agda", needs=(GateName("build"),))
+    runner.step("uses", uses, lane="x", needs=(GateName("build"),))
+    with pytest.raises(KeyboardInterrupt):
+        _ = _run(runner)
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert "USED\n" in log
+    assert "  ✗ uses FAILED (exit 1, 0s)\n" in log
+
+
+def test_the_summary_counts_every_step_by_its_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed sweep's summary accounts for every step: passed, failed and not run sum to all."""
+    _ = exits(monkeypatch)
+    runner = ci_runner(tmp_path)
+    runner.step("a", EXIT_0, lane="x")
+    runner.step("b", EXIT_1, lane="x")
+    runner.step("c", EXIT_0, lane="x")
+    runner.step("d", EXIT_0, lane="y")
+    run = _run(runner)
+    assert run.code == 1
+    assert "═══ CI FAILED — of 4 steps, 3 passed, 1 failed, 0 not run ═══\n" in run.stderr
+    assert "Failed:   b\n" in run.stderr
+    assert "Not run:" not in run.stderr
+
+
+def test_the_summary_names_each_step_not_run_with_its_need(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chain of needs below a failure is counted and named link by link."""
+    _ = exits(monkeypatch)
+    runner = ci_runner(tmp_path)
+    runner.step("a", EXIT_1, lane="x")
+    runner.step("b", EXIT_0, lane="x", needs=(GateName("a"),))
+    runner.step("c", EXIT_0, lane="x", needs=(GateName("b"),))
+    runner.step("d", EXIT_0, lane="y")
+    run = _run(runner)
+    assert run.code == 1
+    assert "═══ CI FAILED — of 4 steps, 1 passed, 1 failed, 2 not run ═══\n" in run.stderr
+    assert "Not run:  b (needs a), c (needs b)\n" in run.stderr
+
+
+def test_a_sweep_whose_need_no_step_answers_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A step needing one its lane does not run first is refused before any step runs."""
+    runs = exits(monkeypatch)
+    runner = ci_runner(tmp_path)
+    runner.step("a", EXIT_0, lane="x", needs=(GateName("b"),))
+    runner.step("b", EXIT_0, lane="x")
+    run = _run(runner)
+    assert run.code == 2
+    assert runs.commands == []
+    assert (
+        "run-ci: a needs b, which is neither the build nor an earlier step of its lane\n"
+        in run.stderr
+    )
 
 
 def test_parallel_mode_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

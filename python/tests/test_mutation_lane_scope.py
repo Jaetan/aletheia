@@ -32,7 +32,8 @@ _LANE_JOB = "mutation-lane"
 _SWEEP_STEP = "Mutation testing (${{ matrix.lane }})"
 
 # What a lane runs whatever its scope: the steps that reach the decision, and
-# the steps that report.  Everything else is toolchain, and reads the decision.
+# the steps that report.  Everything else is toolchain, and reads the decision;
+# the sweep reads it to run where it sweeps nothing (``_SWEEP_CONDITION``).
 # A step added here is a step whose minutes every lane pays.
 _UNGATED_STEPS = (
     "Checkout (full history)",
@@ -40,8 +41,13 @@ _UNGATED_STEPS = (
     "Set up Python 3.14",
     "Create the dev venv with the [mutation] extra (mutmut)",
     "Does this lane's binding sweep on this diff?",
-    _SWEEP_STEP,
     "Upload the lane's reports",
+)
+
+# The sweep runs where the scope sweeps nothing, and otherwise once the lane's
+# setup, ending at the FFI build, passed, whatever a check before it answered.
+_SWEEP_CONDITION = (
+    "${{ !cancelled() && (env.LANE_SWEEPS == '0' || steps.ready.outcome == 'success') }}"
 )
 
 type Step = dict[str, object]
@@ -81,6 +87,8 @@ def test_the_steps_a_lane_runs_whatever_its_scope_are_the_ones_that_decide_and_r
 def test_the_scope_is_read_the_way_an_absent_answer_installs() -> None:
     """`!= '0'` installs on an answer that did not arrive; `== '1'` would skip."""
     for name, step in _gated_steps():
+        if name == _SWEEP_STEP:
+            continue
         condition = _condition(step)
         assert f"{mutation_scope.SWEEPS_VAR} != '0'" in condition, f"{name}: {condition}"
 
@@ -98,14 +106,15 @@ def test_a_cache_save_reads_the_scope_its_restore_read() -> None:
         assert mutation_scope.SWEEPS_VAR in condition, f"{name} saves whatever the scope"
 
 
-def test_the_sweep_itself_is_never_gated() -> None:
+def test_the_sweep_itself_is_never_gated_on_the_scope() -> None:
     """The lane runs the runner, reports and uploads whatever its scope.
 
-    A gated sweep step would leave the required check reported by a job that ran
-    nothing, and the C++ merge with a leg's reports missing.
+    A sweep gated on the scope would leave the required check reported by a job
+    that ran nothing, and the C++ merge with a leg's reports missing.  It waits
+    only on the lane's setup, which an absent answer (``!= '0'``) runs.
     """
     sweep = next(step for step in _steps() if str(step.get("name")) == _SWEEP_STEP)
-    assert not _condition(sweep)
+    assert _condition(sweep) == _SWEEP_CONDITION
     uploads = [step for step in _steps() if str(step.get("uses", "")).startswith("actions/upload")]
     assert uploads, "the lane uploads nothing"
     assert all(_condition(step) == "${{ always() }}" for step in uploads)

@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Orchestrator e2e tests for ``tools.run_ci.Runner`` — the gate guarding the gate.
 
-A failing step MUST make ``run()`` return 1 (never a silent green), a ``build``
-failure MUST short-circuit the sweep, and serial and parallel modes must agree
-on pass/fail.  Each step's command is answered in-process by a stand-in
+A failing step MUST make ``run()`` return 1 (never a silent green), a failure
+stops only the steps that need the failed one, and serial and parallel modes
+must agree on pass/fail.  Each step's command is answered in-process by a stand-in
 (``_step_runs``), and the sweep's measures of its build sources and its tree
 are taken from the planted files without git: no real gates, no timing
 asserts.  This is the orchestrator end-to-end validation check at the run()
@@ -21,6 +21,7 @@ import sys
 import tomllib
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 import pytest
 from _ci_runner import EXIT_0, ci_runner, exits
@@ -44,6 +45,7 @@ from tools._ci_steps import (
 )
 from tools._ci_tool_fact_steps import MUTATION_STEP, register_mutation_fact_steps
 from tools._common import (
+    CPP_CONFIGURE_STEP,
     CPP_LINT_TREE,
     GateName,
     RelPath,
@@ -52,13 +54,13 @@ from tools._common import (
     run_capture,
 )
 from tools._resources import cpu_budget
-from tools.run_ci import (
-    LaneName,
-    Runner,
-    parse_args,
-)
+from tools._run_ci_options import LaneName, parse_args
+from tools.run_ci import Runner
 
 from aletheia.common_types import ExitStatus, Prose
+
+if TYPE_CHECKING:
+    from tools._scheduler import Step
 
 # The Agda-gate fan-in folds every cabal-shake gate into one `cabal run shake
 # -- <targets>` invocation.  Its hazard is a silently DROPPED gate: a line removed from
@@ -90,6 +92,15 @@ def test_combined_agda_gates_include_load_bearing_checks() -> None:
     } <= set(AGDA_SHAKE_TARGETS)
 
 
+def test_the_agda_gates_step_runs_every_target_whatever_another_answers(tmp_path: Path) -> None:
+    """Shake keeps going past a failing target, so one gate's failure hides none of the others."""
+    runner = ci_runner(tmp_path)
+    cabal = ["cabal", "run", "shake", "--"]
+    register_all_steps(runner, cabal, runner.opts)
+    (step,) = (entry for entry in runner.registered_steps if entry.name == AGDA_GATES_STEP)
+    assert step.cmd == [*cabal, "--keep-going", *AGDA_SHAKE_TARGETS]
+
+
 def test_combined_agda_step_is_oom_gated() -> None:
     """The combined step carries the heavy proof checks, so it must be OOM-gated."""
     assert AGDA_GATES_STEP in HEAVY_STEPS
@@ -98,8 +109,9 @@ def test_combined_agda_step_is_oom_gated() -> None:
 def test_build_prereq_runs_the_staleness_gate() -> None:
     """`build_prereq_cmd` returns the staleness-gate command (check_build_incremental).
 
-    This is the `build` step's command when the staleness gate is scheduled (a
-    build-graph change, or --build-staleness=always).  Pin it so a refactor can't
+    This is the `build staleness` step's command, the step registered when the
+    gate is scheduled (a build-graph change, or --build-staleness=always).  Pin
+    it so a refactor can't
     silently swap in a bare `cabal build` that skips the edit/revert→.so
     verification — the failure the old `rm -rf` sledgehammer masked.
     """
@@ -175,17 +187,29 @@ def test_a_diff_git_cannot_give_counts_as_a_touched_graph(
     ("changed", "staleness"),
     [(RelPath("shake/Rules/Library.hs"), True), (RelPath("docs/BUILDING.md"), False)],
 )
-def test_under_auto_the_build_step_is_the_staleness_gate_when_the_graph_changed(
+def test_under_auto_the_staleness_gate_is_a_step_of_its_own_when_the_graph_changed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed: RelPath, *, staleness: bool
 ) -> None:
-    """``auto`` asks git what the branch changed, and builds plainly unless the graph moved."""
+    """``auto`` asks git what the branch changed, and gates staleness only where the graph moved.
+
+    The build is plain whatever the answer, so a staleness failure hides no
+    step reading the library; the gate is a step of its own, needing the build.
+    """
     asked = _diff_naming(monkeypatch, changed)
     runner = ci_runner(tmp_path)
     runner = Runner(replace(runner.opts, build_staleness="auto"), runner.ctx)
     cabal = ["cabal", "run", "shake", "--"]
     register_all_steps(runner, cabal, runner.opts)
-    (build,) = (step for step in runner.registered_steps if step.name == "build")
-    assert build.cmd == (build_prereq_cmd(runner.python) if staleness else [*cabal, "build"])
+    steps = {step.name: step for step in runner.registered_steps}
+    assert steps["build"].cmd == [*cabal, "build"]
+    gate = steps.get("build staleness")
+    assert (gate is not None) == staleness
+    if gate is not None:
+        assert (gate.cmd, gate.lane, gate.needs) == (
+            build_prereq_cmd(runner.python),
+            "agda",
+            ("build",),
+        )
     assert asked == [_diff_against_main(tmp_path)]
 
 
@@ -243,6 +267,16 @@ def test_register_all_steps_populates_the_catalog(tmp_path: Path) -> None:
     assert len(names) == len(set(names))  # a duplicate name would mask a dropped step
 
 
+def _ruff_reads_the_shared_list(step: Step, verb: CommandWord) -> None:
+    """Hold one ruff step to running ``verb`` over ``python/`` and each root entry, once each."""
+    assert isinstance(step.cmd, str)
+    args = shlex.split(step.cmd)
+    assert args[2:4] == ["ruff", verb], args
+    for root in ROOT_PYTHON:
+        assert args.count(str(root)) == 1, f"{step.name} does not read {root}"
+    assert args.count("python") == 1
+
+
 @pytest.mark.process("which Python files the repository tracks is git's own answer")
 def test_every_tracked_python_file_is_read_by_all_three_linters(tmp_path: Path) -> None:
     """ruff, basedpyright and pylint each read every tracked Python file.
@@ -256,14 +290,9 @@ def test_every_tracked_python_file_is_read_by_all_three_linters(tmp_path: Path) 
     runner = ci_runner(tmp_path)
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
     steps = {step.name: step for step in runner.registered_steps}
-    ruff_cmd = steps["ruff"].cmd
-    assert isinstance(ruff_cmd, str)
-    ruff_args = shlex.split(ruff_cmd)
     package = ["aletheia/", "tests/", "benchmarks/"]
-    for root in ROOT_PYTHON:
-        # check and format --check each name the list once.
-        assert ruff_args.count(str(root)) == 2, f"ruff does not read {root}"
-    assert ruff_args.count("python") == 2
+    _ruff_reads_the_shared_list(steps["ruff"], CommandWord("check"))
+    _ruff_reads_the_shared_list(steps["ruff format"], CommandWord("format"))
     for linter in ("basedpyright", "pylint"):
         args = list(steps[linter].cmd)
         missing = [p for p in [*package, *(str(".." / p) for p in ROOT_PYTHON)] if p not in args]
@@ -367,14 +396,15 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
     """clang-tidy and the checks reading its database share a lane the test build is not in.
 
     The lane's first step configures the lint tree with the binding's
-    compilers and lints from that tree's database, so the checks after it read
-    a database that exists; the clang-tidy facts gate, last, reads none and
-    runs the lane's clang-tidy.  The cpp lane, which builds and runs the tests,
-    holds none of them, so none waits for that build.
+    compilers; clang-tidy lints from that tree's database and the checks after
+    it read a database that exists; the clang-tidy facts gate, last, reads none
+    and runs the lane's clang-tidy.  The cpp lane, which builds and runs the
+    tests, holds none of them, so none waits for that build.
     """
     runner = ci_runner(tmp_path)
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
     gates = [
+        "clang-tidy configure",
         "clang-tidy",
         "check-clang-tidy-coverage",
         "check-cpp-ast",
@@ -383,10 +413,10 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
     ]
     lane = [step for step in runner.registered_steps if step.lane == CPP_LINT_LANE]
     assert [step.name for step in lane] == gates
-    tidy = str(lane[0].cmd)
-    assert _build_dir(tidy) == CPP_LINT_TREE
-    assert CPP_COMPILERS in tidy
-    assert f" -p {CPP_LINT_TREE} cpp/src/ cpp/tests/ cpp/benchmarks/" in tidy
+    configure, tidy = str(lane[0].cmd), str(lane[1].cmd)
+    assert _build_dir(configure) == CPP_LINT_TREE
+    assert CPP_COMPILERS in configure
+    assert tidy.endswith(f" -p {CPP_LINT_TREE} cpp/src/ cpp/tests/ cpp/benchmarks/")
     cpp = [step.name for step in runner.registered_steps if step.lane == "cpp"]
     assert "ctest" in cpp
     assert not set(gates) & set(cpp)
@@ -419,9 +449,9 @@ _TOOL_FACT_GATES = {
 def test_each_tool_fact_gate_runs_its_module_after_what_it_reads(tmp_path: Path) -> None:
     """A tool-fact gate runs its module from the root, in its lane, after the step making its input.
 
-    The Agda gate copies sources the Agda gates have just checked, and the JSON
-    gate builds a target of the tree the C++ test step configures, so each
-    comes after that step in its lane.
+    The JSON gate builds a target of the tree the C++ lane's configure step
+    configures, so it comes after that step in its lane; the Agda gate checks a
+    copy of the sources and reads no step's output.
     """
     runner = ci_runner(tmp_path)
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
@@ -435,21 +465,14 @@ def test_each_tool_fact_gate_runs_its_module_after_what_it_reads(tmp_path: Path)
         ), name
         assert importlib.util.find_spec(module) is not None, module
 
-    def order(lane: LaneName) -> list[GateName]:
-        return [GateName(step.name) for step in runner.registered_steps if step.lane == lane]
-
-    agda = order(LaneName("agda"))
-    assert agda.index(GateName("check-agda-interface-reuse")) > agda.index(
-        GateName(AGDA_GATES_STEP)
-    )
-    cpp = order(LaneName("cpp"))
-    assert cpp.index(GateName("check-json-cleanup-abort")) > cpp.index(GateName("ctest"))
+    cpp = [GateName(step.name) for step in runner.registered_steps if step.lane == "cpp"]
+    assert cpp.index(GateName("check-json-cleanup-abort")) > cpp.index(CPP_CONFIGURE_STEP)
 
 
 # Each gate on a mutation tool's fact that runs as one step: the lane holding
 # its tool, and its module.
 _MUTATION_FACT_GATES = {
-    "check-mull-plugin-facts": (LaneName("cpp"), "tools.check_mull_plugin_facts"),
+    "check-mull-plugin-facts": (LaneName("misc"), "tools.check_mull_plugin_facts"),
     "check-cargo-mutants-shards": (LaneName("rust"), "tools.check_cargo_mutants_shards"),
     "check-mutmut-operators": (LaneName("python"), "tools.check_mutmut_operators"),
 }
@@ -499,6 +522,18 @@ def test_each_mutation_tool_fact_gate_names_a_module_the_tree_has() -> None:
         "tools.check_cpp_slices_census",
     ):
         assert importlib.util.find_spec(module) is not None, module
+
+
+def test_the_mull_facts_gate_follows_the_sweep_that_configures_its_trees(tmp_path: Path) -> None:
+    """The gate reads a mutation tree the C++ sweep configures, so it follows the sweep in its lane.
+
+    In another lane it could read the trees before the sweep configured them.
+    """
+    runner = _sweeping(ci_runner(tmp_path))
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    steps = {step.name: step for step in runner.registered_steps}
+    lane = [s.name for s in runner.registered_steps if s.lane == steps[MUTATION_STEP].lane]
+    assert lane.index("check-mull-plugin-facts") > lane.index(MUTATION_STEP)
 
 
 def test_the_census_gate_s_steps_follow_the_sweep_in_its_lane(tmp_path: Path) -> None:
@@ -871,9 +906,50 @@ def test_the_go_module_loop_fails_when_one_module_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.process(_A_SHELL_RUNS_THE_LOOP)
+def test_the_go_module_loop_runs_every_module_after_one_fails(tmp_path: Path) -> None:
+    """A module that fails stops no later one: each runs, and the step still fails."""
+    modules = [tmp_path / name for name in ("core", "cli", "excel")]
+    for module in modules:
+        module.mkdir()
+    listing = [str(m) for m in modules]
+    assert _go_loop(tmp_path, listing, 'touch ran; test "$(basename "$PWD")" != core') == 1
+    assert all((m / "ran").exists() for m in modules)
+
+
+@pytest.mark.process(_A_SHELL_RUNS_THE_LOOP)
 def test_the_go_module_loop_fails_when_the_listing_fails_or_is_empty(tmp_path: Path) -> None:
     """A workspace go cannot list, or one listing nothing, is a failure, never a pass."""
     (tmp_path / "failed").mkdir()
     (tmp_path / "empty").mkdir()
     assert _go_loop(tmp_path / "failed", [], "true", list_status=1) == 1
     assert _go_loop(tmp_path / "empty", [], "true") == 1
+
+
+# Each cargo step's flag that carries it past its first failure: a build past a
+# target that does not compile, a test run past a test program that fails.
+_CARGO_GOES_ON = {
+    "cargo build (tests)": "--keep-going",
+    "cargo test": "--no-fail-fast",
+    "cargo build (tests, excel crate)": "--keep-going",
+    "cargo test (excel crate)": "--no-fail-fast",
+    "cargo clippy": "--keep-going",
+    "cargo doc (warnings = errors)": "--keep-going",
+    "cargo clippy (excel crate)": "--keep-going",
+    "cargo doc (excel crate, warnings = errors)": "--keep-going",
+}
+
+
+def test_every_cargo_step_goes_past_its_first_failure(tmp_path: Path) -> None:
+    """Without its flag cargo stops at the first target or test program that fails.
+
+    ``cargo test`` takes no ``--keep-going``, so each crate's tests and
+    examples are built by a ``cargo build`` step that does, and the test step
+    after it reuses what that built.
+    """
+    runner = ci_runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    steps = {step.name: step for step in runner.registered_steps}
+    for name, flag in _CARGO_GOES_ON.items():
+        assert flag in shlex.split(str(steps[name].cmd)), (name, steps[name].cmd)
+    cargo = {name for name, step in steps.items() if "cargo" in shlex.split(str(step.cmd))}
+    assert cargo - set(_CARGO_GOES_ON) == {"cargo fmt", "cargo fmt (excel crate)"}

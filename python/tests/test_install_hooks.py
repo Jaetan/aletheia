@@ -7,9 +7,7 @@ What they render, and what the rendered hooks do to a repository.
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
-import io
 import json
 import os
 import re
@@ -18,9 +16,11 @@ import subprocess
 import sys
 import types
 from enum import Enum
+from functools import partial
 from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 import pytest
+from _hook_runs import GitDone, GitOutput, HookRun, ToolDone, ToolOutput, run_main
 
 from tools._common import find_executable
 from tools.install_hooks import (
@@ -119,7 +119,7 @@ def _gate(
 
     hook["_run"] = fake_run
     hook["_run_iwyu"] = fake_run_iwyu
-    gate = cast("Callable[[Path], int]", hook["_iwyu_gate"])
+    gate = cast("Callable[[Path], ExitStatus]", hook["_iwyu_gate"])
     rc = gate(tmp_path)
     assert iwyu_args == ["Aletheia/Staged.agda"]
     return rc, capsys.readouterr().err, iwyu_args
@@ -199,20 +199,15 @@ _NOTES_WORKTREE = "l1\nL2\nL3\nl4\nl5\nl6\n"
 # status of the whole tree, one word of a git command line, one word of the
 # command line of a tool the hook runs, a NUL-separated list of paths as the
 # hook hands git, what a git process wrote, what a tool the hook runs wrote,
-# the sha of a stash commit, a revision git resolves (a sha, or one with a
-# suffix), and the work tree's root as git prints it.
+# the sha of a stash commit and a revision git resolves (a sha, or one with a
+# suffix); what a git process or a tool wrote is _hook_runs's.
 RelPath = NewType("RelPath", str)
 FileText = NewType("FileText", str)
 PorcelainStatus = NewType("PorcelainStatus", str)
 GitWord = NewType("GitWord", str)
 NulPaths = NewType("NulPaths", str)
-GitOutput = NewType("GitOutput", str)
-ToolOutput = NewType("ToolOutput", str)
 StashSha = NewType("StashSha", str)
 Revision = NewType("Revision", str)
-TopLevel = NewType("TopLevel", str)
-GitDone = subprocess.CompletedProcess[GitOutput]
-ToolDone = subprocess.CompletedProcess[ToolOutput]
 
 # The gate stub: it writes down what a gate run by the hook sees, git's status,
 # every file's text and every directory, to the path the test bakes in outside
@@ -638,13 +633,6 @@ def test_pre_commit_s_entry_is_one_git_stash_pop_reads(tmp_path: Path) -> None:
     assert _git(repo, "stash", "list") == ""
 
 
-class HookRun(NamedTuple):
-    """What a hook answered: its exit status and what it wrote to stderr."""
-
-    returncode: ExitStatus
-    stderr: Prose
-
-
 class PathCall(NamedTuple):
     """One git command the hook ran over a list of paths."""
 
@@ -659,16 +647,36 @@ class FakedHook(NamedTuple):
     git_calls: list[list[GitWord]]
     restores: list[PathCall]
     gate_runs: list[list[CommandWord]]
+    iwyu_runs: list[Path]
 
 
 _OURS = StashSha("0123456789abcdef0123456789abcdef01234567")
 _THEIRS = StashSha("89abcdef0123456789abcdef0123456789abcdef")
+# What the hook's two gates answer, the FAST tier's run and the IWYU gate.
+_PASS, _FAIL = ExitStatus(0), ExitStatus(1)
+
+
+def _parked_pair(root: Path, sha: StashSha | None = None) -> tuple[NulPaths, NulPaths]:
+    """Stand in for both listings of what the hook parks: one tracked, one untracked file."""
+    del root, sha
+    return NulPaths("notes.txt\0"), NulPaths("scratch.txt\0")
+
+
+def _answer_iwyu(runs: list[Path], status: ExitStatus, root: Path) -> ExitStatus:
+    """Stand in for the hook's IWYU gate: record the root it was run on, answer ``status``."""
+    runs.append(root)
+    return status
 
 
 def _faked_hook(
-    tmp_path: Path, *, stash: StashSha | None, isolated: bool, restored: bool
+    tmp_path: Path,
+    *,
+    stash: StashSha | None,
+    isolated: bool,
+    restored: bool,
+    gates: tuple[ExitStatus, ExitStatus] = (_PASS, _PASS),
 ) -> FakedHook:
-    """Load the hook with its gate answering a pass in-process and its parking faked.
+    """Load the hook with its two gates answering in-process and its parking faked.
 
     The parked paths are one tracked and one untracked file; recording them
     answers ``stash``, isolating the tree answers ``isolated``, and each
@@ -676,8 +684,9 @@ def _faked_hook(
     answers only what the drop reads, with a foreign entry on top of the
     stack and the hook's own beneath it. The gate's runner file is planted
     because the hook looks for it before it runs anything; the run itself is
-    answered by the hook's own ``subprocess`` name, rebound to a passing
-    result, so the tests start no process.
+    answered by the hook's own ``subprocess`` name, rebound to the result
+    ``gates`` names first, and the IWYU gate answers its second, so the tests
+    start no process.
     """
     hook = _load_pre_commit(tmp_path)
     (tmp_path / "tools").mkdir()
@@ -686,6 +695,7 @@ def _faked_hook(
     git_calls: list[list[GitWord]] = []
     restores: list[PathCall] = []
     gate_runs: list[list[CommandWord]] = []
+    iwyu_runs: list[Path] = []
 
     def fake_gate(
         args: list[CommandWord], *, cwd: Path | None = None, check: bool = False
@@ -693,7 +703,7 @@ def _faked_hook(
         del cwd, check
         assert args[1:] == ["-m", "tools.run_ci", "--fast"], args
         gate_runs.append(args)
-        return subprocess.CompletedProcess(args, 0, ToolOutput(""), ToolOutput(""))
+        return subprocess.CompletedProcess(args, gates[0], ToolOutput(""), ToolOutput(""))
 
     def fake_run(args: list[GitWord], cwd: Path | None = None) -> GitDone:
         del cwd
@@ -705,10 +715,6 @@ def _faked_hook(
             out = GitOutput("stash@{0} " + _THEIRS + "\nstash@{1} " + _OURS + "\n")
         return subprocess.CompletedProcess(args, 0, out, GitOutput(""))
 
-    def fake_parked_paths(root: Path) -> tuple[NulPaths, NulPaths]:
-        del root
-        return NulPaths("notes.txt\0"), NulPaths("scratch.txt\0")
-
     def fake_create_stash(root: Path, unstaged: NulPaths, untracked: NulPaths) -> StashSha | None:
         del root, unstaged, untracked
         return stash
@@ -716,10 +722,6 @@ def _faked_hook(
     def fake_isolate(root: Path, i_tree: Revision, unstaged: NulPaths, untracked: NulPaths) -> bool:
         del root, i_tree, unstaged, untracked
         return isolated
-
-    def fake_stash_paths(root: Path, sha: StashSha) -> tuple[NulPaths, NulPaths]:
-        del root, sha
-        return NulPaths("notes.txt\0"), NulPaths("scratch.txt\0")
 
     def fake_restore(root: Path, source: Revision, paths: NulPaths) -> GitDone:
         del root
@@ -729,20 +731,20 @@ def _faked_hook(
 
     hook["subprocess"] = types.SimpleNamespace(run=fake_gate)
     hook["_run"] = fake_run
-    hook["_parked_paths"] = fake_parked_paths
+    hook["_parked_paths"] = _parked_pair
     hook["_create_stash"] = fake_create_stash
     hook["_isolate"] = fake_isolate
-    hook["_stash_paths"] = fake_stash_paths
+    hook["_stash_paths"] = _parked_pair
     hook["_restore_worktree"] = fake_restore
-    return FakedHook(cast("Callable[[], ExitStatus]", hook["main"]), git_calls, restores, gate_runs)
+    hook["_iwyu_gate"] = partial(_answer_iwyu, iwyu_runs, gates[1])
+    return FakedHook(
+        cast("Callable[[], ExitStatus]", hook["main"]), git_calls, restores, gate_runs, iwyu_runs
+    )
 
 
-def _main(faked: FakedHook | PushedHook) -> HookRun:
+def _main(faked: FakedHook) -> HookRun:
     """Run the faked hook's ``main`` with its stderr captured."""
-    captured = io.StringIO()
-    with contextlib.redirect_stderr(captured):
-        rc = faked.main()
-    return HookRun(rc, Prose(captured.getvalue()))
+    return run_main(faked.main)
 
 
 def test_pre_commit_refuses_when_the_parked_work_cannot_be_recorded(tmp_path: Path) -> None:
@@ -773,6 +775,21 @@ def test_pre_commit_refuses_when_the_tree_cannot_be_isolated_and_writes_the_work
     assert "SAFE" not in done.stderr
 
 
+@pytest.mark.parametrize(
+    "gates", [(_FAIL, _PASS), (_PASS, _FAIL), (_FAIL, _FAIL)], ids=["fast", "iwyu", "both"]
+)
+def test_pre_commit_runs_both_gates_and_refuses_when_either_fails(
+    tmp_path: Path, gates: tuple[ExitStatus, ExitStatus]
+) -> None:
+    """The IWYU gate runs whatever the FAST tier answered, so one refusal reports both."""
+    faked = _faked_hook(tmp_path, stash=_OURS, isolated=True, restored=True, gates=gates)
+    done = _main(faked)
+    assert done.returncode == 1
+    assert len(faked.gate_runs) == 1
+    assert faked.iwyu_runs == [tmp_path]
+    assert ("FAST static gates failed" in done.stderr) == (gates[0] == _FAIL)
+
+
 def test_pre_commit_drops_its_own_entry_and_not_the_one_on_top(tmp_path: Path) -> None:
     """The entry dropped is the hook's own, found by its sha, never the top of the stack."""
     faked = _faked_hook(tmp_path, stash=_OURS, isolated=True, restored=True)
@@ -799,166 +816,3 @@ def test_pre_commit_restore_failure_keeps_the_stash_and_prints_the_recipe(tmp_pa
     assert "git --literal-pathspecs restore --source=" + _OURS + " --worktree" in done.stderr
     assert "git --literal-pathspecs restore --source=" + _OURS + "^3 --worktree" in done.stderr
     assert [call for call in faked.git_calls if call[1:3] == ["stash", "drop"]] == []
-
-
-class Evidence(Enum):
-    """What the evidence tool answers when the hook asks about the pushed commits."""
-
-    RECORDED = "a sweep of the pushed tree is on record before the push"
-    AFTER_SWEEP = "the hook's own sweep records the pushed tree"
-    NEVER = "no sweep ever records the pushed tree, as for a dirty working tree"
-
-
-# The ref lines git hands a pre-push hook on stdin, a file the hook runs, and
-# the commits one question to the evidence tool named.
-RefLines = NewType("RefLines", str)
-ToolFile = NewType("ToolFile", str)
-Question = NewType("Question", str)
-
-
-class PushedHook(NamedTuple):
-    """A pre-push hook loaded with its tools faked, and what they were asked."""
-
-    main: Callable[[], ExitStatus]
-    asked: list[Question]
-    sweeps: list[list[CommandWord]]
-
-
-def _load_pre_push(tmp_path: Path) -> types.ModuleType:
-    """Import the rendered pre-push body as a module and return it.
-
-    The body guards ``main`` behind ``__main__``, so importing it runs nothing
-    and yields a module whose names a test can patch.
-    """
-    script = tmp_path / "pre_push.py"
-    script.write_text(PRE_PUSH_BODY, encoding="utf-8")
-    spec = importlib.util.spec_from_file_location("aletheia_pre_push_under_test", script)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _faked_push(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, evidence: Evidence) -> PushedHook:
-    """Load the pre-push hook with git and its two tools answered in-process.
-
-    The hook's own ``subprocess`` name is patched: git names ``tmp_path`` as
-    the work tree's root, the evidence tool answers as ``evidence`` says and
-    writes down, one question per entry, the commits it was asked about, and
-    the sweep passes and writes down that it ran. The tool files are planted
-    empty because the hook looks for each before it runs anything.
-    """
-    hook = _load_pre_push(tmp_path)
-    (tmp_path / "tools").mkdir()
-    for tool in ("__init__.py", "run_ci.py", "sweep_evidence.py"):
-        (tmp_path / "tools" / tool).write_text("", encoding="utf-8")
-    asked: list[Question] = []
-    sweeps: list[list[CommandWord]] = []
-
-    def fake_run(
-        args: list[CommandWord],
-        *,
-        cwd: TopLevel | None = None,
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-    ) -> GitDone | ToolDone:
-        del cwd, capture_output, text, check
-        if args == ["git", "rev-parse", "--show-toplevel"]:
-            return subprocess.CompletedProcess(
-                args, 0, GitOutput(str(tmp_path) + "\n"), GitOutput("")
-            )
-        if args[1:3] == ["-m", "tools.sweep_evidence"]:
-            asked.append(Question(" ".join(args[3:])))
-            recorded = evidence is Evidence.RECORDED or (
-                evidence is Evidence.AFTER_SWEEP and bool(sweeps)
-            )
-            return subprocess.CompletedProcess(
-                args, int(not recorded), ToolOutput(""), ToolOutput("")
-            )
-        assert args[1:4] == ["-m", "tools.run_ci", "--parallel"], args
-        sweeps.append(args)
-        return subprocess.CompletedProcess(args, 0, ToolOutput(""), ToolOutput(""))
-
-    monkeypatch.setattr(hook, "subprocess", types.SimpleNamespace(run=fake_run))
-    return PushedHook(cast("Callable[[], ExitStatus]", hook.main), asked, sweeps)
-
-
-def _push(faked: PushedHook, refs: RefLines, monkeypatch: pytest.MonkeyPatch) -> HookRun:
-    """Run the faked hook's ``main`` as git would, with ``refs`` on its stdin."""
-    monkeypatch.setattr(sys, "stdin", io.StringIO(refs))
-    return _main(faked)
-
-
-_PUSHED = "a" * 40
-_OTHER = "b" * 40
-_REFS = RefLines(
-    "".join(
-        [
-            f"refs/heads/b {_PUSHED} refs/heads/b {'0' * 40}\n",
-            f"refs/tags/t {_OTHER} refs/tags/t {'0' * 40}\n",
-        ]
-    )
-)
-
-
-def test_pre_push_allows_at_once_a_push_whose_trees_passed_a_recorded_sweep(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """With every pushed ref's tree on record, the push goes without a sweep."""
-    faked = _faked_push(tmp_path, monkeypatch, Evidence.RECORDED)
-    done = _push(faked, _REFS, monkeypatch)
-    assert done.returncode == 0, done.stderr
-    assert faked.asked == [f"{_PUSHED} {_OTHER}"]
-    assert not faked.sweeps
-    assert "push allowed" in done.stderr
-
-
-def test_pre_push_sweeps_then_allows_once_its_sweep_records_the_pushed_tree(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A tree no sweep covers makes the hook sweep, then ask again before it allows."""
-    faked = _faked_push(tmp_path, monkeypatch, Evidence.AFTER_SWEEP)
-    done = _push(faked, _REFS, monkeypatch)
-    assert done.returncode == 0, done.stderr
-    assert len(faked.sweeps) == 1
-    assert faked.asked == [f"{_PUSHED} {_OTHER}"] * 2
-    assert "push allowed" in done.stderr
-
-
-def test_pre_push_refuses_when_its_sweep_passed_on_another_tree(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A passing sweep of a working tree that is not the pushed one allows nothing."""
-    faked = _faked_push(tmp_path, monkeypatch, Evidence.NEVER)
-    done = _push(faked, _REFS, monkeypatch)
-    assert done.returncode == 1, done.stderr
-    assert len(faked.sweeps) == 1
-    assert len(faked.asked) == 2
-    assert "push refused" in done.stderr
-
-
-def test_pre_push_allows_a_deletion_which_pushes_no_commit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A ref line whose local id is all zeros deletes a remote ref and needs no sweep."""
-    faked = _faked_push(tmp_path, monkeypatch, Evidence.NEVER)
-    done = _push(faked, RefLines(f"(delete) {'0' * 40} refs/heads/b {_PUSHED}\n"), monkeypatch)
-    assert done.returncode == 0, done.stderr
-    assert not faked.asked
-    assert not faked.sweeps
-
-
-@pytest.mark.parametrize("tool", [ToolFile("run_ci.py"), ToolFile("sweep_evidence.py")])
-def test_pre_push_refuses_when_a_tool_it_runs_is_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: ToolFile
-) -> None:
-    """Without the sweep or its evidence the hook cannot vouch for the push, so it refuses."""
-    faked = _faked_push(tmp_path, monkeypatch, Evidence.RECORDED)
-    (tmp_path / "tools" / tool).unlink()
-    done = _push(faked, _REFS, monkeypatch)
-    assert done.returncode == 1, done.stderr
-    assert f"{tool} not found" in done.stderr
-    assert not faked.asked
-    assert not faked.sweeps

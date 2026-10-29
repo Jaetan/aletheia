@@ -27,11 +27,20 @@ from typing import TYPE_CHECKING
 from tools._branch_diff import branch_changes
 from tools._ci_opt_in_steps import register_opt_in_steps
 from tools._ci_tool_fact_steps import register_mutation_fact_steps, register_tool_fact_steps
-from tools._common import CPP_COMPILERS, CPP_LINT_LANE, CPP_LINT_TREE, PYTEST_SUITE_ARGS
+from tools._common import (
+    BUILD_STEP,
+    CPP_COMPILERS,
+    CPP_CONFIGURE_STEP,
+    CPP_LINT_LANE,
+    CPP_LINT_TREE,
+    PYTEST_SUITE_ARGS,
+    GateName,
+)
 from tools._resources import cpu_budget
 
 if TYPE_CHECKING:
-    from tools.run_ci import OptInOptions, Runner
+    from tools._run_ci_options import OptInOptions
+    from tools.run_ci import Runner
 
 # The combined Agda-gate step: every cabal-shake gate folded into ONE
 # `cabal run shake -- <targets>` invocation.  Shake (shakeThreads=0, all-core)
@@ -41,9 +50,9 @@ if TYPE_CHECKING:
 # (`AGDA_HEAP_CAP`, tools/_warm.py) holds to 8 GiB of a 16 GB GHA runner, so
 # no Shake-internal gate is needed — and the single process pays cabal/shake
 # startup + build-graph re-validation ONCE instead of once per gate (the
-# dominant GHA cost).  `build` stays a separate prereq (preserves the
-# build-fail short-circuit); `iwyu` stays separate (it reads the .agdai that
-# check-properties writes).  Pinned as a tuple so the regression test can
+# dominant GHA cost).  `build` stays a separate step, run first and alone;
+# `iwyu` stays separate (it refreshes the .agdai of the files it reads, reusing
+# those check-properties writes).  Pinned as a tuple so the regression test can
 # assert no gate is silently dropped on edit.
 AGDA_GATES_STEP = "agda gates"
 AGDA_SHAKE_TARGETS: tuple[str, ...] = (
@@ -75,9 +84,11 @@ AGDA_SHAKE_TARGETS: tuple[str, ...] = (
 HEAVY_STEPS: frozenset[str] = frozenset(
     {
         "build",
+        "build staleness",
         AGDA_GATES_STEP,
         "pytest",
         "go test -race",
+        "cpp build",
         "ctest",
         "ubsan ctest",
         "asan ctest",
@@ -97,9 +108,10 @@ HEAVY_STEPS: frozenset[str] = frozenset(
 # and pytest-cli-parity, which compile or need artifacts and would (a) trigger
 # recompiles under the pre-commit stash and (b) run against a stale ``.so``.  Those
 # stay pre-push.  Membership scope chosen 2026-07-12: format checks (every binding)
-# + SPDX/source-length/review-mark/venv hygiene + the two Python linters (ruff, pylint — both
-# interpreted, no compile).  The split of ``gofmt``/``cargo fmt`` out of their
-# ``go vet``/``clippy`` partners exists to make this allowlist expressible.
+# + SPDX/source-length/review-mark/venv hygiene + the two Python linters (ruff, its
+# format check and pylint — interpreted, no compile).  The split of
+# ``gofmt``/``cargo fmt`` out of their ``go vet``/``clippy`` partners exists to
+# make this allowlist expressible.
 # ``check-dist-staging`` qualifies too: it only parses the build program and runs
 # ``git ls-files`` / shell syntax checks, and ``git ls-files`` reads the INDEX —
 # exactly the staged content the pre-commit tier is defined over.  So does
@@ -127,9 +139,22 @@ FAST_STEPS: frozenset[str] = frozenset(
         "cargo fmt",
         "cargo fmt (excel crate)",
         "ruff",
+        "ruff format",
         "pylint",
     }
 )
+
+
+# The steps another step of the same lane needs, by the name both spell: the
+# build of the C++ test tree, the configure of the lint tree, and the build of
+# each crate's tests, which fetches the crates they resolve.
+CPP_BUILD_STEP = GateName("cpp build")
+# The staleness gate's step, which run() runs alone after every lane, since it
+# relinks the library the lanes read.
+BUILD_STALENESS_STEP = GateName("build staleness")
+LINT_CONFIGURE_STEP = GateName("clang-tidy configure")
+CARGO_TEST_BUILD_STEP = GateName("cargo build (tests)")
+EXCEL_CARGO_TEST_BUILD_STEP = GateName("cargo build (tests, excel crate)")
 
 
 # The cgo-free build of every package, keeping nothing: a module holding one
@@ -179,20 +204,20 @@ def in_every_go_module(cmd: str) -> str:
     ``./...`` stops at a module's edge, so a command run from ``go/`` reaches the
     core module alone.  The list is the workspace's own, ``go list -m`` read from
     ``go/go.work``, so a module the workspace adds is gated the day it is added.
-    An empty or failed listing fails the step, as does the first module that fails.
+    An empty or failed listing fails the step, as does any module that fails,
+    and every module runs whatever an earlier one answered.
     """
     return (
         "mods=$(go list -m -f '{{.Dir}}') && test -n \"$mods\" || exit 1; "
-        + f'for m in $mods; do (cd "$m" && {cmd}) || exit 1; done'
+        + f'rc=0; for m in $mods; do (cd "$m" && {cmd}) || rc=1; done; exit "$rc"'
     )
 
 
 def build_prereq_cmd(python: str) -> list[str]:
     """Return the staleness-gate command (``tools.check_build_incremental``).
 
-    This is the ``build`` step's command only when the staleness gate is
-    scheduled (see :func:`should_run_staleness`); otherwise the step runs a
-    plain ``cabal run shake -- build``.
+    It is the command of the ``build staleness`` step, registered only when the
+    staleness gate is scheduled (see :func:`should_run_staleness`).
     """
     return [python, "-m", "tools.check_build_incremental"]
 
@@ -225,7 +250,7 @@ def build_graph_touched(repo_root: Path) -> bool:
 
 
 def should_run_staleness(mode: str, *, build_graph_changed: bool) -> bool:
-    """Decide whether the ``build`` step runs the staleness gate vs a plain build.
+    """Decide whether the sweep registers the staleness gate's step.
 
     ``always`` (the push:main backstop) and ``never`` (escape hatch) are
     unconditional; ``auto`` (the default) runs the gate only when a build-graph
@@ -238,35 +263,43 @@ def should_run_staleness(mode: str, *, build_graph_changed: bool) -> bool:
 def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     """Run the build, the Agda gate sweep, and the two branch-scoped IWYU gates."""
     # ─── build (first, alone) ───────────────────────────────────
-    # `build` produces the .so / .agdai every other lane needs; run() special-cases
-    # it to run FIRST and ALONE (a build failure short-circuits the whole sweep
-    # before the parallel lanes spawn).
+    # `build` produces the .so and the generated code; run() special-cases it to
+    # run FIRST and ALONE, and a step reading what it writes names it in `needs`,
+    # so a build failure stops those steps and no other.  It is a plain
+    # `cabal run shake -- build` (a warm build-tree cache makes it ~a no-op).
     #
-    # Its COMMAND is chosen by build-staleness scheduling.  When a build-graph file
-    # changed (or --build-staleness=always, the push:main backstop) the step IS the
-    # staleness gate (check_build_incremental — an edit and its revert must each
-    # reach the .so; ~2 .so relinks, slow on a 4-core runner).  Otherwise it is a
-    # plain `cabal run shake -- build` (a warm build-tree cache makes it ~a no-op).
-    # The staleness PROPERTY is about the build GRAPH, which only build-graph files
-    # change — so re-verifying it on every code PR's 2 relinks was pure cost.  Both
-    # commands mutate only the shared .so, so this stays the single isolated
-    # pre-lane step (no race with the .so-consuming test lanes).
+    # The staleness gate (check_build_incremental — an edit and its revert must
+    # each reach the .so; ~2 .so relinks, slow on a 4-core runner) is a step of
+    # its own, registered when a build-graph file changed (or
+    # --build-staleness=always, the push:main backstop): the staleness PROPERTY
+    # is about the build GRAPH, which only build-graph files change, so
+    # re-verifying it on every code PR's 2 relinks was pure cost.  It relinks
+    # the shared .so, so run() runs it alone after every lane, and its failure
+    # hides no step reading a library the plain build made.
     # Detail: tools/check_build_incremental.py.
+    runner.step(BUILD_STEP, [*cabal, "build"], cwd=runner.repo_root, lane="agda")
     mode = runner.opts.build_staleness
     graph_changed = mode == "auto" and build_graph_touched(runner.repo_root)
     if should_run_staleness(mode, build_graph_changed=graph_changed):
-        build_cmd: list[str] = build_prereq_cmd(runner.python)
-    else:
-        build_cmd = [*cabal, "build"]
-    runner.step("build", build_cmd, cwd=runner.repo_root, lane="agda")
+        runner.step(
+            BUILD_STALENESS_STEP,
+            build_prereq_cmd(runner.python),
+            cwd=runner.repo_root,
+            lane="agda",
+            needs=(BUILD_STEP,),
+        )
     # All remaining cabal-shake gates fold into ONE invocation (the Agda-gate
     # fan-in): Shake
     # parallelizes the independent phony rules internally (shakeThreads=0) and
     # the per-process cabal/shake startup + build-graph re-validation is paid
-    # once, not once per gate.  Shake fails fast on the first failing target and
-    # names it on stderr — surfaced in the failure tail — so attribution
-    # survives the fan-in.  AGDA_SHAKE_TARGETS is the single source of truth.
-    runner.step(AGDA_GATES_STEP, [*cabal, *AGDA_SHAKE_TARGETS], lane="agda")
+    # once, not once per gate.  Shake runs every target whatever another
+    # answered (`--keep-going`; without it the first failing target stops the
+    # rest) and names each that failed on stderr — surfaced in the failure
+    # tail — so attribution survives the fan-in.  AGDA_SHAKE_TARGETS is the
+    # single source of truth.  The step needs no other: the targets reading what
+    # the build writes `need` it within Shake, so a failed build fails those and
+    # leaves the rest running.
+    runner.step(AGDA_GATES_STEP, [*cabal, "--keep-going", *AGDA_SHAKE_TARGETS], lane="agda")
 
     # ─── IWYU gate (one tool) ───────────────────────────────
     # iwyu --check judges BOTH named imports (DEAD/UNRESOLVED) and
@@ -306,6 +339,7 @@ def _run_binding_tests(runner: Runner) -> None:
         "pytest",
         [runner.python, "-m", "pytest", *PYTEST_SUITE_ARGS],
         cwd=runner.repo_root / "python",
+        needs=(BUILD_STEP,),
     )
     # Cross-binding benchmark-schema conformance (benchmarks/SCHEMA.yaml): drives
     # each benchmark binary with a tiny per-mode workload and asserts an identical
@@ -316,13 +350,14 @@ def _run_binding_tests(runner: Runner) -> None:
     # would be a false signal. The full four-binding check runs in the benchmark
     # workflow with --built, which builds all four fresh in the same job. The gate
     # also reads benchmarks/run_all.sh: every latency lane is told every flag the
-    # schema pins. Pinned to the python lane so it runs after the .so build, like
+    # schema pins. In the python lane, needing the .so the build writes, like
     # the pytest steps.
     runner.step(
         "check-bench-schema",
         [runner.python, "-m", "tools.check_bench_schema"],
         cwd=runner.repo_root,
         lane="python",
+        needs=(BUILD_STEP,),
     )
     # Doc-example fence harness.  Runs from the repo root (cwd=repo_root → would
     # infer the "misc" lane), but it is a pytest invocation sharing the Python
@@ -347,6 +382,7 @@ def _run_binding_tests(runner: Runner) -> None:
         ],
         cwd=runner.repo_root,
         lane="python",
+        needs=(BUILD_STEP,),
     )
     # Python -X dev mode (Cat 34a).
     runner.step(
@@ -360,6 +396,7 @@ def _run_binding_tests(runner: Runner) -> None:
             *PYTEST_SUITE_ARGS,
         ],
         cwd=runner.repo_root / "python",
+        needs=(BUILD_STEP,),
     )
     # Random-order test isolation (Cat 14f).
     runner.step(
@@ -373,6 +410,7 @@ def _run_binding_tests(runner: Runner) -> None:
             *PYTEST_SUITE_ARGS,
         ],
         cwd=runner.repo_root / "python",
+        needs=(BUILD_STEP,),
     )
     # Cover EVERY Go package, not just ./aletheia/: every module of the workspace,
     # the core, the command line and the excel loader, each with its own go.mod.
@@ -385,6 +423,7 @@ def _run_binding_tests(runner: Runner) -> None:
         "go test -race",
         in_every_go_module(f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race"),
         cwd=runner.repo_root / "go",
+        needs=(BUILD_STEP,),
     )
     # ALETHEIA_LIB pins the .so explicitly so no test depends on the renderer's
     # cwd-relative probe (`../../build/...` from cpp/build) — uniform, cwd-
@@ -392,40 +431,54 @@ def _run_binding_tests(runner: Runner) -> None:
     # renderer no longer self-initialises the RTS (point 2), so the render tests
     # rely on a deterministically-located .so to bring the runtime up.
     cpp_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
+    # The C++ test tree in three steps, each needing the one before it, so a
+    # step reading the configured tree or the built programs runs whether or
+    # not a test fails.  Pin to clang-23, the supported toolchain (latest
+    # stable), the SAME compiler the sanitizer + mutation lanes use, so unit
+    # tests sanitize the same compilation we ship. Bare `clang`/default cc
+    # resolves to the runner's clang-18 / g++ (clang < 19 mis-handles the C++23
+    # <expected> libstdc++ ships); clang-23 is version-pinned + installed by the
+    # workflow via apt.llvm.org (no update-alternatives roulette).  The tree's
+    # cache goes first, as the lint tree's does (see the clang-tidy steps).
     runner.step(
-        "ctest",
-        # Pin to clang-23, the supported toolchain (latest stable), the SAME
-        # compiler the sanitizer + mutation lanes use, so unit tests sanitize the
-        # same compilation we ship. Bare `clang`/default cc resolves to the
-        # runner's clang-18 / g++ (clang < 19 mis-handles the C++23 <expected>
-        # libstdc++ ships); clang-23 is version-pinned + installed by the workflow via
-        # apt.llvm.org (no update-alternatives roulette).  The tree's cache goes
-        # first, as the lint tree's does (see the clang-tidy step).
-        f"rm -f build/CMakeCache.txt && cmake -B build {CPP_COMPILERS} > /dev/null"
-        + " && cmake --build build"
-        + f" && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
+        CPP_CONFIGURE_STEP,
+        f"rm -f build/CMakeCache.txt && cmake -B build {CPP_COMPILERS} > /dev/null",
         cwd=runner.repo_root / "cpp",
     )
+    runner.step(
+        CPP_BUILD_STEP,
+        "cmake --build build",
+        cwd=runner.repo_root / "cpp",
+        needs=(CPP_CONFIGURE_STEP,),
+    )
+    runner.step(
+        "ctest",
+        f"ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
+        cwd=runner.repo_root / "cpp",
+        needs=(BUILD_STEP, CPP_BUILD_STEP),
+    )
     # Cross-CLI parity harness (docs/CLI_SCENARIOS.yaml): drives the three real
-    # CLI binaries as subprocesses, so it needs cpp/build/aletheia-cli — pinned
-    # to the cpp lane AFTER ctest (lane serialism guarantees the binary exists)
-    # rather than the python lane, which under --parallel could race the cmake
-    # build and skip. Excluded from every python-lane pytest invocation above.
+    # CLI binaries as subprocesses, so it needs cpp/build/aletheia-cli — in the
+    # cpp lane, needing the build of that tree, rather than the python lane,
+    # which under --parallel could race the cmake build and skip. Excluded from
+    # every python-lane pytest invocation above.
     runner.step(
         "pytest (cli parity)",
         [runner.python, "-m", "pytest", "tests/test_cli_parity.py"],
         cwd=runner.repo_root / "python",
         lane="cpp",
+        needs=(BUILD_STEP, CPP_BUILD_STEP),
     )
     # The installed package: a project of its own finds it with find_package and
     # links and runs the client and both loaders, where the branch moves what
-    # the package installs; after ctest, whose configure fetched the sources
-    # the gate builds the package from.
+    # the package installs; it needs the configure of the test tree, which
+    # fetched the sources the gate builds the package from.
     runner.step(
         "check-cpp-installed-consumer",
         [runner.python, "-m", "tools.check_cpp_installed_consumer"],
         cwd=runner.repo_root,
         lane="cpp",
+        needs=(CPP_CONFIGURE_STEP,),
     )
     # Rust binding — loads libaletheia-ffi.so at runtime (like Go / C++). The
     # tracer-bullet slice proves the FFI lifecycle + GHC-allocated-memory
@@ -433,24 +486,43 @@ def _run_binding_tests(runner: Runner) -> None:
     rust_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     # --all-features so the optional `yaml` and `async` features are exercised
     # ("all API languages test everything"); the async-client tests load the .so
-    # via the worker thread.
+    # via the worker thread.  Each crate's tests and examples are built by a
+    # step of their own, which fetches every crate they resolve, and run by
+    # the next, which reuses what it built.  The build goes on past a target
+    # that fails to compile (`--keep-going`, which `cargo test` does not take)
+    # and the run past a test program that fails (`--no-fail-fast`), so one
+    # failure hides no other.
+    runner.step(
+        CARGO_TEST_BUILD_STEP,
+        "cargo build --tests --examples --all-features --keep-going",
+        cwd=runner.repo_root / "rust",
+    )
     runner.step(
         "cargo test",
-        f"ALETHEIA_LIB={rust_lib} cargo test --all-features",
+        f"ALETHEIA_LIB={rust_lib} cargo test --all-features --no-fail-fast",
         cwd=runner.repo_root / "rust",
+        needs=(BUILD_STEP, CARGO_TEST_BUILD_STEP),
     )
     # Optional aletheia-excel crate (separate Cargo manifest at rust/excel/, like
     # go/excel/): the main `cargo test` at rust/ does not reach it. The
     # loaders parse decimal cells via the kernel (RTS-gated), so its tests load the
     # .so — ALETHEIA_LIB pins the freshly built one (like the main cargo step).
     runner.step(
-        "cargo test (excel crate)",
-        f"ALETHEIA_LIB={rust_lib} cargo test",
+        EXCEL_CARGO_TEST_BUILD_STEP,
+        "cargo build --tests --examples --keep-going",
         cwd=runner.repo_root / "rust" / "excel",
     )
+    runner.step(
+        "cargo test (excel crate)",
+        f"ALETHEIA_LIB={rust_lib} cargo test --no-fail-fast",
+        cwd=runner.repo_root / "rust" / "excel",
+        needs=(BUILD_STEP, EXCEL_CARGO_TEST_BUILD_STEP),
+    )
     # The Rust rows of the dependency ledger name the licences cargo records.
-    # Read after both crates' tests, which leave every crate they resolve in
-    # cargo's registry, so the read is offline.
+    # It runs after both crates' test builds, which fetch every crate they
+    # resolve into cargo's registry before compiling any, so the read is
+    # offline.  It needs neither: a compile error leaves the registry full, and
+    # the gate refuses a registry it cannot read offline.
     runner.step(
         "check-rust-licences",
         [runner.python, "-m", "tools.check_rust_licences"],
@@ -463,9 +535,10 @@ def _run_lints(runner: Runner) -> None:
     """Run the Python / Go / C++ / Rust lint gates."""
     # ─── Lints ────────────────────────────────────────────────
     # ruff (`select=["ALL"]`, config in ruff.toml) over ``python/`` and
-    # ROOT_PYTHON, both `check` and `format --check`.  `python/mutants` (mutmut
-    # output) is excluded in ruff.toml.  Run from the repo root so the root
-    # ruff.toml is the config.
+    # ROOT_PYTHON: `check`, and `format --check` as a step of its own, so a lint
+    # finding hides no formatting one.  `python/mutants` (mutmut output) is
+    # excluded in ruff.toml.  Run from the repo root so the root ruff.toml is
+    # the config.
     # `--no-cache`: ruff's result cache is keyed on mtime, not file mode, so a
     # cached run silently passes file-mode rules like EXE001 ("shebang present
     # but file not executable") that a fresh CI run catches — making the local
@@ -474,11 +547,9 @@ def _run_lints(runner: Runner) -> None:
     # its EXE rules whatever the cache, so a test in test_run_ci_runner.py reads
     # the executable bits git records instead.
     ruff_paths = shlex.join(str(p) for p in (Path("python"), *ROOT_PYTHON))
-    ruff_cmd = (
-        f"{shlex.quote(runner.python)} -m ruff check --no-cache {ruff_paths} "
-        f"&& {shlex.quote(runner.python)} -m ruff format --check {ruff_paths}"
-    )
-    runner.step("ruff", ruff_cmd, cwd=runner.repo_root)
+    ruff = f"{shlex.quote(runner.python)} -m ruff"
+    runner.step("ruff", f"{ruff} check --no-cache {ruff_paths}", cwd=runner.repo_root)
+    runner.step("ruff format", f"{ruff} format --check {ruff_paths}", cwd=runner.repo_root)
 
     # basedpyright and pylint read the package's sources, tests and benchmarks
     # and ROOT_PYTHON, one set for both, so neither covers less than its peer.
@@ -604,19 +675,27 @@ def _run_lints(runner: Runner) -> None:
     # Each of the two trees loses its cache before the one configure line, so an
     # option a configure run by hand gave it, or an environment its first
     # configure read, does not outlast the sweep; the objects stay, so the test
-    # build recompiles only what the flags change.
-    # python/tests/test_ci_step_commands.py holds the two steps whole, so the
+    # build recompiles only what the flags change.  The configure is a step of
+    # its own, which clang-tidy and every check reading the database need, so
+    # a finding of clang-tidy's stops none of them.
+    # python/tests/test_ci_step_commands.py holds these steps whole, so the
     # database clang-tidy reads is the one the test build compiles from.
     # run-clang-tidy alone starts one job per CPU of the machine, whatever
     # CPUs the sweep was given, so it is told the step budget iwyu takes.
     runner.step(
-        "clang-tidy",
+        LINT_CONFIGURE_STEP,
         f"rm -f {CPP_LINT_TREE}/CMakeCache.txt"
-        + f" && cmake -B {CPP_LINT_TREE} {CPP_COMPILERS} > /dev/null"
-        + f" && run-clang-tidy-23 -j {cpu_budget()} -quiet -p {CPP_LINT_TREE}"
+        + f" && cmake -B {CPP_LINT_TREE} {CPP_COMPILERS} > /dev/null",
+        cwd=runner.repo_root / "cpp",
+        lane=CPP_LINT_LANE,
+    )
+    runner.step(
+        "clang-tidy",
+        f"run-clang-tidy-23 -j {cpu_budget()} -quiet -p {CPP_LINT_TREE}"
         + " cpp/src/ cpp/tests/ cpp/benchmarks/",
         cwd=runner.repo_root / "cpp",
         lane=CPP_LINT_LANE,
+        needs=(LINT_CONFIGURE_STEP,),
     )
     # The coverage record (docs/COVERAGE_BENCH.yaml) held to its shape without
     # running a suite: its scope paths exist, its recorded figures are over
@@ -633,14 +712,15 @@ def _run_lints(runner: Runner) -> None:
     # and unlinted (run-clang-tidy only lints compiled TUs), and must compile at
     # the project's standard, so a target linking neither the library nor a
     # dependency carrying it cannot fall back to the compiler's default.
-    # The guard reads the database clang-tidy read, so it runs in that lane
-    # after that step; from the repository root its cwd would infer "misc" and
-    # it could run before the tree is configured.
+    # The guard reads the database clang-tidy reads, so it runs in that lane,
+    # needing the configure; from the repository root its cwd would infer
+    # "misc" and it could run before the tree is configured.
     runner.step(
         "check-clang-tidy-coverage",
         [runner.python, "-m", "tools.check_clang_tidy_coverage"],
         cwd=runner.repo_root,
         lane=CPP_LINT_LANE,
+        needs=(LINT_CONFIGURE_STEP,),
     )
     # The rules matched on the C++ AST, in one parse of each unit: the
     # type-deduction ratchet (AGENTS/cpp.md cat 34, every declaration whose
@@ -656,6 +736,7 @@ def _run_lints(runner: Runner) -> None:
         [runner.python, "-m", "tools.check_cpp_ast"],
         cwd=runner.repo_root,
         lane=CPP_LINT_LANE,
+        needs=(LINT_CONFIGURE_STEP,),
     )
     # The locals that compile as const and are not (AGENTS/cpp.md cat 5), where
     # misc-const-correctness passes over them: each one clang-query lists is
@@ -667,6 +748,7 @@ def _run_lints(runner: Runner) -> None:
         [runner.python, "-m", "tools.check_cpp_const_locals", "--jobs", str(cpu_budget())],
         cwd=runner.repo_root,
         lane=CPP_LINT_LANE,
+        needs=(LINT_CONFIGURE_STEP,),
     )
 
     # Rust lints: rustfmt (check) + clippy (deny warnings) + rustdoc (deny
@@ -680,12 +762,13 @@ def _run_lints(runner: Runner) -> None:
     runner.step("cargo fmt", "cargo fmt --check", cwd=runner.repo_root / "rust")
     runner.step(
         "cargo clippy",
-        "cargo clippy --all-targets --all-features -- -D warnings",
+        "cargo clippy --all-targets --all-features --keep-going -- -D warnings",
         cwd=runner.repo_root / "rust",
     )
     runner.step(
         "cargo doc (warnings = errors)",
-        'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features',
+        'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features'
+        + " --keep-going",
         cwd=runner.repo_root / "rust",
     )
     runner.step(
@@ -693,12 +776,12 @@ def _run_lints(runner: Runner) -> None:
     )
     runner.step(
         "cargo clippy (excel crate)",
-        "cargo clippy --all-targets -- -D warnings",
+        "cargo clippy --all-targets --keep-going -- -D warnings",
         cwd=runner.repo_root / "rust" / "excel",
     )
     runner.step(
         "cargo doc (excel crate, warnings = errors)",
-        'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items',
+        'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --keep-going',
         cwd=runner.repo_root / "rust" / "excel",
     )
 
@@ -835,10 +918,12 @@ def _run_gha_checks(runner: Runner) -> None:
         [runner.python, "-m", "tools.check_sbom_coverage", "--parse-only"],
         cwd=runner.repo_root,
     )
+    # It compares a deployed copy of the library with the one the build writes.
     runner.step(
         "check-install-freshness",
         [runner.python, "-m", "tools.check_install_freshness"],
         cwd=runner.repo_root,
+        needs=(BUILD_STEP,),
     )
     runner.step(
         "check-dist-staging",

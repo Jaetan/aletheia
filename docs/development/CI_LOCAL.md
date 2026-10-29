@@ -15,7 +15,7 @@ minutes.
 
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
-| Pre-commit gate | `tools/run_ci.py --fast` + `tools/iwyu.py --check --wait-lock` (via pre-commit hook) | `git commit` | The compile-free FAST tier on the staged content, then the IWYU `.agdai`-reader scan (named + wildcard) on staged `.agda` files; blocks on any failure or finding |
+| Pre-commit gate | `tools/run_ci.py --fast` + `tools/iwyu.py --check --wait-lock` (via pre-commit hook) | `git commit` | The compile-free FAST tier on the staged content and the IWYU `.agdai`-reader scan (named + wildcard) on staged `.agda` files, each whatever the other answered; blocks on any failure or finding |
 | Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **The always-on gate sweep** — Agda gates (the proof/invariant/erasure/fidelity/export checks fold into one `cabal run shake` call; build is a separate prereq; + the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 4 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
@@ -29,7 +29,7 @@ The hook first runs the compile-free FAST tier of the sweep on the staged
 content (unstaged and untracked changes are stashed for the duration and
 restored after) and refuses the commit on any failure.  It then runs the
 single scope-aware `.agdai` IWYU tool against staged `.agda` files under
-`src/`.  Any finding (dead / redundant / narrowable / unresolved import)
+`src/`, whatever the FAST tier answered, so one refusal reports both.  Any finding (dead / redundant / narrowable / unresolved import)
 refuses the commit, and so does a run that never reached a verdict: a
 non-zero exit with no report is reported as a check the hook did not get,
 with the tool's own output above it, never as findings.  The tool is run
@@ -51,8 +51,12 @@ ctest lanes are among the always-on steps, not opt-in: an opt-in sanitizer
 lane can let a defect — UB, as in `Rational::from_double`, or a read of a
 returned frame, as in the serializer depth-bound test — ship undetected. The
 IWYU gate + its self-test is the dead-import gate.
-`run_ci` prints each step as `[i/N]` at runtime, so the live count is
-authoritative.
+Every step runs unless a step it needs did not pass: a step names, as its
+needs, the build or the earlier steps of its lane whose output it reads, and a
+step not run is printed with the step it needed, live, in the log and in the
+summary, which counts the steps passed, failed and not run.  Inside a step the
+tools go on past a failure too: Shake with `--keep-going`, cargo with
+`--keep-going` or `--no-fail-fast`, the Go steps over every module.
 Plus 4 opt-in lanes (reproducible build, stability bench, mutation
 testing, coverage floors) that can be enabled individually via CLI flags or env vars,
 or all at once via `--full`.  Logs to
@@ -74,21 +78,24 @@ the sweep exits, so an ended sweep leaves no build holding Shake's lock.
 
 ### The build prerequisite and the staleness gate
 
-The sweep's first step builds `libaletheia-ffi.so` — but *which* build runs
-depends on `--build-staleness {auto,always,never}` (default `auto`):
+The sweep's first step builds `libaletheia-ffi.so` with a plain
+`cabal run shake -- build`.  Whether the staleness gate
+(`tools/check_build_incremental.py`) runs as a step of its own, alone after
+every lane since it relinks the `.so`, depends on
+`--build-staleness {auto,always,never}` (default `auto`); a staleness failure
+stops no step reading the `.so` the plain build made:
 
-- **`auto`** — run the staleness gate (`tools/check_build_incremental.py`) when
-  the diff vs the local `main` touches a build-graph file (`Shakefile.hs`,
-  `shake/`, `shake.cabal`, `aletheia.agda-lib`, `haskell-shim/`,
-  `tools/check_build_incremental.py`, `tools/_warm.py`); otherwise a plain
-  `cabal run shake -- build`.  Fails **safe**: if the diff can't be computed
-  (e.g. no local `main` ref) the gate runs rather than silently skip a safety
-  check.  A code-only branch thus skips the ~260s of staleness relinks; a branch
-  that touches the build graph pays for them.
+- **`auto`** — run the staleness gate when the diff vs the local `main` touches
+  a build-graph file (`Shakefile.hs`, `shake/`, `shake.cabal`,
+  `aletheia.agda-lib`, `haskell-shim/`, `tools/check_build_incremental.py`,
+  `tools/_warm.py`).  Fails **safe**: if the diff can't be computed (e.g. no
+  local `main` ref) the gate runs rather than silently skip a safety check.  A
+  code-only branch thus skips the ~260s of staleness relinks; a branch that
+  touches the build graph pays for them.
 - **`always`** — always run the staleness gate.  The `push:main` CI job uses this
   (`pr-full-ci.yml` passes `--build-staleness=always` on `push`), re-verifying
   the no-stale-`.so` invariant on every landing.
-- **`never`** — always a plain build.
+- **`never`** — never run it.
 
 The staleness gate is a *behavioral* regression test that the honest dependency
 graph (see [BUILDING.md → Incremental Builds](BUILDING.md#incremental-builds))
