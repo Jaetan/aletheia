@@ -43,7 +43,7 @@ _SATURATED = f"rational component magnitude exceeds limit {_LIMIT}"
 
 
 def _refused_as(refused: pytest.ExceptionInfo[ValidationError], reason: Prose) -> None:
-    assert refused.value.code == "handler_property_parse_failed"
+    assert refused.value.code == "handler_property_refused"
     assert str(refused.value) == reason
 
 
@@ -111,7 +111,7 @@ class TestLoaders:
         with pytest.raises(ValidationError) as refused:
             load_checks(document)
         assert (refused.value.code, refused.value.location, refused.value.key) == (
-            "handler_property_parse_failed",
+            "handler_property_refused",
             "Check 'C'",
             None,
         )

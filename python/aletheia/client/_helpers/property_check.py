@@ -46,7 +46,7 @@ def check_formula(formula: LTLFormula) -> None:
             such as a time bound past 2^64-1 microseconds (the kernel's
             ``input_bound_exceeded`` refusal).
         ValidationError: the kernel refused the formula, its ``code`` saying
-            how (``handler_property_parse_failed``, ``parse_invalid_identifier``)
+            how (``handler_property_refused``, ``parse_invalid_identifier``)
             and its text the kernel's reason verbatim.
 
     """

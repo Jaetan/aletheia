@@ -52,7 +52,8 @@ open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.String as String using (String; fromList) renaming (_++_ to _++ₛ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
-open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Unit using (tt)
+open import Data.Bool using (Bool; T; true; false; if_then_else_)
 open import Data.Nat using (ℕ; suc; _+_; _<ᵇ_)
 open import Data.Integer using (ℤ)
 open import Data.Sum using (_⊎_; inj₁; inj₂; map₁; map₂; [_,_]′)
@@ -81,7 +82,7 @@ open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
 data IdentRefusal : Set where
   NotAscii      : ℕ → Char → IdentRefusal
   NotIdentifier : IdentRefusal
-  TooLong       : ℕ → IdentRefusal
+  TooLong       : (n : ℕ) → .(T (max-identifier-length <ᵇ n)) → IdentRefusal
   Keyword       : List Char → IdentRefusal
 
 -- The one identifier decision over a JSON string's characters: as it is
@@ -95,7 +96,7 @@ validateIdent cs with parseIdentifierField cs
 ...   | nothing      = inj₁ (refusal e)
   where
     refusal : IdentifierError → IdentRefusal
-    refusal (Ident.TooLong n)   = TooLong n
+    refusal (Ident.TooLong n p) = TooLong n p
     refusal (Ident.Keyword kw)  = Keyword kw
     refusal (Ident.BadChars _)  = NotIdentifier
 
@@ -113,7 +114,7 @@ validateIdentList (cs ∷ ss) =
 identError : String → List Char → IdentRefusal → Error
 identError tag _  (NotAscii i c) = InvalidCharacter (InField tag i) (toℕ c)
 identError tag cs NotIdentifier  = ParseErr (InvalidIdentifier (InPart tag) (fromList cs))
-identError tag _  (TooLong n)    = InputBoundExceededAt (InPart tag) IdentifierLength n max-identifier-length
+identError tag _  (TooLong n p)  = InputBoundExceededAt (InPart tag) IdentifierLength n max-identifier-length (tt , p)
 identError tag _  (Keyword kw)   = KeywordName (InPart tag) (fromList kw)
 
 validateIdentIn : String → List Char → Error ⊎ Identifier

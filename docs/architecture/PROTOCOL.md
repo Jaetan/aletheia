@@ -1256,6 +1256,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `handler_stream_not_started` | A data frame with a DBC loaded but no stream started | Call `aletheia_start_stream` before `aletheia_send_frame` |
 | `handler_stream_active` | Operation forbidden while streaming | End the stream first (e.g., to reload DBC) |
 | `handler_property_parse_failed` | LTL property at the indicated index failed to parse | Check the failing property against the LTL Property Format section |
+| `handler_property_refused` | A property or a time bound checked on its own, by `aletheia_check_property` or `aletheia_parse_time_bound`, was refused; the message is the reason alone | Fix the field the reason names |
 | `handler_validation_failed` | DBC validation surfaced an error when loading | The envelope's structured `issues` array carries the full list (errors and warnings) — see § Wire shape above |
 | `handler_text_roundtrip_failed` | `formatDBCText` refused: the emitted `.dbc` text does not re-parse to the input DBC | The DBC cannot be expressed as round-tripping `.dbc` text (e.g. a multi-value multiplexed signal). The envelope's `issues` array is led by the error-severity `text_roundtrip_divergence` — see [FormatDBCText](#formatdbctext) |
 | `handler_non_monotonic_timestamp` | Current frame's timestamp is below the previous frame's | Sort frames by timestamp before streaming — metric LTL operators require monotonicity |

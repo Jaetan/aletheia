@@ -29,7 +29,7 @@ open import Data.List using (List; []; _∷_; _∷ʳ_; length; map) renaming (_+
 open import Data.List.NonEmpty as List⁺ using ()
 open import Data.List.Properties using (length-map)
 open import Data.List.Relation.Unary.All using (All)
-open import Data.Maybe using (Maybe; nothing)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_; _^_; _≤_; _<ᵇ_; _/_; _%_; z≤n; s≤s)
 open import Data.Nat.DivMod using (m%n<n)
 open import Data.Nat.Properties using
@@ -42,7 +42,7 @@ open import Relation.Binary.PropositionalEquality using (sym; subst)
 open import Relation.Nullary.Decidable using (recompute)
 
 open import Aletheia.CAN.Constants using
-  (standard-can-id-max; extended-can-id-max; max-can-id; max-frame-bytes)
+  (standard-can-id-max; extended-can-id-max; max-standard-can-id; max-extended-can-id)
 open import Aletheia.CAN.DLC using (mkDLC; dlcToBytes; dlcBytes)
 open import Aletheia.CAN.Endianness using
   (ByteOrder; LittleEndian; BigEndian; physicalBitPos; unconvertStartBit)
@@ -77,7 +77,7 @@ open import Aletheia.Protocol.JSON.Types using
 open import Aletheia.Protocol.JSON.Shallow using (shallow-≤; map-shallow; fields-++)
 open import Aletheia.Protocol.ReplyRange using
   ( NumbersAt; ListNumbersAt; FieldsNumbersAt; InRange; replyRange
-  ; natural-in; integer-in; map-at; mapAll-at )
+  ; natural-in; integer-in; byteCount-in; map-at; mapAll-at )
 
 -- ============================================================================
 -- ARRAY LENGTHS
@@ -141,32 +141,44 @@ toℚ-components (mkDecRat num a b c) small =
 
 -- ---- Numbers small by construction ----
 
--- A CAN id is at most `max-can-id`: below its constructor's maximum, 2^11
--- or 2^29, the witness recomputed from the decidable test since it is
--- irrelevant.
-@0 canId-≤ : ∀ {n} → T (n <ᵇ standard-can-id-max) → n ≤ max-can-id
-canId-≤ {n} p =
-  ≤-trans (≤-pred (<ᵇ⇒< n standard-can-id-max p)) (≤ᵇ⇒≤ 2047 max-can-id tt)
+-- A CAN id is at most its width's largest: below its constructor's
+-- maximum, 2^11 or 2^29, the witness recomputed from the decidable test
+-- since it is irrelevant.
+@0 stdCanId-≤ : ∀ {n} → .(T (n <ᵇ standard-can-id-max)) → n ≤ max-standard-can-id
+stdCanId-≤ {n} p = ≤-pred (<ᵇ⇒< n standard-can-id-max (recompute (T? (n <ᵇ standard-can-id-max)) p))
 
-@0 extCanId-≤ : ∀ {n} → T (n <ᵇ extended-can-id-max) → n ≤ max-can-id
-extCanId-≤ {n} p = ≤-pred (<ᵇ⇒< n extended-can-id-max p)
+@0 extCanId-≤ : ∀ {n} → .(T (n <ᵇ extended-can-id-max)) → n ≤ max-extended-can-id
+extCanId-≤ {n} p = ≤-pred (<ᵇ⇒< n extended-can-id-max (recompute (T? (n <ᵇ extended-can-id-max)) p))
 
--- A CAN id's fields, alone or before others, the `id` in the range its
--- place gives every CAN id.
-@0 canId-at : ∀ p t cid
-  → (∀ n → n ≤ max-can-id → InRange (replyRange (p ∷ʳ "id") t) (ℕtoℚ n))
-  → FieldsAt p t (formatCANId cid)
-canId-at p t (Standard n q) h = h n (canId-≤ (recompute (T? (n <ᵇ standard-can-id-max)) q)) , tt
-canId-at p t (Extended n q) h = h n (extCanId-≤ (recompute (T? (n <ᵇ extended-can-id-max)) q)) , tt , tt
+-- The type a CAN id's flag gives the fields written after it.
+@0 widthTag : CANId → Maybe String
+widthTag (Standard _ _) = just "standard"
+widthTag (Extended _ _) = just "extended"
 
-@0 canId-++ : ∀ p t cid {ys}
-  → (∀ n → n ≤ max-can-id → InRange (replyRange (p ∷ʳ "id") t) (ℕtoℚ n))
-  → FieldsAt p t ys → FieldsAt p t (formatCANId cid ++ₗ ys)
-canId-++ p t (Standard n q) h rest = h n (canId-≤ (recompute (T? (n <ᵇ standard-can-id-max)) q)) , rest
-canId-++ p t (Extended n q) h rest = h n (extCanId-≤ (recompute (T? (n <ᵇ extended-can-id-max)) q)) , tt , rest
+-- The ranges a place gives a standard and an extended CAN id.
+@0 IdsAt : List String → Set
+IdsAt p =
+  (∀ n → n ≤ max-standard-can-id → InRange (replyRange (p ∷ʳ "id") (just "standard")) (ℕtoℚ n))
+  × (∀ n → n ≤ max-extended-can-id → InRange (replyRange (p ∷ʳ "id") (just "extended")) (ℕtoℚ n))
+
+-- A CAN id's fields, before others: its flag, then its `id` in its width's
+-- range, the fields after typed by the width; and alone.
+@0 canId-++ : ∀ p t cid {ys} → IdsAt p
+  → FieldsAt p (widthTag cid) ys → FieldsAt p t (formatCANId cid ++ₗ ys)
+canId-++ p t (Standard n q) (hs , _) rest = tt , hs n (stdCanId-≤ q) , rest
+canId-++ p t (Extended n q) (_ , he) rest = tt , he n (extCanId-≤ q) , rest
+
+@0 canId-at : ∀ p t cid → IdsAt p → FieldsAt p t (formatCANId cid)
+canId-at p t (Standard n q) (hs , _) = tt , hs n (stdCanId-≤ q) , tt
+canId-at p t (Extended n q) (_ , he) = tt , he n (extCanId-≤ q) , tt
+
+-- A message's DLC as a byte count, at either width.
+@0 dlc-in : ∀ cid d → InRange (replyRange ("dbc" ∷ "messages" ∷ "dlc" ∷ []) (widthTag cid)) (ℕtoℚ (dlcBytes d))
+dlc-in (Standard _ _) d = byteCount-in d
+dlc-in (Extended _ _) d = byteCount-in d
 
 -- A DLC code below 16 maps to at most 64 bytes.
-@0 dlcToBytes-≤64 : ∀ c → c ≤ 15 → dlcToBytes c ≤ max-frame-bytes
+@0 dlcToBytes-≤64 : ∀ c → c ≤ 15 → dlcToBytes c ≤ 64
 dlcToBytes-≤64  0 _ = z≤n
 dlcToBytes-≤64  1 _ = m≤m+n 1 63
 dlcToBytes-≤64  2 _ = m≤m+n 2 62
@@ -187,7 +199,7 @@ dlcToBytes-≤64 (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (su
   ⊥-elim (1+n≰n (≤-trans c≤15 (m≤m+n 15 k)))
 
 -- A validated DLC's byte count, through its erased bound.
-@0 dlcBytes-≤64 : ∀ d → dlcBytes d ≤ max-frame-bytes
+@0 dlcBytes-≤64 : ∀ d → dlcBytes d ≤ 64
 dlcBytes-≤64 (mkDLC code bounded) = dlcToBytes-≤64 code (≤-pred (<ᵇ⇒< code 16 bounded))
 
 -- A Motorola bit position in a frame of at most 64 bytes is below 512.
@@ -218,14 +230,15 @@ varType-≤ StringVar = ≤-refl
 presence-at Always      _   = tt , tt
 presence-at (When _ vs) sel = tt , tt , mapAll-at natural-in (List⁺.toList vs) sel , tt
 
--- A value-description entry at the place of the array holding it.
-@0 entries-at : ∀ p es
+-- A value-description entry at the place of the array holding it, of any
+-- type, since each entry is an object of its own.
+@0 entries-at : ∀ p t es
   → (∀ z → ∣ z ∣ ≤ max-value-description-key-magnitude → InRange (replyRange (p ∷ʳ "value") nothing) (fromℤ z))
-  → SmallKeys es → ListNumbersAt replyRange p nothing (map formatValueEntry es)
-entries-at p es h = mapAll-at (λ { (z , _) small → h z small , tt , tt }) es
+  → SmallKeys es → ListNumbersAt replyRange p t (map formatValueEntry es)
+entries-at p t es h = mapAll-at (λ { (z , _) small → h z small , tt , tt }) es
 
-@0 signal-at : ∀ fb → fb ≤ 64 → ∀ sig → SignalMagnitudes sig
-  → At ("dbc" ∷ "messages" ∷ "signals" ∷ []) nothing (formatDBCSignal fb sig)
+@0 signal-at : ∀ {t} fb → fb ≤ 64 → ∀ sig → SignalMagnitudes sig
+  → At ("dbc" ∷ "messages" ∷ "signals" ∷ []) t (formatDBCSignal fb sig)
 signal-at fb fb≤64 sig m =
   let def = DBCSignal.signalDef sig in
   tt
@@ -239,18 +252,18 @@ signal-at fb fb≤64 sig m =
   , toℚ-components (SignalDef.maximum def) (SignalMagnitudes.maximum m)
   , tt
   , map-at (λ _ → tt) _
-  , entries-at _ _ integer-in (SignalMagnitudes.keys m)
+  , entries-at _ _ _ integer-in (SignalMagnitudes.keys m)
   , presence-at _ (SignalMagnitudes.selectors m)
 
 @0 message-at : ∀ msg → All SignalMagnitudes (DBCMessage.signals msg)
   → At ("dbc" ∷ "messages" ∷ []) nothing (formatDBCMessage msg)
 message-at msg ms =
-  canId-++ _ _ (DBCMessage.id msg) natural-in
+  canId-++ _ _ (DBCMessage.id msg) (natural-in , natural-in)
     ( tt
-    , natural-in _ (dlcBytes-≤64 (DBCMessage.dlc msg))
+    , dlc-in (DBCMessage.id msg) (DBCMessage.dlc msg)
     , tt
     , map-at (λ _ → tt) _
-    , mapAll-at (signal-at _ (dlcBytes-≤64 (DBCMessage.dlc msg))) _ ms
+    , mapAll-at (signal-at {widthTag (DBCMessage.id msg)} _ (dlcBytes-≤64 (DBCMessage.dlc msg))) _ ms
     , tt )
 
 @0 signalGroup-at : ∀ sg → At ("dbc" ∷ "signalGroups" ∷ []) nothing (formatSignalGroup sg)
@@ -266,12 +279,12 @@ envVar-at ev m =
   , tt
 
 @0 valueTable-at : ∀ vt → SmallKeys (ValueTable.entries vt) → At ("dbc" ∷ "valueTables" ∷ []) nothing (formatValueTable vt)
-valueTable-at _ ks = tt , entries-at _ _ integer-in ks , tt
+valueTable-at _ ks = tt , entries-at _ _ _ integer-in ks , tt
 
 @0 rawValueDesc-at : ∀ rvd → SmallKeys (RawValueDesc.entries rvd)
   → At ("dbc" ∷ "unresolvedValueDescs" ∷ []) nothing (formatRawValueDesc rvd)
 rawValueDesc-at rvd ks =
-  canId-++ _ _ (RawValueDesc.canId rvd) natural-in (tt , entries-at _ _ integer-in ks , tt)
+  canId-++ _ _ (RawValueDesc.canId rvd) (natural-in , natural-in) (tt , entries-at _ _ _ integer-in ks , tt)
 
 @0 node-at : ∀ n → At ("dbc" ∷ "nodes" ∷ []) nothing (formatNode n)
 node-at _ = tt , tt
@@ -279,8 +292,8 @@ node-at _ = tt , tt
 @0 commentTarget-at : ∀ t → FieldsAt ("dbc" ∷ "comments" ∷ "target" ∷ []) nothing (formatCommentTarget t)
 commentTarget-at CTNetwork       = tt , tt
 commentTarget-at (CTNode _)      = tt , tt , tt
-commentTarget-at (CTMessage id)  = tt , canId-at _ _ id natural-in
-commentTarget-at (CTSignal id _) = tt , canId-++ _ _ id natural-in (tt , tt)
+commentTarget-at (CTMessage id)  = tt , canId-at _ _ id (natural-in , natural-in)
+commentTarget-at (CTSignal id _) = tt , canId-++ _ _ id (natural-in , natural-in) (tt , tt)
 commentTarget-at (CTEnvVar _)    = tt , tt , tt
 
 @0 comment-at : ∀ c → At ("dbc" ∷ "comments" ∷ []) nothing (formatComment c)
@@ -305,11 +318,11 @@ attrValue-at (AVHex v)    s = tt , natural-in _ (natDecRat-≤ v s) , tt
 @0 attrTarget-at : ∀ t → FieldsAt ("dbc" ∷ "attributes" ∷ "target" ∷ []) nothing (formatAttrTarget t)
 attrTarget-at ATgtNetwork          = tt , tt
 attrTarget-at (ATgtNode _)         = tt , tt , tt
-attrTarget-at (ATgtMessage id)     = tt , canId-at _ _ id natural-in
-attrTarget-at (ATgtSignal id _)    = tt , canId-++ _ _ id natural-in (tt , tt)
+attrTarget-at (ATgtMessage id)     = tt , canId-at _ _ id (natural-in , natural-in)
+attrTarget-at (ATgtSignal id _)    = tt , canId-++ _ _ id (natural-in , natural-in) (tt , tt)
 attrTarget-at (ATgtEnvVar _)       = tt , tt , tt
-attrTarget-at (ATgtNodeMsg _ id)   = tt , tt , canId-at _ _ id natural-in
-attrTarget-at (ATgtNodeSig _ id _) = tt , tt , canId-++ _ _ id natural-in (tt , tt)
+attrTarget-at (ATgtNodeMsg _ id)   = tt , tt , canId-at _ _ id (natural-in , natural-in)
+attrTarget-at (ATgtNodeSig _ id _) = tt , tt , canId-++ _ _ id (natural-in , natural-in) (tt , tt)
 
 @0 attribute-at : ∀ a → AttributeMagnitudes a → At ("dbc" ∷ "attributes" ∷ []) nothing (formatAttribute a)
 attribute-at (DBCAttrDef d)     m = tt , tt , tt , attrType-at _ m , tt
@@ -342,7 +355,7 @@ formatDBC-in-range dbc b =
 -- signals, a signal, its value descriptions, an entry.
 
 @0 canId-shallow : ∀ k id → FieldsShallow k (formatCANId id)
-canId-shallow k (Standard _ _) = tt , tt
+canId-shallow k (Standard _ _) = tt , tt , tt
 canId-shallow k (Extended _ _) = tt , tt , tt
 
 @0 valueEntry-shallow : ∀ e → Shallow 1 (formatValueEntry e)

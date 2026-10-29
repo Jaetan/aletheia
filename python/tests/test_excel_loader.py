@@ -743,7 +743,7 @@ class TestLoadCellTypes:
         )
         with pytest.raises(ValidationError) as refused:
             load_checks_from_excel(p)
-        assert refused.value.code == "handler_property_parse_failed"
+        assert refused.value.code == "handler_property_refused"
         assert str(refused.value) == (
             "Row 2: invalid 'Time (µs)': timebound 5000.5 is not a whole number"
         )

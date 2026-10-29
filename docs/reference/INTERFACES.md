@@ -769,7 +769,7 @@ All produce:
 
 See [PROTOCOL.md § Structured Logging](../architecture/PROTOCOL.md#structured-logging) for the canonical event taxonomy (category × level × event-name table) — this section covers only the per-binding wiring.
 
-**Python**: the package prints nothing until the host configures the `aletheia` logger. A `NullHandler` sits on it, so without a handler of the host's no record reaches stderr, the failed-frame warnings (`enrichment.extraction_failed`, `extraction.process_failed`, `extraction.parse_failed`) included. Attach a handler to turn them on:
+**Python**: the package prints nothing until the host configures the `aletheia` logger. A `NullHandler` sits on it, so without a handler of the host's no record reaches stderr, the failed-frame warnings (`extraction.process_failed`, `extraction.parse_failed`) included. Attach a handler to turn them on:
 ```python
 import logging
 logging.getLogger("aletheia").setLevel(logging.INFO)

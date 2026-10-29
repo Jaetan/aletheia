@@ -402,7 +402,7 @@ hints:
     count: 1
   - file: python/aletheia/client/_backend.py
     text: "tuple[int, ...]"
-    count: 21
+    count: 7
   - file: python/aletheia/client/_client.py
     text: "Callable[..., bytes]"
     count: 1
@@ -432,7 +432,7 @@ hints:
     count: 2
   - file: python/aletheia/client/_client.py
     text: "list[int]"
-    count: 3
+    count: 1
   - file: python/aletheia/client/_client.py
     text: "list[object]"
     count: 1
@@ -445,9 +445,6 @@ hints:
   - file: python/aletheia/client/_client.py
     text: "str"
     count: 4
-  - file: python/aletheia/client/_client.py
-    text: "tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]"
-    count: 1
   - file: python/aletheia/client/_client_bin.py
     text: "Sequence[str]"
     count: 5
@@ -474,7 +471,7 @@ hints:
     count: 1
   - file: python/aletheia/client/_client_bin.py
     text: "tuple[int, ...]"
-    count: 3
+    count: 1
   - file: python/aletheia/client/_client_bin.py
     text: "tuple[list[str], int]"
     count: 3
@@ -522,13 +519,13 @@ hints:
     count: 1
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "Mapping[str, JSONValue]"
-    count: 22
+    count: 21
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "Mapping[str, object]"
     count: 3
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "dict[str, object]"
-    count: 20
+    count: 18
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "frozenset[str]"
     count: 1
@@ -582,7 +579,7 @@ hints:
     count: 4
   - file: python/aletheia/client/_helpers/rational.py
     text: "tuple[int, int]"
-    count: 2
+    count: 1
   - file: python/aletheia/client/_log.py
     text: "Final[frozenset[str]]"
     count: 1
@@ -609,7 +606,7 @@ hints:
     count: 1
   - file: python/aletheia/client/_response_parsers.py
     text: "str"
-    count: 6
+    count: 4
   - file: python/aletheia/client/_signal_ops.py
     text: "Mapping[str, int | Fraction]"
     count: 3
@@ -627,9 +624,6 @@ hints:
     count: 1
   - file: python/aletheia/client/_signal_ops.py
     text: "str"
-    count: 1
-  - file: python/aletheia/client/_signal_ops.py
-    text: "tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]"
     count: 1
   - file: python/aletheia/client/_streaming.py
     text: "Callable[..., bytes]"

@@ -70,12 +70,12 @@ class TestFormatDbcErrorPaths:
         assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "my_code"
 
-    def test_error_status_without_message_uses_unknown_error(self) -> None:
-        """Fall back to "Unknown error" when an error response omits the message."""
+    def test_error_status_without_message_is_refused(self) -> None:
+        """Refuse an error response that omits the message, naming the key."""
         backend = MockBackend([_resp({"status": "error"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc()
-        assert str(excinfo.value) == "formatDBC failed: Unknown error"
+        assert str(excinfo.value) == "Expected 'message' field in formatDBC error response"
 
     def test_error_status_non_string_code_drops_to_none(self) -> None:
         """Drop a non-string code to None via the isinstance guard."""
@@ -118,12 +118,12 @@ class TestFormatDbcTextErrorPaths:
         assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "my_code"
 
-    def test_error_status_without_message_uses_unknown_error(self) -> None:
-        """Fall back to "Unknown error" when an error response omits the message."""
+    def test_error_status_without_message_is_refused(self) -> None:
+        """Refuse an error response that omits the message, naming the key."""
         backend = MockBackend([_resp({"status": "error"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "formatDBCText failed: Unknown error"
+        assert str(excinfo.value) == "Expected 'message' field in formatDBCText error response"
 
     def test_error_status_non_string_code_drops_to_none(self) -> None:
         """Drop a non-string code to None via the isinstance guard."""
@@ -175,19 +175,19 @@ class TestFormatDbcTextErrorPaths:
             result = client.format_dbc_text(_sample_dbc())
         assert result == {"status": "success", "text": 'VERSION ""\n', "issues": issues}
 
-    def test_success_absent_issues_defaults_empty(self) -> None:
-        """A success response with no ``issues`` field defaults to an empty list."""
+    def test_success_absent_issues_is_refused(self) -> None:
+        """Refuse a success response with no ``issues`` field, which the kernel always writes."""
         backend = MockBackend([_resp({"status": "success", "text": 'VERSION ""\n'})])
-        with AletheiaClient(backend=backend) as client:
-            result = client.format_dbc_text(_sample_dbc())
-        assert result == {"status": "success", "text": 'VERSION ""\n', "issues": []}
+        with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
+            client.format_dbc_text(_sample_dbc())
+        assert str(excinfo.value) == "Expected 'issues' field in formatDBCText response"
 
     def test_success_non_list_issues_field_raises(self) -> None:
         """Reject a success response whose ``issues`` field is present but not a list of objects.
 
-        Absent issues default to empty; a present-but-ill-typed field is a
-        ProtocolError (not a KeyError/TypeError crash) — the malformed-response
-        contract mirrors ``parse_parsed_dbc_response``'s ``warnings`` validation.
+        A present-but-ill-typed field is a ProtocolError (not a KeyError/TypeError
+        crash); the malformed-response contract mirrors
+        ``parse_parsed_dbc_response``'s ``warnings`` validation.
         """
         backend = MockBackend([_resp({"status": "success", "text": 'VERSION ""\n', "issues": {}})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
@@ -245,12 +245,12 @@ class TestValidateDbcErrorPaths:
         assert str(excinfo.value) == "boom"
         assert excinfo.value.code == "my_code"
 
-    def test_error_status_without_message_uses_unknown_error(self) -> None:
-        """Fall back to "Unknown error" when an error response omits the message."""
+    def test_error_status_without_message_is_refused(self) -> None:
+        """Refuse an error response that omits the message, naming the key."""
         backend = MockBackend([_resp({"status": "error"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
-        assert str(excinfo.value) == "validateDBC failed: Unknown error"
+        assert str(excinfo.value) == "Expected 'message' field in validateDBC error response"
 
     def test_error_status_non_string_code_drops_to_none(self) -> None:
         """Drop a non-string code to None via the isinstance guard."""

@@ -49,7 +49,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; subst; sym
 open import Relation.Nullary.Negation using (contradiction)
 open import Relation.Nullary.Reflects using (invert)
 
-open import Aletheia.Data.Dec0 using (Dec₀; _because₀_; dec₀)
+open import Aletheia.Data.Dec0 using (Dec₀; _because₀_; dec₀; does₀)
 open import Aletheia.Parser.Position using (Position; advancePosition)
 open import Aletheia.DBC.Identifier using
   ( firstFailing )
@@ -68,7 +68,7 @@ open import Aletheia.DBC.Types using
 open import Aletheia.Error using
   ( Error; InputBoundExceededAt; InPart; InvalidCharacter; InField )
 open import Aletheia.Limits using
-  ( BoundKind; ArrayCardinality; StringLength; RationalComponentMagnitude
+  ( BoundKind; ArrayCardinality; StringLength; RationalComponentMagnitude; past-≤ᵇ
   ; max-rational-component-magnitude; max-start-bit; max-bit-length; max-multiplex-value
   ; max-value-description-key-magnitude
   ; max-attribute-magnitude; max-messages-per-file
@@ -99,21 +99,23 @@ _>>=_ : ∀ {P Q : Set} → Checked P → (@0 P → Checked Q) → Checked Q
 inj₁ e     >>= _ = inj₁ e
 inj₂ [ p ] >>= k = k p
 
--- Turn a decision into a verdict, refusing with the given error.
-decide : ∀ {P : Set} → Error → Dec₀ P → Checked P
-decide _ (true  because₀ r) = inj₂ [ invert r ]
-decide e (false because₀ _) = inj₁ e
+-- Turn a decision into a verdict, refusing with the error built from its
+-- having come out false.
+decide : ∀ {P : Set} (d : Dec₀ P) → (does₀ d ≡ false → Error) → Checked P
+decide (true  because₀ r) _ = inj₂ [ invert r ]
+decide (false because₀ _) e = inj₁ (e refl)
 
 -- The one decision every bound makes.
 within : (n limit : ℕ) → Dec₀ (n ≤ limit)
 within n limit = dec₀ (n ≤ᵇ limit) (≤ᵇ-reflects-≤ n limit)
 
-bound : BoundKind → String → (n limit : ℕ) → Checked (n ≤ limit)
-bound kind tag n limit =
-  decide (InputBoundExceededAt (InPart tag) kind n limit) (within n limit)
+-- A refusal carries that `n` passed the limit, at least 1 at every bound.
+bound : BoundKind → String → (n limit : ℕ) → .⦃ T (1 ≤ᵇ limit) ⦄ → Checked (n ≤ limit)
+bound kind tag n limit ⦃ one ⦄ =
+  decide (within n limit) (λ eq → InputBoundExceededAt (InPart tag) kind n limit (one , past-≤ᵇ n limit eq))
 
-count : String → (n limit : ℕ) → Checked (n ≤ limit)
-count = bound ArrayCardinality
+count : String → (n limit : ℕ) → .⦃ T (1 ≤ᵇ limit) ⦄ → Checked (n ≤ limit)
+count tag n limit = bound ArrayCardinality tag n limit
 
 ShortText : List Char → Set
 ShortText cs = length cs ≤ max-string-length-characters

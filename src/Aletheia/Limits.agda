@@ -36,9 +36,12 @@
 --   * 1024 atoms/property — LTL property atom complexity.
 module Aletheia.Limits where
 
-open import Data.Bool using (Bool; if_then_else_)
-open import Data.Nat using (ℕ; _<ᵇ_)
+open import Data.Bool using (Bool; T; false; if_then_else_)
+open import Data.Nat using (ℕ; suc; _<ᵇ_; _≤ᵇ_; s≤s)
+open import Data.Nat.Properties using (<⇒<ᵇ; ≤⇒≤ᵇ; ≰⇒>)
+open import Data.Product using (_×_)
 open import Data.String using (String)
+open import Relation.Binary.PropositionalEquality using (_≡_; subst)
 
 -- ============================================================================
 -- BOUND KIND ENUM
@@ -257,3 +260,16 @@ boundSaturates o = bound-ceiling <ᵇ o
 
 saturateBound : ℕ → ℕ
 saturateBound o = if boundSaturates o then bound-ceiling else o
+
+-- What a bound refusal carries, erased: a limit of at least 1, passed by
+-- the measured value.
+Passes : ℕ → ℕ → Set
+Passes observed limit = T (1 ≤ᵇ limit) × T (limit <ᵇ observed)
+
+-- A decision `n ≤ᵇ limit`, or `n <ᵇ suc limit`, that came out false: `n`
+-- passed `limit`.
+past-≤ᵇ : ∀ n limit → (n ≤ᵇ limit) ≡ false → T (limit <ᵇ n)
+past-≤ᵇ n limit eq = <⇒<ᵇ (≰⇒> {n} {limit} (λ n≤ → subst T eq (≤⇒≤ᵇ n≤)))
+
+past-<ᵇ : ∀ n limit → (n <ᵇ suc limit) ≡ false → T (limit <ᵇ n)
+past-<ᵇ n limit eq = <⇒<ᵇ (≰⇒> {n} {limit} (λ n≤ → subst T eq (<⇒<ᵇ (s≤s n≤))))

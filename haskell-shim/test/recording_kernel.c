@@ -10,10 +10,9 @@
 // the real kernel acknowledges without reading and which only a leak checker
 // would otherwise report. Its renderer answers the rational it was handed, but
 // for one numerator it answers with a null string, so a test can follow a
-// render that held with one that failed, its property check accepts every
-// property, as the kernel accepts a well-formed one, so a binding builds a
-// check against it, and its allocation count is a known value, so a test reads
-// what reached them. It
+// render that held with one that failed, its property check refuses quoting
+// the property, so a test reads the text a binding sends, and its allocation
+// count is a known value, so a test reads what reached them. It
 // carries every symbol the bindings resolve, at the kernel's own signatures,
 // its count of the process's CPUs is four, and its runtime entry is a no-op, so a process whose first backend opens it
 // reads the runtime as up without one. The build makes it beside the library,
@@ -166,8 +165,24 @@ int8_t aletheia_parse_time_bound(const struct aletheia_text *, struct aletheia_t
     return 1;
 }
 
-int8_t aletheia_check_property(const struct aletheia_text *, struct aletheia_property_check *) {
-    return 0;
+// The property quoted as a JSON string's content: a quote, a backslash and a
+// control character escaped, the rest dropped once the message is full.
+int8_t aletheia_check_property(const struct aletheia_text *property,
+                               struct aletheia_property_check *out) {
+    char detail[400];
+    size_t at = (size_t)snprintf(detail, sizeof detail, "check_property ");
+    for (size_t i = 0; i < property->size && at + 7 < sizeof detail; ++i) {
+        unsigned char c = (unsigned char)property->data[i];
+        if (c == '"' || c == '\\')
+            at += (size_t)snprintf(detail + at, sizeof detail - at, "\\%c", c);
+        else if (c < 0x20)
+            at += (size_t)snprintf(detail + at, sizeof detail - at, "\\u%04x", c);
+        else
+            detail[at++] = (char)c;
+    }
+    detail[at] = '\0';
+    out->err = refusal(detail);
+    return 1;
 }
 
 // The allocation count is 2^63 plus the reads made before this one: a read

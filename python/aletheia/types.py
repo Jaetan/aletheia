@@ -534,9 +534,9 @@ class ErrorResponse(TypedDict):
     The ``has_errors`` / ``issues`` pair is present on validation-failure
     errors (``code == "handler_validation_failed"`` from ``parseDBC`` /
     ``parseDBCText``) via the same ``errorExtras`` mechanism; ``issues``
-    reuses the exact element shape of ``ValidationResponse``.  Either
-    field absent or ill-typed means the whole pair is dropped by the
-    decoder rather than attached partially.
+    reuses the exact element shape of ``ValidationResponse``.  The kernel
+    writes both on those codes, so the decoder refuses an envelope missing
+    either, or carrying one of the wrong kind, with ``ProtocolError``.
     """
 
     status: Literal["error"]

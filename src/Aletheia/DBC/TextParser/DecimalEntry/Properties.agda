@@ -20,21 +20,23 @@
 -- for no added assurance: `Data.String.toList` is total and `--safe`.
 module Aletheia.DBC.TextParser.DecimalEntry.Properties where
 
-open import Data.Bool using (true; false)
-open import Data.Empty using (⊥-elim)
+open import Data.Bool using (Bool; T; true; false)
+open import Data.Bool.Properties using (¬T-≡)
 open import Data.Integer using (+_; -[1+_])
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Properties using (++-identityʳ)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _≤ᵇ_; _*_; _^_)
-open import Data.Nat.Properties using (≤ᵇ-reflects-≤; suc-pred)
+open import Data.Nat.Properties using (≤ᵇ-reflects-≤; ≤⇒≤ᵇ; ≤ᵇ⇒≤; suc-pred; <⇒<ᵇ; ≰⇒>)
 open import Data.Product using (Σ-syntax; _×_; _,_; proj₁; proj₂)
 open import Data.Rational.Base using (ℚ)
 open import Data.String using (String)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Unit using (tt)
 open import Relation.Nullary using (¬_)
-open import Relation.Nullary.Reflects using (ofʸ; ofⁿ)
+open import Relation.Nullary.Reflects using (Reflects; ofʸ)
+open import Function.Bundles using (Equivalence)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; sym; trans)
 
 open import Aletheia.Parser.Combinators
@@ -48,7 +50,8 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase6Suffix using
 open import Aletheia.DBC.TextFormatter.Emitter using (showDecRat-dec-chars; showInt-chars)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; toℚ; fromℤ; 2^a·5^b-NonZero)
 open import Aletheia.DBC.DecRat.Magnitude using (SmallDecRat; SmallInt; largerComponent; fromℤ-small)
-open import Aletheia.DBC.Bounds using ([_]; bound)
+open import Aletheia.Data.Dec0 using (_because₀_)
+open import Aletheia.DBC.Bounds using ([_]; bound) renaming (decide to decide-bound)
 open import Aletheia.Limits using
   (BoundKind; RationalComponentMagnitude; max-rational-component-magnitude)
 open import Aletheia.Error using
@@ -97,22 +100,34 @@ consumed-inj₂ (mark _ (just _)) nothing                       _ ()
 -- THE BOUND'S VERDICT
 -- ============================================================================
 
-bound-holds : ∀ (k : BoundKind) (tag : String) (n limit : ℕ) → n ≤ limit →
+-- A refusal's evidence is built from its Bool's equation, so abstracting
+-- `n ≤ᵇ limit` would leave that evidence ill-typed: the verdicts are read
+-- off a decision whose Bool and certificate are arguments.
+private
+  verdict-holds : ∀ {P : Set} (b : Bool) (r : Reflects P b) {e} → T b →
+    Σ[ q ∈ P ] decide-bound (b because₀ r) e ≡ inj₂ [ q ]
+  verdict-holds true  (ofʸ q) _ = q , refl
+  verdict-holds false _       ()
+
+  verdict-fails : ∀ {P : Set} {b : Bool} {r : Reflects P b} {e} (eq : b ≡ false) →
+    decide-bound (b because₀ r) e ≡ inj₁ (e eq)
+  verdict-fails refl = refl
+
+  verdict-inj₂ : ∀ {P : Set} (b : Bool) (r : Reflects P b) {e x} → decide-bound (b because₀ r) e ≡ inj₂ x → P
+  verdict-inj₂ true  (ofʸ q) _  = q
+  verdict-inj₂ false _       ()
+
+bound-holds : ∀ (k : BoundKind) (tag : String) (n limit : ℕ) .⦃ _ : T (1 ≤ᵇ limit) ⦄ → n ≤ limit →
   Σ[ q ∈ n ≤ limit ] bound k tag n limit ≡ inj₂ [ q ]
-bound-holds k tag n limit n≤limit with n ≤ᵇ limit | ≤ᵇ-reflects-≤ n limit
-... | true  | ofʸ q  = q , refl
-... | false | ofⁿ ¬q = ⊥-elim (¬q n≤limit)
+bound-holds k tag n limit n≤limit = verdict-holds (n ≤ᵇ limit) (≤ᵇ-reflects-≤ n limit) (≤⇒≤ᵇ n≤limit)
 
-bound-fails : ∀ (k : BoundKind) (tag : String) (n limit : ℕ) → ¬ (n ≤ limit) →
-  bound k tag n limit ≡ inj₁ (InputBoundExceededAt (InPart tag) k n limit)
-bound-fails k tag n limit ¬n≤limit with n ≤ᵇ limit | ≤ᵇ-reflects-≤ n limit
-... | true  | ofʸ q = ⊥-elim (¬n≤limit q)
-... | false | ofⁿ _ = refl
+bound-fails : ∀ (k : BoundKind) (tag : String) (n limit : ℕ) .⦃ one : T (1 ≤ᵇ limit) ⦄ → (n≰ : ¬ (n ≤ limit)) →
+  bound k tag n limit ≡ inj₁ (InputBoundExceededAt (InPart tag) k n limit (one , <⇒<ᵇ (≰⇒> n≰)))
+bound-fails k tag n limit n≰ = verdict-fails (Equivalence.to ¬T-≡ (λ t → n≰ (≤ᵇ⇒≤ n limit t)))
 
-bound-inj₂ : ∀ (k : BoundKind) (tag : String) (n limit : ℕ) (x : _) →
+bound-inj₂ : ∀ (k : BoundKind) (tag : String) (n limit : ℕ) .⦃ _ : T (1 ≤ᵇ limit) ⦄ (x : _) →
   bound k tag n limit ≡ inj₂ x → n ≤ limit
-bound-inj₂ k tag n limit x eq with n ≤ᵇ limit | ≤ᵇ-reflects-≤ n limit
-... | true  | ofʸ q = q
+bound-inj₂ k tag n limit x = verdict-inj₂ (n ≤ᵇ limit) (≤ᵇ-reflects-≤ n limit)
 
 -- The components `wireOf` writes.
 Components : WireRational → DecRat → Set
@@ -134,10 +149,11 @@ decide-small res small with bound-holds RationalComponentMagnitude "decimal"
                                         max-rational-component-magnitude small
 ... | q , eq = wireOf (value res) q , cong (fromChecked (value res)) eq , refl , refl
 
-decide-large : ∀ (res : ParseResult DecRat) → ¬ SmallDecRat (value res) →
+decide-large : ∀ (res : ParseResult DecRat) → (large : ¬ SmallDecRat (value res)) →
   decide (inj₂ res) ≡ inj₁ (InputBoundExceededAt (InPart "decimal") RationalComponentMagnitude
                                                  (largerComponent (value res))
-                                                 max-rational-component-magnitude)
+                                                 max-rational-component-magnitude
+                                                 (tt , <⇒<ᵇ (≰⇒> large)))
 decide-large res large =
   cong (fromChecked (value res))
        (bound-fails RationalComponentMagnitude "decimal" (largerComponent (value res))

@@ -170,14 +170,7 @@ def test_decode_wire_rational_accepts_positive_denominator(
     numerator: int,
     denominator: int,
 ) -> None:
-    """`decode_wire_rational` accepts positive-denominator rationals exactly.
-
-    The Agda kernel's DecRat stores denominators as ``ℕ⁺`` (strictly positive).
-    `decode_wire_rational` mirrors that contract by rejecting non-positive
-    denominators on the wire (cross-binding parity with Go's ``validateRational``
-    and C++'s ``Rational::make``) — silent Fraction-sign-flipping a negative
-    denominator would hide a wire-format violation.
-    """
+    """`decode_wire_rational` reads a rational over a ``ℕ⁺`` denominator exactly."""
     rational_dict = {"numerator": numerator, "denominator": denominator}
     parsed = decode_wire_rational(rational_dict)
     assert parsed.denominator > 0
@@ -187,26 +180,15 @@ def test_decode_wire_rational_accepts_positive_denominator(
 @seed(PROPERTY_SEED)
 @given(
     numerator=st.integers(min_value=-(10**18), max_value=10**18),
-    denominator=st.integers(min_value=-(10**18), max_value=0),
+    denominator=st.integers(min_value=-(10**18), max_value=-1),
 )
-def test_decode_wire_rational_rejects_non_positive_denominator(
+def test_decode_wire_rational_hands_a_negative_denominator_to_fraction(
     numerator: int,
     denominator: int,
 ) -> None:
-    """`decode_wire_rational` rejects non-positive denominator with ProtocolError.
-
-    Cross-binding parity: Go ``validateRational`` rejects
-    ``<= 0``; C++ ``Rational::make`` rejects the same;
-    Python rejects too instead of silently sign-flipping via Fraction.
-    """
+    """`decode_wire_rational` checks a denominator's kind, not its sign: ``Fraction`` reads it."""
     rational_dict = {"numerator": numerator, "denominator": denominator}
-    try:
-        decode_wire_rational(rational_dict)
-    except ProtocolError:
-        pass
-    else:
-        msg = f"expected ProtocolError for denominator={denominator}"
-        raise AssertionError(msg)
+    assert decode_wire_rational(rational_dict) == Fraction(numerator, denominator)
 
 
 # --- B6d: the wire decoder rejects floats (a computed value on the internal

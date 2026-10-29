@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from fractions import Fraction
 from typing import TYPE_CHECKING, Never, NewType
 
 import pytest
@@ -35,6 +36,7 @@ from _stand_in import StandInName, stand_in_kernel
 
 from aletheia import AletheiaClient, FFIBackend, RTSState, ValidationError, start_runtime
 from aletheia.checks import signal
+from aletheia.client._enrichment import format_rational
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
@@ -298,9 +300,25 @@ def test_a_render_after_a_start_reads_the_started_library(monkeypatch: pytest.Mo
     start_runtime(1, lib_path=stand_in_kernel(_RECORDING))
     # A renderer opening a library of its own fails here, before it calls one.
     monkeypatch.setattr("aletheia.client._ffi.find_ffi_library", _no_search)
-    rendered = signal("S").never_exceeds(220).condition_desc
     # The recording stand-in renders a rational as its two components.
-    assert rendered == "<= 220/1"
+    assert format_rational(Fraction(220)) == "220/1"
+
+
+@pytest.mark.usefixtures("unstarted")
+def test_a_check_built_after_a_start_sends_its_property_to_the_started_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A check's build hands its property's JSON to the library the start opened."""
+    start_runtime(1, lib_path=stand_in_kernel(_RECORDING))
+    monkeypatch.setattr("aletheia.client._ffi.find_ffi_library", _no_search)
+    # The recording stand-in refuses every property, quoting the text it was handed.
+    with pytest.raises(ValidationError) as refused:
+        _ = signal("S").never_exceeds(220)
+    assert (refused.value.code, str(refused.value)) == (
+        "recording_kernel",
+        'check_property {"operator": "atomic", "predicate":'
+        + ' {"predicate": "lessThanOrEqual", "signal": "S", "value": 220}}',
+    )
 
 
 @pytest.mark.usefixtures("unstarted")

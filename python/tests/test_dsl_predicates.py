@@ -187,7 +187,7 @@ class TestSignalComparison:
         """between() is refused by the kernel when its bounds are reversed, saying which."""
         with pytest.raises(ValidationError) as refused:
             Signal("X").between(10, 5)
-        assert refused.value.code == "handler_property_parse_failed"
+        assert refused.value.code == "handler_property_refused"
         assert str(refused.value) == "between: min 10 exceeds max 5"
 
 

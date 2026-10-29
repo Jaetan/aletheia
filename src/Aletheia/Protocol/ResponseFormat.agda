@@ -199,9 +199,9 @@ errorExtras (Err.DispatchErr (Err.InvalidJSON pos)) =
   ("line"   , saturated (Position.line pos)) ∷
   ("column" , saturated (Position.column pos)) ∷
   []
-errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
-errorExtras (Err.InputBoundExceededAt (Err.InPart f) k o l) = ("field" , JStringS f) ∷ boundInfoFields k o l
-errorExtras (Err.InputBoundExceededAt (Err.AtText pos) k o l) =
+errorExtras (Err.InputBoundExceeded k o l _) = boundInfoFields k o l
+errorExtras (Err.InputBoundExceededAt (Err.InPart f) k o l _) = ("field" , JStringS f) ∷ boundInfoFields k o l
+errorExtras (Err.InputBoundExceededAt (Err.AtText pos) k o l _) =
   ("line"   , saturated (Position.line pos)) ∷
   ("column" , saturated (Position.column pos)) ∷
   boundInfoFields k o l

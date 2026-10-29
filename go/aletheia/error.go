@@ -203,6 +203,9 @@ const (
 	CodeHandlerStreamActive = "handler_stream_active"
 	// CodeHandlerPropertyParseFailed — set_properties body could not be parsed.
 	CodeHandlerPropertyParseFailed = "handler_property_parse_failed"
+	// CodeHandlerPropertyRefused: a property or a time bound checked on its
+	// own, before any session holds it, was refused.
+	CodeHandlerPropertyRefused = "handler_property_refused"
 	// CodeHandlerUnknownSignal — a property names a signal no signal of the
 	// loaded DBC carries.
 	CodeHandlerUnknownSignal = "handler_unknown_signal"

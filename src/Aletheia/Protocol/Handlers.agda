@@ -24,6 +24,7 @@ open import Data.Nat using (ℕ; suc; _<ᵇ_; z≤n)
 open import Data.Fin using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false)
+open import Data.Unit using (tt)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.Validity using (ValidDBC; IsValidDBC)
@@ -57,6 +58,7 @@ open import Aletheia.Limits using
   ( AtomCount; PropertyCount
   ; max-atom-count-per-property
   ; max-properties-per-stream
+  ; past-<ᵇ
   )
 open import Data.Char using (Char)
 
@@ -142,9 +144,10 @@ readProperty : (List Char → Bool) → (PropertyRefusal → HandlerError) → J
   → Error ⊎ LTL SignalPredicate
 readProperty known place json with parseProperty known json
 ... | inj₁ pf   = inj₁ (parseFailError place pf)
-... | inj₂ prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
-...   | false | observed = inj₁ (InputBoundExceeded AtomCount observed max-atom-count-per-property)
-...   | true  | _        = inj₂ prop
+... | inj₂ prop with atomCount prop <ᵇ suc max-atom-count-per-property in eq
+...   | false = inj₁ (InputBoundExceeded AtomCount (atomCount prop) max-atom-count-per-property
+                       (tt , past-<ᵇ (atomCount prop) max-atom-count-per-property eq))
+...   | true  = inj₂ prop
 
 -- Parse property list (extracted from where-block for proof access).  The
 -- `Fin n` index threaded through the JSON list is the static property
@@ -175,11 +178,12 @@ handleSetProperties : List JSON → StreamState → StreamState × Response
 handleSetProperties _ WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "SetProperties" (HandlerErr NoDBC)))
 handleSetProperties propJSONs state@(ReadyToStream _ vdbc _ _)
-  with length propJSONs <ᵇ suc max-properties-per-stream | length propJSONs
-... | false | observed = (state , Response.Error
-                            (WithContext "SetProperties"
-                              (InputBoundExceeded PropertyCount observed max-properties-per-stream)))
-... | true  | _        =
+  with length propJSONs <ᵇ suc max-properties-per-stream in eq
+... | false = (state , Response.Error
+                 (WithContext "SetProperties"
+                   (InputBoundExceeded PropertyCount (length propJSONs) max-properties-per-stream
+                     (tt , past-<ᵇ (length propJSONs) max-properties-per-stream eq))))
+... | true  =
   parseAllProperties (length propJSONs) state vdbc (withIndices propJSONs) []
 handleSetProperties propJSONs state@(Streaming _ _ _ _ _) =
   (state , Response.Error (WithContext "SetProperties" (HandlerErr StreamActive)))

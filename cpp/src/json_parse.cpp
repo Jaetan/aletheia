@@ -90,6 +90,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"handler_stream_not_started", ErrorCode::HandlerStreamNotStarted},
     {"handler_stream_active", ErrorCode::HandlerStreamActive},
     {"handler_property_parse_failed", ErrorCode::HandlerPropertyParseFailed},
+    {"handler_property_refused", ErrorCode::HandlerPropertyRefused},
     {"handler_unknown_signal", ErrorCode::HandlerUnknownSignal},
     {"handler_validation_failed", ErrorCode::HandlerValidationFailed},
     {"handler_text_roundtrip_failed", ErrorCode::HandlerTextRoundtripFailed},

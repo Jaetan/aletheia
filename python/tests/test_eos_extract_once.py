@@ -21,9 +21,10 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import pytest
-from _dbc_helpers import dbc, message, signal
+from _dbc_helpers import dbc, kernel_signal, message, parse_dbc_reply, signal
 
-from aletheia import AletheiaClient, MockBackend, Signal
+from aletheia import AletheiaClient, MockBackend, ProtocolError, Signal
+from aletheia._dbc_types import SignalName
 from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
@@ -48,14 +49,9 @@ _EXTRACT_SENTINEL = b"<binary:extractAllSignals>"
 # client's signal lookup covers both CAN IDs (the mock's binary extraction
 # path then raises BinaryPathUnsupportedError and the JSON fallback records
 # the sentinel — one per logical extraction).
-_PARSE_DBC_RESPONSE = (
-    b'{"status":"success","dbc":{"version":"",'
-    b'"messages":['
-    b'{"id":256,"extended":false,"dlc":8,"signals":'
-    b'[{"name":"SigA","startBit":0,"length":8,"presence":"always"}]},'
-    b'{"id":512,"extended":false,"dlc":8,"signals":'
-    b'[{"name":"SigB","startBit":0,"length":8,"presence":"always"}]}]'
-    b'},"warnings":[]}'
+_PARSE_DBC_RESPONSE = parse_dbc_reply(
+    {"id": 256, "extended": False, "dlc": 8, "signals": [kernel_signal(SignalName("SigA"))]},
+    {"id": 512, "extended": False, "dlc": 8, "signals": [kernel_signal(SignalName("SigB"))]},
 )
 
 
@@ -85,7 +81,12 @@ def _extraction_resp(values: dict[str, int]) -> bytes:
 
 def _fails_entry(index: int) -> JSONValue:
     """One canned fails finalization entry for the endStream results list."""
-    return {"status": "fails", "property_index": index, "reason": "eventually unmet"}
+    return {
+        "status": "fails",
+        "property_index": index,
+        "timestamp": 1000,
+        "reason": "eventually unmet",
+    }
 
 
 def _holds_entry(index: int) -> JSONValue:
@@ -95,7 +96,7 @@ def _holds_entry(index: int) -> JSONValue:
 
 def _complete_resp(*entries: JSONValue) -> bytes:
     """Canned endStream complete response with the given result entries."""
-    return _resp({"status": "complete", "results": list(entries)})
+    return _resp({"status": "complete", "results": list(entries), "warnings": []})
 
 
 def _queue_session_setup(backend: MockBackend) -> None:
@@ -330,18 +331,12 @@ def test_oob_property_index_warns_excludes_and_spares_valid_entries(
     assert "enrichment" not in results[1]
 
 
-def test_failed_extraction_warns_once_per_frame_not_per_property(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A failing frame extraction warns once per frame per end_stream.
+def test_failed_extraction_raises_from_end_stream() -> None:
+    """A last-seen frame's extraction answered with an error raises from end_stream.
 
-    Two failing properties over one last-seen frame whose extraction errors:
-    the shared pass attempts the frame once and emits ONE
-    ``enrichment.extraction_failed`` warning.  The discrimination against
-    the P-outer shape is carried by the SENTINEL count (1 vs 2 — the
-    per-property P-outer shape would have re-extracted the frame once per
-    property), not the warn count.  Both entries still get the fallback
-    enrichment.
+    Two failing properties over one last-seen frame: the shared pass
+    attempts the frame once and the extraction's ``ProtocolError`` reaches
+    the caller rather than leaving the entries with a fallback enrichment.
     """
     backend = MockBackend()
     _queue_session_setup(backend)
@@ -349,27 +344,12 @@ def test_failed_extraction_warns_once_per_frame_not_per_property(
     backend.queue_response(_complete_resp(_fails_entry(0), _fails_entry(1)))
     backend.queue_response(_resp({"status": "error", "message": "boom"}))  # extraction fails
 
-    with (
-        caplog.at_level(logging.WARNING, logger="aletheia"),
-        AletheiaClient(backend=backend) as client,
-    ):
+    with AletheiaClient(backend=backend) as client:
         client.parse_dbc(_two_message_dbc())
         client.set_properties(_two_signal_properties())
         client.start_stream()
         client.send_frame(0, 0x100, DLCCode(8), bytes(8))
-        response = client.end_stream()
-
-    failed_messages = [
-        record.getMessage()
-        for record in caplog.records
-        if record.getMessage().startswith("enrichment.extraction_failed")
-    ]
-    assert len(failed_messages) == 1
+        with pytest.raises(ProtocolError):
+            client.end_stream()
 
     assert backend.inputs.count(_EXTRACT_SENTINEL) == 1
-
-    results = _get_results(response)
-    for entry in results:
-        enrichment = _get_enrichment(entry)
-        assert enrichment["signals"] == {}
-        assert enrichment["enriched_reason"].startswith("violated: ")

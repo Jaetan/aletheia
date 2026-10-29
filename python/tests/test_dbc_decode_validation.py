@@ -1,90 +1,178 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Decode-validation tightening (cross-binding lockstep, Python side).
+"""What the DBC reader decides about the kernel's reply, and what it leaves to the kernel.
 
-``normalize_dbc`` / ``normalize_signal`` / ``parse_extraction_buffer`` must
-reject malformed core output — out-of-range CAN ids and DLCs, out-of-range
-signal bit positions, a bad ``presence`` discriminator, and trailing bytes on
-the binary extraction buffer — rather than silently decoding it.  Each rejection
-sets exactly one bad field on an otherwise well-formed input; the positive cases
-prove well-formed input still decodes.  (Real ``formatDBC`` output is covered
-end-to-end by ``test_dbc_corpus_parity`` and ``test_format_dbc``.)
+``normalize_dbc`` / ``normalize_signal`` / ``parse_extraction_buffer`` refuse a
+value of the wrong kind, a key the kernel always writes and the reply lacks, a
+bad ``presence`` discriminator and trailing bytes on the binary extraction
+buffer; a value's range is the kernel's, decided when it read the DBC and
+proven of every reply, so a number passes as given.  Each refusal sets exactly
+one bad field on an otherwise whole reply.  (Real ``formatDBC`` output is
+covered end-to-end by ``test_dbc_corpus_parity`` and ``test_format_dbc``.)
 """
 
 from __future__ import annotations
 
 import struct
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, NewType, cast, get_args
 
 import pytest
+from _dbc_helpers import kernel_signal
 
 from aletheia import ProtocolError
+from aletheia._dbc_types import SignalName, empty_dbc_tier2
 from aletheia.client._client_bin import parse_extraction_buffer
 from aletheia.client._helpers.dbc_normalize import normalize_dbc, normalize_signal
+from aletheia.types import JSONValue
 
 if TYPE_CHECKING:
-    from aletheia.types import DBCSignalMultiplexed, JSONValue
+    from aletheia.types import DBCSignalMultiplexed
+
+
+# The key of a list a DBC reply carries beside its messages, each written by the kernel.
+ListKey = NewType("ListKey", str)
+_DBC_LISTS = tuple(ListKey(key) for key in empty_dbc_tier2())
+
+# A signal's four numbers, each written by the kernel.
+NumericField = Literal["factor", "offset", "minimum", "maximum"]
+
+# The places a reply carries a CAN id beside its messages.
+IdPlace = Literal["comment", "attribute", "unresolved"]
 
 
 def _valid_signal() -> dict[str, JSONValue]:
-    """Return a minimal well-formed (always-present) signal to mutate."""
-    sig: dict[str, JSONValue] = {
-        "name": "S",
-        "startBit": 0,
-        "length": 8,
-        "presence": "always",
+    """Return a whole always-present signal, as the kernel writes one, to mutate."""
+    return cast("dict[str, JSONValue]", kernel_signal(SignalName("S")))
+
+
+def _dbc(**fields: JSONValue) -> dict[str, JSONValue]:
+    """Build a whole DBC reply with no messages, any key replaced by ``fields``."""
+    return {
+        "version": "1.0",
+        "messages": [],
+        **{key: list[JSONValue]() for key in empty_dbc_tier2()},
+        **fields,
     }
-    return sig
 
 
 def _dbc_with_message(overrides: dict[str, JSONValue]) -> dict[str, JSONValue]:
-    """Build a minimal well-formed DBC envelope with one message, field-overridable."""
-    message: dict[str, JSONValue] = {
-        "id": 0x100,
-        "name": "M",
-        "dlc": 8,
-        "sender": "",
-        "signals": [_valid_signal()],
-    }
-    message.update(overrides)
-    dbc: dict[str, JSONValue] = {"version": "1.0", "messages": [message]}
-    return dbc
+    """Build a whole DBC reply with one message, field-overridable."""
+    return _dbc(
+        messages=[
+            {
+                "id": 0x100,
+                "extended": False,
+                "name": "M",
+                "dlc": 8,
+                "sender": "",
+                "signals": [_valid_signal()],
+                **overrides,
+            }
+        ]
+    )
 
 
 class TestMessageMetaValidation:
-    """CAN id range (per ``extended``) and DLC byte count."""
+    """A message's CAN id, ``extended`` flag and DLC: the reader holds kinds, the kernel ranges."""
 
     def test_accepts_well_formed(self) -> None:
         """Decode a well-formed message envelope."""
         assert normalize_dbc(_dbc_with_message({}))["messages"]
 
-    def test_rejects_standard_id_over_11_bits(self) -> None:
-        """Reject a standard id above 0x7FF."""
-        with pytest.raises(ProtocolError):
-            normalize_dbc(_dbc_with_message({"id": 0x800}))
-
-    def test_accepts_max_standard_id(self) -> None:
-        """Accept the 0x7FF standard-frame boundary."""
-        assert normalize_dbc(_dbc_with_message({"id": 0x7FF}))["messages"]
-
-    def test_rejects_extended_id_over_29_bits(self) -> None:
-        """Reject an extended id at 1<<29."""
-        with pytest.raises(ProtocolError):
-            normalize_dbc(_dbc_with_message({"id": 1 << 29, "extended": True}))
-
-    def test_rejects_invalid_dlc_byte_count(self) -> None:
-        """Reject a DLC of 9 bytes (not a valid CAN/CAN-FD length)."""
-        with pytest.raises(ProtocolError):
-            normalize_dbc(_dbc_with_message({"dlc": 9}))
-
-    def test_accepts_canfd_dlc(self) -> None:
-        """Accept the 64-byte CAN-FD maximum."""
-        assert normalize_dbc(_dbc_with_message({"dlc": 64}))["messages"]
+    def test_takes_the_id_and_dlc_as_given(self) -> None:
+        """No range is decided here: a standard id past 11 bits and a 9-byte DLC pass unchanged."""
+        message = normalize_dbc(_dbc_with_message({"id": 0x800, "dlc": 9}))["messages"][0]
+        assert (message["id"], message["dlc"], message.get("extended")) == (0x800, 9, False)
 
     def test_rejects_non_bool_extended(self) -> None:
         """Reject a present-but-non-boolean extended flag (no string coercion)."""
         with pytest.raises(ProtocolError):
             normalize_dbc(_dbc_with_message({"extended": "true"}))
+
+    def test_rejects_a_message_without_extended(self) -> None:
+        """The kernel writes ``extended`` at every message, so a reply without it is refused."""
+        message: JSONValue = {"id": 0x100, "name": "M", "dlc": 8, "sender": "", "signals": []}
+        with pytest.raises(ProtocolError, match="extended"):
+            normalize_dbc(_dbc(messages=[message]))
+
+
+class TestReplyCarriesEveryKey:
+    """A key the kernel writes in every DBC reply, if absent, is refused rather than filled in."""
+
+    @pytest.mark.parametrize("field", get_args(NumericField))
+    def test_refuses_a_signal_without_a_numeric_field(self, field: NumericField) -> None:
+        """A signal missing ``field`` is refused, not decoded without it."""
+        sig = _valid_signal()
+        del sig[field]
+        with pytest.raises(ProtocolError, match=field):
+            normalize_signal(sig)
+
+    def test_refuses_a_reply_without_its_version(self) -> None:
+        """A reply with no ``version`` is refused, not given an empty one."""
+        dbc = _dbc()
+        del dbc["version"]
+        with pytest.raises(ProtocolError, match="version"):
+            normalize_dbc(dbc)
+
+    def test_refuses_a_version_that_is_not_a_string(self) -> None:
+        """A ``version`` of another kind is refused, not passed through ``str``."""
+        with pytest.raises(ProtocolError, match="version"):
+            normalize_dbc(_dbc(version=7))
+
+    @pytest.mark.parametrize("key", _DBC_LISTS)
+    def test_refuses_a_reply_without_a_list(self, key: ListKey) -> None:
+        """A reply missing a list beside its messages is refused, not given an empty one."""
+        dbc = _dbc()
+        del dbc[key]
+        with pytest.raises(ProtocolError, match=key):
+            normalize_dbc(dbc)
+
+
+def _dbc_with_ids_beside_messages(flagless: IdPlace | None) -> dict[str, JSONValue]:
+    """Build a reply with a standard id at a comment, an attribute and a value description target.
+
+    Each id carries ``extended`` false, but the one at ``flagless``, which carries none.
+    """
+
+    def at(place: IdPlace, **rest: JSONValue) -> JSONValue:
+        if place == flagless:
+            return {"id": 0x100, **rest}
+        return {"id": 0x100, "extended": False, **rest}
+
+    return _dbc(
+        comments=[{"target": at("comment", kind="message"), "text": "m"}],
+        attributes=[
+            {
+                "kind": "assignment",
+                "name": "A",
+                "target": at("attribute", kind="message"),
+                "value": {"kind": "int", "value": 1},
+            }
+        ],
+        unresolvedValueDescs=[
+            at("unresolved", signalName="S", entries=[{"value": 0, "description": "Off"}])
+        ],
+    )
+
+
+class TestExtendedAtEveryId:
+    """``extended`` stays with every CAN id of a reply, true or false, as the kernel wrote it."""
+
+    def test_keeps_a_false_flag_at_every_id_beside_the_messages(self) -> None:
+        """A comment, an attribute and a value description target each keep ``extended`` false."""
+        decoded = normalize_dbc(_dbc_with_ids_beside_messages(None))
+        flags = [c["target"].get("extended") for c in decoded["comments"]]
+        flags.extend(
+            a["target"].get("extended") for a in decoded["attributes"] if a["kind"] == "assignment"
+        )
+        flags.extend(u.get("extended") for u in decoded["unresolvedValueDescs"])
+        assert flags == [False, False, False]
+
+    @pytest.mark.parametrize("place", get_args(IdPlace))
+    def test_refuses_an_id_without_its_flag(self, place: IdPlace) -> None:
+        """An id beside a message without ``extended`` is refused, not read as standard."""
+        with pytest.raises(ProtocolError, match="extended"):
+            normalize_dbc(_dbc_with_ids_beside_messages(place))
 
 
 class TestSignalBitValidation:
@@ -186,6 +274,32 @@ class TestPresenceValidation:
         sig["multiplexor"] = "Mode"
         sig["multiplex_values"] = [0, 1]
         assert normalize_signal(sig)["name"] == "S"
+
+
+class TestEnvironmentVarTypeDecode:
+    """An environment variable's ``varType``: the reader holds the kind, the kernel the range."""
+
+    def test_takes_the_var_type_as_given(self) -> None:
+        """No range is decided here: the number the reply carries passes unchanged."""
+        decoded = normalize_dbc(
+            _dbc(
+                environmentVars=[
+                    {"name": "V", "varType": 3, "initial": 0, "minimum": 0, "maximum": 1}
+                ]
+            )
+        )
+        assert [ev["varType"] for ev in decoded["environmentVars"]] == [3]
+
+    def test_rejects_a_var_type_that_is_not_an_integer(self) -> None:
+        """Reject a varType of another kind."""
+        with pytest.raises(ProtocolError, match="varType' to be int"):
+            normalize_dbc(
+                _dbc(
+                    environmentVars=[
+                        {"name": "V", "varType": True, "initial": 0, "minimum": 0, "maximum": 1}
+                    ]
+                )
+            )
 
 
 class TestExtractionTrailingBytes:

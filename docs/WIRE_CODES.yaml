@@ -328,7 +328,10 @@ error_codes:
     description: The operation is forbidden while a stream is active.
 
   - name: handler_property_parse_failed
-    description: An LTL property failed to parse.
+    description: A property of a set_properties list failed to parse; the message names its index and the reason.
+
+  - name: handler_property_refused
+    description: A property or a time bound checked on its own, before any session holds it, was refused; the message is the reason alone.
 
   - name: handler_unknown_signal
     description: A property names a signal no signal of the loaded DBC carries; the message names it.

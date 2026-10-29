@@ -27,6 +27,7 @@ from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
 from aletheia.client._response_parsers import (
     build_error_response,
+    entry_reason,
     parse_complete_warnings,
     parse_event_response,
     parse_finalization_results,
@@ -35,7 +36,6 @@ from aletheia.client._response_parsers import (
 )
 from aletheia.client._types import (
     MAX_EXTRACT_CACHE,
-    AletheiaError,
     CANFrameTuple,
     FrameResult,
     PropertyDiagnostic,
@@ -142,6 +142,12 @@ class StreamingMixin(ClientHostState):
 
         Takes one inner ``PropertyResultEntry`` from
         ``PropertyBatchResponse.results``; caller filters to fails entries.
+
+        Raises:
+            ProtocolError: If the entry carries no ``reason``, which the
+                kernel writes on every fails event, or the reader refuses
+                the frame's extraction reply.
+
         """
         if not self._diags:
             return
@@ -156,6 +162,7 @@ class StreamingMixin(ClientHostState):
                 count=len(self._diags),
             )
             return
+        core_reason = entry_reason(result)
 
         # Extract signal values (cached, bounded).
         cache_key = (frame_id.can_id, frame_id.extended, bytes(data))
@@ -168,35 +175,21 @@ class StreamingMixin(ClientHostState):
                 canId=frame_id.can_id,
                 dlc=frame_id.dlc,
             )
-            try:
-                extraction = self.extract_signals(
-                    can_id=frame_id.can_id,
-                    dlc=frame_id.dlc,
-                    data=data,
-                    extended=frame_id.extended,
-                )
-                if len(self._caches.extraction) < MAX_EXTRACT_CACHE:
-                    self._caches.extraction[cache_key] = extraction
-                elif not self._caches.full_reported:
-                    self._caches.full_reported = True
-                    log_event(
-                        _logger,
-                        logging.WARNING,
-                        LogEvent.CACHE_FULL,
-                        size=len(self._caches.extraction),
-                    )
-            except (AletheiaError, ValueError) as exc:
-                # Enrichment is best-effort — the frame still streamed and the
-                # core verdict is authoritative.  Emit a single-line warning
-                # with the exception message; dropping ``exc_info`` keeps
-                # production logs scannable (traceback-worthy paths use
-                # ``_logger.error(..., exc_info=True)`` instead).
+            extraction = self.extract_signals(
+                can_id=frame_id.can_id,
+                dlc=frame_id.dlc,
+                data=data,
+                extended=frame_id.extended,
+            )
+            if len(self._caches.extraction) < MAX_EXTRACT_CACHE:
+                self._caches.extraction[cache_key] = extraction
+            elif not self._caches.full_reported:
+                self._caches.full_reported = True
                 log_event(
                     _logger,
                     logging.WARNING,
-                    LogEvent.ENRICHMENT_EXTRACTION_FAILED,
-                    canId=frame_id.can_id,
-                    error=str(exc),
+                    LogEvent.CACHE_FULL,
+                    size=len(self._caches.extraction),
                 )
         else:
             log_event(
@@ -208,13 +201,11 @@ class StreamingMixin(ClientHostState):
             )
 
         values: dict[str, Fraction | None] = {}
-        if extraction is not None:
-            for sig in diag.signals:
-                val = extraction.values.get(sig)
-                if val is not None:
-                    values[sig] = val
+        for sig in diag.signals:
+            val = extraction.values.get(sig)
+            if val is not None:
+                values[sig] = val
 
-        core_reason = result.get("reason", "")
         result["enrichment"] = {
             "signals": values,
             "formula_desc": diag.formula_desc,
@@ -260,6 +251,11 @@ class StreamingMixin(ClientHostState):
 
         Returns:
             AckResponse, PropertyBatchResponse, or ErrorResponse
+
+        Raises:
+            ProtocolError: If the reply is malformed, a fails event carries
+                no ``reason``, or the reader refuses the extraction reply
+                that enriches a fails event.
 
         """
         validate_timestamp(timestamp)
@@ -331,7 +327,7 @@ class StreamingMixin(ClientHostState):
                 ts=timestamp,
                 canId=can_id,
                 extended=extended,
-                response=result.get("status", "unknown"),
+                response=cast("AckResponse | ErrorResponse", result)["status"],
             )
         return result
 
@@ -541,6 +537,11 @@ class StreamingMixin(ClientHostState):
         field containing ``signals``, ``formula_desc``, ``enriched_reason``,
         and ``core_reason`` when checks have been registered.
 
+        Raises:
+            ProtocolError: If the reply is malformed, a fails or unresolved
+                entry carries no ``reason``, or the reader refuses the
+                extraction reply of a last-seen frame.
+
         """
         with self._ffi_lock:
             if self._backend is None or self._state is None:
@@ -623,6 +624,10 @@ class StreamingMixin(ClientHostState):
         ``std::map`` ordering) and merges every extracted signal
         first-frame-wins into one map.  Stops early once every name in
         *union* (the signals wanted by any pending enrichment) has a value.
+
+        Raises:
+            ProtocolError: If the reader refuses a frame's extraction reply.
+
         """
         merged: dict[str, Fraction] = {}
         remaining = set(union)
@@ -630,27 +635,12 @@ class StreamingMixin(ClientHostState):
             self._caches.last_frames.items(),
             key=lambda item: (item[0][0], item[0][1]),
         ):
-            try:
-                extraction = self.extract_signals(
-                    can_id=lf_id,
-                    dlc=lf_dlc,
-                    data=lf_data,
-                    extended=lf_ext,
-                )
-            except (AletheiaError, ValueError) as exc:
-                # Finalization enrichment is best-effort (mirrors the hot
-                # path); keep the warning single-line so operators can grep
-                # ``enrichment.extraction_failed`` without drowning in
-                # tracebacks.  One warning per failed frame per end_stream —
-                # extraction runs once per frame, not once per property.
-                log_event(
-                    _logger,
-                    logging.WARNING,
-                    LogEvent.ENRICHMENT_EXTRACTION_FAILED,
-                    canId=lf_id,
-                    error=str(exc),
-                )
-                continue
+            extraction = self.extract_signals(
+                can_id=lf_id,
+                dlc=lf_dlc,
+                data=lf_data,
+                extended=lf_ext,
+            )
             for sig, val in extraction.values.items():
                 if sig not in merged:
                     merged[sig] = val
@@ -669,6 +659,12 @@ class StreamingMixin(ClientHostState):
         the extraction pass entirely (zero FFI calls) but every entry still
         gets its enrichment attached, falling back to the formula
         description when no values are available.
+
+        Raises:
+            ProtocolError: If an entry carries no ``reason``, which the kernel
+                writes on every fails and unresolved entry, or the reader
+                refuses a frame's extraction reply.
+
         """
         if not todo:
             return
@@ -680,7 +676,7 @@ class StreamingMixin(ClientHostState):
             values: dict[str, Fraction | None] = {
                 sig: merged[sig] for sig in diag.signals if sig in merged
             }
-            core_reason = result.get("reason", "")
+            core_reason = entry_reason(result)
             result["enrichment"] = {
                 "signals": values,
                 "formula_desc": diag.formula_desc,

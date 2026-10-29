@@ -121,6 +121,8 @@ enum class ErrorCode {
     HandlerStreamNotStarted,
     HandlerStreamActive,
     HandlerPropertyParseFailed,
+    // A property or a time bound checked on its own was refused.
+    HandlerPropertyRefused,
     // A property names a signal no signal of the loaded DBC carries.
     HandlerUnknownSignal,
     HandlerValidationFailed,

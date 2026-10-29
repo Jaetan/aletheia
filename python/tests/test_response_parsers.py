@@ -106,20 +106,14 @@ class TestBuildErrorResponse:
                 {"bound_kind": "nesting_depth", "observed": 65, "limit": 6.5}, id="limit-float"
             ),
             pytest.param({"bound_kind": 7, "observed": 65, "limit": 64}, id="bound_kind-nonstring"),
-            pytest.param(
-                {"bound_kind": "nesting_depth", "observed": 0, "limit": 64}, id="observed-zero"
-            ),
-            pytest.param(
-                {"bound_kind": "nesting_depth", "observed": 65, "limit": -1}, id="limit-negative"
-            ),
         ],
     )
     def test_malformed_bound_triple_is_dropped(self, triple: dict[str, object]) -> None:
         """A partial or ill-typed triple degrades to no triple — never a partial one.
 
         Matches the C++ ``make_json_error`` degrade-to-nullopt rule: all three of
-        ``bound_kind`` / ``observed`` / ``limit`` must be present and well-typed, the
-        counts positive, or none is attached. Pins each guard against a mutation that
+        ``bound_kind`` / ``observed`` / ``limit`` must be present and well-typed, or
+        none is attached. Pins each guard against a mutation that
         drops one and lets a malformed triple through (the attach path stays
         line-green either way, so this is the mutation-killing companion).
         """
@@ -210,21 +204,24 @@ class TestBuildErrorResponse:
             ),
         ],
     )
-    def test_malformed_validation_issues_are_dropped(self, extras: dict[str, object]) -> None:
-        """An absent or ill-typed issues payload degrades to no payload — never partial.
+    def test_malformed_validation_issues_raise(self, extras: dict[str, object]) -> None:
+        """An absent or ill-typed issues payload raises ``ProtocolError``, never a partial one.
 
-        Same all-or-nothing rule as the bound triple: ``has_errors`` must be a
-        bool and every issue an object with canonical severity plus string
-        ``code`` / ``detail``, or neither field is attached — and the decode
-        never fails harder than the pre-payload generic error.
+        The kernel writes ``has_errors`` as a bool and every issue as an object
+        with canonical severity plus string ``code`` / ``detail``.
         """
-        out = build_error_response(
-            cast(
-                "Response",
-                {"status": "error", "code": "handler_validation_failed", "message": "m", **extras},
+        with pytest.raises(ProtocolError):
+            build_error_response(
+                cast(
+                    "Response",
+                    {
+                        "status": "error",
+                        "code": "handler_validation_failed",
+                        "message": "m",
+                        **extras,
+                    },
+                )
             )
-        )
-        assert out == {"status": "error", "code": "handler_validation_failed", "message": "m"}
 
 
 # A bound refusal envelope, past a limit of 10000, naming no field.
@@ -283,7 +280,6 @@ class TestRaiseIfInputBoundExceeded:
                 ),
                 id="message-absent",
             ),
-            pytest.param(cast("Response", {**_BOUND_REFUSAL, "observed": 0}), id="observed-zero"),
             pytest.param(
                 cast("Response", {**_BOUND_REFUSAL, "code": "handler_validation_failed"}),
                 id="other-code",
@@ -332,9 +328,10 @@ class TestParseCompleteWarnings:
         )
         assert out[0]["property_index"] == 3
 
-    def test_absent_warnings_is_empty(self) -> None:
-        """A response with no ``warnings`` key yields an empty list, not an error."""
-        assert not parse_complete_warnings(cast("Response", {"status": "complete"}))
+    def test_absent_warnings_raises(self) -> None:
+        """A response with no ``warnings`` key raises ``ProtocolError``: the kernel writes it."""
+        with pytest.raises(ProtocolError, match="Expected 'warnings'"):
+            parse_complete_warnings(cast("Response", {"status": "complete"}))
 
     def test_string_property_index_raises(self) -> None:
         """A string property_index is a protocol violation, not a silent cast."""

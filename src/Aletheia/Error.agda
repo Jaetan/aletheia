@@ -27,7 +27,7 @@ open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.DBC.Validator.Formatting using (formatIssuesText; errorIssues)
 open import Aletheia.Parser.Position using (Position)
 open import Data.Bool using (if_then_else_)
-open import Aletheia.Limits using (BoundKind; boundKindLabel; observed-ceiling; observedSaturates; boundSaturates; max-rational-component-magnitude)
+open import Aletheia.Limits using (BoundKind; boundKindLabel; observed-ceiling; observedSaturates; boundSaturates; max-rational-component-magnitude; Passes)
 
 -- ============================================================================
 -- PARSE ERRORS (DBC/JSONParser.agda, CAN/Frame/Parse.agda)
@@ -488,7 +488,7 @@ handlerErrorCode NotStreaming          = "handler_not_streaming"
 handlerErrorCode StreamNotStarted      = "handler_stream_not_started"
 handlerErrorCode StreamActive          = "handler_stream_active"
 handlerErrorCode (PropertyParseFailed _ _) = "handler_property_parse_failed"
-handlerErrorCode (PropertyRefused r)    = handlerErrorCode (PropertyParseFailed 0 r)
+handlerErrorCode (PropertyRefused _)    = "handler_property_refused"
 handlerErrorCode (UnknownSignal _)     = "handler_unknown_signal"
 handlerErrorCode (ValidationFailed _)  = "handler_validation_failed"
 handlerErrorCode (TextRoundTripFailed _) = "handler_text_roundtrip_failed"
@@ -612,12 +612,13 @@ data Error : Set where
   WithContext        : String → Error → Error
   -- Adversarial-input bound exceeded at any parser surface; the `BoundKind`
   -- says which bound, and bindings dispatch on the `bound_kind` field of
-  -- the structured payload.
-  InputBoundExceeded : BoundKind → ℕ → ℕ → Error
+  -- the structured payload.  The measured value and the limit come with the
+  -- erased proof that the value passed a limit of at least 1.
+  InputBoundExceeded : BoundKind → (observed limit : ℕ) → .(Passes observed limit) → Error
   -- The same, located: the named part of the input (a DBC's "senders
   -- array", its "version string"), carried as `field`, or the position in a
   -- DBC text where the refused name starts, carried as `line` and `column`.
-  InputBoundExceededAt : NamePlace → BoundKind → ℕ → ℕ → Error
+  InputBoundExceededAt : NamePlace → BoundKind → (observed limit : ℕ) → .(Passes observed limit) → Error
   -- A character outside the DBC character set, with its code point: in a
   -- parsed field at its index, or in a DBC text at its line and column.
   InvalidCharacter : CharLocation → ℕ → Error
@@ -633,13 +634,13 @@ formatError (HandlerErr he)                     = formatHandlerError he
 formatError (DispatchErr de)                    = formatDispatchError de
 formatError (DBCTextParseErr de)                = formatDBCTextParseError de
 formatError (WithContext ctx inner)             = ctx ++ₛ ": " ++ₛ formatError inner
-formatError (InputBoundExceeded kind obs limit) =
+formatError (InputBoundExceeded kind obs limit _) =
   boundKindLabel kind ++ₛ showBoundObserved obs ++ₛ " exceeds limit " ++ₛ showℕ limit
-formatError (InputBoundExceededAt (InPart part) kind obs limit) =
-  part ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit)
-formatError (InputBoundExceededAt (AtText pos) kind obs limit) =
+formatError (InputBoundExceededAt (InPart part) kind obs limit p) =
+  part ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit p)
+formatError (InputBoundExceededAt (AtText pos) kind obs limit p) =
   "identifier at line " ++ₛ showℕ (Position.line pos) ++ₛ ", column "
-    ++ₛ showℕ (Position.column pos) ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit)
+    ++ₛ showℕ (Position.column pos) ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit p)
 formatError (InvalidCharacter (InField part i) cp) =
   part ++ₛ ": character at index " ++ₛ showℕ i ++ₛ " (code point " ++ₛ showℕ cp
     ++ₛ ") is outside the DBC character set"
@@ -662,7 +663,7 @@ errorCode (HandlerErr he)           = handlerErrorCode he
 errorCode (DispatchErr de)          = dispatchErrorCode de
 errorCode (DBCTextParseErr de)      = dbcTextParseErrorCode de
 errorCode (WithContext _ inner)     = errorCode inner
-errorCode (InputBoundExceeded _ _ _) = "input_bound_exceeded"
-errorCode (InputBoundExceededAt _ kind obs limit) = errorCode (InputBoundExceeded kind obs limit)
+errorCode (InputBoundExceeded _ _ _ _) = "input_bound_exceeded"
+errorCode (InputBoundExceededAt _ kind obs limit p) = errorCode (InputBoundExceeded kind obs limit p)
 errorCode (InvalidCharacter _ _)    = "dbc_invalid_character"
 errorCode (KeywordName _ _)         = "dbc_keyword_name"

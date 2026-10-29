@@ -8,8 +8,10 @@ captured inputs and the init/close lifecycle.
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 import pytest
-from _dbc_helpers import dbc, message, signal
+from _dbc_helpers import dbc, kernel_signal, message, parse_dbc_reply, signal
 
 from aletheia import (
     AletheiaClient,
@@ -21,7 +23,7 @@ from aletheia import (
     StateError,
     ValidationError,
 )
-from aletheia._dbc_types import empty_dbc_tier2
+from aletheia._dbc_types import SignalName, empty_dbc_tier2
 from aletheia.types import DBCDefinition, DLCCode
 
 # Some tests here build predicates whose rational values are rendered through the
@@ -103,8 +105,7 @@ def test_ffibackend_refuses_a_payload_other_than_the_dlc_byte_count() -> None:
                     dlc=8,
                     data=data,
                     indices=(0,),
-                    numerators=(1,),
-                    denominators=(1,),
+                    values=(Fraction(1),),
                     expected_bytes=8,
                 )
     finally:
@@ -249,7 +250,7 @@ def test_client_accepts_injected_mockbackend() -> None:
     backend = MockBackend(
         [
             # parseDBC response (empty body).
-            b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',
+            parse_dbc_reply(),
         ]
     )
     with AletheiaClient(backend=backend) as client:
@@ -278,7 +279,7 @@ def test_client_send_frame_routes_through_backend() -> None:
     """``send_frame`` invokes the injected backend's ``send_frame_binary``."""
     backend = MockBackend(
         [
-            b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parseDBC
+            parse_dbc_reply(),  # parseDBC
             b'{"status":"success"}',  # setProperties
             b'{"status":"success"}',  # startStream
             b'{"status":"ack"}',  # send_frame
@@ -333,10 +334,14 @@ def test_extract_signals_json_fallback_when_backend_binary_unsupported() -> None
             # _signal_lookup gets populated; otherwise the client short-circuits
             # to the JSON path BEFORE ever calling extract_signals_bin (the path
             # we want to exercise).
-            b'{"status":"success","dbc":{"version":"",'
-            + b'"messages":[{"id":256,"extended":false,"dlc":8,"signals":'
-            + b'[{"name":"Sig","startBit":0,"length":8,"presence":"always"}]}]'
-            + b'},"warnings":[]}',
+            parse_dbc_reply(
+                {
+                    "id": 256,
+                    "extended": False,
+                    "dlc": 8,
+                    "signals": [kernel_signal(SignalName("Sig"))],
+                }
+            ),
             # extract_signals_binary JSON fallback returns success + empty lists.
             b'{"status":"success","values":[],"errors":[],"absent":[]}',
         ]
@@ -388,12 +393,12 @@ def test_full_streaming_session_through_mock() -> None:
     """End-to-end mock session: parse, set, start, send, end."""
     backend = MockBackend(
         [
-            b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parseDBC
+            parse_dbc_reply(),  # parseDBC
             b'{"status":"success"}',  # setProperties
             b'{"status":"success"}',  # startStream
             b'{"status":"ack"}',  # send_frame #1
             b'{"status":"ack"}',  # send_frame #2
-            b'{"status":"complete","results":[]}',  # endStream
+            b'{"status":"complete","results":[],"warnings":[]}',  # endStream
         ]
     )
     prop = Signal("Sig").less_than(255).always()

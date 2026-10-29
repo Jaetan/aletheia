@@ -9,11 +9,12 @@ import threading
 from typing import TYPE_CHECKING, Self, cast, override
 
 from aletheia.client._backend import Backend, FFIBackend
+from aletheia.client._client_bin import SignalValues
 from aletheia.client._enrichment import build_diagnostic
 from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.client._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
 from aletheia.client._helpers.rational import (
-    fraction_to_wire_pair,
+    check_wire_bound,
     reject_inexact,
     to_exact_fraction,
 )
@@ -39,7 +40,6 @@ from aletheia.client._types import (
     StreamCaches,
     ValidationError,
 )
-from aletheia.common_types import Prose
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES, MAX_JSON_BYTES
 from aletheia.types import (
     Command,
@@ -317,13 +317,14 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         cmd_name: str,
         *,
         extended: bool,
-    ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
-        """Resolve signal names to (indices, numerators, denominators).
+    ) -> SignalValues:
+        """Resolve signal names to their indices and values.
 
-        Accepts exact int or Fraction inputs (the float principle — no float
+        Accepts exact int or Fraction inputs (the float principle: no float
         ever crosses the API); each is validated by :func:`to_exact_fraction`
-        (rejecting a runtime ``float`` or ``bool``) then flows through losslessly
-        via :func:`fraction_to_wire_pair`, matching the Agda core's ℚ arithmetic.
+        (rejecting a runtime ``float`` or ``bool``) and held to the wire's
+        component bound by :func:`check_wire_bound`, then flows through
+        losslessly, matching the Agda core's ℚ arithmetic.
         """
         lookup = self._signal_lookup.get((can_id, extended))
         if lookup is None:
@@ -333,27 +334,25 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             msg = f"{cmd_name}: no DBC message for CAN ID {can_id}"
             raise ValidationError(msg)
         indices: list[int] = []
-        nums: list[int] = []
-        dens: list[int] = []
+        values: list[Fraction] = []
         for name, value in signals.items():
             idx = lookup.indices.get(name)
             if idx is None:
                 msg = f"{cmd_name}: unknown signal '{name}'"
                 raise ValidationError(msg)
-            n, d = fraction_to_wire_pair(to_exact_fraction(value))
+            exact = to_exact_fraction(value)
+            check_wire_bound(exact)
             indices.append(idx)
-            nums.append(n)
-            dens.append(d)
-        return tuple(indices), tuple(nums), tuple(dens)
+            values.append(exact)
+        return SignalValues(tuple(indices), tuple(values))
 
     def _populate_signal_lookup(self, dbc: DBCDefinition) -> None:
         """Refresh the per-message signal name/index cache from a DBC body."""
         self._signal_lookup.clear()
         for msg in dbc["messages"]:
-            # `bool(.get("extended"))` already yields False when absent
-            # (bool(None) is False), so the explicit False default is redundant —
-            # dropping it removes the default-value equivalent mutants while the
-            # key-name mutants stay killable (the extended-lookup test).
+            # The reader refused a message without its bool ``extended``, so
+            # ``bool(.get(...))`` reads the flag it holds, with no default of
+            # its own and no branch the reader leaves unreachable.
             msg_ext = bool(msg.get("extended"))
             sig_map: dict[str, int] = {}
             names: list[str] = []
@@ -469,7 +468,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
         if status == "error":
             code = response.get("code")
-            msg = envelope_message(response, Prose("validateDBC failed: Unknown error"))
+            msg = envelope_message(response, "validateDBC")
             raise_if_input_bound_exceeded(response)
             raise_if_dbc_validation_failed(response, msg)
             raise ProtocolError(
@@ -512,7 +511,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
         if status == "error":
             code = response.get("code")
-            msg = envelope_message(response, Prose("formatDBC failed: Unknown error"))
+            msg = envelope_message(response, "formatDBC")
             raise ProtocolError(
                 msg,
                 code=code if isinstance(code, str) else None,
@@ -571,10 +570,10 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             if not isinstance(text, str):
                 msg = "Expected 'text' field in formatDBCText response"
                 raise ProtocolError(msg)
-            # Absent issues → empty; a present-but-ill-typed issues field is a
-            # protocol error, not a crash (mirrors parse_parsed_dbc_response's
-            # warnings validation — keeps the malformed-response contract uniform).
-            issues_field = response.get("issues", [])
+            issues_field = response.get("issues")
+            if issues_field is None:
+                msg = "Expected 'issues' field in formatDBCText response"
+                raise ProtocolError(msg)
             if not is_object_list(issues_field):
                 msg = "formatDBCText success response 'issues' must be a list of objects"
                 raise ProtocolError(msg)
@@ -590,7 +589,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
         if status == "error":
             code = response.get("code")
-            msg = envelope_message(response, Prose("formatDBCText failed: Unknown error"))
+            msg = envelope_message(response, "formatDBCText")
             raise_if_input_bound_exceeded(response)
             raise_if_text_roundtrip_failed(response, msg)
             raise ProtocolError(

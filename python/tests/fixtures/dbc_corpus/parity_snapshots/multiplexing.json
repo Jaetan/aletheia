@@ -5,6 +5,7 @@
   "messages": [
     {
       "dlc": 8,
+      "extended": false,
       "id": 100,
       "name": "BasicMux",
       "sender": "ECU",
@@ -117,6 +118,7 @@
     },
     {
       "dlc": 8,
+      "extended": false,
       "id": 200,
       "name": "ExtendedMux",
       "sender": "ECU",

@@ -68,9 +68,12 @@ def _all_comments() -> list[DBCComment]:
     return [
         {"target": {"kind": "network"}, "text": "network-scope comment"},
         {"target": {"kind": "node", "node": "ECU_A"}, "text": "node comment"},
-        {"target": {"kind": "message", "id": _MSG_ID}, "text": "message comment"},
         {
-            "target": {"kind": "signal", "id": _MSG_ID, "signal": _SIG_NAME},
+            "target": {"kind": "message", "id": _MSG_ID, "extended": False},
+            "text": "message comment",
+        },
+        {
+            "target": {"kind": "signal", "id": _MSG_ID, "extended": False, "signal": _SIG_NAME},
             "text": "signal comment",
         },
         {"target": {"kind": "envVar", "envVar": "AmbientTemp"}, "text": "env-var comment"},
@@ -168,13 +171,13 @@ def _all_attributes() -> list[DBCAttribute]:
         {
             "kind": "assignment",
             "name": "IntAttr",
-            "target": {"kind": "message", "id": _MSG_ID},
+            "target": {"kind": "message", "id": _MSG_ID, "extended": False},
             "value": {"kind": "int", "value": 3},
         },
         {
             "kind": "assignment",
             "name": "IntAttr",
-            "target": {"kind": "signal", "id": _MSG_ID, "signal": _SIG_NAME},
+            "target": {"kind": "signal", "id": _MSG_ID, "extended": False, "signal": _SIG_NAME},
             "value": {"kind": "int", "value": 4},
         },
         {
@@ -186,7 +189,7 @@ def _all_attributes() -> list[DBCAttribute]:
         {
             "kind": "assignment",
             "name": "RelMsgAttr",
-            "target": {"kind": "nodeMsg", "node": "ECU_A", "id": _MSG_ID},
+            "target": {"kind": "nodeMsg", "node": "ECU_A", "id": _MSG_ID, "extended": False},
             "value": {"kind": "int", "value": 6},
         },
         {
@@ -196,6 +199,7 @@ def _all_attributes() -> list[DBCAttribute]:
                 "kind": "nodeSig",
                 "node": "ECU_A",
                 "id": _MSG_ID,
+                "extended": False,
                 "signal": _SIG_NAME,
             },
             "value": {"kind": "int", "value": 7},

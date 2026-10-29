@@ -182,6 +182,48 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._response_parsers",
             "raise_if_input_bound_exceeded",
         ),
+        # Each reader refuses a reply missing a key the kernel always writes;
+        # the real kernel never sends one, so only a direct call reaches it.
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "build_error_response",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "entry_reason",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "parse_frame_response",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "parse_complete_warnings",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "parse_finalization_results",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "parse_parsed_dbc_response",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "raise_if_dbc_validation_failed",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "raise_if_text_roundtrip_failed",
+        ),
         # Pre-__enter__ send-frame stub — a defensive raise shadowed by
         # send_frame's own _state guard, so a direct call is the only way to
         # exercise (and mutation-test) it.
@@ -217,6 +259,13 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._enrichment",
             "format_formula",
         ),
+        # The renderer reads the library the runtime start opened; the test
+        # holds that a render after a start goes there, with no backend.
+        (
+            "test_start_runtime.py",
+            "aletheia.client._enrichment",
+            "format_rational",
+        ),
         # The shared formula's wire (docs/FORMULA_RENDERING.yaml) writes a
         # rational as a reply does; the rendering test reads it with the
         # decoder the client reads replies with.
@@ -242,15 +291,34 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "configure_ffi_signatures"),
         ("test_parse_decimal_ffi.py", "aletheia.client._helpers.rational", "decimal_value"),
         # The rational the decimal entry answers is read by one helper, held on
-        # the out-parameters the kernel never writes (a zero denominator, a sign
-        # byte past 1), which no public path reaches, laid out by the helpers
-        # the binding packs a rational with.
+        # an out-parameter the kernel never writes (a sign byte past 1), which
+        # no public path reaches, laid out by the helper the binding packs a
+        # rational with.
         ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaDecimal"),
-        ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaRational"),
-        ("test_from_decimal.py", "aletheia.client._ffi", "Magnitude"),
         ("test_from_decimal.py", "aletheia.client._ffi", "wire_rational"),
-        ("test_from_decimal.py", "aletheia.client._ffi", "wire_uint128"),
         ("test_from_decimal.py", "aletheia.client._helpers.rational", "decimal_value"),
+        # Each reader of a kernel rational (a reply's dict, the decimal entry's
+        # out-parameter, an extraction value) is held to checking kinds only,
+        # on parts the kernel never writes, which no public path reaches.
+        (
+            "test_reader_drops_denominator_checks.py",
+            "aletheia.client._client_bin",
+            "parse_extraction_buffer",
+        ),
+        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "AletheiaDecimal"),
+        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "Magnitude"),
+        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "wire_uint128"),
+        (
+            "test_reader_drops_denominator_checks.py",
+            "aletheia.client._helpers.rational",
+            "decimal_value",
+        ),
+        (
+            "test_reader_drops_denominator_checks.py",
+            "aletheia.client._helpers.rational",
+            "extract_rational_from_dict",
+        ),
         # Demo-script gate: runs every examples/demo/*.py as a subprocess and
         # resolves the .so the same way the binding does, passing it through as
         # ALETHEIA_LIB — the public surface is ``AletheiaClient`` (which the demos

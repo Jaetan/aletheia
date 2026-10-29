@@ -93,9 +93,8 @@ def from_decimal(s: str) -> Fraction:
             ``ffi_validation_error`` when the shim refused the text before the
             kernel read it (a NUL byte, or a lone surrogate, the one text a
             ``str`` holds that is not UTF-8).
-        ProtocolError: the FFI answered a failure without an envelope, a
-            malformed envelope or a non-positive denominator (an ABI / kernel
-            malfunction).
+        ProtocolError: the FFI answered a failure without an envelope or with
+            a malformed one (an ABI / kernel malfunction).
 
     """
     lib = started_library(Prose("parsing decimals"))
@@ -127,7 +126,7 @@ def parse_time_bound(s: TimeBoundText) -> Microseconds:
             rational bound (``field`` ``"decimal"``).
         ValidationError: the text was refused, its ``code`` saying how: a text
             that is no decimal as :func:`from_decimal` refuses it, or
-            ``handler_property_parse_failed`` for a negative or fractional
+            ``handler_property_refused`` for a negative or fractional
             number (``timebound -1500 is negative``, ``timebound 1.5 is not a
             whole number``).
 
@@ -146,20 +145,11 @@ def parse_time_bound(s: TimeBoundText) -> Microseconds:
 def decimal_value(out: AletheiaDecimal) -> Fraction:
     """Read the rational the decimal entry answered into *out*.
 
-    The kernel answers lowest terms over a positive denominator; a zero one is
-    the ABI or the kernel malfunctioning, which ``Fraction`` would raise as its
-    own error.  Any sign byte but 0 is negative, as the header reads one.
-
-    Raises:
-        ProtocolError: the denominator is zero.
-
+    The kernel proves its answer lowest terms over a positive denominator, so
+    the parts are read as written.  Any sign byte but 0 is negative, as the
+    header reads one.
     """
-    numerator = uint128_value(out.value.numerator)
-    denominator = uint128_value(out.value.denominator)
-    if denominator == 0:
-        msg = "aletheia_parse_decimal answered a zero denominator"
-        raise ProtocolError(msg)
-    value = Fraction(numerator, denominator)
+    value = Fraction(uint128_value(out.value.numerator), uint128_value(out.value.denominator))
     negative: int = out.value.negative
     return -value if negative else value
 
@@ -248,8 +238,8 @@ def reject_inexact(value: object, ctx: str) -> None:
         raise ValidationError(msg)
 
 
-def fraction_to_wire_pair(value: Fraction) -> tuple[int, int]:
-    """Convert a Fraction to (numerator, denominator) for the binary frame FFI.
+def check_wire_bound(value: Fraction) -> None:
+    """Refuse a signal value the binary frame FFI's slots cannot hold.
 
     The binary-frame endpoints (``aletheia_build_frame_bin`` /
     ``aletheia_update_frame_bin``) take each value as a sign and two unsigned
@@ -278,7 +268,6 @@ def fraction_to_wire_pair(value: Fraction) -> tuple[int, int]:
             code="input_bound_exceeded",
             refusal=KernelRefusal(message, _SIGNAL_VALUE_FIELD),
         )
-    return (n, d)
 
 
 def extract_rational_from_dict(
@@ -287,11 +276,12 @@ def extract_rational_from_dict(
 ) -> tuple[int, int]:
     """Extract (numerator, denominator) from a rational dict.
 
-    Raises ProtocolError if the dict is malformed or denominator is non-positive.
-    Mirrors Go ``validateRational`` (rejects ``<= 0``) and the Agda kernel
-    invariant that the denominator is a ``ℕ⁺``.  A negative denominator on
-    the wire would otherwise be silently sign-flipped by ``Fraction(n, d)``,
-    hiding the wire-format violation.
+    The kernel proves every denominator it writes a ``ℕ⁺``, so only the
+    components' kinds are checked and the pair is returned as written.
+
+    Raises:
+        ProtocolError: a component is missing or not an ``int``.
+
     """
     numerator = d.get("numerator")
     denominator = d.get("denominator")
@@ -304,9 +294,6 @@ def extract_rational_from_dict(
         raise ProtocolError(msg)
     if not is_pure_int(denominator):
         msg = f"Expected {context}.denominator to be int"
-        raise ProtocolError(msg)
-    if denominator <= 0:
-        msg = f"Expected {context}.denominator to be positive, got {denominator}"
         raise ProtocolError(msg)
     return numerator, denominator
 

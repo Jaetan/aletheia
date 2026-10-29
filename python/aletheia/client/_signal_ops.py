@@ -17,7 +17,7 @@ from abc import abstractmethod
 from typing import TYPE_CHECKING, cast
 
 from aletheia.client._backend import Backend, BinaryPathUnsupportedError
-from aletheia.client._client_bin import parse_extraction_buffer
+from aletheia.client._client_bin import SignalValues, parse_extraction_buffer
 from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.client._helpers.json_codec import (
     parse_absent_list,
@@ -36,16 +36,35 @@ from aletheia.client._types import (
     validate_can_id,
     validate_payload_length,
 )
-from aletheia.common_types import Prose
 from aletheia.types import DLCCode, is_object_list
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from fractions import Fraction
 
-    from aletheia.types import Response
+    from aletheia.types import ExtractSignalsResponse, Response
 
 _logger = logging.getLogger("aletheia")
+
+
+def _extraction_result(response: Response) -> SignalExtractionResult:
+    """Read an extraction success reply's three lists, which the kernel always writes.
+
+    Raises:
+        ProtocolError: If ``values``, ``errors`` or ``absent`` is absent or not a list.
+
+    """
+    for key in ("values", "errors", "absent"):
+        if not is_object_list(response.get(key)):
+            msg = f"Expected '{key}' list field in extractAllSignals response"
+            raise ProtocolError(msg)
+    # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
+    extracted = cast("ExtractSignalsResponse", response)  # pragma: no mutate
+    return SignalExtractionResult(
+        values=parse_values_list(extracted["values"]),
+        errors=parse_errors_list(extracted["errors"]),
+        absent=tuple(parse_absent_list(extracted["absent"])),
+    )
 
 
 class SignalOpsMixin(ClientHostState):
@@ -72,8 +91,8 @@ class SignalOpsMixin(ClientHostState):
         cmd_name: str,
         *,
         extended: bool,
-    ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
-        """Resolve signal name → (indices, numerators, denominators)."""
+    ) -> SignalValues:
+        """Resolve signal names to their indices and values."""
 
     def extract_signals(
         self,
@@ -151,9 +170,7 @@ class SignalOpsMixin(ClientHostState):
                 raise
 
             if response.get("status") == "error":
-                error_msg = envelope_message(
-                    response, Prose("extract_signals failed: Unknown error")
-                )
+                error_msg = envelope_message(response, "extractAllSignals")
                 error_code_raw = response.get("code")
                 error_code = error_code_raw if isinstance(error_code_raw, str) else None
                 log_event(
@@ -171,15 +188,7 @@ class SignalOpsMixin(ClientHostState):
                 msg = f"Unexpected status: {response.get('status')}"
                 raise ProtocolError(msg)
 
-            for key in ("values", "errors", "absent"):
-                if not is_object_list(response.get(key, [])):
-                    msg = f"Expected '{key}' to be a list"
-                    raise ProtocolError(msg)
-            return SignalExtractionResult(
-                values=parse_values_list(response.get("values", [])),
-                errors=parse_errors_list(response.get("errors", [])),
-                absent=tuple(parse_absent_list(response.get("absent", []))),
-            )
+            return _extraction_result(response)
 
     def update_frame(  # pylint: disable=too-many-arguments
         self,
@@ -222,7 +231,7 @@ class SignalOpsMixin(ClientHostState):
         """
         expected_bytes = validate_payload_length(dlc, frame)
         validate_can_id(can_id, extended=extended)
-        indices, nums, dens = self._resolve_signal_indices(
+        resolved = self._resolve_signal_indices(
             signals,
             can_id,
             "update_frame",
@@ -239,9 +248,8 @@ class SignalOpsMixin(ClientHostState):
                     extended=extended,
                     dlc=dlc,
                     data=frame,
-                    indices=indices,
-                    numerators=nums,
-                    denominators=dens,
+                    indices=resolved.indices,
+                    values=resolved.values,
                     expected_bytes=expected_bytes,
                 )
             )
@@ -281,7 +289,7 @@ class SignalOpsMixin(ClientHostState):
 
         """
         validate_can_id(can_id, extended=extended)
-        indices, nums, dens = self._resolve_signal_indices(
+        resolved = self._resolve_signal_indices(
             signals,
             can_id,
             "build_frame",
@@ -297,9 +305,8 @@ class SignalOpsMixin(ClientHostState):
                     can_id=can_id,
                     extended=extended,
                     dlc=dlc,
-                    indices=indices,
-                    numerators=nums,
-                    denominators=dens,
+                    indices=resolved.indices,
+                    values=resolved.values,
                     expected_bytes=dlc_to_bytes(dlc),
                 )
             )

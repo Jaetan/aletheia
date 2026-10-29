@@ -25,6 +25,7 @@ from aletheia.client._types import (
     ProtocolError,
     TextRoundTripFailedError,
 )
+from aletheia.common_types import Prose
 from aletheia.limits import BoundField
 from aletheia.types import (
     AckResponse,
@@ -72,30 +73,40 @@ ISSUES_CARRYING_CODES = frozenset({"handler_validation_failed", "handler_text_ro
 
 def _extract_issues_payload(
     response: Response,
-) -> tuple[list[ValidationIssue], bool] | None:
+) -> tuple[list[ValidationIssue], bool]:
     """Extract the ``issues`` / ``has_errors`` pair from an envelope, without gating on code.
 
-    Both fields must be present and well-typed — every issue an object with
-    string ``code`` / ``detail`` and a canonical severity — else the payload is
-    treated as missing rather than partial (the degrade rule of the
-    ``bound_kind`` / ``observed`` / ``limit`` triple in :func:`build_error_response`).
+    The kernel writes both fields on every envelope whose code is in
+    :data:`ISSUES_CARRYING_CODES`, every issue an object with string ``code`` /
+    ``detail`` and a canonical severity.
+
+    Raises:
+        ProtocolError: If either field is absent or ill-typed, or an issue is
+            not such an object.
+
     """
+    code = response.get("code")
     has_errors = response.get("has_errors")
+    if not isinstance(has_errors, bool):
+        msg = f"Expected bool 'has_errors' in {code} error reply, got {type(has_errors).__name__}"
+        raise ProtocolError(msg)
     raw_issues = response.get("issues")
-    if not isinstance(has_errors, bool) or not is_object_list(raw_issues):
-        return None
+    if not is_object_list(raw_issues):
+        msg = f"Expected 'issues' to be a list in {code} error reply"
+        raise ProtocolError(msg)
     if not all(
         is_str_dict(item)
         and isinstance(item.get("code"), str)
         and isinstance(item.get("detail"), str)
         for item in raw_issues
     ):
-        return None
+        msg = (
+            "Expected every 'issues' entry to be an object with string 'code' and"
+            f" 'detail' in {code} error reply"
+        )
+        raise ProtocolError(msg)
     issues = cast("list[ValidationIssue]", list(raw_issues))
-    try:
-        return validate_issue_severities(issues), has_errors
-    except ProtocolError:
-        return None
+    return validate_issue_severities(issues), has_errors
 
 
 def lift_issues_envelope(
@@ -107,6 +118,11 @@ def lift_issues_envelope(
     Gating on the wire code, like the Go / C++ / Rust decoders, keeps another
     error envelope that happens to carry has_errors/issues-shaped keys from being
     mis-lifted into the wrong typed error.
+
+    Raises:
+        ProtocolError: If the envelope carries ``code`` with an ill-formed pair
+            (see :func:`_extract_issues_payload`).
+
     """
     if response.get("code") != code:
         return None
@@ -116,11 +132,15 @@ def lift_issues_envelope(
 def raise_if_dbc_validation_failed(response: Response, msg: str) -> None:
     """Raise :class:`DBCValidationFailedError` for a structured DBC validation failure.
 
-    Returns normally when ``response`` is not a structured validation failure, so
-    the caller raises its own fallback (``ProtocolError`` on the client,
-    ``ValidationError`` in the converter). The single lift-and-raise shared by the
-    client's DBC routes and the ``dbc`` converter — one wire-code gate, no
-    per-caller re-implementation.
+    Returns normally when ``response`` carries another code, so the caller raises
+    its own fallback (``ProtocolError`` on the client, ``ValidationError`` in the
+    converter). The single lift-and-raise shared by the client's DBC routes and
+    the ``dbc`` converter: one wire-code gate, no per-caller re-implementation.
+
+    Raises:
+        DBCValidationFailedError: If ``response`` is a validation failure.
+        ProtocolError: If it carries the code with an ill-formed issues payload.
+
     """
     lifted = lift_issues_envelope(response, "handler_validation_failed")
     if lifted is not None:
@@ -133,10 +153,15 @@ def raise_if_dbc_validation_failed(response: Response, msg: str) -> None:
 def raise_if_text_roundtrip_failed(response: Response, msg: str) -> None:
     """Raise :class:`TextRoundTripFailedError` for a ``format_dbc_text`` round-trip refusal.
 
-    Returns normally when ``response`` is not a structured round-trip failure, so
-    the caller raises its own generic fallback.  Mirrors
+    Returns normally when ``response`` carries another code, so the caller raises
+    its own generic fallback.  Mirrors
     :func:`raise_if_dbc_validation_failed` for the ``handler_text_roundtrip_failed``
     wire code — same lift, distinct typed error.
+
+    Raises:
+        TextRoundTripFailedError: If ``response`` is a round-trip refusal.
+        ProtocolError: If it carries the code with an ill-formed issues payload.
+
     """
     lifted = lift_issues_envelope(response, "handler_text_roundtrip_failed")
     if lifted is not None:
@@ -161,8 +186,10 @@ def build_error_response(response: Response) -> ErrorResponse:
     one is, else the payload is treated as missing rather than partial
     (see :func:`~aletheia.client._refusal.extract_bound_triple`).
 
-    Validation-failure errors carry the ``issues`` / ``has_errors`` pair
-    under the same all-or-nothing rule (see :func:`lift_issues_envelope`).
+    Validation-failure errors carry the ``issues`` / ``has_errors`` pair,
+    which the kernel writes on every code in :data:`ISSUES_CARRYING_CODES`;
+    an ill-formed pair is a ``ProtocolError`` (see
+    :func:`_extract_issues_payload`).
     """
     code = response.get("code")
     if not isinstance(code, str):
@@ -183,9 +210,7 @@ def build_error_response(response: Response) -> ErrorResponse:
         if isinstance(field, str):
             out["field"] = BoundField(field)
     if response.get("code") in ISSUES_CARRYING_CODES:
-        lifted = _extract_issues_payload(response)
-        if lifted is not None:
-            out["issues"], out["has_errors"] = lifted
+        out["issues"], out["has_errors"] = _extract_issues_payload(response)
     return out
 
 
@@ -223,9 +248,12 @@ def parse_parsed_dbc_response(
 
     if status == "success":
         dbc_field = response.get("dbc")
-        warnings_field = response.get("warnings", [])
+        warnings_field = response.get("warnings")
         if not is_str_dict(dbc_field):
             msg = "parseDBC success response missing 'dbc' object"
+            raise ProtocolError(msg)
+        if warnings_field is None:
+            msg = "Expected 'warnings' in parseDBC success reply"
             raise ProtocolError(msg)
         if not is_object_list(warnings_field):
             msg = "parseDBC success response 'warnings' must be a list of objects"
@@ -310,6 +338,8 @@ def _parse_property_event(raw: dict[str, object]) -> PropertyResultEntry:
     Inner shape mirrors EndStream's `PropertyResultEntry`:
         {"type": "property", "status": "fails"|"holds"|"unresolved",
          "property_index": int, "timestamp": int?, "reason": str?}
+
+    A ``fails`` or ``unresolved`` event carries ``reason``, refused when absent.
     """
     inner_type = raw.get("type")
     if inner_type != "property":
@@ -330,10 +360,30 @@ def _parse_property_event(raw: dict[str, object]) -> PropertyResultEntry:
     }
     if inner_status == "fails":
         entry["timestamp"] = validate_integer_field("timestamp", raw.get("timestamp"))
-    reason = raw.get("reason")
-    if isinstance(reason, str):
+    if inner_status in ("fails", "unresolved"):
+        reason = raw.get("reason")
+        if not isinstance(reason, str):
+            msg = f"Expected string 'reason' in property_batch {inner_status!r} event"
+            raise ProtocolError(msg)
         entry["reason"] = reason
     return entry
+
+
+def entry_reason(entry: PropertyResultEntry) -> Prose:
+    """Return the ``reason`` of a ``fails`` or ``unresolved`` result entry.
+
+    The parsers refuse such an entry without one, so only an entry built
+    without them can lack it.
+
+    Raises:
+        ProtocolError: The entry carries no ``reason``.
+
+    """
+    reason = entry.get("reason")
+    if reason is None:
+        msg = f"Expected string 'reason' in {entry['status']!r} result entry"
+        raise ProtocolError(msg)
+    return Prose(reason)
 
 
 def parse_event_response(
@@ -428,9 +478,17 @@ def parse_finalization_results(
             ts = raw.get("timestamp")
             if ts is not None:
                 result_entry["timestamp"] = validate_integer_field("timestamp", ts)
+            elif entry_status == "fails":
+                msg = "Expected 'timestamp' in finalization result entry with status 'fails'"
+                raise ProtocolError(msg)
             reason = raw.get("reason")
-            if isinstance(reason, str):
-                result_entry["reason"] = reason
+            if not isinstance(reason, str):
+                msg = (
+                    "Expected string 'reason' in finalization result entry"
+                    f" with status {entry_status!r}"
+                )
+                raise ProtocolError(msg)
+            result_entry["reason"] = reason
             enrich(result_entry)
         entries.append(result_entry)
     return entries
@@ -447,11 +505,15 @@ def parse_complete_warnings(response: Response) -> list[CompleteWarning]:
     ``{"numerator": N, "denominator": 1}`` wire shapes and rejects a
     non-integer, non-unit-denominator, or wrong-typed value) rather than
     blindly ``cast``. Go's ``parseNumberAsInt64`` and the per-entry
-    ``item.(map[string]any)`` check raise on the same inputs. A missing
-    ``property_index`` is a protocol violation and is rejected rather than
-    silently defaulted.
+    ``item.(map[string]any)`` check raise on the same inputs. The kernel
+    writes ``warnings`` and each entry's ``kind``, ``property_index`` and
+    ``detail``, so a missing one is a protocol violation and is rejected
+    rather than silently defaulted.
     """
-    raw_warnings = response.get("warnings", [])
+    raw_warnings = response.get("warnings")
+    if raw_warnings is None:
+        msg = "Expected 'warnings' in end-of-stream complete reply"
+        raise ProtocolError(msg)
     if not is_object_list(raw_warnings):
         msg = "'warnings' must be a list in end-of-stream complete response"
         raise ProtocolError(msg)
@@ -460,15 +522,28 @@ def parse_complete_warnings(response: Response) -> list[CompleteWarning]:
         if not is_str_dict(raw):
             msg = "end-of-stream warning entry must be an object"
             raise ProtocolError(msg)
+        kind = raw.get("kind")
+        if not isinstance(kind, str):
+            msg = (
+                f"Expected string 'kind' in end-of-stream warning entry, got {type(kind).__name__}"
+            )
+            raise ProtocolError(msg)
         raw_prop_index = raw.get("property_index")
         if raw_prop_index is None:
             msg = "Missing 'property_index' in end-of-stream warning entry"
             raise ProtocolError(msg)
+        detail = raw.get("detail")
+        if not isinstance(detail, str):
+            msg = (
+                "Expected string 'detail' in end-of-stream warning entry,"
+                f" got {type(detail).__name__}"
+            )
+            raise ProtocolError(msg)
         warnings.append(
             {
-                "kind": cast("str", raw.get("kind", "")),
+                "kind": kind,
                 "property_index": validate_integer_field("property_index", raw_prop_index),
-                "detail": cast("str", raw.get("detail", "")),
+                "detail": detail,
             }
         )
     return warnings

@@ -164,6 +164,7 @@ var goErrorCodes = []string{
 	aletheia.CodeHandlerStreamNotStarted,
 	aletheia.CodeHandlerStreamActive,
 	aletheia.CodeHandlerPropertyParseFailed,
+	aletheia.CodeHandlerPropertyRefused,
 	aletheia.CodeHandlerUnknownSignal,
 	aletheia.CodeHandlerValidationFailed,
 	aletheia.CodeHandlerTextRoundtripFailed,

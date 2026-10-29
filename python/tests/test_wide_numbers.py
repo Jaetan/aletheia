@@ -170,7 +170,7 @@ class TestTimeBound:
         """The kernel refuses the window where it is built, saying why."""
         with pytest.raises(ValidationError) as refused:
             Signal("S").less_than(10).within(-1)
-        assert refused.value.code == "handler_property_parse_failed"
+        assert refused.value.code == "handler_property_refused"
         assert str(refused.value) == "timebound -1 is negative"
 
     def test_a_time_bound_past_the_timestamp_range_is_refused_at_build(self) -> None:

@@ -110,12 +110,6 @@ class TestParseExtractionBuffer:
         result = parse_extraction_buffer(buf, NAMES)
         assert result.values == {"Speed": 220.0, "RPM": 3500.0, "Temp": 42.5}
 
-    def test_denominator_zero_raises(self) -> None:
-        """Denominator zero raises ProtocolError (not silent coercion)."""
-        buf = _extraction_buffer(values=[(0, 999, 0)])
-        with pytest.raises(ProtocolError, match="Zero denominator"):
-            parse_extraction_buffer(buf, NAMES)
-
     def test_signal_index_out_of_range(self) -> None:
         """Index beyond names list uses fallback name."""
         result = parse_extraction_buffer(_extraction_buffer(values=[(99, 42, 1)]), NAMES)

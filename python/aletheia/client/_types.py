@@ -409,11 +409,14 @@ class FrameResult:
         the Agda invariant in dispatchIterResult, violations always
         close a batch — there is at most one violation per frame, and
         if present it is the last result.
+
+        Raises:
+            ProtocolError: If a ``property_batch`` response has no ``results``.
+
         """
         if self.response.get("type") != "property_batch":
             return None
-        results = cast("PropertyBatchResponse", self.response).get("results", [])
-        for entry in results:
+        for entry in self._batch_results():
             if entry.get("status") == "fails":
                 return entry
         return None
@@ -425,14 +428,22 @@ class FrameResult:
         Properties that completed (became Satisfied) on this frame are
         surfaced here in source-order.  Empty list for ack-only frames
         and for violation-only frames.
+
+        Raises:
+            ProtocolError: If a ``property_batch`` response has no ``results``.
+
         """
         if self.response.get("type") != "property_batch":
             return []
-        return [
-            entry
-            for entry in cast("PropertyBatchResponse", self.response).get("results", [])
-            if entry.get("status") == "holds"
-        ]
+        return [entry for entry in self._batch_results() if entry.get("status") == "holds"]
+
+    def _batch_results(self) -> list[PropertyResultEntry]:
+        """Return a ``property_batch`` response's ``results``, which the kernel always writes."""
+        batch = cast("PropertyBatchResponse", self.response)
+        if "results" not in batch:
+            msg = "Expected 'results' field in property_batch response"
+            raise ProtocolError(msg)
+        return batch["results"]
 
 
 def make_frame_result(

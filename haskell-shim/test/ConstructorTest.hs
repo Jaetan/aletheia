@@ -62,7 +62,7 @@ extractResult result =
 
 -- | The JSON envelope of a binary-output refusal.  Mirrors kernelErrorOut in
 -- BinaryOutput.hs.
-envelope :: AgdaError.T_Error_486 -> T.Text
+envelope :: AgdaError.T_Error_484 -> T.Text
 envelope err = unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text
 
 -- | Extract (state, Either envelope bytes) from a binary-out Σ pair.
@@ -96,7 +96,7 @@ parseTimeBound s = extractSum (unsafeCoerce (AgdaTB.d_parseTimeBound_52 (T.pack 
 -- | A property text's check.  Mirrors aletheia_check_property, which reads
 -- nothing of the success.
 checkProperty :: String -> Either T.Text ()
-checkProperty s = case unsafeCoerce (AgdaJSON.d_checkPropertyText_96 (T.pack s)) :: AgdaSum.T__'8846'__30 of
+checkProperty s = case unsafeCoerce (AgdaJSON.d_checkPropertyText_114 (T.pack s)) :: AgdaSum.T__'8846'__30 of
     AgdaSum.C_inj'8321'_38 errAny -> Left (envelope (unsafeCoerce errAny))
     AgdaSum.C_inj'8322'_42 _ -> Right ()
 
@@ -114,7 +114,7 @@ extractSumIER result =
 -- | Process a JSON command (used in setup).
 processJSON :: AgdaState.T_StreamState_32 -> String
             -> (AgdaState.T_StreamState_32, T.Text)
-processJSON state input = extractResult (AgdaJSON.d_processJSONLine_70 state (T.pack input))
+processJSON state input = extractResult (AgdaJSON.d_processJSONLine_88 state (T.pack input))
 
 -- | Walk PartitionedResults — forces field dispatch + full list traversals
 -- of values / errors / absent. Mirrors packPartitionedResults in
@@ -228,7 +228,7 @@ main = do
 
     -- ------------------------------------------------------------------------
     -- Setup: load DBC + properties + start stream.
-    --   exercises: d_initialState_44, d_processJSONLine_70,
+    --   exercises: d_initialState_44, d_processJSONLine_88,
     --              d_processStartStreamDirect_28
     -- ------------------------------------------------------------------------
     let state0 = AgdaState.d_initialState_44

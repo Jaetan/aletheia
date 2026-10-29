@@ -18,13 +18,13 @@ standard-can-id-max = 2048  -- 2^11 (11-bit standard CAN IDs: 0x000-0x7FF)
 extended-can-id-max : ℕ
 extended-can-id-max = 536870912  -- 2^29 (29-bit extended CAN IDs: 0x00000000-0x1FFFFFFF)
 
--- The largest CAN ID, 2^29 - 1, one below `extended-can-id-max`.
-max-can-id : ℕ
-max-can-id = 536870911
+-- The largest standard CAN ID, 2^11 - 1, one below `standard-can-id-max`.
+max-standard-can-id : ℕ
+max-standard-can-id = 2047
 
--- The largest payload of a frame in bytes, a CAN-FD frame's.
-max-frame-bytes : ℕ
-max-frame-bytes = 64
+-- The largest extended CAN ID, 2^29 - 1, one below `extended-can-id-max`.
+max-extended-can-id : ℕ
+max-extended-can-id = 536870911
 
 -- Maximum physical bits in a CAN-FD frame (64 bytes × 8 bits)
 max-physical-bits : ℕ

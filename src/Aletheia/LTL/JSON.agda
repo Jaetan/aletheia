@@ -28,17 +28,20 @@
 module Aletheia.LTL.JSON where
 
 open import Data.String using (String; _≟_; fromList)
-open import Data.Bool using (Bool; T?; if_then_else_)
+open import Data.Bool using (Bool; T; T?; if_then_else_)
+open import Data.Bool.Properties using (¬T-≡)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing; maybe)
-open import Data.Nat using (ℕ; suc) renaming (_≤ᵇ_ to _≤ᵇℕ_)
+open import Data.Nat using (ℕ; suc) renaming (_≤ᵇ_ to _≤ᵇℕ_; _<ᵇ_ to _<ᵇℕ_)
 open import Data.Integer using (+_)
 open import Data.Rational using (ℚ; 0ℚ; _≤ᵇ_; _/_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
+open import Data.Unit using (tt)
 open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
+open import Function.Bundles using (Equivalence)
 open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.JSON using (JSON; JObject; JNumber; getString; getChars; getObject; getInt; getNat)
 open import Aletheia.Error using
@@ -47,7 +50,7 @@ open import Aletheia.Error using
   ; PartNotWhole; DenominatorNotPositive; MinExceedsMax; ToleranceNegative
   ; TimeBoundNegative; TimeBoundNotWhole; InPredicate
   ; FieldKind; AString; AnObject; ANumber; ARational; NumeratorPart; DenominatorPart )
-open import Aletheia.Limits using (max-time-bound; RationalComponentMagnitude)
+open import Aletheia.Limits using (max-time-bound; RationalComponentMagnitude; past-≤ᵇ)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.Trace.Time using (mkTs)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP)
@@ -67,12 +70,13 @@ open import Aletheia.DBC.JSONParser using (IdentRefusal; validateIdent; identErr
 -- `UnknownSignalName cs`: no signal of the loaded DBC is named `cs`; the
 --   handler maps it to `HandlerErr (UnknownSignal …)`.
 -- `TimeBoundPast n`: a whole time bound of `n` microseconds past
---   `max-time-bound`; the handler refuses it as a bound, `field` 'time bound'.
+--   `max-time-bound`, carrying that erased; the handler refuses it as a
+--   bound, `field` 'time bound'.
 data ParseFail : Set where
   Refused           : PropertyRefusal → ParseFail
   BadSignal         : List Char → IdentRefusal → ParseFail
   UnknownSignalName : List Char → ParseFail
-  TimeBoundPast     : ℕ → ParseFail
+  TimeBoundPast     : (n : ℕ) → .(T (max-time-bound <ᵇℕ n)) → ParseFail
 
 -- THE signal-name decision: the one identifier decision as a parsed DBC's
 -- names get it (the grammar, the 129th character, a keyword, the first
@@ -104,8 +108,10 @@ tolerant s tol with T? (0ℚ ≤ᵇ tol)
 -- wholeness is asked.
 timeBound : ℚ → ParseFail ⊎ ℕ
 timeBound r with getNat (JNumber r)
-... | just n  = if n ≤ᵇℕ max-time-bound then inj₂ n else inj₁ (TimeBoundPast n)
 ... | nothing = inj₁ (Refused (if 0ℚ ≤ᵇ r then TimeBoundNotWhole r else TimeBoundNegative r))
+... | just n with T? (n ≤ᵇℕ max-time-bound)
+...   | yes _ = inj₂ n
+...   | no ¬w = inj₁ (TimeBoundPast n (past-≤ᵇ n max-time-bound (Equivalence.to ¬T-≡ ¬w)))
 
 -- A {numerator, denominator} object's two numbers: each whole, the
 -- denominator positive.
@@ -374,8 +380,8 @@ parseFailError : (PropertyRefusal → HandlerError) → ParseFail → Error
 parseFailError place (Refused r) = HandlerErr (place r)
 parseFailError _ (BadSignal cs r) = identError "signal" cs r
 parseFailError _ (UnknownSignalName cs) = HandlerErr (UnknownSignal (fromList cs))
-parseFailError _ (TimeBoundPast n) =
-  InputBoundExceededAt (InPart "time bound") RationalComponentMagnitude n max-time-bound
+parseFailError _ (TimeBoundPast n p) =
+  InputBoundExceededAt (InPart "time bound") RationalComponentMagnitude n max-time-bound (tt , p)
 
 -- Entry point: structural parse of a property JSON into the LTL ADT, carrying
 -- the typed failure reason: a `Refused` reason for JSON that is no property,

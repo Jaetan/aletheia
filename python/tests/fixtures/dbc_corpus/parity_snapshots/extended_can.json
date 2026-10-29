@@ -55,6 +55,7 @@
       "kind": "assignment",
       "name": "VFrameFormat",
       "target": {
+        "extended": false,
         "id": 256,
         "kind": "message"
       },
@@ -80,6 +81,7 @@
       "kind": "assignment",
       "name": "VFrameFormat",
       "target": {
+        "extended": false,
         "id": 512,
         "kind": "message"
       },
@@ -107,6 +109,7 @@
   "messages": [
     {
       "dlc": 8,
+      "extended": false,
       "id": 256,
       "name": "Std",
       "sender": "ECU",
@@ -156,6 +159,7 @@
     },
     {
       "dlc": 16,
+      "extended": false,
       "id": 512,
       "name": "StdFD",
       "sender": "ECU",

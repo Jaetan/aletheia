@@ -22,7 +22,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from aletheia.client._client import AletheiaClient
-from aletheia.client._types import AletheiaError, raise_on_error_response
+from aletheia.client._response_parsers import entry_reason
+from aletheia.client._types import AletheiaError, ProtocolError, raise_on_error_response
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -100,6 +101,11 @@ def _build_violation(
     from a ``PropertyBatchResponse.results``) rather than a top-level
     violation response.  The mid-stream path iterates the batch and calls
     this once per fails entry.
+
+    Raises:
+        ProtocolError: the entry lacks its ``timestamp``, or its ``reason``
+            where the client attached no enrichment.
+
     """
     prop_index = response["property_index"]
     check_name, severity = _check_meta(prop_index, checks)
@@ -110,7 +116,7 @@ def _build_violation(
         signals = enrichment["signals"]
         condition = enrichment["formula_desc"]
     else:
-        reason = response.get("reason", "")
+        reason = entry_reason(response)
         signals = {}
         condition = ""
     signal_name = ""
@@ -121,9 +127,11 @@ def _build_violation(
         actual_value = signals[sig]
 
     # PropertyResultEntry.timestamp is NotRequired (Holds entries omit it),
-    # but a fails entry is required to carry one by the Agda kernel contract.
-    ts = response.get("timestamp")
-    timestamp_us = 0 if ts is None else ts
+    # but the kernel writes one on every fails entry.
+    timestamp_us = response.get("timestamp")
+    if timestamp_us is None:
+        msg = "Expected 'timestamp' field in property_batch 'fails' entry"
+        raise ProtocolError(msg)
     return {
         "check_index": prop_index,
         "check_name": check_name,
@@ -140,7 +148,13 @@ def _build_eos_violation(
     result: PropertyResultEntry,
     checks: list[CheckResult],
 ) -> Violation:
-    """Extract violation details from an end-of-stream finalization result."""
+    """Extract violation details from an end-of-stream finalization result.
+
+    Raises:
+        ProtocolError: the result lacks its ``reason`` where the client
+            attached no enrichment.
+
+    """
     prop_index = result["property_index"]
     check_name, severity = _check_meta(prop_index, checks)
 
@@ -149,7 +163,7 @@ def _build_eos_violation(
         reason = enrichment["enriched_reason"] or "end-of-stream violation"
         condition = enrichment["formula_desc"]
     else:
-        reason = result.get("reason", "end-of-stream violation")
+        reason = entry_reason(result)
         condition = ""
 
     return {
@@ -278,6 +292,8 @@ def run_checks(
         AletheiaError:     the kernel refused the DBC parse, the checks,
             the stream start or the stream end; its text is the kernel's
             message and its ``code`` the kernel's.
+        ProtocolError:     a fails or unresolved result lacks a field the
+            kernel writes on it.
 
     """
     all_checks = (default_checks or []) + checks

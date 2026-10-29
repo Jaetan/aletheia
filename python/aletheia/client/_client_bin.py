@@ -115,11 +115,10 @@ class FrameIdentity:
 
 @dataclass(frozen=True, slots=True)
 class SignalValues:
-    """Parallel tuples of signal indices and rational values (num/den)."""
+    """Parallel tuples of signal indices and their exact values."""
 
     indices: tuple[int, ...]
-    numerators: tuple[int, ...]
-    denominators: tuple[int, ...]
+    values: tuple[Fraction, ...]
 
 
 def _signal_name(names: Sequence[str], idx: int) -> str:
@@ -142,8 +141,9 @@ def _parse_values_segment(
 
     Returns Fraction values to preserve exact rational precision from the
     Agda core: the wire carries a sign and two 128-bit magnitudes, so no
-    quantization is needed.  Any sign byte but 0 is negative, as the header
-    reads one.
+    quantization is needed.  The kernel proves every denominator positive, so
+    the parts are read as written.  Any sign byte but 0 is negative, as the
+    header reads one.
     """
     values: dict[str, Fraction] = {}
     n_names = len(names)
@@ -151,11 +151,7 @@ def _parse_values_segment(
         idx, negative, num_bytes, den_bytes = struct.unpack_from(_VALUE_ENTRY_FMT, buf, off)
         off += _VALUE_ENTRY_BYTES
         name = names[idx] if idx < n_names else f"signal_{idx}"
-        den = int.from_bytes(den_bytes, "little")
-        if den == 0:
-            msg = f"Zero denominator in extraction value for {name!r}"
-            raise ProtocolError(msg)
-        value = Fraction(int.from_bytes(num_bytes, "little"), den)
+        value = Fraction(int.from_bytes(num_bytes, "little"), int.from_bytes(den_bytes, "little"))
         values[name] = -value if negative else value
     return values, off
 

@@ -208,8 +208,8 @@ struct aletheia_decimal {
  * error envelope every entry answers with, which the caller frees with
  * aletheia_free_str: a text that is not a decimal refused as
  * aletheia_parse_decimal refuses it, a negative or fractional number with
- * code handler_property_parse_failed and the reason a property's time bound
- * is refused with, a number past 2^64 - 1 with input_bound_exceeded naming
+ * code handler_property_refused and the reason a property's time bound is
+ * refused with, a number past 2^64 - 1 with input_bound_exceeded naming
  * the field "time bound", or code ffi_validation_error for a text struct
  * aletheia_text refuses.
  */
@@ -222,7 +222,7 @@ struct aletheia_time_bound {
  * A property's check: on failure err is the JSON error envelope every entry
  * answers with, which the caller frees with aletheia_free_str: a text refused
  * as aletheia_process refuses a request (dispatch_invalid_json for one that is
- * not JSON), a property refused with code handler_property_parse_failed, its
+ * not JSON), a property refused with code handler_property_refused, its
  * message the reason set_properties gives after "SetProperties: property N: ",
  * or code ffi_validation_error for a text struct aletheia_text refuses.
  */

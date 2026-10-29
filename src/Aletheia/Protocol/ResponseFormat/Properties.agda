@@ -19,8 +19,10 @@ module Aletheia.Protocol.ResponseFormat.Properties where
 open import Data.Bool using (true; false; T)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_)
-open import Data.Nat using (suc; _≤_; _<_; _<ᵇ_; _^_; _∸_; s≤s; z≤n; s≤s⁻¹)
-open import Data.Nat.Properties using (<ᵇ⇒<; <⇒<ᵇ; ≤⇒≯; ≮⇒≥; ≤-refl; ≤-trans; ≤ᵇ⇒≤)
+open import Data.Nat using (suc; _≤_; _<_; _<ᵇ_; _≤ᵇ_; _^_; _∸_; s≤s; z≤n; s≤s⁻¹)
+open import Data.Nat.Properties using (<ᵇ⇒<; <⇒<ᵇ; ≤⇒≯; ≮⇒≥; ≤-refl; ≤-trans; ≤ᵇ⇒≤; <⇒≤)
+open import Data.Bool.Properties using (T?)
+open import Relation.Nullary.Decidable using (recompute; _×-dec_)
 open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣; -≤-; -≤+; +≤+) renaming (_≤_ to _≤ᶻ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -33,7 +35,8 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst
 import Aletheia.Error as Err
 open import Aletheia.Error using (showObserved; showBoundObserved)
 open import Aletheia.Limits using
-  (boundKindCode; boundKindLabel; observed-ceiling; saturateObserved; bound-ceiling; saturateBound; max-rational-component-magnitude)
+  (boundKindCode; boundKindLabel; observed-ceiling; saturateObserved; bound-ceiling; saturateBound; max-rational-component-magnitude
+  ; Passes)
 open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.CAN.Batch.WireFits using (Fits; wireFits-components)
@@ -42,6 +45,7 @@ open import Aletheia.Protocol.JSON.Types using
   ; NumbersSatisfy; ListNumbersSatisfy; FieldsNumbersSatisfy; ComponentsWithin
   ; jsonDepth; Shallow; FieldsShallow )
 open import Aletheia.Protocol.JSON.Shallow using (shallow-depth; map-shallow)
+open import Aletheia.DBC.Formatter.Bounded using (dlcBytes-≤64)
 open import Aletheia.Protocol.Message using (Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
@@ -50,8 +54,9 @@ open import Aletheia.Protocol.ResponseFormat using
   ( formatResponse; errorExtras; formatPropertyResult
   ; formatWarning; formatValidationIssue; formatSignalValue; formatSignalError )
 open import Aletheia.Protocol.ReplyRange using
-  ( NumbersAt; FieldsNumbersAt; InRange; replyRange; naturalAtMost; integerAtMost; rationalWithin
-  ; natural-in; map-at; mapAll-at; at-satisfies )
+  ( NumbersAt; FieldsNumbersAt; InRange; replyRange; naturalAtMost; positiveAtMost; integerAtMost
+  ; rationalWithin; byteCount
+  ; natural-in; positive-in; map-at; mapAll-at; at-satisfies )
 
 -- ============================================================================
 -- FORMAT-RESPONSE INJECTIVITY (Ack uniqueness)
@@ -157,6 +162,20 @@ saturateBound-past {o} c<o with bound-ceiling <ᵇ o in eq
 ... | true  = refl
 ... | false = ⊥-elim (≤⇒≯ (bound-not-past eq) c<o)
 
+-- A positive value stays positive through the ceiling.
+saturateBound-pos : ∀ {o} → 1 ≤ o → 1 ≤ saturateBound o
+saturateBound-pos {o} 1≤o with bound-ceiling <ᵇ o in eq
+... | true  = ≤ᵇ⇒≤ 1 bound-ceiling tt
+... | false = 1≤o
+
+-- What a bound refusal carries, made relevant: its limit is at least 1 and
+-- its measured value passed it, so both are at least 1.
+passes-pos : ∀ {o l} → .(Passes o l) → 1 ≤ o × 1 ≤ l
+passes-pos {o} {l} p =
+  let (one , past) = recompute (T? (1 ≤ᵇ l) ×-dec T? (l <ᵇ o)) p
+      1≤l = ≤ᵇ⇒≤ 1 l one
+  in ≤-trans 1≤l (<⇒≤ (<ᵇ⇒< l o past)) , 1≤l
+
 -- The message prints a measured value at or below the ceiling as it is ...
 showBoundObserved-exact : ∀ {o} → o ≤ bound-ceiling → showBoundObserved o ≡ " " ++ₛ showℕ o
 showBoundObserved-exact {o} o≤c with bound-ceiling <ᵇ o in eq
@@ -172,15 +191,15 @@ showBoundObserved-past {o} c<o with bound-ceiling <ᵇ o in eq
 -- A bound refusal's message prints its measured value through
 -- `showBoundObserved` and its fields write it and the limit through
 -- `saturateBound`; the `At` form delegates to both and adds `field`.
-formatError-bound : ∀ k o l → Err.formatError (Err.InputBoundExceeded k o l) ≡
+formatError-bound : ∀ k o l .(p : Passes o l) → Err.formatError (Err.InputBoundExceeded k o l p) ≡
   boundKindLabel k ++ₛ showBoundObserved o ++ₛ " exceeds limit " ++ₛ showℕ l
-formatError-bound _ _ _ = refl
+formatError-bound _ _ _ _ = refl
 
-errorExtras-bound : ∀ k o l → errorExtras (Err.InputBoundExceeded k o l) ≡
+errorExtras-bound : ∀ k o l .(p : Passes o l) → errorExtras (Err.InputBoundExceeded k o l p) ≡
   ("bound_kind" , JStringS (boundKindCode k)) ∷
   ("observed"   , JNumber (ℕtoℚ (saturateBound o))) ∷
   ("limit"      , JNumber (ℕtoℚ (saturateBound l))) ∷ []
-errorExtras-bound _ _ _ = refl
+errorExtras-bound _ _ _ _ = refl
 
 -- ============================================================================
 -- EVERY NUMBER A REPLY WRITES IS IN THE READERS' RANGE
@@ -253,12 +272,16 @@ wide-nat-readable n≤ = -≤+ , +≤+ n≤ , s≤s z≤n
 form-readable nothing _ ()
 form-readable (just (naturalAtMost l ⦃ b ⦄)) _ (n , refl , n≤) =
   wide-nat-readable (≤-trans n≤ (≤-trans (≤ᵇ⇒≤ l max-rational-component-magnitude b) magnitude≤ceiling))
+form-readable (just (positiveAtMost l ⦃ b ⦄)) _ (n , refl , _ , n≤) =
+  wide-nat-readable (≤-trans n≤ (≤-trans (≤ᵇ⇒≤ l max-rational-component-magnitude b) magnitude≤ceiling))
 form-readable (just (integerAtMost l ⦃ b ⦄)) _ (z , refl , z≤) =
   let r = int-in-range z (≤-trans z≤ (≤ᵇ⇒≤ l max-rational-component-magnitude b))
   in proj₁ r , proj₂ r , s≤s z≤n
 form-readable (just (rationalWithin l ⦃ b ⦄)) q (n≤ , d≤) =
   let l≤ = ≤ᵇ⇒≤ l max-rational-component-magnitude b
   in components-readable q (≤-trans n≤ l≤ , ≤-trans d≤ l≤)
+form-readable (just byteCount) _ (d , refl) =
+  wide-nat-readable (≤-trans (dlcBytes-≤64 d) (≤ᵇ⇒≤ 64 bound-ceiling tt))
 
 -- ============================================================================
 -- EVERY NUMBER A REPLY WRITES IS IN ITS PLACE'S RANGE
@@ -276,8 +299,8 @@ private
   @0 saturated-in : ∀ n → InRange (just (naturalAtMost observed-ceiling)) (ℕtoℚ (saturateObserved n))
   saturated-in n = natural-in _ (saturateObserved-≤ n)
 
-  @0 boundSaturated-in : ∀ n → InRange (just (naturalAtMost bound-ceiling)) (ℕtoℚ (saturateBound n))
-  boundSaturated-in n = natural-in _ (saturateBound-≤ n)
+  @0 boundSaturated-in : ∀ n → 1 ≤ n → InRange (just (positiveAtMost bound-ceiling)) (ℕtoℚ (saturateBound n))
+  boundSaturated-in n 1≤n = positive-in _ (saturateBound-pos 1≤n) (saturateBound-≤ n)
 
   -- A validation issue, an extraction error and an absent signal's name
   -- carry strings only, wherever they sit.
@@ -303,9 +326,11 @@ private
   @0 value-at : ∀ p → Fits p → At ("values" ∷ []) nothing (formatSignalValue p)
   value-at (_ , q) fits = tt , wireFits-components q fits , tt
 
-  -- Every number an error reply's structured fields carry is saturated.
-  @0 bound-at : ∀ k o l → FieldsAt [] nothing (errorExtras (Err.InputBoundExceeded k o l))
-  bound-at _ o l = tt , boundSaturated-in o , boundSaturated-in l , tt
+  -- Every number an error reply's structured fields carry is saturated; a
+  -- bound refusal's two are positive.
+  @0 bound-at : ∀ k o l .(p : Passes o l) → FieldsAt [] nothing (errorExtras (Err.InputBoundExceeded k o l p))
+  bound-at _ o l p =
+    tt , boundSaturated-in o (proj₁ (passes-pos {o} {l} p)) , boundSaturated-in l (proj₂ (passes-pos {o} {l} p)) , tt
 
   @0 parse-at : ∀ pe → FieldsAt [] nothing (errorExtras (Err.ParseErr pe))
   parse-at (Err.InvalidIdentifier (Err.InPart _) _) = tt , tt
@@ -374,10 +399,10 @@ private
   errorExtras-at (Err.DBCTextParseErr (Err.AttributeRefinementFailed _ _)) = tt
   errorExtras-at (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = tt
   errorExtras-at (Err.WithContext _ inner)          = errorExtras-at inner
-  errorExtras-at (Err.InputBoundExceeded k o l)     = bound-at k o l
-  errorExtras-at (Err.InputBoundExceededAt (Err.InPart _) k o l) = tt , bound-at k o l
-  errorExtras-at (Err.InputBoundExceededAt (Err.AtText pos) k o l) =
-    saturated-in (Position.line pos) , saturated-in (Position.column pos) , bound-at k o l
+  errorExtras-at (Err.InputBoundExceeded k o l p)     = bound-at k o l p
+  errorExtras-at (Err.InputBoundExceededAt (Err.InPart _) k o l p) = tt , bound-at k o l p
+  errorExtras-at (Err.InputBoundExceededAt (Err.AtText pos) k o l p) =
+    saturated-in (Position.line pos) , saturated-in (Position.column pos) , bound-at k o l p
   errorExtras-at (Err.InvalidCharacter (Err.InField _ i) cp) =
     tt , saturated-in i , saturated-in cp , tt
   errorExtras-at (Err.InvalidCharacter (Err.InText pos) cp) =
@@ -497,9 +522,9 @@ private
   errorExtras-shallow k (Err.DBCTextParseErr (Err.AttributeRefinementFailed _ _)) = tt
   errorExtras-shallow k (Err.DBCTextParseErr (Err.SignalGeometryError _ _))       = tt
   errorExtras-shallow k (Err.WithContext _ inner)          = errorExtras-shallow k inner
-  errorExtras-shallow k (Err.InputBoundExceeded _ _ _)     = tt , tt , tt , tt
-  errorExtras-shallow k (Err.InputBoundExceededAt (Err.InPart _) _ _ _) = tt , tt , tt , tt , tt
-  errorExtras-shallow k (Err.InputBoundExceededAt (Err.AtText _) _ _ _) = tt , tt , tt , tt , tt , tt
+  errorExtras-shallow k (Err.InputBoundExceeded _ _ _ _)     = tt , tt , tt , tt
+  errorExtras-shallow k (Err.InputBoundExceededAt (Err.InPart _) _ _ _ _) = tt , tt , tt , tt , tt
+  errorExtras-shallow k (Err.InputBoundExceededAt (Err.AtText _) _ _ _ _) = tt , tt , tt , tt , tt , tt
   errorExtras-shallow k (Err.InvalidCharacter (Err.InField _ _) _) = tt , tt , tt , tt
   errorExtras-shallow k (Err.InvalidCharacter (Err.InText _) _)    = tt , tt , tt , tt
   errorExtras-shallow k (Err.KeywordName (Err.InPart _) _)         = tt , tt , tt

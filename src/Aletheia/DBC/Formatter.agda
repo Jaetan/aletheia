@@ -25,7 +25,7 @@ open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; natDecRatToℕ
 open import Data.String as String using (String; toList)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.List.NonEmpty as List⁺ using ()
-open import Data.Bool using (true)
+open import Data.Bool using (true; false)
 open import Data.Char using (Char)
 open import Data.Nat using (ℕ)
 open import Data.Integer using (ℤ)
@@ -75,9 +75,10 @@ formatByteOrder : ByteOrder → List Char
 formatByteOrder LittleEndian = toList "little_endian"
 formatByteOrder BigEndian    = toList "big_endian"
 
+-- The flag comes first, so the id after it reads at its width.
 formatCANId : CANId → List (String × JSON)
-formatCANId (CANId.Standard n _) = ("id" , ℕtoJSON n) ∷ []
-formatCANId (CANId.Extended n _) = ("id" , ℕtoJSON n) ∷ ("extended" , JBool true) ∷ []
+formatCANId (CANId.Standard n _) = ("extended" , JBool false) ∷ ("id" , ℕtoJSON n) ∷ []
+formatCANId (CANId.Extended n _) = ("extended" , JBool true) ∷ ("id" , ℕtoJSON n) ∷ []
 
 -- Emit ``"presence": "multiplexed"`` on
 -- multiplexed signals (symmetric to ``"presence": "always"`` on Always
@@ -154,7 +155,7 @@ formatValueTable vt = JObject (
   [])
 
 -- JSON wire shape for one RawValueDesc.
--- The CAN-ID half mirrors `formatDBCMessage`'s leading `("id", …) ± ("extended", true)`
+-- The CAN-ID half mirrors `formatDBCMessage`'s leading `("extended", …) ("id", …)`
 -- pair (via `formatCANId`); the signal target + entries follow.
 formatRawValueDesc : RawValueDesc → JSON
 formatRawValueDesc rvd = JObject (

@@ -20,14 +20,16 @@ open import Data.String using (fromList)
 open import Aletheia.Parser.Watermark using (Watermark; mark; Refusal; refused)
 open import Aletheia.DBC.Identifier using (TooLong; Keyword; BadChars)
 open import Aletheia.Limits using (IdentifierLength; max-identifier-length)
+open import Data.Product using (_,_)
+open import Data.Unit using (tt)
 open import Aletheia.Error using
   (Error; DBCTextParseErr; ParseFailure; TrailingInput; InputBoundExceededAt; KeywordName; AtText; ParseErr; InvalidIdentifier)
 
 -- The refusals are the JSON route's own errors, located where the name
 -- starts: the kernel spells each code once.
 refusalError : Refusal → Error
-refusalError (refused start (TooLong n)) =
-  InputBoundExceededAt (AtText start) IdentifierLength n max-identifier-length
+refusalError (refused start (TooLong n p)) =
+  InputBoundExceededAt (AtText start) IdentifierLength n max-identifier-length (tt , p)
 refusalError (refused start (Keyword kw)) = KeywordName (AtText start) (fromList kw)
 refusalError (refused start (BadChars cs)) = ParseErr (InvalidIdentifier (AtText start) (fromList cs))
 

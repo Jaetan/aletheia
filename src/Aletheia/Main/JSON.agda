@@ -19,7 +19,7 @@ open import Aletheia.Data.UTF8 using (utf8Length)
 open import Data.Nat using (_≤ᵇ_; _<ᵇ_; suc)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
-open import Data.Bool using (if_then_else_)
+open import Data.Bool using (true; false; if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using (runParser)
@@ -38,6 +38,7 @@ open import Aletheia.Error using
 open import Aletheia.Limits using
   ( InputLengthBytes; NestingDepth; RationalComponentMagnitude
   ; max-json-bytes; max-nesting-depth; max-rational-component-magnitude
+  ; past-≤ᵇ; past-<ᵇ
   )
 open import Aletheia.Main.Binary using (wrapJSON)
 import Aletheia.Protocol.Message as Msg
@@ -58,6 +59,18 @@ private
     then tryParseCommand state obj
     else wrapJSON (state , Msg.Response.Error (DispatchErr (UnknownMessageType msgType)))
 
+-- A parsed request: the parse failure at its watermark, or the tree held to
+-- its nesting depth and its largest number component.
+readParsed : Watermark × Maybe (JSON × Position) → Error ⊎ JSON
+readParsed (w , nothing) = inj₁ (DispatchErr (InvalidJSON (Watermark.position w)))
+readParsed (_ , just (j , _)) with jsonDepth j <ᵇ suc max-nesting-depth in deq
+... | false = inj₁ (InputBoundExceeded NestingDepth (jsonDepth j) max-nesting-depth (tt , past-<ᵇ (jsonDepth j) max-nesting-depth deq))
+... | true with jsonMaxComponent j ≤ᵇ max-rational-component-magnitude in ceq
+...   | true  = inj₂ j
+...   | false = inj₁ (InputBoundExceeded RationalComponentMagnitude (jsonMaxComponent j)
+                       max-rational-component-magnitude
+                       (tt , past-≤ᵇ (jsonMaxComponent j) max-rational-component-magnitude ceq))
+
 -- A request's text read as every command's is.  Its UTF-8 length is held
 -- to `max-json-bytes`, the size of the buffer that crossed the boundary,
 -- before the parser runs, per AGENTS.md universal rule "Adversarial-input
@@ -76,27 +89,10 @@ private
 -- grammar alone (`parseJSON-sound`) and reads back what `formatJSONChars`
 -- writes (`parseJSON-formatJSONChars`).
 readRequest : String → Error ⊎ JSON
-readRequest line =
-  let chars    = toList line
-      inputLen = utf8Length chars
-  in if inputLen ≤ᵇ max-json-bytes
-     then fromParse (runParser parseJSON chars)
-     else inj₁ (InputBoundExceeded InputLengthBytes inputLen max-json-bytes)
-  where
-    -- Takes the full `runParser` pair: the failure watermark (proj₁) feeds
-    -- the positioned `InvalidJSON` on the nothing arm; the success arm drops
-    -- both the watermark and the end position.
-    fromParse : Watermark × Maybe (JSON × Position) → Error ⊎ JSON
-    fromParse (w , nothing) = inj₁ (DispatchErr (InvalidJSON (Watermark.position w)))
-    fromParse (_ , just (j , _)) =
-      let depth = jsonDepth j
-          comp  = jsonMaxComponent j
-      in if depth <ᵇ suc max-nesting-depth
-         then (if comp ≤ᵇ max-rational-component-magnitude
-               then inj₂ j
-               else inj₁ (InputBoundExceeded RationalComponentMagnitude comp
-                                             max-rational-component-magnitude))
-         else inj₁ (InputBoundExceeded NestingDepth depth max-nesting-depth)
+readRequest line with utf8Length (toList line) ≤ᵇ max-json-bytes in eq
+... | true  = readParsed (runParser parseJSON (toList line))
+... | false = inj₁ (InputBoundExceeded InputLengthBytes (utf8Length (toList line)) max-json-bytes
+                     (tt , past-≤ᵇ (utf8Length (toList line)) max-json-bytes eq))
 
 -- Process a single JSON line and update stream state.
 -- NOINLINE: Required for MAlonzo FFI (ensures symbol is exported to Haskell).

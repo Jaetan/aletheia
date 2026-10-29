@@ -7,13 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast, get_args
 
 from aletheia.client._helpers.rational import decode_wire_rational, is_pure_int, reject_inexact
-from aletheia.client._types import (
-    DLCByteCount,
-    ProtocolError,
-    ValidationError,
-    bytes_to_dlc,
-    validate_can_id,
-)
+from aletheia.client._types import ProtocolError
 from aletheia.types import (
     AttrScope,
     DBCAttrAssign,
@@ -194,8 +188,10 @@ def normalize_signal(raw_sig: Mapping[str, JSONValue]) -> DBCSignal:
     sig: dict[str, object] = {}
     sig.update(raw_sig)
     for field in _NUMERIC_SIGNAL_FIELDS:
-        if field in sig:
-            sig[field] = decode_wire_rational(sig[field])
+        if field not in sig:
+            msg = f"Expected signal {field!r} in the reply"
+            raise ProtocolError(msg)
+        sig[field] = decode_wire_rational(sig[field])
     _validate_signal_bits(sig)
     _validate_signal_presence(sig)
     return cast("DBCSignal", sig)
@@ -266,11 +262,15 @@ def _normalize_signal_group(raw: Mapping[str, JSONValue]) -> DBCSignalGroup:
 
 
 def _normalize_var_type(raw: object) -> DBCVarType:
-    """Narrow an Agda ``varType`` (ℕ 0/1/2) to the ``DBCVarType`` Literal."""
-    if not is_pure_int(raw) or raw not in (0, 1, 2):
-        msg = f"Expected environment var 'varType' to be 0, 1, or 2, got {raw!r}"
+    """Narrow an Agda ``varType`` to the ``DBCVarType`` Literal.
+
+    Its range is the kernel's, decided when it read the DBC and proven of every
+    reply, so the reader holds only the kind.
+    """
+    if not is_pure_int(raw):
+        msg = f"Expected environment var 'varType' to be int, got {raw!r}"
         raise ProtocolError(msg)
-    return raw
+    return cast("DBCVarType", raw)
 
 
 def _normalize_environment_var(raw: Mapping[str, JSONValue]) -> DBCEnvironmentVar:
@@ -346,9 +346,8 @@ def _normalize_raw_value_desc(raw: Mapping[str, JSONValue]) -> DBCRawValueDesc:
         "id": _require_int_field(raw, "id", "unresolvedValueDesc"),
         "signalName": _require_str_field(raw, "signalName", "unresolvedValueDesc"),
         "entries": entries,
+        "extended": _require_extended(raw),
     }
-    if _optional_extended(raw):
-        out["extended"] = True
     return cast("DBCRawValueDesc", out)
 
 
@@ -373,15 +372,9 @@ def _require_int_field(raw: Mapping[str, JSONValue], field: str, context: str) -
     return v
 
 
-def _optional_extended(raw: Mapping[str, JSONValue]) -> bool:
-    """Accept an optional ``extended`` flag (default ``False``).
-
-    Agda emits it only for 29-bit IDs, but the Python side always passes it
-    through to preserve round-trip wire shape.
-    """
+def _require_extended(raw: Mapping[str, JSONValue]) -> bool:
+    """Read the ``extended`` flag the kernel writes beside every CAN id."""
     v = raw.get("extended")
-    if v is None:
-        return False
     if not isinstance(v, bool):
         msg = f"Expected 'extended' to be bool, got {type(v).__name__}"
         raise ProtocolError(msg)
@@ -402,18 +395,16 @@ def _normalize_comment_target(raw: Mapping[str, JSONValue]) -> DBCCommentTarget:
         out: dict[str, object] = {
             "kind": "message",
             "id": _require_int_field(raw, "id", "comment target"),
+            "extended": _require_extended(raw),
         }
-        if _optional_extended(raw):
-            out["extended"] = True
         return cast("DBCCommentTarget", out)
     if kind == "signal":
         out2: dict[str, object] = {
             "kind": "signal",
             "id": _require_int_field(raw, "id", "comment target"),
             "signal": _require_str_field(raw, "signal", "comment target"),
+            "extended": _require_extended(raw),
         }
-        if _optional_extended(raw):
-            out2["extended"] = True
         return cast("DBCCommentTarget", out2)
     if kind == "envVar":
         return {"kind": "envVar", "envVar": _require_str_field(raw, "envVar", "comment target")}
@@ -506,26 +497,15 @@ def _normalize_attr_value(raw: Mapping[str, JSONValue]) -> DBCAttrValue:
     raise ProtocolError(msg)
 
 
-def _with_optional_extended(
-    raw: Mapping[str, JSONValue],
-    base: dict[str, object],
-) -> dict[str, object]:
-    if _optional_extended(raw):
-        base["extended"] = True
-    return base
-
-
 def _normalize_attr_target_msg_id(
     raw: Mapping[str, JSONValue],
     kind: str,
 ) -> dict[str, object]:
-    return _with_optional_extended(
-        raw,
-        {
-            "kind": kind,
-            "id": _require_int_field(raw, "id", "attribute target"),
-        },
-    )
+    return {
+        "kind": kind,
+        "id": _require_int_field(raw, "id", "attribute target"),
+        "extended": _require_extended(raw),
+    }
 
 
 _ATTR_TARGET_SIMPLE_KINDS = frozenset({"network", "node", "envVar"})
@@ -615,17 +595,17 @@ def _normalize_attribute(raw: Mapping[str, JSONValue]) -> DBCAttribute:
 
 
 def _validate_message_meta(message: Mapping[str, object]) -> None:
-    """Reject an out-of-range CAN id (per ``extended``) or invalid DLC byte count.
+    """Reject a message whose CAN id, ``extended`` flag or DLC is not of its kind.
 
-    Reuses the binding's canonical ``validate_can_id`` / ``bytes_to_dlc`` bounds
-    (the SSOT), re-raising their ``ValidationError`` as a ``ProtocolError`` to
-    keep the decode path's error type uniform.
+    Their ranges are the kernel's, decided when it read the DBC and proven of
+    every reply, so the reader holds only the kinds; the kernel writes
+    ``extended`` at every message.
     """
     can_id = message.get("id")
     if not is_pure_int(can_id):
         msg = f"Expected message 'id' to be an int, got {can_id!r}"
         raise ProtocolError(msg)
-    extended = message.get("extended", False)
+    extended = message.get("extended")
     if not isinstance(extended, bool):
         msg = f"Expected message 'extended' to be a bool, got {extended!r}"
         raise ProtocolError(msg)
@@ -633,11 +613,6 @@ def _validate_message_meta(message: Mapping[str, object]) -> None:
     if not is_pure_int(dlc):
         msg = f"Expected message 'dlc' to be an int, got {dlc!r}"
         raise ProtocolError(msg)
-    try:
-        validate_can_id(can_id, extended=extended)
-        bytes_to_dlc(DLCByteCount(dlc))
-    except ValidationError as e:
-        raise ProtocolError(str(e)) from e
 
 
 def normalize_dbc(raw: Mapping[str, JSONValue]) -> DBCDefinition:
@@ -649,9 +624,8 @@ def normalize_dbc(raw: Mapping[str, JSONValue]) -> DBCDefinition:
     ``DBCDefinition`` TypedDict and preserves the core's exact
     rational precision end-to-end.
 
-    The three metadata arrays (signalGroups / environmentVars / valueTables)
-    are treated as optional on input — Agda formatDBC always emits them,
-    but the caller may omit them in hand-built fixtures.
+    Every key the kernel writes is required: a reply without one is refused
+    rather than filled in.
     """
     raw_messages = raw.get("messages")
     if not is_object_list(raw_messages):
@@ -677,27 +651,27 @@ def normalize_dbc(raw: Mapping[str, JSONValue]) -> DBCDefinition:
         _validate_message_meta(msg_dict)
         messages.append(cast("DBCMessage", msg_dict))
     result: DBCDefinition = {
-        "version": str(raw.get("version", "")),
+        "version": _require_str_field(raw, "version", "DBC"),
         "messages": messages,
-        "signalGroups": _normalize_optional_list(
+        "signalGroups": _normalize_list(
             raw,
             "signalGroups",
             _normalize_signal_group,
         ),
-        "environmentVars": _normalize_optional_list(
+        "environmentVars": _normalize_list(
             raw,
             "environmentVars",
             _normalize_environment_var,
         ),
-        "valueTables": _normalize_optional_list(
+        "valueTables": _normalize_list(
             raw,
             "valueTables",
             _normalize_value_table,
         ),
-        "nodes": _normalize_optional_list(raw, "nodes", _normalize_node),
-        "comments": _normalize_optional_list(raw, "comments", _normalize_comment),
-        "attributes": _normalize_optional_list(raw, "attributes", _normalize_attribute),
-        "unresolvedValueDescs": _normalize_optional_list(
+        "nodes": _normalize_list(raw, "nodes", _normalize_node),
+        "comments": _normalize_list(raw, "comments", _normalize_comment),
+        "attributes": _normalize_list(raw, "attributes", _normalize_attribute),
+        "unresolvedValueDescs": _normalize_list(
             raw,
             "unresolvedValueDescs",
             _normalize_raw_value_desc,
@@ -706,14 +680,12 @@ def normalize_dbc(raw: Mapping[str, JSONValue]) -> DBCDefinition:
     return result
 
 
-def _normalize_optional_list[T](
+def _normalize_list[T](
     raw: Mapping[str, JSONValue],
     key: str,
     item_parser: Callable[[Mapping[str, JSONValue]], T],
 ) -> list[T]:
-    """Normalize a NotRequired metadata array: treat missing as empty."""
-    if key not in raw:
-        return []
+    """Normalize one of the lists a DBC reply carries beside its messages."""
     items = raw.get(key)
     if not is_object_list(items):
         msg = f"Expected {key!r} to be a list"

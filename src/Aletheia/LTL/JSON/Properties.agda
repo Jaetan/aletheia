@@ -110,8 +110,9 @@ tolerant-yes s tol w with T? (0ℚ ≤ᵇ tol)
 -- A whole time bound within its limit is read back as itself.
 timeBound-ℕ : ∀ n → n ≤ max-time-bound → timeBound (ℕtoℚ n) ≡ inj₂ n
 timeBound-ℕ n n≤ with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
-... | .(just n) | refl with n ≤ᵇℕ max-time-bound | ≤⇒≤ᵇ n≤
-...   | true | _ = refl
+... | .(just n) | refl with T? (n ≤ᵇℕ max-time-bound)
+...   | yes _ = refl
+...   | no ¬w = ⊥-elim (¬w (≤⇒≤ᵇ n≤))
 
 predicate-roundtrip : ∀ (known : List Char → Bool) (p : SignalPredicate)
   → KnownPredicate known p

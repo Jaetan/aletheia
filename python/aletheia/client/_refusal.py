@@ -12,7 +12,7 @@ reach it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 from aletheia.client._types import (
     InputBoundExceededError,
@@ -27,15 +27,19 @@ if TYPE_CHECKING:
     from aletheia.common_types import PositiveInt
     from aletheia.types import Response
 
+# The replies whose error envelope :func:`envelope_message` reads.
+type EnvelopeReply = Literal["validateDBC", "formatDBC", "formatDBCText", "extractAllSignals"]
+
 
 def extract_bound_triple(response: Response) -> tuple[BoundKind, PositiveInt, Limit] | None:
     """Return the ``(bound_kind, observed, limit)`` triple, or ``None`` if absent.
 
     All-or-nothing: a partial triple is treated as missing, matching the C++
     binding's degrade-to-nullopt rule in ``make_json_error``. ``observed`` and
-    ``limit`` are positive integers; ``bool`` is excluded because
-    ``isinstance(True, int)`` is ``True`` and a boolean is a malformed wire
-    value, not a count. Single source for the triple shape, shared by
+    ``limit`` are integers, read without a range check since the kernel proves
+    them positive; ``bool`` is excluded because ``isinstance(True, int)`` is
+    ``True`` and a boolean is a malformed wire value, not a count. Single source
+    for the triple shape, shared by
     :func:`~aletheia.client._response_parsers.build_error_response` (which folds
     it into the ``ErrorResponse``) and :func:`raise_if_input_bound_exceeded`
     (which gates it on the wire code), so
@@ -46,7 +50,7 @@ def extract_bound_triple(response: Response) -> tuple[BoundKind, PositiveInt, Li
     limit = response.get("limit")
     if not (isinstance(bound_kind, str) and isinstance(observed, int) and isinstance(limit, int)):
         return None
-    if isinstance(observed, bool) or isinstance(limit, bool) or min(observed, limit) <= 0:
+    if isinstance(observed, bool) or isinstance(limit, bool):
         return None
     return (BoundKind(bound_kind), observed, limit)
 
@@ -83,14 +87,19 @@ def raise_if_input_bound_exceeded(response: Response) -> None:
     )
 
 
-def envelope_message(response: Response, missing: Prose) -> Prose:
+def envelope_message(response: Response, reply: EnvelopeReply) -> Prose:
     """Return an error envelope's text: the kernel's ``message``, verbatim.
 
-    An envelope without a string ``message`` is a malformed reply, and its text
-    is *missing*, the binding's own.
+    Raises:
+        ProtocolError: If the envelope of *reply* has no string ``message``,
+            which the kernel writes on every error envelope.
+
     """
     message = response.get("message")
-    return Prose(message) if isinstance(message, str) else missing
+    if not isinstance(message, str):
+        msg = f"Expected 'message' field in {reply} error response"
+        raise ProtocolError(msg)
+    return Prose(message)
 
 
 def raise_entry_refusal(

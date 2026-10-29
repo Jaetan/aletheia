@@ -261,7 +261,7 @@ yaml_within_us:
     value: "1.5"
     expect:
       kind: validation
-      code: handler_property_parse_failed
+      code: handler_property_refused
       location: "Check 'C'"
       key: within_us
       printed: "Check 'C': invalid 'within_us': timebound 1.5 is not a whole number"
@@ -269,7 +269,7 @@ yaml_within_us:
     value: "-1500"
     expect:
       kind: validation
-      code: handler_property_parse_failed
+      code: handler_property_refused
       location: "Check 'C'"
       key: within_us
       printed: "Check 'C': invalid 'within_us': timebound -1500 is negative"

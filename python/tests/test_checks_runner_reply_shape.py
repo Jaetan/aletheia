@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""The check runner refuses a result lacking a field the kernel writes on it.
+
+The kernel writes ``timestamp`` and ``reason`` on every fails result and
+``reason`` on every unresolved one; the runner reads them as given and raises
+:class:`aletheia.ProtocolError` naming a missing one rather than putting a
+value of its own in its place.  The client the runner is handed answers the
+log's one frame and the stream end with a plain dict, so no kernel runs.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING, Literal
+from unittest.mock import Mock
+
+import pytest
+
+from aletheia import AletheiaClient, MockBackend, ProtocolError
+from aletheia._dbc_types import empty_dbc_tier2
+from aletheia.checks_runner import run_checks
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from aletheia.checks_runner import CheckRunResult
+    from aletheia.types import (
+        CompleteResponse,
+        DBCDefinition,
+        PropertyBatchResponse,
+        PropertyResultEntry,
+    )
+
+_SUCCESS = json.dumps({"status": "success"}).encode("utf-8")
+_DBC: DBCDefinition = {"version": "", "messages": [], **empty_dbc_tier2()}
+_HOLDS: PropertyResultEntry = {"type": "property", "status": "holds", "property_index": 0}
+_COMPLETE: CompleteResponse = {"status": "complete", "results": [], "warnings": []}
+
+
+def _run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    frame: PropertyResultEntry,
+    complete: CompleteResponse,
+) -> CheckRunResult:
+    """Run no checks over a one-frame log, the frame answered *frame* and the end *complete*."""
+    log = tmp_path / "frames.log"
+    log.write_text("(0.000000) can0 100#00\n", encoding="utf-8")
+    batch: PropertyBatchResponse = {"type": "property_batch", "results": [frame]}
+    with AletheiaClient(backend=MockBackend([_SUCCESS, _SUCCESS])) as client:
+        monkeypatch.setattr(client, "send_frame", Mock(return_value=batch))
+        monkeypatch.setattr(client, "end_stream", Mock(return_value=complete))
+        return run_checks(_DBC, [], str(log), client=client)
+
+
+def test_a_fails_entry_without_its_reason_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A frame's fails entry lacking ``reason`` raises ProtocolError naming the field."""
+    entry: PropertyResultEntry = {
+        "type": "property",
+        "status": "fails",
+        "property_index": 0,
+        "timestamp": 0,
+    }
+    with pytest.raises(ProtocolError) as excinfo:
+        _ = _run(tmp_path, monkeypatch, entry, _COMPLETE)
+    assert str(excinfo.value) == "Expected string 'reason' in 'fails' result entry"
+
+
+def test_a_fails_entry_without_its_timestamp_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A frame's fails entry lacking ``timestamp`` raises ProtocolError naming the field."""
+    entry: PropertyResultEntry = {
+        "type": "property",
+        "status": "fails",
+        "property_index": 0,
+        "reason": "kernel reason",
+    }
+    with pytest.raises(ProtocolError) as excinfo:
+        _ = _run(tmp_path, monkeypatch, entry, _COMPLETE)
+    assert str(excinfo.value) == "Expected 'timestamp' field in property_batch 'fails' entry"
+
+
+@pytest.mark.parametrize("status", ["fails", "unresolved"])
+def test_an_end_of_stream_result_without_its_reason_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: Literal["fails", "unresolved"]
+) -> None:
+    """An end-of-stream *status* result lacking ``reason`` raises ProtocolError naming the field."""
+    result: PropertyResultEntry = {
+        "type": "property",
+        "status": status,
+        "property_index": 0,
+        "timestamp": 0,
+    }
+    complete: CompleteResponse = {"status": "complete", "results": [result], "warnings": []}
+    with pytest.raises(ProtocolError) as excinfo:
+        _ = _run(tmp_path, monkeypatch, _HOLDS, complete)
+    assert str(excinfo.value) == f"Expected string 'reason' in {status!r} result entry"

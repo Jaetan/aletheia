@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import ctypes
 from collections import deque
-from fractions import Fraction
 from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 
 from aletheia.client._ffi import (
@@ -50,6 +49,7 @@ from aletheia.common_types import Prose
 from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
+    from fractions import Fraction
     from pathlib import Path
 
 
@@ -169,8 +169,7 @@ class Backend(Protocol):
         extended: bool,
         dlc: int,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Build a CAN frame returning raw payload bytes (no JSON)."""
@@ -185,8 +184,7 @@ class Backend(Protocol):
         dlc: int,
         data: bytes | bytearray,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Update specific signals in an existing frame returning raw payload bytes."""
@@ -277,14 +275,11 @@ def _payload_frame(
 
 def _signal_values(
     indices: tuple[int, ...],
-    numerators: tuple[int, ...],
-    denominators: tuple[int, ...],
+    values: tuple[Fraction, ...],
 ) -> AletheiaSignalValues:
-    """Pack the parallel signal arrays into one ``struct aletheia_signal_values``."""
+    """Pack the signal indices and their values into one ``struct aletheia_signal_values``."""
     n = len(indices)
-    rationals = (
-        wire_rational(Fraction(num, den)) for num, den in zip(numerators, denominators, strict=True)
-    )
+    rationals = (wire_rational(value) for value in values)
     return AletheiaSignalValues(
         indices=(ctypes.c_uint32 * n)(*indices),
         values=(AletheiaRational * n)(*rationals),
@@ -467,19 +462,18 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         extended: bool,
         dlc: int,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Build a CAN frame from signal values; returns the packed payload bytes."""
         frame = AletheiaFrame(can_id=can_id, extended=1 if extended else 0, dlc=dlc)
-        values = _signal_values(indices, numerators, denominators)
+        packed = _signal_values(indices, values)
         out_buf = (ctypes.c_uint8 * expected_bytes)()
         out = AletheiaBuffer(data=out_buf, size=expected_bytes)
         status = self._lib.aletheia_build_frame_bin(
             ctypes.c_void_p(state),
             ctypes.byref(frame),
-            ctypes.byref(values),
+            ctypes.byref(packed),
             ctypes.byref(out),
         )
         if status != 0:
@@ -495,19 +489,18 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         dlc: int,
         data: bytes | bytearray,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Update specified signals in ``data``; returns the new packed frame bytes."""
         frame = _payload_frame(can_id=can_id, extended=extended, dlc=dlc, data=data)
-        values = _signal_values(indices, numerators, denominators)
+        packed = _signal_values(indices, values)
         out_buf = (ctypes.c_uint8 * expected_bytes)()
         out = AletheiaBuffer(data=out_buf, size=expected_bytes)
         status = self._lib.aletheia_update_frame_bin(
             ctypes.c_void_p(state),
             ctypes.byref(frame),
-            ctypes.byref(values),
+            ctypes.byref(packed),
             ctypes.byref(out),
         )
         if status != 0:
@@ -560,10 +553,13 @@ class MockBackend:  # pylint: disable=too-many-public-methods
     ```python
     from aletheia import AletheiaClient, MockBackend
 
-    backend = MockBackend([
-        b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parse_dbc
-        b'{"status":"ack"}',  # send_frame
-    ])
+    # The kernel's parse_dbc reply carries every list of the DBC, here empty.
+    parsed = (
+        b'{"status":"success","warnings":[],"dbc":{"version":"","messages":[],'
+        b'"signalGroups":[],"environmentVars":[],"valueTables":[],"nodes":[],'
+        b'"comments":[],"attributes":[],"unresolvedValueDescs":[]}}'
+    )
+    backend = MockBackend([parsed, b'{"status":"ack"}'])  # parse_dbc, then send_frame
     with AletheiaClient(backend=backend) as client:
         client.parse_dbc(dbc)
         client.send_frame(0, 0x100, 1, b"\x00")
@@ -723,12 +719,11 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         extended: bool,
         dlc: int,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Record a ``<binary:buildFrameBin>`` sentinel; return the queued packed frame bytes."""
-        del state, can_id, extended, dlc, indices, numerators, denominators, expected_bytes
+        del state, can_id, extended, dlc, indices, values, expected_bytes
         # The next queued response is treated as the packed frame bytes.
         return self._record_and_pop(b"<binary:buildFrameBin>")
 
@@ -741,12 +736,11 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         dlc: int,
         data: bytes | bytearray,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Record a ``<binary:updateFrameBin>`` sentinel; return the queued packed frame bytes."""
-        del state, can_id, extended, dlc, data, indices, numerators, denominators, expected_bytes
+        del state, can_id, extended, dlc, data, indices, values, expected_bytes
         return self._record_and_pop(b"<binary:updateFrameBin>")
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments

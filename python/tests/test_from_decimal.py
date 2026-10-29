@@ -44,13 +44,7 @@ from aletheia import (
     ValidationError,
     from_decimal,
 )
-from aletheia.client._ffi import (
-    AletheiaDecimal,
-    AletheiaRational,
-    Magnitude,
-    wire_rational,
-    wire_uint128,
-)
+from aletheia.client._ffi import AletheiaDecimal, wire_rational
 from aletheia.client._helpers.rational import decimal_value
 from aletheia.codes import ErrorCode
 from aletheia.limits import (
@@ -166,16 +160,6 @@ def test_from_decimal_failure_without_an_envelope_is_a_protocol_error() -> None:
         _ = from_decimal("1")
     assert str(exc_info.value) == "aletheia_parse_decimal failed without an error"
     assert exc_info.value.code is None
-
-
-def test_decimal_value_refuses_a_zero_denominator() -> None:
-    """A rational the kernel never answers is a wire fault, worded as Go, C++ and Rust word it."""
-    zero = AletheiaRational(
-        numerator=wire_uint128(Magnitude(1)), denominator=wire_uint128(Magnitude(0))
-    )
-    with pytest.raises(ProtocolError) as exc_info:
-        _ = decimal_value(AletheiaDecimal(value=zero))
-    assert str(exc_info.value) == "aletheia_parse_decimal answered a zero denominator"
 
 
 @pytest.mark.parametrize(

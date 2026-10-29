@@ -21,9 +21,9 @@ open import Data.List.Relation.Unary.All as All using ()
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.List using (map)
 open import Data.Bool.ListAction using (any)
-open import Data.Nat using (ℕ; suc; _≤ᵇ_; _<ᵇ_)
+open import Data.Nat using (ℕ; suc; _≤ᵇ_; _<ᵇ_; _+_; _<_; _≤_; z≤n; s≤s)
 open import Data.Bool using (if_then_else_)
-open import Data.Nat.Properties using (≡ᵇ⇒≡; ≡⇒≡ᵇ)
+open import Data.Nat.Properties using (≡ᵇ⇒≡; ≡⇒≡ᵇ; +-suc; m≤m+n; ≮⇒≥; <⇒<ᵇ; ≤-<-trans; ≤-trans)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂; [_,_]′)
 
@@ -32,10 +32,10 @@ open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
 open import Function using (_∘_)
 open import Relation.Nullary using (Dec; yes; no)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; cong₂)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; cong₂; subst; sym)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
-open import Aletheia.Limits using (max-identifier-length)
+open import Aletheia.Limits using (max-identifier-length; past-<ᵇ)
 
 -- ============================================================================
 -- CHARACTER CLASSES (the lexer reads them from here)
@@ -140,12 +140,53 @@ record Identifier : Set where
 
 -- Why characters are not an identifier, as a reader meets them one by one:
 -- a character outside the grammar before the bound (`BadChars`), the 129th
--- identifier character reached (`TooLong`, carrying the length), or a
--- finished word that is a DBC keyword (`Keyword`).
+-- identifier character reached (`TooLong`, carrying the length and, erased,
+-- that it passed the bound), or a finished word that is a DBC keyword
+-- (`Keyword`).
 data IdentifierError : Set where
-  TooLong  : ℕ → IdentifierError
+  TooLong  : (n : ℕ) → .(T (max-identifier-length <ᵇ n)) → IdentifierError
   Keyword  : List Char → IdentifierError
   BadChars : List Char → IdentifierError
+
+-- A failing character's index lies below the end of the list it was
+-- searched in, counted from where the search started.
+firstFailing-below : ∀ p i cs {j c} → firstFailing p i cs ≡ just (j , c) → j < i + length cs
+firstFailing-below p i []       ()
+firstFailing-below p i (c ∷ cs) eq with p c
+firstFailing-below p i (c ∷ cs) {j} eq | true  =
+  subst (j <_) (sym (+-suc i (length cs))) (firstFailing-below p (suc i) cs eq)
+firstFailing-below p i (c ∷ cs) refl | false =
+  subst (i <_) (sym (+-suc i (length cs))) (s≤s (m≤m+n i (length cs)))
+
+-- A grammar break past the head lies inside the word.
+grammarBreak-below : ∀ cs {j} → grammarBreak cs ≡ just j → 1 ≤ j → j < length cs
+grammarBreak-below []       refl ()
+grammarBreak-below (c ∷ cs) eq 1≤j with isIdentStart c
+grammarBreak-below (c ∷ cs) refl () | false
+grammarBreak-below (c ∷ cs) eq 1≤j  | true with firstFailing isIdentCont 1 cs in ff
+grammarBreak-below (c ∷ cs) refl _  | true | just (j′ , _) = firstFailing-below isIdentCont 1 cs ff
+grammarBreak-below (c ∷ cs) ()   _  | true | nothing
+
+-- A break at or past the bound: the word is longer than the bound.
+break-past : ∀ cs {i} → grammarBreak cs ≡ just i → (i <ᵇ max-identifier-length) ≡ false
+  → T (max-identifier-length <ᵇ length cs)
+break-past cs {i} gb lt =
+  let bound≤i = ≮⇒≥ (λ i<bound → subst T lt (<⇒<ᵇ i<bound))
+  in <⇒<ᵇ (≤-<-trans bound≤i (grammarBreak-below cs gb (≤-trans (s≤s z≤n) bound≤i)))
+
+private
+  -- The refusal at a grammar break: a character outside the grammar before
+  -- the bound, or the bound reached first.
+  atBreak : (cs : List Char) (i : ℕ) → .(grammarBreak cs ≡ just i) → IdentifierError
+  atBreak cs i gb with i <ᵇ max-identifier-length in lt
+  ... | true  = BadChars cs
+  ... | false = TooLong (length cs) (break-past cs gb lt)
+
+  -- A word that is no identifier: a keyword within the bound, or past it.
+  atWord : List Char → IdentifierError
+  atWord cs with length cs <ᵇ suc max-identifier-length in lt
+  ... | true  = Keyword cs
+  ... | false = TooLong (length cs) (past-<ᵇ (length cs) max-identifier-length lt)
 
 -- The one identifier decision: the validated `Identifier`, or the typed
 -- reason.  `Lexer.parseIdentifier` takes it through `mkIdentFromChars`, the
@@ -153,9 +194,9 @@ data IdentifierError : Set where
 parseIdentifierField : List Char → IdentifierError ⊎ Identifier
 parseIdentifierField cs with T? (validIdentifierᵇ cs)
 ... | yes w = inj₂ (mkIdent cs w)
-... | no  _ with grammarBreak cs
-...   | just i  = if i <ᵇ max-identifier-length then inj₁ (BadChars cs) else inj₁ (TooLong (length cs))
-...   | nothing = if length cs <ᵇ suc max-identifier-length then inj₁ (Keyword cs) else inj₁ (TooLong (length cs))
+... | no  _ with grammarBreak cs in gb
+...   | just i  = inj₁ (atBreak cs i gb)
+...   | nothing = inj₁ (atWord cs)
 
 -- The decision as a `Maybe`, for the lexer.
 toMaybeIdent : IdentifierError ⊎ Identifier → Maybe Identifier

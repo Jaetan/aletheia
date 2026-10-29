@@ -11,19 +11,24 @@ overrides without changing the wire format.
 
 from __future__ import annotations
 
+import json
 from fractions import Fraction
 from typing import TYPE_CHECKING, NewType, TypedDict
 
 from aletheia import AletheiaClient
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.types import DLCByteCount, DLCCode
+from aletheia.types import DLCByteCount, DLCCode, JSONValue
 
 if TYPE_CHECKING:
     from typing import Unpack
 
     from aletheia import SignalExtractionResult
-    from aletheia._dbc_types import ByteOrder, SignalPresence
+    from aletheia._dbc_types import ByteOrder, SignalName, SignalPresence
     from aletheia.types import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
+
+
+# A kernel reply's bytes, as a stand-in backend answers a command with them.
+KernelReply = NewType("KernelReply", bytes)
 
 
 class SignalOverrides(TypedDict, total=False):
@@ -146,6 +151,31 @@ def message(
 def dbc(messages: list[DBCMessage], version: str = "1.0") -> DBCDefinition:
     """Wrap the given messages in a minimal DBC definition."""
     return {"version": version, "messages": messages, **empty_dbc_tier2()}
+
+
+def kernel_signal(name: SignalName) -> JSONValue:
+    """Return an always-present 8-bit signal as the kernel's reply writes one."""
+    return {
+        "name": name,
+        "startBit": 0,
+        "length": 8,
+        "factor": 1,
+        "offset": 0,
+        "minimum": 0,
+        "maximum": 255,
+        "presence": "always",
+    }
+
+
+def parse_dbc_reply(*messages: JSONValue) -> KernelReply:
+    """Return the kernel's parseDBC success reply holding ``messages``, every other list empty."""
+    body: JSONValue = {
+        "version": "",
+        "messages": list(messages),
+        **{key: list[JSONValue]() for key in empty_dbc_tier2()},
+    }
+    reply: JSONValue = {"status": "success", "dbc": body, "warnings": list[JSONValue]()}
+    return KernelReply(json.dumps(reply).encode())
 
 
 def assert_non_terminating_rational(bad: DBCDefinition, field: str) -> None:

@@ -101,7 +101,7 @@ aletheia_process statePtr inputPtr = do
     case input of
       Left reason -> errorJSON reason
       Right inputStr ->
-        runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_70 s (T.pack inputStr))
+        runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_88 s (T.pack inputStr))
 
 -- ============================================================================
 -- BINARY-INPUT JSON ENTRY POINTS (binary in, JSON out)
@@ -427,7 +427,7 @@ aletheia_check_property inputPtr out
       case input of
         Left reason -> errorJSON reason >>= refuse
         Right s ->
-          case unsafeCoerce (AgdaJSON.d_checkPropertyText_96 (T.pack s)) :: AgdaSum.T__'8846'__30 of
+          case unsafeCoerce (AgdaJSON.d_checkPropertyText_114 (T.pack s)) :: AgdaSum.T__'8846'__30 of
             AgdaSum.C_inj'8321'_38 errAny -> kernelErrorText (unsafeCoerce errAny) >>= refuse
             AgdaSum.C_inj'8322'_42 _ -> pure 0
   where

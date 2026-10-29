@@ -27,7 +27,10 @@ module Aletheia.Protocol.Handlers.Properties where
 
 open import Data.Char using (Char; toℕ)
 open import Data.List using (List)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _<ᵇ_)
+open import Data.Bool using (T)
+open import Data.Product using (_,_)
+open import Data.Unit using (tt)
 open import Data.String using (fromList)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
@@ -62,18 +65,18 @@ refused-wire-code : ∀ (i : ℕ) (r : PropertyRefusal)
 refused-wire-code _ _ = refl
 
 refused-alone-wire-code : ∀ (r : PropertyRefusal)
-  → errorCode (parseFailError PropertyRefused (Refused r)) ≡ "handler_property_parse_failed"
+  → errorCode (parseFailError PropertyRefused (Refused r)) ≡ "handler_property_refused"
 refused-alone-wire-code _ = refl
 
 -- A time bound past its limit → the bound refusal naming the time bound.
-parseFailError-timeBound : ∀ (i n : ℕ)
-  → parseFailError (PropertyParseFailed i) (TimeBoundPast n)
-    ≡ InputBoundExceededAt (InPart "time bound") RationalComponentMagnitude n max-time-bound
-parseFailError-timeBound _ _ = refl
+parseFailError-timeBound : ∀ (i n : ℕ) .(p : T (max-time-bound <ᵇ n))
+  → parseFailError (PropertyParseFailed i) (TimeBoundPast n p)
+    ≡ InputBoundExceededAt (InPart "time bound") RationalComponentMagnitude n max-time-bound (tt , p)
+parseFailError-timeBound _ _ _ = refl
 
-timeBound-wire-code : ∀ (i n : ℕ)
-  → errorCode (parseFailError (PropertyParseFailed i) (TimeBoundPast n)) ≡ "input_bound_exceeded"
-timeBound-wire-code _ _ = refl
+timeBound-wire-code : ∀ (i n : ℕ) .(p : T (max-time-bound <ᵇ n))
+  → errorCode (parseFailError (PropertyParseFailed i) (TimeBoundPast n p)) ≡ "input_bound_exceeded"
+timeBound-wire-code _ _ _ = refl
 
 -- A refused signal name → the error a parsed DBC's name gets, read from
 -- the `signal` slot: one decision and one spelling on both routes.
@@ -114,15 +117,15 @@ notAscii-wire-code _ _ _ _ = refl
 
 -- A name past the identifier bound → the typed bound refusal carrying the
 -- slot, the kind, the observed length and the limit.
-parseFailError-tooLong : ∀ (i n : ℕ) (cs : List Char)
-  → parseFailError (PropertyParseFailed i) (BadSignal cs (TooLong n))
-    ≡ InputBoundExceededAt (InPart "signal") IdentifierLength n max-identifier-length
-parseFailError-tooLong _ _ _ = refl
+parseFailError-tooLong : ∀ (i n : ℕ) .(p : T (max-identifier-length <ᵇ n)) (cs : List Char)
+  → parseFailError (PropertyParseFailed i) (BadSignal cs (TooLong n p))
+    ≡ InputBoundExceededAt (InPart "signal") IdentifierLength n max-identifier-length (tt , p)
+parseFailError-tooLong _ _ _ _ = refl
 
-tooLong-wire-code : ∀ (i n : ℕ) (cs : List Char)
-  → errorCode (parseFailError (PropertyParseFailed i) (BadSignal cs (TooLong n)))
+tooLong-wire-code : ∀ (i n : ℕ) .(p : T (max-identifier-length <ᵇ n)) (cs : List Char)
+  → errorCode (parseFailError (PropertyParseFailed i) (BadSignal cs (TooLong n p)))
     ≡ "input_bound_exceeded"
-tooLong-wire-code _ _ _ = refl
+tooLong-wire-code _ _ _ _ = refl
 
 -- A keyword as a signal name → the typed keyword refusal naming the slot.
 parseFailError-keyword : ∀ (i : ℕ) (cs kw : List Char)
