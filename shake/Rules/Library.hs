@@ -13,8 +13,8 @@ import Development.Shake.Classes (Hashable, Binary, NFData)
 import Development.Shake.FilePath
 import System.Directory (getCurrentDirectory)
 import qualified System.Directory as SysDir
-import Data.List (isInfixOf, isPrefixOf, intercalate, sort)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.List (isInfixOf, isPrefixOf, intercalate, sort, stripPrefix)
+import Data.Maybe (listToMaybe)
 import Data.Char (isDigit)
 import Control.Monad (when, unless)
 import Control.Exception (evaluate)
@@ -108,6 +108,22 @@ readMemAvailableMB = do
 -- library's rule, so the deletion happens before cabal runs.
 shimHeaderStamp :: FilePath
 shimHeaderStamp = "build/shim-header.stamp"
+
+-- | The shim's cabal project, which names the C compiler every C compile of
+-- the shim runs.
+shimProject :: FilePath
+shimProject = "haskell-shim/cabal.project"
+
+-- | The C compiler the shim's project names on its @gcc-location:@ line, so
+-- the stand-ins are compiled as the library's own C is.
+shimCCompiler :: Action String
+shimCCompiler = do
+    text <- readFile' shimProject
+    case [ c | l <- lines text
+             , Just rest <- [stripPrefix "gcc-location:" (dropWhile (== ' ') l)]
+             , c <- take 1 (words rest) ] of
+        c : _ -> pure c
+        [] -> error (shimProject ++ " names no gcc-location")
 
 -- | The stand-in kernels the bindings' tests load in place of the library: one
 -- at an ABI version no binding was written against, one exporting the version
@@ -237,13 +253,14 @@ libraryRules = do
         liftIO $ mapM_ (SysDir.removeFile . (tree </>)) derived
         writeFileChanged out (unlines derived)
 
-    -- A stand-in kernel, compiled as C with the compiler CC names.
+    -- A stand-in kernel, compiled as C23 with the compiler the shim's project
+    -- names.
     "build/stand-ins/*.so" %> \out -> do
         let source = "haskell-shim/test" </> takeBaseName out <.> "c"
         headers <- getDirectoryFiles "" ["haskell-shim/include//*.h"]
         need (source : headers)
-        cc <- fromMaybe "cc" <$> getEnv "CC"
-        cmd_ cc ["-shared", "-fPIC", "-I", "haskell-shim/include", "-o", out, source]
+        cc <- shimCCompiler
+        cmd_ cc ["-std=c23", "-shared", "-fPIC", "-I", "haskell-shim/include", "-o", out, source]
 
     "build/libaletheia-ffi.so" %> \out -> do
         -- HONEST DEPENDENCY GRAPH.
@@ -260,6 +277,7 @@ libraryRules = do
         need ["aletheia.agda-lib"]       -- toolchain inputs (mirror build-agda) so a
         _ <- askOracle (AgdaVersion ())  -- stdlib/flag/agda-version bump re-fires the .so
         need [ shimHeaderStamp
+             , shimProject
              , "haskell-shim/src/AletheiaFFI.hs"
              , "haskell-shim/src/AletheiaFFI/Marshal.hs"
              , "haskell-shim/src/AletheiaFFI/BinaryOutput.hs"

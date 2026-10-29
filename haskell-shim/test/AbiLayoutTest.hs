@@ -19,7 +19,8 @@ import Foreign.Ptr (Ptr)
 import Foreign.Storable (Storable (..))
 import System.Exit (exitFailure)
 
-import AletheiaFFI.Wire (Buffer, Decimal, Frame, SignalValues, WireRational, WireText)
+import AletheiaFFI.Wire
+    (Buffer, Decimal, Frame, PropertyCheck, SignalValues, TimeBound, WireRational, WireText, WireUint128)
 
 foreign import ccall unsafe "abi_text_size" cTextSize :: IO CSize
 foreign import ccall unsafe "abi_text_align" cTextAlign :: IO CSize
@@ -31,6 +32,18 @@ foreign import ccall unsafe "abi_values_size" cValuesSize :: IO CSize
 foreign import ccall unsafe "abi_values_align" cValuesAlign :: IO CSize
 foreign import ccall unsafe "abi_buffer_size" cBufferSize :: IO CSize
 foreign import ccall unsafe "abi_buffer_align" cBufferAlign :: IO CSize
+foreign import ccall unsafe "abi_uint128_size" cUint128Size :: IO CSize
+foreign import ccall unsafe "abi_uint128_align" cUint128Align :: IO CSize
+foreign import ccall unsafe "abi_fill_uint128" cFillUint128 :: Ptr WireUint128 -> IO ()
+foreign import ccall unsafe "abi_check_uint128" cCheckUint128 :: Ptr WireUint128 -> IO CUInt
+foreign import ccall unsafe "abi_time_bound_size" cTimeBoundSize :: IO CSize
+foreign import ccall unsafe "abi_time_bound_align" cTimeBoundAlign :: IO CSize
+foreign import ccall unsafe "abi_fill_time_bound" cFillTimeBound :: Ptr TimeBound -> IO ()
+foreign import ccall unsafe "abi_check_time_bound" cCheckTimeBound :: Ptr TimeBound -> IO CUInt
+foreign import ccall unsafe "abi_property_check_size" cPropertyCheckSize :: IO CSize
+foreign import ccall unsafe "abi_property_check_align" cPropertyCheckAlign :: IO CSize
+foreign import ccall unsafe "abi_fill_property_check" cFillPropertyCheck :: Ptr PropertyCheck -> IO ()
+foreign import ccall unsafe "abi_check_property_check" cCheckPropertyCheck :: Ptr PropertyCheck -> IO CUInt
 foreign import ccall unsafe "abi_rational_size" cRationalSize :: IO CSize
 foreign import ccall unsafe "abi_rational_align" cRationalAlign :: IO CSize
 foreign import ccall unsafe "abi_decimal_size" cDecimalSize :: IO CSize
@@ -77,6 +90,8 @@ main = do
         cTextSize cTextAlign cFillText cCheckText
     pin failures "aletheia_frame" (undefined :: Frame)
         cFrameSize cFrameAlign cFillFrame cCheckFrame
+    pin failures "aletheia_uint128" (undefined :: WireUint128)
+        cUint128Size cUint128Align cFillUint128 cCheckUint128
     pin failures "aletheia_signal_values" (undefined :: SignalValues)
         cValuesSize cValuesAlign cFillValues cCheckValues
     pin failures "aletheia_buffer" (undefined :: Buffer)
@@ -85,6 +100,10 @@ main = do
         cRationalSize cRationalAlign cFillRational cCheckRational
     pin failures "aletheia_decimal" (undefined :: Decimal)
         cDecimalSize cDecimalAlign cFillDecimal cCheckDecimal
+    pin failures "aletheia_time_bound" (undefined :: TimeBound)
+        cTimeBoundSize cTimeBoundAlign cFillTimeBound cCheckTimeBound
+    pin failures "aletheia_property_check" (undefined :: PropertyCheck)
+        cPropertyCheckSize cPropertyCheckAlign cFillPropertyCheck cCheckPropertyCheck
     found <- readIORef failures
     mapM_ putStrLn found
     unless (null found) exitFailure

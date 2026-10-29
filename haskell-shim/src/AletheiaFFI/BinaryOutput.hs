@@ -16,15 +16,14 @@ import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (pokeArray)
 import Foreign.Ptr (Ptr, plusPtr, castPtr, nullPtr)
 import Foreign.Storable (peek, poke)
-import Data.Bits (toIntegralSized)
-import Data.Int (Int8, Int64)
-import Data.Word (Word8, Word16, Word32)
+import Data.Int (Int8)
+import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Text as T
 import qualified Data.Text.Foreign as TF
 import Unsafe.Coerce (unsafeCoerce)
 
-import AletheiaFFI.Marshal (newUtf8, mkErrorJson)
-import AletheiaFFI.Wire (Buffer, bufData, pokeBufferErr, pokeBufferSize)
+import AletheiaFFI.Marshal (newUtf8, mkErrorJson, wireRational)
+import AletheiaFFI.Wire (Buffer, WireRational (..), WireUint128 (..), bufData, pokeBufferErr, pokeBufferSize)
 import qualified AletheiaFFI.Wire as Wire
 
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
@@ -70,19 +69,17 @@ dispatchBytesResult ctx (AgdaSum.C_inj'8322'_42 bytesAny) out = do
           return 0
 
 -- | Split one (index, ℚ) value pair into its wire components.  The kernel's
--- categorisers keep a value only when both of its reduced components fit the
--- i64 wire slots (`wireFits`, proven in CAN/Batch/Properties/WireFits.agda),
--- so `toIntegralSized` is the conversion, never a silently wrapping
--- `fromIntegral`; a `Nothing` is unreachable and refused by the caller.
+-- categorisers keep a value only when both of its reduced components' magnitudes
+-- fit 128 bits (`wireFits`, proven in CAN/Batch/Properties/WireFits.agda), so
+-- `wireRational` writes every kept value exactly; a `Nothing` is unreachable
+-- and refused by the caller.
 -- Uses stable accessor functions (d_numerator_14, d_denominatorℕ_20): the
 -- C_mkℚ_24 constructor name is stdlib-version-dependent, accessor names aren't.
-splitValueEntry :: AgdaSigma.T_Σ_14 -> (Integer, Maybe (Int64, Int64))
+splitValueEntry :: AgdaSigma.T_Σ_14 -> (Integer, Maybe WireRational)
 splitValueEntry pair =
     let idx = unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
         rat = unsafeCoerce (AgdaSigma.d_snd_30 pair) :: AgdaRational.T_ℚ_6
-        num = AgdaRational.d_numerator_14 rat
-        den = AgdaRational.d_denominatorℕ_20 rat
-    in (idx, (,) <$> toIntegralSized num <*> toIntegralSized den)
+    in (idx, wireRational (AgdaRational.d_numerator_14 rat) (AgdaRational.d_denominatorℕ_20 rat))
 
 -- | Convert one kernel (index, (code, reason)) error entry to its wire
 -- components via the kernel's u8 mapping.  The reason Text travels the wire
@@ -98,11 +95,11 @@ kernelErrorEntry pair =
 
 -- | Pack a PartitionedResults into a freshly-malloc'd buffer.
 -- Wire format (canonical doc: Main.agda processExtractBin):
---   Header(3×u16: nVals,nErrs,nAbs + u32 reasonBytes) + Values(×18B)
+--   Header(3×u16: nVals,nErrs,nAbs + u32 reasonBytes) + Values(×35B)
 --   + Errors(×3B) + Offsets((nErrs+1)×u32, cumulative into Reasons)
 --   + Reasons(UTF-8 blob) + Absent(×2B).
--- The kernel refuses a value whose reduced components do not fit the i64 wire
--- slots before it reaches here (its error entry carries code 3), so every
+-- The kernel refuses a value whose reduced components' magnitudes do not fit
+-- 128 bits before it reaches here (its error entry carries code 3), so every
 -- value splits; a `Nothing` from the split is unreachable and answered Left
 -- rather than poked, keeping the writer total.
 -- Fails loudly (Left) if the reason blob would exceed the u32 offset space:
@@ -115,7 +112,7 @@ packPartitionedResults ier = do
     let errs = unsafeCoerce (AgdaBatch.d_errors_24 ier) :: [AgdaSigma.T_Σ_14]
     let abss = unsafeCoerce (AgdaBatch.d_absent_26 ier) :: [Integer]
     let split    = map splitValueEntry vals
-    let okVals   = [ (idx, n, d) | (idx, Just (n, d)) <- split ]
+    let okVals   = [ (idx, r) | (idx, Just r) <- split ]
     let errEntries = map kernelErrorEntry errs
     let offsets  = scanl (+) 0 [ TF.lengthWord8 t | (_, _, t) <- errEntries ]
     let reasonBytes = last offsets
@@ -123,11 +120,11 @@ packPartitionedResults ier = do
     let nerrs = length errEntries
     let nabss = length abss
     if nvals /= length split
-      then return (Left "extracted value does not fit the i64 wire slots")
+      then return (Left "extracted value does not fit the 128-bit wire words")
       else if toInteger reasonBytes > toInteger (maxBound :: Word32)
       then return (Left "extraction reason blob exceeds the u32 offset space")
       else do
-        let bufSize = 10 + nvals * 18 + nerrs * 3 + (nerrs + 1) * 4
+        let bufSize = 10 + nvals * 35 + nerrs * 3 + (nerrs + 1) * 4
                          + reasonBytes + nabss * 2
         buf <- mallocBytes bufSize
         poke (castPtr buf :: Ptr Word16) (fromIntegral nvals)
@@ -141,16 +138,21 @@ packPartitionedResults ier = do
         _  <- writeExtrAbsent p4 abss
         return (Right (buf, bufSize))
 
--- | Write value entries: signal_index(u16) + numerator(i64) + denominator(i64).
--- Components arrive as Int64 (splitValueEntry); no conversion happens at the
--- poke.
-writeExtrValues :: Ptr Word8 -> [(Integer, Int64, Int64)] -> IO (Ptr Word8)
+-- | Write value entries: signal_index(u16) + negative(u8) + numerator(u128)
+-- + denominator(u128), each u128 its low then its high u64.  Components
+-- arrive as wire words (splitValueEntry); no conversion happens at the poke.
+writeExtrValues :: Ptr Word8 -> [(Integer, WireRational)] -> IO (Ptr Word8)
 writeExtrValues ptr [] = return ptr
-writeExtrValues ptr ((idx, num, den):rest) = do
+writeExtrValues ptr ((idx, r):rest) = do
     poke (castPtr ptr :: Ptr Word16) (fromIntegral idx)
-    poke (castPtr (ptr `plusPtr` 2) :: Ptr Int64) num
-    poke (castPtr (ptr `plusPtr` 10) :: Ptr Int64) den
-    writeExtrValues (ptr `plusPtr` 18) rest
+    poke (ptr `plusPtr` 2) (ratNegative r)
+    pokeWords (ptr `plusPtr` 3) (ratNumerator r)
+    pokeWords (ptr `plusPtr` 19) (ratDenominator r)
+    writeExtrValues (ptr `plusPtr` 35) rest
+  where
+    pokeWords p (WireUint128 lo hi) = do
+        poke (castPtr p :: Ptr Word64) lo
+        poke (castPtr (p `plusPtr` 8) :: Ptr Word64) hi
 
 -- | Write error entries: signal_index(u16) + error_code(u8).
 writeExtrErrors :: Ptr Word8 -> [(Integer, Integer)] -> IO (Ptr Word8)

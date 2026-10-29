@@ -191,7 +191,7 @@ _PROBES: tuple[Probe, ...] = (
 # header, as it does for the source probes.
 AbiVersion = NewType("AbiVersion", int)
 HeaderText = NewType("HeaderText", str)
-_VERSION_LINE = re.compile(r"enum \{ ALETHEIA_ABI_VERSION = (\d+) \};")
+_VERSION_LINE = re.compile(r"constexpr uint32_t ALETHEIA_ABI_VERSION = (\d+);")
 # Far from any version the header will reach, so a reading of it is the probe's.
 _VERSION_OFFSET = 100_000
 _HEADER_TOKEN = f"{MARKER_PREFIX}HDR_{_RUN_ID}"
@@ -208,7 +208,9 @@ def _edited_header(text: HeaderText, version: AbiVersion) -> HeaderText:
     probe = version + _VERSION_OFFSET
     return HeaderText(
         _VERSION_LINE.sub(
-            f"enum {{ ALETHEIA_ABI_VERSION = {probe} }}; /* {_HEADER_TOKEN} */", text, count=1
+            f"constexpr uint32_t ALETHEIA_ABI_VERSION = {probe}; /* {_HEADER_TOKEN} */",
+            text,
+            count=1,
         )
     )
 

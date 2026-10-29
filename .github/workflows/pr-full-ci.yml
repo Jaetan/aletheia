@@ -246,7 +246,8 @@ jobs:
       # the latest stable Clang (23, see cpp/CMakeLists.txt + AGENTS/cpp.md), so
       # install clang-23 from apt.llvm.org.  libstdc++-15-dev provides the C++23
       # libstdc++ (std::expected / std::format) clang auto-selects; g++ is NOT
-      # installed (cgo + GHC use cc/gcc-13).  run_ci invokes clang-23 /
+      # installed (cgo uses cc/gcc-13; the kernel library's C is clang-23's,
+      # haskell-shim/cabal.project).  run_ci invokes clang-23 /
       # clang-tidy-23 explicitly and routes clang-format through the venv-pinned
       # binary, so no update-alternatives is needed.  Adjust on red runs.
       - name: Cache clang-23 .debs (Clang is a large download)

@@ -10,7 +10,7 @@
 
 #include "aletheia.h"
 
-uint64_t aletheia_allocated_bytes(void) {
+uint64_t aletheia_allocated_bytes() {
     RTSStats stats;
     performGC();
     getRTSStats(&stats);

@@ -12,6 +12,11 @@
 // name, a tab and the envelope. Both variables are read at the first call,
 // which aborts the process naming what is missing. The build makes it beside
 // the library, where the bindings' tests load it.
+
+// POSIX.1-2008, for dlopen, O_CLOEXEC and dprintf, which strict C23 leaves
+// undeclared.
+#define _POSIX_C_SOURCE 200809L
+
 #include "aletheia.h"
 
 #include <dlfcn.h>
@@ -25,51 +30,53 @@
 // Every entry of the library, resolved once from the kernel it forwards to.
 static struct {
     void (*hs_init_with_rtsopts)(int *, char ***);
-    uint32_t (*get_number_of_processors)(void);
-    __typeof__(&aletheia_abi_version) abi_version;
-    __typeof__(&aletheia_init) init;
-    __typeof__(&aletheia_close) close;
-    __typeof__(&aletheia_free_str) free_str;
-    __typeof__(&aletheia_free_buf) free_buf;
-    __typeof__(&aletheia_allocated_bytes) allocated_bytes;
-    __typeof__(&aletheia_format_rational) format_rational;
-    __typeof__(&aletheia_parse_decimal) parse_decimal;
-    __typeof__(&aletheia_process) process;
-    __typeof__(&aletheia_send_frame) send_frame;
-    __typeof__(&aletheia_send_error) send_error;
-    __typeof__(&aletheia_send_remote) send_remote;
-    __typeof__(&aletheia_start_stream) start_stream;
-    __typeof__(&aletheia_end_stream) end_stream;
-    __typeof__(&aletheia_format_dbc) format_dbc;
-    __typeof__(&aletheia_extract_signals) extract_signals;
-    __typeof__(&aletheia_build_frame_bin) build_frame_bin;
-    __typeof__(&aletheia_update_frame_bin) update_frame_bin;
-    __typeof__(&aletheia_extract_signals_bin) extract_signals_bin;
+    uint32_t (*get_number_of_processors)();
+    typeof(&aletheia_abi_version) abi_version;
+    typeof(&aletheia_init) init;
+    typeof(&aletheia_close) close;
+    typeof(&aletheia_free_str) free_str;
+    typeof(&aletheia_free_buf) free_buf;
+    typeof(&aletheia_allocated_bytes) allocated_bytes;
+    typeof(&aletheia_format_rational) format_rational;
+    typeof(&aletheia_parse_decimal) parse_decimal;
+    typeof(&aletheia_parse_time_bound) parse_time_bound;
+    typeof(&aletheia_check_property) check_property;
+    typeof(&aletheia_process) process;
+    typeof(&aletheia_send_frame) send_frame;
+    typeof(&aletheia_send_error) send_error;
+    typeof(&aletheia_send_remote) send_remote;
+    typeof(&aletheia_start_stream) start_stream;
+    typeof(&aletheia_end_stream) end_stream;
+    typeof(&aletheia_format_dbc) format_dbc;
+    typeof(&aletheia_extract_signals) extract_signals;
+    typeof(&aletheia_build_frame_bin) build_frame_bin;
+    typeof(&aletheia_update_frame_bin) update_frame_bin;
+    typeof(&aletheia_extract_signals_bin) extract_signals_bin;
 } kernel;
 
 static const char *log_path;
 
-static _Noreturn void fail(const char *what, const char *detail) {
+[[noreturn]] static void fail(const char *what, const char *detail) {
     fprintf(stderr, "forwarding_kernel: %s: %s\n", what, detail);
     abort();
 }
 
 static void *resolve(void *handle, const char *name) {
     void *entry = dlsym(handle, name);
-    if (entry == NULL)
+    if (entry == nullptr)
         fail("missing entry", name);
     return entry;
 }
 
-static void open_kernel(void) {
+static void open_kernel() {
     const char *path = getenv("ALETHEIA_FORWARD_TO");
-    if (path == NULL)
+    if (path == nullptr)
         fail("ALETHEIA_FORWARD_TO", "unset");
     log_path = getenv("ALETHEIA_REFUSAL_LOG");
-    if (log_path == NULL)
+    if (log_path == nullptr)
         fail("ALETHEIA_REFUSAL_LOG", "unset");
     void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (handle == NULL)
+    if (handle == nullptr)
         fail("ALETHEIA_FORWARD_TO", dlerror());
     kernel.hs_init_with_rtsopts = resolve(handle, "hs_init_with_rtsopts");
     kernel.get_number_of_processors = resolve(handle, "getNumberOfProcessors");
@@ -81,6 +88,8 @@ static void open_kernel(void) {
     kernel.allocated_bytes = resolve(handle, "aletheia_allocated_bytes");
     kernel.format_rational = resolve(handle, "aletheia_format_rational");
     kernel.parse_decimal = resolve(handle, "aletheia_parse_decimal");
+    kernel.parse_time_bound = resolve(handle, "aletheia_parse_time_bound");
+    kernel.check_property = resolve(handle, "aletheia_check_property");
     kernel.process = resolve(handle, "aletheia_process");
     kernel.send_frame = resolve(handle, "aletheia_send_frame");
     kernel.send_error = resolve(handle, "aletheia_send_error");
@@ -94,7 +103,7 @@ static void open_kernel(void) {
     kernel.extract_signals_bin = resolve(handle, "aletheia_extract_signals_bin");
 }
 
-static void forward(void) {
+static void forward() {
     static pthread_once_t once = PTHREAD_ONCE_INIT;
     pthread_once(&once, open_kernel);
 }
@@ -103,7 +112,7 @@ static void forward(void) {
 // any other way is an answer, not a refusal.
 static void record(const char *entry, const char *reply) {
     static const char refusal[] = "{\"status\": \"error\"";
-    if (reply == NULL || strncmp(reply, refusal, sizeof refusal - 1) != 0)
+    if (reply == nullptr || strncmp(reply, refusal, sizeof refusal - 1) != 0)
         return;
     int fd = open(log_path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
     if (fd < 0)
@@ -117,17 +126,17 @@ void hs_init_with_rtsopts(int *argc, char ***argv) {
     kernel.hs_init_with_rtsopts(argc, argv);
 }
 
-uint32_t getNumberOfProcessors(void) {
+uint32_t getNumberOfProcessors() {
     forward();
     return kernel.get_number_of_processors();
 }
 
-uint32_t aletheia_abi_version(void) {
+uint32_t aletheia_abi_version() {
     forward();
     return kernel.abi_version();
 }
 
-void *aletheia_init(void) {
+void *aletheia_init() {
     forward();
     return kernel.init();
 }
@@ -147,7 +156,7 @@ void aletheia_free_buf(uint8_t *ptr) {
     kernel.free_buf(ptr);
 }
 
-uint64_t aletheia_allocated_bytes(void) {
+uint64_t aletheia_allocated_bytes() {
     forward();
     return kernel.allocated_bytes();
 }
@@ -160,8 +169,24 @@ char *aletheia_format_rational(const struct aletheia_rational *value) {
 int8_t aletheia_parse_decimal(const struct aletheia_text *input, struct aletheia_decimal *out) {
     forward();
     int8_t status = kernel.parse_decimal(input, out);
-    if (status != 0 && out != NULL)
+    if (status != 0 && out != nullptr)
         record("aletheia_parse_decimal", out->err);
+    return status;
+}
+
+int8_t aletheia_parse_time_bound(const struct aletheia_text *input, struct aletheia_time_bound *out) {
+    forward();
+    int8_t status = kernel.parse_time_bound(input, out);
+    if (status != 0 && out != nullptr)
+        record("aletheia_parse_time_bound", out->err);
+    return status;
+}
+
+int8_t aletheia_check_property(const struct aletheia_text *property, struct aletheia_property_check *out) {
+    forward();
+    int8_t status = kernel.check_property(property, out);
+    if (status != 0 && out != nullptr)
+        record("aletheia_check_property", out->err);
     return status;
 }
 
@@ -226,7 +251,7 @@ int8_t aletheia_build_frame_bin(void *state, const struct aletheia_frame *frame,
                                 struct aletheia_buffer *out) {
     forward();
     int8_t status = kernel.build_frame_bin(state, frame, values, out);
-    if (status != 0 && out != NULL)
+    if (status != 0 && out != nullptr)
         record("aletheia_build_frame_bin", out->err);
     return status;
 }
@@ -236,7 +261,7 @@ int8_t aletheia_update_frame_bin(void *state, const struct aletheia_frame *frame
                                  struct aletheia_buffer *out) {
     forward();
     int8_t status = kernel.update_frame_bin(state, frame, values, out);
-    if (status != 0 && out != NULL)
+    if (status != 0 && out != nullptr)
         record("aletheia_update_frame_bin", out->err);
     return status;
 }
@@ -245,7 +270,7 @@ int8_t aletheia_extract_signals_bin(void *state, const struct aletheia_frame *fr
                                     struct aletheia_buffer *out) {
     forward();
     int8_t status = kernel.extract_signals_bin(state, frame, out);
-    if (status != 0 && out != NULL)
+    if (status != 0 && out != nullptr)
         record("aletheia_extract_signals_bin", out->err);
     return status;
 }

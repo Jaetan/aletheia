@@ -119,6 +119,7 @@ data FFIExport = FFIExport
 ffiExports :: [FFIExport]
 ffiExports =
     [ FFIExport "AgdaJSON"  "processJSONLine"          "Aletheia/Main/JSON"
+    , FFIExport "AgdaJSON"  "checkPropertyText"        "Aletheia/Main/JSON"
     , FFIExport "AgdaBin"   "processFrameRaw"          "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processErrorFrameRaw"     "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processRemoteFrameRaw"    "Aletheia/Main/Binary"
@@ -132,6 +133,7 @@ ffiExports =
     , FFIExport "AgdaState" "initialState"             "Aletheia/Protocol/StreamState/Types"
     , FFIExport "AgdaRR"    "formatRational"           "Aletheia/DBC/RationalRenderer"
     , FFIExport "AgdaDE"    "parseDecimal"             "Aletheia/DBC/TextParser/DecimalEntry"
+    , FFIExport "AgdaTB"    "parseTimeBound"           "Aletheia/LTL/TimeBoundEntry"
     ]
 
 -- | Load the MAlonzo module contents needed by `ffiExports`, deduplicating

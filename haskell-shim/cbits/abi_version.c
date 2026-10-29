@@ -7,6 +7,6 @@
  */
 #include "aletheia.h"
 
-uint32_t aletheia_abi_version(void) {
+uint32_t aletheia_abi_version() {
     return ALETHEIA_ABI_VERSION;
 }

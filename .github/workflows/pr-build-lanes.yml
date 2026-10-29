@@ -180,6 +180,19 @@ jobs:
         with:
           python-version: '3.14'
 
+      - name: Cache clang-23 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang23-libstdcxx15-noble-v2
+      # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
+      # toolchain) compiles the kernel library's C (haskell-shim/cabal.project),
+      # so it is installed from apt.llvm.org before the two builds.  Same
+      # package set + cache key as pr-full-ci.yml so this job shares the deb
+      # cache seeded there.
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+
       - name: Reproducible-build hash gate (two clean builds, sha256 compare)
         run: python3 -m tools.check_reproducible_build
 

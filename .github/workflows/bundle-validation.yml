@@ -191,6 +191,19 @@ jobs:
       # signing with a warning.  This job validates staging + recipes + the
       # bindings, not provenance — signing stays a release.yml concern, and
       # the release-replay job below verifies a published signature.
+      - name: Cache clang-23 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang23-libstdcxx15-noble-v2
+      # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
+      # toolchain) compiles both the kernel library's C (haskell-shim/cabal.project)
+      # and the bundled C++ binding (cpp/CMakeLists.txt), so it is installed from
+      # apt.llvm.org before the build.  Same package set + cache key as
+      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+
       - name: Build the distribution tarball (unsigned)
         # --keep-going: every gate dist needs reports, whichever fails first.
         run: cabal run shake -- --keep-going dist
@@ -211,18 +224,6 @@ jobs:
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
           rustc --version && cargo --version
-
-      - name: Cache clang-23 .debs (Clang is a large download)
-        uses: actions/cache@v6
-        with:
-          path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v2
-      # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
-      # enforces Clang (cpp/CMakeLists.txt), so install clang-23 (the
-      # supported toolchain) from apt.llvm.org.  Same package set + cache key
-      # as pr-full-ci.yml so this workflow shares the deb cache seeded there.
-      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 
       # The bundle ships install.fish / env.fish; with fish on PATH the
       # validator also runs the fish installer, checks bash/fish recipe
