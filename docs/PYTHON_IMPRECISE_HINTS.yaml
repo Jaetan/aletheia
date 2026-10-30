@@ -783,7 +783,7 @@ hints:
     count: 5
   - file: python/aletheia/types.py
     text: "str"
-    count: 21
+    count: 20
   - file: python/aletheia/types.py
     text: "type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValue] | None"
     count: 1

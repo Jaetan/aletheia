@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""tools/check_limits_parity.py — Enforce parity between Agda Limits SSOT and binding mirrors.
+"""Enforce parity between the Agda limits and reply tags and what each binding reads.
 
 Per AGENTS.md universal rule "Adversarial-input bounds at parser surfaces",
 ``src/Aletheia/Limits.agda`` is the single source of truth for every
@@ -31,6 +31,17 @@ Strategy:
 4. Fail on a wire-string mismatch, a tag or constant missing from either side,
    a value mismatch, a REQUIRED constant absent from a mirror, a mirror const
    with no SSOT peer, or an SSOT entry no table maps.
+5. Parse ``src/Aletheia/Protocol/ReplyRange.agda`` for every ``replyText`` row
+   (a place and its word set, or any non-empty text) and every
+   ``replyNonEmpty`` row, and fail on a row ``PYTHON_REPLY_TEXT`` or
+   ``REPLY_NON_EMPTY`` names that the Agda drops, an Agda row they do not name,
+   a word one side holds and the other does not (Python's set read from its
+   ``Literal`` alias, the ``Literal`` field of a class or of a union of
+   classes, its ``StrEnum`` or its ``BOUND_KIND_*`` codes), or a ``bound_kind``
+   row that differs from ``boundKindCode``.  The proof leaves an unlisted
+   string place free, so this arm is what holds each row the readers rely on.
+   It lives in ``tools/_reply_places.py``; a clause of either table or a
+   reader's type it cannot read, and a place a table names twice, exit 2.
 
 Exit codes:
   0: full parity between Agda SSOT and every mirror.
@@ -59,6 +70,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
 from tools._common import emit
+from tools._reply_places import (
+    AGDA_REPLY_RANGE,
+    PYTHON_REPLY_TEXT,
+    REPLY_NON_EMPTY,
+    AgdaText,
+    ReplyWord,
+    check_reply_places,
+    read_reply_tables,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -229,6 +249,7 @@ BOUND_KIND_MAPPING: dict[str, str] = {
     "PropertyCount": "BoundKindPropertyCount",
     "RationalComponentMagnitude": "BoundKindRationalComponentMagnitude",
 }
+
 
 # Whitelisted binary operators: concrete ``ast`` node type → numeric impl.
 # Membership in this table is the entire authorisation surface for binary
@@ -710,6 +731,18 @@ def main() -> int:
     )
     # Agda-side drift: SSOT entries with no cross-check table mapping.
     diffs.extend(_check_agda_drift(agda_consts, agda_boundkind))
+    # 7) The reply proof's tag and non-empty places against the Python reader.
+    tables = read_reply_tables(
+        AgdaText(_read(AGDA_REPLY_RANGE)),
+        frozenset(ReplyWord(wire) for wire in py_boundkind.values()),
+    )
+    if isinstance(tables, list):
+        for unread in tables:
+            _ = sys.stderr.write(f"check-limits-parity: {unread}\n")
+        return 2
+    diffs.extend(
+        check_reply_places(tables, frozenset(ReplyWord(wire) for wire in agda_boundkind.values()))
+    )
 
     if diffs:
         _ = sys.stderr.write("check-limits-parity: divergences detected\n\n")
@@ -720,8 +753,9 @@ def main() -> int:
         )
         _ = sys.stderr.write(
             f"\nfound {len(diffs)} divergence(s) between "
-            + f"{AGDA_LIMITS.relative_to(REPO_ROOT)} (SSOT) and "
-            + f"{mirrors} (mirrors).\n"
+            + f"{AGDA_LIMITS.relative_to(REPO_ROOT)} and "
+            + f"{AGDA_REPLY_RANGE.relative_to(REPO_ROOT)} (SSOT) and "
+            + f"{mirrors} and the Python reply types (mirrors).\n"
             + "Reconcile by updating the mirror, the Agda SSOT, or the mapping table "
             + "this script names above (when a constant is intentionally added or "
             + "removed).\n"
@@ -738,6 +772,7 @@ def main() -> int:
                 ("C++", CPP_NAME_MAPPING, CPP_BOUND_KIND_MAPPING),
             )
         )
+        + f"; Python {len(PYTHON_REPLY_TEXT)} reply text + {len(REPLY_NON_EMPTY)} non-empty places"
         + ": all in parity with Agda SSOT"
     )
     return 0

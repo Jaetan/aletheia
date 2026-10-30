@@ -621,13 +621,11 @@ class CompleteWarning(TypedDict):
     """One EndStream warning surfaced by the kernel.
 
     Emitted by the Agda walker when a property's atom references a
-    signal that never appeared in trace.
-    ``kind == "uncached_atom"`` is the only kind today; new kinds are
-    additive on the wire (future kinds appear here and the binding
-    surfaces them under a string-typed ``kind`` field).
+    signal that never appeared in trace.  ``uncached_atom`` is the one
+    kind the kernel writes, which its reply proof holds.
     """
 
-    kind: str
+    kind: Literal["uncached_atom"]
     property_index: int
     detail: str
 

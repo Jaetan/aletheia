@@ -544,10 +544,13 @@ def parse_complete_warnings(response: Response) -> list[CompleteWarning]:
             )
             raise ProtocolError(msg)
         warnings.append(
-            {
-                "kind": kind,
-                "property_index": validate_integer_field("property_index", raw_prop_index),
-                "detail": detail,
-            }
+            cast(
+                "CompleteWarning",
+                {
+                    "kind": kind,
+                    "property_index": validate_integer_field("property_index", raw_prop_index),
+                    "detail": detail,
+                },
+            )
         )
     return warnings
