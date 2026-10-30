@@ -209,8 +209,10 @@ var frameID, frameDLC, framePayload = mustFrame()
 // minimalDBC describes the one message, with one signal, so that the harness
 // measures what it accounts for rather than the cost of checking a formula.
 func minimalDBC() aletheia.DBCDefinition {
-	rat := func(n, d int64) aletheia.Rational {
-		return aletheia.Rational{Numerator: n, Denominator: d}
+	rat := func(n int64, d uint64) aletheia.Rational {
+		r := aletheia.IntRational(n)
+		r.Denominator = aletheia.Uint128{Lo: d}
+		return r
 	}
 	msg := aletheia.NewDBCMessage(frameID, "EngineStatus", frameDLC, "ECU1", nil, []aletheia.DBCSignal{
 		{

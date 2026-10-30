@@ -74,7 +74,14 @@ checks.signal("Speed").never_exceeds(220)
     aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue{aletheia::Rational{220, 1}});
 ```
 ```go
-aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+    panic(err)
+}
+speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+if err != nil {
+    panic(err)
+}
+_ = speedLimit
 ```
 
 **Raw DSL** — the same property built directly in LTL:

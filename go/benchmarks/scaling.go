@@ -77,7 +77,7 @@ func alwaysLessThan(sig string, v int64) aletheia.Formula {
 	return alwaysLessThanRat(sig, v, 1)
 }
 
-func alwaysLessThanRat(sig string, num, den int64) aletheia.Formula {
+func alwaysLessThanRat(sig string, num int64, den uint64) aletheia.Formula {
 	return aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: aletheia.SignalName(sig), Value: rat(num, den)}}}
 }
 

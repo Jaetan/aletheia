@@ -30,10 +30,10 @@ func twinIDDefinition(t *testing.T) DBCDefinition {
 	speed := func(start BitPosition) DBCSignal {
 		return DBCSignal{
 			Name: "Speed", StartBit: start, BitLength: 8, ByteOrder: LittleEndian,
-			Factor:   Rational{Numerator: 1, Denominator: 1},
-			Offset:   Rational{Numerator: 0, Denominator: 1},
-			Minimum:  Rational{Numerator: 0, Denominator: 1},
-			Maximum:  Rational{Numerator: 255, Denominator: 1},
+			Factor:   ratOf(1, 1),
+			Offset:   ratOf(0, 1),
+			Minimum:  ratOf(0, 1),
+			Maximum:  ratOf(255, 1),
 			Presence: AlwaysPresent{},
 		}
 	}

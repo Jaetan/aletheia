@@ -76,7 +76,7 @@ class TestValidDBCPassesClean:
             result = client.validate_dbc(dbc)
 
         assert result["has_errors"] is False
-        assert result["issues"] == []
+        assert not result["issues"]
 
 
 class TestDuplicateMessageId:

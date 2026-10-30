@@ -6,6 +6,7 @@ package aletheia_test
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 )
 
 // The helpers the tests outside the package share. internal_test_helpers_test.go
-// carries the same two for the tests inside it, the two test packages being
+// carries the same ones for the tests inside it, the two test packages being
 // compiled separately: one copy would have to be exported from the package
 // under test, and the only difference between them is how the error type is
 // spelled from each side.
@@ -60,10 +61,10 @@ func testDBC() aletheia.DBCDefinition {
 						BitLength: 16,
 						ByteOrder: aletheia.LittleEndian,
 						IsSigned:  false,
-						Factor:    aletheia.Rational{Numerator: 1, Denominator: 10},
-						Offset:    aletheia.Rational{Numerator: 0, Denominator: 1},
-						Minimum:   aletheia.Rational{Numerator: 0, Denominator: 1},
-						Maximum:   aletheia.Rational{Numerator: 300, Denominator: 1},
+						Factor:    ratOf(1, 10),
+						Offset:    ratOf(0, 1),
+						Minimum:   ratOf(0, 1),
+						Maximum:   ratOf(300, 1),
 						Unit:      "km/h",
 						Presence:  aletheia.AlwaysPresent{},
 					},
@@ -137,12 +138,16 @@ func requireKind(t *testing.T, err error, kind aletheia.ErrorKind) {
 
 // formatDBCResponse is a success response to FormatDBC carrying one message.
 func formatDBCResponse(message string) string {
-	return `{"status":"success","dbc":{"version":"","messages":[` + message + `]}}`
+	return `{"status":"success","dbc":{"version":"","messages":[` + message + `],` + dbcLists + `}}`
 }
+
+// dbcLists is every list of a DBC reply but its messages, each empty: the
+// kernel writes every key whatever the definition holds.
+const dbcLists = `"signalGroups":[],"environmentVars":[],"valueTables":[],"nodes":[],"comments":[],"attributes":[],"unresolvedValueDescs":[]`
 
 // oneSignalMessage is a standard-ID message carrying one signal.
 func oneSignalMessage(signal string) string {
-	return `{"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","signals":[` + signal + `]}`
+	return `{"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[` + signal + `]}`
 }
 
 // standardFrame is a frame of the eight-byte length on a standard identifier,
@@ -211,4 +216,24 @@ func startedClientOpts(t *testing.T, properties []aletheia.Formula, responses []
 func startedClientWith(t *testing.T, properties []aletheia.Formula, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
 	t.Helper()
 	return startedClientOpts(t, properties, responses)
+}
+
+// rationalBound is MaxRationalComponentMagnitude, 2^128-1, as a bound
+// refusal carries it.
+var rationalBound = aletheia.Uint128{Hi: math.MaxUint64, Lo: math.MaxUint64}
+
+// ratOf is the exact rational n over d, carrying the quotient's sign, for the
+// small values the tests write; a wider one is written as a Rational literal.
+func ratOf(n, d int64) aletheia.Rational {
+	num, den := aletheia.IntRational(n), aletheia.IntRational(d)
+	return aletheia.Rational{Negative: num.Negative != den.Negative && n != 0, Numerator: num.Numerator, Denominator: den.Numerator}
+}
+
+// must is v once err is nil, for a builder the test holds the kernel accepts;
+// any refusal panics, failing the test that built it.
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }

@@ -3,23 +3,27 @@
 
 package aletheia
 
-import (
-	"fmt"
-	"math"
-)
+// The DBC a reply carries sits at "dbc", and every refusal below names its
+// place from there: a signal's field is at "dbc/messages/signals/<key>". Every
+// key the kernel writes is required, and each place is read by kind only: the
+// ranges and the tags are the kernel's, decided when it read the DBC and proven
+// of every reply. A tag is dispatched with no refusal of its own, the last arm
+// reading every tag the arms before it do not name.
+
+// dbcPath is the DBC object's place in a reply.
+const dbcPath replyPath = "dbc"
 
 // parseDBCResponse decodes a formatDBC response into a DBCDefinition.
 func parseDBCResponse(raw string) (*DBCDefinition, error) {
-	m, err := decodeResponse(raw, "success")
+	m, err := decodeResponse(raw, statusSuccess)
 	if err != nil {
 		return nil, err
 	}
-
-	dbcRaw := getObject(m, "dbc")
-	if dbcRaw == nil {
-		return nil, protocolError("missing 'dbc' field in response")
+	dbc, err := fieldObject(m, "", "dbc")
+	if err != nil {
+		return nil, err
 	}
-	return parseDBCDefinition(dbcRaw)
+	return parseDBCDefinition(dbc)
 }
 
 // parseDBCTextResponse decodes a formatDBCText response into the .dbc text image
@@ -30,21 +34,16 @@ func parseDBCResponse(raw string) (*DBCDefinition, error) {
 // JSON parse failure on the input, unexpected status) short-circuit to the
 // (*DBCText, error) tuple's error half.
 func parseDBCTextResponse(raw string) (*DBCText, error) {
-	m, err := decodeResponse(raw, "success")
+	m, err := decodeResponse(raw, statusSuccess)
 	if err != nil {
 		return nil, err
 	}
-	text, ok := m["text"].(string)
-	if !ok {
-		return nil, protocolError("missing or non-string 'text' field in formatDBCText response")
+	text, err := fieldString(m, "", "text")
+	if err != nil {
+		return nil, err
 	}
-	// Absent issues → empty; a present-but-non-array issues field is a protocol
-	// error, not silently dropped to empty (parseIssueArray/getArray treat a
-	// wrong-type field as missing). Parity with the Python/Rust decoders.
-	if raw, present := m["issues"]; present {
-		if _, isArray := raw.([]any); !isArray {
-			return nil, protocolError("'issues' must be an array in formatDBCText response")
-		}
+	if _, err := fieldArray(m, "", "issues"); err != nil {
+		return nil, err
 	}
 	issues, err := parseIssueArray(m, "issues")
 	if err != nil {
@@ -58,20 +57,21 @@ func parseDBCTextResponse(raw string) (*DBCText, error) {
 // (warnings).  Errors short-circuit to the (*ParsedDBC, error) tuple's
 // error half.
 func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
-	m, err := decodeResponse(raw, "success")
+	m, err := decodeResponse(raw, statusSuccess)
 	if err != nil {
 		return nil, err
 	}
-
-	dbcRaw := getObject(m, "dbc")
-	if dbcRaw == nil {
-		return nil, protocolError("missing 'dbc' field in parseDBC response")
+	dbcRaw, err := fieldObject(m, "", "dbc")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fieldArray(m, "", "warnings"); err != nil {
+		return nil, err
 	}
 	dbc, err := parseDBCDefinition(dbcRaw)
 	if err != nil {
 		return nil, err
 	}
-
 	warnings, err := parseIssueArray(m, "warnings")
 	if err != nil {
 		return nil, err
@@ -79,53 +79,47 @@ func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
 	return &ParsedDBC{DBC: *dbc, Warnings: warnings}, nil
 }
 
-// parseDBCDefinition decodes the definition a response carries. Its metadata
-// arrays are optional: an absent or null key reads as none.
+// parseDBCDefinition decodes the DBC object of a reply, at "dbc".
 func parseDBCDefinition(j map[string]any) (*DBCDefinition, error) {
-	var messages []DBCMessage
-	for _, item := range getArray(j, "messages") {
-		mRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in messages array")
-		}
-		msg, err := parseDBCMessage(mRaw)
-		if err != nil {
-			return nil, err
-		}
-		messages = append(messages, *msg)
-	}
-
-	signalGroups, err := parseSignalGroups(j)
+	version, err := fieldString(j, dbcPath, "version")
 	if err != nil {
 		return nil, err
 	}
-	envVars, err := parseEnvironmentVars(j)
+	messages, err := fieldObjects(j, dbcPath, "messages", parseDBCMessage)
 	if err != nil {
 		return nil, err
 	}
-	valueTables, err := parseValueTables(j)
+	signalGroups, err := fieldObjects(j, dbcPath, "signalGroups", parseSignalGroup)
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := parseNodes(j)
+	envVars, err := fieldObjects(j, dbcPath, "environmentVars", parseEnvironmentVar)
 	if err != nil {
 		return nil, err
 	}
-	comments, err := parseComments(j)
+	valueTables, err := fieldObjects(j, dbcPath, "valueTables", parseValueTable)
 	if err != nil {
 		return nil, err
 	}
-	attributes, err := parseAttributes(j)
+	nodes, err := fieldObjects(j, dbcPath, "nodes", parseNode)
 	if err != nil {
 		return nil, err
 	}
-	unresolvedValueDescs, err := parseUnresolvedValueDescs(j)
+	comments, err := fieldObjects(j, dbcPath, "comments", parseComment)
+	if err != nil {
+		return nil, err
+	}
+	attributes, err := fieldObjects(j, dbcPath, "attributes", parseAttribute)
+	if err != nil {
+		return nil, err
+	}
+	unresolvedValueDescs, err := fieldObjects(j, dbcPath, "unresolvedValueDescs", parseUnresolvedValueDesc)
 	if err != nil {
 		return nil, err
 	}
 
 	def := &DBCDefinition{
-		Version:                     getString(j, "version"),
+		Version:                     version,
 		Messages:                    messages,
 		SignalGroups:                signalGroups,
 		EnvironmentVars:             envVars,
@@ -139,228 +133,355 @@ func parseDBCDefinition(j map[string]any) (*DBCDefinition, error) {
 	return def, nil
 }
 
-// parseObjects decodes an array of objects under a key: nothing for an absent
-// or empty field, a refusal at the first entry that is not an object, and the
-// entry decoder's own error otherwise. Every list the DBC carries is read
-// through it, each passing what one entry means.
-func parseObjects[T any](
-	j map[string]any,
-	fieldName string,
-	decode func(map[string]any) (T, error),
-) ([]T, error) {
-	raw := getArray(j, fieldName)
-	if len(raw) == 0 {
-		return nil, nil
+// readCANID reads the identifier of the object at path: its "extended" flag,
+// then "id" at the width the flag names, whose range the kernel proves.
+func readCANID(m map[string]any, path replyPath) (CANID, error) {
+	extended, err := fieldBool(m, path, "extended")
+	if err != nil {
+		return nil, err
 	}
-	out := make([]T, 0, len(raw))
-	for _, item := range raw {
-		m, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError(fmt.Sprintf("expected object in %s array", fieldName))
-		}
-		v, err := decode(m)
+	raw, err := fieldUint64(m, path, "id")
+	if err != nil {
+		return nil, err
+	}
+	if extended {
+		return ExtendedID{value: uint32(raw)}, nil
+	}
+	return StandardID{value: uint16(raw)}, nil
+}
+
+// readDLC reads a message's length code from the byte count the reply writes;
+// a count no code stands for, which the kernel never writes, is refused as the
+// number the place does not hold.
+func readDLC(m map[string]any, path replyPath) (DLC, error) {
+	count, err := fieldUint64(m, path, "dlc")
+	if err != nil {
+		return DLC{}, err
+	}
+	n := int(count)
+	code, ok := bytesToDlcTable[n]
+	if !ok || uint64(n) != count {
+		return DLC{}, replyRefusal(path.at("dlc"), expectNumber, came(m, "dlc"))
+	}
+	return DLC{value: code}, nil
+}
+
+// parseDBCMessage decodes one message at path, its signals included.
+func parseDBCMessage(j map[string]any, path replyPath) (DBCMessage, error) {
+	signals, err := fieldObjects(j, path, "signals", parseDBCSignal)
+	if err != nil {
+		return DBCMessage{}, err
+	}
+	name, err := fieldString(j, path, "name")
+	if err != nil {
+		return DBCMessage{}, err
+	}
+	id, err := readCANID(j, path)
+	if err != nil {
+		return DBCMessage{}, err
+	}
+	dlc, err := readDLC(j, path)
+	if err != nil {
+		return DBCMessage{}, err
+	}
+	sender, err := fieldString(j, path, "sender")
+	if err != nil {
+		return DBCMessage{}, err
+	}
+	senders, err := fieldStrings[NodeName](j, path, "senders")
+	if err != nil {
+		return DBCMessage{}, err
+	}
+	return NewDBCMessage(id, MessageName(name), dlc, NodeName(sender), senders, signals), nil
+}
+
+// readByteOrder reads a signal's byte order, "big_endian" its last arm.
+func readByteOrder(j map[string]any, path replyPath) (ByteOrder, error) {
+	name, err := fieldString(j, path, "byteOrder")
+	if err != nil {
+		return 0, err
+	}
+	switch name {
+	case "little_endian":
+		return LittleEndian, nil
+	case "big_endian":
+		fallthrough
+	default:
+		return BigEndian, nil
+	}
+}
+
+// parseDBCSignal decodes one signal at path.
+func parseDBCSignal(j map[string]any, path replyPath) (DBCSignal, error) {
+	var zero DBCSignal
+	name, err := fieldString(j, path, "name")
+	if err != nil {
+		return zero, err
+	}
+	startBit, err := fieldUint64(j, path, "startBit")
+	if err != nil {
+		return zero, err
+	}
+	length, err := fieldUint64(j, path, "length")
+	if err != nil {
+		return zero, err
+	}
+	byteOrder, err := readByteOrder(j, path)
+	if err != nil {
+		return zero, err
+	}
+	signed, err := fieldBool(j, path, "signed")
+	if err != nil {
+		return zero, err
+	}
+	factor, err := fieldRational(j, path, "factor")
+	if err != nil {
+		return zero, err
+	}
+	offset, err := fieldRational(j, path, "offset")
+	if err != nil {
+		return zero, err
+	}
+	minimum, err := fieldRational(j, path, "minimum")
+	if err != nil {
+		return zero, err
+	}
+	maximum, err := fieldRational(j, path, "maximum")
+	if err != nil {
+		return zero, err
+	}
+	unit, err := fieldString(j, path, "unit")
+	if err != nil {
+		return zero, err
+	}
+	receivers, err := fieldStrings[NodeName](j, path, "receivers")
+	if err != nil {
+		return zero, err
+	}
+	valueDescriptions, err := fieldObjects(j, path, "valueDescriptions", parseValueEntry)
+	if err != nil {
+		return zero, err
+	}
+	presence, err := parseSignalPresence(j, path)
+	if err != nil {
+		return zero, err
+	}
+
+	return DBCSignal{
+		Name:              SignalName(name),
+		StartBit:          BitPosition(startBit),
+		BitLength:         BitLength(length),
+		ByteOrder:         byteOrder,
+		IsSigned:          signed,
+		Factor:            factor,
+		Offset:            offset,
+		Minimum:           minimum,
+		Maximum:           maximum,
+		Unit:              Unit(unit),
+		Presence:          presence,
+		Receivers:         receivers,
+		ValueDescriptions: valueDescriptions,
+	}, nil
+}
+
+// parseSignalPresence reads the presence the kernel states for every signal,
+// "multiplexed" its last arm, whose multiplexor is a string and whose selector
+// values are whole numbers.
+func parseSignalPresence(j map[string]any, path replyPath) (SignalPresence, error) {
+	presence, err := fieldString(j, path, "presence")
+	if err != nil {
+		return nil, err
+	}
+	switch presence {
+	case "always":
+		return AlwaysPresent{}, nil
+	case "multiplexed":
+		fallthrough
+	default:
+		multiplexor, err := fieldString(j, path, "multiplexor")
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, v)
+		rawVals, err := fieldArray(j, path, "multiplex_values")
+		if err != nil {
+			return nil, err
+		}
+		place := path.at("multiplex_values")
+		values := make([]MultiplexValue, 0, len(rawVals))
+		for _, rv := range rawVals {
+			v, err := readUint128(rv, place)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, v)
+		}
+		return Multiplexed{Multiplexor: SignalName(multiplexor), MultiplexValues: values}, nil
 	}
-	return out, nil
 }
 
-// parseUnresolvedValueDescs decodes the value descriptions the text parser
-// could not attach to a signal. The field is usually absent.
-func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
-	return parseObjects(j, "unresolvedValueDescs", func(rvdRaw map[string]any) (DBCRawValueDesc, error) {
-		canID, err := parseCanIDValue(rvdRaw)
-		if err != nil {
-			return DBCRawValueDesc{}, wrapProtocolError("invalid unresolvedValueDesc id", err)
-		}
-		entries, err := parseObjects(rvdRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
-			v, err := parseNumberAsInt64(eRaw["value"])
-			if err != nil {
-				return DBCValueEntry{}, wrapProtocolError("invalid unresolvedValueDescs entry value", err)
-			}
-			return DBCValueEntry{
-				Value:       v,
-				Description: getString(eRaw, "description"),
-			}, nil
-		})
-		if err != nil {
-			return DBCRawValueDesc{}, err
-		}
-		return DBCRawValueDesc{
-			ID:         canID,
-			SignalName: SignalName(getString(rvdRaw, "signalName")),
-			Entries:    entries,
-		}, nil
-	})
+// parseSignalGroup decodes one signal group: its name and its members' names.
+func parseSignalGroup(g map[string]any, path replyPath) (DBCSignalGroup, error) {
+	name, err := fieldString(g, path, "name")
+	if err != nil {
+		return DBCSignalGroup{}, err
+	}
+	signals, err := fieldStrings[SignalName](g, path, "signals")
+	if err != nil {
+		return DBCSignalGroup{}, err
+	}
+	return DBCSignalGroup{Name: name, Signals: signals}, nil
 }
 
-// parseSignalGroups decodes the optional "signalGroups" array from a
-// formatDBC "dbc" sub-object.
-func parseSignalGroups(j map[string]any) ([]DBCSignalGroup, error) {
-	return parseObjects(j, "signalGroups", func(gRaw map[string]any) (DBCSignalGroup, error) {
-		sigsRaw := getArray(gRaw, "signals")
-		sigs := make([]SignalName, 0, len(sigsRaw))
-		for _, sn := range sigsRaw {
-			s, ok := sn.(string)
-			if !ok {
-				return DBCSignalGroup{}, protocolError("signalGroups.signals entry is not a string")
-			}
-			sigs = append(sigs, SignalName(s))
-		}
-		return DBCSignalGroup{Name: getString(gRaw, "name"), Signals: sigs}, nil
-	})
+// parseEnvironmentVar decodes one environment variable, its varType the tag
+// the kernel proves it to be.
+func parseEnvironmentVar(ev map[string]any, path replyPath) (DBCEnvironmentVar, error) {
+	name, err := fieldString(ev, path, "name")
+	if err != nil {
+		return DBCEnvironmentVar{}, err
+	}
+	varType, err := fieldUint64(ev, path, "varType")
+	if err != nil {
+		return DBCEnvironmentVar{}, err
+	}
+	initial, err := fieldRational(ev, path, "initial")
+	if err != nil {
+		return DBCEnvironmentVar{}, err
+	}
+	minimum, err := fieldRational(ev, path, "minimum")
+	if err != nil {
+		return DBCEnvironmentVar{}, err
+	}
+	maximum, err := fieldRational(ev, path, "maximum")
+	if err != nil {
+		return DBCEnvironmentVar{}, err
+	}
+	return DBCEnvironmentVar{
+		Name:    name,
+		VarType: DBCVarType(varType),
+		Initial: initial,
+		Minimum: minimum,
+		Maximum: maximum,
+	}, nil
 }
 
-// parseEnvironmentVars decodes the environment variables. The type tag is one
-// of the three the format has, and any other number is refused.
-func parseEnvironmentVars(j map[string]any) ([]DBCEnvironmentVar, error) {
-	return parseObjects(j, "environmentVars", func(evRaw map[string]any) (DBCEnvironmentVar, error) {
-		tagVal, err := parseNumberAsInt64(evRaw["varType"])
-		if err != nil {
-			return DBCEnvironmentVar{}, wrapProtocolError("invalid varType", err)
-		}
-		if tagVal < 0 || tagVal > 2 {
-			return DBCEnvironmentVar{}, protocolError(fmt.Sprintf("unknown varType tag: %d", tagVal))
-		}
-		initial, err := parseRational(evRaw["initial"])
-		if err != nil {
-			return DBCEnvironmentVar{}, wrapProtocolError("invalid environmentVar initial", err)
-		}
-		minimum, err := parseRational(evRaw["minimum"])
-		if err != nil {
-			return DBCEnvironmentVar{}, wrapProtocolError("invalid environmentVar minimum", err)
-		}
-		maximum, err := parseRational(evRaw["maximum"])
-		if err != nil {
-			return DBCEnvironmentVar{}, wrapProtocolError("invalid environmentVar maximum", err)
-		}
-		return DBCEnvironmentVar{
-			Name:    getString(evRaw, "name"),
-			VarType: DBCVarType(tagVal),
-			Initial: initial,
-			Minimum: minimum,
-			Maximum: maximum,
-		}, nil
-	})
+// parseValueEntry decodes one value description: a signed key and its text.
+func parseValueEntry(e map[string]any, path replyPath) (DBCValueEntry, error) {
+	value, err := fieldSignMagnitude(e, path, "value")
+	if err != nil {
+		return DBCValueEntry{}, err
+	}
+	description, err := fieldString(e, path, "description")
+	if err != nil {
+		return DBCValueEntry{}, err
+	}
+	return DBCValueEntry{Value: value, Description: description}, nil
 }
 
-// parseValueTables decodes the value tables, each entry's value read exactly.
-func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
-	return parseObjects(j, "valueTables", func(vtRaw map[string]any) (DBCValueTable, error) {
-		entries, err := parseObjects(vtRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
-			v, err := parseNumberAsInt64(eRaw["value"])
-			if err != nil {
-				return DBCValueEntry{}, wrapProtocolError("invalid valueTable entry value", err)
-			}
-			return DBCValueEntry{
-				Value:       v,
-				Description: getString(eRaw, "description"),
-			}, nil
-		})
-		if err != nil {
-			return DBCValueTable{}, err
-		}
-		return DBCValueTable{
-			Name:    getString(vtRaw, "name"),
-			Entries: entries,
-		}, nil
-	})
+// parseValueTable decodes one value table: its name and its entries.
+func parseValueTable(vt map[string]any, path replyPath) (DBCValueTable, error) {
+	name, err := fieldString(vt, path, "name")
+	if err != nil {
+		return DBCValueTable{}, err
+	}
+	entries, err := fieldObjects(vt, path, "entries", parseValueEntry)
+	if err != nil {
+		return DBCValueTable{}, err
+	}
+	return DBCValueTable{Name: name, Entries: entries}, nil
+}
+
+// parseUnresolvedValueDesc decodes one value description the text parser
+// could not attach to a signal, its CAN id read as a message's.
+func parseUnresolvedValueDesc(rvd map[string]any, path replyPath) (DBCRawValueDesc, error) {
+	id, err := readCANID(rvd, path)
+	if err != nil {
+		return DBCRawValueDesc{}, err
+	}
+	signalName, err := fieldString(rvd, path, "signalName")
+	if err != nil {
+		return DBCRawValueDesc{}, err
+	}
+	entries, err := fieldObjects(rvd, path, "entries", parseValueEntry)
+	if err != nil {
+		return DBCRawValueDesc{}, err
+	}
+	return DBCRawValueDesc{ID: id, SignalName: SignalName(signalName), Entries: entries}, nil
 }
 
 // --- Tier 2 parsers ---
 
-// parseNodes decodes the optional "nodes" array.
-func parseNodes(j map[string]any) ([]DBCNode, error) {
-	return parseObjects(j, "nodes", func(nRaw map[string]any) (DBCNode, error) {
-		return DBCNode{Name: NodeName(getString(nRaw, "name"))}, nil
-	})
-}
-
-// canIDOfWidth is the identifier of the width extended names. A standard value
-// past sixteen bits is refused before the constructor sees it, since the
-// conversion to its argument would keep only the low bits.
-func canIDOfWidth(raw uint32, extended bool) (CANID, error) {
-	if extended {
-		id, err := NewExtendedID(raw)
-		if err != nil {
-			return nil, wrapProtocolError("invalid extended id", err)
-		}
-		return id, nil
-	}
-	narrowed, ok := narrow[uint16](int64(raw))
-	if !ok {
-		return nil, protocolError(fmt.Sprintf("standard id out of range: %d", raw))
-	}
-	id, err := NewStandardID(narrowed)
+// parseNode decodes one node.
+func parseNode(n map[string]any, path replyPath) (DBCNode, error) {
+	name, err := fieldString(n, path, "name")
 	if err != nil {
-		return nil, wrapProtocolError("invalid standard id", err)
+		return DBCNode{}, err
 	}
-	return id, nil
+	return DBCNode{Name: NodeName(name)}, nil
 }
 
-// parseCanIDValue reads the identifier every message-scoped or signal-scoped
-// target carries, an absent extended flag meaning a standard one. The width
-// the flag names is checked, so a target naming a message no frame could carry
-// is refused at the parse rather than kept.
-func parseCanIDValue(m map[string]any) (CANID, error) {
-	idVal, err := parseNumberAsInt64(m["id"])
+// parseCommentTarget decodes what a comment is attached to, "envVar" its last
+// arm.
+func parseCommentTarget(m map[string]any, path replyPath) (DBCCommentTarget, error) {
+	kind, err := fieldString(m, path, "kind")
 	if err != nil {
-		return nil, wrapProtocolError("invalid id", err)
+		return nil, err
 	}
-	raw, ok := narrow[uint32](idVal)
-	if !ok {
-		return nil, protocolError(fmt.Sprintf("id out of uint32 range: %d", idVal))
-	}
-	return canIDOfWidth(raw, getBool(m, "extended"))
-}
-
-// parseCommentTarget decodes what a comment is attached to, refusing a kind
-// the format does not have, as the kernel's own parser does.
-func parseCommentTarget(m map[string]any) (DBCCommentTarget, error) {
-	kind := getString(m, "kind")
 	switch kind {
 	case "network":
 		return DBCCommentTargetNetwork{}, nil
 	case "node":
-		return DBCCommentTargetNode{Node: NodeName(getString(m, "node"))}, nil
+		node, err := fieldString(m, path, "node")
+		if err != nil {
+			return nil, err
+		}
+		return DBCCommentTargetNode{Node: NodeName(node)}, nil
 	case "message":
-		id, err := parseCanIDValue(m)
+		id, err := readCANID(m, path)
 		if err != nil {
 			return nil, err
 		}
 		return DBCCommentTargetMessage{ID: id}, nil
 	case "signal":
-		id, err := parseCanIDValue(m)
+		id, err := readCANID(m, path)
 		if err != nil {
 			return nil, err
 		}
-		return DBCCommentTargetSignal{ID: id, Signal: SignalName(getString(m, "signal"))}, nil
+		signal, err := fieldString(m, path, "signal")
+		if err != nil {
+			return nil, err
+		}
+		return DBCCommentTargetSignal{ID: id, Signal: SignalName(signal)}, nil
 	case "envVar":
-		return DBCCommentTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
+		fallthrough
 	default:
-		return nil, protocolError(fmt.Sprintf("unknown comment target kind: %q", kind))
+		envVar, err := fieldString(m, path, "envVar")
+		if err != nil {
+			return nil, err
+		}
+		return DBCCommentTargetEnvVar{EnvVar: envVar}, nil
 	}
 }
 
-// parseComments decodes the optional "comments" array.
-func parseComments(j map[string]any) ([]DBCComment, error) {
-	return parseObjects(j, "comments", func(cRaw map[string]any) (DBCComment, error) {
-		targetRaw, ok := cRaw["target"].(map[string]any)
-		if !ok {
-			return DBCComment{}, protocolError("comment entry missing target object")
-		}
-		target, err := parseCommentTarget(targetRaw)
-		if err != nil {
-			return DBCComment{}, err
-		}
-		return DBCComment{Target: target, Text: getString(cRaw, "text")}, nil
-	})
+// parseComment decodes one comment: its target and its text.
+func parseComment(c map[string]any, path replyPath) (DBCComment, error) {
+	target, err := fieldObjectOf(c, path, "target", parseCommentTarget)
+	if err != nil {
+		return DBCComment{}, err
+	}
+	text, err := fieldString(c, path, "text")
+	if err != nil {
+		return DBCComment{}, err
+	}
+	return DBCComment{Target: target, Text: text}, nil
 }
 
-func parseAttrScope(s string) (DBCAttrScope, error) {
-	switch s {
+// readAttrScope reads an attribute definition's scope, "nodeSig" its last arm.
+func readAttrScope(m map[string]any, path replyPath) (DBCAttrScope, error) {
+	scope, err := fieldString(m, path, "scope")
+	if err != nil {
+		return 0, err
+	}
+	switch scope {
 	case "network":
 		return DBCAttrScopeNetwork, nil
 	case "node":
@@ -374,414 +495,209 @@ func parseAttrScope(s string) (DBCAttrScope, error) {
 	case "nodeMsg":
 		return DBCAttrScopeNodeMsg, nil
 	case "nodeSig":
-		return DBCAttrScopeNodeSig, nil
+		fallthrough
 	default:
-		return 0, protocolError(fmt.Sprintf("unknown attr scope: %q", s))
+		return DBCAttrScopeNodeSig, nil
 	}
 }
 
-func parseAttrType(m map[string]any) (DBCAttrType, error) {
-	kind := getString(m, "kind")
+// readIntBounds reads the "min" and "max" an INT or HEX definition bounds its
+// values by.
+func readIntBounds(m map[string]any, path replyPath) (minV, maxV int64, err error) {
+	minV, err = fieldInt64(m, path, "min")
+	if err != nil {
+		return 0, 0, err
+	}
+	maxV, err = fieldInt64(m, path, "max")
+	if err != nil {
+		return 0, 0, err
+	}
+	return minV, maxV, nil
+}
+
+// parseAttrType decodes an attribute definition's type, "hex" its last arm.
+func parseAttrType(m map[string]any, path replyPath) (DBCAttrType, error) {
+	kind, err := fieldString(m, path, "kind")
+	if err != nil {
+		return nil, err
+	}
 	switch kind {
 	case "int":
-		minV, err := parseNumberAsInt64(m["min"])
+		minV, maxV, err := readIntBounds(m, path)
 		if err != nil {
-			return nil, wrapProtocolError("invalid int attr min", err)
-		}
-		maxV, err := parseNumberAsInt64(m["max"])
-		if err != nil {
-			return nil, wrapProtocolError("invalid int attr max", err)
+			return nil, err
 		}
 		return DBCAttrTypeInt{Min: minV, Max: maxV}, nil
 	case "float":
-		minV, err := parseRational(m["min"])
+		minV, err := fieldRational(m, path, "min")
 		if err != nil {
-			return nil, wrapProtocolError("invalid float attr min", err)
+			return nil, err
 		}
-		maxV, err := parseRational(m["max"])
+		maxV, err := fieldRational(m, path, "max")
 		if err != nil {
-			return nil, wrapProtocolError("invalid float attr max", err)
+			return nil, err
 		}
 		return DBCAttrTypeFloat{Min: minV, Max: maxV}, nil
 	case "string":
 		return DBCAttrTypeString{}, nil
 	case "enum":
-		valuesRaw := getArray(m, "values")
-		values := make([]string, 0, len(valuesRaw))
-		for _, vr := range valuesRaw {
-			s, ok := vr.(string)
-			if !ok {
-				return nil, protocolError("enum attr type values entry is not a string")
-			}
-			values = append(values, s)
+		values, err := fieldStrings[string](m, path, "values")
+		if err != nil {
+			return nil, err
 		}
 		return DBCAttrTypeEnum{Values: values}, nil
 	case "hex":
-		minV, err := parseNumberAsInt64(m["min"])
+		fallthrough
+	default:
+		minV, maxV, err := readIntBounds(m, path)
 		if err != nil {
-			return nil, wrapProtocolError("invalid hex attr min", err)
-		}
-		maxV, err := parseNumberAsInt64(m["max"])
-		if err != nil {
-			return nil, wrapProtocolError("invalid hex attr max", err)
+			return nil, err
 		}
 		return DBCAttrTypeHex{Min: minV, Max: maxV}, nil
-	default:
-		return nil, protocolError(fmt.Sprintf("unknown attr type kind: %q", kind))
 	}
 }
 
-func parseAttrValue(m map[string]any) (DBCAttrValue, error) {
-	kind := getString(m, "kind")
+// parseAttrValue decodes an attribute's value, "hex" its last arm.
+func parseAttrValue(m map[string]any, path replyPath) (DBCAttrValue, error) {
+	kind, err := fieldString(m, path, "kind")
+	if err != nil {
+		return nil, err
+	}
 	switch kind {
 	case "int":
-		v, err := parseNumberAsInt64(m["value"])
+		v, err := fieldInt64(m, path, "value")
 		if err != nil {
-			return nil, wrapProtocolError("invalid int attr value", err)
+			return nil, err
 		}
 		return DBCAttrValueInt{Value: v}, nil
 	case "float":
-		v, err := parseRational(m["value"])
+		v, err := fieldRational(m, path, "value")
 		if err != nil {
-			return nil, wrapProtocolError("invalid float attr value", err)
+			return nil, err
 		}
 		return DBCAttrValueFloat{Value: v}, nil
 	case "string":
-		return DBCAttrValueString{Value: getString(m, "value")}, nil
-	case "enum":
-		v, err := parseNumberAsInt64(m["value"])
+		v, err := fieldString(m, path, "value")
 		if err != nil {
-			return nil, wrapProtocolError("invalid enum attr value", err)
+			return nil, err
+		}
+		return DBCAttrValueString{Value: v}, nil
+	case "enum":
+		v, err := fieldInt64(m, path, "value")
+		if err != nil {
+			return nil, err
 		}
 		return DBCAttrValueEnum{Value: v}, nil
 	case "hex":
-		v, err := parseNumberAsInt64(m["value"])
+		fallthrough
+	default:
+		v, err := fieldInt64(m, path, "value")
 		if err != nil {
-			return nil, wrapProtocolError("invalid hex attr value", err)
+			return nil, err
 		}
 		return DBCAttrValueHex{Value: v}, nil
-	default:
-		return nil, protocolError(fmt.Sprintf("unknown attr value kind: %q", kind))
 	}
 }
 
-func parseAttrTarget(m map[string]any) (DBCAttrTarget, error) {
-	kind := getString(m, "kind")
+// parseAttrTarget decodes what an attribute is assigned to; a kind other than
+// "network", "node" and "envVar" carries a CAN id, and parseAttrTargetAtID
+// reads it.
+func parseAttrTarget(m map[string]any, path replyPath) (DBCAttrTarget, error) {
+	kind, err := fieldString(m, path, "kind")
+	if err != nil {
+		return nil, err
+	}
 	switch kind {
 	case "network":
 		return DBCAttrTargetNetwork{}, nil
 	case "node":
-		return DBCAttrTargetNode{Node: NodeName(getString(m, "node"))}, nil
-	case "message":
-		id, err := parseCanIDValue(m)
+		node, err := fieldString(m, path, "node")
 		if err != nil {
 			return nil, err
 		}
+		return DBCAttrTargetNode{Node: NodeName(node)}, nil
+	case "envVar":
+		envVar, err := fieldString(m, path, "envVar")
+		if err != nil {
+			return nil, err
+		}
+		return DBCAttrTargetEnvVar{EnvVar: envVar}, nil
+	case "message", "signal", "nodeMsg", "nodeSig":
+		fallthrough
+	default:
+		return parseAttrTargetAtID(kind, m, path)
+	}
+}
+
+// parseAttrTargetAtID decodes an attribute target that carries a CAN id,
+// "nodeSig" its last arm.
+func parseAttrTargetAtID(kind string, m map[string]any, path replyPath) (DBCAttrTarget, error) {
+	id, err := readCANID(m, path)
+	if err != nil {
+		return nil, err
+	}
+	switch kind {
+	case "message":
 		return DBCAttrTargetMessage{ID: id}, nil
 	case "signal":
-		id, err := parseCanIDValue(m)
+		signal, err := fieldString(m, path, "signal")
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrTargetSignal{ID: id, Signal: SignalName(getString(m, "signal"))}, nil
-	case "envVar":
-		return DBCAttrTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
-	case "nodeMsg":
-		id, err := parseCanIDValue(m)
-		if err != nil {
-			return nil, err
-		}
-		return DBCAttrTargetNodeMsg{Node: NodeName(getString(m, "node")), ID: id}, nil
-	case "nodeSig":
-		id, err := parseCanIDValue(m)
-		if err != nil {
-			return nil, err
-		}
-		return DBCAttrTargetNodeSig{
-			Node:   NodeName(getString(m, "node")),
-			ID:     id,
-			Signal: SignalName(getString(m, "signal")),
-		}, nil
-	default:
-		return nil, protocolError(fmt.Sprintf("unknown attr target kind: %q", kind))
+		return DBCAttrTargetSignal{ID: id, Signal: SignalName(signal)}, nil
 	}
+	node, err := fieldString(m, path, "node")
+	if err != nil {
+		return nil, err
+	}
+	if kind == "nodeMsg" {
+		return DBCAttrTargetNodeMsg{Node: NodeName(node), ID: id}, nil
+	}
+	signal, err := fieldString(m, path, "signal")
+	if err != nil {
+		return nil, err
+	}
+	return DBCAttrTargetNodeSig{Node: NodeName(node), ID: id, Signal: SignalName(signal)}, nil
 }
 
-func parseAttribute(m map[string]any) (DBCAttribute, error) {
-	kind := getString(m, "kind")
+// parseAttribute decodes one attribute entry, "assignment" its last arm.
+func parseAttribute(m map[string]any, path replyPath) (DBCAttribute, error) {
+	kind, err := fieldString(m, path, "kind")
+	if err != nil {
+		return nil, err
+	}
+	name, err := fieldString(m, path, "name")
+	if err != nil {
+		return nil, err
+	}
 	switch kind {
 	case "definition":
-		scope, err := parseAttrScope(getString(m, "scope"))
+		scope, err := readAttrScope(m, path)
 		if err != nil {
 			return nil, err
 		}
-		atRaw, ok := m["attrType"].(map[string]any)
-		if !ok {
-			return nil, protocolError("attribute definition missing attrType object")
-		}
-		at, err := parseAttrType(atRaw)
+		attrType, err := fieldObjectOf(m, path, "attrType", parseAttrType)
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrDef{Name: getString(m, "name"), Scope: scope, AttrType: at}, nil
+		return DBCAttrDef{Name: name, Scope: scope, AttrType: attrType}, nil
 	case "default":
-		valRaw, ok := m["value"].(map[string]any)
-		if !ok {
-			return nil, protocolError("attribute default missing value object")
-		}
-		val, err := parseAttrValue(valRaw)
+		value, err := fieldObjectOf(m, path, "value", parseAttrValue)
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrDefault{Name: getString(m, "name"), Value: val}, nil
+		return DBCAttrDefault{Name: name, Value: value}, nil
 	case "assignment":
-		targetRaw, ok := m["target"].(map[string]any)
-		if !ok {
-			return nil, protocolError("attribute assignment missing target object")
-		}
-		target, err := parseAttrTarget(targetRaw)
+		fallthrough
+	default:
+		target, err := fieldObjectOf(m, path, "target", parseAttrTarget)
 		if err != nil {
 			return nil, err
 		}
-		valRaw, ok := m["value"].(map[string]any)
-		if !ok {
-			return nil, protocolError("attribute assignment missing value object")
-		}
-		val, err := parseAttrValue(valRaw)
+		value, err := fieldObjectOf(m, path, "value", parseAttrValue)
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrAssign{Name: getString(m, "name"), Target: target, Value: val}, nil
-	default:
-		return nil, protocolError(fmt.Sprintf("unknown attribute kind: %q", kind))
-	}
-}
-
-// parseAttributes decodes the optional "attributes" array.
-func parseAttributes(j map[string]any) ([]DBCAttribute, error) {
-	return parseObjects(j, "attributes", parseAttribute)
-}
-
-// parseDBCMessage decodes a single message from a DBCDefinition JSON
-// object, including its signals and multiplexing metadata.
-func parseDBCMessage(j map[string]any) (*DBCMessage, error) {
-	idVal, err := parseNumberAsInt64(j["id"])
-	if err != nil {
-		return nil, wrapProtocolError("invalid message id", err)
-	}
-	raw, ok := narrow[uint32](idVal)
-	if !ok {
-		return nil, protocolError(fmt.Sprintf("message id out of uint32 range: %d", idVal))
-	}
-	extended := false
-	if v, ok := j["extended"]; ok {
-		b, isBool := v.(bool)
-		if !isBool {
-			return nil, protocolError("message \"extended\" must be a boolean")
-		}
-		extended = b
-	}
-	id, err := canIDOfWidth(raw, extended)
-	if err != nil {
-		return nil, err
-	}
-
-	dlcVal, err := parseNumberAsInt64(j["dlc"])
-	if err != nil {
-		return nil, wrapProtocolError("invalid DLC", err)
-	}
-	dlc, err := BytesToDLC(int(dlcVal))
-	if err != nil {
-		return nil, err
-	}
-
-	var signals []DBCSignal
-	for _, item := range getArray(j, "signals") {
-		sRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in signals array")
-		}
-		sig, err := parseDBCSignal(sRaw)
-		if err != nil {
-			return nil, err
-		}
-		signals = append(signals, sig)
-	}
-
-	msgName := getString(j, "name")
-	if msgName == "" {
-		return nil, protocolError("message missing required field: name")
-	}
-
-	var senders []NodeName
-	if raw, ok := j["senders"].([]any); ok {
-		senders = make([]NodeName, 0, len(raw))
-		for _, s := range raw {
-			ss, sOk := s.(string)
-			if !sOk {
-				return nil, protocolError("senders entry is not a string")
-			}
-			senders = append(senders, NodeName(ss))
-		}
-	}
-
-	msg := &DBCMessage{
-		ID:      id,
-		Name:    MessageName(msgName),
-		DLC:     dlc,
-		Sender:  NodeName(getString(j, "sender")),
-		Senders: senders,
-		Signals: signals,
-	}
-	msg.buildSignalIndex()
-	return msg, nil
-}
-
-// parseDBCSignal decodes one signal definition from a DBC JSON object.
-func parseDBCSignal(j map[string]any) (DBCSignal, error) {
-	var zero DBCSignal
-	var bo ByteOrder
-	switch name := getString(j, "byteOrder"); name {
-	case LittleEndian.String():
-		bo = LittleEndian
-	case BigEndian.String():
-		bo = BigEndian
-	default:
-		return zero, protocolError(fmt.Sprintf("unrecognized byte order: %q", name))
-	}
-
-	factor, err := parseRational(j["factor"])
-	if err != nil {
-		return zero, wrapProtocolError("invalid factor", err)
-	}
-	offset, err := parseRational(j["offset"])
-	if err != nil {
-		return zero, wrapProtocolError("invalid offset", err)
-	}
-	minimum, err := parseRational(j["minimum"])
-	if err != nil {
-		return zero, wrapProtocolError("invalid minimum", err)
-	}
-	maximum, err := parseRational(j["maximum"])
-	if err != nil {
-		return zero, wrapProtocolError("invalid maximum", err)
-	}
-	startBit, err := parseNumberAsInt64(j["startBit"])
-	if err != nil {
-		return zero, wrapProtocolError("invalid startBit", err)
-	}
-	if startBit < 0 || startBit > 511 {
-		return zero, protocolError(fmt.Sprintf("startBit %d out of range (0-511)", startBit))
-	}
-	length, err := parseNumberAsInt64(j["length"])
-	if err != nil {
-		return zero, wrapProtocolError("invalid length", err)
-	}
-	if length < 1 || length > MaxBitLength {
-		return zero, protocolError(fmt.Sprintf("bit length %d out of range (1-%d)", length, MaxBitLength))
-	}
-
-	presence, err := parseSignalPresence(j)
-	if err != nil {
-		return zero, err
-	}
-
-	name := getString(j, "name")
-	if name == "" {
-		return zero, protocolError("signal missing required field: name")
-	}
-
-	// A signal the kernel wrote says whether it is signed. Missing, it reads as
-	// unsigned, which is the format's default, rather than failing the parse:
-	// the caller cannot act on drift between the binding and the kernel.
-	isSigned := false
-	if b, ok := j["signed"].(bool); ok {
-		isSigned = b
-	}
-
-	var receivers []NodeName
-	if raw, ok := j["receivers"].([]any); ok {
-		receivers = make([]NodeName, 0, len(raw))
-		for _, r := range raw {
-			rs, rOk := r.(string)
-			if !rOk {
-				return zero, protocolError("receivers entry is not a string")
-			}
-			receivers = append(receivers, NodeName(rs))
-		}
-	}
-
-	var valueDescriptions []DBCValueEntry
-	if raw, ok := j["valueDescriptions"].([]any); ok {
-		valueDescriptions = make([]DBCValueEntry, 0, len(raw))
-		for _, item := range raw {
-			eMap, eOk := item.(map[string]any)
-			if !eOk {
-				return zero, protocolError("expected object in valueDescriptions array")
-			}
-			v, err := parseNumberAsInt64(eMap["value"])
-			if err != nil {
-				return zero, wrapProtocolError("invalid valueDescriptions entry value", err)
-			}
-			valueDescriptions = append(valueDescriptions, DBCValueEntry{
-				Value:       v,
-				Description: getString(eMap, "description"),
-			})
-		}
-	}
-
-	return DBCSignal{
-		Name:              SignalName(name),
-		StartBit:          BitPosition(startBit),
-		BitLength:         BitLength(length),
-		ByteOrder:         bo,
-		IsSigned:          isSigned,
-		Factor:            factor,
-		Offset:            offset,
-		Minimum:           minimum,
-		Maximum:           maximum,
-		Unit:              Unit(getString(j, "unit")),
-		Presence:          presence,
-		Receivers:         receivers,
-		ValueDescriptions: valueDescriptions,
-	}, nil
-}
-
-// parseSignalPresence reads the presence the kernel states for every signal,
-// rather than inferring it from a multiplexor field being there, which is how
-// the other bindings read it too. A multiplexed signal must name its
-// multiplexor and carry at least one value.
-func parseSignalPresence(j map[string]any) (SignalPresence, error) {
-	switch presence := getString(j, "presence"); presence {
-	case "always":
-		return AlwaysPresent{}, nil
-	case "multiplexed":
-		muxName := getString(j, "multiplexor")
-		if muxName == "" {
-			return nil, protocolError("multiplexed signal requires a non-empty \"multiplexor\"")
-		}
-		// Anything but an array, absence included, asserts to a nil slice.
-		rawVals, _ := j["multiplex_values"].([]any)
-		if len(rawVals) == 0 {
-			return nil, protocolError("multiplexed signal requires a non-empty \"multiplex_values\" array")
-		}
-		muxVals := make([]MultiplexValue, 0, len(rawVals))
-		for i, rv := range rawVals {
-			v, err := parseNumberAsInt64(rv)
-			if err != nil {
-				return nil, wrapProtocolError(fmt.Sprintf("invalid multiplex_values[%d]", i), err)
-			}
-			mv, ok := narrow[MultiplexValue](v)
-			if !ok {
-				return nil, protocolError(fmt.Sprintf("multiplex_values[%d] %d out of range (0-%d)", i, v, uint32(math.MaxUint32)))
-			}
-			muxVals = append(muxVals, mv)
-		}
-		return Multiplexed{
-			Multiplexor:     SignalName(muxName),
-			MultiplexValues: muxVals,
-		}, nil
-	default:
-		return nil, protocolError(fmt.Sprintf("unknown signal presence %q", presence))
+		return DBCAttrAssign{Name: name, Target: target, Value: value}, nil
 	}
 }

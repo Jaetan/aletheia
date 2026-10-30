@@ -22,11 +22,10 @@ from aletheia.client._response_parsers import (
     parse_finalization_results,
     parse_frame_response,
     parse_parsed_dbc_response,
-    validate_issue_severities,
+    read_issues,
 )
 
 if TYPE_CHECKING:
-    from aletheia.codes import ValidationIssue
     from aletheia.common_types import Prose
     from aletheia.types import JSONValue, PropertyResultEntry, Response
 
@@ -37,8 +36,9 @@ def _no_enrichment(_entry: PropertyResultEntry) -> None:
 
 def test_an_issue_severity_outside_the_set_passes_as_written() -> None:
     """An issue's severity is returned as the kernel wrote it, its membership unchecked."""
-    issues = cast("list[ValidationIssue]", [{"severity": "fatal", "code": "c", "detail": "d"}])
-    assert validate_issue_severities(issues) == [{"severity": "fatal", "code": "c", "detail": "d"}]
+    assert read_issues([{"severity": "fatal", "code": "c", "detail": "d"}]) == [
+        {"severity": "fatal", "code": "c", "detail": "d"}
+    ]
 
 
 @pytest.mark.parametrize(
@@ -75,7 +75,7 @@ def test_a_parse_dbc_warning_keeps_its_kind_checks(warning: JSONValue, text: Pro
 def test_an_issue_keeps_its_kind_checks(issue: JSONValue, text: Prose) -> None:
     """An issue that is not an object, or has no string severity, is refused at ``issues``."""
     with pytest.raises(ProtocolError) as exc_info:
-        _ = validate_issue_severities(cast("list[ValidationIssue]", [issue]))
+        _ = read_issues([issue])
     assert str(exc_info.value) == text
 
 

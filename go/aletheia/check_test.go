@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"strings"
 	"testing"
 )
 
@@ -25,11 +24,11 @@ func mustDesc(t *testing.T, r CheckResult) string {
 	return s
 }
 
-func half(n int64) Rational { return Rational{Numerator: n, Denominator: 2} }
+func half(n int64) Rational { return ratOf(n, 2) }
 
-// built wraps an infallible builder result as the fallible shape the tables use.
-func built(r CheckResult) func() (CheckResult, error) {
-	return func() (CheckResult, error) { return r, nil }
+// built carries a builder's answer in the deferred shape the tables use.
+func built(r CheckResult, err error) func() (CheckResult, error) {
+	return func() (CheckResult, error) { return r, err }
 }
 
 // Every builder produces the formula its name promises, read through the
@@ -56,7 +55,7 @@ func TestCheckFormulas(t *testing.T) {
 		},
 		{
 			"stays between",
-			func() (CheckResult, error) { return CheckSignal("Voltage").StaysBetween(half(23), half(29)) },
+			built(CheckSignal("Voltage").StaysBetween(half(23), half(29))),
 			"always(11.5 <= Voltage <= 14.5)",
 			Always{Inner: Atomic{Predicate: Between{Signal: "Voltage", Min: half(23), Max: half(29)}}},
 		},
@@ -75,16 +74,16 @@ func TestCheckFormulas(t *testing.T) {
 		{
 			"settles between within",
 			func() (CheckResult, error) {
-				return CheckSignal("Temp").SettlesBetween(IntRational(60), IntRational(80)).Within(500)
+				return CheckSignal("Temp").SettlesBetween(IntRational(60), IntRational(80)).Within(TimeBound{Microseconds: 500_000})
 			},
 			"always within 500ms (60 <= Temp <= 80)",
-			AlwaysWithin(TimeBound{Microseconds: 500_000},
-				Atomic{Predicate: Between{Signal: "Temp", Min: IntRational(60), Max: IntRational(80)}}),
+			must(AlwaysWithin(TimeBound{Microseconds: 500_000},
+				Atomic{Predicate: Between{Signal: "Temp", Min: IntRational(60), Max: IntRational(80)}})),
 		},
 		{
 			"when exceeds then equals within",
 			func() (CheckResult, error) {
-				return CheckWhen("Brake").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(100)
+				return CheckWhen("Brake").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(TimeBound{Microseconds: 100_000})
 			},
 			"always(not(Brake > 50) or eventually within 100ms (BrakeLight = 1))",
 			nil,
@@ -92,7 +91,7 @@ func TestCheckFormulas(t *testing.T) {
 		{
 			"when drops below then equals within",
 			func() (CheckResult, error) {
-				return CheckWhen("Voltage").DropsBelow(IntRational(11)).Then("Warning").Equals(IntRational(1)).Within(50)
+				return CheckWhen("Voltage").DropsBelow(IntRational(11)).Then("Warning").Equals(IntRational(1)).Within(TimeBound{Microseconds: 50_000})
 			},
 			"always(not(Voltage < 11) or eventually within 50ms (Warning = 1))",
 			nil,
@@ -100,7 +99,7 @@ func TestCheckFormulas(t *testing.T) {
 		{
 			"when equals then exceeds within",
 			func() (CheckResult, error) {
-				return CheckWhen("Ignition").Equals(IntRational(1)).Then("FuelPump").Exceeds(IntRational(0)).Within(50)
+				return CheckWhen("Ignition").Equals(IntRational(1)).Then("FuelPump").Exceeds(IntRational(0)).Within(TimeBound{Microseconds: 50_000})
 			},
 			"always(not(Ignition = 1) or eventually within 50ms (FuelPump > 0))",
 			nil,
@@ -108,7 +107,7 @@ func TestCheckFormulas(t *testing.T) {
 		{
 			"when exceeds then stays between within",
 			func() (CheckResult, error) {
-				return CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(0), IntRational(10)).Within(200)
+				return CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(0), IntRational(10)).Within(TimeBound{Microseconds: 200_000})
 			},
 			"always(not(Brake > 50) or eventually within 200ms (0 <= Speed <= 10))",
 			nil,
@@ -132,36 +131,28 @@ func TestCheckFormulas(t *testing.T) {
 	}
 }
 
-// An inverted range is refused where it is given, or surfaced by Within when
-// the chain defers it, and the message names the two bounds.
+// An inverted range is refused by the kernel's property check where the
+// chain finishes, Within for the two chains that defer it, with the reason
+// set_properties gives and the code of a property checked on its own.
 func TestCheckInvertedRanges(t *testing.T) {
 	cases := map[string]func() error{
 		"stays between": func() error {
-			_, err := CheckSignal("Voltage").StaysBetween(half(29), half(23))
+			_, err := CheckSignal("Voltage").StaysBetween(IntRational(5), IntRational(1))
 			return err
 		},
 		"settles between within": func() error {
-			_, err := CheckSignal("Temp").SettlesBetween(IntRational(80), IntRational(60)).Within(500)
+			_, err := CheckSignal("Temp").SettlesBetween(IntRational(5), IntRational(1)).Within(TimeBound{Microseconds: 500_000})
 			return err
 		},
 		"when then stays between within": func() error {
-			_, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(10), IntRational(0)).Within(200)
+			_, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(5), IntRational(1)).Within(TimeBound{Microseconds: 200_000})
 			return err
 		},
 	}
 	for name, build := range cases {
-		err := build()
-		if err == nil {
-			t.Errorf("%s: an inverted range was accepted", name)
-			continue
-		}
-		if !strings.Contains(err.Error(), "must be <= hi") {
-			t.Errorf("%s: the message does not name the bounds: %v", name, err)
-		}
-	}
-	_, err := CheckSignal("Voltage").StaysBetween(IntRational(10), IntRational(0))
-	if want := "stays_between: lo (10) must be <= hi (0)"; err == nil || !strings.Contains(err.Error(), want) {
-		t.Errorf("got %v, want the bounds rendered as %q", err, want)
+		t.Run(name, func(t *testing.T) {
+			requireRefused(t, build(), CodeHandlerPropertyRefused, "between: min 5 exceeds max 1")
+		})
 	}
 }
 
@@ -171,50 +162,42 @@ func TestCheckEqualBoundsAreOrdered(t *testing.T) {
 	if _, err := CheckSignal("Voltage").StaysBetween(five, five); err != nil {
 		t.Errorf("stays between: %v", err)
 	}
-	if _, err := CheckSignal("Temp").SettlesBetween(five, five).Within(500); err != nil {
+	if _, err := CheckSignal("Temp").SettlesBetween(five, five).Within(TimeBound{Microseconds: 500_000}); err != nil {
 		t.Errorf("settles between: %v", err)
 	}
-	if _, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(five, five).Within(200); err != nil {
+	if _, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(five, five).Within(TimeBound{Microseconds: 200_000}); err != nil {
 		t.Errorf("when then stays between: %v", err)
 	}
 }
 
-// The millisecond bound is refused when negative and when its microsecond
-// conversion would overflow int64; the largest representable bound is
-// accepted. Both Within chains behave the same.
+// A time bound of zero, which checks only the current step, and the largest
+// the kernel reads, 2^64-1 microseconds, are accepted by both Within chains.
 func TestCheckWithinBounds(t *testing.T) {
-	const largest = math.MaxInt64 / usPerMillisecond
-	chains := map[string]func(int64) error{
-		"settles": func(ms int64) error {
-			_, err := CheckSignal("T").SettlesBetween(IntRational(0), IntRational(1)).Within(ms)
+	chains := map[string]func(TimeBound) error{
+		"settles": func(bound TimeBound) error {
+			_, err := CheckSignal("T").SettlesBetween(IntRational(0), IntRational(1)).Within(bound)
 			return err
 		},
-		"causal": func(ms int64) error {
-			_, err := CheckWhen("A").Exceeds(IntRational(0)).Then("B").Equals(IntRational(1)).Within(ms)
+		"causal": func(bound TimeBound) error {
+			_, err := CheckWhen("A").Exceeds(IntRational(0)).Then("B").Equals(IntRational(1)).Within(bound)
 			return err
 		},
 	}
 	for name, within := range chains {
-		if err := within(-1); err == nil || !strings.Contains(err.Error(), "non-negative") {
-			t.Errorf("%s: expected a refusal of a negative bound, got %v", name, err)
-		}
-		if err := within(0); err != nil {
+		if err := within(TimeBound{}); err != nil {
 			t.Errorf("%s: a zero bound was refused: %v", name, err)
 		}
-		if err := within(largest); err != nil {
+		if err := within(TimeBound{Microseconds: math.MaxUint64}); err != nil {
 			t.Errorf("%s: the largest bound was refused: %v", name, err)
-		}
-		if err := within(largest + 1); err == nil || !strings.Contains(err.Error(), "overflows") {
-			t.Errorf("%s: expected an overflow refusal one past the largest bound, got %v", name, err)
 		}
 	}
 }
 
-// The range check cross-multiplies without overflow: these operands make the
-// naive int64 products wrap, and the order still comes out right both ways.
+// The kernel orders a range's bounds exactly: these operands make the naive
+// int64 cross products wrap, and the order still comes out right both ways.
 func TestCheckStaysBetweenLargeOperands(t *testing.T) {
-	lo := Rational{Numerator: math.MaxInt64, Denominator: 2}
-	hi := Rational{Numerator: math.MaxInt64/2 + 1, Denominator: 1}
+	lo := ratOf(math.MaxInt64, 2)
+	hi := ratOf(math.MaxInt64/2+1, 1)
 	if _, err := CheckSignal("S").StaysBetween(lo, hi); err != nil {
 		t.Errorf("lo <= hi with large operands was refused: %v", err)
 	}
@@ -227,7 +210,7 @@ func TestCheckStaysBetweenLargeOperands(t *testing.T) {
 // thresholds rendered by the kernel: 1000000 stays 1000000, where Go's %g
 // would print 1e+06, which is what pins the delegation.
 func TestCheckSignalNameAndConditionDesc(t *testing.T) {
-	causal, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Light").Equals(IntRational(1)).Within(100)
+	causal, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Light").Equals(IntRational(1)).Within(TimeBound{Microseconds: 100_000})
 	if err != nil {
 		t.Fatalf("Within: %v", err)
 	}
@@ -236,11 +219,11 @@ func TestCheckSignalNameAndConditionDesc(t *testing.T) {
 		signal SignalName
 		desc   string
 	}{
-		{CheckSignal("Speed").NeverExceeds(IntRational(220)), "Speed", "<= 220"},
-		{CheckSignal("V").NeverBelow(half(23)), "V", ">= 11.5"},
-		{CheckSignal("E").NeverEquals(IntRational(0)), "E", "!= 0"},
-		{CheckSignal("X").NeverExceeds(IntRational(1000000)), "X", "<= 1000000"},
-		{causal, "Light", "= 1 within 100ms"},
+		{must(CheckSignal("Speed").NeverExceeds(IntRational(220))), "Speed", "<= 220"},
+		{must(CheckSignal("V").NeverBelow(half(23))), "V", ">= 11.5"},
+		{must(CheckSignal("E").NeverEquals(IntRational(0))), "E", "!= 0"},
+		{must(CheckSignal("X").NeverExceeds(IntRational(1000000))), "X", "<= 1000000"},
+		{causal, "Light", "= 1 within 100000µs"},
 	}
 	for _, tc := range cases {
 		if got := tc.check.SignalName(); got != tc.signal {
@@ -253,7 +236,7 @@ func TestCheckSignalNameAndConditionDesc(t *testing.T) {
 }
 
 func TestCheckMetadataNamedSeverity(t *testing.T) {
-	r := CheckSignal("Speed").NeverExceeds(IntRational(220)).Named("SpeedLimit").Severity("critical")
+	r := must(CheckSignal("Speed").NeverExceeds(IntRational(220))).Named("SpeedLimit").Severity("critical")
 	if r.Name() != "SpeedLimit" {
 		t.Errorf("Name: got %q, want %q", r.Name(), "SpeedLimit")
 	}
@@ -267,7 +250,7 @@ func TestCheckMetadataNamedSeverity(t *testing.T) {
 // compared property by property with the serializer's own output.
 func TestAddChecks(t *testing.T) {
 	ctx := t.Context()
-	speed := CheckSignal("Speed").NeverExceeds(IntRational(220))
+	speed := must(CheckSignal("Speed").NeverExceeds(IntRational(220)))
 	voltage, err := CheckSignal("Voltage").StaysBetween(half(23), half(29))
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
@@ -418,30 +401,30 @@ func TestSerializeFormula_OperatorShapes(t *testing.T) {
 			}
 		})
 	}
-	if _, err := serializeFormula(MetricAlways{Bound: TimeBound{Microseconds: -1}, Inner: a}); err == nil {
-		t.Error("a negative bound was accepted")
-	}
 }
 
-// Each predicate's rationals are refused with a denominator of zero or less
-// and accepted with one; a between whose bounds are equal is ordered, and a
-// stable-within tolerance of zero, which allows no change at all, is carried
-// while a negative one is refused.
+// The kernel's property check refuses a predicate's rational whose
+// denominator is zero, a between whose minimum is above its maximum and a
+// negative stable-within tolerance, naming the predicate and the field; the
+// serializer writes the accepted edges, a between whose bounds are equal and
+// a tolerance of zero, which allows no change at all, in the kernel's shape.
 func TestSerializePredicate_RationalEdges(t *testing.T) {
-	zeroDen := Rational{Numerator: 1, Denominator: 0}
-	refused := map[string]Predicate{
-		"equals over zero":         Equals{Signal: "S", Value: zeroDen},
-		"changed by over negative": ChangedBy{Signal: "S", Delta: Rational{Numerator: 1, Denominator: -1}},
-		"between min over zero":    Between{Signal: "S", Min: zeroDen, Max: IntRational(1)},
-		"between max over zero":    Between{Signal: "S", Min: IntRational(0), Max: zeroDen},
-		"tolerance over zero":      StableWithin{Signal: "S", Tolerance: zeroDen},
-		"negative tolerance":       StableWithin{Signal: "S", Tolerance: IntRational(-1)},
-		"between inverted":         Between{Signal: "S", Min: IntRational(2), Max: IntRational(1)},
+	zeroDen := ratOf(1, 0)
+	refused := map[string]struct {
+		p      Predicate
+		reason string
+	}{
+		"equals over zero":      {Equals{Signal: "S", Value: zeroDen}, "equals: value denominator 0 is not positive"},
+		"between min over zero": {Between{Signal: "S", Min: zeroDen, Max: IntRational(1)}, "between: min denominator 0 is not positive"},
+		"between max over zero": {Between{Signal: "S", Min: IntRational(0), Max: zeroDen}, "between: max denominator 0 is not positive"},
+		"tolerance over zero":   {StableWithin{Signal: "S", Tolerance: zeroDen}, "stableWithin: tolerance denominator 0 is not positive"},
+		"negative tolerance":    {StableWithin{Signal: "S", Tolerance: IntRational(-1)}, "stableWithin: tolerance -1 is negative"},
+		"between inverted":      {Between{Signal: "S", Min: IntRational(2), Max: IntRational(1)}, "between: min 2 exceeds max 1"},
 	}
-	for name, p := range refused {
-		if m, err := serializePredicate(p); err == nil {
-			t.Errorf("%s: serialized as %v", name, m)
-		}
+	for name, tc := range refused {
+		t.Run(name, func(t *testing.T) {
+			requireRefused(t, checkFormula(Atomic{Predicate: tc.p}), CodeHandlerPropertyRefused, tc.reason)
+		})
 	}
 	accepted := map[string]struct {
 		p    Predicate
@@ -452,6 +435,9 @@ func TestSerializePredicate_RationalEdges(t *testing.T) {
 		"zero tolerance":  {StableWithin{Signal: "S", Tolerance: IntRational(0)}, `{"predicate":"stableWithin","signal":"S","tolerance":0}`},
 	}
 	for name, tc := range accepted {
+		if err := checkFormula(Atomic{Predicate: tc.p}); err != nil {
+			t.Errorf("%s: refused: %v", name, err)
+		}
 		m, err := serializePredicate(tc.p)
 		if err != nil {
 			t.Errorf("%s: refused: %v", name, err)

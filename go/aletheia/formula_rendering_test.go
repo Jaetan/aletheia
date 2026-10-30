@@ -21,7 +21,7 @@ import (
 // sign and a time bound in seconds, in milliseconds and in microseconds, a
 // binary operator the operand of another.
 func everyAlternative() Formula {
-	rat := func(n, d int64) Rational { return Rational{Numerator: n, Denominator: d} }
+	rat := func(n, d int64) Rational { return ratOf(n, d) }
 	atom := func(p Predicate) Formula { return Atomic{Predicate: p} }
 	eq := atom(Equals{Signal: "Speed", Value: rat(1, 1)})
 	lt := atom(LessThan{Signal: "Speed", Value: rat(3, 2)})

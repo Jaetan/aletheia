@@ -77,26 +77,25 @@ def _held(obj: ReplyFields, key: LiteralString) -> JSONValue:
     return obj[key]
 
 
-def validate_issue_severities(
-    issues: list[ValidationIssue], path: ReplyPath = _ISSUES
-) -> list[ValidationIssue]:
-    """Check each issue is an object with a string severity; return the list unchanged.
+def read_issues(raw: list[JSONValue], path: ReplyPath = _ISSUES) -> list[ValidationIssue]:
+    """Read the issues at ``path``, objects whose ``code``, ``detail`` and ``severity`` are strings.
 
-    The kernel proves every severity it writes ``"error"`` or ``"warning"``, so
-    the reader holds only the kind. ``path`` is the issues' place: ``issues``,
-    or ``warnings`` in a parseDBC reply.
+    ``path`` is ``issues``, or ``warnings`` in a parseDBC reply. The kernel
+    proves every severity it writes ``"error"`` or ``"warning"``, so the reader
+    holds only the kind.
 
     Raises:
-        ProtocolError: If an issue is not an object, or its ``severity`` is
-            absent or not a string, refused at its place.
+        ProtocolError: If an issue is not an object, or one of its three keys
+            is absent or not a string, refused at its place.
 
     """
-    for issue in cast("list[JSONValue]", issues):
+    for issue in raw:
         if not is_str_dict(issue):
             raise reply_refusal(path, OBJECT, came_as(issue))
-        if not isinstance(issue.get("severity"), str):
-            raise reply_refusal(at(path, "severity"), STRING, came(issue, "severity"))
-    return issues
+        for key in ("code", "detail", "severity"):
+            if not isinstance(issue.get(key), str):
+                raise reply_refusal(at(path, key), STRING, came(issue, key))
+    return cast("list[ValidationIssue]", list(raw))
 
 
 # The error envelopes that carry a structured issues / has_errors payload
@@ -128,15 +127,7 @@ def _extract_issues_payload(
     raw_issues = _held(reply, "issues")
     if not isinstance(raw_issues, list):
         raise reply_refusal(_ISSUES, ARRAY, came(reply, "issues"))
-    for item in raw_issues:
-        if not is_str_dict(item):
-            raise reply_refusal(_ISSUES, OBJECT, came_as(item))
-        if not isinstance(item.get("code"), str):
-            raise reply_refusal(at(_ISSUES, "code"), STRING, came(item, "code"))
-        if not isinstance(item.get("detail"), str):
-            raise reply_refusal(at(_ISSUES, "detail"), STRING, came(item, "detail"))
-    issues = cast("list[ValidationIssue]", list(raw_issues))
-    return validate_issue_severities(issues), has_errors
+    return read_issues(raw_issues), has_errors
 
 
 def lift_issues_envelope(
@@ -278,7 +269,6 @@ def parse_parsed_dbc_response(
         warnings_field = _held(reply, "warnings")
         if not isinstance(warnings_field, list):
             raise reply_refusal(_WARNINGS, ARRAY, came(reply, "warnings"))
-        warnings = cast("list[ValidationIssue]", list(warnings_field))
         # Agda emits non-integer rationals on the wire as
         # ``{"numerator": n, "denominator": d}`` dicts; ``normalize_dbc``
         # converts those back to ``Fraction`` so callers see a real
@@ -290,7 +280,7 @@ def parse_parsed_dbc_response(
         return {
             "status": "success",
             "dbc": normalize_dbc(dbc_field),
-            "warnings": validate_issue_severities(warnings, _WARNINGS),
+            "warnings": read_issues(warnings_field, _WARNINGS),
         }
 
     if status == "error":

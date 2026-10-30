@@ -62,7 +62,12 @@ func TestParseDBCText_ValueDescriptionsRoundTrip(t *testing.T) {
 	if len(parsed.DBC.Messages) != 1 || len(parsed.DBC.Messages[0].Signals) != 1 {
 		t.Fatalf("unexpected DBC shape: %+v", parsed.DBC)
 	}
-	want := []DBCValueEntry{{0, "Off"}, {1, "Cranking"}, {2, "Running"}, {3, "Stall"}}
+	want := []DBCValueEntry{
+		{SignMagnitude{}, "Off"},
+		{SignMagnitude{Magnitude: Uint128{Lo: 1}}, "Cranking"},
+		{SignMagnitude{Magnitude: Uint128{Lo: 2}}, "Running"},
+		{SignMagnitude{Magnitude: Uint128{Lo: 3}}, "Stall"},
+	}
 	if got := parsed.DBC.Messages[0].Signals[0].ValueDescriptions; !reflect.DeepEqual(got, want) {
 		t.Errorf("value descriptions: got %+v, want %+v", got, want)
 	}

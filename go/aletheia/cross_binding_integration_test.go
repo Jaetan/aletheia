@@ -18,6 +18,7 @@ package aletheia
 import (
 	"context"
 	"errors"
+	"math/big"
 	"strings"
 	"testing"
 )
@@ -42,10 +43,10 @@ func canonicalDBC() DBCDefinition {
 						BitLength: 16,
 						ByteOrder: LittleEndian,
 						IsSigned:  false,
-						Factor:    Rational{Numerator: 1, Denominator: 1},
-						Offset:    Rational{Numerator: 0, Denominator: 1},
-						Minimum:   Rational{Numerator: 0, Denominator: 1},
-						Maximum:   Rational{Numerator: 65535, Denominator: 1},
+						Factor:    ratOf(1, 1),
+						Offset:    ratOf(0, 1),
+						Minimum:   ratOf(0, 1),
+						Maximum:   ratOf(65535, 1),
 						Unit:      "",
 						Presence:  AlwaysPresent{},
 					},
@@ -261,8 +262,8 @@ func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
 	if !errors.As(err, &bErr) {
 		t.Fatalf("expected *aletheia.InputBoundExceededError, got %T: %v", err, err)
 	}
-	if bErr.BoundKind != BoundKindIdentifierLength || bErr.Observed != MaxIdentifierLength+1 ||
-		bErr.Limit != MaxIdentifierLength || bErr.Field != "" {
+	if bErr.BoundKind != BoundKindIdentifierLength || bErr.Observed != (Uint128{Lo: MaxIdentifierLength + 1}) ||
+		bErr.Limit != (Uint128{Lo: MaxIdentifierLength}) || bErr.Field != "" {
 		t.Errorf("bound = %+v, want identifier_length %d/%d with no field", bErr, MaxIdentifierLength+1, MaxIdentifierLength)
 	}
 	if want := "ParseDBCText: identifier at line 5, column 9: identifier length 129 exceeds limit 128"; bErr.Error() != want {
@@ -286,10 +287,10 @@ func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
 				StartBit:  8, // the first bit past a 1-byte frame
 				BitLength: 8,
 				ByteOrder: LittleEndian,
-				Factor:    Rational{Numerator: 1, Denominator: 1},
-				Offset:    Rational{Numerator: 0, Denominator: 1},
-				Minimum:   Rational{Numerator: 0, Denominator: 1},
-				Maximum:   Rational{Numerator: 255, Denominator: 1},
+				Factor:    ratOf(1, 1),
+				Offset:    ratOf(0, 1),
+				Minimum:   ratOf(0, 1),
+				Maximum:   ratOf(255, 1),
 				Presence:  AlwaysPresent{},
 			}},
 		}},
@@ -373,11 +374,11 @@ func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 	if bex.BoundKind != BoundKindNestingDepth {
 		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindNestingDepth)
 	}
-	if bex.Limit != uint64(MaxNestingDepth) {
-		t.Errorf("Limit = %d, want %d", bex.Limit, MaxNestingDepth)
+	if bex.Limit != (Uint128{Lo: MaxNestingDepth}) {
+		t.Errorf("Limit = %s, want %d", bex.Limit, MaxNestingDepth)
 	}
-	if bex.Observed <= uint64(MaxNestingDepth) {
-		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxNestingDepth)
+	if observed, ok := bex.Observed.Uint64(); ok && observed <= MaxNestingDepth {
+		t.Errorf("Observed = %s, want > %d", bex.Observed, MaxNestingDepth)
 	}
 	if bex.Field != "" {
 		t.Errorf("Field = %q, want it empty", bex.Field)
@@ -404,10 +405,10 @@ func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
 				BitLength: 16,
 				ByteOrder: LittleEndian,
 				IsSigned:  false,
-				Factor:    Rational{Numerator: 1, Denominator: 4},
-				Offset:    Rational{Numerator: 0, Denominator: 1},
-				Minimum:   Rational{Numerator: 0, Denominator: 1},
-				Maximum:   Rational{Numerator: 8000, Denominator: 1},
+				Factor:    ratOf(1, 4),
+				Offset:    ratOf(0, 1),
+				Minimum:   ratOf(0, 1),
+				Maximum:   ratOf(8000, 1),
 				Presence:  AlwaysPresent{},
 			}},
 		}},
@@ -450,52 +451,39 @@ func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
 }
 
 // The kernel's batch categoriser refuses an extracted value whose reduced
-// numerator magnitude or denominator is above 9223372036854775807 (the
-// magnitude bound is symmetric), as a per-signal error on both extraction
-// paths, with one message. Row A has both components past the bound; row B
-// has a numerator of exactly -9223372036854775808, which fits an int64 but
-// not the symmetric bound.
+// numerator magnitude or denominator is past 2^128-1 as a per-signal error on
+// both extraction paths, with one message: a 132-bit CAN-FD signal at a
+// tenth, its raw value (2^128-1)*10 - 1 within the declared range, reduces to
+// a numerator past the bound.
 func TestCrossBinding_ExtractionWireRangeRefusalBothPaths(t *testing.T) {
-	const wireRangeMessage = "extracted value's numerator or denominator exceeds the Int64 wire range"
-	sid, d := canonicalFrameIDs()
+	const wireRangeMessage = "extracted value's numerator or denominator magnitude exceeds 340282366920938463463374607431768211455"
+	sid, _ := NewStandardID(0x300)
+	d, _ := NewDLC(15) // 64 bytes
+	raw := new(big.Int).Sub(new(big.Int).Mul(rationalBound.bigInt(), big.NewInt(10)), big.NewInt(1))
+	payload := make(FramePayload, 64)
+	for i, b := range raw.FillBytes(make([]byte, 64)) {
+		payload[63-i] = b // little-endian
+	}
 	rows := []struct {
 		name    string
 		signal  DBCSignal
 		payload FramePayload
 	}{
 		{
-			// raw 2^63+1 times 1/2^62 plus 1/5^27: both reduced components past the bound
-			name: "both components past the bound",
+			name: "a numerator past the bound",
 			signal: DBCSignal{
 				Name:      "Big",
 				StartBit:  0,
-				BitLength: 64,
+				BitLength: 132,
 				ByteOrder: LittleEndian,
 				IsSigned:  false,
-				Factor:    Rational{Numerator: 1, Denominator: 4611686018427387904},
-				Offset:    Rational{Numerator: 1, Denominator: 7450580596923828125},
-				Minimum:   Rational{Numerator: 1, Denominator: 7450580596923828125},
-				Maximum:   Rational{Numerator: 3, Denominator: 1},
+				Factor:    ratOf(1, 10),
+				Offset:    ratOf(0, 1),
+				Minimum:   ratOf(0, 1),
+				Maximum:   Rational{Numerator: rationalBound, Denominator: Uint128{Lo: 1}},
 				Presence:  AlwaysPresent{},
 			},
-			payload: FramePayload{0x01, 0, 0, 0, 0, 0, 0, 0x80},
-		},
-		{
-			// raw 2^63 times -1/5: numerator -9223372036854775808 over 5
-			name: "numerator exactly minus 2^63",
-			signal: DBCSignal{
-				Name:      "Big",
-				StartBit:  0,
-				BitLength: 64,
-				ByteOrder: LittleEndian,
-				IsSigned:  false,
-				Factor:    Rational{Numerator: -1, Denominator: 5},
-				Offset:    Rational{Numerator: 0, Denominator: 1},
-				Minimum:   Rational{Numerator: -3689348814741910323, Denominator: 1},
-				Maximum:   Rational{Numerator: 0, Denominator: 1},
-				Presence:  AlwaysPresent{},
-			},
-			payload: FramePayload{0, 0, 0, 0, 0, 0, 0, 0x80},
+			payload: payload,
 		},
 	}
 	for _, row := range rows {

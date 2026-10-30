@@ -23,14 +23,14 @@ func TestSignalBuilder_MatchesLiterals(t *testing.T) {
 		got  aletheia.Predicate
 		want aletheia.Predicate
 	}{
-		{"Equals", b.Equals(v), aletheia.Equals{Signal: sig, Value: v}},
-		{"LessThan", b.LessThan(v), aletheia.LessThan{Signal: sig, Value: v}},
-		{"GreaterThan", b.GreaterThan(v), aletheia.GreaterThan{Signal: sig, Value: v}},
-		{"LessThanOrEqual", b.LessThanOrEqual(v), aletheia.LessThanOrEqual{Signal: sig, Value: v}},
-		{"GreaterThanOrEqual", b.GreaterThanOrEqual(v), aletheia.GreaterThanOrEqual{Signal: sig, Value: v}},
-		{"Between", b.Between(v, hi), aletheia.Between{Signal: sig, Min: v, Max: hi}},
-		{"ChangedBy", b.ChangedBy(v), aletheia.ChangedBy{Signal: sig, Delta: v}},
-		{"StableWithin", b.StableWithin(v), aletheia.StableWithin{Signal: sig, Tolerance: v}},
+		{"Equals", must(b.Equals(v)), aletheia.Equals{Signal: sig, Value: v}},
+		{"LessThan", must(b.LessThan(v)), aletheia.LessThan{Signal: sig, Value: v}},
+		{"GreaterThan", must(b.GreaterThan(v)), aletheia.GreaterThan{Signal: sig, Value: v}},
+		{"LessThanOrEqual", must(b.LessThanOrEqual(v)), aletheia.LessThanOrEqual{Signal: sig, Value: v}},
+		{"GreaterThanOrEqual", must(b.GreaterThanOrEqual(v)), aletheia.GreaterThanOrEqual{Signal: sig, Value: v}},
+		{"Between", must(b.Between(v, hi)), aletheia.Between{Signal: sig, Min: v, Max: hi}},
+		{"ChangedBy", must(b.ChangedBy(v)), aletheia.ChangedBy{Signal: sig, Delta: v}},
+		{"StableWithin", must(b.StableWithin(v)), aletheia.StableWithin{Signal: sig, Tolerance: v}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -44,7 +44,7 @@ func TestSignalBuilder_MatchesLiterals(t *testing.T) {
 // A built predicate drops into the formula combinators and prints as the
 // bare struct does.
 func TestSignalBuilder_ComposesIntoFormula(t *testing.T) {
-	fluent := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220))}}
+	fluent := aletheia.Always{Inner: aletheia.Atomic{Predicate: must(aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220)))}}
 	bare := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThanOrEqual{Signal: "Speed", Value: aletheia.IntRational(220)}}}
 	gotFluent, gotBare := aletheia.FormatFormula(fluent), aletheia.FormatFormula(bare)
 	if gotFluent != gotBare {

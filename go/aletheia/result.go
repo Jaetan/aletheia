@@ -119,16 +119,19 @@ type PropertyResult struct {
 	Enrichment    *ViolationEnrichment // nil when verdict is Holds or no diagnostic
 }
 
+// WarningKind is the kind of a [StreamWarning]: the kernel proves the set of
+// kinds it writes, which is the constants below.
+type WarningKind string
+
+// WarningUncachedAtom says a property asked about a signal no frame carried.
+// Its Unresolved verdict is right either way, and without the warning a
+// caller cannot tell that case from a property the trace genuinely left open.
+const WarningUncachedAtom WarningKind = "uncached_atom"
+
 // StreamWarning is something the kernel noticed while deciding, reported at
 // the end of the stream.
-//
-// The kind uncached_atom says a property asked about a signal no frame
-// carried. Its Unresolved verdict is right either way, and without the warning
-// a caller cannot tell that case from a property the trace genuinely left
-// open. A kind this binding does not know is carried rather than refused, so
-// that a kernel adding one does not break a caller.
 type StreamWarning struct {
-	Kind          string
+	Kind          WarningKind
 	PropertyIndex int
 	Detail        string
 }
@@ -170,7 +173,7 @@ const (
 	IssueMultiplexorCycle IssueCode = "multiplexor_cycle"
 	// IssueGlobalNameCollision is a signal name signals of two or more messages share; one issue names those messages.
 	IssueGlobalNameCollision IssueCode = "global_name_collision"
-	// IssueMinExceedsMax is signal physical min exceeds max.
+	// IssueMinExceedsMax is a minimum above its maximum: a signal's, a numeric attribute definition's or an environment variable's.
 	IssueMinExceedsMax IssueCode = "min_exceeds_max"
 	// IssueSignalExceedsDLC is signal bit range extends beyond the message DLC.
 	IssueSignalExceedsDLC IssueCode = "signal_exceeds_dlc"
@@ -214,6 +217,8 @@ const (
 	IssueAttributeEnumDefaultUnstable IssueCode = "attribute_enum_default_unstable"
 	// IssueRangeExceedsBits is a signal's declared minimum or maximum lies beyond the values its bits carry after scaling.
 	IssueRangeExceedsBits IssueCode = "range_exceeds_bits"
+	// IssueValueDescriptionKeyOutOfRange is a value description key that is no raw value of its signal's bits, the signedness and the bit length deciding.
+	IssueValueDescriptionKeyOutOfRange IssueCode = "value_description_key_out_of_range"
 	// IssueUnknown is unrecognized issue code from the Agda core.
 	IssueUnknown IssueCode = "unknown"
 )

@@ -38,14 +38,15 @@ func requireBoundExceeded(t *testing.T, err error, kind string, observed, limit 
 	if bex.BoundKind != kind {
 		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, kind)
 	}
-	if bex.Limit != limit {
-		t.Errorf("Limit = %d, want %d", bex.Limit, limit)
+	if bex.Limit != (Uint128{Lo: limit}) {
+		t.Errorf("Limit = %s, want %d", bex.Limit, limit)
 	}
+	measured, inWord := bex.Observed.Uint64()
 	switch {
-	case observed != 0 && bex.Observed != observed:
-		t.Errorf("Observed = %d, want %d", bex.Observed, observed)
-	case observed == 0 && bex.Observed <= limit:
-		t.Errorf("Observed = %d, want more than the limit %d", bex.Observed, limit)
+	case observed != 0 && bex.Observed != (Uint128{Lo: observed}):
+		t.Errorf("Observed = %s, want %d", bex.Observed, observed)
+	case observed == 0 && inWord && measured <= limit:
+		t.Errorf("Observed = %s, want more than the limit %d", bex.Observed, limit)
 	}
 	if bex.Code != CodeInputBoundExceeded {
 		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
@@ -61,16 +62,16 @@ func requireBoundExceeded(t *testing.T, err error, kind string, observed, limit 
 func TestInputBoundExceededError_Shape(t *testing.T) {
 	err := &InputBoundExceededError{
 		BoundKind: BoundKindInputLengthBytes,
-		Observed:  100,
-		Limit:     50,
+		Observed:  Uint128{Lo: 100},
+		Limit:     Uint128{Lo: 50},
 		Code:      CodeInputBoundExceeded,
 	}
 	t.Run("carries kind observed limit", func(t *testing.T) {
 		if err.BoundKind != "input_length_bytes" {
 			t.Errorf("BoundKind = %q, want %q", err.BoundKind, "input_length_bytes")
 		}
-		if err.Observed != 100 || err.Limit != 50 {
-			t.Errorf("Observed/Limit = %d/%d, want 100/50", err.Observed, err.Limit)
+		if err.Observed != (Uint128{Lo: 100}) || err.Limit != (Uint128{Lo: 50}) {
+			t.Errorf("Observed/Limit = %s/%s, want 100/50", err.Observed, err.Limit)
 		}
 		if err.Code != "input_bound_exceeded" {
 			t.Errorf("Code = %q, want %q", err.Code, "input_bound_exceeded")
@@ -92,8 +93,8 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 		if !errors.As(wrapped, &bex) {
 			t.Fatal("errors.As did not unwrap to *InputBoundExceededError")
 		}
-		if bex.Observed != 100 {
-			t.Errorf("unwrapped Observed = %d, want 100", bex.Observed)
+		if bex.Observed != (Uint128{Lo: 100}) {
+			t.Errorf("unwrapped Observed = %s, want 100", bex.Observed)
 		}
 	})
 }
@@ -354,7 +355,7 @@ func listBounds() map[string]dbcBound {
 			selector.BitLength, selector.Maximum = 8, IntRational(255)
 			values := make([]MultiplexValue, MaxMultiplexValuesPerSignal+1)
 			for i := range values {
-				values[i] = MultiplexValue(i)
+				values[i] = MultiplexValue{Lo: uint64(i)}
 			}
 			muxed := boundSignal("S")
 			muxed.StartBit = 8

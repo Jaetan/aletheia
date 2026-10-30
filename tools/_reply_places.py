@@ -7,11 +7,12 @@ The reply proof in ``src/Aletheia/Protocol/ReplyRange.agda`` lists, in
 in ``replyNonEmpty``, the arrays it writes with at least one element.  It leaves
 a place no row names free, so this module holds each row a reader relies on: it
 reads both tables, reads the set each Python reader takes at the place from its
-type, and reports a row one side drops and a word one side holds alone.
+type and the set each Go reader takes from its own code, and reports a row one
+side drops and a word one side holds alone.
 
-A clause of either table, or a reader's type, that the module cannot read is
-reported rather than passed over, every one of them in one run; the two
-catch-all clauses, which leave every other place free, and the tables' type
+A clause of either table, or a reader's type or code, that the module cannot
+read is reported rather than passed over, every one of them in one run; the
+two catch-all clauses, which leave every other place free, and the tables' type
 signatures are the only clauses it reads past.
 """
 
@@ -26,13 +27,17 @@ from typing import TYPE_CHECKING, NewType
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AGDA_REPLY_RANGE = REPO_ROOT / "src" / "Aletheia" / "Protocol" / "ReplyRange.agda"
 PYTHON_TYPES = REPO_ROOT / "python" / "aletheia" / "types.py"
 PYTHON_DBC_TYPES = REPO_ROOT / "python" / "aletheia" / "_dbc_types.py"
 PYTHON_ISSUE_CODES = REPO_ROOT / "python" / "aletheia" / "codes" / "_issue.py"
+GO_PACKAGE = REPO_ROOT / "go" / "aletheia"
+GO_DBC = GO_PACKAGE / "json_dbc.go"
+GO_RESPONSE = GO_PACKAGE / "json_response.go"
+GO_RESULT = GO_PACKAGE / "result.go"
 
 # A reply place: the keys from the reply's root joined by "/", then, when the
 # row depends on it, the `kind` or `type` its object carries in angle brackets.
@@ -43,6 +48,14 @@ ReplyWord = NewType("ReplyWord", str)
 PySymbol = NewType("PySymbol", str)
 # Agda source: a module, a clause of it or a fragment of a clause.
 AgdaText = NewType("AgdaText", str)
+# A top-level name in a Go package: a function or a type.
+GoSymbol = NewType("GoSymbol", str)
+# Go source: a file, a function of it or a fragment of either.
+GoText = NewType("GoText", str)
+# The number of a line of a Go file, from 1.
+GoLine = NewType("GoLine", int)
+# A regular expression over a line of Go source.
+GoRegex = NewType("GoRegex", str)
 
 
 @dataclass(frozen=True)
@@ -129,6 +142,83 @@ PYTHON_REPLY_TEXT: dict[ReplyPlace, _PySet | _AnyNonEmpty] = {
     }.items()
 }
 
+
+@dataclass(frozen=True)
+class _GoSwitch:
+    """The ``case`` literals of the one ``switch`` a function holds, the reader's dispatch."""
+
+    module: Path
+    function: GoSymbol
+
+
+@dataclass(frozen=True)
+class _GoWordCall:
+    """The literals a function's ``fieldWord`` calls at a key await."""
+
+    module: Path
+    function: GoSymbol
+    key: ReplyWord
+
+
+@dataclass(frozen=True)
+class _GoConsts:
+    """The string constants of a named type, declared in any file of its package."""
+
+    module: Path
+    name: GoSymbol
+
+
+@dataclass(frozen=True)
+class _GoValues:
+    """The values of a struct of one string field, declared in one ``var`` block of a file.
+
+    A value given its word anywhere else could hold a word the block does not,
+    so the gate refuses, where it stands, a value of the type built or
+    converted to outside the block, an alias of the type, a type parameter it
+    constrains, an unnamed struct a value of it is assigned from, and its field
+    reached outside ``reader``.
+    """
+
+    module: Path
+    name: GoSymbol
+    field: GoSymbol
+    reader: GoSymbol
+
+
+@dataclass(frozen=True)
+class _GoBoundKinds:
+    """The ``BoundKind*`` codes of ``go/aletheia/limits.go``."""
+
+
+type _GoSet = _GoSwitch | _GoWordCall | _GoConsts | _GoValues | _GoBoundKinds
+
+# Every row of `replyText`, with the set the Go reader takes at its place, read
+# from the reader's own code, under the rules PYTHON_REPLY_TEXT is held to.
+GO_REPLY_TEXT: dict[ReplyPlace, _GoSet | _AnyNonEmpty] = {
+    ReplyPlace(place): spec
+    for place, spec in {
+        "status": _GoValues(
+            GO_RESPONSE, GoSymbol("replyStatus"), GoSymbol("word"), GoSymbol("fieldStatus")
+        ),
+        "type": _GoWordCall(GO_RESPONSE, GoSymbol("parseFrameResponse"), ReplyWord("type")),
+        "results/type": _GoSwitch(GO_RESPONSE, GoSymbol("parsePropertyEvent")),
+        "results/status <property>": _GoSwitch(GO_RESPONSE, GoSymbol("readVerdict")),
+        "warnings/kind": _GoConsts(GO_RESULT, GoSymbol("WarningKind")),
+        "issues/severity": _GoSwitch(GO_RESPONSE, GoSymbol("readSeverity")),
+        "warnings/severity": _GoSwitch(GO_RESPONSE, GoSymbol("readSeverity")),
+        "bound_kind": _GoBoundKinds(),
+        "dbc/messages/signals/byteOrder": _GoSwitch(GO_DBC, GoSymbol("readByteOrder")),
+        "dbc/messages/signals/presence": _GoSwitch(GO_DBC, GoSymbol("parseSignalPresence")),
+        "dbc/messages/signals/multiplexor": _AnyNonEmpty(),
+        "dbc/comments/target/kind": _GoSwitch(GO_DBC, GoSymbol("parseCommentTarget")),
+        "dbc/attributes/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttribute")),
+        "dbc/attributes/scope <definition>": _GoSwitch(GO_DBC, GoSymbol("readAttrScope")),
+        "dbc/attributes/attrType/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttrType")),
+        "dbc/attributes/value/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttrValue")),
+        "dbc/attributes/target/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttrTarget")),
+    }.items()
+}
+
 # Every row of `replyNonEmpty`: the arrays a reader takes as holding at least
 # one element.
 REPLY_NON_EMPTY: frozenset[ReplyPlace] = frozenset(
@@ -138,14 +228,26 @@ REPLY_NON_EMPTY: frozenset[ReplyPlace] = frozenset(
     }
 )
 
+# The set a reader takes at a place: its words, or any non-empty text.
+type _ReaderSet = frozenset[ReplyWord] | _AnyNonEmpty
+
+
+@dataclass(frozen=True)
+class ReaderSets:
+    """A binding's reader set at each place its table names."""
+
+    reader: Prose
+    table: Prose
+    text: dict[ReplyPlace, _ReaderSet]
+
 
 @dataclass(frozen=True)
 class ReplyTables:
-    """The reply proof's two tables and the Python reader's set at each place."""
+    """The reply proof's two tables and each binding's reader set at each place."""
 
     agda_text: dict[ReplyPlace, _OneOf | _AnyNonEmpty]
     agda_non_empty: frozenset[ReplyPlace]
-    python_text: dict[ReplyPlace, frozenset[ReplyWord] | _AnyNonEmpty]
+    readers: tuple[ReaderSets, ...]
 
 
 # The two tables, and the clauses of them the gate reads past: the catch-alls,
@@ -407,19 +509,327 @@ def _python_words(spec: _PySet, py_codes: frozenset[ReplyWord]) -> frozenset[Rep
     return _named_words(spec, bound)
 
 
-def read_reply_tables(text: AgdaText, py_codes: frozenset[ReplyWord]) -> ReplyTables | list[Prose]:
-    """Return both tables of ``text`` and the Python sets, or every clause or set none reads."""
-    agda_text, agda_non_empty, unread = _parse_agda_reply_places(text)
-    if not agda_text or not agda_non_empty:
-        unread.append(Prose("no replyText or replyNonEmpty rows parsed"))
-    python_text: dict[ReplyPlace, frozenset[ReplyWord] | _AnyNonEmpty] = {}
-    for place, spec in PYTHON_REPLY_TEXT.items():
-        words = spec if isinstance(spec, _AnyNonEmpty) else _python_words(spec, py_codes)
+# A Go interpreted string, raw string or rune literal, or a comment, matched
+# from the left so that a `//` inside a literal is not taken for a comment.
+_GO_TOKEN = re.compile(
+    r'"(?:[^"\\\n]|\\.)*"|`[^`]*`|' + r"'(?:[^'\\\n]|\\.)*'|//[^\n]*|/\*.*?\*/",
+    flags=re.DOTALL,
+)
+# A string literal holding a reply word, which has no escape.
+_GO_WORD = re.compile(r'^"(?P<word>[^"\\]*)"$')
+# A statement whose clauses are `case` clauses, and one such clause on a line.
+_GO_CASE_HOLDER = re.compile(r"\b(?:switch|select)\b")
+_GO_CASE = re.compile(r"^case\s+(?P<exprs>.*):$")
+# A `fieldWord` call whose arguments hold no call of their own.
+_GO_WORD_CALL = re.compile(r"\bfieldWord\((?P<args>[^()]*)\)")
+
+
+def _go_code(text: GoText) -> GoText:
+    """Return Go source with each comment blanked to its line breaks and its literals kept."""
+    return GoText(
+        _GO_TOKEN.sub(
+            lambda token: (
+                re.sub(r"[^\n]", " ", token.group())
+                if token.group().startswith("/")
+                else token.group()
+            ),
+            text,
+        )
+    )
+
+
+def _go_bare_lines(code: GoText) -> list[GoText]:
+    """Return the lines of Go source whose comments are blanked, each literal blanked too."""
+    bare = _GO_TOKEN.sub(lambda token: re.sub(r"[^\n]", " ", token.group()), code)
+    return [GoText(line) for line in bare.split("\n")]
+
+
+def _go_package() -> dict[Path, GoText]:
+    """Return every non-test file of the Go package, its comments blanked."""
+    return {
+        path: _go_code(GoText(path.read_text(encoding="utf-8")))
+        for path in sorted(GO_PACKAGE.glob("*.go"))
+        if not path.name.endswith("_test.go")
+    }
+
+
+def _go_function(code: GoText, name: GoSymbol) -> GoText | None:
+    """Return a top-level function up to the brace gofmt closes it with, or None when absent."""
+    start = re.search(rf"^func {re.escape(name)}[\[(]", code, flags=re.MULTILINE)
+    if start is None:
+        return None
+    end = code.find("\n}", start.end())
+    return GoText(code[start.start() : None if end < 0 else end])
+
+
+def _go_literals(exprs: GoText) -> frozenset[ReplyWord] | None:
+    """Return the words of a comma-separated list of string literals, or None when one is not."""
+    found = [_GO_WORD.match(expr.strip()) for expr in exprs.split(",")]
+    if None in found:
+        return None
+    return frozenset(ReplyWord(word.group("word")) for word in found if word is not None)
+
+
+def _switch_words(body: GoText) -> frozenset[ReplyWord] | Prose:
+    """Return the words the ``case`` clauses of a function's one ``switch`` name."""
+    holders = len(_GO_CASE_HOLDER.findall(_GO_TOKEN.sub('""', body)))
+    if holders != 1:
+        return Prose(f"the function holds {holders} switch or select statements, not one")
+    words: set[ReplyWord] = set()
+    for line in body.splitlines():
+        clause = line.strip()
+        if re.match(r"case\b", clause) is None:
+            continue
+        case = _GO_CASE.match(clause)
+        found = None if case is None else _go_literals(GoText(case.group("exprs")))
+        if found is None:
+            return Prose(f"{clause!r} is not a case of string literals on one line")
+        words |= found
+    return frozenset(words) if words else Prose("the function's switch names no case")
+
+
+def _word_call_words(body: GoText, key: ReplyWord) -> frozenset[ReplyWord] | Prose:
+    """Return the words a function's ``fieldWord`` calls at ``key`` await."""
+    calls = list(_GO_WORD_CALL.finditer(body))
+    if len(calls) != len(re.findall(r"\bfieldWord\(", body)):
+        return Prose("a fieldWord call holds a call of its own")
+    words: set[ReplyWord] = set()
+    for call in calls:
+        args = [GoText(arg.strip()) for arg in call.group("args").split(",")]
+        at = _GO_WORD.match(args[2]) if args[3:] else None
+        if at is None:
+            return Prose(f"fieldWord({call.group('args')}) names no literal key or no word")
+        if at.group("word") != key:
+            continue
+        found = _go_literals(GoText(",".join(args[3:])))
+        if found is None:
+            return Prose(f"fieldWord({call.group('args')}) awaits a word that is not a literal")
+        words |= found
+    return frozenset(words) if words else Prose(f"no fieldWord call at {key!r}")
+
+
+def _const_specs(code: GoText) -> Iterator[GoText]:
+    """Yield each constant spec of a file, a group's lines one by one."""
+    group = False
+    for line in code.splitlines():
+        spec = line.strip()
+        if spec == "const (":
+            group = True
+        elif group and spec == ")":
+            group = False
+        elif group and spec:
+            yield GoText(spec)
+        elif spec.startswith("const "):
+            yield GoText(spec.removeprefix("const ").strip())
+
+
+def _const_words(spec: _GoConsts, package: dict[Path, GoText]) -> frozenset[ReplyWord] | Prose:
+    """Return the values of every constant of a named string type in the package."""
+    where = f"{spec.module.relative_to(REPO_ROOT)}:{spec.name}"
+    name = re.escape(spec.name)
+    declared = package.get(spec.module)
+    if declared is None or re.search(rf"^type {name} string\s*$", declared, re.MULTILINE) is None:
+        return Prose(f"{where} is not declared as a string type")
+    typed = re.compile(rf"^\w+\s+{name}\s*=\s*(?P<value>.*)$")
+    words: set[ReplyWord] = set()
+    for path, code in package.items():
+        for const in _const_specs(code):
+            if re.search(rf"\b{name}\b", const) is None:
+                continue
+            m = typed.match(const)
+            word = None if m is None else _GO_WORD.match(m.group("value").strip())
+            if word is None:
+                return Prose(
+                    f"{path.relative_to(REPO_ROOT)}: the constant {const!r} of {spec.name} "
+                    + "is not one name and one string literal"
+                )
+            words.add(ReplyWord(word.group("word")))
+    return frozenset(words) if words else Prose(f"{where} has no constant")
+
+
+# A line of a Go file, its number first; and a line of a file of the Go package.
+type _GoNumbered = tuple[GoLine, GoText]
+type _GoSite = tuple[Path, GoLine]
+
+
+def _var_blocks(code: GoText) -> Iterator[list[_GoNumbered]]:
+    """Yield each ``var ( ... )`` group of a file: its non-blank lines and their numbers."""
+    block: list[_GoNumbered] | None = None
+    for number, line in enumerate(code.split("\n"), start=1):
+        spec = line.strip()
+        if spec == "var (":
+            block = []
+        elif block is not None and spec == ")":
+            yield block
+            block = None
+        elif block is not None and spec:
+            block.append((GoLine(number), GoText(spec)))
+
+
+def _go_function_lines(code: GoText, name: GoSymbol) -> frozenset[GoLine]:
+    """Return the lines a top-level function spans, none when the file does not define it."""
+    body = _go_function(code, name)
+    if body is None:
+        return frozenset()
+    start = code.index(body)
+    first = code.count("\n", 0, start) + 1
+    last = code.count("\n", 0, start + len(body)) + 1
+    return frozenset(GoLine(number) for number in range(first, last + 1))
+
+
+@dataclass(frozen=True)
+class _GoBreach:
+    """A line shape that could give a value its word outside its block, and the lines exempt."""
+
+    regex: GoRegex
+    what: Prose
+    exempt: frozenset[_GoSite]
+
+
+def _value_breaches(
+    spec: _GoValues, block: frozenset[_GoSite], declared: _GoSite, reader: frozenset[_GoSite]
+) -> tuple[_GoBreach, ...]:
+    """Return the line shapes that could give a value of the type a word outside its block."""
+    name, field = re.escape(spec.name), re.escape(spec.field)
+    return (
+        _GoBreach(
+            GoRegex(rf"\b{name}\s*\{{"), Prose(f"builds a {spec.name} outside its block"), block
+        ),
+        _GoBreach(
+            GoRegex(rf"\b{name}\s*\("), Prose(f"converts a value to {spec.name}"), frozenset()
+        ),
+        _GoBreach(
+            GoRegex(rf"=\s*{name}\b(?!\s*[{{(])"), Prose(f"aliases {spec.name}"), frozenset()
+        ),
+        _GoBreach(
+            GoRegex(rf"\[\s*\w+(?:\s*,\s*\w+)*\s+~?(?:interface\s*\{{[^}}]*)?\b{name}\b"),
+            Prose(f"constrains a type parameter to {spec.name}"),
+            frozenset(),
+        ),
+        _GoBreach(
+            GoRegex(rf"\bstruct\s*\{{\s*{field}\s+string\s*\}}"),
+            Prose(f"declares an unnamed struct a {spec.name} is assigned from"),
+            frozenset({declared}),
+        ),
+        _GoBreach(
+            GoRegex(rf"\.{field}\b"),
+            Prose(f"reaches the {spec.field} of a value outside {spec.reader}"),
+            reader,
+        ),
+    )
+
+
+def _values_built_elsewhere(
+    spec: _GoValues, package: dict[Path, GoText], block: frozenset[_GoSite], declared: _GoSite
+) -> Iterator[Prose]:
+    """Yield each line of the package that could give a value of the type a word elsewhere."""
+    reader = frozenset(
+        (path, number)
+        for path, code in package.items()
+        for number in _go_function_lines(code, spec.reader)
+    )
+    breaches = _value_breaches(spec, block, declared, reader)
+    for path, code in package.items():
+        bare = _go_bare_lines(code)
+        for number, (line, shown) in enumerate(zip(bare, code.split("\n"), strict=True), start=1):
+            for breach in breaches:
+                if re.search(breach.regex, line) and (path, GoLine(number)) not in breach.exempt:
+                    yield Prose(
+                        f"{path.relative_to(REPO_ROOT)}:{number}: {shown.strip()!r} {breach.what}"
+                    )
+
+
+def _value_words(spec: _GoValues, package: dict[Path, GoText]) -> frozenset[ReplyWord] | Prose:
+    """Return the words of a type's one block of values, or each line that hides them."""
+    where = spec.module.relative_to(REPO_ROOT)
+    code = package.get(spec.module, GoText(""))
+    declaration = f"type {spec.name} struct{{ {spec.field} string }}"
+    at = [
+        GoLine(number)
+        for number, line in enumerate(code.split("\n"), start=1)
+        if line.rstrip() == declaration
+    ]
+    if len(at) != 1:
+        return Prose(f"{where}:{spec.name} is not declared once as {declaration!r}")
+    name = re.escape(spec.name)
+    blocks = [
+        block
+        for block in _var_blocks(code)
+        if any(re.search(rf"\b{name}\b", line) for _, line in block)
+    ]
+    if len(blocks) != 1:
+        return Prose(f"{where}:{spec.name}: {len(blocks)} var blocks declare its values, not one")
+    value = re.compile(rf'^\w+\s*=\s*{name}\{{"(?P<word>[^"\\]*)"\}}$')
+    words: set[ReplyWord] = set()
+    unread: list[Prose] = []
+    for number, line in blocks[0]:
+        if (m := value.match(line)) is None:
+            unread.append(
+                Prose(f"{where}:{number}: {line!r} is not one name and one {spec.name} of a word")
+            )
+        else:
+            words.add(ReplyWord(m.group("word")))
+    block = frozenset((spec.module, number) for number, _ in blocks[0])
+    unread.extend(_values_built_elsewhere(spec, package, block, (spec.module, at[0])))
+    return Prose("; ".join(unread)) if unread else frozenset(words)
+
+
+def _go_words(
+    spec: _GoSet, go_codes: frozenset[ReplyWord], package: dict[Path, GoText]
+) -> frozenset[ReplyWord] | Prose:
+    """Return the words a Go reader set holds, or why the gate cannot read them."""
+    if isinstance(spec, _GoBoundKinds):
+        return go_codes
+    if isinstance(spec, _GoConsts):
+        return _const_words(spec, package)
+    if isinstance(spec, _GoValues):
+        return _value_words(spec, package)
+    where = f"{spec.module.relative_to(REPO_ROOT)}:{spec.function}"
+    code = package.get(spec.module)
+    body = None if code is None else _go_function(code, spec.function)
+    if body is None:
+        return Prose(f"{where} is not defined")
+    found = _switch_words(body) if isinstance(spec, _GoSwitch) else _word_call_words(body, spec.key)
+    return Prose(f"{where}: {found}") if isinstance(found, str) else found
+
+
+def _read_sets[S](
+    table: dict[ReplyPlace, S | _AnyNonEmpty],
+    read: Callable[[S], frozenset[ReplyWord] | Prose],
+    unread: list[Prose],
+) -> dict[ReplyPlace, _ReaderSet]:
+    """Return the set each place of a binding's table names, adding what none reads to unread."""
+    sets: dict[ReplyPlace, _ReaderSet] = {}
+    for place, spec in table.items():
+        words = spec if isinstance(spec, _AnyNonEmpty) else read(spec)
         if isinstance(words, str):
             unread.append(Prose(f"reply place {place}: {words}"))
         else:
-            python_text[place] = words
-    return unread or ReplyTables(agda_text, agda_non_empty, python_text)
+            sets[place] = words
+    return sets
+
+
+def read_reply_tables(
+    text: AgdaText, py_codes: frozenset[ReplyWord], go_codes: frozenset[ReplyWord]
+) -> ReplyTables | list[Prose]:
+    """Return both tables of ``text`` and every binding's sets, or each clause or set none reads."""
+    agda_text, agda_non_empty, unread = _parse_agda_reply_places(text)
+    if not agda_text or not agda_non_empty:
+        unread.append(Prose("no replyText or replyNonEmpty rows parsed"))
+    package = _go_package()
+    readers = (
+        ReaderSets(
+            Prose("the Python reader"),
+            Prose("PYTHON_REPLY_TEXT"),
+            _read_sets(PYTHON_REPLY_TEXT, lambda spec: _python_words(spec, py_codes), unread),
+        ),
+        ReaderSets(
+            Prose("the Go reader"),
+            Prose("GO_REPLY_TEXT"),
+            _read_sets(GO_REPLY_TEXT, lambda spec: _go_words(spec, go_codes, package), unread),
+        ),
+    )
+    return unread or ReplyTables(agda_text, agda_non_empty, readers)
 
 
 def _one_side(
@@ -435,15 +845,18 @@ def _one_side(
     ]
 
 
-def check_reply_places(tables: ReplyTables, agda_codes: frozenset[ReplyWord]) -> list[Prose]:
-    """Return the divergences between the reply proof's tables and the Python reader's sets."""
+def _check_reader(
+    agda_text: dict[ReplyPlace, _OneOf | _AnyNonEmpty], reader: ReaderSets
+) -> list[Prose]:
+    """Return the divergences between ``replyText`` and one binding's reader sets."""
     diffs: list[Prose] = []
-    for place, words in tables.python_text.items():
-        row = tables.agda_text.get(place)
+    for place, words in reader.text.items():
+        row = agda_text.get(place)
         if row is None:
             diffs.append(
                 Prose(
-                    f"reply place {place}: replyText has no row, so the proof holds nothing there"
+                    f"reply place {place}: replyText has no row for this {reader.table} place, "
+                    + "so the proof holds nothing there"
                 )
             )
         elif isinstance(words, _AnyNonEmpty) or isinstance(row, _AnyNonEmpty):
@@ -451,19 +864,21 @@ def check_reply_places(tables: ReplyTables, agda_codes: frozenset[ReplyWord]) ->
                 diffs.append(
                     Prose(
                         f"reply place {place}: one side reads any non-empty text, "
-                        + "the other a word set"
+                        + f"the other a word set ({reader.reader})"
                     )
                 )
         else:
-            diffs.extend(
-                _one_side(
-                    place, (Prose("replyText"), row.words), (Prose("the Python reader"), words)
-                )
-            )
+            diffs.extend(_one_side(place, (Prose("replyText"), row.words), (reader.reader, words)))
     diffs.extend(
-        Prose(f"reply place {place}: replyText has a row PYTHON_REPLY_TEXT does not name")
-        for place in sorted(tables.agda_text.keys() - tables.python_text.keys())
+        Prose(f"reply place {place}: replyText has a row {reader.table} does not name")
+        for place in sorted(agda_text.keys() - reader.text.keys())
     )
+    return diffs
+
+
+def check_reply_places(tables: ReplyTables, agda_codes: frozenset[ReplyWord]) -> list[Prose]:
+    """Return the divergences between the reply proof's tables and every binding's sets."""
+    diffs = [diff for reader in tables.readers for diff in _check_reader(tables.agda_text, reader)]
     diffs.extend(
         Prose(f"reply place {place}: replyNonEmpty has no row, so the proof allows an empty array")
         for place in sorted(REPLY_NON_EMPTY - tables.agda_non_empty)

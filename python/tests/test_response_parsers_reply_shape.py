@@ -139,7 +139,11 @@ _MALFORMED_PARSED_DBC = [
         id="warnings-object",
     ),
     pytest.param(
-        {"status": "success", "dbc": _DBC, "warnings": [{"code": "c", "severity": 7}]},
+        {
+            "status": "success",
+            "dbc": _DBC,
+            "warnings": [{"code": "c", "detail": "d", "severity": 7}],
+        },
         "reply warnings/severity: expected string, got number",
         id="severity-number",
     ),

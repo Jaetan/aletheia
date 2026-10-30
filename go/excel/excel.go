@@ -62,12 +62,12 @@ var (
 	}
 	checksHeaders = []string{
 		"Check Name", "Signal", "Condition", "Value", "Min", "Max",
-		"Time (ms)", "Severity",
+		"Time (µs)", "Severity",
 	}
 	whenThenHeaders = []string{
 		"Check Name", "When Signal", "When Condition", "When Value",
 		"Then Signal", "Then Condition", "Then Value", "Then Min", "Then Max",
-		"Within (ms)", "Severity",
+		"Within (µs)", "Severity",
 	}
 )
 
@@ -310,7 +310,7 @@ func loadRows(f *excelize.File, sheet string, parse func(map[string]xlsxCell, in
 		}
 		r, err := parse(row, i+2)
 		if err != nil {
-			return nil, err
+			return nil, locateRow(err, i+2)
 		}
 		results = append(results, r)
 	}
@@ -360,11 +360,11 @@ func (v xlsxSimpleValues) Range() (aletheia.Rational, aletheia.Rational, error) 
 	return lo, hi, nil
 }
 
-func (v xlsxSimpleValues) Within() (int64, error) {
-	if err := requireColumns(v.d, v.rowNum, "condition", v.cond, "Time (ms)"); err != nil {
-		return 0, err
+func (v xlsxSimpleValues) Within() (aletheia.TimeBound, error) {
+	if err := requireColumns(v.d, v.rowNum, "condition", v.cond, "Time (µs)"); err != nil {
+		return aletheia.TimeBound{}, err
 	}
-	return xlsxInt(v.d, "Time (ms)", v.rowNum)
+	return xlsxTimeBound(v.d, "Time (µs)", v.rowNum)
 }
 
 // parseSimpleRow builds a check written as one signal and one condition. The
@@ -453,13 +453,13 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
 	}
 
-	withinMs, err := xlsxInt(d, "Within (ms)", rowNum)
+	within, err := xlsxTimeBound(d, "Within (µs)", rowNum)
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
 
 	result, err := aletheia.DispatchThen(whenResult.Then(thenSignal), thenCond,
-		xlsxThenValues{d: d, rowNum: rowNum, cond: thenCond}, withinMs)
+		xlsxThenValues{d: d, rowNum: rowNum, cond: thenCond}, within)
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
@@ -471,7 +471,7 @@ type messageKey struct {
 	id       int64
 	name     string
 	extended bool
-	dlc      int64
+	dlc      aletheia.SignMagnitude
 }
 
 func parseDBCRows(rows []map[string]xlsxCell) (*aletheia.DBCDefinition, error) {
@@ -507,7 +507,7 @@ func parseDBCRows(rows []map[string]xlsxCell) (*aletheia.DBCDefinition, error) {
 				return nil, err
 			}
 		}
-		dlc, err := xlsxInt(row, "DLC", rowNum)
+		dlc, err := xlsxWhole(row, "DLC", rowNum)
 		if err != nil {
 			return nil, err
 		}
@@ -557,10 +557,11 @@ func parseDBCRows(rows []map[string]xlsxCell) (*aletheia.DBCDefinition, error) {
 
 		// Past a byte the conversion below would truncate, and the constructor
 		// would see a value the workbook never held; it refuses the rest.
-		if key.dlc < 0 || key.dlc > math.MaxUint8 {
-			return nil, aletheia.NewValidationError(fmt.Sprintf("DLC %d out of range", key.dlc))
+		dlc, fits := key.dlc.Magnitude.Uint64()
+		if key.dlc.Negative || !fits || dlc > math.MaxUint8 {
+			return nil, aletheia.NewValidationError(fmt.Sprintf("DLC %s out of range", key.dlc))
 		}
-		dlcVal, err := aletheia.NewDLC(uint8(key.dlc))
+		dlcVal, err := aletheia.NewDLC(uint8(dlc))
 		if err != nil {
 			return nil, err
 		}
@@ -584,22 +585,15 @@ func xlsxDBCSignal(row map[string]xlsxCell, rowNum int) (aletheia.DBCSignal, err
 		return aletheia.DBCSignal{}, err
 	}
 
-	startBit, err := xlsxInt(row, "Start Bit", rowNum)
+	// The kernel decides a start bit's and a length's range when it reads the
+	// definition; only a value their 16-bit fields cannot hold is refused here.
+	startBit, err := xlsxUint16(row, "Start Bit", rowNum)
 	if err != nil {
 		return aletheia.DBCSignal{}, err
 	}
-	if startBit < 0 || startBit > int64(aletheia.MaxBitPosition) {
-		return aletheia.DBCSignal{}, aletheia.NewValidationError(fmt.Sprintf(
-			"row %d: 'Start Bit' %d out of range [0, %d]", rowNum, startBit, aletheia.MaxBitPosition))
-	}
-
-	length, err := xlsxInt(row, "Length", rowNum)
+	length, err := xlsxUint16(row, "Length", rowNum)
 	if err != nil {
 		return aletheia.DBCSignal{}, err
-	}
-	if length < 1 || length > int64(aletheia.MaxBitLength) {
-		return aletheia.DBCSignal{}, aletheia.NewValidationError(fmt.Sprintf(
-			"row %d: 'Length' %d out of range [1, %d]", rowNum, length, aletheia.MaxBitLength))
 	}
 
 	byteOrderStr, err := xlsxStr(row, "Byte Order", rowNum)
@@ -662,17 +656,19 @@ func xlsxDBCSignal(row map[string]xlsxCell, rowNum int) (aletheia.DBCSignal, err
 		if err != nil {
 			return aletheia.DBCSignal{}, err
 		}
-		muxVal, err := xlsxInt(row, "Multiplex Value", rowNum)
+		// A multiplex value has no sign, so a negative one, which the kernel
+		// would refuse, is refused here; the kernel decides the rest.
+		muxVal, err := xlsxWhole(row, "Multiplex Value", rowNum)
 		if err != nil {
 			return aletheia.DBCSignal{}, err
 		}
-		if muxVal < 0 {
+		if muxVal.Negative {
 			return aletheia.DBCSignal{}, aletheia.NewValidationError(fmt.Sprintf(
-				"row %d: 'Multiplex Value' must be non-negative, got %d", rowNum, muxVal))
+				"row %d: 'Multiplex Value' must be non-negative, got %s", rowNum, muxVal))
 		}
 		presence = aletheia.Multiplexed{
 			Multiplexor:     aletheia.SignalName(muxor),
-			MultiplexValues: []aletheia.MultiplexValue{aletheia.MultiplexValue(muxVal)},
+			MultiplexValues: []aletheia.MultiplexValue{muxVal.Magnitude},
 		}
 	} else {
 		presence = aletheia.AlwaysPresent{}
@@ -784,17 +780,66 @@ func xlsxRational(d map[string]xlsxCell, key string, rowNum int) (aletheia.Ratio
 	return r, nil
 }
 
-// xlsxInt is a rational whose denominator is one: the same cell, read the same
-// way, with a fraction refused.
-func xlsxInt(d map[string]xlsxCell, key string, rowNum int) (int64, error) {
+// xlsxWhole is a rational whose denominator is one: the same cell, read the
+// same way, with a fraction refused.
+func xlsxWhole(d map[string]xlsxCell, key string, rowNum int) (aletheia.SignMagnitude, error) {
 	r, err := xlsxRational(d, key, rowNum)
+	if err != nil {
+		return aletheia.SignMagnitude{}, err
+	}
+	if r.Denominator != (aletheia.Uint128{Lo: 1}) {
+		return aletheia.SignMagnitude{}, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got %q", rowNum, key, d[key].value))
+	}
+	return aletheia.SignMagnitude{Negative: r.Negative, Magnitude: r.Numerator}, nil
+}
+
+// xlsxUint16 is a whole number a 16-bit field holds, refusing one it cannot.
+func xlsxUint16(d map[string]xlsxCell, key string, rowNum int) (uint16, error) {
+	w, err := xlsxWhole(d, key, rowNum)
 	if err != nil {
 		return 0, err
 	}
-	if r.Denominator != 1 {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got %q", rowNum, key, d[key].value))
+	v, fits := w.Magnitude.Uint64()
+	if w.Negative || !fits || v > math.MaxUint16 {
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' %s out of range [0, %d]", rowNum, key, w, math.MaxUint16))
 	}
-	return r.Numerator, nil
+	return uint16(v), nil
+}
+
+// xlsxTimeBound is a time bound, whole microseconds read by the kernel from a
+// text cell's trimmed text, its refusal located at the row and the column
+// header. A number cell is refused as xlsxRational refuses one.
+func xlsxTimeBound(d map[string]xlsxCell, key string, rowNum int) (aletheia.TimeBound, error) {
+	c, err := xlsxCellAt(d, key, rowNum)
+	if err != nil {
+		return aletheia.TimeBound{}, err
+	}
+	if !c.isText {
+		return aletheia.TimeBound{}, aletheia.NewValidationError(fmt.Sprintf(
+			"row %d: '%s' is a number cell (got %q); format it as TEXT so the exact value is preserved (a number cell stores a lossy float)",
+			rowNum, key, c.raw))
+	}
+	t, err := aletheia.ParseTimeBound(strings.TrimSpace(c.value))
+	if err != nil {
+		return aletheia.TimeBound{}, aletheia.Locate(err, fmt.Sprintf("Row %d", rowNum), key)
+	}
+	return t, nil
+}
+
+// locateRow locates a refusal no single column holds, such as a check its
+// builder refused, at the row: a coded refusal no reader located gains the row
+// and no key; one a reader located, or one without a code (the runtime down),
+// comes back as it was.
+func locateRow(err error, rowNum int) error {
+	var coded *aletheia.Error
+	if errors.As(err, &coded) && coded.Code != "" && coded.Location == "" {
+		return aletheia.Locate(err, fmt.Sprintf("Row %d", rowNum), "")
+	}
+	var bound *aletheia.InputBoundExceededError
+	if errors.As(err, &bound) && bound.Location == "" {
+		return aletheia.Locate(err, fmt.Sprintf("Row %d", rowNum), "")
+	}
+	return err
 }
 
 // xlsxBool accepts what the Python loader accepts: a stored boolean, a number

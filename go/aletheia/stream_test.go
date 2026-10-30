@@ -24,7 +24,8 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"holds"}]
+			"results":[{"property_index":0,"status":"holds"}],
+			"warnings":[]
 		}`), // EndStream
 	)
 	sid, _ := aletheia.NewStandardID(0x123)
@@ -76,8 +77,10 @@ func TestStreamingLTL_Violation(t *testing.T) {
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`), // extraction for enrichment
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Speed >= 200"}]
+			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Speed >= 200"}],
+			"warnings":[]
 		}`), // EndStream
+		extractionOf(), // the enrichment's extraction of the last frame
 	)
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}
@@ -145,7 +148,8 @@ func TestViolation_CoreReason(t *testing.T) {
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":50}],"errors":[],"absent":[]}`), // extraction
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"MetricEventually: window expired"}]
+			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"MetricEventually: window expired"}],
+			"warnings":[]
 		}`), // EndStream
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":50}],"errors":[],"absent":[]}`), // EOS extraction
 	)
@@ -207,9 +211,10 @@ func TestViolation_EmptyCoreReason(t *testing.T) {
 				"type":"property",
 				"status":"fails",
 				"property_index":0,
-				"timestamp":5000
+				"timestamp":5000,
+				"reason":""
 			}]
-		}`), // a violation carrying no reason
+		}`), // a violation carrying an empty reason
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`), // extraction
 	)
 	sid, _ := aletheia.NewStandardID(0x123)
@@ -256,14 +261,14 @@ func TestMetricFormulas(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.AlwaysWithin(
+		must(aletheia.AlwaysWithin(
 			aletheia.TimeBound{Microseconds: 5_000_000},
 			aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(200)}},
-		),
-		aletheia.EventuallyWithin(
+		)),
+		must(aletheia.EventuallyWithin(
 			aletheia.TimeBound{Microseconds: 1_000_000},
 			aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: aletheia.IntRational(1)}},
-		),
+		)),
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -279,14 +284,18 @@ func TestEndStream_TimestampParseError(t *testing.T) {
 			"status":"complete",
 			"results":[{
 				"property_index":0,
-				"status":"holds",
+				"status":"fails",
 				"reason":"",
 				"timestamp":"not_a_number"
-			}]
+			}],
+			"warnings":[]
 		}`),
 	)
 	_, err := c.EndStream(ctx)
-	requireErrorContains(t, err, "invalid timestamp")
+	requireKind(t, err, aletheia.ErrProtocol)
+	if want := "reply results/timestamp: expected number, got string"; err.Error() != want {
+		t.Errorf("got %q, want %q", err.Error(), want)
+	}
 }
 
 func TestSendError_Ack(t *testing.T) {
@@ -386,7 +395,7 @@ func TestSendError_RejectsSuccessStatus(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // the wrong status for an event
 	)
 	err := c.SendError(ctx, aletheia.Timestamp{Microseconds: 1000})
-	requireErrorContains(t, err, `expected ack response, got status: "success"`)
+	requireErrorContains(t, err, `reply status: expected "ack" or "error", got "success"`)
 }
 
 func TestSendRemote_RejectsSuccessStatus(t *testing.T) {
@@ -398,7 +407,7 @@ func TestSendRemote_RejectsSuccessStatus(t *testing.T) {
 	)
 	sid, _ := aletheia.NewStandardID(0x100)
 	err := c.SendRemote(ctx, aletheia.Timestamp{Microseconds: 1000}, sid)
-	requireErrorContains(t, err, `expected ack response, got status: "success"`)
+	requireErrorContains(t, err, `reply status: expected "ack" or "error", got "success"`)
 }
 
 func TestSendFrame_NegativeTimestamp(t *testing.T) {
@@ -492,24 +501,6 @@ func TestSendFrame_PayloadDLCMismatch(t *testing.T) {
 	requireErrorContains(t, err, "payload length")
 }
 
-func TestSetProperties_NegativeTimeBound(t *testing.T) {
-	ctx := t.Context()
-	mock := aletheia.NewMockBackend()
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.MetricAlways{
-			Bound: aletheia.TimeBound{Microseconds: -1000},
-			Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
-		},
-	})
-	requireErrorContains(t, err, "negative time bound")
-}
-
 func TestSetProperties_NegativeDelta(t *testing.T) {
 	ctx := t.Context()
 	mock := aletheia.NewMockBackend(
@@ -530,19 +521,33 @@ func TestSetProperties_NegativeDelta(t *testing.T) {
 	}
 }
 
+// A negative tolerance written as a literal reaches the kernel, which refuses
+// the property at SetProperties naming its index and the reason.
 func TestSetProperties_NegativeTolerance(t *testing.T) {
 	ctx := t.Context()
-	mock := aletheia.NewMockBackend()
-	c, err := aletheia.NewClient(mock)
+	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
+	if err != nil {
+		t.Fatalf("NewFFIBackend: %v", err)
+	}
+	c, err := aletheia.NewClient(backend)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
+	if _, err := c.ParseDBCText(ctx, exampleDBC); err != nil {
+		t.Fatalf("ParseDBCText: %v", err)
+	}
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.StableWithin{Signal: "Speed", Tolerance: aletheia.IntRational(-2)}}},
 	})
-	requireErrorContains(t, err, "negative tolerance")
+	var e *aletheia.Error
+	if !errors.As(err, &e) || e.Code != aletheia.CodeHandlerPropertyParseFailed {
+		t.Fatalf("got %v, want the kernel's %s refusal", err, aletheia.CodeHandlerPropertyParseFailed)
+	}
+	if want := "SetProperties: property 0: stableWithin: tolerance -2 is negative"; err.Error() != want {
+		t.Errorf("got %q, want %q", err.Error(), want)
+	}
 }
 
 // --- Group Q: Out-of-order streaming tests ---
@@ -610,52 +615,6 @@ func TestConsecutiveStartStream(t *testing.T) {
 	}
 }
 
-// --- PropertyIndex out-of-bounds tests ---
-
-func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
-	ctx := t.Context()
-	c, _ := startedClientWith(t, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	},
-		aletheia.Respond(`{
-			"type":"property_batch",
-			"results":[{
-				"type":"property",
-				"status":"fails",
-				"property_index":5,
-				"timestamp":1000,
-				"reason":"out of bounds"
-			}]
-		}`), // a violation naming a property that does not exist
-	)
-	sid, _ := aletheia.NewStandardID(0x100)
-	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
-	if err != nil {
-		t.Fatalf("SendFrame: %v", err)
-	}
-	b, ok := resp.(aletheia.PropertyBatch)
-
-	if !ok {
-		t.Fatalf("expected PropertyBatch, got %T", resp)
-
-	}
-
-	v := b.FirstViolation()
-
-	if v == nil {
-		t.Fatalf("expected violation in batch, got %+v", b)
-
-	}
-	if v.PropertyIndex != 5 {
-		t.Errorf("expected property_index=5, got %d", v.PropertyIndex)
-	}
-	// OOB index → enrichment should be nil (graceful degradation).
-	if v.Enrichment != nil {
-		t.Errorf("expected nil Enrichment for OOB property index, got %+v", v.Enrichment)
-	}
-}
-
 func TestStreamingLTL_Unresolved(t *testing.T) {
 	ctx := t.Context()
 	// Atomic predicate whose signal was never observed finalizes to
@@ -668,8 +627,10 @@ func TestStreamingLTL_Unresolved(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame (unrelated frame)
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}]
+			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
+			"warnings":[]
 		}`), // EndStream
+		extractionOf(), // the enrichment's extraction of the last frame
 	)
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
@@ -708,6 +669,7 @@ func TestEndStream_UncachedAtomWarning(t *testing.T) {
 			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
 			"warnings":[{"kind":"uncached_atom","property_index":0,"detail":"UnobservedSignal"}]
 		}`), // EndStream
+		extractionOf(), // the enrichment's extraction of the last frame
 	)
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
@@ -730,31 +692,5 @@ func TestEndStream_UncachedAtomWarning(t *testing.T) {
 	}
 	if w.Detail != "UnobservedSignal" {
 		t.Errorf("expected detail=UnobservedSignal, got %q", w.Detail)
-	}
-}
-
-func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
-	ctx := t.Context()
-	c, _ := startedClientWith(t, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	},
-		aletheia.Respond(`{
-			"status":"complete",
-			"results":[{"property_index":5,"status":"fails","timestamp":1000,"reason":"out of bounds"}]
-		}`), // a verdict naming a property that does not exist
-	)
-	result, err := c.EndStream(ctx)
-	if err != nil {
-		t.Fatalf("EndStream: %v", err)
-	}
-	if len(result.Results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(result.Results))
-	}
-	if result.Results[0].Verdict != aletheia.Fails {
-		t.Errorf("expected Fails, got %s", result.Results[0].Verdict)
-	}
-	// OOB index → enrichment should be nil (graceful degradation).
-	if result.Results[0].Enrichment != nil {
-		t.Errorf("expected nil Enrichment for OOB property index, got %+v", result.Results[0].Enrichment)
 	}
 }

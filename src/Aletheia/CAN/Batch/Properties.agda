@@ -61,7 +61,8 @@ open import Aletheia.CAN.Batch.Properties.WireFits public using
   ; extractAllSignals-values-fit
   )
 
--- Every index the binary extraction reply carries names a signal of its message
+-- Every index the binary extraction reply carries names a signal of its
+-- message, and the DBC reply writes that signal's name at that index
 open import Aletheia.CAN.Batch.Properties.IndexBound public using
   ( KeysAll
   ; categorizeWith-keys
@@ -69,6 +70,16 @@ open import Aletheia.CAN.Batch.Properties.IndexBound public using
   ; extractAllSignalsIndexedFromMessage-below
   ; IndexedBelow
   ; extractAllSignalsIndexed-below
+  ; signalEntryName
+  ; signalNameAt
+  ; formatDBCMessage-signals
+  ; formatDBCSignal-name
+  ; formatDBCSignals-length
+  ; formatDBCSignals-name-at
+  ; NamedAt
+  ; named-below
+  ; IndexedNamed
+  ; extractAllSignalsIndexed-named
   )
 
 -- Capstone theorem: IsValidDBC → batch roundtrip

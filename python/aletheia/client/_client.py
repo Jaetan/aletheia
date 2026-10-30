@@ -26,7 +26,6 @@ from aletheia.client._helpers.reply_shape import (
     STRING,
     at,
     came,
-    came_as,
     came_word,
     fields,
     reply_refusal,
@@ -40,7 +39,7 @@ from aletheia.client._response_parsers import (
     raise_if_dbc_validation_failed,
     raise_if_input_bound_exceeded,
     raise_if_text_roundtrip_failed,
-    validate_issue_severities,
+    read_issues,
 )
 from aletheia.client._signal_ops import SignalOpsMixin
 from aletheia.client._streaming import StreamingMixin
@@ -71,7 +70,6 @@ from aletheia.types import (
     ValidateDBCCommand,
     ValidationResponse,
     dump_json,
-    is_object_list,
     is_str_dict,
 )
 
@@ -81,7 +79,6 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from aletheia.checks import CheckResult
-    from aletheia.codes import ValidationIssue
 
 _logger = logging.getLogger("aletheia")
 
@@ -478,15 +475,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 raise reply_refusal(
                     at(REPLY_ROOT, "has_errors"), BOOLEAN, came(reply, "has_errors")
                 )
-            if not is_object_list(response.get("issues")):
+            if "issues" not in reply or not isinstance(issues := reply["issues"], list):
                 raise reply_refusal(at(REPLY_ROOT, "issues"), ARRAY, came(reply, "issues"))
-            # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
-            vresp = cast("ValidationResponse", response)  # pragma: no mutate
-            return {
-                "status": "validation",
-                "has_errors": has_errors,
-                "issues": validate_issue_severities(list(vresp["issues"])),
-            }
+            return {"status": "validation", "has_errors": has_errors, "issues": read_issues(issues)}
 
         if status == "error":
             code = response.get("code")
@@ -596,18 +587,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 raise reply_refusal(at(REPLY_ROOT, "text"), STRING, came(reply, "text"))
             if "issues" not in reply or not isinstance(issues_field := reply["issues"], list):
                 raise reply_refusal(at(REPLY_ROOT, "issues"), ARRAY, came(reply, "issues"))
-            for entry in issues_field:
-                if not is_str_dict(entry):
-                    raise reply_refusal(at(REPLY_ROOT, "issues"), OBJECT, came_as(entry))
-            # cast's type-arg is a runtime no-op (typing.cast returns its 2nd arg
-            # unchanged), and list() copies an already-list value: mutating either
-            # cannot change behaviour, so this line is a genuine-equivalent surface.
-            issues = cast("list[ValidationIssue]", list(issues_field))  # pragma: no mutate
-            return {
-                "status": "success",
-                "text": text,
-                "issues": validate_issue_severities(issues),
-            }
+            return {"status": "success", "text": text, "issues": read_issues(issues_field)}
 
         if status == "error":
             code = response.get("code")

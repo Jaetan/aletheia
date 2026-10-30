@@ -12,7 +12,7 @@ binding substitutes.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Final, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, NewType, TypedDict, cast
 
 import pytest
 from _dbc_helpers import dbc
@@ -310,3 +310,70 @@ def test_an_end_of_stream_reply_with_another_status_is_refused() -> None:
     ):
         _ = client.end_stream()
     assert str(excinfo.value) == 'reply status: expected "complete" or "error", got "weird"'
+
+
+type IssueRoute = Literal["validateDBC", "formatDBCText", "parseDBC", "parseDBCText"]
+type IssueField = Literal["severity", "code", "detail"]
+type IssuePlace = Literal["issues", "warnings"]
+type IssueBreakage = Literal["deleted", "retyped"]
+
+# A reply's JSON text with ``{}`` where its one issue goes.
+ReplyTemplate = NewType("ReplyTemplate", str)
+
+
+class _IssueReply(NamedTuple):
+    """A route's reply around its one issue, and the place of its issue list."""
+
+    template: ReplyTemplate
+    place: IssuePlace
+
+
+_PARSED: Final = ReplyTemplate(
+    '{{"status": "success", "dbc": {{"version": "", "messages": [], "signalGroups": [],'
+    + ' "environmentVars": [], "valueTables": [], "nodes": [], "comments": [],'
+    + ' "attributes": [], "unresolvedValueDescs": []}}, "warnings": [{}]}}'
+)
+_ISSUE_REPLIES: Final[dict[IssueRoute, _IssueReply]] = {
+    "validateDBC": _IssueReply(
+        ReplyTemplate('{{"status": "validation", "has_errors": false, "issues": [{}]}}'), "issues"
+    ),
+    "formatDBCText": _IssueReply(
+        ReplyTemplate('{{"status": "success", "text": "", "issues": [{}]}}'), "issues"
+    ),
+    "parseDBC": _IssueReply(_PARSED, "warnings"),
+    "parseDBCText": _IssueReply(_PARSED, "warnings"),
+}
+_ISSUE_CAME: Final = {"deleted": "nothing", "retyped": "number"}
+
+
+def _read_issues(client: AletheiaClient, route: IssueRoute) -> None:
+    """Run the client method that reads *route*'s issue list."""
+    match route:
+        case "validateDBC" | "formatDBCText":
+            _call(client, route)
+        case "parseDBC" | "parseDBCText":
+            _parse(client, route)
+
+
+@pytest.mark.parametrize("route", ["validateDBC", "formatDBCText", "parseDBC", "parseDBCText"])
+@pytest.mark.parametrize("key", ["code", "detail"])
+@pytest.mark.parametrize("breakage", ["deleted", "retyped"])
+def test_an_issue_code_or_detail_not_a_string_is_refused(
+    route: IssueRoute, key: IssueField, breakage: IssueBreakage
+) -> None:
+    """An issue whose ``code`` or ``detail`` is absent or a number is refused at its place."""
+    issue: dict[IssueField, JSONValue] = {"severity": "warning", "code": "c", "detail": "d"}
+    match breakage:
+        case "deleted":
+            del issue[key]
+        case "retyped":
+            issue[key] = 0
+    template, place = _ISSUE_REPLIES[route]
+    reply = template.format(json.dumps(issue))
+    with (
+        AletheiaClient(backend=MockBackend([reply.encode()])) as client,
+        pytest.raises(ProtocolError) as excinfo,
+    ):
+        _read_issues(client, route)
+    came = _ISSUE_CAME[breakage]
+    assert str(excinfo.value) == f"reply {place}/{key}: expected string, got {came}"

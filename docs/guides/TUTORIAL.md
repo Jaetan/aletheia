@@ -631,10 +631,16 @@ BO_ 256 Engine: 8 ECU
 
 ### Step 3: Register a Check
 
-Numeric thresholds are **exact rationals**, built with `aletheia.IntRational(n)` (never a `float64`):
+Numeric thresholds are **exact rationals**, built with `aletheia.IntRational(n)` (never a `float64`). The kernel checks a check as it is built, so its runtime must be up; the client opened in Step 1 started it, and starting it again with the same core count changes nothing:
 
 ```go
-    speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+    if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+        panic(err)
+    }
+    speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+    if err != nil {
+        panic(err)
+    }
     if err := client.AddChecks(ctx, []aletheia.CheckResult{speedLimit}); err != nil {
         panic(err)
     }

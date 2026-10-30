@@ -24,10 +24,10 @@ func mirrorSignal(name string, startBit uint8, presence SignalPresence) DBCSigna
 	return DBCSignal{
 		Name: SignalName(name), StartBit: BitPosition(startBit), BitLength: 8,
 		ByteOrder: LittleEndian, IsSigned: false,
-		Factor:  Rational{Numerator: 1, Denominator: 1},
-		Offset:  Rational{Numerator: 0, Denominator: 1},
-		Minimum: Rational{Numerator: 0, Denominator: 1},
-		Maximum: Rational{Numerator: 255, Denominator: 1},
+		Factor:  ratOf(1, 1),
+		Offset:  ratOf(0, 1),
+		Minimum: ratOf(0, 1),
+		Maximum: ratOf(255, 1),
 		Unit:    "", Presence: presence,
 	}
 }
@@ -58,7 +58,7 @@ func multiValueMuxDBC(t *testing.T) DBCDefinition {
 		mirrorSignal("Mux", 0, AlwaysPresent{}),
 		mirrorSignal("Payload", 8, Multiplexed{
 			Multiplexor:     "Mux",
-			MultiplexValues: []MultiplexValue{1, 2},
+			MultiplexValues: []MultiplexValue{{Lo: 1}, {Lo: 2}},
 		}),
 	)
 }
@@ -73,11 +73,11 @@ func splitMasterDBC(t *testing.T) DBCDefinition {
 		mirrorSignal("MuxB", 8, AlwaysPresent{}),
 		mirrorSignal("A", 16, Multiplexed{
 			Multiplexor:     "MuxA",
-			MultiplexValues: []MultiplexValue{0},
+			MultiplexValues: []MultiplexValue{{}},
 		}),
 		mirrorSignal("B", 24, Multiplexed{
 			Multiplexor:     "MuxB",
-			MultiplexValues: []MultiplexValue{0},
+			MultiplexValues: []MultiplexValue{{}},
 		}),
 	)
 }
@@ -102,8 +102,8 @@ func TestValidateDBC_NamesTheMirrorShapes(t *testing.T) {
 		t.Helper()
 		return mirrorDBC(t,
 			mirrorSignal("Mux", 0, AlwaysPresent{}),
-			mirrorSignal("A", 16, Multiplexed{Multiplexor: "Mux", MultiplexValues: []MultiplexValue{0}}),
-			mirrorSignal("B", 24, Multiplexed{Multiplexor: "Mux", MultiplexValues: []MultiplexValue{1}}),
+			mirrorSignal("A", 16, Multiplexed{Multiplexor: "Mux", MultiplexValues: []MultiplexValue{{}}}),
+			mirrorSignal("B", 24, Multiplexed{Multiplexor: "Mux", MultiplexValues: []MultiplexValue{{Lo: 1}}}),
 		)
 	}
 	cases := map[string]struct {

@@ -70,12 +70,11 @@ package aletheia
 // // the error and the count written travel back into out.
 // static int8_t call_frame_bin(void *fn, uintptr_t state, struct aletheia_frame frame,
 //     const uint8_t *data, struct aletheia_signal_values values,
-//     const uint32_t *indices, const int64_t *nums, const int64_t *dens,
+//     const uint32_t *indices, const struct aletheia_rational *rationals,
 //     struct aletheia_buffer *out, uint8_t *outData) {
 //     frame.data = data;
 //     values.indices = indices;
-//     values.numerators = nums;
-//     values.denominators = dens;
+//     values.values = rationals;
 //     struct aletheia_buffer buf = {outData, NULL, out->size};
 //     int8_t status = ((int8_t (*)(void*, const struct aletheia_frame*,
 //                                  const struct aletheia_signal_values*,
@@ -302,7 +301,7 @@ func extFlag(id CANID) C.uint8_t {
 // abiVersion is ALETHEIA_ABI_VERSION: the version of the structures and
 // signatures this binding lays out, which the header test holds to the
 // header's.
-const abiVersion = 3
+const abiVersion = 4
 
 // abiVersionError refuses a library whose ABI version is not abiVersion.
 func abiVersionError(found uint32) error {
@@ -318,23 +317,40 @@ type abiField struct {
 	offset uintptr
 }
 
-// abiLayout answers the size and the fields, in declaration order, of each
-// structure the preamble declares, for the test that holds them to the
-// kernel's header.
-func abiLayout() (sizes map[string]uintptr, fields map[string][]abiField) {
+// abiLayout answers the size, the alignment and the fields, in declaration
+// order, of each structure the preamble declares, for the test that holds them
+// to the kernel's header.
+func abiLayout() (sizes, aligns map[string]uintptr, fields map[string][]abiField) {
 	var t C.struct_aletheia_text
 	var f C.struct_aletheia_frame
+	var u C.struct_aletheia_uint128
+	var r C.struct_aletheia_rational
 	var v C.struct_aletheia_signal_values
 	var b C.struct_aletheia_buffer
-	var r C.struct_aletheia_rational
 	var d C.struct_aletheia_decimal
+	var tb C.struct_aletheia_time_bound
+	var pc C.struct_aletheia_property_check
 	sizes = map[string]uintptr{
-		"aletheia_text":          unsafe.Sizeof(t),
-		"aletheia_frame":         unsafe.Sizeof(f),
-		"aletheia_signal_values": unsafe.Sizeof(v),
-		"aletheia_buffer":        unsafe.Sizeof(b),
-		"aletheia_rational":      unsafe.Sizeof(r),
-		"aletheia_decimal":       unsafe.Sizeof(d),
+		"aletheia_text":           unsafe.Sizeof(t),
+		"aletheia_frame":          unsafe.Sizeof(f),
+		"aletheia_uint128":        unsafe.Sizeof(u),
+		"aletheia_rational":       unsafe.Sizeof(r),
+		"aletheia_signal_values":  unsafe.Sizeof(v),
+		"aletheia_buffer":         unsafe.Sizeof(b),
+		"aletheia_decimal":        unsafe.Sizeof(d),
+		"aletheia_time_bound":     unsafe.Sizeof(tb),
+		"aletheia_property_check": unsafe.Sizeof(pc),
+	}
+	aligns = map[string]uintptr{
+		"aletheia_text":           unsafe.Alignof(t),
+		"aletheia_frame":          unsafe.Alignof(f),
+		"aletheia_uint128":        unsafe.Alignof(u),
+		"aletheia_rational":       unsafe.Alignof(r),
+		"aletheia_signal_values":  unsafe.Alignof(v),
+		"aletheia_buffer":         unsafe.Alignof(b),
+		"aletheia_decimal":        unsafe.Alignof(d),
+		"aletheia_time_bound":     unsafe.Alignof(tb),
+		"aletheia_property_check": unsafe.Alignof(pc),
 	}
 	fields = map[string][]abiField{
 		"aletheia_text": {
@@ -353,10 +369,18 @@ func abiLayout() (sizes map[string]uintptr, fields map[string][]abiField) {
 			{"esi_present", unsafe.Offsetof(f.esi_present)},
 			{"esi_value", unsafe.Offsetof(f.esi_value)},
 		},
+		"aletheia_uint128": {
+			{"lo", unsafe.Offsetof(u.lo)},
+			{"hi", unsafe.Offsetof(u.hi)},
+		},
+		"aletheia_rational": {
+			{"numerator", unsafe.Offsetof(r.numerator)},
+			{"denominator", unsafe.Offsetof(r.denominator)},
+			{"negative", unsafe.Offsetof(r.negative)},
+		},
 		"aletheia_signal_values": {
 			{"indices", unsafe.Offsetof(v.indices)},
-			{"numerators", unsafe.Offsetof(v.numerators)},
-			{"denominators", unsafe.Offsetof(v.denominators)},
+			{"values", unsafe.Offsetof(v.values)},
 			{"count", unsafe.Offsetof(v.count)},
 		},
 		"aletheia_buffer": {
@@ -364,16 +388,19 @@ func abiLayout() (sizes map[string]uintptr, fields map[string][]abiField) {
 			{"err", unsafe.Offsetof(b.err)},
 			{"size", unsafe.Offsetof(b.size)},
 		},
-		"aletheia_rational": {
-			{"numerator", unsafe.Offsetof(r.numerator)},
-			{"denominator", unsafe.Offsetof(r.denominator)},
-		},
 		"aletheia_decimal": {
 			{"value", unsafe.Offsetof(d.value)},
 			{"err", unsafe.Offsetof(d.err)},
 		},
+		"aletheia_time_bound": {
+			{"microseconds", unsafe.Offsetof(tb.microseconds)},
+			{"err", unsafe.Offsetof(tb.err)},
+		},
+		"aletheia_property_check": {
+			{"err", unsafe.Offsetof(pc.err)},
+		},
 	}
-	return sizes, fields
+	return sizes, aligns, fields
 }
 
 // wireFrame is the frame's identifier, DLC and payload length, its pointer
@@ -410,26 +437,18 @@ func framePayloadPtr(dlc DLC, data []byte) (*C.uint8_t, error) {
 	return firstOf[C.uint8_t](data), nil
 }
 
-// signalArrays splits one slice of injections into the three parallel arrays
-// the C entry point takes. That shape exists here and nowhere else: the
-// interface above carries one slice, and this is the file that talks to C.
-func signalArrays(signals []SignalInjection) (indices []uint32, nums, dens []int64) {
+// signalArrays splits one slice of injections into the two parallel arrays
+// the C entry point takes, the indices and the rationals. That shape exists
+// here and nowhere else: the interface above carries one slice, and this is
+// the file that talks to C.
+func signalArrays(signals []SignalInjection) (indices []uint32, values []C.struct_aletheia_rational) {
 	indices = make([]uint32, len(signals))
-	nums = make([]int64, len(signals))
-	dens = make([]int64, len(signals))
+	values = make([]C.struct_aletheia_rational, len(signals))
 	for i, s := range signals {
 		indices[i] = s.Index
-		nums[i] = s.Numerator
-		dens[i] = s.Denominator
+		values[i] = wireRational(s.Value)
 	}
-	return indices, nums, dens
-}
-
-// signalArrayPtrs is the head of each array, or three nulls for an empty
-// injection list. The three are built together by signalArrays above, so they
-// are the same length by construction and there is nothing here to check.
-func signalArrayPtrs(indices []uint32, nums, dens []int64) (*C.uint32_t, *C.int64_t, *C.int64_t) {
-	return firstOf[C.uint32_t](indices), firstOf[C.int64_t](nums), firstOf[C.int64_t](dens)
+	return indices, values
 }
 
 // stringResult copies a response the kernel allocated and frees it. A null
@@ -452,23 +471,21 @@ func (b *FFIBackend) binaryStatusError(symbol string, status C.int8_t, outErr *C
 	}
 	envelope := C.GoString(outErr)
 	C.call_free_str(b.freeStrFn, outErr)
-	return binaryRefusal(symbol, envelope)
+	return binaryRefusal(envelope)
 }
 
 // binaryRefusal reads the error a binary-output entry sets on a refusal. It
 // is the error envelope a JSON response carries, with the kernel's code or the
 // shim's ffi_validation_error, so the JSON path's own reading lifts it into
 // the same typed error. Text that is not an envelope, or an envelope that is
-// not an error, is the library malfunctioning.
-func binaryRefusal(symbol, envelope string) error {
+// not an error, is the library malfunctioning, refused in the form of every
+// reply place, which names no entry.
+func binaryRefusal(envelope string) error {
 	m, err := parseResponse(envelope)
 	if err != nil {
 		return err
 	}
-	if err := checkErrorStatus(m); err != nil {
-		return err
-	}
-	return protocolError(fmt.Sprintf("%s refused with a response that is not an error envelope: %s", symbol, envelope))
+	return checkErrorStatus(m)
 }
 
 // Init opens a session and returns its handle, which the kernel owns and
@@ -627,21 +644,21 @@ func (b *FFIBackend) frameBin(
 	symbol string, fn unsafe.Pointer, state State,
 	frame C.struct_aletheia_frame, dataPtr *C.uint8_t, dlc DLC, signals []SignalInjection,
 ) ([]byte, error) {
-	indices, nums, dens := signalArrays(signals)
-	indicesPtr, numsPtr, densPtr := signalArrayPtrs(indices, nums, dens)
+	// The two arrays are built together by signalArrays, so they are the same
+	// length by construction, and both heads are null for no injection.
+	indices, rationals := signalArrays(signals)
 	values := C.struct_aletheia_signal_values{count: C.uint32_t(len(signals))}
 	outBuf := make([]byte, dlc.ToBytes())
 	outBufPtr := firstOf[C.uint8_t](outBuf)
 	out := C.struct_aletheia_buffer{size: C.uint32_t(len(outBuf))}
 
 	status := C.call_frame_bin(fn, C.uintptr_t(state), frame, dataPtr, values,
-		indicesPtr, numsPtr, densPtr, &out, outBufPtr)
+		firstOf[C.uint32_t](indices), firstOf[C.struct_aletheia_rational](rationals), &out, outBufPtr)
 	// Every slice whose pointer crossed stays alive until the call returns:
 	// nothing in Go refers to them after the pointers are taken, so the
 	// collector could otherwise reclaim one while the kernel reads it.
 	runtime.KeepAlive(indices)
-	runtime.KeepAlive(nums)
-	runtime.KeepAlive(dens)
+	runtime.KeepAlive(rationals)
 	runtime.KeepAlive(outBuf)
 	if status != 0 {
 		return nil, b.binaryStatusError(symbol, status, out.err)

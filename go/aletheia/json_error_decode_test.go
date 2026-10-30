@@ -5,7 +5,7 @@ package aletheia
 
 import (
 	"errors"
-	"strings"
+	"slices"
 	"testing"
 )
 
@@ -14,11 +14,9 @@ import (
 // entry a success is, so every reject arm has a case, which the tests driving
 // real traffic never reach.
 
-// requireDegradedCoded holds that a refusal the decoder could not lift is
-// still the generic coded error, carrying the kernel's own code and message. A
-// caller reading either sees what it would have seen before any lift existed,
-// and the decode never fails harder than that.
-func requireDegradedCoded(t *testing.T, err error, code, message string) {
+// requireCodedError holds that a refusal whose code no lift types is the
+// generic coded error, carrying the kernel's own code and message.
+func requireCodedError(t *testing.T, err error, code, message string) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected a coded error, got nil")
@@ -40,30 +38,21 @@ func requireDegradedCoded(t *testing.T, err error, code, message string) {
 
 // An error envelope must name its code and its message, both as strings. The
 // kernel writes both, so a missing or ill-typed one is drift between the
-// binding and the kernel, which a default would hide. A bound refusal whose
-// message is not a string is refused so, rather than lifted with no message.
-func TestRequireString_RejectsErrorEnvelope(t *testing.T) {
-	cases := map[string]struct{ raw, field string }{
-		"missing code":    {`{"status":"error","message":"boom"}`, "code"},
-		"non-string code": {`{"status":"error","code":123,"message":"boom"}`, "code"},
+// binding and the kernel, which a default would hide: it is refused at its
+// place. A bound refusal whose message is not a string is refused so, rather
+// than lifted with no message.
+func TestErrorEnvelope_RefusesACodeOrMessageNotAString(t *testing.T) {
+	cases := map[string]struct{ raw, want string }{
+		"missing code":    {`{"status":"error","message":"boom"}`, "reply code: expected string, got nothing"},
+		"non-string code": {`{"status":"error","code":123,"message":"boom"}`, "reply code: expected string, got number"},
 		"non-string bound refusal message": {
 			`{"status":"error","code":"input_bound_exceeded","message":7,"bound_kind":"nesting_depth","observed":65,"limit":64}`,
-			"message",
+			"reply message: expected string, got number",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := parseSuccessResponse(tc.raw)
-			if err == nil {
-				t.Fatal("expected a protocol error, got nil")
-			}
-			var aErr *Error
-			if !errors.As(err, &aErr) || aErr.Kind != ErrProtocol {
-				t.Errorf("expected an ErrProtocol *Error, got %v", err)
-			}
-			if !strings.Contains(err.Error(), "'"+tc.field+"'") {
-				t.Errorf("error %q does not name the field at fault, %q", err, tc.field)
-			}
+			requireReplyRefusal(t, parseSuccessResponse(tc.raw), tc.want)
 		})
 	}
 }
@@ -113,68 +102,94 @@ func TestValidationFailed_WellFormedEnvelopeLifts(t *testing.T) {
 }
 
 // The two refusals that carry an issues payload lift only when the payload is
-// whole. Each malformed shape leaves the generic coded error instead, and the
-// two refusals are held to the same six shapes, their decoders being the same
-// shape themselves.
-func TestIssueBearingRefusals_MalformedPayloadDegrades(t *testing.T) {
-	shapes := func(code string) map[string]string {
+// whole. Each malformed shape is refused at its place, and the two refusals
+// are held to the same shapes, their decoders being the same shape
+// themselves. A severity outside the two words takes the last arm, warning,
+// and lifts.
+func TestIssueBearingRefusals_MalformedPayloadIsRefused(t *testing.T) {
+	shapes := func(code string) map[string]struct{ raw, want string } {
 		prefix := `{"status":"error","code":"` + code + `","message":"boom"`
-		return map[string]string{
-			"missing has_errors":  prefix + `,"issues":[]}`,
-			"non-bool has_errors": prefix + `,"has_errors":"yes","issues":[]}`,
-			"missing issues":      prefix + `,"has_errors":true}`,
-			"non-array issues":    prefix + `,"has_errors":true,"issues":{}}`,
-			"non-object issue":    prefix + `,"has_errors":true,"issues":[42]}`,
-			"unknown severity":    prefix + `,"has_errors":true,"issues":[{"severity":"fatal","code":"x","detail":"d"}]}`,
+		return map[string]struct{ raw, want string }{
+			"missing has_errors":  {prefix + `,"issues":[]}`, "reply has_errors: expected boolean, got nothing"},
+			"non-bool has_errors": {prefix + `,"has_errors":"yes","issues":[]}`, "reply has_errors: expected boolean, got string"},
+			"missing issues":      {prefix + `,"has_errors":true}`, "reply issues: expected array, got nothing"},
+			"non-array issues":    {prefix + `,"has_errors":true,"issues":{}}`, "reply issues: expected array, got object"},
+			"non-object issue":    {prefix + `,"has_errors":true,"issues":[42]}`, "reply issues: expected object, got number"},
 		}
 	}
 	refusals := map[string]struct {
 		code   string
-		lifted func(error) bool
+		issues func(error) ([]ValidationIssue, bool)
 	}{
-		"validation failed": {CodeHandlerValidationFailed, func(err error) bool {
+		"validation failed": {CodeHandlerValidationFailed, func(err error) ([]ValidationIssue, bool) {
 			var e *ValidationFailedError
-			return errors.As(err, &e)
+			if !errors.As(err, &e) {
+				return nil, false
+			}
+			return e.Issues, true
 		}},
-		"text round trip failed": {CodeHandlerTextRoundtripFailed, func(err error) bool {
+		"text round trip failed": {CodeHandlerTextRoundtripFailed, func(err error) ([]ValidationIssue, bool) {
 			var e *TextRoundTripFailedError
-			return errors.As(err, &e)
+			if !errors.As(err, &e) {
+				return nil, false
+			}
+			return e.Issues, true
 		}},
 	}
 	for refusal, tc := range refusals {
 		t.Run(refusal, func(t *testing.T) {
-			for shape, raw := range shapes(tc.code) {
+			for shape, malformed := range shapes(tc.code) {
 				t.Run(shape, func(t *testing.T) {
-					err := parseSuccessResponse(raw)
-					if tc.lifted(err) {
+					err := parseSuccessResponse(malformed.raw)
+					if _, lifted := tc.issues(err); lifted {
 						t.Errorf("a malformed payload lifted to the typed error: %v", err)
 					}
-					requireDegradedCoded(t, err, tc.code, "boom")
+					requireReplyRefusal(t, err, malformed.want)
 				})
 			}
+			t.Run("unknown severity", func(t *testing.T) {
+				err := parseSuccessResponse(`{"status":"error","code":"` + tc.code + `","message":"boom",` +
+					`"has_errors":true,"issues":[{"severity":"fatal","code":"x","detail":"d"}]}`)
+				issues, lifted := tc.issues(err)
+				want := []ValidationIssue{{Severity: SeverityWarning, Code: "x", Detail: "d"}}
+				if !lifted || !slices.Equal(issues, want) {
+					t.Errorf("got %v, want the typed error over %+v", err, want)
+				}
+			})
 		})
 	}
 }
 
 // A bound refusal lifts only with its kind and both of its numbers well
-// formed, and with its field a string when it names one. The case with a
-// string where a size belongs also drives the arm that refuses a value that
-// is not a wire number at all.
-func TestInputBoundExceeded_MalformedPayloadDegrades(t *testing.T) {
-	cases := map[string]string{
-		"non-string bound_kind": `{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":123,"observed":1,"limit":2}`,
-		"non-number observed":   `{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"NestingDepth","observed":"x","limit":2}`,
-		"non-number limit":      `{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"NestingDepth","observed":1,"limit":"x"}`,
-		"non-string field":      `{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"array_cardinality","observed":3,"limit":2,"field":7}`,
+// formed, and with its field a string when it names one; each broken place is
+// refused there, a string where a size belongs among them.
+func TestInputBoundExceeded_MalformedPayloadIsRefused(t *testing.T) {
+	cases := map[string]struct{ raw, want string }{
+		"non-string bound_kind": {
+			`{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":123,"observed":1,"limit":2}`,
+			"reply bound_kind: expected string, got number",
+		},
+		"non-number observed": {
+			`{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"NestingDepth","observed":"x","limit":2}`,
+			"reply observed: expected number, got string",
+		},
+		"non-number limit": {
+			`{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"NestingDepth","observed":1,"limit":"x"}`,
+			"reply limit: expected number, got string",
+		},
+		"non-string field": {
+			`{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"array_cardinality","observed":3,"limit":2,"field":7}`,
+			"reply field: expected string, got number",
+		},
 	}
-	for name, raw := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := parseSuccessResponse(raw)
+			err := parseSuccessResponse(tc.raw)
 			var bex *InputBoundExceededError
 			if errors.As(err, &bex) {
 				t.Errorf("a malformed payload lifted to the typed error: %v", bex)
 			}
-			requireDegradedCoded(t, err, CodeInputBoundExceeded, "boom")
+			requireReplyRefusal(t, err, tc.want)
 		})
 	}
 }
@@ -209,8 +224,8 @@ func TestInputBoundExceeded_WellFormedEnvelopeLifts(t *testing.T) {
 			if !errors.As(err, &bex) {
 				t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
 			}
-			if bex.BoundKind != tc.kind || bex.Observed != tc.observed || bex.Limit != tc.limit || bex.Field != tc.field {
-				t.Errorf("lifted %s %d / %d field %q, want %s %d / %d field %q",
+			if bex.BoundKind != tc.kind || bex.Observed != (Uint128{Lo: tc.observed}) || bex.Limit != (Uint128{Lo: tc.limit}) || bex.Field != tc.field {
+				t.Errorf("lifted %s %s / %s field %q, want %s %d / %d field %q",
 					bex.BoundKind, bex.Observed, bex.Limit, bex.Field, tc.kind, tc.observed, tc.limit, tc.field)
 			}
 			if bex.Code != CodeInputBoundExceeded {

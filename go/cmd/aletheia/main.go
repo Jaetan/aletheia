@@ -558,10 +558,11 @@ func cmdExtract(argv []string) int {
 // are exact rationals (the kernel sends numerator/denominator), so this preserves
 // that exactness on the wire instead of collapsing to a lossy float.
 func rationalJSON(r aletheia.Rational) any {
-	if r.Denominator == 1 {
-		return r.Numerator
+	numerator := json.Number(aletheia.SignMagnitude{Negative: r.Negative, Magnitude: r.Numerator}.String())
+	if r.Denominator == (aletheia.Uint128{Lo: 1}) {
+		return numerator
 	}
-	return map[string]int64{"numerator": r.Numerator, "denominator": r.Denominator}
+	return map[string]json.Number{"numerator": numerator, "denominator": json.Number(r.Denominator.String())}
 }
 
 // --- signals --------------------------------------------------------------
@@ -608,7 +609,7 @@ func cmdSignals(argv []string) int {
 			if oerr != nil {
 				return die(oerr.Error())
 			}
-			if sig.Offset.Numerator >= 0 {
+			if !sig.Offset.Negative {
 				offsetStr = "+" + offsetStr
 			}
 			fmt.Fprintf(&report, "  %-20s bits[%d:%d] %s %-8s x%s %s %s\n",
@@ -693,7 +694,7 @@ func cmdMuxQuery(argv []string) int {
 		return die("--mux and --value must be provided together")
 	}
 	if *muxName != "" {
-		sigs := msg.SignalsForMuxValue(aletheia.SignalName(*muxName), aletheia.MultiplexValue(*value))
+		sigs := msg.SignalsForMuxValue(aletheia.SignalName(*muxName), aletheia.MultiplexValue{Lo: uint64(*value)})
 		names := signalNames(sigs)
 		if *asJSON {
 			return emitJSON(map[string]any{
@@ -718,7 +719,7 @@ func cmdMuxQuery(argv []string) int {
 			vals := make([]map[string]any, 0)
 			for _, v := range msg.MultiplexValues(name) {
 				vals = append(vals, map[string]any{
-					"value":   uint32(v),
+					"value":   json.Number(v.String()),
 					"signals": signalNames(msg.SignalsForMuxValue(name, v)),
 				})
 			}
@@ -741,7 +742,7 @@ func cmdMuxQuery(argv []string) int {
 		fmt.Fprintf(&report, "  %s:\n", string(name))
 		for _, v := range msg.MultiplexValues(name) {
 			names := signalNames(msg.SignalsForMuxValue(name, v))
-			fmt.Fprintf(&report, "    value %d: %d signals (%s)\n", uint32(v), len(names), strings.Join(names, ", "))
+			fmt.Fprintf(&report, "    value %s: %d signals (%s)\n", v, len(names), strings.Join(names, ", "))
 		}
 	}
 	return emitReport(report.String())

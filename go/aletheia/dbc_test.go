@@ -28,8 +28,8 @@ func parsedClient(t *testing.T, responses ...aletheia.MockResponse) (*aletheia.C
 
 const (
 	sid123        = 0x123
-	speedSignal   = `{"name":"Speed","startBit":0,"length":16,"byteOrder":"little_endian","signed":false,"factor":{"numerator":1,"denominator":10},"offset":0,"minimum":0,"maximum":300,"unit":"km/h","presence":"always"}`
-	rpmSignal     = `{"name":"RPM","startBit":16,"length":16,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":8000,"unit":"rpm","presence":"always"}`
+	speedSignal   = `{"name":"Speed","startBit":0,"length":16,"byteOrder":"little_endian","signed":false,"factor":{"numerator":1,"denominator":10},"offset":0,"minimum":0,"maximum":300,"unit":"km/h","receivers":[],"valueDescriptions":[],"presence":"always"}`
+	rpmSignal     = `{"name":"RPM","startBit":16,"length":16,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":8000,"unit":"rpm","receivers":[],"valueDescriptions":[],"presence":"always"}`
 	zeroPayload8  = "\x00\x00\x00\x00\x00\x00\x00\x00"
 	extractionRsp = `{"status":"success","values":[{"name":"Speed","value":{"numerator":241,"denominator":2}},{"name":"Ratio","value":{"numerator":1,"denominator":3}}],"errors":[{"name":"Broken","error":"bit extraction failed"}],"absent":["Temp"]}`
 )
@@ -48,8 +48,8 @@ func TestParseDBC_SerialisesPresenceAndID(t *testing.T) {
 			{Name: "MuxSelector", StartBit: 0, BitLength: 8, ByteOrder: aletheia.LittleEndian, Presence: aletheia.AlwaysPresent{},
 				Factor: rat(1), Offset: rat(0), Minimum: rat(0), Maximum: rat(3)},
 			{Name: "TempA", StartBit: 8, BitLength: 16, ByteOrder: aletheia.LittleEndian,
-				Presence: aletheia.Multiplexed{Multiplexor: "MuxSelector", MultiplexValues: []aletheia.MultiplexValue{0}},
-				Factor:   aletheia.Rational{Numerator: 1, Denominator: 10}, Offset: rat(-40), Minimum: rat(-40), Maximum: rat(215), Unit: "degC"},
+				Presence: aletheia.Multiplexed{Multiplexor: "MuxSelector", MultiplexValues: []aletheia.MultiplexValue{{Lo: 0}}},
+				Factor:   ratOf(1, 10), Offset: rat(-40), Minimum: rat(-40), Maximum: rat(215), Unit: "degC"},
 		},
 	}}}
 	extendedDBC := aletheia.DBCDefinition{Messages: []aletheia.DBCMessage{{ID: eid, Name: "J1939Msg", DLC: dlc, Sender: "Node"}}}
@@ -116,18 +116,24 @@ func TestValidateDBC_WithIssues(t *testing.T) {
 	}
 }
 
-func TestValidateDBC_UnknownSeverityRejected(t *testing.T) {
+// A severity other than "error" takes the last arm, a warning.
+func TestValidateDBC_UnknownSeverityReadsAsWarning(t *testing.T) {
 	ctx := t.Context()
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"validation","has_errors":false,"issues":[{"severity":"info","code":"empty_message","detail":"x"}]}`))
-	_, err := c.ValidateDBC(ctx, testDBC())
-	requireKind(t, err, aletheia.ErrProtocol)
+	result, err := c.ValidateDBC(ctx, testDBC())
+	if err != nil {
+		t.Fatalf("ValidateDBC: %v", err)
+	}
+	if len(result.Issues) != 1 || result.Issues[0].Severity != aletheia.SeverityWarning {
+		t.Errorf("issues: got %+v, want one warning", result.Issues)
+	}
 }
 
 // FormatDBC decodes every field of the message and its signals.
 func TestFormatDBC(t *testing.T) {
 	ctx := t.Context()
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"2.0","messages":[
-		{"id":291,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU","signals":[`+speedSignal+`,`+rpmSignal+`]}]}}`))
+		{"id":291,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU","senders":[],"signals":[`+speedSignal+`,`+rpmSignal+`]}],`+dbcLists+`}}`))
 	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
@@ -147,7 +153,7 @@ func TestFormatDBC(t *testing.T) {
 	}
 	speed := msg.Signals[0]
 	if speed.Name != "Speed" || speed.StartBit != 0 || speed.BitLength != 16 || speed.ByteOrder != aletheia.LittleEndian ||
-		speed.Factor != (aletheia.Rational{Numerator: 1, Denominator: 10}) || speed.Unit != "km/h" {
+		speed.Factor != (ratOf(1, 10)) || speed.Unit != "km/h" {
 		t.Errorf("signal 0: got %+v", speed)
 	}
 	if msg.Signals[1].Name != "RPM" {
@@ -161,7 +167,7 @@ func TestFormatDBC(t *testing.T) {
 func TestFormatDBC_Shapes(t *testing.T) {
 	ctx := t.Context()
 	t.Run("extended id", func(t *testing.T) {
-		c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(`{"id":419361024,"extended":true,"name":"J1939Msg","dlc":8,"sender":"Node","signals":[]}`)))
+		c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(`{"id":419361024,"extended":true,"name":"J1939Msg","dlc":8,"sender":"Node","senders":[],"signals":[]}`)))
 		dbc, err := c.FormatDBC(ctx)
 		if err != nil {
 			t.Fatalf("FormatDBC: %v", err)
@@ -171,9 +177,9 @@ func TestFormatDBC_Shapes(t *testing.T) {
 		}
 	})
 	t.Run("multiplexed", func(t *testing.T) {
-		c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(`{"id":512,"extended":false,"name":"MuxMsg","dlc":8,"sender":"ECU","signals":[
-			{"name":"MuxSel","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":3,"unit":"","presence":"always"},
-			{"name":"TempA","startBit":8,"length":16,"byteOrder":"little_endian","signed":false,"factor":{"numerator":1,"denominator":10},"offset":-40,"minimum":-40,"maximum":215,"unit":"degC","presence":"multiplexed","multiplexor":"MuxSel","multiplex_values":[0]}]}`)))
+		c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(`{"id":512,"extended":false,"name":"MuxMsg","dlc":8,"sender":"ECU","senders":[],"signals":[
+			{"name":"MuxSel","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":3,"unit":"","receivers":[],"valueDescriptions":[],"presence":"always"},
+			{"name":"TempA","startBit":8,"length":16,"byteOrder":"little_endian","signed":false,"factor":{"numerator":1,"denominator":10},"offset":-40,"minimum":-40,"maximum":215,"unit":"degC","receivers":[],"valueDescriptions":[],"presence":"multiplexed","multiplexor":"MuxSel","multiplex_values":[0]}]}`)))
 		dbc, err := c.FormatDBC(ctx)
 		if err != nil {
 			t.Fatalf("FormatDBC: %v", err)
@@ -186,13 +192,13 @@ func TestFormatDBC_Shapes(t *testing.T) {
 			t.Errorf("MuxSel: expected AlwaysPresent, got %T", sigs[0].Presence)
 		}
 		mux, ok := sigs[1].Presence.(aletheia.Multiplexed)
-		if !ok || mux.Multiplexor != "MuxSel" || len(mux.MultiplexValues) != 1 || mux.MultiplexValues[0] != 0 {
+		if !ok || mux.Multiplexor != "MuxSel" || len(mux.MultiplexValues) != 1 || mux.MultiplexValues[0] != (aletheia.MultiplexValue{}) {
 			t.Errorf("TempA: expected Multiplexed by MuxSel on [0], got %+v", sigs[1].Presence)
 		}
 	})
 	t.Run("full-frame FD signal", func(t *testing.T) {
-		c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(`{"id":100,"extended":false,"name":"Wide","dlc":64,"sender":"ECU","signals":[
-			{"name":"Blob","startBit":0,"length":512,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":0,"unit":"","presence":"always"}]}`)))
+		c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(`{"id":100,"extended":false,"name":"Wide","dlc":64,"sender":"ECU","senders":[],"signals":[
+			{"name":"Blob","startBit":0,"length":512,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":0,"unit":"","receivers":[],"valueDescriptions":[],"presence":"always"}]}`)))
 		dbc, err := c.FormatDBC(ctx)
 		if err != nil {
 			t.Fatalf("FormatDBC: %v", err)
@@ -204,38 +210,33 @@ func TestFormatDBC_Shapes(t *testing.T) {
 	})
 }
 
-// A FormatDBC response the decoder cannot trust is a protocol error, and
-// where the decoder names the reason the message says so.
+// A FormatDBC response the decoder cannot trust is a protocol error naming
+// the place and what came there. A presence word other than "always" takes
+// the multiplexed arm, which then needs its multiplexor.
 func TestFormatDBC_MalformedResponsesAreProtocolErrors(t *testing.T) {
 	ctx := t.Context()
 	sig := func(fields string) string {
 		return oneSignalMessage(`{` + fields + `}`)
 	}
-	const base = `"startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":""`
+	const base = `"startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","receivers":[],"valueDescriptions":[]`
 	cases := map[string]struct {
 		message string
 		want    string
 	}{
-		"invalid byte order":              {sig(`"name":"Sig",` + strings.Replace(base, "little_endian", "middle_endian", 1) + `,"presence":"always"`), ""},
-		"negative id":                     {`{"id":-1,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","signals":[]}`, ""},
-		"missing signal name":             {sig(base + `,"presence":"always"`), ""},
-		"start bit out of range":          {sig(`"name":"Sig",` + strings.Replace(base, `"startBit":0`, `"startBit":600`, 1) + `,"presence":"always"`), "out of range"},
-		"length zero":                     {sig(`"name":"Sig",` + strings.Replace(base, `"length":8`, `"length":0`, 1) + `,"presence":"always"`), "out of range"},
-		"length excessive":                {sig(`"name":"Sig",` + strings.Replace(base, `"length":8`, `"length":513`, 1) + `,"presence":"always"`), "out of range"},
-		"unknown presence":                {sig(`"name":"Sig",` + base + `,"presence":"sometimes"`), "unknown signal presence"},
-		"missing presence":                {sig(`"name":"Sig",` + base), ""},
-		"multiplexed without multiplexor": {sig(`"name":"Sig",` + base + `,"presence":"multiplexed","multiplex_values":[0]`), ""},
-		"multiplex value over u32":        {sig(`"name":"Sig",` + base + `,"presence":"multiplexed","multiplexor":"M","multiplex_values":[5000000000]`), ""},
-		"non-boolean extended":            {`{"id":100,"extended":"true","name":"Msg","dlc":8,"sender":"ECU","signals":[]}`, ""},
-		"empty message name":              {`{"id":100,"extended":false,"name":"","dlc":8,"sender":"ECU","signals":[]}`, ""},
+		"negative id":                     {`{"id":-1,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[]}`, "reply dbc/messages/id: expected number, got number"},
+		"missing signal name":             {sig(base + `,"presence":"always"`), "reply dbc/messages/signals/name: expected string, got nothing"},
+		"unknown presence":                {sig(`"name":"Sig",` + base + `,"presence":"sometimes"`), "reply dbc/messages/signals/multiplexor: expected string, got nothing"},
+		"missing presence":                {sig(`"name":"Sig",` + base), "reply dbc/messages/signals/presence: expected string, got nothing"},
+		"multiplexed without multiplexor": {sig(`"name":"Sig",` + base + `,"presence":"multiplexed","multiplex_values":[0]`), "reply dbc/messages/signals/multiplexor: expected string, got nothing"},
+		"non-boolean extended":            {`{"id":100,"extended":"true","name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[]}`, "reply dbc/messages/extended: expected boolean, got string"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(tc.message)))
 			_, err := c.FormatDBC(ctx)
 			requireKind(t, err, aletheia.ErrProtocol)
-			if tc.want != "" {
-				requireErrorContains(t, err, tc.want)
+			if err.Error() != tc.want {
+				t.Errorf("got %q, want %q", err.Error(), tc.want)
 			}
 		})
 	}
@@ -253,10 +254,10 @@ func TestExtractSignals(t *testing.T) {
 	if len(result.Values) != 2 || result.Values[0].Name != "Speed" {
 		t.Fatalf("values: got %+v", result.Values)
 	}
-	if v, ok := result.Get("Speed"); !ok || v != (aletheia.Rational{Numerator: 241, Denominator: 2}) {
+	if v, ok := result.Get("Speed"); !ok || v != (ratOf(241, 2)) {
 		t.Errorf("Get(Speed) = %v %v, want 241/2", v, ok)
 	}
-	if v, ok := result.Get("Ratio"); !ok || v != (aletheia.Rational{Numerator: 1, Denominator: 3}) {
+	if v, ok := result.Get("Ratio"); !ok || v != (ratOf(1, 3)) {
 		t.Errorf("Get(Ratio) = %v %v, want the exact 1/3", v, ok)
 	}
 	if _, ok := result.Get("Nonexistent"); ok {
@@ -271,7 +272,7 @@ func TestExtractSignals(t *testing.T) {
 }
 
 // An extraction response the decoder cannot trust is refused, as a protocol
-// error where the decoder classifies it.
+// error naming the place and what came there.
 func TestExtractSignals_MalformedResponsesAreRefused(t *testing.T) {
 	ctx := t.Context()
 	cases := map[string]struct {
@@ -279,18 +280,16 @@ func TestExtractSignals_MalformedResponsesAreRefused(t *testing.T) {
 		want     string
 		kind     aletheia.ErrorKind
 	}{
-		"zero denominator":  {`{"status":"success","values":[{"name":"Bad","value":{"numerator":1,"denominator":0}}],"errors":[],"absent":[]}`, "", aletheia.ErrProtocol},
-		"wrong status":      {`{"status":"validation","values":[],"errors":[],"absent":[]}`, "expected success", aletheia.ErrProtocol},
-		"non-string absent": {`{"status":"success","values":[],"errors":[],"absent":[123]}`, "expected string in absent", aletheia.ErrProtocol},
-		"empty signal name": {`{"status":"success","values":[{"name":"","value":42}],"errors":[],"absent":[]}`, "", aletheia.ErrProtocol},
+		"wrong status":      {`{"status":"validation","values":[],"errors":[],"absent":[]}`, `reply status: expected "success" or "error", got "validation"`, aletheia.ErrProtocol},
+		"non-string absent": {`{"status":"success","values":[],"errors":[],"absent":[123]}`, "reply absent: expected string, got number", aletheia.ErrProtocol},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			c, _ := mockClient(t, aletheia.Respond(tc.response))
 			_, err := c.ExtractSignals(ctx, standardID(t, sid123), dlc8(), aletheia.FramePayload(zeroPayload8))
 			requireKind(t, err, tc.kind)
-			if tc.want != "" {
-				requireErrorContains(t, err, tc.want)
+			if err.Error() != tc.want {
+				t.Errorf("got %q, want %q", err.Error(), tc.want)
 			}
 		})
 	}
@@ -300,7 +299,7 @@ func TestExtractSignals_MalformedResponsesAreRefused(t *testing.T) {
 // a byte the wire cannot hold is refused.
 func TestBuildFrame(t *testing.T) {
 	ctx := t.Context()
-	speed := []aletheia.SignalValue{{Name: "Speed", Value: aletheia.Rational{Numerator: 241, Denominator: 2}}}
+	speed := []aletheia.SignalValue{{Name: "Speed", Value: ratOf(241, 2)}}
 	t.Run("payload", func(t *testing.T) {
 		c, _ := parsedClient(t, aletheia.Respond(`{"status":"success","data":[222,173,190,239,0,0,0,0]}`))
 		payload, err := c.BuildFrame(ctx, standardID(t, sid123), dlc8(), speed)
@@ -324,7 +323,7 @@ func TestBuildFrame(t *testing.T) {
 	t.Run("byte out of range", func(t *testing.T) {
 		c, _ := parsedClient(t, aletheia.Respond(`{"status":"success","data":[256,0,0,0,0,0,0,0]}`))
 		_, err := c.BuildFrame(ctx, standardID(t, sid123), dlc8(), speed)
-		requireErrorContains(t, err, "out of range")
+		requireErrorContains(t, err, "reply data: expected number, got number")
 	})
 }
 
@@ -371,15 +370,19 @@ func TestPredicatesSerialise(t *testing.T) {
 	}
 }
 
-// A Between whose minimum exceeds its maximum is a validation error that
-// renders both bounds as exact rationals, not as floats.
+// A Between whose minimum exceeds its maximum is refused by the kernel where
+// it is built, with a validation error that renders both bounds as exact
+// rationals, not as floats.
 func TestBetween_MinExceedsMax(t *testing.T) {
-	ctx := t.Context()
-	c, _ := mockClient(t)
-	err := c.SetProperties(ctx, []aletheia.Formula{aletheia.Atomic{Predicate: aletheia.Between{
-		Signal: "Temp", Min: aletheia.Rational{Numerator: 1, Denominator: 3}, Max: aletheia.IntRational(0)}}})
+	_, err := aletheia.Signal("Temp").Between(ratOf(1, 3), aletheia.IntRational(0))
 	requireKind(t, err, aletheia.ErrValidation)
-	requireErrorContains(t, err, "min (1/3) exceeds max (0)")
+	var e *aletheia.Error
+	if errors.As(err, &e) && e.Code != aletheia.CodeHandlerPropertyRefused {
+		t.Errorf("code %q, want %q", e.Code, aletheia.CodeHandlerPropertyRefused)
+	}
+	if want := "between: min 1/3 exceeds max 0"; err.Error() != want {
+		t.Errorf("got %q, want %q", err.Error(), want)
+	}
 }
 
 func TestFormatDBC_AfterClose(t *testing.T) {
@@ -423,7 +426,7 @@ func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 		t.Fatalf("ExtractSignals did not fall back: %v", err)
 	}
 	if len(result.Values) != 1 || result.Values[0].Name != "Speed" ||
-		result.Values[0].Value != (aletheia.Rational{Numerator: 150, Denominator: 1}) {
+		result.Values[0].Value != (ratOf(150, 1)) {
 		t.Errorf("expected Speed=150 through the JSON fallback, got %+v", result.Values)
 	}
 }

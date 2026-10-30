@@ -175,8 +175,8 @@ func validatePayload(dlc DLC, data FramePayload) error {
 	return nil
 }
 
-// resolveInjections looks up each signal's position in the cached index and pairs it with the exact value to place there.
-// Returns parallel arrays of (indices, numerators, denominators).
+// resolveInjections looks up each signal's position in the cached index and
+// pairs it with the exact value to place there.
 func (c *Client) resolveInjections(signals []SignalValue, id CANID, cmdName string) ([]SignalInjection, error) {
 	if c.signalIndex == nil {
 		return nil, stateError(cmdName + ": no DBC loaded (call ParseDBC first)")
@@ -192,17 +192,9 @@ func (c *Client) resolveInjections(signals []SignalValue, id CANID, cmdName stri
 		if !found {
 			return nil, validationError(fmt.Sprintf("%s: unknown signal %q for CAN ID %d", cmdName, sv.Name, id.Value()))
 		}
-		// SignalValue.Value is an exact Rational (build via IntRational or the
-		// kernel FromDecimal). Validate the denominator the wire requires; a
-		// Rational has no NaN/Inf, so only the denominator needs checking.
-		if err := validateRational(fmt.Sprintf("%s: signal %q", cmdName, sv.Name), sv.Value); err != nil {
-			return nil, err
-		}
-		injections = append(injections, SignalInjection{
-			Index:       uint32(idx),
-			Numerator:   sv.Value.Numerator,
-			Denominator: sv.Value.Denominator,
-		})
+		// The value crosses as written: the kernel refuses a zero denominator
+		// with its own text.
+		injections = append(injections, SignalInjection{Index: uint32(idx), Value: sv.Value})
 	}
 	return injections, nil
 }

@@ -5,16 +5,14 @@ package aletheia
 
 import (
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 )
 
 // descPart is one piece of a check's condition description: literal text, or
-// a threshold rendered later by the kernel's rational renderer. Deferring the
-// rendering keeps check construction infallible; only ConditionDesc can fail,
-// when the GHC runtime is down. Rust (DescPart), C++ (condition_desc_)
-// and Python (_desc_parts) defer the same way.
+// a threshold rendered later by the kernel's rational renderer, when
+// ConditionDesc asks. Rust (DescPart), C++ (condition_desc_) and Python
+// (_desc_parts) defer the same way.
 type descPart struct {
 	lit   string
 	rat   Rational
@@ -34,9 +32,9 @@ func betweenDesc(lo, hi Rational) []descPart {
 	return []descPart{litPart("between "), ratPart(lo), litPart(" and "), ratPart(hi)}
 }
 
-// withinDesc appends " within {ms}ms" to a copy of parts.
-func withinDesc(parts []descPart, timeMs int64) []descPart {
-	return slices.Concat(parts, []descPart{litPart(fmt.Sprintf(" within %dms", timeMs))})
+// withinDesc appends " within {t}µs" to a copy of parts.
+func withinDesc(parts []descPart, t TimeBound) []descPart {
+	return slices.Concat(parts, []descPart{litPart(fmt.Sprintf(" within %dµs", t.Microseconds))})
 }
 
 // renderDesc renders a description, sending every threshold to the kernel
@@ -62,6 +60,13 @@ func renderDesc(parts []descPart) (string, error) {
 
 // CheckResult is what a check builder chain produces: an LTL formula with
 // metadata for display and reporting. The metadata is not sent to the core.
+//
+// Each chain's finishing call hands the formula it made to the kernel's
+// property parse, which refuses a zero denominator, a range whose minimum is
+// above its maximum, a time bound past its limit and a signal name that is no
+// identifier, with the reason set_properties would give. The parse needs the
+// GHC runtime up ([StartRuntime] or a backend), so building a check while it
+// is down fails with [ErrFFI].
 type CheckResult struct {
 	formula    Formula
 	name       string
@@ -96,30 +101,15 @@ func (r CheckResult) SignalName() SignalName { return SignalName(r.signalName) }
 
 // ConditionDesc returns the condition in words, thresholds rendered by the
 // kernel renderer, so it needs the GHC runtime up ([StartRuntime] or a
-// backend) and returns the renderer's error without it. Construction never fails; only this does.
+// backend) and returns the renderer's error without it.
 func (r CheckResult) ConditionDesc() (string, error) { return renderDesc(r.descParts) }
 
-// requireOrdered is the error for an inverted range, nil when lo <= hi; op
-// names the builder in the message, which renders the bounds as the between
-// predicate's refusal does.
-func requireOrdered(op string, lo, hi Rational) error {
-	if ratCmp(lo, hi) <= 0 {
-		return nil
+// checked is the check over f, once the kernel's property parse reads f.
+func checked(f Formula, signalName string, parts []descPart) (CheckResult, error) {
+	if err := checkFormula(f); err != nil {
+		return CheckResult{}, err
 	}
-	return validationError(fmt.Sprintf("%s: lo (%s) must be <= hi (%s)", op,
-		formatRationalExact(lo), formatRationalExact(hi)))
-}
-
-// timeBoundMs converts a millisecond bound to the kernel's microseconds,
-// refusing a negative value and one whose conversion overflows int64.
-func timeBoundMs(timeMs int64) (TimeBound, error) {
-	if timeMs < 0 {
-		return TimeBound{}, validationError(fmt.Sprintf("time must be non-negative, got %d", timeMs))
-	}
-	if timeMs > math.MaxInt64/usPerMillisecond {
-		return TimeBound{}, validationError(fmt.Sprintf("time %d ms overflows microsecond conversion", timeMs))
-	}
-	return TimeBound{Microseconds: timeMs * usPerMillisecond}, nil
+	return CheckResult{formula: f, signalName: signalName, descParts: parts}, nil
 }
 
 // CheckSignalBuilder builds single-signal checks.
@@ -134,47 +124,30 @@ func CheckSignal(name string) CheckSignalBuilder {
 
 // NeverExceeds produces G(signal <= value): the value itself is allowed, as
 // in the core's LessThanOrEqual and in NeverBelow's >=. The value is an exact
-// [Rational] ([IntRational] for an integer, [FromDecimal] for a decimal);
-// construction is infallible.
-func (b CheckSignalBuilder) NeverExceeds(value Rational) CheckResult {
+// [Rational] ([IntRational] for an integer, [FromDecimal] for a decimal).
+func (b CheckSignalBuilder) NeverExceeds(value Rational) (CheckResult, error) {
 	f := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: SignalName(b.name), Value: value}}}
-	return CheckResult{
-		formula: f, signalName: b.name,
-		descParts: opDesc("<= ", value),
-	}
+	return checked(f, b.name, opDesc("<= ", value))
 }
 
-// NeverBelow produces G(signal >= value); construction is infallible.
-func (b CheckSignalBuilder) NeverBelow(value Rational) CheckResult {
+// NeverBelow produces G(signal >= value).
+func (b CheckSignalBuilder) NeverBelow(value Rational) (CheckResult, error) {
 	f := Always{Inner: Atomic{Predicate: GreaterThanOrEqual{Signal: SignalName(b.name), Value: value}}}
-	return CheckResult{
-		formula: f, signalName: b.name,
-		descParts: opDesc(">= ", value),
-	}
+	return checked(f, b.name, opDesc(">= ", value))
 }
 
-// StaysBetween produces G(lo <= signal <= hi), or an error when lo > hi.
+// StaysBetween produces G(lo <= signal <= hi).
 func (b CheckSignalBuilder) StaysBetween(lo, hi Rational) (CheckResult, error) {
-	if err := requireOrdered("stays_between", lo, hi); err != nil {
-		return CheckResult{}, err
-	}
 	f := Always{Inner: Atomic{Predicate: Between{Signal: SignalName(b.name), Min: lo, Max: hi}}}
-	return CheckResult{
-		formula: f, signalName: b.name,
-		descParts: betweenDesc(lo, hi),
-	}, nil
+	return checked(f, b.name, betweenDesc(lo, hi))
 }
 
-// NeverEquals produces G(not (signal = value)); construction is infallible.
-func (b CheckSignalBuilder) NeverEquals(value Rational) CheckResult {
-	f := Never(Equals{Signal: SignalName(b.name), Value: value})
-	return CheckResult{
-		formula: f, signalName: b.name,
-		descParts: opDesc("!= ", value),
-	}
+// NeverEquals produces G(not (signal = value)).
+func (b CheckSignalBuilder) NeverEquals(value Rational) (CheckResult, error) {
+	return checked(Never(Equals{Signal: SignalName(b.name), Value: value}), b.name, opDesc("!= ", value))
 }
 
-// Equals begins an Equals(v).Always() chain; construction is infallible.
+// Equals begins an Equals(v).Always() chain, which Always checks.
 func (b CheckSignalBuilder) Equals(value Rational) CheckSignalPredicate {
 	return CheckSignalPredicate{
 		formula:    Always{Inner: Atomic{Predicate: Equals{Signal: SignalName(b.name), Value: value}}},
@@ -183,10 +156,10 @@ func (b CheckSignalBuilder) Equals(value Rational) CheckSignalPredicate {
 	}
 }
 
-// SettlesBetween begins a SettlesBetween(lo, hi).Within(ms) chain. An
-// inverted range is kept and surfaced by Within, so the chain never breaks.
+// SettlesBetween begins a SettlesBetween(lo, hi).Within(t) chain, which
+// Within checks, so the chain never breaks.
 func (b CheckSignalBuilder) SettlesBetween(lo, hi Rational) SettlesBuilder {
-	return SettlesBuilder{signalName: b.name, lo: lo, hi: hi, rangeErr: requireOrdered("settles_between", lo, hi)}
+	return SettlesBuilder{signalName: b.name, lo: lo, hi: hi}
 }
 
 // CheckSignalPredicate is an intermediate that needs Always to finish.
@@ -197,36 +170,21 @@ type CheckSignalPredicate struct {
 }
 
 // Always completes the check: the predicate holds at every step.
-func (p CheckSignalPredicate) Always() CheckResult {
-	return CheckResult{
-		formula: p.formula, signalName: p.signalName,
-		descParts: p.descParts,
-	}
+func (p CheckSignalPredicate) Always() (CheckResult, error) {
+	return checked(p.formula, p.signalName, p.descParts)
 }
 
 // SettlesBuilder is the intermediate of SettlesBetween().Within().
 type SettlesBuilder struct {
 	signalName string
 	lo, hi     Rational
-	rangeErr   error // set by SettlesBetween when lo > hi, surfaced by Within
 }
 
 // Within completes the check: the signal settles between lo and hi within
-// timeMs milliseconds.
-func (b SettlesBuilder) Within(timeMs int64) (CheckResult, error) {
-	if b.rangeErr != nil {
-		return CheckResult{}, b.rangeErr
-	}
-	bound, err := timeBoundMs(timeMs)
-	if err != nil {
-		return CheckResult{}, err
-	}
-	f := AlwaysWithin(bound, Atomic{Predicate: Between{Signal: SignalName(b.signalName), Min: b.lo, Max: b.hi}})
-	return CheckResult{
-		formula:    f,
-		signalName: b.signalName,
-		descParts:  withinDesc(betweenDesc(b.lo, b.hi), timeMs),
-	}, nil
+// the bound.
+func (b SettlesBuilder) Within(bound TimeBound) (CheckResult, error) {
+	f := MetricAlways{Bound: bound, Inner: Atomic{Predicate: Between{Signal: SignalName(b.signalName), Min: b.lo, Max: b.hi}}}
+	return checked(f, b.signalName, withinDesc(betweenDesc(b.lo, b.hi), bound))
 }
 
 // WhenSignalBuilder builds the trigger side of a causal check.
@@ -290,15 +248,14 @@ func (b ThenSignalBuilder) Exceeds(value Rational) ThenCondition {
 	}
 }
 
-// StaysBetween requires the then-signal to stay between lo and hi. An
-// inverted range is kept and surfaced by Within, so the chain never breaks.
+// StaysBetween requires the then-signal to stay between lo and hi, which
+// Within checks, so the chain never breaks.
 func (b ThenSignalBuilder) StaysBetween(lo, hi Rational) ThenCondition {
 	return ThenCondition{
 		trigger:       b.trigger,
 		thenPred:      Between{Signal: SignalName(b.thenName), Min: lo, Max: hi},
 		thenSignal:    b.thenName,
 		thenDescParts: betweenDesc(lo, hi),
-		rangeErr:      requireOrdered("stays_between", lo, hi),
 	}
 }
 
@@ -308,25 +265,14 @@ type ThenCondition struct {
 	thenPred      Predicate
 	thenSignal    string
 	thenDescParts []descPart
-	rangeErr      error // set by StaysBetween when lo > hi, surfaced by Within
 }
 
-// Within completes the causal check: G(trigger implies F within t (response)).
-func (c ThenCondition) Within(timeMs int64) (CheckResult, error) {
-	if c.rangeErr != nil {
-		return CheckResult{}, c.rangeErr
-	}
-	bound, err := timeBoundMs(timeMs)
-	if err != nil {
-		return CheckResult{}, err
-	}
+// Within completes the causal check: G(trigger implies F within t
+// (response)). It checks the whole formula, trigger included.
+func (c ThenCondition) Within(bound TimeBound) (CheckResult, error) {
 	f := Always{Inner: Implies(
 		Atomic{Predicate: c.trigger},
-		EventuallyWithin(bound, Atomic{Predicate: c.thenPred}),
+		MetricEventually{Bound: bound, Inner: Atomic{Predicate: c.thenPred}},
 	)}
-	return CheckResult{
-		formula:    f,
-		signalName: c.thenSignal,
-		descParts:  withinDesc(c.thenDescParts, timeMs),
-	}, nil
+	return checked(f, c.thenSignal, withinDesc(c.thenDescParts, bound))
 }

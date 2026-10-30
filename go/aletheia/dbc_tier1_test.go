@@ -79,7 +79,10 @@ func tier1DBC(t *testing.T) aletheia.DBCDefinition {
 			Name: "AmbientTemp", VarType: aletheia.DBCVarTypeFloat,
 			Initial: aletheia.IntRational(25), Minimum: aletheia.IntRational(-40), Maximum: aletheia.IntRational(125),
 		}},
-		ValueTables: []aletheia.DBCValueTable{{Name: "GearState", Entries: []aletheia.DBCValueEntry{{Value: 0, Description: "Park"}, {Value: 1, Description: "Reverse"}}}},
+		ValueTables: []aletheia.DBCValueTable{{Name: "GearState", Entries: []aletheia.DBCValueEntry{
+			{Value: aletheia.SignMagnitude{}, Description: "Park"},
+			{Value: aletheia.SignMagnitude{Magnitude: aletheia.Uint128{Lo: 1}}, Description: "Reverse"},
+		}}},
 	}
 }
 
@@ -139,10 +142,11 @@ func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
 func TestFormatDBC_AcceptsTier1Metadata(t *testing.T) {
 	ctx := t.Context()
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"1.0",
-		"messages":[{"id":256,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU","signals":[]}],
+		"messages":[{"id":256,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU","senders":[],"signals":[]}],
 		"signalGroups":[{"name":"EngineGroup","signals":["RPM","Coolant"]}],
 		"environmentVars":[{"name":"AmbientTemp","varType":1,"initial":{"numerator":1,"denominator":3},"minimum":{"numerator":-40,"denominator":1},"maximum":{"numerator":125,"denominator":1}}],
-		"valueTables":[{"name":"GearState","entries":[{"value":0,"description":"Park"},{"value":1,"description":"Reverse"}]}]}}`))
+		"valueTables":[{"name":"GearState","entries":[{"value":0,"description":"Park"},{"value":1,"description":"Reverse"}]}],
+		"nodes":[],"comments":[],"attributes":[],"unresolvedValueDescs":[]}}`))
 	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
@@ -157,37 +161,33 @@ func TestFormatDBC_AcceptsTier1Metadata(t *testing.T) {
 	if ev.Name != "AmbientTemp" || ev.VarType != aletheia.DBCVarTypeFloat {
 		t.Errorf("env var: got (%s, %s)", ev.Name, ev.VarType)
 	}
-	if ev.Initial != (aletheia.Rational{Numerator: 1, Denominator: 3}) || ev.Minimum != aletheia.IntRational(-40) || ev.Maximum != aletheia.IntRational(125) {
+	if ev.Initial != (ratOf(1, 3)) || ev.Minimum != aletheia.IntRational(-40) || ev.Maximum != aletheia.IntRational(125) {
 		t.Errorf("env var bounds: got %v %v %v, want 1/3 -40 125", ev.Initial, ev.Minimum, ev.Maximum)
 	}
 	if len(dbc.ValueTables) != 1 || dbc.ValueTables[0].Name != "GearState" || len(dbc.ValueTables[0].Entries) != 2 ||
-		dbc.ValueTables[0].Entries[0] != (aletheia.DBCValueEntry{Value: 0, Description: "Park"}) {
+		dbc.ValueTables[0].Entries[0] != (aletheia.DBCValueEntry{Value: aletheia.SignMagnitude{}, Description: "Park"}) {
 		t.Errorf("value tables: got %+v", dbc.ValueTables)
 	}
 }
 
-// Tier 1 keys absent from a response decode to nil slices.
-func TestFormatDBC_AcceptsMissingTier1Keys(t *testing.T) {
+// The kernel writes every tier 1 key, so a response lacking one is refused
+// at the first absent key; empty lists decode to nil slices.
+func TestFormatDBC_Tier1Keys(t *testing.T) {
 	ctx := t.Context()
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[]}}`))
+	_, err := c.FormatDBC(ctx)
+	requireKind(t, err, aletheia.ErrProtocol)
+	if want := "reply dbc/signalGroups: expected array, got nothing"; err.Error() != want {
+		t.Errorf("got %q, want %q", err.Error(), want)
+	}
+	c, _ = mockClient(t, aletheia.Respond(formatDBCResponse("")))
 	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
 	if dbc.SignalGroups != nil || dbc.EnvironmentVars != nil || dbc.ValueTables != nil {
-		t.Errorf("expected nil slices for absent keys, got %v %v %v", dbc.SignalGroups, dbc.EnvironmentVars, dbc.ValueTables)
+		t.Errorf("expected nil slices for empty lists, got %v %v %v", dbc.SignalGroups, dbc.EnvironmentVars, dbc.ValueTables)
 	}
-}
-
-// A variable type tag outside the DBC text's three is a protocol error that
-// names the field.
-func TestFormatDBC_RejectsUnknownVarType(t *testing.T) {
-	ctx := t.Context()
-	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[],
-		"environmentVars":[{"name":"Bad","varType":99,"initial":{"numerator":0,"denominator":1},"minimum":{"numerator":0,"denominator":1},"maximum":{"numerator":0,"denominator":1}}]}}`))
-	_, err := c.FormatDBC(ctx)
-	requireKind(t, err, aletheia.ErrProtocol)
-	requireErrorContains(t, err, "varType")
 }
 
 // What the serializer writes for tier 1 metadata, the decoder reads back.

@@ -6,6 +6,7 @@
 package aletheia_test
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func violationAt(ts int64, reason string) aletheia.MockResponse {
 
 // endStreamFailing is an end-of-stream response failing property 0.
 func endStreamFailing(ts int64, reason string) aletheia.MockResponse {
-	return aletheia.Respond(fmt.Sprintf(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":%d,"reason":%q}]}`, ts, reason))
+	return aletheia.Respond(fmt.Sprintf(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":%d,"reason":%q}],"warnings":[]}`, ts, reason))
 }
 
 // firstViolation is the enriched violation a frame response must carry.
@@ -49,7 +50,7 @@ func firstViolation(t *testing.T, resp aletheia.FrameResponse) *aletheia.Propert
 func TestFormatFormula(t *testing.T) {
 	a, b, c := lt("A", 1), lt("B", 2), lt("C", 3)
 	ms := aletheia.TimeBound{Microseconds: 5000}
-	rat := func(n, d int64) aletheia.Rational { return aletheia.Rational{Numerator: n, Denominator: d} }
+	rat := func(n, d int64) aletheia.Rational { return ratOf(n, d) }
 	atom := func(p aletheia.Predicate) aletheia.Formula { return aletheia.Atomic{Predicate: p} }
 	cases := map[string]struct {
 		f    aletheia.Formula
@@ -100,7 +101,7 @@ func TestFormatFormula(t *testing.T) {
 
 // A time bound prints in the largest unit that divides it.
 func TestFormatFormula_MetricTimeBounds(t *testing.T) {
-	cases := map[int64]string{1500000: "1500ms", 1000: "1ms", 1500: "1500μs", 1: "1μs"}
+	cases := map[uint64]string{1500000: "1500ms", 1000: "1ms", 1500: "1500μs", 1: "1μs"}
 	for us, want := range cases {
 		got := aletheia.FormatFormula(aletheia.MetricAlways{Bound: aletheia.TimeBound{Microseconds: us}, Inner: lt("S", 1)})
 		if !strings.Contains(got, want) {
@@ -216,26 +217,6 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	}
 }
 
-// A frame's violation naming a property one past the last, the first index
-// out of range, is warned about and left unenriched rather than read past the
-// diagnostics.
-func TestSendFrame_AnOutOfRangeViolationIsNotEnriched(t *testing.T) {
-	logger, logged := warnLog()
-	c, _ := startedClientOpts(t, []aletheia.Formula{speedBelow220}, []aletheia.MockResponse{
-		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":1,"timestamp":1000,"reason":"test"}]}`),
-	}, logger)
-	b, ok := sendFrame(t, c, 1000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0).(aletheia.PropertyBatch)
-	if !ok || len(b.Results) != 1 {
-		t.Fatalf("expected a one-entry batch, got %+v", b)
-	}
-	if b.Results[0].Enrichment != nil {
-		t.Errorf("the out-of-range violation was enriched: %+v", b.Results[0].Enrichment)
-	}
-	if out := logged.String(); !strings.Contains(out, "enrichment.property_index_oob") || !strings.Contains(out, "index=1") {
-		t.Errorf("expected the warning to name index 1, got:\n%s", out)
-	}
-}
-
 // Past the cache's capacity every violation is still enriched; the
 // extraction is done and not stored.
 func TestSendFrame_CacheBounded(t *testing.T) {
@@ -257,45 +238,57 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 }
 
 // End of stream enriches a failed verdict from the last frame seen on each
-// CAN ID; when that extraction fails the enrichment still carries the
-// formula and falls back to it for the reason.
+// CAN ID.
 func TestEndStream_Enriched(t *testing.T) {
 	ctx := t.Context()
-	cases := map[string]struct {
-		extraction aletheia.MockResponse
-		signals    bool
-		reason     string
-	}{
-		"extraction succeeds": {extractionOf("Speed", 150), true, "Speed = 150"},
-		"extraction fails":    {aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`), false, "violated:"},
+	c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220},
+		aletheia.Respond(`{"status":"ack"}`), endStreamFailing(5000000, "Atomic: predicate failed"), extractionOf("Speed", 150))
+	sendFrame(t, c, 1000, 0, 0, 0, 0, 0, 0, 0, 0)
+	sr, err := c.EndStream(ctx)
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
 	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220},
-				aletheia.Respond(`{"status":"ack"}`), endStreamFailing(5000000, "Atomic: predicate failed"), tc.extraction)
-			sendFrame(t, c, 1000, 0, 0, 0, 0, 0, 0, 0, 0)
-			sr, err := c.EndStream(ctx)
-			if err != nil {
-				t.Fatalf("EndStream: %v", err)
-			}
-			if len(sr.Results) != 1 || sr.Results[0].Verdict != aletheia.Fails || sr.Results[0].Enrichment == nil {
-				t.Fatalf("expected one enriched failing verdict, got %+v", sr.Results)
-			}
-			e := sr.Results[0].Enrichment
-			if e.FormulaDesc != "always(Speed < 220)" {
-				t.Errorf("FormulaDesc = %q", e.FormulaDesc)
-			}
-			if tc.signals && e.Signals["Speed"] != aletheia.IntRational(150) {
-				t.Errorf("Signals = %v, want Speed=150", e.Signals)
-			}
-			if !tc.signals && e.Signals != nil {
-				t.Errorf("Signals = %v, want nil after a failed extraction", e.Signals)
-			}
-			if !strings.Contains(e.EnrichedReason, tc.reason) {
-				t.Errorf("EnrichedReason = %q, want it to contain %q", e.EnrichedReason, tc.reason)
-			}
-		})
+	if len(sr.Results) != 1 || sr.Results[0].Verdict != aletheia.Fails || sr.Results[0].Enrichment == nil {
+		t.Fatalf("expected one enriched failing verdict, got %+v", sr.Results)
 	}
+	e := sr.Results[0].Enrichment
+	if e.FormulaDesc != "always(Speed < 220)" {
+		t.Errorf("FormulaDesc = %q", e.FormulaDesc)
+	}
+	if e.Signals["Speed"] != aletheia.IntRational(150) {
+		t.Errorf("Signals = %v, want Speed=150", e.Signals)
+	}
+	if !strings.Contains(e.EnrichedReason, "Speed = 150") {
+		t.Errorf("EnrichedReason = %q, want it to contain %q", e.EnrichedReason, "Speed = 150")
+	}
+}
+
+// An extraction the enrichment needs and the kernel refuses is returned, by
+// the frame whose violation needs it and by the end of the stream, with the
+// kernel's code and message, rather than the enrichment going without it.
+func TestEnrichment_ARefusedExtractionIsReturned(t *testing.T) {
+	ctx := t.Context()
+	refusal := aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`)
+	requireNoDBC := func(t *testing.T, err error) {
+		t.Helper()
+		var e *aletheia.Error
+		if !errors.As(err, &e) || e.Code != "handler_no_dbc" || e.Message != "no DBC loaded" {
+			t.Fatalf("expected the kernel's handler_no_dbc refusal, got %v", err)
+		}
+	}
+	t.Run("send frame", func(t *testing.T) {
+		c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220}, violationAt(1000, "test"), refusal)
+		f := standardFrame(t, 0x123, 1000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0)
+		_, err := c.SendFrame(ctx, f.Timestamp, f.ID, f.DLC, f.Data, nil, nil)
+		requireNoDBC(t, err)
+	})
+	t.Run("end stream", func(t *testing.T) {
+		c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220},
+			aletheia.Respond(`{"status":"ack"}`), endStreamFailing(5000000, "Atomic: predicate failed"), refusal)
+		sendFrame(t, c, 1000, 0, 0, 0, 0, 0, 0, 0, 0)
+		_, err := c.EndStream(ctx)
+		requireNoDBC(t, err)
+	})
 }
 
 // StartStream clears the extraction cache: the same frame in a second stream

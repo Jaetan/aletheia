@@ -157,7 +157,7 @@ const dbcParsedJSON = `{
 		"version": "1.0",
 		"messages": [{
 			"id": 256, "extended": false, "name": "EngineData", "dlc": 8,
-			"sender": "ECU",
+			"sender": "ECU", "senders": [],
 			"signals": [{
 				"name": "Speed", "startBit": 0, "length": 16,
 				"byteOrder": "little_endian", "signed": false,
@@ -166,10 +166,13 @@ const dbcParsedJSON = `{
 				"minimum": {"numerator": 0, "denominator": 1},
 				"maximum": {"numerator": 300, "denominator": 1},
 				"unit": "kph", "presence": "always",
-				"valueDescriptions": []
+				"receivers": [], "valueDescriptions": []
 			}]
-		}]
-	}
+		}],
+		"signalGroups": [], "environmentVars": [], "valueTables": [], "nodes": [],
+		"comments": [], "attributes": [], "unresolvedValueDescs": []
+	},
+	"warnings": []
 }`
 
 // A workflow through the whole client emits nothing the document does not

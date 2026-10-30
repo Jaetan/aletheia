@@ -107,6 +107,7 @@ var goIssueCodes = []aletheia.IssueCode{
 	aletheia.IssueAttributeEnumEmpty,
 	aletheia.IssueAttributeEnumDefaultUnstable,
 	aletheia.IssueRangeExceedsBits,
+	aletheia.IssueValueDescriptionKeyOutOfRange,
 }
 
 // goErrorCodes is every error code the binding declares.

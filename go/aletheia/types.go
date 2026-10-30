@@ -5,6 +5,7 @@ package aletheia
 
 import (
 	"fmt"
+	"math/big"
 	"time"
 )
 
@@ -23,22 +24,47 @@ type NodeName string
 // Unit is a signal's physical unit, as the definition spells it.
 type Unit string
 
-// Rational is an exact value, a numerator over a positive denominator. Every
-// signal parameter is one, because a scale of a tenth is not a float.
+// Rational is an exact value: a sign, then a numerator over a denominator,
+// each a magnitude up to 2^128-1. Every signal parameter is one, because a
+// scale of a tenth is not a float. A rational the kernel answers has a
+// positive denominator and, when it is zero, Negative false, so two of them
+// compare with ==; one a caller writes is decided by the kernel when it
+// reaches it.
 type Rational struct {
-	Numerator   int64
-	Denominator int64 // always > 0
+	Negative    bool
+	Numerator   Uint128
+	Denominator Uint128
 }
 
-// Float64 converts the rational to a float64.
+// Float64 is the float64 nearest the rational, which is exact only for a
+// value with a short binary expansion: a tenth is not one. A zero
+// denominator answers as float division by zero does.
 func (r Rational) Float64() float64 {
-	return float64(r.Numerator) / float64(r.Denominator)
+	var f float64
+	if r.Denominator == (Uint128{}) {
+		var zero float64
+		f, _ = new(big.Float).SetInt(r.Numerator.bigInt()).Float64()
+		f /= zero
+	} else {
+		f, _ = new(big.Rat).SetFrac(r.Numerator.bigInt(), r.Denominator.bigInt()).Float64()
+	}
+	if r.Negative {
+		return -f
+	}
+	return f
 }
 
 // IntRational is a whole number as an exact rational, which is how a
 // predicate's threshold is written. For a decimal, use [FromDecimal], which
 // parses the text exactly; never build one from a float.
-func IntRational(n int64) Rational { return Rational{Numerator: n, Denominator: 1} }
+func IntRational(n int64) Rational {
+	// The magnitude is taken in the unsigned word, where -2^63 has one.
+	magnitude := uint64(n)
+	if n < 0 {
+		magnitude = -magnitude
+	}
+	return Rational{Negative: n < 0, Numerator: Uint128{Lo: magnitude}, Denominator: Uint128{Lo: 1}}
+}
 
 // Timestamp is a point in time, measured in microseconds since trace start.
 type Timestamp struct {
@@ -59,10 +85,11 @@ func (t Timestamp) validate() error {
 	return nil
 }
 
-// TimeBound is a time duration for metric temporal operators, in microseconds.
-// A zero value is valid and checks only the current time step.
+// TimeBound is a time duration for metric temporal operators, in microseconds,
+// up to the kernel's limit of 2^64-1. A zero value is valid and checks only
+// the current time step.
 type TimeBound struct {
-	Microseconds int64
+	Microseconds uint64
 }
 
 // Duration returns the TimeBound as a time.Duration.
@@ -73,8 +100,8 @@ func (t TimeBound) Duration() time.Duration {
 // PropertyIndex identifies a property by its position in the property list.
 type PropertyIndex uint
 
-// MultiplexValue is a multiplexor selector value.
-type MultiplexValue uint32
+// MultiplexValue is a multiplexor selector value, up to 2^128-1.
+type MultiplexValue = Uint128
 
 // Frame bundles all parameters needed to send a CAN frame during streaming.
 // Use with [Client.SendFrames] for batch operations.

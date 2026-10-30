@@ -79,8 +79,8 @@ func TestLoadChecks_RejectsOversize(t *testing.T) {
 	if bound.Code != aletheia.CodeInputBoundExceeded {
 		t.Errorf("Code: got %q, want %q", bound.Code, aletheia.CodeInputBoundExceeded)
 	}
-	if bound.Limit != aletheia.MaxDBCTextBytes {
-		t.Errorf("Limit: got %d, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
+	if bound.Limit != (aletheia.Uint128{Lo: aletheia.MaxDBCTextBytes}) {
+		t.Errorf("Limit: got %s, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
 	}
 }
 
@@ -130,11 +130,11 @@ func TestLoadChecks_RejectsZipBomb(t *testing.T) {
 		t.Errorf("Code: got %q, want %q", bound.Code, aletheia.CodeInputBoundExceeded)
 	}
 	// The refusal reports what the entries claim, not the bound plus one.
-	if want := uint64(parts) * uint64(len(zeros)); bound.Observed != want {
-		t.Errorf("observed: got %d, want %d, the size the entries claim", bound.Observed, want)
+	if want := (aletheia.Uint128{Lo: uint64(parts) * uint64(len(zeros))}); bound.Observed != want {
+		t.Errorf("observed: got %s, want %s, the size the entries claim", bound.Observed, want)
 	}
-	if bound.Limit != aletheia.MaxDBCTextBytes {
-		t.Errorf("limit: got %d, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
+	if bound.Limit != (aletheia.Uint128{Lo: aletheia.MaxDBCTextBytes}) {
+		t.Errorf("limit: got %s, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
 	}
 }
 
@@ -183,6 +183,31 @@ func TestLoadExcelChecksRejectsNumberCell(t *testing.T) {
 	}
 	_, err := LoadChecks(path)
 	requireErrorContains(t, err, "format it as TEXT")
+}
+
+// TestLoadExcelChecksRejectsTimeNumberCell: the time column is held to the same
+// rule, its microseconds entered as text for the kernel to read.
+func TestLoadExcelChecksRejectsTimeNumberCell(t *testing.T) {
+	f := excelize.NewFile()
+	defer f.Close()
+	if err := f.SetSheetName("Sheet1", "Checks"); err != nil {
+		t.Fatal(err)
+	}
+	for i, h := range checksHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue("Checks", cell, h)
+	}
+	_ = f.SetCellValue("Checks", "B2", "Temp")
+	_ = f.SetCellValue("Checks", "C2", "settles_between")
+	_ = f.SetCellValue("Checks", "E2", "80")
+	_ = f.SetCellValue("Checks", "F2", "100")
+	_ = f.SetCellValue("Checks", "G2", 5000.5) // a number cell, which is refused
+	path := filepath.Join(t.TempDir(), "checks.xlsx")
+	if err := f.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadChecks(path)
+	requireErrorContains(t, err, `row 2: 'Time (µs)' is a number cell (got "5000.5"); format it as TEXT`)
 }
 
 // TestLoadExcelDBCRejectsNumberCell is the DBC-side all-text lock: the Factor

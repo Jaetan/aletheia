@@ -61,8 +61,8 @@ func validateLoaderPath(path, kind string) error {
 func boundExceeded(observed uint64) error {
 	return &aletheia.InputBoundExceededError{
 		BoundKind: aletheia.BoundKindInputLengthBytes,
-		Observed:  observed,
-		Limit:     aletheia.MaxDBCTextBytes,
+		Observed:  aletheia.Uint128{Lo: observed},
+		Limit:     aletheia.Uint128{Lo: aletheia.MaxDBCTextBytes},
 		Code:      aletheia.CodeInputBoundExceeded,
 	}
 }

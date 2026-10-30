@@ -154,7 +154,7 @@ gateRules = do
         -- required mirror, a numeric value mismatch, a BoundKind wire-string
         -- mismatch, or either side holding an entry the other lacks.  It also
         -- holds the reply proof's `replyText` and `replyNonEmpty` rows to the
-        -- word sets and non-empty arrays the Python reader takes.
+        -- word sets and non-empty arrays the Python and Go readers take.
         cmd_ pythonBin "-m" "tools.check_limits_parity"
 
     phony "check-stability-bench" $ do

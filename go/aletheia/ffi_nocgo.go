@@ -106,7 +106,7 @@ func (*FFIBackend) Close(_ State) {}
 
 // formatRationalFFI refuses: the rational printer every binding shares is the
 // kernel's, and FromDecimal in decimal_nocgo.go refuses for the same reason.
-func formatRationalFFI(_ int64, _ int64) (string, error) {
+func formatRationalFFI(_ Rational) (string, error) {
 	return "", ffiError("formatRational requires cgo on linux; build with CGO_ENABLED=1")
 }
 

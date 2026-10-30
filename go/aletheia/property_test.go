@@ -13,6 +13,7 @@ package aletheia
 
 import (
 	"encoding/json"
+	"math/big"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -47,25 +48,24 @@ func propertyRand(t *testing.T) *rand.Rand {
 func TestProperty_RationalRoundTrip(t *testing.T) {
 	property := func(num int32, denomNonZero uint16) bool {
 		denom := int64(denomNonZero) + 1
-		original := Rational{Numerator: int64(num), Denominator: denom}
+		original := ratOf(int64(num), denom)
 		// Wrap in a one-field object and decode via the real wire decoder.
 		bytes, mErr := json.Marshal(map[string]any{"value": serializeRational(original)})
 		if mErr != nil {
-			return true // marshal failure is acceptable; parseRational not reached
+			return true // marshal failure is acceptable; readRational not reached
 		}
 		m, pErr := parseResponse(string(bytes))
 		if pErr != nil {
 			t.Logf("parseResponse(%s) failed: %v", bytes, pErr)
 			return false
 		}
-		parsed, err := parseRational(m["value"])
+		parsed, err := readRational(m["value"], "value")
 		if err != nil {
-			t.Logf("parseRational(%v) failed: %v", m["value"], err)
+			t.Logf("readRational(%v) failed: %v", m["value"], err)
 			return false
 		}
-		// The decoder may return another pair of the same value, so the two
-		// are compared by cross-multiplication rather than by their fields.
-		return original.Numerator*parsed.Denominator == parsed.Numerator*original.Denominator
+		// The reader keeps the pair as written, so the two compare whole.
+		return parsed == original
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 200, Rand: propertyRand(t)}); err != nil {
 		t.Errorf("RationalRoundTrip property failed: %v", err)
@@ -124,18 +124,23 @@ func TestProperty_RationalOrderIsPreserved(t *testing.T) {
 		if a == b {
 			return true
 		}
-		ra, errA := parseRational(json.Number(strconv.FormatInt(a, 10)))
-		rb, errB := parseRational(json.Number(strconv.FormatInt(b, 10)))
+		ra, errA := readRational(json.Number(strconv.FormatInt(a, 10)), "a")
+		rb, errB := readRational(json.Number(strconv.FormatInt(b, 10)), "b")
 		if errA != nil || errB != nil {
 			return true // a number the wire refuses is not a counterexample
 		}
-		if ra.Denominator != 1 || rb.Denominator != 1 {
+		if ra.Denominator != (Uint128{Lo: 1}) || rb.Denominator != (Uint128{Lo: 1}) {
 			return false // an integer is the rational over one
 		}
-		if a < b {
-			return ra.Numerator < rb.Numerator
+		x, okA := SignMagnitude{Negative: ra.Negative, Magnitude: ra.Numerator}.Int64()
+		y, okB := SignMagnitude{Negative: rb.Negative, Magnitude: rb.Numerator}.Int64()
+		if !okA || !okB {
+			return false // an int64 read back is an int64
 		}
-		return ra.Numerator > rb.Numerator
+		if a < b {
+			return x < y
+		}
+		return x > y
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 200, Rand: propertyRand(t)}); err != nil {
 		t.Errorf("the order of two numbers was not preserved: %v", err)
@@ -198,13 +203,11 @@ func TestProperty_DefinitionRoundTripsThroughTheKernel(t *testing.T) {
 		// raw 0 to 2^length - 1, past which the validator refuses the DBC.
 		length := BitLength(rawLength%16 + 1)
 		start := BitPosition(uint16(rawStart) % uint16(64-length+1))
-		factor := Rational{Numerator: int64(rawFactor%1000 + 1), Denominator: 1000}
-		offset := Rational{Numerator: int64(rawOffset), Denominator: 1}
+		factorThousandths := int64(rawFactor%1000 + 1)
+		factor := ratOf(factorThousandths, 1000)
+		offset := ratOf(int64(rawOffset), 1)
 		rawTop := int64(1)<<length - 1
-		maximum := Rational{
-			Numerator:   offset.Numerator*factor.Denominator + rawTop*factor.Numerator,
-			Denominator: factor.Denominator,
-		}
+		maximum := ratOf(int64(rawOffset)*1000+rawTop*factorThousandths, 1000)
 		sid, err := NewStandardID(0x123)
 		if err != nil {
 			return false
@@ -241,10 +244,19 @@ func TestProperty_DefinitionRoundTripsThroughTheKernel(t *testing.T) {
 		}
 		back := got.Messages[0].Signals[0]
 		return back.Name == "Sig" && back.StartBit == start && back.BitLength == length &&
-			back.Factor.Numerator*factor.Denominator == factor.Numerator*back.Factor.Denominator &&
-			back.Offset.Numerator*offset.Denominator == offset.Numerator*back.Offset.Denominator
+			ratValue(back.Factor).Cmp(ratValue(factor)) == 0 && ratValue(back.Offset).Cmp(ratValue(offset)) == 0
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 25, Rand: propertyRand(t)}); err != nil {
 		t.Errorf("a definition did not come back as it was sent: %v", err)
 	}
+}
+
+// ratValue is the value of r, compared exactly whatever pair writes it: the
+// kernel answers a rational in lowest terms, which the one sent need not be.
+func ratValue(r Rational) *big.Rat {
+	v := new(big.Rat).SetFrac(r.Numerator.bigInt(), r.Denominator.bigInt())
+	if r.Negative {
+		v.Neg(v)
+	}
+	return v
 }

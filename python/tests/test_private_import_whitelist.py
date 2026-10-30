@@ -193,7 +193,7 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         (
             "test_reader_casts_reply_tags.py",
             "aletheia.client._response_parsers",
-            "validate_issue_severities",
+            "read_issues",
         ),
         # Each reader refuses a reply missing a key the kernel always writes;
         # the real kernel never sends one, so only a direct call reaches it.

@@ -74,7 +74,13 @@ Aletheia provides:
    auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));  // C++
    ```
    ```go
-   speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))  // Go
+   if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+       panic(err)
+   }
+   speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))  // Go
+   if err != nil {
+       panic(err)
+   }
    ```
    ```rust
    let speed_limit = check::signal("Speed").never_exceeds(220);  // Rust

@@ -181,7 +181,7 @@ func runLoaderScenario(scenario string) {
 		}
 	}()
 	lib := os.Getenv("ALETHEIA_LIB")
-	half := Rational{Numerator: 1, Denominator: 2}
+	half := ratOf(1, 2)
 	switch scenario {
 	case "symbolless":
 		// The loader resolves the ABI version first and reports it by name;
@@ -254,12 +254,10 @@ func runLoaderScenario(scenario string) {
 		expect(err, "aletheia_parse_decimal failed without an error", 35)
 		expectKind(err, ErrProtocol, 36)
 		// With the renderer refusing, the enrichment falls back to the
-		// formula alone and the refusal message's rational to a bare form.
+		// formula alone.
 		diag := PropertyDiagnostic{Signals: []SignalName{"Speed"}, FormulaDesc: "always(Speed < 220)"}
 		values := map[SignalName]Rational{"Speed": half}
 		expectEqual(formatObservedBase(diag, values), "violated: always(Speed < 220)", 37)
-		expectEqual(formatRationalExact(Rational{Numerator: 3, Denominator: 1}), "3", 38)
-		expectEqual(formatRationalExact(Rational{Numerator: 1, Denominator: 3}), "1/3", 39)
 	case "recording-kernel":
 		// The stand-in answers 2^63 plus the reads made before, so the first
 		// two reads of a fresh process set the count's top bit, which a read

@@ -50,7 +50,8 @@ type Error struct {
 	// "Check 'C'" or "Row 2"; empty outside a loader. See [Locate].
 	Location string
 	// Key is the key or column header the refused number sat under, such as
-	// "value" or "Factor"; empty outside a loader.
+	// "value" or "Factor"; empty outside a loader and for a refusal no single
+	// key holds, such as a check its builder refused.
 	Key string
 }
 
@@ -237,8 +238,9 @@ const (
 	// CodeExtractionMuxExtractionFailed — multiplexor extraction step failed.
 	CodeExtractionMuxExtractionFailed = "extraction_mux_extraction_failed"
 	// CodeExtractionValueExceedsWireRange: the extracted exact value's reduced
-	// numerator magnitude or denominator exceeds 9223372036854775807, the
-	// symmetric bound the kernel holds on both extraction paths.
+	// numerator magnitude or denominator exceeds
+	// 340282366920938463463374607431768211455, the bound the kernel holds on
+	// both extraction paths.
 	CodeExtractionValueExceedsWireRange = "extraction_value_exceeds_wire_range"
 
 	// CodeFFIValidationError is the shared library's own refusal of an
@@ -248,12 +250,17 @@ const (
 )
 
 // locatedText is an error's text as it prints: after the location and the
-// key when a loader located it, alone otherwise.
+// key when a loader located it, after the location alone when no key holds
+// the refusal, alone otherwise.
 func locatedText(location, key, text string) string {
-	if location == "" {
+	switch {
+	case location == "":
 		return text
+	case key == "":
+		return location + ": " + text
+	default:
+		return location + ": invalid '" + key + "': " + text
 	}
-	return location + ": invalid '" + key + "': " + text
 }
 
 // Locate is a refusal of the kernel located where a loader read the refused
@@ -273,6 +280,24 @@ func Locate(err error, location, key string) error {
 		located := *e
 		located.Location, located.Key = location, key
 		return &located
+	}
+	return err
+}
+
+// locateRefusal locates a refusal no single key holds, such as a check its
+// builder refused: a coded refusal no reader located gains location and no
+// key; one a reader located, or one without a code (the runtime down, a
+// malformed reply), comes back as it was.
+func locateRefusal(err error, location string) error {
+	switch e := err.(type) {
+	case *Error:
+		if e.Code != "" && e.Location == "" {
+			return Locate(err, location, "")
+		}
+	case *InputBoundExceededError:
+		if e.Location == "" {
+			return Locate(err, location, "")
+		}
 	}
 	return err
 }
@@ -335,12 +360,11 @@ func WrapValidationError(msg string, cause error) *Error {
 type InputBoundExceededError struct {
 	// BoundKind names the bound, one of the BoundKind constants in limits.go.
 	BoundKind string
-	// Observed is the measured value that exceeded the limit, or
-	// math.MaxUint64 when the kernel measured more, its message then saying
-	// "at least".
-	Observed uint64
-	// Limit is the bound itself, which limits.go mirrors from the kernel.
-	Limit uint64
+	// Observed is the measured value that exceeded the limit, or 2^128-1
+	// when the kernel measured more, its message then naming no number.
+	Observed Uint128
+	// Limit is the bound itself.
+	Limit Uint128
 	// Code is the wire error code, always [CodeInputBoundExceeded]: the
 	// decoder lifts this type for no other.
 	Code string
@@ -358,7 +382,7 @@ type InputBoundExceededError struct {
 	// [Error]; empty outside a loader. See [Locate].
 	Location string
 	// Key is the key or column header the refused number sat under; empty
-	// outside a loader.
+	// outside a loader and for a refusal no single key holds.
 	Key string
 }
 
@@ -369,7 +393,7 @@ type InputBoundExceededError struct {
 func (e *InputBoundExceededError) Error() string {
 	text := e.Message
 	if text == "" {
-		text = fmt.Sprintf("%s %d exceeds limit %d", e.BoundKind, e.Observed, e.Limit)
+		text = fmt.Sprintf("%s %s exceeds limit %s", e.BoundKind, e.Observed, e.Limit)
 	}
 	return locatedText(e.Location, e.Key, text)
 }
@@ -377,7 +401,7 @@ func (e *InputBoundExceededError) Error() string {
 // newInputBoundExceededError builds the typed error, for the lifter in
 // json_response.go and for the bounds the binding checks before the call, which name
 // no field and carry no message.
-func newInputBoundExceededError(kind string, observed, limit uint64, code, field, message string) *InputBoundExceededError {
+func newInputBoundExceededError(kind string, observed, limit Uint128, code, field, message string) *InputBoundExceededError {
 	return &InputBoundExceededError{
 		BoundKind: kind,
 		Observed:  observed,

@@ -21,8 +21,9 @@ const (
 	BoundKindAtomCount        = "atom_count"
 	BoundKindPropertyCount    = "property_count"
 
-	// BoundKindRationalComponentMagnitude is a numerator or denominator past
-	// the signed 64-bit range the wire carries.
+	// BoundKindRationalComponentMagnitude is a number past its field's
+	// limit: a rational's numerator or denominator past 2^128-1, or a whole
+	// number past the limit of the field the refusal names.
 	BoundKindRationalComponentMagnitude = "rational_component_magnitude"
 )
 
@@ -95,9 +96,10 @@ const (
 	// MaxPropertiesPerStream bounds the properties one call may install.
 	MaxPropertiesPerStream = 1024
 
-	// MaxRationalComponentMagnitude bounds a numerator or a denominator, at the
-	// signed 64-bit range the binary slots and the decimal parser share.
-	MaxRationalComponentMagnitude = 9223372036854775807
+	// MaxRationalComponentMagnitude bounds the magnitude of a numerator and a
+	// denominator, at 2^128-1, the width of the binary slots. It is an untyped
+	// constant: no Go integer type holds it.
+	MaxRationalComponentMagnitude = 340282366920938463463374607431768211455
 )
 
 // refuseOversize is the binding's refusal of an input of size bytes past
@@ -105,7 +107,7 @@ const (
 // kernel message, so its text is the binding's own.
 func refuseOversize(size, limit uint64) error {
 	if size > limit {
-		return newInputBoundExceededError(BoundKindInputLengthBytes, size, limit, CodeInputBoundExceeded, "", "")
+		return newInputBoundExceededError(BoundKindInputLengthBytes, Uint128{Lo: size}, Uint128{Lo: limit}, CodeInputBoundExceeded, "", "")
 	}
 	return nil
 }

@@ -33,17 +33,15 @@ func WithFFILogger(l *slog.Logger) FFIBackendOption {
 }
 
 // SignalInjection is one signal's position in its message and the exact value
-// to place there, as the numerator and denominator the wire carries. One slice
-// of these crosses the interface where a count and three slices of that length
-// used to, so the three lengths agree by construction and no boundary check
-// stands in for a type. The Rust binding's backend carries the same name for
-// the same thing.
+// to place there. One slice of these crosses the interface where a count and
+// parallel slices of that length used to, so the lengths agree by
+// construction and no boundary check stands in for a type. The Rust binding's
+// backend carries the same name for the same thing.
 type SignalInjection struct {
 	// Index is the signal's position in its message's signal list.
 	Index uint32
-	// Numerator and Denominator are the exact value to place there.
-	Numerator   int64
-	Denominator int64
+	// Value is the exact value to place there.
+	Value Rational
 }
 
 // Backend is the FFI boundary to the Agda core: [FFIBackend] in production,

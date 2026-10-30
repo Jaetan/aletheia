@@ -21,8 +21,8 @@ package aletheia
 #include <stdint.h>
 
 // Cgo trampolines local to this file.
-static char* renderer_call_format_rational(void *fn, struct aletheia_rational value) {
-    return ((char* (*)(const struct aletheia_rational*))fn)(&value);
+static char* renderer_call_format_rational(void *fn, const struct aletheia_rational *value) {
+    return ((char* (*)(const struct aletheia_rational*))fn)(value);
 }
 static void renderer_call_free_str(void *fn, char *ptr) {
     ((void (*)(char*))fn)(ptr);
@@ -34,7 +34,7 @@ import "runtime"
 
 // formatRationalFFI renders a rational through the kernel. With the runtime
 // down it refuses, for the reason at the top of this file.
-func formatRationalFFI(num, denom int64) (string, error) {
+func formatRationalFFI(r Rational) (string, error) {
 	entries, err := startedEntries("rendering")
 	if err != nil {
 		return "", err
@@ -42,8 +42,8 @@ func formatRationalFFI(num, denom int64) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	raw := C.renderer_call_format_rational(entries.formatRational,
-		C.struct_aletheia_rational{numerator: C.int64_t(num), denominator: C.int64_t(denom)})
+	value := wireRational(r)
+	raw := C.renderer_call_format_rational(entries.formatRational, &value)
 	if raw == nil {
 		// A null is the kernel or the boundary malfunctioning, never an answer
 		// about the number: a zero in its place would read as a rendered value.

@@ -91,8 +91,10 @@ func mustDLC(v uint8) aletheia.DLC {
 }
 
 // rat is a shorthand for creating Rational values in benchmark DBC definitions.
-func rat(num, den int64) aletheia.Rational {
-	return aletheia.Rational{Numerator: num, Denominator: den}
+func rat(num int64, den uint64) aletheia.Rational {
+	r := aletheia.IntRational(num)
+	r.Denominator = aletheia.Uint128{Lo: den}
+	return r
 }
 
 func can20DBC() aletheia.DBCDefinition {

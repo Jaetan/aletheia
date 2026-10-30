@@ -211,7 +211,8 @@ func (c *Client) StartStream(ctx context.Context) error {
 // SendFrame sends a CAN frame to the active monitoring stream.
 // Returns Ack or Violation depending on whether any property was violated.
 // Violations are automatically enriched with signal values and a human-readable
-// formula description when diagnostics are available.
+// formula description when diagnostics are available; an extraction the
+// enrichment needs and the kernel refuses is returned as the error.
 // For batch operations, see [Client.SendFrames].
 //
 // CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are
@@ -428,7 +429,9 @@ func (c *Client) sendFrameLocked(
 	if b, ok := fr.(PropertyBatch); ok && c.diags != nil {
 		for i := range b.Results {
 			if b.Results[i].Verdict == Fails {
-				c.enrichStreamingViolation(ctx, &b.Results[i], id, dlc, data)
+				if err := c.enrichStreamingViolation(ctx, &b.Results[i], id, dlc, data); err != nil {
+					return nil, err
+				}
 			}
 		}
 		fr = b
@@ -451,7 +454,8 @@ func (c *Client) sendFrameLocked(
 // EndStream finalizes the monitoring stream and returns verdicts for all properties.
 // Failed and Unresolved verdicts are enriched with signal names, formula description,
 // and the most recent signal values per CAN ID when available. Earlier frames in the
-// stream are not retained.
+// stream are not retained. An extraction the enrichment needs and the kernel
+// refuses is returned as the error, the last frames kept.
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
@@ -468,15 +472,16 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.enrichEndOfStream(ctx, sr.Results)
+	if err := c.enrichEndOfStream(ctx, sr.Results); err != nil {
+		return nil, err
+	}
 	c.lastFrames = nil
 	if c.logger != nil {
+		// Every warning is an uncached atom, the one kind the kernel writes.
 		for _, w := range sr.Warnings {
-			if w.Kind == "uncached_atom" {
-				c.logger.LogAttrs(ctx, slog.LevelWarn, "endstream.uncached_atom",
-					slog.Int("property_index", w.PropertyIndex),
-					slog.String("detail", w.Detail))
-			}
+			c.logger.LogAttrs(ctx, slog.LevelWarn, "endstream.uncached_atom",
+				slog.Int("property_index", w.PropertyIndex),
+				slog.String("detail", w.Detail))
 		}
 		numFails, numUnresolved := 0, 0
 		for _, r := range sr.Results {

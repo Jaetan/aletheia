@@ -10,7 +10,9 @@ package aletheia
 // Every value a predicate carries is an exact [Rational], never a float, which
 // is what lets the kernel decide the comparison rather than approximate it.
 // Build one with [IntRational] for a whole number, or with [FromDecimal] for
-// decimal text, which the kernel parses.
+// decimal text, which the kernel parses. The types and their fields are open
+// to literals; a [SignalBuilder] method checks what it builds where it is
+// called, and a literal is checked at set_properties.
 type Predicate interface {
 	predicate() // sealed
 }
@@ -90,48 +92,62 @@ type SignalBuilder struct {
 // [Eventually] and the rest through it.
 func Signal(name string) SignalBuilder { return SignalBuilder{name: SignalName(name)} }
 
-// None of these can fail. A threshold is already an exact rational, and the
-// two that can be asked for something impossible, a range whose minimum is
-// above its maximum and a negative tolerance, are refused where the property
-// is serialised, which is the one place every route to a predicate passes
-// through: a caller may also write the value directly.
+// Each of these hands the predicate it made to the kernel's property parse,
+// which refuses a zero denominator, a range whose minimum is above its
+// maximum, a negative tolerance and a signal name that is no identifier with
+// the reason set_properties would give, so a predicate is refused where it is
+// built. The parse needs the GHC runtime up ([StartRuntime] or a backend);
+// while it is down each fails with [ErrFFI]. A predicate written as a literal
+// skips this and is refused at set_properties instead.
+
+// checkedPredicate is p once the kernel's property parse reads it.
+func checkedPredicate(p Predicate) (Predicate, error) {
+	if err := checkFormula(Atomic{Predicate: p}); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
 
 // Equals holds when the signal's value is exactly v.
-func (s SignalBuilder) Equals(v Rational) Predicate { return Equals{Signal: s.name, Value: v} }
+func (s SignalBuilder) Equals(v Rational) (Predicate, error) {
+	return checkedPredicate(Equals{Signal: s.name, Value: v})
+}
 
 // LessThan holds when the value is below v.
-func (s SignalBuilder) LessThan(v Rational) Predicate { return LessThan{Signal: s.name, Value: v} }
+func (s SignalBuilder) LessThan(v Rational) (Predicate, error) {
+	return checkedPredicate(LessThan{Signal: s.name, Value: v})
+}
 
 // GreaterThan holds when the value is above v.
-func (s SignalBuilder) GreaterThan(v Rational) Predicate {
-	return GreaterThan{Signal: s.name, Value: v}
+func (s SignalBuilder) GreaterThan(v Rational) (Predicate, error) {
+	return checkedPredicate(GreaterThan{Signal: s.name, Value: v})
 }
 
 // LessThanOrEqual holds when the value is at most v.
-func (s SignalBuilder) LessThanOrEqual(v Rational) Predicate {
-	return LessThanOrEqual{Signal: s.name, Value: v}
+func (s SignalBuilder) LessThanOrEqual(v Rational) (Predicate, error) {
+	return checkedPredicate(LessThanOrEqual{Signal: s.name, Value: v})
 }
 
 // GreaterThanOrEqual holds when the value is at least v.
-func (s SignalBuilder) GreaterThanOrEqual(v Rational) Predicate {
-	return GreaterThanOrEqual{Signal: s.name, Value: v}
+func (s SignalBuilder) GreaterThanOrEqual(v Rational) (Predicate, error) {
+	return checkedPredicate(GreaterThanOrEqual{Signal: s.name, Value: v})
 }
 
 // Between holds when the value is at least lo and at most hi.
-func (s SignalBuilder) Between(lo, hi Rational) Predicate {
-	return Between{Signal: s.name, Min: lo, Max: hi}
+func (s SignalBuilder) Between(lo, hi Rational) (Predicate, error) {
+	return checkedPredicate(Between{Signal: s.name, Min: lo, Max: hi})
 }
 
 // ChangedBy holds when the signal moved by at least delta since the previous
 // frame, a positive delta asking for a rise and a negative one for a fall.
-func (s SignalBuilder) ChangedBy(delta Rational) Predicate {
-	return ChangedBy{Signal: s.name, Delta: delta}
+func (s SignalBuilder) ChangedBy(delta Rational) (Predicate, error) {
+	return checkedPredicate(ChangedBy{Signal: s.name, Delta: delta})
 }
 
 // StableWithin holds when the signal stayed within tolerance of its value in
 // the previous frame.
-func (s SignalBuilder) StableWithin(tolerance Rational) Predicate {
-	return StableWithin{Signal: s.name, Tolerance: tolerance}
+func (s SignalBuilder) StableWithin(tolerance Rational) (Predicate, error) {
+	return checkedPredicate(StableWithin{Signal: s.name, Tolerance: tolerance})
 }
 
 // Formula is a property over a trace of frames, built from predicates. Only
@@ -220,13 +236,24 @@ func Never(p Predicate) Formula {
 }
 
 // AlwaysWithin holds when the formula holds at every frame inside the bound.
-func AlwaysWithin(bound TimeBound, f Formula) Formula {
-	return MetricAlways{Bound: bound, Inner: f}
+// The kernel's property parse reads the formula, the bound included, as the
+// predicate builders' does.
+func AlwaysWithin(bound TimeBound, f Formula) (Formula, error) {
+	return checkedFormula(MetricAlways{Bound: bound, Inner: f})
 }
 
-// EventuallyWithin holds when the formula holds at some frame inside the bound.
-func EventuallyWithin(bound TimeBound, f Formula) Formula {
-	return MetricEventually{Bound: bound, Inner: f}
+// EventuallyWithin holds when the formula holds at some frame inside the
+// bound, read by the kernel's property parse as AlwaysWithin's is.
+func EventuallyWithin(bound TimeBound, f Formula) (Formula, error) {
+	return checkedFormula(MetricEventually{Bound: bound, Inner: f})
+}
+
+// checkedFormula is f once the kernel's property parse reads it.
+func checkedFormula(f Formula) (Formula, error) {
+	if err := checkFormula(f); err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 // Implies holds when the consequent holds at every frame the antecedent does,

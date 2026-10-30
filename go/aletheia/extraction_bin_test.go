@@ -21,10 +21,11 @@ import (
 	"testing"
 )
 
-// binVal is one Values-segment entry: (idx:u16, num:i64, den:i64).
+// binVal is one Values-segment entry: (idx:u16, negative:u8, num:u128,
+// den:u128), the value's sign, numerator and denominator.
 type binVal struct {
-	idx      uint16
-	num, den int64
+	idx   uint16
+	value Rational
 }
 
 // binErr is one Errors-segment entry: (idx:u16, code:u8).
@@ -38,7 +39,7 @@ type binErr struct {
 // from len(blob); offsets are written verbatim, so invariant-violating
 // buffers (bad first offset, non-monotone, end mismatch) can be crafted.
 func buildExtractionBin(vals []binVal, errs []binErr, offsets []uint32, blob []byte, absent []uint16) []byte {
-	buf := make([]byte, 10+18*len(vals)+3*len(errs)+4*len(offsets)+len(blob)+2*len(absent))
+	buf := make([]byte, 10+35*len(vals)+3*len(errs)+4*len(offsets)+len(blob)+2*len(absent))
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(vals)))
 	binary.LittleEndian.PutUint16(buf[2:4], uint16(len(errs)))
 	binary.LittleEndian.PutUint16(buf[4:6], uint16(len(absent)))
@@ -46,9 +47,8 @@ func buildExtractionBin(vals []binVal, errs []binErr, offsets []uint32, blob []b
 	off := 10
 	for _, v := range vals {
 		binary.LittleEndian.PutUint16(buf[off:off+2], v.idx)
-		binary.LittleEndian.PutUint64(buf[off+2:off+10], uint64(v.num))
-		binary.LittleEndian.PutUint64(buf[off+10:off+18], uint64(v.den))
-		off += 18
+		putBinValue(buf[off+2:], v.value)
+		off += 35
 	}
 	for _, e := range errs {
 		binary.LittleEndian.PutUint16(buf[off:off+2], e.idx)
@@ -65,6 +65,19 @@ func buildExtractionBin(vals []binVal, errs []binErr, offsets []uint32, blob []b
 		off += 2
 	}
 	return buf
+}
+
+// putBinValue writes a rational as the wire carries it: its sign byte, then
+// its numerator and its denominator, each a u128 as its low u64 then its high
+// u64.
+func putBinValue(b []byte, r Rational) {
+	if r.Negative {
+		b[0] = 1
+	}
+	binary.LittleEndian.PutUint64(b[1:9], r.Numerator.Lo)
+	binary.LittleEndian.PutUint64(b[9:17], r.Numerator.Hi)
+	binary.LittleEndian.PutUint64(b[17:25], r.Denominator.Lo)
+	binary.LittleEndian.PutUint64(b[25:33], r.Denominator.Hi)
 }
 
 // binExtractionErrors builds an errors-only buffer carrying the reasons,
@@ -114,7 +127,7 @@ func TestParseExtractionBin_HappyPathWireReasons(t *testing.T) {
 	r1 := "signal 'Tempé' not found in message"            // é is 2 bytes in UTF-8
 	r2 := "value out of bounds: 16383.75 not in [0, 8000]" // distinct from r1
 	buf := buildExtractionBin(
-		[]binVal{{idx: 0, num: 5, den: 2}},
+		[]binVal{{idx: 0, value: ratOf(5, 2)}},
 		[]binErr{{idx: 1, code: 0}, {idx: 2, code: 1}},
 		[]uint32{0, uint32(len(r1)), uint32(len(r1) + len(r2))},
 		[]byte(r1+r2),
@@ -125,7 +138,7 @@ func TestParseExtractionBin_HappyPathWireReasons(t *testing.T) {
 		t.Fatalf("parseExtractionBin: %v", err)
 	}
 	if len(res.Values) != 1 || res.Values[0].Name != "Speed" ||
-		res.Values[0].Value != (Rational{Numerator: 5, Denominator: 2}) {
+		res.Values[0].Value != (ratOf(5, 2)) {
 		t.Errorf("Values = %+v, want [{Speed 5/2}]", res.Values)
 	}
 	if len(res.Errors) != 2 {
@@ -165,7 +178,7 @@ func TestParseExtractionBin_UnknownCodeTransported(t *testing.T) {
 // With no errors the offsets table is still there, the single entry zero,
 // and the buffer decodes to no errors.
 func TestParseExtractionBin_ZeroErrorsSingleOffsetEntry(t *testing.T) {
-	buf := buildExtractionBin([]binVal{{idx: 0, num: 7, den: 1}}, nil, []uint32{0}, nil, nil)
+	buf := buildExtractionBin([]binVal{{idx: 0, value: ratOf(7, 1)}}, nil, []uint32{0}, nil, nil)
 	res, err := parseExtractionBin(buf, []string{"Sig"})
 	if err != nil {
 		t.Fatalf("parseExtractionBin: %v", err)
@@ -173,7 +186,7 @@ func TestParseExtractionBin_ZeroErrorsSingleOffsetEntry(t *testing.T) {
 	if len(res.Errors) != 0 {
 		t.Errorf("Errors = %+v, want empty", res.Errors)
 	}
-	if len(res.Values) != 1 || res.Values[0].Value != (Rational{Numerator: 7, Denominator: 1}) {
+	if len(res.Values) != 1 || res.Values[0].Value != (ratOf(7, 1)) {
 		t.Errorf("Values = %+v, want [{Sig 7/1}]", res.Values)
 	}
 }
@@ -212,7 +225,7 @@ func TestParseExtractionBin_TheSmallestBufferAndAnEmptyReason(t *testing.T) {
 // decreases, or ends anywhere but at the reason bytes the header declares,
 // and a reason slice that is not UTF-8, which every binding refuses.
 func TestParseExtractionBin_RefusesMalformedBuffers(t *testing.T) {
-	good := buildExtractionBin([]binVal{{idx: 0, num: 1, den: 2}}, nil, []uint32{0}, nil, nil)
+	good := buildExtractionBin([]binVal{{idx: 0, value: ratOf(1, 2)}}, nil, []uint32{0}, nil, nil)
 	if _, err := parseExtractionBin(good, []string{"Sig"}); err != nil {
 		t.Fatalf("the control buffer must decode: %v", err)
 	}
@@ -255,9 +268,9 @@ func (b *corruptBinBackend) ExtractSignalsBin(_ State, _ CANID, _ DLC, _ []byte)
 }
 
 // A binary extraction that returns a buffer that does not parse, or fails with
-// anything but the fallback sentinel, yields no result and one warning naming
-// the failure; the JSON path is not tried.
-func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
+// anything but the fallback sentinel, is returned as the error with one
+// warning naming the failure; the JSON path is not tried.
+func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndReturned(t *testing.T) {
 	ctx := t.Context()
 	cases := map[string]struct {
 		buf   []byte
@@ -282,8 +295,12 @@ func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
 			dlc, _ := NewDLC(8)
 			c.signalNames = map[uint64][]string{canIDKey(sid): {"S"}}
 
-			if got := c.extractSignalsLocked(ctx, sid, dlc, FramePayload{0, 0, 0, 0, 0, 0, 0, 0}); got != nil {
-				t.Errorf("expected no result, got %+v", got)
+			got, err := c.extractSignalsLocked(ctx, sid, dlc, FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
+			if got != nil || err == nil {
+				t.Errorf("expected the refusal and no result, got %+v, %v", got, err)
+			}
+			if tc.err != nil && !errors.Is(err, tc.err) {
+				t.Errorf("expected the backend's error, got %v", err)
 			}
 			if !strings.Contains(logged.String(), tc.event) {
 				t.Errorf("expected %s in the log, got %q", tc.event, logged.String())
@@ -296,33 +313,39 @@ func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
 }
 
 // binExtractionValue builds a buffer holding one value and nothing else: the
-// header, the value as its index and its numerator and denominator, and the
-// single offsets entry zero.
-func binExtractionValue(num, den int64) []byte {
-	buf := make([]byte, 10+18+4)
-	binary.LittleEndian.PutUint16(buf[0:2], 1) // one value
-	// The error and absent counts, the reason bytes and the single offsets
-	// entry are all zero already.
-	binary.LittleEndian.PutUint16(buf[10:12], 0) // the value's signal index
-	binary.LittleEndian.PutUint64(buf[12:20], uint64(num))
-	binary.LittleEndian.PutUint64(buf[20:28], uint64(den))
-	return buf
+// header, the value at signal index zero, and the single offsets entry zero.
+func binExtractionValue(value Rational) []byte {
+	return buildExtractionBin([]binVal{{idx: 0, value: value}}, nil, []uint32{0}, nil, nil)
 }
 
-// A denominator of zero or less is a corrupt buffer, not a value: the binary
-// path refuses it as the JSON path does, rather than building a rational the
-// kernel renderer would be handed.
-func TestParseExtractionBin_RejectsNonPositiveDenominator(t *testing.T) {
-	for _, den := range []int64{0, -3} {
-		if _, err := parseExtractionBin(binExtractionValue(1, den), []string{"Sig"}); err == nil {
-			t.Errorf("den=%d: expected an error for a non-positive denominator, got nil", den)
+// A value is read as the wire writes it: its sign byte, any byte but 0 being
+// negative, and both 128-bit words of its numerator and its denominator, the
+// high word included. A zero numerator is unsigned whatever its sign byte, as
+// the JSON path reads it.
+func TestParseExtractionBin_ReadsTheValueAsWritten(t *testing.T) {
+	wide := Rational{Negative: true, Numerator: Uint128{Hi: 1, Lo: 2}, Denominator: Uint128{Hi: 3, Lo: 4}}
+	withSign := func(r Rational, sign byte) []byte {
+		buf := binExtractionValue(r)
+		buf[extractionHeaderSize+2] = sign
+		return buf
+	}
+	cases := map[string]struct {
+		buf  []byte
+		want Rational
+	}{
+		"a third":            {binExtractionValue(ratOf(1, 3)), ratOf(1, 3)},
+		"both words, signed": {binExtractionValue(wide), wide},
+		"a sign byte but 0":  {withSign(ratOf(1, 3), 0x80), ratOf(-1, 3)},
+		"a signed zero":      {withSign(ratOf(0, 1), 1), ratOf(0, 1)},
+	}
+	for name, tc := range cases {
+		res, err := parseExtractionBin(tc.buf, []string{"Sig"})
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", name, err)
+			continue
 		}
-	}
-	res, err := parseExtractionBin(binExtractionValue(1, 3), []string{"Sig"})
-	if err != nil {
-		t.Fatalf("den=3: unexpected error: %v", err)
-	}
-	if want := (Rational{Numerator: 1, Denominator: 3}); res.Values[0].Value != want {
-		t.Errorf("got %v, want %v", res.Values[0].Value, want)
+		if len(res.Values) != 1 || res.Values[0].Value != tc.want {
+			t.Errorf("%s: got %+v, want %+v", name, res.Values, tc.want)
+		}
 	}
 }

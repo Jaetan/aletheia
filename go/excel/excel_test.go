@@ -218,9 +218,16 @@ func mustCheck(r aletheia.CheckResult, err error) aletheia.CheckResult {
 	return r
 }
 
+// ratOf is the exact rational n over d, carrying the quotient's sign, for the
+// small values the tests write.
+func ratOf(n, d int64) aletheia.Rational {
+	num, den := aletheia.IntRational(n), aletheia.IntRational(d)
+	return aletheia.Rational{Negative: num.Negative != den.Negative && n != 0, Numerator: num.Numerator, Denominator: den.Numerator}
+}
+
 // TestLoadExcelSimpleConditions: a row of the simple sheet builds the check the
 // fluent builder of that condition builds. The columns are check name, signal,
-// condition, value, minimum, maximum, time and severity.
+// condition, value, minimum, maximum, time in microseconds and severity.
 func TestLoadExcelSimpleConditions(t *testing.T) {
 	for _, c := range []struct {
 		condition string
@@ -231,45 +238,44 @@ func TestLoadExcelSimpleConditions(t *testing.T) {
 			condition: "never_exceeds",
 			row:       []any{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 			want: func() aletheia.CheckResult {
-				return aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+				return mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220)))
 			},
 		},
 		{
 			condition: "never_below",
 			row:       []any{nil, "Voltage", "never_below", 11.5, nil, nil, nil, nil},
 			want: func() aletheia.CheckResult {
-				return aletheia.CheckSignal("Voltage").NeverBelow(aletheia.Rational{Numerator: 23, Denominator: 2})
+				return mustCheck(aletheia.CheckSignal("Voltage").NeverBelow(ratOf(23, 2)))
 			},
 		},
 		{
 			condition: "never_equals",
 			row:       []any{nil, "ErrorCode", "never_equals", 255, nil, nil, nil, nil},
 			want: func() aletheia.CheckResult {
-				return aletheia.CheckSignal("ErrorCode").NeverEquals(aletheia.IntRational(255))
+				return mustCheck(aletheia.CheckSignal("ErrorCode").NeverEquals(aletheia.IntRational(255)))
 			},
 		},
 		{
 			condition: "equals",
 			row:       []any{nil, "Gear", "equals", 0, nil, nil, nil, nil},
 			want: func() aletheia.CheckResult {
-				return aletheia.CheckSignal("Gear").Equals(aletheia.IntRational(0)).Always()
+				return mustCheck(aletheia.CheckSignal("Gear").Equals(aletheia.IntRational(0)).Always())
 			},
 		},
 		{
 			condition: "stays_between",
 			row:       []any{nil, "Voltage", "stays_between", nil, 11.5, 14.5, nil, nil},
 			want: func() aletheia.CheckResult {
-				return mustCheck(aletheia.CheckSignal("Voltage").StaysBetween(
-					aletheia.Rational{Numerator: 23, Denominator: 2},
-					aletheia.Rational{Numerator: 29, Denominator: 2}))
+				return mustCheck(aletheia.CheckSignal("Voltage").StaysBetween(ratOf(23, 2), ratOf(29, 2)))
 			},
 		},
 		{
 			condition: "settles_between",
-			row:       []any{nil, "CoolantTemp", "settles_between", nil, 80, 100, 5000, nil},
+			row:       []any{nil, "CoolantTemp", "settles_between", nil, 80, 100, 5_000_000, nil},
 			want: func() aletheia.CheckResult {
 				return mustCheck(aletheia.CheckSignal("CoolantTemp").
-					SettlesBetween(aletheia.IntRational(80), aletheia.IntRational(100)).Within(5000))
+					SettlesBetween(aletheia.IntRational(80), aletheia.IntRational(100)).
+					Within(aletheia.TimeBound{Microseconds: 5_000_000}))
 			},
 		},
 	} {
@@ -283,7 +289,7 @@ func TestLoadExcelSimpleConditions(t *testing.T) {
 // TestLoadExcelWhenThenChecks: a row of the when-then sheet builds the check the
 // fluent builder builds. The columns are check name, the when signal, condition
 // and value, the then signal, condition, value, minimum and maximum, the time
-// within which it must hold, and severity.
+// in microseconds within which it must hold, and severity.
 func TestLoadExcelWhenThenChecks(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -292,26 +298,27 @@ func TestLoadExcelWhenThenChecks(t *testing.T) {
 	}{
 		{
 			name: "exceeds then equals",
-			row:  []any{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
+			row:  []any{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100_000, nil},
 			want: func() aletheia.CheckResult {
 				return mustCheck(aletheia.CheckWhen("BrakePedal").Exceeds(aletheia.IntRational(50)).
-					Then("BrakeLight").Equals(aletheia.IntRational(1)).Within(100))
+					Then("BrakeLight").Equals(aletheia.IntRational(1)).Within(aletheia.TimeBound{Microseconds: 100_000}))
 			},
 		},
 		{
 			name: "equals then exceeds",
-			row:  []any{nil, "Ignition", "equals", 1, "RPM", "exceeds", 500, nil, nil, 2000, nil},
+			row:  []any{nil, "Ignition", "equals", 1, "RPM", "exceeds", 500, nil, nil, 2_000_000, nil},
 			want: func() aletheia.CheckResult {
 				return mustCheck(aletheia.CheckWhen("Ignition").Equals(aletheia.IntRational(1)).
-					Then("RPM").Exceeds(aletheia.IntRational(500)).Within(2000))
+					Then("RPM").Exceeds(aletheia.IntRational(500)).Within(aletheia.TimeBound{Microseconds: 2_000_000}))
 			},
 		},
 		{
 			name: "drops below then stays between",
-			row:  []any{nil, "FuelLevel", "drops_below", 10, "FuelWarning", "stays_between", nil, 1, 1, 50, nil},
+			row:  []any{nil, "FuelLevel", "drops_below", 10, "FuelWarning", "stays_between", nil, 1, 1, 50_000, nil},
 			want: func() aletheia.CheckResult {
 				return mustCheck(aletheia.CheckWhen("FuelLevel").DropsBelow(aletheia.IntRational(10)).
-					Then("FuelWarning").StaysBetween(aletheia.IntRational(1), aletheia.IntRational(1)).Within(50))
+					Then("FuelWarning").StaysBetween(aletheia.IntRational(1), aletheia.IntRational(1)).
+					Within(aletheia.TimeBound{Microseconds: 50_000}))
 			},
 		},
 	} {
@@ -373,7 +380,7 @@ func TestLoadExcelMetadata(t *testing.T) {
 		{
 			name:         "both, on the when-then sheet",
 			build:        makeWhenThenWorkbook,
-			row:          []any{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, "safety"},
+			row:          []any{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100_000, "safety"},
 			wantName:     "Brake response",
 			wantSeverity: "safety",
 		},
@@ -434,8 +441,8 @@ func TestLoadExcelDBCSingleSignal(t *testing.T) {
 	if sig.Factor.Float64() != 0.25 {
 		t.Errorf("Factor: got %f", sig.Factor.Float64())
 	}
-	if sig.Offset.Numerator != 0 {
-		t.Errorf("Offset: got %d/%d", sig.Offset.Numerator, sig.Offset.Denominator)
+	if sig.Offset.Numerator != (aletheia.Uint128{}) {
+		t.Errorf("Offset: got %s/%s", sig.Offset.Numerator, sig.Offset.Denominator)
 	}
 	if string(sig.Unit) != "rpm" {
 		t.Errorf("Unit: got %q", sig.Unit)
@@ -570,7 +577,7 @@ func TestLoadExcelDBCMultiplexed(t *testing.T) {
 	if string(mux.Multiplexor) != "Selector" {
 		t.Errorf("Multiplexor: got %q", mux.Multiplexor)
 	}
-	if len(mux.MultiplexValues) != 1 || mux.MultiplexValues[0] != 3 {
+	if len(mux.MultiplexValues) != 1 || mux.MultiplexValues[0] != (aletheia.MultiplexValue{Lo: 3}) {
 		t.Errorf("MultiplexValues: got %v", mux.MultiplexValues)
 	}
 }
@@ -592,10 +599,10 @@ func TestLoadExcelDBCMixedPresence(t *testing.T) {
 	if _, ok := msg.Signals[0].Presence.(aletheia.AlwaysPresent); !ok {
 		t.Errorf("sig[0] expected AlwaysPresent, got %T", msg.Signals[0].Presence)
 	}
-	if mux, ok := msg.Signals[1].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MultiplexValues, 0) {
+	if mux, ok := msg.Signals[1].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MultiplexValues, aletheia.MultiplexValue{Lo: 0}) {
 		t.Errorf("sig[1] expected Multiplexed(Selector, [0]), got %v", msg.Signals[1].Presence)
 	}
-	if mux, ok := msg.Signals[2].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MultiplexValues, 1) {
+	if mux, ok := msg.Signals[2].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MultiplexValues, aletheia.MultiplexValue{Lo: 1}) {
 		t.Errorf("sig[2] expected Multiplexed(Selector, [1]), got %v", msg.Signals[2].Presence)
 	}
 }

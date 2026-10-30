@@ -211,11 +211,11 @@ func TestRational_Float64(t *testing.T) {
 		r    aletheia.Rational
 		want float64
 	}{
-		"three quarters": {aletheia.Rational{Numerator: 3, Denominator: 4}, 0.75},
-		"one":            {aletheia.Rational{Numerator: 1, Denominator: 1}, 1.0},
-		"nothing":        {aletheia.Rational{Numerator: 0, Denominator: 1}, 0.0},
-		"a negative":     {aletheia.Rational{Numerator: -1, Denominator: 2}, -0.5},
-		"seven thirds":   {aletheia.Rational{Numerator: 7, Denominator: 3}, 7.0 / 3.0},
+		"three quarters": {ratOf(3, 4), 0.75},
+		"one":            {ratOf(1, 1), 1.0},
+		"nothing":        {ratOf(0, 1), 0.0},
+		"a negative":     {ratOf(-1, 2), -0.5},
+		"seven thirds":   {ratOf(7, 3), 7.0 / 3.0},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

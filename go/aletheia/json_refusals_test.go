@@ -6,10 +6,9 @@ package aletheia
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+	"math"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 )
 
@@ -58,47 +57,30 @@ func TestDBCDefinition_MarshalJSONRefusesWhatTheWireCannotCarry(t *testing.T) {
 	}
 }
 
-// An unresolved value description whose identifier is out of its width's
-// range is refused at the parse, for either width.
-func TestParseUnresolvedValueDescs_RefusesAnIdentifierOutOfRange(t *testing.T) {
-	cases := map[string]struct {
-		id       int64
-		extended bool
-		want     string
-	}{
-		"extended past 29 bits": {1 << 29, true, "29-bit"},
-		"standard past 11 bits": {1 << 11, false, "11-bit"},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			raw := map[string]any{"unresolvedValueDescs": []any{map[string]any{
-				"id": json.Number(strconv.FormatInt(tc.id, 10)), "extended": tc.extended, "signalName": "Speed", "entries": []any{},
-			}}}
-			_, err := parseUnresolvedValueDescs(raw)
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("got %v, want an error naming the %s range", err, tc.want)
-			}
-		})
-	}
-	entry := map[string]any{"value": json.Number("2"), "description": "Reverse"}
-	raw := map[string]any{"unresolvedValueDescs": []any{map[string]any{
+// An unresolved value description reads its identifier at the width its
+// flag names, the kernel proving the range, and its entries' signed keys; a
+// fractional entry value and an identifier that is not a number are refused
+// at their places.
+func TestParseUnresolvedValueDesc_ReadsItsIdentifierAndEntries(t *testing.T) {
+	const path = "dbc/unresolvedValueDescs"
+	entry := map[string]any{"value": json.Number("-2"), "description": "Reverse"}
+	raw := map[string]any{
 		"id": json.Number(strconv.Itoa(1<<29 - 1)), "extended": true, "signalName": "Speed", "entries": []any{entry},
-	}}}
-	descs, err := parseUnresolvedValueDescs(raw)
-	if err != nil || len(descs) != 1 || !descs[0].ID.IsExtended() || descs[0].ID.Value() != 1<<29-1 {
-		t.Fatalf("the largest extended identifier was not read back: %v, %v", descs, err)
 	}
-	if len(descs[0].Entries) != 1 || descs[0].Entries[0].Value != 2 || descs[0].Entries[0].Description != "Reverse" {
-		t.Errorf("the entry was not read back: %+v", descs[0].Entries)
+	desc, err := parseUnresolvedValueDesc(raw, path)
+	if err != nil || !desc.ID.IsExtended() || desc.ID.Value() != 1<<29-1 {
+		t.Fatalf("the largest extended identifier was not read back: %v, %v", desc, err)
+	}
+	want := DBCValueEntry{Value: SignMagnitude{Negative: true, Magnitude: Uint128{Lo: 2}}, Description: "Reverse"}
+	if len(desc.Entries) != 1 || desc.Entries[0] != want {
+		t.Errorf("the entry was not read back: %+v", desc.Entries)
 	}
 	entry["value"] = json.Number("2.5")
-	if _, err := parseUnresolvedValueDescs(raw); err == nil || !strings.Contains(err.Error(), "entry value") {
-		t.Errorf("a fractional entry value was not refused: %v", err)
-	}
-	notANumber := map[string]any{"unresolvedValueDescs": []any{map[string]any{"id": "0x100", "signalName": "Speed"}}}
-	if _, err := parseUnresolvedValueDescs(notANumber); err == nil || !strings.Contains(err.Error(), "unresolvedValueDesc id") {
-		t.Errorf("an identifier that is not a number was not refused: %v", err)
-	}
+	_, err = parseUnresolvedValueDesc(raw, path)
+	requireReplyRefusal(t, err, "reply dbc/unresolvedValueDescs/entries/value: expected number, got number")
+	notANumber := map[string]any{"id": "0x100", "extended": false, "signalName": "Speed", "entries": []any{}}
+	_, err = parseUnresolvedValueDesc(notANumber, path)
+	requireReplyRefusal(t, err, "reply dbc/unresolvedValueDescs/id: expected number, got string")
 }
 
 // testDefinition is a one-message definition the internal tests marshal.
@@ -111,10 +93,10 @@ func testDefinition() DBCDefinition {
 			ID: sid, Name: "EngineData", DLC: dlc, Sender: "ECU",
 			Signals: []DBCSignal{{
 				Name: "Speed", StartBit: 0, BitLength: 16, ByteOrder: LittleEndian,
-				Factor:  Rational{Numerator: 1, Denominator: 10},
-				Offset:  Rational{Numerator: 0, Denominator: 1},
-				Minimum: Rational{Numerator: 0, Denominator: 1},
-				Maximum: Rational{Numerator: 300, Denominator: 1},
+				Factor:  ratOf(1, 10),
+				Offset:  ratOf(0, 1),
+				Minimum: ratOf(0, 1),
+				Maximum: ratOf(300, 1),
 				Unit:    "km/h", Presence: AlwaysPresent{},
 			}},
 		}},
@@ -122,7 +104,8 @@ func testDefinition() DBCDefinition {
 }
 
 // definitionWire is testDefinition as the kernel's response carries it, its
-// one message handed to edit first.
+// one message handed to edit first. The command form leaves a standard
+// identifier's extended flag out, and the kernel writes it whatever it is.
 func definitionWire(t *testing.T, edit func(msg map[string]any)) map[string]any {
 	t.Helper()
 	b, err := json.Marshal(testDefinition())
@@ -133,28 +116,26 @@ func definitionWire(t *testing.T, edit func(msg map[string]any)) map[string]any 
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	edit(m["messages"].([]any)[0].(map[string]any))
+	msg := m["messages"].([]any)[0].(map[string]any)
+	msg["extended"] = false
+	edit(msg)
 	return m
 }
 
-// A message identifier is read at the width its flag names: one past that
-// width is refused rather than truncated into range, and either end of the
-// range is read back.
+// A message identifier is read at the width its flag names, whose range the
+// kernel proves: either end of each width is read back, and a negative one,
+// no natural number, is refused at its place.
 func TestParseDBCMessage_ReadsTheIdentifierAtItsWidth(t *testing.T) {
 	cases := map[string]struct {
 		id       int64
 		extended bool
-		want     string // empty: read back as id
+		ok       bool
 	}{
-		"standard zero":              {0, false, ""},
-		"largest standard":           {1<<11 - 1, false, ""},
-		"standard past 11 bits":      {1 << 11, false, "11-bit"},
-		"standard past 16 bits":      {1<<16 + 5, false, "standard id out of range"},
-		"largest extended":           {1<<29 - 1, true, ""},
-		"extended past 29 bits":      {1 << 29, true, "29-bit"},
-		"extended past 32 bits":      {1<<32 + 5, true, "out of uint32 range"},
-		"negative":                   {-1, false, "out of uint32 range"},
-		"negative, extended flagged": {-1, true, "out of uint32 range"},
+		"standard zero":              {0, false, true},
+		"largest standard":           {1<<11 - 1, false, true},
+		"largest extended":           {1<<29 - 1, true, true},
+		"negative":                   {-1, false, false},
+		"negative, extended flagged": {-1, true, false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -163,10 +144,8 @@ func TestParseDBCMessage_ReadsTheIdentifierAtItsWidth(t *testing.T) {
 				msg["extended"] = tc.extended
 			})
 			dbc, err := parseDBCDefinition(wire)
-			if tc.want != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.want) {
-					t.Fatalf("got %v, %v; want an error containing %q", dbc, err, tc.want)
-				}
+			if !tc.ok {
+				requireReplyRefusal(t, err, "reply dbc/messages/id: expected number, got number")
 				return
 			}
 			if err != nil {
@@ -180,32 +159,19 @@ func TestParseDBCMessage_ReadsTheIdentifierAtItsWidth(t *testing.T) {
 	}
 }
 
-// An unresolved value description's standard identifier past sixteen bits is
-// refused, as the message's is, rather than read as its low sixteen bits.
-func TestParseUnresolvedValueDescs_RefusesAStandardIdentifierPastSixteenBits(t *testing.T) {
-	raw := map[string]any{"unresolvedValueDescs": []any{map[string]any{
-		"id": json.Number(strconv.Itoa(1<<16 + 5)), "extended": false, "signalName": "Speed", "entries": []any{},
-	}}}
-	if descs, err := parseUnresolvedValueDescs(raw); err == nil {
-		t.Errorf("read back %v, want a refusal", descs)
-	}
-}
-
 // A comment's or an attribute's target identifier is read at the width its
-// flag names, as the message's is, for every kind of target that carries one.
+// flag names, as the message's is, for every kind of target that carries one:
+// either end is read back and a negative one is refused at its place.
 func TestParseTargets_ReadTheIdentifierAtItsWidth(t *testing.T) {
 	cases := map[string]struct {
 		id       int64
 		extended bool
 		ok       bool
 	}{
-		"standard zero":         {0, false, true},
-		"standard past 11 bits": {1 << 11, false, false},
-		"standard past 16 bits": {1<<16 + 5, false, false},
-		"largest extended":      {1<<29 - 1, true, true},
-		"largest wire value":    {1<<32 - 1, true, false},
-		"past the wire value":   {1 << 32, true, false},
-		"negative":              {-1, true, false},
+		"standard zero":    {0, false, true},
+		"largest standard": {1<<11 - 1, false, true},
+		"largest extended": {1<<29 - 1, true, true},
+		"negative":         {-1, true, false},
 	}
 	idOf := func(target any) CANID {
 		switch v := target.(type) {
@@ -224,9 +190,10 @@ func TestParseTargets_ReadTheIdentifierAtItsWidth(t *testing.T) {
 		}
 		return nil
 	}
+	places := map[string]replyPath{"comment": "dbc/comments/target", "attr": "dbc/attributes/target"}
 	parsers := map[string]func(map[string]any) (any, error){
-		"comment": func(m map[string]any) (any, error) { return parseCommentTarget(m) },
-		"attr":    func(m map[string]any) (any, error) { return parseAttrTarget(m) },
+		"comment": func(m map[string]any) (any, error) { return parseCommentTarget(m, places["comment"]) },
+		"attr":    func(m map[string]any) (any, error) { return parseAttrTarget(m, places["attr"]) },
 	}
 	kinds := map[string][]string{"comment": {"message", "signal"}, "attr": {"message", "signal", "nodeMsg", "nodeSig"}}
 	for parser, parse := range parsers {
@@ -238,9 +205,7 @@ func TestParseTargets_ReadTheIdentifierAtItsWidth(t *testing.T) {
 						"signal": "Speed", "node": "ECU",
 					})
 					if !tc.ok {
-						if err == nil {
-							t.Fatalf("read back %v, want a refusal", target)
-						}
+						requireReplyRefusal(t, err, "reply "+string(places[parser])+"/id: expected number, got number")
 						return
 					}
 					if err != nil {
@@ -256,36 +221,39 @@ func TestParseTargets_ReadTheIdentifierAtItsWidth(t *testing.T) {
 	}
 }
 
-// A result's timestamp is optional: absent and null both read as none, zero
-// is the trace's first instant, and a negative one is refused.
+// A fails result carries its timestamp, and an unresolved one may lack it:
+// absent and null both read as none there, zero is the trace's first instant,
+// and a negative or textual one is refused at its place.
 func TestParsePropertyResult_ReadsTheOptionalTimestamp(t *testing.T) {
 	type stamp struct {
 		present bool
 		us      int64
 	}
 	cases := map[string]struct {
-		field string
-		want  stamp
-		ok    bool
+		status  string
+		field   string
+		want    stamp
+		refusal string // empty: read back as want
 	}{
-		"absent":   {``, stamp{}, true},
-		"null":     {`,"timestamp":null`, stamp{}, true},
-		"zero":     {`,"timestamp":0`, stamp{true, 0}, true},
-		"positive": {`,"timestamp":5`, stamp{true, 5}, true},
-		"negative": {`,"timestamp":-1`, stamp{}, false},
-		"a string": {`,"timestamp":"5"`, stamp{}, false},
+		"absent":         {"unresolved", ``, stamp{}, ""},
+		"null":           {"unresolved", `,"timestamp":null`, stamp{}, ""},
+		"zero":           {"unresolved", `,"timestamp":0`, stamp{true, 0}, ""},
+		"positive":       {"unresolved", `,"timestamp":5`, stamp{true, 5}, ""},
+		"negative":       {"unresolved", `,"timestamp":-1`, stamp{}, "expected number, got number"},
+		"a string":       {"unresolved", `,"timestamp":"5"`, stamp{}, "expected number, got string"},
+		"fails, absent":  {"fails", ``, stamp{}, "expected number, got nothing"},
+		"fails, null":    {"fails", `,"timestamp":null`, stamp{}, "expected number, got null"},
+		"fails, present": {"fails", `,"timestamp":5`, stamp{true, 5}, ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			r, err := parseResponse(`{"status":"fails","property_index":0` + tc.field + `}`)
+			r, err := parseResponse(`{"status":"` + tc.status + `","property_index":0,"reason":"r"` + tc.field + `}`)
 			if err != nil {
 				t.Fatalf("parseResponse: %v", err)
 			}
-			pr, err := parsePropertyResult(r)
-			if !tc.ok {
-				if err == nil {
-					t.Fatalf("read back %+v, want a refusal", pr)
-				}
+			pr, err := parsePropertyResult(r, "results")
+			if tc.refusal != "" {
+				requireReplyRefusal(t, err, "reply results/timestamp: "+tc.refusal)
 				return
 			}
 			if err != nil {
@@ -302,23 +270,24 @@ func TestParsePropertyResult_ReadsTheOptionalTimestamp(t *testing.T) {
 	}
 }
 
-// A multiplexed signal carries at least one multiplexor value, each read at
-// the thirty-two bits the wire gives it: either end of that range is read
-// back, and an empty array, a value that is not an array, an absent one and a
-// value past either end are refused.
+// A multiplexed signal's multiplexor values are whole numbers up to 2^128-1:
+// either end of that range and an empty array are read back, and a value that
+// is not an array, an absent one and a value that is no natural number or
+// past 2^128-1 are refused at their places.
 func TestParseSignalPresence_ReadsTheMultiplexValues(t *testing.T) {
 	cases := map[string]struct {
-		values string
-		want   []MultiplexValue // nil: refused
+		values  string
+		want    []MultiplexValue
+		refusal string // empty: read back as want
 	}{
-		"both ends":      {`,"multiplex_values":[0,4294967295]`, []MultiplexValue{0, 1<<32 - 1}},
-		"empty":          {`,"multiplex_values":[]`, nil},
-		"not an array":   {`,"multiplex_values":3`, nil},
-		"absent":         {``, nil},
-		"past 32 bits":   {`,"multiplex_values":[4294967296]`, nil},
-		"negative":       {`,"multiplex_values":[-1]`, nil},
-		"not a number":   {`,"multiplex_values":["3"]`, nil},
-		"one of two bad": {`,"multiplex_values":[1,4294967296]`, nil},
+		"both ends":      {`,"multiplex_values":[0,340282366920938463463374607431768211455]`, []MultiplexValue{{}, {Hi: math.MaxUint64, Lo: math.MaxUint64}}, ""},
+		"empty":          {`,"multiplex_values":[]`, []MultiplexValue{}, ""},
+		"not an array":   {`,"multiplex_values":3`, nil, "expected array, got number"},
+		"absent":         {``, nil, "expected array, got nothing"},
+		"past 2^128-1":   {`,"multiplex_values":[340282366920938463463374607431768211456]`, nil, "expected number, got number"},
+		"negative":       {`,"multiplex_values":[-1]`, nil, "expected number, got number"},
+		"not a number":   {`,"multiplex_values":["3"]`, nil, "expected number, got string"},
+		"one of two bad": {`,"multiplex_values":[1,-1]`, nil, "expected number, got number"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -326,11 +295,9 @@ func TestParseSignalPresence_ReadsTheMultiplexValues(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseResponse: %v", err)
 			}
-			presence, err := parseSignalPresence(j)
-			if tc.want == nil {
-				if err == nil {
-					t.Fatalf("read back %+v, want a refusal", presence)
-				}
+			presence, err := parseSignalPresence(j, "dbc/messages/signals")
+			if tc.refusal != "" {
+				requireReplyRefusal(t, err, "reply dbc/messages/signals/multiplex_values: "+tc.refusal)
 				return
 			}
 			if err != nil {
@@ -345,7 +312,7 @@ func TestParseSignalPresence_ReadsTheMultiplexValues(t *testing.T) {
 }
 
 // A frame's payload bytes are read at eight bits each: either end is read
-// back, and a value past either end is refused.
+// back, and a value past either end is refused at its place.
 func TestParseFrameDataResponse_ReadsEachByteAtEightBits(t *testing.T) {
 	got, err := parseFrameDataResponse(`{"status":"success","data":[0,255]}`)
 	if err != nil {
@@ -355,60 +322,8 @@ func TestParseFrameDataResponse_ReadsEachByteAtEightBits(t *testing.T) {
 		t.Errorf("read back %v, want [0 255]", got)
 	}
 	for _, data := range []string{`[256]`, `[-1]`, `[0,1,256]`} {
-		if got, err := parseFrameDataResponse(`{"status":"success","data":` + data + `}`); err == nil {
-			t.Errorf("%s read back as %v, want a refusal", data, got)
-		}
-	}
-}
-
-// The checked narrowing answers the value and true exactly when the target
-// type holds it, at both ends of each type the package narrows into.
-func TestNarrow_HoldsExactlyTheValuesTheTypeCarries(t *testing.T) {
-	check := func(name string, ok, wantOK bool) {
-		t.Helper()
-		if ok != wantOK {
-			t.Errorf("%s: ok = %v, want %v", name, ok, wantOK)
-		}
-	}
-	for _, tc := range []struct {
-		v  int64
-		ok bool
-	}{{-1, false}, {0, true}, {255, true}, {256, false}} {
-		got, ok := narrow[uint8](tc.v)
-		check(fmt.Sprintf("uint8 %d", tc.v), ok, tc.ok)
-		if ok && int64(got) != tc.v {
-			t.Errorf("uint8 %d came back as %d", tc.v, got)
-		}
-	}
-	for _, tc := range []struct {
-		v  int64
-		ok bool
-	}{{-1, false}, {0, true}, {1<<16 - 1, true}, {1 << 16, false}} {
-		got, ok := narrow[uint16](tc.v)
-		check(fmt.Sprintf("uint16 %d", tc.v), ok, tc.ok)
-		if ok && int64(got) != tc.v {
-			t.Errorf("uint16 %d came back as %d", tc.v, got)
-		}
-	}
-	for _, tc := range []struct {
-		v  int64
-		ok bool
-	}{{-1, false}, {0, true}, {1<<32 - 1, true}, {1 << 32, false}} {
-		got, ok := narrow[uint32](tc.v)
-		check(fmt.Sprintf("uint32 %d", tc.v), ok, tc.ok)
-		if ok && int64(got) != tc.v {
-			t.Errorf("uint32 %d came back as %d", tc.v, got)
-		}
-	}
-	for _, tc := range []struct {
-		v  int64
-		ok bool
-	}{{-1<<31 - 1, false}, {-1 << 31, true}, {0, true}, {1<<31 - 1, true}, {1 << 31, false}} {
-		got, ok := narrow[int32](tc.v)
-		check(fmt.Sprintf("int32 %d", tc.v), ok, tc.ok)
-		if ok && int64(got) != tc.v {
-			t.Errorf("int32 %d came back as %d", tc.v, got)
-		}
+		_, err := parseFrameDataResponse(`{"status":"success","data":` + data + `}`)
+		requireReplyRefusal(t, err, "reply data: expected number, got number")
 	}
 }
 
@@ -425,29 +340,30 @@ func TestRefuseOversize_TakesTheLimitAndRefusesOneMore(t *testing.T) {
 	if !errors.As(err, &bound) {
 		t.Fatalf("got %v, want an InputBoundExceededError", err)
 	}
-	want := InputBoundExceededError{BoundKind: BoundKindInputLengthBytes, Observed: limit + 1, Limit: limit, Code: CodeInputBoundExceeded}
+	want := InputBoundExceededError{BoundKind: BoundKindInputLengthBytes, Observed: Uint128{Lo: limit + 1}, Limit: Uint128{Lo: limit}, Code: CodeInputBoundExceeded}
 	if *bound != want {
 		t.Errorf("got %+v, want %+v", *bound, want)
 	}
 }
 
-// A signal's start bit is read anywhere in a CAN-FD frame's 512 bits: either
-// end is read back and a bit past either end is refused.
+// A signal's start bit is read anywhere in a CAN-FD frame's 512 bits, whose
+// range the kernel proves: either end is read back and a negative bit, no
+// natural number, is refused at its place.
 func TestParseDBCSignal_ReadsTheStartBitWithinTheLargestFrame(t *testing.T) {
 	for _, tc := range []struct {
 		bit int64
 		ok  bool
-	}{{-1, false}, {0, true}, {511, true}, {512, false}} {
+	}{{-1, false}, {0, true}, {511, true}} {
 		wire := definitionWire(t, func(msg map[string]any) {
 			msg["signals"].([]any)[0].(map[string]any)["startBit"] = json.Number(strconv.FormatInt(tc.bit, 10))
 		})
 		dbc, err := parseDBCDefinition(wire)
 		switch {
-		case !tc.ok && err == nil:
-			t.Errorf("start bit %d read back, want a refusal", tc.bit)
-		case tc.ok && err != nil:
+		case !tc.ok:
+			requireReplyRefusal(t, err, "reply dbc/messages/signals/startBit: expected number, got number")
+		case err != nil:
 			t.Errorf("start bit %d refused: %v", tc.bit, err)
-		case tc.ok && int64(dbc.Messages[0].Signals[0].StartBit) != tc.bit:
+		case int64(dbc.Messages[0].Signals[0].StartBit) != tc.bit:
 			t.Errorf("start bit %d read back as %d", tc.bit, dbc.Messages[0].Signals[0].StartBit)
 		}
 	}

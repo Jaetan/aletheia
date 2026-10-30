@@ -33,15 +33,20 @@ Strategy:
    with no SSOT peer, or an SSOT entry no table maps.
 5. Parse ``src/Aletheia/Protocol/ReplyRange.agda`` for every ``replyText`` row
    (a place and its word set, or any non-empty text) and every
-   ``replyNonEmpty`` row, and fail on a row ``PYTHON_REPLY_TEXT`` or
-   ``REPLY_NON_EMPTY`` names that the Agda drops, an Agda row they do not name,
-   a word one side holds and the other does not (Python's set read from its
-   ``Literal`` alias, the ``Literal`` field of a class or of a union of
-   classes, its ``StrEnum`` or its ``BOUND_KIND_*`` codes), or a ``bound_kind``
-   row that differs from ``boundKindCode``.  The proof leaves an unlisted
-   string place free, so this arm is what holds each row the readers rely on.
-   It lives in ``tools/_reply_places.py``; a clause of either table or a
-   reader's type it cannot read, and a place a table names twice, exit 2.
+   ``replyNonEmpty`` row, and fail on a row ``PYTHON_REPLY_TEXT``,
+   ``GO_REPLY_TEXT`` or ``REPLY_NON_EMPTY`` names that the Agda drops, an Agda
+   row they do not name, a word one side holds and the other does not
+   (Python's set read from its ``Literal`` alias, the ``Literal`` field of a
+   class or of a union of classes, its ``StrEnum`` or its ``BOUND_KIND_*``
+   codes; Go's from the case literals of a reader's one ``switch``, the
+   literals its ``fieldWord`` calls await, the constants of a named string
+   type, the one ``var`` block of a struct type's values, which no line
+   elsewhere may build or reach, or its ``BoundKind*`` codes), or a
+   ``bound_kind`` row that differs from ``boundKindCode``.  The proof leaves
+   an unlisted string place free, so this arm is what holds each row the
+   readers rely on.  It lives in ``tools/_reply_places.py``; a clause of either
+   table or a reader's type or code it cannot read, and a place a table names
+   twice, exit 2.
 
 Exit codes:
   0: full parity between Agda SSOT and every mirror.
@@ -72,6 +77,7 @@ from typing import TYPE_CHECKING, NewType
 from tools._common import emit
 from tools._reply_places import (
     AGDA_REPLY_RANGE,
+    GO_REPLY_TEXT,
     PYTHON_REPLY_TEXT,
     REPLY_NON_EMPTY,
     AgdaText,
@@ -731,10 +737,11 @@ def main() -> int:
     )
     # Agda-side drift: SSOT entries with no cross-check table mapping.
     diffs.extend(_check_agda_drift(agda_consts, agda_boundkind))
-    # 7) The reply proof's tag and non-empty places against the Python reader.
+    # 7) The reply proof's tag and non-empty places against the Python and Go readers.
     tables = read_reply_tables(
         AgdaText(_read(AGDA_REPLY_RANGE)),
         frozenset(ReplyWord(wire) for wire in py_boundkind.values()),
+        frozenset(ReplyWord(wire) for wire in go_boundkind.values()),
     )
     if isinstance(tables, list):
         for unread in tables:
@@ -755,7 +762,7 @@ def main() -> int:
             f"\nfound {len(diffs)} divergence(s) between "
             + f"{AGDA_LIMITS.relative_to(REPO_ROOT)} and "
             + f"{AGDA_REPLY_RANGE.relative_to(REPO_ROOT)} (SSOT) and "
-            + f"{mirrors} and the Python reply types (mirrors).\n"
+            + f"{mirrors} and the Python and Go reply readers (mirrors).\n"
             + "Reconcile by updating the mirror, the Agda SSOT, or the mapping table "
             + "this script names above (when a constant is intentionally added or "
             + "removed).\n"
@@ -772,7 +779,8 @@ def main() -> int:
                 ("C++", CPP_NAME_MAPPING, CPP_BOUND_KIND_MAPPING),
             )
         )
-        + f"; Python {len(PYTHON_REPLY_TEXT)} reply text + {len(REPLY_NON_EMPTY)} non-empty places"
+        + f"; Python {len(PYTHON_REPLY_TEXT)} and Go {len(GO_REPLY_TEXT)} reply text"
+        + f" + {len(REPLY_NON_EMPTY)} non-empty places"
         + ": all in parity with Agda SSOT"
     )
     return 0

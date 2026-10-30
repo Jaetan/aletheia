@@ -343,3 +343,31 @@ def test_failed_extraction_raises_from_end_stream() -> None:
             client.end_stream()
 
     assert backend.inputs.count(_EXTRACT_SENTINEL) == 1
+
+
+_ONE_MESSAGE_DBC_TEXT = (
+    'VERSION ""\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n'
+    'BO_ 256 Msg: 8 ECU\n SG_ Sig : 0|16@1+ (0.25,0) [0|8000] "u" ECU\n\n'
+)
+
+
+def test_an_unknown_identifier_ahead_keeps_the_verdicts() -> None:
+    """A trace holding an identifier the DBC lacks ends with its verdicts enriched.
+
+    On the real kernel: the unknown identifier's last frame sorts first and is
+    extracted first, and the kernel answers it with an error entry rather
+    than a refusal, so end_stream keeps the failing verdict and its values.
+    """
+    with AletheiaClient() as client:
+        client.parse_dbc_text(_ONE_MESSAGE_DBC_TEXT)
+        client.set_properties([Signal("Sig").less_than(10).eventually().to_dict()])
+        client.start_stream()
+        client.send_frame(1000, 0x100, DLCCode(8), bytes([0xFF, 0, 0, 0, 0, 0, 0, 0]))
+        client.send_frame(2000, 0x050, DLCCode(8), bytes([0xFF, 0, 0, 0, 0, 0, 0, 0]))
+        result = client.end_stream()
+
+    assert result["status"] == "complete"
+    [entry] = result["results"]
+    assert entry["status"] == "fails"
+    # Sig reads 0x00FF counts of a quarter.
+    assert entry["enrichment"]["signals"] == {"Sig": Fraction(255, 4)}

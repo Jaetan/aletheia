@@ -242,12 +242,12 @@ func TestErrorReturningReadsTheBindingsSources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the bindings' sources: %v", err)
 	}
-	for _, name := range []string{"Close", "ParseDBC", "LoadChecks", "NewStandardID"} {
+	for _, name := range []string{"Close", "ParseDBC", "LoadChecks", "NewStandardID", "NeverExceeds"} {
 		if !names[name] {
 			t.Errorf("%s returns an error and is not in the set", name)
 		}
 	}
-	if names["NeverExceeds"] {
-		t.Error("NeverExceeds cannot fail and is in the set")
+	if names["CheckSignal"] {
+		t.Error("CheckSignal cannot fail and is in the set")
 	}
 }

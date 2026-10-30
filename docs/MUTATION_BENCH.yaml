@@ -233,10 +233,6 @@ bindings:
           file: go/aletheia/dbc.go
           text: const extendedIDFlag = 1 << 32 // bit 32 distinguishes extended from standard IDs in map keys
           count: 1
-        - mutator: INVERT_BITWISE
-          file: go/aletheia/json_response.go
-          text: func narrow[T ~uint8 | ~uint16 | ~uint32 | ~int32](v int64) (T, bool) {
-          count: 3
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many share it, as the C++ and Rust survivors are
       # recorded. The lane refuses one not named here at any count, and a

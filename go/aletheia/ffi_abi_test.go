@@ -18,9 +18,10 @@ import (
 )
 
 // The structures the cgo preamble declares lay out as haskell-shim/include/aletheia.h
-// fixes them. The expected sizes and offsets are read from the header's own
-// static_assert lines, which the C compiler holds to the real layout, so a
-// field moved on either side fails here rather than misreading across the ABI.
+// fixes them. The expected sizes, alignments and offsets are read from the
+// header's own static_assert lines, which the C compiler holds to the real
+// layout, so a field moved on either side fails here rather than misreading
+// across the ABI.
 func TestFFIStructuresMatchKernelHeader(t *testing.T) {
 	text, err := os.ReadFile(filepath.Join(repoRoot(t), "haskell-shim", "include", "aletheia.h"))
 	if err != nil {
@@ -30,19 +31,26 @@ func TestFFIStructuresMatchKernelHeader(t *testing.T) {
 	for _, m := range regexp.MustCompile(`static_assert\(sizeof\(struct (\w+)\) == (\d+),`).FindAllStringSubmatch(string(text), -1) {
 		wantSizes[m[1]] = parseOffset(t, m[2])
 	}
+	wantAligns := map[string]uintptr{}
+	for _, m := range regexp.MustCompile(`static_assert\(alignof\(struct (\w+)\) == (\d+),`).FindAllStringSubmatch(string(text), -1) {
+		wantAligns[m[1]] = parseOffset(t, m[2])
+	}
 	wantFields := map[string][]abiField{}
 	for _, m := range regexp.MustCompile(`static_assert\(offsetof\(struct (\w+), (\w+)\) == (\d+),`).FindAllStringSubmatch(string(text), -1) {
 		wantFields[m[1]] = append(wantFields[m[1]], abiField{m[2], parseOffset(t, m[3])})
 	}
 
-	version := regexp.MustCompile(`enum \{ ALETHEIA_ABI_VERSION = (\d+) \};`).FindStringSubmatch(string(text))
+	version := regexp.MustCompile(`constexpr uint32_t ALETHEIA_ABI_VERSION = (\d+);`).FindStringSubmatch(string(text))
 	if version == nil || parseOffset(t, version[1]) != abiVersion {
 		t.Errorf("abiVersion = %d, header defines %v", abiVersion, version)
 	}
 
-	sizes, fields := abiLayout()
+	sizes, aligns, fields := abiLayout()
 	if !reflect.DeepEqual(sizes, wantSizes) {
 		t.Errorf("sizes = %v, header asserts %v", sizes, wantSizes)
+	}
+	if !reflect.DeepEqual(aligns, wantAligns) {
+		t.Errorf("alignments = %v, header asserts %v", aligns, wantAligns)
 	}
 	if !reflect.DeepEqual(fields, wantFields) {
 		t.Errorf("fields = %v, header asserts %v", fields, wantFields)
@@ -69,7 +77,8 @@ func TestABIVersionErrorAdmitsOnlyTheBindingsVersion(t *testing.T) {
 // the coded error with the message inside the envelope, and a structured
 // payload lifted to its typed error. Text that is not an envelope, or an
 // envelope that is not an error, is the library malfunctioning, which no
-// working library sets and the tests over the real one therefore never reach.
+// working library sets and the tests over the real one therefore never reach,
+// refused in the form of every reply place.
 func TestBinaryRefusalReadsTheErrorEnvelope(t *testing.T) {
 	coded := map[string]struct{ envelope, code, message string }{
 		"a kernel code": {
@@ -83,19 +92,19 @@ func TestBinaryRefusalReadsTheErrorEnvelope(t *testing.T) {
 	}
 	for name, tc := range coded {
 		t.Run(name, func(t *testing.T) {
-			requireDegradedCoded(t, binaryRefusal("build_frame_bin", tc.envelope), tc.code, tc.message)
+			requireCodedError(t, binaryRefusal(tc.envelope), tc.code, tc.message)
 		})
 	}
 
 	t.Run("a structured payload", func(t *testing.T) {
-		err := binaryRefusal("build_frame_bin", `{"status":"error","code":"input_bound_exceeded",`+
+		err := binaryRefusal(`{"status":"error","code":"input_bound_exceeded",` +
 			`"message":"too many signals","bound_kind":"array_cardinality","observed":1025,"limit":1024}`)
 		var bex *InputBoundExceededError
 		if !errors.As(err, &bex) {
 			t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
 		}
 		want := InputBoundExceededError{
-			BoundKind: BoundKindArrayCardinality, Observed: 1025, Limit: 1024, Code: CodeInputBoundExceeded,
+			BoundKind: BoundKindArrayCardinality, Observed: Uint128{Lo: 1025}, Limit: Uint128{Lo: 1024}, Code: CodeInputBoundExceeded,
 			Message: "too many signals",
 		}
 		if *bex != want {
@@ -104,12 +113,12 @@ func TestBinaryRefusalReadsTheErrorEnvelope(t *testing.T) {
 	})
 
 	malfunctions := map[string]struct{ envelope, says string }{
-		"not JSON":     {"no DBC loaded", "invalid JSON response"},
-		"not an error": {`{"status":"success"}`, "extract_signals_bin refused with a response that is not an error envelope"},
+		"not JSON":     {"no DBC loaded", "reply: expected JSON text, got invalid character 'o' in literal null (expecting 'u')"},
+		"not an error": {`{"status":"success"}`, `reply status: expected "error", got "success"`},
 	}
 	for name, tc := range malfunctions {
 		t.Run(name, func(t *testing.T) {
-			err := binaryRefusal("extract_signals_bin", tc.envelope)
+			err := binaryRefusal(tc.envelope)
 			var aErr *Error
 			if !errors.As(err, &aErr) {
 				t.Fatalf("expected *Error, got %T: %v", err, err)
@@ -117,8 +126,8 @@ func TestBinaryRefusalReadsTheErrorEnvelope(t *testing.T) {
 			if aErr.Kind != ErrProtocol || aErr.Code != "" {
 				t.Errorf("Kind = %v, Code = %q, want ErrProtocol with no code: %v", aErr.Kind, aErr.Code, err)
 			}
-			if !strings.Contains(err.Error(), tc.says) {
-				t.Errorf("error %q does not say %q", err, tc.says)
+			if got := err.Error(); got != tc.says {
+				t.Errorf("got %q, want %q", got, tc.says)
 			}
 		})
 	}

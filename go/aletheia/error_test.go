@@ -133,19 +133,19 @@ func TestError_CauseIsRenderedAndUnwrapped(t *testing.T) {
 // message or its own text; an error with no location prints that alone.
 func TestError_LocationLeadsTheText(t *testing.T) {
 	const parseFailure = "parse failed at line 1, column 1"
-	const bound = "decimal: rational component magnitude 9223372036854775808 exceeds limit 9223372036854775807"
+	const bound = "decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"
 	coded := func(location, key string) *aletheia.Error {
 		return &aletheia.Error{Kind: aletheia.ErrValidation, Code: aletheia.CodeTextParseFailure,
 			Message: parseFailure, Location: location, Key: key}
 	}
 	kernelBound := func(location, key string) *aletheia.InputBoundExceededError {
 		return &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
-			Observed: 9223372036854775808, Limit: 9223372036854775807, Code: aletheia.CodeInputBoundExceeded,
+			Observed: rationalBound, Limit: rationalBound, Code: aletheia.CodeInputBoundExceeded,
 			Field: "decimal", Message: bound, Location: location, Key: key}
 	}
 	bindingBound := func(location, key string) *aletheia.InputBoundExceededError {
 		return &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
-			Observed: 10, Limit: 5, Code: aletheia.CodeInputBoundExceeded, Location: location, Key: key}
+			Observed: aletheia.Uint128{Lo: 10}, Limit: aletheia.Uint128{Lo: 5}, Code: aletheia.CodeInputBoundExceeded, Location: location, Key: key}
 	}
 	cases := map[string]struct {
 		err  error
@@ -190,8 +190,8 @@ func TestLocate(t *testing.T) {
 	}
 
 	bound := &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
-		Observed: 18446744073709551615, Limit: 9223372036854775807, Code: aletheia.CodeInputBoundExceeded,
-		Field: "decimal", Message: "decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"}
+		Observed: rationalBound, Limit: rationalBound, Code: aletheia.CodeInputBoundExceeded,
+		Field: "decimal", Message: "decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"}
 	var gotBound *aletheia.InputBoundExceededError
 	if !errors.As(aletheia.Locate(bound, "Row 2", "Factor"), &gotBound) {
 		t.Fatal("a located bound error is not an *aletheia.InputBoundExceededError")

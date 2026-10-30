@@ -209,8 +209,7 @@ type DBCSignalGroup struct {
 
 // DBCVarType is the integer tag of an environment variable's declared type,
 // the DBC text's own 0, 1 and 2 for int, float and string, which the core
-// keeps (varTypeToℕ). Any other value is a protocol error in
-// parseDBCDefinition.
+// keeps (varTypeToℕ), which the kernel proves is all it writes.
 type DBCVarType int
 
 //go:generate stringer -type=DBCVarType -linecomment -output=dbcvartype_string.go
@@ -234,9 +233,11 @@ type DBCEnvironmentVar struct {
 	Maximum Rational
 }
 
-// DBCValueEntry is one (value, description) pair in a [DBCValueTable].
+// DBCValueEntry is one (value, description) pair in a [DBCValueTable]. The
+// value is a raw value of the signal, whose magnitude reaches 2^128-1 either
+// side of zero.
 type DBCValueEntry struct {
-	Value       int64
+	Value       SignMagnitude
 	Description string
 }
 
@@ -283,9 +284,7 @@ func (DBCCommentTargetNode) commentTarget() {}
 
 // DBCCommentTargetMessage is a message comment. The identifier is the type
 // the rest of the package uses, which refuses an out-of-range value at
-// construction, so a comment cannot name a message no frame could carry. The
-// wire writes the extended flag only when true, as the core's formatCANId
-// omits it for a standard ID.
+// construction, so a comment cannot name a message no frame could carry.
 type DBCCommentTargetMessage struct {
 	ID CANID
 }
