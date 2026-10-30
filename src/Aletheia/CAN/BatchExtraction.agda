@@ -226,15 +226,17 @@ resultToCode (Success _)              = BitExtractionFailed
 categorizeIndexed : String → ℕ → ExtractionResult → IndexedExtractionResults
 categorizeIndexed name = categorizeWith (λ _ r → resultToCode r , resultToString name r)
 
+-- A message's signals from position `idx` on, each keyed by its position in
+-- the message (top level, so a proof can follow it).
+extractIndexedFrom : ∀ {n} → CANFrame n → DBCMessage → ℕ → List DBCSignal → IndexedExtractionResults
+extractIndexedFrom _ _ _ [] = emptyPartitioned
+extractIndexedFrom frame msg idx (sig ∷ sigs) =
+  combinePartitioned (categorizeIndexed (signalNameStr sig) idx (extractSignalDirect msg frame sig))
+                     (extractIndexedFrom frame msg (suc idx) sigs)
+
 -- Extract all signals from a message, returning indexed results.
 extractAllSignalsIndexedFromMessage : ∀ {n} → CANFrame n → DBCMessage → IndexedExtractionResults
-extractAllSignalsIndexedFromMessage frame msg = go 0 (DBCMessage.signals msg)
-  where
-    go : ℕ → List DBCSignal → IndexedExtractionResults
-    go _ [] = emptyPartitioned
-    go idx (sig ∷ sigs) =
-      combinePartitioned (categorizeIndexed (signalNameStr sig) idx (extractSignalDirect msg frame sig))
-                         (go (suc idx) sigs)
+extractAllSignalsIndexedFromMessage frame msg = extractIndexedFrom frame msg 0 (DBCMessage.signals msg)
 
 extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → FrameError ⊎ IndexedExtractionResults
 extractAllSignalsIndexed dbc frame with findMessageById (CANFrame.id frame) dbc

@@ -11,7 +11,7 @@ parity between the binary wire and the JSON fallback path.
 import struct
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType
+from typing import TYPE_CHECKING, Literal, NewType
 
 import pytest
 from _dbc_helpers import dbc, message, signal
@@ -48,6 +48,9 @@ SignByte = NewType("SignByte", int)
 
 # A signal's index on the wire.
 WireIndex = NewType("WireIndex", int)
+
+# A segment of the extraction buffer that carries signal indices.
+Segment = Literal["values", "errors", "absent"]
 
 
 def _value_entry(
@@ -110,10 +113,17 @@ class TestParseExtractionBuffer:
         result = parse_extraction_buffer(buf, NAMES)
         assert result.values == {"Speed": 220.0, "RPM": 3500.0, "Temp": 42.5}
 
-    def test_signal_index_out_of_range(self) -> None:
-        """Index beyond names list uses fallback name."""
-        result = parse_extraction_buffer(_extraction_buffer(values=[(99, 42, 1)]), NAMES)
-        assert result.values == {"signal_99": 42.0}
+    @pytest.mark.parametrize("segment", ["values", "errors", "absent"])
+    def test_signal_index_past_the_names_raises_index_error(self, segment: Segment) -> None:
+        """Each segment indexes the name table with the wire index: one past it is IndexError."""
+        past = len(NAMES)
+        buf = {
+            "values": _extraction_buffer(values=[(past, 42, 1)]),
+            "errors": _extraction_buffer(errors=[(past, 0, "reason")]),
+            "absent": _extraction_buffer(absent=[past]),
+        }[segment]
+        with pytest.raises(IndexError, match=r"^tuple index out of range$"):
+            _ = parse_extraction_buffer(buf, NAMES)
 
     def test_all_segments_with_multibyte_utf8_reason(self) -> None:
         """Value + two distinct wire reasons (one multi-byte UTF-8) + absent.

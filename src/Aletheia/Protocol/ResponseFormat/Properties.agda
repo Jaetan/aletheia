@@ -18,17 +18,17 @@ module Aletheia.Protocol.ResponseFormat.Properties where
 
 open import Data.Bool using (true; false; T)
 open import Data.Empty using (⊥-elim)
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; _∷ʳ_)
 open import Data.Nat using (suc; _≤_; _<_; _<ᵇ_; _≤ᵇ_; _^_; _∸_; s≤s; z≤n; s≤s⁻¹)
 open import Data.Nat.Properties using (<ᵇ⇒<; <⇒<ᵇ; ≤⇒≯; ≮⇒≥; ≤-refl; ≤-trans; ≤ᵇ⇒≤; <⇒≤)
 open import Data.Bool.Properties using (T?)
-open import Relation.Nullary.Decidable using (recompute; _×-dec_)
+open import Relation.Nullary.Decidable using (recompute; _×?_)
 open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣; -≤-; -≤+; +≤+) renaming (_≤_ to _≤ᶻ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Rational using (ℚ)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; toList) renaming (_++_ to _++ₛ_)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst)
 
@@ -36,7 +36,10 @@ import Aletheia.Error as Err
 open import Aletheia.Error using (showObserved; showBoundObserved)
 open import Aletheia.Limits using
   (boundKindCode; boundKindLabel; observed-ceiling; saturateObserved; bound-ceiling; saturateBound; max-rational-component-magnitude
-  ; Passes)
+  ; Passes
+  ; InputLengthBytes; NestingDepth; ArrayCardinality; IdentifierLength; StringLength; AtomCount
+  ; PropertyCount; RationalComponentMagnitude)
+open import Aletheia.DBC.Types using (IsError; IsWarning; ValidationIssue)
 open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.CAN.Batch.WireFits using (Fits; wireFits-components)
@@ -52,10 +55,12 @@ open import Aletheia.Protocol.Message using (Success; Error;
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData; mkWarning; UncachedAtom)
 open import Aletheia.Protocol.ResponseFormat using
   ( formatResponse; errorExtras; formatPropertyResult
-  ; formatWarning; formatValidationIssue; formatSignalValue; formatSignalError )
+  ; formatWarning; formatValidationIssue; formatSignalValue; formatSignalError; formatIssueSeverity
+  ; formatIssueCode )
 open import Aletheia.Protocol.ReplyRange using
-  ( NumbersAt; FieldsNumbersAt; InRange; replyRange; naturalAtMost; positiveAtMost; integerAtMost
-  ; rationalWithin; byteCount
+  ( ValuesAt; FieldsValuesAt; InRange; TextIn; replyRange; replyText; replyPlaces
+  ; oneOf; severities
+  ; naturalAtMost; positiveAtMost; integerAtMost; rationalWithin; byteCount
   ; natural-in; positive-in; map-at; mapAll-at; at-satisfies )
 
 -- ============================================================================
@@ -75,8 +80,8 @@ formatResponse-ack-unique (ExtractionResultsResponse _ _ _ _) ()
 -- The wire emit is `{"type": "property_batch", "results": [...]}` —
 -- always a 2-field JObject regardless of list length, so the inhabitant
 -- can never collapse to Ack's 1-field shape.  The single `_` covers the
--- empty / singleton / batch cases uniformly.
-formatResponse-ack-unique (PropertyResponse _) ()
+-- singleton / batch cases uniformly.
+formatResponse-ack-unique (PropertyResponse _ _) ()
 formatResponse-ack-unique Ack _ = refl
 formatResponse-ack-unique (Complete _ _) ()
 formatResponse-ack-unique (DBCResponse _ _) ()
@@ -172,7 +177,7 @@ saturateBound-pos {o} 1≤o with bound-ceiling <ᵇ o in eq
 -- its measured value passed it, so both are at least 1.
 passes-pos : ∀ {o l} → .(Passes o l) → 1 ≤ o × 1 ≤ l
 passes-pos {o} {l} p =
-  let (one , past) = recompute (T? (1 ≤ᵇ l) ×-dec T? (l <ᵇ o)) p
+  let (one , past) = recompute (T? (1 ≤ᵇ l) ×? T? (l <ᵇ o)) p
       1≤l = ≤ᵇ⇒≤ 1 l one
   in ≤-trans 1≤l (<⇒≤ (<ᵇ⇒< l o past)) , 1≤l
 
@@ -289,10 +294,10 @@ form-readable (just byteCount) _ (d , refl) =
 
 private
   @0 At : List String → Maybe String → JSON → Set
-  At = NumbersAt replyRange
+  At = ValuesAt replyPlaces
 
   @0 FieldsAt : List String → Maybe String → List (String × JSON) → Set
-  FieldsAt = FieldsNumbersAt replyRange
+  FieldsAt = FieldsValuesAt replyPlaces
 
   -- A natural through `saturateObserved` and one through `saturateBound`,
   -- each at most its ceiling.
@@ -302,17 +307,37 @@ private
   @0 boundSaturated-in : ∀ n → 1 ≤ n → InRange (just (positiveAtMost bound-ceiling)) (ℕtoℚ (saturateBound n))
   boundSaturated-in n 1≤n = positive-in _ (saturateBound-pos 1≤n) (saturateBound-≤ n)
 
-  -- A validation issue, an extraction error and an absent signal's name
-  -- carry strings only, wherever they sit.
-  @0 issue-at : ∀ p t i → At p t (formatValidationIssue i)
-  issue-at _ _ _ = tt , tt , tt , tt
+  -- A validation issue's severity is one of the two its place lists, its
+  -- code and detail any text, wherever the place's rows say so; an
+  -- extraction error carries text only.
+  @0 severity-in : ∀ s → TextIn (just (oneOf severities)) (toList (formatIssueSeverity s))
+  severity-in IsError   = tt
+  severity-in IsWarning = tt
 
-  @0 signalError-at : ∀ p t e → At p t (formatSignalError e)
-  signalError-at _ _ _ = tt , tt , tt
+  @0 issue-at : ∀ p t
+    → (∀ s → TextIn (replyText (p ∷ʳ "severity") nothing) (toList (formatIssueSeverity s)))
+    → (∀ cs → TextIn (replyText (p ∷ʳ "code") nothing) cs)
+    → (∀ cs → TextIn (replyText (p ∷ʳ "detail") nothing) cs)
+    → ∀ i → At p t (formatValidationIssue i)
+  issue-at _ _ sev code detail i =
+    sev (ValidationIssue.severity i)
+    , code (toList (formatIssueCode (ValidationIssue.code i)))
+    , detail (toList (ValidationIssue.detail i))
+    , tt
+
+  -- An issue at the two places issues sit, `issues` and a load's `warnings`.
+  @0 issue-in-issues : ∀ i → At ("issues" ∷ []) nothing (formatValidationIssue i)
+  issue-in-issues = issue-at ("issues" ∷ []) nothing severity-in (λ _ → tt) (λ _ → tt)
+
+  @0 issue-in-warnings : ∀ i → At ("warnings" ∷ []) nothing (formatValidationIssue i)
+  issue-in-warnings = issue-at ("warnings" ∷ []) nothing severity-in (λ _ → tt) (λ _ → tt)
+
+  @0 signalError-at : ∀ e → At ("errors" ∷ []) nothing (formatSignalError e)
+  signalError-at _ = tt , tt , tt
 
   -- A property result's index is saturated; a violation's timestamp carries
   -- its bound from the frame entry.
-  @0 propertyResult-at : ∀ r → At ("results" ∷ []) nothing (formatPropertyResult r)
+  @0 propertyResult-at : ∀ {t} r → At ("results" ∷ []) t (formatPropertyResult r)
   propertyResult-at (PropertyResult.Violation idx ce) =
     tt , tt , saturated-in idx , natural-in _ (CounterexampleData.tsBounded ce) , tt , tt
   propertyResult-at (PropertyResult.Satisfaction idx) = tt , tt , saturated-in idx , tt
@@ -326,11 +351,22 @@ private
   @0 value-at : ∀ p → Fits p → At ("values" ∷ []) nothing (formatSignalValue p)
   value-at (_ , q) fits = tt , wireFits-components q fits , tt
 
+  -- A bound refusal's kind is one its place lists.
+  @0 boundKind-in : ∀ k → TextIn (replyText ("bound_kind" ∷ []) nothing) (toList (boundKindCode k))
+  boundKind-in InputLengthBytes           = tt
+  boundKind-in NestingDepth               = tt
+  boundKind-in ArrayCardinality           = tt
+  boundKind-in IdentifierLength           = tt
+  boundKind-in StringLength               = tt
+  boundKind-in AtomCount                  = tt
+  boundKind-in PropertyCount              = tt
+  boundKind-in RationalComponentMagnitude = tt
+
   -- Every number an error reply's structured fields carry is saturated; a
   -- bound refusal's two are positive.
   @0 bound-at : ∀ k o l .(p : Passes o l) → FieldsAt [] nothing (errorExtras (Err.InputBoundExceeded k o l p))
-  bound-at _ o l p =
-    tt , boundSaturated-in o (proj₁ (passes-pos {o} {l} p)) , boundSaturated-in l (proj₂ (passes-pos {o} {l} p)) , tt
+  bound-at k o l p =
+    boundKind-in k , boundSaturated-in o (proj₁ (passes-pos {o} {l} p)) , boundSaturated-in l (proj₂ (passes-pos {o} {l} p)) , tt
 
   @0 parse-at : ∀ pe → FieldsAt [] nothing (errorExtras (Err.ParseErr pe))
   parse-at (Err.InvalidIdentifier (Err.InPart _) _) = tt , tt
@@ -373,8 +409,8 @@ private
   handler-at (Err.PropertyParseFailed _ _)    = tt
   handler-at (Err.PropertyRefused _)          = tt
   handler-at (Err.UnknownSignal _)            = tt
-  handler-at (Err.ValidationFailed issues)    = tt , map-at (issue-at ("issues" ∷ []) nothing) issues , tt
-  handler-at (Err.TextRoundTripFailed issues) = tt , map-at (issue-at ("issues" ∷ []) nothing) issues , tt
+  handler-at (Err.ValidationFailed issues)    = tt , map-at issue-in-issues issues , tt
+  handler-at (Err.TextRoundTripFailed issues) = tt , map-at issue-in-issues issues , tt
   handler-at (Err.NonMonotonicTimestamp _ _)  = tt
   handler-at (Err.WrappedParse _)             = tt
   handler-at (Err.WrappedFrame _)             = tt
@@ -414,20 +450,21 @@ private
 -- THEOREM: every number `formatResponse` writes, for any reply, is in the
 -- range `replyRange` gives its place.  Erased, since it reads the erased
 -- proofs the replies carry.
-@0 formatResponse-in-range : ∀ r → NumbersAt replyRange [] nothing (formatResponse r)
+@0 formatResponse-in-range : ∀ r → ValuesAt replyPlaces [] nothing (formatResponse r)
 formatResponse-in-range (Success _) = tt , tt , tt
 formatResponse-in-range (Error e)   = tt , tt , tt , errorExtras-at e
 formatResponse-in-range (ExtractionResultsResponse values errors absent fit) =
-  tt , mapAll-at value-at values fit , map-at (signalError-at ("errors" ∷ []) nothing) errors , map-at (λ _ → tt) absent , tt
-formatResponse-in-range (PropertyResponse results) = tt , map-at propertyResult-at results , tt
+  tt , mapAll-at value-at values fit , map-at signalError-at errors , map-at (λ _ → tt) absent , tt
+formatResponse-in-range (PropertyResponse []       ())
+formatResponse-in-range (PropertyResponse (r ∷ rs) _) = tt , map-at propertyResult-at (r ∷ rs) , tt
 formatResponse-in-range Ack = tt , tt
 formatResponse-in-range (Complete results warnings) =
   tt , map-at propertyResult-at results , map-at warning-at warnings , tt
 formatResponse-in-range (DBCResponse json w) = tt , proj₁ w , tt
-formatResponse-in-range (ValidationResponse issues) = tt , tt , map-at (issue-at ("issues" ∷ []) nothing) issues , tt
+formatResponse-in-range (ValidationResponse issues) = tt , tt , map-at issue-in-issues issues , tt
 formatResponse-in-range (ParsedDBCResponse json w warnings) =
-  tt , proj₁ w , map-at (issue-at ("warnings" ∷ []) nothing) warnings , tt
-formatResponse-in-range (DBCTextResponse _ issues) = tt , tt , map-at (issue-at ("issues" ∷ []) nothing) issues , tt
+  tt , proj₁ w , map-at issue-in-warnings warnings , tt
+formatResponse-in-range (DBCTextResponse _ issues) = tt , tt , map-at issue-in-issues issues , tt
 
 -- THEOREM: every number `formatResponse` writes, for any reply, has a
 -- numerator of magnitude at most 2^128-1 and a denominator at most 2^128-1,
@@ -538,7 +575,7 @@ formatResponse-shallow (Error e)   = tt , tt , tt , errorExtras-shallow 5 e
 formatResponse-shallow (ExtractionResultsResponse values errors absent _) =
   tt , map-shallow formatSignalValue (value-shallow 5) values , map-shallow formatSignalError (signalError-shallow 5) errors
      , map-shallow JStringS (λ _ → tt) absent , tt
-formatResponse-shallow (PropertyResponse results) = tt , map-shallow formatPropertyResult (propertyResult-shallow 5) results , tt
+formatResponse-shallow (PropertyResponse results _) = tt , map-shallow formatPropertyResult (propertyResult-shallow 5) results , tt
 formatResponse-shallow Ack = tt , tt
 formatResponse-shallow (Complete results warnings) =
   tt , map-shallow formatPropertyResult (propertyResult-shallow 5) results , map-shallow formatWarning (warning-shallow 5) warnings , tt

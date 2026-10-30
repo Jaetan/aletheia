@@ -24,6 +24,7 @@ open import Data.Nat using (ℕ; suc; _<ᵇ_; z≤n)
 open import Data.Fin using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.Unit using (tt)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
@@ -173,18 +174,24 @@ parseAllProperties n state vdbc ((idx , json) ∷ rest) acc
 checkProperty : JSON → Error ⊎ LTL SignalPredicate
 checkProperty = readProperty (λ _ → true) PropertyRefused
 
+-- The property count decided, with the equation the refusal's evidence reads
+-- (a function of its own, so a proof can match the decision).
+setPropertiesWithin : (propJSONs : List JSON) → StreamState → ValidDBC → (b : Bool)
+  → (length propJSONs <ᵇ suc max-properties-per-stream) ≡ b → StreamState × Response
+setPropertiesWithin propJSONs state _ false eq =
+  (state , Response.Error
+     (WithContext "SetProperties"
+       (InputBoundExceeded PropertyCount (length propJSONs) max-properties-per-stream
+         (tt , past-<ᵇ (length propJSONs) max-properties-per-stream eq))))
+setPropertiesWithin propJSONs state vdbc true _ =
+  parseAllProperties (length propJSONs) state vdbc (withIndices propJSONs) []
+
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response
 handleSetProperties _ WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "SetProperties" (HandlerErr NoDBC)))
-handleSetProperties propJSONs state@(ReadyToStream _ vdbc _ _)
-  with length propJSONs <ᵇ suc max-properties-per-stream in eq
-... | false = (state , Response.Error
-                 (WithContext "SetProperties"
-                   (InputBoundExceeded PropertyCount (length propJSONs) max-properties-per-stream
-                     (tt , past-<ᵇ (length propJSONs) max-properties-per-stream eq))))
-... | true  =
-  parseAllProperties (length propJSONs) state vdbc (withIndices propJSONs) []
+handleSetProperties propJSONs state@(ReadyToStream _ vdbc _ _) =
+  setPropertiesWithin propJSONs state vdbc (length propJSONs <ᵇ suc max-properties-per-stream) refl
 handleSetProperties propJSONs state@(Streaming _ _ _ _ _) =
   (state , Response.Error (WithContext "SetProperties" (HandlerErr StreamActive)))
 
@@ -230,19 +237,16 @@ finalizeProperties = map λ ps →
 -- (propertyIndex, detail) tuple if desired; the kernel does not, since
 -- the diagnostic value is "this many atoms had this many distinct
 -- missed signals," not just "one or more missed."
+uncachedAtomWarnings : ℕ → SignalCache → List SignalPredicate → List Warning
+uncachedAtomWarnings _ _ [] = []
+uncachedAtomWarnings propIdx cache (sp ∷ rest) with lookupCache (signalOf sp) cache
+... | just _  = uncachedAtomWarnings propIdx cache rest
+... | nothing = mkWarning UncachedAtom propIdx (fromList (signalOf sp))
+              ∷ uncachedAtomWarnings propIdx cache rest
+
 collectUncachedWarnings-one : ∀ {n} → SignalCache → PropertyState n → List Warning
 collectUncachedWarnings-one cache ps =
-  walkAtoms (PropertyState.atoms ps)
-  where
-    propIdx : ℕ
-    propIdx = toℕ (PropertyState.index ps)
-
-    walkAtoms : List SignalPredicate → List Warning
-    walkAtoms [] = []
-    walkAtoms (sp ∷ rest) with lookupCache (signalOf sp) cache
-    ... | just _  = walkAtoms rest
-    ... | nothing = mkWarning UncachedAtom propIdx (fromList (signalOf sp))
-                  ∷ walkAtoms rest
+  uncachedAtomWarnings (toℕ (PropertyState.index ps)) cache (PropertyState.atoms ps)
 
 -- Walker entrypoint: collect cache-miss warnings across every property.
 collectUncachedWarnings : ∀ {n} → SignalCache → List (PropertyState n) → List Warning

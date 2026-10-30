@@ -281,7 +281,7 @@ formatResponse (ExtractionResultsResponse values errors absent _) =
     ("errors" , JArray (map formatSignalError errors)) ∷
     ("absent" , JArray (map JStringS absent)) ∷
     [])
-formatResponse (PropertyResponse results) =
+formatResponse (PropertyResponse results _) =
   -- Per-frame batch of property events.  Carries one
   -- top-level object that bindings parse as a single response, with the
   -- inner `results` array preserving source order (satisfactions that

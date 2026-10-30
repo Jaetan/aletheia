@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast, get_args
+from typing import TYPE_CHECKING, cast
 
 from aletheia.client._helpers.rational import decode_wire_rational, is_pure_int, reject_inexact
 from aletheia.client._types import ProtocolError
@@ -214,32 +214,31 @@ def _validate_signal_bits(sig: Mapping[str, object]) -> None:
 
 
 def _validate_signal_presence(sig: Mapping[str, object]) -> None:
-    """Validate the explicit ``presence`` discriminator the core emits.
+    """Reject a ``presence`` or a multiplexed signal's field that is not of its kind.
 
-    Mirrors the Rust binding: ``presence`` is required and must be ``"always"``
-    or ``"multiplexed"``; a multiplexed signal additionally requires a non-empty
-    ``multiplexor`` and a non-empty ``multiplex_values`` list of integers, whose
-    range the kernel decided and proves of every reply.
+    The kernel writes ``presence`` as ``"always"`` or ``"multiplexed"``, a
+    multiplexor that is not empty and at least one selector value in range, all
+    proven of every reply, so the reader holds only the kinds and reads any
+    ``presence`` but ``"always"`` as multiplexed.
     """
     presence = sig.get("presence")
+    if not isinstance(presence, str):
+        msg = f"Expected signal 'presence' to be str, got {type(presence).__name__}"
+        raise ProtocolError(msg)
     if presence == "always":
         return
-    if presence == "multiplexed":
-        multiplexor = sig.get("multiplexor")
-        if not isinstance(multiplexor, str) or not multiplexor:
-            msg = "Multiplexed signal requires a non-empty 'multiplexor'"
+    multiplexor = sig.get("multiplexor")
+    if not isinstance(multiplexor, str):
+        msg = f"Expected signal 'multiplexor' to be str, got {type(multiplexor).__name__}"
+        raise ProtocolError(msg)
+    values = sig.get("multiplex_values")
+    if not isinstance(values, list):
+        msg = f"Expected signal 'multiplex_values' to be a list, got {type(values).__name__}"
+        raise ProtocolError(msg)
+    for entry in cast("list[object]", values):
+        if not is_pure_int(entry):
+            msg = f"Expected 'multiplex_values' entry to be int, got {entry!r}"
             raise ProtocolError(msg)
-        values = sig.get("multiplex_values")
-        if not isinstance(values, list) or not values:
-            msg = "Multiplexed signal requires a non-empty 'multiplex_values' array"
-            raise ProtocolError(msg)
-        for entry in cast("list[object]", values):
-            if not is_pure_int(entry):
-                msg = f"Expected 'multiplex_values' entry to be int, got {entry!r}"
-                raise ProtocolError(msg)
-        return
-    msg = f"Expected signal 'presence' to be 'always' or 'multiplexed', got {presence!r}"
-    raise ProtocolError(msg)
 
 
 def _normalize_signal_group(raw: Mapping[str, JSONValue]) -> DBCSignalGroup:
@@ -353,6 +352,11 @@ def _normalize_raw_value_desc(raw: Mapping[str, JSONValue]) -> DBCRawValueDesc:
 
 # ----------------------------------------------------------------------------
 # Tier 2 metadata normalisation (nodes / comments / attributes)
+#
+# Each tag below (a comment target's kind, an attribute's, its type's, value's
+# and target's kind, a definition's scope) is one of a fixed set the kernel
+# proves of every reply, so a reader holds only the tag's kind: a dispatch's
+# last arm reads every tag the arms before it do not name, and a scope is cast.
 # ----------------------------------------------------------------------------
 
 
@@ -406,10 +410,7 @@ def _normalize_comment_target(raw: Mapping[str, JSONValue]) -> DBCCommentTarget:
             "extended": _require_extended(raw),
         }
         return cast("DBCCommentTarget", out2)
-    if kind == "envVar":
-        return {"kind": "envVar", "envVar": _require_str_field(raw, "envVar", "comment target")}
-    msg = f"Unknown comment target kind {kind!r}"
-    raise ProtocolError(msg)
+    return {"kind": "envVar", "envVar": _require_str_field(raw, "envVar", "comment target")}
 
 
 def _normalize_comment(raw: Mapping[str, JSONValue]) -> DBCComment:
@@ -423,17 +424,12 @@ def _normalize_comment(raw: Mapping[str, JSONValue]) -> DBCComment:
     }
 
 
-# Membership set of the attr-scope wire names, derived from the ``AttrScope``
-# Literal so the names live in exactly one place.  ``test_dbc_metadata_tier2``
-# pins the round-trip order against the same ``get_args(AttrScope)`` sequence.
-_ATTR_SCOPE_WIRE: frozenset[str] = frozenset(get_args(AttrScope))
-
-
 def _normalize_attr_scope(value: object) -> AttrScope:
-    if isinstance(value, str) and value in _ATTR_SCOPE_WIRE:
-        return cast("AttrScope", value)
-    msg = f"Unknown attribute scope {value!r}"
-    raise ProtocolError(msg)
+    """Narrow an attribute definition's ``scope`` to the ``AttrScope`` Literal."""
+    if not isinstance(value, str):
+        msg = f"Expected attribute 'scope' to be str, got {type(value).__name__}"
+        raise ProtocolError(msg)
+    return cast("AttrScope", value)
 
 
 def _normalize_attr_type(raw: Mapping[str, JSONValue]) -> DBCAttrType:
@@ -467,14 +463,11 @@ def _normalize_attr_type(raw: Mapping[str, JSONValue]) -> DBCAttrType:
                 raise ProtocolError(msg)
             labels.append(v)
         return {"kind": "enum", "values": labels}
-    if kind == "hex":
-        return {
-            "kind": "hex",
-            "min": _require_int_field(raw, "min", "attribute type hex"),
-            "max": _require_int_field(raw, "max", "attribute type hex"),
-        }
-    msg = f"Unknown attribute type kind {kind!r}"
-    raise ProtocolError(msg)
+    return {
+        "kind": "hex",
+        "min": _require_int_field(raw, "min", "attribute type hex"),
+        "max": _require_int_field(raw, "max", "attribute type hex"),
+    }
 
 
 def _normalize_attr_value(raw: Mapping[str, JSONValue]) -> DBCAttrValue:
@@ -491,60 +484,36 @@ def _normalize_attr_value(raw: Mapping[str, JSONValue]) -> DBCAttrValue:
         return {"kind": "string", "value": value}
     if kind == "enum":
         return {"kind": "enum", "value": _require_int_field(raw, "value", "attribute value enum")}
-    if kind == "hex":
-        return {"kind": "hex", "value": _require_int_field(raw, "value", "attribute value hex")}
-    msg = f"Unknown attribute value kind {kind!r}"
-    raise ProtocolError(msg)
+    return {"kind": "hex", "value": _require_int_field(raw, "value", "attribute value hex")}
 
 
-def _normalize_attr_target_msg_id(
-    raw: Mapping[str, JSONValue],
-    kind: str,
-) -> dict[str, object]:
-    return {
-        "kind": kind,
-        "id": _require_int_field(raw, "id", "attribute target"),
-        "extended": _require_extended(raw),
-    }
-
-
-_ATTR_TARGET_SIMPLE_KINDS = frozenset({"network", "node", "envVar"})
-_ATTR_TARGET_MSG_KINDS = frozenset({"message", "signal", "nodeMsg", "nodeSig"})
-
-
-def _normalize_attr_target_simple(
-    kind: str,
-    raw: Mapping[str, JSONValue],
-) -> dict[str, object]:
+def _normalize_attr_target_at_id(kind: str, raw: Mapping[str, JSONValue]) -> DBCAttrTarget:
+    """Read an attribute target that carries a CAN id, ``nodeSig`` its last arm."""
     ctx = "attribute target"
+    can_id = _require_int_field(raw, "id", ctx)
+    extended = _require_extended(raw)
+    if kind == "message":
+        return {"kind": "message", "id": can_id, "extended": extended}
+    if kind == "signal":
+        signal = _require_str_field(raw, "signal", ctx)
+        return {"kind": "signal", "id": can_id, "extended": extended, "signal": signal}
+    node = _require_str_field(raw, "node", ctx)
+    if kind == "nodeMsg":
+        return {"kind": "nodeMsg", "id": can_id, "extended": extended, "node": node}
+    signal = _require_str_field(raw, "signal", ctx)
+    return {"kind": "nodeSig", "id": can_id, "extended": extended, "node": node, "signal": signal}
+
+
+def _normalize_attr_target(raw: Mapping[str, JSONValue]) -> DBCAttrTarget:
+    ctx = "attribute target"
+    kind = _require_str_field(raw, "kind", ctx)
     if kind == "network":
         return {"kind": "network"}
     if kind == "node":
         return {"kind": "node", "node": _require_str_field(raw, "node", ctx)}
-    return {"kind": "envVar", "envVar": _require_str_field(raw, "envVar", ctx)}
-
-
-def _normalize_attr_target_msg(
-    kind: str,
-    raw: Mapping[str, JSONValue],
-) -> dict[str, object]:
-    ctx = "attribute target"
-    base = _normalize_attr_target_msg_id(raw, kind)
-    if kind in ("nodeMsg", "nodeSig"):
-        base["node"] = _require_str_field(raw, "node", ctx)
-    if kind in ("signal", "nodeSig"):
-        base["signal"] = _require_str_field(raw, "signal", ctx)
-    return base
-
-
-def _normalize_attr_target(raw: Mapping[str, JSONValue]) -> DBCAttrTarget:
-    kind = _require_str_field(raw, "kind", "attribute target")
-    if kind in _ATTR_TARGET_SIMPLE_KINDS:
-        return cast("DBCAttrTarget", _normalize_attr_target_simple(kind, raw))
-    if kind in _ATTR_TARGET_MSG_KINDS:
-        return cast("DBCAttrTarget", _normalize_attr_target_msg(kind, raw))
-    msg = f"Unknown attribute target kind {kind!r}"
-    raise ProtocolError(msg)
+    if kind == "envVar":
+        return {"kind": "envVar", "envVar": _require_str_field(raw, "envVar", ctx)}
+    return _normalize_attr_target_at_id(kind, raw)
 
 
 def _normalize_attribute(raw: Mapping[str, JSONValue]) -> DBCAttribute:
@@ -574,24 +543,21 @@ def _normalize_attribute(raw: Mapping[str, JSONValue]) -> DBCAttribute:
             "value": _normalize_attr_value(value_raw),
         }
         return result_default
-    if kind == "assignment":
-        target_raw = raw.get("target")
-        if not is_str_dict(target_raw):
-            msg = "Expected attribute assignment 'target' to be a dict"
-            raise ProtocolError(msg)
-        value_raw = raw.get("value")
-        if not is_str_dict(value_raw):
-            msg = "Expected attribute assignment 'value' to be a dict"
-            raise ProtocolError(msg)
-        result_assign: DBCAttrAssign = {
-            "kind": "assignment",
-            "name": name,
-            "target": _normalize_attr_target(target_raw),
-            "value": _normalize_attr_value(value_raw),
-        }
-        return result_assign
-    msg = f"Unknown attribute kind {kind!r}"
-    raise ProtocolError(msg)
+    target_raw = raw.get("target")
+    if not is_str_dict(target_raw):
+        msg = "Expected attribute assignment 'target' to be a dict"
+        raise ProtocolError(msg)
+    value_raw = raw.get("value")
+    if not is_str_dict(value_raw):
+        msg = "Expected attribute assignment 'value' to be a dict"
+        raise ProtocolError(msg)
+    result_assign: DBCAttrAssign = {
+        "kind": "assignment",
+        "name": name,
+        "target": _normalize_attr_target(target_raw),
+        "value": _normalize_attr_value(value_raw),
+    }
+    return result_assign
 
 
 def _validate_message_meta(message: Mapping[str, object]) -> None:

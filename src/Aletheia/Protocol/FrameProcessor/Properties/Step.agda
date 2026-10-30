@@ -32,7 +32,7 @@ open import Aletheia.Protocol.StreamState.Internals
            mkPredTableT; extractTable; updateCacheFromFrame; readableSignals)
 open import Aletheia.LTL.SignalPredicate.Cache using (withForcedCache; withForcedCache-id)
 open import Aletheia.LTL.SignalPredicate.Evaluation using (withForcedTable-id)
-open import Aletheia.Protocol.Message using (Response)
+open import Aletheia.Protocol.Message using (Response; ++-∷-nonEmpty)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData)
 open import Aletheia.Protocol.Iteration using (advance; halt; complete; iterate; iterate-correct; specResult; specHalt; specCompletions)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
@@ -44,6 +44,7 @@ open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Maybe using (just; nothing)
 open import Data.Fin using (Fin; toℕ)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
 
 -- ============================================================================
@@ -123,13 +124,21 @@ dispatchIterResult-ack : ∀ {n} dbc v (ps : List (PropertyState n)) tf cache
   → proj₂ (dispatchIterResult (validated dbc v) (ps , nothing , []) tf cache) ≡ Response.Ack
 dispatchIterResult-ack dbc v ps tf cache = refl
 
+-- The violation result `dispatchIterResult` writes for a halt.
+violationOf : ∀ {n} → Fin n → Counterexample → PR.PropertyResult
+violationOf idx ce =
+  PR.PropertyResult.Violation (toℕ idx)
+    (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
+                          (TimedFrame.tsBounded (Counterexample.violatingFrame ce))
+                          (Counterexample.reason ce))
+
 -- When iterate finds no violation but one-or-more completions, response
 -- is PropertyResponse carrying the satisfaction list (no violation
 -- appended).  This is the mid-stream-Satisfaction emission path.
 dispatchIterResult-completions : ∀ {n} dbc v (ps : List (PropertyState n)) (c : Fin n) cs tf cache
   → proj₂ (dispatchIterResult (validated dbc v) (ps , nothing , c ∷ cs) tf cache)
     ≡ Response.PropertyResponse
-        (map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) (c ∷ cs))
+        (map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) (c ∷ cs)) tt
 dispatchIterResult-completions dbc v ps c cs tf cache = refl
 
 -- When iterate finds a violation (just), response is PropertyResponse
@@ -141,11 +150,8 @@ dispatchIterResult-violation : ∀ {n} dbc v (ps : List (PropertyState n)) (idx 
   → proj₂ (dispatchIterResult (validated dbc v) (ps , just (idx , ce) , completions) tf cache)
     ≡ Response.PropertyResponse
         (map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) completions
-         ++ₗ (PR.PropertyResult.Violation (toℕ idx)
-                (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
-                                      (TimedFrame.tsBounded (Counterexample.violatingFrame ce))
-                                      (Counterexample.reason ce))
-              ∷ []))
+         ++ₗ (violationOf idx ce ∷ []))
+        (++-∷-nonEmpty (map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) completions) (violationOf idx ce))
 dispatchIterResult-violation dbc v ps idx ce completions tf cache = refl
 
 -- ============================================================================
@@ -214,12 +220,12 @@ handleDataFrame-ack-sound dbc v props prev cache tf mono resp-eq
 -- halt evidence, one or more completion payloads, or both).  With the
 -- mid-stream-Satisfaction lift, PropertyResponse means "non-empty
 -- batch" which covers completions-only frames in addition to violations.
-handleDataFrame-events-sound : ∀ {n} dbc v (props : List (PropertyState n)) prev cache tf pr
+handleDataFrame-events-sound : ∀ {n} dbc v (props : List (PropertyState n)) prev cache tf pr ne
   → checkMonotonic prev tf ≡ nothing
-  → proj₂ (handleDataFrame (Streaming n (validated dbc v) props prev cache) tf) ≡ Response.PropertyResponse pr
+  → proj₂ (handleDataFrame (Streaming n (validated dbc v) props prev cache) tf) ≡ Response.PropertyResponse pr ne
   → (∃[ e ] proj₁ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ just e)
     ⊎ (∃[ c ] ∃[ cs ] proj₂ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ c ∷ cs)
-handleDataFrame-events-sound dbc v props prev cache tf pr mono resp-eq
+handleDataFrame-events-sound dbc v props prev cache tf pr ne mono resp-eq
   with iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props
      | trans (sym (cong proj₂ (handleDataFrame-streaming dbc v props prev cache tf mono))) resp-eq
 ... | (ps , nothing , [])         | ()
@@ -271,11 +277,11 @@ handleDataFrame-violation-complete : ∀ {n} dbc v (props : List (PropertyState 
     ≡ Response.PropertyResponse
         (map (λ i → PR.PropertyResult.Satisfaction (toℕ i))
              (specCompletions (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)
-         ++ₗ (PR.PropertyResult.Violation (toℕ idx)
-                (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
-                                      (TimedFrame.tsBounded (Counterexample.violatingFrame ce))
-                                      (Counterexample.reason ce))
-              ∷ []))
+         ++ₗ (violationOf idx ce ∷ []))
+        (++-∷-nonEmpty
+          (map (λ i → PR.PropertyResult.Satisfaction (toℕ i))
+               (specCompletions (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props))
+          (violationOf idx ce))
 handleDataFrame-violation-complete dbc v props prev cache tf idx ce mono spec-eq =
     trans (cong proj₂ (handleDataFrame-streaming dbc v props prev cache tf mono))
           (cong (λ p → proj₂ (dispatchIterResult (validated dbc v) p tf updatedCache)) iter-eq)

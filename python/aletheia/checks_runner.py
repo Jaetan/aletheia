@@ -83,12 +83,14 @@ def _check_meta(
     prop_index: int,
     checks: list[CheckResult],
 ) -> tuple[str, str]:
-    """Look up check name and severity by property index."""
-    if 0 <= prop_index < len(checks):
-        name = checks[prop_index].name or f"Check #{prop_index}"
-        sev = checks[prop_index].check_severity or ""
-        return name, sev
-    return f"Check #{prop_index}", ""
+    """Look up the check's name and severity at the kernel's property index.
+
+    The kernel proves every property index below the number of checks it was
+    handed, so *checks* is indexed directly.  A check without a name is shown
+    as ``Check #<index>``.
+    """
+    check = checks[prop_index]
+    return check.name or f"Check #{prop_index}", check.check_severity or ""
 
 
 def _build_violation(

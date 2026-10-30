@@ -766,32 +766,19 @@ class TestParseDBCDualLayerValidation:
         assert response["status"] == "success"
 
 
-# validate_dbc must reject wire responses with unknown severity strings.
-#
-# Agda only emits "error" or "warning". A different value means the wire
-# protocol has drifted — treat it as a ProtocolError for cross-binding
-# parity with C++ and Go.
-
-
-def test_unknown_severity_raises_protocol_error(
+def test_a_severity_outside_the_kernel_set_passes_as_written(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify unknown severity raises protocol error."""
+    """validate_dbc returns an issue's severity as written: the kernel proves its set."""
     dbc = single_message_dbc([make_signal("Sig1")])
+    issues = [{"severity": "info", "code": "empty_message", "detail": "x"}]
     with AletheiaClient() as client:
 
         def fake_send(_cmd: Command) -> Response:
-            # Inject a deliberately-unknown issue severity to exercise the
-            # client's validation-response rejection path.
             return cast(
                 "Response",
-                {
-                    "status": "validation",
-                    "has_errors": False,
-                    "issues": [{"severity": "info", "code": "empty_message", "detail": "x"}],
-                },
+                {"status": "validation", "has_errors": False, "issues": issues},
             )
 
         monkeypatch.setattr(client, "_send_command", fake_send)
-        with pytest.raises(ProtocolError, match="severity"):
-            client.validate_dbc(dbc)
+        assert client.validate_dbc(dbc)["issues"] == issues

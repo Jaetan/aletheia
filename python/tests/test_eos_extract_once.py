@@ -16,7 +16,6 @@ observable through the public interface — the counting idiom mirrors
 from __future__ import annotations
 
 import json
-import logging
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
@@ -291,44 +290,27 @@ def test_all_satisfied_costs_zero_extractions() -> None:
         assert "enrichment" not in entry
 
 
-def test_oob_property_index_warns_excludes_and_spares_valid_entries(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """An out-of-bounds property_index is warned once and excluded.
+def test_a_property_index_past_the_properties_raises_key_error() -> None:
+    """An end-of-stream result indexes the diagnostics with its ``property_index`` directly.
 
-    The OOB entry gets no enrichment (and drives no extraction of its own),
-    while the valid entry in the same finalization batch is still enriched.
+    The kernel proves every index below the number of properties
+    ``set_properties`` was handed, so one past them raises the diagnostics
+    map's own ``KeyError`` before any extraction runs.
     """
     backend = MockBackend()
     _queue_session_setup(backend)
     backend.queue_response(_resp({"status": "ack"}))
-    backend.queue_response(_complete_resp(_fails_entry(0), _fails_entry(3)))
-    backend.queue_response(_extraction_resp({"SigA": 5}))
+    backend.queue_response(_complete_resp(_fails_entry(1)))
 
-    with (
-        caplog.at_level(logging.WARNING, logger="aletheia"),
-        AletheiaClient(backend=backend) as client,
-    ):
+    with AletheiaClient(backend=backend) as client:
         client.parse_dbc(_two_message_dbc())
         client.set_properties([Signal("SigA").greater_than(10).eventually().to_dict()])
         client.start_stream()
         client.send_frame(0, 0x100, DLCCode(8), bytes(8))
-        response = client.end_stream()
+        with pytest.raises(KeyError, match=r"^1$"):
+            _ = client.end_stream()
 
-    oob_messages = [
-        record.getMessage()
-        for record in caplog.records
-        if record.getMessage().startswith("enrichment.property_index_oob")
-    ]
-    assert len(oob_messages) == 1
-    assert "index=3" in oob_messages[0]
-    assert "count=1" in oob_messages[0]
-
-    assert backend.inputs.count(_EXTRACT_SENTINEL) == 1
-
-    results = _get_results(response)
-    assert _get_enrichment(results[0])["signals"] == {"SigA": Fraction(5)}
-    assert "enrichment" not in results[1]
+    assert backend.inputs.count(_EXTRACT_SENTINEL) == 0
 
 
 def test_failed_extraction_raises_from_end_stream() -> None:

@@ -9,6 +9,7 @@ handler — no output is produced unless a handler is installed, matching
 the opt-in design.
 """
 
+import json
 import logging
 from typing import TYPE_CHECKING, NewType
 
@@ -16,7 +17,7 @@ import pytest
 from _dbc_helpers import dbc, message, signal
 from _stream_helpers import run_one_frame_stream
 
-from aletheia import AletheiaClient, Signal
+from aletheia import AletheiaClient, MockBackend, Signal
 from aletheia.client._log import KNOWN_EVENTS, LogEvent, log_event
 from aletheia.client._types import MAX_EXTRACT_CACHE
 from aletheia.types import DBCDefinition, DLCCode
@@ -380,6 +381,30 @@ class TestEndStreamWarnings:
         assert rec.levelno == logging.WARNING
         assert getattr(rec, "property_index", None) == 0
         assert getattr(rec, "detail", None) == "Speed"
+
+    @pytest.mark.usefixtures("rts_up")
+    def test_a_warning_logs_as_the_one_kind_the_kernel_writes(
+        self,
+        capture: _Capture,
+    ) -> None:
+        """The kernel writes one warning kind, so every warning logs ``endstream.uncached_atom``."""
+        backend = MockBackend()
+        for reply in (b'{"status":"success"}', b'{"status":"success"}'):
+            backend.queue_response(reply)
+        warning = {"kind": "other", "property_index": 0, "detail": "Speed"}
+        backend.queue_response(
+            json.dumps({"status": "complete", "results": [], "warnings": [warning]}).encode()
+        )
+        with AletheiaClient(backend=backend) as client:
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
+            client.start_stream()
+            client.end_stream()
+        uncached = [
+            (getattr(r, "property_index", None), getattr(r, "detail", None))
+            for r in capture.records
+            if getattr(r, "event", None) == LogEvent.ENDSTREAM_UNCACHED_ATOM.value
+        ]
+        assert uncached == [(0, "Speed")]
 
     def test_all_observed_emits_no_per_warning_event(
         self,

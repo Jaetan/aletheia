@@ -4,8 +4,10 @@
 
 -- What `formatDBC` writes for a bounded DBC stays within the bounds the DBC
 -- met: an array it writes for a list has that list's length, and every
--- number it writes is in the range `replyRange` gives its place under a
--- reply's `dbc` key (`formatDBC-in-range`).  Every definition is erased, so
+-- value it writes is in the form the reply tables give its place under a
+-- reply's `dbc` key (`formatDBC-in-range`): a number in its row's range, a
+-- tag one of its row's literals, a multiplexor's name and a multiplexed
+-- signal's selector values never empty.  Every definition is erased, so
 -- a runtime module can carry the proof beside the JSON it formats and
 -- MAlonzo compiles none of it.
 --
@@ -59,7 +61,7 @@ open import Aletheia.DBC.Formatter using
   ; formatDBCSignal; formatDBCMessage; formatSignalGroup; formatEnvironmentVar
   ; formatValueTable; formatRawValueDesc; formatNode; formatCommentTarget
   ; formatComment; formatAttrType; formatAttrValue; formatAttrTarget
-  ; formatAttribute; formatDBC; identJSON )
+  ; formatAttribute; formatDBC; identJSON; formatByteOrder; formatAttrScope )
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; DBCSignal; SignalPresence; Always; When
   ; EnvironmentVar; ValueTable; RawValueDesc; DBCComment
@@ -68,7 +70,9 @@ open import Aletheia.DBC.Types using
   ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar; ATgtNodeMsg; ATgtNodeSig
-  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign )
+  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
+  ; AttrDef; AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar; ASNodeMsg; ASNodeSig )
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent)
 open import Aletheia.Limits using
   (max-rational-component-magnitude; max-start-bit; max-var-type; max-value-description-key-magnitude)
 open import Aletheia.Prelude using (ℕtoℚ; fromℤ)
@@ -76,8 +80,8 @@ open import Aletheia.Protocol.JSON.Types using
   (JSON; JString; ComponentsWithin; Shallow; FieldsShallow)
 open import Aletheia.Protocol.JSON.Shallow using (shallow-≤; map-shallow; fields-++)
 open import Aletheia.Protocol.ReplyRange using
-  ( NumbersAt; ListNumbersAt; FieldsNumbersAt; InRange; replyRange
-  ; natural-in; integer-in; byteCount-in; map-at; mapAll-at )
+  ( ValuesAt; ListValuesAt; FieldsValuesAt; InRange; TextIn; replyRange; replyText; replyPlaces
+  ; anyNonEmpty; natural-in; integer-in; byteCount-in; map-at; mapAll-at )
 
 -- ============================================================================
 -- ARRAY LENGTHS
@@ -119,13 +123,13 @@ formatDBCMessage-signals-bounded frameBytes msg n =
 -- NUMBERS
 -- ============================================================================
 
--- Every number at its place under a reply's `dbc` key, for a value and an
+-- Every value at its place under a reply's `dbc` key, for a value and an
 -- object's fields.
 @0 At : List String → Maybe String → JSON → Set
-At = NumbersAt replyRange
+At = ValuesAt replyPlaces
 
 @0 FieldsAt : List String → Maybe String → List (String × JSON) → Set
-FieldsAt = FieldsNumbersAt replyRange
+FieldsAt = FieldsValuesAt replyPlaces
 
 -- ---- One number ----
 
@@ -223,19 +227,43 @@ varType-≤ IntVar    = z≤n
 varType-≤ FloatVar  = s≤s z≤n
 varType-≤ StringVar = ≤-refl
 
+-- ---- Tags and names ----
+
+-- A byte order and a scope are one of the literals their places list.
+@0 byteOrder-in : ∀ bo
+  → TextIn (replyText ("dbc" ∷ "messages" ∷ "signals" ∷ "byteOrder" ∷ []) nothing) (formatByteOrder bo)
+byteOrder-in LittleEndian = tt
+byteOrder-in BigEndian    = tt
+
+@0 scope-in : ∀ s → TextIn (replyText ("dbc" ∷ "attributes" ∷ "scope" ∷ []) (just "definition")) (formatAttrScope s)
+scope-in ASNetwork = tt
+scope-in ASNode    = tt
+scope-in ASMessage = tt
+scope-in ASSignal  = tt
+scope-in ASEnvVar  = tt
+scope-in ASNodeMsg = tt
+scope-in ASNodeSig = tt
+
+-- An identifier's name is never empty: the identifier grammar refuses it.
+@0 name-nonEmpty : ∀ i → TextIn (just anyNonEmpty) (Identifier.name i)
+name-nonEmpty (mkIdent []      ())
+name-nonEmpty (mkIdent (_ ∷ _) _) = tt
+
 -- ---- The formatter's helpers ----
 
 @0 presence-at : ∀ p → SmallSelectors p
   → FieldsAt ("dbc" ∷ "messages" ∷ "signals" ∷ []) nothing (formatPresence p)
-presence-at Always      _   = tt , tt
-presence-at (When _ vs) sel = tt , tt , mapAll-at natural-in (List⁺.toList vs) sel , tt
+presence-at Always                       _   = tt , tt
+presence-at (When mux (v List⁺.∷ vs))    sel = tt , name-nonEmpty mux , mapAll-at natural-in (v ∷ vs) sel , tt
 
 -- A value-description entry at the place of the array holding it, of any
--- type, since each entry is an object of its own.
+-- type, since each entry is an object of its own; its description is any
+-- text its place allows.
 @0 entries-at : ∀ p t es
   → (∀ z → ∣ z ∣ ≤ max-value-description-key-magnitude → InRange (replyRange (p ∷ʳ "value") nothing) (fromℤ z))
-  → SmallKeys es → ListNumbersAt replyRange p t (map formatValueEntry es)
-entries-at p t es h = mapAll-at (λ { (z , _) small → h z small , tt , tt }) es
+  → (∀ cs → TextIn (replyText (p ∷ʳ "description") nothing) cs)
+  → SmallKeys es → ListValuesAt replyPlaces p t (map formatValueEntry es)
+entries-at p t es h d = mapAll-at (λ { (z , cs) small → h z small , d cs , tt }) es
 
 @0 signal-at : ∀ {t} fb → fb ≤ 64 → ∀ sig → SignalMagnitudes sig
   → At ("dbc" ∷ "messages" ∷ "signals" ∷ []) t (formatDBCSignal fb sig)
@@ -244,7 +272,7 @@ signal-at fb fb≤64 sig m =
   tt
   , natural-in _ (unconvertStartBit-≤ fb (DBCSignal.byteOrder sig) _ _ fb≤64 (SignalMagnitudes.startBit m))
   , natural-in _ (SignalMagnitudes.bitLength m)
-  , tt
+  , byteOrder-in (DBCSignal.byteOrder sig)
   , tt
   , toℚ-components (SignalDef.factor def) (SignalMagnitudes.factor m)
   , toℚ-components (SignalDef.offset def) (SignalMagnitudes.offset m)
@@ -252,7 +280,7 @@ signal-at fb fb≤64 sig m =
   , toℚ-components (SignalDef.maximum def) (SignalMagnitudes.maximum m)
   , tt
   , map-at (λ _ → tt) _
-  , entries-at _ _ _ integer-in (SignalMagnitudes.keys m)
+  , entries-at _ _ _ integer-in (λ _ → tt) (SignalMagnitudes.keys m)
   , presence-at _ (SignalMagnitudes.selectors m)
 
 @0 message-at : ∀ msg → All SignalMagnitudes (DBCMessage.signals msg)
@@ -279,12 +307,12 @@ envVar-at ev m =
   , tt
 
 @0 valueTable-at : ∀ vt → SmallKeys (ValueTable.entries vt) → At ("dbc" ∷ "valueTables" ∷ []) nothing (formatValueTable vt)
-valueTable-at _ ks = tt , entries-at _ _ _ integer-in ks , tt
+valueTable-at _ ks = tt , entries-at _ _ _ integer-in (λ _ → tt) ks , tt
 
 @0 rawValueDesc-at : ∀ rvd → SmallKeys (RawValueDesc.entries rvd)
   → At ("dbc" ∷ "unresolvedValueDescs" ∷ []) nothing (formatRawValueDesc rvd)
 rawValueDesc-at rvd ks =
-  canId-++ _ _ (RawValueDesc.canId rvd) (natural-in , natural-in) (tt , entries-at _ _ _ integer-in ks , tt)
+  canId-++ _ _ (RawValueDesc.canId rvd) (natural-in , natural-in) (tt , entries-at _ _ _ integer-in (λ _ → tt) ks , tt)
 
 @0 node-at : ∀ n → At ("dbc" ∷ "nodes" ∷ []) nothing (formatNode n)
 node-at _ = tt , tt
@@ -325,13 +353,13 @@ attrTarget-at (ATgtNodeMsg _ id)   = tt , tt , canId-at _ _ id (natural-in , nat
 attrTarget-at (ATgtNodeSig _ id _) = tt , tt , canId-++ _ _ id (natural-in , natural-in) (tt , tt)
 
 @0 attribute-at : ∀ a → AttributeMagnitudes a → At ("dbc" ∷ "attributes" ∷ []) nothing (formatAttribute a)
-attribute-at (DBCAttrDef d)     m = tt , tt , tt , attrType-at _ m , tt
+attribute-at (DBCAttrDef d)     m = tt , tt , scope-in (AttrDef.scope d) , attrType-at _ m , tt
 attribute-at (DBCAttrDefault d) m = tt , tt , attrValue-at _ m , tt
 attribute-at (DBCAttrAssign a)  m = tt , tt , attrTarget-at _ , attrValue-at _ m , tt
 
 -- ---- The theorem ----
 
--- Every number `formatDBC` writes for a bounded DBC is in the range of its
+-- Every value `formatDBC` writes for a bounded DBC is in the form of its
 -- place under a reply's `dbc` key.
 @0 formatDBC-in-range : ∀ dbc → IsBoundedDBC dbc → At ("dbc" ∷ []) nothing (formatDBC dbc)
 formatDBC-in-range dbc b =

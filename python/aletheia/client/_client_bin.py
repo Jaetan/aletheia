@@ -121,16 +121,6 @@ class SignalValues:
     values: tuple[Fraction, ...]
 
 
-def _signal_name(names: Sequence[str], idx: int) -> str:
-    """Resolve a wire signal index against the caller's name table.
-
-    Used by the error / absent segment parsers; the values loop inlines the
-    same conditional because a per-entry helper call is measurable on the
-    per-frame extraction hot path.
-    """
-    return names[idx] if idx < len(names) else f"signal_{idx}"
-
-
 def _parse_values_segment(
     buf: bytes,
     off: int,
@@ -146,13 +136,11 @@ def _parse_values_segment(
     header reads one.
     """
     values: dict[str, Fraction] = {}
-    n_names = len(names)
     for _ in range(count):
         idx, negative, num_bytes, den_bytes = struct.unpack_from(_VALUE_ENTRY_FMT, buf, off)
         off += _VALUE_ENTRY_BYTES
-        name = names[idx] if idx < n_names else f"signal_{idx}"
         value = Fraction(int.from_bytes(num_bytes, "little"), int.from_bytes(den_bytes, "little"))
-        values[name] = -value if negative else value
+        values[names[idx]] = -value if negative else value
     return values, off
 
 
@@ -173,7 +161,7 @@ def _parse_error_entries(
     for _ in range(count):
         idx, _code = map(int, struct.unpack_from("<HB", buf, off))
         off += _ERROR_ENTRY_BYTES
-        entry_names.append(_signal_name(names, idx))
+        entry_names.append(names[idx])
     return entry_names, off
 
 
@@ -229,7 +217,7 @@ def _parse_absent_segment(
     for _ in range(count):
         (idx,) = map(int, struct.unpack_from("<H", buf, off))
         off += _ABSENT_ENTRY_BYTES
-        absent.append(_signal_name(names, idx))
+        absent.append(names[idx])
     return absent, off
 
 
@@ -244,7 +232,11 @@ def parse_extraction_buffer(
     Reasons, and Absent segments in that order (see the module docstring
     and the ``processExtractBin`` header comment in
     ``Aletheia.Main.Binary``).  The buffer length must equal the total
-    the header implies exactly — shorter and longer are both rejected.
+    the header implies exactly: shorter and longer are both rejected.
+
+    *names* lists the signals of the frame's message in order.  The kernel
+    proves every signal index below their count, so each segment reads
+    ``names[idx]`` directly; an index past them raises ``IndexError``.
     """
     if len(buf) < _HEADER_BYTES:
         msg = f"Binary extraction buffer too short: {len(buf)} bytes (need >= {_HEADER_BYTES})"

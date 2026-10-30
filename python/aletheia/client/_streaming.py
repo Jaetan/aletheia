@@ -151,17 +151,7 @@ class StreamingMixin(ClientHostState):
         """
         if not self._diags:
             return
-        idx = result["property_index"]
-        diag = self._diags.get(idx)
-        if diag is None:
-            log_event(
-                _logger,
-                logging.WARNING,
-                LogEvent.ENRICHMENT_PROPERTY_INDEX_OOB,
-                index=idx,
-                count=len(self._diags),
-            )
-            return
+        diag = self._diags[result["property_index"]]
         core_reason = entry_reason(result)
 
         # Extract signal values (cached, bounded).
@@ -562,15 +552,15 @@ class StreamingMixin(ClientHostState):
             num_fails = sum(1 for r in results if r["status"] == "fails")
             num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
             self._caches.last_frames.clear()
+            # The kernel proves every warning's kind is ``uncached_atom``.
             for w in warnings:
-                if w["kind"] == "uncached_atom":
-                    log_event(
-                        _logger,
-                        logging.WARNING,
-                        LogEvent.ENDSTREAM_UNCACHED_ATOM,
-                        property_index=w["property_index"],
-                        detail=w["detail"],
-                    )
+                log_event(
+                    _logger,
+                    logging.WARNING,
+                    LogEvent.ENDSTREAM_UNCACHED_ATOM,
+                    property_index=w["property_index"],
+                    detail=w["detail"],
+                )
             log_event(
                 _logger,
                 logging.INFO,
@@ -596,25 +586,14 @@ class StreamingMixin(ClientHostState):
         """Record a fails/unresolved finalization entry for enrichment.
 
         Passed to :func:`parse_finalization_results` as its ``enrich``
-        callback.  The out-of-bounds warn-and-exclude happens here at
-        collection time so the warnings keep the results-list order; the
-        actual extraction is deferred to the shared extract-once pass in
-        :meth:`_enrich_finalization_results`.
+        callback.  The entry's ``property_index`` reads the diagnostics
+        directly, the kernel proving it below the number of properties
+        ``set_properties`` was handed; the extraction is deferred to the
+        shared extract-once pass in :meth:`_enrich_finalization_results`.
         """
         if not self._diags:
             return
-        idx = result["property_index"]
-        diag = self._diags.get(idx)
-        if diag is None:
-            log_event(
-                _logger,
-                logging.WARNING,
-                LogEvent.ENRICHMENT_PROPERTY_INDEX_OOB,
-                index=idx,
-                count=len(self._diags),
-            )
-            return
-        todo.append(_EnrichmentTodo(result, diag))
+        todo.append(_EnrichmentTodo(result, self._diags[result["property_index"]]))
 
     def _extract_merged_values(self, union: set[str]) -> dict[str, Fraction]:
         """Extract signal values from last-seen frames — one pass per frame.

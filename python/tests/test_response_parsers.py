@@ -191,8 +191,8 @@ class TestBuildErrorResponse:
             pytest.param({"has_errors": True, "issues": "nope"}, id="issues-nonlist"),
             pytest.param({"has_errors": True, "issues": [42]}, id="issue-nonobject"),
             pytest.param(
-                {"has_errors": True, "issues": [{"severity": "fatal", "code": "c", "detail": "d"}]},
-                id="severity-unknown",
+                {"has_errors": True, "issues": [{"severity": 7, "code": "c", "detail": "d"}]},
+                id="severity-int",
             ),
             pytest.param(
                 {"has_errors": True, "issues": [{"severity": "error", "detail": "d"}]},
@@ -208,7 +208,7 @@ class TestBuildErrorResponse:
         """An absent or ill-typed issues payload raises ``ProtocolError``, never a partial one.
 
         The kernel writes ``has_errors`` as a bool and every issue as an object
-        with canonical severity plus string ``code`` / ``detail``.
+        with string ``severity``, ``code`` and ``detail``.
         """
         with pytest.raises(ProtocolError):
             build_error_response(

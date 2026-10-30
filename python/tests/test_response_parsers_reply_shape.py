@@ -61,9 +61,9 @@ _MALFORMED_ISSUES = [
         id="detail-nonstring",
     ),
     pytest.param(
-        {"has_errors": True, "issues": [{"severity": "fatal", "code": "c", "detail": "d"}]},
-        "Unknown validation severity",
-        id="severity-unknown",
+        {"has_errors": True, "issues": [{"severity": 7, "code": "c", "detail": "d"}]},
+        "Expected string 'severity' in validation issue, got int",
+        id="severity-int",
     ),
 ]
 
@@ -133,6 +133,15 @@ def test_a_fails_result_without_timestamp_raises() -> None:
         match="Expected 'timestamp' in finalization result entry with status 'fails'",
     ):
         parse_finalization_results(cast("Response", reply), _no_enrichment)
+
+
+def test_an_end_of_stream_entry_that_is_not_an_object_raises() -> None:
+    """An end-of-stream result entry that is not an object raises ``ProtocolError`` naming it."""
+    reply = {"status": "complete", "results": [42], "warnings": []}
+    with pytest.raises(
+        ProtocolError, match=r"^Expected finalization result entry to be an object, got int$"
+    ):
+        _ = parse_finalization_results(cast("Response", reply), _no_enrichment)
 
 
 class TestReason:

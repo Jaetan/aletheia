@@ -182,6 +182,28 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._response_parsers",
             "raise_if_input_bound_exceeded",
         ),
+        # Each reader takes a tag outside the set the kernel proves as written,
+        # and the real kernel never sends one, so only a direct call reaches it.
+        (
+            "test_reader_casts_reply_tags.py",
+            "aletheia.client._response_parsers",
+            "parse_finalization_results",
+        ),
+        (
+            "test_reader_casts_reply_tags.py",
+            "aletheia.client._response_parsers",
+            "parse_frame_response",
+        ),
+        (
+            "test_reader_casts_reply_tags.py",
+            "aletheia.client._response_parsers",
+            "parse_parsed_dbc_response",
+        ),
+        (
+            "test_reader_casts_reply_tags.py",
+            "aletheia.client._response_parsers",
+            "validate_issue_severities",
+        ),
         # Each reader refuses a reply missing a key the kernel always writes;
         # the real kernel never sends one, so only a direct call reaches it.
         (

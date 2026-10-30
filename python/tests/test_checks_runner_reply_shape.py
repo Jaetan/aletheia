@@ -11,15 +11,13 @@ log's one frame and the stream end with a plain dict, so no kernel runs.
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Literal
-from unittest.mock import Mock
 
 import pytest
+from _stream_helpers import run_checks_over_one_frame
 
-from aletheia import AletheiaClient, MockBackend, ProtocolError
-from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.checks_runner import run_checks
+from aletheia import ProtocolError
+from aletheia.checks import signal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,13 +25,13 @@ if TYPE_CHECKING:
     from aletheia.checks_runner import CheckRunResult
     from aletheia.types import (
         CompleteResponse,
-        DBCDefinition,
-        PropertyBatchResponse,
         PropertyResultEntry,
     )
 
-_SUCCESS = json.dumps({"status": "success"}).encode("utf-8")
-_DBC: DBCDefinition = {"version": "", "messages": [], **empty_dbc_tier2()}
+# Building the one check renders its threshold through the kernel renderer,
+# which needs a live GHC runtime.
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 _HOLDS: PropertyResultEntry = {"type": "property", "status": "holds", "property_index": 0}
 _COMPLETE: CompleteResponse = {"status": "complete", "results": [], "warnings": []}
 
@@ -44,14 +42,9 @@ def _run(
     frame: PropertyResultEntry,
     complete: CompleteResponse,
 ) -> CheckRunResult:
-    """Run no checks over a one-frame log, the frame answered *frame* and the end *complete*."""
-    log = tmp_path / "frames.log"
-    log.write_text("(0.000000) can0 100#00\n", encoding="utf-8")
-    batch: PropertyBatchResponse = {"type": "property_batch", "results": [frame]}
-    with AletheiaClient(backend=MockBackend([_SUCCESS, _SUCCESS])) as client:
-        monkeypatch.setattr(client, "send_frame", Mock(return_value=batch))
-        monkeypatch.setattr(client, "end_stream", Mock(return_value=complete))
-        return run_checks(_DBC, [], str(log), client=client)
+    """Run one check over a one-frame log, the frame answered *frame* and the end *complete*."""
+    checks = [signal("Speed").never_exceeds(220)]
+    return run_checks_over_one_frame(tmp_path, monkeypatch, checks, frame, complete)
 
 
 def test_a_fails_entry_without_its_reason_is_refused(

@@ -12,8 +12,10 @@
 module Aletheia.Protocol.Message where
 
 open import Data.Bool using (T)
+open import Data.Unit using (⊤; tt)
 open import Data.String using (String)
-open import Data.List using (List; []; _∷_)
+open import Data.Empty using (⊥)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Maybe using (nothing)
 open import Data.Rational using (ℚ)
@@ -24,7 +26,7 @@ open import Aletheia.Protocol.Response using (PropertyResult; Warning)
 -- parser, which would put the message vocabulary inside every combinator
 -- change's recheck closure.
 open import Aletheia.Protocol.JSON.Types using (JSON; Shallow)
-open import Aletheia.Protocol.ReplyRange using (NumbersAt; replyRange)
+open import Aletheia.Protocol.ReplyRange using (ValuesAt; replyPlaces)
 open import Aletheia.CAN.BatchExtraction using (wireFits)
 open import Aletheia.DBC.Types using (ValidationIssue)
 import Aletheia.Error as Err
@@ -69,10 +71,20 @@ data StreamCommand : Set where
 -- ============================================================================
 
 -- Response types for the streaming protocol
--- What the formatter's JSON of a DBC is known to be: every number in the
--- range of its place under a reply's `dbc` key, and nested at most 7 deep.
+-- What the formatter's JSON of a DBC is known to be: every value in the
+-- form of its place under a reply's `dbc` key, and nested at most 7 deep.
 @0 FormattedDBC : JSON → Set
-FormattedDBC json = NumbersAt replyRange ("dbc" ∷ []) nothing json × Shallow 7 json
+FormattedDBC json = ValuesAt replyPlaces ("dbc" ∷ []) nothing json × Shallow 7 json
+
+-- A list with at least one element.
+@0 NonEmptyList : ∀ {A : Set} → List A → Set
+NonEmptyList []      = ⊥
+NonEmptyList (_ ∷ _) = ⊤
+
+-- A list with an element appended has one.
+@0 ++-∷-nonEmpty : ∀ {A : Set} (xs : List A) x → NonEmptyList (xs ++ₗ x ∷ [])
+++-∷-nonEmpty []      _ = tt
+++-∷-nonEmpty (_ ∷ _) _ = tt
 
 data Response : Set where
   -- Generic success with message
@@ -93,14 +105,14 @@ data Response : Set where
   -- Each element is one PropertyResult (Violation / Satisfaction /
   -- Unresolved); the list is in source-order — satisfactions that
   -- completed before a halting violation come first, then the violation.
-  -- Empty list is unreachable here — `dispatchIterResult` emits `Ack`
-  -- instead when no events fired on the frame (so a single-event frame
-  -- is encoded as a one-element list, never as `PropertyResponse []`).
+  -- The list is never empty, and the response carries the erased proof:
+  -- `dispatchIterResult` emits `Ack` when no event fired on the frame, so a
+  -- single-event frame is a one-element list.
   -- Lifted from `PropertyResult → Response` (singular) to surface
   -- mid-stream Satisfaction events that were previously lost (a Satisfied
   -- property was dropped from the active set without any wire emission,
   -- and finalizeL at EndStream only walks the survivors).
-  PropertyResponse : List PropertyResult → Response
+  PropertyResponse : (results : List PropertyResult) → @0 NonEmptyList results → Response
 
   -- Acknowledgment (for data frames that don't trigger property results)
   Ack : Response

@@ -49,16 +49,23 @@ _logger = logging.getLogger("aletheia")
 
 
 def validate_issue_severities(issues: list[ValidationIssue]) -> list[ValidationIssue]:
-    """Validate issue severities and return the list unchanged, for chaining.
+    """Check each issue is an object with a string severity; return the list unchanged.
 
-    The canonical wire values are ``"error"`` and ``"warning"`` — see
-    ``Protocol/ResponseFormat.agda::formatIssueSeverity``. Anything else is a
-    protocol violation and raises ``ProtocolError``.
+    The kernel proves every severity it writes ``"error"`` or ``"warning"``, so
+    the reader holds only the kind.
+
+    Raises:
+        ProtocolError: If an issue is not an object, or its ``severity`` is
+            absent or not a string.
+
     """
     for issue in issues:
+        if not is_str_dict(issue):
+            msg = f"Expected validation issue to be an object, got {type(issue).__name__}"
+            raise ProtocolError(msg)
         sev = issue.get("severity")
-        if sev not in ("error", "warning"):
-            msg = f"Unknown validation severity: {sev!r}"
+        if not isinstance(sev, str):
+            msg = f"Expected string 'severity' in validation issue, got {type(sev).__name__}"
             raise ProtocolError(msg)
     return issues
 
@@ -77,8 +84,8 @@ def _extract_issues_payload(
     """Extract the ``issues`` / ``has_errors`` pair from an envelope, without gating on code.
 
     The kernel writes both fields on every envelope whose code is in
-    :data:`ISSUES_CARRYING_CODES`, every issue an object with string ``code`` /
-    ``detail`` and a canonical severity.
+    :data:`ISSUES_CARRYING_CODES`, every issue an object with string
+    ``severity``, ``code`` and ``detail``.
 
     Raises:
         ProtocolError: If either field is absent or ill-typed, or an issue is
@@ -289,10 +296,10 @@ def parse_frame_response(
     A single frame may produce a batch of property events (any
     satisfactions that completed before a halting violation, in
     source-order, followed by the violation).  The wire `type` is
-    `"property_batch"`; the `results` list holds one or more
-    `PropertyResultEntry` objects (fails / holds / unresolved).  A
-    no-event frame still returns `AckResponse` ({"status": "ack"});
-    the batch is never empty when present.
+    `"property_batch"`; the `results` list holds the
+    `PropertyResultEntry` objects (fails / holds / unresolved), at least
+    one, as the kernel proves, so the reader does not check it.  A
+    no-event frame returns `AckResponse` ({"status": "ack"}).
     """
     status = response.get("status")
 
@@ -308,18 +315,12 @@ def parse_frame_response(
     response_type = response.get("type")
     if response_type == "property_batch":
         raw_results = response.get("results")
-        if not isinstance(raw_results, list):
+        if not is_object_list(raw_results):
             msg = "property_batch response missing 'results' array"
             raise ProtocolError(msg)
-        if not raw_results:
-            msg = (
-                "property_batch response 'results' must be non-empty"
-                " (zero-event frames are encoded as ack)"
-            )
-            raise ProtocolError(msg)
         parsed_results: list[PropertyResultEntry] = []
-        for raw_item in raw_results:  # type: ignore[reportUnknownVariableType]
-            if not isinstance(raw_item, dict):
+        for raw_item in raw_results:
+            if not is_str_dict(raw_item):
                 msg = "property_batch 'results' entry must be a JSON object"
                 raise ProtocolError(msg)
             parsed_results.append(_parse_property_event(cast("dict[str, object]", raw_item)))
@@ -339,28 +340,27 @@ def _parse_property_event(raw: dict[str, object]) -> PropertyResultEntry:
         {"type": "property", "status": "fails"|"holds"|"unresolved",
          "property_index": int, "timestamp": int?, "reason": str?}
 
-    A ``fails`` or ``unresolved`` event carries ``reason``, refused when absent.
+    The kernel proves ``type`` and ``status`` in those sets, so the reader
+    checks their kind and casts them; any status but ``fails`` and ``holds``
+    is read as ``unresolved``.  A ``fails`` event carries ``timestamp``, and a
+    ``fails`` or ``unresolved`` event carries ``reason``, refused when absent.
     """
     inner_type = raw.get("type")
-    if inner_type != "property":
-        msg = f"property_batch event has unexpected type={inner_type!r} (expected 'property')"
+    if not isinstance(inner_type, str):
+        msg = f"Expected string 'type' in property_batch event, got {type(inner_type).__name__}"
         raise ProtocolError(msg)
     inner_status = raw.get("status")
-    if inner_status not in ("fails", "holds", "unresolved"):
-        msg = (
-            f"property_batch event has unexpected status={inner_status!r}"
-            " (expected 'fails', 'holds', or 'unresolved')"
-        )
+    if not isinstance(inner_status, str):
+        msg = f"Expected string 'status' in property_batch event, got {type(inner_status).__name__}"
         raise ProtocolError(msg)
     prop_index = validate_integer_field("property_index", raw.get("property_index"))
-    entry: PropertyResultEntry = {
-        "type": "property",
-        "status": inner_status,
-        "property_index": prop_index,
-    }
+    entry = cast(
+        "PropertyResultEntry",
+        {"type": inner_type, "status": inner_status, "property_index": prop_index},
+    )
     if inner_status == "fails":
         entry["timestamp"] = validate_integer_field("timestamp", raw.get("timestamp"))
-    if inner_status in ("fails", "unresolved"):
+    if inner_status != "holds":
         reason = raw.get("reason")
         if not isinstance(reason, str):
             msg = f"Expected string 'reason' in property_batch {inner_status!r} event"
@@ -449,32 +449,36 @@ def parse_finalization_results(
     ``enrich`` is invoked once per ``fails``/``unresolved`` entry so the
     client can attach an ``enrichment`` field (signals, formula_desc,
     enriched_reason, core_reason) using its own diagnostic and cache state.
+    The kernel proves each entry's ``status`` one of ``fails``, ``holds`` and
+    ``unresolved``, so the reader checks its kind and casts it; any status but
+    ``fails`` and ``holds`` is read as ``unresolved``.
     """
     results_raw = response.get("results")
-    if not isinstance(results_raw, list):
+    if not is_object_list(results_raw):
         msg = "Missing or invalid 'results' in finalization response"
         raise ProtocolError(msg)
-    # Treat results as raw dicts for defensive parsing — the FFI
-    # JSON is untrusted and may omit required keys.
-    raw_results = cast("list[dict[str, object]]", results_raw)
     entries: list[PropertyResultEntry] = []
-    for raw in raw_results:
+    for raw in results_raw:
+        if not is_str_dict(raw):
+            msg = f"Expected finalization result entry to be an object, got {type(raw).__name__}"
+            raise ProtocolError(msg)
         entry_status = raw.get("status")
-        if entry_status not in ("fails", "holds", "unresolved"):
-            msg = f"Invalid 'status' in finalization result entry: {entry_status!r}"
+        if not isinstance(entry_status, str):
+            msg = (
+                "Expected string 'status' in finalization result entry,"
+                f" got {type(entry_status).__name__}"
+            )
             raise ProtocolError(msg)
         raw_prop_index = raw.get("property_index")
         if raw_prop_index is None:
             msg = "Missing 'property_index' in finalization result entry"
             raise ProtocolError(msg)
         prop_index = validate_integer_field("property_index", raw_prop_index)
-        # entry_status is now narrowed to Literal["fails","holds","unresolved"]
-        result_entry: PropertyResultEntry = {
-            "type": "property",
-            "status": entry_status,
-            "property_index": prop_index,
-        }
-        if entry_status in ("fails", "unresolved"):
+        result_entry = cast(
+            "PropertyResultEntry",
+            {"type": "property", "status": entry_status, "property_index": prop_index},
+        )
+        if entry_status != "holds":
             ts = raw.get("timestamp")
             if ts is not None:
                 result_entry["timestamp"] = validate_integer_field("timestamp", ts)
