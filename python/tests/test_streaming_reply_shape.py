@@ -15,12 +15,17 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
 from aletheia import AletheiaClient, MockBackend, ProtocolError, Signal
 from aletheia.types import DLCCode
+
+if TYPE_CHECKING:
+    from _dbc_helpers import KernelReply
+
+    from aletheia.common_types import Prose
 
 # ``set_properties`` renders each formula's threshold through the kernel.
 pytestmark = pytest.mark.usefixtures("rts_up")
@@ -59,10 +64,9 @@ def test_a_send_frame_fails_event_without_its_reason_is_refused() -> None:
     )
     with AletheiaClient(backend=backend) as client:
         _start(client)
-        with pytest.raises(
-            ProtocolError, match="Expected string 'reason' in property_batch 'fails' event"
-        ):
+        with pytest.raises(ProtocolError) as exc_info:
             client.send_frame(0, 0x100, DLCCode(8), bytes(8))
+        assert str(exc_info.value) == "reply results/reason: expected string, got nothing"
 
 
 @pytest.mark.parametrize("status", ["fails", "unresolved"])
@@ -87,11 +91,9 @@ def test_an_end_stream_entry_without_its_reason_is_refused(
     )
     with AletheiaClient(backend=backend) as client:
         _start(client)
-        with pytest.raises(
-            ProtocolError,
-            match=f"Expected string 'reason' in finalization result entry with status '{status}'",
-        ):
+        with pytest.raises(ProtocolError) as exc_info:
             client.end_stream()
+        assert str(exc_info.value) == "reply results/reason: expected string, got nothing"
 
 
 def test_a_send_frame_error_reply_logs_its_own_status(caplog: pytest.LogCaptureFixture) -> None:
@@ -129,8 +131,9 @@ def test_a_send_frame_extraction_reply_the_reader_refuses_raises() -> None:
     backend.queue_response(_REFUSED_EXTRACTION_REPLY)
     with AletheiaClient(backend=backend) as client:
         _start(client)
-        with pytest.raises(ProtocolError, match="'values'"):
+        with pytest.raises(ProtocolError) as exc_info:
             client.send_frame(0, 0x100, DLCCode(8), bytes(8))
+        assert str(exc_info.value) == "reply values: expected array, got string"
 
 
 def test_an_end_stream_extraction_reply_the_reader_refuses_raises() -> None:
@@ -159,5 +162,48 @@ def test_an_end_stream_extraction_reply_the_reader_refuses_raises() -> None:
     with AletheiaClient(backend=backend) as client:
         _start(client)
         client.send_frame(0, 0x100, DLCCode(8), bytes(8))
-        with pytest.raises(ProtocolError, match="'values'"):
+        with pytest.raises(ProtocolError) as exc_info:
             client.end_stream()
+        assert str(exc_info.value) == "reply values: expected array, got string"
+
+
+@pytest.mark.parametrize(
+    ("reply", "text"),
+    [
+        pytest.param(
+            b'{"status":"weird"}',
+            'reply status: expected "success" or "error", got "weird"',
+            id="other-word",
+        ),
+        pytest.param(
+            b"{}", 'reply status: expected "success" or "error", got nothing', id="absent"
+        ),
+    ],
+)
+def test_a_start_stream_reply_neither_success_nor_error_is_refused(
+    reply: KernelReply, text: Prose
+) -> None:
+    """A startStream reply whose status is another word or absent is refused at ``status``."""
+    backend = MockBackend()
+    backend.queue_response(reply)
+    with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as exc_info:
+        _ = client.start_stream()
+    assert str(exc_info.value) == text
+
+
+def test_an_error_event_reply_neither_ack_nor_error_is_refused() -> None:
+    """A sendError reply whose status is another word is refused at ``status``."""
+    backend = MockBackend()
+    backend.queue_response(_SUCCESS_REPLY)
+    with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as exc_info:
+        _ = client.send_error(0)
+    assert str(exc_info.value) == 'reply status: expected "ack" or "error", got "success"'
+
+
+def test_a_remote_event_reply_without_a_word_status_is_refused() -> None:
+    """A sendRemote reply whose status is not a string is refused at ``status``."""
+    backend = MockBackend()
+    backend.queue_response(b'{"status":1}')
+    with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as exc_info:
+        _ = client.send_remote(0, 0x100)
+    assert str(exc_info.value) == 'reply status: expected "ack" or "error", got number'

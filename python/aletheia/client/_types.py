@@ -3,6 +3,7 @@
 """Client types, exceptions, and result containers."""
 
 import dataclasses
+import importlib
 from dataclasses import dataclass
 from fractions import Fraction
 from types import MappingProxyType
@@ -438,12 +439,29 @@ class FrameResult:
         return [entry for entry in self._batch_results() if entry.get("status") == "holds"]
 
     def _batch_results(self) -> list[PropertyResultEntry]:
-        """Return a ``property_batch`` response's ``results``, which the kernel always writes."""
+        """Return a ``property_batch`` response's ``results``, which the kernel always writes.
+
+        Raises:
+            ProtocolError: If the response has no ``results``.
+
+        """
         batch = cast("PropertyBatchResponse", self.response)
         if "results" not in batch:
-            msg = "Expected 'results' field in property_batch response"
-            raise ProtocolError(msg)
+            raise _no_results(batch)
         return batch["results"]
+
+
+def _no_results(batch: PropertyBatchResponse) -> ProtocolError:
+    """Refuse a ``property_batch`` without ``results`` in the one form of a reply refusal.
+
+    The one form's module reads :class:`ProtocolError` from this one, so it is
+    imported where the refusal is built rather than at the top.
+    """
+    shape = importlib.import_module("aletheia.client._helpers.reply_shape")
+    refusal: ProtocolError = shape.reply_refusal(
+        shape.at(shape.REPLY_ROOT, "results"), shape.ARRAY, shape.came(batch, "results")
+    )
+    return refusal
 
 
 def make_frame_result(

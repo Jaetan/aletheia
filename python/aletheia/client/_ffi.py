@@ -12,6 +12,14 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType, cast
 
+from aletheia.client._helpers.reply_shape import (
+    OBJECT,
+    REPLY_ROOT,
+    Arrival,
+    Expectation,
+    came_as,
+    reply_refusal,
+)
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import FFIError, ProtocolError, ValidationError
 from aletheia.common_types import CoreCount, Prose
@@ -26,6 +34,9 @@ if TYPE_CHECKING:
 # The reply of a kernel entry that answers in JSON, as the bytes it returned.
 KernelResponse = NewType("KernelResponse", bytes)
 
+# What a reply's bytes hold before they are read as an object.
+_JSON_TEXT = Expectation("JSON text")
+
 # The address of a string the library allocated, read and then freed.
 KernelString = NewType("KernelString", int)
 
@@ -37,16 +48,16 @@ def parse_json_object(raw: KernelResponse) -> dict[str, JSONValue]:
     callers get ``dict[str, JSONValue]`` instead of ``dict[Unknown, Unknown]``.
     A response that is not UTF-8, is not JSON, holds an integer longer than
     the interpreter converts or nests deeper than the decoder's recursion
-    holds raises ``ProtocolError``, never the decoder's own error.
+    holds is refused as ``reply: expected JSON text, got <the decoder's
+    message>``, never with the decoder's own error; JSON that is not an object
+    as ``reply: expected object, got <its kind>``.
     """
     try:
-        parsed: object = json.loads(raw.decode("utf-8"))
+        parsed: JSONValue = json.loads(raw.decode("utf-8"))
     except (ValueError, RecursionError) as exc:
-        msg = f"FFI returned invalid JSON: {exc}"
-        raise ProtocolError(msg) from exc
+        raise reply_refusal(REPLY_ROOT, _JSON_TEXT, Arrival(str(exc))) from exc
     if not is_str_dict(parsed):
-        msg = f"Expected JSON object, got {type(parsed).__name__}"
-        raise ProtocolError(msg)
+        raise reply_refusal(REPLY_ROOT, OBJECT, came_as(parsed))
     return parsed
 
 

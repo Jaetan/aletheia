@@ -18,6 +18,20 @@ from aletheia.client._helpers.rational import (
     reject_inexact,
     to_exact_fraction,
 )
+from aletheia.client._helpers.reply_shape import (
+    ARRAY,
+    BOOLEAN,
+    OBJECT,
+    REPLY_ROOT,
+    STRING,
+    at,
+    came,
+    came_as,
+    came_word,
+    fields,
+    reply_refusal,
+    words,
+)
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._refusal import envelope_message
 from aletheia.client._response_parsers import (
@@ -455,20 +469,28 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             "dbc": normalize_dbc_for_wire(dbc),
         }
         response = self._send_command(cmd)
+        reply = fields(response)
         status = response.get("status")
 
         if status == "validation":
+            has_errors = response.get("has_errors")
+            if not isinstance(has_errors, bool):
+                raise reply_refusal(
+                    at(REPLY_ROOT, "has_errors"), BOOLEAN, came(reply, "has_errors")
+                )
+            if not is_object_list(response.get("issues")):
+                raise reply_refusal(at(REPLY_ROOT, "issues"), ARRAY, came(reply, "issues"))
             # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
             vresp = cast("ValidationResponse", response)  # pragma: no mutate
             return {
                 "status": "validation",
-                "has_errors": vresp["has_errors"],
+                "has_errors": has_errors,
                 "issues": validate_issue_severities(list(vresp["issues"])),
             }
 
         if status == "error":
             code = response.get("code")
-            msg = envelope_message(response, "validateDBC")
+            msg = envelope_message(response)
             raise_if_input_bound_exceeded(response)
             raise_if_dbc_validation_failed(response, msg)
             raise ProtocolError(
@@ -476,8 +498,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 code=code if isinstance(code, str) else None,
             )
 
-        msg = f"Unexpected response status: {status!r} (expected 'validation' or 'error')"
-        raise ProtocolError(msg)
+        raise reply_refusal(
+            at(REPLY_ROOT, "status"), words("validation", "error"), came_word(reply, "status")
+        )
 
     def format_dbc(self) -> DBCDefinition:
         """Export the currently-loaded DBC as a JSON dict.
@@ -500,25 +523,26 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             response_bytes = KernelResponse(self._backend.format_dbc_binary(self._state))
         # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
         response = cast("Response", parse_json_object(response_bytes))  # pragma: no mutate
+        reply = fields(response)
         status = response.get("status")
 
         if status == "success":
             dbc = response.get("dbc")
             if not is_str_dict(dbc):
-                msg = "Expected 'dbc' field in formatDBC response"
-                raise ProtocolError(msg)
+                raise reply_refusal(at(REPLY_ROOT, "dbc"), OBJECT, came(reply, "dbc"))
             return normalize_dbc(dbc)
 
         if status == "error":
             code = response.get("code")
-            msg = envelope_message(response, "formatDBC")
+            msg = envelope_message(response)
             raise ProtocolError(
                 msg,
                 code=code if isinstance(code, str) else None,
             )
 
-        msg = f"Unexpected response status: {status!r} (expected 'success' or 'error')"
-        raise ProtocolError(msg)
+        raise reply_refusal(
+            at(REPLY_ROOT, "status"), words("success", "error"), came_word(reply, "status")
+        )
 
     def format_dbc_text(self, dbc: DBCDefinition) -> DBCTextResponse:
         """Render a DBC JSON dict back to .dbc file text via the verified Agda formatter.
@@ -563,22 +587,20 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             "dbc": normalize_dbc_for_wire(dbc),
         }
         response = self._send_command(cmd)
+        reply = fields(response)
         status = response.get("status")
 
         if status == "success":
             text = response.get("text")
             if not isinstance(text, str):
-                msg = "Expected 'text' field in formatDBCText response"
-                raise ProtocolError(msg)
-            issues_field = response.get("issues")
-            if issues_field is None:
-                msg = "Expected 'issues' field in formatDBCText response"
-                raise ProtocolError(msg)
-            if not is_object_list(issues_field):
-                msg = "formatDBCText success response 'issues' must be a list of objects"
-                raise ProtocolError(msg)
+                raise reply_refusal(at(REPLY_ROOT, "text"), STRING, came(reply, "text"))
+            if "issues" not in reply or not isinstance(issues_field := reply["issues"], list):
+                raise reply_refusal(at(REPLY_ROOT, "issues"), ARRAY, came(reply, "issues"))
+            for entry in issues_field:
+                if not is_str_dict(entry):
+                    raise reply_refusal(at(REPLY_ROOT, "issues"), OBJECT, came_as(entry))
             # cast's type-arg is a runtime no-op (typing.cast returns its 2nd arg
-            # unchanged), and list() copies an already-list value — mutating either
+            # unchanged), and list() copies an already-list value: mutating either
             # cannot change behaviour, so this line is a genuine-equivalent surface.
             issues = cast("list[ValidationIssue]", list(issues_field))  # pragma: no mutate
             return {
@@ -589,7 +611,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
         if status == "error":
             code = response.get("code")
-            msg = envelope_message(response, "formatDBCText")
+            msg = envelope_message(response)
             raise_if_input_bound_exceeded(response)
             raise_if_text_roundtrip_failed(response, msg)
             raise ProtocolError(
@@ -597,8 +619,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 code=code if isinstance(code, str) else None,
             )
 
-        msg = f"Unexpected response status: {status!r} (expected 'success' or 'error')"
-        raise ProtocolError(msg)
+        raise reply_refusal(
+            at(REPLY_ROOT, "status"), words("success", "error"), came_word(reply, "status")
+        )
 
     def set_properties(self, properties: list[LTLFormula]) -> SuccessResponse | ErrorResponse:
         """Set LTL properties to check. Must be called before start_stream().

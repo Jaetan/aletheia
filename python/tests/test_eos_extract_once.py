@@ -20,7 +20,15 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import pytest
-from _dbc_helpers import dbc, kernel_signal, message, parse_dbc_reply, signal
+from _dbc_helpers import (
+    MessageId,
+    dbc,
+    kernel_message,
+    kernel_signal,
+    message,
+    parse_dbc_reply,
+    signal,
+)
 
 from aletheia import AletheiaClient, MockBackend, ProtocolError, Signal
 from aletheia._dbc_types import SignalName
@@ -49,8 +57,8 @@ _EXTRACT_SENTINEL = b"<binary:extractAllSignals>"
 # path then raises BinaryPathUnsupportedError and the JSON fallback records
 # the sentinel — one per logical extraction).
 _PARSE_DBC_RESPONSE = parse_dbc_reply(
-    {"id": 256, "extended": False, "dlc": 8, "signals": [kernel_signal(SignalName("SigA"))]},
-    {"id": 512, "extended": False, "dlc": 8, "signals": [kernel_signal(SignalName("SigB"))]},
+    kernel_message(MessageId(256), kernel_signal(SignalName("SigA"))),
+    kernel_message(MessageId(512), kernel_signal(SignalName("SigB"))),
 )
 
 

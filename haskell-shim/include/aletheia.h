@@ -195,7 +195,8 @@ struct aletheia_buffer {
  * text_trailing_input with those and the unconsumed statement's,
  * input_bound_exceeded naming the field "decimal" with bound_kind, observed
  * and limit), or code ffi_validation_error for a text struct aletheia_text
- * refuses.
+ * refuses. Every call writes both fields: err NULL on success, and value
+ * zero in every field on failure.
  */
 struct aletheia_decimal {
     struct aletheia_rational value;
@@ -211,7 +212,8 @@ struct aletheia_decimal {
  * code handler_property_refused and the reason a property's time bound is
  * refused with, a number past 2^64 - 1 with input_bound_exceeded naming
  * the field "time bound", or code ffi_validation_error for a text struct
- * aletheia_text refuses.
+ * aletheia_text refuses. Every call writes both fields: err NULL on success,
+ * and microseconds 0 on failure.
  */
 struct aletheia_time_bound {
     uint64_t microseconds;
@@ -225,6 +227,7 @@ struct aletheia_time_bound {
  * not JSON), a property refused with code handler_property_refused, its
  * message the reason set_properties gives after "SetProperties: property N: ",
  * or code ffi_validation_error for a text struct aletheia_text refuses.
+ * Every call writes err: NULL when the kernel accepts the property.
  */
 struct aletheia_property_check {
     char *err;

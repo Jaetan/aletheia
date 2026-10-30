@@ -11,7 +11,15 @@ from __future__ import annotations
 from fractions import Fraction
 
 import pytest
-from _dbc_helpers import dbc, kernel_signal, message, parse_dbc_reply, signal
+from _dbc_helpers import (
+    MessageId,
+    dbc,
+    kernel_message,
+    kernel_signal,
+    message,
+    parse_dbc_reply,
+    signal,
+)
 
 from aletheia import (
     AletheiaClient,
@@ -334,14 +342,7 @@ def test_extract_signals_json_fallback_when_backend_binary_unsupported() -> None
             # _signal_lookup gets populated; otherwise the client short-circuits
             # to the JSON path BEFORE ever calling extract_signals_bin (the path
             # we want to exercise).
-            parse_dbc_reply(
-                {
-                    "id": 256,
-                    "extended": False,
-                    "dlc": 8,
-                    "signals": [kernel_signal(SignalName("Sig"))],
-                }
-            ),
+            parse_dbc_reply(kernel_message(MessageId(256), kernel_signal(SignalName("Sig")))),
             # extract_signals_binary JSON fallback returns success + empty lists.
             b'{"status":"success","values":[],"errors":[],"absent":[]}',
         ]

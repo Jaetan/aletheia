@@ -22,14 +22,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from aletheia.client._client import AletheiaClient
+from aletheia.client._helpers.reply_shape import (
+    NUMBER,
+    REPLY_ROOT,
+    at,
+    came,
+    reply_refusal,
+)
 from aletheia.client._response_parsers import entry_reason
-from aletheia.client._types import AletheiaError, ProtocolError, raise_on_error_response
+from aletheia.client._types import AletheiaError, raise_on_error_response
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from fractions import Fraction
 
     from aletheia.checks import CheckResult
+    from aletheia.client._helpers.reply_shape import ReplyFields
     from aletheia.client._types import CANFrameTuple
     from aletheia.types import (
         CompleteResponse,
@@ -130,10 +138,13 @@ def _build_violation(
 
     # PropertyResultEntry.timestamp is NotRequired (Holds entries omit it),
     # but the kernel writes one on every fails entry.
-    timestamp_us = response.get("timestamp")
-    if timestamp_us is None:
-        msg = "Expected 'timestamp' field in property_batch 'fails' entry"
-        raise ProtocolError(msg)
+    if "timestamp" not in response:
+        raise reply_refusal(
+            at(at(REPLY_ROOT, "results"), "timestamp"),
+            NUMBER,
+            came(cast("ReplyFields", response), "timestamp"),
+        )
+    timestamp_us = response["timestamp"]
     return {
         "check_index": prop_index,
         "check_name": check_name,

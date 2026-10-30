@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, LiteralString, cast
 
 from aletheia.client._backend import Backend, BinaryPathUnsupportedError
 from aletheia.client._client_bin import SignalValues, parse_extraction_buffer
@@ -23,6 +23,16 @@ from aletheia.client._helpers.json_codec import (
     parse_absent_list,
     parse_errors_list,
     parse_values_list,
+)
+from aletheia.client._helpers.reply_shape import (
+    ARRAY,
+    REPLY_ROOT,
+    at,
+    came,
+    came_word,
+    fields,
+    reply_refusal,
+    words,
 )
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
@@ -36,35 +46,38 @@ from aletheia.client._types import (
     validate_can_id,
     validate_payload_length,
 )
-from aletheia.types import DLCCode, is_object_list
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from fractions import Fraction
 
-    from aletheia.types import ExtractSignalsResponse, Response
+    from aletheia.client._helpers.reply_shape import ReplyFields
+    from aletheia.types import DLCCode, JSONValue, Response
 
 _logger = logging.getLogger("aletheia")
 
 
 def _extraction_result(response: Response) -> SignalExtractionResult:
-    """Read an extraction success reply's three lists, which the kernel always writes.
+    """Read an extraction success reply's three arrays, which the kernel always writes.
 
     Raises:
-        ProtocolError: If ``values``, ``errors`` or ``absent`` is absent or not a list.
+        ProtocolError: If ``values``, ``errors`` or ``absent`` is absent or not
+            an array, or an entry of one is not what the kernel writes there.
 
     """
-    for key in ("values", "errors", "absent"):
-        if not is_object_list(response.get(key)):
-            msg = f"Expected '{key}' list field in extractAllSignals response"
-            raise ProtocolError(msg)
-    # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
-    extracted = cast("ExtractSignalsResponse", response)  # pragma: no mutate
+    reply = fields(response)
     return SignalExtractionResult(
-        values=parse_values_list(extracted["values"]),
-        errors=parse_errors_list(extracted["errors"]),
-        absent=tuple(parse_absent_list(extracted["absent"])),
+        values=parse_values_list(_array(reply, "values")),
+        errors=parse_errors_list(_array(reply, "errors")),
+        absent=tuple(parse_absent_list(_array(reply, "absent"))),
     )
+
+
+def _array(reply: ReplyFields, key: LiteralString) -> list[JSONValue]:
+    """Read the array ``key`` holds at an extraction reply's root."""
+    if key in reply and isinstance(value := reply[key], list):
+        return value
+    raise reply_refusal(at(REPLY_ROOT, key), ARRAY, came(reply, key))
 
 
 class SignalOpsMixin(ClientHostState):
@@ -170,7 +183,7 @@ class SignalOpsMixin(ClientHostState):
                 raise
 
             if response.get("status") == "error":
-                error_msg = envelope_message(response, "extractAllSignals")
+                error_msg = envelope_message(response)
                 error_code_raw = response.get("code")
                 error_code = error_code_raw if isinstance(error_code_raw, str) else None
                 log_event(
@@ -185,8 +198,10 @@ class SignalOpsMixin(ClientHostState):
                 # without parsing the message string (matches Go / C++ bindings).
                 raise ProtocolError(error_msg, code=error_code)
             if response.get("status") != "success":
-                msg = f"Unexpected status: {response.get('status')}"
-                raise ProtocolError(msg)
+                reply = fields(response)
+                raise reply_refusal(
+                    at(REPLY_ROOT, "status"), words("success", "error"), came_word(reply, "status")
+                )
 
             return _extraction_result(response)
 

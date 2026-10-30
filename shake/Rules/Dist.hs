@@ -350,7 +350,7 @@ distRules = do
                 , "Quick start (from the unpacked tarball):"
                 , "  ./install.sh                # prints how to wire your shell + language"
                 , "  # or, for a C program directly against the C ABI:"
-                , "  clang-23 -std=c23 -Iinclude -Llib -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
+                , "  clang-23 -std=gnu23 -Iinclude -Llib -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
                 , ""
                 , "Verification (verify-then-trust order):"
                 , "  1. Tarball signature — see MANIFEST.txt Verification for the exact cosign"
@@ -528,7 +528,7 @@ distRules = do
             putInfo $ "    # Release (sign with ALETHEIA_COSIGN_TLOG=1, then verify without --insecure-ignore-tlog)"
         putInfo ""
         putInfo "  Usage (no LD_LIBRARY_PATH needed — RPATH handles resolution):"
-        putInfo "    clang-23 -std=c23 -Idist/aletheia/include -Ldist/aletheia/lib \\"
+        putInfo "    clang-23 -std=gnu23 -Idist/aletheia/include -Ldist/aletheia/lib \\"
         putInfo "        -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
         putInfo ""
 

@@ -156,12 +156,12 @@ char *aletheia_format_rational(const struct aletheia_rational *value) {
 }
 
 int8_t aletheia_parse_decimal(const struct aletheia_text *, struct aletheia_decimal *out) {
-    out->err = refusal("parse_decimal");
+    *out = (struct aletheia_decimal){.err = refusal("parse_decimal")};
     return 1;
 }
 
 int8_t aletheia_parse_time_bound(const struct aletheia_text *, struct aletheia_time_bound *out) {
-    out->err = refusal("parse_time_bound");
+    *out = (struct aletheia_time_bound){.err = refusal("parse_time_bound")};
     return 1;
 }
 
@@ -181,7 +181,7 @@ int8_t aletheia_check_property(const struct aletheia_text *property,
             detail[at++] = (char)c;
     }
     detail[at] = '\0';
-    out->err = refusal(detail);
+    *out = (struct aletheia_property_check){.err = refusal(detail)};
     return 1;
 }
 

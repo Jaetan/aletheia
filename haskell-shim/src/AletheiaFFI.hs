@@ -18,7 +18,7 @@ import Foreign.C.String (CString)
 import Foreign.StablePtr (StablePtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr)
 import Foreign.Marshal.Alloc (free)
 import Foreign.Ptr (Ptr, nullPtr)
-import Foreign.Storable (Storable, peek)
+import Foreign.Storable (Storable, peek, poke)
 import Foreign.Marshal.Array (peekArray)
 import Data.Bits (toIntegralSized)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -360,9 +360,9 @@ aletheia_format_rational valuePtr
 -- erased proof, so `wireRational` writes every one, and its `Nothing` is
 -- unreachable and refused rather than written.  The shim's own refusal of the
 -- text (a NULL, an unreadable size, bytes that are not UTF-8, a NUL among
--- them) is `ffi_validation_error`, as on `aletheia_process`.  The rational is
--- written into `out`; a failure sets its error to a JSON envelope the caller
--- frees via `aletheia_free_str`.
+-- them) is `ffi_validation_error`, as on `aletheia_process`.  Every call
+-- writes both fields of `out`: the rational and a NULL error, or a zero
+-- rational and a JSON envelope the caller frees via `aletheia_free_str`.
 foreign export ccall aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
 aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
 aletheia_parse_decimal inputPtr out
@@ -377,11 +377,12 @@ aletheia_parse_decimal inputPtr out
             AgdaSum.C_inj'8322'_42 ratAny -> do
               let rat = unsafeCoerce ratAny :: AgdaDE.T_WireRational_8
               case wireRational (AgdaDE.d_numerator_16 rat) (AgdaDE.d_denominator_18 rat) of
-                Just value -> pokeDecimalValue out value >> pure 0
+                Just value -> poke out (Decimal value nullPtr) >> pure 0
                 Nothing -> errorJSON "aletheia_parse_decimal: the decimal does not fit the 128-bit wire words"
                              >>= refuse
   where
-    refuse envelope = pokeDecimalErr out envelope >> pure 1
+    refuse envelope = poke out (Decimal (WireRational zero zero 0) envelope) >> pure 1
+    zero = WireUint128 0 0
 
 -- ============================================================================
 -- TIME BOUND AND PROPERTY CHECKS (the kernel's property parse, at build time)
@@ -393,7 +394,8 @@ aletheia_parse_decimal inputPtr out
 -- negative or fractional bound with the property parse's own reason and one
 -- past `max-time-bound`, 2^64 - 1, as a bound refusal.  The kernel answers a
 -- natural at most that limit, so `toIntegralSized` writes every one and its
--- `Nothing` is unreachable and refused rather than written.
+-- `Nothing` is unreachable and refused rather than written.  Every call writes
+-- both fields of `out`, zero microseconds beside a refusal.
 foreign export ccall aletheia_parse_time_bound :: Ptr WireText -> Ptr TimeBound -> IO Int8
 aletheia_parse_time_bound :: Ptr WireText -> Ptr TimeBound -> IO Int8
 aletheia_parse_time_bound inputPtr out
@@ -407,17 +409,17 @@ aletheia_parse_time_bound inputPtr out
             AgdaSum.C_inj'8321'_38 errAny -> kernelErrorText (unsafeCoerce errAny) >>= refuse
             AgdaSum.C_inj'8322'_42 nAny ->
               case toIntegralSized (unsafeCoerce nAny :: Integer) of
-                Just microseconds -> pokeTimeBoundMicroseconds out microseconds >> pure 0
+                Just microseconds -> poke out (TimeBound microseconds nullPtr) >> pure 0
                 Nothing -> errorJSON "aletheia_parse_time_bound: the time bound does not fit 64 bits"
                              >>= refuse
   where
-    refuse envelope = pokeTimeBoundErr out envelope >> pure 1
+    refuse envelope = poke out (TimeBound 0 envelope) >> pure 1
 
 -- | Check one property's JSON text as set_properties reads a property, before
 -- any session holds it: `checkPropertyText` reads it as a request is read,
 -- then decides every field, ordering, denominator and time bound, and each
 -- signal name as an identifier, leaving a name's presence in a DBC to
--- set_properties.  Success writes nothing; a refusal sets the error.
+-- set_properties.  Every call writes the error: NULL on success.
 foreign export ccall aletheia_check_property :: Ptr WireText -> Ptr PropertyCheck -> IO Int8
 aletheia_check_property :: Ptr WireText -> Ptr PropertyCheck -> IO Int8
 aletheia_check_property inputPtr out
@@ -429,9 +431,9 @@ aletheia_check_property inputPtr out
         Right s ->
           case unsafeCoerce (AgdaJSON.d_checkPropertyText_114 (T.pack s)) :: AgdaSum.T__'8846'__30 of
             AgdaSum.C_inj'8321'_38 errAny -> kernelErrorText (unsafeCoerce errAny) >>= refuse
-            AgdaSum.C_inj'8322'_42 _ -> pure 0
+            AgdaSum.C_inj'8322'_42 _ -> poke out (PropertyCheck nullPtr) >> pure 0
   where
-    refuse envelope = pokePropertyCheckErr out envelope >> pure 1
+    refuse envelope = poke out (PropertyCheck envelope) >> pure 1
 
 foreign export ccall aletheia_free_buf :: Ptr Word8 -> IO ()
 aletheia_free_buf :: Ptr Word8 -> IO ()

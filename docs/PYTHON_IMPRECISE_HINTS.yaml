@@ -94,9 +94,6 @@ hints:
     text: "int"
     count: 13
   - file: benchmarks/profile_extraction.py
-    text: "list[object]"
-    count: 3
-  - file: benchmarks/profile_extraction.py
     text: "str"
     count: 2
   - file: benchmarks/response_overhead.py
@@ -506,23 +503,14 @@ hints:
     text: "list[bytes]"
     count: 1
   - file: python/aletheia/client/_ffi.py
-    text: "object"
-    count: 1
-  - file: python/aletheia/client/_ffi.py
     text: "str"
     count: 1
   - file: python/aletheia/client/_helpers/dbc_normalize.py
-    text: "Callable[[Mapping[str, JSONValue]], T]"
-    count: 1
-  - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "Mapping[str, JSONValue]"
-    count: 19
-  - file: python/aletheia/client/_helpers/dbc_normalize.py
-    text: "Mapping[str, object]"
-    count: 3
+    count: 2
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "dict[str, object]"
-    count: 15
+    count: 11
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "int"
     count: 1
@@ -531,18 +519,15 @@ hints:
     count: 2
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "list[object]"
-    count: 3
-  - file: python/aletheia/client/_helpers/dbc_normalize.py
-    text: "list[str]"
     count: 2
   - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "list[str]"
+    count: 1
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "object"
-    count: 4
+    count: 2
   - file: python/aletheia/client/_helpers/dbc_normalize.py
     text: "str"
-    count: 7
-  - file: python/aletheia/client/_helpers/json_codec.py
-    text: "Sequence[object]"
     count: 3
   - file: python/aletheia/client/_helpers/json_codec.py
     text: "dict[str, Fraction]"
@@ -554,26 +539,20 @@ hints:
     text: "list[str]"
     count: 2
   - file: python/aletheia/client/_helpers/rational.py
-    text: "Mapping[str, JSONValue]"
-    count: 1
-  - file: python/aletheia/client/_helpers/rational.py
     text: "TypeGuard[int]"
     count: 1
   - file: python/aletheia/client/_helpers/rational.py
     text: "int"
-    count: 2
+    count: 1
   - file: python/aletheia/client/_helpers/rational.py
     text: "int | Fraction"
     count: 1
   - file: python/aletheia/client/_helpers/rational.py
     text: "object"
-    count: 4
+    count: 2
   - file: python/aletheia/client/_helpers/rational.py
     text: "str"
-    count: 4
-  - file: python/aletheia/client/_helpers/rational.py
-    text: "tuple[int, int]"
-    count: 1
+    count: 2
   - file: python/aletheia/client/_log.py
     text: "Final[frozenset[str]]"
     count: 1
@@ -589,9 +568,6 @@ hints:
   - file: python/aletheia/client/_log.py
     text: "str"
     count: 1
-  - file: python/aletheia/client/_response_parsers.py
-    text: "dict[str, object]"
-    count: 2
   - file: python/aletheia/client/_response_parsers.py
     text: "int"
     count: 1
@@ -1367,9 +1343,6 @@ hints:
     text: "bytes"
     count: 1
   - file: python/tests/test_client_protocol_errors.py
-    text: "dict[str, JSONValue]"
-    count: 1
-  - file: python/tests/test_client_protocol_errors.py
     text: "str"
     count: 1
     reason: "the overflow stub stands in for json.loads, typed (s: str | bytes | bytearray, ...) in typeshed; the response reader hands it the reply's decoded text, a str, which the stub takes unread"
@@ -1855,7 +1828,7 @@ hints:
     count: 2
   - file: python/tests/test_response_parsers.py
     text: "dict[str, object]"
-    count: 2
+    count: 1
   - file: python/tests/test_run_ci_runner.py
     text: "dict[str, str]"
     count: 1
@@ -1982,12 +1955,6 @@ hints:
   - file: python/tests/test_wire_codes_parity.py
     text: "str"
     count: 2
-  - file: python/tests/test_wire_rational_decode_reject.py
-    text: "dict[str, object]"
-    count: 1
-  - file: python/tests/test_wire_rational_decode_reject.py
-    text: "str"
-    count: 1
   - file: python/tests/test_yaml_loader_errors.py
     text: "str"
     count: 2

@@ -12,11 +12,6 @@
 // name, a tab and the envelope. Both variables are read at the first call,
 // which aborts the process naming what is missing. The build makes it beside
 // the library, where the bindings' tests load it.
-
-// POSIX.1-2008, for dlopen, O_CLOEXEC and dprintf, which strict C23 leaves
-// undeclared.
-#define _POSIX_C_SOURCE 200809L
-
 #include "aletheia.h"
 
 #include <dlfcn.h>

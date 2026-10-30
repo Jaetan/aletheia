@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import ctypes
 from fractions import Fraction
-from typing import TYPE_CHECKING, NewType, TypeGuard
+from typing import NewType, TypeGuard
 
 from aletheia.client._ffi import (
     AletheiaDecimal,
@@ -20,7 +20,6 @@ from aletheia.client._refusal import raise_entry_refusal
 from aletheia.client._types import (
     InputBoundExceededError,
     KernelRefusal,
-    ProtocolError,
     ValidationError,
 )
 from aletheia.common_types import Microseconds, Prose
@@ -29,12 +28,6 @@ from aletheia.limits import (
     MAX_RATIONAL_COMPONENT_MAGNITUDE,
     BoundField,
 )
-from aletheia.types import is_str_dict
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from aletheia.types import JSONValue
 
 # A time window's text, whole microseconds as a loader's document spells them.
 TimeBoundText = NewType("TimeBoundText", str)
@@ -50,8 +43,8 @@ def is_pure_int(v: object) -> TypeGuard[int]:
     Python's ``bool`` is a subclass of ``int`` (``isinstance(True, int)``
     returns ``True``), so plain ``isinstance(v, int)`` is insufficient
     for "is this a numeric integer?" checks.  This guard rejects bools
-    while accepting all other ``int`` values.  The wire rational decoders
-    here and the DBC reply checks of ``dbc_normalize`` use it.
+    while accepting all other ``int`` values.  The whole-number reply checks
+    of ``dbc_normalize`` and ``_response_parsers`` use it.
     """
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -197,7 +190,8 @@ def to_exact_fraction(value: int | Fraction) -> Fraction:
 def reject_inexact(value: object, ctx: str) -> None:
     """Reject a non-exact value (a ``float`` or ``bool``) at an outbound *rational* wire field.
 
-    The outbound twin of :func:`decode_wire_rational`, applied at exactly the
+    The outbound twin of
+    :func:`~aletheia.client._helpers.reply_shape.read_rational`, applied at exactly the
     fields the Agda kernel parses as ℚ — signal ``factor``/``offset``/``minimum``/
     ``maximum``, env-var ``initial``/``minimum``/``maximum``, *float-kind*
     attribute ``min``/``max``/``value``, and predicate
@@ -211,9 +205,8 @@ def reject_inexact(value: object, ctx: str) -> None:
     ``startBit``, ``dlc``, ``id``, value-table values, int/hex attribute bounds…)
     are left to the kernel's own typed validation, which rejects a non-integer
     there loudly (e.g. ``parse_non_integer_multiplex_value``) rather than
-    silently.  This mirrors the inbound decoder, which likewise routes only the
-    rational fields through :func:`decode_wire_rational` and lets the kernel
-    validate the integer fields.
+    silently.  The reply readers likewise read only the rational fields as
+    rationals.
 
     Args:
         value: The single field value to check.
@@ -268,84 +261,3 @@ def check_wire_bound(value: Fraction) -> None:
             code="input_bound_exceeded",
             refusal=KernelRefusal(message, _SIGNAL_VALUE_FIELD),
         )
-
-
-def extract_rational_from_dict(
-    d: Mapping[str, JSONValue],
-    context: str,
-) -> tuple[int, int]:
-    """Extract (numerator, denominator) from a rational dict.
-
-    The kernel proves every denominator it writes a ``ℕ⁺``, so only the
-    components' kinds are checked and the pair is returned as written.
-
-    Raises:
-        ProtocolError: a component is missing or not an ``int``.
-
-    """
-    numerator = d.get("numerator")
-    denominator = d.get("denominator")
-    # is_pure_int rejects bool subclass so a malicious response
-    # {"numerator": true, "denominator": false} cannot coerce to
-    # Fraction(1, 0).  Mirrors the Go encoding/json + C++
-    # nlohmann/json bool→int rejection contract.
-    if not is_pure_int(numerator):
-        msg = f"Expected {context}.numerator to be int"
-        raise ProtocolError(msg)
-    if not is_pure_int(denominator):
-        msg = f"Expected {context}.denominator to be int"
-        raise ProtocolError(msg)
-    return numerator, denominator
-
-
-def validate_integer_field(field_name: str, raw_value: object) -> int:
-    """Validate + extract an integer-valued response field as ``int``.
-
-    The field's Agda-side type is ``ℕ`` / ``ℤ`` (timestamps in microseconds,
-    property indices); it arrives on the wire either as a plain int or as
-    ``{"numerator": N, "denominator": 1}``, never with a fractional
-    component.  Returns ``N``.  A non-unit denominator indicates a
-    wire-format violation by the kernel and is rejected.
-    """
-    # is_pure_int over isinstance(raw_value, int) so a `true` on the wire
-    # (json deserialised as Python bool) is rejected rather than silently
-    # treated as numerator=1.
-    if is_pure_int(raw_value):
-        return raw_value
-    if not is_str_dict(raw_value):
-        msg = f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
-        raise ProtocolError(msg)
-    numerator, denominator = extract_rational_from_dict(raw_value, field_name)
-    if denominator != 1:
-        msg = (
-            f"Expected {field_name} to be an integer (denominator == 1), "
-            f"got {numerator}/{denominator}"
-        )
-        raise ProtocolError(msg)
-    return numerator
-
-
-def decode_wire_rational(value_raw: object) -> Fraction:
-    """Decode an exact rational from a core *response* (the internal wire).
-
-    Computed values cross the FFI boundary as exact rationals only — a bare
-    integer or a ``{"numerator": n, "denominator": d}`` object — never a float:
-    a float on the wire would mean a computed value escaped the rational kernel.
-    A float, string, or bool is therefore a wire-format violation, rejected here:
-    nothing internal to the program is ever a float (a decimal is an exact
-    rational, carried as an int or a {numerator, denominator} object).
-    """
-    if isinstance(value_raw, bool):
-        # bool is an int subclass; reject so True/False can't slip through.
-        msg = "Expected a wire rational (int or {numerator, denominator}), got bool"
-        raise ProtocolError(msg)
-    if isinstance(value_raw, int):
-        return Fraction(value_raw)
-    if is_str_dict(value_raw):
-        n, d = extract_rational_from_dict(value_raw, "rational")
-        return Fraction(n, d)
-    msg = (
-        "Expected a wire rational (int or {numerator, denominator}), "
-        f"got {type(value_raw).__name__}"
-    )
-    raise ProtocolError(msg)

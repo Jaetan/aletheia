@@ -18,8 +18,8 @@ from aletheia.client._response_parsers import (
 )
 
 if TYPE_CHECKING:
-    from aletheia.common_types import PositiveInt
-    from aletheia.types import Response
+    from aletheia.common_types import PositiveInt, Prose
+    from aletheia.types import JSONValue, Response
 
 
 class TestBuildErrorResponse:
@@ -41,27 +41,36 @@ class TestBuildErrorResponse:
             "message": "no DBC",
         }
 
-    def test_missing_code_raises(self) -> None:
-        """Absent ``code`` raises — empty-string default is disallowed."""
-        with pytest.raises(ProtocolError, match="missing or non-string"):
-            build_error_response(cast("Response", {"status": "error", "message": "oops"}))
-
-    def test_non_string_code_raises(self) -> None:
-        """A ``code`` that isn't a string is a protocol violation."""
-        with pytest.raises(ProtocolError, match="missing or non-string"):
-            build_error_response(cast("Response", {"status": "error", "code": 42, "message": "m"}))
-
-    def test_missing_message_raises(self) -> None:
-        """Absent ``message`` raises — no invented default."""
-        with pytest.raises(ProtocolError, match="missing or non-string 'message'"):
-            build_error_response(cast("Response", {"status": "error", "code": "some_code"}))
-
-    def test_non_string_message_raises(self) -> None:
-        """Non-string ``message`` is a protocol violation."""
-        with pytest.raises(ProtocolError, match="missing or non-string 'message'"):
-            build_error_response(
-                cast("Response", {"status": "error", "code": "some_code", "message": 123})
-            )
+    @pytest.mark.parametrize(
+        ("envelope", "text"),
+        [
+            pytest.param(
+                {"status": "error", "message": "oops"},
+                "reply code: expected string, got nothing",
+                id="code-absent",
+            ),
+            pytest.param(
+                {"status": "error", "code": 42, "message": "m"},
+                "reply code: expected string, got number",
+                id="code-number",
+            ),
+            pytest.param(
+                {"status": "error", "code": "some_code"},
+                "reply message: expected string, got nothing",
+                id="message-absent",
+            ),
+            pytest.param(
+                {"status": "error", "code": "some_code", "message": 123},
+                "reply message: expected string, got number",
+                id="message-number",
+            ),
+        ],
+    )
+    def test_code_and_message_are_strings(self, envelope: Response, text: Prose) -> None:
+        """An absent or non-string ``code`` or ``message`` is refused at its place, no default."""
+        with pytest.raises(ProtocolError) as exc_info:
+            build_error_response(envelope)
+        assert str(exc_info.value) == text
 
     @pytest.mark.parametrize(
         ("observed", "limit"),
@@ -93,37 +102,52 @@ class TestBuildErrorResponse:
         assert out.get("limit") == limit
 
     @pytest.mark.parametrize(
-        "triple",
+        ("triple", "refusal"),
         [
             pytest.param(
-                {"bound_kind": "nesting_depth", "observed": "65", "limit": 64}, id="observed-string"
-            ),
-            pytest.param({"bound_kind": "nesting_depth", "limit": 64}, id="observed-absent"),
-            pytest.param(
-                {"bound_kind": "nesting_depth", "observed": True, "limit": 64}, id="observed-bool"
+                {"bound_kind": "nesting_depth", "observed": "65", "limit": 64},
+                "reply observed: expected number, got string",
+                id="observed-string",
             ),
             pytest.param(
-                {"bound_kind": "nesting_depth", "observed": 65, "limit": 6.5}, id="limit-float"
+                {"bound_kind": "nesting_depth", "limit": 64},
+                "reply observed: expected number, got nothing",
+                id="observed-absent",
             ),
-            pytest.param({"bound_kind": 7, "observed": 65, "limit": 64}, id="bound_kind-nonstring"),
+            pytest.param(
+                {"bound_kind": "nesting_depth", "observed": True, "limit": 64},
+                "reply observed: expected number, got boolean",
+                id="observed-bool",
+            ),
+            pytest.param(
+                {"bound_kind": "nesting_depth", "observed": 65, "limit": 6.5},
+                "reply limit: expected number, got number",
+                id="limit-float",
+            ),
+            pytest.param(
+                {"bound_kind": 7, "observed": 65, "limit": 64},
+                "reply bound_kind: expected string, got number",
+                id="bound_kind-nonstring",
+            ),
+            pytest.param(
+                {"bound_kind": "nesting_depth", "observed": 65, "limit": 64, "field": 7},
+                "reply field: expected string, got number",
+                id="field-nonstring",
+            ),
         ],
     )
-    def test_malformed_bound_triple_is_dropped(self, triple: dict[str, object]) -> None:
-        """A partial or ill-typed triple degrades to no triple — never a partial one.
-
-        Matches the C++ ``make_json_error`` degrade-to-nullopt rule: all three of
-        ``bound_kind`` / ``observed`` / ``limit`` must be present and well-typed, or
-        none is attached. Pins each guard against a mutation that
-        drops one and lets a malformed triple through (the attach path stays
-        line-green either way, so this is the mutation-killing companion).
-        """
-        out = build_error_response(
-            cast(
-                "Response",
-                {"status": "error", "code": "input_bound_exceeded", "message": "m", **triple},
+    def test_a_partial_or_mistyped_bound_refusal_is_refused_at_its_place(
+        self, triple: dict[str, object], refusal: Prose
+    ) -> None:
+        """A triple the kernel writes whole is refused at the first key out of its kind."""
+        with pytest.raises(ProtocolError) as refused:
+            _ = build_error_response(
+                cast(
+                    "Response",
+                    {"status": "error", "code": "input_bound_exceeded", "message": "m", **triple},
+                )
             )
-        )
-        assert out == {"status": "error", "code": "input_bound_exceeded", "message": "m"}
+        assert str(refused.value) == refusal
 
     def test_wellformed_validation_issues_are_attached(self) -> None:
         """A complete ``handler_validation_failed`` payload is lifted onto the response.
@@ -173,56 +197,6 @@ class TestBuildErrorResponse:
         assert "has_errors" not in out
         assert "issues" not in out
 
-    @pytest.mark.parametrize(
-        "extras",
-        [
-            pytest.param(
-                {"issues": [{"severity": "error", "code": "c", "detail": "d"}]},
-                id="has_errors-absent",
-            ),
-            pytest.param(
-                {
-                    "has_errors": 1,
-                    "issues": [{"severity": "error", "code": "c", "detail": "d"}],
-                },
-                id="has_errors-int",
-            ),
-            pytest.param({"has_errors": True}, id="issues-absent"),
-            pytest.param({"has_errors": True, "issues": "nope"}, id="issues-nonlist"),
-            pytest.param({"has_errors": True, "issues": [42]}, id="issue-nonobject"),
-            pytest.param(
-                {"has_errors": True, "issues": [{"severity": 7, "code": "c", "detail": "d"}]},
-                id="severity-int",
-            ),
-            pytest.param(
-                {"has_errors": True, "issues": [{"severity": "error", "detail": "d"}]},
-                id="code-absent",
-            ),
-            pytest.param(
-                {"has_errors": True, "issues": [{"severity": "error", "code": "c", "detail": 7}]},
-                id="detail-nonstring",
-            ),
-        ],
-    )
-    def test_malformed_validation_issues_raise(self, extras: dict[str, object]) -> None:
-        """An absent or ill-typed issues payload raises ``ProtocolError``, never a partial one.
-
-        The kernel writes ``has_errors`` as a bool and every issue as an object
-        with string ``severity``, ``code`` and ``detail``.
-        """
-        with pytest.raises(ProtocolError):
-            build_error_response(
-                cast(
-                    "Response",
-                    {
-                        "status": "error",
-                        "code": "handler_validation_failed",
-                        "message": "m",
-                        **extras,
-                    },
-                )
-            )
-
 
 # A bound refusal envelope, past a limit of 10000, naming no field.
 _BOUND_REFUSAL = {
@@ -267,37 +241,57 @@ class TestRaiseIfInputBoundExceeded:
         assert (exc_info.value.field, str(exc_info.value)) == (None, _BOUND_REFUSAL["message"])
 
     @pytest.mark.parametrize(
-        "envelope",
+        ("envelope", "refusal"),
         [
-            pytest.param(cast("Response", {**_BOUND_REFUSAL, "field": 7}), id="field-nonstring"),
             pytest.param(
-                cast("Response", {**_BOUND_REFUSAL, "message": 7}), id="message-nonstring"
+                cast("Response", {**_BOUND_REFUSAL, "field": 7}),
+                "reply field: expected string, got number",
+                id="field-nonstring",
+            ),
+            pytest.param(
+                cast("Response", {**_BOUND_REFUSAL, "message": 7}),
+                "reply message: expected string, got number",
+                id="message-nonstring",
             ),
             pytest.param(
                 cast(
                     "Response",
                     {key: value for key, value in _BOUND_REFUSAL.items() if key != "message"},
                 ),
+                "reply message: expected string, got nothing",
                 id="message-absent",
             ),
             pytest.param(
-                cast("Response", {**_BOUND_REFUSAL, "code": "handler_validation_failed"}),
-                id="other-code",
+                cast(
+                    "Response",
+                    {"status": "error", "code": "input_bound_exceeded", "message": "m"},
+                ),
+                "reply bound_kind: expected string, got nothing",
+                id="triple-absent",
             ),
         ],
     )
-    def test_degrades_to_the_caller_fallback(self, envelope: Response) -> None:
-        """A non-string field or message, a malformed triple or another code raises nothing."""
-        raise_if_input_bound_exceeded(envelope)
+    def test_a_bound_refusal_out_of_its_kinds_is_refused_at_its_place(
+        self, envelope: Response, refusal: Prose
+    ) -> None:
+        """A bound refusal's field, message and triple are read by kind."""
+        with pytest.raises(ProtocolError) as refused:
+            raise_if_input_bound_exceeded(envelope)
+        assert str(refused.value) == refusal
+
+    def test_another_code_raises_nothing(self) -> None:
+        """An envelope of another code is left to the caller."""
+        raise_if_input_bound_exceeded(
+            cast("Response", {**_BOUND_REFUSAL, "code": "handler_validation_failed"})
+        )
 
 
 class TestParseCompleteWarnings:
     """Strict-contract tests for ``parse_complete_warnings``.
 
-    The end-of-stream ``warnings`` list is untrusted FFI JSON;
-    ``property_index`` must be validated via ``validate_integer_field``
-    (matching the identical field in ``parse_finalization_results`` and Go's
-    ``parseNumberAsInt64``) rather than blindly cast to ``int``.
+    The end-of-stream ``warnings`` list is untrusted FFI JSON: ``property_index``
+    is a whole number the kernel writes as digits, refused at
+    ``warnings/property_index`` as anything else rather than cast to ``int``.
     """
 
     def test_happy_path_plain_int(self) -> None:
@@ -310,70 +304,62 @@ class TestParseCompleteWarnings:
         )
         assert out == [{"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}]
 
-    def test_rational_dict_property_index_unwrapped(self) -> None:
-        """An integer arriving as ``{numerator, denominator: 1}`` is unwrapped."""
-        out = parse_complete_warnings(
-            cast(
-                "Response",
-                {
-                    "warnings": [
-                        {
-                            "kind": "uncached_atom",
-                            "property_index": {"numerator": 3, "denominator": 1},
-                            "detail": "Rpm",
-                        }
-                    ]
-                },
-            )
-        )
-        assert out[0]["property_index"] == 3
+    @pytest.mark.parametrize(
+        ("property_index", "text"),
+        [
+            pytest.param(
+                "2", "reply warnings/property_index: expected number, got string", id="string"
+            ),
+            pytest.param(
+                True, "reply warnings/property_index: expected number, got boolean", id="boolean"
+            ),
+            pytest.param(
+                {"numerator": 3, "denominator": 1},
+                "reply warnings/property_index: expected number, got object",
+                id="unit-denominator",
+            ),
+            pytest.param(
+                {"numerator": 5, "denominator": 2},
+                "reply warnings/property_index: expected number, got object",
+                id="fraction",
+            ),
+        ],
+    )
+    def test_property_index_is_a_whole_number(self, property_index: JSONValue, text: Prose) -> None:
+        """A property_index that is not an int, a bool or a rational object included, is refused."""
+        warning = {"kind": "uncached_atom", "property_index": property_index, "detail": "x"}
+        with pytest.raises(ProtocolError) as exc_info:
+            parse_complete_warnings(cast("Response", {"warnings": [warning]}))
+        assert str(exc_info.value) == text
 
-    def test_absent_warnings_raises(self) -> None:
-        """A response with no ``warnings`` key raises ``ProtocolError``: the kernel writes it."""
-        with pytest.raises(ProtocolError, match="Expected 'warnings'"):
-            parse_complete_warnings(cast("Response", {"status": "complete"}))
+    @pytest.mark.parametrize(
+        ("reply", "text"),
+        [
+            pytest.param(
+                {"status": "complete"},
+                "reply warnings: expected array, got nothing",
+                id="warnings-absent",
+            ),
+            pytest.param(
+                {"warnings": "nope"},
+                "reply warnings: expected array, got string",
+                id="warnings-string",
+            ),
+            pytest.param(
+                {"warnings": [42]}, "reply warnings: expected object, got number", id="entry-number"
+            ),
+            pytest.param(
+                {"warnings": [{"kind": "uncached_atom", "detail": "x"}]},
+                "reply warnings/property_index: expected number, got nothing",
+                id="property_index-absent",
+            ),
+        ],
+    )
+    def test_a_broken_warnings_place_is_refused(self, reply: Response, text: Prose) -> None:
+        """An absent or non-list ``warnings``, a non-object entry or no property_index is refused.
 
-    def test_string_property_index_raises(self) -> None:
-        """A string property_index is a protocol violation, not a silent cast."""
-        with pytest.raises(ProtocolError, match="int or dict"):
-            parse_complete_warnings(
-                cast(
-                    "Response",
-                    {"warnings": [{"kind": "uncached_atom", "property_index": "2", "detail": "x"}]},
-                )
-            )
-
-    def test_non_unit_denominator_raises(self) -> None:
-        """A fractional property_index (denominator != 1) is rejected."""
-        with pytest.raises(ProtocolError, match="denominator == 1"):
-            parse_complete_warnings(
-                cast(
-                    "Response",
-                    {
-                        "warnings": [
-                            {
-                                "kind": "uncached_atom",
-                                "property_index": {"numerator": 5, "denominator": 2},
-                                "detail": "x",
-                            }
-                        ]
-                    },
-                )
-            )
-
-    def test_missing_property_index_raises(self) -> None:
-        """An absent property_index is rejected — no default-0 (Go raises too)."""
-        with pytest.raises(ProtocolError, match="Missing 'property_index'"):
-            parse_complete_warnings(
-                cast("Response", {"warnings": [{"kind": "uncached_atom", "detail": "x"}]})
-            )
-
-    def test_non_list_warnings_raises(self) -> None:
-        """A non-list ``warnings`` is a typed error, not a bare TypeError."""
-        with pytest.raises(ProtocolError, match="must be a list"):
-            parse_complete_warnings(cast("Response", {"warnings": "nope"}))
-
-    def test_non_object_warning_entry_raises(self) -> None:
-        """A non-object warning entry is a typed error, not an AttributeError."""
-        with pytest.raises(ProtocolError, match="must be an object"):
-            parse_complete_warnings(cast("Response", {"warnings": [42]}))
+        The kernel writes each of them, so none is defaulted.
+        """
+        with pytest.raises(ProtocolError) as exc_info:
+            parse_complete_warnings(reply)
+        assert str(exc_info.value) == text

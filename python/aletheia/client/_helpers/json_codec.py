@@ -1,59 +1,86 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Protocol-level list parsers for the streaming response shape."""
+"""Readers of the three arrays an extraction reply writes at its root."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
-from aletheia.client._helpers.rational import decode_wire_rational
-from aletheia.client._types import ProtocolError
+from aletheia.client._helpers.reply_shape import (
+    A_RATIONAL,
+    OBJECT,
+    STRING,
+    ReplyPath,
+    at,
+    came,
+    came_as,
+    read_rational,
+    reply_refusal,
+)
 from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from fractions import Fraction
 
+    from aletheia.types import JSONValue
 
-def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:
-    """Parse signal values list from response."""
+_VALUES: Final = ReplyPath("values")
+_ERRORS: Final = ReplyPath("errors")
+_ABSENT: Final = ReplyPath("absent")
+
+
+def parse_values_list(values_data: Sequence[JSONValue]) -> dict[str, Fraction]:
+    """Read the ``values`` array: objects with a string ``name`` and a rational ``value``.
+
+    Raises:
+        ProtocolError: If an entry, its ``name`` or its ``value`` is not what
+            the kernel writes there.
+
+    """
     values: dict[str, Fraction] = {}
     for item in values_data:
         if not is_str_dict(item):
-            msg = f"Expected signal value to be dict, got {type(item)}"
-            raise ProtocolError(msg)
+            raise reply_refusal(_VALUES, OBJECT, came_as(item))
         name_raw = item.get("name")
         if not isinstance(name_raw, str):
-            msg = f"Expected signal name to be str, got {type(name_raw)}"
-            raise ProtocolError(msg)
-        value_raw = item.get("value")
-        values[name_raw] = decode_wire_rational(value_raw)
+            raise reply_refusal(at(_VALUES, "name"), STRING, came(item, "name"))
+        if "value" not in item:
+            raise reply_refusal(at(_VALUES, "value"), A_RATIONAL, came(item, "value"))
+        values[name_raw] = read_rational(item["value"], at(_VALUES, "value"))
     return values
 
 
-def parse_errors_list(errors_data: Sequence[object]) -> dict[str, str]:
-    """Parse signal errors list from response."""
+def parse_errors_list(errors_data: Sequence[JSONValue]) -> dict[str, str]:
+    """Read the ``errors`` array: each entry an object with a string ``name`` and ``error``.
+
+    Raises:
+        ProtocolError: If an entry, its ``name`` or its ``error`` is not what
+            the kernel writes there.
+
+    """
     errors: dict[str, str] = {}
     for item in errors_data:
         if not is_str_dict(item):
-            msg = f"Expected error item to be dict, got {type(item)}"
-            raise ProtocolError(msg)
+            raise reply_refusal(_ERRORS, OBJECT, came_as(item))
         name_raw = item.get("name")
         if not isinstance(name_raw, str):
-            msg = f"Expected error signal name to be str, got {type(name_raw)}"
-            raise ProtocolError(msg)
+            raise reply_refusal(at(_ERRORS, "name"), STRING, came(item, "name"))
         error_raw = item.get("error")
         if not isinstance(error_raw, str):
-            msg = f"Expected error message to be str, got {type(error_raw)}"
-            raise ProtocolError(msg)
+            raise reply_refusal(at(_ERRORS, "error"), STRING, came(item, "error"))
         errors[name_raw] = error_raw
     return errors
 
 
-def parse_absent_list(absent_data: Sequence[object]) -> list[str]:
-    """Parse absent signals list from response."""
+def parse_absent_list(absent_data: Sequence[JSONValue]) -> list[str]:
+    """Read the ``absent`` array: each entry a signal's name, a string.
+
+    Raises:
+        ProtocolError: If an entry is not a string.
+
+    """
     absent: list[str] = []
     for item in absent_data:
         if not isinstance(item, str):
-            msg = f"Expected absent signal name to be str, got {type(item)}"
-            raise ProtocolError(msg)
+            raise reply_refusal(_ABSENT, STRING, came_as(item))
         absent.append(item)
     return absent

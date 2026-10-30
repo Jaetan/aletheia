@@ -6,8 +6,9 @@ The bindings never pass a NULL structure or a buffer smaller than the frame,
 so the refusals the shim holds for them are reachable only from here: a NULL
 frame, NULL signal values or a NULL result buffer is refused cleanly, a result
 buffer that cannot hold the frame is refused before a byte is written, a build
-reports the count it wrote, and a text the header refuses or a NULL result is
-refused by every entry reading a text.
+reports the count it wrote, a text the header refuses or a NULL result is
+refused by every entry reading a text, and every entry reading a text writes
+every field of its result on every call, the stand-ins as the kernel.
 """
 
 from __future__ import annotations
@@ -19,7 +20,9 @@ from typing import TYPE_CHECKING, NewType
 
 import pytest
 from _dbc_helpers import dbc, message, signal
+from _stand_in import StandInName, stand_in_kernel
 
+from aletheia import Signal
 from aletheia.client._ffi import (
     AletheiaBuffer,
     AletheiaDecimal,
@@ -30,9 +33,11 @@ from aletheia.client._ffi import (
     AletheiaText,
     AletheiaTimeBound,
     KernelResponse,
+    Magnitude,
     configure_ffi_signatures,
     find_ffi_library,
     parse_json_object,
+    uint128_value,
     wire_rational,
 )
 from aletheia.types import ParseDBCCommand, dump_json
@@ -57,6 +62,8 @@ _PARSE_DBC: ParseDBCCommand = {
 
 _SET = 0xFF
 _CAPACITY = 64
+# The address an error left unwritten reads as, every byte of its result set.
+_UNWRITTEN = 2**64 - 1
 
 
 @pytest.fixture(name="state")
@@ -189,18 +196,20 @@ def test_a_text_the_header_refuses_is_refused_by_every_text_entry(state: StateHa
         argument = None if text is None else ctypes.byref(text)
         response = json.loads(_take_response(_LIB.aletheia_process(state, argument)))
         assert response == {"status": "error", "code": "ffi_validation_error", "message": reason}
-        decimal = AletheiaDecimal()
-        time_bound = AletheiaTimeBound()
-        check = AletheiaPropertyCheck()
+        decimal = _prefilled(AletheiaDecimal())
+        time_bound = _prefilled(AletheiaTimeBound())
+        check = _prefilled(AletheiaPropertyCheck())
         for entry, out in (
             (_LIB.aletheia_parse_decimal, decimal),
             (_LIB.aletheia_parse_time_bound, time_bound),
             (_LIB.aletheia_check_property, check),
         ):
             assert entry(argument, ctypes.byref(out)) == 1
+            assert out.err != _UNWRITTEN
             envelope = json.loads(_take_response(out.err))
             expected = {"status": "error", "code": "ffi_validation_error", "message": reason}
             assert envelope == expected
+        assert (_fields(decimal.value), time_bound.microseconds) == (_ZERO, 0)
     empty_text = ctypes.byref(AletheiaText(None, 0))
     empty = json.loads(_take_response(_LIB.aletheia_process(state, empty_text)))
     assert empty["code"] == "dispatch_invalid_json"
@@ -215,3 +224,102 @@ def test_a_null_result_is_refused_by_every_text_entry() -> None:
         _LIB.aletheia_check_property,
     ):
         assert entry(ctypes.byref(text), None) == 1
+
+
+# A text handed to an entry that reads one.
+EntryText = NewType("EntryText", bytes)
+
+_ZERO = (Magnitude(0), Magnitude(0), False)
+
+
+def _prefilled[T: ctypes.Structure](out: T) -> T:
+    """Set every byte of ``out``, so a field an entry leaves unwritten keeps them."""
+    _ = ctypes.memset(ctypes.byref(out), _SET, ctypes.sizeof(out))
+    return out
+
+
+def _fields(value: AletheiaRational) -> tuple[Magnitude, Magnitude, bool]:
+    """Every field of a rational as written: its numerator, its denominator, its sign byte set."""
+    numerator, denominator = uint128_value(value.numerator), uint128_value(value.denominator)
+    return (numerator, denominator, value.negative != 0)
+
+
+def _text(raw: EntryText) -> AletheiaText:
+    return AletheiaText(raw, len(raw))
+
+
+_STAND_INS = [StandInName("null_kernel"), StandInName("recording_kernel")]
+
+
+def test_a_decimal_that_holds_writes_its_error_as_null() -> None:
+    """A parsed decimal writes NULL to its error, whatever the caller left there."""
+    decimal = _prefilled(AletheiaDecimal())
+    text = _text(EntryText(b"-1.5"))
+    assert _LIB.aletheia_parse_decimal(ctypes.byref(text), ctypes.byref(decimal)) == 0
+    assert (decimal.err, _fields(decimal.value)) == (None, (Magnitude(3), Magnitude(2), True))
+
+
+def test_a_time_bound_that_holds_writes_its_error_as_null() -> None:
+    """A parsed time bound writes NULL to its error, whatever the caller left there."""
+    time_bound = _prefilled(AletheiaTimeBound())
+    text = _text(EntryText(b"1500"))
+    assert _LIB.aletheia_parse_time_bound(ctypes.byref(text), ctypes.byref(time_bound)) == 0
+    assert (time_bound.err, time_bound.microseconds) == (None, 1500)
+
+
+def test_a_property_that_holds_writes_its_error_as_null() -> None:
+    """A property the kernel accepts writes NULL to its error, whatever the caller left there."""
+    check = _prefilled(AletheiaPropertyCheck())
+    text = _text(EntryText(dump_json(Signal("Speed").equals(1).always().to_dict()).encode()))
+    assert _LIB.aletheia_check_property(ctypes.byref(text), ctypes.byref(check)) == 0
+    assert check.err is None
+
+
+def test_a_refused_decimal_writes_its_value_as_zero() -> None:
+    """A decimal the kernel refuses writes zero to every field of its value beside the error."""
+    decimal = _prefilled(AletheiaDecimal())
+    text = _text(EntryText(b"x"))
+    assert _LIB.aletheia_parse_decimal(ctypes.byref(text), ctypes.byref(decimal)) == 1
+    assert decimal.err not in (None, _UNWRITTEN)
+    _ = _take_response(decimal.err)
+    assert _fields(decimal.value) == _ZERO
+
+
+def test_a_refused_time_bound_writes_its_value_as_zero() -> None:
+    """A time bound the kernel refuses writes zero to its microseconds beside the error."""
+    time_bound = _prefilled(AletheiaTimeBound())
+    text = _text(EntryText(b"-1"))
+    assert _LIB.aletheia_parse_time_bound(ctypes.byref(text), ctypes.byref(time_bound)) == 1
+    assert time_bound.err not in (None, _UNWRITTEN)
+    _ = _take_response(time_bound.err)
+    assert time_bound.microseconds == 0
+
+
+def _stand_in(name: StandInName) -> ctypes.CDLL:
+    lib = ctypes.CDLL(str(stand_in_kernel(name)))
+    configure_ffi_signatures(lib)
+    return lib
+
+
+@pytest.mark.parametrize("name", _STAND_INS)
+def test_a_stand_in_writes_every_field_of_a_decimal_it_refuses(name: StandInName) -> None:
+    """A stand-in's refused decimal writes zero to its value, as the kernel's does."""
+    lib = _stand_in(name)
+    decimal = _prefilled(AletheiaDecimal())
+    text = _text(EntryText(b"1"))
+    assert lib.aletheia_parse_decimal(ctypes.byref(text), ctypes.byref(decimal)) == 1
+    assert decimal.err != _UNWRITTEN
+    lib.aletheia_free_str(decimal.err)
+    assert _fields(decimal.value) == _ZERO
+
+
+@pytest.mark.parametrize("name", _STAND_INS)
+def test_a_stand_in_writes_every_field_of_a_time_bound_it_refuses(name: StandInName) -> None:
+    """A stand-in's refused time bound writes zero to its microseconds, as the kernel's does."""
+    lib = _stand_in(name)
+    time_bound = _prefilled(AletheiaTimeBound())
+    text = _text(EntryText(b"1"))
+    assert lib.aletheia_parse_time_bound(ctypes.byref(text), ctypes.byref(time_bound)) == 1
+    assert time_bound.err != _UNWRITTEN
+    lib.aletheia_free_str(time_bound.err)
+    assert time_bound.microseconds == 0

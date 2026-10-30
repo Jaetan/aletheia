@@ -17,7 +17,7 @@ from aletheia.client._enrichment import (
     format_enriched_reason,
     format_formula,
 )
-from aletheia.client._helpers.rational import decode_wire_rational
+from aletheia.client._helpers.reply_shape import ReplyPath, read_rational
 from aletheia.dsl import Signal
 from aletheia.types import JSONValue
 
@@ -56,7 +56,8 @@ def _rationals_read(node: dict[WireField, WireTree]) -> dict[WireField, WireTree
     if not isinstance(node.get(WireField("predicate")), str):
         return node
     return {
-        key: decode_wire_rational(v) if key in _RATIONAL_FIELDS else v for key, v in node.items()
+        key: read_rational(cast("JSONValue", v), ReplyPath(key)) if key in _RATIONAL_FIELDS else v
+        for key, v in node.items()
     }
 
 

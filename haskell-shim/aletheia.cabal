@@ -572,7 +572,7 @@ foreign-library aletheia-ffi
     include-dirs:     include
     c-sources:        cbits/abi_version.c
                       cbits/allocation.c
-    cc-options:       -std=c23
+    cc-options:       -std=gnu23
     build-depends:
         base >= 4.14 && < 5,
         text >= 1.2
@@ -619,7 +619,7 @@ test-suite abi-layout
     other-modules:    AletheiaFFI.Wire
     c-sources:        test/abi_layout.c
     include-dirs:     include
-    cc-options:       -std=c23
+    cc-options:       -std=gnu23
     build-depends:
         base >= 4.14 && < 5
     default-language: Haskell2010

@@ -10,9 +10,9 @@ which is how it reaches bytes no binding sends, and checks the envelope itself:
 
     peek → Agda ``parseDecimal`` → the rational component magnitude bound → wire JSON
 
-Every refusal past the peek is the kernel's decision.  Success returns the bare
-``{"numerator","denominator"}`` shape the bindings' ``decode_wire_rational``
-consumes; a refusal returns the ``{"status":"error",...}`` envelope every
+Every refusal past the peek is the kernel's decision.  Success writes the
+rational into the result's ``value``, read here as its numerator and
+denominator; a refusal returns the ``{"status":"error",...}`` envelope every
 kernel refusal is rendered as (``code``, ``message`` and the code's own fields,
 ``_decimal_cases`` spells them), and a text the shim refuses before the kernel
 reads it (a NUL byte, bytes that are not UTF-8) the three-key

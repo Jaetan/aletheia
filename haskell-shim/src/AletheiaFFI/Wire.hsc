@@ -18,13 +18,8 @@ module AletheiaFFI.Wire
     , WireUint128 (..)
     , WireRational (..)
     , Decimal (..)
-    , pokeDecimalValue
-    , pokeDecimalErr
     , TimeBound (..)
-    , pokeTimeBoundMicroseconds
-    , pokeTimeBoundErr
     , PropertyCheck (..)
-    , pokePropertyCheckErr
     ) where
 
 import Foreign.C.String (CString)
@@ -174,8 +169,8 @@ pokeBufferErr = #{poke struct aletheia_buffer, err}
 pokeBufferSize :: Ptr Buffer -> Word32 -> IO ()
 pokeBufferSize = #{poke struct aletheia_buffer, size}
 
--- | `struct aletheia_decimal`.  The entry writes one field or the other: the
--- value on success, the error on failure.
+-- | `struct aletheia_decimal`.  The entry writes both fields on every call: the
+-- value and a NULL error on success, a zero value and the error on failure.
 data Decimal = Decimal
     { decValue :: !WireRational
     , decErr   :: !CString
@@ -188,17 +183,11 @@ instance Storable Decimal where
         <$> #{peek struct aletheia_decimal, value} p
         <*> #{peek struct aletheia_decimal, err} p
     poke p d = do
-        pokeDecimalValue p (decValue d)
-        pokeDecimalErr p (decErr d)
+        #{poke struct aletheia_decimal, value} p (decValue d)
+        #{poke struct aletheia_decimal, err} p (decErr d)
 
-pokeDecimalValue :: Ptr Decimal -> WireRational -> IO ()
-pokeDecimalValue = #{poke struct aletheia_decimal, value}
-
-pokeDecimalErr :: Ptr Decimal -> CString -> IO ()
-pokeDecimalErr = #{poke struct aletheia_decimal, err}
-
--- | `struct aletheia_time_bound`.  The entry writes one field or the other:
--- the microseconds on success, the error on failure.
+-- | `struct aletheia_time_bound`.  The entry writes both fields on every call:
+-- the microseconds and a NULL error on success, zero and the error on failure.
 data TimeBound = TimeBound
     { tbMicroseconds :: !Word64
     , tbErr          :: !CString
@@ -211,17 +200,11 @@ instance Storable TimeBound where
         <$> #{peek struct aletheia_time_bound, microseconds} p
         <*> #{peek struct aletheia_time_bound, err} p
     poke p t = do
-        pokeTimeBoundMicroseconds p (tbMicroseconds t)
-        pokeTimeBoundErr p (tbErr t)
+        #{poke struct aletheia_time_bound, microseconds} p (tbMicroseconds t)
+        #{poke struct aletheia_time_bound, err} p (tbErr t)
 
-pokeTimeBoundMicroseconds :: Ptr TimeBound -> Word64 -> IO ()
-pokeTimeBoundMicroseconds = #{poke struct aletheia_time_bound, microseconds}
-
-pokeTimeBoundErr :: Ptr TimeBound -> CString -> IO ()
-pokeTimeBoundErr = #{poke struct aletheia_time_bound, err}
-
--- | `struct aletheia_property_check`.  The entry writes the error on failure
--- and nothing on success.
+-- | `struct aletheia_property_check`.  The entry writes its one field on every
+-- call: NULL on success, the error on failure.
 newtype PropertyCheck = PropertyCheck
     { pcErr :: CString
     } deriving (Eq, Show)
@@ -230,7 +213,4 @@ instance Storable PropertyCheck where
     sizeOf _ = #{size struct aletheia_property_check}
     alignment _ = #{alignment struct aletheia_property_check}
     peek p = PropertyCheck <$> #{peek struct aletheia_property_check, err} p
-    poke p c = pokePropertyCheckErr p (pcErr c)
-
-pokePropertyCheckErr :: Ptr PropertyCheck -> CString -> IO ()
-pokePropertyCheckErr = #{poke struct aletheia_property_check, err}
+    poke p c = #{poke struct aletheia_property_check, err} p (pcErr c)

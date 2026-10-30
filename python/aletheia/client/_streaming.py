@@ -23,6 +23,14 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 from aletheia.client._client_bin import FrameIdentity
 from aletheia.client._enrichment import format_enriched_reason
 from aletheia.client._ffi import KernelResponse, parse_json_object
+from aletheia.client._helpers.reply_shape import (
+    REPLY_ROOT,
+    at,
+    came_word,
+    fields,
+    reply_refusal,
+    words,
+)
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
 from aletheia.client._response_parsers import (
@@ -39,7 +47,6 @@ from aletheia.client._types import (
     CANFrameTuple,
     FrameResult,
     PropertyDiagnostic,
-    ProtocolError,
     SignalExtractionResult,
     StateError,
     StreamCaches,
@@ -575,8 +582,11 @@ class StreamingMixin(ClientHostState):
         if status == "error":
             return build_error_response(response)
 
-        msg = f"Unexpected response status: {status!r} (expected 'complete' or 'error')"
-        raise ProtocolError(msg)
+        raise reply_refusal(
+            at(REPLY_ROOT, "status"),
+            words("complete", "error"),
+            came_word(fields(response), "status"),
+        )
 
     def _collect_finalization_todo(
         self,

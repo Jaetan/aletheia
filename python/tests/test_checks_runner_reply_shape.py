@@ -59,7 +59,7 @@ def test_a_fails_entry_without_its_reason_is_refused(
     }
     with pytest.raises(ProtocolError) as excinfo:
         _ = _run(tmp_path, monkeypatch, entry, _COMPLETE)
-    assert str(excinfo.value) == "Expected string 'reason' in 'fails' result entry"
+    assert str(excinfo.value) == "reply results/reason: expected string, got nothing"
 
 
 def test_a_fails_entry_without_its_timestamp_is_refused(
@@ -74,7 +74,7 @@ def test_a_fails_entry_without_its_timestamp_is_refused(
     }
     with pytest.raises(ProtocolError) as excinfo:
         _ = _run(tmp_path, monkeypatch, entry, _COMPLETE)
-    assert str(excinfo.value) == "Expected 'timestamp' field in property_batch 'fails' entry"
+    assert str(excinfo.value) == "reply results/timestamp: expected number, got nothing"
 
 
 @pytest.mark.parametrize("status", ["fails", "unresolved"])
@@ -91,4 +91,4 @@ def test_an_end_of_stream_result_without_its_reason_is_refused(
     complete: CompleteResponse = {"status": "complete", "results": [result], "warnings": []}
     with pytest.raises(ProtocolError) as excinfo:
         _ = _run(tmp_path, monkeypatch, _HOLDS, complete)
-    assert str(excinfo.value) == f"Expected string 'reason' in {status!r} result entry"
+    assert str(excinfo.value) == "reply results/reason: expected string, got nothing"

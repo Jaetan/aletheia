@@ -260,7 +260,7 @@ libraryRules = do
         headers <- getDirectoryFiles "" ["haskell-shim/include//*.h"]
         need (source : headers)
         cc <- shimCCompiler
-        cmd_ cc ["-std=c23", "-shared", "-fPIC", "-I", "haskell-shim/include", "-o", out, source]
+        cmd_ cc ["-std=gnu23", "-shared", "-fPIC", "-I", "haskell-shim/include", "-o", out, source]
 
     "build/libaletheia-ffi.so" %> \out -> do
         -- HONEST DEPENDENCY GRAPH.

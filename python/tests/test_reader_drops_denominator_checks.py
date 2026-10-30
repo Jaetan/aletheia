@@ -4,35 +4,31 @@
 
 The kernel proves every denominator it writes positive, in a JSON reply, in the
 decimal entry's out-parameter and in the binary extraction buffer, so each reader
-takes the parts as written: a dict's denominator is returned as it is, and a zero
-one reaching ``Fraction`` raises ``Fraction``'s own error.
+takes the parts as written and hands them to ``Fraction``, whose own error a zero
+denominator raises.
 """
 
 from __future__ import annotations
 
 import struct
-from typing import NewType
+from fractions import Fraction
 
 import pytest
 
 from aletheia.client._client_bin import parse_extraction_buffer
 from aletheia.client._ffi import AletheiaDecimal, AletheiaRational, Magnitude, wire_uint128
-from aletheia.client._helpers.rational import decimal_value, extract_rational_from_dict
+from aletheia.client._helpers.rational import decimal_value
+from aletheia.client._helpers.reply_shape import ReplyPath, read_rational
 
-# A denominator as a reply's rational dict spells it, in or out of the range
-# the kernel writes.
-WireDenominator = NewType("WireDenominator", int)
+# A rational place of a reply.
+_PLACE = ReplyPath("values/value")
 
 
-@pytest.mark.parametrize(
-    "denominator", [WireDenominator(0), WireDenominator(-4)], ids=["zero", "negative"]
-)
-def test_extract_rational_from_dict_returns_the_denominator_as_written(
-    denominator: WireDenominator,
-) -> None:
-    """A rational dict's denominator is returned as the kernel wrote it, its range unchecked."""
-    rational = {"numerator": 3, "denominator": denominator}
-    assert extract_rational_from_dict(rational, "rational") == (3, denominator)
+def test_read_rational_hands_the_parts_to_fraction() -> None:
+    """A rational object's parts reach ``Fraction`` unchecked: a negative denominator signs it."""
+    assert read_rational({"numerator": 3, "denominator": -4}, _PLACE) == Fraction(-3, 4)
+    with pytest.raises(ZeroDivisionError, match=r"^Fraction\(3, 0\)$"):
+        _ = read_rational({"numerator": 3, "denominator": 0}, _PLACE)
 
 
 def test_decimal_value_hands_the_parts_to_fraction() -> None:

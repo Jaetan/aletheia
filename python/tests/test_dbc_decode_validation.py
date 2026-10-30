@@ -7,14 +7,16 @@ value of the wrong kind, a key the kernel always writes and the reply lacks and
 trailing bytes on the binary extraction buffer; a value's range, a tag's set and
 a list's length are the kernel's, proven of every reply, so a number passes as
 given and a tag outside its set is read, not refused.  Each refusal sets exactly
-one bad field on an otherwise whole reply.  (Real ``formatDBC`` output is
-covered end-to-end by ``test_dbc_corpus_parity`` and ``test_format_dbc``.)
+one bad field on an otherwise whole reply and reads ``reply <path>: expected
+<what>, got <what came>``, the path the reply proof's.  (Real ``formatDBC``
+output is covered end-to-end by ``test_dbc_corpus_parity`` and
+``test_format_dbc``.)
 """
 
 from __future__ import annotations
 
 import struct
-from typing import TYPE_CHECKING, Literal, NewType, cast, get_args
+from typing import TYPE_CHECKING, Final, Literal, NewType, cast, get_args
 
 import pytest
 from _dbc_helpers import kernel_signal
@@ -45,10 +47,24 @@ WirePresence = NewType("WirePresence", str)
 # A list of a DBC reply whose entries carry tags the kernel writes from fixed sets.
 TaggedList = Literal["comments", "attributes"]
 
+# Where a refusal names the flag of the CAN id at each place beside the messages.
+_FLAG_PLACES: Final = {
+    "comment": "dbc/comments/target/extended",
+    "attribute": "dbc/attributes/target/extended",
+    "unresolved": "dbc/unresolvedValueDescs/extended",
+}
+
 
 def _valid_signal() -> dict[str, JSONValue]:
     """Return a whole always-present signal, as the kernel writes one, to mutate."""
-    return cast("dict[str, JSONValue]", kernel_signal(SignalName("S")))
+    return {
+        **cast("dict[str, JSONValue]", kernel_signal(SignalName("S"))),
+        "byteOrder": "little_endian",
+        "signed": False,
+        "unit": "",
+        "receivers": [],
+        "valueDescriptions": [],
+    }
 
 
 def _dbc(**fields: JSONValue) -> dict[str, JSONValue]:
@@ -71,6 +87,7 @@ def _dbc_with_message(overrides: dict[str, JSONValue]) -> dict[str, JSONValue]:
                 "name": "M",
                 "dlc": 8,
                 "sender": "",
+                "senders": [],
                 "signals": [_valid_signal()],
                 **overrides,
             }
@@ -92,14 +109,16 @@ class TestMessageMetaValidation:
 
     def test_rejects_non_bool_extended(self) -> None:
         """Reject a present-but-non-boolean extended flag (no string coercion)."""
-        with pytest.raises(ProtocolError):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_dbc(_dbc_with_message({"extended": "true"}))
+        assert str(refusal.value) == "reply dbc/messages/extended: expected boolean, got string"
 
     def test_rejects_a_message_without_extended(self) -> None:
         """The kernel writes ``extended`` at every message, so a reply without it is refused."""
         message: JSONValue = {"id": 0x100, "name": "M", "dlc": 8, "sender": "", "signals": []}
-        with pytest.raises(ProtocolError, match="extended"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_dbc(_dbc(messages=[message]))
+        assert str(refusal.value) == "reply dbc/messages/extended: expected boolean, got nothing"
 
 
 class TestReplyCarriesEveryKey:
@@ -110,28 +129,34 @@ class TestReplyCarriesEveryKey:
         """A signal missing ``field`` is refused, not decoded without it."""
         sig = _valid_signal()
         del sig[field]
-        with pytest.raises(ProtocolError, match=field):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_signal(sig)
+        assert str(refusal.value) == (
+            f"reply dbc/messages/signals/{field}: expected a rational, got nothing"
+        )
 
     def test_refuses_a_reply_without_its_version(self) -> None:
         """A reply with no ``version`` is refused, not given an empty one."""
         dbc = _dbc()
         del dbc["version"]
-        with pytest.raises(ProtocolError, match="version"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_dbc(dbc)
+        assert str(refusal.value) == "reply dbc/version: expected string, got nothing"
 
     def test_refuses_a_version_that_is_not_a_string(self) -> None:
         """A ``version`` of another kind is refused, not passed through ``str``."""
-        with pytest.raises(ProtocolError, match="version"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_dbc(_dbc(version=7))
+        assert str(refusal.value) == "reply dbc/version: expected string, got number"
 
     @pytest.mark.parametrize("key", _DBC_LISTS)
     def test_refuses_a_reply_without_a_list(self, key: ListKey) -> None:
         """A reply missing a list beside its messages is refused, not given an empty one."""
         dbc = _dbc()
         del dbc[key]
-        with pytest.raises(ProtocolError, match=key):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_dbc(dbc)
+        assert str(refusal.value) == f"reply dbc/{key}: expected array, got nothing"
 
 
 def _dbc_with_ids_beside_messages(flagless: IdPlace | None) -> dict[str, JSONValue]:
@@ -177,8 +202,9 @@ class TestExtendedAtEveryId:
     @pytest.mark.parametrize("place", get_args(IdPlace))
     def test_refuses_an_id_without_its_flag(self, place: IdPlace) -> None:
         """An id beside a message without ``extended`` is refused, not read as standard."""
-        with pytest.raises(ProtocolError, match="extended"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_dbc(_dbc_with_ids_beside_messages(place))
+        assert str(refusal.value) == f"reply {_FLAG_PLACES[place]}: expected boolean, got nothing"
 
 
 class TestSignalBitValidation:
@@ -201,15 +227,21 @@ class TestSignalBitValidation:
         """Reject a startBit of another kind."""
         sig = _valid_signal()
         sig["startBit"] = "7"
-        with pytest.raises(ProtocolError, match="startBit' to be int"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_signal(sig)
+        assert str(refusal.value) == (
+            "reply dbc/messages/signals/startBit: expected number, got string"
+        )
 
     def test_rejects_a_length_that_is_not_an_integer(self) -> None:
         """Reject a bit length of another kind."""
         sig = _valid_signal()
         sig["length"] = True
-        with pytest.raises(ProtocolError, match="length' to be int"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_signal(sig)
+        assert (
+            str(refusal.value) == "reply dbc/messages/signals/length: expected number, got boolean"
+        )
 
 
 class TestPresenceValidation:
@@ -234,15 +266,21 @@ class TestPresenceValidation:
         sig["presence"] = presence
         sig["multiplexor"] = 7
         sig["multiplex_values"] = [0]
-        with pytest.raises(ProtocolError, match="'multiplexor' to be str"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_signal(sig)
+        assert str(refusal.value) == (
+            "reply dbc/messages/signals/multiplexor: expected string, got number"
+        )
 
     def test_rejects_missing_presence(self) -> None:
         """Reject a signal with no presence discriminator."""
         sig = _valid_signal()
         del sig["presence"]
-        with pytest.raises(ProtocolError, match="'presence' to be str"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_signal(sig)
+        assert str(refusal.value) == (
+            "reply dbc/messages/signals/presence: expected string, got nothing"
+        )
 
     def test_takes_empty_multiplex_values_as_given(self) -> None:
         """An empty selector list passes as given: the kernel writes at least one value."""
@@ -257,8 +295,11 @@ class TestPresenceValidation:
         sig = _valid_signal()
         sig["presence"] = "multiplexed"
         sig["multiplexor"] = "Mode"
-        with pytest.raises(ProtocolError, match="'multiplex_values' to be a list"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_signal(sig)
+        assert str(refusal.value) == (
+            "reply dbc/messages/signals/multiplex_values: expected array, got nothing"
+        )
 
     def test_takes_an_empty_multiplexor_as_given(self) -> None:
         """An empty multiplexor name passes as given: the kernel writes it non-empty."""
@@ -283,8 +324,11 @@ class TestPresenceValidation:
         sig["presence"] = "multiplexed"
         sig["multiplexor"] = "Mode"
         sig["multiplex_values"] = [1.5]
-        with pytest.raises(ProtocolError, match="multiplex_values' entry to be int"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_signal(sig)
+        assert str(refusal.value) == (
+            "reply dbc/messages/signals/multiplex_values: expected number, got number"
+        )
 
     def test_accepts_well_formed_multiplexed(self) -> None:
         """Accept a well-formed multiplexed signal."""
@@ -409,8 +453,9 @@ class TestTagsReadWithoutTheirSets:
             "scope": 3,
             "attrType": {"kind": "string"},
         }
-        with pytest.raises(ProtocolError, match="'scope' to be str"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_dbc(_dbc(attributes=[definition]))
+        assert str(refusal.value) == "reply dbc/attributes/scope: expected string, got number"
 
 
 class TestEnvironmentVarTypeDecode:
@@ -429,7 +474,7 @@ class TestEnvironmentVarTypeDecode:
 
     def test_rejects_a_var_type_that_is_not_an_integer(self) -> None:
         """Reject a varType of another kind."""
-        with pytest.raises(ProtocolError, match="varType' to be int"):
+        with pytest.raises(ProtocolError) as refusal:
             normalize_dbc(
                 _dbc(
                     environmentVars=[
@@ -437,6 +482,9 @@ class TestEnvironmentVarTypeDecode:
                     ]
                 )
             )
+        assert str(refusal.value) == (
+            "reply dbc/environmentVars/varType: expected number, got boolean"
+        )
 
 
 class TestExtractionTrailingBytes:

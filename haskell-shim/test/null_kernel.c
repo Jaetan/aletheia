@@ -74,17 +74,17 @@ char *aletheia_format_rational(const struct aletheia_rational *) {
 }
 
 int8_t aletheia_parse_decimal(const struct aletheia_text *, struct aletheia_decimal *out) {
-    out->err = nullptr;
+    *out = (struct aletheia_decimal){};
     return 1;
 }
 
 int8_t aletheia_parse_time_bound(const struct aletheia_text *, struct aletheia_time_bound *out) {
-    out->err = nullptr;
+    *out = (struct aletheia_time_bound){};
     return 1;
 }
 
 int8_t aletheia_check_property(const struct aletheia_text *, struct aletheia_property_check *out) {
-    out->err = nullptr;
+    *out = (struct aletheia_property_check){};
     return 1;
 }
 

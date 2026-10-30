@@ -159,11 +159,33 @@ def kernel_signal(name: SignalName) -> JSONValue:
         "name": name,
         "startBit": 0,
         "length": 8,
+        "byteOrder": "little_endian",
+        "signed": False,
         "factor": 1,
         "offset": 0,
         "minimum": 0,
         "maximum": 255,
+        "unit": "",
+        "receivers": [],
+        "valueDescriptions": [],
         "presence": "always",
+    }
+
+
+# A message's CAN id as a reply writes it.
+MessageId = NewType("MessageId", int)
+
+
+def kernel_message(message_id: MessageId, *signals: JSONValue) -> JSONValue:
+    """Return a standard 8-byte message holding ``signals``, as the kernel's reply writes one."""
+    return {
+        "id": message_id,
+        "extended": False,
+        "name": f"M{message_id}",
+        "dlc": 8,
+        "sender": "",
+        "senders": [],
+        "signals": list(signals),
     }
 
 

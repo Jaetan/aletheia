@@ -17,10 +17,10 @@ from __future__ import annotations
 import json
 import sys
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
-from _dbc_helpers import dbc, message, signal
+from _dbc_helpers import KernelReply, dbc, message, signal
 
 from aletheia import (
     AletheiaClient,
@@ -31,6 +31,7 @@ from aletheia import (
     StateError,
     TextRoundTripFailedError,
 )
+from aletheia.common_types import Prose
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES
 
 if TYPE_CHECKING:
@@ -38,11 +39,12 @@ if TYPE_CHECKING:
 
     from aletheia.types import DBCDefinition, JSONValue
 
-_UNEXPECTED_SUCCESS = "Unexpected response status: 'weird' (expected 'success' or 'error')"
-_UNEXPECTED_VALIDATION = "Unexpected response status: 'weird' (expected 'validation' or 'error')"
+_UNEXPECTED_SUCCESS = 'reply status: expected "success" or "error", got "weird"'
+_UNEXPECTED_VALIDATION = 'reply status: expected "validation" or "error", got "weird"'
+_NO_MESSAGE = "reply message: expected string, got nothing"
 
 
-def _resp(obj: dict[str, JSONValue]) -> bytes:
+def _resp(obj: JSONValue) -> bytes:
     """Encode a canned JSON response for the MockBackend queue."""
     return json.dumps(obj).encode("utf-8")
 
@@ -75,7 +77,7 @@ class TestFormatDbcErrorPaths:
         backend = MockBackend([_resp({"status": "error"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc()
-        assert str(excinfo.value) == "Expected 'message' field in formatDBC error response"
+        assert str(excinfo.value) == _NO_MESSAGE
 
     def test_error_status_non_string_code_drops_to_none(self) -> None:
         """Drop a non-string code to None via the isinstance guard."""
@@ -97,14 +99,14 @@ class TestFormatDbcErrorPaths:
         backend = MockBackend([_resp({"status": "success"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc()
-        assert str(excinfo.value) == "Expected 'dbc' field in formatDBC response"
+        assert str(excinfo.value) == "reply dbc: expected object, got nothing"
 
     def test_success_non_dict_dbc_field(self) -> None:
         """Reject a success response whose ``dbc`` field is not a dict."""
         backend = MockBackend([_resp({"status": "success", "dbc": "notadict"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc()
-        assert str(excinfo.value) == "Expected 'dbc' field in formatDBC response"
+        assert str(excinfo.value) == "reply dbc: expected object, got string"
 
 
 class TestFormatDbcTextErrorPaths:
@@ -123,7 +125,7 @@ class TestFormatDbcTextErrorPaths:
         backend = MockBackend([_resp({"status": "error"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "Expected 'message' field in formatDBCText error response"
+        assert str(excinfo.value) == _NO_MESSAGE
 
     def test_error_status_non_string_code_drops_to_none(self) -> None:
         """Drop a non-string code to None via the isinstance guard."""
@@ -145,14 +147,14 @@ class TestFormatDbcTextErrorPaths:
         backend = MockBackend([_resp({"status": "success"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "Expected 'text' field in formatDBCText response"
+        assert str(excinfo.value) == "reply text: expected string, got nothing"
 
     def test_success_non_string_text_field(self) -> None:
         """Reject a success response whose ``text`` field is not a string."""
         backend = MockBackend([_resp({"status": "success", "text": 123})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "Expected 'text' field in formatDBCText response"
+        assert str(excinfo.value) == "reply text: expected string, got number"
 
     def test_success_returns_text_and_issues_structure(self) -> None:
         """The success arm returns the exact ``{status, text, issues}`` dict.
@@ -180,22 +182,28 @@ class TestFormatDbcTextErrorPaths:
         backend = MockBackend([_resp({"status": "success", "text": 'VERSION ""\n'})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "Expected 'issues' field in formatDBCText response"
+        assert str(excinfo.value) == "reply issues: expected array, got nothing"
 
     def test_success_non_list_issues_field_raises(self) -> None:
-        """Reject a success response whose ``issues`` field is present but not a list of objects.
+        """Refuse a success response whose ``issues`` is present but not an array.
 
-        A present-but-ill-typed field is a ProtocolError (not a KeyError/TypeError
-        crash); the malformed-response contract mirrors
-        ``parse_parsed_dbc_response``'s ``warnings`` validation.
+        A present-but-ill-typed field is a ProtocolError, not a KeyError or
+        TypeError crash.
         """
         backend = MockBackend([_resp({"status": "success", "text": 'VERSION ""\n', "issues": {}})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
-        assert (
-            str(excinfo.value)
-            == "formatDBCText success response 'issues' must be a list of objects"
-        )
+        assert str(excinfo.value) == "reply issues: expected array, got object"
+
+    def test_success_issue_not_an_object_is_refused(self) -> None:
+        """Refuse an ``issues`` entry that is not an object, at the array's place."""
+        reply = _resp({"status": "success", "text": 'VERSION ""\n', "issues": [3]})
+        with (
+            AletheiaClient(backend=MockBackend([reply])) as client,
+            pytest.raises(ProtocolError) as excinfo,
+        ):
+            client.format_dbc_text(_sample_dbc())
+        assert str(excinfo.value) == "reply issues: expected object, got number"
 
     def test_roundtrip_failed_envelope_lifts_to_typed_error(self) -> None:
         """A ``handler_text_roundtrip_failed`` envelope lifts to the typed error.
@@ -250,7 +258,7 @@ class TestValidateDbcErrorPaths:
         backend = MockBackend([_resp({"status": "error"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
-        assert str(excinfo.value) == "Expected 'message' field in validateDBC error response"
+        assert str(excinfo.value) == _NO_MESSAGE
 
     def test_error_status_non_string_code_drops_to_none(self) -> None:
         """Drop a non-string code to None via the isinstance guard."""
@@ -266,6 +274,37 @@ class TestValidateDbcErrorPaths:
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
         assert str(excinfo.value) == _UNEXPECTED_VALIDATION
+
+    @pytest.mark.parametrize(
+        ("reply", "said"),
+        [
+            (
+                {"status": "validation", "issues": []},
+                Prose("reply has_errors: expected boolean, got nothing"),
+            ),
+            (
+                {"status": "validation", "has_errors": 1, "issues": []},
+                Prose("reply has_errors: expected boolean, got number"),
+            ),
+            (
+                {"status": "validation", "has_errors": False},
+                Prose("reply issues: expected array, got nothing"),
+            ),
+            (
+                {"status": "validation", "has_errors": False, "issues": 0},
+                Prose("reply issues: expected array, got number"),
+            ),
+        ],
+        ids=["no-has-errors", "number-has-errors", "no-issues", "number-issues"],
+    )
+    def test_validation_reply_place_is_refused(self, reply: JSONValue, said: Prose) -> None:
+        """Refuse a validation reply whose ``has_errors`` or ``issues`` is absent or ill-typed."""
+        with (
+            AletheiaClient(backend=MockBackend([_resp(reply)])) as client,
+            pytest.raises(ProtocolError) as excinfo,
+        ):
+            client.validate_dbc(_sample_dbc())
+        assert str(excinfo.value) == said
 
     def test_error_with_issues_raises_typed_validation_failure(self) -> None:
         """Lift a handler_validation_failed envelope into the typed error.
@@ -395,14 +434,25 @@ class TestMalformedResponse:
     """A response the reader cannot decode raises ProtocolError, never the decoder's error."""
 
     def test_nesting_past_the_stack_raises_protocol_error(self) -> None:
-        """Refuse arrays nested past what the decoder's recursion can hold, closed or not."""
+        """Refuse arrays nested past what the decoder's recursion can hold, closed or not.
+
+        The refusal carries the decoder's own message where it fails, and names
+        the array where this host's stack holds the nesting.
+        """
         unclosed = b"[" * _DEPTH_PAST_THE_STACK
         for response in (unclosed, unclosed + b"]" * _DEPTH_PAST_THE_STACK):
+            try:
+                _ = json.loads(response)
+            except (ValueError, RecursionError) as exc:
+                said = Prose(f"reply: expected JSON text, got {exc}")
+            else:
+                said = Prose("reply: expected object, got array")
             with (
                 AletheiaClient(backend=MockBackend([response])) as client,
-                pytest.raises(ProtocolError),
+                pytest.raises(ProtocolError) as excinfo,
             ):
                 client.format_dbc()
+            assert str(excinfo.value) == said
 
     def test_decoder_overflow_raises_protocol_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Refuse a reply whose decoding overflows the stack, whatever stack the host gives.
@@ -422,7 +472,7 @@ class TestMalformedResponse:
         ):
             client.format_dbc()
         assert str(excinfo.value) == (
-            "FFI returned invalid JSON: Stack overflow while decoding a JSON array"
+            "reply: expected JSON text, got Stack overflow while decoding a JSON array"
         )
 
     def test_integer_past_the_digit_limit_raises_protocol_error(self) -> None:
@@ -431,6 +481,8 @@ class TestMalformedResponse:
         previous = sys.get_int_max_str_digits()
         sys.set_int_max_str_digits(4300)
         try:
+            with pytest.raises(ValueError, match=r"^Exceeds the limit") as decoded:
+                _ = json.loads(response)
             with (
                 AletheiaClient(backend=MockBackend([response])) as client,
                 pytest.raises(ProtocolError) as excinfo,
@@ -438,14 +490,37 @@ class TestMalformedResponse:
                 client.format_dbc()
         finally:
             sys.set_int_max_str_digits(previous)
-        assert str(excinfo.value).startswith("FFI returned invalid JSON: Exceeds the limit")
+        assert str(excinfo.value) == f"reply: expected JSON text, got {decoded.value}"
 
     def test_bytes_not_utf8_raise_protocol_error(self) -> None:
         """Refuse a response that is not UTF-8."""
         response = b'{"status":"success","dbc":"\xff"}'
+        with pytest.raises(UnicodeDecodeError) as decoded:
+            _ = response.decode("utf-8")
         with (
             AletheiaClient(backend=MockBackend([response])) as client,
             pytest.raises(ProtocolError) as excinfo,
         ):
             client.format_dbc()
-        assert str(excinfo.value).startswith("FFI returned invalid JSON: 'utf-8' codec")
+        assert str(excinfo.value) == f"reply: expected JSON text, got {decoded.value}"
+
+    @pytest.mark.parametrize(
+        ("response", "kind"),
+        [
+            (KernelReply(b"[]"), "array"),
+            (KernelReply(b'"x"'), "string"),
+            (KernelReply(b"7"), "number"),
+            (KernelReply(b"true"), "boolean"),
+            (KernelReply(b"null"), "null"),
+        ],
+    )
+    def test_json_that_is_not_an_object_is_refused(
+        self, response: KernelReply, kind: Literal["array", "string", "number", "boolean", "null"]
+    ) -> None:
+        """Refuse a reply whose JSON is not an object, naming the kind it is."""
+        with (
+            AletheiaClient(backend=MockBackend([response])) as client,
+            pytest.raises(ProtocolError) as excinfo,
+        ):
+            client.format_dbc()
+        assert str(excinfo.value) == f"reply: expected object, got {kind}"
