@@ -20,20 +20,20 @@
 // same files. When all three match, the bindings have observed identical
 // DbcDefinition structure for every fixture.
 //
-// Canonical form: sorted JSON keys, 2-space indent, trailing newline and the
-// "emit int when denominator=1" rule, all of which the binding's own
-// serializer already produces. nlohmann::json is std::map-backed, so dump(2)
-// sorts the keys, and json_serialize.cpp omits "extended" on standard frames
-// the way the Agda wire form does, so the snapshot is the dump with nothing
-// done to it afterwards.
+// Canonical form: sorted JSON keys, 2-space indent, trailing newline, the
+// "emit int when denominator=1" rule and every identifier's extended flag
+// written, all of which the binding's own serializer already produces. The
+// binding's JSON value is std::map-backed, so dump_json(2) sorts the keys and
+// writes every whole number exactly to 128 bits, and json_serialize.cpp writes
+// "extended" beside every identifier the way the Agda wire form does, so the
+// snapshot is the dump with nothing done to it afterwards.
 
 #include "detail/json.hpp"
+#include "detail/wide_json.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <aletheia/aletheia.hpp>
-
-#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -65,13 +65,14 @@ static auto corpus_dir() -> fs::path {
 static auto canonical_dbc_json(DbcDefinition const& dbc) -> std::string {
     // Round-trip via the existing detail::serialize_parsed_dbc_response so
     // we don't duplicate the dbc_to_json walker; extract the "dbc" field
-    // back out and dump(2). nlohmann::json is std::map-backed so dump
-    // produces sorted keys naturally; json_serialize.cpp already mirrors
-    // the Agda wire form for "extended" (omitted on standard frames) and
-    // "presence" (explicit "always"), so no post-processing is needed.
+    // back out and dump it at indent 2. The binding's JSON value is
+    // std::map-backed, so the dump produces sorted keys naturally;
+    // json_serialize.cpp already mirrors the Agda wire form for "extended"
+    // (written on every identifier) and "presence" (explicit "always"), so no
+    // post-processing is needed.
     auto const envelope = detail::serialize_parsed_dbc_response(dbc);
-    auto const parsed = nlohmann::json::parse(envelope);
-    return parsed.at("dbc").dump(2) + "\n";
+    auto const parsed = detail::parse_json(envelope);
+    return detail::dump_json(parsed.at("dbc"), 2) + "\n";
 }
 
 TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",

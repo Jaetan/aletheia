@@ -299,21 +299,41 @@ auto check_xlsx_uncompressed_bound(std::filesystem::path const& path) -> Result<
     return {};
 }
 
+// The kernel's refusal of a number a loader read, located at `location` and
+// `key`; a runtime, library or wire fault as it is.
+static auto read_refusal(AletheiaError const& error, std::string const& location,
+                         std::string const& key) -> AletheiaException {
+    if (error.kind() != ErrorKind::Validation && error.kind() != ErrorKind::InputBoundExceeded)
+        return AletheiaException(error);
+    return AletheiaException(error.located(location, key));
+}
+
 auto read_decimal(std::string_view text, std::string const& location, std::string const& key)
     -> Rational {
     auto const value = Rational::from_decimal(text);
-    if (value)
-        return value.value();
-    auto const& error = error_of(value);
-    if (error.kind() != ErrorKind::Validation && error.kind() != ErrorKind::InputBoundExceeded)
-        throw AletheiaException(error);
-    throw AletheiaException(error.located(location, key));
+    if (!value)
+        throw read_refusal(error_of(value), location, key);
+    return value.value();
+}
+
+auto read_time_bound(std::string_view text, std::string const& location, std::string const& key)
+    -> TimeBound {
+    auto const bound = TimeBound::parse(text);
+    if (!bound)
+        throw read_refusal(error_of(bound), location, key);
+    return bound.value();
 }
 
 auto built_check(Result<CheckResult> built) -> CheckResult {
     if (!built)
         throw AletheiaException(error_of(built));
     return std::move(built).value();
+}
+
+auto located_refusal(AletheiaError const& error, std::string location) -> AletheiaError {
+    if (error.code() == ErrorCode::Unknown || error.location())
+        return error;
+    return error.located(std::move(location));
 }
 
 auto validate_output_parent_dir(std::filesystem::path const& path) -> Result<void> {

@@ -71,6 +71,7 @@ Aletheia provides:
    speed_limit = checks.signal("Speed").never_exceeds(220)  # Python
    ```
    ```cpp
+   [[maybe_unused]] auto _start = start_runtime_from_env(1);  // the kernel checks every check
    auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));  // C++
    ```
    ```go
@@ -210,8 +211,10 @@ C++:
 auto speed = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));
 [[maybe_unused]] auto _yaml  = load_checks_from_yaml("checks.yaml");
 [[maybe_unused]] auto _excel = load_checks_from_excel("tests.xlsx");
-// LTL formulas via ltl:: namespace (compositional, not fluent DSL):
-auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue::of(220, 1))));
+// LTL formulas via ltl:: namespace (compositional, not fluent DSL); a predicate
+// builder, like a check, returns a Result:
+auto f = ltl::less_than(SignalName{"Speed"}, PhysicalValue::of(220, 1))
+             .transform([](Predicate p) { return ltl::always(ltl::atomic(std::move(p))); });
 ```
 
 Go:

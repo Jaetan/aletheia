@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// A library that answers the decimal entry with failure and no error envelope
-// is a wire fault, a Protocol error as in every binding, and one that renders
-// a null string an Ffi error. The null kernel the build makes beside the
-// library answers both so, and answers its allocation count with zero, which
-// the binding hands on as it came. A process of its own,
+// A library that answers the decimal entry or the property check with failure
+// and no error envelope is a wire fault, a Protocol error as in every binding,
+// and one that renders a null string an Ffi error. The null kernel the build
+// makes beside the library answers each so, and answers its allocation count
+// with zero, which the binding hands on as it came. A process of its own,
 // because the runtime starts once per process, and the parser and the count
 // read the library it started on; for the same reason the backend that
 // started it is the first to register its path for the search.
@@ -40,19 +40,24 @@ TEST_CASE("a decimal failure without an envelope is a protocol error", "[rationa
     CHECK(parsed.error().text() == "aletheia_parse_decimal failed without an error");
 }
 
-TEST_CASE("a render the kernel answers with a null string is an Ffi error", "[rational_renderer]") {
-    // The stand-in renders every rational as a null string, so the renderer and
-    // a check's description answer the null return, never a fabricated text.
+TEST_CASE("a render the kernel answers with a null string is an Ffi error, and a check it refuses "
+          "without an envelope a Protocol one",
+          "[rational_renderer][check]") {
+    // The stand-in renders every rational as a null string and refuses every
+    // property check with no envelope, so the renderer answers the null return
+    // and a check's build the refusal naming the entry, never a fabricated text.
     auto const backend =
         required(aletheia::make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_NULL_KERNEL}));
+    auto const rendered = aletheia::detail::format_rational_ffi(aletheia::Rational{1, 2});
+    REQUIRE_FALSE(rendered.has_value());
+    CHECK(rendered.error().kind() == aletheia::ErrorKind::Ffi);
+    CHECK(rendered.error().text() == "aletheia_format_rational returned a null pointer");
     auto const check =
         aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue::of(1, 2));
-    for (auto const& rendered :
-         {aletheia::detail::format_rational_ffi(1, 2), check.condition_desc()}) {
-        REQUIRE_FALSE(rendered.has_value());
-        CHECK(rendered.error().kind() == aletheia::ErrorKind::Ffi);
-        CHECK(rendered.error().text() == "aletheia_format_rational returned a null pointer");
-    }
+    REQUIRE_FALSE(check.has_value());
+    CHECK(check.error().kind() == aletheia::ErrorKind::Protocol);
+    CHECK(check.error().code() == aletheia::ErrorCode::Unknown);
+    CHECK(check.error().text() == "aletheia_check_property refused without an error");
 }
 
 TEST_CASE("each text endpoint's null answer is a protocol error, and no state refuses a client",

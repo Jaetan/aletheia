@@ -4,10 +4,11 @@
 // `aletheia::start_runtime` starts the kernel's runtime before any client: a
 // program starts it, loads checks holding decimals and hands them to a client,
 // and a backend made with no count asks for the count running. A call that
-// reads a number before the start is refused and keeps nothing: after the
-// start the renderer and the parser read the library the runtime started on,
-// with no library in the working directory or the environment to find. A
-// backend refused for an empty path or a zero count maps no kernel.
+// reads a number or builds a check before the start is refused and keeps
+// nothing: after the start the renderer, the parser and the check builder
+// read the library the runtime started on, with no library in the working
+// directory or the environment to find. A backend refused for an empty path
+// or a zero count maps no kernel.
 //
 // A child of fresh_process_tests, a process of its own because the claims are
 // about one whose runtime nothing has started; the cases run in the order the
@@ -90,16 +91,18 @@ TEST_CASE("a number read before any start is refused, and the start afterwards s
     CHECK(aletheia::detail::error_of(aletheia::Rational::from_decimal("1.5")).text() ==
           "GHC runtime not initialized: call aletheia::start_runtime or open a "
           "client before parsing decimals");
-    CHECK(aletheia::detail::error_of(aletheia::detail::format_rational_ffi(1, 2)).text() ==
+    CHECK(
+        aletheia::detail::error_of(aletheia::detail::format_rational_ffi(aletheia::Rational{1, 2}))
+            .text() == "GHC runtime not initialized: call aletheia::start_runtime or open a "
+                       "client before rendering");
+    // The kernel checks a check as it is built, so a build before the start is
+    // refused, and the same build after it answers the check.
+    auto const build = [] {
+        return aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue::of(1, 2));
+    };
+    CHECK(aletheia::detail::error_of(build()).text() ==
           "GHC runtime not initialized: call aletheia::start_runtime or open a "
-          "client before rendering");
-    // A check built before the start renders its threshold on every read, so the
-    // refusal read now is not what a read after the start answers.
-    auto const check =
-        aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue::of(1, 2));
-    CHECK(aletheia::detail::error_of(check.condition_desc()).text() ==
-          "GHC runtime not initialized: call aletheia::start_runtime or open a "
-          "client before rendering");
+          "client before building a check");
 
     // Zero is outside the bound on every machine; the bound's own figure is the
     // machine's, which the stand-in suite holds whole on its four CPUs.
@@ -121,8 +124,8 @@ TEST_CASE("a number read before any start is refused, and the start afterwards s
     CHECK(kernel_is_mapped());
     CHECK(aletheia::allocated_bytes().has_value());
     CHECK(aletheia::Rational::from_decimal("1.5") == aletheia::Rational{3, 2});
-    CHECK(aletheia::detail::format_rational_ffi(1, 2) == "0.5");
-    CHECK(check.condition_desc() == "<= 0.5");
+    CHECK(aletheia::detail::format_rational_ffi(aletheia::Rational{1, 2}) == "0.5");
+    CHECK(required(build()).condition_desc() == "<= 0.5");
     // With nothing else to find, the search answers the path the start opened.
     CHECK(required(aletheia::find_ffi_library()) == lib);
 }

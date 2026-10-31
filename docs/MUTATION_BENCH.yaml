@@ -692,12 +692,6 @@ bindings:
           refused: attempt to dereference a past-the-end iterator.
           count: 1
         - mutator: cxx_replace_scalar_call
-          file: cpp/src/json_serialize.cpp
-          text: if (r.numerator() == std::numeric_limits<std::int64_t>::min()) {
-          route: check
-          refused: __val != __gnu_cxx::__int_traits<_Res>::__min
-          count: 2
-        - mutator: cxx_replace_scalar_call
           file: cpp/src/runtime_start.cpp
           text: auto argc = static_cast<int>(rts_argv_ptrs.size());
           route: fault

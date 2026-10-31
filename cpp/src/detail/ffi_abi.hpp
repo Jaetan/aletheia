@@ -17,7 +17,7 @@ namespace aletheia::detail {
 // ALETHEIA_ABI_VERSION: the version of the structures and signatures this
 // binding lays out. The backend and the renderer refuse a library reporting any
 // other.
-inline constexpr std::uint32_t abi_version = 3;
+inline constexpr std::uint32_t abi_version = 4;
 
 // The entry `dlsym` resolved, as the function type the kernel exports it at.
 // dlsym answers void*, and POSIX guarantees a function pointer survives the
@@ -55,11 +55,24 @@ struct FfiFrame {
     std::uint8_t esi_value;
 };
 
-// struct aletheia_signal_values: count parallel signal indices and rationals.
+// struct aletheia_uint128: an unsigned 128-bit magnitude, low word first.
+struct FfiUint128 {
+    std::uint64_t lo;
+    std::uint64_t hi;
+};
+
+// struct aletheia_rational: an exact rational, a sign and two magnitudes; the
+// sign is 0 when the numerator is 0.
+struct FfiRational {
+    FfiUint128 numerator;
+    FfiUint128 denominator;
+    std::uint8_t negative;
+};
+
+// struct aletheia_signal_values: count signal indices and their values.
 struct FfiSignalValues {
     std::uint32_t const* indices;
-    std::int64_t const* numerators;
-    std::int64_t const* denominators;
+    FfiRational const* values;
     std::uint32_t count;
 };
 
@@ -70,16 +83,22 @@ struct FfiBuffer {
     std::uint32_t size;
 };
 
-// struct aletheia_rational: an exact rational.
-struct FfiRational {
-    std::int64_t numerator;
-    std::int64_t denominator;
-};
-
 // struct aletheia_decimal: a parsed decimal, or the error envelope the parser
 // set.
 struct FfiDecimal {
     FfiRational value;
+    char* err;
+};
+
+// struct aletheia_time_bound: a time bound's whole microseconds, or the error
+// envelope the kernel set.
+struct FfiTimeBound {
+    std::uint64_t microseconds;
+    char* err;
+};
+
+// struct aletheia_property_check: the kernel's refusal of a property, or null.
+struct FfiPropertyCheck {
     char* err;
 };
 

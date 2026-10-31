@@ -3,7 +3,7 @@
 #pragma once
 
 // ltl.hpp's predicate and formula structs embed SignalName/PhysicalValue/
-// Delta/Tolerance/Timestamp from types.hpp, so callers that include ltl.hpp
+// Delta/Tolerance/TimeBound from types.hpp, so callers that include ltl.hpp
 // always need those vocabulary types.
 #include <aletheia/types.hpp> // IWYU pragma: export
 
@@ -109,19 +109,19 @@ struct Release {
     std::unique_ptr<LtlFormula> left, right;
 };
 struct MetricAlways {
-    Timestamp bound;
+    TimeBound bound;
     std::unique_ptr<LtlFormula> formula;
 };
 struct MetricEventually {
-    Timestamp bound;
+    TimeBound bound;
     std::unique_ptr<LtlFormula> formula;
 };
 struct MetricUntil {
-    Timestamp bound;
+    TimeBound bound;
     std::unique_ptr<LtlFormula> left, right;
 };
 struct MetricRelease {
-    Timestamp bound;
+    TimeBound bound;
     std::unique_ptr<LtlFormula> left, right;
 };
 
@@ -159,6 +159,14 @@ struct LtlFormula {
 // ---------------------------------------------------------------------------
 // Builder functions (convenience, mirrors Python Check DSL)
 // ---------------------------------------------------------------------------
+
+namespace detail {
+// The kernel's build-time check of one formula or one predicate (wrapped in an
+// atom): what was checked, or the kernel's refusal. Defined in
+// property_check.cpp.
+[[nodiscard]] auto checked_formula(LtlFormula f) -> Result<LtlFormula>;
+[[nodiscard]] auto checked_predicate(Predicate p) -> Result<Predicate>;
+} // namespace detail
 
 namespace ltl {
 
@@ -219,47 +227,58 @@ namespace ltl {
                    .right = std::make_unique<LtlFormula>(std::move(right))};
 }
 
-[[nodiscard]] inline auto within(Timestamp t, LtlFormula f) -> LtlFormula {
-    return MetricEventually{.bound = t, .formula = std::make_unique<LtlFormula>(std::move(f))};
+// The time-bound builders and the predicate builders hand what they build to
+// the kernel's build-time check (`aletheia_check_property`): the formula, or
+// the kernel's refusal (a time bound past 2^64-1 µs, an inverted range, a
+// negative tolerance, a name that is no identifier), typed as
+// `Rational::from_decimal`'s; an error of kind Ffi while the GHC runtime is
+// down. Whether the DBC carries a signal is left to set_properties.
+
+[[nodiscard]] inline auto within(TimeBound t, LtlFormula f) -> Result<LtlFormula> {
+    return detail::checked_formula(
+        MetricEventually{.bound = t, .formula = std::make_unique<LtlFormula>(std::move(f))});
 }
 
-[[nodiscard]] inline auto always_within(Timestamp t, LtlFormula f) -> LtlFormula {
-    return MetricAlways{.bound = t, .formula = std::make_unique<LtlFormula>(std::move(f))};
+[[nodiscard]] inline auto always_within(TimeBound t, LtlFormula f) -> Result<LtlFormula> {
+    return detail::checked_formula(
+        MetricAlways{.bound = t, .formula = std::make_unique<LtlFormula>(std::move(f))});
 }
 
 // --- Predicate builders ---
 
-[[nodiscard]] inline auto equals(SignalName name, PhysicalValue value) -> Predicate {
-    return Equals{.signal = std::move(name), .value = value};
+[[nodiscard]] inline auto equals(SignalName name, PhysicalValue value) -> Result<Predicate> {
+    return detail::checked_predicate(Equals{.signal = std::move(name), .value = value});
 }
 
-[[nodiscard]] inline auto less_than(SignalName name, PhysicalValue value) -> Predicate {
-    return LessThan{.signal = std::move(name), .value = value};
+[[nodiscard]] inline auto less_than(SignalName name, PhysicalValue value) -> Result<Predicate> {
+    return detail::checked_predicate(LessThan{.signal = std::move(name), .value = value});
 }
 
-[[nodiscard]] inline auto greater_than(SignalName name, PhysicalValue value) -> Predicate {
-    return GreaterThan{.signal = std::move(name), .value = value};
+[[nodiscard]] inline auto greater_than(SignalName name, PhysicalValue value) -> Result<Predicate> {
+    return detail::checked_predicate(GreaterThan{.signal = std::move(name), .value = value});
 }
 
-[[nodiscard]] inline auto less_than_or_equal(SignalName name, PhysicalValue value) -> Predicate {
-    return LessThanOrEqual{.signal = std::move(name), .value = value};
+[[nodiscard]] inline auto less_than_or_equal(SignalName name, PhysicalValue value)
+    -> Result<Predicate> {
+    return detail::checked_predicate(LessThanOrEqual{.signal = std::move(name), .value = value});
 }
 
-[[nodiscard]] inline auto greater_than_or_equal(SignalName name, PhysicalValue value) -> Predicate {
-    return GreaterThanOrEqual{.signal = std::move(name), .value = value};
+[[nodiscard]] inline auto greater_than_or_equal(SignalName name, PhysicalValue value)
+    -> Result<Predicate> {
+    return detail::checked_predicate(GreaterThanOrEqual{.signal = std::move(name), .value = value});
 }
 
 [[nodiscard]] inline auto between(SignalName name, PhysicalValue min, PhysicalValue max)
-    -> Predicate {
-    return Between{.signal = std::move(name), .min = min, .max = max};
+    -> Result<Predicate> {
+    return detail::checked_predicate(Between{.signal = std::move(name), .min = min, .max = max});
 }
 
-[[nodiscard]] inline auto changed_by(SignalName name, Delta delta) -> Predicate {
-    return ChangedBy{.signal = std::move(name), .delta = delta};
+[[nodiscard]] inline auto changed_by(SignalName name, Delta delta) -> Result<Predicate> {
+    return detail::checked_predicate(ChangedBy{.signal = std::move(name), .delta = delta});
 }
 
-[[nodiscard]] inline auto stable_within(SignalName name, Tolerance tol) -> Predicate {
-    return StableWithin{.signal = std::move(name), .tolerance = tol};
+[[nodiscard]] inline auto stable_within(SignalName name, Tolerance tol) -> Result<Predicate> {
+    return detail::checked_predicate(StableWithin{.signal = std::move(name), .tolerance = tol});
 }
 
 // Deep-copy a formula tree (LtlFormula contains unique_ptr children). Every

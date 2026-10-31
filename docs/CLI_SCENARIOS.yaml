@@ -687,6 +687,102 @@ scenarios:
       stderr_contains:
         - "writing the report: No space left on device"
 
+  # --value is text the kernel's decimal parser reads: a text it refuses is
+  # named with its message, then a value that is not a whole number is
+  # refused, then a negative one, named as the kernel's canonical number. What
+  # remains is the selector, a whole number up to 2^128-1.
+  - id: mux-query-value-zero-fraction
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "--mux", "Mode", "--value", "1.0"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "Multiplexor Mode = 1: 3 signals present"
+        - "PayloadB"
+
+  - id: mux-query-value-fraction
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "--mux", "Mode", "--value", "1.5"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error: invalid --value: 1.5\n"
+
+  - id: mux-query-value-negative
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "--mux", "Mode", "--value", "-1"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error: --value must not be negative, got -1\n"
+
+  - id: mux-query-value-not-a-number
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "--mux", "Mode", "--value", "abc"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error: invalid --value: abc: parse failed at line 1, column 1\n"
+
+  # 2^128-1 selects no multiplexed signal, so the always-present ones remain.
+  - id: mux-query-value-max
+    subcommand: mux-query
+    args:
+      - "100"
+      - "--dbc"
+      - "{dbc}"
+      - "--mux"
+      - "Mode"
+      - "--value"
+      - "340282366920938463463374607431768211455"
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "Multiplexor Mode = 340282366920938463463374607431768211455: 2 signals present"
+        - "CommonCounter"
+
+  - id: mux-query-value-past-max
+    subcommand: mux-query
+    args:
+      - "100"
+      - "--dbc"
+      - "{dbc}"
+      - "--mux"
+      - "Mode"
+      - "--value"
+      - "340282366920938463463374607431768211456"
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error: invalid --value: 340282366920938463463374607431768211456: decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455\n"
+
+  # --value is read before it is paired with --mux, so a refused text is named
+  # even without --mux.
+  - id: mux-query-value-read-before-pairing
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "--value", "abc"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error: invalid --value: abc: parse failed at line 1, column 1\n"
+
+  # An empty --value is a text given, read like any other, not the flag absent.
+  - id: mux-query-value-empty
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}", "--mux", "Mode", "--value", ""]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error: invalid --value: : parse failed at line 1, column 1\n"
+
   # -- template --------------------------------------------------------------
 
   # The blank workbook every CLI writes is one template: the sheets and header

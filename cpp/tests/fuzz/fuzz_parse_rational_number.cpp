@@ -5,10 +5,10 @@
 // Counterpart of go FuzzParseRationalNumber. Python fuzzes the wire shapes
 // that carry rationals (fuzz_parse_response) rather than the number alone.
 //
-// The Rational parser surface is internal to the json_parse compilation unit
-// (parse_rational_number is a static helper), so this harness exercises it
-// transitively via parse_validation / parse_dbc_response — wire shapes that
-// embed rational numbers in their nested members.
+// The rational reader is internal to the reply readers (read_rational in
+// reply_shape.cpp), so this harness exercises it transitively via
+// parse_extraction: an extracted value is the one reply place outside a DBC
+// that holds a rational.
 //
 // Build/run: see fuzz_parse_response.cpp comment header.
 
@@ -20,18 +20,13 @@
 #include <string_view>
 
 extern "C" auto LLVMFuzzerTestOneInput(uint8_t const* data, size_t size) -> int {
-    // Wrap the fuzzer's input as the two numeric members of a property result,
-    // "property_index" and "timestamp", so the rational-number parser runs on
-    // a nested value. A property result reaches that parser only inside a
-    // batch envelope, which is what the frame-response parser dispatches on;
-    // everything around the two numbers is constant.
+    // Wrap the fuzzer's input as the value of one extracted signal in an
+    // otherwise complete reply, so the rational reader runs on a nested value;
+    // everything around the number is constant.
     auto const numeric = std::string_view{reinterpret_cast<char const*>(data), size};
-    std::string envelope = R"({"type":"property_batch","results":[{"status":"fails")"
-                           R"(,"property_index":)";
+    std::string envelope = R"({"status":"success","values":[{"name":"S","value":)";
     envelope.append(numeric);
-    envelope.append(R"(,"timestamp":)");
-    envelope.append(numeric);
-    envelope.append("}]}");
-    [[maybe_unused]] auto const r = aletheia::detail::parse_frame_response(envelope);
+    envelope.append(R"(}],"errors":[],"absent":[]})");
+    [[maybe_unused]] auto const r = aletheia::detail::parse_extraction(envelope);
     return 0;
 }

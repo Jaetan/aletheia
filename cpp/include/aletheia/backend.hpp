@@ -62,33 +62,27 @@ private:
 // Signal injection parameter block
 // ---------------------------------------------------------------------------
 
-// The signal values to inject into a frame, as the three arrays the FFI reads
-// in parallel. The type carries what a comment used to state: create refuses a
-// block whose three arrays differ in length, and one longer than the FFI's own
-// 32-bit count can carry, so no caller can hand the boundary a length it would
-// read past.
+// The signal values to inject into a frame: each index paired with the value at
+// the same position, the two arrays the FFI reads. The type carries what a
+// comment would state: create refuses arrays that differ in length, and a
+// length the FFI's own 32-bit count cannot carry, so no caller can hand the
+// boundary a length it would read past.
 class SignalInjection {
 public:
     [[nodiscard]] static auto create(std::span<std::uint32_t const> indices,
-                                     std::span<std::int64_t const> numerators,
-                                     std::span<std::int64_t const> denominators)
-        -> Result<SignalInjection>;
+                                     std::span<Rational const> values) -> Result<SignalInjection>;
 
     [[nodiscard]] auto count() const -> std::uint32_t {
         return static_cast<std::uint32_t>(indices_.size());
     }
     [[nodiscard]] auto indices() const -> std::span<std::uint32_t const> { return indices_; }
-    [[nodiscard]] auto numerators() const -> std::span<std::int64_t const> { return numerators_; }
-    [[nodiscard]] auto denominators() const -> std::span<std::int64_t const> {
-        return denominators_;
-    }
+    [[nodiscard]] auto values() const -> std::span<Rational const> { return values_; }
 
 private:
     SignalInjection() = default;
 
     std::span<std::uint32_t const> indices_;
-    std::span<std::int64_t const> numerators_;
-    std::span<std::int64_t const> denominators_;
+    std::span<Rational const> values_;
 };
 
 // ---------------------------------------------------------------------------

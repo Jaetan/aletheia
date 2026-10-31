@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Internal JSON serialization/parsing — not part of the public API.
+// Internal JSON serialization and parsing, not part of the public API.
 // Tests may include this header to verify JSON round-trips directly.
 #pragma once
 
@@ -37,17 +37,25 @@ namespace aletheia::detail {
 [[nodiscard]] auto serialize_format_dbc_text(DbcDefinition const& dbc) -> Result<std::string>;
 [[nodiscard]] auto serialize_set_properties(std::span<LtlFormula const> props)
     -> Result<std::string>;
+// One property as `serialize_set_properties` writes each of its elements: the
+// text `aletheia_check_property` reads.
+[[nodiscard]] auto serialize_property(LtlFormula const& formula) -> Result<std::string>;
 
 // ---------------------------------------------------------------------------
 // Parsing (JSON response strings → C++ types)
+//
+// Each parser answers the reply's status `"error"` with the error it carries
+// and refuses every other status but the one it awaits, and every place
+// holding what the kernel never writes there, as a Protocol error in the one
+// form of detail/reply_shape.hpp.
 // ---------------------------------------------------------------------------
 
-// Strict: accepts only `"success"` (for parse_dbc, set_properties, start_stream).
+// Awaits `"success"` (for parse_dbc, set_properties, start_stream).
 [[nodiscard]] auto parse_success(std::string_view input) -> Result<void>;
-// Event ack: accepts only `"ack"` for send_error / send_remote. Trace events
-// always resolve to `Response.Ack` in Agda (see
-// `Aletheia/Protocol/StreamState.agda` handleTraceEvent), so the wire status
-// is always "ack". Python and Go enforce the same.
+// Awaits `"ack"`, for send_error / send_remote. Trace events always resolve
+// to `Response.Ack` in Agda (see `Aletheia/Protocol/StreamState.agda`
+// handleTraceEvent), so the wire status is always "ack". Python and Go
+// enforce the same.
 [[nodiscard]] auto parse_event_ack(std::string_view input) -> Result<void>;
 [[nodiscard]] auto parse_validation(std::string_view input) -> Result<ValidationResult>;
 [[nodiscard]] auto parse_extraction(std::string_view input) -> Result<ExtractionResult>;
@@ -66,13 +74,15 @@ namespace aletheia::detail {
 // The error a binary-output entry's refusal envelope carries: the
 // `{"status":"error","code":...,"message":...}` text `aletheia_build_frame_bin`,
 // `aletheia_update_frame_bin`, `aletheia_extract_signals_bin` and
-// `aletheia_parse_decimal` set as the buffer's error, decoded as a JSON error
+// `aletheia_parse_decimal`, `aletheia_parse_time_bound` and
+// `aletheia_check_property` set as the buffer's error, decoded as a JSON error
 // response is, so the code, the message and the kind surface the same way on
 // both paths: `coded` for a well-formed refusal (Protocol for the frame
-// entries; Validation for the decimal entry, whose text is the caller's own),
+// entries; Validation for the others, whose text is the caller's own),
 // unless the code names its own kind: a bound refusal is InputBoundExceeded
-// with its `bound_info`.  An envelope that does not parse, or whose status is
-// not "error", is a Protocol error quoting it.
+// with its `bound_info`.  Text that is not an envelope, an envelope whose
+// status is not "error", or one holding what the kernel never writes at a
+// place is a Protocol error in the form of every reply place.
 [[nodiscard]] auto binary_refusal(std::string_view envelope, ErrorKind coded = ErrorKind::Protocol)
     -> AletheiaError;
 

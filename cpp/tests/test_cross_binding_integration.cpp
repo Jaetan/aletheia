@@ -34,6 +34,7 @@
 
 #include "find_lib.hpp"
 #include "required.hpp"
+#include "u128_testing.hpp"
 
 using aletheia::test::required;
 
@@ -112,8 +113,8 @@ TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
     auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"TestSignal"}, PhysicalValue{Rational{1000, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"TestSignal"}, PhysicalValue{Rational{1000, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -135,8 +136,8 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
     auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"TestSignal"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"TestSignal"}, PhysicalValue{Rational{100, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -175,10 +176,10 @@ TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_b
     auto client = required(AletheiaClient::create(std::move(backend)));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
-    auto eventually_prop = ltl::eventually(
-        ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{100, 1}})));
-    auto always_prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"TestSignal"}, PhysicalValue{Rational{50, 1}})));
+    auto eventually_prop = ltl::eventually(ltl::atomic(
+        required(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{100, 1}}))));
+    auto always_prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"TestSignal"}, PhysicalValue{Rational{50, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(eventually_prop));
     props.push_back(std::move(always_prop));
@@ -317,7 +318,8 @@ TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_bindin
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     // 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
-    auto inner = ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
+    auto inner =
+        ltl::atomic(required(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}})));
     std::ranges::for_each(std::views::repeat(0, 63),
                           [&inner](auto) { inner = ltl::always(std::move(inner)); });
     std::vector<LtlFormula> props;

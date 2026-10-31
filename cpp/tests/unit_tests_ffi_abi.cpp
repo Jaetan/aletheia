@@ -17,9 +17,12 @@ using aletheia::detail::abi_version;
 using aletheia::detail::FfiBuffer;
 using aletheia::detail::FfiDecimal;
 using aletheia::detail::FfiFrame;
+using aletheia::detail::FfiPropertyCheck;
 using aletheia::detail::FfiRational;
 using aletheia::detail::FfiSignalValues;
 using aletheia::detail::FfiText;
+using aletheia::detail::FfiTimeBound;
+using aletheia::detail::FfiUint128;
 
 static_assert(abi_version == ALETHEIA_ABI_VERSION);
 
@@ -44,10 +47,7 @@ static_assert(offsetof(FfiFrame, esi_value) == offsetof(aletheia_frame, esi_valu
 static_assert(sizeof(FfiSignalValues) == sizeof(aletheia_signal_values));
 static_assert(alignof(FfiSignalValues) == alignof(aletheia_signal_values));
 static_assert(offsetof(FfiSignalValues, indices) == offsetof(aletheia_signal_values, indices));
-static_assert(offsetof(FfiSignalValues, numerators) ==
-              offsetof(aletheia_signal_values, numerators));
-static_assert(offsetof(FfiSignalValues, denominators) ==
-              offsetof(aletheia_signal_values, denominators));
+static_assert(offsetof(FfiSignalValues, values) == offsetof(aletheia_signal_values, values));
 static_assert(offsetof(FfiSignalValues, count) == offsetof(aletheia_signal_values, count));
 
 static_assert(sizeof(FfiBuffer) == sizeof(aletheia_buffer));
@@ -60,10 +60,25 @@ static_assert(sizeof(FfiRational) == sizeof(aletheia_rational));
 static_assert(alignof(FfiRational) == alignof(aletheia_rational));
 static_assert(offsetof(FfiRational, numerator) == offsetof(aletheia_rational, numerator));
 static_assert(offsetof(FfiRational, denominator) == offsetof(aletheia_rational, denominator));
+static_assert(offsetof(FfiRational, negative) == offsetof(aletheia_rational, negative));
+
+static_assert(sizeof(FfiUint128) == sizeof(aletheia_uint128));
+static_assert(alignof(FfiUint128) == alignof(aletheia_uint128));
+static_assert(offsetof(FfiUint128, lo) == offsetof(aletheia_uint128, lo));
+static_assert(offsetof(FfiUint128, hi) == offsetof(aletheia_uint128, hi));
 
 static_assert(sizeof(FfiDecimal) == sizeof(aletheia_decimal));
 static_assert(alignof(FfiDecimal) == alignof(aletheia_decimal));
 static_assert(offsetof(FfiDecimal, value) == offsetof(aletheia_decimal, value));
 static_assert(offsetof(FfiDecimal, err) == offsetof(aletheia_decimal, err));
+
+static_assert(sizeof(FfiTimeBound) == sizeof(aletheia_time_bound));
+static_assert(alignof(FfiTimeBound) == alignof(aletheia_time_bound));
+static_assert(offsetof(FfiTimeBound, microseconds) == offsetof(aletheia_time_bound, microseconds));
+static_assert(offsetof(FfiTimeBound, err) == offsetof(aletheia_time_bound, err));
+
+static_assert(sizeof(FfiPropertyCheck) == sizeof(aletheia_property_check));
+static_assert(alignof(FfiPropertyCheck) == alignof(aletheia_property_check));
+static_assert(offsetof(FfiPropertyCheck, err) == offsetof(aletheia_property_check, err));
 
 } // namespace

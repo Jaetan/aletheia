@@ -7,8 +7,9 @@ The reply proof in ``src/Aletheia/Protocol/ReplyRange.agda`` lists, in
 in ``replyNonEmpty``, the arrays it writes with at least one element.  It leaves
 a place no row names free, so this module holds each row a reader relies on: it
 reads both tables, reads the set each Python reader takes at the place from its
-type and the set each Go reader takes from its own code, and reports a row one
-side drops and a word one side holds alone.
+type and the set each Go and C++ reader takes from its own code, and reports a
+row one side drops, a word one side holds alone and a C++ last arm, which reads
+every word its other arms do not name, other than the row's last word.
 
 A clause of either table, or a reader's type or code, that the module cannot
 read is reported rather than passed over, every one of them in one run; the
@@ -56,17 +57,24 @@ GoText = NewType("GoText", str)
 GoLine = NewType("GoLine", int)
 # A regular expression over a line of Go source.
 GoRegex = NewType("GoRegex", str)
+# A name in the C++ library: a function, a table, an enum or an enumerator.
+CppSymbol = NewType("CppSymbol", str)
+# C++ source: a file, a function of it or a fragment of either.
+CppText = NewType("CppText", str)
+# The number of a line of a C++ file, from 1.
+CppLine = NewType("CppLine", int)
 
 
 @dataclass(frozen=True)
 class _OneOf:
-    """A place that holds one of a fixed set of words."""
+    """A place that holds one of a fixed set of words; ``last`` is its list's last, if any."""
 
     words: frozenset[ReplyWord]
+    last: ReplyWord | None
 
 
 @dataclass(frozen=True)
-class _AnyNonEmpty:
+class AnyNonEmpty:
     """A place that holds any text but the empty one."""
 
 
@@ -107,7 +115,7 @@ type _PySet = _PyAlias | _PyField | _PyEnum | _PyBoundKinds
 # not name are each a divergence, so a reader that casts a tag instead of
 # checking it reads the kernel's set and no other.  The places are literal
 # strings, so ruff (F601) refuses one named twice.
-PYTHON_REPLY_TEXT: dict[ReplyPlace, _PySet | _AnyNonEmpty] = {
+PYTHON_REPLY_TEXT: dict[ReplyPlace, _PySet | AnyNonEmpty] = {
     ReplyPlace(place): spec
     for place, spec in {
         "status": _PyField(PYTHON_TYPES, PySymbol("Response"), PySymbol("status")),
@@ -122,7 +130,7 @@ PYTHON_REPLY_TEXT: dict[ReplyPlace, _PySet | _AnyNonEmpty] = {
         "bound_kind": _PyBoundKinds(),
         "dbc/messages/signals/byteOrder": _PyAlias(PYTHON_DBC_TYPES, PySymbol("ByteOrder")),
         "dbc/messages/signals/presence": _PyAlias(PYTHON_DBC_TYPES, PySymbol("SignalPresence")),
-        "dbc/messages/signals/multiplexor": _AnyNonEmpty(),
+        "dbc/messages/signals/multiplexor": AnyNonEmpty(),
         "dbc/comments/target/kind": _PyField(
             PYTHON_DBC_TYPES, PySymbol("DBCCommentTarget"), PySymbol("kind")
         ),
@@ -194,7 +202,7 @@ type _GoSet = _GoSwitch | _GoWordCall | _GoConsts | _GoValues | _GoBoundKinds
 
 # Every row of `replyText`, with the set the Go reader takes at its place, read
 # from the reader's own code, under the rules PYTHON_REPLY_TEXT is held to.
-GO_REPLY_TEXT: dict[ReplyPlace, _GoSet | _AnyNonEmpty] = {
+GO_REPLY_TEXT: dict[ReplyPlace, _GoSet | AnyNonEmpty] = {
     ReplyPlace(place): spec
     for place, spec in {
         "status": _GoValues(
@@ -209,7 +217,7 @@ GO_REPLY_TEXT: dict[ReplyPlace, _GoSet | _AnyNonEmpty] = {
         "bound_kind": _GoBoundKinds(),
         "dbc/messages/signals/byteOrder": _GoSwitch(GO_DBC, GoSymbol("readByteOrder")),
         "dbc/messages/signals/presence": _GoSwitch(GO_DBC, GoSymbol("parseSignalPresence")),
-        "dbc/messages/signals/multiplexor": _AnyNonEmpty(),
+        "dbc/messages/signals/multiplexor": AnyNonEmpty(),
         "dbc/comments/target/kind": _GoSwitch(GO_DBC, GoSymbol("parseCommentTarget")),
         "dbc/attributes/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttribute")),
         "dbc/attributes/scope <definition>": _GoSwitch(GO_DBC, GoSymbol("readAttrScope")),
@@ -218,6 +226,7 @@ GO_REPLY_TEXT: dict[ReplyPlace, _GoSet | _AnyNonEmpty] = {
         "dbc/attributes/target/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttrTarget")),
     }.items()
 }
+
 
 # Every row of `replyNonEmpty`: the arrays a reader takes as holding at least
 # one element.
@@ -229,23 +238,41 @@ REPLY_NON_EMPTY: frozenset[ReplyPlace] = frozenset(
 )
 
 # The set a reader takes at a place: its words, or any non-empty text.
-type _ReaderSet = frozenset[ReplyWord] | _AnyNonEmpty
+type _ReaderSet = frozenset[ReplyWord] | AnyNonEmpty
+
+
+@dataclass(frozen=True)
+class UnnamedLast:
+    """A last arm that names no word, reading every word the arms before it do not."""
+
+
+# A reader's last arm: the word it names, or none.
+type _LastArm = ReplyWord | UnnamedLast
+
+
+@dataclass(frozen=True)
+class Arms:
+    """The words a reader's arms name, and its last arm, which reads every word outside them."""
+
+    words: frozenset[ReplyWord]
+    last: _LastArm
 
 
 @dataclass(frozen=True)
 class ReaderSets:
-    """A binding's reader set at each place its table names."""
+    """A binding's reader set at each place its table names, and each last arm it reads."""
 
     reader: Prose
     table: Prose
     text: dict[ReplyPlace, _ReaderSet]
+    last_arms: dict[ReplyPlace, _LastArm]
 
 
 @dataclass(frozen=True)
 class ReplyTables:
     """The reply proof's two tables and each binding's reader set at each place."""
 
-    agda_text: dict[ReplyPlace, _OneOf | _AnyNonEmpty]
+    agda_text: dict[ReplyPlace, _OneOf | AnyNonEmpty]
     agda_non_empty: frozenset[ReplyPlace]
     readers: tuple[ReaderSets, ...]
 
@@ -302,10 +329,10 @@ def _list_words(body: AgdaText) -> list[ReplyWord] | None:
     return [ReplyWord(word.group("word")) for word in quoted if word is not None]
 
 
-def _text_form(rhs: AgdaText, named: dict[AgdaText, AgdaText]) -> _OneOf | _AnyNonEmpty | None:
+def _text_form(rhs: AgdaText, named: dict[AgdaText, AgdaText]) -> _OneOf | AnyNonEmpty | None:
     """Return the form a `replyText` row's right-hand side names, or None when none reads it."""
     if rhs == "just anyNonEmpty":
-        return _AnyNonEmpty()
+        return AnyNonEmpty()
     if (one_of := _ONE_OF_NAMED.match(rhs)) is not None:
         body = named.get(AgdaText(one_of.group("name")))
         words = None if body is None else _list_words(body)
@@ -313,7 +340,7 @@ def _text_form(rhs: AgdaText, named: dict[AgdaText, AgdaText]) -> _OneOf | _AnyN
         words = _list_words(AgdaText(one_of.group("body")))
     else:
         return None
-    return None if words is None else _OneOf(frozenset(words))
+    return None if words is None else _OneOf(frozenset(words), words[-1] if words else None)
 
 
 def _table_of(clause: AgdaText) -> AgdaText | None:
@@ -329,7 +356,7 @@ def _table_of(clause: AgdaText) -> AgdaText | None:
 
 def _parse_agda_reply_places(
     text: AgdaText,
-) -> tuple[dict[ReplyPlace, _OneOf | _AnyNonEmpty], frozenset[ReplyPlace], list[Prose]]:
+) -> tuple[dict[ReplyPlace, _OneOf | AnyNonEmpty], frozenset[ReplyPlace], list[Prose]]:
     """Return the `replyText` rows, the `replyNonEmpty` places and every clause no form reads."""
     clauses = list(_clauses(_without_block_comments(text)))
     named = {
@@ -337,7 +364,7 @@ def _parse_agda_reply_places(
         for clause in clauses
         if (m := _DEFINITION.match(clause)) is not None
     }
-    text_rows: dict[ReplyPlace, _OneOf | _AnyNonEmpty] = {}
+    text_rows: dict[ReplyPlace, _OneOf | AnyNonEmpty] = {}
     non_empty: set[ReplyPlace] = set()
     unread: list[Prose] = []
     for clause in clauses:
@@ -515,8 +542,8 @@ _GO_TOKEN = re.compile(
     r'"(?:[^"\\\n]|\\.)*"|`[^`]*`|' + r"'(?:[^'\\\n]|\\.)*'|//[^\n]*|/\*.*?\*/",
     flags=re.DOTALL,
 )
-# A string literal holding a reply word, which has no escape.
-_GO_WORD = re.compile(r'^"(?P<word>[^"\\]*)"$')
+# A Go or C++ string literal holding a reply word, which has no escape.
+_WORD_LITERAL = re.compile(r'^"(?P<word>[^"\\]*)"$')
 # A statement whose clauses are `case` clauses, and one such clause on a line.
 _GO_CASE_HOLDER = re.compile(r"\b(?:switch|select)\b")
 _GO_CASE = re.compile(r"^case\s+(?P<exprs>.*):$")
@@ -562,9 +589,9 @@ def _go_function(code: GoText, name: GoSymbol) -> GoText | None:
     return GoText(code[start.start() : None if end < 0 else end])
 
 
-def _go_literals(exprs: GoText) -> frozenset[ReplyWord] | None:
+def word_literals(exprs: GoText | CppText) -> frozenset[ReplyWord] | None:
     """Return the words of a comma-separated list of string literals, or None when one is not."""
-    found = [_GO_WORD.match(expr.strip()) for expr in exprs.split(",")]
+    found = [_WORD_LITERAL.match(expr.strip()) for expr in exprs.split(",")]
     if None in found:
         return None
     return frozenset(ReplyWord(word.group("word")) for word in found if word is not None)
@@ -581,7 +608,7 @@ def _switch_words(body: GoText) -> frozenset[ReplyWord] | Prose:
         if re.match(r"case\b", clause) is None:
             continue
         case = _GO_CASE.match(clause)
-        found = None if case is None else _go_literals(GoText(case.group("exprs")))
+        found = None if case is None else word_literals(GoText(case.group("exprs")))
         if found is None:
             return Prose(f"{clause!r} is not a case of string literals on one line")
         words |= found
@@ -596,12 +623,12 @@ def _word_call_words(body: GoText, key: ReplyWord) -> frozenset[ReplyWord] | Pro
     words: set[ReplyWord] = set()
     for call in calls:
         args = [GoText(arg.strip()) for arg in call.group("args").split(",")]
-        at = _GO_WORD.match(args[2]) if args[3:] else None
+        at = _WORD_LITERAL.match(args[2]) if args[3:] else None
         if at is None:
             return Prose(f"fieldWord({call.group('args')}) names no literal key or no word")
         if at.group("word") != key:
             continue
-        found = _go_literals(GoText(",".join(args[3:])))
+        found = word_literals(GoText(",".join(args[3:])))
         if found is None:
             return Prose(f"fieldWord({call.group('args')}) awaits a word that is not a literal")
         words |= found
@@ -637,7 +664,7 @@ def _const_words(spec: _GoConsts, package: dict[Path, GoText]) -> frozenset[Repl
             if re.search(rf"\b{name}\b", const) is None:
                 continue
             m = typed.match(const)
-            word = None if m is None else _GO_WORD.match(m.group("value").strip())
+            word = None if m is None else _WORD_LITERAL.match(m.group("value").strip())
             if word is None:
                 return Prose(
                     f"{path.relative_to(REPO_ROOT)}: the constant {const!r} of {spec.name} "
@@ -666,15 +693,16 @@ def _var_blocks(code: GoText) -> Iterator[list[_GoNumbered]]:
             block.append((GoLine(number), GoText(spec)))
 
 
+def fragment_lines(code: GoText | CppText, fragment: GoText | CppText) -> range:
+    """Return the numbers of the lines, from 1, a fragment of a file spans."""
+    start = code.index(fragment)
+    return range(code.count("\n", 0, start) + 1, code.count("\n", 0, start + len(fragment)) + 2)
+
+
 def _go_function_lines(code: GoText, name: GoSymbol) -> frozenset[GoLine]:
     """Return the lines a top-level function spans, none when the file does not define it."""
     body = _go_function(code, name)
-    if body is None:
-        return frozenset()
-    start = code.index(body)
-    first = code.count("\n", 0, start) + 1
-    last = code.count("\n", 0, start + len(body)) + 1
-    return frozenset(GoLine(number) for number in range(first, last + 1))
+    return frozenset() if body is None else frozenset(map(GoLine, fragment_lines(code, body)))
 
 
 @dataclass(frozen=True)
@@ -793,43 +821,69 @@ def _go_words(
     return Prose(f"{where}: {found}") if isinstance(found, str) else found
 
 
-def _read_sets[S](
-    table: dict[ReplyPlace, S | _AnyNonEmpty],
-    read: Callable[[S], frozenset[ReplyWord] | Prose],
+def read_sets[S](
+    reader: Prose,
+    name: Prose,
+    table: dict[ReplyPlace, S | AnyNonEmpty],
+    read: Callable[[S], frozenset[ReplyWord] | Arms | Prose],
     unread: list[Prose],
-) -> dict[ReplyPlace, _ReaderSet]:
-    """Return the set each place of a binding's table names, adding what none reads to unread."""
+) -> ReaderSets:
+    """Return the set and last arm at each place a binding's table names; unread gets the rest."""
     sets: dict[ReplyPlace, _ReaderSet] = {}
+    last_arms: dict[ReplyPlace, _LastArm] = {}
     for place, spec in table.items():
-        words = spec if isinstance(spec, _AnyNonEmpty) else read(spec)
-        if isinstance(words, str):
-            unread.append(Prose(f"reply place {place}: {words}"))
+        found = spec if isinstance(spec, AnyNonEmpty) else read(spec)
+        if isinstance(found, str):
+            unread.append(Prose(f"reply place {place}: {found}"))
+        elif isinstance(found, Arms):
+            sets[place] = found.words
+            last_arms[place] = found.last
         else:
-            sets[place] = words
-    return sets
+            sets[place] = found
+    return ReaderSets(reader, name, sets, last_arms)
+
+
+# A binding's reader: it returns its sets, adding each place none reads to the
+# list it is given.
+type BindingReader = Callable[[list[Prose]], ReaderSets]
+
+
+def python_reader(py_codes: frozenset[ReplyWord]) -> BindingReader:
+    """Return the Python reader, whose bound kinds are ``py_codes``."""
+    return lambda unread: read_sets(
+        Prose("the Python reader"),
+        Prose("PYTHON_REPLY_TEXT"),
+        PYTHON_REPLY_TEXT,
+        lambda spec: _python_words(spec, py_codes),
+        unread,
+    )
+
+
+def go_reader(go_codes: frozenset[ReplyWord]) -> BindingReader:
+    """Return the Go reader, whose bound kinds are ``go_codes``."""
+
+    def read(unread: list[Prose]) -> ReaderSets:
+        package = _go_package()
+        return read_sets(
+            Prose("the Go reader"),
+            Prose("GO_REPLY_TEXT"),
+            GO_REPLY_TEXT,
+            lambda spec: _go_words(spec, go_codes, package),
+            unread,
+        )
+
+    return read
 
 
 def read_reply_tables(
-    text: AgdaText, py_codes: frozenset[ReplyWord], go_codes: frozenset[ReplyWord]
+    text: AgdaText, readers: tuple[BindingReader, ...]
 ) -> ReplyTables | list[Prose]:
-    """Return both tables of ``text`` and every binding's sets, or each clause or set none reads."""
+    """Return both tables of ``text`` and each binding's sets, or each clause or set none reads."""
     agda_text, agda_non_empty, unread = _parse_agda_reply_places(text)
     if not agda_text or not agda_non_empty:
         unread.append(Prose("no replyText or replyNonEmpty rows parsed"))
-    package = _go_package()
-    readers = (
-        ReaderSets(
-            Prose("the Python reader"),
-            Prose("PYTHON_REPLY_TEXT"),
-            _read_sets(PYTHON_REPLY_TEXT, lambda spec: _python_words(spec, py_codes), unread),
-        ),
-        ReaderSets(
-            Prose("the Go reader"),
-            Prose("GO_REPLY_TEXT"),
-            _read_sets(GO_REPLY_TEXT, lambda spec: _go_words(spec, go_codes, package), unread),
-        ),
-    )
-    return unread or ReplyTables(agda_text, agda_non_empty, readers)
+    sets = tuple(read(unread) for read in readers)
+    return unread or ReplyTables(agda_text, agda_non_empty, sets)
 
 
 def _one_side(
@@ -845,8 +899,30 @@ def _one_side(
     ]
 
 
+def _last_arm_diff(
+    place: ReplyPlace,
+    row: _OneOf,
+    words: frozenset[ReplyWord],
+    last: _LastArm | None,
+    reader: Prose,
+) -> Prose | None:
+    """Return how a reader's last arm reads other than the row's last word, or None.
+
+    An arm that names no word reads the row's last word, so no other arm may name it.
+    """
+    if last is None or last == row.last:
+        return None
+    if row.last is None:
+        return Prose(f"reply place {place}: replyText names no word for {reader}'s last arm")
+    if not isinstance(last, UnnamedLast):
+        return Prose(f"reply place {place}: {reader}'s last arm names '{last}', not '{row.last}'")
+    if row.last in words:
+        return Prose(f"reply place {place}: {reader} names '{row.last}', which its last arm reads")
+    return None
+
+
 def _check_reader(
-    agda_text: dict[ReplyPlace, _OneOf | _AnyNonEmpty], reader: ReaderSets
+    agda_text: dict[ReplyPlace, _OneOf | AnyNonEmpty], reader: ReaderSets
 ) -> list[Prose]:
     """Return the divergences between ``replyText`` and one binding's reader sets."""
     diffs: list[Prose] = []
@@ -859,8 +935,8 @@ def _check_reader(
                     + "so the proof holds nothing there"
                 )
             )
-        elif isinstance(words, _AnyNonEmpty) or isinstance(row, _AnyNonEmpty):
-            if not (isinstance(words, _AnyNonEmpty) and isinstance(row, _AnyNonEmpty)):
+        elif isinstance(words, AnyNonEmpty) or isinstance(row, AnyNonEmpty):
+            if not (isinstance(words, AnyNonEmpty) and isinstance(row, AnyNonEmpty)):
                 diffs.append(
                     Prose(
                         f"reply place {place}: one side reads any non-empty text, "
@@ -868,7 +944,15 @@ def _check_reader(
                     )
                 )
         else:
-            diffs.extend(_one_side(place, (Prose("replyText"), row.words), (reader.reader, words)))
+            last = reader.last_arms.get(place)
+            if (diff := _last_arm_diff(place, row, words, last, reader.reader)) is not None:
+                diffs.append(diff)
+            unnamed: frozenset[ReplyWord] = frozenset(
+                {row.last} if isinstance(last, UnnamedLast) and row.last is not None else ()
+            )
+            diffs.extend(
+                _one_side(place, (Prose("replyText"), row.words), (reader.reader, words | unnamed))
+            )
     diffs.extend(
         Prose(f"reply place {place}: replyText has a row {reader.table} does not name")
         for place in sorted(agda_text.keys() - reader.text.keys())

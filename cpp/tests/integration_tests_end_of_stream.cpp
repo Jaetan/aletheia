@@ -119,8 +119,8 @@ TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresol
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -149,8 +149,8 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -182,8 +182,8 @@ TEST_CASE("end_stream: changed_by on one-frame trace → Unresolved",
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto formula = ltl::always(
-        ltl::negate(ltl::atomic(ltl::changed_by(SignalName{"Speed"}, Delta{Rational{0, 1}}))));
+    auto formula = ltl::always(ltl::negate(
+        ltl::atomic(required(ltl::changed_by(SignalName{"Speed"}, Delta{Rational{0, 1}})))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -212,8 +212,8 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved",
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto formula = ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
+    auto formula = ltl::eventually(ltl::atomic(
+        required(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -244,8 +244,8 @@ TEST_CASE("end_stream: Eventually on 0 frames still finalizes to Fails",
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto formula = ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
+    auto formula = ltl::eventually(ltl::atomic(
+        required(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -269,8 +269,8 @@ TEST_CASE("end_stream: 0 frames + Always(missing) → Holds (vacuous)",
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -293,8 +293,8 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -335,10 +335,10 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto lhs = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto lhs = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}))));
     auto rhs = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Rpm"}, PhysicalValue{Rational{100, 1}})));
+        ltl::atomic(required(ltl::less_than(SignalName{"Rpm"}, PhysicalValue{Rational{100, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(ltl::both(std::move(lhs), std::move(rhs)));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -373,10 +373,10 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto lhs = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
-    auto rhs = ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{999999, 1}})));
+    auto lhs = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}))));
+    auto rhs = ltl::eventually(ltl::atomic(
+        required(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{999999, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(ltl::either(std::move(lhs), std::move(rhs)));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -408,8 +408,8 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -455,8 +455,8 @@ TEST_CASE("end_stream: enrichment carries the newest payload of a repeated CAN i
     // an enrichment.  The diagnostic names Speed, which is what keeps Speed in
     // the enrichment's signal map, since that map is filtered to the
     // diagnostic's own signals.
-    auto formula = ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
+    auto formula = ltl::eventually(ltl::atomic(
+        required(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -501,10 +501,10 @@ TEST_CASE("end_stream: the last-frame cache keeps a standard and an extended id 
     // One liveness property per signal, each unwitnessed, so each finalizes to
     // Fails and carries an enrichment filtered to its own signal.
     std::vector<LtlFormula> props;
-    props.push_back(ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}}))));
-    props.push_back(ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{10, 1}}))));
+    props.push_back(ltl::eventually(ltl::atomic(
+        required(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})))));
+    props.push_back(ltl::eventually(ltl::atomic(
+        required(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{10, 1}})))));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -528,4 +528,42 @@ TEST_CASE("end_stream: the last-frame cache keeps a standard and an extended id 
     REQUIRE(rpm.contains(SignalName{"Rpm"}));
     CHECK(speed.at(SignalName{"Speed"}) == PhysicalValue{Rational{5, 1}});
     CHECK(rpm.at(SignalName{"Rpm"}) == PhysicalValue{Rational{7, 1}});
+}
+
+TEST_CASE("end_stream: a frame on an identifier the DBC lacks keeps every verdict and enrichment",
+          "[integration][eos][enrich]") {
+    // A trace holding a frame whose identifier the DBC does not describe ends
+    // with every verdict and its enrichment: the kernel answers that frame's
+    // extraction with an error entry, not a refusal, so re-reading the last
+    // frames, the unknown identifier's first since it sorts first, loses
+    // nothing.
+    std::string const dbc_text = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n"
+                                 "BO_ 256 Msg: 8 ECU\n"
+                                 " SG_ Sig : 0|16@1+ (0.25,0) [0|8000] \"u\" ECU\n\n";
+    auto const lib = find_lib();
+    auto client = required(AletheiaClient::create(required(make_ffi_backend(lib))));
+    REQUIRE(client.parse_dbc_text(std::stop_token{}, dbc_text).has_value());
+
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::eventually(
+        ltl::atomic(required(ltl::less_than(SignalName{"Sig"}, PhysicalValue{Rational{10, 1}})))));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto const known = CanId{StandardId::create(0x100).value()};
+    auto const unknown = CanId{StandardId::create(0x050).value()};
+    auto const dlc = Dlc::create(8).value();
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, known, dlc, bytes_of(0xFF))
+                .has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{2000}, unknown, dlc, bytes_of(0xFF))
+                .has_value());
+
+    auto const end = client.end_stream(std::stop_token{});
+    REQUIRE(end.has_value());
+    REQUIRE(end->results.size() == 1);
+    CHECK(end->results[0].verdict == Verdict::Fails);
+    REQUIRE(end->results[0].enrichment.has_value());
+    // Sig reads 0x00FF counts of a quarter.
+    CHECK(end->results[0].enrichment->signals.at(SignalName{"Sig"}) ==
+          PhysicalValue{Rational{255, 4}});
 }

@@ -4,6 +4,7 @@
 // in code, a frame and a set of signal values for each, and their LTL properties.
 
 #include "benchmark_fixtures.hpp"
+#include "measure.hpp"
 
 #include <aletheia/aletheia.hpp>
 
@@ -244,23 +245,23 @@ auto canfd_signals() -> std::vector<SignalValue> const& {
 
 auto make_can20_properties() -> std::vector<LtlFormula> {
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(ltl::atomic(ltl::between(
-        SignalName{"EngineSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{8000, 1}}))));
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-40, 1}},
-                                 PhysicalValue{Rational{215, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(value_or_throw(ltl::between(
+        SignalName{"EngineSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{8000, 1}})))));
+    props.push_back(ltl::always(ltl::atomic(
+        value_or_throw(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-40, 1}},
+                                    PhysicalValue{Rational{215, 1}})))));
     return props;
 }
 
 auto make_canfd_properties() -> std::vector<LtlFormula> {
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(ltl::atomic(ltl::between(
-        SignalName{"GPSSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{655, 1}}))));
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::between(SignalName{"YawRate"}, PhysicalValue{Rational{-327, 1}},
-                                 PhysicalValue{Rational{327, 1}}))));
-    props.push_back(ltl::always(ltl::atomic(ltl::between(
-        SignalName{"WheelSpeedFL"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{655, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(value_or_throw(ltl::between(
+        SignalName{"GPSSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{655, 1}})))));
+    props.push_back(ltl::always(ltl::atomic(
+        value_or_throw(ltl::between(SignalName{"YawRate"}, PhysicalValue{Rational{-327, 1}},
+                                    PhysicalValue{Rational{327, 1}})))));
+    props.push_back(ltl::always(ltl::atomic(value_or_throw(ltl::between(
+        SignalName{"WheelSpeedFL"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{655, 1}})))));
     return props;
 }
 

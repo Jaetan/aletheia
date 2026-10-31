@@ -6,12 +6,14 @@
 //
 // The decoder is `parse_extraction_bin`, a static helper inside the client's
 // translation unit, so the harness reaches it the way the rational-number
-// harness reaches its own static helper: transitively, through the public
-// surface. A backend derived from the test mock hands the fuzzer's bytes back
-// from `extract_signals_bin`, and a DBC parsed through the same mock fills the
-// signal-name lookup the client needs to take the binary path at all. The
-// decoder must refuse a truncated or malformed buffer without undefined
-// behaviour.
+// harness reaches the reply readers' rational reader: transitively, through
+// the client's surface. A backend derived from the test mock hands the
+// fuzzer's bytes back from `extract_signals_bin`, and a DBC parsed through the
+// same mock fills the signal-name lookup the client needs to take the binary
+// path at all. The kernel proves every index of the wire names a signal of its
+// message, so the DBC's one message carries a signal for every index the
+// two-byte field holds. The decoder must answer or refuse any buffer without
+// undefined behaviour.
 //
 // Build/run: see fuzz_parse_response.cpp comment header.
 
@@ -50,22 +52,21 @@ public:
 };
 } // namespace
 
+// One message whose 2^16 signals, all alike, give every wire index a name.
 static auto one_message_dbc() -> DbcDefinition {
-    auto const signal = [](char const* name, std::uint16_t start_bit) {
-        return DbcSignal{
-            .name = SignalName{name},
-            .start_bit = BitPosition{start_bit},
-            .bit_length = BitLength{16},
-            .byte_order = ByteOrder::LittleEndian,
-            .is_signed = false,
-            .factor = RationalFactor{Rational{1, 1}},
-            .offset = RationalOffset{Rational{0, 1}},
-            .minimum = RationalBound{Rational{0, 1}},
-            .maximum = RationalBound{Rational{65535, 1}},
-            .unit = Unit{""},
-            .presence = AlwaysPresent{},
-            .receivers = {},
-        };
+    DbcSignal const signal{
+        .name = SignalName{"S"},
+        .start_bit = BitPosition{0},
+        .bit_length = BitLength{16},
+        .byte_order = ByteOrder::LittleEndian,
+        .is_signed = false,
+        .factor = RationalFactor{Rational{1, 1}},
+        .offset = RationalOffset{Rational{0, 1}},
+        .minimum = RationalBound{Rational{0, 1}},
+        .maximum = RationalBound{Rational{65535, 1}},
+        .unit = Unit{""},
+        .presence = AlwaysPresent{},
+        .receivers = {},
     };
     DbcMessage message{
         .id = StandardId::create(0x100).value(),
@@ -73,7 +74,7 @@ static auto one_message_dbc() -> DbcDefinition {
         .dlc = Dlc::create(8).value(),
         .sender = NodeName{"ECU"},
         .senders = {},
-        .signals = {signal("First", 0), signal("Second", 16)},
+        .signals = std::vector<DbcSignal>(std::size_t{1} << 16U, signal),
     };
     return DbcDefinition{.version = "1.0", .messages = {std::move(message)}};
 }

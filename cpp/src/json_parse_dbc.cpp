@@ -2,272 +2,209 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // JSON parsing of a DBC definition: the signal, message and metadata decoders
 // behind the formatDBC and parsed-DBC responses.
+//
+// The DBC a reply carries sits at "dbc", and every refusal below names its
+// place from there: a signal's field is at "dbc/messages/signals/<key>". Every
+// key the kernel writes is required, and each place is read by kind only: the
+// ranges and the tags are the kernel's, decided when it read the DBC and proven
+// of every reply. A tag is dispatched with no refusal of its own, the last arm
+// reading every tag the arms before it do not name. The keys of an object are
+// read in the order the other bindings read them, so a reply broken at two
+// places is refused at the same one by all four.
 #include "detail/json_parse_helpers.hpp"
+#include "detail/kernel_value.hpp"
+#include "detail/reply_shape.hpp"
+#include "detail/wide_json.hpp"
 
 #include <aletheia/dbc.hpp>
-#include <aletheia/detail/checked.hpp>
 #include <aletheia/types.hpp>
-
-#include <nlohmann/json.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <stdexcept>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace aletheia::detail {
 
-// Decode an optional array field: absent means empty, present means every
-// element goes through `parse_element`.  A required array keeps its own
-// `j.at(...)` loop so a missing one still throws.
-template<typename Parse>
-static auto parse_optional_array(Json const& j, char const* key, Parse parse_element)
-    -> std::vector<std::invoke_result_t<Parse, Json const&>> {
-    std::vector<std::invoke_result_t<Parse, Json const&>> out;
-    if (!j.contains(key))
-        return out;
-    auto const& arr = j.at(key);
-    for (auto const& elem : arr)
-        out.push_back(parse_element(elem));
-    return out;
+// The identifier of the object at `path`: its "extended" flag, then "id" at
+// the width the flag names, whose range the kernel proves.
+static auto read_can_id(Json const& m, ReplyPath const& path) -> CanId {
+    if (field_bool(m, path, "extended"))
+        return KernelValue::extended_id(field_unsigned<std::uint32_t>(m, path, "id"));
+    return KernelValue::standard_id(field_unsigned<std::uint16_t>(m, path, "id"));
 }
 
-// ---------------------------------------------------------------------------
-// DBC parsing (for formatDBC response)
-// ---------------------------------------------------------------------------
+// A message's length code, read from the byte count the reply writes; a count
+// no code stands for, which the kernel never writes, is refused as the number
+// the place does not hold.
+static auto read_dlc(Json const& m, ReplyPath const& path) -> Dlc {
+    auto const dlc = bytes_to_dlc(field_unsigned<std::size_t>(m, path, "dlc"));
+    if (!dlc)
+        throw reply_refusal(path.at("dlc"), expect_number, came(m, "dlc"));
+    return dlc.value();
+}
 
-// Decode the explicit `presence` discriminator the core emits for every signal
-// ("always" / "multiplexed") rather than inferring multiplexing from the bare
-// presence of a `multiplexor` field (parity with Go/Rust/Python). A multiplexed
-// signal requires a non-empty multiplexor and a non-empty multiplex_values array
-// of u32 selectors.
-static auto parse_signal_presence(Json const& j) -> SignalPresence {
-    auto const presence_str = j.value("presence", std::string{});
-    if (presence_str == "always")
+// The presence the kernel states for every signal, "multiplexed" its last
+// arm, whose multiplexor is a string and whose selector values are whole
+// numbers.
+static auto read_presence(Json const& j, ReplyPath const& path) -> SignalPresence {
+    if (field_string(j, path, "presence") == "always")
         return AlwaysPresent{};
-    if (presence_str != "multiplexed")
-        throw std::runtime_error("unknown signal presence: " + presence_str);
-    auto mux_name = j.value("multiplexor", std::string{});
-    if (mux_name.empty())
-        throw std::runtime_error("multiplexed signal requires a non-empty \"multiplexor\"");
-    if (!j.contains("multiplex_values") || !j.at("multiplex_values").is_array() ||
-        j.at("multiplex_values").empty())
-        throw std::runtime_error(
-            "multiplexed signal requires a non-empty \"multiplex_values\" array");
-    auto const& arr = j.at("multiplex_values");
-    std::vector<MultiplexValue> vals;
-    for (auto const& elem : arr) {
-        // Read wide, then bound to u32 — nlohmann's get<uint32_t> would silently
-        // truncate an out-of-range value rather than reject it.
-        auto const v = require_int<std::int64_t>(elem, "multiplex_values entry");
-        if (v < 0 || v > 0xFFFF'FFFFLL) // u32 max — parity with Go's MaxUint32 bound
-            throw std::runtime_error("multiplex_values entry " + std::to_string(v) +
-                                     " out of range (0-4294967295)");
-        vals.emplace_back(static_cast<std::uint32_t>(v));
-    }
-    return Multiplexed{.multiplexor = SignalName{std::move(mux_name)},
-                       .multiplex_values = std::move(vals)};
+    auto multiplexor = field_string(j, path, "multiplexor");
+    auto const place = path.at("multiplex_values");
+    std::vector<MultiplexValue> values;
+    for (auto const& value : field_array(j, path, "multiplex_values"))
+        values.emplace_back(read_uint128(value, place));
+    return Multiplexed{.multiplexor = SignalName{std::move(multiplexor)},
+                       .multiplex_values = std::move(values)};
 }
 
-// One {value, description} pair; the wire shape of an inline VAL_ entry and of
-// a VAL_TABLE_ row.  `context` names the field in a rejection message.
-static auto parse_value_entry(Json const& j, std::string_view context) -> DbcValueEntry {
+// One value description, the shape of an inline VAL_ entry and of a
+// VAL_TABLE_ row: a signed key and its text.
+static auto read_value_entry(Json const& e, ReplyPath const& path) -> DbcValueEntry {
     return DbcValueEntry{
-        .value = require_int<std::int64_t>(j.at("value"), context),
-        .description = j.at("description").get<std::string>(),
+        .value = field_sign_magnitude(e, path, "value"),
+        .description = field_string(e, path, "description"),
     };
 }
 
-static auto parse_signal_def(Json const& j) -> DbcSignal {
-    auto const bo_str = j.value("byteOrder", "little_endian");
-    constexpr auto byte_orders = std::to_array<std::pair<std::string_view, ByteOrder>>({
-        {"little_endian", ByteOrder::LittleEndian},
-        {"big_endian", ByteOrder::BigEndian},
-    });
-    auto const bo = lookup(byte_orders, bo_str);
-    if (!bo)
-        throw std::runtime_error("Unrecognized byteOrder: " + bo_str);
+// The byte orders the kernel writes, "big_endian" the last arm.
+constexpr auto byte_order_table = std::to_array<std::pair<std::string_view, ByteOrder>>({
+    {"little_endian", ByteOrder::LittleEndian},
+    {"big_endian", ByteOrder::BigEndian},
+});
 
-    auto presence = parse_signal_presence(j);
-
-    auto receivers = parse_optional_array(
-        j, "receivers", [](Json const& elem) { return NodeName{elem.get<std::string>()}; });
-    auto value_descriptions = parse_optional_array(j, "valueDescriptions", [](Json const& elem) {
-        return parse_value_entry(elem, "valueDescriptions value");
-    });
-
-    auto const start_bit_raw = require_uint<std::uint32_t>(j.at("startBit"), "startBit");
-    if (start_bit_raw > 511)
-        throw std::runtime_error("startBit " + std::to_string(start_bit_raw) +
-                                 " out of range (0-511)");
-    auto const length_raw = require_uint<std::uint32_t>(j.at("length"), "length");
-    if (length_raw < 1 || length_raw > 512)
-        throw std::runtime_error("bit length " + std::to_string(length_raw) +
-                                 " out of range (1-512)");
-
+static auto read_signal(Json const& j, ReplyPath const& path) -> DbcSignal {
+    auto name = field_string(j, path, "name");
+    auto const start_bit = field_unsigned<std::uint16_t>(j, path, "startBit");
+    auto const length = field_unsigned<std::uint16_t>(j, path, "length");
+    auto const byte_order =
+        lookup(byte_order_table, field_string(j, path, "byteOrder")).value_or(ByteOrder::BigEndian);
+    auto const is_signed = field_bool(j, path, "signed");
+    auto const factor = field_rational(j, path, "factor");
+    auto const offset = field_rational(j, path, "offset");
+    auto const minimum = field_rational(j, path, "minimum");
+    auto const maximum = field_rational(j, path, "maximum");
+    auto unit = field_string(j, path, "unit");
+    auto receivers = field_strings<NodeName>(j, path, "receivers");
+    auto value_descriptions = field_objects(j, path, "valueDescriptions", read_value_entry);
+    auto presence = read_presence(j, path);
     return DbcSignal{
-        .name = SignalName{j.at("name").get<std::string>()},
-        .start_bit = BitPosition{static_cast<std::uint16_t>(start_bit_raw)},
-        .bit_length = BitLength{static_cast<std::uint16_t>(length_raw)},
-        .byte_order = bo.value(),
-        .is_signed = j.value("signed", false),
-        .factor = RationalFactor{parse_rational(j.at("factor"))},
-        .offset = RationalOffset{parse_rational(j.at("offset"))},
-        .minimum = RationalBound{parse_rational(j.at("minimum"))},
-        .maximum = RationalBound{parse_rational(j.at("maximum"))},
-        .unit = Unit{j.value("unit", "")},
+        .name = SignalName{std::move(name)},
+        .start_bit = BitPosition{start_bit},
+        .bit_length = BitLength{length},
+        .byte_order = byte_order,
+        .is_signed = is_signed,
+        .factor = RationalFactor{factor},
+        .offset = RationalOffset{offset},
+        .minimum = RationalBound{minimum},
+        .maximum = RationalBound{maximum},
+        .unit = Unit{std::move(unit)},
         .presence = std::move(presence),
         .receivers = std::move(receivers),
         .value_descriptions = std::move(value_descriptions),
     };
 }
 
-// Construct a typed `CanId` from a JSON `{id, extended}` pair.  Centralises
-// the 11-bit standard-frame range check (max 2047) and the typed factory
-// failure paths so parse_message_def and parse_raw_value_desc agree on the
-// error wording.
-static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
-    if (extended) {
-        auto const result = ExtendedId::create(id_val);
-        if (!result)
-            throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) + ": " +
-                                     std::string{detail::error_of(result).message()});
-        return CanId{result.value()};
-    }
-    // The factory takes the 16 bits a standard id fits in and refuses past 11;
-    // a wider value is refused here rather than truncated into its range.
-    if (!std::in_range<std::uint16_t>(id_val))
-        throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
-                                 " exceeds 16 bits");
-    auto const result = StandardId::create(static_cast<std::uint16_t>(id_val));
-    if (!result)
-        throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
-                                 std::string{detail::error_of(result).message()});
-    return CanId{result.value()};
-}
-
-static auto parse_message_def(Json const& j) -> DbcMessage {
-    auto const id_val = require_uint<std::uint32_t>(j.at("id"), "message id");
-    auto const extended = j.value("extended", false);
-    auto const id = json_to_can_id(id_val, extended);
-
-    auto const dlc_result = bytes_to_dlc(require_uint<std::size_t>(j.at("dlc"), "dlc"));
-    if (!dlc_result)
-        throw std::runtime_error("Invalid DLC: " +
-                                 std::string{detail::error_of(dlc_result).message()});
-
-    std::vector<DbcSignal> signals;
-    for (auto const& s : j.at("signals"))
-        signals.push_back(parse_signal_def(s));
-
-    auto senders = parse_optional_array(
-        j, "senders", [](Json const& elem) { return NodeName{elem.get<std::string>()}; });
-
+static auto read_message(Json const& j, ReplyPath const& path) -> DbcMessage {
+    auto signals = field_objects(j, path, "signals", read_signal);
+    auto name = field_string(j, path, "name");
+    auto const id = read_can_id(j, path);
+    auto const dlc = read_dlc(j, path);
+    auto sender = field_string(j, path, "sender");
+    auto senders = field_strings<NodeName>(j, path, "senders");
     return DbcMessage{
         .id = id,
-        .name = MessageName{j.at("name").get<std::string>()},
-        .dlc = dlc_result.value(),
-        .sender = NodeName{j.value("sender", "")},
+        .name = MessageName{std::move(name)},
+        .dlc = dlc,
+        .sender = NodeName{std::move(sender)},
         .senders = std::move(senders),
         .signals = std::move(signals),
     };
 }
 
-static auto parse_signal_group(Json const& j) -> DbcSignalGroup {
-    std::vector<SignalName> sigs;
-    for (auto const& s : j.at("signals"))
-        sigs.emplace_back(s.get<std::string>());
+static auto read_signal_group(Json const& g, ReplyPath const& path) -> DbcSignalGroup {
     return DbcSignalGroup{
-        .name = j.at("name").get<std::string>(),
-        .signals = std::move(sigs),
+        .name = field_string(g, path, "name"),
+        .signals = field_strings<SignalName>(g, path, "signals"),
     };
 }
 
-static auto parse_env_var_type(int raw, std::string const& name) -> DbcVarType {
-    switch (raw) {
+// An environment variable's type from its tag, 2 for a string the last arm.
+static auto var_type_of(std::uint64_t tag) -> DbcVarType {
+    switch (tag) {
     case 0:
         return DbcVarType::Int;
     case 1:
         return DbcVarType::Float;
-    case 2:
-        return DbcVarType::String;
     default:
-        throw std::runtime_error("Unknown environment variable type " + std::to_string(raw) +
-                                 " for '" + name + "'");
+        return DbcVarType::String;
     }
 }
 
-static auto parse_env_var(Json const& j) -> DbcEnvironmentVar {
-    auto const name = j.at("name").get<std::string>();
-    auto const raw_type = require_int<int>(j.at("varType"), "varType");
+static auto read_environment_var(Json const& ev, ReplyPath const& path) -> DbcEnvironmentVar {
     return DbcEnvironmentVar{
-        .name = name,
-        .var_type = parse_env_var_type(raw_type, name),
-        .initial = parse_rational(j.at("initial")),
-        .minimum = parse_rational(j.at("minimum")),
-        .maximum = parse_rational(j.at("maximum")),
+        .name = field_string(ev, path, "name"),
+        .var_type = var_type_of(field_unsigned<std::uint64_t>(ev, path, "varType")),
+        .initial = field_rational(ev, path, "initial"),
+        .minimum = field_rational(ev, path, "minimum"),
+        .maximum = field_rational(ev, path, "maximum"),
     };
 }
 
-static auto parse_value_table(Json const& j) -> DbcValueTable {
-    std::vector<DbcValueEntry> entries;
-    for (auto const& e : j.at("entries"))
-        entries.push_back(parse_value_entry(e, "valueTable entry value"));
+static auto read_value_table(Json const& vt, ReplyPath const& path) -> DbcValueTable {
     return DbcValueTable{
-        .name = j.at("name").get<std::string>(),
-        .entries = std::move(entries),
+        .name = field_string(vt, path, "name"),
+        .entries = field_objects(vt, path, "entries", read_value_entry),
+    };
+}
+
+// A value description the text parser could not attach to a signal, its CAN
+// id read as a message's.
+static auto read_raw_value_desc(Json const& rvd, ReplyPath const& path) -> DbcRawValueDesc {
+    return DbcRawValueDesc{
+        .can_id = read_can_id(rvd, path),
+        .signal_name = field_string(rvd, path, "signalName"),
+        .entries = field_objects(rvd, path, "entries", read_value_entry),
     };
 }
 
 // ---------------------------------------------------------------------------
-// Tier 2 parsers (nodes / comments / attributes). Each variant is dispatched
-// on the required ``"kind"`` field; unknown values surface as a protocol
-// error at the public boundary.
+// Tier 2 parsers (nodes / comments / attributes), each variant dispatched on
+// its "kind".
 // ---------------------------------------------------------------------------
 
-static auto parse_node(Json const& j) -> DbcNode {
-    return DbcNode{.name = NodeName{j.at("name").get<std::string>()}};
+static auto read_node(Json const& n, ReplyPath const& path) -> DbcNode {
+    return DbcNode{.name = NodeName{field_string(n, path, "name")}};
 }
 
-// The validated identifier a message- or signal-scoped target names. The wire
-// carries a value and an optional flag; the target carries the type they
-// denote, so an identifier too wide for the width it claims is refused here
-// rather than stored and passed on.
-static auto parse_target_can_id(Json const& j) -> CanId {
-    return json_to_can_id(require_uint<std::uint32_t>(j.at("id"), "CAN id"),
-                          j.value("extended", false));
-}
-
-static auto parse_comment_target(Json const& j) -> DbcCommentTarget {
-    auto const kind = j.at("kind").get<std::string>();
+// What a comment is attached to, "envVar" its last arm.
+static auto read_comment_target(Json const& m, ReplyPath const& path) -> DbcCommentTarget {
+    auto const kind = field_string(m, path, "kind");
     if (kind == "network")
         return DbcCommentTargetNetwork{};
     if (kind == "node")
-        return DbcCommentTargetNode{.node = NodeName{j.at("node").get<std::string>()}};
+        return DbcCommentTargetNode{.node = NodeName{field_string(m, path, "node")}};
     if (kind == "message")
-        return DbcCommentTargetMessage{.id = parse_target_can_id(j)};
+        return DbcCommentTargetMessage{.id = read_can_id(m, path)};
     if (kind == "signal")
-        return DbcCommentTargetSignal{.id = parse_target_can_id(j),
-                                      .signal = j.at("signal").get<std::string>()};
-    if (kind == "envVar")
-        return DbcCommentTargetEnvVar{.env_var = j.at("envVar").get<std::string>()};
-    throw std::runtime_error("Unknown comment target kind: " + kind);
+        return DbcCommentTargetSignal{.id = read_can_id(m, path),
+                                      .signal = field_string(m, path, "signal")};
+    return DbcCommentTargetEnvVar{.env_var = field_string(m, path, "envVar")};
 }
 
-static auto parse_comment(Json const& j) -> DbcComment {
+static auto read_comment(Json const& c, ReplyPath const& path) -> DbcComment {
     return DbcComment{
-        .target = parse_comment_target(j.at("target")),
-        .text = j.at("text").get<std::string>(),
+        .target = field_object_of(c, path, "target", read_comment_target),
+        .text = field_string(c, path, "text"),
     };
 }
 
-// String → DbcAttrScope lookup table.  Same shape as `error_code_table` /
-// `issue_code_table`; unknown scope is a hard error (unlike issue_code).
+// The scopes the kernel writes, "nodeSig" the last arm.
 using AttrScopeEntry = std::pair<std::string_view, DbcAttrScope>;
 constexpr auto attr_scope_table = std::to_array<AttrScopeEntry>({
     {"network", DbcAttrScope::Network},
@@ -279,133 +216,94 @@ constexpr auto attr_scope_table = std::to_array<AttrScopeEntry>({
     {"nodeSig", DbcAttrScope::NodeSig},
 });
 
-static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
-    if (auto const scope = lookup(attr_scope_table, s))
-        return scope.value();
-    throw std::runtime_error("Unknown attribute scope: " + std::string{s});
-}
-
-static auto parse_attr_type(Json const& j) -> DbcAttrType {
-    auto const kind = j.at("kind").get<std::string>();
+// An attribute definition's type, "hex" its last arm.
+static auto read_attr_type(Json const& m, ReplyPath const& path) -> DbcAttrType {
+    auto const kind = field_string(m, path, "kind");
     if (kind == "int")
-        return DbcAttrTypeInt{.min = require_int<std::int64_t>(j.at("min"), "int attribute min"),
-                              .max = require_int<std::int64_t>(j.at("max"), "int attribute max")};
+        return DbcAttrTypeInt{.min = field_int64(m, path, "min"),
+                              .max = field_int64(m, path, "max")};
     if (kind == "float")
-        return DbcAttrTypeFloat{.min = parse_rational(j.at("min")),
-                                .max = parse_rational(j.at("max"))};
+        return DbcAttrTypeFloat{.min = field_rational(m, path, "min"),
+                                .max = field_rational(m, path, "max")};
     if (kind == "string")
         return DbcAttrTypeString{};
-    if (kind == "enum") {
-        std::vector<std::string> values;
-        for (auto const& v : j.at("values"))
-            v.get_to(values.emplace_back());
-        return DbcAttrTypeEnum{.values = std::move(values)};
-    }
-    if (kind == "hex")
-        return DbcAttrTypeHex{.min = require_int<std::int64_t>(j.at("min"), "hex attribute min"),
-                              .max = require_int<std::int64_t>(j.at("max"), "hex attribute max")};
-    throw std::runtime_error("Unknown attribute type kind: " + kind);
-}
-
-static auto parse_attr_value(Json const& j) -> DbcAttrValue {
-    auto const kind = j.at("kind").get<std::string>();
-    if (kind == "int")
-        return DbcAttrValueInt{.value =
-                                   require_int<std::int64_t>(j.at("value"), "int attribute value")};
-    if (kind == "float")
-        return DbcAttrValueFloat{.value = parse_rational(j.at("value"))};
-    if (kind == "string")
-        return DbcAttrValueString{.value = j.at("value").get<std::string>()};
     if (kind == "enum")
-        return DbcAttrValueEnum{
-            .value = require_int<std::int64_t>(j.at("value"), "enum attribute value")};
-    if (kind == "hex")
-        return DbcAttrValueHex{.value =
-                                   require_int<std::int64_t>(j.at("value"), "hex attribute value")};
-    throw std::runtime_error("Unknown attribute value kind: " + kind);
+        return DbcAttrTypeEnum{.values = field_strings<std::string>(m, path, "values")};
+    return DbcAttrTypeHex{.min = field_int64(m, path, "min"), .max = field_int64(m, path, "max")};
 }
 
-static auto parse_attr_target(Json const& j) -> DbcAttrTarget {
-    auto const kind = j.at("kind").get<std::string>();
+// An attribute's value, "hex" its last arm.
+static auto read_attr_value(Json const& m, ReplyPath const& path) -> DbcAttrValue {
+    auto const kind = field_string(m, path, "kind");
+    if (kind == "int")
+        return DbcAttrValueInt{.value = field_int64(m, path, "value")};
+    if (kind == "float")
+        return DbcAttrValueFloat{.value = field_rational(m, path, "value")};
+    if (kind == "string")
+        return DbcAttrValueString{.value = field_string(m, path, "value")};
+    if (kind == "enum")
+        return DbcAttrValueEnum{.value = field_int64(m, path, "value")};
+    return DbcAttrValueHex{.value = field_int64(m, path, "value")};
+}
+
+// What an attribute is assigned to, "nodeSig" its last arm; every kind but
+// "network", "node" and "envVar" carries a CAN id, read before its other keys.
+static auto read_attr_target(Json const& m, ReplyPath const& path) -> DbcAttrTarget {
+    auto const kind = field_string(m, path, "kind");
     if (kind == "network")
         return DbcAttrTargetNetwork{};
     if (kind == "node")
-        return DbcAttrTargetNode{.node = NodeName{j.at("node").get<std::string>()}};
-    if (kind == "message")
-        return DbcAttrTargetMessage{.id = parse_target_can_id(j)};
-    if (kind == "signal")
-        return DbcAttrTargetSignal{.id = parse_target_can_id(j),
-                                   .signal = j.at("signal").get<std::string>()};
+        return DbcAttrTargetNode{.node = NodeName{field_string(m, path, "node")}};
     if (kind == "envVar")
-        return DbcAttrTargetEnvVar{.env_var = j.at("envVar").get<std::string>()};
+        return DbcAttrTargetEnvVar{.env_var = field_string(m, path, "envVar")};
+    auto const id = read_can_id(m, path);
+    if (kind == "message")
+        return DbcAttrTargetMessage{.id = id};
+    if (kind == "signal")
+        return DbcAttrTargetSignal{.id = id, .signal = field_string(m, path, "signal")};
+    auto node = NodeName{field_string(m, path, "node")};
     if (kind == "nodeMsg")
-        return DbcAttrTargetNodeMsg{.node = NodeName{j.at("node").get<std::string>()},
-                                    .id = parse_target_can_id(j)};
-    if (kind == "nodeSig")
-        return DbcAttrTargetNodeSig{.node = NodeName{j.at("node").get<std::string>()},
-                                    .id = parse_target_can_id(j),
-                                    .signal = j.at("signal").get<std::string>()};
-    throw std::runtime_error("Unknown attribute target kind: " + kind);
+        return DbcAttrTargetNodeMsg{.node = std::move(node), .id = id};
+    return DbcAttrTargetNodeSig{
+        .node = std::move(node), .id = id, .signal = field_string(m, path, "signal")};
 }
 
-static auto parse_attribute(Json const& j) -> DbcAttribute {
-    auto const kind = j.at("kind").get<std::string>();
+// One attribute entry, "assignment" its last arm.
+static auto read_attribute(Json const& m, ReplyPath const& path) -> DbcAttribute {
+    auto const kind = field_string(m, path, "kind");
+    auto name = field_string(m, path, "name");
     if (kind == "definition")
         return DbcAttrDef{
-            .name = j.at("name").get<std::string>(),
-            .scope = parse_attr_scope(j.at("scope").get<std::string>()),
-            .attr_type = parse_attr_type(j.at("attrType")),
+            .name = std::move(name),
+            .scope = lookup(attr_scope_table, field_string(m, path, "scope"))
+                         .value_or(DbcAttrScope::NodeSig),
+            .attr_type = field_object_of(m, path, "attrType", read_attr_type),
         };
     if (kind == "default")
         return DbcAttrDefault{
-            .name = j.at("name").get<std::string>(),
-            .value = parse_attr_value(j.at("value")),
+            .name = std::move(name),
+            .value = field_object_of(m, path, "value", read_attr_value),
         };
-    if (kind == "assignment")
-        return DbcAttrAssign{
-            .name = j.at("name").get<std::string>(),
-            .target = parse_attr_target(j.at("target")),
-            .value = parse_attr_value(j.at("value")),
-        };
-    throw std::runtime_error("Unknown attribute kind: " + kind);
-}
-
-// Inverse of json_serialize.cpp's raw_value_desc_to_json.
-// Reads one unresolved RawValueDesc from the wire — message-id pair (id +
-// optional extended) plus signalName + entries array. Wire shape is fixed
-// at the cross-binding boundary, mirrored by Python `_normalize_raw_value_desc`
-// and Go `parseUnresolvedValueDescs`.
-static auto parse_raw_value_desc(Json const& j) -> DbcRawValueDesc {
-    auto const id_val = require_uint<std::uint32_t>(j.at("id"), "CAN id");
-    auto const extended = j.value("extended", false);
-    auto const can_id = json_to_can_id(id_val, extended);
-    std::vector<DbcValueEntry> entries;
-    for (auto const& e : j.at("entries"))
-        entries.push_back(parse_value_entry(e, "value-description value"));
-    return DbcRawValueDesc{
-        .can_id = can_id,
-        .signal_name = j.at("signalName").get<std::string>(),
-        .entries = std::move(entries),
+    return DbcAttrAssign{
+        .name = std::move(name),
+        .target = field_object_of(m, path, "target", read_attr_target),
+        .value = field_object_of(m, path, "value", read_attr_value),
     };
 }
 
-auto parse_dbc_definition(Json const& j) -> DbcDefinition {
-    // `messages` is required; every metadata array is optional on the wire and
-    // absent reads the same as empty.
-    std::vector<DbcMessage> messages;
-    for (auto const& m : j.at("messages"))
-        messages.push_back(parse_message_def(m));
+auto parse_dbc_definition(Json const& dbc) -> DbcDefinition {
+    auto const path = ReplyPath{}.at("dbc");
     return DbcDefinition{
-        .version = j.value("version", ""),
-        .messages = std::move(messages),
-        .signal_groups = parse_optional_array(j, "signalGroups", parse_signal_group),
-        .environment_vars = parse_optional_array(j, "environmentVars", parse_env_var),
-        .value_tables = parse_optional_array(j, "valueTables", parse_value_table),
-        .nodes = parse_optional_array(j, "nodes", parse_node),
-        .comments = parse_optional_array(j, "comments", parse_comment),
-        .attributes = parse_optional_array(j, "attributes", parse_attribute),
+        .version = field_string(dbc, path, "version"),
+        .messages = field_objects(dbc, path, "messages", read_message),
+        .signal_groups = field_objects(dbc, path, "signalGroups", read_signal_group),
+        .environment_vars = field_objects(dbc, path, "environmentVars", read_environment_var),
+        .value_tables = field_objects(dbc, path, "valueTables", read_value_table),
+        .nodes = field_objects(dbc, path, "nodes", read_node),
+        .comments = field_objects(dbc, path, "comments", read_comment),
+        .attributes = field_objects(dbc, path, "attributes", read_attribute),
         .unresolved_value_descs =
-            parse_optional_array(j, "unresolvedValueDescs", parse_raw_value_desc),
+            field_objects(dbc, path, "unresolvedValueDescs", read_raw_value_desc),
     };
 }
 

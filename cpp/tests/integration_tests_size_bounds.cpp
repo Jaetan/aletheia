@@ -26,6 +26,7 @@
 #include "bounds_dbc.hpp"
 #include "find_lib.hpp"
 #include "required.hpp"
+#include "u128_testing.hpp"
 
 using aletheia::test::required;
 
@@ -121,8 +122,7 @@ static auto with_multiplex_values(std::uint64_t count) -> DbcDefinition {
     muxed.start_bit = BitPosition{8};
     muxed.presence = Multiplexed{
         .multiplexor = SignalName{"Mx"},
-        .multiplex_values = generate(
-            count, [](std::uint64_t i) { return MultiplexValue{static_cast<std::uint32_t>(i)}; }),
+        .multiplex_values = generate(count, [](std::uint64_t i) { return MultiplexValue{i}; }),
     };
     auto dbc = make_bounds_dbc();
     dbc.messages = {make_bit_message(256, {std::move(selector), std::move(muxed)})};

@@ -23,12 +23,13 @@
 #include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
 #include "required.hpp"
+#include "u128_testing.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
-#include <cstdint>
+#include <limits>
 #include <memory>
 #include <stop_token>
 #include <string>
@@ -71,7 +72,8 @@ TEST_CASE("Numeric limit constants mirror Aletheia.Limits values", "[input_bound
     CHECK(aletheia::max_string_length_characters == 64ULL * 1024);
     CHECK(aletheia::max_atom_count_per_property == 1024);
     CHECK(aletheia::max_properties_per_stream == 1024);
-    CHECK(aletheia::max_rational_component_magnitude == 9'223'372'036'854'775'807);
+    CHECK(aletheia::max_rational_component_magnitude ==
+          std::numeric_limits<unsigned __int128>::max());
 }
 
 TEST_CASE("BoundKind wire codes mirror boundKindCode in Aletheia.Limits", "[input_bounds]") {
@@ -127,17 +129,17 @@ TEST_CASE("the binary entries' frame and signal-value refusals map from string",
           aletheia::ErrorCode::ParseTimestampPastWire);
 }
 
-// Every detail::parse_* callsite uses the parse_bounded helper
-// which enforces nlohmann's nesting depth via a SAX callback. Defense-in-depth
+// Every detail::parse_* reads its reply through detail::parse_json, which holds
+// every event of nlohmann's SAX parse to max_nesting_depth. Defense-in-depth
 // against malformed-but-bound-passing responses (the FFI-entry size cap fires
 // first for oversize inputs; a 1 MiB response with 10⁵ nesting still depth-
 // bombs the recursive-descent parser via stack overflow without this guard).
 //
 // The cases pick parse_success as a representative entry point; every
-// detail::parse_* entry point goes through parse_bounded, so the depth bound
+// detail::parse_* entry point goes through parse_json, so the depth bound
 // covers them uniformly.
 
-TEST_CASE("parse_bounded rejects JSON exceeding nesting depth", "[input_bounds]") {
+TEST_CASE("parse_json rejects JSON exceeding nesting depth", "[input_bounds]") {
     // Build a JSON with (max_nesting_depth + 1) levels of array nesting.
     std::string deep_json;
     deep_json.reserve(2 * (aletheia::max_nesting_depth + 2));
@@ -145,31 +147,27 @@ TEST_CASE("parse_bounded rejects JSON exceeding nesting depth", "[input_bounds]"
     deep_json += '1';
     deep_json.append(aletheia::max_nesting_depth + 1, ']');
 
+    // The scalar inside the innermost array is the event past the bound.
     auto const result = aletheia::detail::parse_success(deep_json);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::Protocol);
-    CHECK_THAT(std::string{result.error().message()},
-               Catch::Matchers::ContainsSubstring("nesting depth"));
-    CHECK_THAT(std::string{result.error().message()},
-               Catch::Matchers::ContainsSubstring("exceeds limit"));
+    CHECK(result.error().message() ==
+          "reply: expected JSON text, got JSON nesting depth 65 exceeds limit 64");
 }
 
-TEST_CASE("parse_bounded accepts JSON at nesting depth", "[input_bounds]") {
-    // Build a JSON at exactly max_nesting_depth - 1 levels (well within bound).
+TEST_CASE("parse_json accepts JSON at nesting depth", "[input_bounds]") {
+    // A value at the bound itself: the scalar sits inside max_nesting_depth
+    // arrays.
     std::string ok_json;
-    constexpr std::uint64_t safe_depth = 10;
-    ok_json.append(safe_depth, '[');
-    ok_json += R"({"status": "success"})";
-    ok_json.append(safe_depth, ']');
+    ok_json.append(aletheia::max_nesting_depth, '[');
+    ok_json += '1';
+    ok_json.append(aletheia::max_nesting_depth, ']');
 
-    // parse_success rejects this for non-success status (it's wrapped in arrays),
-    // but the depth-bound itself does not fire.  Verify the error message does
-    // NOT mention nesting depth — ie the depth callback ran without throwing.
+    // parse_success refuses this for not being an object, which it could
+    // only say once the depth bound let the whole text be read.
     auto const result = aletheia::detail::parse_success(ok_json);
-    if (!result.has_value()) {
-        CHECK_THAT(std::string{result.error().message()},
-                   !Catch::Matchers::ContainsSubstring("nesting depth"));
-    }
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().message() == "reply: expected object, got array");
 }
 
 // parse_dbc_text pre-checks the inner text size against max_dbc_text_bytes
@@ -230,17 +228,17 @@ TEST_CASE("Input-bound error JSON lifts structured fields into bound_info", "[in
     CHECK_FALSE(result.error().bound_info()->field.has_value());
 }
 
-TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt",
+TEST_CASE("Input-bound error JSON without structured fields is refused at its bound_kind",
           "[input_bounds]") {
-    // Older Agda responses emit only `code` and `message`.
-    // The kind/code lifting still applies; bound_info() stays nullopt.
+    // The kernel writes the triple on every bound refusal, so an envelope
+    // without it is the wire's fault, refused as every reply place is.
     std::string const err_json = R"({"status":"error",)"
                                  R"("code":"input_bound_exceeded",)"
                                  R"("message":"input length exceeded"})";
     auto const result = aletheia::detail::parse_success(err_json);
     REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
-    CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
+    CHECK(result.error().kind() == aletheia::ErrorKind::Protocol);
+    CHECK(result.error().message() == "reply bound_kind: expected string, got nothing");
     CHECK_FALSE(result.error().bound_info().has_value());
 }
 

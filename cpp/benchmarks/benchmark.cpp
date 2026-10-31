@@ -13,6 +13,7 @@
 #include "benchmark_scaling.hpp"
 #include "benchmark_system.hpp"
 #include "benchmark_throughput.hpp"
+#include "measure.hpp"
 
 #include <aletheia/aletheia.hpp>
 #include <aletheia/detail/checked.hpp>
@@ -245,6 +246,10 @@ static auto run(std::span<char* const> argv) -> int try {
         out_file() = stderr;
 
     auto const lib = find_lib();
+    // Every mode builds its properties through the kernel's build-time check,
+    // some before their first client opens, so the runtime starts here, on
+    // the one core every client then finds running.
+    aletheia::bench::value_or_throw(aletheia::start_runtime(lib, 1));
 
     // Every mode's report is on stdout: the text tables, or the JSON report
     // under --json.

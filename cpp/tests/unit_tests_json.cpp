@@ -30,6 +30,20 @@ using Json = nlohmann::json;
 using aletheia::test::make_test_dbc;
 using Catch::Matchers::ContainsSubstring;
 
+// The reply the kernel writes for make_test_dbc(), every key it writes
+// present, with `edit` applied to it.
+template<typename Edit>
+static auto test_dbc_reply(Edit edit) -> std::string {
+    auto reply = Json::parse(aletheia::test::parsed_dbc_response_for(make_test_dbc()));
+    edit(reply);
+    return reply.dump();
+}
+
+// The signal of test_dbc_reply's one message.
+static auto only_signal(Json& reply) -> Json& {
+    return reply["dbc"]["messages"][0]["signals"][0];
+}
+
 // ===========================================================================
 // JSON Serialization tests
 // ===========================================================================
@@ -49,8 +63,9 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     CHECK(msg["name"] == "VehicleSpeed");
     CHECK(msg["dlc"] == 8);
     CHECK(msg["sender"] == "ECU1");
-    // "extended" is omitted on standard 11-bit frames (Agda wire convention).
-    CHECK_FALSE(msg.contains("extended"));
+    // "extended" is written on every identifier, as the kernel's formatter
+    // writes it.
+    CHECK(msg["extended"] == false);
 
     auto& sig = msg["signals"][0];
     CHECK(sig["name"] == "Speed");
@@ -69,8 +84,8 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
 }
 
 TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]") {
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     auto const str = required(detail::serialize_set_properties(props));
@@ -156,8 +171,9 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
 }
 
 TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
-    auto inner = ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{Rational{1, 1}}));
-    auto formula = ltl::always_within(Timestamp{2'000'000}, std::move(inner));
+    auto inner =
+        ltl::atomic(required(ltl::equals(SignalName{"Brake"}, PhysicalValue{Rational{1, 1}})));
+    auto formula = required(ltl::always_within(TimeBound{2'000'000}, std::move(inner)));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     auto const str = required(detail::serialize_set_properties(props));
@@ -168,8 +184,8 @@ TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
 }
 
 TEST_CASE("serialize all predicate types", "[json][serialize]") {
-    auto const check = [](Predicate p, std::string const& expected) {
-        auto formula = ltl::atomic(std::move(p));
+    auto const check = [](Result<Predicate> p, std::string const& expected) {
+        auto formula = ltl::atomic(required(std::move(p)));
         std::vector<LtlFormula> props;
         props.push_back(std::move(formula));
         auto const str = required(detail::serialize_set_properties(props));
@@ -211,7 +227,7 @@ TEST_CASE("parse_success rejects \"ack\" status", "[json][parse]") {
     auto const result = detail::parse_success(R"({"status": "ack"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected status"));
+    CHECK(result.error().message() == R"(reply status: expected "success" or "error", got "ack")");
 }
 
 TEST_CASE("parse_event_ack on ack response", "[json][parse]") {
@@ -225,7 +241,7 @@ TEST_CASE("parse_event_ack rejects \"success\" status", "[json][parse]") {
     auto const result = detail::parse_event_ack(R"({"status": "success"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected status"));
+    CHECK(result.error().message() == R"(reply status: expected "ack" or "error", got "success")");
 }
 
 TEST_CASE("parse_event_ack on error response", "[json][parse]") {
@@ -291,46 +307,25 @@ TEST_CASE("parse_extraction with rational values", "[json][parse]") {
     CHECK(result->values[0].value == PhysicalValue{Rational{1, 3}});
 }
 
-// ── Mutation-kill cases for the binding's rational JSON parsing ─────────────
-// The kernel is proven and the wire parsing here is only tested, so the
-// mutation sweep is what holds these two parsers, parse_rational_dict and
-// parse_rational_as_int, and each case below names the mutant it kills.
-
-TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][parse][error]") {
-    // {1,-3} must be REJECTED, not silently sign-normalized: the kernel emits a
-    // positive denominator (ℕ⁺ invariant), so a negative one is a wire-format
-    // violation.  Mirrors Python / Go / Rust, which all reject den <= 0 at the
-    // wire rather than rewriting it.
-    auto const result = detail::parse_extraction(R"({
-        "status": "success",
-        "values": [{"name": "Ratio", "value": {"numerator": 1, "denominator": -3}}],
-        "errors": [],
-        "absent": []
-    })");
-    CHECK_FALSE(result.has_value());
-}
-
-// ── Strict-integer wire decoder: reject floats in integer-only positions ─────
-// The FFI wire and DBC integer-position fields carry exact integers or
-// {numerator, denominator} rationals only.  nlohmann silently static_casts a
-// JSON float to an integer type on get<intT>() (5.9 -> 5) *before* any range
-// check runs, so an unguarded read would corrupt the value rather than reject
-// it.  These tests pin the reject-float behavior across the three regions
-// (parse_signal_value, parse_rational_dict, the integer-position helpers).
-// Go, Rust, and Python already reject floats here.
+// ── A number with a fraction where the kernel writes a whole number ──────────
+// The kernel writes a whole number as digits and a fraction as a
+// {numerator, denominator} object, never a number with a fraction or an
+// exponent, so a reader refuses one wherever it comes rather than truncating
+// it to a whole number the reply never stated. The refusal names the place,
+// in the one form of detail/reply_shape.hpp.
 
 TEST_CASE("parse_extraction rejects a float signal value", "[json][parse][validation]") {
-    // Region 1, parse_signal_value: a bare float is a wire-format violation,
-    // not a value to approximate. Exact rationals travel as a numerator and a
-    // denominator; decimals are parsed by the kernel's own decimal source of
-    // truth.
+    // A bare float is not a value to approximate: exact rationals travel as a
+    // numerator and a denominator.
     auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Speed", "value": 120.5}],
         "errors": [],
         "absent": []
     })");
-    CHECK_FALSE(result.has_value());
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK(result.error().message() == "reply values/value: expected a rational, got number");
 }
 
 TEST_CASE("parse_extraction still accepts integer and rational signal values",
@@ -353,52 +348,43 @@ TEST_CASE("parse_extraction still accepts integer and rational signal values",
 }
 
 TEST_CASE("parse_extraction rejects a float rational component", "[json][parse][validation]") {
-    // Region 2: parse_rational_dict guards numerator/denominator.  Without the
-    // guard {"numerator": 1.5, ...} truncates to 1, fabricating the value 1/2.
+    // {"numerator": 1.5, ...} truncated to 1 would fabricate the value 1/2.
     auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Ratio", "value": {"numerator": 1.5, "denominator": 2}}],
         "errors": [],
         "absent": []
     })");
-    CHECK_FALSE(result.has_value());
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().message() == "reply values/value: expected a rational, got object");
 }
 
 TEST_CASE("parse_dbc_response rejects a float in a signed integer position",
           "[json][parse][validation]") {
-    // valueDescriptions[].value is a signed integer position (require_int): a
-    // float must be rejected rather than truncated.
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "", "messages": [{
-            "id": 256, "name": "M", "dlc": 8, "sender": "", "extended": false,
-            "signals": [{
-                "name": "S", "startBit": 0, "length": 8, "byteOrder": "little_endian",
-                "signed": false, "factor": 1, "offset": 0, "minimum": 0, "maximum": 255,
-                "unit": "", "presence": "always",
-                "valueDescriptions": [{"value": 1.5, "description": "x"}]
-            }]
-        }]}
-    })");
-    CHECK_FALSE(result.has_value());
+    // valueDescriptions[].value is a signed whole number: a float is refused
+    // rather than truncated.
+    auto const result = detail::parse_dbc_response(test_dbc_reply([](Json& reply) {
+        only_signal(reply)["valueDescriptions"] =
+            Json::parse(R"([{"value": 1.5, "description": "x"}])");
+    }));
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().message() ==
+          "reply dbc/messages/signals/valueDescriptions/value: expected number, got number");
 }
 
 TEST_CASE("parse_dbc_response rejects a float startBit instead of truncating",
           "[json][parse][validation]") {
-    // startBit 5.5 truncates to 5, which is inside the 0-511 range — so the bug
-    // would silently accept the signal with the WRONG start bit.  Pin the
-    // boundary: the float is rejected, and integer 5 at the same position still
-    // decodes to start_bit == 5.  (Removing the require_uint guard flips the
-    // first CHECK_FALSE green->red.)
-    auto const make = [](std::string const& start_bit) {
-        return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
-               R"("id":256,"name":"M","dlc":8,"sender":"","extended":false,"signals":[{)" +
-               R"("name":"S","startBit":)" + start_bit +
-               R"(,"length":8,"byteOrder":"little_endian","signed":false,)" +
-               R"("factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always"}]}]}})";
+    // startBit 5.5 truncated to 5 would read a signal at a start bit the reply
+    // never stated. Pin the boundary: the float is refused, and integer 5 at
+    // the same place still decodes to start_bit == 5.
+    auto const make = [](Json const& start_bit) {
+        return test_dbc_reply([&](Json& reply) { only_signal(reply)["startBit"] = start_bit; });
     };
-    CHECK_FALSE(detail::parse_dbc_response(make("5.5")).has_value());
-    auto const ok = detail::parse_dbc_response(make("5"));
+    auto const bad = detail::parse_dbc_response(make(5.5));
+    REQUIRE_FALSE(bad.has_value());
+    CHECK(bad.error().message() ==
+          "reply dbc/messages/signals/startBit: expected number, got number");
+    auto const ok = detail::parse_dbc_response(make(5));
     REQUIRE(ok.has_value());
     REQUIRE(ok->messages.size() == 1);
     REQUIRE(ok->messages[0].signals.size() == 1);
@@ -407,54 +393,39 @@ TEST_CASE("parse_dbc_response rejects a float startBit instead of truncating",
 
 TEST_CASE("parse_dbc_response rejects a float in unsigned id and dlc positions",
           "[json][parse][validation]") {
-    // CAN id and dlc are unsigned positions (require_uint).  A float in either
-    // truncates to an in-range integer without the guard.
-    auto const make = [](std::string const& id, std::string const& dlc) {
-        return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
-               R"("id":)" + id + R"(,"name":"M","dlc":)" + dlc +
-               R"(,"sender":"","extended":false,"signals":[]}]}})";
+    // CAN id and dlc are natural places. A float in either, truncated, would
+    // be a number the reply never stated.
+    auto const make = [](Json const& id, Json const& dlc) {
+        return test_dbc_reply([&](Json& reply) {
+            reply["dbc"]["messages"][0]["id"] = id;
+            reply["dbc"]["messages"][0]["dlc"] = dlc;
+        });
     };
-    CHECK_FALSE(detail::parse_dbc_response(make("256.5", "8")).has_value());
-    CHECK_FALSE(detail::parse_dbc_response(make("256", "8.5")).has_value());
+    auto const bad_id = detail::parse_dbc_response(make(256.5, 8));
+    REQUIRE_FALSE(bad_id.has_value());
+    CHECK(bad_id.error().message() == "reply dbc/messages/id: expected number, got number");
+    auto const bad_dlc = detail::parse_dbc_response(make(256, 8.5));
+    REQUIRE_FALSE(bad_dlc.has_value());
+    CHECK(bad_dlc.error().message() == "reply dbc/messages/dlc: expected number, got number");
 }
 
 TEST_CASE("parse_frame_data rejects a float data byte", "[json][parse][validation]") {
-    // Frame data bytes are an unsigned position (require_uint): a float byte
-    // must be rejected, not truncated.
+    // Frame data bytes are natural places: a float byte is refused, not
+    // truncated.
     auto const bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 2.5, 3]})");
-    CHECK_FALSE(bad.has_value());
+    REQUIRE_FALSE(bad.has_value());
+    CHECK(bad.error().message() == "reply data: expected number, got number");
     auto const ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
     REQUIRE(ok.has_value());
     CHECK(ok->size() == 3);
 }
 
-TEST_CASE("parse_frame_response integer property_index uses exact division",
-          "[json][parse][mutation]") {
-    // property_index {6,3} -> 2 (an integer field divides). Kills the
-    // division-to-multiplication mutant on the return in parse_rational_as_int,
-    // whose product would be 18.
+TEST_CASE("parse_frame_response accepts a zero timestamp", "[json][parse]") {
+    // A timestamp of zero, a trace's first instant, is read as itself.
     auto const result = detail::parse_frame_response(R"({
         "type": "property_batch",
-        "results": [{"type": "property", "status": "fails",
-                     "property_index": {"numerator": 6, "denominator": 3},
-                     "timestamp": {"numerator": 3000000, "denominator": 1}}]
-    })");
-    REQUIRE(result.has_value());
-    auto const& b = std::get<PropertyBatch>(*result);
-    auto const* v = b.first_violation();
-    REQUIRE(v != nullptr);
-    CHECK(v->property_index == PropertyIndex{2});
-}
-
-TEST_CASE("parse_frame_response accepts a zero timestamp", "[json][parse][mutation]") {
-    // A timestamp of zero is the legal lower boundary. Kills the
-    // less-than-to-less-or-equal mutant on the negative-timestamp refusal in
-    // the property-result parser, which would reject zero.
-    auto const result = detail::parse_frame_response(R"({
-        "type": "property_batch",
-        "results": [{"type": "property", "status": "fails",
-                     "property_index": {"numerator": 1, "denominator": 1},
-                     "timestamp": {"numerator": 0, "denominator": 1}}]
+        "results": [{"type": "property", "status": "fails", "property_index": 1,
+                     "timestamp": 0, "reason": "Speed exceeded limit"}]
     })");
     REQUIRE(result.has_value());
     auto const& b = std::get<PropertyBatch>(*result);
@@ -516,25 +487,6 @@ TEST_CASE("parse_frame_response violation", "[json][parse]") {
     CHECK(v->reason == "Speed exceeded limit");
 }
 
-TEST_CASE("parse_frame_response violation with rational index", "[json][parse]") {
-    auto const result = detail::parse_frame_response(R"({
-        "type": "property_batch",
-        "results": [{
-            "type": "property",
-            "status": "fails",
-            "property_index": {"numerator": 2, "denominator": 1},
-            "timestamp": {"numerator": 3000000, "denominator": 1}
-        }]
-    })");
-    REQUIRE(result.has_value());
-    auto const& b = std::get<PropertyBatch>(*result);
-    auto const* v = b.first_violation();
-    REQUIRE(v != nullptr);
-    CHECK(v->property_index == PropertyIndex{2});
-    REQUIRE(v->timestamp.has_value());
-    CHECK(*v->timestamp == Timestamp{3'000'000});
-}
-
 TEST_CASE("parse_stream_result complete", "[json][parse]") {
     auto const result = detail::parse_stream_result(R"({
         "status": "complete",
@@ -544,7 +496,8 @@ TEST_CASE("parse_stream_result complete", "[json][parse]") {
              "timestamp": 5000000, "reason": "Never satisfied"},
             {"type": "property", "status": "unresolved", "property_index": 2,
              "reason": "Atomic: predicate never resolved at end of stream"}
-        ]
+        ],
+        "warnings": []
     })");
     REQUIRE(result.has_value());
     CHECK(result->results.size() == 3);
@@ -568,6 +521,7 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
                 "name": "TestMsg",
                 "dlc": 8,
                 "sender": "Node1",
+                "senders": [],
                 "extended": false,
                 "signals": [{
                     "name": "Sig1",
@@ -580,9 +534,13 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
                     "minimum": 0,
                     "maximum": 255,
                     "unit": "",
+                    "receivers": [],
+                    "valueDescriptions": [],
                     "presence": "always"
                 }]
-            }]
+            }],
+            "signalGroups": [], "environmentVars": [], "valueTables": [], "nodes": [],
+            "comments": [], "attributes": [], "unresolvedValueDescs": []
         }
     })");
     REQUIRE(result.has_value());
@@ -594,21 +552,13 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
 }
 
 TEST_CASE("parse_dbc_response reads a signed signal as signed", "[json][parse]") {
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {
-            "version": "",
-            "messages": [{
-                "id": 256, "name": "TestMsg", "dlc": 8, "sender": "Node1", "extended": false,
-                "signals": [{
-                    "name": "Torque", "startBit": 0, "length": 16,
-                    "byteOrder": "little_endian", "signed": true,
-                    "factor": 1, "offset": 0, "minimum": -32768, "maximum": 32767,
-                    "unit": "Nm", "presence": "always"
-                }]
-            }]
-        }
-    })");
+    auto const result = detail::parse_dbc_response(test_dbc_reply([](Json& reply) {
+        auto& sig = only_signal(reply);
+        sig["signed"] = true;
+        sig["minimum"] = -32768;
+        sig["maximum"] = 32767;
+    }));
     REQUIRE(result.has_value());
     CHECK(result->messages[0].signals[0].is_signed);
+    CHECK(result->messages[0].signals[0].minimum == RationalBound{Rational{-32768, 1}});
 }

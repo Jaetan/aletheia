@@ -70,6 +70,8 @@ start_runtime(1)
 checks.signal("Speed").never_exceeds(220)
 ```
 ```cpp
+if (!aletheia::start_runtime_from_env(1))
+    return 1;
 [[maybe_unused]] auto _check =
     aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue{aletheia::Rational{220, 1}});
 ```
@@ -93,9 +95,14 @@ start_runtime(1)
 Signal("Speed").less_than(220).always()
 ```
 ```cpp
-[[maybe_unused]] auto _formula = aletheia::ltl::always(aletheia::ltl::atomic(
+if (!aletheia::start_runtime_from_env(1))
+    return 1;
+[[maybe_unused]] auto _formula =
     aletheia::ltl::less_than(aletheia::SignalName{"Speed"},
-                             aletheia::PhysicalValue{aletheia::Rational{220, 1}})));
+                             aletheia::PhysicalValue{aletheia::Rational{220, 1}})
+        .transform([](aletheia::Predicate p) {
+            return aletheia::ltl::always(aletheia::ltl::atomic(std::move(p)));
+        });
 ```
 ```go
 _ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}}

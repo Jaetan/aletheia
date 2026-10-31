@@ -15,7 +15,6 @@
 #include <array>
 #include <cctype>
 #include <charconv>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -32,7 +31,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -50,6 +48,11 @@ static auto sv_end_ptr(std::string_view sv) -> char const* {
 // Sheet headers
 // ---------------------------------------------------------------------------
 
+// The columns a time bound is read from, in whole microseconds: a settling
+// check's and an obligation's.
+constexpr std::string_view time_header = "Time (\u00b5s)";
+constexpr std::string_view within_header = "Within (\u00b5s)";
+
 // Construct-on-first-use: function-local statics make any (vector-allocation)
 // throw happen lazily on first call — catchable — rather than during static
 // initialization before main() (bugprone-throwing-static-initialization).
@@ -64,16 +67,17 @@ static auto dbc_headers() -> std::vector<std::string> const& {
 
 static auto checks_headers() -> std::vector<std::string> const& {
     static std::vector<std::string> const h = {
-        "Check Name", "Signal", "Condition", "Value", "Min", "Max", "Time (ms)", "Severity",
+        "Check Name", "Signal", "Condition", "Value", "Min", "Max", std::string{time_header},
+        "Severity",
     };
     return h;
 }
 
 static auto when_then_headers() -> std::vector<std::string> const& {
     static std::vector<std::string> const h = {
-        "Check Name",  "When Signal",    "When Condition", "When Value",
-        "Then Signal", "Then Condition", "Then Value",     "Then Min",
-        "Then Max",    "Within (ms)",    "Severity",
+        "Check Name",     "When Signal", "When Condition", "When Value", "Then Signal",
+        "Then Condition", "Then Value",  "Then Min",       "Then Max",   std::string{within_header},
+        "Severity",
     };
     return h;
 }
@@ -241,14 +245,12 @@ static auto get_any(CellMap const& cells, std::string const& key, std::string co
     return require_cell(cells, key, ctx_str, "").value;
 }
 
-// get_decimal requires a TEXT cell holding a decimal literal.  The float
+// numeric_text requires a TEXT cell and answers its text, its leading and
+// trailing ASCII whitespace trimmed, for the kernel to read.  The float
 // principle refuses a number-typed cell: a float64 has already lost the
-// authored precision, so numeric fields are authored as text-formatted cells,
-// whose text, its leading and trailing ASCII whitespace trimmed, is read by
-// `detail::read_decimal`, located at the row and the column header.  The
-// runtime must be up (`start_runtime` or a backend).
-static auto get_decimal(CellMap const& cells, std::string const& key, std::string const& ctx_str)
-    -> Rational {
+// authored precision, so numeric fields are authored as text-formatted cells.
+static auto numeric_text(CellMap const& cells, std::string const& key, std::string const& ctx_str)
+    -> std::string_view {
     auto const& cell = require_cell(cells, key, ctx_str, " (expected number)");
     if (!cell.is_text)
         throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " + cell.value +
@@ -256,31 +258,47 @@ static auto get_decimal(CellMap const& cells, std::string const& key, std::strin
                                  "(a number cell stores a lossy float)");
     auto const raw = std::string_view{cell.value};
     auto const first = raw.find_first_not_of(ascii_whitespace);
-    auto const text = raw.substr(first, raw.find_last_not_of(ascii_whitespace) - first + 1);
-    return detail::read_decimal(text, ctx_str, key);
+    return raw.substr(first, raw.find_last_not_of(ascii_whitespace) - first + 1);
 }
 
-// get_int is get_decimal plus a whole-number requirement (DLC / Start Bit /
-// Length / Multiplex Value / Time), so it inherits the text-cell contract and
-// the kernel refusal handling.
-static auto get_int(CellMap const& cells, std::string const& key, std::string const& ctx_str)
-    -> std::int64_t {
+// get_decimal reads a numeric cell's text through `detail::read_decimal`,
+// located at the row and the column header.  The runtime must be up
+// (`start_runtime` or a backend).
+static auto get_decimal(CellMap const& cells, std::string const& key, std::string const& ctx_str)
+    -> Rational {
+    return detail::read_decimal(numeric_text(cells, key, ctx_str), ctx_str, key);
+}
+
+// get_time_bound reads a numeric cell's text as whole microseconds through
+// `detail::read_time_bound`, located at the row and the column header.
+static auto get_time_bound(CellMap const& cells, std::string const& key, std::string const& ctx_str)
+    -> TimeBound {
+    return detail::read_time_bound(numeric_text(cells, key, ctx_str), ctx_str, key);
+}
+
+// get_whole is get_decimal plus a whole-number requirement (DLC / Start Bit /
+// Length / Multiplex Value), so it inherits the text-cell contract and the
+// kernel refusal handling.
+static auto get_whole(CellMap const& cells, std::string const& key, std::string const& ctx_str)
+    -> SignMagnitude {
     auto const value = get_decimal(cells, key, ctx_str);
     if (value.denominator() != 1)
         throw std::runtime_error(ctx_str + ": '" + key + "' value " +
                                  cells.find(key)->second.value + " is not a whole number");
-    return value.numerator();
+    return SignMagnitude{.negative = value.negative(), .magnitude = value.numerator()};
 }
 
-// Refuse a whole-number cell that does not fit the field's type, naming the
-// field and the bound it crossed.
-template<typename T>
-static auto checked_cast(std::int64_t value, std::string_view field, std::string const& ctx_str)
-    -> T {
-    if (value < 0 || std::cmp_greater(value, std::numeric_limits<T>::max()))
-        throw std::runtime_error(std::format("{}: '{}' out of range [0, {}]: {}", ctx_str, field,
-                                             std::numeric_limits<T>::max(), value));
-    return static_cast<T>(value);
+// get_uint16 is a whole number a 16-bit field (Start Bit / Length) holds,
+// refusing one it cannot; the kernel decides the field's range when it reads
+// the definition.
+static auto get_uint16(CellMap const& cells, std::string const& key, std::string const& ctx_str)
+    -> std::uint16_t {
+    constexpr auto max = std::numeric_limits<std::uint16_t>::max();
+    auto const value = get_whole(cells, key, ctx_str);
+    if (value.negative || value.magnitude > max)
+        throw std::runtime_error(
+            std::format("{}: '{}' {} out of range [0, {}]", ctx_str, key, value, max));
+    return static_cast<std::uint16_t>(value.magnitude);
 }
 
 // get_bool accepts the multi-form boolean the peer bindings accept: a native
@@ -371,7 +389,7 @@ static auto parse_simple_row(CellMap const& cells, int row_num) -> CheckResult {
     auto result = [&] -> CheckResult {
         if (detail::is_simple_value_condition(condition)) {
             auto const value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
-            return detail::dispatch_simple(signal, condition, value);
+            return detail::built_check(detail::dispatch_simple(signal, condition, value));
         }
         if (detail::is_simple_range_condition(condition)) {
             if (!has_key(cells, "Min") || !has_key(cells, "Max"))
@@ -385,16 +403,18 @@ static auto parse_simple_row(CellMap const& cells, int row_num) -> CheckResult {
             if (!has_key(cells, "Min") || !has_key(cells, "Max"))
                 throw std::runtime_error(ctx_str +
                                          ": condition 'settles_between' requires 'Min' and 'Max'");
-            if (!has_key(cells, "Time (ms)"))
-                throw std::runtime_error(ctx_str +
-                                         ": condition 'settles_between' requires 'Time (ms)'");
+            std::string const time_key{time_header};
+            if (!has_key(cells, time_key))
+                throw std::runtime_error(ctx_str + ": condition 'settles_between' requires '" +
+                                         time_key + "'");
             auto const lo = PhysicalValue{get_decimal(cells, "Min", ctx_str)};
             auto const hi = PhysicalValue{get_decimal(cells, "Max", ctx_str)};
-            auto const ms = std::chrono::milliseconds{get_int(cells, "Time (ms)", ctx_str)};
-            return detail::built_check(check::signal(signal).settles_between(lo, hi).within(ms));
+            auto const within = get_time_bound(cells, time_key, ctx_str);
+            return detail::built_check(
+                check::signal(signal).settles_between(lo, hi).within(within));
         }
         auto const value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
-        return check::signal(signal).equals(value).always();
+        return detail::built_check(check::signal(signal).equals(value).always());
     }();
 
     apply_row_metadata(result, cells, ctx_str);
@@ -427,7 +447,7 @@ static auto parse_when_then_row(CellMap const& cells, int row_num) -> CheckResul
         throw std::runtime_error(ctx_str + ": unknown then condition '" + then_cond + "'");
 
     auto const then_builder = when_result.then(then_signal);
-    auto const within_ms = std::chrono::milliseconds{get_int(cells, "Within (ms)", ctx_str)};
+    auto const within = get_time_bound(cells, std::string{within_header}, ctx_str);
 
     // Which columns the obligation reads is the vocabulary's business, not
     // this loader's; which columns they are, and what to say when one is
@@ -447,7 +467,7 @@ static auto parse_when_then_row(CellMap const& cells, int row_num) -> CheckResul
             read.emplace("hi", PhysicalValue{get_decimal(cells, "Then Max", ctx_str)});
             break;
         }
-        return detail::dispatch_then(then_builder, then_cond, read, within_ms);
+        return detail::built_check(detail::dispatch_then(then_builder, then_cond, read, within));
     }();
 
     apply_row_metadata(result, cells, ctx_str);
@@ -488,18 +508,20 @@ static auto parse_dbc_signal(CellMap const& cells, int row_num) -> DbcSignal {
 
     SignalPresence presence;
     if (has_muxor) {
-        auto const mux_val = checked_cast<std::uint32_t>(get_int(cells, "Multiplex Value", ctx_str),
-                                                         "Multiplex Value", ctx_str);
+        // A multiplex value has no sign, so a negative one, which the kernel
+        // would refuse, is refused here; the kernel decides the rest.
+        auto const mux_val = get_whole(cells, "Multiplex Value", ctx_str);
+        if (mux_val.negative)
+            throw std::runtime_error(std::format(
+                "{}: 'Multiplex Value' must be non-negative, got {}", ctx_str, mux_val));
         presence = Multiplexed{.multiplexor = SignalName{get_str(cells, "Multiplexor", ctx_str)},
-                               .multiplex_values = {MultiplexValue{mux_val}}};
+                               .multiplex_values = {MultiplexValue{mux_val.magnitude}}};
     } else {
         presence = AlwaysPresent{};
     }
 
-    auto const start_bit_val =
-        checked_cast<std::uint16_t>(get_int(cells, "Start Bit", ctx_str), "Start Bit", ctx_str);
-    auto const bit_length_val =
-        checked_cast<std::uint16_t>(get_int(cells, "Length", ctx_str), "Length", ctx_str);
+    auto const start_bit_val = get_uint16(cells, "Start Bit", ctx_str);
+    auto const bit_length_val = get_uint16(cells, "Length", ctx_str);
 
     return DbcSignal{
         .name = SignalName{get_str(cells, "Signal", ctx_str)},
@@ -538,6 +560,17 @@ static auto collect_data_rows(OpenXLSX::XLWorksheet const& ws) -> std::vector<Da
             rows.emplace_back(static_cast<int>(r), std::move(cells));
     }
     return rows;
+}
+
+// The check one row builds, a refusal no single column holds, such as a check
+// its builder refused, located at the row.
+template<typename Parse>
+static auto located_row(Parse parse, DataRow const& row) -> CheckResult {
+    try {
+        return parse(row.cells, row.number);
+    } catch (detail::AletheiaException const& ex) {
+        throw detail::AletheiaException(detail::located_refusal(ex.error(), row_ctx(row.number)));
+    }
 }
 
 // The entry guards every Excel reader runs before handing the path to
@@ -590,21 +623,21 @@ auto load_checks_from_excel(std::filesystem::path const& path, std::string_view 
         if (has_checks) {
             auto const ws = doc.workbook().worksheet(std::string(checks_sheet));
             for (auto const& row : collect_data_rows(ws))
-                results.push_back(parse_simple_row(row.cells, row.number));
+                results.push_back(located_row(parse_simple_row, row));
         }
 
         if (has_when_then) {
             auto const ws = doc.workbook().worksheet(std::string(when_then_sheet));
             for (auto const& row : collect_data_rows(ws))
-                results.push_back(parse_when_then_row(row.cells, row.number));
+                results.push_back(located_row(parse_when_then_row, row));
         }
 
         return results;
 
     } catch (detail::AletheiaException const& ex) {
-        // A refused number, located, or a runtime failure keeps the error as
-        // thrown; any other throw, a cell's defect or the library's, is a
-        // Validation error.
+        // A refused number or check, located, or a runtime failure keeps the
+        // error as thrown; any other throw, a cell's defect or the library's,
+        // is a Validation error.
         return std::unexpected(ex.error());
     } catch (std::exception const& ex) {
         detail::rethrow_if_bad_alloc(ex);
@@ -616,8 +649,18 @@ auto load_checks_from_excel(std::filesystem::path const& path, std::string_view 
 // Public API: DBC from Excel
 // ===========================================================================
 
-// (msg_id, msg_name, dlc, is_extended) — the row-level identity of a message.
-using MessageKeyExt = std::tuple<std::uint32_t, std::string, std::int64_t, bool>;
+// The row-level identity of a message: its identifier, name, DLC as written
+// and width.
+namespace {
+struct MessageKeyExt {
+    std::uint32_t id;
+    std::string name;
+    bool dlc_negative;
+    unsigned __int128 dlc_magnitude;
+    bool extended;
+    auto operator<=>(MessageKeyExt const&) const = default;
+};
+} // namespace
 
 // Group data rows by message key, in first-seen order. Each row becomes one
 // signal in its parent message. The transient position map exists only so
@@ -631,9 +674,13 @@ static auto group_rows_by_message(std::vector<DataRow> const& data_rows)
         auto const ctx_str = row_ctx(data_row.number);
         auto const msg_id = parse_message_id(get_any(cells, "Message ID", ctx_str), ctx_str);
         auto const msg_name = get_str(cells, "Message Name", ctx_str);
-        auto const dlc = get_int(cells, "DLC", ctx_str);
+        auto const dlc = get_whole(cells, "DLC", ctx_str);
         auto const extended = has_key(cells, "Extended") && get_bool(cells, "Extended", ctx_str);
-        MessageKeyExt key{msg_id, msg_name, dlc, extended};
+        MessageKeyExt key{.id = msg_id,
+                          .name = msg_name,
+                          .dlc_negative = dlc.negative,
+                          .dlc_magnitude = dlc.magnitude,
+                          .extended = extended};
         auto const [it, inserted] = positions.try_emplace(key, groups.size());
         if (inserted)
             groups.emplace_back(std::move(key), std::vector<std::size_t>{});
@@ -651,7 +698,7 @@ static auto build_message_from_group(MessageKeyExt const& key,
     std::ranges::transform(indices, std::back_inserter(signals), [&](std::size_t idx) {
         return parse_dbc_signal(data_rows.at(idx).cells, data_rows.at(idx).number);
     });
-    auto const [msg_id, msg_name, dlc, extended] = key;
+    auto const& [msg_id, msg_name, dlc_negative, dlc_magnitude, extended] = key;
     // A standard id is created from the 16 bits it fits in; a wider value is
     // refused here rather than truncated into the factory's range.
     if (!extended && !std::in_range<std::uint16_t>(msg_id))
@@ -665,18 +712,15 @@ static auto build_message_from_group(MessageKeyExt const& key,
     if (!can_id_result.has_value())
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "Invalid CAN ID: " + std::to_string(msg_id)});
-    // The DLC factory refuses past 15; a value its byte cannot hold is refused
-    // here rather than truncated into its range, with the same wording.
-    auto const dlc_refused = [&] {
-        return std::unexpected(AletheiaError{
-            ErrorKind::Validation, row_ctx(data_rows.at(indices.at(0)).number) +
-                                       ": DLC out of range [0, 15]: " + std::to_string(dlc)});
-    };
-    if (!std::in_range<std::uint8_t>(dlc))
-        return dlc_refused();
-    auto const dlc_result = Dlc::create(static_cast<std::uint8_t>(dlc));
+    // Past a byte the conversion below would truncate, and the factory would
+    // see a value the workbook never held; it refuses the rest.
+    auto const dlc = SignMagnitude{.negative = dlc_negative, .magnitude = dlc_magnitude};
+    if (dlc.negative || dlc.magnitude > std::numeric_limits<std::uint8_t>::max())
+        return std::unexpected(
+            AletheiaError{ErrorKind::Validation, std::format("DLC {} out of range", dlc)});
+    auto const dlc_result = Dlc::create(static_cast<std::uint8_t>(dlc.magnitude));
     if (!dlc_result.has_value())
-        return dlc_refused();
+        return std::unexpected(detail::error_of(dlc_result));
     return DbcMessage{
         .id = can_id_result.value(),
         .name = MessageName{msg_name},

@@ -34,19 +34,25 @@ Strategy:
 5. Parse ``src/Aletheia/Protocol/ReplyRange.agda`` for every ``replyText`` row
    (a place and its word set, or any non-empty text) and every
    ``replyNonEmpty`` row, and fail on a row ``PYTHON_REPLY_TEXT``,
-   ``GO_REPLY_TEXT`` or ``REPLY_NON_EMPTY`` names that the Agda drops, an Agda
-   row they do not name, a word one side holds and the other does not
-   (Python's set read from its ``Literal`` alias, the ``Literal`` field of a
-   class or of a union of classes, its ``StrEnum`` or its ``BOUND_KIND_*``
-   codes; Go's from the case literals of a reader's one ``switch``, the
-   literals its ``fieldWord`` calls await, the constants of a named string
-   type, the one ``var`` block of a struct type's values, which no line
-   elsewhere may build or reach, or its ``BoundKind*`` codes), or a
-   ``bound_kind`` row that differs from ``boundKindCode``.  The proof leaves
-   an unlisted string place free, so this arm is what holds each row the
-   readers rely on.  It lives in ``tools/_reply_places.py``; a clause of either
-   table or a reader's type or code it cannot read, and a place a table names
-   twice, exit 2.
+   ``GO_REPLY_TEXT``, ``CPP_REPLY_TEXT`` or ``REPLY_NON_EMPTY`` names that the
+   Agda drops, an Agda row they do not name, a word one side holds and the
+   other does not (Python's set read from its ``Literal`` alias, the
+   ``Literal`` field of a class or of a union of classes, its ``StrEnum`` or
+   its ``BOUND_KIND_*`` codes; Go's from the case literals of a reader's one
+   ``switch``, the literals its ``fieldWord`` calls await, the constants of a
+   named string type, the one ``var`` block of a struct type's values, which no
+   line elsewhere may build or reach, or its ``BoundKind*`` codes; C++'s from a
+   ``std::to_array`` table of ``{word, enumerator}`` pairs, the literals a
+   dispatch compares a word with, the literals its ``field_word`` calls await,
+   the words one function gives an enum's enumerators, which no line elsewhere
+   may give or reach, or its ``bound_kind_*`` codes), a C++ last arm other than
+   the row's last word, or a ``bound_kind`` row that differs from
+   ``boundKindCode``.  The proof leaves an unlisted string place free, so this
+   arm is what holds each row the readers rely on.  It lives in
+   ``tools/_reply_places.py``, its C++ reader in ``tools/_reply_places_cpp.py``;
+   a clause of either table or a reader's type or code it cannot read, a place
+   a table names twice, and a C++ reader file comparing a word outside the
+   dispatches or looking up a table no reader file declares, exit 2.
 
 Exit codes:
   0: full parity between Agda SSOT and every mirror.
@@ -83,8 +89,11 @@ from tools._reply_places import (
     AgdaText,
     ReplyWord,
     check_reply_places,
+    go_reader,
+    python_reader,
     read_reply_tables,
 )
+from tools._reply_places_cpp import CPP_REPLY_TEXT, cpp_reader
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -98,6 +107,9 @@ CPP_LIMITS = REPO_ROOT / "cpp" / "include" / "aletheia" / "limits.hpp"
 
 # An Agda limit's kebab-case name, as ``Aletheia.Limits`` defines it.
 AgdaLimitName = NewType("AgdaLimitName", str)
+# How a C++ limit spells a type's maximum, and that maximum.
+CppMaximumSpelling = NewType("CppMaximumSpelling", str)
+TypeMaximum = NewType("TypeMaximum", int)
 
 # The per-field limits the kernel decides when it reads a DBC or a property and
 # proves of every reply; the bindings print its refusal and mirror none of them.
@@ -440,21 +452,35 @@ def _parse_python_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
     return constants, boundkind
 
 
+# The maxima a C++ limit spells through ``std::numeric_limits``, in place of
+# the literal C++ cannot write past 64 bits.
+_CPP_TYPE_MAXIMA: dict[CppMaximumSpelling, TypeMaximum] = {
+    CppMaximumSpelling("std::numeric_limits<std::uint64_t>::max()"): TypeMaximum(2**64 - 1),
+    CppMaximumSpelling("std::numeric_limits<unsigned __int128>::max()"): TypeMaximum(2**128 - 1),
+}
+
+
 def _parse_cpp_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
     """Parse the C++ limits header, returning (max_* constants, bound_kind_* strings).
 
-    Recognises ``inline constexpr std::uint64_t max_name = <expression>;`` and
-    ``inline constexpr std::string_view bound_kind_name = "wire";``.  The wire
-    pattern spans lines because a long code is wrapped onto the next one by the
-    formatter.
+    Recognises ``inline constexpr std::uint64_t max_name = <expression>;``, the
+    same with ``auto`` where the initializer fixes the type, and ``inline
+    constexpr std::string_view bound_kind_name = "wire";``.  C++ has no literal
+    past 64 bits, so a type's ``std::numeric_limits<T>::max()`` reads as that
+    type's maximum.  Both patterns span lines because the formatter wraps a long
+    one onto the next.
     """
     max_pattern = re.compile(
-        r"^inline constexpr std::uint64_t\s+(?P<name>max_[a-z0-9_]+)\s*=\s*(?P<expr>[^;]+);",
+        r"^inline constexpr (?:std::uint64_t|auto)\s+(?P<name>max_[a-z0-9_]+)"
+        + r"\s*=\s*(?P<expr>[^;]+);",
         flags=re.MULTILINE,
     )
     constants: dict[str, int] = {}
     for m in max_pattern.finditer(text):
-        value = _eval_int_expr(m.group("expr"))
+        expr = m.group("expr")
+        for spelling, maximum in _CPP_TYPE_MAXIMA.items():
+            expr = expr.replace(spelling, f"({maximum})")
+        value = _eval_int_expr(expr)
         if value is not None:
             constants[m.group("name")] = value
 
@@ -737,11 +763,14 @@ def main() -> int:
     )
     # Agda-side drift: SSOT entries with no cross-check table mapping.
     diffs.extend(_check_agda_drift(agda_consts, agda_boundkind))
-    # 7) The reply proof's tag and non-empty places against the Python and Go readers.
+    # 7) The reply proof's tag and non-empty places against the Python, Go and C++ readers.
     tables = read_reply_tables(
         AgdaText(_read(AGDA_REPLY_RANGE)),
-        frozenset(ReplyWord(wire) for wire in py_boundkind.values()),
-        frozenset(ReplyWord(wire) for wire in go_boundkind.values()),
+        (
+            python_reader(frozenset(ReplyWord(wire) for wire in py_boundkind.values())),
+            go_reader(frozenset(ReplyWord(wire) for wire in go_boundkind.values())),
+            cpp_reader(frozenset(ReplyWord(wire) for wire in cpp_boundkind.values())),
+        ),
     )
     if isinstance(tables, list):
         for unread in tables:
@@ -762,7 +791,7 @@ def main() -> int:
             f"\nfound {len(diffs)} divergence(s) between "
             + f"{AGDA_LIMITS.relative_to(REPO_ROOT)} and "
             + f"{AGDA_REPLY_RANGE.relative_to(REPO_ROOT)} (SSOT) and "
-            + f"{mirrors} and the Python and Go reply readers (mirrors).\n"
+            + f"{mirrors} and the Python, Go and C++ reply readers (mirrors).\n"
             + "Reconcile by updating the mirror, the Agda SSOT, or the mapping table "
             + "this script names above (when a constant is intentionally added or "
             + "removed).\n"
@@ -779,7 +808,8 @@ def main() -> int:
                 ("C++", CPP_NAME_MAPPING, CPP_BOUND_KIND_MAPPING),
             )
         )
-        + f"; Python {len(PYTHON_REPLY_TEXT)} and Go {len(GO_REPLY_TEXT)} reply text"
+        + f"; Python {len(PYTHON_REPLY_TEXT)}, Go {len(GO_REPLY_TEXT)}"
+        + f" and C++ {len(CPP_REPLY_TEXT)} reply text"
         + f" + {len(REPLY_NON_EMPTY)} non-empty places"
         + ": all in parity with Agda SSOT"
     )

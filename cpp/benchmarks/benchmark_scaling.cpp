@@ -56,40 +56,40 @@ static auto make_scaling_property(int index) -> LtlFormula {
     // Rotate through different property definitions
     switch (index % 10) {
     case 0:
-        return ltl::always(
-            ltl::atomic(ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{}},
-                                     PhysicalValue{Rational{8000, 1}})));
+        return ltl::always(ltl::atomic(
+            value_or_throw(ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{}},
+                                        PhysicalValue{Rational{8000, 1}}))));
     case 1:
-        return ltl::always(
-            ltl::atomic(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-40, 1}},
-                                     PhysicalValue{Rational{215, 1}})));
+        return ltl::always(ltl::atomic(
+            value_or_throw(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-40, 1}},
+                                        PhysicalValue{Rational{215, 1}}))));
     case 2:
-        return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{Rational{13107, 2}})));
+        return ltl::always(ltl::atomic(value_or_throw(
+            ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{Rational{13107, 2}}))));
     case 3:
-        return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{7000, 1}})));
+        return ltl::always(ltl::atomic(value_or_throw(
+            ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{7000, 1}}))));
     case 4:
-        return ltl::always(
-            ltl::atomic(ltl::less_than(SignalName{"EngineTemp"}, PhysicalValue{Rational{200, 1}})));
+        return ltl::always(ltl::atomic(value_or_throw(
+            ltl::less_than(SignalName{"EngineTemp"}, PhysicalValue{Rational{200, 1}}))));
     case 5:
-        return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{Rational{5000, 1}})));
+        return ltl::always(ltl::atomic(value_or_throw(
+            ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{Rational{5000, 1}}))));
     case 6:
-        return ltl::always(
-            ltl::atomic(ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{500, 1}},
-                                     PhysicalValue{Rational{7500, 1}})));
-    case 7:
-        return ltl::always(
-            ltl::atomic(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-20, 1}},
-                                     PhysicalValue{Rational{180, 1}})));
-    case 8:
-        return ltl::always(
-            ltl::atomic(ltl::between(SignalName{"BrakePressure"}, PhysicalValue{Rational{}},
-                                     PhysicalValue{Rational{4000, 1}})));
-    default:
         return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{6000, 1}})));
+            value_or_throw(ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{500, 1}},
+                                        PhysicalValue{Rational{7500, 1}}))));
+    case 7:
+        return ltl::always(ltl::atomic(
+            value_or_throw(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-20, 1}},
+                                        PhysicalValue{Rational{180, 1}}))));
+    case 8:
+        return ltl::always(ltl::atomic(
+            value_or_throw(ltl::between(SignalName{"BrakePressure"}, PhysicalValue{Rational{}},
+                                        PhysicalValue{Rational{4000, 1}}))));
+    default:
+        return ltl::always(ltl::atomic(value_or_throw(
+            ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{6000, 1}}))));
     }
 }
 
@@ -416,12 +416,13 @@ static auto least_load_cost(int num_runs, Measure measure) -> LoadCost {
 // always_between / always_less_than build the Always-wrapped atomic predicates
 // the scaling sweeps share; the exact signals/bounds mirror scaling.py.
 static auto always_between(char const* sig, Rational lo, Rational hi) -> LtlFormula {
-    return ltl::always(
-        ltl::atomic(ltl::between(SignalName{sig}, PhysicalValue{lo}, PhysicalValue{hi})));
+    return ltl::always(ltl::atomic(
+        value_or_throw(ltl::between(SignalName{sig}, PhysicalValue{lo}, PhysicalValue{hi}))));
 }
 
 static auto always_less_than(char const* sig, Rational value) -> LtlFormula {
-    return ltl::always(ltl::atomic(ltl::less_than(SignalName{sig}, PhysicalValue{value})));
+    return ltl::always(
+        ltl::atomic(value_or_throw(ltl::less_than(SignalName{sig}, PhysicalValue{value}))));
 }
 
 // The five property-complexity levels (CAN 2.0B), verbatim labels in order. The
@@ -456,11 +457,11 @@ static auto complexity_levels() -> std::vector<std::pair<std::string, std::vecto
     }
     {
         std::vector<LtlFormula> props;
-        props.push_back(ltl::always(
-            ltl::implies(ltl::atomic(ltl::less_than(SignalName{"EngineSpeed"},
-                                                    PhysicalValue{Rational{1000, 1}})),
-                         ltl::atomic(ltl::less_than(SignalName{"EngineTemp"},
-                                                    PhysicalValue{Rational{100, 1}})))));
+        props.push_back(ltl::always(ltl::implies(
+            ltl::atomic(value_or_throw(
+                ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{1000, 1}}))),
+            ltl::atomic(value_or_throw(
+                ltl::less_than(SignalName{"EngineTemp"}, PhysicalValue{Rational{100, 1}}))))));
         levels.emplace_back("Implication", std::move(props));
     }
 

@@ -4,12 +4,14 @@
 // Requires: cabal run shake -- build (produces build/libaletheia-ffi.so)
 // Run with: ctest -R integration, which sets ALETHEIA_REPO_ROOT; a direct run
 // of ./integration_tests needs ALETHEIA_REPO_ROOT set to the repository root.
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
 #include <aletheia/aletheia.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -26,6 +28,7 @@
 #include "find_lib.hpp"
 #include "integration_fixtures.hpp"
 #include "required.hpp"
+#include "u128_testing.hpp"
 
 using aletheia::test::required;
 
@@ -67,9 +70,10 @@ TEST_CASE("Tier 1 DBC metadata round-trips through real FFI", "[integration][dbc
     });
     dbc.value_tables.push_back(DbcValueTable{
         .name = "GearStates",
-        .entries = {DbcValueEntry{.value = 0, .description = "Park"},
-                    DbcValueEntry{.value = 1, .description = "Drive"},
-                    DbcValueEntry{.value = 2, .description = "Reverse"}},
+        .entries = {DbcValueEntry{.value = SignMagnitude{.magnitude = 0}, .description = "Park"},
+                    DbcValueEntry{.value = SignMagnitude{.magnitude = 1}, .description = "Drive"},
+                    DbcValueEntry{.value = SignMagnitude{.magnitude = 2},
+                                  .description = "Reverse"}},
     });
 
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
@@ -245,10 +249,21 @@ struct WireBuf {
         u16(static_cast<std::uint16_t>(v & 0xFFFFU));
         u16(static_cast<std::uint16_t>(v >> 16U));
     }
-    void i64(std::int64_t v) {
-        auto const u = static_cast<std::uint64_t>(v);
+    void u64(std::uint64_t v) {
         for (auto const i : std::views::iota(0U, 8U))
-            u8(static_cast<std::uint8_t>((u >> (8U * i)) & 0xFFU));
+            u8(static_cast<std::uint8_t>((v >> (8U * i)) & 0xFFU));
+    }
+    // A magnitude as the wire carries it: its low u64, then its high u64.
+    void u128(unsigned __int128 v) {
+        u64(static_cast<std::uint64_t>(v));
+        u64(static_cast<std::uint64_t>(v >> 64U));
+    }
+    // A value record's rational: its sign byte, then its numerator and its
+    // denominator.
+    void value(std::uint8_t sign, unsigned __int128 numerator, unsigned __int128 denominator) {
+        u8(sign);
+        u128(numerator);
+        u128(denominator);
     }
     void str(std::string_view s) {
         for (auto const c : s)
@@ -287,48 +302,47 @@ static auto expect_protocol_error(std::vector<std::byte> buf) {
 }
 
 TEST_CASE("binary extraction decodes values, wire reasons, and absent exactly", "[integration]") {
-    // One value, two errors with distinct kernel-minted reasons — the first
-    // contains multi-byte UTF-8, so the second slice's byte offset differs
-    // from its character offset (proves the offsets are byte counts) — and
-    // one absent signal.  The second error carries an unknown u8 code (42):
-    // codes are transported, never rejected — the wire reason is
+    // One value, two errors with distinct kernel-minted reasons, and one
+    // absent signal. The first reason contains multi-byte UTF-8, so the second
+    // slice's byte offset differs from its character offset, which proves the
+    // offsets are byte counts. The second error carries an unknown u8 code
+    // (42): codes are transported, never rejected, the wire reason being
     // authoritative.
     std::string_view const reason_a = "value Δ out of bounds: 16383.75 not in [0, 8000]";
     std::string_view const reason_b = "signal 'X' not found in message";
     WireBuf w;
     w.header(/*nvals=*/1, /*nerrs=*/2, /*nabss=*/1,
              static_cast<std::uint32_t>(reason_a.size() + reason_b.size()));
-    // Values: Speed (idx 0) = 250/2 = 125.
+    // Values: Speed (idx 0) = 5/2.
     w.u16(0);
-    w.i64(250);
-    w.i64(2);
-    // Errors: RPM (idx 1, code 1 = OutOfBounds) + idx 7 (not in the message
-    // → placeholder name) with unknown code 42.
+    w.value(/*sign=*/0, 5, 2);
+    // Errors: RPM (idx 1, code 1 = OutOfBounds), then Speed (idx 0) with the
+    // unknown code 42.
     w.u16(1);
     w.u8(1);
-    w.u16(7);
+    w.u16(0);
     w.u8(42);
     // Offsets (nerrs + 1 entries, cumulative byte counts into Reasons).
     w.u32(0);
     w.u32(static_cast<std::uint32_t>(reason_a.size()));
     w.u32(static_cast<std::uint32_t>(reason_a.size() + reason_b.size()));
-    // Reasons blob, then Absent: idx 6 (placeholder name).
+    // Reasons blob, then Absent: RPM (idx 1).
     w.str(reason_a);
     w.str(reason_b);
-    w.u16(6);
+    w.u16(1);
 
     auto const result = extract_with_crafted_buf(std::move(w.bytes));
     REQUIRE(result.has_value());
     REQUIRE(result->values.size() == 1);
     CHECK(result->values[0].name == SignalName{"Speed"});
-    CHECK(result->values[0].value == PhysicalValue{Rational{125, 1}});
+    CHECK(result->values[0].value == PhysicalValue{Rational{5, 2}});
     REQUIRE(result->errors.size() == 2);
     CHECK(result->errors[0].name == SignalName{"RPM"});
     CHECK(result->errors[0].reason == reason_a);
-    CHECK(result->errors[1].name == SignalName{"signal_7"});
+    CHECK(result->errors[1].name == SignalName{"Speed"});
     CHECK(result->errors[1].reason == reason_b);
     REQUIRE(result->absent.size() == 1);
-    CHECK(result->absent[0] == SignalName{"signal_6"});
+    CHECK(result->absent[0] == SignalName{"RPM"});
 }
 
 TEST_CASE("binary extraction with zero errors decodes the lone offset entry", "[integration]") {
@@ -337,8 +351,7 @@ TEST_CASE("binary extraction with zero errors decodes the lone offset entry", "[
     WireBuf w;
     w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/0, /*reason_bytes=*/0);
     w.u16(1); // RPM
-    w.i64(3000);
-    w.i64(1);
+    w.value(/*sign=*/0, 3000, 1);
     w.u32(0); // lone offsets entry
 
     auto const result = extract_with_crafted_buf(std::move(w.bytes));
@@ -416,11 +429,12 @@ TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes"
 TEST_CASE("binary extraction decodes adjacent reasons, an empty one included", "[integration]") {
     // Three errors whose offsets are 0, 2, 2, 6: the second reason is empty,
     // which equal consecutive offsets denote, and the others are the bytes
-    // between their offsets and nothing else.
+    // between their offsets and nothing else. Their indices name the DBC's two
+    // signals, as every index the kernel writes names one of its message.
     WireBuf w;
     w.header(/*nvals=*/0, /*nerrs=*/3, /*nabss=*/0, /*reason_bytes=*/6);
     for (auto const i : std::views::iota(std::uint16_t{0}, std::uint16_t{3})) {
-        w.u16(i);
+        w.u16(i % 2);
         w.u8(1);
     }
     w.u32(0);
@@ -434,25 +448,6 @@ TEST_CASE("binary extraction decodes adjacent reasons, an empty one included", "
     CHECK(result->errors[0].reason == "ab");
     CHECK(result->errors[1].reason.empty());
     CHECK(result->errors[2].reason == "cdef");
-}
-
-TEST_CASE("binary extraction names a wire index one past the message's signals by placeholder",
-          "[integration]") {
-    // The integration DBC has two signals, so index 2 is the first one the
-    // message does not have.
-    WireBuf w;
-    w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/1, /*reason_bytes=*/0);
-    w.u16(2);
-    w.i64(1);
-    w.i64(1);
-    w.u32(0);
-    w.u16(2);
-    auto const result = extract_with_crafted_buf(std::move(w.bytes));
-    REQUIRE(result.has_value());
-    REQUIRE(result->values.size() == 1);
-    CHECK(result->values[0].name == SignalName{"signal_2"});
-    REQUIRE(result->absent.size() == 1);
-    CHECK(result->absent[0] == SignalName{"signal_2"});
 }
 
 TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integration]") {
@@ -521,17 +516,51 @@ TEST_CASE("binary extraction rejects every malformed UTF-8 shape in a reason sli
     CHECK(std::string_view{err.message()}.contains("UTF-8"));
 }
 
-TEST_CASE("binary extraction rejects a non-positive denominator", "[integration]") {
-    // den == 0 hits the zero-denominator guard; den < 0 is rejected by the
-    // Rational newtype (denominators are strictly positive on the wire).
-    auto const den = GENERATE(std::int64_t{0}, std::int64_t{-3});
-    WireBuf w;
-    w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/0, /*reason_bytes=*/0);
-    w.u16(0);
-    w.i64(250);
-    w.i64(den);
-    w.u32(0); // lone offsets entry
-    expect_protocol_error(std::move(w.bytes));
+// A value is read as the wire writes it: its sign byte, any byte but 0 being
+// negative, and both 64-bit words of its numerator and its denominator, the
+// high word included. A zero numerator is unsigned whatever its sign byte, as
+// the JSON path reads it.
+TEST_CASE("binary extraction reads a value as the wire writes it", "[integration]") {
+    struct Row {
+        std::string_view name;
+        std::uint8_t sign;
+        unsigned __int128 numerator;
+        unsigned __int128 denominator;
+        bool negative;
+    };
+    constexpr auto high = static_cast<unsigned __int128>(1) << 64U;
+    for (auto const& row : std::to_array<Row>({
+             {.name = "a third", .sign = 0, .numerator = 1, .denominator = 3, .negative = false},
+             {.name = "both words, signed",
+              .sign = 1,
+              .numerator = high + 2,
+              .denominator = (3 * high) + 4,
+              .negative = true},
+             {.name = "a sign byte but 0",
+              .sign = 0x80,
+              .numerator = 1,
+              .denominator = 3,
+              .negative = true},
+             {.name = "a signed zero",
+              .sign = 1,
+              .numerator = 0,
+              .denominator = 1,
+              .negative = false},
+         })) {
+        INFO(row.name);
+        WireBuf w;
+        w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/0, /*reason_bytes=*/0);
+        w.u16(0);
+        w.value(row.sign, row.numerator, row.denominator);
+        w.u32(0); // lone offsets entry
+        auto const result = extract_with_crafted_buf(std::move(w.bytes));
+        REQUIRE(result.has_value());
+        REQUIRE(result->values.size() == 1);
+        auto const& value = result->values[0].value.get();
+        CHECK(value.negative() == row.negative);
+        CHECK(value.numerator() == row.numerator);
+        CHECK(value.denominator() == row.denominator);
+    }
 }
 
 TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
@@ -575,31 +604,21 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     CHECK(std::string_view{bin->errors[0].reason}.contains("not in ["));
 }
 
-// A message of one 64-bit unsigned signal, "Big", whose scaling is chosen by
-// the row: the raw value reaches the component bound of the kernel's wire
-// range only through the factor and the offset, since every DBC number is
-// itself held to that bound at load.
-namespace {
-struct WideSignalRow {
-    Rational factor;
-    Rational offset;
-    Rational minimum;
-    Rational maximum;
-    FramePayload data;
-};
-} // namespace
-
-static auto make_wide_signal_dbc(WideSignalRow const& row) -> DbcDefinition {
+// A message of one 132-bit unsigned signal, "Big", at a tenth in a CAN-FD
+// frame, declared over [0, 2^128-1]: every DBC number is itself held to the
+// component bound of the kernel's wire range at load, so a value past it comes
+// from a raw value the factor scales into the declared range.
+static auto make_wide_signal_dbc() -> DbcDefinition {
     DbcSignal const big{
         .name = SignalName{"Big"},
         .start_bit = BitPosition{0},
-        .bit_length = BitLength{64},
+        .bit_length = BitLength{132},
         .byte_order = ByteOrder::LittleEndian,
         .is_signed = false,
-        .factor = RationalFactor{row.factor},
-        .offset = RationalOffset{row.offset},
-        .minimum = RationalBound{row.minimum},
-        .maximum = RationalBound{row.maximum},
+        .factor = RationalFactor{Rational{1, 10}},
+        .offset = RationalOffset{Rational{0, 1}},
+        .minimum = RationalBound{Rational{0, 1}},
+        .maximum = RationalBound{Rational::integer(max_rational_component_magnitude)},
         .unit = Unit{""},
         .presence = AlwaysPresent{},
     };
@@ -608,7 +627,7 @@ static auto make_wide_signal_dbc(WideSignalRow const& row) -> DbcDefinition {
         .messages = {DbcMessage{
             .id = CanId{StandardId::create(0x100).value()},
             .name = MessageName{"Msg"},
-            .dlc = Dlc::create(8).value(),
+            .dlc = Dlc::create(15).value(),
             .sender = NodeName{"ECU"},
             .signals = {big},
         }},
@@ -618,37 +637,24 @@ static auto make_wide_signal_dbc(WideSignalRow const& row) -> DbcDefinition {
 TEST_CASE("binary and JSON extraction refuse a value whose component is past the wire range",
           "[integration][parity]") {
     // The kernel's batch categoriser holds an extracted value's reduced
-    // numerator magnitude and denominator to 9223372036854775807 on both
-    // extraction paths, so a 64-bit signal whose scaling carries the raw value
-    // past that bound is one error entry on each path, with the kernel's
-    // message, and no value.
-    auto const row = GENERATE(
-        // Raw 2^63 + 1 over a factor of 1/2^62 and an offset of 1/5^27: the
-        // reduced numerator and the denominator are both past the bound.
-        WideSignalRow{.factor = Rational{1, 4611686018427387904},
-                      .offset = Rational{1, 7450580596923828125},
-                      .minimum = Rational{1, 7450580596923828125},
-                      .maximum = Rational{3, 1},
-                      .data =
-                          FramePayload{std::byte{0x01}, std::byte{0}, std::byte{0}, std::byte{0},
-                                       std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0x80}}},
-        // Raw 2^63 over a factor of -1/5: the numerator is exactly -2^63,
-        // which an int64 holds and the symmetric magnitude bound refuses.
-        WideSignalRow{.factor = Rational{-1, 5},
-                      .offset = Rational{0, 1},
-                      .minimum = Rational{-3689348814741910323, 1},
-                      .maximum = Rational{0, 1},
-                      .data =
-                          FramePayload{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-                                       std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0x80}}});
+    // numerator magnitude and denominator to 2^128-1 on both extraction paths.
+    // The raw value (2^128-1)*10 - 1 lies within the declared range at a tenth
+    // and reduces to a numerator past that bound, so it is one error entry on
+    // each path, with the kernel's message, and no value. That raw value is
+    // 9 * 2^128 + (2^128 - 11): its low sixteen bytes hold 2^128 - 11 and the
+    // seventeenth holds 9.
+    FramePayload data(64, std::byte{0});
+    std::ranges::fill(std::span{data}.first(16), std::byte{0xFF});
+    data.at(0) = std::byte{0xF5};
+    data.at(16) = std::byte{0x09};
     auto const lib = find_lib();
     auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-    auto const dbc = make_wide_signal_dbc(row);
+    auto const dlc = Dlc::create(15).value();
+    auto const dbc = make_wide_signal_dbc();
 
     auto bin_client = required(AletheiaClient::create(required(make_ffi_backend(lib))));
     REQUIRE(bin_client.parse_dbc(std::stop_token{}, dbc).has_value());
-    auto const bin = bin_client.extract_signals(std::stop_token{}, id, dlc, row.data);
+    auto const bin = bin_client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(bin.has_value());
 
     auto json_backend = std::make_unique<FixedBinExtractBackend>(
@@ -657,11 +663,11 @@ TEST_CASE("binary and JSON extraction refuse a value whose component is past the
                                       "binary path not supported by this backend"}));
     auto json_client = required(AletheiaClient::create(std::move(json_backend)));
     REQUIRE(json_client.parse_dbc(std::stop_token{}, dbc).has_value());
-    auto const json = json_client.extract_signals(std::stop_token{}, id, dlc, row.data);
+    auto const json = json_client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(json.has_value());
 
-    constexpr std::string_view message =
-        "extracted value's numerator or denominator exceeds the Int64 wire range";
+    constexpr std::string_view message = "extracted value's numerator or denominator magnitude "
+                                         "exceeds 340282366920938463463374607431768211455";
     for (auto const* result : {&*bin, &*json}) {
         CHECK(result->values.empty());
         CHECK(result->absent.empty());

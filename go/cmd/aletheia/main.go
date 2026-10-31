@@ -670,7 +670,7 @@ func cmdMuxQuery(argv []string) int {
 	dbc := fs.String("dbc", "", ".dbc file")
 	extended := fs.Bool("extended", false, "treat CAN ID as 29-bit extended")
 	muxName := fs.String("mux", "", "multiplexor signal name (with --value)")
-	value := fs.Int("value", -1, "multiplexor value (with --mux)")
+	value := fs.String("value", "", "multiplexor value (with --mux)")
 	asJSON := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(argv, map[string]bool{"extended": true, "json": true})); err != nil {
 		return exitError
@@ -687,27 +687,30 @@ func cmdMuxQuery(argv []string) int {
 	if msg == nil {
 		return die(fmt.Sprintf("message not found by id or name: %q", fs.Arg(0)))
 	}
-	if *value < -1 || (*muxName == "") != (*value < 0) {
-		if *value < -1 {
-			return die(fmt.Sprintf("--value must not be negative, got %d", *value))
-		}
+	valueGiven := false
+	fs.Visit(func(f *flag.Flag) { valueGiven = valueGiven || f.Name == "value" })
+	muxValue, refusal := readMuxValue(*value, valueGiven)
+	if refusal != "" {
+		return die(refusal)
+	}
+	if (*muxName == "") != !valueGiven {
 		return die("--mux and --value must be provided together")
 	}
 	if *muxName != "" {
-		sigs := msg.SignalsForMuxValue(aletheia.SignalName(*muxName), aletheia.MultiplexValue{Lo: uint64(*value)})
+		sigs := msg.SignalsForMuxValue(aletheia.SignalName(*muxName), muxValue)
 		names := signalNames(sigs)
 		if *asJSON {
 			return emitJSON(map[string]any{
 				"message_id":   msg.ID.Value(),
 				"message_name": string(msg.Name),
 				"multiplexor":  *muxName,
-				"value":        *value,
+				"value":        json.Number(muxValue.String()),
 				"signals":      names,
 			})
 		}
 		var report strings.Builder
 		writeMessageHeader(&report, msg)
-		fmt.Fprintf(&report, "Multiplexor %s = %d: %d signals present\n", *muxName, *value, len(names))
+		fmt.Fprintf(&report, "Multiplexor %s = %s: %d signals present\n", *muxName, muxValue, len(names))
 		for _, n := range names {
 			fmt.Fprintf(&report, "  %s\n", n)
 		}
@@ -746,6 +749,29 @@ func cmdMuxQuery(argv []string) int {
 		}
 	}
 	return emitReport(report.String())
+}
+
+// readMuxValue reads --value by the kernel's decimal grammar, the runtime being
+// up with the client, and answers the multiplex value it names, or the refusal
+// to print: a text the kernel refuses is named with its refusal, and a fraction
+// or a negative number, which no multiplex value is, is refused. The flag not
+// given is the zero value and no refusal; an empty text given is read like any
+// other.
+func readMuxValue(text string, given bool) (aletheia.MultiplexValue, string) {
+	if !given {
+		return aletheia.MultiplexValue{}, ""
+	}
+	r, err := aletheia.FromDecimal(text)
+	switch {
+	case err != nil:
+		return aletheia.MultiplexValue{}, fmt.Sprintf("invalid --value: %s: %s", text, err)
+	case r.Denominator != (aletheia.Uint128{Lo: 1}):
+		return aletheia.MultiplexValue{}, "invalid --value: " + text
+	case r.Negative:
+		return aletheia.MultiplexValue{}, "--value must not be negative, got " +
+			aletheia.SignMagnitude{Negative: true, Magnitude: r.Numerator}.String()
+	}
+	return r.Numerator, ""
 }
 
 // writeMessageHeader writes the line both mux-query text reports open with,

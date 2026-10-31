@@ -17,7 +17,6 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <ios>
@@ -121,9 +120,21 @@ namespace aletheia::detail {
 [[nodiscard]] auto read_decimal(std::string_view text, std::string const& location,
                                 std::string const& key) -> Rational;
 
+/// The time bound `text` spells in whole microseconds, read by the kernel
+/// (`TimeBound::parse`), its refusal thrown as `read_decimal` throws one.
+[[nodiscard]] auto read_time_bound(std::string_view text, std::string const& location,
+                                   std::string const& key) -> TimeBound;
+
 /// The check a builder answered, its refusal thrown as the loader's other
 /// refusals are.
 [[nodiscard]] auto built_check(Result<CheckResult> built) -> CheckResult;
+
+/// A refusal no single key holds, such as a check its builder refused, located
+/// at `location` under no key: a coded refusal no reader located gains the
+/// location, and one a reader located, or one without a code (the runtime
+/// down), comes back as it was.
+[[nodiscard]] auto located_refusal(AletheiaError const& error, std::string location)
+    -> AletheiaError;
 
 // ---------------------------------------------------------------------------
 // Condition keywords, as both loaders spell them
@@ -156,7 +167,7 @@ template<typename Table>
     return found->second;
 }
 
-using SimpleArm = CheckResult (*)(std::string_view, PhysicalValue);
+using SimpleArm = Result<CheckResult> (*)(std::string_view, PhysicalValue);
 inline constexpr std::array<std::pair<std::string_view, SimpleArm>, 3> k_simple_arms{{
     {k_never_exceeds,
      [](std::string_view s, PhysicalValue v) {
@@ -169,7 +180,7 @@ inline constexpr std::array<std::pair<std::string_view, SimpleArm>, 3> k_simple_
 }};
 
 [[nodiscard]] inline auto dispatch_simple(std::string_view signal, std::string_view condition,
-                                          PhysicalValue value) -> CheckResult {
+                                          PhysicalValue value) -> Result<CheckResult> {
     return arm_for(k_simple_arms, condition, "simple")(signal, value);
 }
 
@@ -197,30 +208,22 @@ using ThenSlotValues = std::map<std::string_view, PhysicalValue>;
     return found->second;
 }
 
-using ThenArm = CheckResult (*)(ThenSignal const&, ThenSlotValues const&, std::string_view,
-                                std::chrono::milliseconds);
+using ThenArm = Result<CheckResult> (*)(ThenSignal const&, ThenSlotValues const&, std::string_view,
+                                        TimeBound);
 inline constexpr std::array<std::pair<std::string_view, ThenArm>, 3> k_then_arms{{
-    {k_equals,
-     [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c,
-        std::chrono::milliseconds w) {
-         return built_check(b.equals(then_slot(s, c, "value")).within(w));
-     }},
-    {k_exceeds,
-     [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c,
-        std::chrono::milliseconds w) {
-         return built_check(b.exceeds(then_slot(s, c, "value")).within(w));
-     }},
+    {k_equals, [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c,
+                  TimeBound w) { return b.equals(then_slot(s, c, "value")).within(w); }},
+    {k_exceeds, [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c,
+                   TimeBound w) { return b.exceeds(then_slot(s, c, "value")).within(w); }},
     {k_stays_between,
-     [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c,
-        std::chrono::milliseconds w) {
-         return built_check(
-             b.stays_between(then_slot(s, c, "lo"), then_slot(s, c, "hi")).within(w));
+     [](ThenSignal const& b, ThenSlotValues const& s, std::string_view c, TimeBound w) {
+         return b.stays_between(then_slot(s, c, "lo"), then_slot(s, c, "hi")).within(w);
      }},
 }};
 
 [[nodiscard]] inline auto dispatch_then(ThenSignal const& builder, std::string_view condition,
-                                        ThenSlotValues const& slots,
-                                        std::chrono::milliseconds within) -> CheckResult {
+                                        ThenSlotValues const& slots, TimeBound within)
+    -> Result<CheckResult> {
     return arm_for(k_then_arms, condition, "then")(builder, slots, condition, within);
 }
 

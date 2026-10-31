@@ -527,6 +527,68 @@ func TestCLIMuxQueryTakesTheMessageAfterTheEscape(t *testing.T) {
 	}
 }
 
+// TestCLIMuxQueryReadsTheValueThroughTheKernel: --value is read by the
+// kernel's decimal grammar, so a whole number written with a zero fraction
+// selects that value, one at 2^128-1 is printed whole, and a text the kernel
+// refuses is named with the kernel's message; a fraction and a negative number,
+// which no multiplex value is, are refused, each with the error exit.
+func TestCLIMuxQueryReadsTheValueThroughTheKernel(t *testing.T) {
+	ensureLib(t)
+	mux := repoPath("python", "tests", "fixtures", "dbc_corpus", "multiplexing.dbc")
+	const header = "Message 0x64 BasicMux (DLC 8)\n"
+	for _, c := range []struct {
+		value, stdout, stderr string
+		code                  int
+	}{
+		{
+			value:  "1.0",
+			stdout: header + "Multiplexor Mode = 1: 3 signals present\n  Mode\n  PayloadB\n  CommonCounter\n",
+			code:   exitOK,
+		},
+		{
+			value: "340282366920938463463374607431768211455",
+			stdout: header + "Multiplexor Mode = 340282366920938463463374607431768211455: 2 signals present\n" +
+				"  Mode\n  CommonCounter\n",
+			code: exitOK,
+		},
+		{value: "1.5", stderr: "Error: invalid --value: 1.5\n", code: exitError},
+		{value: "-1.0", stderr: "Error: --value must not be negative, got -1\n", code: exitError},
+		{
+			value:  "abc",
+			stderr: "Error: invalid --value: abc: parse failed at line 1, column 1\n",
+			code:   exitError,
+		},
+		{
+			value: "340282366920938463463374607431768211456",
+			stderr: "Error: invalid --value: 340282366920938463463374607431768211456: decimal: " +
+				"rational component magnitude exceeds limit 340282366920938463463374607431768211455\n",
+			code: exitError,
+		},
+	} {
+		argv := []string{"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", c.value}
+		var code int
+		var stdout string
+		stderr := captureStderr(t, func() {
+			stdout = captureStdout(t, func() { code = run(argv) })
+		})
+		if code != c.code || stdout != c.stdout || stderr != c.stderr {
+			t.Errorf("run(%q) = %d, stdout %q, stderr %q; want %d, stdout %q, stderr %q",
+				argv, code, stdout, stderr, c.code, c.stdout, c.stderr)
+		}
+	}
+	// The JSON report writes the value as the whole number it is.
+	argv := []string{"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value",
+		"340282366920938463463374607431768211455", "--json"}
+	stdout := captureStdout(t, func() {
+		if code := run(argv); code != exitOK {
+			t.Errorf("run(%q) = %d, want %d", argv, code, exitOK)
+		}
+	})
+	if want := `"value": 340282366920938463463374607431768211455`; !strings.Contains(stdout, want) {
+		t.Errorf("run(%q) printed %q, want it to hold %q", argv, stdout, want)
+	}
+}
+
 // TestArgumentParsersRefuseWhatTheyCannotRead: the three readers between the
 // command line and the kernel, checked without one, since nothing else does.
 func TestArgumentParsersRefuseWhatTheyCannotRead(t *testing.T) {
@@ -809,115 +871,6 @@ func TestGuideShellLinesRunAsWritten(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// plant writes an empty file at path, making its directories, for a test that
-// asks resolveLib to find it.
-func plant(t *testing.T, path string) os.FileInfo {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("os.MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(path, nil, 0o644); err != nil {
-		t.Fatalf("os.WriteFile: %v", err)
-	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("os.Stat: %v", err)
-	}
-	return fi
-}
-
-// deepEmptyDir makes an empty directory nested deep enough that every relative
-// directory resolveLib searches from it lies inside the test's own temporary
-// tree.
-func deepEmptyDir(t *testing.T) string {
-	t.Helper()
-	dir := filepath.Join(t.TempDir(), "a", "b", "c")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("os.MkdirAll: %v", err)
-	}
-	return dir
-}
-
-// TestResolveLibFindsTheBuildTree: from each directory the CLI runs from, the
-// repository root, go/ and go/cmd/aletheia, resolveLib finds the root's
-// build/libaletheia-ffi.so in a planted tree, ALETHEIA_LIB empty and no system
-// library in reach.
-func TestResolveLibFindsTheBuildTree(t *testing.T) {
-	root := t.TempDir()
-	want := plant(t, filepath.Join(root, "build", "libaletheia-ffi.so"))
-	sysRoot := t.TempDir()
-	for _, dir := range []string{".", "go", filepath.Join("go", "cmd", "aletheia")} {
-		t.Run(dir, func(t *testing.T) {
-			wd := filepath.Join(root, dir)
-			if err := os.MkdirAll(wd, 0o755); err != nil {
-				t.Fatalf("os.MkdirAll: %v", err)
-			}
-			t.Chdir(wd)
-			t.Setenv("ALETHEIA_LIB", "")
-			got := resolveLib(sysRoot)
-			if fi, err := os.Stat(got); err != nil || !os.SameFile(fi, want) {
-				t.Errorf("from %s, resolveLib = %q; want the root's build/libaletheia-ffi.so", dir, got)
-			}
-		})
-	}
-}
-
-// TestResolveLibFallsBackToTheSystemDirectory: with no build tree in reach,
-// resolveLib finds usr/local/lib/libaletheia-ffi.so under the system root it is
-// given.
-func TestResolveLibFallsBackToTheSystemDirectory(t *testing.T) {
-	sysRoot := t.TempDir()
-	so := filepath.Join(sysRoot, "usr", "local", "lib", "libaletheia-ffi.so")
-	plant(t, so)
-	t.Chdir(deepEmptyDir(t))
-	t.Setenv("ALETHEIA_LIB", "")
-	if got := resolveLib(sysRoot); got != so {
-		t.Errorf("resolveLib = %q; want %q", got, so)
-	}
-}
-
-// TestResolveLibTakesTheEnvironmentFirst: a set ALETHEIA_LIB is the answer as
-// given, unchecked, ahead of a build tree in reach.
-func TestResolveLibTakesTheEnvironmentFirst(t *testing.T) {
-	root := t.TempDir()
-	plant(t, filepath.Join(root, "build", "libaletheia-ffi.so"))
-	t.Chdir(root)
-	const env = "/nonexistent/libaletheia-ffi.so"
-	t.Setenv("ALETHEIA_LIB", env)
-	if got := resolveLib(t.TempDir()); got != env {
-		t.Errorf("resolveLib = %q; want %q", got, env)
-	}
-}
-
-// TestResolveLibAnswersNothingOutOfReach: with no library in reach, resolveLib
-// answers the empty path.
-func TestResolveLibAnswersNothingOutOfReach(t *testing.T) {
-	t.Chdir(deepEmptyDir(t))
-	t.Setenv("ALETHEIA_LIB", "")
-	if got := resolveLib(t.TempDir()); got != "" {
-		t.Errorf("resolveLib = %q; want none", got)
-	}
-}
-
-// TestNewClientNotFound: with no library in reach, newClient's error is the
-// line the C++ CLI prints. The system directory is searched from the root, not
-// from the working directory, so a library under the working directory's
-// usr/local/lib is not taken. A machine with the library installed in
-// /usr/local/lib answers from it, so the test skips on one.
-func TestNewClientNotFound(t *testing.T) {
-	if _, err := os.Stat("/usr/local/lib/libaletheia-ffi.so"); err == nil {
-		t.Skip("libaletheia-ffi.so is installed in /usr/local/lib")
-	}
-	wd := deepEmptyDir(t)
-	plant(t, filepath.Join(wd, "usr", "local", "lib", "libaletheia-ffi.so"))
-	t.Chdir(wd)
-	t.Setenv("ALETHEIA_LIB", "")
-	const want = "libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'"
-	if _, err := newClient(); err == nil || err.Error() != want {
-		t.Errorf("newClient error = %v; want %q", err, want)
 	}
 }
 

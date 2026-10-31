@@ -48,12 +48,14 @@ private:
     BinResult result_;
 };
 
-// One extracted value, wire index 0, worth 7/1, and nothing else.
+// One extracted value, wire index 0, worth 7/1, and nothing else: the header,
+// the value record (index, sign byte, then numerator and denominator as
+// 128-bit little-endian words) and the lone offsets entry.
 inline auto one_value_at_index_zero() -> std::vector<std::byte> {
-    std::vector<std::byte> buf(14 + 18, std::byte{0});
+    std::vector<std::byte> buf(14 + 35, std::byte{0});
     buf[0] = std::byte{1};  // nvals
-    buf[12] = std::byte{7}; // numerator, little-endian
-    buf[20] = std::byte{1}; // denominator
+    buf[13] = std::byte{7}; // numerator, little-endian
+    buf[29] = std::byte{1}; // denominator
     return buf;
 }
 

@@ -17,7 +17,6 @@
 #include <aletheia/error.hpp>
 #include <aletheia/types.hpp>
 
-#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <string>
@@ -25,14 +24,14 @@
 
 namespace aletheia::detail {
 
-// Render `(num, denom)` via the Agda kernel: the text, or kind `Ffi` while the
-// runtime is down or when the kernel returns a null string.
-[[nodiscard]] auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> Result<std::string>;
+// Render `r` via the Agda kernel: the text, or kind `Ffi` while the runtime is
+// down or when the kernel returns a null string.
+[[nodiscard]] auto format_rational_ffi(Rational const& r) -> Result<std::string>;
 
 // The one place the binding turns a Rational into text, so the check
 // builder's thresholds and the enrichment renderer's values cannot drift.
 [[nodiscard]] inline auto format_rational(Rational const& r) -> Result<std::string> {
-    return format_rational_ffi(r.numerator(), r.denominator());
+    return format_rational_ffi(r);
 }
 
 // Parse a decimal literal into an exact rational via the Agda kernel's
@@ -41,7 +40,7 @@ namespace aletheia::detail {
 // or a component past the kernel's magnitude bound), which the caller reads
 // via `detail::binary_refusal` (in json.hpp), this TU staying JSON-free.  The
 // outer error is the binding's: kind `Ffi` while the runtime is down, kind
-// `Protocol` for a failure without an envelope or a non-positive denominator.
+// `Protocol` for a failure without an envelope.
 [[nodiscard]] auto parse_decimal_ffi(std::string_view input)
     -> Result<std::expected<Rational, std::string>>;
 

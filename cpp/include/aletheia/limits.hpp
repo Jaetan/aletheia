@@ -29,6 +29,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -107,9 +108,10 @@ inline constexpr std::uint64_t max_atom_count_per_property = 1024;
 // Properties per stream.
 inline constexpr std::uint64_t max_properties_per_stream = 1024;
 
-// Magnitude of a JSON number's numerator and denominator in reduced form: the
-// signed 64-bit wire range the binary FFI's rational slots carry.
-inline constexpr std::uint64_t max_rational_component_magnitude = 9'223'372'036'854'775'807;
+// Magnitude of a number's numerator and denominator in reduced form, 2^128-1:
+// the unsigned 128-bit magnitudes the binary FFI's rational slots carry.
+inline constexpr auto max_rational_component_magnitude =
+    std::numeric_limits<unsigned __int128>::max();
 
 // ============================================================================
 // INPUT-BOUND-EXCEEDED ERROR TYPE
@@ -124,10 +126,10 @@ inline constexpr std::uint64_t max_rational_component_magnitude = 9'223'372'036'
 /// want the structured fields inspect `bound_info()`; callers who only need
 /// the error path use the `AletheiaError` itself.
 struct InputBoundExceededError {
-    std::string bound_kind; // wire code (one of `bound_kind_*` above)
-    std::uint64_t observed; // measured value past the limit; UINT64_MAX when the kernel
-                            // measured more, its message then saying "at least"
-    std::uint64_t limit;    // canonical bound from `Aletheia.Limits`
+    std::string bound_kind;     // wire code (one of `bound_kind_*` above)
+    unsigned __int128 observed; // measured value past the limit; 2^128-1 when the kernel
+                                // measured more, its message then naming no number
+    unsigned __int128 limit;    // canonical bound from `Aletheia.Limits`
     // The part of the input that crossed the bound, as the kernel names it:
     // a DBC's "senders array" or "signal factor", a decimal entered through
     // Rational::from_decimal as "decimal"; std::nullopt when the refusal names

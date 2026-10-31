@@ -33,8 +33,7 @@
 #include <aletheia/validation.hpp>
 
 #include "detail/loader_utils.hpp"
-
-#include <nlohmann/json.hpp>
+#include "detail/wide_json.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -46,6 +45,7 @@
 #include <exception>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -77,7 +77,8 @@ using aletheia::DbcMessage;
 using aletheia::DbcSignal;
 using aletheia::ExtendedId;
 using aletheia::StandardId;
-using Json = nlohmann::json;
+// Every whole number a report writes is exact to the kernel's 128 bits.
+using aletheia::detail::Json;
 
 constexpr std::uint32_t k_std_id_max = 0x7FF; // 11-bit standard CAN ID ceiling
 constexpr int k_json_indent = 2;
@@ -132,7 +133,7 @@ static auto emit_report(std::string_view report, int outcome) -> int {
 }
 
 static auto emit_json(Json const& j, int outcome = cli_exit_ok) -> int {
-    return emit_report(j.dump(k_json_indent) + '\n', outcome);
+    return emit_report(aletheia::detail::dump_json(j, k_json_indent) + '\n', outcome);
 }
 
 // --- client / DBC loading -------------------------------------------------
@@ -393,21 +394,20 @@ static auto cmd_validate(Args const& a) -> int {
 }
 
 // Exact rational -> JSON for `extract --json`: a bare integer when the
-// denominator is 1, else the `{"numerator","denominator"}` object — the same
+// denominator is 1, else the `{"numerator","denominator"}` object, the same
 // wire SHAPE as Python's FractionJSONEncoder and the binding's own DBC canonical
-// JSON (`json_serialize.cpp::rational_to_json`).  The parsed value is identical
-// across bindings; the byte order is not (nlohmann's default object is a sorted
-// map, so keys emit alphabetically — `denominator` before `numerator` — whereas
-// Python emits insertion order).  The float principle bars a lossy conversion to
-// double here (this is machine-readable output a consumer parses), and the type
-// offers none.  Extraction values
-// are kernel-canonical (reduced, positive denominator), so no gcd / INT64_MIN
-// normalisation is needed (unlike `rational_to_json`, which guards arbitrary
-// caller-built rationals on the DBC-serialize path).
+// JSON (`json_serialize.cpp::rational_to_json`), each number written exactly to
+// its 128-bit magnitude.  The parsed value is identical across bindings; the
+// byte order is not (the object is a sorted map, so keys emit alphabetically,
+// `denominator` before `numerator`, whereas Python emits insertion order).  The
+// float principle bars a lossy conversion to double here (this is
+// machine-readable output a consumer parses), and the type offers none.
 static auto extract_value_to_json(aletheia::Rational const& r) -> Json {
+    auto numerator = aletheia::detail::json_of(r.negative(), r.numerator());
     if (r.denominator() == 1)
-        return r.numerator();
-    return Json{{"numerator", r.numerator()}, {"denominator", r.denominator()}};
+        return numerator;
+    return Json{{"numerator", std::move(numerator)},
+                {"denominator", aletheia::detail::json_of(false, r.denominator())}};
 }
 
 // Exact rational -> human-readable string for CLI text output, via the verified
@@ -563,10 +563,9 @@ static auto join_signal_names(std::span<DbcSignal const> sigs) -> std::string {
 }
 
 // mux-query selector mode: the signals present for one (multiplexor, value).
-static auto mux_selector(DbcMessage const& msg, std::string const& mux, std::uint32_t value,
-                         bool as_json) -> int {
-    auto const sigs =
-        msg.signals_for_mux_value(aletheia::SignalName{mux}, aletheia::MultiplexValue{value});
+static auto mux_selector(DbcMessage const& msg, std::string const& mux,
+                         aletheia::MultiplexValue value, bool as_json) -> int {
+    auto const sigs = msg.signals_for_mux_value(aletheia::SignalName{mux}, value);
     if (as_json) {
         auto names = Json::array();
         for (auto const& s : sigs)
@@ -574,12 +573,12 @@ static auto mux_selector(DbcMessage const& msg, std::string const& mux, std::uin
         return emit_json({{"message_id", aletheia::can_id_value(msg.id)},
                           {"message_name", msg.name.get()},
                           {"multiplexor", mux},
-                          {"value", value},
+                          {"value", value.get()},
                           {"signals", names}});
     }
     std::ostringstream out;
     print_message_header(out, msg);
-    out << "Multiplexor " << mux << " = " << value << ": " << sigs.size() << " signals present\n";
+    out << std::format("Multiplexor {} = {}: {} signals present\n", mux, value.get(), sigs.size());
     for (auto const& s : sigs)
         out << "  " << s.name.get() << '\n';
     return emit_report(std::move(out).str(), cli_exit_ok);
@@ -614,11 +613,35 @@ static auto mux_summary(DbcMessage const& msg, bool as_json) -> int {
         out << "  " << name.get() << ":\n";
         for (auto const v : msg.multiplex_values(name)) {
             auto const sigs = msg.signals_for_mux_value(name, v);
-            out << "    value " << v.get() << ": " << sigs.size() << " signals ("
-                << join_signal_names(sigs) << ")\n";
+            out << std::format("    value {}: {} signals ({})\n", v.get(), sigs.size(),
+                               join_signal_names(sigs));
         }
     }
     return emit_report(std::move(out).str(), cli_exit_ok);
+}
+
+// Reads --value as the Go and Python CLIs do, by the kernel's decimal grammar,
+// the runtime being up with the client. Answers the multiplex value it names,
+// nullopt when the flag is absent, or the refusal to print, in this order: a
+// text the kernel refuses, with the kernel's message; a number that is not
+// whole; a negative one, named as the kernel's canonical number.
+static auto read_mux_value(Args const& a)
+    -> std::expected<std::optional<aletheia::MultiplexValue>, std::string> {
+    auto const it = a.opts.find("value");
+    if (it == a.opts.end())
+        return std::nullopt;
+    auto const& text = it->second;
+    auto const number = aletheia::Rational::from_decimal(text);
+    if (!number)
+        return std::unexpected("invalid --value: " + text + ": " +
+                               aletheia::detail::error_of(number).text());
+    if (number.value().denominator() != 1)
+        return std::unexpected("invalid --value: " + text);
+    if (number.value().negative())
+        return std::unexpected(std::format(
+            "--value must not be negative, got {}",
+            aletheia::SignMagnitude{.negative = true, .magnitude = number.value().numerator()}));
+    return aletheia::MultiplexValue{number.value().numerator()};
 }
 
 static auto cmd_mux_query(Args const& a) -> int {
@@ -638,22 +661,17 @@ static auto cmd_mux_query(Args const& a) -> int {
         return die("message not found by id or name: " + a.positionals.at(0));
 
     // `--mux NAME --value N` (both or neither) selects one multiplexor value;
-    // otherwise print the full summary. Mirrors the Python/Go CLIs.
-    auto const has_mux = a.opts.contains("mux");
-    auto const has_value = a.opts.contains("value");
-    if (has_mux != has_value)
+    // otherwise print the full summary. The value is read before it is paired
+    // with --mux, so a refused text is named even without --mux.
+    auto const value = read_mux_value(a);
+    if (!value)
+        return die(aletheia::detail::error_of(value));
+    auto const& selector = value.value();
+    if (a.opts.contains("mux") != selector.has_value())
         return die("--mux and --value must be provided together");
-    if (!has_mux)
+    if (!selector)
         return mux_summary(*msg, a.flags.contains("json"));
-
-    std::string const& vstr = a.opts.at("value");
-    std::uint32_t value = 0;
-    auto const* const vend = std::to_address(vstr.end());
-    if (auto const [ptr, ec] = std::from_chars(vstr.data(), vend, value);
-        ec != std::errc{} || ptr != vend) {
-        return die("invalid --value: " + vstr);
-    }
-    return mux_selector(*msg, a.opts.at("mux"), value, a.flags.contains("json"));
+    return mux_selector(*msg, a.opts.at("mux"), selector.value(), a.flags.contains("json"));
 }
 
 // Writes the blank workbook the Excel loaders read; a path that exists is

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Unit tests: the client's payload and timestamp checks, the DLC table,
-// Rational's order, and the FFI backend: how it and the renderer find, open
+// Rational's equality, and the FFI backend: how it and the renderer find, open
 // and refuse a library, what it hands the kernel and frees, the exception it
 // throws, and the kernel's allocation count it reads.
 #include <catch2/catch_message.hpp>
@@ -21,6 +21,7 @@
 #include "scoped_aletheia_lib.hpp"
 #include "temp_path.hpp"
 #include "text_file.hpp"
+#include "u128_testing.hpp"
 #include <aletheia/aletheia.hpp>
 #include <aletheia/detail/checked.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
@@ -239,56 +240,24 @@ TEST_CASE("every DLC code maps to its byte count and back, and no other count ha
 }
 
 // ===========================================================================
-// Rational comparison
+// Rational equality
 // ===========================================================================
 
-TEST_CASE("Rational operator<=> and operator==", "[types]") {
-    Rational const a{1, 2};  // 0.5
-    Rational const b{2, 4};  // 0.5
-    Rational const c{3, 4};  // 0.75
-    Rational const d{-1, 2}; // -0.5
-
-    SECTION("equality") {
-        CHECK(a == b);
-        CHECK_FALSE(a == c);
-        CHECK(Rational{0, 1} == Rational{0, 5});
-        CHECK(Rational{std::numeric_limits<std::int64_t>::max(),
-                       std::numeric_limits<std::int64_t>::max()} == Rational{1, 1});
-    }
-
-    SECTION("less than") {
-        CHECK(a < c);
-        CHECK(d < a);
-        CHECK(Rational{1, 3} < Rational{1, 2});
-        CHECK_FALSE(c < a);
-    }
-
-    SECTION("greater than") {
-        CHECK(c > a);
-        CHECK_FALSE(a > c);
-    }
-
-    SECTION("less than or equal") {
-        CHECK(a <= b);
-        CHECK(a <= c);
-        CHECK_FALSE(c <= a);
-    }
-
-    SECTION("negative values") {
-        Rational const neg{-3, 4};
-        CHECK(neg < a);
-        CHECK(d == Rational{-1, 2});
-        CHECK(Rational{-5, 7} == Rational{-10, 14});
-        CHECK(Rational{-1, 3} < Rational{1, 3});
-    }
-
-    SECTION("pairs whose cross products pass 64 bits, or that a double cannot tell apart") {
-        constexpr auto max = std::numeric_limits<std::int64_t>::max();
-        CHECK(Rational{max, 1} > Rational{max - 1, 1});
-        CHECK(Rational{max, 2} < Rational{max - 1, 1});
-        CHECK(Rational{-max, 3} < Rational{-(max - 1), 3});
-        CHECK(Rational{1, max} < Rational{1, max - 1});
-    }
+TEST_CASE("Rational equality is equality of value", "[types]") {
+    // Every factory stores the value reduced with a zero unsigned, so two
+    // spellings of one value compare equal; a Rational has no order.
+    constexpr auto largest = std::numeric_limits<unsigned __int128>::max();
+    CHECK(Rational{1, 2} == Rational{2, 4});
+    CHECK_FALSE(Rational{1, 2} == Rational{3, 4});
+    CHECK_FALSE(Rational{1, 2} == Rational{-1, 2});
+    CHECK(Rational{0, 1} == Rational{0, 5});
+    CHECK(Rational{-5, 7} == Rational{-10, 14});
+    CHECK(required(Rational::make(true, 0, 3)) == Rational{});
+    CHECK(Rational{std::numeric_limits<std::int64_t>::max(),
+                   std::numeric_limits<std::int64_t>::max()} == Rational{1, 1});
+    CHECK(required(Rational::make(false, largest, largest)) == Rational{1, 1});
+    CHECK(required(Rational::make(true, largest - 1, 2)) ==
+          required(Rational::make(true, (largest - 1) / 2, 1)));
 }
 
 // ===========================================================================

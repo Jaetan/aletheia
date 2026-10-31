@@ -10,7 +10,6 @@
 
 #include <yaml-cpp/yaml.h>
 
-#include <chrono>
 #include <expected>
 #include <filesystem>
 #include <stdexcept>
@@ -67,24 +66,16 @@ static auto get_decimal(YAML::Node const& node, std::string const& key, std::str
     return detail::read_decimal(child.as<std::string>(), ctx, key);
 }
 
-// Read `within_ms`, a check's bound in milliseconds, as get_decimal reads a
-// number, so the kernel decides what the text is. The loader refuses at the
-// check a reading that is not whole, one that is negative, and one whose
-// microseconds the check builder's conversion refuses as overflowing int64.
-static auto get_within_ms(YAML::Node const& node, std::string const& ctx)
-    -> std::chrono::milliseconds {
-    auto const value = get_decimal(node, "within_ms", ctx, "integer");
-    if (value.denominator() != 1)
-        throw std::runtime_error(ctx + ": 'within_ms' must be a whole number, got " +
-                                 node["within_ms"].as<std::string>());
-    if (value.numerator() < 0)
-        throw std::runtime_error(ctx + ": 'within_ms' must be non-negative, got " +
-                                 node["within_ms"].as<std::string>());
-    auto const ms = std::chrono::milliseconds{value.numerator()};
-    if (auto const us = detail::checked_ms_to_us(ms); !us)
-        throw std::runtime_error(
-            ctx + ": invalid 'within_ms': " + std::string{detail::error_of(us).message()});
-    return ms;
+// Read `within_us`, a check's bound in whole microseconds, from the scalar's
+// text through `detail::read_time_bound`, located at the check and the key, so
+// the kernel decides what the text is: a fraction, a negative bound and one
+// past 2^64-1 are the kernel's refusals. An absent key and a node that is not
+// a scalar are the loader's own refusal, as get_decimal's are.
+static auto get_within_us(YAML::Node const& node, std::string const& ctx) -> TimeBound {
+    auto const child = require_child(node, "within_us", ctx, "integer");
+    if (!child.IsScalar())
+        throw missing_or_invalid(ctx, "within_us", "integer");
+    return detail::read_time_bound(child.as<std::string>(), ctx, "within_us");
 }
 
 static auto get_map(YAML::Node const& node, std::string const& key, std::string const& ctx)
@@ -126,7 +117,7 @@ static auto parse_simple_check(YAML::Node const& entry, std::string const& name)
             throw std::runtime_error(ctx(name) + ": condition '" + condition +
                                      "' requires 'value'");
         auto const value = PhysicalValue{get_decimal(entry, "value", ctx(name))};
-        return detail::dispatch_simple(signal, condition, value);
+        return detail::built_check(detail::dispatch_simple(signal, condition, value));
     }
 
     if (detail::is_simple_range_condition(condition)) {
@@ -142,20 +133,20 @@ static auto parse_simple_check(YAML::Node const& entry, std::string const& name)
         if (!entry["min"] || !entry["max"])
             throw std::runtime_error(ctx(name) +
                                      ": condition 'settles_between' requires 'min' and 'max'");
-        if (!entry["within_ms"])
+        if (!entry["within_us"])
             throw std::runtime_error(ctx(name) +
-                                     ": condition 'settles_between' requires 'within_ms'");
+                                     ": condition 'settles_between' requires 'within_us'");
         auto const lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
         auto const hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
-        auto const ms = get_within_ms(entry, ctx(name));
-        return detail::built_check(check::signal(signal).settles_between(lo, hi).within(ms));
+        auto const within = get_within_us(entry, ctx(name));
+        return detail::built_check(check::signal(signal).settles_between(lo, hi).within(within));
     }
 
     // equals
     if (!entry["value"])
         throw std::runtime_error(ctx(name) + ": condition 'equals' requires 'value'");
     auto const value = PhysicalValue{get_decimal(entry, "value", ctx(name))};
-    return check::signal(signal).equals(value).always();
+    return detail::built_check(check::signal(signal).equals(value).always());
 }
 
 // ---------------------------------------------------------------------------
@@ -165,12 +156,12 @@ static auto parse_simple_check(YAML::Node const& entry, std::string const& name)
 static auto parse_when_then_check(YAML::Node const& entry, std::string const& name) -> CheckResult {
     if (!entry["then"])
         throw std::runtime_error(ctx(name) + ": must have 'signal' or 'when'/'then'");
-    if (!entry["within_ms"])
-        throw std::runtime_error(ctx(name) + ": when/then checks require 'within_ms'");
+    if (!entry["within_us"])
+        throw std::runtime_error(ctx(name) + ": when/then checks require 'within_us'");
 
     auto const when = get_map(entry, "when", ctx(name));
     auto const then = get_map(entry, "then", ctx(name));
-    auto const within_ms = get_within_ms(entry, ctx(name));
+    auto const within = get_within_us(entry, ctx(name));
 
     // When clause
     auto const when_cond = get_str(when, "condition", ctx(name));
@@ -209,7 +200,7 @@ static auto parse_when_then_check(YAML::Node const& entry, std::string const& na
         read.emplace("hi", PhysicalValue{get_decimal(then, "max", ctx(name))});
         break;
     }
-    return detail::dispatch_then(then_builder, then_cond, read, within_ms);
+    return detail::built_check(detail::dispatch_then(then_builder, then_cond, read, within));
 }
 
 // ---------------------------------------------------------------------------
@@ -260,9 +251,11 @@ static auto parse_yaml_checks(YAML::Node const& root) -> Result<std::vector<Chec
         try {
             results.push_back(parse_check(entry));
         } catch (detail::AletheiaException const& ex) {
-            // A refused number, located, or a runtime failure keeps the error
-            // as thrown; any other defect of the document is a Validation one.
-            return std::unexpected(ex.error());
+            // A refused number keeps the location and the key it was read at,
+            // a check its builder refused is located at the check, and a
+            // runtime failure keeps the error as thrown; any other defect of
+            // the document is a Validation one.
+            return std::unexpected(detail::located_refusal(ex.error(), ctx(check_name(entry))));
         } catch (std::runtime_error const& ex) {
             return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
         }

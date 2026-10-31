@@ -10,6 +10,7 @@
 #include "detail/ffi_abi.hpp"
 #include "detail/ffi_logic.hpp"
 #include "detail/kernel_library.hpp"
+#include "detail/kernel_value.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +20,7 @@
 #include <format>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -117,11 +119,17 @@ static auto payload_frame(CanId const& id, Dlc dlc, std::span<std::byte const> d
     return frame;
 }
 
-static auto signal_values(SignalInjection const& signals) -> detail::FfiSignalValues {
-    return {.indices = signals.indices().data(),
-            .numerators = signals.numerators().data(),
-            .denominators = signals.denominators().data(),
-            .count = signals.count()};
+// The values of a signal injection as the structures the entries read.
+static auto wire_values(SignalInjection const& signals) -> std::vector<detail::FfiRational> {
+    return std::ranges::to<std::vector>(signals.values() |
+                                        std::views::transform(detail::wire_rational));
+}
+
+// The block the entries read: the injection's indices beside `values`, its
+// values laid out by wire_values, which outlive the call.
+static auto signal_values(SignalInjection const& signals,
+                          std::span<detail::FfiRational const> values) -> detail::FfiSignalValues {
+    return {.indices = signals.indices().data(), .values = values.data(), .count = signals.count()};
 }
 
 // The payload of a frame is exactly the byte count its DLC names, the rule the
@@ -287,7 +295,8 @@ public:
                          SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         auto const frame = header_frame(id, dlc);
-        auto const values = signal_values(signals);
+        auto const wire = wire_values(signals);
+        auto const values = signal_values(signals, wire);
         std::vector<std::byte> buf(expected_bytes);
         detail::FfiBuffer out{.data = as_u8(buf.data()),
                               .err = nullptr,
@@ -306,7 +315,8 @@ public:
         if (auto const err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
-        auto const values = signal_values(signals);
+        auto const wire = wire_values(signals);
+        auto const values = signal_values(signals, wire);
         std::vector<std::byte> buf(expected_bytes);
         detail::FfiBuffer out{.data = as_u8(buf.data()),
                               .err = nullptr,

@@ -62,8 +62,8 @@ TEST_CASE("client parse_dbc sends correct JSON and handles success", "[client][m
 
 TEST_CASE("client parse_dbc handles error response", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(
-        R"({"status": "error", "code": "handler_validation_failed", "message": "Invalid DBC"})");
+    mock->queue_response(R"({"status": "error", "code": "handler_validation_failed",)"
+                         R"( "message": "Invalid DBC", "has_errors": true, "issues": []})");
 
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto const result = client.parse_dbc(std::stop_token{}, make_test_dbc());
@@ -157,13 +157,14 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
         "status": "complete",
         "results": [
             {"type": "property", "status": "holds", "property_index": 0}
-        ]
+        ],
+        "warnings": []
     })");
 
     auto client = required(AletheiaClient::create(std::move(mock)));
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -220,15 +221,17 @@ TEST_CASE("client format_dbc round-trip", "[client][mock]") {
             "version": "1.0",
             "messages": [{
                 "id": 256, "name": "VehicleSpeed", "dlc": 8,
-                "sender": "ECU1", "extended": false,
+                "sender": "ECU1", "senders": [], "extended": false,
                 "signals": [{
                     "name": "Speed", "startBit": 0, "length": 16,
                     "byteOrder": "little_endian", "signed": false,
                     "factor": {"numerator": 1, "denominator": 10},
                     "offset": 0, "minimum": 0, "maximum": 300, "unit": "km/h",
-                    "presence": "always"
+                    "presence": "always", "receivers": [], "valueDescriptions": []
                 }]
-            }]
+            }],
+            "signalGroups": [], "environmentVars": [], "valueTables": [], "nodes": [],
+            "comments": [], "attributes": [], "unresolvedValueDescs": []
         }
     })");
 
@@ -247,8 +250,8 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
         "results": [{
             "type": "property",
             "status": "fails",
-            "property_index": {"numerator": 0, "denominator": 1},
-            "timestamp": {"numerator": 2000000, "denominator": 1},
+            "property_index": 0,
+            "timestamp": 2000000,
             "reason": "Speed limit exceeded"
         }]
     })");
@@ -426,8 +429,8 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
     backend->queue_response(R"({"status":"ack"})");     // frame 2
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    auto const prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    auto const prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -454,8 +457,8 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
     // frame 2 has mismatched DLC/payload — validation error before backend call
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    auto const prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    auto const prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -489,8 +492,8 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
     backend->queue_response(R"({"status":"ack"})"); // frame 3
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    auto const prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    auto const prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -518,8 +521,8 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
     backend->queue_response(R"({"status":"ack"})");     // frame 1
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    auto const prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    auto const prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -545,8 +548,8 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     backend->queue_response(R"({"status":"ack"})");     // frame 0
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    auto const prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    auto const prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -584,8 +587,8 @@ TEST_CASE("send_frames empty", "[client][batch]") {
     backend->queue_response(R"({"status":"success"})"); // start_stream
     auto client = required(AletheiaClient::create(std::move(backend)));
 
-    auto const prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    auto const prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 

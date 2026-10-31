@@ -49,5 +49,5 @@ TEST_CASE("a start's count is the running one for every later start and backend"
           std::optional<std::pair<int, int>>{{2, 1}});
     CHECK(required(aletheia::start_runtime(stand_in, 4)) ==
           std::optional<std::pair<int, int>>{{2, 4}});
-    CHECK(aletheia::detail::format_rational_ffi(1, 2) == "1/2");
+    CHECK(aletheia::detail::format_rational_ffi(aletheia::Rational{1, 2}) == "1/2");
 }

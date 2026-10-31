@@ -169,18 +169,21 @@ def _probe(rel: str, anchor_inner: str, tag: str) -> Probe:
     )
 
 
-# Two probes in structurally distant runtime modules — the `uncached_atom`
-# warning-kind label (Protocol/ResponseFormat) and the `little_endian` byte-order
-# key the DBC formatter emits (DBC/Formatter).  Each is a runtime string literal
-# compiled verbatim into the .so (response formatting / formatDBCText are live),
-# with a distinct token so BOTH must propagate — a graph bug in one subtree can't
-# hide behind the other.  If an anchor is renamed the gate fails LOUDLY (startup
-# check); repoint it at a current runtime literal the .so actually contains.  Note
-# a spec-only module (e.g. LTL/JSON/Format) is NOT in the runtime closure even if
-# its string also appears in the .so via a sibling — its edit won't propagate.
+# Two probes in structurally distant runtime modules: the `unknown_comment_target`
+# issue code (Protocol/ResponseFormat) and a validator warning's text
+# (DBC/Validator/Checks).  Each is a runtime string literal compiled verbatim into
+# the .so (response formatting and validation are live) and read by no proof, so
+# an edit to it builds: a key or a tag the DBC formatter writes is held by the
+# JSON round trip and the reply proof, where an edit fails the build instead of
+# showing propagation.  A distinct token per probe means BOTH must propagate, so
+# a graph bug in one subtree can't hide behind the other.  If an anchor is
+# renamed the gate fails LOUDLY (startup check); repoint it at a current runtime
+# literal the .so actually contains and no proof reads.  Note a spec-only module
+# (e.g. LTL/JSON/Format) is NOT in the runtime closure even if its string also
+# appears in the .so via a sibling: its edit won't propagate.
 _PROBES: tuple[Probe, ...] = (
-    _probe("src/Aletheia/Protocol/ResponseFormat.agda", "uncached_atom", "RF"),
-    _probe("src/Aletheia/DBC/Formatter.agda", "little_endian", "DBC"),
+    _probe("src/Aletheia/Protocol/ResponseFormat.agda", "unknown_comment_target", "RF"),
+    _probe("src/Aletheia/DBC/Validator/Checks.agda", "mux value matching may be unreliable", "DBC"),
 )
 
 

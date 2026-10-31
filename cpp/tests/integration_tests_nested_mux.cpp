@@ -19,6 +19,7 @@
 #include "find_lib.hpp"
 #include "integration_fixtures.hpp"
 #include "required.hpp"
+#include "u128_testing.hpp"
 
 using aletheia::test::required;
 

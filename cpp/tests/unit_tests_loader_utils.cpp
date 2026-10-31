@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// The shared then-dispatcher of the YAML and Excel loaders: it reads the slots
-// its word names from what the loader passed, and refuses a slot the loader
-// did not pass by name rather than reading a filler.
+// The shared dispatchers of the YAML and Excel loaders: the then-dispatcher
+// reads the slots its word names from what the loader passed, and refuses a
+// slot the loader did not pass by name rather than reading a filler; both pass
+// on a check the kernel refused, and a refusal no key holds is located at the
+// place the loader built it.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -19,7 +21,6 @@
 #include <aletheia/types.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -28,27 +29,33 @@
 #include <ranges>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <unistd.h>
 #include <vector>
 
+using aletheia::AletheiaError;
 using aletheia::detail::ThenSlotValues;
+using aletheia::ErrorCode;
+using aletheia::ErrorKind;
 using aletheia::PhysicalValue;
 using aletheia::Rational;
+using aletheia::TimeBound;
 using Catch::Matchers::ContainsSubstring;
 
 static auto then_builder() -> aletheia::ThenSignal {
     return aletheia::check::when("Brake").drops_below(PhysicalValue{Rational{10, 1}}).then("Speed");
 }
 
-static constexpr auto k_within = std::chrono::milliseconds{100};
+static constexpr auto k_within = TimeBound{100'000};
 
 TEST_CASE("dispatch_then reads the slot its word names", "[loader_utils]") {
     auto const builder = then_builder();
     auto const five = PhysicalValue{Rational{5, 1}};
     auto const nine = PhysicalValue{Rational{9, 1}};
 
-    auto const rendered = [](aletheia::CheckResult const& result) {
-        return aletheia::format_formula(result.to_formula());
+    auto const rendered = [](aletheia::Result<aletheia::CheckResult> const& result) {
+        REQUIRE(result.has_value());
+        return aletheia::format_formula(result->to_formula());
     };
     CHECK(
         rendered(aletheia::detail::dispatch_then(builder, "equals", {{"value", five}}, k_within)) ==
@@ -67,21 +74,90 @@ TEST_CASE("dispatch_then refuses a slot the loader did not pass, by name", "[loa
     ThenSlotValues const range_only{{"lo", five}, {"hi", five}};
     ThenSlotValues const value_only{{"value", five}};
 
-    CHECK_THROWS_WITH(aletheia::detail::dispatch_then(builder, "equals", range_only, k_within),
+    CHECK_THROWS_WITH(std::ignore =
+                          aletheia::detail::dispatch_then(builder, "equals", range_only, k_within),
                       ContainsSubstring("'equals' reads slot 'value'"));
-    CHECK_THROWS_WITH(aletheia::detail::dispatch_then(builder, "exceeds", range_only, k_within),
+    CHECK_THROWS_WITH(std::ignore =
+                          aletheia::detail::dispatch_then(builder, "exceeds", range_only, k_within),
                       ContainsSubstring("'exceeds' reads slot 'value'"));
-    CHECK_THROWS_WITH(
-        aletheia::detail::dispatch_then(builder, "stays_between", value_only, k_within),
-        ContainsSubstring("'stays_between' reads slot 'lo'"));
-    CHECK_THROWS_WITH(aletheia::detail::dispatch_then(builder, "stays_between",
-                                                      ThenSlotValues{{"lo", five}}, k_within),
+    CHECK_THROWS_WITH(std::ignore = aletheia::detail::dispatch_then(builder, "stays_between",
+                                                                    value_only, k_within),
+                      ContainsSubstring("'stays_between' reads slot 'lo'"));
+    CHECK_THROWS_WITH(std::ignore = aletheia::detail::dispatch_then(
+                          builder, "stays_between", ThenSlotValues{{"lo", five}}, k_within),
                       ContainsSubstring("'stays_between' reads slot 'hi'"));
 }
 
 TEST_CASE("dispatch_then refuses a word outside the vocabulary, by name", "[loader_utils]") {
-    CHECK_THROWS_WITH(aletheia::detail::dispatch_then(then_builder(), "flickers", {}, k_within),
+    CHECK_THROWS_WITH(std::ignore =
+                          aletheia::detail::dispatch_then(then_builder(), "flickers", {}, k_within),
                       ContainsSubstring("flickers"));
+}
+
+// The kernel's refusal of the check a word builds, as the kernel gives it.
+static void check_refused(aletheia::Result<aletheia::CheckResult> const& result, ErrorCode code,
+                          std::string const& message) {
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK(result.error().code() == code);
+    CHECK(result.error().message() == message);
+    CHECK_FALSE(result.error().location().has_value());
+}
+
+TEST_CASE("the dispatchers pass on the check the kernel refused", "[loader_utils]") {
+    auto const five = PhysicalValue{Rational{5, 1}};
+    auto const nine = PhysicalValue{Rational{9, 1}};
+    check_refused(aletheia::detail::dispatch_then(then_builder(), "stays_between",
+                                                  {{"lo", nine}, {"hi", five}}, k_within),
+                  ErrorCode::HandlerPropertyRefused, "between: min 9 exceeds max 5");
+    check_refused(aletheia::detail::dispatch_simple("1bad", "never_exceeds", five),
+                  ErrorCode::ParseInvalidIdentifier,
+                  "signal: '1bad' is not a valid DBC identifier (must start with letter or '_', "
+                  "followed by alphanumerics or '_')");
+}
+
+TEST_CASE("a refusal no key holds is located at the place, under no key", "[loader_utils]") {
+    using aletheia::detail::located_refusal;
+    AletheiaError const coded{ErrorKind::Validation, "between: min 9 exceeds max 5",
+                              ErrorCode::HandlerPropertyRefused};
+
+    SECTION("a coded refusal no reader located gains the place and no key") {
+        auto const located = located_refusal(coded, "Check 'C'");
+        CHECK(located.kind() == ErrorKind::Validation);
+        CHECK(located.code() == ErrorCode::HandlerPropertyRefused);
+        CHECK(located.message() == "between: min 9 exceeds max 5");
+        CHECK(located.location() == "Check 'C'");
+        CHECK_FALSE(located.key().has_value());
+        CHECK(located.text() == "Check 'C': between: min 9 exceeds max 5");
+    }
+    SECTION("one a reader located keeps its place and its key") {
+        auto const located = located_refusal(coded.located("Row 2", "Value"), "Row 3");
+        CHECK(located.location() == "Row 2");
+        CHECK(located.key() == "Value");
+        CHECK(located.text() == "Row 2: invalid 'Value': between: min 9 exceeds max 5");
+    }
+    SECTION("one without a code, the runtime down, comes back as it was") {
+        AletheiaError const down{ErrorKind::Ffi, "runtime down"};
+        auto const located = located_refusal(down, "Check 'C'");
+        CHECK_FALSE(located.location().has_value());
+        CHECK(located.text() == "runtime down");
+    }
+}
+
+TEST_CASE("a time bound is read by the kernel, its refusal located at the key", "[loader_utils]") {
+    CHECK(aletheia::detail::read_time_bound("500000", "Check 'C'", "within_us") ==
+          TimeBound{500'000});
+    try {
+        (void)aletheia::detail::read_time_bound("-1500", "Check 'C'", "within_us");
+        FAIL("a negative time bound was read");
+    } catch (aletheia::detail::AletheiaException const& ex) {
+        auto const& error = ex.error();
+        CHECK(error.kind() == ErrorKind::Validation);
+        CHECK(error.code() == ErrorCode::HandlerPropertyRefused);
+        CHECK(error.location() == "Check 'C'");
+        CHECK(error.key() == "within_us");
+        CHECK(error.text() == "Check 'C': invalid 'within_us': timebound -1500 is negative");
+    }
 }
 
 // ===========================================================================

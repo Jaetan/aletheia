@@ -6,6 +6,8 @@
 #include <aletheia/aletheia.hpp>
 
 #include <chrono>
+#include <compare>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -111,17 +113,29 @@ static_assert(Rational::make(1, 4).value() == Rational{1, 4});
 static_assert(Rational::make(1, 0).error().kind() == ErrorKind::Validation);
 static_assert(Rational::make(1, 0).error().message() == "Rational denominator must be positive");
 static_assert(Rational::make(1, -1).error().message() == "Rational denominator must be positive");
-static_assert(Rational::make(std::uint64_t{1} << 63U, 1).error().message() ==
-              "Rational: numerator/denominator out of int64 range");
+static_assert(Rational::make(std::uint64_t{1} << 63U, 1).value().numerator() ==
+              static_cast<unsigned __int128>(1) << 63U);
+static_assert(
+    Rational::make(true, std::numeric_limits<unsigned __int128>::max(), 1).value().numerator() ==
+    std::numeric_limits<unsigned __int128>::max());
+static_assert(Rational::make(false, 1, 0).error().message() ==
+              "Rational denominator must be positive");
 
-// Rational::integer: the whole number, for every integral type within int64
+// Rational::integer: the whole number, for every integral type up to 128 bits
 static_assert(Rational::integer(5) == Rational{5, 1});
-static_assert(Rational::integer(-5).numerator() == -5);
+static_assert(Rational::integer(-5).negative() && Rational::integer(-5).numerator() == 5);
 static_assert(Rational::integer(-5).denominator() == 1);
 static_assert(Rational::integer(std::numeric_limits<std::int64_t>::min()).numerator() ==
-              std::numeric_limits<std::int64_t>::min());
-static_assert(Rational::integer(std::numeric_limits<std::uint32_t>::max()).numerator() ==
-              std::numeric_limits<std::uint32_t>::max());
+              static_cast<unsigned __int128>(1) << 63U);
+static_assert(Rational::integer(std::numeric_limits<__int128>::min()).negative() &&
+              Rational::integer(std::numeric_limits<__int128>::min()).numerator() ==
+                  static_cast<unsigned __int128>(1) << 127U);
+static_assert(Rational::integer(std::numeric_limits<unsigned __int128>::max()).numerator() ==
+              std::numeric_limits<unsigned __int128>::max());
+
+// A Rational is equal to another by value, and has no order.
+static_assert(!std::three_way_comparable<Rational>);
+static_assert(!std::totally_ordered<PhysicalValue>);
 
 // ===========================================================================
 // dlc_to_bytes mapping (CAN-FD non-linear table)
@@ -155,6 +169,8 @@ static_assert(BitLength{1}.get() == 1);
 static_assert(BitLength{64}.get() == 64);
 static_assert(PropertyIndex{0}.get() == 0);
 static_assert(MultiplexValue{42}.get() == 42);
+static_assert(MultiplexValue{std::numeric_limits<unsigned __int128>::max()}.get() ==
+              std::numeric_limits<unsigned __int128>::max());
 
 // ===========================================================================
 // Strong type comparison operators (constexpr)
@@ -162,10 +178,7 @@ static_assert(MultiplexValue{42}.get() == 42);
 
 static_assert(PhysicalValue{Rational{1, 1}} == PhysicalValue{Rational{1, 1}});
 static_assert(PhysicalValue{Rational{1, 1}} != PhysicalValue{Rational{2, 1}});
-static_assert(PhysicalValue{Rational{1, 1}} < PhysicalValue{Rational{2, 1}});
-static_assert(PhysicalValue{Rational{2, 1}} > PhysicalValue{Rational{1, 1}});
-static_assert(PhysicalValue{Rational{1, 1}} <= PhysicalValue{Rational{1, 1}});
-static_assert(PhysicalValue{Rational{1, 1}} >= PhysicalValue{Rational{1, 1}});
+static_assert(PhysicalValue{Rational{2, 4}} == PhysicalValue{Rational{1, 2}});
 
 static_assert(BitPosition{0} < BitPosition{1});
 static_assert(BitLength{8} == BitLength{8});
@@ -275,7 +288,7 @@ static_assert(std::is_nothrow_move_assignable_v<BackendState>);
 // SignalInjection: a borrowed view, reachable only through create
 // ===========================================================================
 
-// Three spans and nothing else, so passing it by value copies no data.
+// Two spans and nothing else, so passing it by value copies no data.
 static_assert(std::is_trivially_copyable_v<SignalInjection>);
 // Nothing builds one without the length checks.
 static_assert(!std::is_default_constructible_v<SignalInjection>);

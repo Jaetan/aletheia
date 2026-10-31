@@ -19,26 +19,34 @@
 #include <aletheia/dbc.hpp>
 #include <aletheia/types.hpp>
 
+#include "u128_testing.hpp"
+
 #include <cstdint>
+#include <limits>
 #include <string>
 
 using namespace aletheia;
 
-TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator", "[property]") {
+using Magnitude = unsigned __int128;
+
+// The kernel's magnitude bound, 2^128-1.
+constexpr auto k_largest = std::numeric_limits<Magnitude>::max();
+
+TEST_CASE("Rational round-trips through serialize+parse for magnitudes to 2^128-1", "[property]") {
     // Pick a small, bounded set per Catch2 GENERATE semantics; the
     // libFuzzer harness covers the wide-range case.  These values exercise
-    // the boundary classes (zero, positive, negative, max/min int64-ish).
+    // the boundary classes: zero, small, past 32 and 64 bits, and the kernel's
+    // magnitude bound, 2^128-1, on either sign.
+    auto const negative = GENERATE(false, true);
     auto const numerator =
-        GENERATE(std::int64_t{0}, std::int64_t{1}, std::int64_t{-1}, std::int64_t{42},
-                 std::int64_t{-42}, std::int64_t{1'000'000}, std::int64_t{-1'000'000},
-                 static_cast<std::int64_t>(std::uint64_t{1} << 32U),
-                 -static_cast<std::int64_t>(std::uint64_t{1} << 32U));
+        GENERATE(Magnitude{0}, Magnitude{1}, Magnitude{42}, Magnitude{1'000'000},
+                 Magnitude{1} << 32U, Magnitude{1} << 63U, Magnitude{1} << 64U, k_largest);
     auto const denominator =
-        GENERATE(std::int64_t{1}, std::int64_t{2}, std::int64_t{7}, std::int64_t{1000});
-    auto const original = Rational::make(numerator, denominator).value();
-    // Serialize a wire-form DBC carrying the Rational as a signal factor;
-    // round-trip through serialize → parse and assert value equality
-    // (cross-multiplication, avoids canonical-form reasoning).
+        GENERATE(Magnitude{1}, Magnitude{7}, Magnitude{1000}, (Magnitude{1} << 64U) + 1, k_largest);
+    auto const original = Rational::make(negative, numerator, denominator).value();
+    // Serialize a wire-form DBC carrying the Rational as a signal factor and
+    // round-trip it through serialize -> parse: every Rational is stored
+    // reduced, so the value comes back equal.
     auto const sid = StandardId::create(0x100);
     REQUIRE(sid.has_value());
     auto const dlc = Dlc::create(8);
@@ -71,10 +79,7 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
     REQUIRE(parsed.has_value());
     REQUIRE(parsed.value().dbc.messages.size() == 1);
     REQUIRE(parsed.value().dbc.messages[0].signals.size() == 1);
-    auto const round_trip = parsed.value().dbc.messages[0].signals[0].factor.get();
-    // Cross-multiplication value equality.
-    CHECK(original.numerator() * round_trip.denominator() ==
-          round_trip.numerator() * original.denominator());
+    CHECK(parsed.value().dbc.messages[0].signals[0].factor.get() == original);
 }
 
 TEST_CASE("Standard CAN ID factory accepts every value in [0, 2048)", "[property]") {

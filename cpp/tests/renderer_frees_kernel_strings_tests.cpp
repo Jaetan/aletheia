@@ -9,7 +9,9 @@
 // cannot point the renderer at it. For the same reason the allocation count is
 // read here, the recording kernel being the library this process's runtime
 // started on, and a client's diagnostics are built here, the recording kernel
-// rendering every value but the numerator it refuses.
+// rendering every value but the numerator it refuses. Its property check
+// refuses every property, so each property here is written as its predicate
+// rather than through a builder.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -50,7 +52,7 @@ TEST_CASE("the renderer frees the strings the kernel hands it", "[rational_rende
     REQUIRE(frees != nullptr);
 
     auto before = frees();
-    CHECK(aletheia::detail::format_rational_ffi(22, 7) == "22/7");
+    CHECK(aletheia::detail::format_rational_ffi(aletheia::Rational{22, 7}) == "22/7");
     CHECK(frees() == before + 1);
 
     before = frees();
@@ -79,9 +81,9 @@ TEST_CASE("properties whose diagnostic is refused leave none of the last ones", 
     auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
     auto const bounded_by = [](std::int64_t bound) {
         std::vector<aletheia::LtlFormula> properties;
-        properties.push_back(aletheia::ltl::always(aletheia::ltl::atomic(aletheia::ltl::less_than(
-            aletheia::SignalName{"Speed"},
-            aletheia::PhysicalValue{aletheia::Rational::integer(bound)}))));
+        properties.push_back(aletheia::ltl::always(aletheia::ltl::atomic(aletheia::LessThan{
+            .signal = aletheia::SignalName{"Speed"},
+            .value = aletheia::PhysicalValue{aletheia::Rational::integer(bound)}})));
         return properties;
     };
     REQUIRE(client.set_properties(std::stop_token{}, bounded_by(220)).has_value());
@@ -119,8 +121,8 @@ TEST_CASE("a violation whose observed value is refused keeps its frame and names
     auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
     std::vector<aletheia::LtlFormula> properties;
     properties.push_back(aletheia::ltl::always(aletheia::ltl::atomic(
-        aletheia::ltl::less_than(aletheia::SignalName{"Speed"},
-                                 aletheia::PhysicalValue{aletheia::Rational::integer(220)}))));
+        aletheia::LessThan{.signal = aletheia::SignalName{"Speed"},
+                           .value = aletheia::PhysicalValue{aletheia::Rational::integer(220)}})));
     REQUIRE(client.set_properties(std::stop_token{}, properties).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};

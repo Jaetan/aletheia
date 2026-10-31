@@ -9,6 +9,7 @@
 
 #include <aletheia/error.hpp>
 #include <aletheia/excel.hpp>
+#include <aletheia/limits.hpp>
 
 #include <OpenXLSX.hpp>
 
@@ -19,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <limits>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -143,7 +145,7 @@ TEST_CASE("excel: file size cap rejected", "[excel][hardening]") {
     CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
     REQUIRE(result.error().bound_info().has_value());
     CHECK(result.error().bound_info()->bound_kind == "input_length_bytes");
-    CHECK(result.error().bound_info()->limit == 64ULL * 1024 * 1024);
+    CHECK(result.error().bound_info()->limit == aletheia::max_dbc_text_bytes);
 }
 
 TEST_CASE("excel: ZIP central-directory bomb rejected", "[excel][hardening]") {
@@ -587,15 +589,70 @@ TEST_CASE("excel: DBC DLC is accepted at both ends of its range and refused past
         REQUIRE(result->messages.size() == 1);
         CHECK(result->messages[0].dlc.value() == static_cast<std::uint8_t>(dlc));
     }
-    SECTION("16 and -1 are refused") {
-        // 256 truncates to 0 in a byte, a valid DLC: the refusal must come
-        // before the narrowing, not from the factory after it.
-        auto const dlc = GENERATE(16, -1, 256);
+    SECTION("16, -1 and 256 are refused") {
+        // A DLC a byte holds is the factory's to refuse; past a byte, where 256
+        // would truncate to 0, a valid DLC, the refusal comes before the
+        // narrowing, as does one for a negative DLC.
+        struct Row {
+            char const* dlc;
+            char const* text;
+        };
+        auto const [dlc, text] = GENERATE(Row{.dlc = "16", .text = "DLC must be 0-15"},
+                                          Row{.dlc = "-1", .text = "DLC -1 out of range"},
+                                          Row{.dlc = "256", .text = "DLC 256 out of range"});
         TempPath const tf("excel_dbc_dlc_past.xlsx");
-        make_dbc_workbook(tf.path, {row(std::to_string(dlc).c_str())});
+        make_dbc_workbook(tf.path, {row(dlc)});
         auto const result = load_dbc_from_excel(tf.path);
         REQUIRE_FALSE(result.has_value());
-        CHECK_THAT(std::string(result.error().message()), ContainsSubstring("DLC out of range"));
+        CHECK(result.error().kind() == ErrorKind::Validation);
+        CHECK(result.error().text() == text);
+    }
+}
+
+// A start bit and a length are 16-bit fields: a value one cannot hold is
+// refused in the loader's words, and the kernel decides the rest when it reads
+// the definition. A multiplex value has no sign, so a negative one is refused,
+// and any other is read whole, up to the kernel's 2^128-1.
+TEST_CASE("excel: DBC whole numbers are refused only where their type cannot hold them",
+          "[excel][dbc]") {
+    auto const row = [](char const* start, char const* length, char const* multiplexor,
+                        char const* mux_value) -> std::vector<std::string> {
+        return {"256", "Msg", "8", "Sig", start, length,      "little_endian", "FALSE",
+                "1",   "0",   "0", "255", "",    multiplexor, mux_value,       ""};
+    };
+    SECTION("a refusal names the row, the field and the value") {
+        struct Row {
+            std::vector<std::string> cells;
+            char const* text;
+        };
+        auto const [cells, text] =
+            GENERATE_COPY(Row{.cells = row("-1", "8", "", ""),
+                              .text = "Row 2: 'Start Bit' -1 out of range [0, 65535]"},
+                          Row{.cells = row("0", "65536", "", ""),
+                              .text = "Row 2: 'Length' 65536 out of range [0, 65535]"},
+                          Row{.cells = row("0", "8", "Selector", "-1"),
+                              .text = "Row 2: 'Multiplex Value' must be non-negative, got -1"});
+        TempPath const tf("excel_dbc_whole_refused.xlsx");
+        make_dbc_workbook(tf.path, {cells});
+        auto const result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error().kind() == ErrorKind::Validation);
+        CHECK(result.error().text() == text);
+    }
+    SECTION("the largest value each type holds is read") {
+        TempPath const tf("excel_dbc_whole_largest.xlsx");
+        make_dbc_workbook(tf.path, {row("65535", "65535", "Selector",
+                                        "340282366920938463463374607431768211455")});
+        auto const result = load_dbc_from_excel(tf.path);
+        REQUIRE(result.has_value());
+        auto const& sig = result->messages.at(0).signals.at(0);
+        CHECK(sig.start_bit.get() == 65535);
+        CHECK(sig.bit_length.get() == 65535);
+        auto const* mux = std::get_if<Multiplexed>(&sig.presence);
+        REQUIRE(mux != nullptr);
+        REQUIRE(mux->multiplex_values.size() == 1);
+        CHECK(mux->multiplex_values[0] ==
+              MultiplexValue{std::numeric_limits<unsigned __int128>::max()});
     }
 }
 
@@ -708,15 +765,15 @@ TEST_CASE("excel: the loaders release their temporaries when an allocation fails
             {{"the engine speed stays under its redline", "EngineSpeedInRevolutionsPerMinute",
               "never_exceeds", "6000", "", "", "", ""},
              {"the coolant settles into its band", "CoolantTemperatureInDegreesCelsius",
-              "settles_between", "", "80", "95", "30000", ""}});
+              "settles_between", "", "80", "95", "30000000", ""}});
         REQUIRE(load_checks_from_excel(tf.path).has_value());
         expect_balanced([&] { return load_checks_from_excel(tf.path); });
     }
     SECTION("the checks loader, over a when-then sheet") {
         TempPath const tf("excel_alloc_when_then.xlsx");
-        make_wt_workbook(tf.path,
-                         {{"braking dims the lamp", "BrakePedalPositionAsAPercentage", "exceeds",
-                           "50", "BrakeLampIlluminationState", "equals", "1", "", "", "100", ""}});
+        make_wt_workbook(
+            tf.path, {{"braking dims the lamp", "BrakePedalPositionAsAPercentage", "exceeds", "50",
+                       "BrakeLampIlluminationState", "equals", "1", "", "", "100000", ""}});
         REQUIRE(load_checks_from_excel(tf.path).has_value());
         expect_balanced([&] { return load_checks_from_excel(tf.path); });
     }
@@ -786,7 +843,7 @@ TEST_CASE("excel: a range condition missing a bound is refused, by name", "[exce
     SECTION("settles_between without Min") {
         TempPath const tf("excel_settles_no_min.xlsx");
         make_checks_workbook(tf.path,
-                             {{"", "Coolant", "settles_between", "", "", "95", "5000", ""}});
+                             {{"", "Coolant", "settles_between", "", "", "95", "5000000", ""}});
         auto const result = load_checks_from_excel(tf.path);
         REQUIRE_FALSE(result.has_value());
         CHECK_THAT(std::string(result.error().message()),
@@ -795,7 +852,7 @@ TEST_CASE("excel: a range condition missing a bound is refused, by name", "[exce
     SECTION("a then range without Then Max") {
         TempPath const tf("excel_then_range_no_max.xlsx");
         make_wt_workbook(tf.path, {{"", "BrakePedal", "exceeds", "50", "Coolant", "stays_between",
-                                    "", "85", "", "100", ""}});
+                                    "", "85", "", "100000", ""}});
         auto const result = load_checks_from_excel(tf.path);
         REQUIRE_FALSE(result.has_value());
         CHECK_THAT(std::string(result.error().message()),
@@ -820,7 +877,7 @@ TEST_CASE("excel: a range condition missing its other bound is refused, by name"
     SECTION("settles_between without Max") {
         TempPath const tf("excel_settles_no_max.xlsx");
         make_checks_workbook(tf.path,
-                             {{"", "Coolant", "settles_between", "", "85", "", "5000", ""}});
+                             {{"", "Coolant", "settles_between", "", "85", "", "5000000", ""}});
         auto const result = load_checks_from_excel(tf.path);
         REQUIRE_FALSE(result.has_value());
         CHECK_THAT(std::string(result.error().message()),
@@ -829,7 +886,7 @@ TEST_CASE("excel: a range condition missing its other bound is refused, by name"
     SECTION("a then range without Then Min") {
         TempPath const tf("excel_then_range_no_min.xlsx");
         make_wt_workbook(tf.path, {{"", "BrakePedal", "exceeds", "50", "Coolant", "stays_between",
-                                    "", "", "95", "100", ""}});
+                                    "", "", "95", "100000", ""}});
         auto const result = load_checks_from_excel(tf.path);
         REQUIRE_FALSE(result.has_value());
         CHECK_THAT(std::string(result.error().message()),

@@ -370,4 +370,4 @@ def test_an_unknown_identifier_ahead_keeps_the_verdicts() -> None:
     [entry] = result["results"]
     assert entry["status"] == "fails"
     # Sig reads 0x00FF counts of a quarter.
-    assert entry["enrichment"]["signals"] == {"Sig": Fraction(255, 4)}
+    assert _get_enrichment(entry)["signals"] == {"Sig": Fraction(255, 4)}

@@ -159,16 +159,17 @@ class AletheiaError {
     std::optional<InputBoundExceededError> bound_info_;
     // Populated when `code_` is `HandlerValidationFailed` (parseDBC /
     // parseDBCText rejects) or `HandlerTextRoundtripFailed` (formatDBCText
-    // round-trip refusal) and the envelope carried well-typed `has_errors` +
-    // `issues` fields; the elements use the same {severity, code, detail} shape
-    // as a validation response.  Any other error — including one of those
-    // envelopes without the structured fields — has `std::nullopt`.
+    // round-trip refusal), from the `has_errors` and `issues` fields every such
+    // envelope carries (one without them is refused as a Protocol error); the
+    // elements use the same {severity, code, detail} shape as a validation
+    // response.  An error of any other code has `std::nullopt`.
     std::optional<std::vector<ValidationIssue>> issues_;
-    /// Where a loader read a refused number and the key it sat under, one
-    /// fact set by `located`; any other error has `std::nullopt`.
+    /// Where a loader read a refused number and the key it sat under, or
+    /// where it built a check its builder refused, under no key; one fact set
+    /// by `located`, and any other error has `std::nullopt`.
     struct Place {
         std::string location;
-        std::string key;
+        std::optional<std::string> key;
     };
     std::optional<Place> place_;
 
@@ -194,14 +195,15 @@ public:
     [[nodiscard]] auto issues() const -> std::optional<std::vector<ValidationIssue>> const& {
         return issues_;
     }
-    /// Where a loader read the refused number: a check of a YAML document or a
-    /// row of a workbook.
+    /// Where a loader read the refused number, or built the refused check: a
+    /// check of a YAML document or a row of a workbook.
     [[nodiscard]] auto location() const -> std::optional<std::string> {
         return place_.transform([](Place const& place) { return place.location; });
     }
-    /// The key or column header the refused number sat under.
+    /// The key or column header the refused number sat under; std::nullopt for
+    /// a refusal no single key holds, such as a check its builder refused.
     [[nodiscard]] auto key() const -> std::optional<std::string> {
-        return place_.transform([](Place const& place) { return place.key; });
+        return place_.and_then([](Place const& place) { return place.key; });
     }
 
     /// This error, kind, code and fields kept, with the location and the key a
@@ -212,12 +214,24 @@ public:
         return copy;
     }
 
+    /// This error, kind, code and fields kept, with the location of a refusal
+    /// no single key holds, such as a check its builder refused.
+    [[nodiscard]] auto located(std::string location) const -> AletheiaError {
+        auto copy = *this;
+        copy.place_ = Place{.location = std::move(location), .key = std::nullopt};
+        return copy;
+    }
+
     /// The error as every binding prints it: `<location>: invalid '<key>':
-    /// <message>` for a located error, the message alone for any other.
+    /// <message>` for an error located under a key, `<location>: <message>` for
+    /// one located under none, the message alone for any other.
     [[nodiscard]] auto text() const -> std::string {
-        if (place_)
-            return place_.value().location + ": invalid '" + place_.value().key + "': " + message_;
-        return message_;
+        if (!place_)
+            return message_;
+        auto const& place = place_.value();
+        if (!place.key)
+            return place.location + ": " + message_;
+        return place.location + ": invalid '" + place.key.value() + "': " + message_;
     }
 };
 

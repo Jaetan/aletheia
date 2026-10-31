@@ -24,7 +24,8 @@ using aletheia::test::required;
 TEST_CASE("parse_dbc_text passes text at the cap to the backend", "[input_bounds][costly]") {
     auto mock = std::make_unique<aletheia::MockBackend>();
     auto const* mock_ptr = mock.get();
-    mock->queue_response(R"({"status": "error", "message": "unparsed"})");
+    mock->queue_response(
+        R"({"status": "error", "code": "text_parse_failure", "message": "unparsed"})");
     auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
 
     std::string const at_cap(aletheia::max_dbc_text_bytes, 'x');
@@ -33,4 +34,6 @@ TEST_CASE("parse_dbc_text passes text at the cap to the backend", "[input_bounds
     REQUIRE(mock_ptr->captured().size() == 1);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() != aletheia::ErrorKind::InputBoundExceeded);
+    CHECK(result.error().code() == aletheia::ErrorCode::TextParseFailure);
+    CHECK(result.error().message() == "unparsed");
 }

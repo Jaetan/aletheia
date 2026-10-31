@@ -522,11 +522,16 @@ BO_ 256 Engine: 8 ECU
 
 ### Step 3: Register a Check
 
-Build a check with the fluent `check::signal(...)` API and register it. Numeric thresholds are **exact rationals**: `PhysicalValue{Rational{220, 1}}` is 220, never a `double`:
+Build a check with the fluent `check::signal(...)` API and register it. Numeric thresholds are **exact rationals**: `PhysicalValue{Rational{220, 1}}` is 220, never a `double`. The kernel checks a check as it is built, so its runtime must be up; the client opened in Step 1 started it, and starting it again on the same library with the same core count changes nothing. The builder returns a `Result<CheckResult>`:
 
 ```cpp
+    if (!start_runtime("/opt/aletheia/lib/libaletheia-ffi.so", 1))
+        return 1;
+    auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
+    if (!speed_limit)
+        return 1;
     std::vector<CheckResult> checks;  // CheckResult is move-only
-    checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
+    checks.push_back(*std::move(speed_limit));
     if (!client.add_checks(stop, std::move(checks)))
         return 1;
 ```

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Unit tests: the JSON response decoders on malformed input, missing fields,
-// out-of-range values and edge-case shapes such as empty arrays.
+// Unit tests: the JSON response decoders on malformed input, missing fields
+// and edge-case shapes such as empty arrays.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -12,9 +12,15 @@
 #include <cstddef>
 #include <ranges>
 #include <string>
+#include <string_view>
 
 using namespace aletheia;
-using Catch::Matchers::ContainsSubstring;
+using Catch::Matchers::StartsWith;
+
+// A DBC reply with no messages, every array the kernel writes present.
+static constexpr std::string_view empty_dbc_arrays =
+    R"("signalGroups": [], "environmentVars": [], "valueTables": [], "nodes": [],
+       "comments": [], "attributes": [], "unresolvedValueDescs": [])";
 
 // ===========================================================================
 // JSON parse error + edge-case tests
@@ -22,30 +28,41 @@ using Catch::Matchers::ContainsSubstring;
 
 TEST_CASE("parse_success rejects malformed JSON", "[json][parse][error]") {
     auto const result = detail::parse_success("not json at all");
-    CHECK_FALSE(result.has_value());
+    REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()},
+               StartsWith("reply: expected JSON text, got "));
 }
 
 TEST_CASE("parse_success rejects missing status field", "[json][parse][error]") {
     auto const result = detail::parse_success(R"({"foo": "bar"})");
-    CHECK_FALSE(result.has_value());
+    REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected status"));
+    CHECK(result.error().message() ==
+          R"(reply status: expected "success" or "error", got nothing)");
 }
 
 TEST_CASE("parse_extraction rejects missing status field", "[json][parse][error]") {
     auto const result = detail::parse_extraction(R"({"values": []})");
-    CHECK_FALSE(result.has_value());
+    REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("status"));
+    CHECK(result.error().message() ==
+          R"(reply status: expected "success" or "error", got nothing)");
 }
 
-TEST_CASE("parse_extraction handles missing optional arrays", "[json][parse]") {
-    auto const result = detail::parse_extraction(R"({"status": "success"})");
-    REQUIRE(result.has_value());
-    CHECK(result->values.empty());
-    CHECK(result->errors.empty());
-    CHECK(result->absent.empty());
+TEST_CASE("parse_extraction refuses a reply lacking an array the kernel writes",
+          "[json][parse][error]") {
+    // The kernel writes the values, the errors and the absent signals on
+    // every extraction, each array empty or not, so a reply lacking one is
+    // refused at the first missing.
+    auto const none = detail::parse_extraction(R"({"status": "success"})");
+    REQUIRE_FALSE(none.has_value());
+    CHECK(none.error().kind() == ErrorKind::Protocol);
+    CHECK(none.error().message() == "reply values: expected array, got nothing");
+    auto const no_absent =
+        detail::parse_extraction(R"({"status": "success", "values": [], "errors": []})");
+    REQUIRE_FALSE(no_absent.has_value());
+    CHECK(no_absent.error().message() == "reply absent: expected array, got nothing");
 }
 
 TEST_CASE("parse_frame_data accepts variable-length data", "[json][parse]") {
@@ -74,17 +91,15 @@ TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
 
 TEST_CASE("parse_frame_response rejects empty status", "[json][parse][error]") {
     auto const result = detail::parse_frame_response(R"({"foo": "bar"})");
-    CHECK_FALSE(result.has_value());
-    // The post-batch-shape error message reports both status= and type= since
-    // the discriminator moved.
-    CHECK_THAT(std::string{result.error().message()},
-               ContainsSubstring("Unexpected frame response"));
+    REQUIRE_FALSE(result.has_value());
+    // A reply with no status is a batch, told by its type.
+    CHECK(result.error().message() == R"(reply type: expected "property_batch", got nothing)");
 }
 
 TEST_CASE("parse_dbc_response rejects missing dbc field", "[json][parse][error]") {
     auto const result = detail::parse_dbc_response(R"({"status": "success"})");
-    CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("dbc"));
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().message() == "reply dbc: expected object, got nothing");
 }
 
 TEST_CASE("parse_dbc_response rejects malformed signal", "[json][parse][error]") {
@@ -98,31 +113,27 @@ TEST_CASE("parse_dbc_response rejects malformed signal", "[json][parse][error]")
             }]
         }
     })");
-    CHECK_FALSE(result.has_value());
+    REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK(result.error().message() ==
+          "reply dbc/messages/signals/name: expected string, got nothing");
 }
 
 TEST_CASE("parse_dbc_response with empty messages array", "[json][parse]") {
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "1.0", "messages": []}
-    })");
+    auto const result = detail::parse_dbc_response(
+        std::string{R"({"status": "success", "dbc": {"version": "1.0", "messages": [], )"} +
+        std::string{empty_dbc_arrays} + "}}");
     REQUIRE(result.has_value());
     CHECK(result->messages.empty());
     CHECK(result->version == "1.0");
 }
 
 TEST_CASE("parse_dbc_response with empty signals array", "[json][parse]") {
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {
-            "version": "",
-            "messages": [{
-                "id": 256, "name": "EmptyMsg", "dlc": 8,
-                "extended": false, "signals": []
-            }]
-        }
-    })");
+    auto const result = detail::parse_dbc_response(
+        std::string{R"({"status": "success", "dbc": {"version": "", "messages": [{
+            "id": 256, "name": "EmptyMsg", "dlc": 8, "sender": "", "senders": [],
+            "extended": false, "signals": []}], )"} +
+        std::string{empty_dbc_arrays} + "}}");
     REQUIRE(result.has_value());
     CHECK(result->messages.size() == 1);
     CHECK(result->messages[0].signals.empty());
@@ -171,7 +182,11 @@ TEST_CASE("issue_code_label renders the canonical spelling for a known code", "[
     CHECK(issue_code_label(result->issues[0]) == "factor_zero");
 }
 
-TEST_CASE("parse_validation rejects unknown severity string", "[json][parse][error]") {
+TEST_CASE("parse_validation reads a severity word outside the set as its last member",
+          "[json][parse]") {
+    // The kernel proves the severities it writes, so the reader dispatches on
+    // the word with no refusal of its own: "warning", the set's last member,
+    // reads every word "error" does not name.
     auto const result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": false,
@@ -179,9 +194,8 @@ TEST_CASE("parse_validation rejects unknown severity string", "[json][parse][err
             {"severity": "info", "code": "empty_message", "detail": "x"}
         ]
     })");
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("severity"));
+    REQUIRE(result.has_value());
+    CHECK(result->issues[0].severity == IssueSeverity::Warning);
 }
 
 TEST_CASE("parse_validation rejects missing severity string", "[json][parse][error]") {
@@ -194,34 +208,23 @@ TEST_CASE("parse_validation rejects missing severity string", "[json][parse][err
     })");
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK(result.error().message() == "reply issues/severity: expected string, got nothing");
 }
 
-TEST_CASE("parse_number rejects non-numeric JSON via exception", "[json][parse][error]") {
-    // parse_number throws on bad input; the public wrapper converts to Result
+TEST_CASE("parse_extraction rejects a string where a rational belongs", "[json][parse][error]") {
     auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Bad", "value": "not_a_number"}]
     })");
-    CHECK_FALSE(result.has_value());
+    REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK(result.error().message() == "reply values/value: expected a rational, got string");
 }
 
-TEST_CASE("parse_dbc_response rejects out-of-range CAN ID", "[json][parse][error]") {
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {
-            "version": "",
-            "messages": [{
-                "id": 99999, "name": "Bad", "dlc": 8,
-                "extended": false, "signals": []
-            }]
-        }
-    })");
-    CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("CAN ID"));
-}
-
-TEST_CASE("parse_dbc_response rejects out-of-range DLC", "[json][parse][error]") {
+TEST_CASE("parse_dbc_response rejects a byte count no DLC code stands for",
+          "[json][parse][error]") {
+    // A message's length is written as its byte count, and 99 bytes is no
+    // count a DLC code denotes.
     auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
@@ -232,6 +235,6 @@ TEST_CASE("parse_dbc_response rejects out-of-range DLC", "[json][parse][error]")
             }]
         }
     })");
-    CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("DLC"));
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().message() == "reply dbc/messages/dlc: expected number, got number");
 }

@@ -25,6 +25,8 @@ inline constexpr auto canfd_dlc = Dlc::create(15).value();
 auto can20_signals() -> std::vector<SignalValue> const&;
 auto canfd_signals() -> std::vector<SignalValue> const&;
 
+// Each predicate goes through the kernel's build-time check, so the runtime is
+// started first; a refusal is thrown with its text.
 auto make_can20_properties() -> std::vector<LtlFormula>;
 auto make_canfd_properties() -> std::vector<LtlFormula>;
 

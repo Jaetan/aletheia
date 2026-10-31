@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -35,8 +36,9 @@ using Catch::Matchers::ContainsSubstring;
 
 TEST_CASE("collect_signals multi-signal", "[enrich]") {
     auto const f = ltl::both(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
-        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})));
+        ltl::atomic(required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))),
+        ltl::atomic(
+            required(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}}))));
     auto const signals = collect_signals(f);
     REQUIRE(signals.size() == 2);
     CHECK(signals[0] == SignalName{"Speed"});
@@ -44,9 +46,9 @@ TEST_CASE("collect_signals multi-signal", "[enrich]") {
 }
 
 TEST_CASE("collect_signals dedup", "[enrich]") {
-    auto const f =
-        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
-                  ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{}})));
+    auto const f = ltl::both(
+        ltl::atomic(required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))),
+        ltl::atomic(required(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{}}))));
     auto const signals = collect_signals(f);
     CHECK(signals.size() == 1);
     CHECK(signals[0] == SignalName{"Speed"});
@@ -54,8 +56,9 @@ TEST_CASE("collect_signals dedup", "[enrich]") {
 
 TEST_CASE("build_diagnostic always succeeds", "[enrich]") {
     auto const f = ltl::always(ltl::both(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
-        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}}))));
+        ltl::atomic(required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))),
+        ltl::atomic(
+            required(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})))));
     auto const diag = build_diagnostic(f);
     REQUIRE(diag.has_value());
     CHECK(diag->signals.size() == 2);
@@ -76,8 +79,8 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})");
 
     auto client = required(AletheiaClient::create(std::move(mock)));
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -133,7 +136,7 @@ TEST_CASE("send_frame enrichment renders the observed value exactly (kernel form
     mock_ptr->queue_response(R"({
         "type": "property_batch",
         "results": [{"status": "fails", "type": "property",
-                     "property_index": 0, "timestamp": 2000000}]
+                     "property_index": 0, "timestamp": 2000000, "reason": "test"}]
     })");
     mock_ptr->queue_response(R"({
         "status": "success",
@@ -142,8 +145,8 @@ TEST_CASE("send_frame enrichment renders the observed value exactly (kernel form
     })");
 
     auto client = required(AletheiaClient::create(std::move(mock)));
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -173,7 +176,7 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
-                    "property_index": 0, "timestamp": 2000000
+                    "property_index": 0, "timestamp": 2000000, "reason": "test"
         }]
     })");
     mock_ptr->queue_response(R"({
@@ -184,8 +187,9 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
 
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto formula = ltl::always(ltl::both(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
-        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}}))));
+        ltl::atomic(required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))),
+        ltl::atomic(
+            required(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -219,7 +223,7 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
-                    "property_index": 0, "timestamp": 1000000
+                    "property_index": 0, "timestamp": 1000000, "reason": "test"
         }]
     })");
     mock_ptr->queue_response(R"({
@@ -231,14 +235,14 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
-                    "property_index": 0, "timestamp": 2000000
+                    "property_index": 0, "timestamp": 2000000, "reason": "test"
         }]
     })");
     // No second extraction response needed — cached
 
     auto client = required(AletheiaClient::create(std::move(mock)));
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -274,7 +278,8 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
         "results": [
             {"type": "property", "status": "fails", "property_index": 0,
              "timestamp": 5000000, "reason": "Never satisfied"}
-        ]
+        ],
+        "warnings": []
     })");
     // EOS enrichment: merge_last_known_values re-extracts from last frame
     mock_ptr->queue_response(R"({
@@ -285,7 +290,7 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
 
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto formula = ltl::eventually(
-        ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})));
+        ltl::atomic(required(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -309,6 +314,52 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
                ContainsSubstring("[core: Never satisfied]"));
 }
 
+// An extraction the enrichment needs and the kernel refuses is returned, by
+// the frame whose violation needs it and by the end of the stream, with the
+// kernel's code and message, rather than the enrichment going without it.
+TEST_CASE("a refused extraction the enrichment needs is returned", "[client][enrich]") {
+    constexpr std::string_view refusal =
+        R"({"status": "error", "code": "handler_no_dbc", "message": "no DBC loaded"})";
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    auto client = required(AletheiaClient::create(std::move(mock)));
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})))));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto const id = CanId{StandardId::create(0x123).value()};
+    auto const dlc = Dlc::create(8).value();
+    FramePayload const data(8, std::byte{0});
+    auto const requires_no_dbc = [](AletheiaError const& error) {
+        CHECK(error.code() == ErrorCode::HandlerNoDbc);
+        CHECK(error.message() == "no DBC loaded");
+    };
+    SECTION("send frame") {
+        mock_ptr->queue_response(R"({"type": "property_batch", "results": [{"type": "property",)"
+                                 R"( "status": "fails", "property_index": 0, "timestamp": 1000,)"
+                                 R"( "reason": "test"}]})");
+        mock_ptr->queue_response(std::string{refusal});
+        auto const sent = client.send_frame(std::stop_token{}, Timestamp{1000}, id, dlc, data);
+        REQUIRE_FALSE(sent.has_value());
+        requires_no_dbc(sent.error());
+    }
+    SECTION("end stream") {
+        mock_ptr->queue_response(R"({"status": "ack"})");
+        mock_ptr->queue_response(R"({"status": "complete", "results": [{"property_index": 0,)"
+                                 R"( "status": "fails", "timestamp": 5000000,)"
+                                 R"( "reason": "Atomic: predicate failed"}], "warnings": []})");
+        mock_ptr->queue_response(std::string{refusal});
+        REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, dlc, data).has_value());
+        auto const ended = client.end_stream(std::stop_token{});
+        REQUIRE_FALSE(ended.has_value());
+        requires_no_dbc(ended.error());
+    }
+}
+
 TEST_CASE("end_stream surfaces uncached_atom warnings", "[client][warnings]") {
     // The kernel emits one `uncached_atom` warning per atom whose target
     // signal never appeared in trace.  Verifies the C++ binding decodes these
@@ -329,10 +380,15 @@ TEST_CASE("end_stream surfaces uncached_atom warnings", "[client][warnings]") {
             {"kind": "uncached_atom", "property_index": 0, "detail": "UnobservedSignal"}
         ]
     })");
+    // The unresolved verdict's enrichment extracts the one frame sent.
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [], "errors": [], "absent": ["UnobservedSignal"]
+    })");
 
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto formula = ltl::always(ltl::atomic(
-        ltl::less_than(SignalName{"UnobservedSignal"}, PhysicalValue{Rational{100, 1}})));
+        required(ltl::less_than(SignalName{"UnobservedSignal"}, PhysicalValue{Rational{100, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -347,7 +403,7 @@ TEST_CASE("end_stream surfaces uncached_atom warnings", "[client][warnings]") {
     auto const end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->warnings.size() == 1);
-    CHECK(end_result->warnings[0].kind == "uncached_atom");
+    CHECK(end_result->warnings[0].kind == WarningKind::UncachedAtom);
     CHECK(end_result->warnings[0].property_index.get() == 0);
     CHECK(end_result->warnings[0].detail == "UnobservedSignal");
 }
@@ -362,7 +418,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
-                    "property_index": 0, "timestamp": 1000000
+                    "property_index": 0, "timestamp": 1000000, "reason": "test"
         }]
     })");
     mock_ptr->queue_response(R"({
@@ -373,7 +429,8 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     // end first stream
     mock_ptr->queue_response(R"({
         "status": "complete",
-        "results": [{"type": "property", "status": "holds", "property_index": 0}]
+        "results": [{"type": "property", "status": "holds", "property_index": 0}],
+        "warnings": []
     })");
     // second stream
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream (clears cache)
@@ -381,7 +438,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
-                    "property_index": 0, "timestamp": 1000000
+                    "property_index": 0, "timestamp": 1000000, "reason": "test"
         }]
     })");
     mock_ptr->queue_response(R"({
@@ -391,8 +448,8 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     })");
 
     auto client = required(AletheiaClient::create(std::move(mock)));
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -454,7 +511,7 @@ TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
-                    "property_index": 0, "timestamp": 2000000
+                    "property_index": 0, "timestamp": 2000000, "reason": ""
         }]
     })");
     mock->queue_response(R"({
@@ -464,8 +521,8 @@ TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]
     })");
 
     auto client = required(AletheiaClient::create(std::move(mock)));
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -519,7 +576,8 @@ TEST_CASE("end_stream enrichment includes last-known signal values", "[client][e
         "results": [
             {"type": "property", "status": "fails", "property_index": 0,
              "timestamp": 5000000, "reason": "MetricEventually: window expired"}
-        ]
+        ],
+        "warnings": []
     })");
     // EOS enrichment: merge_last_known_values re-extracts from last frame
     mock_ptr->queue_response(R"({
@@ -530,7 +588,7 @@ TEST_CASE("end_stream enrichment includes last-known signal values", "[client][e
 
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto formula = ltl::eventually(
-        ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+        ltl::atomic(required(ltl::equals(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -577,7 +635,8 @@ TEST_CASE("end_stream enrichment uses last-frame tracking, not just cache", "[cl
         "results": [
             {"type": "property", "status": "fails", "property_index": 0,
              "timestamp": 5000000, "reason": "MetricEventually: window expired"}
-        ]
+        ],
+        "warnings": []
     })");
     // EOS enrichment: merge_last_known_values re-extracts from last frame
     mock_ptr->queue_response(R"({
@@ -588,7 +647,7 @@ TEST_CASE("end_stream enrichment uses last-frame tracking, not just cache", "[cl
 
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto formula = ltl::eventually(
-        ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+        ltl::atomic(required(ltl::equals(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 

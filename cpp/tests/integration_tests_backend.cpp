@@ -38,6 +38,7 @@
 #include "loaded_library.hpp"
 #include "required.hpp"
 #include "temp_path.hpp"
+#include "u128_testing.hpp"
 
 using aletheia::test::required;
 
@@ -63,7 +64,8 @@ TEST_CASE("open builds a client over the library it names with every option it i
     std::vector<std::string> events;
     Logger const logger([&events](LogRecord const& r) { events.emplace_back(r.event); });
     std::vector<CheckResult> defaults;
-    defaults.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
+    defaults.push_back(
+        required(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}})));
     auto client = required(AletheiaClient::open({.library = find_lib(),
                                                  .rts_cores = 2,
                                                  .logger = logger,
@@ -93,8 +95,8 @@ TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", 
     auto const state = required(backend->init());
     auto const id = CanId{StandardId::create(0x100).value()};
     std::vector<std::uint32_t> const indices{0};
-    std::vector<std::int64_t> const ones{1};
-    auto const injection = SignalInjection::create(indices, ones, ones).value();
+    std::vector<Rational> const ones{Rational{1, 1}};
+    auto const injection = SignalInjection::create(indices, ones).value();
     auto const dlc8 = Dlc::create(8).value();
     auto const refused = [](AletheiaError const& error, std::size_t length) {
         CHECK(error.kind() == ErrorKind::Validation);
@@ -143,8 +145,8 @@ TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]
     auto const dlc = Dlc::create(15).value();
     std::vector<std::byte> const data64(64, std::byte{0});
     std::vector<std::uint32_t> const indices{0};
-    std::vector<std::int64_t> const ones{1};
-    auto const injection = SignalInjection::create(indices, ones, ones).value();
+    std::vector<Rational> const ones{Rational{1, 1}};
+    auto const injection = SignalInjection::create(indices, ones).value();
 
     SECTION("a command past the JSON cap is refused before the kernel sees it") {
         std::string const past_cap(max_json_bytes + 1, 'x');
@@ -310,9 +312,8 @@ TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[int
     auto const dlc = Dlc::create(8).value();
     std::vector<std::byte> const data(8, std::byte{0});
     std::vector<std::uint32_t> const indices{0};
-    std::vector<std::int64_t> const numerators{1000};
-    std::vector<std::int64_t> const denominators{1};
-    auto const injection = SignalInjection::create(indices, numerators, denominators).value();
+    std::vector<Rational> const values{Rational{1000, 1}};
+    auto const injection = SignalInjection::create(indices, values).value();
 
     SECTION("a buffer shorter than the frame is refused") {
         // The library's own refusal, under the shim's own code.
@@ -345,10 +346,10 @@ TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[int
 // through a library the search had to find.
 TEST_CASE("the kernel renders a rational exactly", "[integration]") {
     auto const backend = required(make_ffi_backend(find_lib())); // brings the runtime up
-    CHECK(detail::format_rational_ffi(1, 2) == "0.5");
-    CHECK(detail::format_rational_ffi(85, 2) == "42.5");
-    CHECK(detail::format_rational_ffi(1, 3) == "1/3");
-    CHECK(detail::format_rational_ffi(3, 1) == "3");
+    CHECK(detail::format_rational_ffi(Rational{1, 2}) == "0.5");
+    CHECK(detail::format_rational_ffi(Rational{85, 2}) == "42.5");
+    CHECK(detail::format_rational_ffi(Rational{1, 3}) == "1/3");
+    CHECK(detail::format_rational_ffi(Rational{3, 1}) == "3");
 }
 
 // The renderer consults the path the first backend registered when the

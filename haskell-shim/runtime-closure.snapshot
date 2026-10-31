@@ -148,6 +148,7 @@ MAlonzo.Code.Aletheia.LTL.SignalPredicate.Evaluation
 MAlonzo.Code.Aletheia.LTL.SignalPredicate.Types
 MAlonzo.Code.Aletheia.LTL.Simplify
 MAlonzo.Code.Aletheia.LTL.Syntax
+MAlonzo.Code.Aletheia.LTL.TimeBoundEntry
 MAlonzo.Code.Aletheia.Limits
 MAlonzo.Code.Aletheia.Main
 MAlonzo.Code.Aletheia.Main.Binary
@@ -170,6 +171,7 @@ MAlonzo.Code.Aletheia.Protocol.JSON.Parse
 MAlonzo.Code.Aletheia.Protocol.JSON.Shallow
 MAlonzo.Code.Aletheia.Protocol.JSON.Types
 MAlonzo.Code.Aletheia.Protocol.Message
+MAlonzo.Code.Aletheia.Protocol.ReplyRange
 MAlonzo.Code.Aletheia.Protocol.Response
 MAlonzo.Code.Aletheia.Protocol.ResponseFormat
 MAlonzo.Code.Aletheia.Protocol.Routing

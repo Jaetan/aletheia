@@ -7,11 +7,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
-#include <catch2/matchers/catch_matchers.hpp>
-#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/json.hpp"
 #include "required.hpp"
+#include "u128_testing.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <cstdint>
@@ -25,7 +24,29 @@ using aletheia::test::required;
 using namespace aletheia;
 using Json = nlohmann::json;
 using aletheia::test::make_test_dbc;
-using Catch::Matchers::ContainsSubstring;
+
+// A whole number as a value description's key.
+static constexpr auto key(std::uint64_t magnitude) -> SignMagnitude {
+    return SignMagnitude{.magnitude = magnitude};
+}
+
+// The reply the kernel writes for a DBC of version 1.0 and nothing else, every
+// array it writes present and empty, with `edit` applied to its "dbc" object.
+template<typename Edit>
+static auto empty_dbc_reply(Edit edit) -> std::string {
+    auto reply =
+        Json::parse(test::parsed_dbc_response_for(DbcDefinition{.version = "1.0", .messages = {}}));
+    edit(reply["dbc"]);
+    return reply.dump();
+}
+
+// The refusal parse_dbc_response answers for `reply`.
+static auto dbc_refusal(std::string const& reply) -> std::string {
+    auto const result = detail::parse_dbc_response(reply);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    return std::string{result.error().message()};
+}
 
 // ===========================================================================
 // Tier 1 DBC metadata round-trip
@@ -43,8 +64,8 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
     });
     dbc.value_tables.push_back(DbcValueTable{
         .name = "GearStates",
-        .entries = {DbcValueEntry{.value = 0, .description = "Park"},
-                    DbcValueEntry{.value = 1, .description = "Drive"}},
+        .entries = {DbcValueEntry{.value = key(0), .description = "Park"},
+                    DbcValueEntry{.value = key(1), .description = "Drive"}},
     });
 
     auto const str = required(detail::serialize_parse_dbc(dbc));
@@ -94,9 +115,9 @@ TEST_CASE("parse_dbc_response with Tier 1 metadata", "[json][parse][dbc]") {
             "environmentVars": [
                 {"name": "AmbientTemp",
                  "varType": 1,
-                 "initial": {"numerator": 22, "denominator": 1},
-                 "minimum": {"numerator": -40, "denominator": 1},
-                 "maximum": {"numerator": 85, "denominator": 1}}
+                 "initial": 22,
+                 "minimum": -40,
+                 "maximum": 85}
             ],
             "valueTables": [
                 {"name": "States",
@@ -104,7 +125,8 @@ TEST_CASE("parse_dbc_response with Tier 1 metadata", "[json][parse][dbc]") {
                     {"value": 0, "description": "idle"},
                     {"value": 1, "description": "active"}
                  ]}
-            ]
+            ],
+            "nodes": [], "comments": [], "attributes": [], "unresolvedValueDescs": []
         }
     })");
     REQUIRE(result.has_value());
@@ -125,83 +147,54 @@ TEST_CASE("parse_dbc_response with Tier 1 metadata", "[json][parse][dbc]") {
     REQUIRE(result->value_tables.size() == 1);
     CHECK(result->value_tables[0].name == "States");
     REQUIRE(result->value_tables[0].entries.size() == 2);
-    CHECK(result->value_tables[0].entries[0].value == 0);
+    CHECK(result->value_tables[0].entries[0].value == key(0));
     CHECK(result->value_tables[0].entries[0].description == "idle");
-    CHECK(result->value_tables[0].entries[1].value == 1);
+    CHECK(result->value_tables[0].entries[1].value == key(1));
     CHECK(result->value_tables[0].entries[1].description == "active");
 }
 
-TEST_CASE("parse_dbc_response accepts missing Tier 1 metadata keys", "[json][parse][dbc]") {
-    // Wire format compatibility — pre-Tier-1 responses omit the new fields;
-    // they should parse as empty vectors, not errors.
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "1.0", "messages": []}
-    })");
-    REQUIRE(result.has_value());
-    CHECK(result->signal_groups.empty());
-    CHECK(result->environment_vars.empty());
-    CHECK(result->value_tables.empty());
-}
-
-TEST_CASE("parse_dbc_response rejects unknown varType", "[json][parse][dbc][error]") {
-    // Past the known types on either side: a negative type is an integer the
-    // reader accepts and the type switch refuses, by the same words.
-    auto const var_type = GENERATE(7, -1);
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {
-            "version": "1.0",
-            "messages": [],
-            "environmentVars": [
-                {"name": "Bad", "varType": )" + std::to_string(var_type) +
-                                                   R"(,
-                 "initial": 0, "minimum": 0, "maximum": 0}
-            ]
-        }
-    })");
-    CHECK_FALSE(result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK_THAT(std::string{result.error().message()},
-               ContainsSubstring("Unknown environment variable type " + std::to_string(var_type)));
-}
-
-TEST_CASE("parse_dbc_response refuses a varType wider than its integer",
+TEST_CASE("parse_dbc_response refuses a reply lacking a Tier 1 metadata array",
           "[json][parse][dbc][error]") {
-    // The type is read as a 32-bit integer; a value past that width on either
-    // side is refused as out of range before the type switch ever sees a
-    // truncation of it.
-    auto const wide = GENERATE(std::int64_t{3000000000LL}, std::int64_t{-3000000000LL});
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {
-            "version": "1.0",
-            "messages": [],
-            "environmentVars": [
-                {"name": "Wide", "varType": )" + std::to_string(wide) +
-                                                   R"(,
-                 "initial": 0, "minimum": 0, "maximum": 0}
-            ]
-        }
-    })");
-    CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("varType is out of range"));
+    // The kernel writes every array of a DBC, an empty one included, so a
+    // reply lacking one is refused at its place.
+    auto const key_name =
+        GENERATE(as<std::string>{}, "signalGroups", "environmentVars", "valueTables");
+    CHECK(dbc_refusal(empty_dbc_reply([&](Json& dbc) { dbc.erase(key_name); })) ==
+          "reply dbc/" + key_name + ": expected array, got nothing");
+}
+
+TEST_CASE("parse_dbc_response reads a varType outside the three as a string, its last arm",
+          "[json][parse][dbc]") {
+    // The kernel proves the three tags it writes, so the reader dispatches with
+    // no refusal of its own: 2, a string, reads every tag 0 and 1 do not name.
+    auto const var_type = GENERATE(std::uint64_t{7}, std::uint64_t{3'000'000'000});
+    auto const result = detail::parse_dbc_response(empty_dbc_reply([&](Json& dbc) {
+        Json const var = {
+            {"name", "Bad"}, {"varType", var_type}, {"initial", 0}, {"minimum", 0}, {"maximum", 0}};
+        dbc["environmentVars"] = Json::array({var});
+    }));
+    REQUIRE(result.has_value());
+    REQUIRE(result->environment_vars.size() == 1);
+    CHECK(result->environment_vars[0].var_type == DbcVarType::String);
+}
+
+TEST_CASE("parse_dbc_response refuses a negative varType, at its place",
+          "[json][parse][dbc][error]") {
+    CHECK(dbc_refusal(empty_dbc_reply([](Json& dbc) {
+              dbc["environmentVars"] = Json::parse(
+                  R"([{"name": "Bad", "varType": -1, "initial": 0, "minimum": 0, "maximum": 0}])");
+          })) == "reply dbc/environmentVars/varType: expected number, got number");
 }
 
 TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse][dbc]") {
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {
-            "version": "",
-            "messages": [],
-            "environmentVars": [
-                {"name": "Precise", "varType": 1,
-                 "initial": {"numerator": 1, "denominator": 10},
-                 "minimum": {"numerator": -1, "denominator": 3},
-                 "maximum": {"numerator": 22, "denominator": 7}}
-            ]
-        }
-    })");
+    auto const result = detail::parse_dbc_response(empty_dbc_reply([](Json& dbc) {
+        dbc["environmentVars"] = Json::parse(R"([
+            {"name": "Precise", "varType": 1,
+             "initial": {"numerator": 1, "denominator": 10},
+             "minimum": {"numerator": -1, "denominator": 3},
+             "maximum": {"numerator": 22, "denominator": 7}}
+        ])");
+    }));
     REQUIRE(result.has_value());
     REQUIRE(result->environment_vars.size() == 1);
     auto const& ev = result->environment_vars[0];
@@ -447,21 +440,19 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
     CHECK(std::get<DbcAttrValueString>(assign_env.value).value == "degC");
 }
 
-TEST_CASE("a target naming an identifier too wide for its width is refused",
+TEST_CASE("a target's identifier is read at the width its extended flag names",
           "[json][parse][dbc][tier2]") {
-    // The target carries the same validated identifier a message does, so a
-    // value outside the width it claims is refused at the parse boundary rather
-    // than stored and handed on. 0x800 needs twelve bits; the target says the
-    // identifier is standard, which is eleven.
+    // The kernel writes the flag beside every identifier, so a target lacking
+    // it is refused at its place; 0x800 needs twelve bits, which an extended
+    // identifier holds.
     auto const make = [](char const* target) {
-        return std::string{R"({"status":"success","dbc":{"version":"1.0","messages":[],)"} +
-               R"("comments":[{"target":)" + target + R"(,"text":"x"}]}})";
+        return empty_dbc_reply([&](Json& dbc) {
+            dbc["comments"] = Json::array({Json{{"target", Json::parse(target)}, {"text", "x"}}});
+        });
     };
-    auto const too_wide = detail::parse_dbc_response(make(R"({"kind":"message","id":2048})"));
-    REQUIRE_FALSE(too_wide.has_value());
-    CHECK(std::string{too_wide.error().message()}.contains("2048"));
+    CHECK(dbc_refusal(make(R"({"kind":"message","id":2048})")) ==
+          "reply dbc/comments/target/extended: expected boolean, got nothing");
 
-    // The same value is fine when the target says the identifier is extended.
     auto const as_extended =
         detail::parse_dbc_response(make(R"({"kind":"message","id":2048,"extended":true})"));
     REQUIRE(as_extended.has_value());
@@ -497,27 +488,13 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     CHECK(parsed[1].get() == "ECU_B");
 }
 
-TEST_CASE("parse_dbc_response accepts missing receivers field", "[json][parse][dbc][tier2]") {
-    // Older snapshots / hand-written JSON may omit the receivers key entirely;
-    // the parser defaults to an empty vector rather than rejecting.
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "1.0", "messages": [{
-            "id": 256, "name": "M", "dlc": 8, "sender": "ECU", "extended": false,
-            "signals": [{
-                "name": "S", "startBit": 0, "length": 8, "byteOrder": "little_endian",
-                "signed": false, "factor": {"numerator": 1, "denominator": 1},
-                "offset": {"numerator": 0, "denominator": 1},
-                "minimum": {"numerator": 0, "denominator": 1},
-                "maximum": {"numerator": 255, "denominator": 1},
-                "unit": "", "presence": "always"
-            }]
-        }]}
-    })");
-    REQUIRE(result.has_value());
-    REQUIRE(result->messages.size() == 1);
-    REQUIRE(result->messages[0].signals.size() == 1);
-    CHECK(result->messages[0].signals[0].receivers.empty());
+TEST_CASE("parse_dbc_response refuses a signal lacking its receivers",
+          "[json][parse][dbc][tier2]") {
+    // The kernel writes the receivers of every signal, none included.
+    auto reply = Json::parse(test::parsed_dbc_response_for(make_test_dbc()));
+    reply["dbc"]["messages"][0]["signals"][0].erase("receivers");
+    CHECK(dbc_refusal(reply.dump()) ==
+          "reply dbc/messages/signals/receivers: expected array, got nothing");
 }
 
 TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
@@ -548,42 +525,35 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     CHECK(parsed[1].get() == "ECU_C");
 }
 
-TEST_CASE("parse_dbc_response accepts missing senders field", "[json][parse][dbc][tier2]") {
-    // Older snapshots / hand-written JSON may omit `senders`; default to
-    // an empty vector rather than rejecting.
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "1.0", "messages": [{
-            "id": 256, "name": "M", "dlc": 8, "sender": "ECU", "extended": false,
-            "signals": []
-        }]}
-    })");
-    REQUIRE(result.has_value());
-    REQUIRE(result->messages.size() == 1);
-    CHECK(result->messages[0].senders.empty());
+TEST_CASE("parse_dbc_response refuses a message lacking its senders", "[json][parse][dbc][tier2]") {
+    // The kernel writes the additional senders of every message, none included.
+    auto reply = Json::parse(test::parsed_dbc_response_for(make_test_dbc()));
+    reply["dbc"]["messages"][0].erase("senders");
+    CHECK(dbc_refusal(reply.dump()) == "reply dbc/messages/senders: expected array, got nothing");
 }
 
-TEST_CASE("parse_dbc_response accepts missing Tier 2 metadata keys", "[json][parse][dbc][tier2]") {
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "1.0", "messages": []}
-    })");
-    REQUIRE(result.has_value());
-    CHECK(result->nodes.empty());
-    CHECK(result->comments.empty());
-    CHECK(result->attributes.empty());
-}
-
-TEST_CASE("parse_dbc_response rejects unknown comment target kind",
+TEST_CASE("parse_dbc_response refuses a reply lacking a Tier 2 metadata array",
           "[json][parse][dbc][tier2][error]") {
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "1.0", "messages": [],
-                "comments": [{"target": {"kind": "galaxy"}, "text": "x"}]}
-    })");
-    CHECK_FALSE(result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("comment target kind"));
+    auto const key_name = GENERATE(as<std::string>{}, "nodes", "comments", "attributes");
+    CHECK(dbc_refusal(empty_dbc_reply([&](Json& dbc) { dbc.erase(key_name); })) ==
+          "reply dbc/" + key_name + ": expected array, got nothing");
+}
+
+TEST_CASE("parse_dbc_response reads a comment target kind outside the five as an environment "
+          "variable, its last arm",
+          "[json][parse][dbc][tier2]") {
+    // The last arm then needs its name.
+    auto const make = [](char const* target) {
+        return empty_dbc_reply([&](Json& dbc) {
+            dbc["comments"] = Json::array({Json{{"target", Json::parse(target)}, {"text", "x"}}});
+        });
+    };
+    CHECK(dbc_refusal(make(R"({"kind": "galaxy"})")) ==
+          "reply dbc/comments/target/envVar: expected string, got nothing");
+    auto const result = detail::parse_dbc_response(make(R"({"kind": "galaxy", "envVar": "E"})"));
+    REQUIRE(result.has_value());
+    REQUIRE(result->comments.size() == 1);
+    CHECK(std::get<DbcCommentTargetEnvVar>(result->comments[0].target).env_var == "E");
 }
 
 // ===========================================================================
@@ -600,8 +570,11 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
         "dbc": {
             "version": "1.0",
             "messages": [],
+            "signalGroups": [], "environmentVars": [], "valueTables": [], "nodes": [],
+            "comments": [], "attributes": [],
             "unresolvedValueDescs": [
                 {"id": 256,
+                 "extended": false,
                  "signalName": "PhantomSignal",
                  "entries": [
                     {"value": 0, "description": "Off"},
@@ -622,9 +595,9 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
     CHECK(std::get<StandardId>(rvd0.can_id).value() == 256);
     CHECK(rvd0.signal_name == "PhantomSignal");
     REQUIRE(rvd0.entries.size() == 2);
-    CHECK(rvd0.entries[0].value == 0);
+    CHECK(rvd0.entries[0].value == key(0));
     CHECK(rvd0.entries[0].description == "Off");
-    CHECK(rvd0.entries[1].value == 1);
+    CHECK(rvd0.entries[1].value == key(1));
     CHECK(rvd0.entries[1].description == "On");
 
     auto const& rvd1 = result->unresolved_value_descs[1];
@@ -632,7 +605,7 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
     CHECK(std::get<ExtendedId>(rvd1.can_id).value() == 1234567);
     CHECK(rvd1.signal_name == "GhostSignal");
     REQUIRE(rvd1.entries.size() == 1);
-    CHECK(rvd1.entries[0].value == 7);
+    CHECK(rvd1.entries[0].value == key(7));
     CHECK(rvd1.entries[0].description == "Lucky");
 }
 
@@ -646,8 +619,8 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     dbc.unresolved_value_descs.push_back(DbcRawValueDesc{
         .can_id = CanId{*StandardId::create(0x100)},
         .signal_name = "Phantom",
-        .entries = {DbcValueEntry{.value = 0, .description = "Off"},
-                    DbcValueEntry{.value = 1, .description = "On"}},
+        .entries = {DbcValueEntry{.value = key(0), .description = "Off"},
+                    DbcValueEntry{.value = key(1), .description = "On"}},
     });
 
     // Serialize via the parse_dbc COMMAND form — the "dbc" body shape is
@@ -669,17 +642,13 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     CHECK(std::get<StandardId>(rvd.can_id).value() == 0x100);
     CHECK(rvd.signal_name == "Phantom");
     REQUIRE(rvd.entries.size() == 2);
-    CHECK(rvd.entries[0].value == 0);
+    CHECK(rvd.entries[0].value == key(0));
     CHECK(rvd.entries[0].description == "Off");
-    CHECK(rvd.entries[1].value == 1);
+    CHECK(rvd.entries[1].value == key(1));
     CHECK(rvd.entries[1].description == "On");
 }
 
-TEST_CASE("parse_dbc_response accepts missing unresolvedValueDescs", "[json][parse][dbc]") {
-    auto const result = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "1.0", "messages": []}
-    })");
-    REQUIRE(result.has_value());
-    CHECK(result->unresolved_value_descs.empty());
+TEST_CASE("parse_dbc_response refuses a reply lacking unresolvedValueDescs", "[json][parse][dbc]") {
+    CHECK(dbc_refusal(empty_dbc_reply([](Json& dbc) { dbc.erase("unresolvedValueDescs"); })) ==
+          "reply dbc/unresolvedValueDescs: expected array, got nothing");
 }
