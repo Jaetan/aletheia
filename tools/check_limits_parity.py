@@ -74,12 +74,12 @@ Exit codes:
   1: at least one divergence detected.
   2: usage error / file missing / parse failure.
 
-A constant flagged OPTIONAL is a list-cardinality bound the kernel enforces
-after parsing, so a mirror may omit it: pre-rejection at the language boundary
-buys nothing there.  A REQUIRED constant is an input-length or structural
-bound, where refusing before the buffer crosses is strictly preferable.  A
-constant in ``KERNEL_ONLY`` is a limit the kernel alone decides and the bindings
-do not know: no mirror may carry it, so no table maps it.
+A constant flagged REQUIRED is one a mirror must carry; one flagged OPTIONAL,
+a list-cardinality bound the kernel enforces after parsing, a mirror may omit.
+The input-length, structural and value-magnitude bounds are REQUIRED, and so
+are some list-cardinality bounds.  A constant in ``KERNEL_ONLY`` is a limit the
+kernel alone decides and the bindings do not know: no mirror may carry it, so
+no table maps it.
 
 Changing ``MaxMessagesPerFile = 10000`` to ``9999`` in the Go mirror fires
 this script; reverting returns to exit 0.
@@ -152,12 +152,14 @@ KERNEL_ONLY: frozenset[AgdaLimitName] = frozenset(
 )
 
 
-# Manual mapping from Agda kebab-case names to Go PascalCase names.
-# REQUIRED constants must have a Go mirror; OPTIONAL constants are list-
-# cardinality bounds enforced at the kernel only (no cgo-boundary advantage).
-# When adding a new Agda constant, decide its category and add it here.
+# Manual mapping from Agda kebab-case names to Go PascalCase names, each with
+# its category: a REQUIRED constant absent from the Go mirror is a divergence,
+# an OPTIONAL one may be absent, and a value present is compared either way.
+# The kernel enforces every bound at its parser entries; the Go binding refuses
+# only the input-length bounds again at the cgo boundary.  When adding a new
+# Agda constant, decide its category and add it here.
 NAME_MAPPING: dict[str, tuple[str, str]] = {
-    # Input-size bounds — REQUIRED at cgo boundary
+    # Input-length and structural bounds.
     "max-dbc-text-bytes": ("MaxDBCTextBytes", "REQUIRED"),
     "max-json-bytes": ("MaxJSONBytes", "REQUIRED"),
     "max-nesting-depth": ("MaxNestingDepth", "REQUIRED"),
@@ -165,16 +167,15 @@ NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-string-length-characters": ("MaxStringLengthCharacters", "REQUIRED"),
     "max-atom-count-per-property": ("MaxAtomCountPerProperty", "REQUIRED"),
     "max-properties-per-stream": ("MaxPropertiesPerStream", "REQUIRED"),
-    # Value-magnitude bound — enforced post-parse in the kernel (the Int64
-    # wire range on rational components); mirrored for typed consumers.
+    # Value-magnitude bound: a rational's numerator magnitude and denominator,
+    # each at most 2^128-1 with the sign apart, on the parsed (reduced) form.
     "max-rational-component-magnitude": ("MaxRationalComponentMagnitude", "REQUIRED"),
-    # List-cardinality bounds — kernel-only; OPTIONAL for Go (header says
-    # "mirrored verbatim" but per-list cap is enforced after JSON parsing,
-    # so cgo-boundary rejection isn't beneficial).
+    # List-cardinality bounds the mirror must carry.
     "max-messages-per-file": ("MaxMessagesPerFile", "REQUIRED"),
     "max-signals-per-message": ("MaxSignalsPerMessage", "REQUIRED"),
     "max-attributes-per-file": ("MaxAttributesPerFile", "REQUIRED"),
     "max-value-descriptions-per-file": ("MaxValueDescriptionsPerFile", "REQUIRED"),
+    # List-cardinality bounds the mirror may omit.
     "max-comments-per-file": ("MaxCommentsPerFile", "OPTIONAL"),
     "max-nodes-per-file": ("MaxNodesPerFile", "OPTIONAL"),
     "max-value-tables-per-file": ("MaxValueTablesPerFile", "OPTIONAL"),
@@ -189,12 +190,9 @@ NAME_MAPPING: dict[str, tuple[str, str]] = {
 }
 
 
-# Python mirror — kebab-case → SCREAMING_SNAKE.  Python mirrors a subset
-# of the Go-mirrored constants today; the REQUIRED / OPTIONAL category is
-# binding-independent (it's about whether the bound benefits from pre-FFI
-# rejection on the input-side path).  Python's ctypes boundary has the
-# same characteristic as Go's cgo boundary — every REQUIRED Agda constant
-# should have a Python peer.
+# Python mirror: kebab-case to SCREAMING_SNAKE, the constants and categories
+# of ``NAME_MAPPING``, a REQUIRED constant absent from the Python mirror being
+# a divergence.
 PYTHON_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-dbc-text-bytes": ("MAX_DBC_TEXT_BYTES", "REQUIRED"),
     "max-json-bytes": ("MAX_JSON_BYTES", "REQUIRED"),
@@ -236,9 +234,9 @@ PYTHON_BOUND_KIND_MAPPING: dict[str, str] = {
 }
 
 # C++ mirror: kebab-case to snake_case.  The header states it mirrors every
-# numeric value verbatim and it carries the whole set, so every constant is
-# REQUIRED: a mirror that drops one stops being the verbatim mirror it claims
-# to be, whether or not the binding enforces that particular bound itself.
+# numeric value verbatim and it carries every constant outside ``KERNEL_ONLY``,
+# so each is REQUIRED: a mirror that drops one stops being the verbatim mirror
+# it claims to be, whether or not the binding enforces that bound itself.
 CPP_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-dbc-text-bytes": ("max_dbc_text_bytes", "REQUIRED"),
     "max-json-bytes": ("max_json_bytes", "REQUIRED"),

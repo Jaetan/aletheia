@@ -53,10 +53,7 @@ production.
 
 ## Log Events
 
-Sixteen structured log events are emitted by the bindings. Levels
-(info / debug / warn) are the same in all four bindings; severity is
-informational below and authoritative in
-[LOG_EVENTS.yaml](../LOG_EVENTS.yaml).
+The bindings emit the structured log events below. Levels (info / debug / warn) are the same in all four bindings; severity is informational below and authoritative in [LOG_EVENTS.yaml](../LOG_EVENTS.yaml).
 
 ### Lifecycle
 
@@ -104,9 +101,7 @@ the final result counts (acks, violations, errors).
 
 **Cause:** The streaming session closed normally.
 
-**Action:** None — normal. Compare the result counts against
-expectations; investigate any `extraction.process_failed` /
-`enrichment.*` warnings emitted during the session.
+**Action:** None, the close is normal. Compare the result counts against expectations; investigate any `extraction.process_failed` / `extraction.parse_failed` warnings emitted during the session.
 
 #### `rts.cores_mismatch`
 
@@ -172,50 +167,6 @@ Aletheia records the (timestamp, can_id, extended) triple.
 
 **Action:** None — normal.
 
-### Enrichment diagnostics
-
-#### `enrichment.property_index_oob`
-
-**Symptom:** warn-level log line, no associated `frame.processed` ack.
-
-**Cause:** A violation referenced a property index outside the
-registered set. The property registry has shrunk between
-`set_properties` and `start_stream`, or the binding emitted a stale
-violation against a now-gone property. The violation record is
-dropped; the stream continues.
-
-**Action:** Audit `set_properties` calls in the host application
-— properties should be registered once before `start_stream` and not
-rotated mid-stream. If this fires repeatedly, the property registry
-is being mutated concurrently with streaming.
-
-#### `enrichment.extraction_failed`
-
-**Symptom:** warn-level log line, no enrichment data on the
-violation.
-
-**Cause:** Signal extraction for violation enrichment did not return
-a result for the frame. Common causes: the violating frame's CAN ID
-is not in the loaded DBC, or the signal referenced by the predicate
-exists in the DBC but its bits do not fit the frame's payload (DLC
-mismatch).
-
-**Action:** Cross-check the violating predicate against the DBC's
-message and signal definitions for the violating CAN ID. Operator
-workflow:
-
-~~~bash
-# Python (or via the unified CLI):
-python3 -m aletheia signals --dbc <file>.dbc | grep -i <signal_name>
-# Inspect the message hosting a CAN ID:
-python3 -m aletheia mux-query --dbc <file>.dbc <can_id_hex>
-~~~
-
-If the predicate is correct, the frame is malformed (check the producer's
-DLC + payload bits against the signal's start_bit + bit_length); if
-the predicate references a signal that does not exist on the violating
-frame's CAN ID, fix the property.
-
 ### Extraction cache
 
 #### `cache.hit`
@@ -265,31 +216,19 @@ the Python, Go and C++ bindings and would need a binding-side patch to lift.
 
 #### `extraction.process_failed`
 
-**Symptom:** warn-level log line, no extraction result for the frame.
+**Symptom:** warn-level log line with the frame's `canId` and an `error`; the call that needed the extraction (`send_frame`, `end_stream` or the binding's extraction call) returns that error.
 
-**Cause:** An extraction request failed at the FFI process boundary
-— the kernel call returned an error response. This is most often a
-transient FFI marshaling fault rather than a kernel bug.
+**Cause:** The call into the library failed before its reply could be read; in Python, a reply that cannot be read is logged here too.
 
-**Action:** Inspect the structured `reason` field. If it is a
-`route_*` or `handler_*` error code, see
-[PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference).
-If it persists across many frames, restart the host process — the
-GHC RTS may have entered a degraded state.
+**Action:** Read the `error` field. Where it repeats on every frame, check that the loaded `libaletheia-ffi.so` is the build the binding expects and rebuild as for `extraction.parse_failed`.
 
 #### `extraction.parse_failed`
 
-**Symptom:** warn-level log line, no extraction result for the frame.
+**Symptom:** warn-level log line with the frame's `canId` and an `error`; the call that needed the extraction (`send_frame`, `end_stream` or the binding's extraction call) returns that error.
 
-**Cause:** An extraction response could not be parsed by the binding
-(malformed JSON or schema violation). The kernel produced output the
-binding does not recognise.
+**Cause:** The kernel refused the extraction, its error code and message carried in the reply (for example `handler_no_dbc` before any DBC is loaded), or the reply could not be read.
 
-**Action:** This indicates a binding / kernel version mismatch.
-Verify `python -m aletheia --version` (or equivalent) matches the
-loaded `libaletheia-ffi.so` build. The fix is usually a clean
-rebuild: `cabal run shake -- clean && cabal run shake -- build`,
-followed by a binding reinstall (`pip install -e python` for Python).
+**Action:** Look up the error's code in [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference). A reply that cannot be read is a binding / kernel version mismatch: verify `python -m aletheia --version` (or equivalent) matches the loaded `libaletheia-ffi.so` build, then rebuild (`cabal run shake -- clean && cabal run shake -- build`) and reinstall the binding (`pip install -e python` for Python).
 
 ### End-of-stream diagnostics
 
@@ -348,22 +287,18 @@ process, or a stale copy is shadowing the intended one in
 
 **Action:** Rebuild against the canonical toolchain
 (`cabal run shake -- build`) and confirm only one `libaletheia-ffi.so`
-exists on the loader path. The Python loader checks
-`_install_config.LIBRARY_PATH` first, then `LD_LIBRARY_PATH`, then
-`/usr/local/lib`; override with `ALETHEIA_FFI_PATH=/abs/path/to/...`.
+exists on the loader path. Every binding takes the library `ALETHEIA_LIB=/abs/path/to/libaletheia-ffi.so` names first; the Python loader then checks `_install_config.LIBRARY_PATH`, `build/libaletheia-ffi.so` and `haskell-shim/dist-newstyle/`.
 
 #### `.so` load failure
 
 **Symptom:** `FileNotFoundError: libaletheia-ffi.so not found`
-(Python) / `dlopen` failure (Go) / `make_ffi_backend(...)` throws
-(C++) / `Error::LibraryLoad` (Rust) at client construction.
+(Python) / `dlopen` failure (Go) / `make_ffi_backend(...)` returning an error of kind `Ffi` (C++) / `Error::LibraryLoad` (Rust) at client construction.
 
 **Cause:** The binding loader could not resolve `libaletheia-ffi.so`
 on its search path.
 
 **Action:** Either run `cabal run shake -- install` to copy the `.so`
-into the configured library path, or set `ALETHEIA_FFI_PATH` /
-`LD_LIBRARY_PATH` to the directory containing the build artifact.
+into the configured library path, or set `ALETHEIA_LIB` to the library's path.
 See [BUILDING.md § Python Can't Find Shared Library](../development/BUILDING.md#python-cant-find-shared-library).
 
 #### A library at another ABI version (every binding)
@@ -456,8 +391,7 @@ or the binding raises `aletheia.InputBoundExceededError` (Python) /
   `max_atom_count_per_property` (1024 atoms).
 - `property_count` — one `setProperties` call submitted more than
   `max_properties_per_stream` (1024) properties.
-- `rational_component_magnitude`: a JSON number's exact rational has a
-  numerator magnitude or denominator above 9223372036854775807.
+- `rational_component_magnitude`: a number is past its bound, which is 340282366920938463463374607431768211455 (2^128 - 1) for an exact rational's numerator magnitude or denominator and narrower for a signal's start bit and length, an INT, HEX or ENUM attribute value and a metric time bound.
 
 **Action:** Read the `bound_kind` / `observed` / `limit` fields on
 the typed error to identify which bound was crossed. Action then
@@ -482,8 +416,7 @@ splits by bound-kind family:
   fit in a few atoms); restructure rather than raising the cap.
 - **`property_count`** — split the properties across streams, or see
   PROTOCOL.md § Updating bounds to raise the cap.
-- **`rational_component_magnitude`** — rescale the value (a signal's
-  `factor` / `offset`) so its exact rational fits the wire.
+- **`rational_component_magnitude`**: rescale a signal's `factor` / `offset` so its exact rational fits the wire; a start bit, length, attribute value or time bound past its bound is an error in its source, fixed there.
 
 ### Runtime — frame refusals (`parse_*` on a binary entry)
 
@@ -738,7 +671,7 @@ the kernel — no state was touched.
 
 ## See also
 
-- [LOG_EVENTS.yaml](../LOG_EVENTS.yaml) — canonical 16-event vocabulary.
+- [LOG_EVENTS.yaml](../LOG_EVENTS.yaml): the canonical event vocabulary.
 - [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)
   — every wire-level error code, grouped by domain.
 - [PROTOCOL.md § Limits](../architecture/PROTOCOL.md#limits) —

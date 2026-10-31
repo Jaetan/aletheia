@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Structured logging schema for the Python binding.
 
-Mirrors the 16-event vocabulary used by the Go binding's ``slog`` calls and
-the C++ binding's custom ``Logger`` class so a downstream log collector can
-treat all three bindings interchangeably.  The set is the authoritative
-source of truth — adding a new event here forces the call site to pick a
-known name, and the logging tests (``tests/test_logging.py``) assert that
-every record emitted by the client carries a value from ``LogEvent``.
+Mirrors the event vocabulary used by the Go binding's ``slog`` calls, the
+C++ binding's ``Logger`` class and the Rust binding's ``events`` constants,
+so a downstream log collector can treat every binding alike.  The set is the
+authoritative source of truth: adding a new event here forces the call site
+to pick a known name, and the logging tests (``tests/test_logging.py``)
+assert that every record emitted by the client carries a value from
+``LogEvent``.
 
 Design choices:
 
@@ -39,7 +40,8 @@ if TYPE_CHECKING:
 class LogEvent(StrEnum):
     """Structured log event names shared with Go (``slog``) and C++ (``Logger``).
 
-    Exactly 16 values — the set must stay identical across bindings.  Every
+    The values are the names ``docs/LOG_EVENTS.yaml`` lists, the same set in
+    every binding.  Every
     ``Client``/``AletheiaClient`` observability call site uses one of these;
     any new event must be added here first.
     """
@@ -59,10 +61,6 @@ class LogEvent(StrEnum):
     FRAME_PROCESSED = "frame.processed"
     ERROR_EVENT_SENT = "error_event.sent"
     REMOTE_EVENT_SENT = "remote_event.sent"
-
-    # --- Enrichment diagnostics (WARNING) ---
-    ENRICHMENT_PROPERTY_INDEX_OOB = "enrichment.property_index_oob"
-    ENRICHMENT_EXTRACTION_FAILED = "enrichment.extraction_failed"
 
     # --- Extraction cache (DEBUG / WARNING) ---
     CACHE_HIT = "cache.hit"

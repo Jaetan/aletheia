@@ -3,11 +3,11 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- A DBC identifier: a C identifier in ASCII,
--- `[A-Za-z_][A-Za-z0-9_]*`, held as `name : List Char` with the erased
--- witness that the characters satisfy the grammar.  Its length and the DBC
--- keywords are decided where a DBC's bounds are (`Aletheia.DBC.Bounds`),
--- so the lexer and the JSON route build an `Identifier` from the characters
--- they read with no axiom.
+-- `[A-Za-z_][A-Za-z0-9_]*`, held as `name : List Char` with the witness
+-- `validIdentifierᵇ`: the grammar, at most `max-identifier-length`
+-- characters and no DBC keyword.  `parseIdentifierField` decides the three
+-- as each name is read, so the lexer and the JSON route build an
+-- `Identifier` from the characters they read with no axiom.
 module Aletheia.DBC.Identifier where
 
 open import Data.Bool using (Bool; true; false; T; _∨_; _∧_; not)
@@ -81,7 +81,7 @@ _≡csᵇ_ : List Char → List Char → Bool
 
 -- Every keyword the DBC grammar spells (the Vector specification of 2007,
 -- its NS_ symbols included) and the five attribute type words.  A keyword is
--- refused as a name where a DBC's bounds are decided.
+-- refused as a name by `validIdentifierᵇ`, as the name is read.
 dbcKeywords : List (List Char)
 dbcKeywords = map toList
   ( "VERSION" ∷ "NS_" ∷ "BS_" ∷ "BU_" ∷ "BO_" ∷ "SG_" ∷ "EV_" ∷ "CM_"

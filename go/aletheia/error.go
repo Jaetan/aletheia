@@ -185,7 +185,7 @@ const (
 	CodeRouteMissingField = "route_missing_field"
 	// CodeRouteUnknownCommand — command name not recognized by the dispatcher.
 	CodeRouteUnknownCommand = "route_unknown_command"
-	// CodeRouteMissingCommandField — request body missing the `cmd` field.
+	// CodeRouteMissingCommandField reports a request with no `command` field.
 	CodeRouteMissingCommandField = "route_missing_command_field"
 	// CodeRouteMissingDBCField — `dbc` field absent on a request that requires it.
 	CodeRouteMissingDBCField = "route_missing_dbc_field"
@@ -196,9 +196,10 @@ const (
 	CodeHandlerNoDBC = "handler_no_dbc"
 	// CodeHandlerAlreadyStreaming — start_stream called while a stream is active.
 	CodeHandlerAlreadyStreaming = "handler_already_streaming"
-	// CodeHandlerNotStreaming — frame-stream operation invoked outside a stream.
+	// CodeHandlerNotStreaming reports end_stream called outside a stream.
 	CodeHandlerNotStreaming = "handler_not_streaming"
-	// CodeHandlerStreamNotStarted — operation requires start_stream first.
+	// CodeHandlerStreamNotStarted reports a data frame sent with a DBC loaded
+	// but no stream started.
 	CodeHandlerStreamNotStarted = "handler_stream_not_started"
 	// CodeHandlerStreamActive — operation cannot be performed while a stream is active.
 	CodeHandlerStreamActive = "handler_stream_active"

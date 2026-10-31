@@ -15,11 +15,17 @@
 -- any payload whose length is not the DLC's.
 --
 -- Cross-references:
---   * docs/architecture/PROTOCOL.md § Limits — wire-side documentation.
---   * Aletheia.Error — the `InputBoundExceeded` constructor of `Error`.
---   * Each binding mirrors `InputBoundExceededError` at the FFI entry
---     to short-circuit before marshaling: Python aletheia.exceptions,
---     Go *aletheia.InputBoundExceededError, C++ aletheia::InputBoundExceededError.
+--   * docs/architecture/PROTOCOL.md § Limits: wire-side documentation.
+--   * Aletheia.Error: the `InputBoundExceeded` constructor of `Error`.
+--   * Each binding types the refusal: Python aletheia.InputBoundExceededError,
+--     Go *aletheia.InputBoundExceededError, C++ aletheia::InputBoundExceededError,
+--     Rust aletheia::Error::InputBoundExceeded.
+--   * Python (aletheia.limits), Go (go/aletheia/limits.go) and C++
+--     (aletheia/limits.hpp) mirror every bound constant below except the
+--     ones `KERNEL_ONLY` in tools/check_limits_parity.py names, which the
+--     kernel alone decides; Rust (rust/src/limits.rs) mirrors the bound
+--     kinds' wire codes alone.  That gate holds the four mirrors to this
+--     module.
 --
 -- Rationale for values:
 --   * 64 MiB input — commercial automotive DBCs are 1-10 MiB; 6× headroom.
@@ -67,9 +73,12 @@ data BoundKind : Set where
   AtomCount               : BoundKind
   -- Number of properties submitted in one `setProperties` call.
   PropertyCount           : BoundKind
-  -- Magnitude of a JSON number's rational components (|numerator| and
-  -- denominator of the exact ℚ a JSON number literal or
-  -- {"numerator", "denominator"} object component denotes).
+  -- A number past its field's limit: a rational's |numerator| or
+  -- denominator (a JSON number, a DBC literal, a decimal entry), a
+  -- multiplex value, a value-description key's magnitude, a signal's start
+  -- bit or length, an attribute's INT, HEX or ENUM value or INT or HEX
+  -- bound, or a metric time bound, each against its own `max-*` constant
+  -- below.
   RationalComponentMagnitude : BoundKind
 
 boundKindCode : BoundKind → String

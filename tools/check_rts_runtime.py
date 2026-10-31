@@ -14,8 +14,9 @@ read ``docs/`` (the dist bundle omits it) and a file-open + YAML-parse has no
 business on the path of code whose job is to survive a runaway.  This gate is
 the static enforcement of the mirror — it reads the SSOT and asserts each
 binding's named mirror constant matches, in the spirit of
-``tools/check_limits_parity.py`` (Limits SSOT ↔ Go/Python mirrors) and
-``tools/check_wire_codes.py`` (wire-code SSOT ↔ per-binding vocabularies).
+``tools/check_limits_parity.py`` (Limits SSOT ↔ the Go, Python, C++ and Rust
+mirrors) and ``tools/check_wire_codes.py`` (wire-code SSOT ↔ per-binding
+vocabularies).
 
 Pure source scanning (no Haskell / no build artefact), so the gate is complete
 the moment the mirrors land.  Each binding declares five named constants that

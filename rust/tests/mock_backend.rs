@@ -303,8 +303,8 @@ fn logged_client(m: &MockBackend) -> (Client, Arc<Mutex<Vec<String>>>) {
 }
 
 /// `err` is the kernel's `handler_no_dbc` refusal, its message kept, and the
-/// extraction that met it was logged as `extraction.parse_failed`, with no
-/// enrichment event.
+/// extraction that met it was logged as `extraction.parse_failed`, every event
+/// logged one the vocabulary names.
 fn assert_the_extraction_refusal(err: &Error, captured: &Arc<Mutex<Vec<String>>>) {
     match err {
         Error::Core { code, message } => {
@@ -319,11 +319,8 @@ fn assert_the_extraction_refusal(err: &Error, captured: &Arc<Mutex<Vec<String>>>
         "expected extraction.parse_failed, got: {names:?}"
     );
     assert!(
-        !names
-            .iter()
-            .any(|e| e == events::ENRICHMENT_EXTRACTION_FAILED
-                || e == events::ENRICHMENT_PROPERTY_INDEX_OOB),
-        "no enrichment event is emitted, got: {names:?}"
+        names.iter().all(|e| events::ALL.contains(&e.as_str())),
+        "every event logged is one the vocabulary names, got: {names:?}"
     );
 }
 

@@ -2420,7 +2420,7 @@ hints:
     count: 1
   - file: tools/check_dist_staging.py
     text: "str"
-    count: 10
+    count: 9
   - file: tools/check_dist_staging.py
     text: "str | None"
     count: 3

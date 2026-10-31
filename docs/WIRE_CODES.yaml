@@ -259,7 +259,7 @@ error_codes:
     description: Reading the multiplexor signal's own bits failed.
 
   - name: extraction_value_exceeds_wire_range
-    description: The extracted exact value's reduced numerator or denominator exceeds the signed 64-bit binary-wire range.
+    description: The extracted exact value's reduced numerator magnitude or denominator exceeds 340282366920938463463374607431768211455 (2^128-1, `max-rational-component-magnitude`), the range of the binary wire's rational slots.
 
   - name: extraction_signal_past_frame_end
     description: The signal's last bit lies past the end of the frame that arrived.
@@ -319,10 +319,10 @@ error_codes:
     description: startStream was called while a stream is already active.
 
   - name: handler_not_streaming
-    description: A frame was submitted outside streaming mode.
+    description: endStream was called outside a stream.
 
   - name: handler_stream_not_started
-    description: endStream was called before startStream.
+    description: A data frame was submitted with a DBC loaded but no stream started.
 
   - name: handler_stream_active
     description: The operation is forbidden while a stream is active.

@@ -51,8 +51,8 @@ SUCCESS_CASES = [
     ("0.000", 0, 1),  # trailing-zero fraction canonicalises
     ("0.10", 1, 10),  # trailing zero trimmed
     ("00.1", 1, 10),  # leading zeros accepted
-    ("9223372036854775807", 9223372036854775807, 1),  # past 64 signed bits
-    ("-9223372036854775808", -9223372036854775808, 1),
+    ("9223372036854775807", 9223372036854775807, 1),  # the top of 64 signed bits
+    ("-9223372036854775808", -9223372036854775808, 1),  # and their bottom
     ("99999999999999999999.5", 199999999999999999999, 2),  # past 64 bits
     (str(2**128 - 1), 2**128 - 1, 1),  # the magnitude bound fits
     (str(-(2**128 - 1)), -(2**128 - 1), 1),  # and so does its negative

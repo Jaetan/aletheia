@@ -96,8 +96,9 @@ readRequest line with utf8Length (toList line) ≤ᵇ max-json-bytes in eq
 
 -- Process a single JSON line and update stream state.
 -- NOINLINE: Required for MAlonzo FFI (ensures symbol is exported to Haskell).
--- Each binding additionally short-circuits at the FFI entry to avoid
--- marshaling oversize payloads.
+-- The Python, Go and C++ bindings also refuse a command past
+-- `max-json-bytes` at the FFI entry, so an oversize payload is not
+-- marshaled.
 processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
 processJSONLine state jsonLine with readRequest jsonLine

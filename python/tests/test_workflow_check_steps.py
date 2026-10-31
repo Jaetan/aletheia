@@ -37,6 +37,7 @@ _CHECKS: dict[JobName, dict[StepName, WaitsOn]] = {
     },
     JobName("bundle-validation.yml:head-dist"): {
         StepName("Validate the bundle across the compiled bindings"): (StepId("ready"),),
+        StepName("Build and run the guide's C example"): (StepId("ready"),),
         StepName("Self-test the validator"): (StepId("validate"),),
     },
     JobName("pr-heavy-lanes.yml:mutation-lane"): {
@@ -57,6 +58,7 @@ _CHECKS: dict[JobName, dict[StepName, WaitsOn]] = {
         StepName("Self-verify the signed tarball"): (StepId("dist"),),
         StepName("Smoke-test the bundle"): (StepId("dist"),),
         StepName("Validate the bundle across the compiled bindings"): (StepId("toolchains"),),
+        StepName("Build and run the guide's C example"): (StepId("dist"), StepId("clang")),
         StepName("Self-verify EVERY signed artifact"): (StepId("packages"),),
         StepName("Package install smoke"): (StepId("packages"),),
         StepName("Package payload structural check"): (StepId("packages"),),

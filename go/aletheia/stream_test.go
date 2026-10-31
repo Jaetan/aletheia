@@ -557,7 +557,7 @@ func TestSendFrame_WithoutStartStream(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		// a frame sent before the stream started, which the kernel refuses
-		aletheia.Respond(`{"status":"error","code":"handler_not_streaming","message":"no active stream"}`),
+		aletheia.Respond(`{"status":"error","code":"handler_stream_not_started","message":"DataFrame: stream not started"}`),
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
@@ -582,8 +582,8 @@ func TestSendFrame_WithoutStartStream(t *testing.T) {
 func TestEndStream_WithoutStartStream(t *testing.T) {
 	ctx := t.Context()
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),                                                         // SetProperties
-		aletheia.Respond(`{"status":"error","code":"handler_stream_not_started","message":"no stream"}`), // EndStream without StartStream
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"error","code":"handler_not_streaming","message":"EndStream: stream not active"}`), // EndStream without StartStream
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {

@@ -20,6 +20,7 @@ from tools._markdown import (
     Definition,
     Destination,
     Fence,
+    FencedBlock,
     Heading,
     Link,
     Row,
@@ -28,6 +29,7 @@ from tools._markdown import (
     code_blocks,
     code_spans,
     definitions,
+    fenced_blocks,
     fences,
     headings,
     html,
@@ -376,6 +378,15 @@ def test_fences_carry_their_line_mark_and_info() -> None:
     assert fences(text) == [
         Fence(1, Prose("```"), Prose("py x")),
         Fence(5, Prose("~~~~"), Prose("")),
+    ]
+
+
+def test_fenced_blocks_carry_their_content_less_the_fence_indentation() -> None:
+    """Each fenced block with what it holds; one in a list item loses the item's indentation."""
+    text = Prose("```py x\na\n```\n\n- ~~~~\n  b\n   c\n  ~~~~\n")
+    assert fenced_blocks(text) == [
+        FencedBlock(Fence(1, Prose("```"), Prose("py x")), Prose("a\n")),
+        FencedBlock(Fence(5, Prose("~~~~"), Prose("")), Prose("b\n c\n")),
     ]
 
 

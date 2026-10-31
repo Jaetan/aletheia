@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for opt-in structured logging.
 
-Verifies that the 16 log events shared with Go's ``slog`` and the C++
+Verifies that the log events shared with Go's ``slog`` and the C++
 ``Logger`` class are emitted at the correct levels with the expected
 fields.  Uses Python's standard ``logging`` module with a capturing
 handler — no output is produced unless a handler is installed, matching
@@ -259,7 +259,7 @@ class TestLoggingStreamingEvents:
                 assert record.levelno == logging.DEBUG, (
                     f"Expected DEBUG for {msg}, got {record.levelname}"
                 )
-            elif msg.startswith(("cache.full", "enrichment.", "endstream.")):
+            elif msg.startswith(("cache.full", "endstream.")):
                 assert record.levelno == logging.WARNING, (
                     f"Expected WARNING for {msg}, got {record.levelname}"
                 )
@@ -281,9 +281,9 @@ class TestLoggingSchema:
     """
 
     def test_known_events_matches_enum(self) -> None:
-        """``KNOWN_EVENTS`` is derived from ``LogEvent`` and has 16 names."""
+        """``KNOWN_EVENTS`` is derived from ``LogEvent`` and holds every canonical event."""
         assert {event.value for event in LogEvent} == KNOWN_EVENTS
-        assert len(KNOWN_EVENTS) == 16
+        assert len(KNOWN_EVENTS) == 14
 
     def test_event_names_follow_namespace_dot_action(self) -> None:
         """All events are of the form ``namespace.action`` for grep-ability."""

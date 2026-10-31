@@ -4,14 +4,17 @@
 
 -- The bounds a DBC meets before it is validated, loaded or formatted: how
 -- many items each of its lists holds, how long each of its texts is and
--- which characters it holds, which names it uses, and how large each of its
--- numbers is.  `IsBoundedDBC` states them; `checkBounds` decides them,
--- refusing with the first bound crossed or returning the DBC as a
--- `BoundedDBC`, with the erased proof that it meets every one.
+-- which characters it holds, and how large each of its numbers is.
+-- `IsBoundedDBC` states them; `checkBounds` decides them, refusing with the
+-- first bound crossed or returning the DBC as a `BoundedDBC`, with the
+-- erased proof that it meets every one.  A name is no bound of this module:
+-- each is decided as it is read (`Aletheia.DBC.Identifier`), its grammar,
+-- its length and the DBC keywords in one decision, and a DBC holds every
+-- name as an `Identifier` carrying that witness.
 --
--- Order of discovery: every count, then every text, then every name, then
--- every magnitude.  Counts: messages, then per message its signals, senders,
--- and per signal its receivers and multiplex values; attributes and per
+-- Order of discovery: every count, then every text, then every magnitude.
+-- Counts: messages, then per message its signals, senders, and per signal
+-- its receivers and multiplex values; attributes and per
 -- attribute its enum labels; comments; nodes; value tables; value
 -- descriptions in total; signal groups and per group its members;
 -- environment variables; unresolved value descriptions.  Texts: version,
@@ -19,13 +22,7 @@
 -- string values, value-table labels, unresolved value labels; each is held
 -- to its length and then to the DBC character set (printable ASCII but `"`
 -- and `\`, or TAB, LF, CR), the first character outside it refused with its
--- index and code point.  Names: every identifier, per message its name,
--- sender, senders and per signal its name, receivers and multiplexor; signal
--- groups and their members; environment variables; value tables; nodes;
--- comment and attribute targets; the signals of unresolved value
--- descriptions; each refused as a DBC keyword or past the identifier
--- length; an attribute name, a quoted string on the wire, is held to the
--- identifier rules as well: ASCII, the grammar, no keyword, the length.
+-- index and code point.
 --
 -- Each bound is one decision carrying its evidence erased; the refusal is
 -- built where the decision is made and names the field.

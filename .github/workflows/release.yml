@@ -24,7 +24,9 @@
 # smoke test (unpack → source env.sh → load the .so from the bundled Python
 # package), the cross-binding bundle validation (tools/bundle_validate.py
 # builds + runs a real consumer per compiled binding from the recipes the
-# bundled installers print), a real `dpkg -i` install smoke of the .deb, and
+# bundled installers print), the C example of docs/development/DISTRIBUTION.md
+# built with both of its C recipes and run (tools/bundle_c_example.py), a real
+# `dpkg -i` install smoke of the .deb, and
 # the runtime-image build (whose in-Dockerfile verify stages build/load every
 # compiled binding against the image's own /opt/aletheia and check every
 # package in the image carries its licence text).  Each matches the
@@ -363,6 +365,16 @@ jobs:
           python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
             --require cpp,go,rust \
             --fetchcontent-cache "${HOME}/fetchcontent-cache"
+
+      # The C example of docs/development/DISTRIBUTION.md, built against the
+      # tarball with each C recipe there and run.  The recipes name gcc and ask
+      # for C23; clang-23, installed above, stands for it.
+      - name: Build and run the guide's C example against the bundle (gates publish)
+        if: ${{ !cancelled() && steps.dist.outcome == 'success' && steps.clang.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python/.venv/bin/python3 -m tools.bundle_c_example dist/aletheia.tar.gz \
+            --c-compiler clang-23
 
       # `shake packages` re-needs `dist` (a Shake phony re-runs), so the
       # tarball is rebuilt + re-signed here.  That is sound because the dist

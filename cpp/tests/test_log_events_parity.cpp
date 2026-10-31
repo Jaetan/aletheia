@@ -105,7 +105,7 @@ static auto canonical_event_set() -> std::set<std::string> {
 
 TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
     auto const rows = load_log_events();
-    REQUIRE(rows.size() == 16);
+    REQUIRE(rows.size() == 14);
 
     std::set<std::string> seen;
     for (auto const [i, row] : std::views::enumerate(rows)) {

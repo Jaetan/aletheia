@@ -5,7 +5,7 @@
 -- The JSON parser reads back what the formatter writes.
 --
 -- For a value whose numbers have their numerator magnitude and denominator
--- below 2^64, `parseJSON` reads `formatJSONChars j` whole, back to
+-- below 2^128, `parseJSON` reads `formatJSONChars j` whole, back to
 -- `wire (rekey j)`: each key as `fromList (toList k)`, which `--safe` cannot
 -- reduce for an open `k`, and each rational with a denominator above 1 as
 -- the two-field object the formatter writes for it.
@@ -48,8 +48,8 @@ open import Aletheia.Protocol.JSON.Properties.Roundtrip.String using (escapeChar
 -- WHAT THE PARSER GIVES BACK
 -- ============================================================================
 
--- A rational whose numerator magnitude and denominator are below 2^64, the
--- range the parser reads exactly.
+-- A rational whose numerator magnitude and denominator are below 2^128
+-- (`heldMagnitude`), the range the parser reads exactly.
 ReadExactly : ℚ → Set
 ReadExactly (mkℚ num d _) = ∣ num ∣ < heldMagnitude × suc d < heldMagnitude
 
@@ -642,7 +642,7 @@ eof-reads : ReadsText eof [] tt []
 eof-reads = reading λ pos → refl
 
 -- The parser reads back whole what the formatter writes, for every value
--- whose numbers have a numerator magnitude and a denominator below 2^64.
+-- whose numbers have a numerator magnitude and a denominator below 2^128.
 parseJSON-formatJSONChars : ∀ pos j → NumbersSatisfy ReadExactly j →
   proj₂ (parseJSON pos (formatJSONChars j))
     ≡ just (mkResult (wire (rekey j)) (advancePositions pos (formatJSONChars j)) [])

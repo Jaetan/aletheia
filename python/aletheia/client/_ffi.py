@@ -605,11 +605,9 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
 def _validate_lib_path(p: Path, source: str) -> None:
     """Reject a candidate ``libaletheia-ffi.so`` path that fails security gates.
 
-    Applied to every resolution path — env var, install config, build dir,
-    dist-newstyle scan.  Earlier versions restricted these checks to the
-    ``ALETHEIA_LIB`` env var; the fallback paths bypassed the symlink and
-    permission gates even though they are equally untrusted from a
-    "could be tampered post-install" standpoint.
+    Applied to every resolution path (env var, install config, build dir,
+    dist-newstyle scan): each is as open to tampering after install as the
+    ``ALETHEIA_LIB`` env var.
 
     ``source`` is interpolated into error messages ("ALETHEIA_LIB=…",
     "install config", "build dir", "dist-newstyle") so the operator knows

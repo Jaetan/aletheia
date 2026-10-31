@@ -9,9 +9,11 @@
 -- Marshaling logic lives in AletheiaFFI.Marshal; binary output writers live
 -- in AletheiaFFI.BinaryOutput. This file is the entry-point surface only.
 --
--- Lifecycle: hs_init → aletheia_init → (process | send_* | start/end_stream)*
--- → aletheia_close → hs_exit.  Strings returned by aletheia_* must be freed
--- via aletheia_free_str; binary buffers via aletheia_free_buf.
+-- Lifecycle: hs_init, once per process → aletheia_init → (process | send_* |
+-- start/end_stream)* → aletheia_close.  hs_exit is never called (aletheia.h):
+-- the runtime cannot start again after it, and ends with the process.
+-- Strings returned by aletheia_* must be freed via aletheia_free_str; binary
+-- buffers via aletheia_free_buf.
 module AletheiaFFI where
 
 import Foreign.C.String (CString)

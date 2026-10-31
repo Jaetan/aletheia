@@ -7,8 +7,9 @@
 --
 -- Walks MAlonzo data structures and packs them into raw byte buffers for
 -- the *_bin entry points (build_frame_bin, update_frame_bin,
--- extract_signals_bin). Wire formats are documented in Main.agda
--- (canonical source) and mirrored across all language bindings.
+-- extract_signals_bin). Wire formats are documented in
+-- src/Aletheia/Main/Binary.agda (canonical source) and mirrored across all
+-- language bindings.
 module AletheiaFFI.BinaryOutput where
 
 import Foreign.C.String (CString)
@@ -94,7 +95,7 @@ kernelErrorEntry pair =
        )
 
 -- | Pack a PartitionedResults into a freshly-malloc'd buffer.
--- Wire format (canonical doc: Main.agda processExtractBin):
+-- Wire format (canonical doc: Main/Binary.agda processExtractBinRaw):
 --   Header(3×u16: nVals,nErrs,nAbs + u32 reasonBytes) + Values(×35B)
 --   + Errors(×3B) + Offsets((nErrs+1)×u32, cumulative into Reasons)
 --   + Reasons(UTF-8 blob) + Absent(×2B).

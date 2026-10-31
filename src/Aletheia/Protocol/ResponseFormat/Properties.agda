@@ -5,9 +5,11 @@
 -- Correctness properties for response formatting.
 --
 -- Purpose: Prove format-response injectivity (Ack uniqueness), that every
--- number any reply writes is in the range `replyRange` gives its place
--- (`formatResponse-in-range`), and so in the range every binding's reader
--- decodes (`formatResponse-readable`).
+-- value any reply writes is in the form `replyPlaces` gives its place, each
+-- number in its `replyRange` range, each string in its `replyText` form and
+-- each array `replyNonEmpty` names non-empty (`formatResponse-in-range`),
+-- and so every number in the range every binding's reader decodes
+-- (`formatResponse-readable`).
 -- Risk mitigated: Ack formatted as Violation or vice versa would cause
 -- language bindings to misinterpret the result; a bound refusal echoing a
 -- measured value of unbounded length would cost the host process its heap
@@ -447,9 +449,11 @@ private
   errorExtras-at (Err.KeywordName (Err.AtText pos) _) =
     saturated-in (Position.line pos) , saturated-in (Position.column pos) , tt , tt
 
--- THEOREM: every number `formatResponse` writes, for any reply, is in the
--- range `replyRange` gives its place.  Erased, since it reads the erased
--- proofs the replies carry.
+-- THEOREM: every value `formatResponse` writes, for any reply, is in the
+-- form `replyPlaces` gives its place: a number in its `replyRange` range, a
+-- string in its `replyText` form, an array `replyNonEmpty` names holding at
+-- least one element.  Erased, since it reads the erased proofs the replies
+-- carry.
 @0 formatResponse-in-range : ∀ r → ValuesAt replyPlaces [] nothing (formatResponse r)
 formatResponse-in-range (Success _) = tt , tt , tt
 formatResponse-in-range (Error e)   = tt , tt , tt , errorExtras-at e

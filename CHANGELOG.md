@@ -383,6 +383,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C ABI 4, every binding): a rational's numerator and denominator,
+  a multiplex value and a value-description key reach 2^128 - 1 in magnitude,
+  the sign held apart.** Go `Uint128`, C++ `unsigned __int128` and Rust `u128`
+  carry them and `aletheia.h` requires C23; every reply reader words a refusal
+  `reply <path>: expected <kind>, got <what came>`, and the two `enrichment.*`
+  log events are retired.
+
 - **BREAKING: every error the C++ binding answers is a `Result<T>`, only
   `std::bad_alloc` is thrown, and `AletheiaClient::open` opens a client in one
   call; `libaletheia-cpp` is installed at `SOVERSION 3`.**

@@ -11,7 +11,9 @@
 #   * head-dist — builds an UNSIGNED `shake dist` from the current default
 #     branch and runs tools/bundle_validate.py against it with every compiled
 #     binding required, plus the validator's --self-test (corrupted copies of
-#     the bundle must FAIL validation — a gate that cannot fail has a bug).
+#     the bundle must FAIL validation, since a gate that cannot fail has a bug),
+#     and tools/bundle_c_example.py, which builds the C example of
+#     docs/development/DISTRIBUTION.md with each of its C recipes and runs it.
 #   * release-replay — downloads the latest PUBLISHED GitHub Release exactly
 #     as a consumer would (the RELEASE.md § Verifying release artifacts
 #     commands: sha256 sidecar + keyless cosign against the release
@@ -256,6 +258,16 @@ jobs:
           python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
             --require cpp,go,rust \
             --fetchcontent-cache "${HOME}/fetchcontent-cache"
+
+      # The C example of docs/development/DISTRIBUTION.md, built against the
+      # tarball with each C recipe there and run.  The recipes name gcc and ask
+      # for C23; clang-23, installed above, stands for it.
+      - name: Build and run the guide's C example against the bundle
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python/.venv/bin/python3 -m tools.bundle_c_example dist/aletheia.tar.gz \
+            --c-compiler clang-23
 
       - name: Self-test the validator (corrupted bundles must fail)
         if: ${{ !cancelled() && steps.validate.outcome == 'success' }}

@@ -492,8 +492,8 @@ features:
   # =====================================================================
 
   - id: structured_logging
-    name: Structured logging (16 events)
-    description: Canonical 16-event log vocabulary across lifecycle / stream / cache / enrichment / extraction / end-of-stream-diagnostic domains.
+    name: Structured logging
+    description: Canonical log vocabulary (docs/LOG_EVENTS.yaml) across lifecycle / stream / cache / extraction / end-of-stream-diagnostic domains.
     bindings:
       python:
         status: implemented

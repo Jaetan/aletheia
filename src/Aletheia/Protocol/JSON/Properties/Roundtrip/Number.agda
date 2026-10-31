@@ -3,7 +3,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- The JSON parser reads back every integer the formatter writes whose
--- magnitude is below 2^64, as the rational the integer is.
+-- magnitude is below 2^128 (`heldMagnitude`), as the rational the integer is.
 module Aletheia.Protocol.JSON.Properties.Roundtrip.Number where
 
 open import Data.Bool using (Bool; true; false)
@@ -229,7 +229,7 @@ private
       not-large (inj₁ big)         = <-irrefl refl (≤-<-trans big k<)
       not-large (inj₂ (s≤s ()))
 
--- An integer's digits read back to the integer, below 2^64.
+-- An integer's digits read back to the integer, below 2^128.
 bareInt : ∀ neg n → n < heldMagnitude →
   decimalLiteral neg (showNat-chars n) [] (+ 0) ≡ canonicalizeDecRat (applySign neg n) 0 0
 bareInt nothing  zero    _  = refl

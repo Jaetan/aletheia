@@ -15,17 +15,19 @@
 // rejection over a bound is a typed `InputBoundExceededError` carrying the
 // offending kind, the observed value, the limit it crossed and, for a DBC
 // size bound, the part of the DBC that crossed it.  The Python
-// (`aletheia.InputBoundExceededError`) and Go (`*aletheia.InputBoundExceededError`)
-// bindings expose the equivalent type; keep the three surfaces in sync.
+// (`aletheia.InputBoundExceededError`), Go (`*aletheia.InputBoundExceededError`)
+// and Rust (`aletheia::Error::InputBoundExceeded`) bindings expose the
+// equivalent type; keep the four surfaces in sync.
 //
 // The binding enforces these bounds itself before crossing the FFI:
 // `max_json_bytes` in the FFI backend, `max_dbc_text_bytes` in the client and
 // the loaders, `max_nesting_depth` in the JSON translation units.  The
 // remaining constants are declarations: the Agda kernel produces the wire
 // string and the structured triple, and this header lets C++ callers identify
-// and compare against them by name.  The
-// mirror is held to the Agda module by a probe under probes/ that reads both
-// files and compares every bound and every wire string.
+// and compare against them by name.  `tools/check_limits_parity.py`, the
+// `check-limits-parity` step of `tools/run_ci.py`, holds this mirror to the
+// Agda module: every bound its C++ table maps, present here at its Agda
+// value, no bound here that table leaves out, and every wire string.
 #pragma once
 
 #include <cstdint>

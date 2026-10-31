@@ -323,19 +323,9 @@ against the freshly built tarball with every compiled binding required
   set an LTL property → stream a conforming and a violating frame → assert
   exactly one violation → end the stream.
 
-A release can also rot *between* cuts (recipes, toolchains, staging, the
-published assets themselves), so the same validation runs on a weekly schedule
-([`.github/workflows/bundle-validation.yml`](../../.github/workflows/bundle-validation.yml)):
-one job builds an unsigned `shake dist` from the default branch and validates
-it — catching staging/recipe/binding rot while no release is in flight — and a
-second job downloads the **latest published** GitHub Release, verifies it
-exactly as a consumer would (sha256 sidecar + keyless cosign against the
-release workflow identity — the commands under
-[Verifying release artifacts](#verifying-release-artifacts-consumer-side)),
-and validates that tarball: a true replay of the consumer's download path.
-The scheduled lane also runs the validator's `--self-test`, which corrupts
-copies of the bundle and asserts each corrupted copy FAILS validation — the
-gate's teeth are themselves gated.
+`release.yml` then runs the C example step, `Build and run the guide's C example against the bundle (gates publish)`: [`tools/bundle_c_example.py`](../../tools/bundle_c_example.py) builds the program of [DISTRIBUTION.md § Minimal C example](DISTRIBUTION.md#minimal-c-example) against the tarball with each of that guide's C recipes, `clang-23` in place of the `gcc` they name, runs each build with no `LD_LIBRARY_PATH`, so the RPATH the recipe writes is what finds the libraries, and holds each run to printing one success reply.
+
+A release can also rot *between* cuts (recipes, toolchains, staging, the published assets themselves), so the same validation runs on a weekly schedule ([`.github/workflows/bundle-validation.yml`](../../.github/workflows/bundle-validation.yml)): one job builds an unsigned `shake dist` from the default branch, validates it and runs the C example step on it, catching staging, recipe and binding rot while no release is in flight, and a second job downloads the **latest published** GitHub Release, verifies it exactly as a consumer would (sha256 sidecar + keyless cosign against the release workflow identity, the commands under [Verifying release artifacts](#verifying-release-artifacts-consumer-side)), and validates that tarball: a true replay of the consumer's download path. The scheduled lane also runs the validator's `--self-test`, which corrupts copies of the bundle and asserts each corrupted copy FAILS validation, so the gate's teeth are themselves gated.
 
 ## Native packages (.deb / .rpm)
 

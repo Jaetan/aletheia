@@ -112,8 +112,9 @@ HEAVY_STEPS: frozenset[str] = frozenset(
 # format check and pylint — interpreted, no compile).  The split of
 # ``gofmt``/``cargo fmt`` out of their ``go vet``/``clippy`` partners exists to
 # make this allowlist expressible.
-# ``check-dist-staging`` qualifies too: it only parses the build program and runs
-# ``git ls-files`` / shell syntax checks, and ``git ls-files`` reads the INDEX —
+# ``check-dist-staging`` qualifies too: it only parses the build program and the
+# distribution guide's C section and runs ``git ls-files`` / shell syntax checks,
+# and ``git ls-files`` reads the INDEX:
 # exactly the staged content the pre-commit tier is defined over.  So does
 # ``check-clang-format-config``: two dumps of the pinned clang-format's
 # configuration and a read of ``cpp/.clang-format``.

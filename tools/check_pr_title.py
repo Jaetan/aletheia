@@ -12,8 +12,11 @@ title needs a commit on the branch preparing its version, and a branch preparing
 a release needs a release title (``released``), so the version the squash lands
 is one whose cut ``tools/check_changelog.py`` holds, which also refuses a branch
 preparing two; a correction title needs a commit on the branch correcting the
-changelog (``corrected``), whose branch that gate holds to adding no entry; the
-branch's own commits and the CHANGELOG's shape are that gate's.
+changelog (``corrected``), whose branch that gate holds to adding no entry.
+The title is the one subject held: a commit on the branch reads in the
+vocabulary only to mark the release preparation or a correction, and the
+CHANGELOG's shape and the entry a changed public-surface record owes are that
+gate's.
 
 The workflow ``.github/workflows/pr-title.yml`` runs it on every title edit and
 every push to a pull request, on a bare interpreter: nothing it imports needs a

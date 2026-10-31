@@ -91,8 +91,8 @@ gateRules = do
         putInfo $ "Stdlib version OK: " ++ unwords requiredDeps
 
     phony "check-changelog" $ do
-        -- Commit subjects and the CHANGELOG, by the rules tools/check_changelog.py's
-        -- docstring lists; it is Python so local CI runs it without rebuilding
+        -- The CHANGELOG, by the rules tools/check_changelog.py's docstring
+        -- lists; it is Python so local CI runs it without rebuilding
         -- the Shake binary.
         cmd_ pythonBin "-m" "tools.check_changelog"
 

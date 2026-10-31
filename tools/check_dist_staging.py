@@ -33,7 +33,13 @@ index, which is exactly the staged content the pre-commit FAST tier checks):
   own;
 * the licence record ``packaging/licenses/sources.yaml`` and every text it
   names must be git-tracked, since dist stages those texts into the bundle's
-  ``licenses/`` (``tools/bundle_licences.py`` holds them to the libraries).
+  ``licenses/`` (``tools/bundle_licences.py`` holds them to the libraries);
+* the C recipe ``README.txt`` and the dist report print, the build program's
+  ``cRecipe`` list, must be the ``Compile and link`` recipe of
+  ``docs/development/DISTRIBUTION.md`` line for line, and no other text of the
+  build program may spell ``-laletheia-ffi``, as a second recipe would.  The
+  guide is read through ``tools.bundle_c_example``, which builds the guide's C
+  example with that recipe against a bundle and runs it.
 
 The pathspec lists are parsed out of the build program (``Shakefile.hs`` and
 the modules under ``shake/``) as literal Haskell list-of-string arguments.
@@ -42,13 +48,16 @@ by a literal ``[...]`` list, a string using Haskell escape/gap syntax (which
 this gate does not interpret), an unterminated literal, or unknown pathspec
 magic all exit 2 rather than checking a partial read; a quote-count
 cross-check additionally asserts that every double-quoted literal inside each
-block was captured.
+block was captured.  ``cRecipe`` is read the same way, but for the two escapes
+a shell line needs, a backslash's and a double quote's, and must hold nothing
+but its literals and their commas between its brackets.
 
 Exit codes:
   0 — all staging inputs resolve.
   1 — at least one broken input (dead pathspec, leaked go.work, untracked or
       syntax-broken packaging script, binding licence not the root's,
-      untracked licence text), each named with a remedy.
+      untracked licence text, a C recipe that is not the guide's), each named
+      with a remedy.
   2 — could not check: an unparseable or absent build program, a missing
       input, or a required tool absent on a CI runner (a vacuous pass is
       refused).
@@ -66,7 +75,8 @@ from pathlib import Path
 
 from yaml.error import YAMLError
 
-from tools._common import emit, find_executable, read_shake_program, run_capture
+from tools._common import ShakeSource, emit, find_executable, read_shake_program, run_capture
+from tools.bundle_c_example import GUIDE, CGuide, CGuideError, read_guide_file
 from tools.bundle_licences import KEPT, RECORD, LicenceUnreadError, read_record
 
 from aletheia.common_types import Prose
@@ -95,6 +105,18 @@ _EXCLUDE_PREFIX = ":(exclude)"
 # (`stageBinding name paths = do`) and its type signature carry no quoted
 # argument, so this matches call sites only.
 _CALL_SITE_RE = re.compile(r'stageBinding\s+"([^"\n]+)"')
+
+# The list the dist rule prints its C recipe from, defined at the left margin,
+# and the flag a C link line spells.
+_C_RECIPE_RE = re.compile(r"^cRecipe\s*=", re.MULTILINE)
+_C_LINK_FLAG = "-laletheia-ffi"
+
+# A Haskell string literal on one line, escaping a backslash or a double quote
+# and nothing else; a list of them; and one escape.
+_RECIPE_LITERAL = r'"(?:[^"\\\n]|\\[\\"])*"'
+_RECIPE_LIST_RE = re.compile(rf"\s*(?:{_RECIPE_LITERAL}\s*(?:,\s*{_RECIPE_LITERAL}\s*)*)?")
+_RECIPE_LITERAL_RE = re.compile(_RECIPE_LITERAL)
+_ESCAPE_RE = re.compile(r"\\(.)")
 
 COULD_NOT_CHECK = 2
 
@@ -126,18 +148,19 @@ def _skip_whitespace(text: str, start: int) -> int:
     return i
 
 
-def _bracket_block(text: str, search_from: int, name: str) -> str:
-    """Return the content of the literal ``[...]`` list following a call site.
+def _bracket_block(text: str, search_from: int, site: str) -> str:
+    """Return the content of the literal ``[...]`` list following a call site or definition.
 
-    ``search_from`` is the index just past the binding-name literal.  Tracks
-    string state so a bracket inside a pathspec cannot end the block early.
-    Raises :class:`DistStagingError` when the next token is not ``[`` or the
-    list never closes — either means the call site is no longer a literal
-    list this gate can trust.
+    ``search_from`` is the index just past the binding-name literal or the
+    ``=``, and ``site`` names it in a refusal.  Tracks string state so a
+    bracket inside a literal cannot end the block early.  Raises
+    :class:`DistStagingError` when the next token is not ``[`` or the list
+    never closes, either of which means the site is no longer a literal list
+    this gate can trust.
     """
     i = _skip_whitespace(text, search_from)
     if i >= len(text) or text[i] != "[":
-        message = f'stageBinding "{name}" is not followed by a literal [pathspec, ...] list'
+        message = f"{site} is not followed by a literal [...] list"
         raise DistStagingError(message)
     start = i
     depth = 0
@@ -159,7 +182,7 @@ def _bracket_block(text: str, search_from: int, name: str) -> str:
             if depth == 0:
                 return text[start + 1 : i]
         i += 1
-    message = f'stageBinding "{name}": unbalanced [ ... ] pathspec list'
+    message = f"{site}: unbalanced [ ... ] list"
     raise DistStagingError(message)
 
 
@@ -244,7 +267,7 @@ def parse_stage_bindings(text: str) -> list[BindingSpec]:
     bindings: list[BindingSpec] = []
     for match in _CALL_SITE_RE.finditer(text):
         name = match.group(1)
-        block = _bracket_block(text, match.end(), name)
+        block = _bracket_block(text, match.end(), f'stageBinding "{name}"')
         literals = _scan_string_literals(block, name)
         if block.count('"') != 2 * len(literals):
             message = (
@@ -402,7 +425,76 @@ def check_licence_texts_tracked(repo_root: Path) -> list[Prose]:
     ]
 
 
-def _read_build_program(root: Path) -> str:
+def parse_c_recipe(program: ShakeSource) -> tuple[Prose, ...] | None:
+    """Return the lines of the build program's ``cRecipe`` list, or None when it defines none.
+
+    Raises :class:`DistStagingError` when the list is defined twice or is not a
+    literal list of strings escaping nothing but a backslash and a double quote.
+    """
+    found = list(_C_RECIPE_RE.finditer(program))
+    if not found:
+        return None
+    if len(found) > 1:
+        message = f"the build program defines cRecipe {len(found)} times"
+        raise DistStagingError(message)
+    block = _bracket_block(program, found[0].end(), "cRecipe")
+    if _RECIPE_LIST_RE.fullmatch(block) is None:
+        message = (
+            "cRecipe is not a list of string literals escaping only a backslash or a "
+            + "double quote, the one form this gate reads"
+        )
+        raise DistStagingError(message)
+    return tuple(
+        Prose(_ESCAPE_RE.sub(r"\1", literal[1:-1])) for literal in _RECIPE_LITERAL_RE.findall(block)
+    )
+
+
+def check_c_recipe(program: ShakeSource, guide: CGuide) -> list[Prose]:
+    """Return a failure per way the C recipe the dist rule prints is not the guide's.
+
+    The rule prints ``cRecipe``, so the list is held to the guide's ``Compile and
+    link`` recipe line for line, and any other spelling of the link flag in the
+    build program is a second recipe.
+    """
+    out: list[Prose] = []
+    lines = parse_c_recipe(program)
+    wanted = tuple(Prose(line) for line in guide.link.splitlines())
+    if lines is None:
+        out.append(
+            Prose(
+                "the build program defines no cRecipe, the list README.txt and the dist "
+                + f"report print the C recipe of {GUIDE} from; define it as that recipe's lines"
+            )
+        )
+        lines = ()
+    elif lines != wanted:
+        out.append(
+            Prose(
+                f"cRecipe {list(lines)} is not the Compile and link recipe of {GUIDE}, "
+                + f"{list(wanted)}; copy the guide's lines into it"
+            )
+        )
+    elsewhere = program.count(_C_LINK_FLAG) - sum(line.count(_C_LINK_FLAG) for line in lines)
+    if elsewhere:
+        out.append(
+            Prose(
+                f"the build program spells {_C_LINK_FLAG} {elsewhere} times outside cRecipe, "
+                + f"a C recipe that is not the one of {GUIDE}; print cRecipe there instead"
+            )
+        )
+    return out
+
+
+def _read_guide(path: Path) -> CGuide:
+    """Return the guide's C section, raising the could-not-check class."""
+    try:
+        return read_guide_file(path)
+    except CGuideError as exc:
+        message = f"the guide's C recipe is not read: {exc}"
+        raise DistStagingError(message) from exc
+
+
+def _read_build_program(root: Path) -> ShakeSource:
     """Return the build program's text under ``root``, raising the could-not-check class."""
     try:
         return read_shake_program(root)
@@ -455,12 +547,20 @@ def main() -> int:
         action="store_true",
         help="treat a missing fish as a failure even off CI",
     )
+    _ = parser.add_argument(
+        "--guide",
+        type=Path,
+        default=None,
+        help=f"the guide whose C recipe the dist rule prints (default: {GUIDE} of --repo-root)",
+    )
     args = parser.parse_args()
     build_root: Path = args.build_root
     repo_root: Path = args.repo_root
+    guide: Path = repo_root / GUIDE if args.guide is None else args.guide
 
     try:
-        bindings = parse_stage_bindings(_read_build_program(build_root))
+        program = _read_build_program(build_root)
+        bindings = parse_stage_bindings(program)
         fish = _resolve_fish(require_fish=args.require_fish)
         failures = check_pathspecs_resolve(repo_root, bindings)
         failures += check_go_work_not_staged(repo_root, bindings)
@@ -468,6 +568,7 @@ def main() -> int:
         failures += check_license_tracked(repo_root)
         failures += check_binding_licences(repo_root, bindings)
         failures += check_licence_texts_tracked(repo_root)
+        failures += check_c_recipe(program, _read_guide(guide))
     except (DistStagingError, RuntimeError) as exc:
         _ = sys.stderr.write(f"check-dist-staging: COULD NOT CHECK — {exc}\n")
         return COULD_NOT_CHECK
@@ -490,7 +591,8 @@ def main() -> int:
     emit(
         f"check-dist-staging: {len(bindings)} bindings, {n_pos} positive + {n_exc} exclude "
         + f"pathspecs all resolve; {GO_WORK} stays out; packaging scripts tracked, "
-        + f"{fish_note}; {LICENSE_FILE}, its binding copies and the licence texts tracked"
+        + f"{fish_note}; {LICENSE_FILE}, its binding copies and the licence texts tracked; "
+        + f"the C recipe dist prints is the one of {GUIDE}"
     )
     return 0
 

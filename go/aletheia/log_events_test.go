@@ -99,7 +99,7 @@ func unknownEvents(known map[string]struct{}, emitted []capturedRecord) []string
 // membership check below passing over a smaller vocabulary.
 func TestLogEventsYAML_Schema(t *testing.T) {
 	events := loadLogEvents(t)
-	if got, want := len(events), 16; got != want {
+	if got, want := len(events), 14; got != want {
 		t.Fatalf("the document names %d events, and the four bindings share %d", got, want)
 	}
 	seen := make(map[string]struct{}, len(events))
