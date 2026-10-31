@@ -8,7 +8,9 @@
 //! cannot be represented — the parity discipline of the Go and C++ bindings,
 //! expressed with Rust's `Result` instead of `(T, error)` / `expected`.
 
-use serde_json::{json, Value};
+use std::fmt;
+use std::num::TryFromIntError;
+use std::str::FromStr;
 
 use crate::error::Error;
 
@@ -122,16 +124,31 @@ impl Dlc {
     }
 }
 
-/// An exact rational value — the precision currency of LTL predicates
-/// (wire-symmetric with the Go binding's `Rational` and Python's `Fraction`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// An exact rational value, the precision currency of LTL predicates
+/// (wire-symmetric with the Go binding's `Rational` and Python's `Fraction`):
+/// a sign, a numerator magnitude and a positive denominator, each magnitude up
+/// to 2^128-1.
+///
+/// Every constructor stores the value in lowest terms, a zero as `0/1` with no
+/// sign, so the derived equality and hash are value equality (`1/2 == 2/4`).
+/// There is no ordering: the kernel decides every comparison a property holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Rational {
-    numerator: i64,
-    denominator: i64,
+    negative: bool,
+    numerator: u128,
+    denominator: u128,
+}
+
+/// The greatest common divisor of `a` and `b`, `a` when `b` is zero.
+fn gcd(mut a: u128, mut b: u128) -> u128 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 impl Rational {
-    /// Construct a rational `numerator / denominator`.
+    /// Construct a rational `numerator / denominator`, in lowest terms.
     ///
     /// # Errors
     /// [`Error::Validation`] if `denominator` is zero or negative (the core and
@@ -146,45 +163,68 @@ impl Rational {
                 "rational denominator must be positive, got {denominator}"
             )));
         }
-        Ok(Rational {
-            numerator,
-            denominator,
-        })
+        Ok(Rational::reduced(
+            numerator < 0,
+            u128::from(numerator.unsigned_abs()),
+            u128::from(denominator.unsigned_abs()),
+        ))
     }
 
-    /// Value comparison `self <= other`. Denominators are positive by
-    /// construction, so cross-multiplication preserves the inequality; `i128`
-    /// avoids `i64` overflow on the product.
+    /// Construct the rational of `numerator / denominator`, negated when
+    /// `negative`, in lowest terms: the constructor reaching every magnitude
+    /// up to 2^128-1.
     ///
-    /// Deliberately NOT `PartialOrd`/`Ord`: `new` does not reduce to lowest
-    /// terms, so the derived `Eq` is structural (`1/2 != 2/4`) and a
-    /// value-based `Ord` would violate the `Ord`/`Eq` consistency contract
-    /// (silently corrupting `BTreeMap`/`sort` users). Crate-private on
-    /// purpose — a public comparison would be new Rust-only API surface.
-    pub(crate) fn le(self, other: Rational) -> bool {
-        i128::from(self.numerator) * i128::from(other.denominator)
-            <= i128::from(other.numerator) * i128::from(self.denominator)
+    /// # Errors
+    /// [`Error::Validation`] if `denominator` is zero.
+    pub fn from_parts(negative: bool, numerator: u128, denominator: u128) -> Result<Self, Error> {
+        if denominator == 0 {
+            return Err(Error::validation("rational denominator is zero"));
+        }
+        Ok(Rational::reduced(negative, numerator, denominator))
+    }
+
+    /// The value over a non-zero `denominator`, divided by the two
+    /// magnitudes' greatest common divisor, a zero unsigned.
+    fn reduced(negative: bool, numerator: u128, denominator: u128) -> Self {
+        let divisor = gcd(numerator, denominator);
+        Rational::from_kernel(negative, numerator / divisor, denominator / divisor)
+    }
+
+    /// The rational stored as given, a zero unsigned whatever its sign: what
+    /// every constructor stores once its value is in lowest terms, and what a
+    /// reader stores the kernel's rationals through. The kernel's rationals
+    /// are its standard library's, reduced by their type over a denominator
+    /// its proofs hold positive, so a reader stores one with no check and no
+    /// reduction.
+    pub(crate) fn from_kernel(negative: bool, numerator: u128, denominator: u128) -> Self {
+        Rational {
+            negative: negative && numerator != 0,
+            numerator,
+            denominator,
+        }
     }
 
     /// An exact integer rational (`n / 1`).
     #[must_use]
-    pub fn integer(n: i64) -> Self {
+    pub fn integer(n: i128) -> Self {
         Rational {
-            numerator: n,
+            negative: n < 0,
+            numerator: n.unsigned_abs(),
             denominator: 1,
         }
     }
 
     /// Parse a decimal string into an exact [`Rational`] via the verified Agda
-    /// kernel — the cross-binding single source of truth for decimal→rational
-    /// (the float principle: a decimal is an exact rational, never a float).
-    /// `"0.1" → 1/10`, `"3.14" → 157/50`, `"42" → 42/1`. The accepted grammar is
-    /// the kernel's: `-?digits` or `-?digits.digits+` — no `+` sign, no
-    /// leading/trailing `.`, no exponent (so `"1e3"`, `".5"`, `"1."`, `"+2"` are
-    /// rejected). Like rational *display*, decimal parsing needs the GHC runtime
-    /// up (the kernel parses the literal and holds each rational component to
-    /// its magnitude bound): [`start_runtime`](crate::start_runtime) or a
-    /// [`Client`](crate::Client) starts it, and this never does.
+    /// kernel, the cross-binding single source of truth for decimal to
+    /// rational (the float principle: a decimal is an exact rational, never a
+    /// float). `"0.1"` is 1/10, `"3.14"` is 157/50, `"42"` is 42/1. The
+    /// accepted grammar is the kernel's: `-?digits` or `-?digits.digits+`, no
+    /// `+` sign, no leading or trailing `.`, no exponent (so `"1e3"`, `".5"`,
+    /// `"1."`, `"+2"` are refused). Like rational *display*, decimal parsing
+    /// needs the GHC runtime up (the kernel parses the literal and holds each
+    /// rational component to its magnitude bound):
+    /// [`start_runtime`](crate::start_runtime) or a [`Client`](crate::Client)
+    /// starts it, and this never does.
     ///
     /// # Errors
     /// [`Error::Validation`] with `code` `Some("text_parse_failure")` (not a
@@ -193,44 +233,86 @@ impl Rational {
     /// `Some("ffi_validation_error")` when the shim refused the bytes (a NUL
     /// byte in `s`); [`Error::InputBoundExceeded`] with `field` `"decimal"`
     /// when the numerator or the denominator crosses the rational component
-    /// magnitude bound; [`Error::Protocol`] when the entry reports a refusal
-    /// without an error envelope, the envelope is malformed, or the answered
-    /// denominator is not positive; [`Error::RtsNotInitialized`] if the runtime
-    /// has not started.
+    /// magnitude bound, 2^128-1; [`Error::Protocol`] when the entry reports a
+    /// refusal without an error envelope or the envelope is malformed;
+    /// [`Error::RtsNotInitialized`] if the runtime has not started.
     pub fn from_decimal(s: &str) -> Result<Self, Error> {
         crate::backend::parse_decimal(s)
     }
 
-    /// The numerator.
+    /// Whether the value is below zero; a zero is never negative.
     #[must_use]
-    pub fn numerator(self) -> i64 {
+    pub fn is_negative(self) -> bool {
+        self.negative
+    }
+
+    /// The numerator's magnitude, in lowest terms.
+    #[must_use]
+    pub fn numerator(self) -> u128 {
         self.numerator
     }
 
-    /// The denominator (always positive).
+    /// The denominator, positive and in lowest terms.
     #[must_use]
-    pub fn denominator(self) -> i64 {
+    pub fn denominator(self) -> u128 {
         self.denominator
     }
+}
 
-    /// Encode for the wire: a plain integer when the denominator is 1, else a
-    /// `{"numerator","denominator"}` object — matching every other binding so
-    /// exact precision survives the round-trip.
-    pub(crate) fn to_value(self) -> Value {
-        if self.denominator == 1 {
-            json!(self.numerator)
+/// An integer is always a valid rational (`n / 1`), the ergonomic input for
+/// the check DSL (`signal("x").never_exceeds(1000)`, whose unsuffixed literal
+/// is an `i32`). Fractions go through the fallible [`Rational::new`] or
+/// [`Rational::from_parts`], so there is no panicking `From` for them.
+macro_rules! rational_from_integer {
+    ($($signed:ty),*; $($unsigned:ty),*) => {
+        $(impl From<$signed> for Rational {
+            fn from(n: $signed) -> Self {
+                Rational::integer(i128::from(n))
+            }
+        })*
+        $(impl From<$unsigned> for Rational {
+            fn from(n: $unsigned) -> Self {
+                Rational::from_kernel(false, u128::from(n), 1)
+            }
+        })*
+    };
+}
+
+rational_from_integer!(i8, i16, i32, i64, i128; u8, u16, u32, u64, u128);
+
+/// A whole number as a sign and a magnitude up to 2^128-1: the key of a value
+/// description, which a DBC writes in either sign.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SignMagnitude {
+    /// Whether the number is below zero.
+    pub negative: bool,
+    /// The number's magnitude.
+    pub magnitude: u128,
+}
+
+/// The number's decimal digits, after a `-` when it is negative; a zero is
+/// printed unsigned whatever its sign.
+impl fmt::Display for SignMagnitude {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.negative && self.magnitude != 0 {
+            write!(f, "-{}", self.magnitude)
         } else {
-            json!({ "numerator": self.numerator, "denominator": self.denominator })
+            write!(f, "{}", self.magnitude)
         }
     }
 }
 
-/// An integer is always a valid rational (`n / 1`) — the ergonomic input for the
-/// check DSL (`signal("x").never_exceeds(1000)`). Fractions go through the
-/// fallible [`Rational::new`], so there is no panicking `From` for them.
-impl From<i64> for Rational {
-    fn from(n: i64) -> Self {
-        Rational::integer(n)
+/// The number as an `i64`, refused when it lies outside the `i64` range.
+impl TryFrom<SignMagnitude> for i64 {
+    type Error = TryFromIntError;
+
+    fn try_from(value: SignMagnitude) -> Result<Self, Self::Error> {
+        let magnitude = i128::try_from(value.magnitude)?;
+        i64::try_from(if value.negative {
+            -magnitude
+        } else {
+            magnitude
+        })
     }
 }
 
@@ -255,6 +337,33 @@ impl TimeBound {
     #[must_use]
     pub fn micros(self) -> u64 {
         self.0
+    }
+
+    /// Read a time bound, a whole number of microseconds, from `text` through
+    /// the kernel's time-bound entry, which is what every binding's loader
+    /// reads a check's window with. Like [`Rational::from_decimal`] it needs
+    /// the GHC runtime up and never starts it.
+    ///
+    /// # Errors
+    /// The kernel's refusal, typed as [`Rational::from_decimal`] types one:
+    /// [`Error::Validation`] carrying the kernel's code and reason for a
+    /// negative or fractional number (`handler_property_refused`) or for text
+    /// that is no decimal (the decimal parser's codes);
+    /// [`Error::InputBoundExceeded`] with `field` `"time bound"` for a value
+    /// past 2^64-1; [`Error::Protocol`] when the entry reports a refusal
+    /// without an error envelope or the envelope is malformed;
+    /// [`Error::RtsNotInitialized`] if the runtime has not started.
+    pub fn parse(text: &str) -> Result<Self, Error> {
+        crate::backend::parse_time_bound(text)
+    }
+}
+
+/// `"1500".parse::<TimeBound>()`, the standard spelling of [`TimeBound::parse`].
+impl FromStr for TimeBound {
+    type Err = Error;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        TimeBound::parse(text)
     }
 }
 
@@ -292,22 +401,6 @@ mod tests {
             MAX_EXTENDED_ID
         );
         assert!(CanId::extended(MAX_EXTENDED_ID + 1).is_err());
-    }
-
-    #[test]
-    fn rational_le_cross_multiplies() {
-        use super::Rational;
-        let r = |n, d| Rational::new(n, d).expect("valid rational");
-        // Each row is chosen so that a comparison by sum or by quotient of the
-        // cross terms answers differently from the product: 2/3 <= 1/2 is
-        // false (4 > 3), where 2+2 <= 1+3 holds; 2/4 <= 1/2 is true (4 <= 4),
-        // where 2/2 <= 1/4 does not.
-        assert!(!r(2, 3).le(r(1, 2)));
-        assert!(r(2, 4).le(r(1, 2)));
-        assert!(r(1, 3).le(r(1, 2)));
-        assert!(!r(3, 2).le(r(2, 3)));
-        // Unreduced against reduced: equal values compare as equal.
-        assert!(r(1, 2).le(r(2, 4)) && r(2, 4).le(r(1, 2)));
     }
 
     #[test]

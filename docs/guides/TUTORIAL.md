@@ -720,12 +720,13 @@ Add the crate as a path/git dependency (it is not published to crates.io), build
 aletheia = { path = "…" }
 ~~~
 
-`Client::new()` loads the default library and returns a ready client (for RTS cores / a logger use `Client::builder()`; for tests, `Client::with_backend(Box::new(MockBackend::new()))` needs no `.so`):
+The program starts the kernel's GHC runtime first, as every program that builds a check does: the kernel checks each check where it is built. `Client::new()` then loads the default library and returns a ready client (for RTS cores / a logger use `Client::builder()`; for tests, `Client::with_backend(Box::new(MockBackend::new()))` needs no `.so`):
 
 ```rust
 use aletheia::{check, CanId, Client, Dlc, FrameResponse, Timestamp};
 
 fn main() -> Result<(), aletheia::Error> {
+    aletheia::start_runtime(1, None)?;
     let client = Client::new()?;
 ```
 
@@ -751,10 +752,10 @@ BO_ 256 Engine: 8 ECU
 
 ### Step 3: Register a Check
 
-Numeric thresholds are **exact rationals**, and an `i64` literal converts directly: `never_exceeds(220)` is 220, never an `f64`:
+Numeric thresholds are **exact rationals**, and an integer literal converts directly: `never_exceeds(220)` is 220, never an `f64`. The kernel checks the check as it is built, so `never_exceeds` returns `Result<Check, Error>`:
 
 ```rust
-    client.add_checks(&[check::signal("Speed").never_exceeds(220)])?;
+    client.add_checks(&[check::signal("Speed").never_exceeds(220)?])?;
 ```
 
 ### Step 4: Stream a Frame
@@ -790,7 +791,7 @@ Close the stream. `end_stream` returns a `StreamResult` with one finalization ve
 }
 ```
 
-On failure, `Error` is an enum you `match` directly, and `Error::Core { code, message }` mirrors the kernel's `IssueCode`; Rust has no dedicated `State` kind, so wrong-lifecycle conditions surface as `Error::Protocol` ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+On failure, `Error` is an enum you `match` directly, and `Error::Core { code, message }` mirrors the kernel's `IssueCode`; a reply the binding cannot read is `Error::Protocol`, `reply <path>: expected <what>, got <what came>`, and Rust has no dedicated `State` kind, so wrong-lifecycle conditions surface as `Error::Protocol` too ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ### CLI Boundary
 

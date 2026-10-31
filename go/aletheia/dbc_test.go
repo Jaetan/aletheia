@@ -224,6 +224,8 @@ func TestFormatDBC_MalformedResponsesAreProtocolErrors(t *testing.T) {
 		want    string
 	}{
 		"negative id":                     {`{"id":-1,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[]}`, "reply dbc/messages/id: expected number, got number"},
+		"standard id past 16 bits":        {`{"id":65536,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[]}`, "reply dbc/messages/id: expected number, got number"},
+		"extended id past 32 bits":        {`{"id":4294967296,"extended":true,"name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[]}`, "reply dbc/messages/id: expected number, got number"},
 		"missing signal name":             {sig(base + `,"presence":"always"`), "reply dbc/messages/signals/name: expected string, got nothing"},
 		"unknown presence":                {sig(`"name":"Sig",` + base + `,"presence":"sometimes"`), "reply dbc/messages/signals/multiplexor: expected string, got nothing"},
 		"missing presence":                {sig(`"name":"Sig",` + base), "reply dbc/messages/signals/presence: expected string, got nothing"},

@@ -146,16 +146,25 @@ pub mod events {
     /// An end-of-stream warning: an atom referenced a signal the cache never observed. *(emitted)*
     pub const ENDSTREAM_UNCACHED_ATOM: &str = "endstream.uncached_atom";
 
-    /// A violation referenced a property index outside the registered set. *(emitted)*
-    pub const ENRICHMENT_PROPERTY_INDEX_OOB: &str = "enrichment.property_index_oob";
-    /// Signal extraction for violation enrichment returned no result. *(emitted)*
-    pub const ENRICHMENT_EXTRACTION_FAILED: &str = "enrichment.extraction_failed";
-    /// An extraction request failed at the FFI process boundary. *(emitted)*
+    /// An extraction request failed at the FFI process boundary; the client
+    /// returns the error, from an enrichment as from `extract_signals`.
+    /// *(emitted)*
     pub const EXTRACTION_PROCESS_FAILED: &str = "extraction.process_failed";
-    /// An extraction response could not be parsed. *(emitted)*
+    /// An extraction response could not be parsed; the client returns the
+    /// error, from an enrichment as from `extract_signals`. *(emitted)*
     pub const EXTRACTION_PARSE_FAILED: &str = "extraction.parse_failed";
 
     // --- Vocabulary completeness (defined but not emitted by this client) ---
+    // The kernel proves every property index a verdict carries within the
+    // registered set, and an extraction an enrichment needs that the kernel
+    // refuses is returned under the extraction.* events above, so the two
+    // enrichment.* events have nothing to report.
+
+    /// A violation referenced a property index outside the registered set.
+    pub const ENRICHMENT_PROPERTY_INDEX_OOB: &str = "enrichment.property_index_oob";
+    /// Signal extraction for violation enrichment returned no result.
+    pub const ENRICHMENT_EXTRACTION_FAILED: &str = "enrichment.extraction_failed";
+
     // The cache.* events instrument an extraction-result memoization cache this
     // binding does not implement (see docs/FEATURE_MATRIX.yaml
     // `violation_enrichment`: the extraction-cache layer is a perf optimization,

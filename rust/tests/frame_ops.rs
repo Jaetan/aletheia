@@ -25,12 +25,14 @@ fn sv(name: &str, num: i64, den: i64) -> SignalValue {
     }
 }
 
-/// Cross-multiply value equality — robust to reduced vs unreduced rationals.
+/// Whether `ex` carries `name` at `num / den`, compared by value (every
+/// [`Rational`] is stored in lowest terms).
 fn value_is(ex: &ExtractionResult, name: &str, num: i64, den: i64) -> bool {
+    let expected = Rational::new(num, den).expect("valid rational");
     ex.values
         .iter()
         .find(|v| v.name == name)
-        .is_some_and(|v| v.value.numerator() * den == num * v.value.denominator())
+        .is_some_and(|v| v.value == expected)
 }
 
 #[test]

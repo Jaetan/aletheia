@@ -6,14 +6,15 @@
 
 use std::cell::Cell;
 
-use super::ffi_backend::{decimal_refusal, decimal_value};
+use super::ffi_backend::decimal_refusal;
 use super::{
     buffer_refusal, check_buffer_status, encode_opt_bool, frame_len, symbols,
     take_extraction_buffer, Backend, MAX_EXTRACT_BUF,
 };
 use crate::error::Error;
+use crate::limits::BOUND_KIND_NESTING_DEPTH;
 use crate::mock::MockBackend;
-use crate::types::{CanId, Dlc, Rational};
+use crate::types::{CanId, Dlc};
 
 #[test]
 fn opt_bool_encodes_presence_then_value() {
@@ -78,10 +79,8 @@ fn buffer_status_zero_is_success_and_nonzero_without_a_message_is_a_protocol_fau
 
 #[test]
 fn a_buffer_refusal_surfaces_the_envelope_code_and_message() {
-    let err = buffer_refusal(
-        "build_frame",
-        r#"{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}"#,
-    );
+    let err =
+        buffer_refusal(r#"{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}"#);
     assert!(
         matches!(&err, Error::Core { code, message }
             if code == "handler_no_dbc" && message == "no DBC loaded"),
@@ -89,7 +88,6 @@ fn a_buffer_refusal_surfaces_the_envelope_code_and_message() {
     );
     // The shim's own refusals carry their code the same way.
     let err = buffer_refusal(
-        "update_frame",
         r#"{"status":"error","code":"ffi_validation_error","message":"aletheia_update_frame_bin: null out buffer"}"#,
     );
     assert!(
@@ -103,28 +101,30 @@ fn a_buffer_refusal_surfaces_the_envelope_code_and_message() {
 #[test]
 fn a_buffer_refusal_lifts_a_structured_envelope_as_the_json_path_does() {
     let err = buffer_refusal(
-        "extract_signals_bin",
         r#"{"status":"error","code":"input_bound_exceeded","message":"m","bound_kind":"nesting_depth","observed":65,"limit":64}"#,
     );
     assert!(
-        matches!(&err, Error::InputBoundExceeded { bound_kind, observed: 65, limit: 64, .. }
-            if bound_kind == "nesting_depth"),
+        matches!(&err, Error::InputBoundExceeded(refusal)
+            if refusal.bound_kind == BOUND_KIND_NESTING_DEPTH
+                && refusal.observed == 65 && refusal.limit == 64),
         "got: {err:?}"
     );
 }
 
 #[test]
-fn a_buffer_error_that_is_not_an_error_envelope_is_a_wire_fault() {
-    let err = buffer_refusal("build_frame", "no DBC loaded");
+fn a_buffer_error_that_is_not_an_error_envelope_is_a_reply_refusal() {
+    // Text that is not one JSON value is refused at the whole reply with
+    // serde_json's reason, and an envelope that is not an error at its status,
+    // in the one form of every reply place, naming no entry.
+    let err = buffer_refusal("no DBC loaded");
     assert!(
         matches!(&err, Error::Protocol(m)
-            if m.starts_with("build_frame: malformed error envelope")),
+            if m == "reply: expected JSON text, got expected ident at line 1 column 2"),
         "got: {err:?}"
     );
-    let err = buffer_refusal("build_frame", r#"{"status":"ack"}"#);
+    let err = buffer_refusal(r#"{"status":"ack"}"#);
     assert!(
-        matches!(&err, Error::Protocol(m)
-            if m.starts_with("build_frame: error is not an error envelope")),
+        matches!(&err, Error::Protocol(m) if m == r#"reply status: expected "error", got "ack""#),
         "got: {err:?}"
     );
 }
@@ -132,7 +132,6 @@ fn a_buffer_error_that_is_not_an_error_envelope_is_a_wire_fault() {
 #[test]
 fn a_refused_decimal_is_a_validation_error_carrying_the_refusal_code() {
     let err = decimal_refusal(buffer_refusal(
-        "aletheia_parse_decimal",
         r#"{"status":"error","code":"text_trailing_input","message":"m"}"#,
     ));
     assert!(
@@ -143,32 +142,15 @@ fn a_refused_decimal_is_a_validation_error_carrying_the_refusal_code() {
     // The bound refusal keeps its typed error, and a malformed envelope
     // stays a wire fault.
     let err = decimal_refusal(buffer_refusal(
-        "aletheia_parse_decimal",
         r#"{"status":"error","code":"input_bound_exceeded","message":"m","bound_kind":"rational_component_magnitude","observed":10,"limit":9,"field":"decimal"}"#,
     ));
     assert!(
-        matches!(&err, Error::InputBoundExceeded { field: Some(field), .. } if field == "decimal"),
+        matches!(&err, Error::InputBoundExceeded(refusal)
+            if refusal.field.as_deref() == Some("decimal")),
         "got: {err:?}"
     );
-    let err = decimal_refusal(buffer_refusal("aletheia_parse_decimal", "m"));
+    let err = decimal_refusal(buffer_refusal("m"));
     assert!(matches!(&err, Error::Protocol(_)), "got: {err:?}");
-}
-
-#[test]
-fn a_decimal_over_a_non_positive_denominator_is_a_wire_fault() {
-    for denominator in [0, -1] {
-        let err = decimal_value(1, denominator).expect_err("the kernel never answers it");
-        let want =
-            format!("aletheia_parse_decimal answered a non-positive denominator {denominator}");
-        assert!(
-            matches!(&err, Error::Protocol(m) if *m == want),
-            "got: {err:?}"
-        );
-    }
-    assert_eq!(
-        decimal_value(-157, 50).expect("a positive denominator"),
-        Rational::new(-157, 50).expect("a positive denominator")
-    );
 }
 
 /// Run `take_extraction_buffer` over `ptr` reported as `size` long, counting
@@ -216,8 +198,9 @@ fn a_buffer_is_copied_out_and_freed_once() {
 fn the_size_cap_is_inclusive_and_a_refused_buffer_is_still_freed() {
     // The cap is the wire's plausible maximum, a number the constants
     // above derive: the header, three u16-counted sections at their
-    // strides, the offsets table and 512 bytes of reason per error.
-    assert_eq!(MAX_EXTRACT_BUF, 35_323_379);
+    // strides (a value's 35 bytes carrying its two 128-bit magnitudes), the
+    // offsets table and 512 bytes of reason per error.
+    assert_eq!(MAX_EXTRACT_BUF, 36_437_474);
     let cap = u32::try_from(MAX_EXTRACT_BUF).expect("fits u32");
     let mut at_cap = vec![7u8; MAX_EXTRACT_BUF];
     let (result, frees) = take_from(&mut at_cap, cap);

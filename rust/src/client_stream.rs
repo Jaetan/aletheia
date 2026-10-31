@@ -19,20 +19,14 @@ fn validate_frame_len(dlc: Dlc, data: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
-/// The parallel `(indices, numerators, denominators)` arrays the build/update
-/// FFI expects for a set of signal injections.
-type SignalArrays = (Vec<u32>, Vec<i64>, Vec<i64>);
-
 /// Resolve `(name, value)` signal injections against a message's signal list to
-/// the parallel arrays the build/update FFI expects. The index is the signal's
-/// position in `message.signals`.
+/// the `(index, value)` pairs the build/update FFI expects. The index is the
+/// signal's position in `message.signals`.
 fn resolve_signal_indices(
     message: &DbcMessage,
     signals: &[SignalValue],
-) -> Result<SignalArrays, Error> {
-    let mut indices = Vec::with_capacity(signals.len());
-    let mut nums = Vec::with_capacity(signals.len());
-    let mut dens = Vec::with_capacity(signals.len());
+) -> Result<Vec<(u32, Rational)>, Error> {
+    let mut values = Vec::with_capacity(signals.len());
     for sv in signals {
         let pos = message
             .signals
@@ -44,14 +38,11 @@ fn resolve_signal_indices(
                     sv.name, message.name
                 ))
             })?;
-        indices.push(
-            u32::try_from(pos)
-                .map_err(|_| Error::validation(format!("signal index {pos} out of range")))?,
-        );
-        nums.push(sv.value.numerator());
-        dens.push(sv.value.denominator());
+        let index = u32::try_from(pos)
+            .map_err(|_| Error::validation(format!("signal index {pos} out of range")))?;
+        values.push((index, sv.value));
     }
-    Ok((indices, nums, dens))
+    Ok(values)
 }
 
 impl Client {
@@ -59,21 +50,25 @@ impl Client {
     /// `start_stream`.
     ///
     /// # Errors
-    /// [`Error::Validation`] if any formula is invalid (bad predicate / depth),
-    /// [`Error::Core`] if the core rejects the set (e.g. no DBC loaded) — or
+    /// [`Error::Validation`] if a formula nests past
+    /// [`MAX_FORMULA_DEPTH`],
+    /// [`Error::Core`] if the core rejects the set (e.g. no DBC loaded), or
     /// [`Error::InputBoundExceeded`] if a formula trips a bound (nesting depth /
-    /// atom count) — or a
-    /// library-load error ([`Error::LibraryLoad`] / [`Error::SymbolMissing`]) if the
-    /// kernel rational renderer cannot be loaded while building the per-property
-    /// enrichment diagnostics (it renders the predicate thresholds via the FFI).
+    /// atom count); [`Error::RtsNotInitialized`] with operation `rendering`
+    /// when the GHC runtime is down, which only a client over an injected
+    /// backend meets: the per-property enrichment diagnostics render each
+    /// predicate threshold through the kernel, once the core has accepted the
+    /// set.
     pub fn set_properties(&self, properties: &[Formula]) -> Result<(), Error> {
-        let mut arr = Vec::with_capacity(properties.len());
         for f in properties {
-            arr.push(f.to_value()?);
+            f.within_depth()?;
         }
-        let cmd = json!({ "type": "command", "command": "setProperties", "properties": arr });
-        let raw = self.process(&cmd.to_string())?;
-        response::decode_ack_or_success(&raw)?;
+        let raw = self.send_command(&wire_json::command(
+            "setProperties",
+            "properties",
+            &Wire(properties),
+        )?)?;
+        response::decode_success(&raw)?;
         // Cache one diagnostic per property (index = property_index) for
         // client-side violation enrichment, and reset the per-stream frame cache.
         *self.diags.borrow_mut() = properties
@@ -121,7 +116,7 @@ impl Client {
     /// [`Error::Core`] if the core is not ready (e.g. no DBC), else [`Error`].
     pub fn start_stream(&self) -> Result<(), Error> {
         let raw = self.backend.start_stream_binary()?;
-        response::decode_ack_or_success(&raw)?;
+        response::decode_success(&raw)?;
         // Scope enrichment's last-frame cache to this stream — otherwise a second
         // stream (without a fresh set_properties) could reuse the prior stream's
         // frames at end-of-stream.
@@ -135,11 +130,15 @@ impl Client {
     ///
     /// Returns [`FrameResponse::Ack`] when no property was decided by this frame,
     /// or [`FrameResponse::Verdicts`] (a `property_batch`) carrying the decided
-    /// properties — violations include enrichment when diagnostics are loaded.
+    /// properties, each violation enriched from this frame's signal values when
+    /// diagnostics are loaded.
     ///
     /// # Errors
     /// [`Error::Validation`] if the payload length does not match the DLC,
-    /// else [`Error::Core`] / [`Error::Protocol`].
+    /// else [`Error::Core`] / [`Error::Protocol`]. An extraction the
+    /// enrichment of a violation needs and the kernel refuses is returned as
+    /// [`Client::extract_signals`] returns it, logged as it logs it, the frame
+    /// already committed to the stream.
     pub fn send_frame(
         &self,
         ts: Timestamp,
@@ -161,7 +160,7 @@ impl Client {
                 .borrow_mut()
                 .insert(id, (dlc, data.to_vec()));
             if let FrameResponse::Verdicts(results) = &mut resp {
-                self.enrich_streaming(results, id, dlc, data);
+                self.enrich_streaming(results, id, dlc, data)?;
             }
         }
         let class = match &resp {
@@ -182,7 +181,7 @@ impl Client {
     /// [`Error::Core`] / [`Error::Protocol`].
     pub fn send_error(&self, ts: Timestamp) -> Result<(), Error> {
         let raw = self.backend.send_error_binary(ts)?;
-        response::decode_ack_or_success(&raw)?;
+        response::decode_event_ack(&raw)?;
         self.emit(
             LogLevel::Debug,
             events::ERROR_EVENT_SENT,
@@ -197,7 +196,7 @@ impl Client {
     /// [`Error::Core`] / [`Error::Protocol`].
     pub fn send_remote(&self, ts: Timestamp, id: CanId) -> Result<(), Error> {
         let raw = self.backend.send_remote_binary(ts, id)?;
-        response::decode_ack_or_success(&raw)?;
+        response::decode_event_ack(&raw)?;
         self.emit(
             LogLevel::Debug,
             events::REMOTE_EVENT_SENT,
@@ -207,15 +206,19 @@ impl Client {
     }
 
     /// End the stream and collect the final per-property verdicts and warnings
-    /// (binary FFI).
+    /// (binary FFI). Each warning is logged as `endstream.uncached_atom`, the
+    /// one kind the kernel writes.
     ///
     /// # Errors
-    /// [`Error::Core`] if no stream is active, else [`Error`].
+    /// [`Error::Core`] if no stream is active, else [`Error`]. An extraction
+    /// the enrichment of a final verdict needs and the kernel refuses is
+    /// returned as [`Client::extract_signals`] returns it, logged as it logs
+    /// it.
     pub fn end_stream(&self) -> Result<StreamResult, Error> {
         let raw = self.backend.end_stream_binary()?;
         let mut result = response::decode_stream(&raw)?;
         // Enrich the final violations from the last frame seen on each CAN id.
-        self.enrich_eos(&mut result.results);
+        self.enrich_eos(&mut result.results)?;
         self.emit(
             LogLevel::Info,
             events::STREAM_ENDED,
@@ -225,16 +228,14 @@ impl Client {
             )],
         );
         for w in &result.warnings {
-            if w.kind == "uncached_atom" {
-                self.emit(
-                    LogLevel::Warn,
-                    events::ENDSTREAM_UNCACHED_ATOM,
-                    &[
-                        LogField::new("property_index", LogValue::U64(u64::from(w.property_index))),
-                        LogField::new("detail", LogValue::Str(&w.detail)),
-                    ],
-                );
-            }
+            self.emit(
+                LogLevel::Warn,
+                events::ENDSTREAM_UNCACHED_ATOM,
+                &[
+                    LogField::new("property_index", LogValue::U64(u64::from(w.property_index))),
+                    LogField::new("detail", LogValue::Str(&w.detail)),
+                ],
+            );
         }
         Ok(result)
     }
@@ -328,16 +329,12 @@ impl Client {
         dlc: Dlc,
         signals: &[SignalValue],
     ) -> Result<Vec<u8>, Error> {
-        let (indices, nums, dens) = resolve_signal_indices(message, signals)?;
+        let values = resolve_signal_indices(message, signals)?;
         self.backend.build_frame_bin(
             message.id,
             message.extended,
             dlc,
-            SignalInjection {
-                indices: &indices,
-                nums: &nums,
-                dens: &dens,
-            },
+            SignalInjection { values: &values },
         )
     }
 
@@ -357,17 +354,13 @@ impl Client {
         signals: &[SignalValue],
     ) -> Result<Vec<u8>, Error> {
         validate_frame_len(dlc, frame)?;
-        let (indices, nums, dens) = resolve_signal_indices(message, signals)?;
+        let values = resolve_signal_indices(message, signals)?;
         self.backend.update_frame_bin(
             message.id,
             message.extended,
             dlc,
             frame,
-            SignalInjection {
-                indices: &indices,
-                nums: &nums,
-                dens: &dens,
-            },
+            SignalInjection { values: &values },
         )
     }
 

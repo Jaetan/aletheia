@@ -9,53 +9,77 @@
 //! RTS-gated, so the suite brings up a backend first; the RTS-down path is
 //! covered in `rts_uninitialized.rs`.
 
-use aletheia::{Client, Error, Rational};
+use aletheia::limits::BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE;
+use aletheia::{BoundRefusal, Client, Error, Rational};
 
-/// (input, expected numerator, expected denominator): exact, lowest terms.
-const SUCCESS: &[(&str, i64, i64)] = &[
-    ("3.14", 157, 50),
-    ("42", 42, 1),
-    ("0.1", 1, 10),
-    ("-3.14", -157, 50),
-    ("0", 0, 1),
-    ("-0", 0, 1),                                      // negative zero collapses to +0
-    ("0.000", 0, 1),                                   // trailing-zero fraction canonicalises
-    ("0.10", 1, 10),                                   // trailing zero trimmed
-    ("00.1", 1, 10),                                   // leading zeros accepted
-    ("9223372036854775807", 9223372036854775807, 1),   // the component bound itself
-    ("-9223372036854775807", -9223372036854775807, 1), // and its negation
+/// (input, negative, numerator magnitude, denominator): exact, lowest terms.
+/// A negative zero is zero, trailing fraction zeros are trimmed, leading zeros
+/// are accepted, a magnitude past 64 bits is carried, and the magnitude bound
+/// 2^128-1 fits, as does its negation.
+const SUCCESS: &[(&str, bool, u128, u128)] = &[
+    ("3.14", false, 157, 50),
+    ("42", false, 42, 1),
+    ("0.1", false, 1, 10),
+    ("-3.14", true, 157, 50),
+    ("0", false, 0, 1),
+    ("-0", false, 0, 1),
+    ("0.000", false, 0, 1),
+    ("0.10", false, 1, 10),
+    ("00.1", false, 1, 10),
+    ("9223372036854775807", false, 9_223_372_036_854_775_807, 1),
+    ("-9223372036854775808", true, 9_223_372_036_854_775_808, 1),
+    (
+        "99999999999999999999.5",
+        false,
+        199_999_999_999_999_999_999,
+        2,
+    ),
+    (
+        "340282366920938463463374607431768211455",
+        false,
+        u128::MAX,
+        1,
+    ),
+    (
+        "-340282366920938463463374607431768211455",
+        true,
+        u128::MAX,
+        1,
+    ),
 ];
 
-/// (input, the kernel's refusal code). The grammar is `-?digits[.digits+]`:
-/// text that is not a literal at all is `text_parse_failure`; a literal
-/// followed by more text (a `+` sign is not a literal, a leading `.` is not,
-/// an exponent, a fraction bar, a trailing `.` or a space is more text) is
-/// `text_trailing_input`.
-const PARSE_FAIL: &[(&str, &str)] = &[
-    ("3.14xyz", "text_trailing_input"),
-    ("1e3", "text_trailing_input"),
-    (".5", "text_parse_failure"),
-    ("+1", "text_parse_failure"),
-    ("1/2", "text_trailing_input"),
-    ("1.", "text_trailing_input"),
-    ("1 ", "text_trailing_input"),
-    (" 1", "text_parse_failure"),
-    ("", "text_parse_failure"),
-    ("-", "text_parse_failure"),
+/// (input, the kernel's refusal code, the column it stopped at). The grammar
+/// is `-?digits[.digits+]`: text that is not a literal at all is
+/// `text_parse_failure`; a literal followed by more text (a `+` sign is not a
+/// literal, a leading `.` is not, an exponent, a fraction bar, a trailing `.`
+/// or a space is more text) is `text_trailing_input`.
+const PARSE_FAIL: &[(&str, &str, u32)] = &[
+    ("3.14xyz", "text_trailing_input", 5),
+    ("1e3", "text_trailing_input", 2),
+    (".5", "text_parse_failure", 1),
+    ("+1", "text_parse_failure", 1),
+    ("1/2", "text_trailing_input", 2),
+    ("1.", "text_trailing_input", 3),
+    ("1 ", "text_trailing_input", 2),
+    (" 1", "text_parse_failure", 1),
+    ("", "text_parse_failure", 1),
+    ("-", "text_parse_failure", 2),
 ];
 
 /// The rational component magnitude bound the kernel holds the numerator and
-/// the denominator to.
-const COMPONENT_LIMIT: u64 = 9223372036854775807;
+/// the denominator to, 2^128-1.
+const COMPONENT_LIMIT: u128 = u128::MAX;
 
-/// (input, the magnitude the kernel observed). A magnitude the kernel's
-/// counter cannot hold is reported as its ceiling, 18446744073709551615, and
-/// the message then says "at least".
-const OVERFLOW: &[(&str, u64)] = &[
-    ("99999999999999999999.5", 18446744073709551615),
-    ("0.0000000000000000001", 10000000000000000000),
-    ("-9223372036854775808", 9223372036854775808),
-];
+/// Inputs whose numerator or denominator magnitude is past the bound: a
+/// forty-digit integer part, thirty-nine decimal places and one past the
+/// bound on the negative side.
+fn overflowing() -> [String; 3] {
+    [
+        format!("1{}", "0".repeat(39)),
+        format!("0.{}1", "0".repeat(38)),
+        "-340282366920938463463374607431768211456".to_owned(),
+    ]
+}
 
 fn rts() -> Client {
     Client::new().expect("init GHC RTS (is ALETHEIA_LIB set to a built libaletheia-ffi.so?)")
@@ -64,12 +88,12 @@ fn rts() -> Client {
 #[test]
 fn parses_valid_decimals_to_exact_rationals() {
     let _rts = rts();
-    for &(text, num, den) in SUCCESS {
+    for &(text, negative, num, den) in SUCCESS {
         let r = Rational::from_decimal(text).unwrap_or_else(|e| panic!("{text:?}: {e}"));
         assert_eq!(
-            r,
-            Rational::new(num, den).unwrap(),
-            "{text:?} should parse to {num}/{den}"
+            (r.is_negative(), r.numerator(), r.denominator()),
+            (negative, num, den),
+            "{text:?} should parse to {negative} {num}/{den}"
         );
     }
 }
@@ -77,35 +101,51 @@ fn parses_valid_decimals_to_exact_rationals() {
 #[test]
 fn rejects_malformed_decimals_with_the_kernel_code() {
     let _rts = rts();
-    for &(text, expected) in PARSE_FAIL {
+    for &(text, expected, column) in PARSE_FAIL {
         let err = Rational::from_decimal(text)
             .expect_err(&format!("{text:?} should be rejected by the grammar"));
+        let at = format!("parse failed at line 1, column {column}");
         assert!(
-            matches!(err, Error::Validation { code: Some(ref code), .. } if code == expected),
-            "{text:?}: expected Error::Validation with code {expected:?}, got {err:?}"
+            matches!(
+                &err,
+                Error::Validation { code: Some(code), message, .. }
+                    if code == expected && message.contains(&at)
+            ),
+            "{text:?}: expected Error::Validation with code {expected:?} saying {at:?}, got {err:?}"
         );
     }
 }
 
 #[test]
 fn rejects_overflowing_decimals_as_the_bound_refusal() {
+    // The kernel reports a magnitude up to the bound, so each observes the
+    // bound and the message names no number.
     let _rts = rts();
-    for &(text, expected_observed) in OVERFLOW {
-        let err = Rational::from_decimal(text)
+    let message = format!("decimal: rational component magnitude exceeds limit {COMPONENT_LIMIT}");
+    for text in overflowing() {
+        let err = Rational::from_decimal(&text)
             .expect_err(&format!("{text:?} crosses the component magnitude bound"));
         assert!(
             matches!(
-                err,
-                Error::InputBoundExceeded {
-                    observed,
-                    limit: COMPONENT_LIMIT,
-                    field: Some(ref field),
-                    ..
-                } if observed == expected_observed && field == "decimal"
+                &err,
+                Error::InputBoundExceeded(refusal) if matches!(
+                    &**refusal,
+                    BoundRefusal {
+                        code,
+                        bound_kind,
+                        observed: COMPONENT_LIMIT,
+                        limit: COMPONENT_LIMIT,
+                        field: Some(field),
+                        ..
+                    } if code == "input_bound_exceeded"
+                        && bound_kind == BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE
+                        && field == "decimal"
+                )
             ),
-            "{text:?}: expected Error::InputBoundExceeded observing {expected_observed} \
+            "{text:?}: expected Error::InputBoundExceeded observing {COMPONENT_LIMIT} \
              against {COMPONENT_LIMIT} in field \"decimal\", got {err:?}"
         );
+        assert_eq!(err.to_string(), message, "{text:?}");
     }
 }
 
@@ -118,10 +158,12 @@ fn rejects_non_ascii_decimal_as_trailing_input() {
     let err = Rational::from_decimal("1.5€").expect_err("non-ASCII must be rejected");
     assert!(
         matches!(
-            err,
-            Error::Validation { code: Some(ref code), .. } if code == "text_trailing_input"
+            &err,
+            Error::Validation { code: Some(code), message, .. }
+                if code == "text_trailing_input"
+                    && message.contains("parse failed at line 1, column 4")
         ),
-        "expected Error::Validation with code \"text_trailing_input\", got {err:?}"
+        "expected Error::Validation with code \"text_trailing_input\" at column 4, got {err:?}"
     );
 }
 

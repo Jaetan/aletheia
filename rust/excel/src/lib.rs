@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! Aletheia Excel check + DBC loader (slice R3c).
+//! Aletheia Excel check + DBC loader.
 //!
 //! A separate crate so the `.xlsx` dependency chain (calamine reader +
 //! rust_xlsxwriter writer + zip for the ZIP-bomb guard) stays optional for core
@@ -19,11 +19,17 @@
 //! Coercion is **strict** and follows the float principle: a number cell
 //! stores a lossy IEEE-754 double, so every numeric field must be **text-formatted**
 //! and is parsed EXACTLY by the kernel [`Rational::from_decimal`] (the cross-binding
-//! single source of truth) — a number-typed cell is rejected. `Message ID` also
-//! takes a hex string (`0x100`); `Signed` is a native boolean. Because decimal
-//! parsing is RTS-gated, loading a workbook with numeric fields requires a live
-//! backend. The compiled formulas and the typed [`Dbc`] delegate every value to
-//! the verified core via the main `aletheia` crate.
+//! single source of truth), and a number-typed cell is rejected. A whole-number
+//! field (`DLC`, `Start Bit`, `Length`, `Multiplex Value`) is that rational
+//! with a fraction refused, and a time window (`Time (µs)`, `Within (µs)`) is
+//! whole microseconds the kernel reads from the cell's text through
+//! [`TimeBound::parse`]. `Message ID` also takes a hex string (`0x100`);
+//! `Signed` is a native boolean. Because the kernel reads every number and
+//! builds every check, loading a workbook requires the GHC runtime up. A check
+//! the kernel refuses where it is built keeps the builder's error, located at
+//! its row with no column (see [`Error::located_at`]). The compiled formulas
+//! and the typed [`Dbc`] delegate every value to the verified core via the main
+//! `aletheia` crate.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -32,7 +38,10 @@ use calamine::{open_workbook, Data, Range, Reader, Xlsx};
 use rust_xlsxwriter::{Format, Workbook};
 
 use aletheia::check::{self, Check};
-use aletheia::{ByteOrder, CanId, Dbc, DbcMessage, DbcSignal, Error, Presence, Rational};
+use aletheia::{
+    ByteOrder, CanId, Dbc, DbcMessage, DbcSignal, Dlc, Error, Presence, Rational, SignMagnitude,
+    TimeBound,
+};
 
 /// The shared 64 MiB input-length cap (Python `MAX_DBC_TEXT_BYTES`, Go
 /// `MaxDBCTextBytes`). An `.xlsx` is a ZIP archive that the reader all-loads, so
@@ -72,7 +81,7 @@ const CHECKS_HEADERS: [&str; 8] = [
     "Value",
     "Min",
     "Max",
-    "Time (ms)",
+    "Time (µs)",
     "Severity",
 ];
 
@@ -86,7 +95,7 @@ const WHEN_THEN_HEADERS: [&str; 11] = [
     "Then Value",
     "Then Min",
     "Then Max",
-    "Within (ms)",
+    "Within (µs)",
     "Severity",
 ];
 
@@ -177,16 +186,14 @@ fn get_str(row: &Row, key: &str, ctx: &str) -> Result<String, Error> {
     }
 }
 
-/// A required numeric field as an exact [`Rational`]. A spreadsheet number cell
-/// stores an IEEE-754 double — lossy for decimals — so a numeric value MUST be
-/// **text-formatted**: its original string is parsed exactly by the kernel
-/// [`Rational::from_decimal`] (the cross-binding single source of truth), and
-/// a refusal of it keeps the kernel's error and gains the row (`ctx`) as its
-/// location and the column header (`key`) as its key. A number-typed cell is
-/// rejected. Needs the GHC runtime up (the kernel reads the number).
-fn get_rational(row: &Row, key: &str, ctx: &str) -> Result<Rational, Error> {
+/// The trimmed text of a required numeric field. A spreadsheet number cell
+/// stores an IEEE-754 double, lossy for decimals, so a numeric value MUST be
+/// **text-formatted**, its original string being what the kernel reads; a
+/// number-typed cell is rejected, naming the row (`ctx`) and the column
+/// (`key`).
+fn numeric_text<'a>(row: &'a Row, key: &str, ctx: &str) -> Result<&'a str, Error> {
     match row.get(key) {
-        Some(Data::String(s)) => Rational::from_decimal(s.trim()).map_err(|e| e.located(ctx, key)),
+        Some(Data::String(s)) => Ok(s.trim()),
         // The all-text contract rejects EVERY number cell, integer or decimal: a
         // spreadsheet stores numbers as lossy IEEE-754 doubles (calamine surfaces
         // even an integer cell as `Data::Float`). Rejecting both `Int` and `Float`
@@ -204,38 +211,49 @@ fn get_rational(row: &Row, key: &str, ctx: &str) -> Result<Rational, Error> {
     }
 }
 
-/// A required whole-number field, read EXACTLY from a **text-formatted** cell:
-/// the kernel [`Rational::from_decimal`] parses it, a refusal of it located as
-/// [`get_rational`] locates one, and a unit-denominator check rejects a
-/// fractional value. A number cell stores a lossy double and is rejected (the
-/// all-text contract, see [`get_rational`]). Needs the GHC runtime up.
-fn get_int(row: &Row, key: &str, ctx: &str) -> Result<i64, Error> {
-    match row.get(key) {
-        Some(Data::String(s)) => {
-            let r = Rational::from_decimal(s.trim()).map_err(|e| e.located(ctx, key))?;
-            if r.denominator() != 1 {
-                return Err(invalid(format!("{ctx}: '{key}' must be a whole number")));
-            }
-            Ok(r.numerator())
-        }
-        // Reject any number cell (int or decimal) — the all-text contract; see
-        // `get_rational` for why both `Int` and `Float` are refused.
-        Some(Data::Int(n)) => Err(number_cell_error(ctx, key, n)),
-        Some(Data::Float(f)) => Err(number_cell_error(ctx, key, f)),
-        Some(other) => Err(invalid(format!(
-            "{ctx}: '{key}' must be a text-formatted whole number, got {}",
-            describe(other)
-        ))),
-        None => Err(invalid(format!(
-            "{ctx}: missing required '{key}' (expected a text-formatted whole number)"
+/// A required numeric field as an exact [`Rational`], its [`numeric_text`]
+/// parsed by the kernel [`Rational::from_decimal`] (the cross-binding single
+/// source of truth); a refusal of it keeps the kernel's error and gains the row
+/// (`ctx`) as its location and the column header (`key`) as its key. Needs the
+/// GHC runtime up (the kernel reads the number).
+fn get_rational(row: &Row, key: &str, ctx: &str) -> Result<Rational, Error> {
+    Rational::from_decimal(numeric_text(row, key, ctx)?).map_err(|e| e.located(ctx, key))
+}
+
+/// A required whole-number field: the same cell, read the same way as
+/// [`get_rational`], with a fraction refused.
+fn get_whole(row: &Row, key: &str, ctx: &str) -> Result<SignMagnitude, Error> {
+    let r = get_rational(row, key, ctx)?;
+    if r.denominator() != 1 {
+        let text = numeric_text(row, key, ctx)?;
+        return Err(invalid(format!(
+            "{ctx}: '{key}' must be a whole number, got {text:?}"
+        )));
+    }
+    Ok(SignMagnitude {
+        negative: r.is_negative(),
+        magnitude: r.numerator(),
+    })
+}
+
+/// A required whole number a 16-bit field holds, refusing one it cannot; the
+/// kernel decides the field's range when it reads the definition.
+fn get_u16(row: &Row, key: &str, ctx: &str) -> Result<u16, Error> {
+    let w = get_whole(row, key, ctx)?;
+    match u16::try_from(w.magnitude) {
+        Ok(v) if !w.negative => Ok(v),
+        _ => Err(invalid(format!(
+            "{ctx}: '{key}' {w} out of range [0, {}]",
+            u16::MAX
         ))),
     }
 }
 
-/// A required non-negative whole-number millisecond field as `u64`.
-fn get_u64_ms(row: &Row, key: &str, ctx: &str) -> Result<u64, Error> {
-    let n = get_int(row, key, ctx)?;
-    u64::try_from(n).map_err(|_| invalid(format!("{ctx}: '{key}' must be non-negative")))
+/// A required time window, whole microseconds the kernel reads from the
+/// [`numeric_text`] of its cell through [`TimeBound::parse`]; a refusal of it
+/// is located as [`get_rational`] locates one. Needs the GHC runtime up.
+fn get_time_bound(row: &Row, key: &str, ctx: &str) -> Result<TimeBound, Error> {
+    TimeBound::parse(numeric_text(row, key, ctx)?).map_err(|e| e.located(ctx, key))
 }
 
 /// A required boolean field. Accepts a native boolean, an integral `1`/`0`, or
@@ -289,9 +307,12 @@ fn describe(d: &Data) -> String {
 /// sheet, or a row is malformed (unknown condition, missing/ill-typed cell, a
 /// number the kernel's decimal grammar refuses, carrying the kernel's `code`);
 /// [`Error::InputBoundExceeded`] if a number crosses the rational component
-/// magnitude bound. Both number refusals keep the kernel's message, code and
-/// fields, located (see [`Error::located`]) at `Row <n>` under the column
-/// header; [`Error::RtsNotInitialized`] if the runtime has not started
+/// magnitude bound. Both number refusals are [`Rational::from_decimal`]'s, or
+/// [`TimeBound::parse`]'s for a time window, with the kernel's message, code
+/// and fields, located (see [`Error::located`]) at `Row <n>` under the column
+/// header. A check the kernel refuses where it is built keeps the builder's
+/// error, located at `Row <n>` with no key (see [`Error::located_at`]);
+/// [`Error::RtsNotInitialized`] if the runtime has not started
 /// ([`aletheia::start_runtime`] or a client starts it).
 pub fn load_checks_from_excel(path: impl AsRef<Path>) -> Result<Vec<Check>, Error> {
     load_checks_within(path.as_ref(), MAX_INPUT_BYTES)
@@ -316,7 +337,7 @@ fn load_checks_within(path: &Path, limit: u64) -> Result<Vec<Check>, Error> {
             if row.is_empty() {
                 continue;
             }
-            results.push(parse_simple_row(&row, n)?);
+            results.push(parse_simple_row(&row, n).map_err(|e| locate_row(e, n))?);
         }
     }
     if has_when_then {
@@ -325,7 +346,7 @@ fn load_checks_within(path: &Path, limit: u64) -> Result<Vec<Check>, Error> {
             if row.is_empty() {
                 continue;
             }
-            results.push(parse_when_then_row(&row, n)?);
+            results.push(parse_when_then_row(&row, n).map_err(|e| locate_row(e, n))?);
         }
     }
     Ok(results)
@@ -340,8 +361,9 @@ fn load_checks_within(path: &Path, limit: u64) -> Result<Vec<Check>, Error> {
 ///
 /// # Errors
 /// The errors of [`load_checks_from_excel`], under the same conditions, plus
-/// [`Error::Validation`] for a missing `DBC` sheet, no data rows, or an
-/// out-of-range CAN id / DLC.
+/// [`Error::Validation`] for a missing `DBC` sheet, no data rows, a fractional
+/// whole-number field, a `Start Bit` or `Length` past 16 bits, a negative
+/// `Multiplex Value`, or an out-of-range CAN id / DLC.
 pub fn load_dbc_from_excel(path: impl AsRef<Path>) -> Result<Dbc, Error> {
     load_dbc_within(path.as_ref(), MAX_INPUT_BYTES)
 }
@@ -427,23 +449,23 @@ fn parse_simple_row(row: &Row, n: usize) -> Result<Check, Error> {
     let condition = get_str(row, "Condition", &ctx)?;
     let sig = check::signal(signal);
     let check = match condition.as_str() {
-        "never_exceeds" => sig.never_exceeds(get_rational(row, "Value", &ctx)?),
-        "never_below" => sig.never_below(get_rational(row, "Value", &ctx)?),
-        "never_equals" => sig.never_equals(get_rational(row, "Value", &ctx)?),
-        "equals" => sig.equals(get_rational(row, "Value", &ctx)?).always(),
+        "never_exceeds" => sig.never_exceeds(get_rational(row, "Value", &ctx)?)?,
+        "never_below" => sig.never_below(get_rational(row, "Value", &ctx)?)?,
+        "never_equals" => sig.never_equals(get_rational(row, "Value", &ctx)?)?,
+        "equals" => sig.equals(get_rational(row, "Value", &ctx)?).always()?,
         "stays_between" => {
             let (lo, hi) = simple_range(row, &ctx, &condition)?;
             sig.stays_between(lo, hi)?
         }
         "settles_between" => {
             let (lo, hi) = simple_range(row, &ctx, &condition)?;
-            if !row.contains_key("Time (ms)") {
+            if !row.contains_key("Time (µs)") {
                 return Err(invalid(format!(
-                    "{ctx}: condition 'settles_between' requires 'Time (ms)'"
+                    "{ctx}: condition 'settles_between' requires 'Time (µs)'"
                 )));
             }
-            let ms = get_u64_ms(row, "Time (ms)", &ctx)?;
-            sig.settles_between(lo, hi).within(ms)?
+            let bound = get_time_bound(row, "Time (µs)", &ctx)?;
+            sig.settles_between(lo, hi).within(bound)?
         }
         other => return Err(invalid(format!("{ctx}: unknown condition '{other}'"))),
     };
@@ -465,7 +487,7 @@ fn parse_when_then_row(row: &Row, n: usize) -> Result<Check, Error> {
     let then_signal = get_str(row, "Then Signal", &ctx)?;
     let then_cond = get_str(row, "Then Condition", &ctx)?;
     let response = when_condition.then(then_signal);
-    let ms = get_u64_ms(row, "Within (ms)", &ctx)?;
+    let bound = get_time_bound(row, "Within (µs)", &ctx)?;
     let then_condition = match then_cond.as_str() {
         "equals" => response.equals(get_rational(row, "Then Value", &ctx)?),
         "exceeds" => response.exceeds(get_rational(row, "Then Value", &ctx)?),
@@ -482,7 +504,7 @@ fn parse_when_then_row(row: &Row, n: usize) -> Result<Check, Error> {
         }
         other => return Err(invalid(format!("{ctx}: unknown then condition '{other}'"))),
     };
-    let check = then_condition.within(ms)?;
+    let check = then_condition.within(bound)?;
     Ok(apply_metadata(check, row))
 }
 
@@ -497,6 +519,23 @@ fn simple_range(row: &Row, ctx: &str, cond: &str) -> Result<(Rational, Rational)
         get_rational(row, "Min", ctx)?,
         get_rational(row, "Max", ctx)?,
     ))
+}
+
+/// A refusal no single column holds, such as a check its builder refused,
+/// located at the row with no key: a refusal carrying the kernel's code, or a
+/// bound refusal, that no reader located gains `Row <n>`; one a reader located,
+/// or one without a code (the loader's own words, the runtime down), comes
+/// back as it was.
+fn locate_row(err: Error, n: usize) -> Error {
+    let coded = matches!(
+        &err,
+        Error::Validation { code: Some(_), .. } | Error::InputBoundExceeded(_)
+    );
+    if coded && err.location().is_none() {
+        err.located_at(format!("Row {n}"))
+    } else {
+        err
+    }
 }
 
 /// Apply optional `Check Name` / `Severity` metadata (only when present and text).
@@ -517,12 +556,13 @@ fn apply_metadata(mut check: Check, row: &Row) -> Check {
 // ── DBC-row parser ────────────────────────────────────────────────────────────
 
 /// The row-level identity of a message: rows sharing this key are one message.
+/// The DLC is kept as written, and held to a code when the message is built.
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct MessageKey {
     id: u32,
     name: String,
     extended: bool,
-    dlc: u32,
+    dlc: SignMagnitude,
 }
 
 fn parse_dbc_rows(data: &[(usize, Row)]) -> Result<Dbc, Error> {
@@ -540,7 +580,7 @@ fn parse_dbc_rows(data: &[(usize, Row)]) -> Result<Dbc, Error> {
             } else {
                 false
             },
-            dlc: parse_dlc(row, &ctx)?,
+            dlc: get_whole(row, "DLC", &ctx)?,
         };
         if !groups.contains_key(&key) {
             order.push(key.clone());
@@ -550,20 +590,21 @@ fn parse_dbc_rows(data: &[(usize, Row)]) -> Result<Dbc, Error> {
 
     let mut messages = Vec::with_capacity(order.len());
     for key in order {
-        // Validate the CAN id against its declared width (delegates the range to
-        // the typed CanId constructor; the rest of the semantic validation is
-        // delegated to the verified core at parse_dbc time).
-        validate_can_id(key.id, key.extended)?;
         let mut signals = Vec::new();
         for &idx in &groups[&key] {
             let (n, row) = &data[idx];
             signals.push(parse_dbc_signal(row, &format!("Row {n}"))?);
         }
+        // Validate the CAN id against its declared width (delegates the range to
+        // the typed CanId constructor; the rest of the semantic validation is
+        // delegated to the verified core at parse_dbc time).
+        validate_can_id(key.id, key.extended)?;
+        let dlc = dlc_code(key.dlc)?;
         messages.push(DbcMessage {
             id: key.id,
             extended: key.extended,
             name: key.name,
-            dlc: key.dlc,
+            dlc: u32::from(dlc.value()),
             sender: String::new(),
             senders: Vec::new(),
             signals,
@@ -613,12 +654,13 @@ fn parse_message_id(row: &Row, ctx: &str) -> Result<u32, Error> {
     })
 }
 
-fn parse_dlc(row: &Row, ctx: &str) -> Result<u32, Error> {
-    let dlc = get_int(row, "DLC", ctx)?;
-    if !(0..=15).contains(&dlc) {
-        return Err(invalid(format!("{ctx}: 'DLC' {dlc} out of range [0, 15]")));
+/// The DLC code a message's `DLC` cell writes: a value past a byte is refused
+/// here, and [`Dlc::new`] refuses the rest.
+fn dlc_code(dlc: SignMagnitude) -> Result<Dlc, Error> {
+    match u8::try_from(dlc.magnitude) {
+        Ok(code) if !dlc.negative => Dlc::new(code),
+        _ => Err(invalid(format!("DLC {dlc} out of range"))),
     }
-    Ok(dlc as u32)
 }
 
 fn validate_can_id(id: u32, extended: bool) -> Result<(), Error> {
@@ -633,6 +675,13 @@ fn validate_can_id(id: u32, extended: bool) -> Result<(), Error> {
 }
 
 fn parse_dbc_signal(row: &Row, ctx: &str) -> Result<DbcSignal, Error> {
+    let name = get_str(row, "Signal", ctx)?;
+
+    // The kernel decides a start bit's and a length's range when it reads the
+    // definition; only a value their 16-bit fields cannot hold is refused here.
+    let start_bit = u32::from(get_u16(row, "Start Bit", ctx)?);
+    let length = u32::from(get_u16(row, "Length", ctx)?);
+
     let byte_order = match get_str(row, "Byte Order", ctx)?.as_str() {
         "little_endian" => ByteOrder::LittleEndian,
         "big_endian" => ByteOrder::BigEndian,
@@ -642,6 +691,19 @@ fn parse_dbc_signal(row: &Row, ctx: &str) -> Result<DbcSignal, Error> {
             )))
         }
     };
+    let signed = get_bool(row, "Signed", ctx)?;
+    let factor = get_rational(row, "Factor", ctx)?;
+    let offset = get_rational(row, "Offset", ctx)?;
+    let minimum = get_rational(row, "Min", ctx)?;
+    let maximum = get_rational(row, "Max", ctx)?;
+    // `Unit` is optional, defaulting to empty.
+    let unit = row
+        .get("Unit")
+        .and_then(|d| match d {
+            Data::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
 
     // Multiplexing: the pair must be both-present or both-absent.
     let has_muxor = row.contains_key("Multiplexor");
@@ -652,43 +714,34 @@ fn parse_dbc_signal(row: &Row, ctx: &str) -> Result<DbcSignal, Error> {
         )));
     }
     let presence = if has_muxor {
-        let mux_val = get_int(row, "Multiplex Value", ctx)?;
-        let value = u64::try_from(mux_val).map_err(|_| {
-            invalid(format!(
+        let multiplexor = get_str(row, "Multiplexor", ctx)?;
+        // A multiplex value has no sign, so a negative one, which the kernel
+        // would refuse, is refused here; the kernel decides the rest.
+        let mux_val = get_whole(row, "Multiplex Value", ctx)?;
+        if mux_val.negative {
+            return Err(invalid(format!(
                 "{ctx}: 'Multiplex Value' must be non-negative, got {mux_val}"
-            ))
-        })?;
+            )));
+        }
         Presence::Multiplexed {
-            multiplexor: get_str(row, "Multiplexor", ctx)?,
-            values: vec![value],
+            multiplexor,
+            values: vec![mux_val.magnitude],
         }
     } else {
         Presence::Always
     };
 
-    let start_bit = u32::try_from(get_int(row, "Start Bit", ctx)?)
-        .map_err(|_| invalid(format!("{ctx}: 'Start Bit' must be non-negative")))?;
-    let length = u32::try_from(get_int(row, "Length", ctx)?)
-        .map_err(|_| invalid(format!("{ctx}: 'Length' must be non-negative")))?;
-
     Ok(DbcSignal {
-        name: get_str(row, "Signal", ctx)?,
+        name,
         start_bit,
         length,
         byte_order,
-        signed: get_bool(row, "Signed", ctx)?,
-        factor: get_rational(row, "Factor", ctx)?,
-        offset: get_rational(row, "Offset", ctx)?,
-        minimum: get_rational(row, "Min", ctx)?,
-        maximum: get_rational(row, "Max", ctx)?,
-        // `Unit` is optional, defaulting to empty.
-        unit: row
-            .get("Unit")
-            .and_then(|d| match d {
-                Data::String(s) => Some(s.clone()),
-                _ => None,
-            })
-            .unwrap_or_default(),
+        signed,
+        factor,
+        offset,
+        minimum,
+        maximum,
+        unit,
         receivers: Vec::new(),
         value_descriptions: Vec::new(),
         presence,

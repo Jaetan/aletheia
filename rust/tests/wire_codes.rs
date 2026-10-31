@@ -22,7 +22,9 @@
 //! variants. The
 //! completeness statement for an open vocabulary is lossless passthrough:
 //! every SSOT error code is driven through the real client decode path over
-//! a [`MockBackend`] and must surface verbatim in `Error::Core { code, .. }`.
+//! a [`MockBackend`] and must surface verbatim in `Error::Core { code, .. }`,
+//! but for the codes whose envelope carries a payload of its own, which a
+//! bare envelope lacks and which is refused at its place instead.
 //! The typed lifts are pinned separately: their trigger codes must be
 //! SSOT members (a kernel rename rewrites the YAML via the kernel gate and
 //! fails here, flagging the stale Rust literal) and their structured
@@ -32,7 +34,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use aletheia::{Client, Error, IssueCode, MockBackend};
+use aletheia::limits::BOUND_KIND_INPUT_LENGTH_BYTES;
+use aletheia::{BoundRefusal, Client, Error, IssueCode, MockBackend};
 use yaml_rust2::YamlLoader;
 
 /// The `name` column of one `docs/WIRE_CODES.yaml` section, in file order.
@@ -95,21 +98,36 @@ fn every_error_code_passes_through_the_client_losslessly() {
     let client = Client::with_backend(Box::new(mock));
 
     for name in &yaml_names {
-        // A bare error envelope: the structured lifts degrade to
-        // Error::Core without their payload fields, so every code takes the
-        // same open-world passthrough path here.
+        // A bare error envelope: every code without a payload of its own takes
+        // the same open-world passthrough path, and a code with one is refused
+        // at the payload's first place, the envelope being read whole.
         feeder.respond_json(format!(
             r#"{{"status":"error","code":"{name}","message":"synthetic"}}"#
         ));
         let err = client
             .parse_dbc_text("VERSION \"\"\n")
             .expect_err("queued error envelope must surface as Err");
-        match err {
-            Error::Core { code, message } => {
+        let payload_refusal = match name.as_str() {
+            "input_bound_exceeded" => Some("reply bound_kind: expected string, got nothing"),
+            "handler_validation_failed" | "handler_text_roundtrip_failed" => {
+                Some("reply has_errors: expected boolean, got nothing")
+            }
+            _ => None,
+        };
+        match (err, payload_refusal) {
+            (Error::Core { code, message }, None) => {
                 assert_eq!(&code, name, "wire code did not pass through verbatim");
                 assert_eq!(message, "synthetic");
             }
-            other => panic!("error code {name:?} decoded to {other:?}, expected Error::Core"),
+            (Error::Protocol(refusal), Some(expected)) => {
+                assert_eq!(refusal, expected, "the bare {name:?} envelope's refusal");
+            }
+            (other, None) => {
+                panic!("error code {name:?} decoded to {other:?}, expected Error::Core")
+            }
+            (other, Some(expected)) => panic!(
+                "error code {name:?} decoded to {other:?}, expected Error::Protocol({expected:?})"
+            ),
         }
     }
 }
@@ -141,18 +159,19 @@ fn typed_lift_trigger_codes_are_ssot_members_and_lift() {
         .parse_dbc_text("VERSION \"\"\n")
         .expect_err("queued error")
     {
-        Error::InputBoundExceeded {
-            code,
-            message,
-            bound_kind,
-            observed,
-            limit,
-            field,
-            located,
-        } => {
+        Error::InputBoundExceeded(refusal) => {
+            let BoundRefusal {
+                code,
+                message,
+                bound_kind,
+                observed,
+                limit,
+                field,
+                located,
+            } = *refusal;
             assert_eq!(code, "input_bound_exceeded");
             assert_eq!(message, "m");
-            assert_eq!(bound_kind, "input_length_bytes");
+            assert_eq!(bound_kind, BOUND_KIND_INPUT_LENGTH_BYTES);
             assert_eq!((observed, limit), (10, 5));
             assert_eq!(field, None, "a bound on the input's length names no field");
             assert_eq!(located, None, "the lift locates nothing");

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! The production [`Backend`], [`FfiBackend`], with the frames it builds, the
-//! kernel's rational rendering and decimal parsing ([`format_rational`],
-//! [`parse_decimal`]), and its runtime's allocation count
+//! kernel's rational rendering, decimal and time-bound parsing and property
+//! check ([`format_rational`], [`parse_decimal`], [`parse_time_bound`],
+//! [`check_property`]), and its runtime's allocation count
 //! ([`allocated_bytes`]).
 
 use std::ffi::c_char;
@@ -12,12 +13,13 @@ use libloading::Symbol;
 
 use super::{
     check_buffer_status, encode_opt_bool, ensure_rts, frame_len, rts_started, symbols,
-    take_extraction_buffer, take_response, Backend, FfiBuffer, FfiDecimal, FfiFrame, FfiRational,
-    FfiSignalValues, FfiText, FrameBinFn, SignalInjection, StateHandle, Symbols,
+    take_extraction_buffer, take_response, Backend, FfiBuffer, FfiDecimal, FfiFrame,
+    FfiPropertyCheck, FfiRational, FfiSignalValues, FfiText, FfiTimeBound, FrameBinFn,
+    SignalInjection, StateHandle, Symbols,
 };
 use crate::error::Error;
 use crate::log::{LogLevel, Logger};
-use crate::types::{CanId, Dlc, Rational, Timestamp};
+use crate::types::{CanId, Dlc, Rational, TimeBound, Timestamp};
 
 impl FfiFrame {
     /// A trace event without payload: a remote frame's timestamp and
@@ -77,8 +79,8 @@ impl FfiFrame {
 /// runtime down is undefined behaviour. Mirrors Go, C++ and Python.
 ///
 /// # Errors
-/// [`Error::RtsNotInitialized`] if the GHC runtime has not started (no
-/// [`start_runtime`] and no client), or [`Error::Protocol`] in the unreachable
+/// [`Error::RtsNotInitialized`] with operation `rendering` if the GHC runtime
+/// has not started (no [`start_runtime`] and no client), or [`Error::Protocol`] in the unreachable
 /// case of a null return (an ABI/kernel malfunction). A library-load /
 /// missing-symbol failure cannot surface here: a started runtime implies the
 /// symbol table is latched (every start resolves the table before it starts the
@@ -86,17 +88,16 @@ impl FfiFrame {
 /// up: the kernel never emits a zero denominator and the input's denominator is
 /// positive by construction.
 pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
-    // The runtime first: a caller that renders before anything started it (e.g. a
-    // check-builder validation error) fails fast, without a dlopen, and the
-    // symbol lookup below loads nothing once it runs.
+    // The runtime first: a caller that renders before anything started it
+    // fails fast, without a dlopen, and the symbol lookup below loads nothing
+    // once it runs.
     if !rts_started() {
-        return Err(Error::RtsNotInitialized);
+        return Err(Error::RtsNotInitialized {
+            operation: "rendering",
+        });
     }
     let syms = symbols()?;
-    let value = FfiRational {
-        numerator: r.numerator(),
-        denominator: r.denominator(),
-    };
+    let value = FfiRational::of(r);
     // SAFETY: `value` outlives the call; the returned pointer is a GHC-allocated
     // CString, which `take_response` copies and releases.
     let ptr = unsafe { (syms.format_rational)(&value) };
@@ -124,11 +125,12 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
 /// behaviour).
 ///
 /// # Errors
-/// [`Error::RtsNotInitialized`] if the runtime has not started (as for
-/// [`format_rational`], a started runtime implies the symbol table is latched,
-/// so a library-load / missing-symbol failure cannot surface here). A refusal is the
-/// kernel's error envelope, read by [`super::buffer_refusal`] as every
-/// binary-output entry's is and then by [`decimal_refusal`]:
+/// [`Error::RtsNotInitialized`] with operation `parsing decimals` if the
+/// runtime has not started (as for [`format_rational`], a started runtime
+/// implies the symbol table is latched, so a library-load / missing-symbol
+/// failure cannot surface here). A refusal is the kernel's error envelope,
+/// read by [`super::buffer_refusal`] as every binary-output entry's is and
+/// then by [`decimal_refusal`]:
 /// [`Error::Validation`] with `code` `Some("text_parse_failure")` (the text is
 /// not a decimal literal) or `Some("text_trailing_input")` (a literal followed
 /// by more text), each carrying the kernel's line and column in its message,
@@ -137,22 +139,22 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
 /// UTF-8 refusal cannot arise); [`Error::InputBoundExceeded`] with `field`
 /// `"decimal"` when the numerator or the denominator crosses the rational
 /// component magnitude bound; [`Error::Protocol`] when the entry reports a
-/// refusal without an error envelope, the envelope is malformed, or the
-/// answered denominator is not positive (each an ABI or kernel malfunction).
+/// refusal without an error envelope or the envelope is malformed (each an
+/// ABI or kernel malfunction). The rational answered is the kernel's, stored
+/// as it wrote it ([`FfiRational::rational`]).
 pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
     // Vocal, exactly like format_rational (and in the same order: the runtime
     // first, symbols second): return before the FFI call, the MAlonzo export
     // with the runtime down being UB.
     if !rts_started() {
-        return Err(Error::RtsNotInitialized);
+        return Err(Error::RtsNotInitialized {
+            operation: "parsing decimals",
+        });
     }
     let syms = symbols()?;
     let input = FfiText::of(s);
     let mut out = FfiDecimal {
-        value: FfiRational {
-            numerator: 0,
-            denominator: 0,
-        },
+        value: FfiRational::ZERO,
         err: std::ptr::null_mut(),
     };
     // SAFETY: `input` borrows `s`, which outlives the call, and the kernel reads
@@ -165,12 +167,95 @@ pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
             ));
         }
         let envelope = take_response(syms, out.err);
-        return Err(decimal_refusal(super::buffer_refusal(
-            "aletheia_parse_decimal",
-            &envelope,
-        )));
+        return Err(decimal_refusal(super::buffer_refusal(&envelope)));
     }
-    decimal_value(out.value.numerator, out.value.denominator)
+    Ok(out.value.rational())
+}
+
+/// Read a time bound, a whole number of microseconds, from `text` through the
+/// kernel's `aletheia_parse_time_bound`. Vocal as [`parse_decimal`] is: it
+/// never starts the GHC runtime and returns [`Error::RtsNotInitialized`]
+/// before the FFI call while the runtime is down.
+///
+/// # Errors
+/// [`Error::RtsNotInitialized`] with operation `reading a time bound` while
+/// the runtime is down; otherwise the kernel's refusal, typed by
+/// [`entry_refusal`] as [`parse_decimal`] types its own: [`Error::Validation`]
+/// carrying the kernel's code for a negative or fractional number or for
+/// text that is no decimal,
+/// [`Error::InputBoundExceeded`] with `field` `"time bound"` for a value past
+/// 2^64-1, [`Error::Protocol`] for a refusal without an error envelope or a
+/// malformed one.
+pub(crate) fn parse_time_bound(text: &str) -> Result<TimeBound, Error> {
+    if !rts_started() {
+        return Err(Error::RtsNotInitialized {
+            operation: "reading a time bound",
+        });
+    }
+    let syms = symbols()?;
+    let input = FfiText::of(text);
+    let mut out = FfiTimeBound {
+        microseconds: 0,
+        err: std::ptr::null_mut(),
+    };
+    // SAFETY: `input` borrows `text`, which outlives the call, and the kernel
+    // reads exactly `input.size` bytes of it; `out` is an out-param the kernel
+    // writes.
+    let status = unsafe { (syms.parse_time_bound)(&input, &mut out) };
+    if status != 0 {
+        return Err(entry_refusal(syms, "aletheia_parse_time_bound", out.err));
+    }
+    Ok(TimeBound(out.microseconds))
+}
+
+/// Check `property`, one property's JSON as `set_properties` writes it,
+/// through the kernel's `aletheia_check_property`, which reads it as
+/// `set_properties` reads a property: every field, ordering, denominator and
+/// time bound is decided, and each signal name as an identifier, its presence
+/// in a DBC left to `set_properties`. Vocal as [`parse_decimal`] is: it never
+/// starts the GHC runtime and returns [`Error::RtsNotInitialized`] before the
+/// FFI call while the runtime is down.
+///
+/// # Errors
+/// [`Error::RtsNotInitialized`] with operation `building a check` while the
+/// runtime is down; otherwise the kernel's refusal, typed by
+/// [`entry_refusal`]: [`Error::Validation`]
+/// carrying the kernel's code (`handler_property_refused`, its message the
+/// reason `set_properties` gives after `SetProperties: property N: `),
+/// [`Error::InputBoundExceeded`] for a bound the property crosses,
+/// [`Error::Protocol`] for a refusal without an error envelope or a malformed
+/// one.
+pub(crate) fn check_property(property: &str) -> Result<(), Error> {
+    if !rts_started() {
+        return Err(Error::RtsNotInitialized {
+            operation: "building a check",
+        });
+    }
+    let syms = symbols()?;
+    let input = FfiText::of(property);
+    let mut out = FfiPropertyCheck {
+        err: std::ptr::null_mut(),
+    };
+    // SAFETY: `input` borrows `property`, which outlives the call, and the
+    // kernel reads exactly `input.size` bytes of it; `out` is an out-param the
+    // kernel writes.
+    let status = unsafe { (syms.check_property)(&input, &mut out) };
+    if status != 0 {
+        return Err(entry_refusal(syms, "aletheia_check_property", out.err));
+    }
+    Ok(())
+}
+
+/// The refusal an entry outside a session answered: its error envelope read
+/// and freed, typed as the caller's own mistake by [`decimal_refusal`]; a
+/// refusal without an envelope is a wire fault naming `symbol`.
+fn entry_refusal(syms: &Symbols, symbol: &str, envelope: *mut c_char) -> Error {
+    if envelope.is_null() {
+        return Error::Protocol(format!("{symbol} refused without an error"));
+    }
+    // A non-null envelope is a GHC-allocated C string, which `take_response`
+    // copies out and releases.
+    decimal_refusal(super::buffer_refusal(&take_response(syms, envelope)))
 }
 
 /// The bytes the kernel's runtime has allocated in this process since it
@@ -216,21 +301,9 @@ pub fn start_runtime(cores: u32, logger: Option<&dyn Logger>) -> Result<(), Erro
     ensure_rts(symbols()?, Some(cores), logger, LogLevel::Warn)
 }
 
-/// The rational the decimal entry answered. The kernel answers lowest terms
-/// over a positive denominator; `new` refuses only a non-positive one, which
-/// would be the ABI or the kernel malfunctioning, a wire fault worded as every
-/// binding words it.
-pub(super) fn decimal_value(numerator: i64, denominator: i64) -> Result<Rational, Error> {
-    Rational::new(numerator, denominator).map_err(|_| {
-        Error::Protocol(format!(
-            "aletheia_parse_decimal answered a non-positive denominator {denominator}"
-        ))
-    })
-}
-
-/// The error a refused decimal answers. The literal is the caller's own text,
-/// so a coded refusal from the kernel or the shim is [`Error::Validation`]
-/// carrying that code; the bound refusal keeps its typed
+/// The error a refused decimal, time bound or property answers. The input is
+/// the caller's own, so a coded refusal from the kernel or the shim is
+/// [`Error::Validation`] carrying that code; the bound refusal keeps its typed
 /// [`Error::InputBoundExceeded`], and a malformed envelope stays
 /// [`Error::Protocol`], a wire fault.
 pub(super) fn decimal_refusal(refusal: Error) -> Error {
@@ -420,12 +493,16 @@ impl FfiBackend {
         signals: SignalInjection<'_>,
         op: &str,
     ) -> Result<Vec<u8>, Error> {
-        let count = u32::try_from(signals.indices.len())
+        let count = u32::try_from(signals.values.len())
             .map_err(|_| Error::validation("too many signal injections"))?;
+        let (indices, rationals): (Vec<u32>, Vec<FfiRational>) = signals
+            .values
+            .iter()
+            .map(|&(index, value)| (index, FfiRational::of(value)))
+            .unzip();
         let values = FfiSignalValues {
-            indices: slice_ptr(signals.indices),
-            numerators: slice_ptr(signals.nums),
-            denominators: slice_ptr(signals.dens),
+            indices: slice_ptr(&indices),
+            values: slice_ptr(&rationals),
             count,
         };
         let mut payload = vec![0u8; dlc.to_bytes()];
@@ -441,8 +518,8 @@ impl FfiBackend {
         };
         let syms = symbols()?;
         // SAFETY: `out.data` holds `out.size` bytes, the DLC's count (what the
-        // core writes); the parallel arrays all share `indices.len()`;
-        // `frame`'s payload is valid for its `data_len` bytes.
+        // core writes); the two parallel arrays both hold `count` entries and
+        // outlive the call; `frame`'s payload is valid for its `data_len` bytes.
         let status = unsafe { entry(self.handle, frame, &values, &mut out) };
         check_buffer_status(status, out.err, syms, op)?;
         payload.truncate(out.size as usize);

@@ -3,6 +3,8 @@
 
 package aletheia
 
+import "math"
+
 // The DBC a reply carries sits at "dbc", and every refusal below names its
 // place from there: a signal's field is at "dbc/messages/signals/<key>". Every
 // key the kernel writes is required, and each place is read by kind only: the
@@ -145,7 +147,13 @@ func readCANID(m map[string]any, path replyPath) (CANID, error) {
 		return nil, err
 	}
 	if extended {
+		if raw > math.MaxUint32 {
+			return nil, replyRefusal(path.at("id"), expectNumber, came(m, "id"))
+		}
 		return ExtendedID{value: uint32(raw)}, nil
+	}
+	if raw > math.MaxUint16 {
+		return nil, replyRefusal(path.at("id"), expectNumber, came(m, "id"))
 	}
 	return StandardID{value: uint16(raw)}, nil
 }

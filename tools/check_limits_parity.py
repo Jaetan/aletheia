@@ -8,15 +8,19 @@ adversarial-input bound enforced anywhere in the Aletheia stack.
 
 Three language bindings mirror these constants for pre-FFI rejection (so
 pathological inputs are rejected before being marshalled across the language
-boundary) and for typed comparison by name:
+boundary) and for typed comparison by name, and a fourth mirrors the bound
+kinds alone:
 
 * ``go/aletheia/limits.go``: the cgo-boundary mirror.
 * ``python/aletheia/limits.py``: the ctypes-boundary mirror.
 * ``cpp/include/aletheia/limits.hpp``: the dlopen-boundary mirror.
+* ``rust/src/limits.rs``: the bound kinds' wire codes and no maximum.  Rust
+  reads every number into a ``u128``, which is its bound, so no table maps a
+  ``max-*`` constant to it and a ``MAX_*`` constant there is a divergence.
 
-Each mirror's header says "Single source of truth: src/Aletheia/Limits.agda;
-numeric values are mirrored here verbatim", and this script enforces that
-promise on all three.
+The Go, Python and C++ headers say "Single source of truth:
+src/Aletheia/Limits.agda; numeric values are mirrored here verbatim", and this
+script enforces that promise on all three.
 
 Strategy:
 
@@ -24,35 +28,46 @@ Strategy:
    every ``max-<kebab-name> = <number>`` constant.
 2. Parse each mirror for its own spelling of both: ``BoundKind<Tag>`` and
    ``Max<Name>`` in Go, ``BOUND_KIND_<TAG>`` and ``MAX_<NAME>`` in Python,
-   ``bound_kind_<tag>`` and ``max_<name>`` in C++.  Evaluate the value
+   ``bound_kind_<tag>`` and ``max_<name>`` in C++, and ``BOUND_KIND_<TAG>``
+   alone in Rust, each a ``pub const`` of ``&str``.  Evaluate the value
    expression (``64 * 1024 * 1024`` and the like) rather than matching text.
 3. Cross-check through a manual per-binding table, because kebab-case to the
    mirror's spelling is not a rule (``DBC`` and ``JSON`` stay uppercase).
 4. Fail on a wire-string mismatch, a tag or constant missing from either side,
    a value mismatch, a REQUIRED constant absent from a mirror, a mirror const
-   with no SSOT peer, or an SSOT entry no table maps.
+   with no SSOT peer, a ``MAX_*`` constant in the Rust mirror, or an SSOT entry
+   no table maps.
 5. Parse ``src/Aletheia/Protocol/ReplyRange.agda`` for every ``replyText`` row
    (a place and its word set, or any non-empty text) and every
    ``replyNonEmpty`` row, and fail on a row ``PYTHON_REPLY_TEXT``,
-   ``GO_REPLY_TEXT``, ``CPP_REPLY_TEXT`` or ``REPLY_NON_EMPTY`` names that the
-   Agda drops, an Agda row they do not name, a word one side holds and the
-   other does not (Python's set read from its ``Literal`` alias, the
-   ``Literal`` field of a class or of a union of classes, its ``StrEnum`` or
-   its ``BOUND_KIND_*`` codes; Go's from the case literals of a reader's one
-   ``switch``, the literals its ``fieldWord`` calls await, the constants of a
-   named string type, the one ``var`` block of a struct type's values, which no
-   line elsewhere may build or reach, or its ``BoundKind*`` codes; C++'s from a
-   ``std::to_array`` table of ``{word, enumerator}`` pairs, the literals a
-   dispatch compares a word with, the literals its ``field_word`` calls await,
-   the words one function gives an enum's enumerators, which no line elsewhere
-   may give or reach, or its ``bound_kind_*`` codes), a C++ last arm other than
-   the row's last word, or a ``bound_kind`` row that differs from
-   ``boundKindCode``.  The proof leaves an unlisted string place free, so this
-   arm is what holds each row the readers rely on.  It lives in
-   ``tools/_reply_places.py``, its C++ reader in ``tools/_reply_places_cpp.py``;
-   a clause of either table or a reader's type or code it cannot read, a place
-   a table names twice, and a C++ reader file comparing a word outside the
-   dispatches or looking up a table no reader file declares, exit 2.
+   ``GO_REPLY_TEXT``, ``CPP_REPLY_TEXT``, ``RUST_REPLY_TEXT`` or
+   ``REPLY_NON_EMPTY`` names that the Agda drops, an Agda row they do not name,
+   a word one side holds and the other does not (Python's set read from its
+   ``Literal`` alias, the ``Literal`` field of a class or of a union of
+   classes, its ``StrEnum`` or its ``BOUND_KIND_*`` codes; Go's from the case
+   literals of a reader's one ``switch``, the literals its ``fieldWord`` calls
+   await, the constants of a named string type, the one ``var`` block of a
+   struct type's values, which no line elsewhere may build or reach, or its
+   ``BoundKind*`` codes; C++'s from a ``std::to_array`` table of ``{word,
+   enumerator}`` pairs, the literals a dispatch compares a word with, the
+   literals its ``field_word`` calls await, the words one function gives an
+   enum's enumerators, which no line elsewhere may give or reach, or its
+   ``bound_kind_*`` codes; Rust's from the string-literal arms of a function's
+   one ``match`` on its word, whose final ``_`` arm reads as the word of an arm
+   building the variant it builds, the literals its ``field_word`` calls
+   await, a function reading the word into an unused binding, which takes
+   every word, the words one method gives an enum's variants, which no line
+   elsewhere may give or reach, or its ``BOUND_KIND_*`` codes), a C++ or Rust
+   last arm other than the row's last word, a ``bound_kind`` row that differs
+   from ``boundKindCode``, or a row at a place ``RUST_UNTAGGED`` reads past.
+   The proof leaves an unlisted string place free, so this arm is what holds
+   each row the readers rely on.  It lives in ``tools/_reply_places.py``, its
+   C++ reader in ``tools/_reply_places_cpp.py`` and its Rust reader in
+   ``tools/_reply_places_rust.py``; a clause of either table or a reader's type
+   or code it cannot read, a place a table names twice, a C++ reader file
+   comparing a word outside the dispatches or looking up a table no reader
+   file declares, and a Rust reader file comparing a word outside the matches
+   and the functions ``RUST_UNTAGGED`` names, exit 2.
 
 Exit codes:
   0: full parity between Agda SSOT and every mirror.
@@ -94,6 +109,13 @@ from tools._reply_places import (
     read_reply_tables,
 )
 from tools._reply_places_cpp import CPP_REPLY_TEXT, cpp_reader
+from tools._reply_places_rust import (
+    RUST_REPLY_TEXT,
+    RustSymbol,
+    RustText,
+    rust_reader,
+    rust_untagged_rows,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -103,10 +125,13 @@ AGDA_LIMITS = REPO_ROOT / "src" / "Aletheia" / "Limits.agda"
 GO_LIMITS = REPO_ROOT / "go" / "aletheia" / "limits.go"
 PYTHON_LIMITS = REPO_ROOT / "python" / "aletheia" / "limits.py"
 CPP_LIMITS = REPO_ROOT / "cpp" / "include" / "aletheia" / "limits.hpp"
+RUST_LIMITS = REPO_ROOT / "rust" / "src" / "limits.rs"
 
 
 # An Agda limit's kebab-case name, as ``Aletheia.Limits`` defines it.
 AgdaLimitName = NewType("AgdaLimitName", str)
+# An Agda ``BoundKind`` constructor, as ``boundKindCode`` names it.
+AgdaBoundKind = NewType("AgdaBoundKind", str)
 # How a C++ limit spells a type's maximum, and that maximum.
 CppMaximumSpelling = NewType("CppMaximumSpelling", str)
 TypeMaximum = NewType("TypeMaximum", int)
@@ -251,6 +276,24 @@ CPP_BOUND_KIND_MAPPING: dict[str, str] = {
     "AtomCount": "bound_kind_atom_count",
     "PropertyCount": "bound_kind_property_count",
     "RationalComponentMagnitude": "bound_kind_rational_component_magnitude",
+}
+
+
+# Rust BoundKind wire codes: the `BOUND_KIND_*` public constants of the mirror
+# module.  Rust mirrors no maximum, the u128 it reads every number into being
+# its bound, so no name table maps a `max-*` constant to it.
+RUST_BOUND_KIND_MAPPING: dict[AgdaBoundKind, RustSymbol] = {
+    AgdaBoundKind(tag): RustSymbol(name)
+    for tag, name in {
+        "InputLengthBytes": "BOUND_KIND_INPUT_LENGTH_BYTES",
+        "NestingDepth": "BOUND_KIND_NESTING_DEPTH",
+        "ArrayCardinality": "BOUND_KIND_ARRAY_CARDINALITY",
+        "IdentifierLength": "BOUND_KIND_IDENTIFIER_LENGTH",
+        "StringLength": "BOUND_KIND_STRING_LENGTH",
+        "AtomCount": "BOUND_KIND_ATOM_COUNT",
+        "PropertyCount": "BOUND_KIND_PROPERTY_COUNT",
+        "RationalComponentMagnitude": "BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE",
+    }.items()
 }
 
 
@@ -496,6 +539,30 @@ def _parse_cpp_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
     return constants, boundkind
 
 
+def _parse_rust_limits(
+    text: RustText,
+) -> tuple[list[RustSymbol], dict[RustSymbol, ReplyWord]]:
+    """Parse the Rust limits module, returning (MAX_* constant names, BOUND_KIND_* strings).
+
+    Recognises ``pub const BOUND_KIND_NAME: &str = "wire";``, wrapped onto the
+    next line too; a constant that is not ``pub``, or not a ``&str``, is not
+    one.  Every ``MAX_*`` constant, of any visibility, is named, the mirror
+    carrying none.
+    """
+    bk_pattern = re.compile(
+        r"^\s*pub\s+const\s+(?P<name>BOUND_KIND_[A-Z0-9_]+)\s*:\s*&(?:'static\s+)?str\s*=\s*"
+        + r'"(?P<wire>[a-z_]+)"\s*;',
+        flags=re.MULTILINE,
+    )
+    boundkind = {
+        RustSymbol(m.group("name")): ReplyWord(m.group("wire")) for m in bk_pattern.finditer(text)
+    }
+    max_pattern = re.compile(
+        r"^\s*(?:pub(?:\([^)]*\))?\s+)?const\s+(?P<name>MAX_[A-Z0-9_]*)\b", flags=re.MULTILINE
+    )
+    return [RustSymbol(m.group("name")) for m in max_pattern.finditer(text)], boundkind
+
+
 @dataclass(frozen=True)
 class _BoundKindCheck:
     """Static configuration for one binding's BoundKind wire-code comparison.
@@ -655,12 +722,13 @@ def _check_agda_drift(agda_consts: dict[str, int], agda_boundkind: dict[str, str
 
 
 def main() -> int:
-    """Check Agda Limits SSOT parity against the Go, Python and C++ mirrors."""
+    """Check Agda Limits SSOT parity against the Go, Python, C++ and Rust mirrors."""
     argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     agda_consts, agda_boundkind = _parse_agda_limits(_read(AGDA_LIMITS))
     go_consts, go_boundkind = _parse_go_limits(_read(GO_LIMITS))
     py_consts, py_boundkind = _parse_python_limits(_read(PYTHON_LIMITS))
     cpp_consts, cpp_boundkind = _parse_cpp_limits(_read(CPP_LIMITS))
+    rust_maxima, rust_boundkind = _parse_rust_limits(RustText(_read(RUST_LIMITS)))
 
     if not agda_consts:
         _ = sys.stderr.write("check-limits-parity: no max-* constants parsed from Limits.agda\n")
@@ -761,15 +829,36 @@ def main() -> int:
             cpp_consts,
         )
     )
+    # 7) Rust BoundKind wire-code parity, the shared check reading plain strings,
+    # and no maximum in the Rust mirror.
+    diffs.extend(
+        _check_boundkind_parity(
+            _BoundKindCheck(
+                label="Rust BoundKind",
+                mapping={str(tag): str(name) for tag, name in RUST_BOUND_KIND_MAPPING.items()},
+                table_name="RUST_BOUND_KIND_MAPPING",
+                binding="Rust",
+            ),
+            agda_boundkind,
+            {str(name): str(wire) for name, wire in rust_boundkind.items()},
+        )
+    )
+    diffs.extend(
+        f"Rust max-constant: {RUST_LIMITS.relative_to(REPO_ROOT)} declares '{name}', but Rust "
+        + "mirrors no maximum, the u128 it reads every number into being its bound; remove it"
+        for name in rust_maxima
+    )
     # Agda-side drift: SSOT entries with no cross-check table mapping.
     diffs.extend(_check_agda_drift(agda_consts, agda_boundkind))
-    # 7) The reply proof's tag and non-empty places against the Python, Go and C++ readers.
+    # 8) The reply proof's tag and non-empty places against the Python, Go, C++ and Rust
+    # readers.
     tables = read_reply_tables(
         AgdaText(_read(AGDA_REPLY_RANGE)),
         (
             python_reader(frozenset(ReplyWord(wire) for wire in py_boundkind.values())),
             go_reader(frozenset(ReplyWord(wire) for wire in go_boundkind.values())),
             cpp_reader(frozenset(ReplyWord(wire) for wire in cpp_boundkind.values())),
+            rust_reader(frozenset(rust_boundkind.values())),
         ),
     )
     if isinstance(tables, list):
@@ -779,19 +868,21 @@ def main() -> int:
     diffs.extend(
         check_reply_places(tables, frozenset(ReplyWord(wire) for wire in agda_boundkind.values()))
     )
+    diffs.extend(rust_untagged_rows(tables.agda_text.keys()))
 
     if diffs:
         _ = sys.stderr.write("check-limits-parity: divergences detected\n\n")
         for d in diffs:
             _ = sys.stderr.write(f"  - {d}\n")
         mirrors = " / ".join(
-            str(path.relative_to(REPO_ROOT)) for path in (GO_LIMITS, PYTHON_LIMITS, CPP_LIMITS)
+            str(path.relative_to(REPO_ROOT))
+            for path in (GO_LIMITS, PYTHON_LIMITS, CPP_LIMITS, RUST_LIMITS)
         )
         _ = sys.stderr.write(
             f"\nfound {len(diffs)} divergence(s) between "
             + f"{AGDA_LIMITS.relative_to(REPO_ROOT)} and "
             + f"{AGDA_REPLY_RANGE.relative_to(REPO_ROOT)} (SSOT) and "
-            + f"{mirrors} and the Python, Go and C++ reply readers (mirrors).\n"
+            + f"{mirrors} and the Python, Go, C++ and Rust reply readers (mirrors).\n"
             + "Reconcile by updating the mirror, the Agda SSOT, or the mapping table "
             + "this script names above (when a constant is intentionally added or "
             + "removed).\n"
@@ -808,8 +899,9 @@ def main() -> int:
                 ("C++", CPP_NAME_MAPPING, CPP_BOUND_KIND_MAPPING),
             )
         )
+        + f"; Rust {len(RUST_BOUND_KIND_MAPPING)} BoundKind"
         + f"; Python {len(PYTHON_REPLY_TEXT)}, Go {len(GO_REPLY_TEXT)}"
-        + f" and C++ {len(CPP_REPLY_TEXT)} reply text"
+        + f", C++ {len(CPP_REPLY_TEXT)} and Rust {len(RUST_REPLY_TEXT)} reply text"
         + f" + {len(REPLY_NON_EMPTY)} non-empty places"
         + ": all in parity with Agda SSOT"
     )

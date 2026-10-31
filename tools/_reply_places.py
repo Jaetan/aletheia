@@ -7,9 +7,10 @@ The reply proof in ``src/Aletheia/Protocol/ReplyRange.agda`` lists, in
 in ``replyNonEmpty``, the arrays it writes with at least one element.  It leaves
 a place no row names free, so this module holds each row a reader relies on: it
 reads both tables, reads the set each Python reader takes at the place from its
-type and the set each Go and C++ reader takes from its own code, and reports a
-row one side drops, a word one side holds alone and a C++ last arm, which reads
-every word its other arms do not name, other than the row's last word.
+type and the set each Go, C++ and Rust reader takes from its own code, and
+reports a row one side drops, a word one side holds alone and a C++ or Rust last
+arm, which reads every word its other arms do not name, other than the row's
+last word.
 
 A clause of either table, or a reader's type or code, that the module cannot
 read is reported rather than passed over, every one of them in one run; the

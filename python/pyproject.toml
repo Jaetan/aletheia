@@ -635,6 +635,12 @@ pytest_add_cli_args = [
     "--ignore=tests/test_clang_format_config.py",
     "--ignore=tests/test_clang_tidy_facts.py",
     "--ignore=tests/test_json_cleanup_abort.py",
+    # Same shape: reads the reply proof's place tables
+    # (src/Aletheia/Protocol/ReplyRange.agda) above python/.  What it holds,
+    # each reply reader's refusal at every place, lives in
+    # client/_response_parsers.py and client/_helpers/reply_shape.py, neither
+    # a hot-path module.
+    "--ignore=tests/test_reply_places_refused_where_broken.py",
     # Two excel-loader tests resolve the SHARED cross-binding fixture via
     # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /
     # "demo_workbook.xlsx"`` — repo-root from python/tests/, but python/ from

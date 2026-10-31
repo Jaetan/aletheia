@@ -5,63 +5,59 @@
 //! real `libaletheia-ffi.so`.
 //!
 //! The kernel's batch categoriser refuses an extracted value whose reduced
-//! numerator magnitude or denominator is above 9223372036854775807 on both
-//! extraction paths, as a per-signal error entry carrying one message. Each
-//! case here runs one 64-bit signal through the JSON path (the DBC loaded
-//! through the raw `parseDBC` command, which leaves the client's signal-name
-//! cache empty, so `extract_signals` falls back to JSON) and through the binary
-//! path (the same DBC loaded through the typed `parse_dbc`), and holds the two
-//! answers to one error entry with the kernel's message. Set `ALETHEIA_LIB` to
-//! the built shared library (run_ci / CI does).
+//! numerator magnitude or denominator is past 2^128-1 on both extraction
+//! paths, as a per-signal error entry carrying one message. The case here
+//! runs one 132-bit CAN-FD signal through the JSON path (the DBC loaded
+//! through the raw `parseDBC` command, after which the client's signal-name
+//! cache is empty, so `extract_signals` falls back to JSON) and through the
+//! binary path (the same DBC loaded through the typed `parse_dbc`), and holds
+//! the two answers to one error entry with the kernel's message. Set
+//! `ALETHEIA_LIB` to the built shared library (run_ci / CI does).
 
 use aletheia::{
-    ByteOrder, CanId, Client, Dbc, DbcMessage, DbcSignal, Dlc, ExtractionResult, Presence, Rational,
+    ByteOrder, CanId, Client, Dbc, DbcMessage, DbcSignal, Dlc, Error, ExtractionResult,
+    MockBackend, Presence, Rational,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// The kernel's message for a value past the wire range, on either path.
-const WIRE_RANGE_MESSAGE: &str =
-    "extracted value's numerator or denominator exceeds the Int64 wire range";
+const WIRE_RANGE_MESSAGE: &str = "extracted value's numerator or denominator magnitude exceeds \
+                                  340282366920938463463374607431768211455";
 
-/// The one message of every document here: standard id 0x100, eight bytes.
-const MESSAGE_ID: u16 = 0x100;
+/// The one message of the document: standard id 0x300, 64 bytes.
+const MESSAGE_ID: u16 = 0x300;
+
+/// The 64-byte length code.
+fn dlc64() -> Dlc {
+    Dlc::new(15).expect("dlc")
+}
 
 fn client() -> Client {
     Client::new().expect("init client: is ALETHEIA_LIB set to a built libaletheia-ffi.so?")
 }
 
-fn rational(numerator: i64, denominator: i64) -> Rational {
-    Rational::new(numerator, denominator).expect("valid rational")
-}
-
-/// A document holding one message `Msg` whose one signal `Big` reads all 64
-/// bits little-endian and unsigned, scaled by `factor` and `offset` within
-/// `[minimum, maximum]`.
-fn big_signal_document(
-    factor: Rational,
-    offset: Rational,
-    minimum: Rational,
-    maximum: Rational,
-) -> Dbc {
+/// A document holding one message `Msg` whose one signal `Big` reads 132 bits
+/// little-endian and unsigned at a tenth, declared within `[0, 2^128-1]`.
+fn big_signal_document() -> Dbc {
     Dbc {
         version: "1.0".to_owned(),
         messages: vec![DbcMessage {
             id: u32::from(MESSAGE_ID),
             extended: false,
             name: "Msg".to_owned(),
-            dlc: 8,
+            dlc: 64,
             sender: "ECU".to_owned(),
             senders: Vec::new(),
             signals: vec![DbcSignal {
                 name: "Big".to_owned(),
                 start_bit: 0,
-                length: 64,
+                length: 132,
                 byte_order: ByteOrder::LittleEndian,
                 signed: false,
-                factor,
-                offset,
-                minimum,
-                maximum,
+                factor: Rational::new(1, 10).expect("a tenth"),
+                offset: Rational::integer(0),
+                minimum: Rational::integer(0),
+                maximum: Rational::from(u128::MAX),
                 unit: String::new(),
                 receivers: Vec::new(),
                 value_descriptions: Vec::new(),
@@ -78,79 +74,32 @@ fn big_signal_document(
     }
 }
 
-/// A rational on the wire: a bare integer when the denominator is 1, else a
-/// `{"numerator", "denominator"}` object, as the typed client writes it.
-fn rational_value(r: Rational) -> Value {
-    if r.denominator() == 1 {
-        json!(r.numerator())
-    } else {
-        json!({ "numerator": r.numerator(), "denominator": r.denominator() })
-    }
+/// The payload carrying the raw value (2^128-1)*10 - 1, which is
+/// 9 * 2^128 + (2^128 - 11), little-endian: a tenth of it is within the
+/// declared range, and its numerator in lowest terms is past 2^128-1.
+fn past_the_bound_payload() -> Vec<u8> {
+    let mut payload = vec![0u8; 64];
+    payload[..16].copy_from_slice(&(u128::MAX - 10).to_le_bytes());
+    payload[16] = 9;
+    payload
 }
 
-/// The `parseDBC` command line `Client::parse_dbc` sends for a document of
-/// [`big_signal_document`]'s shape: every list of the document present, the
-/// `extended` flag omitted because the id is standard, presence flat, no value
-/// description.
+/// The `parseDBC` command line `Client::parse_dbc` writes for `dbc`, as a
+/// client over a mock records it.
 fn parse_dbc_command(dbc: &Dbc) -> String {
-    let messages: Vec<Value> = dbc
-        .messages
-        .iter()
-        .map(|m| {
-            let signals: Vec<Value> = m
-                .signals
-                .iter()
-                .map(|s| {
-                    let byte_order = match s.byte_order {
-                        ByteOrder::LittleEndian => "little_endian",
-                        ByteOrder::BigEndian => "big_endian",
-                    };
-                    json!({
-                        "name": s.name,
-                        "startBit": s.start_bit,
-                        "length": s.length,
-                        "byteOrder": byte_order,
-                        "signed": s.signed,
-                        "factor": rational_value(s.factor),
-                        "offset": rational_value(s.offset),
-                        "minimum": rational_value(s.minimum),
-                        "maximum": rational_value(s.maximum),
-                        "unit": s.unit,
-                        "receivers": s.receivers,
-                        "valueDescriptions": [],
-                        "presence": "always",
-                    })
-                })
-                .collect();
-            json!({
-                "id": m.id,
-                "name": m.name,
-                "dlc": m.dlc,
-                "sender": m.sender,
-                "senders": m.senders,
-                "signals": signals,
-            })
-        })
-        .collect();
-    json!({
-        "type": "command",
-        "command": "parseDBC",
-        "dbc": {
-            "version": dbc.version,
-            "messages": messages,
-            "nodes": [],
-            "valueTables": [],
-            "environmentVars": [],
-            "signalGroups": [],
-            "comments": [],
-            "attributes": [],
-            "unresolvedValueDescs": [],
-        },
-    })
-    .to_string()
+    let mock = MockBackend::new();
+    mock.respond_err(Error::NullResponse);
+    let refused = Client::with_backend(Box::new(mock.clone())).parse_dbc(dbc);
+    assert!(
+        matches!(refused, Err(Error::NullResponse)),
+        "the mock answers the queued error, got: {refused:?}"
+    );
+    let mut captured = mock.captured();
+    assert_eq!(captured.len(), 1, "one command: {captured:?}");
+    captured.remove(0)
 }
 
-/// Extracts `data` from message 0x100 on a client that loaded `dbc` through the
+/// Extracts `data` from message 0x300 on a client that loaded `dbc` through the
 /// raw `parseDBC` command: the signal-name cache stays empty, so the answer is
 /// the JSON extraction entry's.
 fn extract_through_json(dbc: &Dbc, data: &[u8]) -> ExtractionResult {
@@ -163,26 +112,18 @@ fn extract_through_json(dbc: &Dbc, data: &[u8]) -> ExtractionResult {
         parsed.get("dbc").is_some_and(Value::is_object),
         "the document loads through parseDBC, got: {reply}"
     );
-    c.extract_signals(
-        CanId::standard(MESSAGE_ID).expect("id"),
-        Dlc::new(8).expect("dlc"),
-        data,
-    )
-    .expect("extract_signals over the JSON path")
+    c.extract_signals(CanId::standard(MESSAGE_ID).expect("id"), dlc64(), data)
+        .expect("extract_signals over the JSON path")
 }
 
-/// Extracts `data` from message 0x100 on a client that loaded `dbc` through the
+/// Extracts `data` from message 0x300 on a client that loaded `dbc` through the
 /// typed `parse_dbc`: the signal names are cached, so the answer is the binary
 /// extraction entry's.
 fn extract_through_binary(dbc: &Dbc, data: &[u8]) -> ExtractionResult {
     let c = client();
     c.parse_dbc(dbc).expect("parse_dbc");
-    c.extract_signals(
-        CanId::standard(MESSAGE_ID).expect("id"),
-        Dlc::new(8).expect("dlc"),
-        data,
-    )
-    .expect("extract_signals over the binary path")
+    c.extract_signals(CanId::standard(MESSAGE_ID).expect("id"), dlc64(), data)
+        .expect("extract_signals over the binary path")
 }
 
 /// Asserts `ex` is the kernel's refusal of `Big`: no value, no absent signal,
@@ -195,40 +136,19 @@ fn assert_big_refused(path: &str, ex: &ExtractionResult) {
     assert_eq!(ex.errors[0].reason, WIRE_RANGE_MESSAGE, "{path}: {ex:?}");
 }
 
-/// Both paths refuse `data` under `dbc` with the same entry.
-fn assert_both_paths_refuse(dbc: &Dbc, data: &[u8]) {
-    let json_path = extract_through_json(dbc, data);
-    let binary_path = extract_through_binary(dbc, data);
+/// A 132-bit CAN-FD signal at a tenth, its raw value (2^128-1)*10 - 1 within
+/// the declared range, reduces to a numerator past the bound: both paths
+/// refuse it with the same entry.
+#[test]
+fn a_numerator_past_the_bound_is_refused_on_both_paths() {
+    let dbc = big_signal_document();
+    let data = past_the_bound_payload();
+    let json_path = extract_through_json(&dbc, &data);
+    let binary_path = extract_through_binary(&dbc, &data);
     assert_big_refused("JSON path", &json_path);
     assert_big_refused("binary path", &binary_path);
     assert_eq!(
         json_path.errors[0].reason, binary_path.errors[0].reason,
         "the two paths carry one reason"
     );
-}
-
-/// Raw 2^63 + 1 scaled by 1/2^62 and shifted by 1/5^27: the reduced value's
-/// numerator and denominator are both past the wire range.
-#[test]
-fn a_value_whose_numerator_and_denominator_exceed_the_wire_range_is_refused_on_both_paths() {
-    let dbc = big_signal_document(
-        rational(1, 4_611_686_018_427_387_904),
-        rational(1, 7_450_580_596_923_828_125),
-        rational(1, 7_450_580_596_923_828_125),
-        Rational::integer(3),
-    );
-    assert_both_paths_refuse(&dbc, &[0x01, 0, 0, 0, 0, 0, 0, 0x80]);
-}
-
-/// Raw 2^63 scaled by -1/5: the numerator is exactly -2^63, which an int64
-/// holds but the symmetric magnitude bound refuses.
-#[test]
-fn a_numerator_of_minus_two_to_the_sixty_third_is_refused_on_both_paths() {
-    let dbc = big_signal_document(
-        rational(-1, 5),
-        Rational::integer(0),
-        Rational::integer(-3_689_348_814_741_910_323),
-        Rational::integer(0),
-    );
-    assert_both_paths_refuse(&dbc, &[0, 0, 0, 0, 0, 0, 0, 0x80]);
 }

@@ -8,8 +8,8 @@
 //! `ALETHEIA_LIB` to the built shared library (run_ci / CI does this).
 
 use aletheia::{
-    CanId, Client, Dlc, Error, Formula, FrameResponse, IssueCode, IssueSeverity, Predicate,
-    Rational, Timestamp, Verdict,
+    ByteOrder, CanId, Client, Dbc, DbcMessage, DbcSignal, Dlc, Error, Formula, FrameResponse,
+    IssueCode, IssueSeverity, MockBackend, Predicate, Presence, Rational, Timestamp, Verdict,
 };
 
 /// A known-good DBC the verified text parser accepts (the shared corpus
@@ -234,4 +234,104 @@ fn canfd_frame_with_brs_esi_is_accepted() {
         .expect("CAN-FD frame with BRS=true, ESI=false must be accepted");
 
     let _final = client.end_stream().expect("end stream");
+}
+
+/// A document whose one message, 256, carries one 8-bit unsigned signal per
+/// name of `names`, at a byte each from bit 0, declared within `[0, 255]`.
+fn bytes_document(names: &[&str]) -> Dbc {
+    let signals = (0u32..)
+        .zip(names)
+        .map(|(byte, name)| DbcSignal {
+            name: (*name).to_owned(),
+            start_bit: 8 * byte,
+            length: 8,
+            byte_order: ByteOrder::LittleEndian,
+            signed: false,
+            factor: Rational::integer(1),
+            offset: Rational::integer(0),
+            minimum: Rational::integer(0),
+            maximum: Rational::integer(255),
+            unit: String::new(),
+            receivers: Vec::new(),
+            value_descriptions: Vec::new(),
+            presence: Presence::Always,
+        })
+        .collect();
+    Dbc {
+        version: "1.0".to_owned(),
+        messages: vec![DbcMessage {
+            id: 256,
+            extended: false,
+            name: "Bytes".to_owned(),
+            dlc: 8,
+            sender: "ECU".to_owned(),
+            senders: Vec::new(),
+            signals,
+        }],
+        nodes: Vec::new(),
+        value_tables: Vec::new(),
+        environment_vars: Vec::new(),
+        signal_groups: Vec::new(),
+        comments: Vec::new(),
+        attributes: Vec::new(),
+        unresolved_value_descs: Vec::new(),
+    }
+}
+
+/// The `parseDBC` command line `Client::parse_dbc` writes for `dbc`, as a
+/// client over a mock records it.
+fn parse_dbc_command(dbc: &Dbc) -> String {
+    let mock = MockBackend::new();
+    mock.respond_err(Error::NullResponse);
+    let refused = Client::with_backend(Box::new(mock.clone())).parse_dbc(dbc);
+    assert!(
+        matches!(refused, Err(Error::NullResponse)),
+        "the mock answers the queued error, got: {refused:?}"
+    );
+    let mut captured = mock.captured();
+    assert_eq!(captured.len(), 1, "one command: {captured:?}");
+    captured.remove(0)
+}
+
+/// A raw command can load another DBC into the kernel, so it leaves no signal
+/// name of the DBC the typed `parse_dbc` loaded before it: an extraction after
+/// a raw `parseDBC` of a DBC whose message carries more signals answers the
+/// kernel's names for that DBC.
+#[test]
+fn a_raw_command_leaves_no_name_of_the_dbc_loaded_before_it() {
+    let client = Client::new().expect("init client");
+    client
+        .parse_dbc(&bytes_document(&["First"]))
+        .expect("the typed load of the first DBC");
+    let reply = client
+        .process(&parse_dbc_command(&bytes_document(&["X", "Y", "Z"])))
+        .expect("the raw load of the second DBC");
+    let status =
+        serde_json::from_str::<serde_json::Value>(&reply).expect("a JSON reply")["status"].clone();
+    assert_eq!(
+        status, "success",
+        "the second DBC loads through the raw command, got: {reply}"
+    );
+
+    let id = CanId::standard(256).unwrap();
+    let dlc = Dlc::new(8).unwrap();
+    let extracted = client
+        .extract_signals(id, dlc, &[1, 2, 3, 0, 0, 0, 0, 0])
+        .expect("extract signals");
+    let values: Vec<(&str, Rational)> = extracted
+        .values
+        .iter()
+        .map(|v| (v.name.as_str(), v.value))
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            ("X", Rational::integer(1)),
+            ("Y", Rational::integer(2)),
+            ("Z", Rational::integer(3)),
+        ],
+        "the second DBC's names and values"
+    );
+    assert!(extracted.errors.is_empty(), "{extracted:?}");
+    assert!(extracted.absent.is_empty(), "{extracted:?}");
 }

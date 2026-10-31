@@ -726,12 +726,13 @@ The Rust binding (`rust/`) wraps `libaletheia-ffi.so` via the `libloading` crate
 | Crate | License | Role |
 |---|---|---|
 | libloading | ISC | Runtime `dlopen` of `libaletheia-ffi.so` |
-| serde_json | MIT OR Apache-2.0 | JSON protocol serialization/deserialization |
+| serde | MIT OR Apache-2.0 | The `Deserialize` and `Serialize` impls the crate reads each reply and writes each request with |
+| serde_json | MIT OR Apache-2.0 | JSON protocol serialization/deserialization, every number kept as its digits (`raw_value` feature) |
 | yaml-rust2 | MIT OR Apache-2.0 | YAML check-rule loader (optional `yaml` feature, on by default) |
 | futures-channel | MIT OR Apache-2.0 | Async client reply channel (optional `async` feature) |
 | futures-util | MIT OR Apache-2.0 | Stream combinators for the lazy async batch send (optional `async` feature) |
 
-`serde` (MIT OR Apache-2.0) is pulled in transitively by `serde_json`. Dev-only (test/bench, not shipped): `futures` and `yaml-rust2`.
+Dev-only (test/bench, not shipped): `futures` and `yaml-rust2`.
 
 The optional `aletheia-excel` crate (`rust/excel/`) is a separate crate so the `.xlsx` dependency chain is not imposed on core users; its third-party crates, pinned in `rust/excel/Cargo.toml`:
 

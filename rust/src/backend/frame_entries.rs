@@ -11,11 +11,7 @@ use crate::error::Error;
 use crate::log::LogLevel;
 use crate::types::{CanId, Dlc, Timestamp};
 
-const NO_SIGNALS: SignalInjection<'static> = SignalInjection {
-    indices: &[],
-    nums: &[],
-    dens: &[],
-};
+const NO_SIGNALS: SignalInjection<'static> = SignalInjection { values: &[] };
 
 fn backend() -> FfiBackend {
     FfiBackend::new(None, None, LogLevel::Warn)

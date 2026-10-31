@@ -44,7 +44,9 @@ fn lifecycle_events_fire_and_are_all_known() {
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
 
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+    c.add_checks(&[check::signal("EngineSpeed")
+        .never_exceeds(1000)
+        .expect("check")])
         .expect("add_checks");
     c.start_stream().expect("start stream");
     let frame = c

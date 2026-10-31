@@ -28,12 +28,14 @@ use libloading::{Library, Symbol};
 use crate::error::Error;
 use crate::log::{events, LogField, LogLevel, LogRecord, LogValue, Logger};
 use crate::response;
-use crate::types::{CanId, Dlc, Timestamp};
+use crate::types::{CanId, Dlc, Rational, Timestamp};
 
 mod ffi_backend;
 
 pub use ffi_backend::{allocated_bytes, start_runtime};
-pub(crate) use ffi_backend::{format_rational, parse_decimal, FfiBackend};
+pub(crate) use ffi_backend::{
+    check_property, format_rational, parse_decimal, parse_time_bound, FfiBackend,
+};
 
 /// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
 pub(crate) type StateHandle = *mut c_void;
@@ -108,12 +110,12 @@ struct FfiFrame {
     esi_value: u8,
 }
 
-/// `struct aletheia_signal_values`: parallel signal indices and rationals.
+/// `struct aletheia_signal_values`: `count` signal indices and as many
+/// rationals, the two arrays parallel.
 #[repr(C)]
 struct FfiSignalValues {
     indices: *const u32,
-    numerators: *const i64,
-    denominators: *const i64,
+    values: *const FfiRational,
     count: u32,
 }
 
@@ -129,11 +131,69 @@ struct FfiBuffer {
     size: u32,
 }
 
-/// `struct aletheia_rational`: an exact rational.
+/// `struct aletheia_uint128`: an unsigned 128-bit number, `lo + hi * 2^64`.
+/// Two words rather than a Rust `u128`, which aligns to 16 where the header's
+/// pair aligns to 8.
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct FfiUint128 {
+    lo: u64,
+    hi: u64,
+}
+
+impl FfiUint128 {
+    /// `value` as the two words the entries read, the low word first.
+    fn of(value: u128) -> Self {
+        FfiUint128 {
+            lo: value as u64,
+            hi: (value >> 64) as u64,
+        }
+    }
+
+    /// The magnitude the two words an entry wrote denote.
+    fn value(self) -> u128 {
+        (u128::from(self.hi) << 64) | u128::from(self.lo)
+    }
+}
+
+/// `struct aletheia_rational`: an exact rational, negated when `negative` is
+/// not 0.
+#[derive(Clone, Copy)]
 #[repr(C)]
 struct FfiRational {
-    numerator: i64,
-    denominator: i64,
+    numerator: FfiUint128,
+    denominator: FfiUint128,
+    negative: u8,
+}
+
+impl FfiRational {
+    /// `r` as the structure the entries read; a [`Rational`]'s zero is
+    /// unsigned, so its sign byte is 0.
+    fn of(r: Rational) -> Self {
+        FfiRational {
+            numerator: FfiUint128::of(r.numerator()),
+            denominator: FfiUint128::of(r.denominator()),
+            negative: u8::from(r.is_negative()),
+        }
+    }
+
+    /// The rational an entry wrote, which the library writes reduced, over a
+    /// positive denominator and with a zero unsigned; any sign byte but 0 is
+    /// negative.
+    fn rational(self) -> Rational {
+        Rational::from_kernel(
+            self.negative != 0,
+            self.numerator.value(),
+            self.denominator.value(),
+        )
+    }
+
+    /// Every field 0, what an entry writes on a refusal.
+    const ZERO: FfiRational = FfiRational {
+        numerator: FfiUint128 { lo: 0, hi: 0 },
+        denominator: FfiUint128 { lo: 0, hi: 0 },
+        negative: 0,
+    };
 }
 
 /// `struct aletheia_text`: `size` bytes of UTF-8 from `data`, with no
@@ -163,6 +223,23 @@ struct FfiDecimal {
     err: *mut c_char,
 }
 
+/// `struct aletheia_time_bound`: a parsed time bound in microseconds, or on
+/// failure a GHC-allocated JSON error envelope the caller frees with
+/// `aletheia_free_str`.
+#[repr(C)]
+struct FfiTimeBound {
+    microseconds: u64,
+    err: *mut c_char,
+}
+
+/// `struct aletheia_property_check`: on a refusal, a GHC-allocated JSON error
+/// envelope the caller frees with `aletheia_free_str`; null when the kernel
+/// accepts the property.
+#[repr(C)]
+struct FfiPropertyCheck {
+    err: *mut c_char,
+}
+
 type SendFrameFn = unsafe extern "C" fn(StateHandle, *const FfiFrame) -> *mut c_char;
 type SendErrorFn = unsafe extern "C" fn(StateHandle, *const FfiFrame) -> *mut c_char;
 type SendRemoteFn = unsafe extern "C" fn(StateHandle, *const FfiFrame) -> *mut c_char;
@@ -177,6 +254,8 @@ type ProcessFn = unsafe extern "C" fn(StateHandle, *const FfiText) -> *mut c_cha
 type FormatDbcFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
 type FormatRationalFn = unsafe extern "C" fn(*const FfiRational) -> *mut c_char;
 type ParseDecimalFn = unsafe extern "C" fn(*const FfiText, *mut FfiDecimal) -> i8;
+type ParseTimeBoundFn = unsafe extern "C" fn(*const FfiText, *mut FfiTimeBound) -> i8;
+type CheckPropertyFn = unsafe extern "C" fn(*const FfiText, *mut FfiPropertyCheck) -> i8;
 type InitFn = unsafe extern "C" fn() -> StateHandle;
 type CloseFn = unsafe extern "C" fn(StateHandle);
 type FreeStrFn = unsafe extern "C" fn(*mut c_char);
@@ -187,7 +266,7 @@ type ProcessorsFn = unsafe extern "C" fn() -> u32;
 
 /// `ALETHEIA_ABI_VERSION`: the version of the structures and signatures this
 /// crate lays out, which the `abi_layout` tests hold to the header's.
-const ABI_VERSION: u32 = 3;
+const ABI_VERSION: u32 = 4;
 // Build and update share one shape: the caller allocates the output (`dlc`
 // bytes) in the `FfiBuffer` and reads an `i8` status, nonzero meaning failure
 // with the JSON error envelope in the buffer's `err`.
@@ -313,18 +392,14 @@ pub trait Backend {
     ) -> Result<Vec<u8>, Error>;
 }
 
-/// Borrowed view of the parallel signal-injection arrays the build/update FFI
-/// expects: each `indices[i]` signal is set to the rational `nums[i]/dens[i]`.
-/// The three slices share a length. Bundling them keeps the seam methods within
-/// the argument-count limit and mirrors the C++ `SignalInjection` block.
+/// Borrowed view of the signal values the build/update FFI writes: each pair
+/// is a signal's positional index in its message's signal list and the exact
+/// rational it is set to. Bundling them keeps the seam methods within the
+/// argument-count limit and mirrors the C++ `SignalInjection` block.
 #[derive(Clone, Copy)]
 pub struct SignalInjection<'a> {
-    /// Positional index of each target signal in its message's signal list.
-    pub indices: &'a [u32],
-    /// Numerator of each injected value.
-    pub nums: &'a [i64],
-    /// Denominator of each injected value.
-    pub dens: &'a [i64],
+    /// Each target signal's index, with the value it is set to.
+    pub values: &'a [(u32, Rational)],
 }
 
 /// Resolve the shared-library path: the `ALETHEIA_LIB` override, else the
@@ -341,8 +416,9 @@ static LIB: OnceLock<Library> = OnceLock::new();
 static RTS_CORES: OnceLock<u32> = OnceLock::new();
 
 /// Whether the GHC runtime has started, by [`start_runtime`] or a client. The
-/// renderer, the decimal parser and [`allocated_bytes`] ask before calling the
-/// kernel, which with the runtime down is undefined behaviour.
+/// renderer, the decimal and time-bound parsers, the property check and
+/// [`allocated_bytes`] ask before calling the kernel, which with the runtime
+/// down is undefined behaviour.
 pub(crate) fn rts_started() -> bool {
     RTS_CORES.get().is_some()
 }
@@ -401,6 +477,8 @@ pub(crate) struct Symbols {
     update_frame: Symbol<'static, FrameBinFn>,
     format_rational: Symbol<'static, FormatRationalFn>,
     parse_decimal: Symbol<'static, ParseDecimalFn>,
+    parse_time_bound: Symbol<'static, ParseTimeBoundFn>,
+    check_property: Symbol<'static, CheckPropertyFn>,
     init: Symbol<'static, InitFn>,
     close: Symbol<'static, CloseFn>,
     free_str: Symbol<'static, FreeStrFn>,
@@ -450,6 +528,8 @@ impl Symbols {
                 update_frame: symbol::<FrameBinFn>(lib, b"aletheia_update_frame_bin\0")?,
                 format_rational: symbol::<FormatRationalFn>(lib, b"aletheia_format_rational\0")?,
                 parse_decimal: symbol::<ParseDecimalFn>(lib, b"aletheia_parse_decimal\0")?,
+                parse_time_bound: symbol::<ParseTimeBoundFn>(lib, b"aletheia_parse_time_bound\0")?,
+                check_property: symbol::<CheckPropertyFn>(lib, b"aletheia_check_property\0")?,
                 init: symbol::<InitFn>(lib, b"aletheia_init\0")?,
                 close: symbol::<CloseFn>(lib, b"aletheia_close\0")?,
                 free_str: symbol::<FreeStrFn>(lib, b"aletheia_free_str\0")?,
@@ -545,9 +625,10 @@ fn ensure_rts(
     Ok(())
 }
 
-/// Test-only: start the GHC runtime for unit tests that render. The renderer
-/// never starts it (see [`format_rational`]), so unit tests that exercise it
-/// (`check.rs`'s `condition_desc`, `enrich.rs`'s diagnostics) start it here, on
+/// Test-only: start the GHC runtime for unit tests that render or build a
+/// check. Neither the renderer (see [`format_rational`]) nor the property
+/// check starts it, so unit tests that exercise them (`check.rs`'s builders
+/// and `condition_desc`, `enrich.rs`'s diagnostics) start it here, on
 /// the count running or one. Idempotent, so a per-test call is cheap after the
 /// first. Mirrors the C++ `rts_setup_listener` / Python `rts_up` fixture.
 #[cfg(test)]
@@ -626,7 +707,7 @@ fn frame_len(dlc: Dlc, data: &[u8]) -> Result<u8, Error> {
 /// A plausibility cap on the size the core reports for an extraction buffer,
 /// not the wire's theoretical maximum (whose u32-length reason blob would admit
 /// a multi-GiB copy from a corrupt size report): the 10-byte header, the
-/// maximum u16 count of each fixed-stride section (values 18 B, errors 3 B,
+/// maximum u16 count of each fixed-stride section (values 35 B, errors 3 B,
 /// absent 2 B), the (nErrors + 1) x u32 reason-offsets table, and a generous
 /// per-entry reason budget. Kernel-minted reasons are short (bounded signal
 /// names + bounded decimal renderings + fixed text, well under 512 B each), so
@@ -635,7 +716,7 @@ fn frame_len(dlc: Dlc, data: &[u8]) -> Result<u8, Error> {
 /// processExtractBin).
 const MAX_REASON_BYTES_PER_ENTRY: usize = 512;
 const MAX_EXTRACT_BUF: usize = 10
-    + (18 + 3 + 2) * (u16::MAX as usize)
+    + (35 + 3 + 2) * (u16::MAX as usize)
     + 4 * (u16::MAX as usize + 1)
     + MAX_REASON_BYTES_PER_ENTRY * (u16::MAX as usize);
 
@@ -697,20 +778,17 @@ fn check_buffer_status(
     }
     // A nonzero status with non-null `out_err` is a GHC-allocated C string,
     // which `take_response` copies out and releases.
-    Err(buffer_refusal(op, &take_response(syms, out_err)))
+    Err(buffer_refusal(&take_response(syms, out_err)))
 }
 
 /// Read the JSON error envelope a binary-output entry sets on refusal, the
 /// one the JSON path answers with (the core's typed error, or the shim's own
 /// `ffi_validation_error`), as the JSON path reads it: [`Error::Core`] with
-/// its `code` and `message`, or a typed lift. Anything else in `err` is a
-/// wire fault.
-fn buffer_refusal(op: &str, json: &str) -> Error {
-    match response::parse_object(json) {
-        Err(Error::Protocol(e)) => Error::Protocol(format!("{op}: malformed error envelope: {e}")),
-        Err(refusal) => refusal,
-        Ok(_) => Error::Protocol(format!("{op}: error is not an error envelope: {json}")),
-    }
+/// its `code` and `message`, or a typed lift. Text that is not an envelope,
+/// or an envelope that is not an error, is the library malfunctioning,
+/// refused in the one form of every reply place, which names no entry.
+fn buffer_refusal(envelope: &str) -> Error {
+    response::error_envelope(envelope)
 }
 
 #[cfg(test)]

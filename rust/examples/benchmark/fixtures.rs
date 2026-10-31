@@ -462,16 +462,17 @@ pub(crate) fn canfd_frame() -> Vec<u8> {
 pub(crate) fn always_between(signal: &str, min: i64, max: i64) -> Formula {
     Formula::Always(Box::new(Formula::Atomic(Predicate::Between {
         signal: signal.to_string(),
-        min: Rational::integer(min),
-        max: Rational::integer(max),
+        min: Rational::from(min),
+        max: Rational::from(max),
     })))
 }
 
 /// `G(signal < value)`.
 pub(crate) fn always_less_than(signal: &str, value: Rational) -> Formula {
-    Formula::Always(Box::new(Formula::Atomic(Predicate::less_than(
-        signal, value,
-    ))))
+    Formula::Always(Box::new(Formula::Atomic(Predicate::LessThan {
+        signal: signal.to_string(),
+        value,
+    })))
 }
 
 pub(crate) fn can20_properties() -> Vec<Formula> {

@@ -84,7 +84,8 @@ Aletheia provides:
    }
    ```
    ```rust
-   let speed_limit = check::signal("Speed").never_exceeds(220);  // Rust
+   aletheia::start_runtime(1, None)?;  // the kernel checks every check
+   let speed_limit = check::signal("Speed").never_exceeds(220)?;  // Rust
    ```
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
@@ -230,10 +231,11 @@ _ = f
 
 Rust:
 ```rust
-let speed = check::signal("Speed").never_exceeds(220);       // Check API (i64 → exact Rational)
+aletheia::start_runtime(1, None)?;                             // the kernel checks every check
+let speed = check::signal("Speed").never_exceeds(220)?;        // Check API (integer → exact Rational)
 let coolant = check::signal("Coolant").stays_between(80, 105)?;
 // LTL formulas via the compositional Formula/Predicate AST:
-let f = Formula::Always(Box::new(Formula::Atomic(Predicate::less_than("Speed", 220))));
+let f = Formula::Always(Box::new(Formula::Atomic(Predicate::less_than("Speed", 220)?)));
 ```
 
 **Streaming workflow** (Python shown). The client pattern, parse the DBC, add checks, feed frames and read verdicts, is identical across all four bindings. The `iter_can_log` log-file reader, however, is currently Python-only: in C++, Go, and Rust you supply frames from your own source (a live bus, your own parser, or replayed capture) and feed them to `send_frame` the same way.

@@ -152,7 +152,7 @@ features:
       rust:
         status: implemented
         entry: "Error::TextRoundtripFailed"
-        notes: "format_dbc_text returns Result<DbcText, Error> where DbcText carries {text, issues}; refusal is Error::TextRoundtripFailed { code, message, has_errors, issues }, lifted by parse_object on the handler_text_roundtrip_failed wire code (a malformed payload degrades to Error::Core, matching the peers)."
+        notes: "format_dbc_text returns Result<DbcText, Error> where DbcText carries {text, issues}; refusal is Error::TextRoundtripFailed { code, message, has_errors, issues }, lifted from the handler_text_roundtrip_failed envelope, whose has_errors / issues payload is read whole: a reply holding part of it is refused as Error::Protocol in the one form of every reply refusal."
 
   - id: dbc_metadata_tier1
     name: DBC metadata Tier 1 (signal groups, env vars, value tables)
@@ -363,10 +363,9 @@ features:
       case, so less_than_or_equal and stable_within read alike in Python, C++
       and Rust and the Go methods carry the constructor names themselves.
       A range whose minimum exceeds its maximum, a negative tolerance and a
-      zero denominator are the kernel's to refuse: Python's, Go's and C++'s
-      builders hand what they build to its property parse, a predicate
-      written directly meets it at set_properties, and Rust refuses them
-      where the property is serialised.
+      zero denominator are the kernel's to refuse: the four bindings'
+      builders hand what they build to its property parse, and a predicate
+      written directly meets it at set_properties.
       Each entry below pins the `less_than` representative (uniform across the
       four); the gate catches its silent removal.
     bindings:
@@ -517,11 +516,11 @@ features:
       rust:
         status: implemented
         entry: IssueCode
-        notes: "ValidationIssue { severity: IssueSeverity, code: IssueCode, detail } — typed enums mirroring the Agda IssueCode ADT and the Python/Go/C++ vocabularies. IssueCode is lenient (unknown wire codes → IssueCode::Unknown, forward-compatible); IssueSeverity is strict (the closed error/warning set is rejected-on-unknown at decode)."
+        notes: "ValidationIssue { severity: IssueSeverity, code: IssueCode, detail }: typed enums mirroring the Agda IssueCode ADT and the Python/Go/C++ vocabularies. IssueCode is lenient (unknown wire codes → IssueCode::Unknown, forward-compatible); IssueSeverity is the kernel's two words, error and warning, to which its reply proof holds an issue's severity."
 
   - id: input_bound_exceeded_error
     name: Typed input-bound-exceeded error
-    description: An adversarial-input bound rejection (nesting depth, atom count, identifier length, …) is lifted from the wire input_bound_exceeded envelope into a typed error carrying the structured bound_kind / observed / limit triple and, for a DBC's size bound, the field that crossed it (e.g. "senders array"); a malformed/partial triple degrades to the generic coded error.
+    description: An adversarial-input bound rejection (nesting depth, atom count, identifier length, …) is lifted from the wire input_bound_exceeded envelope into a typed error carrying the structured bound_kind / observed / limit triple and, for a DBC's size bound, the field that crossed it (e.g. "senders array"); a malformed or partial triple is refused as a malformed reply, never read as another error.
     bindings:
       python: { status: implemented, entry: aletheia.InputBoundExceededError }
       cpp:    { status: implemented, entry: "aletheia/limits.hpp#InputBoundExceededError" }
@@ -529,11 +528,11 @@ features:
       rust:
         status: implemented
         entry: "Error::InputBoundExceeded"
-        notes: "Error::InputBoundExceeded is lifted by parse_object when the wire code is input_bound_exceeded and the triple is well-typed (a malformed/partial triple degrades to Error::Core, matching Go/C++/Python)."
+        notes: "Error::InputBoundExceeded(Box<BoundRefusal>) is lifted from the input_bound_exceeded envelope, its bound_kind / observed / limit triple read whole: a reply holding part of it, or a field that is not a string, is refused as Error::Protocol in the one form of every reply refusal. observed and limit are u128s, and bound_kind is one of the aletheia::limits BOUND_KIND_* codes."
 
   - id: validation_rejection_issues
     name: Structured issues on validation rejection
-    description: A DBC rejected at load (parseDBC / parseDBCText with error-level validation issues) surfaces the FULL structured issue list — errors and warnings — as a typed error lifted from the handler_validation_failed envelope; a malformed/partial payload degrades to the generic coded error. The validate CLIs render the list and exit 1 in both text and --json modes.
+    description: A DBC rejected at load (parseDBC / parseDBCText with error-level validation issues) surfaces the FULL structured issue list, errors and warnings both, as a typed error lifted from the handler_validation_failed envelope; a malformed or partial payload is refused as a malformed reply, never read as another error. The validate CLIs render the list and exit 1 in both text and --json modes.
     bindings:
       python: { status: implemented, entry: aletheia.DBCValidationFailedError }
       cpp:
@@ -553,7 +552,7 @@ features:
       rust:
         status: implemented
         entry: "Enrichment"
-        notes: "Computed client-side (the core emits no enrichment field): each registered formula yields a PropertyDiagnostic (referenced signals + description) cached at set_properties; on a violation the signals are paired with their last-known values to build an Enrichment on PropertyResult. Mirrors Go enrich.go / Python _enrichment.py; the cache.* / extraction-cache layer is not implemented (cache is a perf optimization, not part of the contract)."
+        notes: "Computed client-side (the core emits no enrichment field): each registered formula yields a PropertyDiagnostic (referenced signals + description) cached at set_properties; on a violation the signals are paired with their last-known values to build an Enrichment on PropertyResult, and an extraction the enrichment needs and the kernel refuses is logged and returned as the error of send_frame or end_stream. Mirrors Go enrich.go / Python _enrichment.py; the cache.* / extraction-cache layer is not implemented (cache is a perf optimization, not part of the contract)."
 
   - id: runtime_start
     name: Runtime start

@@ -23,7 +23,7 @@ const CHECKS_HEADERS: [&str; 8] = [
     "Value",
     "Min",
     "Max",
-    "Time (ms)",
+    "Time (µs)",
     "Severity",
 ];
 
@@ -147,15 +147,31 @@ fn text<'a>(node: &'a Yaml, key: &str, scenario: &str) -> &'a str {
         .unwrap_or_else(|| panic!("{scenario}: '{key}' is not a string"))
 }
 
-/// An unsigned number of the contract. A magnitude past `i64::MAX` reads as a
-/// [`Yaml::Real`] holding its text.
-fn unsigned(node: &Yaml, scenario: &str) -> u64 {
-    let number = match node {
-        Yaml::Integer(i) => u64::try_from(*i).ok(),
-        Yaml::Real(s) => s.parse().ok(),
-        _ => None,
+/// A whole number of the contract as its sign and its magnitude, which reaches
+/// 2^128-1. A number past the `i64` range reads as a [`Yaml::Real`] holding
+/// its text.
+fn whole(node: &Yaml, scenario: &str) -> (bool, u128) {
+    let digits = match node {
+        Yaml::Integer(i) => i.to_string(),
+        Yaml::Real(s) => s.clone(),
+        _ => panic!("{scenario}: {node:?} is not a whole number"),
     };
-    number.unwrap_or_else(|| panic!("{scenario}: {node:?} is not an unsigned number"))
+    let (negative, magnitude) = match digits.strip_prefix('-') {
+        Some(magnitude) => (true, magnitude),
+        None => (false, digits.as_str()),
+    };
+    let magnitude = magnitude
+        .parse()
+        .unwrap_or_else(|e| panic!("{scenario}: {digits:?} is no magnitude up to 2^128-1: {e}"));
+    (negative, magnitude)
+}
+
+/// An unsigned number of the contract, up to 2^128-1.
+fn unsigned(node: &Yaml, scenario: &str) -> u128 {
+    match whole(node, scenario) {
+        (false, magnitude) => magnitude,
+        (true, _) => panic!("{scenario}: {node:?} is not an unsigned number"),
+    }
 }
 
 /// The rational a row expects the loader to read; `None` for a refusal row. A
@@ -163,22 +179,22 @@ fn unsigned(node: &Yaml, scenario: &str) -> u64 {
 fn expected_rational(expect: &Yaml, scenario: &str) -> Option<Rational> {
     let pair = expect["rational"].as_vec()?;
     assert!(
-        expect["milliseconds"].is_badvalue() && expect["kind"].is_badvalue(),
+        pair.len() == 2 && expect["microseconds"].is_badvalue() && expect["kind"].is_badvalue(),
         "{scenario}: the contract gives a rational and another answer"
     );
-    let part = |i: usize| {
-        pair.get(i)
-            .and_then(Yaml::as_i64)
-            .unwrap_or_else(|| panic!("{scenario}: rational part {i} is not an integer"))
-    };
-    Some(Rational::new(part(0), part(1)).unwrap_or_else(|e| panic!("{scenario}: {e}")))
+    let (negative, numerator) = whole(&pair[0], scenario);
+    let denominator = unsigned(&pair[1], scenario);
+    Some(
+        Rational::from_parts(negative, numerator, denominator)
+            .unwrap_or_else(|e| panic!("{scenario}: {e}")),
+    )
 }
 
 /// How a refusal differs from the row's `expect`, one line per difference. A
 /// refusal row that also gives a reading is a mistake in the contract.
 fn refusal_differences(err: &Error, expect: &Yaml, scenario: &str) -> Vec<String> {
     assert!(
-        expect["rational"].is_badvalue() && expect["milliseconds"].is_badvalue(),
+        expect["rational"].is_badvalue() && expect["microseconds"].is_badvalue(),
         "{scenario}: the contract gives a refusal and a reading"
     );
     let kind = text(expect, "kind", scenario);
@@ -191,9 +207,11 @@ fn refusal_differences(err: &Error, expect: &Yaml, scenario: &str) -> Vec<String
         .unwrap_or_else(|| panic!("{scenario}: 'printed' does not open with its location and key"));
     let (got_kind, got_code, got_message) = match err {
         Error::Validation { message, code, .. } => ("validation", code.as_deref(), message),
-        Error::InputBoundExceeded { code, message, .. } => {
-            ("input_bound_exceeded", Some(code.as_str()), message)
-        }
+        Error::InputBoundExceeded(refusal) => (
+            "input_bound_exceeded",
+            Some(refusal.code.as_str()),
+            &refusal.message,
+        ),
         other => return vec![format!("expected a {kind} refusal, got {other:?}")],
     };
     let (got_location, got_key) = (err.location(), err.key());
@@ -217,16 +235,14 @@ fn refusal_differences(err: &Error, expect: &Yaml, scenario: &str) -> Vec<String
     if shown != printed {
         differences.push(format!("printed {shown:?}, expected {printed:?}"));
     }
-    if let Error::InputBoundExceeded {
-        bound_kind,
-        observed,
-        limit,
-        field,
-        ..
-    } = err
-    {
+    if let Error::InputBoundExceeded(refusal) = err {
         let bound = &expect["bound"];
-        let got = (bound_kind.as_str(), *observed, *limit, field.as_deref());
+        let got = (
+            refusal.bound_kind.as_str(),
+            refusal.observed,
+            refusal.limit,
+            refusal.field.as_deref(),
+        );
         let want = (
             text(bound, "kind", scenario),
             unsigned(&bound["observed"], scenario),
@@ -280,8 +296,12 @@ fn every_excel_row_loads_as_the_contract_says() {
         let found = match text(row, "sheet", scenario) {
             "Checks" => {
                 write_workbook(&path, "Checks", &CHECKS_HEADERS, &checks_row(value));
-                let expected =
-                    expected.map(|r| vec![check::signal("Speed").never_exceeds(r).named("C")]);
+                let expected = expected.map(|r| {
+                    let built = check::signal("Speed")
+                        .never_exceeds(r)
+                        .unwrap_or_else(|e| panic!("{scenario}: {e}"));
+                    vec![built.named("C")]
+                });
                 differences(load_checks_from_excel(&path), expected, expect, scenario)
             }
             "DBC" => {
