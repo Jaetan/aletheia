@@ -131,7 +131,9 @@ def main() -> int:
     if rc != 0:
         sys.stderr.write(
             "\\npre-push: CI sweep failed — push refused.\\n"
-            "pre-push: review the log under tools/ci-output/, fix issues, re-push.\\n"
+            "pre-push: the sweep's log is in the records directory that\\n"
+            "pre-push: `python/.venv/bin/python -m tools._records` prints;\\n"
+            "pre-push: review it, fix issues, re-push.\\n"
             "pre-push: bypass with `git push --no-verify` only when you "
             "understand why.\\n"
         )

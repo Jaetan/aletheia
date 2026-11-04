@@ -15,8 +15,10 @@ Two layers:
   them: no claim passes; a claim over a doc-only commit passes; a claim over a
   build-relevant commit fails with no record, passes when the running sweep
   exports the commit's digest, fails when it exports another, passes when a
-  finished log records the digest with a passing summary, and fails when the
-  log failed or is a fast-tier log that recorded no digest.  What git itself
+  finished log in the records directory records the digest with a passing
+  summary, and fails when the log failed or is a fast-tier log that recorded
+  no digest.  The records directory is the one ``tools._records`` names, and a
+  relative ``ALETHEIA_CI_OUTPUT`` is refused with exit 2.  What git itself
   answers, the commit a hash names and the diff of a root commit, runs in a
   throwaway repository.
 """
@@ -29,9 +31,9 @@ from typing import TYPE_CHECKING, NewType
 import pytest
 from _git_repo import commit, git
 
-from tools._common import RelPath
+from tools._common import EnvName, EnvValue, RelPath
+from tools._records import records_dir
 from tools.check_gate_claim import (
-    LOG_DIR,
     PASSED_LINE,
     SOURCES_ENV,
     SOURCES_LINE,
@@ -55,6 +57,9 @@ GitOutput = NewType("GitOutput", str)
 SourcesDigest = NewType("SourcesDigest", str)
 
 CLAIM = Prose("feat: widen the parser\n\nAll gates clean.\n")
+
+# The variable naming the records directory, spelled as pr-full-ci.yml sets it.
+_RECORDS_ENV = EnvName("ALETHEIA_CI_OUTPUT")
 
 _HEAD = Revision("HEAD")
 _PARENT = Revision("parent")
@@ -80,9 +85,13 @@ def _make_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _write_log(repo: Path, name: str, sources: str, *, passed: bool) -> None:
-    """Write a sweep log in the shape the orchestrator leaves behind."""
-    log_dir = repo / LOG_DIR
+def _beside(root: Path) -> Path:
+    """Return the records directory of the checkout at ``root`` with the variable unset."""
+    return records_dir(root, {})
+
+
+def _write_log(log_dir: Path, name: str, sources: str, *, passed: bool) -> None:
+    """Write a sweep log in the shape the orchestrator leaves behind into ``log_dir``."""
     log_dir.mkdir(parents=True, exist_ok=True)
     verdict = (
         "Result:   ALL 3 STEPS PASSED" if passed else "═══ CI FAILED — 1 step(s) failed: x ═══"
@@ -102,9 +111,10 @@ def _write_log(repo: Path, name: str, sources: str, *, passed: bool) -> None:
 
 
 def _run_gate(repo: Path, monkeypatch: pytest.MonkeyPatch, mode: str = "HEAD") -> int:
-    """Run ``check_gate_claim.main()`` from inside ``repo`` with no sweep running."""
+    """Run ``check_gate_claim.main()`` from inside ``repo``, no sweep running, no records named."""
     monkeypatch.chdir(repo)
     monkeypatch.delenv(SOURCES_ENV, raising=False)
+    monkeypatch.delenv(_RECORDS_ENV, raising=False)
     monkeypatch.setattr("sys.argv", ["check_gate_claim", mode])
     return main()
 
@@ -146,9 +156,11 @@ def _plant_commit(
     """Make ``main`` read HEAD as a commit with ``message`` over ``src/A.agda`` at ``root``.
 
     The commit's build sources digest to ``digest``; git answers only the
-    repository root, which is where ``main`` looks for the sweep logs.
+    repository root, from which ``main`` names the records directory.  The
+    variable naming that directory is unset.
     """
     _plant_message(monkeypatch, message, [RelPath("src/A.agda")])
+    monkeypatch.delenv(_RECORDS_ENV, raising=False)
 
     def toplevel(*args: GitArg, cwd: Path | None = None) -> tuple[ExitStatus, GitOutput]:
         del cwd
@@ -288,9 +300,9 @@ def test_evidence_prefers_the_running_sweep_then_a_passed_log(tmp_path: Path) ->
     assert evidence_for(digest, log_dir=tmp_path, environ={SOURCES_ENV: digest}) is not None
     assert evidence_for(digest, log_dir=tmp_path, environ={SOURCES_ENV: other}) is None
     assert evidence_for(digest, log_dir=tmp_path, environ={}) is None
-    _write_log(tmp_path, "a.log", digest, passed=True)
-    assert evidence_for(digest, log_dir=tmp_path / LOG_DIR, environ={}) is not None
-    assert evidence_for(other, log_dir=tmp_path / LOG_DIR, environ={}) is None
+    _write_log(tmp_path / "records", "a.log", digest, passed=True)
+    assert evidence_for(digest, log_dir=tmp_path / "records", environ={}) is not None
+    assert evidence_for(other, log_dir=tmp_path / "records", environ={}) is None
 
 
 def test_a_failed_log_and_a_fast_log_are_not_evidence(tmp_path: Path) -> None:
@@ -298,7 +310,7 @@ def test_a_failed_log_and_a_fast_log_are_not_evidence(tmp_path: Path) -> None:
     digest = "a" * 64
     _write_log(tmp_path, "failed.log", digest, passed=False)
     _write_log(tmp_path, "fast.log", SOURCES_UNRECORDED, passed=True)
-    assert evidence_for(digest, log_dir=tmp_path / LOG_DIR, environ={}) is None
+    assert evidence_for(digest, log_dir=tmp_path, environ={}) is None
 
 
 def test_the_passed_line_matches_the_orchestrator_summary() -> None:
@@ -327,13 +339,14 @@ def test_e2e_claim_without_a_record_fails_and_names_the_digest(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """No sweep running and no log: the claim is refused with its digest."""
-    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
+    """No sweep running and no log: the claim is refused with its digest and where it looked."""
+    _plant_commit(monkeypatch, tmp_path / "repo", CLAIM, _DIGEST)
     assert main() == 1
     err = capsys.readouterr().err
     assert _DIGEST in err
     assert "src/A.agda" in err
     assert "tools/run_ci.py" in err
+    assert f"{_beside(tmp_path / 'repo')} records this digest" in err
 
 
 def test_e2e_the_running_sweep_vouches_when_it_observes_the_commit(
@@ -341,7 +354,7 @@ def test_e2e_the_running_sweep_vouches_when_it_observes_the_commit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Inside a sweep over this tree the claim passes with no log at all."""
-    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
+    _plant_commit(monkeypatch, tmp_path / "repo", CLAIM, _DIGEST)
     assert main() == 1
     monkeypatch.setenv(SOURCES_ENV, _DIGEST)
     assert main() == 0
@@ -353,7 +366,7 @@ def test_e2e_a_sweep_over_another_tree_does_not_vouch(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A sweep whose tree carries an uncommitted build edit is not evidence."""
-    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
+    _plant_commit(monkeypatch, tmp_path / "repo", CLAIM, _DIGEST)
     monkeypatch.setenv(SOURCES_ENV, _OTHER)
     assert main() == 1
     assert "not the commit's" in capsys.readouterr().err
@@ -364,8 +377,8 @@ def test_e2e_a_passed_log_vouches_whatever_the_mtimes_say(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A finished passing log over the commit's sources is the evidence."""
-    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
-    _write_log(tmp_path, "ci-main.log", _DIGEST, passed=True)
+    _plant_commit(monkeypatch, tmp_path / "repo", CLAIM, _DIGEST)
+    _write_log(_beside(tmp_path / "repo"), "ci-main.log", _DIGEST, passed=True)
     assert main() == 0
 
 
@@ -374,10 +387,56 @@ def test_e2e_a_failed_or_fast_log_does_not_vouch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A failed sweep, and a fast-tier sweep that passed, leave the claim unbacked."""
-    _plant_commit(monkeypatch, tmp_path, CLAIM, _DIGEST)
-    _write_log(tmp_path, "failed.log", _DIGEST, passed=False)
-    _write_log(tmp_path, "fast.log", SOURCES_UNRECORDED, passed=True)
+    _plant_commit(monkeypatch, tmp_path / "repo", CLAIM, _DIGEST)
+    _write_log(_beside(tmp_path / "repo"), "failed.log", _DIGEST, passed=False)
+    _write_log(_beside(tmp_path / "repo"), "fast.log", SOURCES_UNRECORDED, passed=True)
     assert main() == 1
+
+
+def test_e2e_a_passed_log_vouches_only_where_the_variable_points(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With ``ALETHEIA_CI_OUTPUT`` set, its directory is read, not the one beside the checkout."""
+    _plant_commit(monkeypatch, tmp_path / "repo", CLAIM, _DIGEST)
+    _write_log(_beside(tmp_path / "repo"), "ci-main.log", _DIGEST, passed=True)
+    monkeypatch.setenv(_RECORDS_ENV, str(tmp_path / "elsewhere"))
+    assert main() == 1
+    _write_log(tmp_path / "elsewhere", "ci-main.log", _DIGEST, passed=True)
+    assert main() == 0
+
+
+def test_e2e_a_relative_records_directory_is_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A relative ``ALETHEIA_CI_OUTPUT`` exits 2 naming it, whatever lies beside the checkout."""
+    _plant_commit(monkeypatch, tmp_path / "repo", CLAIM, _DIGEST)
+    _write_log(_beside(tmp_path / "repo"), "ci-main.log", _DIGEST, passed=True)
+    monkeypatch.setenv(_RECORDS_ENV, EnvValue("records"))
+    assert main() == 2
+    assert capsys.readouterr().err.startswith(
+        "check-gate-claim: ALETHEIA_CI_OUTPUT names 'records'"
+    )
+
+
+def test_e2e_a_tree_git_cannot_list_exits_2_saying_so(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A commit whose tree git cannot list exits 2 with the reason, not as an unbacked claim."""
+    _plant_commit(monkeypatch, tmp_path / "repo", CLAIM, _DIGEST)
+
+    def unlisted(revision: Revision, *, repo: Path | None = None) -> SourcesDigest:
+        del repo
+        message = f"cannot list the tree of {revision}"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr("tools.check_gate_claim.sources_digest_of_revision", unlisted)
+    assert main() == 2
+    assert capsys.readouterr().err == "check-gate-claim: cannot list the tree of HEAD\n"
 
 
 # ── End to end over main(), what git answers ────────────────────────────────
@@ -394,7 +453,9 @@ def test_e2e_audit_mode_reads_the_named_commit(
     repo = _make_repo(tmp_path)
     (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
     audited = commit(repo, CLAIM)
-    _write_log(repo, "ci-main.log", sources_digest_of_revision(audited, repo=repo), passed=True)
+    _write_log(
+        _beside(repo), "ci-main.log", sources_digest_of_revision(audited, repo=repo), passed=True
+    )
     (repo / "src" / "A.agda").write_text("module A where\n-- y\n", encoding="utf-8")
     _ = commit(repo, "feat: later, no claim")
     assert _run_gate(repo, monkeypatch, mode=audited) == 0

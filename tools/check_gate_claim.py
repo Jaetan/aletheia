@@ -27,9 +27,9 @@ Strategy:
   5. Compute the commit's build-source digest and look for a sweep that
      recorded it: the sweep this check runs inside, which exports the digest
      of the working tree it observes in ``ALETHEIA_GATE_SOURCES``, or a
-     finished log under ``tools/ci-output/`` whose header carries the digest
-     and whose summary says every step passed.  Neither → fail with
-     diagnostic.
+     finished log in the records directory ``tools/_records.py`` names, whose
+     header carries the digest and whose summary says every step passed.
+     Neither → fail with diagnostic.
 
 The digest is the SHA-256 over the sorted ``<blob id> <path>`` lines of every
 build-relevant path, so it is the content identity git itself assigns and
@@ -42,7 +42,8 @@ and records no digest.
 Exit codes:
   0 — no claim, OR claim with a sweep record over the commit's build sources.
   1 — claim made but no successful sweep recorded these build sources.
-  2 — usage error / git failure.
+  2 — usage error / git failure / a records directory named by a relative path or
+      inside the checkout.
 
 Claim phrases are conservative.  Specific gate-output lines like
 "check-properties ✓" don't match; only broader "all gates" / "gates green" /
@@ -61,6 +62,7 @@ from pathlib import Path
 from typing import NewType
 
 from tools._common import RelPath, emit, find_executable, is_shake_source, run_capture
+from tools._records import UnusableRecordsDirError, environment, records_dir
 
 _GIT = find_executable("git")
 
@@ -82,9 +84,8 @@ def is_build_source(path: RelPath) -> bool:
 
 
 # The variable a running sweep exports, holding the digest of the build sources
-# it observes, and the directory its finished logs land in.
+# it observes.
 SOURCES_ENV = "ALETHEIA_GATE_SOURCES"
-LOG_DIR = Path("tools") / "ci-output"
 
 # The lines a finished log carries: the digest in its header, the verdict in its
 # summary.  The orchestrator writes both through these constants, so the reader
@@ -311,11 +312,12 @@ def main() -> int:
     revision = "HEAD" if args.mode == "post-commit" else args.mode
     try:
         digest = sources_digest_of_revision(revision, repo=root)
-    except RuntimeError as exc:
+        log_dir = records_dir(root, environment())
+    except (RuntimeError, UnusableRecordsDirError) as exc:
         _ = sys.stderr.write(f"check-gate-claim: {exc}\n")
         return 2
 
-    evidence = evidence_for(digest, log_dir=root / LOG_DIR, environ=dict(os.environ))
+    evidence = evidence_for(digest, log_dir=log_dir, environ=dict(os.environ))
     if evidence is None:
         running = os.environ.get(SOURCES_ENV)
         observed = (
@@ -324,7 +326,7 @@ def main() -> int:
             + "edit the commit does not, or lacks one it has.\n"
             if running is not None
             else "no sweep is running, and no passed log under\n"
-            + f"{root / LOG_DIR} records this digest.\n"
+            + f"{log_dir} records this digest.\n"
         )
         _ = sys.stderr.write(
             "check-gate-claim: FAIL — gate-clean claim made without a sweep "

@@ -103,9 +103,10 @@ gateRules = do
         -- "gates green", etc.), the check digests the commit's build sources
         -- and asks for a sweep that recorded that digest: the sweep this
         -- target runs inside, which exports the digest of the tree it
-        -- observes, or a passed log under tools/ci-output/ whose header
-        -- carries it.  Content, never a timestamp: a checkout moves mtimes
-        -- and no verdict.
+        -- observes, or a passed log in the records directory
+        -- `python/.venv/bin/python -m tools._records` prints, whose header
+        -- carries it.
+        -- Content, never a timestamp: a checkout moves mtimes and no verdict.
         --
         -- Defaults to HEAD-mode when invoked via Shake (a named commit is the
         -- audit form, for a commit that is no longer HEAD).

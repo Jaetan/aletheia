@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes the tracked Python under tools/ and the tracked shell under tools/
-# and probes/; a scratch checkout left under tools/ci-output/ is not read.
+# and probes/; a scratch checkout among the run records, where
+# python/.venv/bin/python -m tools._records says, is not read.
 # Claim: no job count or pinned CPU list there is counted from the machine.
 # os.cpu_count and multiprocessing.cpu_count count every CPU the machine has
 # whatever the process was given, and a taskset list counted up from zero

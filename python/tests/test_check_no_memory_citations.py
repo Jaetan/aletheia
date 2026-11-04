@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Unit tests for the citation gate (``tools/check_no_memory_citations.py``).
 
-The citation-shaped strings in this file are deliberate FIXTURES for the
-detector. The gate exempts this file by name (``_EXEMPT_FILES``), so they are
-never flagged in the live tree — the same arrangement ``test_docs_arm_labels.py`` and
-``test_check_no_review_marks.py`` use.
+The citation-shaped strings in this file, and its spellings of the records' place,
+are deliberate FIXTURES for the detector. No arm of the gate reads this file, so
+they are never flagged in the live tree.
 
 Following the gate-audit discipline (a gate that cannot fail has a bug): every
 flag shape has a failure-path test that injects a real citation and asserts a
@@ -15,17 +14,23 @@ look-alike does NOT fire.
 
 from __future__ import annotations
 
+import contextlib
+import io
 from typing import TYPE_CHECKING
 
 import pytest
 
 from tools._common import RelPath, TreeScan, tree_scan_exit_code
-from tools.check_no_memory_citations import in_scope, is_exempt, main, scan_text
+from tools.check_no_memory_citations import in_scope, main, scan_text
+
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 _SRC = "src/Aletheia/Foo.agda"  # a representative in-scope file
+# What a finding of the records arm says, after its file and line.
+_RECORDS_WHY = "the records' place, which `python/.venv/bin/python -m tools._records` names"
 
 
 @pytest.mark.parametrize(
@@ -138,8 +143,8 @@ def test_user_facing_docs_are_gated() -> None:
     ],
 )
 def test_exempt_files_are_exempt(rel: str) -> None:
-    """Detectors/fixtures, AI-infra docs, and the archive are exempt."""
-    assert is_exempt(rel)
+    """Detectors/fixtures, AI-infra docs, and the archive may cite the store."""
+    assert not scan_text(rel, "see [[learnings_aletheia]] and memory/project_x.md")
 
 
 @pytest.mark.parametrize(
@@ -153,7 +158,12 @@ def test_exempt_files_are_exempt(rel: str) -> None:
         "cpp/src/backend.cpp",
         "haskell-shim/src/AletheiaFFI.hs",
         "tools/run_ci.py",
-        # user-facing docs + logs (NOT exempt — a dead pointer is dead for readers)
+        "tools/_records.py",
+        # read for the records' place though they may cite the store
+        "CLAUDE.md",
+        "AGENTS/python.md",
+        "tools/check_no_review_marks.py",
+        # user-facing docs and logs, read for store pointers: a dead pointer is dead for readers
         "CHANGELOG.md",
         "PROJECT_STATUS.md",
         "README.md",
@@ -162,7 +172,7 @@ def test_exempt_files_are_exempt(rel: str) -> None:
         "rust/README.md",
         # data / config
         "docs/FEATURE_MATRIX.yaml",
-        "tools/ci-output/.gitignore",
+        "benchmarks/results/.gitignore",
     ],
 )
 def test_gated_files_are_in_scope(rel: str) -> None:
@@ -175,12 +185,13 @@ def test_gated_files_are_in_scope(rel: str) -> None:
     [
         "assets/logo.png",  # binary
         "build/x.agdai",  # binary interface
-        "CLAUDE.md",  # exempt AI-infra doc
-        "tools/check_no_review_marks.py",  # exempt detector
+        "tools/check_no_memory_citations.py",  # this gate, which no arm reads
+        "python/tests/test_check_no_memory_citations.py",  # its fixtures
+        ".archive/reviews/r20/notes.md",  # the review work record
     ],
 )
 def test_out_of_scope_files_are_skipped(rel: str) -> None:
-    """Binaries and exempt files are not scanned."""
+    """Binaries and the files no arm reads are not scanned."""
     assert not in_scope(rel)
 
 
@@ -201,3 +212,110 @@ def test_a_line_is_numbered_by_newlines_alone() -> None:
     """A form feed before a citation moves no line number."""
     findings = scan_text("docs/x.md", "a\x0cb\nsee [[learnings_aletheia]] here\n")
     assert [finding.split(" ", 1)[0] for finding in findings] == ["docs/x.md:2:"]
+
+
+@pytest.mark.parametrize(
+    ("line", "spelled"),
+    [
+        (Prose("logs land in tools/ci-output/ci.log"), Prose("tools/ci-output")),
+        (Prose("records in ../aletheia-ci-output/probes"), Prose("aletheia-ci-output")),
+        (Prose('log_dir = repo / "tools" / "ci-output"'), Prose("ci-output")),
+    ],
+)
+def test_the_records_place_is_flagged_with_the_module_to_ask(line: Prose, spelled: Prose) -> None:
+    """Each spelling of the records' place, a joined path included, names the command to ask."""
+    assert scan_text(_SRC, line) == [f"{_SRC}:1: {_RECORDS_WHY} -> {spelled!r}"]
+
+
+def test_the_records_variable_is_not_the_place() -> None:
+    """The variable naming the place is not a spelling of it."""
+    assert not scan_text(_SRC, "export ALETHEIA_CI_OUTPUT=/srv/records")
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        RelPath("tools/_records.py"),
+        RelPath("python/tests/test_records.py"),
+        RelPath("CHANGELOG.md"),
+        RelPath("tools/check_no_memory_citations.py"),
+        RelPath("python/tests/test_check_no_memory_citations.py"),
+        RelPath(".archive/reviews/r20/round.yaml"),
+    ],
+)
+def test_the_records_arm_leaves_its_owner_the_changelog_and_this_gate_alone(rel: RelPath) -> None:
+    """The module owning the place, its test, the changelog, this gate and the archive spell it."""
+    assert not scan_text(rel, "under tools/ci-output, now aletheia-ci-output")
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [RelPath("tools/_records.py"), RelPath("python/tests/test_records.py")],
+)
+def test_owning_the_place_leaves_a_file_read_for_store_pointers(rel: RelPath) -> None:
+    """The records module and its test are exempt from the records arm alone."""
+    assert scan_text(rel, "see [[learnings_aletheia]]")
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        RelPath("CLAUDE.md"),
+        RelPath("AGENTS.md"),
+        RelPath("AGENTS/python.md"),
+        RelPath("tools/check_no_review_marks.py"),
+        RelPath("python/tests/test_docs_arm_labels.py"),
+        RelPath("python/tests/test_check_no_review_marks.py"),
+    ],
+)
+def test_a_file_that_may_cite_the_store_is_read_for_the_records_place(rel: RelPath) -> None:
+    """Citing the store, by purpose or by construction, does not license spelling the place."""
+    assert scan_text(rel, "under tools/ci-output")
+
+
+def _run_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tracked: dict[RelPath, Prose]
+) -> tuple[ExitStatus, Prose]:
+    """Run the gate over a tree tracking ``tracked``, each file holding its text."""
+    for rel, text in tracked.items():
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_text(text, encoding="utf-8")
+
+    def listed(_repo: Path) -> list[RelPath]:
+        return list(tracked)
+
+    monkeypatch.setattr("tools._common.git_ls_files", listed)
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        status = ExitStatus(main([], repo=tmp_path))
+    return status, Prose(printed.getvalue())
+
+
+def test_a_tracked_file_spelling_the_records_place_fails_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The walk reads a file the citation arms leave alone; its finding names the module."""
+    tracked = {RelPath("CLAUDE.md"): Prose("Run records land in tools/ci-output.\n")}
+    status, printed = _run_gate(tmp_path, monkeypatch, tracked)
+    assert status == 1
+    assert printed == (
+        "check_no_memory_citations: 1 store pointer(s) or spelling(s) of the records' place:\n"
+        f"  CLAUDE.md:1: {_RECORDS_WHY} -> 'tools/ci-output'\n"
+    )
+
+
+def test_a_tree_spelling_the_place_in_its_module_alone_is_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tree whose one spelling of the place is the records module's passes, and says so."""
+    tracked = {
+        RelPath("README.md"): Prose("Run records land where the records module says.\n"),
+        RelPath("tools/_records.py"): Prose('_BESIDE_THE_CHECKOUT = "aletheia-ci-output"\n'),
+    }
+    status, printed = _run_gate(tmp_path, monkeypatch, tracked)
+    assert status == 0
+    assert printed == (
+        "check_no_memory_citations: no store pointer and no spelling of the records' place"
+        " in the gated tree.\n"
+    )

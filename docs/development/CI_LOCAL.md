@@ -59,8 +59,14 @@ tools go on past a failure too: Shake with `--keep-going`, cargo with
 `--keep-going` or `--no-fail-fast`, the Go steps over every module.
 Plus 4 opt-in lanes (reproducible build, stability bench, mutation
 testing, coverage floors) that can be enabled individually via CLI flags or env vars,
-or all at once via `--full`.  Logs to
-`tools/ci-output/ci-<branch>-<timestamp>.log`.  The log's header records a
+or all at once via `--full`.  Logs to `ci-<branch>-<timestamp>.log` in the
+records directory, which lies beside the checkout, or at the absolute path
+`ALETHEIA_CI_OUTPUT` names when it is set (a relative path, or one inside the
+checkout, is refused with exit 2); `python/.venv/bin/python -m tools._records` prints it.  A probe run
+keeps its record in `probes/<the checkout's directory name>` there, the folder
+`python/.venv/bin/python -m tools._records probes` prints, so checkouts of
+distinct directory names sharing the directory keep apart records ([`probes/README.md`](../../probes/README.md)).  The log's
+header records a
 digest of the build sources the sweep observed (the Agda sources, the build
 program, `Shakefile.hs` and `shake/`, the Haskell shim and the library file,
 keyed by git's own blob ids, so a checkout that rewrites every mtime leaves it
