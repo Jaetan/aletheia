@@ -3,23 +3,27 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Runs every probe in this directory from the repository root, PROBE_WORKERS
-# of them at once (4 unless the caller says otherwise), each one as
-# soon as a worker is free. A passing probe prints one line, PASS and its
-# path, whatever it said. A failing probe prints FAIL, its path and its exit
-# status, then the last lines of its own output indented beneath, and the
-# whole output is kept in tools/ci-output/probes/, in a file the FAIL line
-# names, so a probe that crashed reads differently from one that refused its
-# claim. A probe that exits 2, which is how a probe says it cannot reach its
+# of them at once (4 unless the caller says otherwise), each one as soon as a
+# worker is free. A passing probe prints one line, PASS and its path, whatever
+# it said. A failing probe prints FAIL, its path and its exit status, then the
+# last lines of its own output indented beneath, and the whole output is kept
+# in a file the FAIL line names, so a probe that crashed reads differently
+# from one that refused its claim. The file lies in the folder
+# python/.venv/bin/python -m tools._records probes prints, probes/<this
+# checkout's directory name> under the records directory, outside the tree, so
+# checkouts of distinct directory names sharing that directory keep apart
+# records. A probe that exits 2, which is how a probe says it cannot reach its
 # claim here (a build, a tool or a library it needs is missing or stale),
 # prints UNRUN where a failing one prints FAIL, and is kept the same way: it
 # is no pass. Every line carries the probe's wall time after its path, and the
 # run's times are kept in timings.tsv beside the failures, one row per probe
 # with its verdict, PASS, FAIL or UNRUN. The run ends with the count of each
-# verdict, then the count of probes run and the exit status. Lines and rows are in path order whatever order the
-# probes finish in, so two runs' records compare line by line. The directory
-# holds only the failures of the latest run and the times of the latest run
-# to finish: the record is written aside and moved into place when the run
-# ends, so a reader during a run sees the previous run's record, or none.
+# verdict, then the count of probes run and the exit status. Lines and rows
+# are in path order whatever order the probes finish in, so two runs' records
+# compare line by line. The folder holds only the failures of the latest run
+# and the times of the latest run to finish: the record is written aside and
+# moved into place when the run ends, so a reader during a run sees the
+# previous run's record, or none.
 # Probes share nothing they write. Each runs under a Landlock ruleset that
 # lets it read the whole file system and write only beneath a directory of
 # its own outside the tree, which is its TMPDIR and is removed when it ends,
@@ -39,19 +43,18 @@
 # makes the probes running since the previous reading suspects; each suspect
 # runs again alone, and the one that moves a file then fails whatever it
 # exited, its line naming the count and its log the paths.
-# Exits non-zero when any probe fails or does not run, and 2 where the tracked files cannot be
-# listed, the shell cannot read its clock to the microsecond or wait on one
-# probe at a time (bash 5.1), Landlock is not to be had, or PROBE_WORKERS is
-# not a positive count. A probe is a bash script named
-# <subject>--<property>.sh that exits zero when the property it states in its
-# header holds. Each one names its own interpreter and is executable, so it
-# runs the same whether this runner invokes it or a reader does.
+# Exits non-zero when any probe fails or does not run, and 2 where the tracked
+# files cannot be listed, the shell cannot read its clock to the microsecond
+# or wait on one probe at a time (bash 5.1), Landlock is not to be had,
+# PROBE_WORKERS is not a positive count, the records directory cannot be
+# named, or the records folder or the probes' own directory cannot be made or
+# written. A probe is a bash script named <subject>--<property>.sh that exits
+# zero when the property it states in its header holds. Each one names its own
+# interpreter and is executable, so it runs the same whether this runner
+# invokes it or a reader does.
 set -u
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
-logs=tools/ci-output/probes
-timings=$logs/timings.tsv
-partial=$timings.partial
 shown=12
 workers=${PROBE_WORKERS:-4}
 case $workers in
@@ -65,6 +68,11 @@ export PYTHON_CPU_COUNT=$((share ? share : 1))
 setpriv --landlock-access fs:write-file true 2> /dev/null \
     || { echo "run_all: setpriv or the kernel offers no Landlock, so a probe's writes cannot be kept to its own directory"; exit 2; }
 git ls-files > /dev/null || { echo "run_all: not in a git work tree, so a write to a tracked file cannot be seen"; exit 2; }
+interpreter=python/.venv/bin/python
+[ -x "$interpreter" ] || { echo "run_all: no $interpreter, the project's interpreter, so no records directory can be named"; exit 2; }
+logs=$("$interpreter" -m tools._records probes) || exit 2
+timings=$logs/timings.tsv
+partial=$timings.partial
 mkdir -p "$logs" || exit 2
 rm -f "$logs"/*.log "$logs"/*.result "$logs"/*.reading
 own_root=$(mktemp -d -t probes.XXXXXX) || exit 2

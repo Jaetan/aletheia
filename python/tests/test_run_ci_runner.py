@@ -53,6 +53,7 @@ from tools._common import (
     git_ls_files,
     run_capture,
 )
+from tools._records import records_dir
 from tools._resources import cpu_budget
 from tools._run_ci_options import LaneName, parse_args
 from tools.run_ci import Runner
@@ -309,19 +310,27 @@ def test_every_tracked_python_file_is_read_by_all_three_linters(tmp_path: Path) 
     assert not unlinted, f"tracked Python no linter reads: {unlinted}"
 
 
-def test_basedpyright_leaves_the_kept_outputs_under_tools_unread() -> None:
-    """The basedpyright step is told to leave ``tools/ci-output`` alone.
+def test_basedpyright_reads_no_run_record_and_excludes_no_path(tmp_path: Path) -> None:
+    """No path the basedpyright step names holds the records directory, so none is excluded.
 
-    The step hands basedpyright the directory ``tools`` whole, and basedpyright,
-    unlike ruff, does not read the ignore list, so a helper script kept under
-    ``tools/ci-output`` (logs and scratch no gate owns) would be type-checked
-    with the gates and fail the sweep.  The exclusion is the configuration's,
-    read here as the step would read it.
+    basedpyright, unlike ruff, does not read the ignore list, so a record under
+    a path it reads (a probe's script kept with the logs) would be type-checked
+    with the gates and fail the sweep.  The records directory lies outside every
+    path the step hands it, so the configuration excludes nothing beyond
+    basedpyright's own defaults, read here as the step would read it.
     """
+    runner = ci_runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    step = next(step for step in runner.registered_steps if step.name == "basedpyright")
+    assert step.cwd is not None
+    assert not isinstance(step.cmd, str)
+    records = records_dir(runner.repo_root, {})
+    holding = [arg for arg in step.cmd[3:] if records.is_relative_to((step.cwd / arg).resolve())]
+    assert not holding, f"basedpyright reads the records under {holding}"
     repo = Path(__file__).resolve().parents[2]
     config = tomllib.loads((repo / "python" / "pyproject.toml").read_text(encoding="utf-8"))
-    excluded = config["tool"]["basedpyright"].get("exclude", [])
-    assert "../tools/ci-output" in excluded, f"basedpyright reads tools/ci-output: {excluded}"
+    excluded = config["tool"]["basedpyright"].get("exclude")
+    assert excluded is None, f"basedpyright excludes {excluded}"
 
 
 @pytest.mark.process(
@@ -816,8 +825,13 @@ def _one_message_tree(root: Path, python_dir: Path) -> None:
 
 
 def _scratch_pylint_home(root: Path) -> dict[str, str]:
-    """Return the environment with pylint's stored scores kept under ``root``."""
-    return os.environ | {"PYLINTHOME": str(root / "pylint-home")}
+    """Return the environment with pylint's stored scores kept under ``root``.
+
+    ``PYTHONPATH`` is dropped: a caller's would have pylint read the scratch tree's
+    packages as the repository's own.
+    """
+    kept = {name: value for name, value in os.environ.items() if name != "PYTHONPATH"}
+    return kept | {"PYLINTHOME": str(root / "pylint-home")}
 
 
 _THE_LINTER_ANSWERS = (

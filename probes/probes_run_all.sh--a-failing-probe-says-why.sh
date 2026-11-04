@@ -7,41 +7,65 @@
 # probe's line carries its exit status and is followed by its own output, the
 # last lines inline and the whole of it in a file the line names, so a probe
 # that crashed reads differently from one that refused its claim. The record
-# directory holds only the latest run's failures, and the runner still exits
-# non-zero and counts every probe. A probe's write to a tracked file is
-# refused in the probe that made it, and the file keeps its bytes. A probe
-# that moves a tracked file's mtime or mode, which the sandbox does not
-# govern, fails whatever it exited, its line counting the files it moved and
-# its log naming them, because the runner reads every tracked file's mtime,
-# size and mode whenever a probe starts or ends; and a store with no git work
-# tree around it is refused rather than run unwatched. Every line carries the
-# probe's wall time after its path, and the run's times are kept beside its
-# failures, one row per probe with its verdict, the record of the latest run
-# only. Run one probe at a time or eight, the record is the same once its
-# times are taken out; and two workers run two probes at once.
-# Non-zero exit: a failure's reason is lost, a passing probe's chatter reaches
-# the record, a stale failure survives a run, the runner no longer reports the
-# failure, a write to a tracked file is taken, a moved time or mode passes, a
-# store outside git runs, a probe's time is missing, shorter than the probe
-# ran, or kept from an earlier run, the record depends on how many probes
-# run at once, or two workers do not run two probes at once.
+# is kept in the folder python/.venv/bin/python -m tools._records probes names
+# for the store, probes/<the store's directory name> under the records
+# directory each store here sets by ALETHEIA_CI_OUTPUT, and holds only the
+# latest run's failures; the runner still exits non-zero and counts every
+# probe. A probe's write to a tracked file is refused in the probe that made
+# it, and the file keeps its bytes. A probe that moves a tracked file's mtime
+# or mode, which the sandbox does not govern, fails whatever it exited, its
+# line counting the files it moved and its log naming them, because the runner
+# reads every tracked file's mtime, size and mode whenever a probe starts or
+# ends; and a store with no git work tree around it is refused rather than run
+# unwatched. Every line carries the probe's wall time after its path, and the
+# run's times are kept beside its failures, one row per probe with its
+# verdict, the record of the latest run only. Run one probe at a time or
+# eight, the record is the same once its times and its folder are taken out;
+# and two workers run two probes at once.
+# Non-zero exit: a failure's reason is lost or kept outside the store's
+# folder, a passing probe's chatter reaches the record, a stale failure
+# survives a run, the runner no longer reports the failure, a write to a
+# tracked file is taken, a moved time or mode passes, a store outside git
+# runs, a probe's time is missing, shorter than the probe ran, or kept from an
+# earlier run, the record depends on how many probes run at once, or two
+# workers do not run two probes at once.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v python3 > /dev/null || { echo "python3 is needed to stage a crashing probe"; exit 2; }
+[ -x python/.venv/bin/python ] || { echo "python/.venv/bin/python is needed to name a store's records directory"; exit 2; }
 work=$(mktemp -d) || exit 2
 trap 'chmod -R u+rwx "$work" 2> /dev/null; rm -rf "$work"' EXIT
+
+# plant <directory>: the runner in a git work tree of its own, beside untracked
+# links to the tools and the interpreter it names its records directory with.
+plant() {
+    mkdir -p "$1/probes" "$1/python" || return 1
+    cp probes/run_all.sh "$1/probes/run_all.sh" || return 1
+    ln -s "$PWD/tools" "$1/tools" || return 1
+    ln -s "$PWD/python/.venv" "$1/python/.venv" || return 1
+    git init -q "$1"
+}
+
+# run <workers> <directory>: the runner of the store in <directory>, its
+# records directory <directory>.records beside it.
+run() { ALETHEIA_CI_OUTPUT="$2.records" PROBE_WORKERS=$1 bash "$2/probes/run_all.sh"; }
+
+# kept <directory>: the folder the store in <directory> keeps its probe record
+# in, as the records module names it there.
+kept() { (cd "$1" && ALETHEIA_CI_OUTPUT="$1.records" python/.venv/bin/python -m tools._records probes); }
 
 # stage <directory>: a store of eight probes in a git work tree of its own,
 # holding one tracked file, and a record an earlier run left.
 stage() {
-    mkdir -p "$1/probes" "$1/tools/ci-output/probes" || return 1
-    cp probes/run_all.sh "$1/probes/run_all.sh" || return 1
-    git init -q "$1" || return 1
+    plant "$1" || return 1
+    local record
+    record=$(kept "$1") || return 1
+    mkdir -p "$record" || return 1
     printf 'tracked\n' > "$1/tracked.txt"
     chmod 644 "$1/tracked.txt"
     git -C "$1" add tracked.txt || return 1
-    echo "left by an earlier run" > "$1/tools/ci-output/probes/stale.log"
-    printf 'probes/z--gone.sh\tPASS\t9.9\n' > "$1/tools/ci-output/probes/timings.tsv"
+    echo "left by an earlier run" > "$record/stale.log"
+    printf 'probes/z--gone.sh\tPASS\t9.9\n' > "$record/timings.tsv"
     cat > "$1/probes/a--passes-loudly.sh" <<'SH'
 #!/usr/bin/env bash
 for i in $(seq 1 40); do echo "chatter $i"; done
@@ -104,9 +128,7 @@ grep -q 'tracked file' <<< "$out" || { echo "the refusal does not say what it ca
 # at once, and a runner holding them to one at a time fails both. Each waits
 # in steps of a tenth of a second, at most thirty seconds, so only a runner
 # that does not run them together pays the wait.
-mkdir -p "$work/pair/probes" || exit 2
-cp probes/run_all.sh "$work/pair/probes/run_all.sh" || exit 2
-git init -q "$work/pair" || exit 2
+plant "$work/pair" || exit 2
 cat > "$work/pair/probes/i--meets-j.sh" <<'SH'
 #!/usr/bin/env bash
 # On seeing j, says so with a process named for it, and stays until j has
@@ -138,15 +160,15 @@ echo "i never saw j running"
 exit 1
 SH
 chmod +x "$work/pair/probes"/*.sh
-pair=$(PROBE_WORKERS=2 bash "$work/pair/probes/run_all.sh" 2>&1)
+pair=$(run 2 "$work/pair" 2>&1)
 grep -qx 'probes: 2 run, exit 0' <<< "$pair" || { echo "two workers did not run two probes at once:"; sed 's/^/  /' <<< "$pair"; exit 1; }
 
 stage "$work/one" || exit 2
 stage "$work/eight" || exit 2
-out=$(PROBE_WORKERS=1 bash "$work/one/probes/run_all.sh")
+out=$(run 1 "$work/one")
 rc=$?
-eight=$(PROBE_WORKERS=8 bash "$work/eight/probes/run_all.sh")
-logs="$work/one/tools/ci-output/probes"
+eight=$(run 8 "$work/eight")
+logs=$(kept "$work/one") || exit 2
 status=0
 fail() { echo "$1"; status=1; }
 
@@ -158,7 +180,7 @@ time='[0-9]+\.[0-9]s'
 grep -q 'chatter' <<< "$out" && fail "a passing probe's output reached the record"
 [ ! -e "$logs/a--passes-loudly.log" ] || fail "a passing probe's output was kept"
 
-grep -qE "^FAIL probes/b--refuses.sh $time exit 1, 1 lines kept in tools/ci-output/probes/b--refuses.log$" <<< "$out" \
+grep -qE "^FAIL probes/b--refuses.sh $time exit 1, 1 lines kept in ${logs//./\\.}/b--refuses\\.log$" <<< "$out" \
     || fail "the refusing probe's line does not carry its exit status and its file"
 grep -qx '    the claim does not hold: reason-b' <<< "$out" || fail "the refusal's reason is not inline"
 grep -qx 'the claim does not hold: reason-b' "$logs/b--refuses.log" 2> /dev/null || fail "the refusal's reason is not in the named file"
@@ -197,14 +219,16 @@ grep -q 'z--gone' "$logs/timings.tsv" 2> /dev/null && fail "a time from an earli
 expected=$(printf 'probe\tverdict\tseconds\n'; while read -r verdict path seconds _; do printf '%s\t%s\t%s\n' "$path" "$verdict" "${seconds%s}"; done < <(grep -E '^(PASS|FAIL|UNRUN) ' <<< "$out"))
 [ "$(cat "$logs/timings.tsv" 2> /dev/null)" = "$expected" ] || fail "the kept times are not the run's, one row per probe in its order"
 
-# The two runs' records, their times taken out.
+# The two runs' records, their times and their folder taken out: record
+# <folder> <output>.
 untimed() { sed -E 's/ [0-9]+\.[0-9]s( |$)/ \1/'; }
 record() {
-    untimed <<< "$2"
-    cut -f1,2 "$1/tools/ci-output/probes/timings.tsv"
-    (cd "$1/tools/ci-output/probes" && for log in *.log; do echo "== $log"; cat "$log"; done)
+    untimed <<< "${2//"$1"/}"
+    cut -f1,2 "$1/timings.tsv"
+    (cd "$1" && for log in *.log; do echo "== $log"; cat "$log"; done)
 }
-if ! difference=$(diff <(record "$work/one" "$out") <(record "$work/eight" "$eight")); then
+eight_logs=$(kept "$work/eight") || exit 2
+if ! difference=$(diff <(record "$logs" "$out") <(record "$eight_logs" "$eight")); then
     fail "one probe at a time and eight at once keep different records:
 $difference"
 fi

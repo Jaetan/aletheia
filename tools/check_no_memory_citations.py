@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Citation gate: no agent-memory-store pointers in the living tree.
+"""Citation gate: no agent-memory-store pointer, nor the records' place, in the living tree.
 
 The agent memory store (``feedback_*.md``, ``project_*.md``, ``[[wikilink]]``
 notes) lives under ``~/.claude/``, **outside the repository**. A pointer to it in
@@ -10,9 +10,15 @@ appears in any tracked file that is expected to read as a product, so a one-time
 strip cannot silently re-accrete (126 citations once did across source, and 6 more
 had accreted in product docs, precisely because no gate watched them).
 
+Its records arm refuses ``ci-output`` in every tracked file it reads, since
+``tools/_records.py`` alone names where run records live; its finding names
+``python/.venv/bin/python -m tools._records``, which prints the place.  The token
+is in a records path inside the checkout (``tools/ci-output``), in the default
+place beside it (``aletheia-ci-output``) and in a path joined from their parts.
+
 ## What is scanned, and what is exempt
 
-Every tracked, non-binary file is scanned EXCEPT:
+Every tracked, non-binary file is scanned for store pointers EXCEPT:
 
 * the **AI-process-infra docs** whose PURPOSE includes cross-referencing the store
   — ``CLAUDE.md``, ``AGENTS.md`` + ``AGENTS/``
@@ -26,6 +32,11 @@ Every tracked, non-binary file is scanned EXCEPT:
   by construction. Excluded BY EXACT PATH so the exclusion cannot mask a real
   citation in an ordinary file (unit-tested);
 * ``.archive/`` — the review work record.
+
+Every tracked, non-binary file is scanned for the records' place EXCEPT this gate and
+its tests, which spell it by construction, ``tools/_records.py`` and its test
+``python/tests/test_records.py``, which own it, ``CHANGELOG.md``, whose entries for
+past releases spell it, and ``.archive/``.  A file is read when either arm reads it.
 
 ## Relationship to the other doc gates
 
@@ -58,7 +69,7 @@ and code cross-refs are intentionally NOT gated — they are ambiguous, and a gr
 tree must stay green without whitelisting innocent content.
 
 Run ``python -m tools.check_no_memory_citations`` from the repo root. Exit 0 =
-clean, 1 = citation found, 2 = could-not-check (a tracked file was unreadable —
+clean, 1 = a pointer or a spelling found, 2 = could-not-check (a tracked file was unreadable,
 never reported as clean). Its parsers are unit-tested by
 ``python/tests/test_check_no_memory_citations.py``.
 """
@@ -71,6 +82,7 @@ import sys
 from pathlib import Path
 
 from tools._common import (
+    RelPath,
     TreeScan,
     is_prose_file,
     pattern_findings,
@@ -98,10 +110,18 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "memory-note filename",
     ),
 ]
+# The records' place, which tools/_records.py owns; the finding names the command
+# printing it.
+_RECORDS_PLACE = [
+    (
+        re.compile(r"(?:tools/|aletheia-)?ci-output"),
+        "the records' place, which `python/.venv/bin/python -m tools._records` names",
+    ),
+]
 
 # Files that carry citation-shaped strings by construction (detectors + fixtures)
-# or legitimately cite the store (AI-process-infra docs) — scanned-around, never
-# flagged. The user-facing logs (CHANGELOG, PROJECT_STATUS) are NOT here: they are
+# or legitimately cite the store (AI-process-infra docs), which the citation arm
+# leaves alone. The user-facing logs (CHANGELOG, PROJECT_STATUS) are NOT here: they are
 # gated (see the module docstring).
 _EXEMPT_FILES = {
     # detectors + their fixtures
@@ -114,23 +134,49 @@ _EXEMPT_FILES = {
     "CLAUDE.md",
     "AGENTS.md",
 }
+_ARCHIVE = ".archive/"  # review work record
 _EXEMPT_PREFIXES = (
-    ".archive/",  # review work record
+    _ARCHIVE,
     "AGENTS/",  # per-language coding-standard docs (AI-process infra)
 )
+# Files the records arm leaves alone: this gate and its fixtures, the module owning the
+# place and its test, and the changelog, whose entries for past releases spell it.
+_RECORDS_EXEMPT_FILES = {
+    "tools/check_no_memory_citations.py",
+    "python/tests/test_check_no_memory_citations.py",
+    "tools/_records.py",
+    "python/tests/test_records.py",
+    "CHANGELOG.md",
+}
+
+
+def _reads_citations(rel: RelPath) -> bool:
+    """Return True unless ``rel`` is a detector, a fixture, an AI-infra doc or archived."""
+    return rel not in _EXEMPT_FILES and not rel.startswith(_EXEMPT_PREFIXES)
+
+
+def _reads_records(rel: RelPath) -> bool:
+    """Return True unless ``rel`` is one of ``_RECORDS_EXEMPT_FILES`` or archived."""
+    return rel not in _RECORDS_EXEMPT_FILES and not rel.startswith(_ARCHIVE)
+
+
+# Each arm: whether it reads a file, and the shapes it refuses there.
+_ARMS = ((_reads_citations, _PATTERNS), (_reads_records, _RECORDS_PLACE))
 
 
 def is_exempt(rel: str) -> bool:
-    """Return True for detectors/fixtures, AI-infra docs, history, and the archive."""
-    return rel in _EXEMPT_FILES or rel.startswith(_EXEMPT_PREFIXES)
+    """Return True for a file no arm reads: this gate, its fixtures and the archive."""
+    path = RelPath(rel)
+    return not any(reads(path) for reads, _ in _ARMS)
 
 
 def in_scope(rel: str) -> bool:
     """Return True if ``rel`` is a tracked file this gate scans.
 
-    Every tracked, non-binary, non-exempt file — source AND product docs alike.
+    Every tracked, non-binary file an arm reads, source AND product docs alike.
     Markdown is scanned too (the AI-process-infra docs that may cite the store are
-    exempted by name), so a bare ``[[slug]]`` in a product ``.md`` doc is caught.
+    exempted from the citation arm by name), so a bare ``[[slug]]`` in a product
+    ``.md`` doc is caught.
     """
     return is_prose_file(rel, is_exempt)
 
@@ -138,28 +184,31 @@ def in_scope(rel: str) -> bool:
 def scan_text(rel: str, text: str) -> list[str]:
     """Return finding suffixes for ``text`` treated as file ``rel`` (empty = clean).
 
-    The pure core of the scan — no filesystem — so the detector is unit-testable
-    on synthetic input (``python/tests/test_check_no_memory_citations.py``).
+    Each arm reading ``rel`` scans it.  The pure core of the scan, no filesystem, so
+    the detector is unit-testable on synthetic input
+    (``python/tests/test_check_no_memory_citations.py``).
     """
-    return pattern_findings(rel, enumerate(text.split("\n"), start=1), _PATTERNS)
+    path = RelPath(rel)
+    patterns = [pattern for reads, arm in _ARMS if reads(path) for pattern in arm]
+    return pattern_findings(rel, enumerate(text.split("\n"), start=1), patterns)
 
 
 def check_tree(repo: Path = REPO) -> TreeScan:
-    """Scan every in-scope tracked file of ``repo`` for agent-store citations."""
+    """Scan every in-scope tracked file of ``repo`` for store pointers and the records' place."""
     return scan_tracked_tree(repo, is_exempt, scan_text)
 
 
 def main(argv: list[str] | None = None, *, repo: Path = REPO) -> int:
-    """Scan the gated tree; 2 if a file was unreadable, 1 if citations found, else 0."""
+    """Scan the gated tree; 2 if a file was unreadable, 1 if anything was found, else 0."""
     argparse.ArgumentParser(description=__doc__).parse_args(argv)  # no options; --help only
 
     scan = check_tree(repo)
     return report_tree_scan(
         "check_no_memory_citations",
         scan,
-        found=f"{len(scan.findings)} agent-store citation(s):",
+        found=f"{len(scan.findings)} store pointer(s) or spelling(s) of the records' place:",
         found_lines=scan.findings,
-        clean="no agent-store citations in the gated tree.",
+        clean="no store pointer and no spelling of the records' place in the gated tree.",
     )
 
 

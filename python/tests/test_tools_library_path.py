@@ -5,19 +5,29 @@
 The pre-commit hook runs the fast tier under a bare interpreter, where only
 ``tools/__init__.py`` puts the library's source on the path.  The interpreter
 running the tests is started with ``-S``, so no site directory, and so no
-installed copy of the library, is on its path; the control shows the library
-is not found there without ``tools``.
+installed copy of the library, is on its path, and without ``PYTHONPATH``,
+which ``-S`` keeps, so no caller's path stands in for the one ``tools`` adds; the
+control shows the library is not found there without ``tools``.
 """
 
 from __future__ import annotations
 
-import subprocess
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
+from tools._common import EnvName, EnvValue, run_capture
+
 REPO = Path(__file__).resolve().parents[2]
+
+
+def _bare_environment() -> dict[EnvName, EnvValue]:
+    """Return this process's environment without ``PYTHONPATH``."""
+    return {
+        EnvName(name): EnvValue(value) for name, value in os.environ.items() if name != "PYTHONPATH"
+    }
 
 
 @pytest.mark.process(
@@ -27,9 +37,7 @@ REPO = Path(__file__).resolve().parents[2]
 def test_the_bare_interpreter_imports_the_common_types_through_tools() -> None:
     """Importing the tools package is enough to reach the library's source."""
     code = "import tools, aletheia.common_types as shared; print(shared.__file__)"
-    run = subprocess.run(
-        [sys.executable, "-S", "-c", code], cwd=REPO, capture_output=True, text=True, check=False
-    )
+    run = run_capture([sys.executable, "-S", "-c", code], cwd=REPO, env=_bare_environment())
     assert run.returncode == 0, run.stderr
     assert Path(run.stdout.strip()) == REPO / "python" / "aletheia" / "common_types.py"
 
@@ -40,12 +48,8 @@ def test_the_bare_interpreter_imports_the_common_types_through_tools() -> None:
 )
 def test_without_tools_the_bare_interpreter_does_not_find_the_library() -> None:
     """The control: the path the first test relies on is the one the tools package adds."""
-    run = subprocess.run(
-        [sys.executable, "-S", "-c", "import aletheia"],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        check=False,
+    run = run_capture(
+        [sys.executable, "-S", "-c", "import aletheia"], cwd=REPO, env=_bare_environment()
     )
     assert run.returncode != 0
     assert "No module named 'aletheia'" in run.stderr

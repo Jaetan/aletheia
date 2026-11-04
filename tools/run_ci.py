@@ -4,15 +4,17 @@
 
 Chains the full gate sweep a commit message's "all gates clean" claim is
 asserted against, plus the offline enforcers (check-changelog,
-check-gate-claim).  Captures all output to a timestamped log under
-``tools/ci-output/`` whose header records a digest of the build sources the
-sweep observed, and exports that digest to every step it runs, so the
-gate-claim enforcer reads whether a sweep observed a commit's content from
+check-gate-claim).  Captures all output to a timestamped log in the records
+directory, outside the checkout, that
+``python/.venv/bin/python -m tools._records`` prints (``tools/_records.py``),
+made when absent.  The log's header records a digest of the build sources the
+sweep observed, and the sweep exports that digest to every step it runs, so
+the gate-claim enforcer reads whether a sweep observed a commit's content from
 this provenance rather than from a timestamp.  A ``--fast`` sweep runs a
-subset and records no digest.  The header also records the tree of the
-tracked content the sweep observed, measured again in the summary: the record
-a push asks for (``tools/sweep_evidence.py``).  A subset sweep, a sweep beside
-an untracked file and one whose tree moved while it ran record no tree.
+subset and records no digest.  The header also records the tree of the tracked
+content the sweep observed, measured again in the summary: the record a push
+asks for (``tools/sweep_evidence.py``).  A subset sweep, a sweep beside an
+untracked file and one whose tree moved while it ran record no tree.
 
 Invoked from:
   * ``python -m tools.run_ci`` (direct, manual or scripted), before a push
@@ -148,7 +150,8 @@ rather than silently skipping.
 
   0 — all enabled steps passed (or skipped where allowed).
   1 — at least one step failed; tail of log printed to stderr.
-  2 — usage error (e.g., not in a git repo, missing dependency, bad flag).
+  2 — usage error (e.g., not in a git repo, missing dependency, bad flag, a
+      records directory named by a relative path or inside the checkout).
 
 ═══ See also ═══
 
@@ -175,6 +178,7 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, TextIO
 from tools import _run_ci_options
 from tools._ci_steps import BUILD_STALENESS_STEP, FAST_STEPS, HEAVY_STEPS, register_all_steps
 from tools._common import GateName, emit, find_executable, git_toplevel
+from tools._records import UnusableRecordsDirError, environment, records_dir
 from tools._resources import cpu_budget
 from tools._run_ci_options import LaneName, OptInOptions
 from tools._scheduler import Step, StepEvent, StepNotRun, StepResult, run_lanes, unmet_needs
@@ -282,8 +286,13 @@ class RunContext:
 
     @classmethod
     def discover(cls, repo_root: Path) -> RunContext:
-        """Gather git identity, the log path, the interpreter and the source digest."""
-        log_dir = repo_root / "tools" / "ci-output"
+        """Gather git identity, the log path, the interpreter and the source digest.
+
+        The log goes in the records directory, made when absent.  Raises
+        ``UnusableRecordsDirError`` when ``ALETHEIA_CI_OUTPUT`` names a relative
+        path or a place inside the checkout, before anything is made or asked of git.
+        """
+        log_dir = records_dir(repo_root, environment())
         log_dir.mkdir(parents=True, exist_ok=True)
 
         branch = _git_value(repo_root, "rev-parse", "--abbrev-ref", "HEAD")
@@ -723,7 +732,12 @@ def main(argv: list[str] | None = None) -> int:
     opts = _run_ci_options.parse_args(argv)
     repo_root = _git_root()
     os.chdir(repo_root)
-    runner = Runner(opts, RunContext.discover(repo_root))
+    try:
+        ctx = RunContext.discover(repo_root)
+    except UnusableRecordsDirError as exc:
+        _ = sys.stderr.write(f"run-ci: {exc}\n")
+        return 2
+    runner = Runner(opts, ctx)
     cabal = ["cabal", "run", "shake", "--"]
 
     # Register every step into its toolchain lane (no execution yet), then run:

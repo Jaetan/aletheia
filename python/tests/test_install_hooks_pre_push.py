@@ -69,14 +69,21 @@ def _load_pre_push(tmp_path: Path) -> types.ModuleType:
     return module
 
 
-def _faked_push(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, evidence: Evidence) -> PushedHook:
+def _faked_push(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    evidence: Evidence,
+    *,
+    sweep_fails: bool = False,
+) -> PushedHook:
     """Load the pre-push hook with git and its two tools answered in-process.
 
     The hook's own ``subprocess`` name is patched: git names ``tmp_path`` as
     the work tree's root, the evidence tool answers as ``evidence`` says and
     writes down, one question per entry, the commits it was asked about, and
-    the sweep passes and writes down that it ran. The tool files are planted
-    empty because the hook looks for each before it runs anything.
+    the sweep fails when ``sweep_fails`` says so, passes otherwise, and writes
+    down that it ran. The tool files are planted empty because the hook looks
+    for each before it runs anything.
     """
     hook = _load_pre_push(tmp_path)
     (tmp_path / "tools").mkdir()
@@ -108,7 +115,7 @@ def _faked_push(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, evidence: Evide
             )
         assert args[1:4] == ["-m", "tools.run_ci", "--parallel"], args
         sweeps.append(args)
-        return subprocess.CompletedProcess(args, 0, ToolOutput(""), ToolOutput(""))
+        return subprocess.CompletedProcess(args, int(sweep_fails), ToolOutput(""), ToolOutput(""))
 
     monkeypatch.setattr(hook, "subprocess", types.SimpleNamespace(run=fake_run))
     return PushedHook(cast("Callable[[], ExitStatus]", hook.main), asked, sweeps)
@@ -166,6 +173,22 @@ def test_pre_push_refuses_when_its_sweep_passed_on_another_tree(
     assert len(faked.sweeps) == 1
     assert len(faked.asked) == 2
     assert "push refused" in done.stderr
+
+
+def test_pre_push_refuses_a_failed_sweep_and_points_at_its_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed sweep refuses the push and sends the reader to the records directory."""
+    faked = _faked_push(tmp_path, monkeypatch, Evidence.NEVER, sweep_fails=True)
+    done = _push(faked, _REFS, monkeypatch)
+    assert done.returncode == 1, done.stderr
+    assert len(faked.sweeps) == 1
+    assert faked.asked == [f"{_PUSHED} {_OTHER}"]
+    assert "CI sweep failed" in done.stderr
+    lines = done.stderr.splitlines()
+    assert "pre-push: the sweep's log is in the records directory that" in lines
+    assert "pre-push: `python/.venv/bin/python -m tools._records` prints;" in lines
+    assert "pre-push: review it, fix issues, re-push." in lines
 
 
 def test_pre_push_allows_a_deletion_which_pushes_no_commit(

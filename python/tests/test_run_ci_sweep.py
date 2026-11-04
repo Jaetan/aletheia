@@ -5,32 +5,45 @@
 A failing step MUST make ``run()`` return 1 (never a silent green), a failure,
 the ``build``'s included, stops only the steps that need the failed one, each
 named and counted as not run, and serial and parallel modes must agree on
-pass/fail.  A full sweep records the build sources it observed and the tree
-it swept, exports the digest to its steps, and vouches for neither once they
-moved under it; a sweep of a subset vouches for nothing.  Each step's command
-is answered in-process by a stand-in (``_step_runs``) and the sweep's measures
-are read from the scratch tree's files (``_ci_runner``): no real gates, no
-timing asserts.
+pass/fail.  A full sweep records the build sources it observed and the tree it
+swept, exports the digest to its steps, and vouches for neither once they moved
+under it; a sweep of a subset vouches for nothing.  Its log lands in the
+records directory ``tools._records`` names, made when absent, and a relative
+one refuses the sweep before git is asked for the branch or the commit.  Each
+step's command is answered in-process by a stand-in (``_step_runs``) and the
+sweep's measures are read from the scratch tree's files (``_ci_runner``): no
+real gates, no timing asserts.
 """
 
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import io
 import os
 from dataclasses import replace
 from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
-from _ci_runner import EXIT_0, EXIT_1, ci_runner, exits, measured_in_process, tree_of
+from _ci_runner import (
+    EXIT_0,
+    EXIT_1,
+    SourcesDigest,
+    ci_runner,
+    exits,
+    measured_in_process,
+    tree_of,
+)
 from _executors import DrivenExecutor
 from _processes import CommandWord
 from _step_runs import Answer, StepCall, ends, install, passes
 
-from tools._common import GateName
-from tools._run_ci_options import LaneName
+from tools import run_ci
+from tools._common import EnvName, EnvValue, GateName
+from tools._records import records_dir
+from tools._run_ci_options import LaneName, OptInOptions
 from tools.check_gate_claim import SOURCES_ENV, SOURCES_LINE, SOURCES_UNRECORDED, evidence_for
-from tools.run_ci import Runner
+from tools.run_ci import RunContext, Runner
 from tools.sweep_evidence import (
     TREE_LINE,
     TREE_MOVED,
@@ -45,6 +58,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from tools._common import WorkerCount
+    from tools.commit_subjects import GitArg
+    from tools.sweep_evidence import TreeId
+
+# The variable naming the records directory, spelled as the workflows set it.
+_RECORDS_ENV = EnvName("ALETHEIA_CI_OUTPUT")
 
 
 def test_all_pass_returns_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -436,3 +454,99 @@ def test_an_untracked_file_or_a_subset_sweep_records_no_tree(
     assert fast.run() == 0
     log = (tmp_path / "fast" / "ci.log").read_text(encoding="utf-8")
     assert f"{TREE_LINE}{TREE_UNRECORDED_SUBSET}\n" in log
+
+
+def _plant_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Answer what discovering a checkout at ``tmp_path / "repo"`` asks of git and the clock.
+
+    Git names branch and commit ``main``, the sources digest to zeros, no tree
+    is named, and the clock reads one fixed instant; the checkout is returned.
+    """
+
+    def answers(_root: Path, *_args: GitArg) -> Prose:
+        return Prose("main")
+
+    def digest(_root: Path | None = None) -> SourcesDigest:
+        return SourcesDigest("0" * 64)
+
+    def no_tree(_root: Path) -> TreeId | None:
+        return None
+
+    def instant() -> dt.datetime:
+        return dt.datetime(2001, 9, 9, 1, 46, 40, tzinfo=dt.UTC)
+
+    monkeypatch.setattr(run_ci, "_git_value", answers)
+    monkeypatch.setattr(run_ci, "sources_digest_of_worktree", digest)
+    monkeypatch.setattr(run_ci, "worktree_tree", no_tree)
+    monkeypatch.setattr(run_ci, "_now_utc", instant)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    return repo
+
+
+def test_a_sweep_s_log_lands_in_the_records_directory_made_when_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unset, the log goes beside the checkout; set, where the variable says; either made."""
+    repo = _plant_discovery(tmp_path, monkeypatch)
+    monkeypatch.delenv(_RECORDS_ENV, raising=False)
+    beside = RunContext.discover(repo).log_path.parent
+    assert beside == records_dir(repo, {})
+    assert beside.is_dir()
+    monkeypatch.setenv(_RECORDS_ENV, str(tmp_path / "set" / "deeper"))
+    pointed = RunContext.discover(repo).log_path.parent
+    assert pointed == tmp_path / "set" / "deeper"
+    assert pointed.is_dir()
+
+
+def test_a_relative_records_directory_refuses_the_sweep_before_git_is_asked_for_the_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A relative ``ALETHEIA_CI_OUTPUT`` exits 2 naming it.
+
+    Nothing is made, and git is asked for the checkout's root alone.
+    """
+    repo = _plant_discovery(tmp_path, monkeypatch)
+
+    def asked(_root: Path, *args: GitArg) -> Prose:
+        ran = f"git {' '.join(args)} ran before the refusal"
+        raise AssertionError(ran)
+
+    def checkout() -> Path:
+        return repo
+
+    monkeypatch.setattr(run_ci, "_git_value", asked)
+    monkeypatch.setattr(run_ci, "_git_root", checkout)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(_RECORDS_ENV, EnvValue("records"))
+    assert run_ci.main([]) == 2
+    out, err = capsys.readouterr()
+    assert (out, err) == (
+        "",
+        "run-ci: ALETHEIA_CI_OUTPUT names 'records', a relative path;"
+        + " it must name an absolute one\n",
+    )
+    assert not any(repo.iterdir())
+
+
+def test_a_sweep_run_as_the_command_leaves_its_evidence_in_the_records_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``python -m tools.run_ci`` writes the log a claim rests on where the variable points."""
+    repo = _plant_discovery(tmp_path, monkeypatch)
+
+    def one_step(runner: Runner, _cabal: list[CommandWord], _opts: OptInOptions) -> None:
+        runner.step("a", EXIT_0, lane="x")
+
+    def checkout() -> Path:
+        return repo
+
+    monkeypatch.setattr(run_ci, "register_all_steps", one_step)
+    monkeypatch.setattr(run_ci, "_git_root", checkout)
+    _ = install(monkeypatch, {EXIT_0: passes})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(SOURCES_ENV, raising=False)
+    monkeypatch.delenv("ALETHEIA_CI_FAST", raising=False)
+    monkeypatch.setenv(_RECORDS_ENV, str(tmp_path / "records"))
+    assert run_ci.main(["--no-parallel"]) == 0
+    assert evidence_for("0" * 64, log_dir=tmp_path / "records", environ={}) is not None

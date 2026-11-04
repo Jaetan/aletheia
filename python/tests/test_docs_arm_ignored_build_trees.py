@@ -334,17 +334,17 @@ def test_hidden_strays_are_named_in_path_order(
 def test_a_nested_directory_ignoring_its_contents_is_not_asked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only the top and the top-level directories are asked, so a log directory's rule stands."""
+    """Only the top and the top-level directories are asked, so a nested directory's rule stands."""
     asked = _git_answers(monkeypatch, CLEAN_IGNORED)
     repo = _repo(tmp_path)
-    log_dir = repo / "tools" / "ci-output"
-    log_dir.mkdir()
-    _ = (log_dir / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")
+    nested = repo / "tools" / "scratch"
+    nested.mkdir()
+    _ = (nested / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")
     assert _run(repo) == list[Prose]()
-    log_rules = {RelPath("tools/ci-output/.gitignore"): FileBytes(b"*\n!.gitignore\n")}
+    nested_rules = {RelPath("tools/scratch/.gitignore"): FileBytes(b"*\n!.gitignore\n")}
     assert asked == [
         _Asked(
-            _top_rules(CLEAN_IGNORE) | log_rules,
+            _top_rules(CLEAN_IGNORE) | nested_rules,
             [
                 RelPath("cpp/build/probe"),
                 RelPath("cpp/build-asan/probe"),

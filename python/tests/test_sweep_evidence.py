@@ -9,7 +9,8 @@ real content: a committed tree is the one the clean working tree names, an
 edit moves it even where its stat data matches the indexed file's, an
 untracked file leaves no tree to name, and a log vouches only when its header
 and its summary name the tree and its summary says every step passed.  The
-command's exit is read over trees named in git's place.
+command's exit is read over trees named in git's place, with the logs in the
+records directory ``tools._records`` names.
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ from typing import TYPE_CHECKING, NewType
 import pytest
 from _git_repo import commit, git
 
-from tools.check_gate_claim import LOG_DIR, LogLine
+from tools._common import EnvName, EnvValue
+from tools._records import records_dir
+from tools.check_gate_claim import LogLine
 from tools.sweep_evidence import (
     FOUND,
     MISSING,
@@ -41,6 +44,8 @@ from tools.sweep_evidence import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from aletheia.common_types import Prose
+
 # A sweep log's file name.
 LogName = NewType("LogName", str)
 
@@ -54,6 +59,8 @@ _GIT_ANSWERS = (
     + " GIT_INDEX_FILE select are git's own answers over real content"
 )
 _FAILED = LogLine("═══ CI FAILED — 1 step(s) failed: x ═══")
+# The variable naming the records directory, spelled as the workflows set it.
+_RECORDS_ENV = EnvName("ALETHEIA_CI_OUTPUT")
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -202,25 +209,84 @@ def test_a_hook_s_git_variables_do_not_turn_git_to_another_repository(
     assert tree_of(Revision("HEAD"), repo) == expected
 
 
-def test_the_command_says_found_missing_or_unreadable_by_its_exit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Every tree on record exits 0, a tree with no record 1, a revision git cannot name 2."""
+def _command_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Plant git's answers for the command: the checkout is ``tmp_path / "repo"``.
+
+    HEAD names tree ``1…``, ``HEAD~1`` tree ``2…``, and any other revision none.
+    """
+    repo = tmp_path / "repo"
     trees = {Revision("HEAD"): TreeId("1" * 40), Revision("HEAD~1"): TreeId("2" * 40)}
 
     def toplevel(_start: Path | None = None) -> Path:
-        return tmp_path
+        return repo
 
     def tree_named(revision: Revision, _root: Path) -> TreeId | None:
         return trees.get(revision)
 
     monkeypatch.setattr("tools.sweep_evidence.git_toplevel", toplevel)
     monkeypatch.setattr("tools.sweep_evidence.tree_of", tree_named)
-    head = LogLine(trees[Revision("HEAD")])
-    _log(tmp_path / LOG_DIR, LogName("ci.log"), head, head, _PASSED)
+    return repo
+
+
+def test_the_command_says_found_missing_or_unreadable_by_its_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Every tree on record exits 0, a tree with no record 1, a revision git cannot name 2.
+
+    The record is read beside the checkout, and the log that vouches is named by its path.
+    """
+    monkeypatch.delenv(_RECORDS_ENV, raising=False)
+    records = records_dir(_command_in(tmp_path, monkeypatch), {})
+    head = LogLine("1" * 40)
+    _log(records, LogName("ci.log"), head, head, _PASSED)
     monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD"])
     assert main() == FOUND
+    assert (
+        capsys.readouterr().out
+        == f"sweep-evidence: HEAD's tree {head} passed in {records / 'ci.log'}\n"
+    )
     monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD", "no-such-revision"])
     assert main() == UNREADABLE
     monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD~1", "HEAD"])
     assert main() == MISSING
+
+
+def test_the_command_reads_the_records_where_the_variable_points(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With ``ALETHEIA_CI_OUTPUT`` set, a log beside the checkout vouches for nothing."""
+    head = LogLine("1" * 40)
+    _log(
+        records_dir(_command_in(tmp_path, monkeypatch), {}), LogName("ci.log"), head, head, _PASSED
+    )
+    monkeypatch.setenv(_RECORDS_ENV, str(tmp_path / "elsewhere"))
+    monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD"])
+    assert main() == MISSING
+    _log(tmp_path / "elsewhere", LogName("ci.log"), head, head, _PASSED)
+    assert main() == FOUND
+
+
+def test_the_command_refuses_a_relative_records_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A relative ``ALETHEIA_CI_OUTPUT`` exits 2 naming it, before any tree is asked for."""
+    _ = _command_in(tmp_path, monkeypatch)
+    monkeypatch.setenv(_RECORDS_ENV, EnvValue("records"))
+    monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD"])
+    assert main() == UNREADABLE
+    assert capsys.readouterr().out.startswith("sweep-evidence: ALETHEIA_CI_OUTPUT names 'records'")
+
+
+def test_the_command_outside_a_checkout_exits_2_saying_so(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Where git names no checkout the command exits 2 with the reason ``git_toplevel`` gives."""
+
+    def no_checkout(start: Path | None = None) -> Path:
+        message = f"not inside a git work tree: {start}"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr("tools.sweep_evidence.git_toplevel", no_checkout)
+    monkeypatch.setattr(sys, "argv", ["sweep_evidence", "HEAD"])
+    assert main() == UNREADABLE
+    assert capsys.readouterr().out.startswith("sweep-evidence: not inside a git work tree: ")

@@ -16,8 +16,9 @@ sweep that ran beside an untracked file git does not ignore records no tree,
 since the build may compile that file while no gate that lists the tracked
 files saw it.  A sweep measures the tree again when it ends, and records one
 that moved under it as moved rather than as evidence.  A record is read from
-a finished log whose header and summary name the same tree and whose summary
-says every step passed, the same log ``tools/check_gate_claim.py`` reads.
+a finished log in the records directory ``tools/_records.py`` names, whose
+header and summary name the same tree and whose summary says every step
+passed, the same log ``tools/check_gate_claim.py`` reads.
 
 Usage::
 
@@ -25,7 +26,8 @@ Usage::
     python -m tools.sweep_evidence REV...      # every revision's must
 
 Exit 0 when every revision's tree has a record, 1 when one has none, 2 when
-git cannot name a revision's tree.
+git cannot name a revision's tree or ``ALETHEIA_CI_OUTPUT`` names a relative path or
+a place inside the checkout.
 """
 
 from __future__ import annotations
@@ -39,8 +41,8 @@ from pathlib import Path
 from typing import NewType, cast
 
 from tools._common import emit, find_executable, git_clean_env, git_toplevel, run_capture
+from tools._records import UnusableRecordsDirError, environment, records_dir
 from tools.check_gate_claim import (
-    LOG_DIR,
     SOURCES_UNRECORDED,
     LogLine,
     header_value,
@@ -149,7 +151,8 @@ def main() -> ExitStatus:
     revisions = cast("list[Revision]", parser.parse_args().revisions)
     try:
         repo = git_toplevel(Path.cwd())
-    except RuntimeError as exc:
+        log_dir = records_dir(repo, environment())
+    except (RuntimeError, UnusableRecordsDirError) as exc:
         emit(f"sweep-evidence: {exc}")
         return UNREADABLE
     status = FOUND
@@ -158,12 +161,12 @@ def main() -> ExitStatus:
         if tree is None:
             emit(f"sweep-evidence: git names no tree for {revision}")
             return UNREADABLE
-        log = evidence_for(tree, repo / LOG_DIR)
+        log = evidence_for(tree, log_dir)
         if log is None:
             emit(f"sweep-evidence: no passing full sweep of {revision}'s tree {tree} is on record")
             status = MISSING
         else:
-            emit(f"sweep-evidence: {revision}'s tree {tree} passed in {log.relative_to(repo)}")
+            emit(f"sweep-evidence: {revision}'s tree {tree} passed in {log}")
     return status
 
 

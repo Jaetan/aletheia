@@ -403,7 +403,11 @@ jobs:
       # property on every merge (the backstop). On pull_request the default `auto`
       # runs the staleness gate (check_build_incremental, ~2 .so relinks) only when
       # a build-graph file changed, so a code-only PR gets a fast plain build.
+      # The sweep writes its log where ALETHEIA_CI_OUTPUT names, an absolute
+      # path, here under the runner's temporary directory, outside the checkout.
       - name: Run this part of the offline correctness sweep (tools/run_ci.py)
+        env:
+          ALETHEIA_CI_OUTPUT: ${{ runner.temp }}/run-records
         run: >-
           python/.venv/bin/python3 -m tools.run_ci --iwyu-all --parallel
           --lanes ${{ matrix.lanes }}
@@ -416,7 +420,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ci-sweep-log-${{ matrix.slug }}
-          path: tools/ci-output/*.log
+          path: ${{ runner.temp }}/run-records/*.log
           if-no-files-found: warn
 
       # Save the build tree so the next run restores it.  The part running the

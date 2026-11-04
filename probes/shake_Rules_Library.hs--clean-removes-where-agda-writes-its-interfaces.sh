@@ -27,10 +27,11 @@ if grep -q '"src".*agdai' <<<"$body"; then
     status=1
 fi
 
-# Where the tree holds interfaces at all, every one is under _build/. The
-# ignored evidence store under tools/ci-output/ holds clones of the tree with
-# interface sets of their own, which clean is not asked about.
-stray=$(find . -name '*.agdai' -not -path './_build/*' -not -path './dist-newstyle/*' -not -path './.git/*' -not -path './tools/ci-output/*' | head -3)
+# Where the tree holds interfaces at all, every one is under _build/. Run
+# records, among them clones of the tree with interface sets of their own,
+# live outside the tree, where python/.venv/bin/python -m tools._records
+# says, so the search does not reach them.
+stray=$(find . -name '*.agdai' -not -path './_build/*' -not -path './dist-newstyle/*' -not -path './.git/*' | head -3)
 [ -z "$stray" ] || {
     echo "interfaces outside _build/, which clean would leave behind:"
     echo "$stray"
