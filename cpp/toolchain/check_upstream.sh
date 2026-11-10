@@ -19,7 +19,7 @@ set -euo pipefail
 installed=$(dpkg-query -W -f '${db:Status-Status} ${source:Package} ${source:Upstream-Version}\n')
 status=0
 # Each source package the toolchain is built from and its upstream version.
-for entry in "llvm-toolchain-23 23.1.2" "gcc-15 15.2.0" "gcc-16 16-20260315"; do
+for entry in "llvm-toolchain-23 23.1.6" "gcc-15 15.2.0" "gcc-16 16-20260315"; do
     read -r source upstream <<< "$entry"
     found=$(awk -v source="$source" '$1 == "installed" && $2 == source {sub(/~.*/, "", $3); print $3}' <<< "$installed" |
         sort -u | paste -sd ' ')

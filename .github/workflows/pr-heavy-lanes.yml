@@ -406,7 +406,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-llvm23dev-libstdcxx15-noble-v1
+          key: clang23-llvm23dev-libstdcxx15-noble-v2
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
       # toolchain) + the LLVM-23 dev libraries (needed to build Mull from source)
       # from apt.llvm.org.  mutation_cpp.py invokes clang-23 explicitly.
@@ -417,21 +417,23 @@ jobs:
       # No prebuilt Mull deb exists past LLVM 15, and the supported toolchain is
       # clang-23: UB can differ by compiler version, so the mutation lane MUST
       # test clang-23 codegen.  tools/build_mull.sh builds Mull from source
-      # against the system LLVM-23 (Bazel; /usr/lib/llvm-23), carrying the patch
-      # Mull 0.34.1 needs to see LLVM 23.  Cached so it is a one-time cost per
-      # build: the key hashes tools/build_mull.sh, which pins the Mull tag and
-      # the LLVM version, and every patch under tools/mull/ the script applies,
-      # so any change to what is built misses the cache rather than replaying
-      # the previous binaries.  Each C++ leg restores this key and the clang
-      # one; on a miss each builds Mull and each tries to save, and the second
-      # save of a key is logged as a warning by the action, not a failure.
+      # against the system LLVM-23 (Bazel; /usr/lib/llvm-23), carrying the
+      # patch Mull 0.34.1 needs to see LLVM 23.  Cached so it is a one-time
+      # cost per build: the key hashes tools/build_mull.sh, which pins the
+      # Mull tag and LLVM's major version, and every patch under tools/mull/
+      # the script applies, and carries the toolchain deb key, which a new
+      # LLVM upstream of the same major moves, so any change to what is built
+      # misses the cache rather than replaying the previous binaries.  Each C++
+      # leg restores this key and the clang one; on a miss each builds Mull
+      # and each tries to save, and the second save of a key is logged as a
+      # warning by the action, not a failure.
       - name: Cache Mull-23 (built from source vs LLVM-23)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         id: mull23
         uses: actions/cache@v6
         with:
           path: ~/mull-bin
-          key: mull23-noble-${{ hashFiles('tools/build_mull.sh', 'tools/mull/*.patch') }}
+          key: mull23-noble-clang23-llvm23dev-libstdcxx15-noble-v2-${{ hashFiles('tools/build_mull.sh', 'tools/mull/*.patch') }}
       - name: Build Mull-23 from source (cache miss)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.mull23.outputs.cache-hit != 'true'
         run: tools/build_mull.sh "${HOME}/mull-bin"
@@ -513,9 +515,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
-          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
+          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v2-${{ github.sha }}
           restore-keys: |
-            ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-
+            ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v2-
       # The counters travel with the cache, so a restored one carries every
       # earlier run's hits and misses; zeroed here, the eviction and the report
       # below read this run alone.  The run's start is taken here too, after
@@ -683,7 +685,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
-          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
+          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v2-${{ github.sha }}
 
   # ── The C++, Go and Rust verdicts ───────────────────────────────────────────
   # The C++ legs, the Go shards and the Rust jobs above each sweep a part of

@@ -253,7 +253,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v1
+          key: clang23-libstdcxx15-noble-v2
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 

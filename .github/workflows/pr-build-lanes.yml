@@ -325,7 +325,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v1
+          key: clang23-libstdcxx15-noble-v2
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
       # toolchain) from apt.llvm.org.  The cmake step below invokes clang-23
       # explicitly, so no update-alternatives is needed.
@@ -597,7 +597,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v1
+          key: clang23-libstdcxx15-noble-v2
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
       # toolchain) from apt.llvm.org, whose package carries llvm-profdata-23 and
       # llvm-cov-23 beside the compiler.
