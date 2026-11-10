@@ -68,3 +68,36 @@ def test_process_refuses_input_it_cannot_read_whole() -> None:
             }, command
     finally:
         backend.close(state)
+
+
+# The refusals of bytes that are not UTF-8, run again under the C locale: the
+# decimal entry's byte corpus, and the command a byte or a NUL leaves unreadable.
+_UNDER_THE_C_LOCALE: Final = (
+    "tests/test_parse_decimal_ffi.py::"
+    + "test_parse_decimal_refuses_as_not_utf8_exactly_what_utf8_refuses",
+    "tests/test_ffi_strings.py::test_process_refuses_input_it_cannot_read_whole",
+)
+
+
+@pytest.mark.process(
+    "the GHC runtime reads the locale once, when the process starts, so the refusals of bytes"
+    + " that are not UTF-8 are run under the C locale in a fresh pytest process started with it"
+)
+def test_utf8_refusals_do_not_depend_on_the_locale() -> None:
+    """Under ``LC_ALL=C`` the kernel refuses as not UTF-8 exactly what it refuses otherwise.
+
+    pytest exits 0 only when every selected test ran and passed: a name that
+    selects nothing exits non-zero.
+    """
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
+    env["LC_ALL"] = "C"
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *_UNDER_THE_C_LOCALE],
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        env=env,
+        cwd=Path(__file__).parents[1],
+    )
+    assert completed.returncode == 0, f"stdout: {completed.stdout}\nstderr: {completed.stderr}"

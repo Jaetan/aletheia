@@ -886,8 +886,10 @@ _A_SHELL_RUNS_THE_LOOP = (
 )
 
 
-def _go_loop(tmp_path: Path, listing: list[str], cmd: str, *, list_status: int = 0) -> int:
-    """Run :func:`in_every_go_module` over ``cmd`` with a ``go`` that lists ``listing``."""
+def _go_loop(
+    tmp_path: Path, listing: list[str], cmd: str, *, list_status: int = 0, but: Path | None = None
+) -> int:
+    """Run :func:`in_every_go_module` over ``cmd`` but ``but``, a ``go`` listing ``listing``."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     go = bin_dir / "go"
@@ -896,7 +898,9 @@ def _go_loop(tmp_path: Path, listing: list[str], cmd: str, *, list_status: int =
     go.chmod(0o755)
     sh = find_executable("sh")
     env = os.environ | {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
-    return run_capture([sh, "-c", in_every_go_module(cmd)], cwd=tmp_path, env=env).returncode
+    return run_capture(
+        [sh, "-c", in_every_go_module(cmd, but=but)], cwd=tmp_path, env=env
+    ).returncode
 
 
 @pytest.mark.process(_A_SHELL_RUNS_THE_LOOP)
@@ -907,6 +911,17 @@ def test_the_go_module_loop_runs_the_command_in_every_listed_module(tmp_path: Pa
         module.mkdir()
     assert _go_loop(tmp_path, [str(m) for m in modules], "touch ran") == 0
     assert all((m / "ran").exists() for m in modules)
+
+
+@pytest.mark.process(_A_SHELL_RUNS_THE_LOOP)
+def test_the_go_module_loop_leaves_out_the_module_it_is_told_to(tmp_path: Path) -> None:
+    """The module ``but`` names by its directory under the workspace gets no run; the rest do."""
+    modules = [tmp_path / name for name in ("core", "cli", "excel")]
+    for module in modules:
+        module.mkdir()
+    listing = [str(m) for m in modules]
+    assert _go_loop(tmp_path, listing, "touch ran", but=Path("excel")) == 0
+    assert [(m / "ran").exists() for m in modules] == [True, True, False]
 
 
 @pytest.mark.process(_A_SHELL_RUNS_THE_LOOP)
