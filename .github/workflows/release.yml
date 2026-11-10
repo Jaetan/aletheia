@@ -323,7 +323,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v1
+          key: clang23-libstdcxx15-noble-v2
       # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
       # enforces Clang (cpp/CMakeLists.txt), so install clang-23 (the supported
       # toolchain) from apt.llvm.org.  Same package set + cache key as

@@ -42,6 +42,10 @@ from tools.mutation_rust import (
 )
 
 _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-heavy-lanes.yml"
+# The toolchain deb cache key the mutation lane installs from, whose upstreams
+# cpp/toolchain/check_upstream.sh records: a new upstream moves it, and every cache
+# built against the toolchain moves with it.
+_TOOLCHAIN_KEY = "clang23-llvm23dev-libstdcxx15-noble-v2"
 _LANE_JOB = "mutation-lane"
 _MERGE_JOB = "mutation-merge"
 _REQUIRED_JOB = "mutation"
@@ -181,7 +185,24 @@ def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
         assert "${{ matrix.lane }}" in key
         # The toolchain deb key, verbatim: hashing the compiler by content
         # does not reach the LLVM runtime beside it, and that key pins it.
-        assert "clang23-llvm23dev-libstdcxx15-noble-v1" in key
+        assert _TOOLCHAIN_KEY in key
+
+
+def test_the_mull_build_is_cached_against_the_toolchain_it_was_built_with() -> None:
+    """Mull's clang plugin and runners are built against the installed LLVM.
+
+    The build script pins Mull's tag and LLVM's major version alone, so a new
+    upstream release of the same major, which moves the toolchain deb key,
+    would otherwise restore binaries built against the LLVM it replaces.
+    """
+    caches = [
+        step
+        for step in _steps(_LANE_JOB)
+        if "mull" in str(step.get("id", ""))
+        and str(step.get("uses", "")).startswith("actions/cache")
+    ]
+    assert len(caches) == 1
+    assert _TOOLCHAIN_KEY in str(_with(caches[0])["key"])
 
 
 def test_the_cpp_legs_save_only_the_cache_their_run_used() -> None:
