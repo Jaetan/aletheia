@@ -24,7 +24,7 @@ from __future__ import annotations
 import ctypes
 import json
 from fractions import Fraction
-from typing import Final, cast
+from typing import Final, NewType, cast
 
 import pytest
 from _decimal_cases import (
@@ -114,3 +114,42 @@ def test_parse_decimal_refuses_input_that_is_not_utf8() -> None:
             "code": "ffi_validation_error",
             "message": "input is not valid UTF-8",
         }, text.encode(errors="surrogateescape")
+
+
+# Byte strings set between the digits ``1`` and ``5``, so dropping one would
+# leave a literal: valid sequences of every length up to the last code point,
+# then overlong encodings, encoded surrogates, code points past U+10FFFF,
+# truncated sequences and stray continuation and lead bytes.  Each is spelled as
+# its bytes in hex, a space between two, as ``bytes.fromhex`` reads them.
+HexBytes = NewType("HexBytes", str)
+_UTF8_CORPUS: Final = tuple(HexBytes(spelled) for spelled in (
+    "", "41", "7f", "c2 80", "df bf", "e0 a0 80", "ef bf bf", "f0 90 80 80", "f4 8f bf bf",
+    "c3 a9 e2 82 ac f0 9f 98 80",
+    "c0 80", "c1 bf", "e0 80 80", "e0 9f bf", "f0 80 80 80", "f0 8f bf bf",
+    "ed a0 80", "ed bf bf", "ed 9f bf", "ee 80 80", "f4 90 80 80", "f5 80 80 80",
+    "f8 88 80 80 80", "80", "bf", "c2", "e0 a0", "f0 90 80", "c2 41", "e2 82", "ff", "fe",
+))  # fmt: skip
+
+
+@pytest.mark.parametrize("hex_bytes", _UTF8_CORPUS, ids=lambda hex_bytes: hex_bytes or "empty")
+def test_parse_decimal_refuses_as_not_utf8_exactly_what_utf8_refuses(hex_bytes: HexBytes) -> None:
+    """The shim refuses as not UTF-8 exactly the bytes Python's strict decoder refuses.
+
+    A sequence the decoder reads is never refused as not UTF-8 and, being no
+    digit, never accepted as part of a literal either.
+    """
+    middle = bytes.fromhex(hex_bytes)
+    raw = b"1" + middle + b"5"
+    result = _parse_decimal(raw.decode(errors="surrogateescape"))
+    not_utf8 = {
+        "status": "error",
+        "code": "ffi_validation_error",
+        "message": "input is not valid UTF-8",
+    }
+    try:
+        _ = middle.decode()
+    except UnicodeDecodeError:
+        assert result == not_utf8, raw
+    else:
+        assert result != not_utf8, raw
+        assert not middle or result.get("status") == "error", raw

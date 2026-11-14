@@ -32,6 +32,8 @@ from tools._ci_steps import (
     DOC_EXAMPLE_PACKAGE,
     FAST_STEPS,
     GO_BUILD_NO_CGO,
+    GO_EXCEL_MODULE,
+    GO_TEST_NO_CGO,
     in_every_go_module,
     register_all_steps,
 )
@@ -197,6 +199,19 @@ def test_the_cgo_free_build_keeps_no_executable(tmp_path: Path) -> None:
     assert step.cmd == in_every_go_module(GO_BUILD_NO_CGO)
     words = shlex.split(GO_BUILD_NO_CGO)
     assert words[words.index("build") + 1 : words.index("./...")] == ["-o", "/dev/null"]
+
+
+def test_the_cgo_free_suites_run_but_the_excel_loaders(tmp_path: Path) -> None:
+    """Every module's suite but the Excel loader's is run with cgo off.
+
+    The Excel loader's suite reads workbooks through the kernel throughout, so
+    it is the one module left out; the others build their tests without cgo and
+    pass them.  The command is read rather than run, as the build's is.
+    """
+    step = _registered_step(tmp_path, GateName("go test (no cgo)"))
+    assert step.cmd == in_every_go_module(GO_TEST_NO_CGO, but=GO_EXCEL_MODULE)
+    assert shlex.split(GO_TEST_NO_CGO)[:3] == ["CGO_ENABLED=0", "go", "test"]
+    assert Path("excel") == GO_EXCEL_MODULE
 
 
 # Every opt-in lane, so the steps read are every step the sweep registers on

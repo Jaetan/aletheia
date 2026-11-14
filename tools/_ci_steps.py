@@ -162,6 +162,12 @@ EXCEL_CARGO_TEST_BUILD_STEP = GateName("cargo build (tests, excel crate)")
 # the tree.
 GO_BUILD_NO_CGO = "CGO_ENABLED=0 go build -o /dev/null ./..."
 
+# The cgo-free run of every suite that can pass without the kernel, and the one
+# module it leaves out: the Excel loader's suite reads workbooks through the
+# kernel throughout.  The directory is the module's under the workspace, go/.
+GO_TEST_NO_CGO = "CGO_ENABLED=0 go test ./... -count=1"
+GO_EXCEL_MODULE = Path("excel")
+
 
 # The Python at the repository root, outside the package's ``python/`` tree: the
 # gate scripts, the shared micro-benchmarks, the examples and the doc-example
@@ -198,18 +204,21 @@ DOC_EXAMPLE_DOCS: tuple[Path, ...] = (
 DOC_EXAMPLE_PACKAGE = Path("python/aletheia")
 
 
-def in_every_go_module(cmd: str) -> str:
+def in_every_go_module(cmd: str, *, but: Path | None = None) -> str:
     """Return a ``/bin/sh`` command running ``cmd`` in every module of the Go workspace.
 
     ``./...`` stops at a module's edge, so a command run from ``go/`` reaches the
     core module alone.  The list is the workspace's own, ``go list -m`` read from
     ``go/go.work``, so a module the workspace adds is gated the day it is added.
     An empty or failed listing fails the step, as does any module that fails,
-    and every module runs whatever an earlier one answered.
+    and every module runs whatever an earlier one answered.  ``but`` leaves out
+    the one module whose directory it names under the workspace, the step's
+    directory.
     """
+    skip = "" if but is None else f'[ "$m" = "$PWD/{but.as_posix()}" ] && continue; '
     return (
         "mods=$(go list -m -f '{{.Dir}}') && test -n \"$mods\" || exit 1; "
-        + f'rc=0; for m in $mods; do (cd "$m" && {cmd}) || rc=1; done; exit "$rc"'
+        + f'rc=0; for m in $mods; do {skip}(cd "$m" && {cmd}) || rc=1; done; exit "$rc"'
     )
 
 
@@ -607,6 +616,16 @@ def _run_lints(runner: Runner) -> None:
     runner.step(
         "go build (no cgo)",
         in_every_go_module(GO_BUILD_NO_CGO),
+        cwd=runner.repo_root / "go",
+    )
+    # A test that needs the kernel carries the build line its code carries, so
+    # with cgo off every suite but the Excel loader's builds, runs the tests that
+    # need no kernel, and passes: a test file missing its line names a symbol
+    # the cgo-free build lacks and fails to build here, and an untagged test that
+    # reaches the kernel fails on the stub's error.
+    runner.step(
+        "go test (no cgo)",
+        in_every_go_module(GO_TEST_NO_CGO, but=GO_EXCEL_MODULE),
         cwd=runner.repo_root / "go",
     )
 
