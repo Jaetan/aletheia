@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 [build-system]
-requires = ["setuptools>=84.0.0"]
+requires = ["setuptools>=84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -142,7 +142,7 @@ dev = [
     # bound: the gate exists to build as a consumer's pip does, and pip builds
     # with the newest setuptools the build system's floor admits, so a release
     # that refuses the package fails the gate on the next fresh venv.
-    "setuptools>=84.0.0",
+    "setuptools>=84.2.1",
 ]
 # AGENTS.md Python cat 34(c) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
