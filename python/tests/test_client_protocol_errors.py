@@ -8,8 +8,7 @@ branches are only reachable when the backend returns a non-success or
 malformed response — which the real Agda backend never produces on the happy
 path.  Drive each branch via ``MockBackend`` canned responses, asserting the
 *exact* error-message text (equality kills both the uppercase and the
-``"XX...XX"``-wrapped string-literal mutants) and the ``code`` propagation /
-``isinstance`` guard.
+``"XX...XX"``-wrapped string-literal mutants) and the ``code`` propagation.
 """
 
 from __future__ import annotations
@@ -31,8 +30,10 @@ from aletheia import (
     StateError,
     TextRoundTripFailedError,
 )
+from aletheia.codes import ErrorCode
 from aletheia.common_types import Prose
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES
+from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
     from typing import NoReturn
@@ -66,26 +67,20 @@ class TestFormatDbcErrorPaths:
 
     def test_error_status_propagates_message_and_code(self) -> None:
         """Surface an error response's message and string code on the ProtocolError."""
-        backend = MockBackend([_resp({"status": "error", "message": "boom", "code": "my_code"})])
+        backend = MockBackend(
+            [_resp({"status": "error", "message": "boom", "code": "handler_no_dbc"})]
+        )
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc()
         assert str(excinfo.value) == "boom"
-        assert excinfo.value.code == "my_code"
+        assert excinfo.value.code is ErrorCode.HANDLER_NO_DBC
 
     def test_error_status_without_message_is_refused(self) -> None:
         """Refuse an error response that omits the message, naming the key."""
-        backend = MockBackend([_resp({"status": "error"})])
+        backend = MockBackend([_resp({"status": "error", "code": "handler_no_dbc"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc()
         assert str(excinfo.value) == _NO_MESSAGE
-
-    def test_error_status_non_string_code_drops_to_none(self) -> None:
-        """Drop a non-string code to None via the isinstance guard."""
-        backend = MockBackend([_resp({"status": "error", "message": "boom", "code": 123})])
-        with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
-            client.format_dbc()
-        assert str(excinfo.value) == "boom"
-        assert excinfo.value.code is None
 
     def test_unexpected_status_raises(self) -> None:
         """Reject an unrecognized status with the unexpected-status ProtocolError."""
@@ -114,26 +109,20 @@ class TestFormatDbcTextErrorPaths:
 
     def test_error_status_propagates_message_and_code(self) -> None:
         """Surface an error response's message and string code on the ProtocolError."""
-        backend = MockBackend([_resp({"status": "error", "message": "boom", "code": "my_code"})])
+        backend = MockBackend(
+            [_resp({"status": "error", "message": "boom", "code": "handler_no_dbc"})]
+        )
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
         assert str(excinfo.value) == "boom"
-        assert excinfo.value.code == "my_code"
+        assert excinfo.value.code is ErrorCode.HANDLER_NO_DBC
 
     def test_error_status_without_message_is_refused(self) -> None:
         """Refuse an error response that omits the message, naming the key."""
-        backend = MockBackend([_resp({"status": "error"})])
+        backend = MockBackend([_resp({"status": "error", "code": "handler_no_dbc"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
         assert str(excinfo.value) == _NO_MESSAGE
-
-    def test_error_status_non_string_code_drops_to_none(self) -> None:
-        """Drop a non-string code to None via the isinstance guard."""
-        backend = MockBackend([_resp({"status": "error", "message": "boom", "code": 123})])
-        with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
-            client.format_dbc_text(_sample_dbc())
-        assert str(excinfo.value) == "boom"
-        assert excinfo.value.code is None
 
     def test_unexpected_status_raises(self) -> None:
         """Reject an unrecognized status with the unexpected-status ProtocolError."""
@@ -247,26 +236,20 @@ class TestValidateDbcErrorPaths:
 
     def test_error_status_propagates_message_and_code(self) -> None:
         """Surface an error response's message and string code on the ProtocolError."""
-        backend = MockBackend([_resp({"status": "error", "message": "boom", "code": "my_code"})])
+        backend = MockBackend(
+            [_resp({"status": "error", "message": "boom", "code": "handler_no_dbc"})]
+        )
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
         assert str(excinfo.value) == "boom"
-        assert excinfo.value.code == "my_code"
+        assert excinfo.value.code is ErrorCode.HANDLER_NO_DBC
 
     def test_error_status_without_message_is_refused(self) -> None:
         """Refuse an error response that omits the message, naming the key."""
-        backend = MockBackend([_resp({"status": "error"})])
+        backend = MockBackend([_resp({"status": "error", "code": "handler_no_dbc"})])
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
         assert str(excinfo.value) == _NO_MESSAGE
-
-    def test_error_status_non_string_code_drops_to_none(self) -> None:
-        """Drop a non-string code to None via the isinstance guard."""
-        backend = MockBackend([_resp({"status": "error", "message": "boom", "code": 123})])
-        with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
-            client.validate_dbc(_sample_dbc())
-        assert str(excinfo.value) == "boom"
-        assert excinfo.value.code is None
 
     def test_unexpected_status_raises(self) -> None:
         """Reject an unrecognized status with the unexpected-status ProtocolError."""
@@ -355,7 +338,7 @@ class TestValidateDbcErrorPaths:
                     {
                         "status": "error",
                         "message": "boom",
-                        "code": "some_other_code",
+                        "code": "handler_no_dbc",
                         "has_errors": True,
                         "issues": issues,
                     }
@@ -365,7 +348,19 @@ class TestValidateDbcErrorPaths:
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
         assert str(excinfo.value) == "boom"
-        assert excinfo.value.code == "some_other_code"
+        assert excinfo.value.code is ErrorCode.HANDLER_NO_DBC
+
+
+def test_extract_signals_error_status_propagates_message_and_code() -> None:
+    """Surface an error reply's message and string code from extract_signals' JSON path.
+
+    A backend without the binary entry, as MockBackend is, takes that path.
+    """
+    backend = MockBackend([_resp({"status": "error", "message": "boom", "code": "handler_no_dbc"})])
+    with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
+        client.extract_signals(0x100, DLCCode(0), b"")
+    assert str(excinfo.value) == "boom"
+    assert excinfo.value.code is ErrorCode.HANDLER_NO_DBC
 
 
 class TestSendCommandGuards:

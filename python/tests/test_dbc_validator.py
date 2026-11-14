@@ -11,7 +11,7 @@ response.  The checks on where a signal sits in its message's frame are in
 """
 
 from fractions import Fraction
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import pytest
 from _dbc_helpers import mux_signal
@@ -26,12 +26,6 @@ from _validator_helpers import (
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError, ValidationIssue
 from aletheia.codes import IssueCode, IssueSeverity
 from aletheia.common_types import Prose
-
-if TYPE_CHECKING:
-    from aletheia.types import (
-        Command,
-        Response,
-    )
 
 
 class TestValidDBCPassesClean:
@@ -50,7 +44,7 @@ class TestValidDBCPassesClean:
 
         assert result["status"] == "validation"
         assert result["has_errors"] is False
-        assert result["issues"] == []
+        assert not result["issues"]
 
     def test_valid_multiple_messages(self) -> None:
         """Verify valid multiple messages."""
@@ -764,21 +758,3 @@ class TestParseDBCDualLayerValidation:
             response = client.parse_dbc(dbc)
 
         assert response["status"] == "success"
-
-
-def test_a_severity_outside_the_kernel_set_passes_as_written(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """validate_dbc returns an issue's severity as written: the kernel proves its set."""
-    dbc = single_message_dbc([make_signal("Sig1")])
-    issues = [{"severity": "info", "code": "empty_message", "detail": "x"}]
-    with AletheiaClient() as client:
-
-        def fake_send(_cmd: Command) -> Response:
-            return cast(
-                "Response",
-                {"status": "validation", "has_errors": False, "issues": issues},
-            )
-
-        monkeypatch.setattr(client, "_send_command", fake_send)
-        assert client.validate_dbc(dbc)["issues"] == issues

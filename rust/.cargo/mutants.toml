@@ -5,9 +5,11 @@
 # examines, so every sweep makes one set.
 #
 # The files are the hot path the Rust coding standard names: the response
-# decoder, the DBC model, the domain types and the FFI backend.  Every
-# feature is on, as the suite is run everywhere else, so the async client's
-# tests are among the ones a mutant has to get past.
+# decoder, with the reply readers' shape checks and the wire's JSON numbers,
+# the DBC model, the domain types and the FFI backend, the Rust `hot_path` of
+# docs/MUTATION_BENCH.yaml, which tools/check_mutation_setup.py holds to this
+# list both ways.  Every feature is on, as the suite is run everywhere else,
+# so the async client's tests are among the ones a mutant has to get past.
 #
 # tools/mutation_rust.py sweeps scratch copies of the whole tree and passes
 # `--in-place` within each: the suite includes the DBC corpus and the parity
@@ -17,6 +19,9 @@
 # sweeps several copies side by side, one `--shard` each.
 examine_globs = [
     "src/response.rs",
+    "src/response/error_codes.rs",
+    "src/reply_shape.rs",
+    "src/wire_json.rs",
     "src/dbc.rs",
     "src/dbc/decode.rs",
     "src/dbc/encode.rs",

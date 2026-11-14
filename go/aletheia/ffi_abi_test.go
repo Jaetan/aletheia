@@ -75,12 +75,16 @@ func TestABIVersionErrorAdmitsOnlyTheBindingsVersion(t *testing.T) {
 // A binary entry's refusal is the error envelope a JSON response carries, and
 // reads as the JSON path reads one: a kernel code and the shim's own each on
 // the coded error with the message inside the envelope, and a structured
-// payload lifted to its typed error. Text that is not an envelope, or an
-// envelope that is not an error, is the library malfunctioning, which no
-// working library sets and the tests over the real one therefore never reach,
-// refused in the form of every reply place.
+// payload lifted to its typed error. Text that is not an envelope, an envelope
+// that is not an error, or one whose code is none of the ErrorCodes, is the
+// library malfunctioning, which no working library sets and the tests over the
+// real one therefore never reach, refused in the form of every reply place.
 func TestBinaryRefusalReadsTheErrorEnvelope(t *testing.T) {
-	coded := map[string]struct{ envelope, code, message string }{
+	coded := map[string]struct {
+		envelope string
+		code     ErrorCode
+		message  string
+	}{
 		"a kernel code": {
 			`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`,
 			CodeHandlerNoDBC, "no DBC loaded",
@@ -115,6 +119,9 @@ func TestBinaryRefusalReadsTheErrorEnvelope(t *testing.T) {
 	malfunctions := map[string]struct{ envelope, says string }{
 		"not JSON":     {"no DBC loaded", "reply: expected JSON text, got invalid character 'o' in literal null (expecting 'u')"},
 		"not an error": {`{"status":"success"}`, `reply status: expected "error", got "success"`},
+		"unknown code": {`{"status":"error","code":"c","message":"m"}`, `reply code: expected an error code, got "c"`},
+		"no code":      {`{"status":"error","message":"m"}`, "reply code: expected an error code, got nothing"},
+		"number code":  {`{"status":"error","code":0,"message":"m"}`, "reply code: expected an error code, got number"},
 	}
 	for name, tc := range malfunctions {
 		t.Run(name, func(t *testing.T) {

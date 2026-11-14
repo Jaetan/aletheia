@@ -10,25 +10,31 @@ expected object, got array``). What is expected and what came are JSON kinds,
 key the reply lacks came as ``nothing``. A rational place expects ``a
 rational``: a number, or the ``{numerator, denominator}`` object the kernel
 writes a fraction as. A place holding one of a set of words expects them
-quoted, and a string outside them came quoted. A whole-number place expects a
-``number`` written as digits, all the kernel writes there.
+quoted, and a string outside them came quoted; a code place, holding a member
+of a code enumeration, expects its own text, such as ``an issue code``. A
+whole-number place expects a ``number`` written as digits, all the kernel
+writes there.
 
-A reader narrows each place itself and builds its refusal here: ``came``
-names what a key held, ``came_as`` what a value is, ``came_word`` what a word
-place held.
+A reader narrows each place itself and builds its refusal here: ``held``
+reads what a key holds, ``came`` names what a key held, ``came_as`` what a
+value is, ``came_word`` what a word place held. ``field_word`` reads a word
+place whole and ``field_member`` a code place.
 """
 
 from __future__ import annotations
 
 import json
 from fractions import Fraction
-from typing import TYPE_CHECKING, Literal, LiteralString, NewType, Protocol, assert_never, cast
+from typing import TYPE_CHECKING, Literal, LiteralString, NewType, Protocol
 
 from aletheia.client._types import ProtocolError
 from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
-    from aletheia.types import JSONValue, Response
+    from collections.abc import Mapping
+    from enum import StrEnum
+
+    from aletheia.types import JSONValue
 
 ReplyPath = NewType("ReplyPath", str)
 """A place in a reply: its keys from the root joined by ``/``, empty for the whole reply."""
@@ -61,18 +67,24 @@ class ReplyFields(Protocol):
     def __getitem__(self, key: LiteralString, /) -> JSONValue: ...
 
 
-def fields(reply: Response) -> ReplyFields:
-    """Read a reply held as its typed dictionary by the keys its reader names."""
-    return cast("ReplyFields", reply)
+def held(obj: ReplyFields, key: LiteralString) -> JSONValue:
+    """Read ``key`` of a reply object: its value, or ``None`` when the object lacks it."""
+    if key not in obj:
+        return None
+    return obj[key]
 
 
 def at(path: ReplyPath, key: LiteralString) -> ReplyPath:
-    """Name the place of ``key`` in the object at ``path``."""
-    return ReplyPath(f"{path}/{key}" if path else key)
+    """Name the place of ``key`` in the object at ``path``, the key alone at the reply's root."""
+    return ReplyPath(key if path == REPLY_ROOT else f"{path}/{key}")
 
 
 def json_kind(value: JSONValue) -> JSONKind:
-    """Name the JSON kind of a decoded value, ``bool`` read before ``int``, its subclass."""
+    """Name the JSON kind of a decoded value, ``bool`` read before ``int``, its subclass.
+
+    The cases cover ``JSONValue`` whole, and the type checker refuses a match
+    missing one.
+    """
     match value:
         case None:
             return "null"
@@ -86,8 +98,6 @@ def json_kind(value: JSONValue) -> JSONKind:
             return "array"
         case dict():
             return "object"
-        case _:
-            assert_never(value)
 
 
 def came_as(value: JSONValue) -> Arrival:
@@ -95,9 +105,13 @@ def came_as(value: JSONValue) -> Arrival:
     return Arrival(json_kind(value))
 
 
-def came(obj: ReplyFields, key: LiteralString) -> Arrival:
-    """Name what ``key`` held in ``obj``: its value's JSON kind, or ``nothing``."""
-    return came_as(obj[key]) if key in obj else _NOTHING
+def came(obj: ReplyFields | Mapping[str, object], key: LiteralString) -> Arrival:
+    """Name what ``key`` held in ``obj``: its value's JSON kind, or ``nothing``.
+
+    ``obj`` is a reply object or a typed entry built from one, a ``dict`` with
+    string keys either way, which ``is_str_dict`` reads as JSON.
+    """
+    return came_as(obj[key]) if key in obj and is_str_dict(obj) else _NOTHING
 
 
 def came_word(obj: ReplyFields, key: LiteralString) -> Arrival:
@@ -117,8 +131,31 @@ def words(*expected: LiteralString) -> Expectation:
 
 def reply_refusal(path: ReplyPath, expected: Expectation, arrival: Arrival) -> ProtocolError:
     """Build the refusal of a reply place: ``reply <path>: expected <expected>, got <arrival>``."""
-    where = f"reply {path}" if path else "reply"
+    where = "reply" if path == REPLY_ROOT else f"reply {path}"
     return ProtocolError(f"{where}: expected {expected}, got {arrival}")
+
+
+def field_word[W: LiteralString](
+    obj: ReplyFields, path: ReplyPath, key: LiteralString, *expected: W
+) -> W:
+    """Read the word at ``key`` of the object at ``path``, one of ``expected`` or refused."""
+    value = held(obj, key)
+    for word in expected:
+        if word == value:
+            return word
+    raise reply_refusal(at(path, key), words(*expected), came_word(obj, key))
+
+
+def field_member[M: StrEnum](
+    obj: ReplyFields, path: ReplyPath, key: LiteralString, members: type[M], expected: Expectation
+) -> M:
+    """Read the member of ``members`` whose value is the word at ``key`` of the object at ``path``.
+
+    Any other value is refused at its place as ``expected``.
+    """
+    if isinstance(word := held(obj, key), str) and word in members:
+        return members(word)
+    raise reply_refusal(at(path, key), expected, came_word(obj, key))
 
 
 def read_rational(value: JSONValue, path: ReplyPath) -> Fraction:

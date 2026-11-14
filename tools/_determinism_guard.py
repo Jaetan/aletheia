@@ -440,10 +440,10 @@ def _hold_cores(cores: CoreCount) -> None:
     running.cores.used = True
 
 
-def _start(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
+def _start(lib: ctypes.CDLL, cores: int | None) -> None:
     # No count asks the one running, which the suite starts on the default.
     if cores is not None:
-        _hold_cores(cores)
+        _hold_cores(CoreCount(cores))
     _real_start(lib, cores)
 
 

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Final, NewType, TypedDict, cast
 import pytest
 import yaml
 
-from aletheia import FFIError, PropertyDiagnostic
+from aletheia import AletheiaError, FFIError, PropertyDiagnostic
 from aletheia.client._enrichment import (
     build_diagnostic,
     collect_signals,
@@ -480,8 +480,12 @@ class TestRendererVocalWhenRTSDown:
 
         monkeypatch.setattr("aletheia.client._enrichment.started_library", _null_library)
         f = Signal("Speed").less_than(220).always().to_dict()
-        with pytest.raises(FFIError, match="null"):
+        with pytest.raises(AletheiaError) as refused:
             format_formula(f)
+        assert (type(refused.value), str(refused.value)) == (
+            FFIError,
+            "aletheia_format_rational returned null",
+        )
 
     def test_enriched_reason_degrades_on_render_failure(
         self, monkeypatch: pytest.MonkeyPatch

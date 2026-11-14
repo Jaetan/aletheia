@@ -3,41 +3,39 @@
 """A failed entry's envelope is the kernel's refusal only when it reads as one.
 
 The decimal entry and the binary-output entries share one decoder.  An
-envelope whose ``status`` is not ``"error"``, or without a string ``code`` and
-``message``, is malformed and raises a :class:`~aletheia.ProtocolError`
-without a code, refused at its broken key; a refusal raises the caller's kind
-with the kernel's message verbatim.
+envelope whose ``status`` is not ``"error"``, whose ``code`` is no error code,
+or without a string ``message``, is malformed and raises a
+:class:`~aletheia.ProtocolError` without a code, refused at its broken key; a
+refusal raises the caller's kind with the kernel's message verbatim.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
 from aletheia import ProtocolError, ValidationError
 from aletheia.client._refusal import raise_entry_refusal
+from aletheia.codes import ErrorCode
 from aletheia.common_types import Prose
+from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
-    from aletheia.types import Response
+    from aletheia.types import JSONValue
 
 _MESSAGE = "parse failed at line 1, column 1"
-
-
-def _envelope(status: Literal["error", "success"] | None) -> Response:
-    """Return a ``text_parse_failure`` envelope under *status*, or under none."""
-    if status is None:
-        return cast("Response", {"code": "text_parse_failure", "message": _MESSAGE})
-    return cast("Response", {"status": status, "code": "text_parse_failure", "message": _MESSAGE})
 
 
 def test_a_refusal_is_the_kernels_message_and_code() -> None:
     """The caller's kind carries the kernel's message verbatim and its code."""
     with pytest.raises(ValidationError) as excinfo:
-        raise_entry_refusal(_envelope("error"), error=ValidationError)
+        raise_entry_refusal(
+            {"status": "error", "code": "text_parse_failure", "message": _MESSAGE},
+            error=ValidationError,
+        )
     assert str(excinfo.value) == _MESSAGE
-    assert excinfo.value.code == "text_parse_failure"
+    assert excinfo.value.code is ErrorCode.TEXT_PARSE_FAILURE
 
 
 @pytest.mark.parametrize(
@@ -51,8 +49,13 @@ def test_an_envelope_that_is_not_an_error_is_malformed(
     status: Literal["success"] | None, said: Prose
 ) -> None:
     """An envelope without the ``error`` status raises a code-less ProtocolError."""
+    envelope = (
+        {"code": "text_parse_failure", "message": _MESSAGE}
+        if status is None
+        else {"status": status, "code": "text_parse_failure", "message": _MESSAGE}
+    )
     with pytest.raises(ProtocolError) as excinfo:
-        raise_entry_refusal(_envelope(status), error=ValidationError)
+        raise_entry_refusal(envelope, error=ValidationError)
     assert excinfo.type is ProtocolError
     assert excinfo.value.code is None
     assert str(excinfo.value) == said
@@ -62,12 +65,16 @@ def test_an_envelope_that_is_not_an_error_is_malformed(
     ("envelope", "said"),
     [
         (
+            {"status": "error", "code": "recording_kernel", "message": _MESSAGE},
+            Prose('reply code: expected an error code, got "recording_kernel"'),
+        ),
+        (
             {"status": "error", "message": _MESSAGE},
-            Prose("reply code: expected string, got nothing"),
+            Prose("reply code: expected an error code, got nothing"),
         ),
         (
             {"status": "error", "code": 7, "message": _MESSAGE},
-            Prose("reply code: expected string, got number"),
+            Prose("reply code: expected an error code, got number"),
         ),
         (
             {"status": "error", "code": "text_parse_failure"},
@@ -78,12 +85,13 @@ def test_an_envelope_that_is_not_an_error_is_malformed(
             Prose("reply message: expected string, got null"),
         ),
     ],
-    ids=["no-code", "number-code", "no-message", "null-message"],
+    ids=["unknown-code", "no-code", "number-code", "no-message", "null-message"],
 )
-def test_an_envelope_without_a_string_code_or_message_is_malformed(
-    envelope: Response, said: Prose
+def test_an_envelope_without_an_error_code_or_a_string_message_is_malformed(
+    envelope: JSONValue, said: Prose
 ) -> None:
-    """An error envelope lacking a string ``code`` or ``message`` is refused at that key."""
+    """A ``code`` that is no error code, or a ``message`` that is no string, is refused there."""
+    assert is_str_dict(envelope)
     with pytest.raises(ProtocolError) as excinfo:
         raise_entry_refusal(envelope, error=ValidationError)
     assert excinfo.type is ProtocolError

@@ -873,6 +873,7 @@ def test_a_test_the_mutated_tree_cannot_satisfy_is_named(
         {
             TestFile("test_a_asserting.py"): Prose(above),
             TestFile("test_b_walking.py"): Prose('DOCS = "../../docs"\n'),
+            TestFile("test_b_climbing.py"): Prose("ROOT = Path(__file__).parent.parent.parent\n"),
             TestFile("test_c_skip.py"): Prose(f"{above}pytest.skip('absent')\n"),
             TestFile("test_d_skipif.py"): Prose(f"{above}@pytest.mark.skipif(True)\n"),
             TestFile("test_e_importorskip.py"): Prose(f"{above}pytest.importorskip('x')\n"),
@@ -883,6 +884,7 @@ def test_a_test_the_mutated_tree_cannot_satisfy_is_named(
     )
     assert check_mutation_setup.every_above_tree_test_skips_or_is_ignored() == [
         _not_ignored_above_tree(TestFile("test_a_asserting.py")),
+        _not_ignored_above_tree(TestFile("test_b_climbing.py")),
         _not_ignored_above_tree(TestFile("test_b_walking.py")),
     ]
 

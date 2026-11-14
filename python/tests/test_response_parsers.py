@@ -6,7 +6,7 @@ Complements the per-surface tests in ``test_unified_client*`` by
 exercising edge-cases in the shared helpers directly.
 """
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -16,22 +16,25 @@ from aletheia.client._response_parsers import (
     parse_complete_warnings,
     raise_if_input_bound_exceeded,
 )
+from aletheia.codes import ErrorCode
+from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
     from aletheia.common_types import PositiveInt, Prose
-    from aletheia.types import JSONValue, Response
+    from aletheia.types import JSONValue
 
 
 class TestBuildErrorResponse:
     """Strict-contract tests for ``build_error_response``.
 
-    The Agda core always emits both ``status = "error"`` fields; absent
-    or non-string ``code`` indicates a malformed response and must
-    surface as ``ProtocolError`` rather than a silent empty string.
+    The Agda core always emits ``code``, one of the :class:`ErrorCode` words,
+    and ``message``, a string, on ``status = "error"``; any other ``code`` or
+    ``message`` indicates a malformed response and must surface as
+    ``ProtocolError`` rather than a silent default.
     """
 
     def test_happy_path_returns_both_fields(self) -> None:
-        """Well-formed response flows through unchanged."""
+        """A well-formed response flows through, its code read as the member it names."""
         out = build_error_response(
             {"status": "error", "code": "handler_no_dbc", "message": "no DBC"}
         )
@@ -40,34 +43,43 @@ class TestBuildErrorResponse:
             "code": "handler_no_dbc",
             "message": "no DBC",
         }
+        assert out["code"] is ErrorCode.HANDLER_NO_DBC
 
     @pytest.mark.parametrize(
         ("envelope", "text"),
         [
             pytest.param(
+                {"status": "error", "code": "some_code", "message": "m"},
+                'reply code: expected an error code, got "some_code"',
+                id="code-unknown",
+            ),
+            pytest.param(
                 {"status": "error", "message": "oops"},
-                "reply code: expected string, got nothing",
+                "reply code: expected an error code, got nothing",
                 id="code-absent",
             ),
             pytest.param(
                 {"status": "error", "code": 42, "message": "m"},
-                "reply code: expected string, got number",
+                "reply code: expected an error code, got number",
                 id="code-number",
             ),
             pytest.param(
-                {"status": "error", "code": "some_code"},
+                {"status": "error", "code": "handler_no_dbc"},
                 "reply message: expected string, got nothing",
                 id="message-absent",
             ),
             pytest.param(
-                {"status": "error", "code": "some_code", "message": 123},
+                {"status": "error", "code": "handler_no_dbc", "message": 123},
                 "reply message: expected string, got number",
                 id="message-number",
             ),
         ],
     )
-    def test_code_and_message_are_strings(self, envelope: Response, text: Prose) -> None:
-        """An absent or non-string ``code`` or ``message`` is refused at its place, no default."""
+    def test_code_is_an_error_code_and_message_a_string(
+        self, envelope: JSONValue, text: Prose
+    ) -> None:
+        """A ``code`` outside the error codes, or a ``message`` not a string, is refused there."""
+        assert is_str_dict(envelope)
         with pytest.raises(ProtocolError) as exc_info:
             build_error_response(envelope)
         assert str(exc_info.value) == text
@@ -85,17 +97,14 @@ class TestBuildErrorResponse:
         at its boundary.
         """
         out = build_error_response(
-            cast(
-                "Response",
-                {
-                    "status": "error",
-                    "code": "input_bound_exceeded",
-                    "message": "too deep",
-                    "bound_kind": "nesting_depth",
-                    "observed": observed,
-                    "limit": limit,
-                },
-            )
+            {
+                "status": "error",
+                "code": "input_bound_exceeded",
+                "message": "too deep",
+                "bound_kind": "nesting_depth",
+                "observed": observed,
+                "limit": limit,
+            }
         )
         assert out.get("bound_kind") == "nesting_depth"
         assert out.get("observed") == observed
@@ -140,13 +149,10 @@ class TestBuildErrorResponse:
         self, triple: dict[str, object], refusal: Prose
     ) -> None:
         """A triple the kernel writes whole is refused at the first key out of its kind."""
+        envelope = {"status": "error", "code": "input_bound_exceeded", "message": "m", **triple}
+        assert is_str_dict(envelope)
         with pytest.raises(ProtocolError) as refused:
-            _ = build_error_response(
-                cast(
-                    "Response",
-                    {"status": "error", "code": "input_bound_exceeded", "message": "m", **triple},
-                )
-            )
+            _ = build_error_response(envelope)
         assert str(refused.value) == refusal
 
     def test_wellformed_validation_issues_are_attached(self) -> None:
@@ -159,18 +165,15 @@ class TestBuildErrorResponse:
             {"severity": "error", "code": "duplicate_signal_name", "detail": "dup 'S'"},
             {"severity": "warning", "code": "offset_scale_range", "detail": "range"},
         ]
-        out = build_error_response(
-            cast(
-                "Response",
-                {
-                    "status": "error",
-                    "code": "handler_validation_failed",
-                    "message": "ParseDBCText: validation failed: dup 'S'",
-                    "has_errors": True,
-                    "issues": issues,
-                },
-            )
-        )
+        envelope = {
+            "status": "error",
+            "code": "handler_validation_failed",
+            "message": "ParseDBCText: validation failed: dup 'S'",
+            "has_errors": True,
+            "issues": issues,
+        }
+        assert is_str_dict(envelope)
+        out = build_error_response(envelope)
         assert out.get("has_errors") is True
         assert out.get("issues") == issues
 
@@ -180,20 +183,15 @@ class TestBuildErrorResponse:
         Another error envelope carrying has_errors/issues-shaped keys must
         not be mis-lifted (matches the Go/C++/Rust decoders' code gate).
         """
-        out = build_error_response(
-            cast(
-                "Response",
-                {
-                    "status": "error",
-                    "code": "some_future_error",
-                    "message": "boom",
-                    "has_errors": True,
-                    "issues": [
-                        {"severity": "error", "code": "duplicate_signal_name", "detail": "d"}
-                    ],
-                },
-            )
-        )
+        envelope = {
+            "status": "error",
+            "code": "handler_no_dbc",
+            "message": "boom",
+            "has_errors": True,
+            "issues": [{"severity": "error", "code": "duplicate_signal_name", "detail": "d"}],
+        }
+        assert is_str_dict(envelope)
+        out = build_error_response(envelope)
         assert "has_errors" not in out
         assert "issues" not in out
 
@@ -219,9 +217,7 @@ class TestRaiseIfInputBoundExceeded:
         kernel's message as the envelope spells it.
         """
         message = "ParseDBC: senders array: array cardinality 10001 exceeds limit 10000"
-        envelope = cast(
-            "Response", {**_BOUND_REFUSAL, "field": "senders array", "message": message}
-        )
+        envelope = {**_BOUND_REFUSAL, "field": "senders array", "message": message}
         with pytest.raises(InputBoundExceededError) as exc_info:
             raise_if_input_bound_exceeded(envelope)
         err = exc_info.value
@@ -237,53 +233,46 @@ class TestRaiseIfInputBoundExceeded:
     def test_absent_field_is_none(self) -> None:
         """A refusal naming no field raises the error with ``field`` None and the message."""
         with pytest.raises(InputBoundExceededError) as exc_info:
-            raise_if_input_bound_exceeded(cast("Response", _BOUND_REFUSAL))
+            raise_if_input_bound_exceeded(_BOUND_REFUSAL)
         assert (exc_info.value.field, str(exc_info.value)) == (None, _BOUND_REFUSAL["message"])
 
     @pytest.mark.parametrize(
         ("envelope", "refusal"),
         [
             pytest.param(
-                cast("Response", {**_BOUND_REFUSAL, "field": 7}),
+                {**_BOUND_REFUSAL, "field": 7},
                 "reply field: expected string, got number",
                 id="field-nonstring",
             ),
             pytest.param(
-                cast("Response", {**_BOUND_REFUSAL, "message": 7}),
+                {**_BOUND_REFUSAL, "message": 7},
                 "reply message: expected string, got number",
                 id="message-nonstring",
             ),
             pytest.param(
-                cast(
-                    "Response",
-                    {key: value for key, value in _BOUND_REFUSAL.items() if key != "message"},
-                ),
+                {key: value for key, value in _BOUND_REFUSAL.items() if key != "message"},
                 "reply message: expected string, got nothing",
                 id="message-absent",
             ),
             pytest.param(
-                cast(
-                    "Response",
-                    {"status": "error", "code": "input_bound_exceeded", "message": "m"},
-                ),
+                {"status": "error", "code": "input_bound_exceeded", "message": "m"},
                 "reply bound_kind: expected string, got nothing",
                 id="triple-absent",
             ),
         ],
     )
     def test_a_bound_refusal_out_of_its_kinds_is_refused_at_its_place(
-        self, envelope: Response, refusal: Prose
+        self, envelope: JSONValue, refusal: Prose
     ) -> None:
         """A bound refusal's field, message and triple are read by kind."""
+        assert is_str_dict(envelope)
         with pytest.raises(ProtocolError) as refused:
             raise_if_input_bound_exceeded(envelope)
         assert str(refused.value) == refusal
 
     def test_another_code_raises_nothing(self) -> None:
         """An envelope of another code is left to the caller."""
-        raise_if_input_bound_exceeded(
-            cast("Response", {**_BOUND_REFUSAL, "code": "handler_validation_failed"})
-        )
+        raise_if_input_bound_exceeded({**_BOUND_REFUSAL, "code": "handler_validation_failed"})
 
 
 class TestParseCompleteWarnings:
@@ -296,12 +285,9 @@ class TestParseCompleteWarnings:
 
     def test_happy_path_plain_int(self) -> None:
         """A plain-int property_index flows through unchanged."""
-        out = parse_complete_warnings(
-            cast(
-                "Response",
-                {"warnings": [{"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}]},
-            )
-        )
+        reply = {"warnings": [{"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}]}
+        assert is_str_dict(reply)
+        out = parse_complete_warnings(reply)
         assert out == [{"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}]
 
     @pytest.mark.parametrize(
@@ -328,8 +314,10 @@ class TestParseCompleteWarnings:
     def test_property_index_is_a_whole_number(self, property_index: JSONValue, text: Prose) -> None:
         """A property_index that is not an int, a bool or a rational object included, is refused."""
         warning = {"kind": "uncached_atom", "property_index": property_index, "detail": "x"}
+        reply = {"warnings": [warning]}
+        assert is_str_dict(reply)
         with pytest.raises(ProtocolError) as exc_info:
-            parse_complete_warnings(cast("Response", {"warnings": [warning]}))
+            parse_complete_warnings(reply)
         assert str(exc_info.value) == text
 
     @pytest.mark.parametrize(
@@ -355,11 +343,12 @@ class TestParseCompleteWarnings:
             ),
         ],
     )
-    def test_a_broken_warnings_place_is_refused(self, reply: Response, text: Prose) -> None:
+    def test_a_broken_warnings_place_is_refused(self, reply: JSONValue, text: Prose) -> None:
         """An absent or non-list ``warnings``, a non-object entry or no property_index is refused.
 
         The kernel writes each of them, so none is defaulted.
         """
+        assert is_str_dict(reply)
         with pytest.raises(ProtocolError) as exc_info:
             parse_complete_warnings(reply)
         assert str(exc_info.value) == text

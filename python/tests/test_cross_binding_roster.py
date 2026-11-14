@@ -19,10 +19,11 @@ from pathlib import Path
 from typing import Final, NamedTuple, NewType
 
 import pytest
+from _repo_root import REPO_ROOT
 
 from aletheia.common_types import Prose
 
-_REPO_ROOT: Final = Path(__file__).resolve().parents[2]
+_REPO_ROOT: Final = REPO_ROOT
 _GO_FILE: Final = _REPO_ROOT / "go" / "aletheia" / "cross_binding_integration_test.go"
 _CPP_CROSS: Final = Path("cpp/tests/test_cross_binding_integration.cpp")
 _CPP_INTEGRATION: Final = Path("cpp/tests/integration_tests.cpp")

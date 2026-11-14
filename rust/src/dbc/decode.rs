@@ -6,11 +6,14 @@
 //!
 //! The DBC a reply carries sits at `dbc`, and every refusal names its place
 //! from there: a signal's field is at `dbc/messages/signals/<key>`. Every key
-//! the kernel writes is required, and each place is read by kind only: the
-//! ranges and the tags are the kernel's, decided when it read the DBC and
-//! proven of every reply. A tag is dispatched with no refusal of its own by one
-//! function whose match names every word the kernel writes at the place but
-//! the last, which the final arm reads.
+//! the kernel writes is required, and each number or string is read by kind
+//! only, its range the kernel's, decided when it read the DBC and proven of
+//! every reply. A signal's byte order and presence, a comment target's kind,
+//! an attribute's kind, a definition's scope and type kind and an attribute's
+//! value kind and target kind are read by `field_word`, which refuses a word
+//! outside the place's words, every other tag as a string; one function
+//! dispatches each tag, its match naming every word the kernel writes at the
+//! place but the last, which the final arm reads.
 
 use super::{
     AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
@@ -21,7 +24,7 @@ use crate::error::Error;
 use crate::reply_shape::{
     came, field_array, field_bool, field_i64, field_natural, field_naturals, field_object,
     field_object_of, field_objects, field_rational, field_sign_magnitude, field_string,
-    field_strings, refusal, ReplyPath, ReplyStatus, NUMBER, ROOT,
+    field_strings, field_word, refusal, ReplyPath, ReplyStatus, NUMBER, ROOT,
 };
 use crate::response::{decode_reply, read_issues};
 use crate::types::{CanId, Dlc};
@@ -130,7 +133,12 @@ fn read_signal(signal: &Object<'_>, path: ReplyPath<'_>) -> Result<DbcSignal, Er
         name: field_string(signal, path, "name")?.into_owned(),
         start_bit: field_natural(signal, path, "startBit")?,
         length: field_natural(signal, path, "length")?,
-        byte_order: byte_order(&field_string(signal, path, "byteOrder")?),
+        byte_order: byte_order(field_word(
+            signal,
+            path,
+            "byteOrder",
+            &["little_endian", "big_endian"],
+        )?),
         signed: field_bool(signal, path, "signed")?,
         factor: field_rational(signal, path, "factor")?,
         offset: field_rational(signal, path, "offset")?,
@@ -144,7 +152,11 @@ fn read_signal(signal: &Object<'_>, path: ReplyPath<'_>) -> Result<DbcSignal, Er
             "valueDescriptions",
             read_value_description,
         )?,
-        presence: presence(&field_string(signal, path, "presence")?, signal, path)?,
+        presence: presence(
+            field_word(signal, path, "presence", &["always", "multiplexed"])?,
+            signal,
+            path,
+        )?,
     })
 }
 
@@ -255,7 +267,13 @@ fn comment_target(
 /// One comment: its target and its text.
 fn read_comment(comment: &Object<'_>, path: ReplyPath<'_>) -> Result<Comment, Error> {
     let target = field_object_of(comment, path, "target", |target, place| {
-        comment_target(&field_string(target, place, "kind")?, target, place)
+        let kind = field_word(
+            target,
+            place,
+            "kind",
+            &["network", "node", "message", "signal", "envVar"],
+        )?;
+        comment_target(kind, target, place)
     })?;
     let text = field_string(comment, path, "text")?.into_owned();
     Ok(Comment { target, text })
@@ -360,9 +378,14 @@ fn attr_target(word: &str, target: &Object<'_>, path: ReplyPath<'_>) -> Result<A
 /// One attribute entry at `path`: its kind and its name, then what the kind
 /// carries.
 fn read_attribute(attribute_entry: &Object<'_>, path: ReplyPath<'_>) -> Result<Attribute, Error> {
-    let kind = field_string(attribute_entry, path, "kind")?;
+    let kind = field_word(
+        attribute_entry,
+        path,
+        "kind",
+        &["definition", "default", "assignment"],
+    )?;
     let name = field_string(attribute_entry, path, "name")?.into_owned();
-    attribute(&kind, name, attribute_entry, path)
+    attribute(kind, name, attribute_entry, path)
 }
 
 /// An attribute entry by its kind, `assignment` its last arm: a definition's
@@ -376,10 +399,15 @@ fn attribute(
     match word {
         "definition" => Ok(Attribute::Definition {
             name,
-            scope: attr_scope(&field_string(entry, path, "scope")?),
-            attr_type: field_object_of(entry, path, "attrType", |inner, place| {
-                attr_type(&field_string(inner, place, "kind")?, inner, place)
-            })?,
+            scope: attr_scope(field_word(
+                entry,
+                path,
+                "scope",
+                &[
+                    "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig",
+                ],
+            )?),
+            attr_type: field_object_of(entry, path, "attrType", read_attr_type)?,
         }),
         "default" => Ok(Attribute::Default {
             name,
@@ -387,15 +415,43 @@ fn attribute(
         }),
         _ => Ok(Attribute::Assignment {
             name,
-            target: field_object_of(entry, path, "target", |inner, place| {
-                attr_target(&field_string(inner, place, "kind")?, inner, place)
-            })?,
+            target: field_object_of(entry, path, "target", read_attr_target)?,
             value: field_object_of(entry, path, "value", read_attr_value)?,
         }),
     }
 }
 
+/// An attribute definition's type object at `path`, read by its kind.
+fn read_attr_type(type_entry: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrType, Error> {
+    let kind = field_word(
+        type_entry,
+        path,
+        "kind",
+        &["int", "float", "string", "enum", "hex"],
+    )?;
+    attr_type(kind, type_entry, path)
+}
+
 /// An attribute's value object at `path`, read by its kind.
 fn read_attr_value(value: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrValue, Error> {
-    attr_value(&field_string(value, path, "kind")?, value, path)
+    let kind = field_word(
+        value,
+        path,
+        "kind",
+        &["int", "float", "string", "enum", "hex"],
+    )?;
+    attr_value(kind, value, path)
+}
+
+/// An attribute assignment's target object at `path`, read by its kind.
+fn read_attr_target(target: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrTarget, Error> {
+    let kind = field_word(
+        target,
+        path,
+        "kind",
+        &[
+            "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig",
+        ],
+    )?;
+    attr_target(kind, target, path)
 }

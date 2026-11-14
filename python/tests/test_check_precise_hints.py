@@ -244,10 +244,15 @@ def test_the_lens_reads_python_outside_the_archive_and_every_probe(rel: RelPath)
 
 @pytest.mark.parametrize(
     "rel",
-    [RelPath("tools/build_python.sh"), RelPath(".archive/reviews/x.py"), RelPath("docs/X.md")],
+    [
+        RelPath("tools/build_python.sh"),
+        RelPath(".archive/reviews/x.py"),
+        RelPath("docs/X.md"),
+        RelPath("tools/_vendor/clang/cindex.py"),
+    ],
 )
-def test_the_lens_leaves_the_archive_and_other_shell_scripts(rel: RelPath) -> None:
-    """History, a shell script that is not a probe, and prose are not read."""
+def test_the_lens_leaves_the_archive_vendored_code_and_other_shell_scripts(rel: RelPath) -> None:
+    """History, a shell script that is not a probe, prose and vendored code are not read."""
     assert not in_scope(rel)
 
 

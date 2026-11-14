@@ -145,18 +145,6 @@ gateRules = do
         -- gate — operators must not be left blind on an event the code emits.
         cmd_ pythonBin "-m" "tools.check_runbook_coverage"
 
-    phony "check-limits-parity" $ do
-        -- Limits SSOT parity gate.  The Agda `Aletheia.Limits` module is the
-        -- single source of truth for every adversarial-input bound (AGENTS.md
-        -- universal rule).  The Go, Python and C++ bindings each mirror it,
-        -- and each header claims the values are mirrored verbatim; this
-        -- script enforces that promise on all three.  Failing on: a missing
-        -- required mirror, a numeric value mismatch, a BoundKind wire-string
-        -- mismatch, or either side holding an entry the other lacks.  It also
-        -- holds the reply proof's `replyText` and `replyNonEmpty` rows to the
-        -- word sets and non-empty arrays the Python, Go and C++ readers take.
-        cmd_ pythonBin "-m" "tools.check_limits_parity"
-
     phony "check-stability-bench" $ do
         -- Stability-bench coverage gate.  AGENTS.md cat 16 /
         -- 25 / 26 / 27 mandate per-binding long-run leak detection harnesses

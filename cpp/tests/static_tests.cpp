@@ -72,7 +72,7 @@ static_assert(StandardId::create(2047)->value() == 2047);
 // A factory's refusal is an AletheiaError of kind Validation with no wire code,
 // read in a constant expression.
 static_assert(StandardId::create(2048).error().kind() == ErrorKind::Validation);
-static_assert(StandardId::create(2048).error().code() == ErrorCode::Unknown);
+static_assert(!StandardId::create(2048).error().code().has_value());
 static_assert(StandardId::create(2048).error().message() == "Standard CAN ID must be 0-2047");
 
 // ===========================================================================

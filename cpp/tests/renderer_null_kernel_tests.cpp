@@ -3,7 +3,7 @@
 //
 // A library that answers the decimal entry or the property check with failure
 // and no error envelope is a wire fault, a Protocol error as in every binding,
-// and one that renders a null string an Ffi error. The null kernel the build
+// and one that answers a null string an Ffi error. The null kernel the build
 // makes beside the library answers each so, and answers its allocation count
 // with zero, which the binding hands on as it came. A process of its own,
 // because the runtime starts once per process, and the parser and the count
@@ -36,7 +36,7 @@ TEST_CASE("a decimal failure without an envelope is a protocol error", "[rationa
     auto const parsed = aletheia::Rational::from_decimal("1");
     REQUIRE_FALSE(parsed.has_value());
     CHECK(parsed.error().kind() == aletheia::ErrorKind::Protocol);
-    CHECK(parsed.error().code() == aletheia::ErrorCode::Unknown);
+    CHECK_FALSE(parsed.error().code().has_value());
     CHECK(parsed.error().text() == "aletheia_parse_decimal failed without an error");
 }
 
@@ -51,19 +51,19 @@ TEST_CASE("a render the kernel answers with a null string is an Ffi error, and a
     auto const rendered = aletheia::detail::format_rational_ffi(aletheia::Rational{1, 2});
     REQUIRE_FALSE(rendered.has_value());
     CHECK(rendered.error().kind() == aletheia::ErrorKind::Ffi);
-    CHECK(rendered.error().text() == "aletheia_format_rational returned a null pointer");
+    CHECK(rendered.error().text() == "aletheia_format_rational returned null");
     auto const check =
         aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue::of(1, 2));
     REQUIRE_FALSE(check.has_value());
     CHECK(check.error().kind() == aletheia::ErrorKind::Protocol);
-    CHECK(check.error().code() == aletheia::ErrorCode::Unknown);
+    CHECK_FALSE(check.error().code().has_value());
     CHECK(check.error().text() == "aletheia_check_property refused without an error");
 }
 
-TEST_CASE("each text endpoint's null answer is a protocol error, and no state refuses a client",
+TEST_CASE("each text endpoint's null answer is an Ffi error, and no state refuses a client",
           "[ffi]") {
     // The stand-in hands out no state and answers every text entry with a null
-    // string: each endpoint returns the Protocol error naming its entry, and a
+    // string: each endpoint returns the Ffi error naming its entry, and a
     // client over the backend is refused.
     auto backend =
         required(aletheia::make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_NULL_KERNEL}));
@@ -73,7 +73,7 @@ TEST_CASE("each text endpoint's null answer is a protocol error, and no state re
     auto const dlc = aletheia::Dlc::create(0).value();
     auto const ts = aletheia::Timestamp{0};
     auto const refused = [](aletheia::Result<std::string> const& answer, std::string_view text) {
-        CHECK(aletheia::detail::error_of(answer).kind() == aletheia::ErrorKind::Protocol);
+        CHECK(aletheia::detail::error_of(answer).kind() == aletheia::ErrorKind::Ffi);
         CHECK(aletheia::detail::error_of(answer).message() == text);
     };
     refused(backend->process(state, "{}"), "aletheia_process returned null");
@@ -88,7 +88,7 @@ TEST_CASE("each text endpoint's null answer is a protocol error, and no state re
             "aletheia_extract_signals returned null");
     auto const client = aletheia::AletheiaClient::create(std::move(backend));
     CHECK(aletheia::detail::error_of(client).kind() == aletheia::ErrorKind::Ffi);
-    CHECK(aletheia::detail::error_of(client).message() == "backend init() returned null state");
+    CHECK(aletheia::detail::error_of(client).message() == "aletheia_init returned null");
 }
 
 TEST_CASE("a backend that starts the runtime registers its library for the search", "[ffi]") {

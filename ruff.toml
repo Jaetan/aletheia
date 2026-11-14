@@ -20,8 +20,10 @@ line-length = 100         # matches [tool.pylint.format] max-line-length
 
 # `python/mutants/` is mutmut's GENERATED mutation-testing output (gitignored,
 # never authored) — exclude it so a `python/`-wide ruff scan (the run_ci gate)
-# does not lint thousands of throwaway mutant files.
-extend-exclude = ["python/mutants"]
+# does not lint thousands of throwaway mutant files.  `tools/_vendor/` holds
+# upstream's code kept verbatim (tools/_vendored.py), which an edit to satisfy
+# a rule would make the tree's own.
+extend-exclude = ["python/mutants", "tools/_vendor"]
 
 [lint]
 select = ["ALL"]

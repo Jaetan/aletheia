@@ -498,6 +498,7 @@ mod tests {
     use super::Predicate;
     use crate::backend::ensure_rts_for_test;
     use crate::error::Error;
+    use crate::response::ErrorCode;
     use crate::types::Rational;
 
     #[test]
@@ -506,7 +507,7 @@ mod tests {
         let err = Predicate::between("Voltage", 14, 11).expect_err("an inverted range");
         assert!(
             matches!(&err, Error::Validation { code: Some(code), located: None, .. }
-                if code == "handler_property_refused"),
+                if *code == ErrorCode::HandlerPropertyRefused),
             "got: {err:?}"
         );
         assert_eq!(err.to_string(), "between: min 14 exceeds max 11");

@@ -60,7 +60,7 @@ template<typename T>
 static void requires_runtime_down(aletheia::Result<T> const& answered, std::string_view reading) {
     REQUIRE_FALSE(answered.has_value());
     CHECK(answered.error().kind() == aletheia::ErrorKind::Ffi);
-    CHECK(answered.error().code() == aletheia::ErrorCode::Unknown);
+    CHECK_FALSE(answered.error().code().has_value());
     CHECK(answered.error().text() == runtime_down(reading));
 }
 
@@ -95,6 +95,10 @@ TEST_CASE("a check's build and every render of a threshold return the runtime's 
         "building a check");
     requires_runtime_down(aletheia::format_formula(speed_at_most_220()), "rendering");
     requires_runtime_down(aletheia::build_diagnostic(speed_at_most_220()), "rendering");
+    // A check's condition renders its threshold on every read.
+    requires_runtime_down(aletheia::detail::render_desc(aletheia::detail::op_desc(
+                              "<= ", aletheia::PhysicalValue::of(220, 1))),
+                          "rendering");
 }
 
 TEST_CASE("properties the kernel accepted return the renderer's refusal while it is down",
@@ -203,14 +207,14 @@ TEST_CASE("a loader's own refusal answers on its input, not on the runtime",
         auto const missing = aletheia::load_checks_from_excel("does-not-exist.xlsx");
         REQUIRE_FALSE(missing.has_value());
         CHECK(missing.error().kind() == aletheia::ErrorKind::Validation);
-        CHECK(missing.error().code() == aletheia::ErrorCode::Unknown);
+        CHECK_FALSE(missing.error().code().has_value());
         CHECK(missing.error().text() == "Excel file not found: does-not-exist.xlsx");
     }
     SECTION("a document holding no checks list") {
         auto const malformed = aletheia::load_checks_from_yaml_string("not: a checks list\n");
         REQUIRE_FALSE(malformed.has_value());
         CHECK(malformed.error().kind() == aletheia::ErrorKind::Validation);
-        CHECK(malformed.error().code() == aletheia::ErrorCode::Unknown);
+        CHECK_FALSE(malformed.error().code().has_value());
         CHECK(malformed.error().text() == "YAML must contain a 'checks' list");
     }
 }

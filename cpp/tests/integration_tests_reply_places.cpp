@@ -558,7 +558,7 @@ static auto verdict(Reader reader, Break const& change, std::string const& raw) 
     }
     if (!error)
         return {};
-    if (error->kind() == ErrorKind::Protocol && error->code() == ErrorCode::Unknown) {
+    if (error->kind() == ErrorKind::Protocol && !error->code()) {
         auto const text = std::string{error->message()};
         if (text.starts_with(std::format("reply {}: expected ", change.path)) &&
             text.ends_with(std::format(", got {}", arrival(change))))

@@ -198,7 +198,7 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 		// observed, which is reported one event per warning.
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],
+			"results":[{"type":"property","property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],
 			"warnings":[{"kind":"uncached_atom","property_index":0,"detail":"UnobservedSignal"}]
 		}`),
 		// The extraction the end of stream asks for, which reuses what the

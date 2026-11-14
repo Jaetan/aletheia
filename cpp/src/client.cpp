@@ -98,7 +98,7 @@ auto AletheiaClient::create(std::unique_ptr<IBackend> backend, Logger logger,
         .and_then([](BackendState state) -> Result<BackendState> {
             if (!state)
                 return std::unexpected(
-                    AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
+                    AletheiaError{ErrorKind::Ffi, "aletheia_init returned null"});
             return state;
         })
         .transform([&](BackendState state) {

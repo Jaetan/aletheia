@@ -134,6 +134,31 @@ class TestLoggingStreamingEvents:
             if r.getMessage().startswith("cache.full")
         )
 
+    def test_a_repeated_payload_misses_then_hits_the_cache(
+        self, simple_dbc: DBCDefinition, capture: _Capture
+    ) -> None:
+        """A violating payload misses the cache once, then hits it, each record naming the frame."""
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            client.set_properties([Signal("TestSignal").less_than(100).always().to_dict()])
+            client.start_stream()
+            for timestamp in (1000, 2000):
+                client.send_frame(
+                    timestamp=timestamp,
+                    can_id=256,
+                    dlc=DLCCode(8),
+                    data=bytearray([200, 0, 0, 0, 0, 0, 0, 0]),
+                )
+        cache_records = [
+            (r.levelno, r.getMessage(), getattr(r, "canId", None), getattr(r, "dlc", None))
+            for r in capture.records
+            if r.getMessage().startswith("cache.")
+        ]
+        assert cache_records == [
+            (logging.DEBUG, "cache.miss canId=256 dlc=8", 256, 8),
+            (logging.DEBUG, "cache.hit canId=256 dlc=8", 256, 8),
+        ]
+
     def test_streaming_ack_events(
         self,
         simple_dbc: DBCDefinition,
@@ -155,11 +180,15 @@ class TestLoggingStreamingEvents:
         # stream.started
         assert any(m == "stream.started" for m in messages)
 
-        # frame.processed ... response=ack
-        frame_msgs = [m for m in messages if m.startswith("frame.processed")]
-        assert len(frame_msgs) >= 1
-        assert "response=ack" in frame_msgs[0]
-        assert "canId=256" in frame_msgs[0]
+        # The kernel's ack takes the fast path, which logs the frame's timestamp and extended bit.
+        frame_records = [
+            (r.levelno, r.getMessage())
+            for r in capture.records
+            if r.getMessage().startswith("frame.processed")
+        ]
+        assert frame_records == [
+            (logging.DEBUG, "frame.processed ts=1000 canId=256 extended=false response=ack")
+        ]
 
         # stream.ended
         ended_msgs = [m for m in messages if m.startswith("stream.ended")]
@@ -192,9 +221,15 @@ class TestLoggingStreamingEvents:
 
         messages = [r.getMessage() for r in capture.records]
 
-        # frame.processed with violation
-        frame_msgs = [m for m in messages if m.startswith("frame.processed")]
-        assert any("response=violation" in m for m in frame_msgs)
+        # The batch path logs the frame's timestamp and extended bit.
+        frame_records = [
+            (r.levelno, r.getMessage())
+            for r in capture.records
+            if r.getMessage().startswith("frame.processed")
+        ]
+        assert frame_records == [
+            (logging.DEBUG, "frame.processed ts=1000 canId=256 extended=false response=violation")
+        ]
 
         # cache.miss (first extraction for enrichment)
         assert any(m.startswith("cache.miss") for m in messages)
@@ -391,7 +426,7 @@ class TestEndStreamWarnings:
         backend = MockBackend()
         for reply in (b'{"status":"success"}', b'{"status":"success"}'):
             backend.queue_response(reply)
-        warning = {"kind": "other", "property_index": 0, "detail": "Speed"}
+        warning = {"kind": "uncached_atom", "property_index": 0, "detail": "Speed"}
         backend.queue_response(
             json.dumps({"status": "complete", "results": [], "warnings": [warning]}).encode()
         )

@@ -676,7 +676,7 @@ if result["has_errors"]:
         print(f"[{issue['severity']}] {issue['code']}: {issue['detail']}")
 ```
 
-**Returns**: `{"status": "validation", "has_errors": bool, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
+**Returns**: `{"status": "validation", "has_errors": bool, "issues": [{"severity": IssueSeverity, "code": IssueCode, "detail": str}, ...]}`
 
 **Raises**: `InputBoundExceededError` when the DBC is past one of the kernel's bounds, as `parse_dbc()` raises it.
 
@@ -693,7 +693,7 @@ dbc_out = client.format_dbc()
 
 Render a DBC definition as `.dbc` file text through the verified formatter, returning the text only when it provably re-parses to the input. Does not require `parse_dbc()` and does not modify client state.
 
-**Returns**: `{"status": "success", "text": str, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
+**Returns**: `{"status": "success", "text": str, "issues": [{"severity": IssueSeverity, "code": IssueCode, "detail": str}, ...]}`
 
 **Raises**: `InputBoundExceededError` when the DBC is past one of the kernel's bounds, as `parse_dbc()` raises it; with `nodes` empty, the nodes derived from the message senders are bounded too. `TextRoundTripFailedError` when the emitted text does not re-parse to the input.
 

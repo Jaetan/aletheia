@@ -80,8 +80,8 @@ impl FfiFrame {
 ///
 /// # Errors
 /// [`Error::RtsNotInitialized`] with operation `rendering` if the GHC runtime
-/// has not started (no [`start_runtime`] and no client), or [`Error::Protocol`] in the unreachable
-/// case of a null return (an ABI/kernel malfunction). A library-load /
+/// has not started (no [`start_runtime`] and no client), or [`Error::NullResponse`] in the
+/// unreachable case of a null return (an ABI/kernel malfunction). A library-load /
 /// missing-symbol failure cannot surface here: a started runtime implies the
 /// symbol table is latched (every start resolves the table before it starts the
 /// runtime). The call cannot fail for a well-formed rational once the runtime is
@@ -99,16 +99,19 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
     let syms = symbols()?;
     let value = FfiRational::of(r);
     // SAFETY: `value` outlives the call; the returned pointer is a GHC-allocated
-    // CString, which `take_response` copies and releases.
+    // CString, which `take_reply` copies and releases.
     let ptr = unsafe { (syms.format_rational)(&value) };
+    // A null is unreachable for a well-formed rational (the kernel never returns
+    // null and the denominator is positive by construction), and refused rather
+    // than rendered: a silent "0" would be a local fallback hiding the fault.
+    take_reply(syms, "aletheia_format_rational", ptr)
+}
+
+/// The string `entry` answered at `ptr`, copied out and released, or
+/// [`Error::NullResponse`] naming `entry` when it answered null.
+fn take_reply(syms: &Symbols, entry: &'static str, ptr: *mut c_char) -> Result<String, Error> {
     if ptr.is_null() {
-        // Unreachable for a well-formed rational (the kernel never returns null and
-        // the denominator is positive by construction). Surface a typed error rather
-        // than a fabricated value: a null means an ABI/kernel malfunction, and a
-        // silent "0" would both violate no-local-fallback and hide the bug.
-        return Err(Error::Protocol(
-            "aletheia_format_rational returned a null pointer".to_string(),
-        ));
+        return Err(Error::NullResponse { entry });
     }
     Ok(take_response(syms, ptr))
 }
@@ -359,17 +362,19 @@ impl FfiBackend {
         Ok(FfiBackend { handle })
     }
 
-    /// Run `call` (handed the cached symbol table) to obtain a GHC-allocated
-    /// response pointer, then copy it out and free it (`take_response`, whose
-    /// deallocator was pre-resolved with everything else: a `.so` missing
-    /// `aletheia_free_str` already failed in [`FfiBackend::new`]).
-    fn invoke(&self, call: impl FnOnce(&Symbols) -> *mut c_char) -> Result<String, Error> {
+    /// Run `call` (handed the cached symbol table) to obtain the GHC-allocated
+    /// string the C entry `entry` answers, then copy it out and free it
+    /// (`take_reply`, whose deallocator was pre-resolved with everything else:
+    /// a `.so` missing `aletheia_free_str` already failed in
+    /// [`FfiBackend::new`]); a null answer is [`Error::NullResponse`] naming
+    /// `entry`.
+    pub(super) fn invoke(
+        &self,
+        entry: &'static str,
+        call: impl FnOnce(&Symbols) -> *mut c_char,
+    ) -> Result<String, Error> {
         let syms = symbols()?;
-        let ptr = call(syms);
-        if ptr.is_null() {
-            return Err(Error::NullResponse);
-        }
-        Ok(take_response(syms, ptr))
+        take_reply(syms, entry, call(syms))
     }
 }
 
@@ -379,7 +384,9 @@ impl Backend for FfiBackend {
         // SAFETY: `handle` is the live StreamState this backend owns; `text`
         // borrows `input`, which outlives the call, and the kernel reads exactly
         // `text.size` bytes of it.
-        self.invoke(|syms| unsafe { (syms.process)(self.handle, &text) })
+        self.invoke("aletheia_process", |syms| unsafe {
+            (syms.process)(self.handle, &text)
+        })
     }
 
     fn send_frame_binary(
@@ -398,36 +405,48 @@ impl Backend for FfiBackend {
         // SAFETY: `handle` is the live StreamState this backend owns; `frame`
         // points at `data`, valid for its `data_len` bytes (the DLC's byte
         // count, checked by `frame_len`), and both outlive the call.
-        self.invoke(|syms| unsafe { (syms.send_frame)(self.handle, &frame) })
+        self.invoke("aletheia_send_frame", |syms| unsafe {
+            (syms.send_frame)(self.handle, &frame)
+        })
     }
 
     fn send_error_binary(&self, ts: Timestamp) -> Result<String, Error> {
         let frame = FfiFrame::event(ts, 0, false);
         // SAFETY: `handle` is the live StreamState this backend owns; `frame`
         // outlives the call.
-        self.invoke(|syms| unsafe { (syms.send_error)(self.handle, &frame) })
+        self.invoke("aletheia_send_error", |syms| unsafe {
+            (syms.send_error)(self.handle, &frame)
+        })
     }
 
     fn send_remote_binary(&self, ts: Timestamp, id: CanId) -> Result<String, Error> {
         let frame = FfiFrame::event(ts, id.value(), id.is_extended());
         // SAFETY: `handle` is the live StreamState this backend owns; `frame`
         // outlives the call.
-        self.invoke(|syms| unsafe { (syms.send_remote)(self.handle, &frame) })
+        self.invoke("aletheia_send_remote", |syms| unsafe {
+            (syms.send_remote)(self.handle, &frame)
+        })
     }
 
     fn start_stream_binary(&self) -> Result<String, Error> {
         // SAFETY: `handle` is the live StreamState this backend owns.
-        self.invoke(|syms| unsafe { (syms.start_stream)(self.handle) })
+        self.invoke("aletheia_start_stream", |syms| unsafe {
+            (syms.start_stream)(self.handle)
+        })
     }
 
     fn end_stream_binary(&self) -> Result<String, Error> {
         // SAFETY: `handle` is the live StreamState this backend owns.
-        self.invoke(|syms| unsafe { (syms.end_stream)(self.handle) })
+        self.invoke("aletheia_end_stream", |syms| unsafe {
+            (syms.end_stream)(self.handle)
+        })
     }
 
     fn format_dbc_binary(&self) -> Result<String, Error> {
         // SAFETY: `handle` is the live StreamState this backend owns.
-        self.invoke(|syms| unsafe { (syms.format_dbc)(self.handle) })
+        self.invoke("aletheia_format_dbc", |syms| unsafe {
+            (syms.format_dbc)(self.handle)
+        })
     }
 
     fn extract_signals_binary(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<String, Error> {
@@ -435,7 +454,9 @@ impl Backend for FfiBackend {
         // SAFETY: `handle` is the live StreamState this backend owns; `frame`
         // points at `data`, valid for its `data_len` bytes (the DLC's byte
         // count, checked by `frame_len`), and both outlive the call.
-        self.invoke(|syms| unsafe { (syms.extract_signals)(self.handle, &frame) })
+        self.invoke("aletheia_extract_signals", |syms| unsafe {
+            (syms.extract_signals)(self.handle, &frame)
+        })
     }
 
     fn extract_signals_bin(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<Vec<u8>, Error> {

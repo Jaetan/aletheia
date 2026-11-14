@@ -197,7 +197,10 @@ other three are per-push-friendly when developers want extra coverage.
 ### Installing dev tools
 
 The always-on sweep needs no extra tooling beyond what `cabal run shake --
-build` already requires.  The opt-in lanes need additional installs.
+build` already requires and the Clang 23 toolchain, whose `libclang1-23`
+package holds the libclang the reply-place gate loads
+([BUILDING.md → System libraries](BUILDING.md#system-libraries)).  The
+opt-in lanes need additional installs.
 
 **UBSan and ASan ctest (always-on, no flag)** — need `clang` for the
 `-fsanitize-ignorelist=` flag (which g++ doesn't support).  Most distros'

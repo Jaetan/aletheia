@@ -12,7 +12,9 @@
 
 use std::path::Path;
 
-use aletheia::{check, load_checks_from_yaml, Check, Client, Error, Rational, TimeBound};
+use aletheia::{
+    check, load_checks_from_yaml, Check, Client, Error, ErrorCode, Rational, TimeBound,
+};
 use yaml_rust2::{Yaml, YamlLoader};
 
 fn contract() -> Yaml {
@@ -107,7 +109,9 @@ fn refusal_differences(err: &Error, expect: &Yaml, scenario: &str) -> Vec<String
         .strip_prefix(&format!("{location}: invalid '{key}': "))
         .unwrap_or_else(|| panic!("{scenario}: 'printed' does not open with its location and key"));
     let (got_kind, got_code, got_message) = match err {
-        Error::Validation { message, code, .. } => ("validation", code.as_deref(), message),
+        Error::Validation { message, code, .. } => {
+            ("validation", code.map(ErrorCode::as_str), message)
+        }
         Error::InputBoundExceeded(refusal) => (
             "input_bound_exceeded",
             Some(refusal.code.as_str()),

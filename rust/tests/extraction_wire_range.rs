@@ -88,10 +88,17 @@ fn past_the_bound_payload() -> Vec<u8> {
 /// client over a mock records it.
 fn parse_dbc_command(dbc: &Dbc) -> String {
     let mock = MockBackend::new();
-    mock.respond_err(Error::NullResponse);
+    mock.respond_err(Error::NullResponse {
+        entry: "aletheia_process",
+    });
     let refused = Client::with_backend(Box::new(mock.clone())).parse_dbc(dbc);
     assert!(
-        matches!(refused, Err(Error::NullResponse)),
+        matches!(
+            refused,
+            Err(Error::NullResponse {
+                entry: "aletheia_process"
+            })
+        ),
         "the mock answers the queued error, got: {refused:?}"
     );
     let mut captured = mock.captured();

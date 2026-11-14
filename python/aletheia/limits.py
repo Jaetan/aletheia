@@ -5,8 +5,9 @@
 Single source of truth: ``src/Aletheia/Limits.agda`` (numeric values are
 mirrored here verbatim).  Wire spec: ``docs/architecture/PROTOCOL.md § Limits``.
 
-Parity with the SSOT is enforced by ``tools/check_limits_parity.py`` (also
-invoked as ``cabal run shake -- check-limits-parity``); see ``PYTHON_NAME_MAPPING``
+Parity with the SSOT is enforced by ``tools/check_limits_parity.py`` (run as
+``python/.venv/bin/python -m tools.check_limits_parity`` from the repository
+root over a configured ``cpp/build``); see ``PYTHON_NAME_MAPPING``
 and ``PYTHON_BOUND_KIND_MAPPING`` in that tool for the kebab-case ↔
 SCREAMING_SNAKE_CASE mapping table. The gate walks the Go, Python, C++ and
 Rust mirrors, Rust's holding the bound kinds alone, so none can drift from

@@ -18,11 +18,11 @@ from aletheia.client._helpers.reply_shape import (
     at,
     came,
     came_as,
+    field_word,
     read_rational,
     reply_refusal,
 )
 from aletheia.types import (
-    AttrScope,
     DBCAttribute,
     DBCAttrTarget,
     DBCAttrType,
@@ -209,7 +209,7 @@ def normalize_signal(raw_sig: Mapping[str, JSONValue], path: ReplyPath = _SIGNAL
         "name": _string(raw_sig, path, "name"),
         "startBit": _whole(raw_sig, path, "startBit"),
         "length": _whole(raw_sig, path, "length"),
-        "byteOrder": _string(raw_sig, path, "byteOrder"),
+        "byteOrder": field_word(raw_sig, path, "byteOrder", "little_endian", "big_endian"),
         "signed": _boolean(raw_sig, path, "signed"),
         **{field: _rational(raw_sig, path, field) for field in _NUMERIC_SIGNAL_FIELDS},
         "unit": _string(raw_sig, path, "unit"),
@@ -221,14 +221,12 @@ def normalize_signal(raw_sig: Mapping[str, JSONValue], path: ReplyPath = _SIGNAL
 
 
 def _check_presence(raw: ReplyFields, path: ReplyPath) -> None:
-    """Refuse a ``presence`` or a multiplexed signal's field that is not of its kind.
+    """Refuse a ``presence`` outside its words, or a multiplexed signal's field not of its kind.
 
-    The kernel writes ``presence`` as ``"always"`` or ``"multiplexed"``, a
-    multiplexor that is not empty and at least one selector value in range, all
-    proven of every reply, so the reader holds only the kinds and reads any
-    ``presence`` but ``"always"`` as multiplexed.
+    The kernel writes a multiplexor that is not empty and at least one selector
+    value in range, proven of every reply, so the reader holds only their kinds.
     """
-    if _string(raw, path, "presence") == "always":
+    if field_word(raw, path, "presence", "always", "multiplexed") == "always":
         return
     _ = _string(raw, path, "multiplexor")
     place = at(path, "multiplex_values")
@@ -330,10 +328,8 @@ def _normalize_raw_value_desc(raw: ReplyFields, path: ReplyPath) -> DBCRawValueD
 # ----------------------------------------------------------------------------
 # Tier 2 metadata normalisation (nodes / comments / attributes)
 #
-# Each tag below (a comment target's kind, an attribute's, its type's, value's
-# and target's kind, a definition's scope) is one of a fixed set the kernel
-# proves of every reply, so a reader holds only the tag's kind: a dispatch's
-# last arm reads every tag the arms before it do not name, and a scope is cast.
+# Every tag below, each kind and a definition's scope, is read with ``field_word``
+# and refused outside its words.
 # ----------------------------------------------------------------------------
 
 
@@ -342,7 +338,7 @@ def _normalize_node(raw: ReplyFields, path: ReplyPath) -> DBCNode:
 
 
 def _normalize_comment_target(raw: ReplyFields, path: ReplyPath) -> DBCCommentTarget:
-    kind = _string(raw, path, "kind")
+    kind = field_word(raw, path, "kind", "network", "node", "message", "signal", "envVar")
     if kind == "network":
         return {"kind": "network"}
     if kind == "node":
@@ -370,13 +366,8 @@ def _normalize_comment(raw: ReplyFields, path: ReplyPath) -> DBCComment:
     }
 
 
-def _attr_scope(raw: ReplyFields, path: ReplyPath) -> AttrScope:
-    """Read an attribute definition's ``scope`` as the ``AttrScope`` it is proven to be."""
-    return cast("AttrScope", _string(raw, path, "scope"))
-
-
 def _normalize_attr_type(raw: ReplyFields, path: ReplyPath) -> DBCAttrType:
-    kind = _string(raw, path, "kind")
+    kind = field_word(raw, path, "kind", "int", "float", "string", "enum", "hex")
     if kind == "int":
         return {"kind": "int", "min": _whole(raw, path, "min"), "max": _whole(raw, path, "max")}
     if kind == "float":
@@ -393,7 +384,7 @@ def _normalize_attr_type(raw: ReplyFields, path: ReplyPath) -> DBCAttrType:
 
 
 def _normalize_attr_value(raw: ReplyFields, path: ReplyPath) -> DBCAttrValue:
-    kind = _string(raw, path, "kind")
+    kind = field_word(raw, path, "kind", "int", "float", "string", "enum", "hex")
     if kind == "int":
         return {"kind": "int", "value": _whole(raw, path, "value")}
     if kind == "float":
@@ -422,7 +413,9 @@ def _normalize_attr_target_at_id(kind: str, raw: ReplyFields, path: ReplyPath) -
 
 
 def _normalize_attr_target(raw: ReplyFields, path: ReplyPath) -> DBCAttrTarget:
-    kind = _string(raw, path, "kind")
+    kind = field_word(
+        raw, path, "kind", "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig"
+    )
     if kind == "network":
         return {"kind": "network"}
     if kind == "node":
@@ -433,13 +426,24 @@ def _normalize_attr_target(raw: ReplyFields, path: ReplyPath) -> DBCAttrTarget:
 
 
 def _normalize_attribute(raw: ReplyFields, path: ReplyPath) -> DBCAttribute:
-    kind = _string(raw, path, "kind")
+    kind = field_word(raw, path, "kind", "definition", "default", "assignment")
     name = _string(raw, path, "name")
     if kind == "definition":
         return {
             "kind": "definition",
             "name": name,
-            "scope": _attr_scope(raw, path),
+            "scope": field_word(
+                raw,
+                path,
+                "scope",
+                "network",
+                "node",
+                "message",
+                "signal",
+                "envVar",
+                "nodeMsg",
+                "nodeSig",
+            ),
             "attrType": _read_object(raw, path, "attrType", _normalize_attr_type),
         }
     if kind == "default":

@@ -24,13 +24,19 @@ from aletheia.client._response_parsers import (
     raise_if_text_roundtrip_failed,
 )
 from aletheia.codes import ErrorCode
+from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
-    from aletheia.common_types import Prose
-    from aletheia.types import PropertyResultEntry, Response
+    from collections.abc import Callable
 
-# The statuses of an end-of-stream entry that carries a reason.
+    from aletheia.common_types import Prose
+    from aletheia.types import JSONValue, PropertyResultEntry, Response
+
+# The statuses of a result that carries a reason.
 type EntryStatus = Literal["fails", "unresolved"]
+
+# A reader of one property result, raising its refusal.
+type ResultReader = Callable[[JSONValue], None]
 
 _ISSUE = {"severity": "error", "code": "duplicate_signal_name", "detail": "d"}
 
@@ -64,17 +70,17 @@ _MALFORMED_ISSUES = [
     ),
     pytest.param(
         {"has_errors": True, "issues": [{"severity": "error", "detail": "d"}]},
-        "reply issues/code: expected string, got nothing",
+        "reply issues/code: expected an issue code, got nothing",
         id="code-absent",
     ),
     pytest.param(
-        {"has_errors": True, "issues": [{"severity": "error", "code": "c", "detail": 7}]},
+        {"has_errors": True, "issues": [{**_ISSUE, "detail": 7}]},
         "reply issues/detail: expected string, got number",
         id="detail-nonstring",
     ),
     pytest.param(
-        {"has_errors": True, "issues": [{"severity": 7, "code": "c", "detail": "d"}]},
-        "reply issues/severity: expected string, got number",
+        {"has_errors": True, "issues": [{**_ISSUE, "severity": 7}]},
+        'reply issues/severity: expected "error" or "warning", got number',
         id="severity-int",
     ),
 ]
@@ -83,13 +89,18 @@ _MALFORMED_ISSUES = [
 _MALFORMED_WARNINGS = [
     pytest.param(
         {"property_index": 0, "detail": "Speed"},
-        "reply warnings/kind: expected string, got nothing",
+        'reply warnings/kind: expected "uncached_atom", got nothing',
         id="kind-absent",
     ),
     pytest.param(
         {"kind": 7, "property_index": 0, "detail": "Speed"},
-        "reply warnings/kind: expected string, got number",
+        'reply warnings/kind: expected "uncached_atom", got number',
         id="kind-int",
+    ),
+    pytest.param(
+        {"kind": "stale_atom", "property_index": 0, "detail": "Speed"},
+        'reply warnings/kind: expected "uncached_atom", got "stale_atom"',
+        id="kind-unknown",
     ),
     pytest.param(
         {"kind": "uncached_atom", "property_index": 0},
@@ -142,14 +153,14 @@ _MALFORMED_PARSED_DBC = [
         {
             "status": "success",
             "dbc": _DBC,
-            "warnings": [{"code": "c", "detail": "d", "severity": 7}],
+            "warnings": [{**_ISSUE, "severity": 7}],
         },
-        "reply warnings/severity: expected string, got number",
+        'reply warnings/severity: expected "error" or "warning", got number',
         id="severity-number",
     ),
 ]
 
-# A batch's fails event as the kernel writes it but for its timestamp.
+# A fails result as the kernel writes it but for its timestamp.
 _FAILS_WITHOUT_TIMESTAMP: PropertyResultEntry = {
     "type": "property",
     "status": "fails",
@@ -252,32 +263,6 @@ _MALFORMED_FRAMES = [
         "reply results/reason: expected string, got number",
         id="reason-number",
     ),
-    pytest.param(
-        {"type": "property_batch", "results": [{"status": "holds", "property_index": 0}]},
-        "reply results/type: expected string, got nothing",
-        id="type-absent",
-    ),
-    pytest.param(
-        {
-            "type": "property_batch",
-            "results": [{"type": 7, "status": "holds", "property_index": 0}],
-        },
-        "reply results/type: expected string, got number",
-        id="type-int",
-    ),
-    pytest.param(
-        {"type": "property_batch", "results": [{"type": "property", "property_index": 0}]},
-        "reply results/status: expected string, got nothing",
-        id="status-absent",
-    ),
-    pytest.param(
-        {
-            "type": "property_batch",
-            "results": [{"type": "property", "status": 7, "property_index": 0}],
-        },
-        "reply results/status: expected string, got number",
-        id="status-int",
-    ),
 ]
 
 # Each ill-formed end-of-stream results list, with the text of its refusal.
@@ -298,32 +283,38 @@ _MALFORMED_RESULTS = [
         id="entry-number",
     ),
     pytest.param(
-        {"status": "complete", "results": [{"status": "holds"}], "warnings": []},
+        {
+            "status": "complete",
+            "results": [{"type": "property", "status": "holds"}],
+            "warnings": [],
+        },
         "reply results/property_index: expected number, got nothing",
         id="property_index-absent",
     ),
     pytest.param(
         {
             "status": "complete",
-            "results": [{"status": "holds", "property_index": {"numerator": 0, "denominator": 1}}],
+            "results": [
+                {
+                    "type": "property",
+                    "status": "holds",
+                    "property_index": {"numerator": 0, "denominator": 1},
+                }
+            ],
             "warnings": [],
         },
         "reply results/property_index: expected number, got object",
         id="property_index-rational",
     ),
     pytest.param(
-        {
-            "status": "complete",
-            "results": [{"status": "fails", "property_index": 0, "reason": "r"}],
-            "warnings": [],
-        },
+        {"status": "complete", "results": [_FAILS_WITHOUT_TIMESTAMP], "warnings": []},
         "reply results/timestamp: expected number, got nothing",
         id="fails-timestamp-absent",
     ),
     pytest.param(
         {
             "status": "complete",
-            "results": [{"status": "fails", "property_index": 0, "timestamp": None, "reason": "r"}],
+            "results": [{**_FAILS_WITHOUT_TIMESTAMP, "timestamp": None}],
             "warnings": [],
         },
         "reply results/timestamp: expected number, got null",
@@ -332,9 +323,7 @@ _MALFORMED_RESULTS = [
     pytest.param(
         {
             "status": "complete",
-            "results": [
-                {"status": "unresolved", "property_index": 0, "timestamp": "1", "reason": "r"}
-            ],
+            "results": [{**_FAILS_WITHOUT_TIMESTAMP, "status": "unresolved", "timestamp": "1"}],
             "warnings": [],
         },
         "reply results/timestamp: expected number, got string",
@@ -343,21 +332,11 @@ _MALFORMED_RESULTS = [
     pytest.param(
         {
             "status": "complete",
-            "results": [{"status": "fails", "property_index": 0, "timestamp": 1, "reason": 7}],
+            "results": [{**_FAILS_WITHOUT_TIMESTAMP, "timestamp": 1, "reason": 7}],
             "warnings": [],
         },
         "reply results/reason: expected string, got number",
         id="reason-number",
-    ),
-    pytest.param(
-        {"status": "complete", "results": [{"property_index": 0}], "warnings": []},
-        "reply results/status: expected string, got nothing",
-        id="status-absent",
-    ),
-    pytest.param(
-        {"status": "complete", "results": [{"status": 7, "property_index": 0}], "warnings": []},
-        "reply results/status: expected string, got number",
-        id="status-int",
     ),
 ]
 
@@ -367,29 +346,47 @@ def _no_enrichment(_entry: PropertyResultEntry) -> None:
 
 
 @pytest.mark.parametrize(("reply", "text"), _MALFORMED_PARSED_DBC)
-def test_a_broken_parse_dbc_reply_is_refused_at_its_place(reply: Response, text: Prose) -> None:
+def test_a_broken_parse_dbc_reply_is_refused_at_its_place(reply: JSONValue, text: Prose) -> None:
     """A parseDBC reply's broken ``status``, ``dbc`` or ``warnings`` is refused at its place."""
+    assert is_str_dict(reply)
     with pytest.raises(ProtocolError) as exc_info:
         _ = parse_parsed_dbc_response(reply)
     assert str(exc_info.value) == text
 
 
 @pytest.mark.parametrize(("reply", "text"), _MALFORMED_FRAMES)
-def test_a_broken_frame_reply_is_refused_at_its_place(reply: Response, text: Prose) -> None:
+def test_a_broken_frame_reply_is_refused_at_its_place(reply: JSONValue, text: Prose) -> None:
     """A frame reply neither ack, error nor a well-formed property batch is refused at its place.
 
     A reply carrying ``status`` is refused there; one without is read as a batch by its ``type``.
     """
+    assert is_str_dict(reply)
     with pytest.raises(ProtocolError) as exc_info:
         _ = parse_frame_response(reply)
     assert str(exc_info.value) == text
 
 
+def test_an_ack_frame_reply_is_read_as_ack() -> None:
+    """A frame reply whose ``status`` is ``ack`` is read as the acknowledgement, nothing added."""
+    assert parse_frame_response({"status": "ack"}) == {"status": "ack"}
+
+
+def test_an_empty_property_batch_is_returned_empty() -> None:
+    """A property_batch with no results is returned as written.
+
+    The kernel proves every batch it writes non-empty, so the reader checks no length.
+    """
+    reply: JSONValue = {"type": "property_batch", "results": []}
+    assert is_str_dict(reply), reply
+    assert parse_frame_response(reply) == {"type": "property_batch", "results": []}
+
+
 @pytest.mark.parametrize(("reply", "text"), _MALFORMED_RESULTS)
 def test_a_broken_end_of_stream_result_is_refused_at_its_place(
-    reply: Response, text: Prose
+    reply: JSONValue, text: Prose
 ) -> None:
     """An end-of-stream results list or entry the kernel never writes is refused at its place."""
+    assert is_str_dict(reply)
     with pytest.raises(ProtocolError) as exc_info:
         _ = parse_finalization_results(reply, _no_enrichment)
     assert str(exc_info.value) == text
@@ -397,40 +394,154 @@ def test_a_broken_end_of_stream_result_is_refused_at_its_place(
 
 def test_an_unresolved_result_without_timestamp_is_read() -> None:
     """An end-of-stream ``unresolved`` entry may lack ``timestamp``; only ``fails`` requires it."""
-    entry = {"status": "unresolved", "property_index": 0, "reason": "r"}
+    entry = {"type": "property", "status": "unresolved", "property_index": 0, "reason": "r"}
     reply = {"status": "complete", "results": [entry], "warnings": []}
-    assert parse_finalization_results(cast("Response", reply), _no_enrichment) == [
-        {"type": "property", **entry}
-    ]
+    assert is_str_dict(reply)
+    assert parse_finalization_results(reply, _no_enrichment) == [entry]
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        pytest.param({"type": "property", "status": "holds", "property_index": 0}, id="holds"),
+        pytest.param({**_FAILS_WITHOUT_TIMESTAMP, "timestamp": 1}, id="fails"),
+        pytest.param({**_FAILS_WITHOUT_TIMESTAMP, "status": "unresolved"}, id="unresolved"),
+    ],
+)
+def test_a_result_of_each_status_is_read_as_written(result: JSONValue) -> None:
+    """A result of each status the kernel writes is read as written, in a batch and at the end."""
+    batch = {"type": "property_batch", "results": [result]}
+    end = {"status": "complete", "results": [result], "warnings": []}
+    assert is_str_dict(batch)
+    assert is_str_dict(end)
+    assert parse_frame_response(batch) == batch
+    assert parse_finalization_results(end, _no_enrichment) == [result]
+
+
+def _read_in_batch(result: JSONValue) -> None:
+    """Read ``result`` as the one event of a frame's property batch."""
+    reply = {"type": "property_batch", "results": [result]}
+    assert is_str_dict(reply)
+    _ = parse_frame_response(reply)
+
+
+def _read_at_stream_end(result: JSONValue) -> None:
+    """Read ``result`` as the one result at the end of a stream."""
+    reply = {"status": "complete", "results": [result], "warnings": []}
+    assert is_str_dict(reply)
+    _ = parse_finalization_results(reply, _no_enrichment)
+
+
+# The two replies holding property results: a frame's batch and the end of a stream.
+_RESULT_READERS = [
+    pytest.param(_read_in_batch, id="batch"),
+    pytest.param(_read_at_stream_end, id="stream-end"),
+]
+
+
+@pytest.mark.parametrize("read", _RESULT_READERS)
+@pytest.mark.parametrize(
+    ("result", "text"),
+    [
+        pytest.param(
+            {"type": "verdict", "status": "holds", "property_index": 0},
+            'reply results/type: expected "property", got "verdict"',
+            id="unknown",
+        ),
+        pytest.param(
+            {"status": "holds", "property_index": 0},
+            'reply results/type: expected "property", got nothing',
+            id="absent",
+        ),
+        pytest.param(
+            {"type": 0, "status": "holds", "property_index": 0},
+            'reply results/type: expected "property", got number',
+            id="number",
+        ),
+        pytest.param(
+            {"type": "verdict", "status": "bogus", "property_index": 0, "reason": "r"},
+            'reply results/type: expected "property", got "verdict"',
+            id="read-before-status",
+        ),
+    ],
+)
+def test_a_result_type_other_than_property_is_refused_at_its_place(
+    read: ResultReader, result: JSONValue, text: Prose
+) -> None:
+    """A result whose ``type`` is not ``property`` is refused there, before its status is read."""
+    with pytest.raises(ProtocolError) as exc_info:
+        read(result)
+    assert str(exc_info.value) == text
+
+
+@pytest.mark.parametrize("read", _RESULT_READERS)
+@pytest.mark.parametrize(
+    ("result", "text"),
+    [
+        pytest.param(
+            {"type": "property", "status": "bogus", "property_index": 0, "reason": "r"},
+            'reply results/status: expected "fails", "holds" or "unresolved", got "bogus"',
+            id="unknown",
+        ),
+        pytest.param(
+            {"type": "property", "property_index": 0, "reason": "r"},
+            'reply results/status: expected "fails", "holds" or "unresolved", got nothing',
+            id="absent",
+        ),
+        pytest.param(
+            {"type": "property", "status": 0, "property_index": 0, "reason": "r"},
+            'reply results/status: expected "fails", "holds" or "unresolved", got number',
+            id="number",
+        ),
+        pytest.param(
+            {"type": "property", "status": "bogus"},
+            'reply results/status: expected "fails", "holds" or "unresolved", got "bogus"',
+            id="read-before-property_index",
+        ),
+    ],
+)
+def test_a_result_status_outside_fails_holds_and_unresolved_is_refused_at_its_place(
+    read: ResultReader, result: JSONValue, text: Prose
+) -> None:
+    """A result whose ``status`` is not one the kernel writes is refused there, before its index."""
+    with pytest.raises(ProtocolError) as exc_info:
+        read(result)
+    assert str(exc_info.value) == text
 
 
 @pytest.mark.parametrize(("warning", "text"), _MALFORMED_WARNINGS)
-def test_a_warning_kind_and_detail_are_strings(warning: Response, text: Prose) -> None:
-    """An end-of-stream warning's ``kind`` or ``detail`` absent or not a string is refused."""
+def test_a_warning_kind_is_uncached_atom_and_its_detail_a_string(
+    warning: Response, text: Prose
+) -> None:
+    """A warning's ``kind`` not ``uncached_atom``, or its ``detail`` not a string, is refused."""
     reply = {"status": "complete", "results": [], "warnings": [warning]}
+    assert is_str_dict(reply)
     with pytest.raises(ProtocolError) as exc_info:
-        parse_complete_warnings(cast("Response", reply))
+        parse_complete_warnings(reply)
     assert str(exc_info.value) == text
 
 
 class TestReason:
     """Every ``fails`` and ``unresolved`` entry carries ``reason``, mid-stream and at the end."""
 
-    def test_a_frame_fails_event_without_reason_raises(self) -> None:
-        """A property_batch ``fails`` event without ``reason`` is refused at ``results/reason``."""
-        event = {"type": "property", "status": "fails", "property_index": 0, "timestamp": 1}
+    @pytest.mark.parametrize("status", ["fails", "unresolved"])
+    def test_a_frame_event_without_reason_raises(self, status: EntryStatus) -> None:
+        """A property_batch ``fails`` or ``unresolved`` event lacking ``reason`` is refused."""
+        event = {"type": "property", "status": status, "property_index": 0, "timestamp": 1}
         reply = {"type": "property_batch", "results": [event]}
+        assert is_str_dict(reply)
         with pytest.raises(ProtocolError) as exc_info:
-            _ = parse_frame_response(cast("Response", reply))
+            _ = parse_frame_response(reply)
         assert str(exc_info.value) == "reply results/reason: expected string, got nothing"
 
     @pytest.mark.parametrize("status", ["fails", "unresolved"])
     def test_an_end_of_stream_entry_without_reason_raises(self, status: EntryStatus) -> None:
         """An end-of-stream ``fails`` or ``unresolved`` entry lacking ``reason`` is refused."""
-        entry = {"status": status, "property_index": 0, "timestamp": 1}
+        entry = {"type": "property", "status": status, "property_index": 0, "timestamp": 1}
         reply = {"status": "complete", "results": [entry], "warnings": []}
+        assert is_str_dict(reply)
         with pytest.raises(ProtocolError) as exc_info:
-            _ = parse_finalization_results(cast("Response", reply), _no_enrichment)
+            _ = parse_finalization_results(reply, _no_enrichment)
         assert str(exc_info.value) == "reply results/reason: expected string, got nothing"
 
 
@@ -449,6 +560,13 @@ class TestEntryReason:
             _ = entry_reason(cast("PropertyResultEntry", entry))
         assert str(exc_info.value) == "reply results/reason: expected string, got nothing"
 
+    def test_refuses_a_null_reason_as_null(self) -> None:
+        """An entry built without the parser whose ``reason`` is null is refused as holding null."""
+        entry = {"type": "property", "status": "fails", "property_index": 0, "reason": None}
+        with pytest.raises(ProtocolError) as exc_info:
+            _ = entry_reason(cast("PropertyResultEntry", entry))
+        assert str(exc_info.value) == "reply results/reason: expected string, got null"
+
 
 class TestIssuesPayload:
     """An envelope whose code carries issues holds a well-formed ``issues`` / ``has_errors``."""
@@ -462,22 +580,28 @@ class TestIssuesPayload:
     ) -> None:
         """An ill-formed issues payload is refused at its place rather than being dropped."""
         envelope = {"status": "error", "code": str(code), "message": "m"}
+        reply = {**envelope, **extras}
+        assert is_str_dict(reply)
         with pytest.raises(ProtocolError) as exc_info:
-            build_error_response(cast("Response", {**envelope, **extras}))
+            build_error_response(reply)
         assert str(exc_info.value) == text
 
     @pytest.mark.parametrize(("extras", "text"), _MALFORMED_ISSUES)
     def test_dbc_validation_lift_raises(self, extras: Response, text: Prose) -> None:
         """The validation lift refuses an ill-formed payload at its place, not returning."""
         envelope = {"status": "error", "code": "handler_validation_failed", "message": "m"}
+        reply = {**envelope, **extras}
+        assert is_str_dict(reply)
         with pytest.raises(ProtocolError) as exc_info:
-            raise_if_dbc_validation_failed(cast("Response", {**envelope, **extras}), "m")
+            raise_if_dbc_validation_failed(reply, "m")
         assert str(exc_info.value) == text
 
     @pytest.mark.parametrize(("extras", "text"), _MALFORMED_ISSUES)
     def test_text_roundtrip_lift_raises(self, extras: Response, text: Prose) -> None:
         """The round-trip lift refuses an ill-formed payload at its place, not returning."""
         envelope = {"status": "error", "code": "handler_text_roundtrip_failed", "message": "m"}
+        reply = {**envelope, **extras}
+        assert is_str_dict(reply)
         with pytest.raises(ProtocolError) as exc_info:
-            raise_if_text_roundtrip_failed(cast("Response", {**envelope, **extras}), "m")
+            raise_if_text_roundtrip_failed(reply, "m")
         assert str(exc_info.value) == text

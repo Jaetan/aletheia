@@ -6,19 +6,21 @@
 //! Every reader requires each key the kernel writes and reads each place by
 //! kind only, refusing what the kernel never writes there in the one form of
 //! `reply_shape`: the ranges and the tags are the kernel's, proven of every
-//! reply. A tag is dispatched with no refusal of its own by one function whose
-//! match names every word the kernel writes at the place but the last, which
-//! the final arm reads, so a word outside the set reads as the set's last; a
-//! tag the kernel writes one word at is read for its kind alone, every word
-//! reading as that one.
+//! reply. An issue's severity and code, an error reply's code, a property
+//! result's type and status and a stream warning's kind hold a member of their
+//! set or are refused at their place, a word outside it quoted.
 
 use crate::error::{BoundRefusal, Error};
 use crate::reply_shape::{
-    came, field_bool, field_natural, field_objects, field_rational, field_status, field_string,
-    field_strings, field_word, read_reply, refusal, ReplyPath, ReplyStatus, ROOT, STRING,
+    came, field_bool, field_member, field_natural, field_objects, field_rational, field_status,
+    field_string, field_strings, field_word, read_reply, refusal, ReplyPath, ReplyStatus, ROOT,
+    STRING,
 };
 use crate::types::Rational;
 use crate::wire_json::{self, Kind, Object};
+pub use error_codes::ErrorCode;
+
+mod error_codes;
 
 /// The final verdict for one property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,8 +62,8 @@ pub struct PropertyResult {
     pub enrichment: Option<Enrichment>,
 }
 
-/// The kind of a [`StreamWarning`]. The kernel proves the set of kinds it
-/// writes, and the reader reads each as the one below.
+/// The kind of a [`StreamWarning`]: the kernel writes `uncached_atom`, and a
+/// reply holding another kind is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WarningKind {
     /// A property asked about a signal no frame of the stream carried, so its
@@ -132,11 +134,9 @@ pub struct ExtractionResult {
     pub absent: Vec<String>,
 }
 
-/// The severity of a validation issue. The core's severity set is closed
-/// (exactly `error` / `warning`), which the kernel proves of every reply, so
-/// the reader reads any word but `error` as `warning`; the code set, by
-/// contrast, may grow ([`IssueCode::Unknown`]). Mirrors the Python / Go / C++
-/// typed severity.
+/// The severity of a validation issue: the kernel writes `error` or `warning`,
+/// and a reply holding another word there is refused. Mirrors the Python / Go /
+/// C++ typed severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IssueSeverity {
     /// A structural issue that prevents correct operation.
@@ -163,18 +163,13 @@ impl std::fmt::Display for IssueSeverity {
 }
 
 /// A machine-readable DBC validation issue code, mirroring the Agda `IssueCode`
-/// ADT and the Python / Go / C++ vocabularies. Unknown wire codes map to
-/// [`IssueCode::Unknown`] so a future core code round-trips rather than failing
-/// the decode (the code set may grow; cf. the strict [`IssueSeverity`]).
+/// ADT and the Python / Go / C++ vocabularies: a reply holding a code outside
+/// them is refused.
 ///
 /// The vocabulary is minted by the kernel and grows with kernel features, so
 /// this enum is `#[non_exhaustive]`: matches outside this crate carry a `_`
-/// arm, and a new kernel code is not a breaking change. Version-skew note: a
-/// code arrives as [`IssueCode::Unknown`] while this crate predates it and as
-/// a named variant once the crate knows it — so logic that must be stable
-/// across crate upgrades should key on [`IssueCode::as_str`] (the wire string
-/// for named and unknown codes alike), never on `Unknown`'s payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// arm, and a new kernel code is not a breaking change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IssueCode {
     /// A CAN id two or more messages share; one issue names them all.
@@ -241,16 +236,14 @@ pub enum IssueCode {
     /// A value description's key is no raw value of its signal's bits, the
     /// signedness and the bit length deciding.
     ValueDescriptionKeyOutOfRange,
-    /// A code outside the known vocabulary (forward-compatible).
-    Unknown(String),
 }
 
 impl IssueCode {
-    /// Map a wire code string to an [`IssueCode`], falling back to
-    /// [`IssueCode::Unknown`] for an unrecognised value.
+    /// The [`IssueCode`] a wire code string names, `None` for a string that
+    /// names none.
     #[must_use]
-    pub fn from_wire(s: &str) -> Self {
-        match s {
+    pub fn from_wire(s: &str) -> Option<Self> {
+        Some(match s {
             "duplicate_message_id" => IssueCode::DuplicateMessageId,
             "duplicate_signal_name" => IssueCode::DuplicateSignalName,
             "factor_zero" => IssueCode::FactorZero,
@@ -281,13 +274,13 @@ impl IssueCode {
             "attribute_enum_default_unstable" => IssueCode::AttributeEnumDefaultUnstable,
             "range_exceeds_bits" => IssueCode::RangeExceedsBits,
             "value_description_key_out_of_range" => IssueCode::ValueDescriptionKeyOutOfRange,
-            other => IssueCode::Unknown(other.to_string()),
-        }
+            _ => return None,
+        })
     }
 
     /// The canonical wire string for this code.
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(self) -> &'static str {
         match self {
             IssueCode::DuplicateMessageId => "duplicate_message_id",
             IssueCode::DuplicateSignalName => "duplicate_signal_name",
@@ -319,7 +312,6 @@ impl IssueCode {
             IssueCode::AttributeEnumDefaultUnstable => "attribute_enum_default_unstable",
             IssueCode::RangeExceedsBits => "range_exceeds_bits",
             IssueCode::ValueDescriptionKeyOutOfRange => "value_description_key_out_of_range",
-            IssueCode::Unknown(s) => s,
         }
     }
 }
@@ -372,11 +364,6 @@ pub(crate) fn protocol(msg: impl Into<String>) -> Error {
 
 // ── The error envelope ──────────────────────────────────────────────────────
 
-/// The kernel's codes whose error envelope carries a payload of its own.
-const CODE_INPUT_BOUND_EXCEEDED: &str = "input_bound_exceeded";
-const CODE_HANDLER_VALIDATION_FAILED: &str = "handler_validation_failed";
-const CODE_HANDLER_TEXT_ROUNDTRIP_FAILED: &str = "handler_text_roundtrip_failed";
-
 /// The keys of a bound refusal's triple.
 const BOUND_TRIPLE_KEYS: [&str; 3] = ["bound_kind", "observed", "limit"];
 
@@ -384,6 +371,12 @@ const BOUND_TRIPLE_KEYS: [&str; 3] = ["bound_kind", "observed", "limit"];
 /// and a mock the spaced one.
 const ACK_COMPACT: &str = r#"{"status":"ack"}"#;
 const ACK_SPACED: &str = r#"{"status": "ack"}"#;
+
+/// Whether `raw` is an acknowledgement in one of its two spellings: almost
+/// every answer is, and comparing bytes is cheaper than reading them.
+fn is_ack(raw: &str) -> bool {
+    raw == ACK_COMPACT || raw == ACK_SPACED
+}
 
 /// Read a reply whose status is `want` or `error`, and lift an error into its
 /// typed [`Error`]. Every typed decoder opens with it, so a reply that is
@@ -426,12 +419,12 @@ fn error_status(reply: &Object<'_>) -> Error {
 /// `has_errors` flag and its issues whole.
 fn lift_error(reply: &Object<'_>) -> Result<Error, Error> {
     field_status(reply, ROOT, "status", &[ReplyStatus::Error])?;
-    let code = field_string(reply, ROOT, "code")?.into_owned();
+    let code = field_member(reply, ROOT, "code", "an error code", ErrorCode::from_wire)?;
     let message = field_string(reply, ROOT, "message")?.into_owned();
     match read_bound_triple(reply)? {
         Some(triple) => {
             let field = bound_field(reply)?;
-            if code == CODE_INPUT_BOUND_EXCEEDED {
+            if code == ErrorCode::InputBoundExceeded {
                 return Ok(Error::InputBoundExceeded(Box::new(BoundRefusal {
                     code,
                     message,
@@ -443,7 +436,7 @@ fn lift_error(reply: &Object<'_>) -> Result<Error, Error> {
                 })));
             }
         }
-        None if code == CODE_INPUT_BOUND_EXCEEDED => {
+        None if code == ErrorCode::InputBoundExceeded => {
             return Err(refusal(
                 ROOT.at("bound_kind"),
                 STRING,
@@ -452,7 +445,7 @@ fn lift_error(reply: &Object<'_>) -> Result<Error, Error> {
         }
         None => {}
     }
-    if code == CODE_HANDLER_VALIDATION_FAILED {
+    if code == ErrorCode::HandlerValidationFailed {
         let (has_errors, issues) = issues_payload(reply)?;
         return Ok(Error::ValidationFailed {
             code,
@@ -461,7 +454,7 @@ fn lift_error(reply: &Object<'_>) -> Result<Error, Error> {
             issues,
         });
     }
-    if code == CODE_HANDLER_TEXT_ROUNDTRIP_FAILED {
+    if code == ErrorCode::HandlerTextRoundtripFailed {
         let (has_errors, issues) = issues_payload(reply)?;
         return Ok(Error::TextRoundtripFailed {
             code,
@@ -519,12 +512,12 @@ pub(crate) fn read_issues(reply: &Object<'_>, key: &str) -> Result<Vec<Validatio
     field_objects(reply, ROOT, key, read_issue)
 }
 
-/// One validation issue at `path`: its code, its detail and its severity, each
-/// read by kind, an unrecognised code kept as [`IssueCode::Unknown`].
+/// One validation issue at `path`: its code, one of the [`IssueCode`]s, its
+/// detail and its severity, one of the [`IssueSeverity`] words.
 fn read_issue(issue: &Object<'_>, path: ReplyPath<'_>) -> Result<ValidationIssue, Error> {
-    let code = IssueCode::from_wire(&field_string(issue, path, "code")?);
+    let code = field_member(issue, path, "code", "an issue code", IssueCode::from_wire)?;
     let detail = field_string(issue, path, "detail")?.into_owned();
-    let severity = severity(&field_string(issue, path, "severity")?);
+    let severity = severity(field_word(issue, path, "severity", &["error", "warning"])?);
     Ok(ValidationIssue {
         severity,
         code,
@@ -551,9 +544,7 @@ pub(crate) fn decode_success(raw: &str) -> Result<(), Error> {
 /// Decode the answer to an error or remote event: the kernel resolves both to
 /// an acknowledgement, the only status either carries.
 pub(crate) fn decode_event_ack(raw: &str) -> Result<(), Error> {
-    // Almost every answer is one of the two spellings of an acknowledgement,
-    // and comparing bytes is cheaper than reading them.
-    if raw == ACK_COMPACT || raw == ACK_SPACED {
+    if is_ack(raw) {
         return Ok(());
     }
     decode_reply(raw, ReplyStatus::Ack).map(drop)
@@ -564,7 +555,7 @@ pub(crate) fn decode_event_ack(raw: &str) -> Result<(), Error> {
 /// carries no status of its own, each of its events carrying one, and is told
 /// by its type.
 pub(crate) fn decode_frame(raw: &str) -> Result<FrameResponse, Error> {
-    if raw == ACK_COMPACT || raw == ACK_SPACED {
+    if is_ack(raw) {
         return Ok(FrameResponse::Ack);
     }
     let reply = read_reply(raw)?;
@@ -589,8 +580,6 @@ pub(crate) fn decode_frame(raw: &str) -> Result<FrameResponse, Error> {
 /// frame that broke the property on a failure, and a reason on every verdict
 /// but a hold.
 fn read_property_event(event: &Object<'_>, path: ReplyPath<'_>) -> Result<PropertyResult, Error> {
-    // "property" is the type's one word, so every word reads as it.
-    let _type = field_string(event, path, "type")?;
     let mut result = read_verdict(event, path)?;
     if result.verdict == Verdict::Fails {
         result.timestamp = Some(field_natural(event, path, "timestamp")?);
@@ -629,17 +618,18 @@ fn read_property_result(result: &Object<'_>, path: ReplyPath<'_>) -> Result<Prop
     Ok(read)
 }
 
-/// The status and the property index every verdict carries, the index read
-/// directly; the reason and the timestamp are the caller's to read.
+/// The type, the status and the property index every verdict carries, the
+/// index read directly; the reason and the timestamp are the caller's to read.
 fn read_verdict(result: &Object<'_>, path: ReplyPath<'_>) -> Result<PropertyResult, Error> {
-    let status = field_string(result, path, "status")?;
+    field_word(result, path, "type", &["property"])?;
+    let status = field_word(result, path, "status", &["fails", "holds", "unresolved"])?;
     let property_index = field_natural(result, path, "property_index")?;
     // Enrichment is not on the wire: the verified core writes only the raw
     // `reason`, and the client computes [`Enrichment`] from the registered
     // formulas and the last-known signal values (see `crate::enrich`).
     Ok(PropertyResult {
         property_index,
-        verdict: verdict(&status),
+        verdict: verdict(status),
         reason: String::new(),
         timestamp: None,
         enrichment: None,
@@ -658,9 +648,7 @@ fn verdict(word: &str) -> Verdict {
 /// One end-of-stream warning at `path`: its kind, its property's index and
 /// its detail.
 fn read_stream_warning(warning: &Object<'_>, path: ReplyPath<'_>) -> Result<StreamWarning, Error> {
-    // The kernel proves the set of kinds it writes, whose one member is the
-    // one WarningKind names, so every word reads as it.
-    let _kind = field_string(warning, path, "kind")?;
+    field_word(warning, path, "kind", &["uncached_atom"])?;
     Ok(StreamWarning {
         kind: WarningKind::UncachedAtom,
         property_index: field_natural(warning, path, "property_index")?,
@@ -714,16 +702,9 @@ fn read_u32_le(bytes: &[u8]) -> u32 {
 }
 
 /// The 128-bit magnitude a 16-byte slice holds: its low `u64`, then its high
-/// `u64`, each little-endian.
-fn read_u128_words(bytes: &[u8]) -> u128 {
-    let word = |at: usize| {
-        u64::from_le_bytes(
-            bytes[at..at + 8]
-                .try_into()
-                .expect("caller passes a 16-byte slice"),
-        )
-    };
-    (u128::from(word(8)) << 64) | u128::from(word(0))
+/// `u64`, each little-endian, which is the slice read as one little-endian `u128`.
+fn read_u128_le(bytes: &[u8]) -> u128 {
+    u128::from_le_bytes(bytes.try_into().expect("caller passes a 16-byte slice"))
 }
 
 /// Decode the packed binary extraction buffer (the hot path) into the same
@@ -799,8 +780,8 @@ pub(crate) fn decode_extraction_bin(
             name: signal_name(names, read_u16_le(&chunk[0..2])),
             value: Rational::from_kernel(
                 chunk[2] != 0,
-                read_u128_words(&chunk[3..19]),
-                read_u128_words(&chunk[19..35]),
+                read_u128_le(&chunk[3..19]),
+                read_u128_le(&chunk[19..35]),
             ),
         });
     }
@@ -884,5 +865,7 @@ pub(crate) fn decode_format_text(raw: &str) -> Result<DbcText, Error> {
     Ok(DbcText { text, issues })
 }
 
+#[cfg(test)]
+mod tag_tests;
 #[cfg(test)]
 mod tests;

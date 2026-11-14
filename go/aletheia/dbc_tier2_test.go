@@ -135,28 +135,6 @@ func TestFormatDBC_EmptyTier2Lists(t *testing.T) {
 	}
 }
 
-// A comment target kind outside the five takes the last arm, an environment
-// variable, which then needs its name.
-func TestFormatDBC_UnknownCommentTargetKindTakesTheLastArm(t *testing.T) {
-	ctx := t.Context()
-	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[],"signalGroups":[],"environmentVars":[],"valueTables":[],"nodes":[],`+
-		`"comments":[{"target":{"kind":"bogus"},"text":"bad"}],"attributes":[],"unresolvedValueDescs":[]}}`))
-	_, err := c.FormatDBC(ctx)
-	requireKind(t, err, aletheia.ErrProtocol)
-	if want := "reply dbc/comments/target/envVar: expected string, got nothing"; err.Error() != want {
-		t.Errorf("got %q, want %q", err.Error(), want)
-	}
-	c, _ = mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[],"signalGroups":[],"environmentVars":[],"valueTables":[],"nodes":[],`+
-		`"comments":[{"target":{"kind":"bogus","envVar":"E"},"text":"bad"}],"attributes":[],"unresolvedValueDescs":[]}}`))
-	dbc, err := c.FormatDBC(ctx)
-	if err != nil {
-		t.Fatalf("FormatDBC: %v", err)
-	}
-	if len(dbc.Comments) != 1 || dbc.Comments[0].Target != (aletheia.DBCCommentTargetEnvVar{EnvVar: "E"}) {
-		t.Errorf("comments: got %+v, want one on the environment variable E", dbc.Comments)
-	}
-}
-
 // Absent tier 2 metadata is written as three empty arrays.
 func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 	dbcObj := serialisedDBC(t, aletheia.DBCDefinition{Version: "1.0", Messages: []aletheia.DBCMessage{minimalMessage(t, "MinimalMsg")}})

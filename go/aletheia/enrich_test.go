@@ -24,7 +24,7 @@ func violationAt(ts int64, reason string) aletheia.MockResponse {
 
 // endStreamFailing is an end-of-stream response failing property 0.
 func endStreamFailing(ts int64, reason string) aletheia.MockResponse {
-	return aletheia.Respond(fmt.Sprintf(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":%d,"reason":%q}],"warnings":[]}`, ts, reason))
+	return aletheia.Respond(fmt.Sprintf(`{"status":"complete","results":[{"type":"property","property_index":0,"status":"fails","timestamp":%d,"reason":%q}],"warnings":[]}`, ts, reason))
 }
 
 // firstViolation is the enriched violation a frame response must carry.

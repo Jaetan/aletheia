@@ -40,6 +40,33 @@ class _Gone(Enum):
 
 _GONE: Final = _Gone.KEY
 
+# A word the kernel writes at no word place.
+_UNKNOWN_WORD: Final = "bogus_word"
+_BYTE_ORDERS: Final = (
+    'reply dbc/messages/signals/byteOrder: expected "little_endian" or "big_endian"'
+)
+_PRESENCES: Final = 'reply dbc/messages/signals/presence: expected "always" or "multiplexed"'
+_COMMENT_KINDS: Final = (
+    'reply dbc/comments/target/kind: expected "network", "node", "message", "signal" or "envVar"'
+)
+_ATTRIBUTE_KINDS: Final = (
+    'reply dbc/attributes/kind: expected "definition", "default" or "assignment"'
+)
+_ATTRIBUTE_SCOPES: Final = (
+    'reply dbc/attributes/scope: expected "network", "node", "message", "signal", "envVar",'
+    + ' "nodeMsg" or "nodeSig"'
+)
+_ATTRIBUTE_TYPE_KINDS: Final = (
+    'reply dbc/attributes/attrType/kind: expected "int", "float", "string", "enum" or "hex"'
+)
+_ATTRIBUTE_VALUE_KINDS: Final = (
+    'reply dbc/attributes/value/kind: expected "int", "float", "string", "enum" or "hex"'
+)
+_ATTRIBUTE_TARGET_KINDS: Final = (
+    'reply dbc/attributes/target/kind: expected "network", "node", "message", "signal",'
+    + ' "envVar", "nodeMsg" or "nodeSig"'
+)
+
 
 def _always_signal() -> JSONValue:
     """Return an always-present signal with a value description, as the kernel writes one."""
@@ -215,16 +242,9 @@ _BROKEN_PLACES: Final = (
         "x",
         "reply dbc/messages/signals/length: expected number, got string",
     ),
-    (
-        "messages.0.signals.0.byteOrder",
-        _GONE,
-        "reply dbc/messages/signals/byteOrder: expected string, got nothing",
-    ),
-    (
-        "messages.0.signals.0.byteOrder",
-        0,
-        "reply dbc/messages/signals/byteOrder: expected string, got number",
-    ),
+    ("messages.0.signals.0.byteOrder", _GONE, f"{_BYTE_ORDERS}, got nothing"),
+    ("messages.0.signals.0.byteOrder", 0, f"{_BYTE_ORDERS}, got number"),
+    ("messages.0.signals.0.byteOrder", _UNKNOWN_WORD, f'{_BYTE_ORDERS}, got "bogus_word"'),
     (
         "messages.0.signals.0.name",
         0,
@@ -295,11 +315,9 @@ _BROKEN_PLACES: Final = (
         _GONE,
         "reply dbc/messages/signals/valueDescriptions/description: expected string, got nothing",
     ),
-    (
-        "messages.0.signals.0.presence",
-        0,
-        "reply dbc/messages/signals/presence: expected string, got number",
-    ),
+    ("messages.0.signals.0.presence", 0, f"{_PRESENCES}, got number"),
+    ("messages.0.signals.0.presence", _UNKNOWN_WORD, f'{_PRESENCES}, got "bogus_word"'),
+    ("messages.0.signals.1.presence", _UNKNOWN_WORD, f'{_PRESENCES}, got "bogus_word"'),
     (
         "messages.0.signals.1.multiplexor",
         _GONE,
@@ -365,7 +383,9 @@ _BROKEN_PLACES: Final = (
     ("comments.0", 0, "reply dbc/comments: expected object, got number"),
     ("comments.0.target", _GONE, "reply dbc/comments/target: expected object, got nothing"),
     ("comments.0.text", 0, "reply dbc/comments/text: expected string, got number"),
-    ("comments.0.target.kind", 0, "reply dbc/comments/target/kind: expected string, got number"),
+    ("comments.0.target.kind", 0, f"{_COMMENT_KINDS}, got number"),
+    ("comments.0.target.kind", _UNKNOWN_WORD, f'{_COMMENT_KINDS}, got "bogus_word"'),
+    ("comments.4.target.kind", _UNKNOWN_WORD, f'{_COMMENT_KINDS}, got "bogus_word"'),
     (
         "comments.1.target.node",
         _GONE,
@@ -389,15 +409,19 @@ _BROKEN_PLACES: Final = (
         "reply dbc/comments/target/envVar: expected string, got number",
     ),
     ("attributes.0", 0, "reply dbc/attributes: expected object, got number"),
-    ("attributes.0.kind", _GONE, "reply dbc/attributes/kind: expected string, got nothing"),
+    ("attributes.0.kind", _GONE, f"{_ATTRIBUTE_KINDS}, got nothing"),
+    ("attributes.0.kind", 0, f"{_ATTRIBUTE_KINDS}, got number"),
+    ("attributes.0.kind", _UNKNOWN_WORD, f'{_ATTRIBUTE_KINDS}, got "bogus_word"'),
+    ("attributes.10.kind", _UNKNOWN_WORD, f'{_ATTRIBUTE_KINDS}, got "bogus_word"'),
     ("attributes.0.name", 0, "reply dbc/attributes/name: expected string, got number"),
-    ("attributes.0.scope", _GONE, "reply dbc/attributes/scope: expected string, got nothing"),
+    ("attributes.0.scope", _GONE, f"{_ATTRIBUTE_SCOPES}, got nothing"),
+    ("attributes.0.scope", 0, f"{_ATTRIBUTE_SCOPES}, got number"),
+    ("attributes.0.scope", _UNKNOWN_WORD, f'{_ATTRIBUTE_SCOPES}, got "bogus_word"'),
     ("attributes.0.attrType", 0, "reply dbc/attributes/attrType: expected object, got number"),
-    (
-        "attributes.0.attrType.kind",
-        _GONE,
-        "reply dbc/attributes/attrType/kind: expected string, got nothing",
-    ),
+    ("attributes.0.attrType.kind", _GONE, f"{_ATTRIBUTE_TYPE_KINDS}, got nothing"),
+    ("attributes.0.attrType.kind", 0, f"{_ATTRIBUTE_TYPE_KINDS}, got number"),
+    ("attributes.0.attrType.kind", _UNKNOWN_WORD, f'{_ATTRIBUTE_TYPE_KINDS}, got "bogus_word"'),
+    ("attributes.3.attrType.kind", _UNKNOWN_WORD, f'{_ATTRIBUTE_TYPE_KINDS}, got "bogus_word"'),
     (
         "attributes.0.attrType.min",
         "x",
@@ -439,7 +463,10 @@ _BROKEN_PLACES: Final = (
         "reply dbc/attributes/attrType/max: expected number, got string",
     ),
     ("attributes.5.value", _GONE, "reply dbc/attributes/value: expected object, got nothing"),
-    ("attributes.5.value.kind", 0, "reply dbc/attributes/value/kind: expected string, got number"),
+    ("attributes.5.value.kind", _GONE, f"{_ATTRIBUTE_VALUE_KINDS}, got nothing"),
+    ("attributes.5.value.kind", 0, f"{_ATTRIBUTE_VALUE_KINDS}, got number"),
+    ("attributes.5.value.kind", _UNKNOWN_WORD, f'{_ATTRIBUTE_VALUE_KINDS}, got "bogus_word"'),
+    ("attributes.9.value.kind", _UNKNOWN_WORD, f'{_ATTRIBUTE_VALUE_KINDS}, got "bogus_word"'),
     (
         "attributes.5.value.value",
         "x",
@@ -472,11 +499,10 @@ _BROKEN_PLACES: Final = (
     ),
     ("attributes.10.target", 0, "reply dbc/attributes/target: expected object, got number"),
     ("attributes.10.value", _GONE, "reply dbc/attributes/value: expected object, got nothing"),
-    (
-        "attributes.10.target.kind",
-        _GONE,
-        "reply dbc/attributes/target/kind: expected string, got nothing",
-    ),
+    ("attributes.10.target.kind", _GONE, f"{_ATTRIBUTE_TARGET_KINDS}, got nothing"),
+    ("attributes.10.target.kind", 0, f"{_ATTRIBUTE_TARGET_KINDS}, got number"),
+    ("attributes.10.target.kind", _UNKNOWN_WORD, f'{_ATTRIBUTE_TARGET_KINDS}, got "bogus_word"'),
+    ("attributes.16.target.kind", _UNKNOWN_WORD, f'{_ATTRIBUTE_TARGET_KINDS}, got "bogus_word"'),
     (
         "attributes.11.target.node",
         0,
@@ -565,7 +591,10 @@ class TestEachPlaceRefusedInTheOneForm:
         ("spot", "replacement", "text"),
         _BROKEN_PLACES,
         ids=[
-            f"{spot}-{'deleted' if new is _GONE else 'retyped'}" for spot, new, _ in _BROKEN_PLACES
+            f"{spot}-{'deleted' if new is _GONE else 'retyped'}"
+            if new != _UNKNOWN_WORD
+            else f"{spot}-unknown"
+            for spot, new, _ in _BROKEN_PLACES
         ],
     )
     def test_refuses_a_broken_place(

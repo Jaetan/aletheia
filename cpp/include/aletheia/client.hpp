@@ -41,6 +41,13 @@
 
 namespace aletheia {
 
+namespace detail {
+// The tests' way to the diagnostics `set_properties` built, which a test
+// replaces by ones naming no signal, since no formula builds those. Defined
+// where the tests live.
+struct ClientTestAccess;
+} // namespace detail
+
 // What `AletheiaClient::open` opens; each field may be left out. An empty
 // `library` is the one `find_ffi_library()` finds, no `rts_cores` asks for the
 // count running (1 when nothing runs), and the logger and the default checks
@@ -251,6 +258,8 @@ public:
     [[nodiscard]] auto end_stream(std::stop_token stop) -> Result<StreamResult>;
 
 private:
+    friend struct detail::ClientTestAccess;
+
     AletheiaClient(std::unique_ptr<IBackend> backend, BackendState state, Logger logger,
                    std::vector<CheckResult> default_checks);
 

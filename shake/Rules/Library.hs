@@ -129,8 +129,9 @@ shimCCompiler = do
 -- at an ABI version no binding was written against, one exporting the version
 -- alone, one exporting no kernel symbol, one whose kernel answers null, and
 -- one that refuses the kernel's entries quoting what it was handed, answers a
--- known allocation count, and counts the closes and frees it is given, and one
--- that forwards every entry to the library and logs each refusal it answers.
+-- known allocation count, counts the closes and frees it is given and records
+-- the command line its runtime entry is handed, and one that forwards every
+-- entry to the library and logs each refusal it answers.
 -- Each is built from @haskell-shim/test/<name>.c@ against the kernel's header
 -- into the directory the library is built in, where every binding's test looks
 -- for it beside the library it stands in for.

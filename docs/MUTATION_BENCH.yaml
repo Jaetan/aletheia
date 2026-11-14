@@ -29,8 +29,19 @@ bindings:
     install: |
       python/.venv/bin/pip install -e 'python/.[mutation]'
     hot_path:
-      # The cat 14(g) Python list, at the paths those modules are at.
+      # The cat 14(g) Python list: the client with its binary, streaming and
+      # reply-reading parts, the FFI backend, the DBC converter, the YAML
+      # loader, the issue codes and the domain types.  These are the files
+      # python/pyproject.toml's [tool.mutmut] source_paths names, which
+      # tools/check_mutation_setup.py holds to this list both ways.
       - python/aletheia/client/_client.py
+      - python/aletheia/client/_client_bin.py
+      - python/aletheia/client/_streaming.py
+      - python/aletheia/client/_response_parsers.py
+      - python/aletheia/client/_helpers/reply_shape.py
+      - python/aletheia/client/_helpers/property_check.py
+      - python/aletheia/client/_backend.py
+      - python/aletheia/client/_ffi.py
       - python/aletheia/dbc/_converter.py
       - python/aletheia/yaml_loader.py
       - python/aletheia/codes/_issue.py
@@ -90,8 +101,14 @@ bindings:
     hot_path:
       # The cat 14(g) Go list, at the paths those modules are at: the client
       # is client.go with its stream and enrichment parts, the protocol
-      # marshalling is json.go with its response and DBC decoding parts, and
-      # the per-frame enrichment is enrich.go.
+      # marshalling is json.go with its response and DBC decoding parts, the
+      # reply readers' shape checks in reply_shape.go and the 128-bit
+      # magnitudes in uint128.go, the FFI is ffi.go with the rational layout
+      # in wire_rational.go and the property check's entry in
+      # property_check.go, ffi.go and property_check.go each with the file
+      # that stands in for it without cgo, and the per-frame enrichment is
+      # enrich.go. gremlins sweeps the whole package all the same, the
+      # generated files held out, so this list selects nothing.
       - go/aletheia/client.go
       - go/aletheia/client_stream.go
       - go/aletheia/client_enrich.go
@@ -99,8 +116,13 @@ bindings:
       - go/aletheia/json.go
       - go/aletheia/json_response.go
       - go/aletheia/json_dbc.go
+      - go/aletheia/reply_shape.go
+      - go/aletheia/uint128.go
       - go/aletheia/ffi.go
       - go/aletheia/ffi_nocgo.go
+      - go/aletheia/wire_rational.go
+      - go/aletheia/property_check.go
+      - go/aletheia/property_check_nocgo.go
       - go/aletheia/enrich.go
     config:
       # The runner names this file to gremlins. It holds the stringer outputs
@@ -115,7 +137,9 @@ bindings:
       # gremlins writes its summary to stdout, counting the mutants it killed,
       # those that lived, those on a line no test reaches, those that timed
       # out, and those not viable or skipped. The runner reads every count from
-      # it: a mutant on an uncovered line is neither killed nor lived, so the
+      # it, once each mutant it planted in a function body has moved from
+      # not covered to the bucket its run gave (not_covered_ledger, below): a
+      # mutant on an uncovered line is neither killed nor lived, so the
       # total below is killed plus lived, and generated is every bucket.
     baseline:
       # gremlins puts every mutant it generates in exactly one bucket, so the
@@ -180,18 +204,29 @@ bindings:
       # and a row the sweep no longer produces as a stale record, until the
       # change that reaches the line deletes its row.
       #
-      # What is left is package-level constants and the one constraint written
-      # as a type set. Go's cover profile marks statements, and neither a
-      # constant declaration nor a function's signature is one, so no test
-      # executes these lines and none can; gremlins runs no test against a
-      # mutant on a line its profile never marks, so the mutants are counted
-      # here and never tried. The constants' values are held elsewhere: the
-      # limits by the parity test over the resource budgets, the two
-      # identifier maxima by the constructors' range tests, and the map-key
-      # flag by the lookups that tell a standard identifier from an extended
-      # one of the same value. The type set's mutants are none at all:
-      # gremlins reads each | of it as a bitwise or and would invert it to &,
-      # which Go's grammar does not admit there, so no build carries one.
+      # A row is a mutant outside every function body, and what is left is
+      # package-level constants. Go's cover profile marks the statements of
+      # function bodies, and neither a declaration at package level nor a
+      # function's signature is one, so no test executes these lines and none
+      # can; gremlins runs no test against a mutant on a line its profile
+      # never marks, so the mutants are counted here and never tried. The
+      # constants' values are held elsewhere: the limits by the parity test
+      # over the resource budgets, the two identifier maxima by the
+      # constructors' range tests, and the map-key flag by the lookups that
+      # tell a standard identifier from an extended one of the same value.
+      #
+      # A mutant inside a function body is never a row. gremlins reports some
+      # of them not covered and tries none: every mutant of a case clause's
+      # expression, since Go's cover tool opens the clause's block after its
+      # colon, and others besides. The runner plants each one after the
+      # sweep, of the package or of a shard (tools/mutation_go_cases.py):
+      # gremlins' token change at the column gremlins reports, made in the
+      # sweep's copy, the package's tests run under the sweep's variables,
+      # the file restored. The mutant is killed, lived or not viable as its
+      # run gives, timed out where go test's own deadline ended it, and a
+      # lived one is a survivor held as gremlins' are. Where the unmutated
+      # tests fail in the copy nothing is planted, and the mutants stay not
+      # covered, rows this ledger does not name.
       not_covered_ledger:
         - mutator: ARITHMETIC_BASE
           file: go/aletheia/limits.go
@@ -257,9 +292,10 @@ bindings:
       # clang plugin .so.  Cache keys: pr-heavy-lanes.yml mutation lane; the
       # procedure: docs/operations/MUTATION.md § C++.
     hot_path:
-      # AGENTS.md cat 14(g) C++ list, less `mock_backend.cpp` and `types.cpp`
-      # (test-only and type definitions).  This list is what the static gate
-      # requires to exist; it does not select what Mull mutates.  The IR
+      # The library's client, DBC model, enrichment, loaders, FFI backend,
+      # JSON reading and writing, reply readers and property check: the test
+      # double and the type definitions are not on it.  This list is what the
+      # static gate requires to exist; it does not select what Mull mutates.  The IR
       # plugin is attached to the library and the test binary, so Mull
       # mutates whatever those compile and the link keeps, which reaches
       # files not listed here.  A listed file with no mutant is a defect of
@@ -275,6 +311,9 @@ bindings:
       - cpp/src/json_parse.cpp
       - cpp/src/json_parse_dbc.cpp
       - cpp/src/json_serialize.cpp
+      - cpp/src/property_check.cpp
+      - cpp/src/reply_shape.cpp
+      - cpp/src/wide_json.cpp
       - cpp/src/yaml.cpp
     config:
       build_dir: cpp/build-mutation
@@ -719,11 +758,16 @@ bindings:
     install: |
       cargo install cargo-mutants --version 27.1.0 --locked
     hot_path:
-      # The cat 14(g) Rust list: the response decoder, the DBC model, the
+      # The cat 14(g) Rust list: the response decoder, with the reply
+      # readers' shape checks and the wire's JSON numbers, the DBC model, the
       # domain types and the FFI backend.  These are the files
-      # rust/.cargo/mutants.toml names, so the static gate's list and the
-      # tool's are one; a file added there is added here.
+      # rust/.cargo/mutants.toml names, which tools/check_mutation_setup.py
+      # holds to this list both ways.  limits.rs, the bound kinds' names, is
+      # constants alone, in which cargo-mutants makes no mutant.
       - rust/src/response.rs
+      - rust/src/response/error_codes.rs
+      - rust/src/reply_shape.rs
+      - rust/src/wire_json.rs
       - rust/src/dbc.rs
       - rust/src/dbc/decode.rs
       - rust/src/dbc/encode.rs

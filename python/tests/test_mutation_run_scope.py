@@ -28,6 +28,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
+from unittest.mock import Mock
 
 import pytest
 
@@ -337,6 +338,37 @@ def test_run_python_erases_stale_mutants_tree(
     mutation_run.run_python(artifacts)
 
     assert not stale.exists()
+
+
+def test_run_python_names_the_repository_root_and_the_library_to_mutmut(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both mutmut calls run with the repository's root and its built library named.
+
+    The suite runs from mutmut's copy under python/mutants/, where a test's own
+    ancestors stop one level short of the root, so the tests that read the
+    tree above python/ find it through ``ALETHEIA_REPO_ROOT``, and the library
+    loader through ``ALETHEIA_LIB``.
+    """
+    lib = tmp_path / "build" / "libaletheia-ffi.so"
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", lib)
+
+    mutmut = Mock(return_value=subprocess.CompletedProcess(["mutmut"], 0, stdout="", stderr=""))
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", mutmut)
+    monkeypatch.setattr(mutation_run.subprocess, "run", mutmut)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    mutation_run.run_python(artifacts)
+
+    assert mutmut.call_count == 2
+    for call in mutmut.call_args_list:
+        assert call.kwargs["env"]["ALETHEIA_REPO_ROOT"] == str(tmp_path)
+        assert call.kwargs["env"]["ALETHEIA_LIB"] == str(lib)
 
 
 def test_run_python_reports_the_mutants_mutmut_timed_out(

@@ -191,7 +191,7 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
         auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
-        CHECK(err->code() == ErrorCode::Unknown);
+        CHECK_FALSE(err->code().has_value());
         CHECK(std::string_view{err->message()}.starts_with("reply: expected JSON text, got "));
         CHECK(free_calls() == 1);
     }
@@ -200,7 +200,7 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
         auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
-        CHECK(err->code() == ErrorCode::Unknown);
+        CHECK_FALSE(err->code().has_value());
         CHECK(std::string{err->message()} == R"(reply status: expected "error", got "success")");
         CHECK(free_calls() == 1);
     }
@@ -209,7 +209,7 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
         auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
-        CHECK(err->code() == ErrorCode::Unknown);
+        CHECK_FALSE(err->code().has_value());
         CHECK(std::string{err->message()} == "reply message: expected string, got nothing");
         CHECK(free_calls() == 1);
     }

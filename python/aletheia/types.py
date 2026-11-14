@@ -67,7 +67,7 @@ from aletheia._dbc_types import (
 )
 
 if TYPE_CHECKING:
-    from aletheia.codes import ValidationIssue
+    from aletheia.codes import ErrorCode, ValidationIssue
     from aletheia.limits import BoundField
 
 # ─── Public wire helpers ───────────────────────────────────────────────────
@@ -540,7 +540,7 @@ class ErrorResponse(TypedDict):
     """
 
     status: Literal["error"]
-    code: str
+    code: ErrorCode
     message: str
     bound_kind: NotRequired[str]
     observed: NotRequired[int]

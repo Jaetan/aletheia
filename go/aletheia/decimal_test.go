@@ -65,7 +65,7 @@ func TestFromDecimalSuccess(t *testing.T) {
 // literal only up to the NUL, would accept it.
 func TestFromDecimalCodedRefusals(t *testing.T) {
 	kernel := map[string]struct {
-		code   string
+		code   ErrorCode
 		column int
 	}{
 		"3.14xyz": {CodeTextTrailingInput, 5},

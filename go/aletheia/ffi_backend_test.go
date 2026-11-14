@@ -362,7 +362,7 @@ func TestFFIBackend_BinaryFrameRefusalCarriesTheKernelMessage(t *testing.T) {
 	ctx := t.Context()
 	refusals := map[string]struct {
 		value   aletheia.Rational
-		code    string
+		code    aletheia.ErrorCode
 		message string
 	}{
 		"above the declared maximum": {

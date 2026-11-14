@@ -80,9 +80,7 @@ static auto left_alone() -> std::map<Site, int> {
         // reach.
         {{.file = "src/client.cpp", .function = "wire_signal_errors"}, 4},
         {{.file = "src/client.cpp", .function = "parse_extraction_bin"}, 2},
-        // A library that answered no reply: a null string, a refusal without
-        // its envelope.
-        {{.file = "src/ffi_backend.cpp", .function = "FfiBackend::wrap_str_result"}, 1},
+        // A library that answered no reply: a refusal without its envelope.
         {{.file = "src/detail/ffi_logic.cpp", .function = "ffi_error_from_status"}, 1},
         {{.file = "src/property_check.cpp", .function = "entry_refusal"}, 1},
         {{.file = "src/rational_renderer.cpp", .function = "parse_decimal_ffi"}, 1},

@@ -3,7 +3,8 @@
 // Unit tests: JSON serialize/parse.
 //
 // Covers detail::serialize_* and detail::parse_* for commands, responses,
-// DBC trees, frame payloads, and LTL formulas.
+// DBC trees, frame payloads, and LTL formulas, and the readers of a reply's
+// places.
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -12,13 +13,21 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/json.hpp"
+#include "detail/reply_shape.hpp"
+#include "detail/wide_json.hpp"
 #include "required.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <nlohmann/json.hpp>
 
+#include <array>
+#include <concepts>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -42,6 +51,82 @@ static auto test_dbc_reply(Edit edit) -> std::string {
 // The signal of test_dbc_reply's one message.
 static auto only_signal(Json& reply) -> Json& {
     return reply["dbc"]["messages"][0]["signals"][0];
+}
+
+// ===========================================================================
+// Reply places
+// ===========================================================================
+
+// Declared first in the suite's first file, so it runs before any reader reads
+// a reply: a lookup that answered a value for a key an object lacks would read
+// past the object before any check could report it, and on a value that is not
+// an object it throws, which the first check reports.
+TEST_CASE("value_at answers the value a key holds and none for a key absent",
+          "[json][reply_shape]") {
+    CHECK(detail::value_at(detail::Json{}, "key") == nullptr);
+    CHECK(detail::value_at(detail::Json("text"), "key") == nullptr);
+    auto const obj = detail::parse_json(R"({"key": 1})");
+    CHECK(detail::value_at(obj, "key") == &obj.at("key"));
+    CHECK(detail::value_at(obj, "other") == nullptr);
+}
+
+// A natural place read into `T` reads `T`'s maximum and refuses the next.
+template<std::unsigned_integral T>
+static void reads_up_to_its_maximum() {
+    constexpr auto max = std::numeric_limits<T>::max();
+    auto const place = detail::ReplyPath{}.at("n");
+    CHECK(detail::read_unsigned<T>(detail::json_of(false, max), place) == max);
+    CHECK_THROWS_WITH(detail::read_unsigned<T>(
+                          detail::json_of(false, static_cast<unsigned __int128>(max) + 1), place),
+                      "reply n: expected number, got number");
+}
+
+TEST_CASE("a natural place reads up to its type's maximum and refuses past it",
+          "[json][reply_shape]") {
+    reads_up_to_its_maximum<std::uint8_t>();
+    reads_up_to_its_maximum<std::uint16_t>();
+    reads_up_to_its_maximum<std::uint32_t>();
+    reads_up_to_its_maximum<std::uint64_t>();
+}
+
+TEST_CASE("an int64 place reads both ends of its range and refuses past either",
+          "[json][reply_shape]") {
+    constexpr auto high = std::numeric_limits<std::int64_t>::max();
+    constexpr auto low = std::numeric_limits<std::int64_t>::min();
+    constexpr auto low_magnitude = static_cast<unsigned __int128>(1) << 63U;
+    auto const place = detail::ReplyPath{}.at("n");
+    CHECK(detail::read_int64(detail::json_of(false, static_cast<unsigned __int128>(high)), place) ==
+          high);
+    CHECK(detail::read_int64(detail::json_of(true, low_magnitude), place) == low);
+    CHECK_THROWS_WITH(detail::read_int64(detail::json_of(false, low_magnitude), place),
+                      "reply n: expected number, got number");
+    CHECK_THROWS_WITH(detail::read_int64(detail::json_of(true, low_magnitude + 1), place),
+                      "reply n: expected number, got number");
+}
+
+TEST_CASE("a word place's words are quoted and joined, the last by \"or\"", "[json][reply_shape]") {
+    constexpr auto spelled = std::to_array<std::string_view>({"a", "b", "c"});
+    CHECK(detail::words(std::span{spelled}.first(1)) == R"("a")");
+    CHECK(detail::words(std::span{spelled}.first(2)) == R"("a" or "b")");
+    CHECK(detail::words(spelled) == R"("a", "b" or "c")");
+}
+
+// The refusal of the status of `reply`, which holds no word parse_success
+// reads.
+static auto status_refusal(std::string_view reply) -> std::string {
+    auto const parsed = detail::parse_success(reply);
+    REQUIRE_FALSE(parsed.has_value());
+    return std::string{parsed.error().message()};
+}
+
+TEST_CASE("a word place holding no word names what came", "[json][reply_shape]") {
+    // A number below -2^127, held as a binary node, is a number too.
+    std::string const expected = R"(reply status: expected "success" or "error", got )";
+    CHECK(status_refusal(R"({"status": 42})") == expected + "number");
+    CHECK(status_refusal(R"({"status": -170141183460469231731687303715884105729})") ==
+          expected + "number");
+    CHECK(status_refusal(R"({"status": ["success"]})") == expected + "array");
+    CHECK(status_refusal("{}") == expected + "nothing");
 }
 
 // ===========================================================================
@@ -246,7 +331,7 @@ TEST_CASE("parse_event_ack rejects \"success\" status", "[json][parse]") {
 
 TEST_CASE("parse_event_ack on error response", "[json][parse]") {
     auto const result = detail::parse_event_ack(
-        R"({"status": "error", "message": "non-monotonic timestamp", "code": "monotonicity_violation"})");
+        R"({"status": "error", "message": "non-monotonic timestamp", "code": "handler_non_monotonic_timestamp"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("non-monotonic timestamp"));
@@ -509,6 +594,26 @@ TEST_CASE("parse_stream_result complete", "[json][parse]") {
     CHECK(result->results[2].verdict == Verdict::Unresolved);
     CHECK(result->results[2].property_index == PropertyIndex{2});
     CHECK(result->results[2].reason == "Atomic: predicate never resolved at end of stream");
+}
+
+TEST_CASE("an unresolved verdict carries the timestamp its key holds, a null key none",
+          "[json][parse]") {
+    auto const result = detail::parse_stream_result(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "unresolved", "property_index": 0, "timestamp": 1000,
+             "reason": "r"},
+            {"type": "property", "status": "unresolved", "property_index": 1, "timestamp": null,
+             "reason": "r"},
+            {"type": "property", "status": "unresolved", "property_index": 2, "reason": "r"}
+        ],
+        "warnings": []
+    })");
+    REQUIRE(result.has_value());
+    REQUIRE(result->results.size() == 3);
+    CHECK(result->results[0].timestamp == Timestamp{1000});
+    CHECK_FALSE(result->results[1].timestamp.has_value());
+    CHECK_FALSE(result->results[2].timestamp.has_value());
 }
 
 TEST_CASE("parse_dbc_response", "[json][parse]") {

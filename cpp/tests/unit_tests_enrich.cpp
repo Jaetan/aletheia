@@ -349,8 +349,8 @@ TEST_CASE("a refused extraction the enrichment needs is returned", "[client][enr
     }
     SECTION("end stream") {
         mock_ptr->queue_response(R"({"status": "ack"})");
-        mock_ptr->queue_response(R"({"status": "complete", "results": [{"property_index": 0,)"
-                                 R"( "status": "fails", "timestamp": 5000000,)"
+        mock_ptr->queue_response(R"({"status": "complete", "results": [{"type": "property",)"
+                                 R"( "property_index": 0, "status": "fails", "timestamp": 5000000,)"
                                  R"( "reason": "Atomic: predicate failed"}], "warnings": []})");
         mock_ptr->queue_response(std::string{refusal});
         REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, dlc, data).has_value());

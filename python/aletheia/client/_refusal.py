@@ -19,10 +19,12 @@ from aletheia.client._helpers.reply_shape import (
     NUMBER,
     REPLY_ROOT,
     STRING,
+    Expectation,
     at,
     came,
     came_word,
-    fields,
+    field_member,
+    held,
     reply_refusal,
     words,
 )
@@ -32,18 +34,32 @@ from aletheia.client._types import (
     ProtocolError,
     ValidationError,
 )
+from aletheia.codes import ErrorCode
 from aletheia.common_types import Prose
 from aletheia.limits import BoundField, BoundKind, Limit
 
 if TYPE_CHECKING:
+    from aletheia.client._helpers.reply_shape import ReplyFields
     from aletheia.common_types import PositiveInt
-    from aletheia.types import Response
 
 # The keys of a bound refusal's triple, in the order they are read.
 _TRIPLE_KEYS: Final = ("bound_kind", "observed", "limit")
 
+_AN_ERROR_CODE: Final = Expectation("an error code")
 
-def extract_bound_triple(response: Response) -> tuple[BoundKind, PositiveInt, Limit] | None:
+
+def read_error_code(envelope: ReplyFields) -> ErrorCode:
+    """Read an error envelope's ``code`` as the :class:`ErrorCode` member it names.
+
+    Raises:
+        ProtocolError: If the code is absent, not a string, or no error code,
+            refused at ``code`` as ``an error code``.
+
+    """
+    return field_member(envelope, REPLY_ROOT, "code", ErrorCode, _AN_ERROR_CODE)
+
+
+def extract_bound_triple(reply: ReplyFields) -> tuple[BoundKind, PositiveInt, Limit] | None:
     """Return the ``(bound_kind, observed, limit)`` triple, or ``None`` if none of it is there.
 
     An envelope holding any of the three keys holds all three: ``bound_kind``
@@ -61,22 +77,21 @@ def extract_bound_triple(response: Response) -> tuple[BoundKind, PositiveInt, Li
             absent or not of its kind.
 
     """
-    reply = fields(response)
     if not any(key in reply for key in _TRIPLE_KEYS):
         return None
-    bound_kind = response.get("bound_kind")
+    bound_kind = held(reply, "bound_kind")
     if not isinstance(bound_kind, str):
         raise reply_refusal(at(REPLY_ROOT, "bound_kind"), STRING, came(reply, "bound_kind"))
-    observed = response.get("observed")
+    observed = held(reply, "observed")
     if not isinstance(observed, int) or isinstance(observed, bool):
         raise reply_refusal(at(REPLY_ROOT, "observed"), NUMBER, came(reply, "observed"))
-    limit = response.get("limit")
+    limit = held(reply, "limit")
     if not isinstance(limit, int) or isinstance(limit, bool):
         raise reply_refusal(at(REPLY_ROOT, "limit"), NUMBER, came(reply, "limit"))
     return (BoundKind(bound_kind), observed, limit)
 
 
-def raise_if_input_bound_exceeded(response: Response) -> None:
+def raise_if_input_bound_exceeded(reply: ReplyFields) -> None:
     """Raise :class:`InputBoundExceededError` for an ``input_bound_exceeded`` error envelope.
 
     Gates on the wire code, like
@@ -94,29 +109,30 @@ def raise_if_input_bound_exceeded(response: Response) -> None:
             bound refusal.
 
     """
-    if response.get("code") != "input_bound_exceeded":
+    if held(reply, "code") != "input_bound_exceeded":
         return
-    triple = extract_bound_triple(response)
+    triple = extract_bound_triple(reply)
     if triple is None:
-        raise reply_refusal(
-            at(REPLY_ROOT, "bound_kind"), STRING, came(fields(response), "bound_kind")
-        )
-    field = bound_field(response)
-    message = envelope_message(response)
+        raise reply_refusal(at(REPLY_ROOT, "bound_kind"), STRING, came(reply, "bound_kind"))
+    field = bound_field(reply)
+    message = envelope_message(reply)
     kind, observed, limit = triple
     raise InputBoundExceededError(
-        kind, observed, limit, code="input_bound_exceeded", refusal=KernelRefusal(message, field)
+        kind,
+        observed,
+        limit,
+        code=ErrorCode.INPUT_BOUND_EXCEEDED,
+        refusal=KernelRefusal(message, field),
     )
 
 
-def bound_field(response: Response) -> BoundField | None:
+def bound_field(reply: ReplyFields) -> BoundField | None:
     """Return the part of the input a bound refusal names, or ``None`` when it names none.
 
     Raises:
         ProtocolError: If ``field`` is there and not a string.
 
     """
-    reply = fields(response)
     if "field" not in reply:
         return None
     field = reply["field"]
@@ -125,7 +141,7 @@ def bound_field(response: Response) -> BoundField | None:
     return BoundField(field)
 
 
-def envelope_message(response: Response) -> Prose:
+def envelope_message(reply: ReplyFields) -> Prose:
     """Return an error envelope's text: the kernel's ``message``, verbatim.
 
     Raises:
@@ -133,14 +149,14 @@ def envelope_message(response: Response) -> Prose:
             kernel writes on every error envelope.
 
     """
-    message = response.get("message")
+    message = held(reply, "message")
     if not isinstance(message, str):
-        raise reply_refusal(at(REPLY_ROOT, "message"), STRING, came(fields(response), "message"))
+        raise reply_refusal(at(REPLY_ROOT, "message"), STRING, came(reply, "message"))
     return Prose(message)
 
 
 def raise_entry_refusal(
-    envelope: Response,
+    envelope: ReplyFields,
     *,
     error: type[ProtocolError | ValidationError] = ProtocolError,
 ) -> NoReturn:
@@ -155,19 +171,17 @@ def raise_entry_refusal(
     carrying the envelope's ``code``, its text the kernel's ``message``
     verbatim: :class:`ProtocolError` for the binary-output entries,
     :class:`ValidationError` for the decimal entry, whose text is the caller's
-    own. An envelope whose ``status`` is not ``"error"``, or without a string
-    ``code`` and ``message``, is malformed: it raises a :class:`ProtocolError`
-    without a code whatever *error* is, refused at the first of ``status``,
-    ``code`` and ``message`` that is broken. The one decoder shared by both.
+    own. An envelope whose ``status`` is not ``"error"``, whose ``code`` is no
+    error code, or without a string ``message``, is malformed: it raises a
+    :class:`ProtocolError` without a code whatever *error* is, refused at the
+    first of ``status``, ``code`` and ``message`` that is broken. The one
+    decoder shared by both.
     """
-    reply = fields(envelope)
-    if envelope.get("status") != "error":
-        raise reply_refusal(at(REPLY_ROOT, "status"), words("error"), came_word(reply, "status"))
-    code = envelope.get("code")
-    if not isinstance(code, str):
-        raise reply_refusal(at(REPLY_ROOT, "code"), STRING, came(reply, "code"))
-    message = envelope.get("message")
+    if held(envelope, "status") != "error":
+        raise reply_refusal(at(REPLY_ROOT, "status"), words("error"), came_word(envelope, "status"))
+    code = read_error_code(envelope)
+    message = held(envelope, "message")
     if not isinstance(message, str):
-        raise reply_refusal(at(REPLY_ROOT, "message"), STRING, came(reply, "message"))
+        raise reply_refusal(at(REPLY_ROOT, "message"), STRING, came(envelope, "message"))
     raise_if_input_bound_exceeded(envelope)
     raise error(message, code=code)

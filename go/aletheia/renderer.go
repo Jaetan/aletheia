@@ -48,7 +48,7 @@ func formatRationalFFI(r Rational) (string, error) {
 		// A null is the kernel or the boundary malfunctioning, never an answer
 		// about the number: a zero in its place would read as a rendered value.
 		// The Rust binding refuses a null here too.
-		return "", ffiError("aletheia_format_rational returned a null pointer")
+		return "", ffiError("aletheia_format_rational returned null")
 	}
 	defer C.renderer_call_free_str(entries.freeStr, raw)
 	return C.GoString(raw), nil

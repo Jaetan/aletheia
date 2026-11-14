@@ -52,7 +52,7 @@ func TestWithLogger_StreamLifecycle(t *testing.T) {
 	ctx := t.Context()
 	c, buf := loggedClient(t,
 		aletheia.Respond(`{"status":"ack"}`),
-		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"holds"}],"warnings":[]}`),
+		aletheia.Respond(`{"status":"complete","results":[{"type":"property","property_index":0,"status":"holds"}],"warnings":[]}`),
 	)
 	sendFrame(t, c, 1000, zeroPayload...)
 	if _, err := c.EndStream(ctx); err != nil {
@@ -68,7 +68,7 @@ func TestWithLogger_Enrichment(t *testing.T) {
 	c, buf := loggedClient(t,
 		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
-		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],"warnings":[]}`),
+		aletheia.Respond(`{"status":"complete","results":[{"type":"property","property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],"warnings":[]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
 	)
 	sendFrame(t, c, 5000, 0xFF, 0, 0, 0, 0, 0, 0, 0)
@@ -102,7 +102,7 @@ func TestWithoutLogger(t *testing.T) {
 	ctx := t.Context()
 	c, _ := startedClientOpts(t, speedUnder220(), []aletheia.MockResponse{
 		aletheia.Respond(`{"status":"ack"}`),
-		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"holds"}],"warnings":[]}`),
+		aletheia.Respond(`{"status":"complete","results":[{"type":"property","property_index":0,"status":"holds"}],"warnings":[]}`),
 	})
 	sendFrame(t, c, 1000, zeroPayload...)
 	if _, err := c.EndStream(ctx); err != nil {

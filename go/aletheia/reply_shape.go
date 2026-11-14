@@ -19,7 +19,8 @@ import (
 // and a key the reply lacks came as "nothing". A rational place expects "a
 // rational": a number, or the {numerator, denominator} object the kernel
 // writes a fraction as. A place holding one of a set of words expects them
-// quoted, and a string outside them came quoted. A whole-number place expects
+// quoted, one holding a code expects "an issue code" or "an error code", and
+// a string outside them came quoted. A whole-number place expects
 // a "number" written as digits, all the kernel writes there.
 //
 // A reader narrows each place itself and builds its refusal here: came names
@@ -37,14 +38,16 @@ func (p replyPath) at(key string) replyPath {
 	return p + "/" + replyPath(key)
 }
 
-// What a place holds: a JSON kind, a rational, or its words quoted.
+// What a place holds: a JSON kind, a rational, a code, or its words quoted.
 const (
-	expectString   = "string"
-	expectBoolean  = "boolean"
-	expectNumber   = "number"
-	expectArray    = "array"
-	expectObject   = "object"
-	expectRational = "a rational"
+	expectString    = "string"
+	expectBoolean   = "boolean"
+	expectNumber    = "number"
+	expectArray     = "array"
+	expectObject    = "object"
+	expectRational  = "a rational"
+	expectIssueCode = "an issue code"
+	expectErrorCode = "an error code"
 )
 
 // cameNothing is what came at a key the reply lacks.
@@ -128,11 +131,11 @@ func quoteJSON(s string) string {
 			b.WriteString(`\b`)
 		case r == '\f':
 			b.WriteString(`\f`)
-		case r < 0x20 || (r >= 0x7f && r <= 0xffff):
-			fmt.Fprintf(&b, `\u%04x`, r)
 		case r > 0xffff:
 			hi, lo := utf16.EncodeRune(r)
 			fmt.Fprintf(&b, `\u%04x\u%04x`, hi, lo)
+		case r < 0x20 || r >= 0x7f:
+			fmt.Fprintf(&b, `\u%04x`, r)
 		default:
 			b.WriteRune(r)
 		}
@@ -378,6 +381,17 @@ func fieldWord(obj map[string]any, path replyPath, key string, expected ...strin
 		}
 	}
 	return "", replyRefusal(path.at(key), words(expected...), cameWord(obj, key))
+}
+
+// fieldMember reads the word at key, a member of members, refusing any other
+// as expected, a string outside them quoted as fieldWord quotes it.
+func fieldMember[T ~string](obj map[string]any, path replyPath, key, expected string, members map[T]struct{}) (T, error) {
+	if s, ok := obj[key].(string); ok {
+		if _, member := members[T(s)]; member {
+			return T(s), nil
+		}
+	}
+	return "", replyRefusal(path.at(key), expected, cameWord(obj, key))
 }
 
 // fieldStatus reads the status at key, one of expected, refusing any other

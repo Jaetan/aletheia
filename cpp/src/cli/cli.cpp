@@ -332,7 +332,7 @@ static auto validation_text(bool has_errors, std::vector<aletheia::ValidationIss
         std::string sev{aletheia::to_string(i.severity)};
         std::ranges::transform(sev, sev.begin(),
                                [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-        out << "  " << n++ << ". [" << sev << "] " << aletheia::issue_code_label(i) << ": "
+        out << "  " << n++ << ". [" << sev << "] " << aletheia::to_string(i.code) << ": "
             << i.detail << '\n';
     }
     return std::move(out).str();
@@ -352,7 +352,7 @@ static auto render_validation(bool has_errors, std::vector<aletheia::ValidationI
     auto arr = Json::array();
     for (auto const& i : issues)
         arr.push_back({{"severity", std::string{aletheia::to_string(i.severity)}},
-                       {"code", std::string{aletheia::issue_code_label(i)}},
+                       {"code", std::string{aletheia::to_string(i.code)}},
                        {"detail", i.detail}});
     return emit_json({{"status", has_errors ? "fail" : "pass"},
                       {"has_errors", has_errors},

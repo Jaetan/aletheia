@@ -24,7 +24,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"holds"}],
+			"results":[{"type":"property","property_index":0,"status":"holds"}],
 			"warnings":[]
 		}`), // EndStream
 	)
@@ -77,7 +77,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`), // extraction for enrichment
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Speed >= 200"}],
+			"results":[{"type":"property","property_index":0,"status":"fails","timestamp":5000,"reason":"Speed >= 200"}],
 			"warnings":[]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame
@@ -148,7 +148,7 @@ func TestViolation_CoreReason(t *testing.T) {
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":50}],"errors":[],"absent":[]}`), // extraction
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"MetricEventually: window expired"}],
+			"results":[{"type":"property","property_index":0,"status":"fails","timestamp":5000,"reason":"MetricEventually: window expired"}],
 			"warnings":[]
 		}`), // EndStream
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":50}],"errors":[],"absent":[]}`), // EOS extraction
@@ -283,6 +283,7 @@ func TestEndStream_TimestampParseError(t *testing.T) {
 		aletheia.Respond(`{
 			"status":"complete",
 			"results":[{
+				"type":"property",
 				"property_index":0,
 				"status":"fails",
 				"reason":"",
@@ -627,7 +628,7 @@ func TestStreamingLTL_Unresolved(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame (unrelated frame)
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
+			"results":[{"type":"property","property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
 			"warnings":[]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame
@@ -666,7 +667,7 @@ func TestEndStream_UncachedAtomWarning(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
+			"results":[{"type":"property","property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
 			"warnings":[{"kind":"uncached_atom","property_index":0,"detail":"UnobservedSignal"}]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame

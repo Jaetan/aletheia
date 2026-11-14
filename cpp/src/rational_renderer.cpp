@@ -117,7 +117,7 @@ static auto kernel_string(Call call, std::string_view reading, std::string_view 
     auto* raw = call(entries);
     if (raw == nullptr)
         return std::unexpected(
-            AletheiaError{ErrorKind::Ffi, std::string{returned_null} + " returned a null pointer"});
+            AletheiaError{ErrorKind::Ffi, std::string{returned_null} + " returned null"});
     auto const deleter = [&entries](char* p) { entries.free_str(p); };
     std::unique_ptr<char, decltype(deleter)> const guard{raw, deleter};
     return std::string{raw};

@@ -19,7 +19,7 @@ from _planted_tree import plant
 
 from tools import check_mutation_setup_lanes
 from tools._common import RelPath
-from tools.check_mutation_setup_lanes import CPP_DOC_HARNESS
+from tools.check_mutation_setup_lanes import CPP_DOC_HARNESS, CPP_INTEGRATION_TARGET
 from tools.mutation_cpp import CPP_TEST_TARGET
 
 from aletheia.common_types import Prose
@@ -312,6 +312,10 @@ def test_a_cmake_file_cmake_refuses_exits_2(
     [
         pytest.param(check_mutation_setup_lanes.cpp_lane_runs_no_doc_harness, id="the doc harness"),
         pytest.param(
+            check_mutation_setup_lanes.cpp_lane_runs_every_integration_case,
+            id="the integration fold",
+        ),
+        pytest.param(
             check_mutation_setup_lanes.cpp_lane_links_the_library_statically, id="the linkage"
         ),
     ],
@@ -322,11 +326,70 @@ def test_a_cmake_file_that_is_missing_exits_2(
     capsys: pytest.CaptureFixture[Prose],
     check: Callable[[], list[Prose]],
 ) -> None:
-    """Without ``cpp/CMakeLists.txt`` either check of it stops the gate, naming the file."""
+    """Without ``cpp/CMakeLists.txt`` each check of it stops the gate, naming the file."""
     monkeypatch.setattr(check_mutation_setup_lanes, "CMAKE_PATH", tmp_path / _CMAKE)
     assert stderr_of_exit_2(capsys, check) == (
         f"ERROR: cannot read {tmp_path / _CMAKE}: No such file or directory\n"
     )
+
+
+# The binary the Mull runner runs compiles every integration case.
+
+
+def _left_out(source: Prose) -> Prose:
+    """Return the diagnostic for an integration source the swept binary does not compile."""
+    return Prose(
+        f"[cpp/integration-fold] {CPP_INTEGRATION_TARGET} compiles {source}, which "
+        + f"{CPP_TEST_TARGET}, the binary the Mull runner runs once per mutant, does not: "
+        + "no mutant meets its cases"
+    )
+
+
+@pytest.mark.parametrize(
+    ("cmake", "diagnostics"),
+    [
+        pytest.param(
+            Prose(
+                f"add_executable({CPP_TEST_TARGET} tests/unit.cpp)\n"
+                + "if(ALETHEIA_MUTATION)\n"
+                + f"  target_sources({CPP_TEST_TARGET} PRIVATE tests/it_a.cpp tests/it_b.cpp)\n"
+                + "endif()\n"
+                + f"add_executable({CPP_INTEGRATION_TARGET} tests/it_a.cpp tests/it_b.cpp)\n"
+            ),
+            [],
+            id="every unit folded under the mutation build",
+        ),
+        pytest.param(
+            Prose(
+                f"add_executable({CPP_TEST_TARGET} tests/unit.cpp tests/it_a.cpp)\n"
+                + f"add_executable({CPP_INTEGRATION_TARGET} tests/it_a.cpp tests/it_b.cpp)\n"
+                + f"target_sources({CPP_INTEGRATION_TARGET} PRIVATE tests/it_c.cpp)\n"
+            ),
+            [_left_out(Prose("tests/it_b.cpp")), _left_out(Prose("tests/it_c.cpp"))],
+            id="a unit of the suite and one added after it left out",
+        ),
+        pytest.param(
+            Prose(
+                f"add_executable({CPP_TEST_TARGET} tests/unit.cpp)\n"
+                + "add_executable(suite tests/it_a.cpp)\n"
+            ),
+            [
+                Prose(
+                    "[cpp/integration-fold] no target of cpp/CMakeLists.txt is "
+                    + f"{CPP_INTEGRATION_TARGET}: the suite moved, and this check would "
+                    + "name nothing"
+                )
+            ],
+            id="the suite renamed",
+        ),
+    ],
+)
+def test_an_integration_case_the_swept_binary_leaves_out_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cmake: Prose, diagnostics: list[Prose]
+) -> None:
+    """Each integration source the binary the Mull runner runs does not compile is named."""
+    _plant_cmake(tmp_path, monkeypatch, cmake)
+    assert check_mutation_setup_lanes.cpp_lane_runs_every_integration_case() == diagnostics
 
 
 # The mutation build links the C++ library statically.

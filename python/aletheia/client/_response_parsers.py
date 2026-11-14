@@ -11,7 +11,7 @@ the client.
 """
 
 import logging
-from typing import TYPE_CHECKING, LiteralString, cast
+from typing import TYPE_CHECKING
 
 from aletheia.client._helpers.dbc_normalize import normalize_dbc
 from aletheia.client._helpers.rational import is_pure_int
@@ -22,11 +22,14 @@ from aletheia.client._helpers.reply_shape import (
     OBJECT,
     REPLY_ROOT,
     STRING,
+    Expectation,
     at,
     came,
     came_as,
     came_word,
-    fields,
+    field_member,
+    field_word,
+    held,
     reply_refusal,
     words,
 )
@@ -35,12 +38,14 @@ from aletheia.client._refusal import (
     bound_field,
     extract_bound_triple,
     raise_if_input_bound_exceeded,
+    read_error_code,
 )
 from aletheia.client._types import (
     DBCValidationFailedError,
     ProtocolError,
     TextRoundTripFailedError,
 )
+from aletheia.codes import ErrorCode, IssueCode, IssueSeverity
 from aletheia.common_types import Prose
 from aletheia.types import (
     AckResponse,
@@ -49,7 +54,6 @@ from aletheia.types import (
     ParsedDBCResponse,
     PropertyBatchResponse,
     PropertyResultEntry,
-    Response,
     SuccessResponse,
     is_str_dict,
 )
@@ -69,33 +73,35 @@ _RESULTS = at(REPLY_ROOT, "results")
 _WARNINGS = at(REPLY_ROOT, "warnings")
 _ISSUES = at(REPLY_ROOT, "issues")
 
-
-def _held(obj: ReplyFields, key: LiteralString) -> JSONValue:
-    """Read ``key`` of a reply object: its value, or ``None`` when the object lacks it."""
-    if key not in obj:
-        return None
-    return obj[key]
+_AN_ISSUE_CODE = Expectation("an issue code")
 
 
 def read_issues(raw: list[JSONValue], path: ReplyPath = _ISSUES) -> list[ValidationIssue]:
-    """Read the issues at ``path``, objects whose ``code``, ``detail`` and ``severity`` are strings.
+    """Read the issues at ``path``: ``issues``, or ``warnings`` in a parseDBC reply.
 
-    ``path`` is ``issues``, or ``warnings`` in a parseDBC reply. The kernel
-    proves every severity it writes ``"error"`` or ``"warning"``, so the reader
-    holds only the kind.
+    Each is an object holding its ``code``, one of the :class:`IssueCode`
+    words, its ``detail``, a string, and its ``severity``, ``"error"`` or
+    ``"warning"``; the two words are read as the members they name.
 
     Raises:
-        ProtocolError: If an issue is not an object, or one of its three keys
-            is absent or not a string, refused at its place.
+        ProtocolError: If an issue is not an object, its code or severity is
+            not one of its words, or its detail is not a string, refused at its
+            place.
 
     """
-    for issue in raw:
-        if not is_str_dict(issue):
-            raise reply_refusal(path, OBJECT, came_as(issue))
-        for key in ("code", "detail", "severity"):
-            if not isinstance(issue.get(key), str):
-                raise reply_refusal(at(path, key), STRING, came(issue, key))
-    return cast("list[ValidationIssue]", list(raw))
+    return [_read_issue(issue, path) for issue in raw]
+
+
+def _read_issue(issue: JSONValue, path: ReplyPath) -> ValidationIssue:
+    """Read one issue at ``path``, its code first, then its detail and its severity."""
+    if not is_str_dict(issue):
+        raise reply_refusal(path, OBJECT, came_as(issue))
+    code = field_member(issue, path, "code", IssueCode, _AN_ISSUE_CODE)
+    detail = held(issue, "detail")
+    if not isinstance(detail, str):
+        raise reply_refusal(at(path, "detail"), STRING, came(issue, "detail"))
+    severity = IssueSeverity(field_word(issue, path, "severity", "error", "warning"))
+    return {"severity": severity, "code": code, "detail": detail}
 
 
 # The error envelopes that carry a structured issues / has_errors payload
@@ -107,31 +113,29 @@ ISSUES_CARRYING_CODES = frozenset({"handler_validation_failed", "handler_text_ro
 
 
 def _extract_issues_payload(
-    response: Response,
+    reply: ReplyFields,
 ) -> tuple[list[ValidationIssue], bool]:
     """Extract the ``issues`` / ``has_errors`` pair from an envelope, without gating on code.
 
     The kernel writes both fields on every envelope whose code is in
-    :data:`ISSUES_CARRYING_CODES`, every issue an object with string
-    ``severity``, ``code`` and ``detail``.
+    :data:`ISSUES_CARRYING_CODES`, every issue one :func:`read_issues` reads.
 
     Raises:
         ProtocolError: If either field is absent or ill-typed, or an issue is
-            not such an object, refused at its place.
+            one :func:`read_issues` refuses, refused at its place.
 
     """
-    reply = fields(response)
-    has_errors = response.get("has_errors")
+    has_errors = held(reply, "has_errors")
     if not isinstance(has_errors, bool):
         raise reply_refusal(at(REPLY_ROOT, "has_errors"), BOOLEAN, came(reply, "has_errors"))
-    raw_issues = _held(reply, "issues")
+    raw_issues = held(reply, "issues")
     if not isinstance(raw_issues, list):
         raise reply_refusal(_ISSUES, ARRAY, came(reply, "issues"))
     return read_issues(raw_issues), has_errors
 
 
 def lift_issues_envelope(
-    response: Response,
+    response: ReplyFields,
     code: str,
 ) -> tuple[list[ValidationIssue], bool] | None:
     """Extract the ``issues`` / ``has_errors`` pair from an error envelope gated on ``code``.
@@ -145,12 +149,12 @@ def lift_issues_envelope(
             (see :func:`_extract_issues_payload`).
 
     """
-    if response.get("code") != code:
+    if held(response, "code") != code:
         return None
     return _extract_issues_payload(response)
 
 
-def raise_if_dbc_validation_failed(response: Response, msg: str) -> None:
+def raise_if_dbc_validation_failed(response: ReplyFields, msg: str) -> None:
     """Raise :class:`DBCValidationFailedError` for a structured DBC validation failure.
 
     Returns normally when ``response`` carries another code, so the caller raises
@@ -167,11 +171,11 @@ def raise_if_dbc_validation_failed(response: Response, msg: str) -> None:
     if lifted is not None:
         issues, has_errors = lifted
         raise DBCValidationFailedError(
-            msg, issues, has_errors=has_errors, code="handler_validation_failed"
+            msg, issues, has_errors=has_errors, code=ErrorCode.HANDLER_VALIDATION_FAILED
         )
 
 
-def raise_if_text_roundtrip_failed(response: Response, msg: str) -> None:
+def raise_if_text_roundtrip_failed(response: ReplyFields, msg: str) -> None:
     """Raise :class:`TextRoundTripFailedError` for a ``format_dbc_text`` round-trip refusal.
 
     Returns normally when ``response`` carries another code, so the caller raises
@@ -188,18 +192,19 @@ def raise_if_text_roundtrip_failed(response: Response, msg: str) -> None:
     if lifted is not None:
         issues, has_errors = lifted
         raise TextRoundTripFailedError(
-            msg, issues, has_errors=has_errors, code="handler_text_roundtrip_failed"
+            msg, issues, has_errors=has_errors, code=ErrorCode.HANDLER_TEXT_ROUNDTRIP_FAILED
         )
 
 
-def build_error_response(response: Response) -> ErrorResponse:
+def build_error_response(response: ReplyFields) -> ErrorResponse:
     """Build an ``ErrorResponse`` from a raw FFI response dict.
 
-    The Agda core always emits both ``code`` and ``message`` as strings
-    on ``status = "error"``. Either field missing or non-string indicates
-    a malformed response (FFI drift, hand-crafted test stub, or
-    third-party tooling writing to the same queue) and is refused at its
-    place rather than papered over with a default.
+    The Agda core always emits ``code``, one of the :class:`ErrorCode`
+    words, read as the member it names, and ``message``, a string, on
+    ``status = "error"``. Any other ``code`` or ``message`` indicates a
+    malformed response (FFI drift, hand-crafted test stub, or third-party
+    tooling writing to the same queue) and is refused at its place rather
+    than papered over with a default.
 
     InputBoundExceeded errors carry an additional ``bound_kind`` /
     ``observed`` / ``limit`` triple via ``Protocol/ResponseFormat.
@@ -212,33 +217,30 @@ def build_error_response(response: Response) -> ErrorResponse:
     an ill-formed pair is a ``ProtocolError`` (see
     :func:`_extract_issues_payload`).
     """
-    reply = fields(response)
-    code = response.get("code")
-    if not isinstance(code, str):
-        raise reply_refusal(at(REPLY_ROOT, "code"), STRING, came(reply, "code"))
-    message = response.get("message")
+    code = read_error_code(response)
+    message = held(response, "message")
     if not isinstance(message, str):
-        raise reply_refusal(at(REPLY_ROOT, "message"), STRING, came(reply, "message"))
+        raise reply_refusal(at(REPLY_ROOT, "message"), STRING, came(response, "message"))
     out: ErrorResponse = {"status": "error", "code": code, "message": message}
     triple = extract_bound_triple(response)
     if triple is not None:
         out["bound_kind"], out["observed"], out["limit"] = triple
         if (field := bound_field(response)) is not None:
             out["field"] = field
-    if response.get("code") in ISSUES_CARRYING_CODES:
+    if code in ISSUES_CARRYING_CODES:
         out["issues"], out["has_errors"] = _extract_issues_payload(response)
     return out
 
 
 def parse_success_or_error(
-    response: Response,
+    response: ReplyFields,
 ) -> SuccessResponse | ErrorResponse:
     """Parse a response that should be success or error."""
-    status = response.get("status")
+    status = held(response, "status")
 
     if status == "success":
         result: SuccessResponse = {"status": "success"}
-        message = response.get("message")
+        message = held(response, "message")
         if isinstance(message, str):
             result["message"] = message
         return result
@@ -246,11 +248,11 @@ def parse_success_or_error(
     if status == "error":
         return build_error_response(response)
 
-    raise reply_refusal(_STATUS, words("success", "error"), came_word(fields(response), "status"))
+    raise reply_refusal(_STATUS, words("success", "error"), came_word(response, "status"))
 
 
 def parse_parsed_dbc_response(
-    response: Response,
+    response: ReplyFields,
 ) -> ParsedDBCResponse | ErrorResponse:
     """Parse a response from parseDBC / parseDBCText.
 
@@ -259,16 +261,15 @@ def parse_parsed_dbc_response(
     failure it emits an error with a typed code: a bound refusal raises
     :class:`InputBoundExceededError`, any other returns the ``ErrorResponse``.
     """
-    status = response.get("status")
+    status = held(response, "status")
 
     if status == "success":
-        reply = fields(response)
-        dbc_field = response.get("dbc")
+        dbc_field = held(response, "dbc")
         if not is_str_dict(dbc_field):
-            raise reply_refusal(at(REPLY_ROOT, "dbc"), OBJECT, came(reply, "dbc"))
-        warnings_field = _held(reply, "warnings")
+            raise reply_refusal(at(REPLY_ROOT, "dbc"), OBJECT, came(response, "dbc"))
+        warnings_field = held(response, "warnings")
         if not isinstance(warnings_field, list):
-            raise reply_refusal(_WARNINGS, ARRAY, came(reply, "warnings"))
+            raise reply_refusal(_WARNINGS, ARRAY, came(response, "warnings"))
         # Agda emits non-integer rationals on the wire as
         # ``{"numerator": n, "denominator": d}`` dicts; ``normalize_dbc``
         # converts those back to ``Fraction`` so callers see a real
@@ -287,11 +288,11 @@ def parse_parsed_dbc_response(
         raise_if_input_bound_exceeded(response)
         return build_error_response(response)
 
-    raise reply_refusal(_STATUS, words("success", "error"), came_word(fields(response), "status"))
+    raise reply_refusal(_STATUS, words("success", "error"), came_word(response, "status"))
 
 
 def parse_frame_response(
-    response: Response,
+    response: ReplyFields,
 ) -> AckResponse | PropertyBatchResponse | ErrorResponse:
     """Parse a single frame response into a typed result.
 
@@ -305,7 +306,7 @@ def parse_frame_response(
     whose ``status`` is neither ``ack`` nor ``error`` is refused at
     ``status``; one without ``status`` is read as a batch by its ``type``.
     """
-    status = response.get("status")
+    status = held(response, "status")
 
     if status == "ack":
         return {"status": "ack"}
@@ -315,16 +316,15 @@ def parse_frame_response(
 
     # A property batch carries no top-level `status`; its entries carry
     # each event's own (fails/holds/unresolved).
-    reply = fields(response)
-    if "status" in reply:
-        raise reply_refusal(_STATUS, words("ack", "error"), came_word(reply, "status"))
-    if response.get("type") != "property_batch":
+    if "status" in response:
+        raise reply_refusal(_STATUS, words("ack", "error"), came_word(response, "status"))
+    if held(response, "type") != "property_batch":
         raise reply_refusal(
-            at(REPLY_ROOT, "type"), words("property_batch"), came_word(reply, "type")
+            at(REPLY_ROOT, "type"), words("property_batch"), came_word(response, "type")
         )
-    raw_results = _held(reply, "results")
+    raw_results = held(response, "results")
     if not isinstance(raw_results, list):
-        raise reply_refusal(_RESULTS, ARRAY, came(reply, "results"))
+        raise reply_refusal(_RESULTS, ARRAY, came(response, "results"))
     parsed_results: list[PropertyResultEntry] = []
     for raw_item in raw_results:
         if not is_str_dict(raw_item):
@@ -333,38 +333,37 @@ def parse_frame_response(
     return {"type": "property_batch", "results": parsed_results}
 
 
-def _parse_property_event(raw: ReplyFields) -> PropertyResultEntry:
-    """Parse one inner property event from a property_batch response.
+def _read_result(raw: ReplyFields) -> PropertyResultEntry:
+    """Read the ``type``, ``status`` and ``property_index`` every property result carries.
 
-    Inner shape mirrors EndStream's `PropertyResultEntry`:
-        {"type": "property", "status": "fails"|"holds"|"unresolved",
-         "property_index": int, "timestamp": int?, "reason": str?}
-
-    The kernel proves ``type`` and ``status`` in those sets, so the reader
-    checks their kind and casts them; any status but ``fails`` and ``holds``
-    is read as ``unresolved``.  A ``fails`` event carries ``timestamp``, and a
-    ``fails`` or ``unresolved`` event carries ``reason``, refused when absent.
+    Each is read in that order and refused at its place: ``type`` is
+    ``property``, ``status`` one of ``fails``, ``holds`` and ``unresolved``,
+    ``property_index`` a whole number.  The timestamp and the reason are the
+    caller's to read.
     """
-    inner_type = _held(raw, "type")
-    if not isinstance(inner_type, str):
-        raise reply_refusal(at(_RESULTS, "type"), STRING, came(raw, "type"))
-    inner_status = _held(raw, "status")
-    if not isinstance(inner_status, str):
-        raise reply_refusal(at(_RESULTS, "status"), STRING, came(raw, "status"))
-    prop_index = _held(raw, "property_index")
+    result_type = field_word(raw, _RESULTS, "type", "property")
+    status = field_word(raw, _RESULTS, "status", "fails", "holds", "unresolved")
+    prop_index = held(raw, "property_index")
     if not is_pure_int(prop_index):
         raise reply_refusal(at(_RESULTS, "property_index"), NUMBER, came(raw, "property_index"))
-    entry = cast(
-        "PropertyResultEntry",
-        {"type": inner_type, "status": inner_status, "property_index": prop_index},
-    )
+    return {"type": result_type, "status": status, "property_index": prop_index}
+
+
+def _parse_property_event(raw: ReplyFields) -> PropertyResultEntry:
+    """Parse one event of a property_batch response.
+
+    A ``fails`` event carries ``timestamp``, and a ``fails`` or ``unresolved``
+    event carries ``reason``, refused when absent.
+    """
+    entry = _read_result(raw)
+    inner_status = entry["status"]
     if inner_status == "fails":
-        timestamp = _held(raw, "timestamp")
+        timestamp = held(raw, "timestamp")
         if not is_pure_int(timestamp):
             raise reply_refusal(at(_RESULTS, "timestamp"), NUMBER, came(raw, "timestamp"))
         entry["timestamp"] = timestamp
     if inner_status != "holds":
-        reason = _held(raw, "reason")
+        reason = held(raw, "reason")
         if not isinstance(reason, str):
             raise reply_refusal(at(_RESULTS, "reason"), STRING, came(raw, "reason"))
         entry["reason"] = reason
@@ -383,14 +382,12 @@ def entry_reason(entry: PropertyResultEntry) -> Prose:
     """
     reason = entry.get("reason")
     if reason is None:
-        raise reply_refusal(
-            at(_RESULTS, "reason"), STRING, came(cast("ReplyFields", entry), "reason")
-        )
+        raise reply_refusal(at(_RESULTS, "reason"), STRING, came(entry, "reason"))
     return Prose(reason)
 
 
 def parse_event_response(
-    response: Response,
+    response: ReplyFields,
     event_kind: str,
     timestamp: int,
 ) -> AckResponse:
@@ -414,7 +411,7 @@ def parse_event_response(
         msg = f"Unknown event_kind {event_kind!r}"
         raise ProtocolError(msg)
 
-    status = response.get("status")
+    status = held(response, "status")
     # Trace events (Error/Remote) always resolve to `Response.Ack` in Agda
     # (see Protocol/StreamState.agda handleTraceEvent), so the wire status is
     # always "ack". Tightened to match the Agda protocol exactly — Go
@@ -439,11 +436,11 @@ def parse_event_response(
             code=result_error["code"],
         )
         raise ProtocolError(result_error["message"], code=result_error["code"])
-    raise reply_refusal(_STATUS, words("ack", "error"), came_word(fields(response), "status"))
+    raise reply_refusal(_STATUS, words("ack", "error"), came_word(response, "status"))
 
 
 def parse_finalization_results(
-    response: Response,
+    response: ReplyFields,
     enrich: Callable[[PropertyResultEntry], None],
 ) -> list[PropertyResultEntry]:
     """Parse end-of-stream property finalization results.
@@ -451,29 +448,18 @@ def parse_finalization_results(
     ``enrich`` is invoked once per ``fails``/``unresolved`` entry so the
     client can attach an ``enrichment`` field (signals, formula_desc,
     enriched_reason, core_reason) using its own diagnostic and cache state.
-    The kernel proves each entry's ``status`` one of ``fails``, ``holds`` and
-    ``unresolved``, so the reader checks its kind and casts it; any status but
-    ``fails`` and ``holds`` is read as ``unresolved``.  A ``fails`` entry
-    carries ``timestamp``, which an ``unresolved`` one may carry too.
+    A ``fails`` entry carries ``timestamp``, which an ``unresolved`` one may
+    carry too.
     """
-    reply = fields(response)
-    results_raw = _held(reply, "results")
+    results_raw = held(response, "results")
     if not isinstance(results_raw, list):
-        raise reply_refusal(_RESULTS, ARRAY, came(reply, "results"))
+        raise reply_refusal(_RESULTS, ARRAY, came(response, "results"))
     entries: list[PropertyResultEntry] = []
     for raw in results_raw:
         if not is_str_dict(raw):
             raise reply_refusal(_RESULTS, OBJECT, came_as(raw))
-        entry_status = raw.get("status")
-        if not isinstance(entry_status, str):
-            raise reply_refusal(at(_RESULTS, "status"), STRING, came(raw, "status"))
-        prop_index = raw.get("property_index")
-        if not is_pure_int(prop_index):
-            raise reply_refusal(at(_RESULTS, "property_index"), NUMBER, came(raw, "property_index"))
-        result_entry = cast(
-            "PropertyResultEntry",
-            {"type": "property", "status": entry_status, "property_index": prop_index},
-        )
+        result_entry = _read_result(raw)
+        entry_status = result_entry["status"]
         if entry_status != "holds":
             ts = raw.get("timestamp")
             if is_pure_int(ts):
@@ -489,25 +475,22 @@ def parse_finalization_results(
     return entries
 
 
-def parse_complete_warnings(response: Response) -> list[CompleteWarning]:
+def parse_complete_warnings(response: ReplyFields) -> list[CompleteWarning]:
     """Parse the ``warnings`` list of an end-of-stream ``complete`` response.
 
     The kernel writes ``warnings`` and each entry's ``kind``,
     ``property_index`` and ``detail``, so a place missing or holding another
-    kind is refused at its place rather than defaulted or cast.
-    ``property_index`` is a whole number, written as digits.
+    kind is refused at its place rather than defaulted or cast: ``kind`` is
+    ``uncached_atom``, ``property_index`` a whole number written as digits.
     """
-    reply = fields(response)
-    raw_warnings = _held(reply, "warnings")
+    raw_warnings = held(response, "warnings")
     if not isinstance(raw_warnings, list):
-        raise reply_refusal(_WARNINGS, ARRAY, came(reply, "warnings"))
+        raise reply_refusal(_WARNINGS, ARRAY, came(response, "warnings"))
     warnings: list[CompleteWarning] = []
     for raw in raw_warnings:
         if not is_str_dict(raw):
             raise reply_refusal(_WARNINGS, OBJECT, came_as(raw))
-        kind = raw.get("kind")
-        if not isinstance(kind, str):
-            raise reply_refusal(at(_WARNINGS, "kind"), STRING, came(raw, "kind"))
+        kind = field_word(raw, _WARNINGS, "kind", "uncached_atom")
         prop_index = raw.get("property_index")
         if not is_pure_int(prop_index):
             raise reply_refusal(
@@ -516,10 +499,5 @@ def parse_complete_warnings(response: Response) -> list[CompleteWarning]:
         detail = raw.get("detail")
         if not isinstance(detail, str):
             raise reply_refusal(at(_WARNINGS, "detail"), STRING, came(raw, "detail"))
-        warnings.append(
-            cast(
-                "CompleteWarning",
-                {"kind": kind, "property_index": prop_index, "detail": detail},
-            )
-        )
+        warnings.append({"kind": kind, "property_index": prop_index, "detail": detail})
     return warnings

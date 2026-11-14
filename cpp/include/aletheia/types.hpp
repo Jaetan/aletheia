@@ -86,6 +86,28 @@ namespace detail {
 struct KernelValue;
 } // namespace detail
 
+// A whole number as a sign and a magnitude reaching 2^128-1: a value
+// description's key. Printed through `std::format`, a zero reads unsigned
+// whatever `negative` says.
+struct SignMagnitude {
+    bool negative = false;
+    unsigned __int128 magnitude = 0;
+
+    // The value as an int64, or nullopt when it lies outside int64.
+    [[nodiscard]] constexpr auto to_int64() const -> std::optional<std::int64_t> {
+        constexpr auto int64_max =
+            static_cast<unsigned __int128>(std::numeric_limits<std::int64_t>::max());
+        if (!negative)
+            return magnitude <= int64_max ? std::optional{static_cast<std::int64_t>(magnitude)}
+                                          : std::nullopt;
+        if (magnitude > int64_max + 1)
+            return std::nullopt;
+        return static_cast<std::int64_t>(static_cast<unsigned __int128>(0) - magnitude);
+    }
+
+    constexpr auto operator==(SignMagnitude const&) const -> bool = default;
+};
+
 // Exact rational: a sign, a numerator magnitude and a denominator, each
 // magnitude reaching 2^128-1 as the kernel's numbers do. Every factory stores
 // the value reduced, with a denominator of at least 1 and a zero unsigned, so
@@ -125,9 +147,11 @@ public:
     template<std::integral N, std::integral D>
         requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
     [[nodiscard]] static constexpr auto make(N num, D den) -> Result<Rational> {
-        if (std::cmp_less_equal(den, 0))
+        auto const divisor = sign_magnitude(widened(den));
+        if (divisor.negative || divisor.magnitude == 0)
             return detail::validation_refusal("Rational denominator must be positive");
-        return reduced(num < 0, magnitude(num), static_cast<unsigned __int128>(den));
+        auto const whole = sign_magnitude(widened(num));
+        return reduced(whole.negative, whole.magnitude, divisor.magnitude);
     }
 
     // The whole number `n / 1`, which cannot fail: every integral type up to
@@ -136,7 +160,8 @@ public:
     template<std::integral I>
         requires(!std::same_as<I, bool>)
     [[nodiscard]] static constexpr auto integer(I n) -> Rational {
-        return Rational{n < 0, magnitude(n), 1, Unchecked{}};
+        auto const whole = sign_magnitude(widened(n));
+        return Rational{whole.negative, whole.magnitude, 1, Unchecked{}};
     }
 
     // Parse a decimal literal into an exact Rational via the Agda kernel's
@@ -166,12 +191,23 @@ private:
         , den_(den)
         , negative_(negative) {}
 
-    // The magnitude of `n`, exact for every value of every integral type up to
-    // 128 bits, the most negative included.
+    // `n` at 128 bits, its signedness kept, then its sign and magnitude, the
+    // most negative included: every integral type reaches one comparison.
     template<std::integral I>
-    [[nodiscard]] static constexpr auto magnitude(I n) -> unsigned __int128 {
+    [[nodiscard]] static constexpr auto widened(I n) {
+        if constexpr (std::is_signed_v<I>)
+            return static_cast<__int128>(n);
+        else
+            return static_cast<unsigned __int128>(n);
+    }
+    [[nodiscard]] static constexpr auto sign_magnitude(__int128 n) -> SignMagnitude {
         auto const wide = static_cast<unsigned __int128>(n);
-        return n < 0 ? static_cast<unsigned __int128>(0) - wide : wide;
+        return n < 0 ? SignMagnitude{.negative = true,
+                                     .magnitude = static_cast<unsigned __int128>(0) - wide}
+                     : SignMagnitude{.negative = false, .magnitude = wide};
+    }
+    [[nodiscard]] static constexpr auto sign_magnitude(unsigned __int128 n) -> SignMagnitude {
+        return {.negative = false, .magnitude = n};
     }
 
     [[nodiscard]] static constexpr auto reduced(bool negative, unsigned __int128 num,
@@ -183,28 +219,6 @@ private:
     unsigned __int128 num_ = 0;
     unsigned __int128 den_ = 1;
     bool negative_ = false;
-};
-
-// A whole number as a sign and a magnitude reaching 2^128-1: a value
-// description's key. Printed through `std::format`, a zero reads unsigned
-// whatever `negative` says.
-struct SignMagnitude {
-    bool negative = false;
-    unsigned __int128 magnitude = 0;
-
-    // The value as an int64, or nullopt when it lies outside int64.
-    [[nodiscard]] constexpr auto to_int64() const -> std::optional<std::int64_t> {
-        constexpr auto int64_max =
-            static_cast<unsigned __int128>(std::numeric_limits<std::int64_t>::max());
-        if (!negative)
-            return magnitude <= int64_max ? std::optional{static_cast<std::int64_t>(magnitude)}
-                                          : std::nullopt;
-        if (magnitude > int64_max + 1)
-            return std::nullopt;
-        return static_cast<std::int64_t>(static_cast<unsigned __int128>(0) - magnitude);
-    }
-
-    constexpr auto operator==(SignMagnitude const&) const -> bool = default;
 };
 
 // ---------------------------------------------------------------------------

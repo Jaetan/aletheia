@@ -8,23 +8,21 @@
 //! `check-wire-codes` run_ci gate), with the same YAML mechanics as
 //! `log_events.rs`.
 //!
-//! Issue codes: every SSOT code must decode to a NAMED [`IssueCode`] variant
-//! (never the `Unknown(String)` forward-compat catch-all) and round-trip
-//! through [`IssueCode::as_str`]. The reverse direction has no variant
+//! Issue codes: every SSOT code must decode to an [`IssueCode`] variant and
+//! round-trip through [`IssueCode::as_str`]. The reverse direction has no variant
 //! iteration to walk, but it cannot rot silently either: `as_str`'s
 //! exhaustive in-crate match forces every new variant to declare a wire
 //! string, and the kernel↔YAML gate plus the distinct-count assertion below
 //! fail until that variant's SSOT row lands.
 //!
-//! Error codes: Rust deliberately has NO `ErrorCode` enum — kernel error
-//! codes travel as an open `String` in [`Error::Core`] (Go-consistent,
-//! addition-proof), with the structured refusal codes lifted to typed
-//! variants. The
-//! completeness statement for an open vocabulary is lossless passthrough:
-//! every SSOT error code is driven through the real client decode path over
-//! a [`MockBackend`] and must surface verbatim in `Error::Core { code, .. }`,
-//! but for the codes whose envelope carries a payload of its own, which a
-//! bare envelope lacks and which is refused at its place instead.
+//! Error codes: every SSOT code must decode to an [`ErrorCode`] variant and
+//! round-trip through [`ErrorCode::as_str`] and its `Display`; an in-crate
+//! test holds the variants to the SSOT in its order, and a code outside them
+//! is refused. Every SSOT error code is driven through the real client decode
+//! path over a [`MockBackend`] and must surface as its variant in
+//! `Error::Core { code, .. }`, but for the codes whose envelope carries a
+//! payload of its own, which a bare envelope lacks and which is refused at its
+//! place instead.
 //! The typed lifts are pinned separately: their trigger codes must be
 //! SSOT members (a kernel rename rewrites the YAML via the kernel gate and
 //! fails here, flagging the stale Rust literal) and their structured
@@ -35,7 +33,7 @@ use std::fs;
 use std::path::Path;
 
 use aletheia::limits::BOUND_KIND_INPUT_LENGTH_BYTES;
-use aletheia::{BoundRefusal, Client, Error, IssueCode, MockBackend};
+use aletheia::{BoundRefusal, Client, Error, ErrorCode, IssueCode, MockBackend};
 use yaml_rust2::YamlLoader;
 
 /// The `name` column of one `docs/WIRE_CODES.yaml` section, in file order.
@@ -56,35 +54,45 @@ fn yaml_section(section: &str) -> Vec<String> {
 #[test]
 fn every_issue_code_decodes_to_a_named_variant() {
     let yaml_names = yaml_section("issue_codes");
-    let mut decoded = BTreeSet::new();
+    let mut decoded: BTreeSet<&'static str> = BTreeSet::new();
     for name in &yaml_names {
-        let code = IssueCode::from_wire(name);
-        assert!(
-            !matches!(code, IssueCode::Unknown(_)),
-            "issue code {name:?} is in docs/WIRE_CODES.yaml but IssueCode::from_wire \
-             maps it to Unknown — add the named variant (and its from_wire/as_str arms)"
-        );
+        let word = IssueCode::from_wire(name)
+            .map(IssueCode::as_str)
+            .unwrap_or_else(|| {
+                panic!(
+                    "issue code {name:?} is in docs/WIRE_CODES.yaml but IssueCode::from_wire \
+                     names no variant for it: add the variant (and its from_wire/as_str arms)"
+                )
+            });
         assert_eq!(
-            code.as_str(),
-            name,
+            word, name,
             "IssueCode::as_str does not round-trip the wire string for {name:?}"
         );
-        decoded.insert(code.as_str().to_string());
+        decoded.insert(word);
     }
-    // Distinctness: n SSOT codes -> n distinct named variants (from_wire is
+    // Distinctness: n SSOT codes -> n distinct variants (from_wire is
     // injective on the canonical vocabulary).
     assert_eq!(
         decoded.len(),
         yaml_names.len(),
         "two SSOT issue codes decoded to the same IssueCode variant"
     );
-    // The forward-compat catch-all is a binding-local sentinel, never a wire
-    // code: the SSOT must not list the string it renders for a missing code.
-    assert!(
-        !yaml_names.iter().any(|n| n == "unknown"),
-        "docs/WIRE_CODES.yaml issue_codes contains \"unknown\" — the binding-local \
-         sentinel must not become a canonical wire code"
-    );
+}
+
+#[test]
+fn every_error_code_decodes_to_a_named_variant() {
+    for name in &yaml_section("error_codes") {
+        let code = ErrorCode::from_wire(name).unwrap_or_else(|| {
+            panic!(
+                "error code {name:?} is in docs/WIRE_CODES.yaml but ErrorCode::from_wire \
+                 names no variant for it: add the variant and its as_str arm"
+            )
+        });
+        let word: &'static str = code.as_str();
+        assert_eq!(word, name, "ErrorCode::as_str does not round-trip {name:?}");
+        assert_eq!(code.to_string(), *name, "ErrorCode's text is not {name:?}");
+    }
+    assert_eq!(ErrorCode::from_wire("some_future_code"), None);
 }
 
 #[test]
@@ -99,7 +107,7 @@ fn every_error_code_passes_through_the_client_losslessly() {
 
     for name in &yaml_names {
         // A bare error envelope: every code without a payload of its own takes
-        // the same open-world passthrough path, and a code with one is refused
+        // the same passthrough path, and a code with one is refused
         // at the payload's first place, the envelope being read whole.
         feeder.respond_json(format!(
             r#"{{"status":"error","code":"{name}","message":"synthetic"}}"#
@@ -116,7 +124,11 @@ fn every_error_code_passes_through_the_client_losslessly() {
         };
         match (err, payload_refusal) {
             (Error::Core { code, message }, None) => {
-                assert_eq!(&code, name, "wire code did not pass through verbatim");
+                assert_eq!(
+                    code.as_str(),
+                    name,
+                    "wire code did not pass through verbatim"
+                );
                 assert_eq!(message, "synthetic");
             }
             (Error::Protocol(refusal), Some(expected)) => {
@@ -169,7 +181,7 @@ fn typed_lift_trigger_codes_are_ssot_members_and_lift() {
                 field,
                 located,
             } = *refusal;
-            assert_eq!(code, "input_bound_exceeded");
+            assert_eq!(code, ErrorCode::InputBoundExceeded);
             assert_eq!(message, "m");
             assert_eq!(bound_kind, BOUND_KIND_INPUT_LENGTH_BYTES);
             assert_eq!((observed, limit), (10, 5));
@@ -194,10 +206,10 @@ fn typed_lift_trigger_codes_are_ssot_members_and_lift() {
             issues,
             ..
         } => {
-            assert_eq!(code, "handler_validation_failed");
+            assert_eq!(code, ErrorCode::HandlerValidationFailed);
             assert!(has_errors);
-            assert_eq!(issues.len(), 1);
-            assert_eq!(issues[0].code, IssueCode::DuplicateMessageId);
+            let codes: Vec<IssueCode> = issues.iter().map(|issue| issue.code).collect();
+            assert_eq!(codes, [IssueCode::DuplicateMessageId]);
         }
         other => panic!("expected Error::ValidationFailed, got {other:?}"),
     }
@@ -210,7 +222,7 @@ fn typed_lift_trigger_codes_are_ssot_members_and_lift() {
         .expect_err("queued error")
     {
         Error::TextRoundtripFailed { code, .. } => {
-            assert_eq!(code, "handler_text_roundtrip_failed");
+            assert_eq!(code, ErrorCode::HandlerTextRoundtripFailed);
         }
         other => panic!("expected Error::TextRoundtripFailed, got {other:?}"),
     }

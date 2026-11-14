@@ -22,6 +22,7 @@ module brings the GHC runtime up via the shared ``rts_up`` fixture.
 from __future__ import annotations
 
 from fractions import Fraction
+from typing import NewType
 
 import pytest
 from _decimal_cases import (
@@ -177,3 +178,19 @@ def test_decimal_value_reads_any_sign_byte_but_zero_as_negative() -> None:
     rational = wire_rational(Fraction(3, 4))
     rational.negative = 2
     assert decimal_value(AletheiaDecimal(value=rational)) == Fraction(-3, 4)
+
+
+# The sign byte of ``struct aletheia_rational``.
+SignByte = NewType("SignByte", int)
+
+
+@pytest.mark.parametrize(
+    ("value", "negative"),
+    [(Fraction(-3, 4), SignByte(1)), (Fraction(0), SignByte(0)), (Fraction(3, 4), SignByte(0))],
+    ids=["negative", "zero", "positive"],
+)
+def test_wire_rational_writes_the_sign_byte_as_the_library_does(
+    value: Fraction, negative: SignByte
+) -> None:
+    """The binding writes 1 for a negative value and 0 for zero or above, as the library writes."""
+    assert wire_rational(value).negative == negative

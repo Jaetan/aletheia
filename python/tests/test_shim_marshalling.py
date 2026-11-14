@@ -13,10 +13,11 @@ ignores this module.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Final
 
-_SHIM_SOURCES: Final = Path(__file__).resolve().parents[2] / "haskell-shim" / "src"
+from _repo_root import REPO_ROOT
+
+_SHIM_SOURCES: Final = REPO_ROOT / "haskell-shim" / "src"
 
 # An import of the module whose marshallers use the process locale, or of the
 # module that re-exports them, with whatever follows the module name.

@@ -22,18 +22,24 @@
 
 #include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
+#include "detail/wide_json.hpp"
 #include "required.hpp"
 #include "u128_testing.hpp"
 
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <memory>
+#include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 using aletheia::test::required;
@@ -168,6 +174,53 @@ TEST_CASE("parse_json accepts JSON at nesting depth", "[input_bounds]") {
     auto const result = aletheia::detail::parse_success(ok_json);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().message() == "reply: expected object, got array");
+}
+
+// `innermost` inside `depth` arrays.
+static auto nested(std::string_view innermost, std::uint64_t depth) -> std::string {
+    std::string text(depth, '[');
+    text += innermost;
+    text.append(depth, ']');
+    return text;
+}
+
+TEST_CASE("parse_json holds every kind of value to the nesting depth", "[input_bounds]") {
+    using aletheia::detail::parse_json;
+    using aletheia::max_nesting_depth;
+    constexpr auto past_bound = "JSON nesting depth 65 exceeds limit 64";
+    // A negative number past -2^127 is held as a binary node, and an empty
+    // container is a value whose own start is the event the bound refuses.
+    for (std::string_view const innermost :
+         {"null", "true", "-1", "1", "1.5", R"("s")", "-170141183460469231731687303715884105729",
+          "[]", "{}"}) {
+        CAPTURE(innermost);
+        CHECK_NOTHROW(std::ignore = parse_json(nested(innermost, max_nesting_depth)));
+        CHECK_THROWS_WITH(std::ignore = parse_json(nested(innermost, max_nesting_depth + 1)),
+                          past_bound);
+    }
+    // A key sits inside its object, so one past the bound is refused at the
+    // key itself, before the parser reads on to the missing colon.
+    CHECK_NOTHROW(std::ignore = parse_json(nested(R"({"k":1})", max_nesting_depth - 1)));
+    CHECK_THROWS_WITH(std::ignore = parse_json(nested(R"({"k"})", max_nesting_depth)), past_bound);
+}
+
+TEST_CASE("parse_json counts only the containers open around a value", "[input_bounds]") {
+    using aletheia::max_nesting_depth;
+    // More closed siblings than the bound allows open containers.
+    for (std::string_view const sibling : {"[]", "{}"}) {
+        CAPTURE(sibling);
+        std::string text{"["};
+        text += sibling;
+        std::ranges::for_each(std::views::repeat(sibling, max_nesting_depth),
+                              [&text](std::string_view next) {
+                                  text += ',';
+                                  text += next;
+                              });
+        text += ']';
+        aletheia::detail::Json parsed;
+        REQUIRE_NOTHROW(parsed = aletheia::detail::parse_json(text));
+        CHECK(parsed.size() == max_nesting_depth + 1);
+    }
 }
 
 // parse_dbc_text pre-checks the inner text size against max_dbc_text_bytes

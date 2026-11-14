@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 use super::*;
+use aletheia::ErrorCode;
 use rust_xlsxwriter::Workbook;
 use std::path::PathBuf;
 
@@ -428,7 +429,7 @@ fn a_refused_whole_number_is_located_under_its_header() {
     let Error::Validation { code, .. } = &err else {
         panic!("expected a validation refusal, got {err:?}");
     };
-    assert_eq!(code.as_deref(), Some("text_trailing_input"), "{err:?}");
+    assert_eq!(*code, Some(ErrorCode::TextTrailingInput), "{err:?}");
     assert_eq!(err.location(), Some("Row 2"), "{err:?}");
     assert_eq!(err.key(), Some("DLC"), "{err:?}");
     assert_eq!(

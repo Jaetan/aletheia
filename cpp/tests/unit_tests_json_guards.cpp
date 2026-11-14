@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Unit tests: each place of a reply refused in the one form the four bindings
-// share, and each tag word outside its set read as the set's last arm.
+// share, and each tag word outside its set refused at its place.
 #include <catch2/catch_test_macros.hpp>
 
 #include "detail/json.hpp"
@@ -11,9 +11,12 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <format>
+#include <functional>
 #include <string>
 #include <string_view>
-#include <variant>
+#include <utility>
+#include <vector>
 
 using namespace aletheia;
 using Json = nlohmann::json;
@@ -167,12 +170,22 @@ TEST_CASE("parse_dbc_response refuses a multiplexed signal without its values, a
           })) == "reply dbc/messages/signals/multiplex_values: expected array, got number");
 }
 
-TEST_CASE("parse_dbc_response reads a byte order outside the set as big endian, its last arm",
-          "[json][parse]") {
-    auto const result = detail::parse_dbc_response(
-        dbc_response([](Json& dbc) { signal_of(dbc)["byteOrder"] = "middle_endian"; }));
-    REQUIRE(result.has_value());
-    CHECK(result->messages.at(0).signals.at(0).byte_order == ByteOrder::BigEndian);
+TEST_CASE("parse_dbc_response reads a byte order as its word and refuses any other at its place",
+          "[json][parse][refusal]") {
+    for (auto const& [word, order] : std::to_array<std::pair<std::string_view, ByteOrder>>(
+             {{"little_endian", ByteOrder::LittleEndian}, {"big_endian", ByteOrder::BigEndian}})) {
+        auto const result = detail::parse_dbc_response(
+            dbc_response([&](Json& dbc) { signal_of(dbc)["byteOrder"] = std::string{word}; }));
+        REQUIRE(result.has_value());
+        CHECK(result->messages.at(0).signals.at(0).byte_order == order);
+    }
+    CHECK(dbc_error_message(dbc_response([](Json& dbc) {
+              signal_of(dbc)["byteOrder"] = "bogus_word";
+          })) == R"(reply dbc/messages/signals/byteOrder: expected "little_endian" or )"
+                 R"("big_endian", got "bogus_word")");
+    CHECK(dbc_error_message(dbc_response([](Json& dbc) { signal_of(dbc)["byteOrder"] = 0; })) ==
+          R"(reply dbc/messages/signals/byteOrder: expected "little_endian" or "big_endian", )"
+          R"(got number)");
 }
 
 TEST_CASE("parse_dbc_response reads a stated unsigned signal as unsigned and refuses one with no "
@@ -183,50 +196,6 @@ TEST_CASE("parse_dbc_response reads a stated unsigned signal as unsigned and ref
     CHECK_FALSE(stated->messages.at(0).signals.at(0).is_signed);
     CHECK(dbc_error_message(dbc_response([](Json& dbc) { signal_of(dbc).erase("signed"); })) ==
           "reply dbc/messages/signals/signed: expected boolean, got nothing");
-}
-
-TEST_CASE("parse_dbc_response reads an attribute's tag outside its set as the set's last arm",
-          "[json][parse]") {
-    // Each tag the kernel writes is one of a set it proves, so the reader
-    // dispatches with no refusal of its own: the last arm reads every word the
-    // arms before it do not name, and its keys are then read as that arm's.
-    auto const attribute = [](std::string_view text) -> DbcAttribute {
-        auto const result = detail::parse_dbc_response(dbc_response(
-            [&](Json& dbc) { dbc["attributes"] = Json::array({Json::parse(std::string{text})}); }));
-        REQUIRE(result.has_value());
-        REQUIRE(result->attributes.size() == 1);
-        return result->attributes.front();
-    };
-
-    auto const scope = std::get<DbcAttrDef>(attribute(R"({"kind": "definition", "name": "A",
-        "scope": "planet", "attrType": {"kind": "int", "min": 0, "max": 1}})"));
-    CHECK(scope.scope == DbcAttrScope::NodeSig);
-
-    auto const type = std::get<DbcAttrDef>(attribute(R"({"kind": "definition", "name": "A",
-        "scope": "node", "attrType": {"kind": "bogus", "min": 2, "max": 3}})"));
-    auto const* const hex_type = std::get_if<DbcAttrTypeHex>(&type.attr_type);
-    REQUIRE(hex_type != nullptr);
-    CHECK(hex_type->min == 2);
-    CHECK(hex_type->max == 3);
-
-    auto const value = std::get<DbcAttrDefault>(
-        attribute(R"({"kind": "default", "name": "A", "value": {"kind": "bogus", "value": 1}})"));
-    auto const* const hex_value = std::get_if<DbcAttrValueHex>(&value.value);
-    REQUIRE(hex_value != nullptr);
-    CHECK(hex_value->value == 1);
-
-    auto const target = std::get<DbcAttrAssign>(attribute(R"({"kind": "assignment", "name": "A",
-        "target": {"kind": "bogus", "id": 256, "extended": false, "node": "N", "signal": "S"},
-        "value": {"kind": "int", "value": 1}})"));
-    auto const* const node_sig = std::get_if<DbcAttrTargetNodeSig>(&target.target);
-    REQUIRE(node_sig != nullptr);
-    CHECK(node_sig->node == NodeName{"N"});
-    CHECK(std::get<StandardId>(node_sig->id).value() == 256);
-    CHECK(node_sig->signal == "S");
-
-    auto const kind = std::get<DbcAttrAssign>(attribute(R"({"kind": "bogus", "name": "A",
-        "target": {"kind": "network"}, "value": {"kind": "int", "value": 1}})"));
-    CHECK(std::holds_alternative<DbcAttrTargetNetwork>(kind.target));
 }
 
 TEST_CASE("parse_frame_response refuses a non-string reason, at its place",
@@ -262,19 +231,131 @@ TEST_CASE("parse_parsed_dbc refuses a response without warnings", "[json][parse]
     CHECK(result.error().message() == "reply warnings: expected array, got nothing");
 }
 
-TEST_CASE("the issue lists read a severity outside the set as a warning, its last arm",
-          "[json][parse]") {
-    auto reply = Json::parse(test::parsed_dbc_response_for(test::make_test_dbc()));
-    reply["warnings"] = Json::parse(R"([{"severity": "bogus", "code": "c", "detail": ""}])");
-    auto const warnings = detail::parse_parsed_dbc(reply.dump());
-    REQUIRE(warnings.has_value());
-    REQUIRE(warnings->warnings.size() == 1);
-    CHECK(warnings->warnings.front().severity == IssueSeverity::Warning);
-    auto const issues = detail::parse_dbc_text_response(R"({"status": "success", "text": "",
-        "issues": [{"severity": "bogus", "code": "c", "detail": ""}]})");
-    REQUIRE(issues.has_value());
-    REQUIRE(issues->issues.size() == 1);
-    CHECK(issues->issues.front().severity == IssueSeverity::Warning);
+// What a reader answered: the message of the error it returned, or "accepted".
+template<typename T>
+static auto answer(Result<T> const& result) -> std::string {
+    return result ? std::string{"accepted"} : std::string{result.error().message()};
+}
+
+// A reader of a reply holding one entry, the entry's JSON text.
+using EntryReader = std::function<std::string(std::string const&)>;
+
+namespace {
+
+// A reader and the place of the key its entries break.
+struct PlacedReader {
+    std::string place;
+    EntryReader read;
+};
+
+// One entry a reader is fed and what came at the place it breaks.
+struct Arrival {
+    std::string entry;
+    std::string came;
+};
+
+} // namespace
+
+// Each reply holding validation issues, with the place of an issue's `key`,
+// and the reader taking it: a validation, a parsed DBC's warnings, a refused
+// load's envelope and a DBC text's issues.
+static auto issue_readers(std::string_view key) -> std::vector<PlacedReader> {
+    auto const dbc =
+        Json::parse(test::parsed_dbc_response_for(test::make_test_dbc())).at("dbc").dump();
+    return {
+        {.place = std::format("issues/{}", key),
+         .read =
+             [](std::string const& issue) {
+                 return answer(detail::parse_validation(
+                     R"({"status":"validation","has_errors":false,"issues":[)" + issue + "]}"));
+             }},
+        {.place = std::format("warnings/{}", key),
+         .read =
+             [dbc](std::string const& issue) {
+                 return answer(detail::parse_parsed_dbc(R"({"status":"success","dbc":)" + dbc +
+                                                        R"(,"warnings":[)" + issue + "]}"));
+             }},
+        {.place = std::format("issues/{}", key),
+         .read =
+             [](std::string const& issue) {
+                 return std::string{
+                     detail::binary_refusal(
+                         R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+                         R"("has_errors":true,"issues":[)" +
+                             issue + "]}",
+                         ErrorKind::Validation)
+                         .message()};
+             }},
+        {.place = std::format("issues/{}", key),
+         .read =
+             [](std::string const& issue) {
+                 return answer(detail::parse_dbc_text_response(
+                     R"({"status":"success","text":"VERSION \"\"\n","issues":[)" + issue + "]}"));
+             }},
+    };
+}
+
+// What each reader answers for each arrival, beside the refusal at its place
+// expecting `expected`, every row compared at once so a failure shows each
+// row's answer.
+static void check_refusals(std::vector<PlacedReader> const& readers, std::string_view expected,
+                           std::vector<Arrival> const& arrivals) {
+    std::vector<std::string> answers;
+    std::vector<std::string> refusals;
+    for (auto const& [place, read] : readers) {
+        for (auto const& [entry, came] : arrivals) {
+            answers.push_back(read(entry));
+            refusals.push_back(std::format("reply {}: expected {}, got {}", place, expected, came));
+        }
+    }
+    CHECK(answers == refusals);
+}
+
+TEST_CASE("a severity outside error and warning is refused at its place",
+          "[json][parse][refusal]") {
+    check_refusals(
+        issue_readers("severity"), R"("error" or "warning")",
+        {
+            {.entry = R"({"severity":"fatal","code":"factor_zero","detail":"d"})",
+             .came = R"("fatal")"},
+            {.entry = R"({"code":"factor_zero","detail":"d"})", .came = "nothing"},
+            {.entry = R"({"severity":0,"code":"factor_zero","detail":"d"})", .came = "number"},
+        });
+}
+
+TEST_CASE("an issue code outside the issue codes is refused at its place",
+          "[json][parse][refusal]") {
+    check_refusals(
+        issue_readers("code"), "an issue code",
+        {
+            {.entry = R"({"severity":"warning","code":"some_future_code","detail":"d"})",
+             .came = R"("some_future_code")"},
+            {.entry = R"({"severity":"warning","detail":"d"})", .came = "nothing"},
+            {.entry = R"({"severity":"warning","code":0,"detail":"d"})", .came = "number"},
+        });
+}
+
+TEST_CASE("an error code outside the error codes is refused at its place",
+          "[json][parse][refusal]") {
+    // The binary entries' envelope reader and a command's reply reader.
+    check_refusals(
+        {
+            {.place = "code",
+             .read =
+                 [](std::string const& reply) {
+                     return std::string{
+                         detail::binary_refusal(reply, ErrorKind::Protocol).message()};
+                 }},
+            {.place = "code",
+             .read =
+                 [](std::string const& reply) { return answer(detail::parse_validation(reply)); }},
+        },
+        "an error code",
+        {
+            {.entry = R"({"status":"error","code":"c","message":"m"})", .came = R"("c")"},
+            {.entry = R"({"status":"error","message":"m"})", .came = "nothing"},
+            {.entry = R"({"status":"error","code":0,"message":"m"})", .came = "number"},
+        });
 }
 
 TEST_CASE("parse_dbc_text_response refuses a non-string text, at its place",
@@ -284,14 +365,64 @@ TEST_CASE("parse_dbc_text_response refuses a non-string text, at its place",
     CHECK(result.error().message() == "reply text: expected string, got number");
 }
 
-TEST_CASE("parse_frame_response reads a verdict outside the set as unresolved, its last arm",
-          "[json][parse]") {
-    auto const result = detail::parse_frame_response(
-        R"({"type": "property_batch", "results": [{"type": "property", "status": "maybe",
-            "property_index": 0, "reason": "r"}]})");
-    REQUIRE(result.has_value());
-    auto const* batch = std::get_if<PropertyBatch>(&*result);
-    REQUIRE(batch != nullptr);
-    CHECK(batch->results.at(0).verdict == Verdict::Unresolved);
-    CHECK(batch->results.at(0).reason == "r");
+// The two replies holding property results, with the place of a result's
+// `key`: a frame's batch and the end of a stream.
+static auto result_readers(std::string_view key) -> std::vector<PlacedReader> {
+    auto const place = std::format("results/{}", key);
+    return {
+        {.place = place,
+         .read =
+             [](std::string const& result) {
+                 return answer(detail::parse_frame_response(
+                     R"({"type":"property_batch","results":[)" + result + "]}"));
+             }},
+        {.place = place,
+         .read =
+             [](std::string const& result) {
+                 return answer(detail::parse_stream_result(R"({"status":"complete","results":[)" +
+                                                           result + R"(],"warnings":[]})"));
+             }},
+    };
+}
+
+TEST_CASE("a result type other than property is refused at its place", "[json][parse][refusal]") {
+    check_refusals(
+        result_readers("type"), R"("property")",
+        {
+            {.entry = R"({"type":"verdict","status":"holds","property_index":0})",
+             .came = R"("verdict")"},
+            {.entry = R"({"status":"holds","property_index":0})", .came = "nothing"},
+            {.entry = R"({"type":0,"status":"holds","property_index":0})", .came = "number"},
+        });
+}
+
+TEST_CASE("a result status outside fails, holds and unresolved is refused at its place",
+          "[json][parse][refusal]") {
+    check_refusals(
+        result_readers("status"), R"("fails", "holds" or "unresolved")",
+        {
+            {.entry = R"({"type":"property","status":"bogus","property_index":0,"reason":"r"})",
+             .came = R"("bogus")"},
+            {.entry = R"({"type":"property","property_index":0,"reason":"r"})", .came = "nothing"},
+            {.entry = R"({"type":"property","status":0,"property_index":0,"reason":"r"})",
+             .came = "number"},
+        });
+}
+
+TEST_CASE("a stream warning kind other than uncached_atom is refused at its place",
+          "[json][parse][refusal]") {
+    check_refusals(
+        {{.place = "warnings/kind",
+          .read =
+              [](std::string const& warning) {
+                  return answer(detail::parse_stream_result(
+                      R"({"status":"complete","results":[],"warnings":[)" + warning + "]}"));
+              }}},
+        R"("uncached_atom")",
+        {
+            {.entry = R"({"kind":"stale_atom","property_index":0,"detail":"d"})",
+             .came = R"("stale_atom")"},
+            {.entry = R"({"property_index":0,"detail":"d"})", .came = "nothing"},
+            {.entry = R"({"kind":0,"property_index":0,"detail":"d"})", .came = "number"},
+        });
 }

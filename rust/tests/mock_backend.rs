@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 
 use aletheia::log::events;
 use aletheia::{
-    check, Backend, CanId, Client, Dlc, Error, FrameResponse, LogField, LogRecord, LogValue,
-    MockBackend, Rational, SignalInjection, Timestamp, Verdict,
+    check, Backend, CanId, Client, Dlc, Error, ErrorCode, FrameResponse, LogField, LogRecord,
+    LogValue, MockBackend, Rational, SignalInjection, Timestamp, Verdict,
 };
 
 /// Bring the GHC RTS up via a throwaway real backend, so the check builders and
@@ -51,7 +51,7 @@ fn violation_at(property_index: u32, reason: &str) -> String {
 fn end_stream_failing(indices: &[u32]) -> String {
     let results: Vec<String> = indices
         .iter()
-        .map(|i| format!(r#"{{"status":"fails","property_index":{i},"timestamp":5,"reason":"x"}}"#))
+        .map(|i| format!(r#"{{"type":"property","status":"fails","property_index":{i},"timestamp":5,"reason":"x"}}"#))
         .collect();
     format!(
         r#"{{"status":"complete","results":[{}],"warnings":[]}}"#,
@@ -245,7 +245,7 @@ fn exhausted_queue_is_an_error() {
 fn queued_error_propagates() {
     let m = MockBackend::new();
     m.respond_err(Error::Core {
-        code: "no_dbc".to_string(),
+        code: ErrorCode::HandlerNoDbc,
         message: "no DBC loaded".to_string(),
     });
     let c = Client::with_backend(Box::new(m));
@@ -308,7 +308,7 @@ fn logged_client(m: &MockBackend) -> (Client, Arc<Mutex<Vec<String>>>) {
 fn assert_the_extraction_refusal(err: &Error, captured: &Arc<Mutex<Vec<String>>>) {
     match err {
         Error::Core { code, message } => {
-            assert_eq!(code, "handler_no_dbc");
+            assert_eq!(*code, ErrorCode::HandlerNoDbc);
             assert_eq!(message, "no DBC loaded");
         }
         other => panic!("expected the kernel's handler_no_dbc refusal, got {other:?}"),
@@ -397,7 +397,7 @@ fn extract_signals_process_failure_is_logged() {
     let sink = Arc::clone(&captured);
     let m = MockBackend::new();
     m.respond_err(Error::Core {
-        code: "boom".to_string(),
+        code: ErrorCode::FfiValidationError,
         message: "backend unavailable".to_string(),
     });
     let c = Client::builder()
@@ -813,7 +813,7 @@ fn enrich_eos_no_todo_makes_no_extract_calls() {
         .respond_json(SUCCESS) // start_stream
         .respond_json(ACK) // send_frame (caches last_frames)
         .respond_json(
-            r#"{"status":"complete","results":[{"status":"holds","property_index":0}],"warnings":[]}"#,
+            r#"{"status":"complete","results":[{"type":"property","status":"holds","property_index":0}],"warnings":[]}"#,
         ); // end_stream → nothing to enrich
 
     let c = Client::with_backend(Box::new(m.clone()));

@@ -85,7 +85,13 @@ Always-on invariants, checked without running the mutation tools (which take
     reports one its ``generated``, to the record only where the record holds
     them, so a block recording its ``survivors`` records those too.
 
-Invariants 6, 8 and 9 are checked by ``tools/check_mutation_setup_lanes.py``.  The
+11. **A tool told which files to mutate is told the hot path.** mutmut's
+    ``source_paths`` and cargo-mutants' ``examine_globs`` each name exactly it.
+
+12. **The binary the Mull runner runs compiles every integration case**, which
+    ``cpp/CMakeLists.txt`` folds into it under the mutation build.
+
+Invariants 6, 8, 9 and 12 are checked by ``tools/check_mutation_setup_lanes.py``.  The
 dynamic counterpart is ``tools/mutation_run.py``, which actually drives each
 binding's mutation tool against this list and writes per-binding survivor
 counts.
@@ -112,14 +118,17 @@ from typing import TYPE_CHECKING, NewType, NoReturn, cast
 
 import yaml
 
-from tools._common import emit
+from tools._common import RelPath, emit
 from tools.check_mutation_setup_lanes import (
     GO_DEFAULT_OFF_MUTATORS,
+    MUTANTS_TOML_PATH,
     PYPROJECT_PATH,
     REPO_ROOT,
     Glob,
     TomlString,
+    TomlTable,
     cpp_lane_links_the_library_statically,
+    cpp_lane_runs_every_integration_case,
     cpp_lane_runs_no_doc_harness,
     exit_unreadable,
     go_lane_runs_no_doc_harness,
@@ -159,10 +168,11 @@ type Scope = Mapping[FunctionName, Sequence[ast.FunctionDef]]
 
 # An ``--ignore=tests/<name>.py`` entry in the mutmut pytest args.
 _IGNORE_ARG_RE = re.compile(r"^--ignore=(tests/[\w./-]+\.py)$")
-# A path built above ``python/``: ``parents[2]`` and up from a file in
-# ``python/tests/``, or a literal walk up two levels.  Under ``mutants/`` the
-# same expression stops at ``python/``, so whatever it names is not there.
-_ABOVE_TREE_RE = re.compile(r"parents\[[2-9]\]|\.\./\.\./")
+# A path built above ``python/``: ``parents[2]`` and up, or three ``.parent``
+# steps, from a file in ``python/tests/``, or a literal walk up two levels.
+# Under ``mutants/`` the same expression stops at ``python/``, so whatever it
+# names is not there; a test reads the root through ``tests/_repo_root.py``.
+_ABOVE_TREE_RE = re.compile(r"parents\[[2-9]\]|(?:\.parent){3}|\.\./\.\./")
 # What lets a test answer an absent path by saying nothing rather than failing.
 _SKIPS_RE = re.compile(r"pytest\.skip|skipif|importorskip")
 
@@ -217,24 +227,77 @@ def every_block_names_its_tool_and_hot_paths(bindings: dict[str, object]) -> lis
 TestPath = NewType("TestPath", str)
 
 
-def _mutmut_ignored_tests() -> set[TestPath]:
-    """Return the ``tests/<name>.py`` files excluded via ``--ignore`` in [tool.mutmut].
+def every_selecting_tool_mutates_its_hot_path(
+    hot_paths: Mapping[BindingName, Sequence[RelPath]],
+) -> list[Prose]:
+    """Hold the files mutmut and cargo-mutants are told to mutate to ``hot_path``, both ways.
+
+    mutmut mutates ``[tool.mutmut] source_paths``, from ``python/``, and
+    cargo-mutants ``examine_globs`` in ``rust/.cargo/mutants.toml``, from
+    ``rust/``; gremlins and Mull are told no list.  A file on one side alone is
+    surface no existence check holds, or a hot path no mutant reaches.
+    """
+    told = (
+        (
+            BindingName("python"),
+            Prose("[tool.mutmut] source_paths"),
+            "python/",
+            strings_or_exit(
+                PYPROJECT_PATH,
+                _mutmut_table().get(TomlString("source_paths"), []),
+                Prose("tool.mutmut.source_paths"),
+            ),
+        ),
+        (
+            BindingName("rust"),
+            Prose("rust/.cargo/mutants.toml's examine_globs"),
+            "rust/",
+            strings_or_exit(
+                MUTANTS_TOML_PATH,
+                toml_or_exit(MUTANTS_TOML_PATH).get(TomlString("examine_globs"), []),
+                Prose("examine_globs"),
+            ),
+        ),
+    )
+    failures: list[Prose] = []
+    for binding, where, root, names in told:
+        mutated = {RelPath(f"{root}{name}") for name in names}
+        listed = set(hot_paths.get(binding, []))
+        failures += [
+            Prose(
+                f"[{binding}] {where} has the tool mutate {rel}, which the hot path does not list"
+            )
+            for rel in sorted(mutated - listed)
+        ]
+        failures += [
+            Prose(f"[{binding}] the hot path lists {rel}, which {where} leaves unmutated")
+            for rel in sorted(listed - mutated)
+        ]
+    return failures
+
+
+def _mutmut_table() -> TomlTable:
+    """Return ``[tool.mutmut]`` of ``python/pyproject.toml``.
 
     Exits 2 if ``pyproject.toml`` cannot be read or has no ``[tool.mutmut]``
     section: invariants 2 and 3 would name every test they match, each told to
-    join a section that does not exist.
+    join a section that does not exist, and invariant 11 every hot path.
     """
     tool = table_or_exit(
         PYPROJECT_PATH, toml_or_exit(PYPROJECT_PATH).get(TomlString("tool"), {}), Prose("tool")
     )
     if TomlString("mutmut") not in tool:
         exit_unreadable(PYPROJECT_PATH, Prose("it has no [tool.mutmut] section"))
-    mutmut = table_or_exit(PYPROJECT_PATH, tool[TomlString("mutmut")], Prose("tool.mutmut"))
+    return table_or_exit(PYPROJECT_PATH, tool[TomlString("mutmut")], Prose("tool.mutmut"))
+
+
+def _mutmut_ignored_tests() -> set[TestPath]:
+    """Return the ``tests/<name>.py`` files excluded via ``--ignore`` in [tool.mutmut]."""
     return {
         TestPath(match.group(1))
         for arg in strings_or_exit(
             PYPROJECT_PATH,
-            mutmut.get(TomlString("pytest_add_cli_args"), []),
+            _mutmut_table().get(TomlString("pytest_add_cli_args"), []),
             Prose("tool.mutmut.pytest_add_cli_args"),
         )
         if (match := _IGNORE_ARG_RE.match(arg))
@@ -861,23 +924,25 @@ def _ledger_rows(bindings: dict[str, object]) -> int:
     return total
 
 
-def _total_hot_paths(bindings: dict[str, object]) -> int:
-    """Return the total number of declared hot-path sources across bindings."""
-    total = 0
-    for binding_spec in bindings.values():
+def listed_hot_paths(bindings: dict[str, object]) -> dict[BindingName, list[RelPath]]:
+    """Return each block's ``hot_path`` entries that are paths, none where it lists none."""
+    found: dict[BindingName, list[RelPath]] = {}
+    for binding_name, binding_spec in bindings.items():
         if not isinstance(binding_spec, dict):
             continue
         hot_path = cast("dict[str, object]", binding_spec).get("hot_path", [])
-        if isinstance(hot_path, list):
-            total += len(cast("list[object]", hot_path))
-    return total
+        entries = cast("list[object]", hot_path) if isinstance(hot_path, list) else []
+        found[BindingName(binding_name)] = [RelPath(rel) for rel in entries if isinstance(rel, str)]
+    return found
 
 
 def main() -> int:
     """Run every check of the module docstring, naming each failure on stderr."""
     argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     bindings = _load_bindings()
+    hot_paths = listed_hot_paths(bindings)
     failures = every_block_names_its_tool_and_hot_paths(bindings)
+    failures += every_selecting_tool_mutates_its_hot_path(hot_paths)
     failures += every_tools_importing_test_is_ignored()
     failures += every_above_tree_test_skips_or_is_ignored()
     failures += cpp_slice_weights_are_of_the_domain(bindings)
@@ -887,6 +952,7 @@ def main() -> int:
     failures += go_lane_runs_no_doc_harness()
     failures += rust_lane_runs_no_doc_harness()
     failures += cpp_lane_runs_no_doc_harness()
+    failures += cpp_lane_runs_every_integration_case()
     failures += go_lane_turns_on_the_default_off_mutators()
     failures += cpp_lane_links_the_library_statically()
     failures += every_block_records_its_counts(bindings)
@@ -898,7 +964,9 @@ def main() -> int:
         _ = sys.stderr.write(
             f"\n{len(failures)} issue(s) above.  For a missing hot-path source: "
             + f"restore it or update {SPEC_PATH.relative_to(REPO_ROOT)} to reflect "
-            + "the rename.  For a test that the mutated tree cannot satisfy: add its "
+            + "the rename.  For a file mutmut or cargo-mutants is told to mutate and the "
+            + "record does not list, or the reverse: name it in both or in neither.  "
+            + "For a test that the mutated tree cannot satisfy: add its "
             + "`--ignore=` to [tool.mutmut], or let it skip.  For a doc-example harness "
             + "a lane reaches: skip it in that lane's per-mutant run, and it alone, the "
             + "Rust lane the benchmark program's tests beside it.  For a mutator or the "
@@ -907,15 +975,17 @@ def main() -> int:
         )
         return 1
 
-    total = _total_hot_paths(bindings)
+    total = sum(map(len, hot_paths.values()))
     emit(
         "Mutation-setup coverage gate OK: "
         + f"{len(bindings)} bindings, {total} hot-path sources all present; "
+        + "mutmut and cargo-mutants mutate their hot paths and no other file; "
         + "every test the mutated tree cannot satisfy is mutmut-ignored; "
         + "every recorded C++ slice weight is a file the partition claims; "
         + "one block per binding the runner drives; "
         + f"each of {_ledger_rows(bindings)} ledger rows names a line the tree holds; "
         + "no lane's per-mutant run reaches its doc-example harness; "
+        + "the C++ lane's binary runs every integration case; "
         + f"the Go lane turns on the {len(GO_DEFAULT_OFF_MUTATORS)} mutators gremlins ships off; "
         + "the mutation build links the C++ library statically; "
         + "every measured block records its counts.",

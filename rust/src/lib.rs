@@ -88,9 +88,9 @@ pub use log::{LogField, LogLevel, LogRecord, LogValue, Logger};
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
 pub use mock::MockBackend;
 pub use response::{
-    DbcText, Enrichment, ExtractionResult, FrameResponse, IssueCode, IssueSeverity, PropertyResult,
-    SignalError, SignalValue, StreamResult, StreamWarning, ValidationIssue, ValidationResult,
-    Verdict, WarningKind,
+    DbcText, Enrichment, ErrorCode, ExtractionResult, FrameResponse, IssueCode, IssueSeverity,
+    PropertyResult, SignalError, SignalValue, StreamResult, StreamWarning, ValidationIssue,
+    ValidationResult, Verdict, WarningKind,
 };
 pub use types::{
     CanId, Dlc, Rational, SignMagnitude, TimeBound, Timestamp, MAX_EXTENDED_ID, MAX_STANDARD_ID,

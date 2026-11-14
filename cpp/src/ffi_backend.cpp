@@ -183,20 +183,14 @@ class FfiBackend : public IBackend {
     // with `active_cores` / `requested_cores` fields (Go + Python parity).
     std::optional<std::pair<int, int>> rts_mismatch_;
 
-    // Wrap an FFI char* result with the standard null-check + RAII deleter
-    // + std::string conversion pattern.  Refuses with ErrorKind::Protocol and
-    // `error_msg` when result is null; otherwise materializes the C string
-    // into a std::string and frees the FFI buffer via free_str.  Protocol is
-    // the correct kind here per the narrow definition of ErrorKind::Ffi in
-    // error.hpp ("Library load / RTS initialization failure": the boundary
-    // itself failed before Agda ran); a runtime null-return means the kernel
-    // was loaded but did not produce a response, which mirrors the
-    // ProtocolError the Python client raises for the same condition.  Every
-    // string-returning endpoint below goes through it.
+    // Copies the string a text entry returned and frees it through free_str.
+    // A null is the library or the boundary malfunctioning, never a reply, so
+    // it is refused with kind Ffi and `error_msg`, `<entry> returned null`, as
+    // in every binding. Every text endpoint below goes through it.
     [[nodiscard]] auto wrap_str_result(char* result, std::string_view error_msg)
         -> Result<std::string> {
         if (result == nullptr)
-            return std::unexpected(AletheiaError{ErrorKind::Protocol, std::string{error_msg}});
+            return std::unexpected(AletheiaError{ErrorKind::Ffi, std::string{error_msg}});
         auto const deleter = [this](char* p) { fns_.free_str(p); };
         std::unique_ptr<char, decltype(deleter)> const guard{result, deleter};
         return std::string{result};

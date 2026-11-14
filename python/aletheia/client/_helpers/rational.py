@@ -22,6 +22,7 @@ from aletheia.client._types import (
     KernelRefusal,
     ValidationError,
 )
+from aletheia.codes import ErrorCode
 from aletheia.common_types import Microseconds, Prose
 from aletheia.limits import (
     BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
@@ -258,6 +259,6 @@ def check_wire_bound(value: Fraction) -> None:
             BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
             MAX_RATIONAL_COMPONENT_MAGNITUDE,
             MAX_RATIONAL_COMPONENT_MAGNITUDE,
-            code="input_bound_exceeded",
+            code=ErrorCode.INPUT_BOUND_EXCEEDED,
             refusal=KernelRefusal(message, _SIGNAL_VALUE_FIELD),
         )

@@ -256,7 +256,7 @@ class TestInputBoundExceededErrorType:
             kind=limits.BOUND_KIND_INPUT_LENGTH_BYTES,
             observed=100,
             limit=50,
-            code="input_bound_exceeded",
+            code=ErrorCode.INPUT_BOUND_EXCEEDED,
         )
         assert err.code == "input_bound_exceeded"
 

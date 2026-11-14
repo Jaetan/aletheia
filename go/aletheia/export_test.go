@@ -42,6 +42,12 @@ var FindFFILibrary = findFFILibrary
 // FormatEnrichedReason is formatEnrichedReason for the tests; it cannot fail.
 var FormatEnrichedReason = formatEnrichedReason
 
+// SetDiagnostics replaces the diagnostics SetProperties built, so a test
+// reaches diagnostics naming no signal, which no formula builds.
+func SetDiagnostics(c *Client, diags []PropertyDiagnostic) {
+	c.diags = diags
+}
+
 // MaxExtractCache is maxExtractCache for the tests, which fill the cache to it.
 const MaxExtractCache = maxExtractCache
 

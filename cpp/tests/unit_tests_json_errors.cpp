@@ -139,37 +139,7 @@ TEST_CASE("parse_dbc_response with empty signals array", "[json][parse]") {
     CHECK(result->messages[0].signals.empty());
 }
 
-TEST_CASE("parse_validation preserves the wire string for an unknown issue code", "[json][parse]") {
-    auto const result = detail::parse_validation(R"({
-        "status": "validation",
-        "has_errors": true,
-        "issues": [
-            {"severity": "error", "code": "some_future_code", "detail": "New check"}
-        ]
-    })");
-    REQUIRE(result.has_value());
-    // The enum degrades to Unknown (forward-compatible)...
-    CHECK(result->issues[0].code == IssueCode::Unknown);
-    // ...but the original wire code survives (round-trips) rather than being lost
-    // to the literal "unknown" — matching Go / Rust / Python.
-    CHECK(result->issues[0].code_raw == "some_future_code");
-    CHECK(issue_code_label(result->issues[0]) == "some_future_code");
-}
-
-TEST_CASE("issue_code_label falls back to the enum's spelling when the wire code is empty",
-          "[json][parse]") {
-    auto const result = detail::parse_validation(R"({
-        "status": "validation",
-        "has_errors": true,
-        "issues": [{"severity": "error", "code": "", "detail": "unnamed"}]
-    })");
-    REQUIRE(result.has_value());
-    CHECK(result->issues[0].code == IssueCode::Unknown);
-    CHECK(result->issues[0].code_raw.empty());
-    CHECK(issue_code_label(result->issues[0]) == to_string(IssueCode::Unknown));
-}
-
-TEST_CASE("issue_code_label renders the canonical spelling for a known code", "[json][parse]") {
+TEST_CASE("to_string renders a decoded issue code in its wire spelling", "[json][parse]") {
     auto const result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": true,
@@ -179,23 +149,7 @@ TEST_CASE("issue_code_label renders the canonical spelling for a known code", "[
     })");
     REQUIRE(result.has_value());
     CHECK(result->issues[0].code == IssueCode::FactorZero);
-    CHECK(issue_code_label(result->issues[0]) == "factor_zero");
-}
-
-TEST_CASE("parse_validation reads a severity word outside the set as its last member",
-          "[json][parse]") {
-    // The kernel proves the severities it writes, so the reader dispatches on
-    // the word with no refusal of its own: "warning", the set's last member,
-    // reads every word "error" does not name.
-    auto const result = detail::parse_validation(R"({
-        "status": "validation",
-        "has_errors": false,
-        "issues": [
-            {"severity": "info", "code": "empty_message", "detail": "x"}
-        ]
-    })");
-    REQUIRE(result.has_value());
-    CHECK(result->issues[0].severity == IssueSeverity::Warning);
+    CHECK(to_string(result->issues[0].code) == "factor_zero");
 }
 
 TEST_CASE("parse_validation rejects missing severity string", "[json][parse][error]") {
@@ -208,7 +162,8 @@ TEST_CASE("parse_validation rejects missing severity string", "[json][parse][err
     })");
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK(result.error().message() == "reply issues/severity: expected string, got nothing");
+    CHECK(result.error().message() ==
+          R"(reply issues/severity: expected "error" or "warning", got nothing)");
 }
 
 TEST_CASE("parse_extraction rejects a string where a rational belongs", "[json][parse][error]") {

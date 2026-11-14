@@ -70,7 +70,7 @@ func TestFormatDBCText_RefusesMalformedResponses(t *testing.T) {
 			`{"status":"success","text":"x","issues":["divergence"]}`, "reply issues: expected object, got string"},
 		"an issue has no severity": {
 			`{"status":"success","text":"x","issues":[{"code":"text_roundtrip_divergence","detail":"d"}]}`,
-			"reply issues/severity: expected string, got nothing"},
+			`reply issues/severity: expected "error" or "warning", got nothing`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

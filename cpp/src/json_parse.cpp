@@ -115,8 +115,8 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
 
 } // namespace
 
-auto error_code_from_string(std::string_view s) -> ErrorCode {
-    return lookup(error_code_table, s).value_or(ErrorCode::Unknown);
+auto error_code_from_string(std::string_view s) -> std::optional<ErrorCode> {
+    return lookup(error_code_table, s);
 }
 
 } // namespace aletheia
@@ -126,8 +126,9 @@ namespace aletheia::detail {
 // Every reader below requires each key the kernel writes and reads each place
 // by kind only, refusing what the kernel never writes there in the one form of
 // detail/reply_shape.hpp: the ranges and the tags are the kernel's, proven of
-// every reply. A tag is dispatched with no refusal of its own, the last arm
-// reading every word the arms before it do not name.
+// every reply. An issue's severity and code, an error reply's code, a property
+// result's type and status and a stream warning's kind are each refused outside
+// their set.
 
 // String → IssueCode lookup table.  Same shape as `error_code_table` at the
 // top of this file; linear scan is fine on the cold validation path.
@@ -165,25 +166,19 @@ constexpr auto issue_code_table = std::to_array<IssueCodeEntry>({
     {"value_description_key_out_of_range", IssueCode::ValueDescriptionKeyOutOfRange},
 });
 
-// The severities the kernel writes, "warning" the last arm.
+// The severities the kernel writes.
 constexpr auto severity_table = std::to_array<std::pair<std::string_view, IssueSeverity>>({
     {"error", IssueSeverity::Error},
     {"warning", IssueSeverity::Warning},
 });
 
-// One validation issue at `path`: its code, detail and severity, each a
-// string. A code outside the table is carried as written.
+// One validation issue at `path`: its code, one of the issue codes, its detail
+// string and its severity, one of the severities.
 static auto read_issue(Json const& issue, ReplyPath const& path) -> ValidationIssue {
-    auto code = field_string(issue, path, "code");
+    auto const code = field_member(issue, path, "code", issue_code_table, expect_issue_code);
     auto detail = field_string(issue, path, "detail");
-    auto const severity = lookup(severity_table, field_string(issue, path, "severity"))
-                              .value_or(IssueSeverity::Warning);
-    return ValidationIssue{
-        .severity = severity,
-        .code = lookup(issue_code_table, code).value_or(IssueCode::Unknown),
-        .code_raw = std::move(code),
-        .detail = std::move(detail),
-    };
+    auto const severity = field_member(issue, path, "severity", severity_table);
+    return ValidationIssue{.severity = severity, .code = code, .detail = std::move(detail)};
 }
 
 // The issues at `key` of a reply's root: a validation reply's, a DBC
@@ -239,19 +234,18 @@ static auto read_bound_info(Json const& envelope, ErrorCode code)
     return bound;
 }
 
-// The error an error envelope carries, its code and message strings. It is
-// typed `kind` unless its code names its own: a bound refusal is
-// InputBoundExceeded with its bound, as the Python and Go bindings' typed
-// input-bound errors are, and a round-trip refusal TextRoundtrip, so a caller
-// tells it from a structural validation failure by kind(). A validation or
-// round-trip refusal carries its issues, the element shape of a validation
-// reply. A place of the envelope holding what the kernel never writes there is
-// refused.
+// The error an error envelope carries, its code, one of the error codes, and
+// its message string. It is typed `kind` unless its code names its own: a
+// bound refusal is InputBoundExceeded with its bound, as the Python and Go
+// bindings' typed input-bound errors are, and a round-trip refusal
+// TextRoundtrip, so a caller tells it from a structural validation failure by
+// kind(). A validation or round-trip refusal carries its issues, the element
+// shape of a validation reply. A place of the envelope holding what the kernel
+// never writes there is refused.
 static auto envelope_error(Json const& envelope, ErrorKind kind) -> AletheiaError {
     ReplyPath const root;
-    auto const code_word = field_string(envelope, root, "code");
+    auto const code = field_member(envelope, root, "code", error_code_table, expect_error_code);
     auto message = field_string(envelope, root, "message");
-    auto const code = error_code_from_string(code_word);
     auto bound_info = read_bound_info(envelope, code);
     std::optional<std::vector<ValidationIssue>> issues;
     if (code == ErrorCode::HandlerValidationFailed || code == ErrorCode::HandlerTextRoundtripFailed)
@@ -390,21 +384,19 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
     });
 }
 
-// The verdicts the kernel writes, "unresolved" the last arm.
+// The verdicts the kernel writes.
 constexpr auto verdict_table = std::to_array<std::pair<std::string_view, Verdict>>({
     {"fails", Verdict::Fails},
     {"holds", Verdict::Holds},
     {"unresolved", Verdict::Unresolved},
 });
 
-// The status and the property index every verdict carries.
+// The type, the status and the property index every verdict carries.
 static auto read_verdict(Json const& r, ReplyPath const& path) -> PropertyResult {
-    auto const status = field_string(r, path, "status");
+    field_word(r, path, "type", {"property"});
+    auto const verdict = field_member(r, path, "status", verdict_table);
     auto const index = field_unsigned<std::size_t>(r, path, "property_index");
-    return PropertyResult{
-        .property_index = PropertyIndex{index},
-        .verdict = lookup(verdict_table, status).value_or(Verdict::Unresolved),
-    };
+    return PropertyResult{.property_index = PropertyIndex{index}, .verdict = verdict};
 }
 
 // The timestamp at `path`, which echoes a frame's: the binding sends every
@@ -421,8 +413,6 @@ static auto read_timestamp(Json const& r, ReplyPath const& path) -> Timestamp {
 // frame that broke the property on a failure, and a reason on every verdict
 // but a hold.
 static auto read_property_event(Json const& r, ReplyPath const& path) -> PropertyResult {
-    // "property" is the type's one arm, so every word reads as it.
-    [[maybe_unused]] auto const type = field_string(r, path, "type");
     auto result = read_verdict(r, path);
     if (result.verdict == Verdict::Fails)
         result.timestamp = read_timestamp(r, path);
@@ -464,8 +454,7 @@ static auto read_property_result(Json const& r, ReplyPath const& path) -> Proper
     auto result = read_verdict(r, path);
     if (result.verdict == Verdict::Holds)
         return result;
-    auto const timestamp = r.find("timestamp");
-    if (result.verdict == Verdict::Fails || (timestamp != r.end() && !timestamp->is_null()))
+    if (result.verdict == Verdict::Fails || holds_non_null(r, "timestamp"))
         result.timestamp = read_timestamp(r, path);
     result.reason = field_string(r, path, "reason");
     return result;
@@ -473,9 +462,7 @@ static auto read_property_result(Json const& r, ReplyPath const& path) -> Proper
 
 // One end-of-stream warning at `path`.
 static auto read_stream_warning(Json const& w, ReplyPath const& path) -> StreamWarning {
-    // The kernel proves the set of kinds it writes, whose last member is the
-    // one WarningKind names, so every word reads as it.
-    [[maybe_unused]] auto const kind = field_string(w, path, "kind");
+    field_word(w, path, "kind", {"uncached_atom"});
     return StreamWarning{
         .kind = WarningKind::UncachedAtom,
         .property_index = PropertyIndex{field_unsigned<std::size_t>(w, path, "property_index")},
@@ -554,14 +541,6 @@ auto to_string(IssueCode code) -> std::string_view {
         if (c == code)
             return name;
     return "unknown";
-}
-
-auto issue_code_label(ValidationIssue const& issue) -> std::string_view {
-    // Preserve the original wire string for an unrecognized code so a future
-    // core code round-trips instead of degrading to the literal "unknown".
-    if (issue.code == IssueCode::Unknown && !issue.code_raw.empty())
-        return issue.code_raw;
-    return to_string(issue.code);
 }
 
 } // namespace aletheia

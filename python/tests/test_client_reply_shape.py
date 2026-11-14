@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """A key the kernel writes on every reply is read as required, never defaulted.
 
-The client's readers keep the kind checks (an array, a string, a boolean) and
-drop the range checks the kernel proves; a reply without a key the kernel
-always writes is malformed and raises :class:`~aletheia.ProtocolError` reading
-``reply <path>: expected <what>, got <what came>``, rather than a value the
-binding substitutes.
+The client's readers keep the kind checks (an array, a string, a boolean), hold
+an issue's severity and code to their words, and drop the range checks the
+kernel proves; a reply without a key the kernel always writes is malformed and
+raises :class:`~aletheia.ProtocolError` reading ``reply <path>: expected
+<what>, got <what came>``, rather than a value the binding substitutes.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import json
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple, NewType, TypedDict, cast
 
 import pytest
-from _dbc_helpers import dbc
+from _dbc_helpers import KernelReply, dbc
 
 from aletheia import (
     AletheiaClient,
@@ -25,12 +25,16 @@ from aletheia import (
     MockBackend,
     ProtocolError,
 )
+from aletheia.codes import IssueCode, IssueSeverity
 from aletheia.common_types import Prose
 from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
+    from aletheia.codes import ValidationIssue
     from aletheia.types import (
+        ErrorResponse,
         JSONValue,
+        ParsedDBCResponse,
         PropertyBatchResponse,
     )
 
@@ -42,8 +46,8 @@ type ExtractionList = Literal["values", "errors", "absent"]
 _DBC: Final = dbc([])
 
 _ENVELOPES: Final = {
-    "absent": '{"status": "error", "code": "my_code"}',
-    "not-a-string": '{"status": "error", "code": "my_code", "message": 7}',
+    "absent": '{"status": "error", "code": "handler_no_dbc"}',
+    "not-a-string": '{"status": "error", "code": "handler_no_dbc", "message": 7}',
 }
 _MESSAGE_CAME: Final = {"absent": "nothing", "not-a-string": "number"}
 
@@ -85,6 +89,38 @@ def test_an_error_envelope_without_a_string_message_is_refused(
         _call(client, entry)
     assert (str(excinfo.value), excinfo.value.code) == (
         f"reply message: expected string, got {_MESSAGE_CAME[shape]}",
+        None,
+    )
+
+
+@pytest.mark.parametrize(
+    "entry", ["validateDBC", "formatDBC", "formatDBCText", "extractAllSignals"]
+)
+@pytest.mark.parametrize(
+    ("envelope", "came"),
+    [
+        pytest.param(
+            KernelReply(b'{"status": "error", "code": "my_code", "message": "m"}'),
+            '"my_code"',
+            id="unknown",
+        ),
+        pytest.param(KernelReply(b'{"status": "error", "message": "m"}'), "nothing", id="absent"),
+        pytest.param(
+            KernelReply(b'{"status": "error", "code": 7, "message": "m"}'), "number", id="number"
+        ),
+    ],
+)
+def test_an_error_code_outside_the_error_codes_is_refused(
+    entry: Entry, envelope: KernelReply, came: Prose
+) -> None:
+    """An error envelope whose ``code`` is no error code is refused at ``code``, carrying none."""
+    with (
+        AletheiaClient(backend=MockBackend([envelope])) as client,
+        pytest.raises(ProtocolError) as excinfo,
+    ):
+        _call(client, entry)
+    assert (str(excinfo.value), excinfo.value.code) == (
+        f"reply code: expected an error code, got {came}",
         None,
     )
 
@@ -312,10 +348,9 @@ def test_an_end_of_stream_reply_with_another_status_is_refused() -> None:
     assert str(excinfo.value) == 'reply status: expected "complete" or "error", got "weird"'
 
 
-type IssueRoute = Literal["validateDBC", "formatDBCText", "parseDBC", "parseDBCText"]
-type IssueField = Literal["severity", "code", "detail"]
+type IssueRoute = Literal["validateDBC", "formatDBCText", "parseDBC", "parseDBCText", "refusal"]
 type IssuePlace = Literal["issues", "warnings"]
-type IssueBreakage = Literal["deleted", "retyped"]
+type IssueKey = Literal["code", "detail", "severity"]
 
 # A reply's JSON text with ``{}`` where its one issue goes.
 ReplyTemplate = NewType("ReplyTemplate", str)
@@ -333,6 +368,9 @@ _PARSED: Final = ReplyTemplate(
     + ' "environmentVars": [], "valueTables": [], "nodes": [], "comments": [],'
     + ' "attributes": [], "unresolvedValueDescs": []}}, "warnings": [{}]}}'
 )
+# Every route whose reply carries issues: the validation reply, the text of a
+# DBC with its round-trip issues, a parsed DBC's warnings on either load route,
+# and a load's refusal carrying its validation issues.
 _ISSUE_REPLIES: Final[dict[IssueRoute, _IssueReply]] = {
     "validateDBC": _IssueReply(
         ReplyTemplate('{{"status": "validation", "has_errors": false, "issues": [{}]}}'), "issues"
@@ -342,38 +380,143 @@ _ISSUE_REPLIES: Final[dict[IssueRoute, _IssueReply]] = {
     ),
     "parseDBC": _IssueReply(_PARSED, "warnings"),
     "parseDBCText": _IssueReply(_PARSED, "warnings"),
+    "refusal": _IssueReply(
+        ReplyTemplate(
+            '{{"status": "error", "code": "handler_validation_failed", "message": "m",'
+            + ' "has_errors": true, "issues": [{}]}}'
+        ),
+        "issues",
+    ),
 }
-_ISSUE_CAME: Final = {"deleted": "nothing", "retyped": "number"}
+_ISSUE_ROUTES: Final = tuple(_ISSUE_REPLIES)
 
 
-def _read_issues(client: AletheiaClient, route: IssueRoute) -> None:
-    """Run the client method that reads *route*'s issue list."""
-    match route:
-        case "validateDBC" | "formatDBCText":
-            _call(client, route)
-        case "parseDBC" | "parseDBCText":
-            _parse(client, route)
+def _issues_of(reply: ParsedDBCResponse | ErrorResponse) -> list[ValidationIssue]:
+    """Name the issues a DBC load answered: its warnings, or the issues of its refusal."""
+    if reply["status"] == "success":
+        return reply["warnings"]
+    assert "issues" in reply, reply
+    return reply["issues"]
 
 
-@pytest.mark.parametrize("route", ["validateDBC", "formatDBCText", "parseDBC", "parseDBCText"])
-@pytest.mark.parametrize("key", ["code", "detail"])
-@pytest.mark.parametrize("breakage", ["deleted", "retyped"])
-def test_an_issue_code_or_detail_not_a_string_is_refused(
-    route: IssueRoute, key: IssueField, breakage: IssueBreakage
+def _read_issues(route: IssueRoute, issue: JSONValue) -> list[ValidationIssue]:
+    """Read *issue* through *route*, the backend answering with the route's reply around it."""
+    reply = _ISSUE_REPLIES[route].template.format(json.dumps(issue))
+    with AletheiaClient(backend=MockBackend([reply.encode()])) as client:
+        match route:
+            case "validateDBC":
+                return client.validate_dbc(_DBC)["issues"]
+            case "formatDBCText":
+                return client.format_dbc_text(_DBC)["issues"]
+            case "parseDBC" | "refusal":
+                return _issues_of(client.parse_dbc(_DBC))
+            case "parseDBCText":
+                return _issues_of(client.parse_dbc_text('VERSION ""\n'))
+
+
+def _refusal(route: IssueRoute, issue: JSONValue) -> Prose:
+    """Read *issue* through *route*, and return the text of the refusal it raises."""
+    with pytest.raises(ProtocolError) as excinfo:
+        _ = _read_issues(route, issue)
+    return Prose(str(excinfo.value))
+
+
+@pytest.mark.parametrize("route", _ISSUE_ROUTES)
+@pytest.mark.parametrize(
+    ("severity", "code"),
+    [
+        (IssueSeverity.ERROR, IssueCode.FACTOR_ZERO),
+        (IssueSeverity.WARNING, IssueCode.EMPTY_MESSAGE),
+    ],
+)
+def test_an_issue_is_read_as_the_members_its_words_name(
+    route: IssueRoute, severity: IssueSeverity, code: IssueCode
 ) -> None:
-    """An issue whose ``code`` or ``detail`` is absent or a number is refused at its place."""
-    issue: dict[IssueField, JSONValue] = {"severity": "warning", "code": "c", "detail": "d"}
-    match breakage:
-        case "deleted":
-            del issue[key]
-        case "retyped":
-            issue[key] = 0
-    template, place = _ISSUE_REPLIES[route]
-    reply = template.format(json.dumps(issue))
-    with (
-        AletheiaClient(backend=MockBackend([reply.encode()])) as client,
-        pytest.raises(ProtocolError) as excinfo,
-    ):
-        _read_issues(client, route)
-    came = _ISSUE_CAME[breakage]
-    assert str(excinfo.value) == f"reply {place}/{key}: expected string, got {came}"
+    """An issue's severity and code are read as the members their words name."""
+    issue: JSONValue = {"code": code.value, "detail": "d", "severity": severity.value}
+    [read] = _read_issues(route, issue)
+    assert read == {"severity": severity, "code": code, "detail": "d"}
+    assert (type(read["severity"]), type(read["code"])) == (IssueSeverity, IssueCode)
+
+
+@pytest.mark.parametrize("route", _ISSUE_ROUTES)
+def test_an_issue_not_an_object_is_refused(route: IssueRoute) -> None:
+    """An issue that is not an object is refused at its list's place."""
+    place = _ISSUE_REPLIES[route].place
+    assert _refusal(route, "fatal") == f"reply {place}: expected object, got string"
+
+
+@pytest.mark.parametrize("route", _ISSUE_ROUTES)
+@pytest.mark.parametrize(
+    ("issue", "came"),
+    [
+        pytest.param({"code": "factor_zero", "severity": "warning"}, "nothing", id="absent"),
+        pytest.param(
+            {"code": "factor_zero", "detail": 0, "severity": "warning"}, "number", id="number"
+        ),
+    ],
+)
+def test_an_issue_detail_not_a_string_is_refused(
+    route: IssueRoute, issue: JSONValue, came: Prose
+) -> None:
+    """An issue whose ``detail`` is absent or a number is refused at its place."""
+    place = _ISSUE_REPLIES[route].place
+    assert _refusal(route, issue) == f"reply {place}/detail: expected string, got {came}"
+
+
+@pytest.mark.parametrize("route", _ISSUE_ROUTES)
+@pytest.mark.parametrize(
+    ("issue", "came"),
+    [
+        pytest.param(
+            {"code": "factor_zero", "detail": "d", "severity": "fatal"}, '"fatal"', id="unknown"
+        ),
+        pytest.param({"code": "factor_zero", "detail": "d"}, "nothing", id="absent"),
+        pytest.param({"code": "factor_zero", "detail": "d", "severity": 0}, "number", id="number"),
+    ],
+)
+def test_an_issue_severity_outside_its_words_is_refused(
+    route: IssueRoute, issue: JSONValue, came: Prose
+) -> None:
+    """An issue's severity is ``error`` or ``warning``; anything else is refused at its place."""
+    place = _ISSUE_REPLIES[route].place
+    assert _refusal(route, issue) == (
+        f'reply {place}/severity: expected "error" or "warning", got {came}'
+    )
+
+
+@pytest.mark.parametrize("route", _ISSUE_ROUTES)
+@pytest.mark.parametrize(
+    ("issue", "came"),
+    [
+        pytest.param(
+            {"code": "some_future_code", "detail": "d", "severity": "warning"},
+            '"some_future_code"',
+            id="unknown",
+        ),
+        pytest.param({"detail": "d", "severity": "warning"}, "nothing", id="absent"),
+        pytest.param({"code": 0, "detail": "d", "severity": "warning"}, "number", id="number"),
+    ],
+)
+def test_an_issue_code_outside_the_issue_codes_is_refused(
+    route: IssueRoute, issue: JSONValue, came: Prose
+) -> None:
+    """An issue's code is one of the ``IssueCode`` words; anything else is refused at its place."""
+    place = _ISSUE_REPLIES[route].place
+    assert _refusal(route, issue) == f"reply {place}/code: expected an issue code, got {came}"
+
+
+@pytest.mark.parametrize("route", _ISSUE_ROUTES)
+@pytest.mark.parametrize(
+    ("issue", "key", "expected"),
+    [
+        pytest.param({}, "code", "an issue code", id="code"),
+        pytest.param({"code": "factor_zero"}, "detail", "string", id="detail"),
+    ],
+)
+def test_an_issue_is_refused_at_its_first_broken_place(
+    route: IssueRoute, issue: JSONValue, key: IssueKey, expected: Prose
+) -> None:
+    """An issue's code is read first, then its detail, then its severity."""
+    place = _ISSUE_REPLIES[route].place
+    assert _refusal(route, issue) == f"reply {place}/{key}: expected {expected}, got nothing"

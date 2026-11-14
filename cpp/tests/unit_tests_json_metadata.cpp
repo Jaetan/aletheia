@@ -539,21 +539,219 @@ TEST_CASE("parse_dbc_response refuses a reply lacking a Tier 2 metadata array",
           "reply dbc/" + key_name + ": expected array, got nothing");
 }
 
-TEST_CASE("parse_dbc_response reads a comment target kind outside the five as an environment "
-          "variable, its last arm",
-          "[json][parse][dbc][tier2]") {
-    // The last arm then needs its name.
-    auto const make = [](char const* target) {
+TEST_CASE("parse_dbc_response reads a comment target kind as its word and refuses any other at "
+          "its place",
+          "[json][parse][dbc][tier2][refusal]") {
+    // A target carrying every key any kind reads, `kind` at its kind and no
+    // kind when `kind` is null, so a word outside the kinds is refused though
+    // the last kind's name is there.
+    auto const make = [](Json const& kind) {
         return empty_dbc_reply([&](Json& dbc) {
-            dbc["comments"] = Json::array({Json{{"target", Json::parse(target)}, {"text", "x"}}});
+            auto target = Json{
+                {"node", "N"}, {"id", 1}, {"extended", false}, {"signal", "S"}, {"envVar", "E"}};
+            if (!kind.is_null())
+                target["kind"] = kind;
+            dbc["comments"] = Json::array({Json{{"target", target}, {"text", "x"}}});
         });
     };
-    CHECK(dbc_refusal(make(R"({"kind": "galaxy"})")) ==
-          "reply dbc/comments/target/envVar: expected string, got nothing");
-    auto const result = detail::parse_dbc_response(make(R"({"kind": "galaxy", "envVar": "E"})"));
-    REQUIRE(result.has_value());
-    REQUIRE(result->comments.size() == 1);
-    CHECK(std::get<DbcCommentTargetEnvVar>(result->comments[0].target).env_var == "E");
+    auto const read = [&](char const* word) {
+        auto const result = detail::parse_dbc_response(make(word));
+        REQUIRE(result.has_value());
+        REQUIRE(result->comments.size() == 1);
+        return result->comments[0].target;
+    };
+    CHECK(std::holds_alternative<DbcCommentTargetNetwork>(read("network")));
+    CHECK(std::holds_alternative<DbcCommentTargetNode>(read("node")));
+    CHECK(std::holds_alternative<DbcCommentTargetMessage>(read("message")));
+    CHECK(std::holds_alternative<DbcCommentTargetSignal>(read("signal")));
+    CHECK(std::holds_alternative<DbcCommentTargetEnvVar>(read("envVar")));
+    std::string const expected = R"(reply dbc/comments/target/kind: expected "network", "node", )"
+                                 R"("message", "signal" or "envVar", got )";
+    CHECK(dbc_refusal(make("bogus_word")) == expected + R"("bogus_word")");
+    CHECK(dbc_refusal(make(0)) == expected + "number");
+    CHECK(dbc_refusal(make(nullptr)) == expected + "nothing");
+}
+
+TEST_CASE("parse_dbc_response reads an attribute kind as its word and refuses any other at its "
+          "place",
+          "[json][parse][dbc][tier2][refusal]") {
+    // An attribute carrying every key any kind reads, `kind` at its kind and no
+    // kind when `kind` is null, so a word outside the kinds is refused though
+    // the last kind's keys are there.
+    auto const make = [](Json const& kind) {
+        return empty_dbc_reply([&](Json& dbc) {
+            auto attribute = Json{{"name", "A"},
+                                  {"scope", "node"},
+                                  {"attrType", {{"kind", "int"}, {"min", 0}, {"max", 1}}},
+                                  {"target", {{"kind", "network"}}},
+                                  {"value", {{"kind", "int"}, {"value", 1}}}};
+            if (!kind.is_null())
+                attribute["kind"] = kind;
+            dbc["attributes"] = Json::array({attribute});
+        });
+    };
+    auto const read = [&](char const* word) {
+        auto const result = detail::parse_dbc_response(make(word));
+        REQUIRE(result.has_value());
+        REQUIRE(result->attributes.size() == 1);
+        return result->attributes[0];
+    };
+    CHECK(std::holds_alternative<DbcAttrDef>(read("definition")));
+    CHECK(std::holds_alternative<DbcAttrDefault>(read("default")));
+    CHECK(std::holds_alternative<DbcAttrAssign>(read("assignment")));
+    std::string const expected =
+        R"(reply dbc/attributes/kind: expected "definition", "default" or "assignment", got )";
+    CHECK(dbc_refusal(make("bogus_word")) == expected + R"("bogus_word")");
+    CHECK(dbc_refusal(make(0)) == expected + "number");
+    CHECK(dbc_refusal(make(nullptr)) == expected + "nothing");
+}
+
+TEST_CASE("parse_dbc_response reads a definition's scope as its word and refuses any other at its "
+          "place",
+          "[json][parse][dbc][tier2][refusal]") {
+    // A definition with `scope` at its scope and no scope when `scope` is null.
+    auto const make = [](Json const& scope) {
+        return empty_dbc_reply([&](Json& dbc) {
+            auto definition = Json{{"kind", "definition"},
+                                   {"name", "A"},
+                                   {"attrType", {{"kind", "int"}, {"min", 0}, {"max", 1}}}};
+            if (!scope.is_null())
+                definition["scope"] = scope;
+            dbc["attributes"] = Json::array({definition});
+        });
+    };
+    auto const read = [&](char const* word) {
+        auto const result = detail::parse_dbc_response(make(word));
+        REQUIRE(result.has_value());
+        REQUIRE(result->attributes.size() == 1);
+        auto const& attribute = result->attributes[0];
+        REQUIRE(std::holds_alternative<DbcAttrDef>(attribute));
+        return std::get<DbcAttrDef>(attribute).scope;
+    };
+    CHECK(read("network") == DbcAttrScope::Network);
+    CHECK(read("node") == DbcAttrScope::Node);
+    CHECK(read("message") == DbcAttrScope::Message);
+    CHECK(read("signal") == DbcAttrScope::Signal);
+    CHECK(read("envVar") == DbcAttrScope::EnvVar);
+    CHECK(read("nodeMsg") == DbcAttrScope::NodeMsg);
+    CHECK(read("nodeSig") == DbcAttrScope::NodeSig);
+    std::string const expected = R"(reply dbc/attributes/scope: expected "network", "node", )"
+                                 R"("message", "signal", "envVar", "nodeMsg" or "nodeSig", got )";
+    CHECK(dbc_refusal(make("bogus_word")) == expected + R"("bogus_word")");
+    CHECK(dbc_refusal(make(0)) == expected + "number");
+    CHECK(dbc_refusal(make(nullptr)) == expected + "nothing");
+}
+
+TEST_CASE("parse_dbc_response reads an attribute type's kind as its word and refuses any other at "
+          "its place",
+          "[json][parse][dbc][tier2][refusal]") {
+    // A definition whose type carries every key any kind reads, `kind` at its
+    // kind and no kind when `kind` is null, so a word outside the kinds is
+    // refused though the last kind's keys are there.
+    auto const make = [](Json const& kind) {
+        return empty_dbc_reply([&](Json& dbc) {
+            auto attr_type = Json{{"min", 0}, {"max", 1}, {"values", Json::array({"A"})}};
+            if (!kind.is_null())
+                attr_type["kind"] = kind;
+            dbc["attributes"] = Json::array({Json{{"kind", "definition"},
+                                                  {"name", "A"},
+                                                  {"scope", "node"},
+                                                  {"attrType", attr_type}}});
+        });
+    };
+    auto const read = [&](char const* word) {
+        auto const result = detail::parse_dbc_response(make(word));
+        REQUIRE(result.has_value());
+        REQUIRE(result->attributes.size() == 1);
+        auto const& attribute = result->attributes[0];
+        REQUIRE(std::holds_alternative<DbcAttrDef>(attribute));
+        return std::get<DbcAttrDef>(attribute).attr_type;
+    };
+    CHECK(std::holds_alternative<DbcAttrTypeInt>(read("int")));
+    CHECK(std::holds_alternative<DbcAttrTypeFloat>(read("float")));
+    CHECK(std::holds_alternative<DbcAttrTypeString>(read("string")));
+    CHECK(std::holds_alternative<DbcAttrTypeEnum>(read("enum")));
+    CHECK(std::holds_alternative<DbcAttrTypeHex>(read("hex")));
+    std::string const expected = R"(reply dbc/attributes/attrType/kind: expected "int", "float", )"
+                                 R"("string", "enum" or "hex", got )";
+    CHECK(dbc_refusal(make("bogus_word")) == expected + R"("bogus_word")");
+    CHECK(dbc_refusal(make(0)) == expected + "number");
+    CHECK(dbc_refusal(make(nullptr)) == expected + "nothing");
+}
+
+TEST_CASE("parse_dbc_response reads an attribute value's kind as its word and refuses any other at "
+          "its place",
+          "[json][parse][dbc][tier2][refusal]") {
+    // A default whose value is `value`, `kind` at its kind and no kind when
+    // `kind` is null, so a word outside the kinds is refused though the value
+    // is one the last kind reads.
+    auto const make = [](Json const& kind, Json const& value) {
+        return empty_dbc_reply([&](Json& dbc) {
+            auto attr_value = Json{{"value", value}};
+            if (!kind.is_null())
+                attr_value["kind"] = kind;
+            dbc["attributes"] =
+                Json::array({Json{{"kind", "default"}, {"name", "A"}, {"value", attr_value}}});
+        });
+    };
+    auto const read = [&](char const* word, Json const& value) {
+        auto const result = detail::parse_dbc_response(make(word, value));
+        REQUIRE(result.has_value());
+        REQUIRE(result->attributes.size() == 1);
+        auto const& attribute = result->attributes[0];
+        REQUIRE(std::holds_alternative<DbcAttrDefault>(attribute));
+        return std::get<DbcAttrDefault>(attribute).value;
+    };
+    CHECK(std::holds_alternative<DbcAttrValueInt>(read("int", 1)));
+    CHECK(std::holds_alternative<DbcAttrValueFloat>(read("float", 1)));
+    CHECK(std::holds_alternative<DbcAttrValueString>(read("string", "A")));
+    CHECK(std::holds_alternative<DbcAttrValueEnum>(read("enum", 1)));
+    CHECK(std::holds_alternative<DbcAttrValueHex>(read("hex", 1)));
+    std::string const expected = R"(reply dbc/attributes/value/kind: expected "int", "float", )"
+                                 R"("string", "enum" or "hex", got )";
+    CHECK(dbc_refusal(make("bogus_word", 1)) == expected + R"("bogus_word")");
+    CHECK(dbc_refusal(make(0, 1)) == expected + "number");
+    CHECK(dbc_refusal(make(nullptr, 1)) == expected + "nothing");
+}
+
+TEST_CASE("parse_dbc_response reads an attribute target's kind as its word and refuses any other "
+          "at its place",
+          "[json][parse][dbc][tier2][refusal]") {
+    // An assignment whose target carries every key any kind reads, `kind` at
+    // its kind and no kind when `kind` is null, so a word outside the kinds is
+    // refused though the last kind's keys are there.
+    auto const make = [](Json const& kind) {
+        return empty_dbc_reply([&](Json& dbc) {
+            auto target = Json{
+                {"node", "N"}, {"id", 1}, {"extended", false}, {"signal", "S"}, {"envVar", "E"}};
+            if (!kind.is_null())
+                target["kind"] = kind;
+            dbc["attributes"] = Json::array({Json{{"kind", "assignment"},
+                                                  {"name", "A"},
+                                                  {"target", target},
+                                                  {"value", Json{{"kind", "int"}, {"value", 1}}}}});
+        });
+    };
+    auto const read = [&](char const* word) {
+        auto const result = detail::parse_dbc_response(make(word));
+        REQUIRE(result.has_value());
+        REQUIRE(result->attributes.size() == 1);
+        auto const& attribute = result->attributes[0];
+        REQUIRE(std::holds_alternative<DbcAttrAssign>(attribute));
+        return std::get<DbcAttrAssign>(attribute).target;
+    };
+    CHECK(std::holds_alternative<DbcAttrTargetNetwork>(read("network")));
+    CHECK(std::holds_alternative<DbcAttrTargetNode>(read("node")));
+    CHECK(std::holds_alternative<DbcAttrTargetMessage>(read("message")));
+    CHECK(std::holds_alternative<DbcAttrTargetSignal>(read("signal")));
+    CHECK(std::holds_alternative<DbcAttrTargetEnvVar>(read("envVar")));
+    CHECK(std::holds_alternative<DbcAttrTargetNodeMsg>(read("nodeMsg")));
+    CHECK(std::holds_alternative<DbcAttrTargetNodeSig>(read("nodeSig")));
+    std::string const expected = R"(reply dbc/attributes/target/kind: expected "network", "node", )"
+                                 R"("message", "signal", "envVar", "nodeMsg" or "nodeSig", got )";
+    CHECK(dbc_refusal(make("bogus_word")) == expected + R"("bogus_word")");
+    CHECK(dbc_refusal(make(0)) == expected + "number");
+    CHECK(dbc_refusal(make(nullptr)) == expected + "nothing");
 }
 
 // ===========================================================================

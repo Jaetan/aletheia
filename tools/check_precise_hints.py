@@ -38,7 +38,8 @@ row needs user approval, on the same footing as a ``NOLINT`` suppression, and a
 hint a foreign interface forces carries a ``reason:``.  Rows are keyed by file
 and by the hint's own text, so an edit elsewhere in the file does not move them.
 
-It reads every tracked Python file outside ``.archive/``, and the Python each
+It reads every tracked Python file outside ``.archive/`` and ``tools/_vendor/``
+(upstream's code kept verbatim, ``tools/_vendored.py``), and the Python each
 probe hands an interpreter, a heredoc after ``-`` or a ``-c`` string, which no
 other checker reads.  A probe that hands one Python in any other form fails the
 lens, so that Python is never skipped unread.
@@ -65,6 +66,7 @@ from typing import NamedTuple, NewType, cast
 
 from tools._common import RelPath, emit, git_ls_files, git_toplevel
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
+from tools._vendored import VENDOR
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -426,8 +428,11 @@ def hints_of(rel: RelPath, text: PythonSource | ShellSource) -> list[Hint] | Pro
 
 
 def in_scope(rel: RelPath) -> bool:
-    """Say whether the lens reads a tracked file: Python outside the archive, or a probe."""
-    if rel.startswith(".archive/"):
+    """Say whether the lens reads a tracked file.
+
+    It reads Python outside the archive and the vendor directory, and every probe.
+    """
+    if rel.startswith((".archive/", VENDOR)):
         return False
     return rel.endswith(".py") or (rel.startswith("probes/") and rel.endswith(".sh"))
 

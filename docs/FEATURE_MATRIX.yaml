@@ -516,7 +516,7 @@ features:
       rust:
         status: implemented
         entry: IssueCode
-        notes: "ValidationIssue { severity: IssueSeverity, code: IssueCode, detail }: typed enums mirroring the Agda IssueCode ADT and the Python/Go/C++ vocabularies. IssueCode is lenient (unknown wire codes → IssueCode::Unknown, forward-compatible); IssueSeverity is the kernel's two words, error and warning, to which its reply proof holds an issue's severity."
+        notes: "ValidationIssue { severity: IssueSeverity, code: IssueCode, detail }: typed enums mirroring the Agda IssueCode ADT and the Python/Go/C++ vocabularies. IssueSeverity is the kernel's two words, error and warning, to which its reply proof holds an issue's severity; a reply holding a code or a severity outside them is refused."
 
   - id: input_bound_exceeded_error
     name: Typed input-bound-exceeded error

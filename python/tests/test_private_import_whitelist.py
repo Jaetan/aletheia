@@ -173,28 +173,6 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._response_parsers",
             "raise_if_input_bound_exceeded",
         ),
-        # Each reader takes a tag outside the set the kernel proves as written,
-        # and the real kernel never sends one, so only a direct call reaches it.
-        (
-            "test_reader_casts_reply_tags.py",
-            "aletheia.client._response_parsers",
-            "parse_finalization_results",
-        ),
-        (
-            "test_reader_casts_reply_tags.py",
-            "aletheia.client._response_parsers",
-            "parse_frame_response",
-        ),
-        (
-            "test_reader_casts_reply_tags.py",
-            "aletheia.client._response_parsers",
-            "parse_parsed_dbc_response",
-        ),
-        (
-            "test_reader_casts_reply_tags.py",
-            "aletheia.client._response_parsers",
-            "read_issues",
-        ),
         # Each reader refuses a reply missing a key the kernel always writes;
         # the real kernel never sends one, so only a direct call reaches it.
         (
@@ -415,6 +393,17 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # The words of a rational the entries wrote, read back field by field.
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "Magnitude"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "uint128_value"),
+        # The reader of a refused entry's envelope, which frees it once read.
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "take_error_envelope"),
+        # The same reader, wrapped to keep the envelope the recording stand-in
+        # answers: its code is no error code, so the entry's quote of its
+        # arguments is read there, before the binding refuses the code.
+        ("test_ffi_backend_stand_ins.py", "aletheia.client._ffi", "take_error_envelope"),
+        ("test_start_runtime.py", "aletheia.client._ffi", "take_error_envelope"),
+        # The runtime's command-line builder, read as a table as the peer
+        # bindings' tests read theirs, and the override type it takes.
+        ("test_start_runtime.py", "aletheia.client._ffi", "rts_arguments"),
+        ("test_start_runtime.py", "aletheia.client._ffi", "RuntimeOverride"),
         # The binding's ABI version, which the version test holds to the header's.
         ("test_ffi_abi_version.py", "aletheia.client._ffi", "ABI_VERSION"),
         # The one decoder of a failed entry's envelope, fed an envelope no
@@ -452,6 +441,7 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # for the kinds, quoting and paths the readers rest on.
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "A_RATIONAL"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "Arrival"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "Expectation"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "JSONKind"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "OBJECT"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "REPLY_ROOT"),
@@ -462,6 +452,8 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "came"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "came_as"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "came_word"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "field_member"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "field_word"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "json_kind"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "read_rational"),
         ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "reply_refusal"),

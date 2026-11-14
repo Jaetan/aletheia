@@ -22,17 +22,17 @@ See ``docs/FEATURE_MATRIX.yaml`` (authoritative) and ``PROJECT_STATUS.md`` for t
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 from typing import cast
 
 import pytest
 import yaml
+from _repo_root import REPO_ROOT
 from _yaml_shape import as_str_object_dict
 
 _VALID_STATUSES: frozenset[str] = frozenset({"implemented", "not_applicable", "planned"})
 _BINDINGS: tuple[str, ...] = ("python", "cpp", "go", "rust")
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = REPO_ROOT
 _MATRIX_PATH = _REPO_ROOT / "docs" / "FEATURE_MATRIX.yaml"
 
 

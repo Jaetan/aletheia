@@ -52,6 +52,12 @@ WireIndex = NewType("WireIndex", int)
 # A segment of the extraction buffer that carries signal indices.
 Segment = Literal["values", "errors", "absent"]
 
+# A whole packed extraction response buffer, written by hand.
+ExtractionReply = NewType("ExtractionReply", bytes)
+
+# The text a ProtocolError carries.
+RefusalText = NewType("RefusalText", str)
+
 
 def _value_entry(
     idx: WireIndex, negative: SignByte, magnitude: Magnitude, den: Magnitude
@@ -114,9 +120,14 @@ class TestParseExtractionBuffer:
         assert result.values == {"Speed": 220.0, "RPM": 3500.0, "Temp": 42.5}
 
     @pytest.mark.parametrize("segment", ["values", "errors", "absent"])
-    def test_signal_index_past_the_names_raises_index_error(self, segment: Segment) -> None:
-        """Each segment indexes the name table with the wire index: one past it is IndexError."""
-        past = len(NAMES)
+    @pytest.mark.parametrize("past", [WireIndex(len(NAMES)), WireIndex(0xFFFF)])
+    def test_signal_index_past_the_names_raises_index_error(
+        self, segment: Segment, past: WireIndex
+    ) -> None:
+        """Each segment indexes the name table with the unsigned wire index: past it is IndexError.
+
+        The index ``0xFFFF`` read as signed would be -1, a name the table has.
+        """
         buf = {
             "values": _extraction_buffer(values=[(past, 42, 1)]),
             "errors": _extraction_buffer(errors=[(past, 0, "reason")]),
@@ -178,6 +189,12 @@ class TestParseExtractionBuffer:
         with pytest.raises(ProtocolError, match="too short"):
             parse_extraction_buffer(b"\x00" * 9, NAMES)
 
+    def test_header_alone_is_truncated_not_too_short(self) -> None:
+        """A whole header passes the header check and lacks the offsets table it implies."""
+        with pytest.raises(ProtocolError) as refused:
+            parse_extraction_buffer(b"\x00" * 10, NAMES)
+        assert str(refused.value) == "Truncated binary extraction buffer: need 14 bytes, have 10"
+
     def test_empty_result(self) -> None:
         """Zero counts: the offsets table is the single u32 0, reasonBytes 0."""
         buf = _extraction_buffer()
@@ -187,62 +204,32 @@ class TestParseExtractionBuffer:
         assert result.errors == {}
         assert result.absent == ()
 
+    def test_zero_error_reply_reads_its_offsets_table(self) -> None:
+        """A reply without errors reads its offsets table as every reply does, then its absent."""
+        buf = _extraction_buffer(values=[(0, 220, 1), (1, -3500, 1), (2, 85, 2)], absent=[3])
+        result = parse_extraction_buffer(buf, NAMES)
+        assert result.values == {
+            "Speed": Fraction(220),
+            "RPM": Fraction(-3500),
+            "Temp": Fraction(85, 2),
+        }
+        assert result.errors == {}
+        assert result.absent == ("Mode",)
+
     def test_trailing_byte_rejected(self) -> None:
         """One byte past the header-implied total raises ProtocolError."""
         buf = _extraction_buffer(values=[(0, 100, 1)])
-        with pytest.raises(ProtocolError, match="trailing"):
+        with pytest.raises(ProtocolError) as refused:
             parse_extraction_buffer(buf + b"\x00", NAMES)
+        assert str(refused.value) == (
+            "Binary extraction buffer has trailing bytes: expected 49 bytes, have 50"
+        )
 
     def test_truncated_buffer_rejected(self) -> None:
         """One byte short of the header-implied total raises ProtocolError."""
         buf = _extraction_buffer(values=[(0, 100, 1)])
         with pytest.raises(ProtocolError, match="Truncated"):
             parse_extraction_buffer(buf[:-1], NAMES)
-
-    def test_first_offset_nonzero_rejected(self) -> None:
-        """off[0] != 0 raises ProtocolError."""
-        buf = (
-            struct.pack("<HHHI", 0, 1, 0, 1)
-            + struct.pack("<HB", 0, 0)
-            + struct.pack("<II", 1, 1)
-            + b"x"
-        )
-        with pytest.raises(ProtocolError, match="start at 0"):
-            parse_extraction_buffer(buf, NAMES)
-
-    def test_non_monotone_offsets_rejected(self) -> None:
-        """A decreasing offset pair raises ProtocolError."""
-        buf = (
-            struct.pack("<HHHI", 0, 2, 0, 1)
-            + struct.pack("<HB", 0, 0)
-            + struct.pack("<HB", 1, 1)
-            + struct.pack("<III", 0, 2, 1)
-            + b"x"
-        )
-        with pytest.raises(ProtocolError, match="monotone"):
-            parse_extraction_buffer(buf, NAMES)
-
-    def test_final_offset_reason_bytes_mismatch_rejected(self) -> None:
-        """off[nErrors] != reasonBytes raises ProtocolError."""
-        buf = (
-            struct.pack("<HHHI", 0, 1, 0, 2)
-            + struct.pack("<HB", 0, 0)
-            + struct.pack("<II", 0, 1)
-            + b"xy"
-        )
-        with pytest.raises(ProtocolError, match="reasonBytes"):
-            parse_extraction_buffer(buf, NAMES)
-
-    def test_invalid_utf8_reason_rejected(self) -> None:
-        """Invalid UTF-8 inside a reason slice raises ProtocolError."""
-        buf = (
-            struct.pack("<HHHI", 0, 1, 0, 2)
-            + struct.pack("<HB", 0, 0)
-            + struct.pack("<II", 0, 2)
-            + b"\xff\xfe"
-        )
-        with pytest.raises(ProtocolError, match="Invalid UTF-8"):
-            parse_extraction_buffer(buf, NAMES)
 
     def test_128_bit_components_read_exactly(self) -> None:
         """Both words of each magnitude are read, on either sign."""
@@ -270,6 +257,87 @@ class TestParseExtractionBuffer:
         assert isinstance(result.values["Speed"], Fraction)
         assert result.values["Speed"].numerator == 1
         assert result.values["Speed"].denominator == 3
+
+
+class TestReasonOffsets:
+    """Test the offsets table and the reasons blob it delimits."""
+
+    def test_first_offset_nonzero_rejected(self) -> None:
+        """off[0] != 0 raises ProtocolError naming off[0]."""
+        buf = (
+            struct.pack("<HHHI", 0, 1, 0, 2)
+            + struct.pack("<HB", 0, 0)
+            + struct.pack("<II", 1, 2)
+            + b"xy"
+        )
+        with pytest.raises(ProtocolError) as refused:
+            parse_extraction_buffer(buf, NAMES)
+        assert str(refused.value) == "Extraction reason offsets must start at 0, got 1"
+
+    @pytest.mark.parametrize(
+        ("buf", "refusal"),
+        [
+            pytest.param(
+                ExtractionReply(struct.pack("<HHHI", 0, 0, 0, 0) + struct.pack("<I", 1)),
+                RefusalText("Extraction reason offsets must start at 0, got 1"),
+                id="first-offset-nonzero",
+            ),
+            pytest.param(
+                ExtractionReply(struct.pack("<HHHI", 0, 0, 0, 1) + struct.pack("<I", 0) + b"x"),
+                RefusalText("Extraction reason offsets end at 0, expected reasonBytes 1"),
+                id="reason-bytes-past-the-offsets",
+            ),
+        ],
+    )
+    def test_no_errors_still_checks_the_offsets_table(
+        self, buf: ExtractionReply, refusal: RefusalText
+    ) -> None:
+        """A reply without errors is refused when its offsets table is not the single 0."""
+        with pytest.raises(ProtocolError) as refused:
+            parse_extraction_buffer(buf, NAMES)
+        assert str(refused.value) == refusal
+
+    def test_error_with_empty_reason_decoded(self) -> None:
+        """Equal adjacent offsets delimit an empty reason, which is carried, not refused."""
+        result = parse_extraction_buffer(_extraction_buffer(errors=[(0, 0, "")]), NAMES)
+        assert result.errors == {"Speed": ""}
+
+    def test_non_monotone_offsets_rejected(self) -> None:
+        """A decreasing offset pair raises ProtocolError naming both offsets."""
+        buf = (
+            struct.pack("<HHHI", 0, 2, 0, 1)
+            + struct.pack("<HB", 0, 0)
+            + struct.pack("<HB", 1, 1)
+            + struct.pack("<III", 0, 2, 1)
+            + b"x"
+        )
+        with pytest.raises(ProtocolError) as refused:
+            parse_extraction_buffer(buf, NAMES)
+        assert str(refused.value) == (
+            "Extraction reason offsets not monotone non-decreasing: offset[1] = 2 > offset[2] = 1"
+        )
+
+    def test_final_offset_reason_bytes_mismatch_rejected(self) -> None:
+        """off[nErrors] != reasonBytes raises ProtocolError."""
+        buf = (
+            struct.pack("<HHHI", 0, 1, 0, 2)
+            + struct.pack("<HB", 0, 0)
+            + struct.pack("<II", 0, 1)
+            + b"xy"
+        )
+        with pytest.raises(ProtocolError, match="reasonBytes"):
+            parse_extraction_buffer(buf, NAMES)
+
+    def test_invalid_utf8_reason_rejected(self) -> None:
+        """Invalid UTF-8 inside a reason slice raises ProtocolError."""
+        buf = (
+            struct.pack("<HHHI", 0, 1, 0, 2)
+            + struct.pack("<HB", 0, 0)
+            + struct.pack("<II", 0, 2)
+            + b"\xff\xfe"
+        )
+        with pytest.raises(ProtocolError, match="Invalid UTF-8"):
+            parse_extraction_buffer(buf, NAMES)
 
 
 def _agda_constructors() -> list[str]:

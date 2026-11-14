@@ -12,7 +12,9 @@
 //! `array`, `object` or `null`, and a key the reply lacks came as `nothing`. A
 //! rational place expects `a rational`: a number, or the `{numerator,
 //! denominator}` object the kernel writes a fraction as. A place holding one of
-//! a set of words expects them quoted, and a string outside them came quoted.
+//! a set of words expects them quoted, and a string outside them came quoted;
+//! an issue's code expects `an issue code` and an error reply's `an error
+//! code`, a string outside the table came quoted.
 //! A whole-number place expects a `number` written as digits, all the kernel
 //! writes there; a number the place's Rust type cannot hold, which the kernel
 //! never writes there either, is refused as the number the place does not
@@ -381,6 +383,22 @@ pub(crate) fn field_word(
         &words(expected),
         &came_word(obj, key),
     ))
+}
+
+/// The word at `key` that `member` reads as a member of a table, any other
+/// refused as `expected`, a string outside the table quoted as [`field_word`]
+/// quotes it.
+pub(crate) fn field_member<T>(
+    obj: &Object<'_>,
+    path: ReplyPath<'_>,
+    key: &str,
+    expected: &str,
+    member: impl FnOnce(&str) -> Option<T>,
+) -> Result<T, Error> {
+    obj.get(key)
+        .and_then(wire_json::string)
+        .and_then(|word| member(&word))
+        .ok_or_else(|| refusal(path.at(key), expected, &came_word(obj, key)))
 }
 
 /// The status at a reply's root. The readers await no status but these, whose

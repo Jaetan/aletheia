@@ -20,7 +20,8 @@
 //! Rust-idiomatic form — one backend owns one session; multiple independent
 //! sessions come from multiple [`Client`](crate::Client)s.
 
-use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::ffi::{c_char, c_int, c_void, CStr, CString, OsString};
+use std::os::unix::ffi::OsStringExt;
 use std::sync::OnceLock;
 
 use libloading::{Library, Symbol};
@@ -65,9 +66,9 @@ const RTS_DEFAULT_CORES: u32 = 1;
 /// flag set.  Same C signature (`void(int*, char***)`), so the switch is a pure
 /// string change.
 const RTS_INIT_SYMBOL: &str = "hs_init_with_rtsopts";
-/// Environment variable whose whitespace-split flags are appended after the cap
-/// (and after an optional `-N`), so a caller `-M` wins (the RTS honours the
-/// last occurrence).
+/// Environment variable whose flags, its bytes split where [`rts_space`] holds,
+/// are appended after the cap (and after an optional `-N`), so a caller `-M`
+/// wins (the RTS honours the last occurrence).
 const RTS_OVERRIDE_ENV: &str = "ALETHEIA_RTS_OPTS";
 /// The runtime's count of the CPUs the process may use (its affinity set on
 /// Linux), callable before the runtime starts: a core count past it is refused.
@@ -76,20 +77,39 @@ const RTS_PROCESSORS_SYMBOL: &str = "getNumberOfProcessors";
 /// Assemble the argv passed to `hs_init_with_rtsopts`, per the SSOT argv_order:
 /// `{progname, +RTS, heap_cap, -N<k> iff k>1, override flags, -RTS}`.  The cap
 /// is ALWAYS present, so the host is contained regardless of the requested core
-/// count.  Pure (no FFI, no env read — `override_opts` is passed in), so it is
-/// unit-testable and the parity test can drive it directly.
-fn build_rts_argv(cores: u32, override_opts: &str) -> Vec<String> {
+/// count.  The override flags are the words of `override_opts` split where
+/// [`rts_space`] holds, every other byte kept in its word.  Pure (no FFI, no
+/// env read: `override_opts` is passed in), so the tests drive it directly.
+fn build_rts_argv(cores: u32, override_opts: &[u8]) -> Vec<Vec<u8>> {
     let mut argv = vec![
-        "aletheia".to_owned(),
-        "+RTS".to_owned(),
-        RTS_HEAP_CAP_FLAG.to_owned(),
+        b"aletheia".to_vec(),
+        b"+RTS".to_vec(),
+        RTS_HEAP_CAP_FLAG.as_bytes().to_vec(),
     ];
     if cores > RTS_DEFAULT_CORES {
-        argv.push(format!("-N{cores}"));
+        argv.push(format!("-N{cores}").into_bytes());
     }
-    argv.extend(override_opts.split_whitespace().map(str::to_owned));
-    argv.push("-RTS".to_owned());
+    argv.extend(
+        override_opts
+            .split(|&byte| rts_space(byte))
+            .filter(|word| !word.is_empty())
+            .map(<[u8]>::to_vec),
+    );
+    argv.push(b"-RTS".to_vec());
     argv
+}
+
+/// Whether `byte` is one of the six ASCII whitespace bytes that separate the
+/// flags of [`RTS_OVERRIDE_ENV`]: space, TAB, LF, CR, VT and FF.
+/// `u8::is_ascii_whitespace` leaves VT out.
+fn rts_space(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | b'\x0B' | b'\x0C')
+}
+
+/// The bytes of the value of [`RTS_OVERRIDE_ENV`] as the environment holds
+/// them, UTF-8 or not; an unset variable has none.
+fn rts_override_bytes(value: Option<OsString>) -> Vec<u8> {
+    value.map(OsStringExt::into_vec).unwrap_or_default()
 }
 
 // --- FFI signatures (binary fast path) ------------------------------------
@@ -152,7 +172,7 @@ impl FfiUint128 {
 
     /// The magnitude the two words an entry wrote denote.
     fn value(self) -> u128 {
-        (u128::from(self.hi) << 64) | u128::from(self.lo)
+        (u128::from(self.hi) << 64) + u128::from(self.lo)
     }
 }
 
@@ -644,13 +664,13 @@ pub(crate) fn ensure_rts_for_test() {
 /// lifetime, so the strings and the array are intentionally leaked.
 fn init_rts(syms: &Symbols, cores: u32) {
     let hs_init = &syms.hs_init;
-    let override_opts = std::env::var(RTS_OVERRIDE_ENV).unwrap_or_default();
+    let override_opts = rts_override_bytes(std::env::var_os(RTS_OVERRIDE_ENV));
     // `into_raw` / `Box::leak` deliberately leak: GHC retains argv for the
     // process lifetime (no hs_release hook), and the RTS is never torn down.
     let mut argv: Vec<*mut c_char> = build_rts_argv(cores, &override_opts)
         .into_iter()
-        .map(|s| {
-            CString::new(s)
+        .map(|word| {
+            CString::new(word)
                 .expect("no interior NUL in RTS flag")
                 .into_raw()
         })

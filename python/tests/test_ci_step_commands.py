@@ -27,6 +27,7 @@ from _git_repo import git
 from _processes import CommandWord
 
 from tools._ci_steps import (
+    AGDA_GATES_STEP,
     CPP_COMPILERS,
     DOC_EXAMPLE_DOCS,
     DOC_EXAMPLE_PACKAGE,
@@ -38,6 +39,7 @@ from tools._ci_steps import (
     register_all_steps,
 )
 from tools._common import (
+    CPP_CONFIGURE_STEP,
     CPP_LINT_LANE,
     CPP_LINT_TREE,
     GateName,
@@ -368,6 +370,7 @@ _NEEDS: dict[GateName, tuple[GateName, ...]] = {
         "pytest (cli parity)": ("build", "cpp build"),
         "check-cpp-installed-consumer": ("cpp configure",),
         "check-json-cleanup-abort": ("cpp configure",),
+        "check-limits-parity": ("cpp configure",),
         "cargo test": ("build", "cargo build (tests)"),
         "cargo test (excel crate)": ("build", "cargo build (tests, excel crate)"),
         "clang-tidy": ("clang-tidy configure",),
@@ -419,6 +422,26 @@ def test_every_need_is_answered_where_the_step_runs(tmp_path: Path) -> None:
     assert not unmet_needs(list(lanes.values()), frozenset({GateName("build")}))
     fast = [step for step in steps if step.name in FAST_STEPS]
     assert not unmet_needs([fast], frozenset())
+
+
+def test_the_reply_place_gate_runs_in_the_cpp_lane_after_its_configure_step(
+    tmp_path: Path,
+) -> None:
+    """The reply-place gate reads the C++ test tree's compile database, which that step writes.
+
+    So its module runs from the root as one step of the C++ lane, right after
+    the lane's configure step, and the Agda gates step, which nothing
+    configures the tree before, leaves it out.
+    """
+    steps = _registered_steps(tmp_path)
+    gate = GateName("check-limits-parity")
+    assert [(step.lane, list(step.cmd), step.cwd) for step in steps if step.name == gate] == [
+        ("cpp", [sys.executable, "-m", "tools.check_limits_parity"], tmp_path)
+    ]
+    cpp = [GateName(step.name) for step in steps if step.lane == "cpp"]
+    assert cpp.index(gate) == cpp.index(CPP_CONFIGURE_STEP) + 1
+    (agda,) = (step for step in steps if step.name == AGDA_GATES_STEP)
+    assert gate not in agda.cmd
 
 
 # The doc-example command AGENTS/python.md prints, its continuation lines

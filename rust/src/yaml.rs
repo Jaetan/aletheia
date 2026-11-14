@@ -383,6 +383,7 @@ fn within_us(node: &Yaml, ctx: &str, missing: String) -> Result<TimeBound, Error
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::response::ErrorCode;
     use crate::types::Rational;
 
     fn one(yaml: &str) -> Check {
@@ -525,7 +526,7 @@ mod tests {
         .expect_err("an inverted range is refused");
         assert!(
             matches!(&inverted, Error::Validation { code: Some(code), .. }
-                if code == "handler_property_refused"),
+                if *code == ErrorCode::HandlerPropertyRefused),
             "got: {inverted:?}"
         );
         assert_eq!(
@@ -590,7 +591,7 @@ mod tests {
         let Error::Validation { code, .. } = &err else {
             panic!("expected a validation refusal, got {err:?}");
         };
-        assert_eq!(code.as_deref(), Some("text_trailing_input"), "{err:?}");
+        assert_eq!(*code, Some(ErrorCode::TextTrailingInput), "{err:?}");
         assert_eq!(err.location(), Some(location), "{err:?}");
         assert_eq!(err.key(), Some(key), "{err:?}");
         assert_eq!(
@@ -697,7 +698,7 @@ mod tests {
             let err = refused(us);
             assert!(
                 matches!(&err, Error::Validation { code: Some(code), .. }
-                    if code == "handler_property_refused"),
+                    if *code == ErrorCode::HandlerPropertyRefused),
                 "{us}: {err:?}"
             );
             assert_eq!(

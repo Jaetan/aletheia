@@ -9,10 +9,10 @@ field moved on either side fails here rather than misreading across the ABI.
 
 import ctypes
 import re
-from pathlib import Path
 from typing import NewType
 
 import pytest
+from _repo_root import REPO_ROOT
 
 from aletheia.client._ffi import (
     AletheiaBuffer,
@@ -32,7 +32,7 @@ Alignment = NewType("Alignment", int)
 # A C structure's tag, as the header spells it after ``struct``.
 StructTag = NewType("StructTag", str)
 
-_HEADER = Path(__file__).resolve().parents[2] / "haskell-shim" / "include" / "aletheia.h"
+_HEADER = REPO_ROOT / "haskell-shim" / "include" / "aletheia.h"
 
 _MIRRORS: dict[str, type[ctypes.Structure]] = {
     "aletheia_text": AletheiaText,

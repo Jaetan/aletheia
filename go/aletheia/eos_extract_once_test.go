@@ -47,7 +47,7 @@ func twoSignalProperties() []aletheia.Formula {
 func endStreamFails(indices ...int) aletheia.MockResponse {
 	parts := make([]string, 0, len(indices))
 	for _, i := range indices {
-		parts = append(parts, fmt.Sprintf(`{"property_index":%d,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`, i))
+		parts = append(parts, fmt.Sprintf(`{"type":"property","property_index":%d,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`, i))
 	}
 	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(parts, ",") + `],"warnings":[]}`)
 }
@@ -56,7 +56,7 @@ func endStreamFails(indices ...int) aletheia.MockResponse {
 func endStreamHolds(indices ...int) aletheia.MockResponse {
 	parts := make([]string, 0, len(indices))
 	for _, i := range indices {
-		parts = append(parts, fmt.Sprintf(`{"property_index":%d,"status":"holds"}`, i))
+		parts = append(parts, fmt.Sprintf(`{"type":"property","property_index":%d,"status":"holds"}`, i))
 	}
 	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(parts, ",") + `],"warnings":[]}`)
 }
@@ -182,12 +182,6 @@ func TestEndStream_AllSatisfiedMakesNoExtractionCalls(t *testing.T) {
 
 // With no frame ever sent there is nothing to extract, and the failing entry
 // still carries an enrichment with the fallback reason and the core's.
-//
-// This is also where the skip of the extraction pass over an empty union of
-// wanted signals is observable, since that union cannot be emptied through
-// the public surface: every serializable formula has an atomic leaf and the
-// signal collector keeps even an empty name. Inverting the skip's condition
-// would zero the extractions the other tests here count.
 func TestEndStream_NoTrackedFramesAttachesFallbackWithoutExtraction(t *testing.T) {
 	c, mock := startedClientWith(t, twoSignalProperties(), endStreamFails(0))
 
@@ -207,6 +201,40 @@ func TestEndStream_NoTrackedFramesAttachesFallbackWithoutExtraction(t *testing.T
 	}
 }
 
+// Diagnostics naming no signal extract no tracked frame, and the failing entry
+// still carries the fallback reason with the core's. Every serializable
+// formula has an atomic leaf and the signal collector keeps even an empty
+// name, so the diagnostics are replaced by ones naming none: with two frames
+// tracked, the frame loop stops at its head before the first extraction.
+func TestEndStream_AnEmptyUnionExtractsNoTrackedFrame(t *testing.T) {
+	c, mock := startedClientWith(t, twoSignalProperties(),
+		aletheia.Respond(ack), aletheia.Respond(ack),
+		endStreamFails(0),
+		// Read only by a loop that extracts, so the count below is what refuses it.
+		extractionOf("SigA", 5),
+		extractionOf("SigB", 7),
+	)
+	signalless := aletheia.PropertyDiagnostic{FormulaDesc: "eventually(nothing)"}
+	aletheia.SetDiagnostics(c, []aletheia.PropertyDiagnostic{signalless, signalless})
+	sendOn(t, c, 0x100, 0)
+	sendOn(t, c, 0x200, 1000)
+
+	results := mustEndStream(t, c, 1)
+	if got := extractCalls(mock); got != 0 {
+		t.Errorf("expected no extraction for an empty union, got %d", got)
+	}
+	e := results[0].Enrichment
+	if e == nil {
+		t.Fatal("expected an enrichment despite the empty union")
+	}
+	if e.Signals != nil {
+		t.Errorf("expected no values, got %v", e.Signals)
+	}
+	if want := "violated: eventually(nothing) [core: eventually unmet]"; e.EnrichedReason != want {
+		t.Errorf("EnrichedReason = %q, want %q", e.EnrichedReason, want)
+	}
+}
+
 // endStreamOf is an end-of-stream response carrying the entries as written.
 func endStreamOf(entries ...string) aletheia.MockResponse {
 	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(entries, ",") + `],"warnings":[]}`)
@@ -217,8 +245,8 @@ func endStreamOf(entries ...string) aletheia.MockResponse {
 func TestEndStream_AHoldingEntryDoesNotEndTheWalk(t *testing.T) {
 	c, _ := startedClientWith(t, twoSignalProperties(),
 		aletheia.Respond(ack),
-		endStreamOf(`{"property_index":0,"status":"holds"}`,
-			`{"property_index":1,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`),
+		endStreamOf(`{"type":"property","property_index":0,"status":"holds"}`,
+			`{"type":"property","property_index":1,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`),
 		extractionOf("SigB", 7),
 	)
 	sendOn(t, c, 0x100, 0)
@@ -236,10 +264,10 @@ func TestEndStream_TheEndedRecordCountsTheVerdicts(t *testing.T) {
 	logger := aletheia.WithLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	properties := append(twoSignalProperties(), aletheia.Eventually{Inner: gt("SigC", 1)}, aletheia.Eventually{Inner: gt("SigD", 1)})
 	c, _ := startedClientOpts(t, properties, []aletheia.MockResponse{
-		endStreamOf(`{"property_index":0,"status":"fails","timestamp":1000,"reason":"a"}`,
-			`{"property_index":1,"status":"unresolved","reason":"b"}`,
-			`{"property_index":2,"status":"fails","timestamp":1000,"reason":"c"}`,
-			`{"property_index":3,"status":"holds"}`),
+		endStreamOf(`{"type":"property","property_index":0,"status":"fails","timestamp":1000,"reason":"a"}`,
+			`{"type":"property","property_index":1,"status":"unresolved","reason":"b"}`,
+			`{"type":"property","property_index":2,"status":"fails","timestamp":1000,"reason":"c"}`,
+			`{"type":"property","property_index":3,"status":"holds"}`),
 	}, logger)
 
 	mustEndStream(t, c, 4)

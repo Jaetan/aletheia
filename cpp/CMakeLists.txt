@@ -533,6 +533,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/unit_tests_json_formula.cpp
         tests/unit_tests_json_rejects.cpp
         tests/unit_tests_json_guards.cpp
+        tests/unit_tests_wide_json.cpp
         tests/unit_tests_reply_refusals_one_form.cpp
         tests/unit_tests_client.cpp
         tests/unit_tests_client_backend.cpp
@@ -589,7 +590,9 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
             tests/integration_tests_checks.cpp
             tests/integration_tests_nested_mux.cpp
             tests/integration_tests_end_of_stream.cpp
-            tests/integration_tests_geometry.cpp)
+            tests/integration_tests_geometry.cpp
+            tests/integration_tests_wide_numbers.cpp
+            tests/integration_tests_reply_places.cpp)
         target_link_libraries(unit_tests PRIVATE Threads::Threads)
         # The two loaders reach the binary only through their own suites: the
         # library links statically here, so an object no test references is

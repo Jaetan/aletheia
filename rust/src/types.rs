@@ -140,8 +140,16 @@ pub struct Rational {
 }
 
 /// The greatest common divisor of `a` and `b`, `a` when `b` is zero.
+///
+/// Euclid's remainders fall at least as fast as the Fibonacci numbers, so
+/// two `u128`s reach a zero remainder within 184 steps, the count the two
+/// largest Fibonacci numbers below 2^128 take; the bound keeps every run of
+/// the loop finite.
 fn gcd(mut a: u128, mut b: u128) -> u128 {
-    while b != 0 {
+    for _ in 0..u128::BITS * 2 {
+        if b == 0 {
+            break;
+        }
         (a, b) = (b, a % b);
     }
     a
@@ -401,6 +409,59 @@ mod tests {
             MAX_EXTENDED_ID
         );
         assert!(CanId::extended(MAX_EXTENDED_ID + 1).is_err());
+    }
+
+    #[test]
+    fn a_ratio_taking_euclids_longest_run_below_2_128_stays_in_lowest_terms() {
+        use super::Rational;
+        // The two largest Fibonacci numbers below 2^128, coprime, and the pair
+        // Euclid takes the most steps over; a common factor of 6 is removed.
+        let (larger, smaller) = (
+            332_825_110_087_067_562_321_196_029_789_634_457_848_u128,
+            205_697_230_343_233_228_174_223_751_303_346_572_685_u128,
+        );
+        let ratio = Rational::from_parts(false, larger, smaller).expect("a positive denominator");
+        assert_eq!((ratio.numerator(), ratio.denominator()), (larger, smaller));
+        let scaled = Rational::from_parts(true, 6 * 7, 6 * 11).expect("a positive denominator");
+        assert_eq!(
+            (
+                scaled.is_negative(),
+                scaled.numerator(),
+                scaled.denominator()
+            ),
+            (true, 7, 11)
+        );
+    }
+
+    #[test]
+    fn a_sign_magnitude_prints_a_minus_only_before_a_negative_non_zero_magnitude() {
+        use super::SignMagnitude;
+        let shown = |negative, magnitude| {
+            SignMagnitude {
+                negative,
+                magnitude,
+            }
+            .to_string()
+        };
+        assert_eq!(shown(false, 5), "5");
+        assert_eq!(shown(true, 0), "0");
+        assert_eq!(shown(true, 5), "-5");
+    }
+
+    #[test]
+    fn a_sign_magnitude_converts_to_i64_within_its_range_and_is_refused_past_it() {
+        use super::SignMagnitude;
+        let to_i64 = |negative, magnitude| {
+            i64::try_from(SignMagnitude {
+                negative,
+                magnitude,
+            })
+        };
+        assert_eq!(to_i64(false, 5), Ok(5));
+        assert_eq!(to_i64(true, 5), Ok(-5));
+        assert_eq!(to_i64(true, 1 << 63), Ok(i64::MIN));
+        assert!(to_i64(false, 1 << 63).is_err());
+        assert!(to_i64(true, u128::MAX).is_err());
     }
 
     #[test]

@@ -13,7 +13,7 @@ import (
 )
 
 // errorEnvelope is an error response carrying the code and message.
-func errorEnvelope(code, msg string) aletheia.MockResponse {
+func errorEnvelope(code aletheia.ErrorCode, msg string) aletheia.MockResponse {
 	return aletheia.Respond(fmt.Sprintf(`{"status":"error","code":%q,"message":%q}`, code, msg))
 }
 
@@ -32,7 +32,7 @@ func TestCodedErrorEnvelopesReachTheCaller(t *testing.T) {
 	parseDBC := func(c *aletheia.Client) error { _, err := c.ParseDBC(ctx, testDBC()); return err }
 	formatDBC := func(c *aletheia.Client) error { _, err := c.FormatDBC(ctx); return err }
 	cases := map[string]struct {
-		code string
+		code aletheia.ErrorCode
 		msg  string
 		call func(*aletheia.Client) error
 	}{
@@ -212,6 +212,25 @@ func TestLocate(t *testing.T) {
 	foreign := errors.New("not ours")
 	if got := aletheia.Locate(foreign, "Row 2", "Value"); got != foreign {
 		t.Errorf("Locate(foreign) = %#v, want the error it was given", got)
+	}
+}
+
+// An error prints its text alone when no loader located it, after the
+// location when no key holds the refusal, and after the location and the
+// quoted key otherwise.
+func TestError_PrintsAfterItsLocationAndKey(t *testing.T) {
+	cases := map[string]struct {
+		location, key, want string
+	}{
+		"unlocated":          {"", "", "refused"},
+		"located, no key":    {"Row 2", "", "Row 2: refused"},
+		"located with a key": {"Row 2", "Factor", "Row 2: invalid 'Factor': refused"},
+	}
+	for name, tc := range cases {
+		e := &aletheia.Error{Kind: aletheia.ErrValidation, Message: "refused", Location: tc.location, Key: tc.key}
+		if got := e.Error(); got != tc.want {
+			t.Errorf("%s: Error() = %q, want %q", name, got, tc.want)
+		}
 	}
 }
 

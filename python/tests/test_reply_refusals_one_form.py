@@ -53,8 +53,7 @@ _LEFT_ALONE: dict[Site, CallCount] = {
     Site(ModulePath("client/_client_bin.py"), FunctionName("parse_extraction_buffer")): CallCount(
         3
     ),
-    # A library that answered no reply: a null string, a refusal without its envelope.
-    Site(ModulePath("client/_backend.py"), FunctionName("_decode_and_free_response")): CallCount(1),
+    # A library that answered no reply: a refusal without its envelope.
     Site(ModulePath("client/_ffi.py"), FunctionName("take_error_envelope")): CallCount(1),
     # The one form itself.
     Site(ModulePath("client/_helpers/reply_shape.py"), FunctionName("reply_refusal")): CallCount(1),

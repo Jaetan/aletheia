@@ -8,11 +8,11 @@ import json
 import re
 from contextlib import contextmanager
 from fractions import Fraction
-from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, NamedTuple, NewType, cast
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, NewType
 
 import pytest
 from _dbc_helpers import KernelReply, dbc
+from _repo_root import REPO_ROOT
 
 from aletheia import AletheiaClient, AletheiaError, FFIBackend, MockBackend, ProtocolError, Signal
 from aletheia.client._response_parsers import (
@@ -28,7 +28,7 @@ from aletheia.types import DLCCode, dump_json, is_str_dict
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
 
-    from aletheia.types import JSONValue, PropertyResultEntry, Response, SetPropertiesCommand
+    from aletheia.types import JSONValue, PropertyResultEntry, SetPropertiesCommand
 
 pytestmark = pytest.mark.usefixtures("rts_up")
 
@@ -104,7 +104,7 @@ class Failure(NamedTuple):
     verdict: Prose
 
 
-_REPO: Final = Path(__file__).resolve().parents[2]
+_REPO: Final = REPO_ROOT
 _CORPUS: Final = _REPO / "python" / "tests" / "fixtures" / "dbc_corpus"
 _REPLY_PROOF: Final = _REPO / "src" / "Aletheia" / "Protocol" / "ReplyRange.agda"
 _ROOT: Final = ReplyPath("")
@@ -424,24 +424,26 @@ def _no_enrichment(entry: PropertyResultEntry) -> None:
     del entry
 
 
-def _decoded(reply: KernelReply) -> Response:
-    """Decode a broken reply as a reader's input."""
-    return cast("Response", _value(reply))
-
-
 def _read(reader: ReaderName, reply: KernelReply) -> None:
     """Feed ``reply`` to ``reader``, through the client where the reader lives in it."""
     match reader:
         case "parseDBC":
-            _ = parse_parsed_dbc_response(_decoded(reply))
+            decoded = _value(reply)
+            assert is_str_dict(decoded), decoded
+            _ = parse_parsed_dbc_response(decoded)
         case "frame":
-            _ = parse_frame_response(_decoded(reply))
+            decoded = _value(reply)
+            assert is_str_dict(decoded), decoded
+            _ = parse_frame_response(decoded)
         case "endStream":
-            decoded = _decoded(reply)
+            decoded = _value(reply)
+            assert is_str_dict(decoded), decoded
             _ = parse_finalization_results(decoded, _no_enrichment)
             _ = parse_complete_warnings(decoded)
         case "error envelope":
-            _ = build_error_response(_decoded(reply))
+            decoded = _value(reply)
+            assert is_str_dict(decoded), decoded
+            _ = build_error_response(decoded)
         case "formatDBC" | "formatDBCText" | "validateDBC" | "extractAllSignals":
             with AletheiaClient(backend=MockBackend([reply])) as client:
                 match reader:

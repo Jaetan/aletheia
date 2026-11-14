@@ -4,9 +4,10 @@
 
 Several test modules drive a one-frame streaming session (``parse_dbc →
 set_properties → start_stream → send_frame → end_stream``) or send a single
-frame with the canonical lifecycle header.  Centralising the boilerplate here
-keeps the wire details in one place (pylint R0801) and out of ``conftest.py``,
-which is reserved for pytest fixtures.
+frame with the canonical lifecycle header, or run one entry on a client not
+yet entered.  Centralising the boilerplate here keeps the wire details in one
+place (pylint R0801) and out of ``conftest.py``, which is reserved for pytest
+fixtures.
 """
 
 from __future__ import annotations
@@ -15,16 +16,17 @@ import json
 from typing import TYPE_CHECKING, TypedDict
 from unittest.mock import Mock
 
-from aletheia import AletheiaClient, MockBackend, Signal
+import pytest
+
+from aletheia import AletheiaClient, MockBackend, Signal, StateError
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.checks_runner import run_checks
 from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
     from typing import Unpack
-
-    import pytest
 
     from aletheia.checks import CheckResult
     from aletheia.checks_runner import CheckRunResult
@@ -73,6 +75,20 @@ def run_one_frame_stream(
         client.start_stream()
         client.send_frame(timestamp=timestamp, can_id=can_id, dlc=dlc, data=bytearray(payload))
         client.end_stream()
+
+
+def refused_outside_a_session[R](
+    call: Callable[[AletheiaClient], R],
+) -> tuple[StateError, MockBackend]:
+    """Run *call* on a client not yet entered; return the ``StateError`` raised and the backend.
+
+    The backend is a ``MockBackend`` queuing no reply, whose ``inputs`` show
+    whether the refused call reached it.
+    """
+    backend = MockBackend()
+    with pytest.raises(StateError) as refused:
+        _ = call(AletheiaClient(backend=backend))
+    return refused.value, backend
 
 
 def send_test_frame(

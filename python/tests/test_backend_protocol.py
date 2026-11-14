@@ -9,6 +9,7 @@ captured inputs and the init/close lifecycle.
 from __future__ import annotations
 
 from fractions import Fraction
+from typing import TYPE_CHECKING, Literal, NewType
 
 import pytest
 from _dbc_helpers import (
@@ -27,12 +28,16 @@ from aletheia import (
     BinaryPathUnsupportedError,
     FFIBackend,
     MockBackend,
+    ProtocolError,
     Signal,
     StateError,
     ValidationError,
 )
 from aletheia._dbc_types import SignalName, empty_dbc_tier2
 from aletheia.types import DBCDefinition, DLCCode
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Some tests here build predicates whose rational values are rendered through the
 # GHC RTS (e.g. the mock streaming session's ``Signal("Sig").less_than(255)``),
@@ -118,6 +123,24 @@ def test_ffibackend_refuses_a_payload_other_than_the_dlc_byte_count() -> None:
                 )
     finally:
         backend.close(state)
+
+
+def test_ffibackend_binary_extraction_the_kernel_refuses_raises_its_code_and_message() -> None:
+    """A binary extraction the kernel refuses raises the kernel's code and message.
+
+    A session with no DBC loaded refuses every extraction with an error
+    envelope, which the backend reads and frees through the library.
+    """
+    backend = FFIBackend()
+    state = backend.init()
+    try:
+        with pytest.raises(ProtocolError) as refused:
+            _ = backend.extract_signals_bin(
+                state, can_id=0x100, extended=False, dlc=8, data=bytes(8)
+            )
+    finally:
+        backend.close(state)
+    assert (str(refused.value), refused.value.code) == ("DBC not loaded", "handler_no_dbc")
 
 
 def test_mockbackend_satisfies_backend_protocol() -> None:
@@ -206,6 +229,91 @@ def test_mockbackend_exhausted_process_raises() -> None:
     assert backend.inputs == [b'{"command":"parseDBC","dbc":{}}']
 
 
+# A binary shim of MockBackend, by the operation its ``<binary:OP>`` sentinel names.
+type BinaryShim = Literal[
+    "sendFrame",
+    "sendError",
+    "sendRemote",
+    "startStream",
+    "endStream",
+    "formatDBC",
+    "extractAllSignals",
+    "buildFrameBin",
+    "updateFrameBin",
+]
+
+# What a mock answers a call with: the response queued for it.
+Reply = NewType("Reply", bytes)
+
+# One call of a binary shim on a fresh session, an 8-byte standard frame where it takes one.
+type ShimCall = Callable[[MockBackend], Reply]
+
+_SHIM_CALLS: dict[BinaryShim, ShimCall] = {
+    "sendFrame": lambda mock: Reply(
+        mock.send_frame_binary(
+            mock.init(),
+            timestamp=0,
+            can_id=0x100,
+            extended=False,
+            dlc=8,
+            data=bytes(8),
+            brs=None,
+            esi=None,
+        )
+    ),
+    "sendError": lambda mock: Reply(mock.send_error_binary(mock.init(), 0)),
+    "sendRemote": lambda mock: Reply(
+        mock.send_remote_binary(mock.init(), timestamp=0, can_id=0x100, extended=False)
+    ),
+    "startStream": lambda mock: Reply(mock.start_stream_binary(mock.init())),
+    "endStream": lambda mock: Reply(mock.end_stream_binary(mock.init())),
+    "formatDBC": lambda mock: Reply(mock.format_dbc_binary(mock.init())),
+    "extractAllSignals": lambda mock: Reply(
+        mock.extract_signals_binary(mock.init(), can_id=0x100, extended=False, dlc=8, data=bytes(8))
+    ),
+    "buildFrameBin": lambda mock: Reply(
+        mock.build_frame_bin(
+            mock.init(),
+            can_id=0x100,
+            extended=False,
+            dlc=8,
+            indices=(0,),
+            values=(Fraction(1),),
+            expected_bytes=8,
+        )
+    ),
+    "updateFrameBin": lambda mock: Reply(
+        mock.update_frame_bin(
+            mock.init(),
+            can_id=0x100,
+            extended=False,
+            dlc=8,
+            data=bytes(8),
+            indices=(0,),
+            values=(Fraction(1),),
+            expected_bytes=8,
+        )
+    ),
+}
+
+
+@pytest.mark.parametrize("shim", list(_SHIM_CALLS))
+def test_mockbackend_binary_shim_records_its_sentinel(shim: BinaryShim) -> None:
+    """Each binary shim records its ``<binary:OP>`` sentinel, answered or starved.
+
+    A queued response is answered as queued; on an empty queue the shim raises
+    StateError naming the sentinel, recorded before the raise.
+    """
+    sentinel = f"<binary:{shim}>"
+    backend = MockBackend([b'{"status":"ack"}'])
+    call = _SHIM_CALLS[shim]
+    assert call(backend) == b'{"status":"ack"}'
+    with pytest.raises(StateError) as starved:
+        _ = call(backend)
+    assert str(starved.value) == f"mock backend: no queued response for {sentinel}"
+    assert backend.inputs == [sentinel.encode(), sentinel.encode()]
+
+
 def test_mockbackend_queue_response_appends() -> None:
     """``queue_response`` adds to the back; popped FIFO."""
     backend = MockBackend()
@@ -231,14 +339,14 @@ def test_mockbackend_clear_resets_queue_and_inputs() -> None:
 
 
 def test_mockbackend_extract_signals_bin_raises_unsupported() -> None:
-    """Mock raises the sentinel; Client should fall back to JSON path.
+    """Mock raises the sentinel naming the JSON fallback, and records nothing.
 
     Cross-binding parity with Go's ``ErrBinaryPathUnsupported``
-    (``go/aletheia/mock.go:222``).
+    (``MockBackend.ExtractSignalsBin`` in ``go/aletheia/mock.go``).
     """
     backend = MockBackend()
     state = backend.init()
-    with pytest.raises(BinaryPathUnsupportedError):
+    with pytest.raises(BinaryPathUnsupportedError) as unsupported:
         backend.extract_signals_bin(
             state,
             can_id=0x100,
@@ -246,6 +354,11 @@ def test_mockbackend_extract_signals_bin_raises_unsupported() -> None:
             dlc=DLCCode(8),
             data=bytes(8),
         )
+    assert str(unsupported.value) == (
+        "MockBackend does not implement the binary extraction path;"
+        " Client should fall back to JSON via extract_signals_binary."
+    )
+    assert not backend.inputs
 
 
 # -----------------------------------------------------------------------------
@@ -368,7 +481,7 @@ def test_protocol_error_from_mock_propagates() -> None:
     """A mock-injected error response surfaces as ProtocolError to the user."""
     backend = MockBackend(
         [
-            b'{"status":"error","message":"injected error","code":"protocol_invalid_command"}',
+            b'{"status":"error","message":"injected error","code":"route_unknown_command"}',
         ]
     )
     with AletheiaClient(backend=backend) as client:

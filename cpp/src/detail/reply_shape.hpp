@@ -11,8 +11,9 @@
 // "nothing". A rational place expects "a rational": a number, or the
 // {numerator, denominator} object the kernel writes a fraction as. A place
 // holding one of a set of words expects them quoted, and a string outside them
-// came quoted. A whole-number place expects a "number" written as digits, all
-// the kernel writes there.
+// came quoted; an issue's code expects "an issue code" and an error reply's
+// "an error code", a string outside the table came quoted. A whole-number
+// place expects a "number" written as digits, all the kernel writes there.
 //
 // A reader narrows each place itself and builds its refusal here: `came`
 // names what a key held, `json_kind` what a value is, `came_word` what a word
@@ -25,15 +26,19 @@
 
 #include "wide_json.hpp"
 
+#include <array>
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace aletheia::detail {
@@ -59,9 +64,18 @@ inline constexpr std::string_view expect_array = "array";
 inline constexpr std::string_view expect_object = "object";
 inline constexpr std::string_view expect_rational = "a rational";
 inline constexpr std::string_view expect_json_text = "JSON text";
+inline constexpr std::string_view expect_issue_code = "an issue code";
+inline constexpr std::string_view expect_error_code = "an error code";
 
 // What came at a key the reply lacks.
 inline constexpr std::string_view came_nothing = "nothing";
+
+// The value at `key` of `obj`, nullptr when it holds none there. A value that
+// is not an object holds no key.
+[[nodiscard]] auto value_at(Json const& obj, std::string_view key) -> Json const*;
+
+// Whether `key` of `obj` holds a value other than null.
+[[nodiscard]] auto holds_non_null(Json const& obj, std::string_view key) -> bool;
 
 // The JSON kind of a value: a negative number past -2^127, which `Json` holds
 // as a binary node, is a number.
@@ -125,16 +139,18 @@ template<std::unsigned_integral T>
     return static_cast<T>(wide);
 }
 
+// The value at `key` of the object `obj` at `path`, an absent key refused as
+// nothing came, `expected` being what the place expects.
+[[nodiscard]] auto field_value(Json const& obj, ReplyPath const& path, std::string_view key,
+                               std::string_view expected) -> Json const&;
+
 // The key `key` of the object `obj` at `path`, read with `read`, which names
 // its own expectation for a value of the wrong kind; an absent key is refused
 // as nothing came, `expected` being what `read` expects.
 template<typename Read>
 [[nodiscard]] auto field(Json const& obj, ReplyPath const& path, std::string_view key,
                          std::string_view expected, Read read) -> decltype(auto) {
-    auto const found = obj.find(key);
-    if (found == obj.end())
-        throw reply_refusal(path.at(key), expected, came_nothing);
-    return read(*found, path.at(key));
+    return read(field_value(obj, path, key, expected), path.at(key));
 }
 
 // The fields of each kind, each refusing an absent key as nothing came.
@@ -200,6 +216,47 @@ template<typename T>
 // returned may be dropped.
 auto field_word(Json const& obj, ReplyPath const& path, std::string_view key,
                 std::initializer_list<std::string_view> expected) -> std::string_view;
+
+// The words a tag place holds, each paired with the member it reads as.
+template<typename Member, std::size_t N>
+using WordTable = std::array<std::pair<std::string_view, Member>, N>;
+
+// The member `table` pairs with the word at `key`, nullptr when the key holds
+// no word the table names.
+template<typename Member, std::size_t N>
+[[nodiscard]] auto member_at(Json const& obj, std::string_view key,
+                             WordTable<Member, N> const& table) -> Member const* {
+    auto const* const value = value_at(obj, key);
+    if (value == nullptr || !value->is_string())
+        return nullptr;
+    std::string_view const word = value->get_ref<std::string const&>();
+    for (auto const& [name, member] : table)
+        if (name == word)
+            return &member;
+    return nullptr;
+}
+
+// The member `table` pairs with the word at `key`, any other refused as
+// `expected`, a string outside the table quoted as `field_word` quotes it.
+template<typename Member, std::size_t N>
+[[nodiscard]] auto field_member(Json const& obj, ReplyPath const& path, std::string_view key,
+                                WordTable<Member, N> const& table, std::string_view expected)
+    -> Member {
+    if (auto const* const member = member_at(obj, key, table))
+        return *member;
+    throw reply_refusal(path.at(key), expected, came_word(obj, key));
+}
+
+// The member `table` pairs with the word at `key`, any other refused with the
+// table's words quoted as `field_word` refuses them.
+template<typename Member, std::size_t N>
+[[nodiscard]] auto field_member(Json const& obj, ReplyPath const& path, std::string_view key,
+                                WordTable<Member, N> const& table) -> Member {
+    if (auto const* const member = member_at(obj, key, table))
+        return *member;
+    auto const spellings = table | std::views::keys | std::ranges::to<std::vector>();
+    throw reply_refusal(path.at(key), words(spellings), came_word(obj, key));
+}
 
 // The status at a reply's root: the answer each command awaits, and the error
 // any command may answer.

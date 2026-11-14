@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -14,13 +15,13 @@ import (
 // --- Deserialization: the kernel's JSON to Go ---
 
 // Every reader below requires each key the kernel writes and reads each place
-// by kind only, refusing what the kernel never writes there in the one form of
+// by kind, refusing what the kernel never writes there in the one form of
 // reply_shape.go: the ranges and the tags are the kernel's, proven of every
-// reply. A tag is dispatched with no refusal of its own by one switch whose
-// cases name every word the kernel writes at the place, the last falling
-// through to the default, so the last arm reads every word the arms before it
-// do not name; tools/check_limits_parity.py compares the case words with the
-// reply proof's.
+// reply. A validation issue's severity and code, an error reply's code, a
+// property result's type and status and a stream warning's kind are read as a
+// member of their set, any other refused at its place, and
+// tools/check_limits_parity.py compares the words each tag's reader awaits
+// with the reply proof's.
 
 // expectJSONText is what a reply's text holds before it is read as an object.
 const expectJSONText = "JSON text"
@@ -85,16 +86,16 @@ func decodeResponse(raw string, want replyStatus) (map[string]any, error) {
 }
 
 // checkErrorStatus reads an error envelope into the error it carries, and
-// never answers nil. The envelope's status is "error" and its code and message
-// are strings; where the code carries a payload of its own, one of the lifts
-// below gives the caller a type to match on instead of the generic coded
-// error. A place of the envelope holding what the kernel never writes there is
-// refused.
+// never answers nil. The envelope's status is "error", its code one of the
+// ErrorCodes and its message a string; where the code carries a payload of its
+// own, one of the lifts below gives the caller a type to match on instead of
+// the generic coded error. A place of the envelope holding what the kernel
+// never writes there is refused.
 func checkErrorStatus(m map[string]any) error {
 	if _, err := fieldStatus(m, "", "status", statusError); err != nil {
 		return err
 	}
-	code, err := fieldString(m, "", "code")
+	code, err := fieldMember(m, "", "code", expectErrorCode, errorCodes)
 	if err != nil {
 		return err
 	}
@@ -145,13 +146,10 @@ type boundTriple struct {
 // each broken key refused at its place; the kernel proves the observed size
 // and the limit positive, so they are read without a range check.
 func readBoundTriple(m map[string]any) (boundTriple, bool, error) {
-	held := false
-	for _, key := range boundTripleKeys {
-		if _, ok := m[key]; ok {
-			held = true
-			break
-		}
-	}
+	held := slices.ContainsFunc(boundTripleKeys[:], func(key string) bool {
+		_, ok := m[key]
+		return ok
+	})
 	if !held {
 		return boundTriple{}, false, nil
 	}
@@ -185,7 +183,7 @@ func boundField(m map[string]any) (string, error) {
 // triple always. The typed error keeps the kind, the observed size, the limit,
 // the field the refusal names, if it names one, and the kernel's message,
 // which is its text.
-func inputBoundExceededFromResponse(code, msg string, m map[string]any) (*InputBoundExceededError, error) {
+func inputBoundExceededFromResponse(code ErrorCode, msg string, m map[string]any) (*InputBoundExceededError, error) {
 	triple, held, err := readBoundTriple(m)
 	if err != nil {
 		return nil, err
@@ -224,7 +222,7 @@ func issuesPayload(m map[string]any) ([]ValidationIssue, bool, error) {
 // validation. The issues have the element shape of a validation reply, and
 // the wire message is carried through, so the rendered error is what the
 // generic one rendered.
-func validationFailedFromResponse(code, msg string, m map[string]any) (*ValidationFailedError, error) {
+func validationFailedFromResponse(code ErrorCode, msg string, m map[string]any) (*ValidationFailedError, error) {
 	if code != CodeHandlerValidationFailed {
 		return nil, nil
 	}
@@ -237,7 +235,7 @@ func validationFailedFromResponse(code, msg string, m map[string]any) (*Validati
 
 // textRoundtripFailedFromResponse lifts a refusal of a DBC whose text does not
 // re-parse, carrying the same payload as the validation refusal above.
-func textRoundtripFailedFromResponse(code, msg string, m map[string]any) (*TextRoundTripFailedError, error) {
+func textRoundtripFailedFromResponse(code ErrorCode, msg string, m map[string]any) (*TextRoundTripFailedError, error) {
 	if code != CodeHandlerTextRoundtripFailed {
 		return nil, nil
 	}
@@ -285,7 +283,7 @@ func parseIssueArray(m map[string]any, key string) ([]ValidationIssue, error) {
 		if err != nil {
 			return nil, err
 		}
-		code, err := fieldString(issue, place, "code")
+		code, err := fieldMember(issue, place, "code", expectIssueCode, issueCodes)
 		if err != nil {
 			return nil, err
 		}
@@ -297,25 +295,21 @@ func parseIssueArray(m map[string]any, key string) ([]ValidationIssue, error) {
 		if err != nil {
 			return nil, err
 		}
-		issues = append(issues, ValidationIssue{Severity: severity, Code: IssueCode(code), Detail: detail})
+		issues = append(issues, ValidationIssue{Severity: severity, Code: code, Detail: detail})
 	}
 	return issues, nil
 }
 
-// readSeverity reads an issue's severity, "warning" its last arm.
+// readSeverity reads an issue's severity, "error" or "warning".
 func readSeverity(issue map[string]any, path replyPath) (IssueSeverity, error) {
-	word, err := fieldString(issue, path, "severity")
+	word, err := fieldWord(issue, path, "severity", "error", "warning")
 	if err != nil {
 		return 0, err
 	}
-	switch word {
-	case "error":
+	if word == "error" {
 		return SeverityError, nil
-	case "warning":
-		fallthrough
-	default:
-		return SeverityWarning, nil
 	}
+	return SeverityWarning, nil
 }
 
 // parseValidationResponse decodes a validateDBC response into typed
@@ -594,11 +588,10 @@ func parseStreamResponse(raw string) (*StreamResult, error) {
 	return &StreamResult{Results: results, Warnings: warnings}, nil
 }
 
-// parseStreamWarning reads one end-of-stream warning at path. The kernel
-// proves the set of kinds it writes, so the kind is read as the string it is.
+// parseStreamWarning reads one end-of-stream warning at path: its kind, its
+// property's index and its detail.
 func parseStreamWarning(w map[string]any, path replyPath) (StreamWarning, error) {
-	kind, err := fieldString(w, path, "kind")
-	if err != nil {
+	if _, err := fieldWord(w, path, "kind", "uncached_atom"); err != nil {
 		return StreamWarning{}, err
 	}
 	index, err := fieldUint64(w, path, "property_index")
@@ -609,37 +602,28 @@ func parseStreamWarning(w map[string]any, path replyPath) (StreamWarning, error)
 	if err != nil {
 		return StreamWarning{}, err
 	}
-	return StreamWarning{Kind: WarningKind(kind), PropertyIndex: int(index), Detail: detail}, nil
+	return StreamWarning{Kind: WarningUncachedAtom, PropertyIndex: int(index), Detail: detail}, nil
 }
 
-// parsePropertyEvent reads one event of a frame's batch at path by its type,
-// "property" its last arm: its verdict, the timestamp of the frame that broke
-// the property on a failure, and a reason on every verdict but a hold.
+// parsePropertyEvent reads one event of a frame's batch at path: its verdict,
+// the timestamp of the frame that broke the property on a failure, and a
+// reason on every verdict but a hold.
 func parsePropertyEvent(r map[string]any, path replyPath) (PropertyResult, error) {
-	kind, err := fieldString(r, path, "type")
+	pr, err := readVerdict(r, path)
 	if err != nil {
 		return PropertyResult{}, err
 	}
-	switch kind {
-	case "property":
-		fallthrough
-	default:
-		pr, err := readVerdict(r, path)
-		if err != nil {
+	if pr.Verdict == Fails {
+		if pr.Timestamp, err = readTimestamp(r, path); err != nil {
 			return PropertyResult{}, err
 		}
-		if pr.Verdict == Fails {
-			if pr.Timestamp, err = readTimestamp(r, path); err != nil {
-				return PropertyResult{}, err
-			}
-		}
-		if pr.Verdict != Holds {
-			if pr.Reason, err = fieldString(r, path, "reason"); err != nil {
-				return PropertyResult{}, err
-			}
-		}
-		return pr, nil
 	}
+	if pr.Verdict != Holds {
+		if pr.Reason, err = fieldString(r, path, "reason"); err != nil {
+			return PropertyResult{}, err
+		}
+	}
+	return pr, nil
 }
 
 // parsePropertyResult reads one end-of-stream verdict at path into the typed
@@ -666,10 +650,13 @@ func parsePropertyResult(r map[string]any, path replyPath) (PropertyResult, erro
 	return pr, nil
 }
 
-// readVerdict reads the status and the property index every verdict carries,
-// "unresolved" the status's last arm.
+// readVerdict reads the type, the status and the property index every
+// verdict carries, "unresolved" the status's last arm.
 func readVerdict(r map[string]any, path replyPath) (PropertyResult, error) {
-	status, err := fieldString(r, path, "status")
+	if _, err := fieldWord(r, path, "type", "property"); err != nil {
+		return PropertyResult{}, err
+	}
+	status, err := fieldWord(r, path, "status", "fails", "holds", "unresolved")
 	if err != nil {
 		return PropertyResult{}, err
 	}
@@ -683,8 +670,6 @@ func readVerdict(r map[string]any, path replyPath) (PropertyResult, error) {
 		verdict = Fails
 	case "holds":
 		verdict = Holds
-	case "unresolved":
-		fallthrough
 	default:
 		verdict = Unresolved
 	}

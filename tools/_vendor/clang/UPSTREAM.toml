@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Where every other file of this directory comes from: LLVM's Python bindings
+# to libclang and LLVM's licence, at the release of the Clang toolchain
+# cpp/toolchain/check_upstream.sh pins, each kept byte for byte.
+tag = "llvmorg-23.1.2"
+
+# Each file's git blob sha in llvm-project at that tag, by its name here, with
+# its path there beside it.
+[blobs]
+"cindex.py" = "24b737139dba8da1384a5a42ea1caa9a99bd8f56"   # clang/bindings/python/clang/cindex.py
+"__init__.py" = "8d0d1729e4a13a1c8a3d8996770e9af5fa65fd85" # clang/bindings/python/clang/__init__.py
+"LICENSE.TXT" = "fa6ac540007032cbd0ec772a1c72e6cb5527a4fe" # llvm/LICENSE.TXT

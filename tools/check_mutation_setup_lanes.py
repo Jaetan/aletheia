@@ -139,6 +139,9 @@ TestName = NewType("TestName", str)
 PYTHON_DOC_HARNESS = PytestArg("--markdown-docs")
 RUST_DOC_HARNESS = TestName("every_rust_fence_of_the_listed_documents_builds_and_runs")
 CPP_DOC_HARNESS = "tests/doc_example_tests.cpp"
+# The integration suite's binary, every source of which the mutation build folds into the
+# binary the Mull runner runs.
+CPP_INTEGRATION_TARGET = "integration_tests"
 # The tests that build the benchmark example with a cargo of their own and run
 # it, every test of this file; the Rust lane skips them beside its harness.
 RUST_PROGRAM_TESTS = REPO_ROOT / "rust" / "tests" / "benchmark_program.rs"
@@ -211,6 +214,12 @@ _CMAKE_SEPARATORS = frozenset(
 )
 # The commands that name a target's sources, its name the first argument.
 _CMAKE_SOURCE_COMMANDS = frozenset({CMakeWord("add_executable"), CMakeWord("target_sources")})
+# The words those two commands read as keywords, not sources: add_executable's
+# options and target_sources' scopes.
+_CMAKE_SOURCE_KEYWORDS = frozenset(
+    CMakeWord(word)
+    for word in ("WIN32", "MACOSX_BUNDLE", "EXCLUDE_FROM_ALL", "PRIVATE", "PUBLIC", "INTERFACE")
+)
 # The commands that write a variable named by their first argument.
 _CMAKE_VARIABLE_WRITES = frozenset({CMakeWord("set"), CMakeWord("unset")})
 _LINKAGE = CMakeWord("ALETHEIA_CPP_LINKAGE")
@@ -522,11 +531,7 @@ def cpp_lane_runs_no_doc_harness() -> list[Prose]:
     through a variable reference or a generator expression is refused, since
     what CMake evaluates it to is not read here.
     """
-    sources: dict[CMakeWord, list[CMakeWord]] = collections.defaultdict(list)
-    for command in _cmake_commands():
-        if command.name in _CMAKE_SOURCE_COMMANDS and command.args:
-            target, *rest = command.args
-            sources[target] += rest
+    sources = _cmake_sources()
     unread = [
         *(
             Prose(
@@ -563,6 +568,47 @@ def cpp_lane_runs_no_doc_harness() -> list[Prose]:
             )
         ]
     return []
+
+
+def cpp_lane_runs_every_integration_case() -> list[Prose]:
+    """Refuse a source of the integration binary that the binary the Mull runner runs leaves out.
+
+    The mutation build folds the integration suite into the test binary, so
+    that the real library's glue and the replies it reads are on the mutation
+    surface; a unit of the suite left out is cases no mutant meets, and every
+    survivor they would kill reads as a gap in the tests.  The file is read as
+    the harness check reads it, a source added under the mutation build
+    counting as an unconditional one does.
+    """
+    sources = _cmake_sources()
+    integration = sources.get(CMakeWord(CPP_INTEGRATION_TARGET), [])
+    if not integration:
+        return [
+            Prose(
+                "[cpp/integration-fold] no target of cpp/CMakeLists.txt is "
+                + f"{CPP_INTEGRATION_TARGET}: the suite moved, and this check would name nothing"
+            )
+        ]
+    swept = set(sources.get(CMakeWord(CPP_TEST_TARGET), []))
+    return [
+        Prose(
+            f"[cpp/integration-fold] {CPP_INTEGRATION_TARGET} compiles {word}, which "
+            + f"{CPP_TEST_TARGET}, the binary the Mull runner runs once per mutant, does not: "
+            + "no mutant meets its cases"
+        )
+        for word in integration
+        if word not in swept
+    ]
+
+
+def _cmake_sources() -> dict[CMakeWord, list[CMakeWord]]:
+    """Return each target's sources as ``cpp/CMakeLists.txt`` writes them, conditional ones too."""
+    sources: dict[CMakeWord, list[CMakeWord]] = collections.defaultdict(list)
+    for command in _cmake_commands():
+        if command.name in _CMAKE_SOURCE_COMMANDS and command.args:
+            target, *rest = command.args
+            sources[target] += [word for word in rest if word not in _CMAKE_SOURCE_KEYWORDS]
+    return sources
 
 
 def _cmake_commands() -> list[_CMakeCommand]:

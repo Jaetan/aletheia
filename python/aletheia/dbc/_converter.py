@@ -26,7 +26,13 @@ from aletheia.client._types import (
     ValidationError,
     check_dbc_text_size_bound,
 )
-from aletheia.types import DBCDefinition, ErrorResponse, ParsedDBCResponse, dump_json
+from aletheia.types import (
+    DBCDefinition,
+    ErrorResponse,
+    ParsedDBCResponse,
+    dump_json,
+    is_str_dict,
+)
 
 if TYPE_CHECKING:
     from aletheia.codes import ValidationIssue
@@ -62,10 +68,13 @@ def dbc_and_warnings_from_response(
     """
     if response["status"] == "error":
         msg = f"Failed to parse DBC file '{source}': {response['message']}"
+        code = response["code"]
         # One rule decides liftability — the shared helper the client's
         # validate_dbc uses (gated on the wire code); no local re-implementation.
-        raise_if_dbc_validation_failed(response, msg)
-        raise ValidationError(msg, code=response["code"])
+        # The envelope is a dict with string keys, read again as the reply it was.
+        if is_str_dict(response):
+            raise_if_dbc_validation_failed(response, msg)
+        raise ValidationError(msg, code=code)
     return response["dbc"], response["warnings"]
 
 

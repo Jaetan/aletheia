@@ -5,7 +5,6 @@ package aletheia
 
 import (
 	"errors"
-	"slices"
 	"testing"
 )
 
@@ -16,7 +15,7 @@ import (
 
 // requireCodedError holds that a refusal whose code no lift types is the
 // generic coded error, carrying the kernel's own code and message.
-func requireCodedError(t *testing.T, err error, code, message string) {
+func requireCodedError(t *testing.T, err error, code ErrorCode, message string) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected a coded error, got nil")
@@ -36,15 +35,16 @@ func requireCodedError(t *testing.T, err error, code, message string) {
 	}
 }
 
-// An error envelope must name its code and its message, both as strings. The
-// kernel writes both, so a missing or ill-typed one is drift between the
-// binding and the kernel, which a default would hide: it is refused at its
-// place. A bound refusal whose message is not a string is refused so, rather
-// than lifted with no message.
-func TestErrorEnvelope_RefusesACodeOrMessageNotAString(t *testing.T) {
+// An error envelope must name its code, one of the ErrorCodes, and its
+// message, a string. The kernel writes both, so a missing, ill-typed or
+// unknown one is drift between the binding and the kernel, which a default
+// would hide: it is refused at its place. A bound refusal whose message is not
+// a string is refused so, rather than lifted with no message.
+func TestErrorEnvelope_RefusesACodeOutsideTheErrorCodesOrAMessageNotAString(t *testing.T) {
 	cases := map[string]struct{ raw, want string }{
-		"missing code":    {`{"status":"error","message":"boom"}`, "reply code: expected string, got nothing"},
-		"non-string code": {`{"status":"error","code":123,"message":"boom"}`, "reply code: expected string, got number"},
+		"unknown code":    {`{"status":"error","code":"c","message":"boom"}`, `reply code: expected an error code, got "c"`},
+		"missing code":    {`{"status":"error","message":"boom"}`, "reply code: expected an error code, got nothing"},
+		"non-string code": {`{"status":"error","code":123,"message":"boom"}`, "reply code: expected an error code, got number"},
 		"non-string bound refusal message": {
 			`{"status":"error","code":"input_bound_exceeded","message":7,"bound_kind":"nesting_depth","observed":65,"limit":64}`,
 			"reply message: expected string, got number",
@@ -104,11 +104,10 @@ func TestValidationFailed_WellFormedEnvelopeLifts(t *testing.T) {
 // The two refusals that carry an issues payload lift only when the payload is
 // whole. Each malformed shape is refused at its place, and the two refusals
 // are held to the same shapes, their decoders being the same shape
-// themselves. A severity outside the two words takes the last arm, warning,
-// and lifts.
+// themselves.
 func TestIssueBearingRefusals_MalformedPayloadIsRefused(t *testing.T) {
-	shapes := func(code string) map[string]struct{ raw, want string } {
-		prefix := `{"status":"error","code":"` + code + `","message":"boom"`
+	shapes := func(code ErrorCode) map[string]struct{ raw, want string } {
+		prefix := `{"status":"error","code":"` + string(code) + `","message":"boom"`
 		return map[string]struct{ raw, want string }{
 			"missing has_errors":  {prefix + `,"issues":[]}`, "reply has_errors: expected boolean, got nothing"},
 			"non-bool has_errors": {prefix + `,"has_errors":"yes","issues":[]}`, "reply has_errors: expected boolean, got string"},
@@ -118,7 +117,7 @@ func TestIssueBearingRefusals_MalformedPayloadIsRefused(t *testing.T) {
 		}
 	}
 	refusals := map[string]struct {
-		code   string
+		code   ErrorCode
 		issues func(error) ([]ValidationIssue, bool)
 	}{
 		"validation failed": {CodeHandlerValidationFailed, func(err error) ([]ValidationIssue, bool) {
@@ -147,15 +146,6 @@ func TestIssueBearingRefusals_MalformedPayloadIsRefused(t *testing.T) {
 					requireReplyRefusal(t, err, malformed.want)
 				})
 			}
-			t.Run("unknown severity", func(t *testing.T) {
-				err := parseSuccessResponse(`{"status":"error","code":"` + tc.code + `","message":"boom",` +
-					`"has_errors":true,"issues":[{"severity":"fatal","code":"x","detail":"d"}]}`)
-				issues, lifted := tc.issues(err)
-				want := []ValidationIssue{{Severity: SeverityWarning, Code: "x", Detail: "d"}}
-				if !lifted || !slices.Equal(issues, want) {
-					t.Errorf("got %v, want the typed error over %+v", err, want)
-				}
-			})
 		})
 	}
 }
@@ -189,6 +179,22 @@ func TestInputBoundExceeded_MalformedPayloadIsRefused(t *testing.T) {
 			if errors.As(err, &bex) {
 				t.Errorf("a malformed payload lifted to the typed error: %v", bex)
 			}
+			requireReplyRefusal(t, err, tc.want)
+		})
+	}
+}
+
+// An envelope of any code holding one key of a bound refusal's triple holds
+// the triple whole: each key held alone is refused at the first one missing.
+func TestBoundTriple_AKeyHeldAloneIsRefused(t *testing.T) {
+	cases := map[string]struct{ payload, want string }{
+		"bound_kind": {`"bound_kind":"nesting_depth"`, "reply observed: expected number, got nothing"},
+		"observed":   {`"observed":1`, "reply bound_kind: expected string, got nothing"},
+		"limit":      {`"limit":2`, "reply bound_kind: expected string, got nothing"},
+	}
+	for key, tc := range cases {
+		t.Run(key, func(t *testing.T) {
+			err := parseSuccessResponse(`{"status":"error","code":"` + string(CodeTextTrailingInput) + `","message":"boom",` + tc.payload + `}`)
 			requireReplyRefusal(t, err, tc.want)
 		})
 	}

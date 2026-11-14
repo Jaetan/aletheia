@@ -120,7 +120,7 @@ using FrameResponse = std::variant<Ack, PropertyBatch>;
 /// property's atom referencing a signal that never appeared in the trace. Its
 /// Unresolved verdict is sound (three-valued Kleene Unknown) but would be
 /// indistinguishable from a genuine Kleene-undecidable Unresolved without the
-/// warning. The reader reads every kind word as the set's last member.
+/// warning. The reader refuses any other kind word.
 enum class WarningKind { UncachedAtom };
 
 /// One EndStream diagnostic surfaced by the kernel.

@@ -32,20 +32,37 @@ auto ReplyPath::at(std::string_view key) const -> ReplyPath {
     return place;
 }
 
+auto value_at(Json const& obj, std::string_view key) -> Json const* {
+    return obj.contains(key) ? &obj.at(key) : nullptr;
+}
+
+auto holds_non_null(Json const& obj, std::string_view key) -> bool {
+    if (auto const* const found = value_at(obj, key))
+        return !found->is_null();
+    return false;
+}
+
 auto json_kind(Json const& value) -> std::string_view {
     // nlohmann names every kind JSON text yields as JSON does.
     return value.is_binary() ? expect_number : value.type_name();
 }
 
 auto came(Json const& obj, std::string_view key) -> std::string_view {
-    auto const found = obj.find(key);
-    return found == obj.end() ? came_nothing : json_kind(*found);
+    if (auto const* const found = value_at(obj, key))
+        return json_kind(*found);
+    return came_nothing;
+}
+
+// The string at `key`, nullptr when the key holds none.
+static auto string_at(Json const& obj, std::string_view key) -> std::string const* {
+    if (auto const* const found = value_at(obj, key))
+        return found->is_string() ? &found->get_ref<std::string const&>() : nullptr;
+    return nullptr;
 }
 
 auto came_word(Json const& obj, std::string_view key) -> std::string {
-    auto const found = obj.find(key);
-    if (found != obj.end() && found->is_string())
-        return quote_json(found->get_ref<std::string const&>());
+    if (auto const* const word = string_at(obj, key))
+        return quote_json(*word);
     return std::string{came(obj, key)};
 }
 
@@ -136,24 +153,31 @@ auto read_int64(Json const& value, ReplyPath const& path) -> std::int64_t {
 
 // The whole number at `key` of `obj`, nullopt when it holds none.
 static auto whole_at(Json const& obj, std::string_view key) -> std::optional<SignMagnitude> {
-    auto const found = obj.find(key);
-    return found == obj.end() ? std::nullopt : sign_magnitude_of(*found);
+    if (auto const* const found = value_at(obj, key))
+        return sign_magnitude_of(*found);
+    return std::nullopt;
 }
 
 auto read_rational(Json const& value, ReplyPath const& path) -> Rational {
     if (auto const whole = sign_magnitude_of(value))
         return KernelValue::rational(whole.value().negative, whole.value().magnitude, 1);
-    if (value.is_object()) {
-        auto const numerator = whole_at(value, "numerator");
-        auto const denominator = whole_at(value, "denominator");
-        if (numerator && denominator) {
-            auto const& top = numerator.value();
-            auto const& bottom = denominator.value();
-            return KernelValue::rational(top.negative != bottom.negative && top.magnitude != 0,
-                                         top.magnitude, bottom.magnitude);
-        }
+    // A value that is not an object holds neither key.
+    auto const numerator = whole_at(value, "numerator");
+    auto const denominator = whole_at(value, "denominator");
+    if (numerator && denominator) {
+        auto const& top = numerator.value();
+        auto const& bottom = denominator.value();
+        return KernelValue::rational(top.negative != bottom.negative && top.magnitude != 0,
+                                     top.magnitude, bottom.magnitude);
     }
     throw reply_refusal(path, expect_rational, json_kind(value));
+}
+
+auto field_value(Json const& obj, ReplyPath const& path, std::string_view key,
+                 std::string_view expected) -> Json const& {
+    if (auto const* const found = value_at(obj, key))
+        return *found;
+    throw reply_refusal(path.at(key), expected, came_nothing);
 }
 
 auto field_object(Json const& obj, ReplyPath const& path, std::string_view key) -> Json const& {
@@ -194,13 +218,6 @@ auto field_int64(Json const& obj, ReplyPath const& path, std::string_view key) -
 
 auto field_rational(Json const& obj, ReplyPath const& path, std::string_view key) -> Rational {
     return field(obj, path, key, expect_rational, read_rational);
-}
-
-// The string at `key`, nullptr when the key holds none.
-static auto string_at(Json const& obj, std::string_view key) -> std::string const* {
-    auto const found = obj.find(key);
-    return found != obj.end() && found->is_string() ? &found->get_ref<std::string const&>()
-                                                    : nullptr;
 }
 
 auto field_word(Json const& obj, ReplyPath const& path, std::string_view key,

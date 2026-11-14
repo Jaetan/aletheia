@@ -47,6 +47,8 @@ brew install gmp                                  # macOS
 
 A missing `libgmp` surfaces as `ld: cannot find -lgmp` at link time (see [Troubleshooting](#missing-libgmp-ld-cannot-find--lgmp)).
 
+The reply-place gate (`tools/check_limits_parity.py`) reads the C++ binding through libclang 23, loaded from `/usr/lib/llvm-23/lib/libclang-23.so.23`, which the `libclang1-23` package installs; `clang-23` depends on it, so the Clang 23 toolchain brings it. Where it does not load, the gate exits 2 naming that path.
+
 ### Python interpreter from source
 
 `tools/build_python.sh <version> <prefix>` builds CPython from the python.org source release and installs it into `<prefix>` with `make altinstall`. uv's prebuilt CPython lacks `os.pidfd_open`, which CPython compiles only where the build's kernel headers define that syscall, and its Tk has no Xft, so it draws only core X fonts; this build has neither gap. The script verifies the tarball's Sigstore signature against the release manager's identity, builds with clang-23 using PGO, LTO, the tail-calling interpreter and BOLT, fails when any stdlib module a Linux build can have is missing or does not import, and links tkinter against the system Tk 9.0. Its build dependencies as Debian packages, beyond the [system libraries](#system-libraries), with `cosign` on `PATH`:

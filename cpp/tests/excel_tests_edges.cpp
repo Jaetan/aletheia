@@ -589,15 +589,16 @@ TEST_CASE("excel: DBC DLC is accepted at both ends of its range and refused past
         REQUIRE(result->messages.size() == 1);
         CHECK(result->messages[0].dlc.value() == static_cast<std::uint8_t>(dlc));
     }
-    SECTION("16, -1 and 256 are refused") {
-        // A DLC a byte holds is the factory's to refuse; past a byte, where 256
-        // would truncate to 0, a valid DLC, the refusal comes before the
-        // narrowing, as does one for a negative DLC.
+    SECTION("16, 255, -1 and 256 are refused") {
+        // A DLC a byte holds is the factory's to refuse, up to the byte's
+        // maximum; past a byte, where 256 would truncate to 0, a valid DLC, the
+        // refusal comes before the narrowing, as does one for a negative DLC.
         struct Row {
             char const* dlc;
             char const* text;
         };
         auto const [dlc, text] = GENERATE(Row{.dlc = "16", .text = "DLC must be 0-15"},
+                                          Row{.dlc = "255", .text = "DLC must be 0-15"},
                                           Row{.dlc = "-1", .text = "DLC -1 out of range"},
                                           Row{.dlc = "256", .text = "DLC 256 out of range"});
         TempPath const tf("excel_dbc_dlc_past.xlsx");

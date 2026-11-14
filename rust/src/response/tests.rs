@@ -10,7 +10,7 @@ use crate::limits::{
 /// Assert that `result` is the reply refusal printing `text`: a protocol
 /// error in the one form of every reply place.
 #[track_caller]
-fn assert_refused<T: std::fmt::Debug>(result: Result<T, Error>, text: &str) {
+pub(super) fn assert_refused<T: std::fmt::Debug>(result: Result<T, Error>, text: &str) {
     match result {
         Err(Error::Protocol(m)) => assert_eq!(m, text),
         other => panic!("expected the refusal {text:?}, got {other:?}"),
@@ -61,26 +61,6 @@ fn decode_extraction_rejects_non_object_error_entry() {
     );
 }
 
-#[test]
-fn decode_validation_rejects_missing_issue_code() {
-    // A present-but-unknown code is fine (Unknown fallback); a *missing* code
-    // is refused at its place.
-    let ok = decode_validation(
-        r#"{"status":"validation","has_errors":false,"issues":[{"severity":"warning","code":"some_future_code","detail":"d"}]}"#,
-    )
-    .expect("unknown-but-present code is accepted");
-    assert_eq!(
-        ok.issues[0].code,
-        IssueCode::Unknown("some_future_code".into())
-    );
-    assert_refused(
-        decode_validation(
-            r#"{"status":"validation","has_errors":false,"issues":[{"severity":"warning","detail":"d"}]}"#,
-        ),
-        "reply issues/code: expected string, got nothing",
-    );
-}
-
 // --- Reject-branch coverage (cross-binding parity with Go). Each drives a
 // decoder directly with a malformed/unexpected wire response the verified core
 // never emits, so only a direct test reaches these places. ---
@@ -92,37 +72,6 @@ fn a_rational_place_refuses_a_value_neither_a_number_nor_a_fraction() {
     assert_refused(
         decode_extraction(&extraction(r#"[{"name":"S","value":"x"}]"#, "[]", "[]")),
         "reply values/value: expected a rational, got string",
-    );
-}
-
-#[test]
-fn an_issue_severity_outside_its_set_reads_as_its_last_arm() {
-    // The kernel proves the severity set it writes, so any word but `error`
-    // reads as `warning`, the set's last arm.
-    let r = decode_validation(
-        r#"{"status":"validation","has_errors":false,"issues":[{"severity":"fatal","code":"factor_zero","detail":"d"}]}"#,
-    )
-    .expect("the last arm");
-    assert_eq!(r.issues[0].severity, IssueSeverity::Warning);
-}
-
-#[test]
-fn a_verdict_word_outside_its_set_reads_as_its_last_arm() {
-    // The kernel proves the verdicts it writes, so any word but `fails` and
-    // `holds` reads as `unresolved`, the set's last arm, with its reason.
-    let r = decode_frame(
-        r#"{"type":"property_batch","results":[{"type":"property","status":"bogus","property_index":0,"reason":"r"}]}"#,
-    )
-    .expect("the last arm");
-    assert_eq!(
-        r,
-        FrameResponse::Verdicts(vec![PropertyResult {
-            property_index: 0,
-            verdict: Verdict::Unresolved,
-            reason: "r".to_string(),
-            timestamp: None,
-            enrichment: None,
-        }])
     );
 }
 
@@ -142,6 +91,54 @@ fn decode_frame_rejects_unexpected_shape() {
     assert_refused(
         decode_frame(r#"{"status":"weird"}"#),
         r#"reply status: expected "ack" or "error", got "weird""#,
+    );
+}
+
+#[test]
+fn an_ack_is_told_by_its_bytes_in_either_spelling_alone() {
+    // Read whole, an ack answers as the comparison does, so only the
+    // comparison itself shows a spelling it misses or a text it takes.
+    assert!(is_ack(ACK_COMPACT) && is_ack(ACK_SPACED));
+    for raw in [r#"{ "status": "ack" }"#, r#"{"status":"error"}"#, ""] {
+        assert!(!is_ack(raw), "{raw}");
+    }
+}
+
+#[test]
+fn a_frame_answer_in_neither_ack_spelling_is_read_by_its_status() {
+    // Read whole, an ack is an ack and an error envelope its typed error.
+    assert_eq!(
+        decode_frame(r#"{ "status": "ack" }"#).expect("an ack"),
+        FrameResponse::Ack
+    );
+    let err = decode_frame(r#"{"status":"error","code":"handler_no_dbc","message":"m"}"#);
+    assert!(
+        matches!(&err, Err(Error::Core { code, message }) if *code == ErrorCode::HandlerNoDbc && message == "m"),
+        "got: {err:?}"
+    );
+}
+
+#[test]
+fn an_unresolved_verdict_carries_a_timestamp_only_where_its_key_holds_one() {
+    // A failure carries its timestamp always, an unresolved verdict where its
+    // key holds a number, and none where the key is null or absent.
+    let stream = |verdict: &str| {
+        decode_stream(&format!(
+            r#"{{"status":"complete","results":[{{"type":"property","property_index":0,"reason":"r",{verdict}}}],"warnings":[]}}"#
+        ))
+    };
+    for (verdict, timestamp) in [
+        (r#""status":"unresolved","timestamp":5"#, Some(5)),
+        (r#""status":"unresolved","timestamp":null"#, None),
+        (r#""status":"unresolved""#, None),
+        (r#""status":"fails","timestamp":5"#, Some(5)),
+    ] {
+        let read = stream(verdict).expect("a verdict");
+        assert_eq!(read.results[0].timestamp, timestamp, "{verdict}");
+    }
+    assert_refused(
+        stream(r#""status":"fails""#),
+        "reply results/timestamp: expected number, got nothing",
     );
 }
 
@@ -260,7 +257,7 @@ fn format_text_refusal_lifts_to_text_roundtrip_failed() {
             issues,
             ..
         } => {
-            assert_eq!(code, "handler_text_roundtrip_failed");
+            assert_eq!(code, ErrorCode::HandlerTextRoundtripFailed);
             assert!(has_errors);
             assert_eq!(issues.len(), 2);
             assert_eq!(issues[0].code, IssueCode::TextRoundtripDivergence);
@@ -289,7 +286,7 @@ fn error_envelope_lifts_input_bound_exceeded_triple() {
                 field,
                 located,
             } = *refusal;
-            assert_eq!(code, "input_bound_exceeded");
+            assert_eq!(code, ErrorCode::InputBoundExceeded);
             assert_eq!(message, "too deep");
             assert_eq!(bound_kind, BOUND_KIND_NESTING_DEPTH);
             assert_eq!(observed, 65);
@@ -399,7 +396,7 @@ fn error_envelope_lifts_handler_validation_failed_issues() {
             has_errors,
             issues,
         } => {
-            assert_eq!(code, "handler_validation_failed");
+            assert_eq!(code, ErrorCode::HandlerValidationFailed);
             assert_eq!(
                 message,
                 "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'"
@@ -419,24 +416,6 @@ fn error_envelope_lifts_handler_validation_failed_issues() {
                         detail: "w".into(),
                     },
                 ]
-            );
-        }
-        other => panic!("expected Error::ValidationFailed, got {other:?}"),
-    }
-}
-
-#[test]
-fn error_envelope_lifts_unknown_issue_code_in_validation_payload() {
-    // An unknown-but-present issue code is NOT malformed (IssueCode::Unknown
-    // fallback, matching decode_validation): the lift still applies.
-    let err = error_envelope(
-        r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":true,"issues":[{"severity":"error","code":"some_future_code","detail":"d"}]}"#,
-    );
-    match err {
-        Error::ValidationFailed { issues, .. } => {
-            assert_eq!(
-                issues[0].code,
-                IssueCode::Unknown("some_future_code".into())
             );
         }
         other => panic!("expected Error::ValidationFailed, got {other:?}"),
@@ -476,7 +455,7 @@ fn error_envelope_refuses_a_malformed_validation_payload() {
         // issue element missing its code
         (
             r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":true,"issues":[{"severity":"error","detail":"d"}]}"#,
-            "reply issues/code: expected string, got nothing",
+            "reply issues/code: expected an issue code, got nothing",
         ),
         // issue element not an object
         (
@@ -538,6 +517,12 @@ fn bin_header(nvals: u16, nerrs: u16, nabss: u16, reason_bytes: u32) -> Vec<u8> 
 
 fn names() -> Vec<String> {
     vec!["Speed".to_string(), "Rpm".to_string(), "Temp".to_string()]
+}
+
+#[test]
+fn a_u128_reads_its_low_word_then_its_high_word() {
+    let bytes = [5u64.to_le_bytes(), 3u64.to_le_bytes()].concat();
+    assert_eq!(read_u128_le(&bytes), (3u128 << 64) + 5);
 }
 
 #[test]
@@ -653,10 +638,6 @@ fn severity_and_code_display_their_wire_strings() {
     assert_eq!(
         IssueCode::AttributeEnumDefaultUnstable.to_string(),
         "attribute_enum_default_unstable"
-    );
-    assert_eq!(
-        IssueCode::Unknown("later_code".into()).to_string(),
-        "later_code"
     );
 }
 
@@ -810,7 +791,7 @@ fn an_error_prints_its_message_alone() {
         (
             Error::Validation {
                 message: "parse failed at line 1, column 4".to_string(),
-                code: Some("text_trailing_input".to_string()),
+                code: Some(ErrorCode::TextTrailingInput),
                 located: None,
             },
             "parse failed at line 1, column 4",
@@ -822,14 +803,14 @@ fn an_error_prints_its_message_alone() {
         (Error::Protocol("p".to_string()), "p"),
         (
             Error::Core {
-                code: "handler_no_dbc".to_string(),
+                code: ErrorCode::HandlerNoDbc,
                 message: "StartStream: DBC not loaded".to_string(),
             },
             "StartStream: DBC not loaded",
         ),
         (
             Error::TextRoundtripFailed {
-                code: "handler_text_roundtrip_failed".to_string(),
+                code: ErrorCode::HandlerTextRoundtripFailed,
                 message: "FormatDBCText: the text does not re-parse".to_string(),
                 has_errors: true,
                 issues,
@@ -848,7 +829,7 @@ fn a_located_refusal_prints_its_location_and_key_before_the_message() {
     // stay as the kernel answered them.
     let located = Error::Validation {
         message: "parse failed at line 1, column 4".to_string(),
-        code: Some("text_trailing_input".to_string()),
+        code: Some(ErrorCode::TextTrailingInput),
         located: None,
     }
     .located("Check 'C'", "value");
@@ -858,7 +839,7 @@ fn a_located_refusal_prints_its_location_and_key_before_the_message() {
     );
     assert!(
         matches!(&located, Error::Validation { message, code: Some(code), located: Some(place) }
-            if message == "parse failed at line 1, column 4" && code == "text_trailing_input"
+            if message == "parse failed at line 1, column 4" && *code == ErrorCode::TextTrailingInput
                 && place.location == "Check 'C'" && place.key.as_deref() == Some("value")),
         "got: {located:?}"
     );
@@ -881,7 +862,7 @@ fn a_located_refusal_prints_its_location_and_key_before_the_message() {
             if matches!(&**refusal, BoundRefusal {
                 code, message, bound_kind, observed: u128::MAX,
                 limit: u128::MAX, field: Some(field), located: Some(place) }
-                if code == "input_bound_exceeded" && message == kernel
+                if *code == ErrorCode::InputBoundExceeded && message == kernel
                     && bound_kind == BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE && field == "decimal"
                     && place.location == "Row 2" && place.key.as_deref() == Some("Factor"))),
         "got: {located:?}"
@@ -897,13 +878,13 @@ fn a_located_refusal_prints_its_location_and_key_before_the_message() {
 
     // Every other variant is returned as it was.
     let core = Error::Core {
-        code: "handler_no_dbc".to_string(),
+        code: ErrorCode::HandlerNoDbc,
         message: "StartStream: DBC not loaded".to_string(),
     }
     .located("Row 2", "Value");
     assert!(
         matches!(&core, Error::Core { code, message }
-            if code == "handler_no_dbc" && message == "StartStream: DBC not loaded"),
+            if *code == ErrorCode::HandlerNoDbc && message == "StartStream: DBC not loaded"),
         "got: {core:?}"
     );
     assert_eq!(core.to_string(), "StartStream: DBC not loaded");

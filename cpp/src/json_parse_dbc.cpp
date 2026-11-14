@@ -5,12 +5,14 @@
 //
 // The DBC a reply carries sits at "dbc", and every refusal below names its
 // place from there: a signal's field is at "dbc/messages/signals/<key>". Every
-// key the kernel writes is required, and each place is read by kind only: the
-// ranges and the tags are the kernel's, decided when it read the DBC and proven
-// of every reply. A tag is dispatched with no refusal of its own, the last arm
-// reading every tag the arms before it do not name. The keys of an object are
-// read in the order the other bindings read them, so a reply broken at two
-// places is refused at the same one by all four.
+// key the kernel writes is required, and each number or string is read by kind
+// only, its range the kernel's, decided when it read the DBC and proven of every
+// reply. A signal's byte order and presence, a comment target's kind, an
+// attribute's kind and the kinds of its value and its target, a definition's
+// scope and its type's kind are read by field_member and field_word, which
+// refuse a word outside the place's words. The keys of an object are read in
+// the order the other bindings read them, so a reply broken at two places is
+// refused at the same one by all four.
 #include "detail/json_parse_helpers.hpp"
 #include "detail/kernel_value.hpp"
 #include "detail/reply_shape.hpp"
@@ -22,7 +24,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -48,11 +49,12 @@ static auto read_dlc(Json const& m, ReplyPath const& path) -> Dlc {
     return dlc.value();
 }
 
-// The presence the kernel states for every signal, "multiplexed" its last
-// arm, whose multiplexor is a string and whose selector values are whole
+// The presence the kernel states for every signal, "always" or "multiplexed",
+// a multiplexed signal's multiplexor a string and its selector values whole
 // numbers.
 static auto read_presence(Json const& j, ReplyPath const& path) -> SignalPresence {
-    if (field_string(j, path, "presence") == "always")
+    auto const presence = field_word(j, path, "presence", {"always", "multiplexed"});
+    if (presence == "always")
         return AlwaysPresent{};
     auto multiplexor = field_string(j, path, "multiplexor");
     auto const place = path.at("multiplex_values");
@@ -72,7 +74,7 @@ static auto read_value_entry(Json const& e, ReplyPath const& path) -> DbcValueEn
     };
 }
 
-// The byte orders the kernel writes, "big_endian" the last arm.
+// The byte orders the kernel writes.
 constexpr auto byte_order_table = std::to_array<std::pair<std::string_view, ByteOrder>>({
     {"little_endian", ByteOrder::LittleEndian},
     {"big_endian", ByteOrder::BigEndian},
@@ -82,8 +84,7 @@ static auto read_signal(Json const& j, ReplyPath const& path) -> DbcSignal {
     auto name = field_string(j, path, "name");
     auto const start_bit = field_unsigned<std::uint16_t>(j, path, "startBit");
     auto const length = field_unsigned<std::uint16_t>(j, path, "length");
-    auto const byte_order =
-        lookup(byte_order_table, field_string(j, path, "byteOrder")).value_or(ByteOrder::BigEndian);
+    auto const byte_order = field_member(j, path, "byteOrder", byte_order_table);
     auto const is_signed = field_bool(j, path, "signed");
     auto const factor = field_rational(j, path, "factor");
     auto const offset = field_rational(j, path, "offset");
@@ -182,9 +183,10 @@ static auto read_node(Json const& n, ReplyPath const& path) -> DbcNode {
     return DbcNode{.name = NodeName{field_string(n, path, "name")}};
 }
 
-// What a comment is attached to, "envVar" its last arm.
+// What a comment is attached to.
 static auto read_comment_target(Json const& m, ReplyPath const& path) -> DbcCommentTarget {
-    auto const kind = field_string(m, path, "kind");
+    auto const kind =
+        field_word(m, path, "kind", {"network", "node", "message", "signal", "envVar"});
     if (kind == "network")
         return DbcCommentTargetNetwork{};
     if (kind == "node")
@@ -204,7 +206,7 @@ static auto read_comment(Json const& c, ReplyPath const& path) -> DbcComment {
     };
 }
 
-// The scopes the kernel writes, "nodeSig" the last arm.
+// The scopes the kernel writes.
 using AttrScopeEntry = std::pair<std::string_view, DbcAttrScope>;
 constexpr auto attr_scope_table = std::to_array<AttrScopeEntry>({
     {"network", DbcAttrScope::Network},
@@ -216,9 +218,9 @@ constexpr auto attr_scope_table = std::to_array<AttrScopeEntry>({
     {"nodeSig", DbcAttrScope::NodeSig},
 });
 
-// An attribute definition's type, "hex" its last arm.
+// An attribute definition's type.
 static auto read_attr_type(Json const& m, ReplyPath const& path) -> DbcAttrType {
-    auto const kind = field_string(m, path, "kind");
+    auto const kind = field_word(m, path, "kind", {"int", "float", "string", "enum", "hex"});
     if (kind == "int")
         return DbcAttrTypeInt{.min = field_int64(m, path, "min"),
                               .max = field_int64(m, path, "max")};
@@ -232,9 +234,9 @@ static auto read_attr_type(Json const& m, ReplyPath const& path) -> DbcAttrType 
     return DbcAttrTypeHex{.min = field_int64(m, path, "min"), .max = field_int64(m, path, "max")};
 }
 
-// An attribute's value, "hex" its last arm.
+// An attribute's value.
 static auto read_attr_value(Json const& m, ReplyPath const& path) -> DbcAttrValue {
-    auto const kind = field_string(m, path, "kind");
+    auto const kind = field_word(m, path, "kind", {"int", "float", "string", "enum", "hex"});
     if (kind == "int")
         return DbcAttrValueInt{.value = field_int64(m, path, "value")};
     if (kind == "float")
@@ -246,10 +248,11 @@ static auto read_attr_value(Json const& m, ReplyPath const& path) -> DbcAttrValu
     return DbcAttrValueHex{.value = field_int64(m, path, "value")};
 }
 
-// What an attribute is assigned to, "nodeSig" its last arm; every kind but
-// "network", "node" and "envVar" carries a CAN id, read before its other keys.
+// What an attribute is assigned to; every kind but "network", "node" and
+// "envVar" carries a CAN id, read before its other keys.
 static auto read_attr_target(Json const& m, ReplyPath const& path) -> DbcAttrTarget {
-    auto const kind = field_string(m, path, "kind");
+    auto const kind = field_word(
+        m, path, "kind", {"network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig"});
     if (kind == "network")
         return DbcAttrTargetNetwork{};
     if (kind == "node")
@@ -268,15 +271,14 @@ static auto read_attr_target(Json const& m, ReplyPath const& path) -> DbcAttrTar
         .node = std::move(node), .id = id, .signal = field_string(m, path, "signal")};
 }
 
-// One attribute entry, "assignment" its last arm.
+// One attribute entry.
 static auto read_attribute(Json const& m, ReplyPath const& path) -> DbcAttribute {
-    auto const kind = field_string(m, path, "kind");
+    auto const kind = field_word(m, path, "kind", {"definition", "default", "assignment"});
     auto name = field_string(m, path, "name");
     if (kind == "definition")
         return DbcAttrDef{
             .name = std::move(name),
-            .scope = lookup(attr_scope_table, field_string(m, path, "scope"))
-                         .value_or(DbcAttrScope::NodeSig),
+            .scope = field_member(m, path, "scope", attr_scope_table),
             .attr_type = field_object_of(m, path, "attrType", read_attr_type),
         };
     if (kind == "default")

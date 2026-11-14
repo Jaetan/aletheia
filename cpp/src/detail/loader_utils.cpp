@@ -331,7 +331,7 @@ auto built_check(Result<CheckResult> built) -> CheckResult {
 }
 
 auto located_refusal(AletheiaError const& error, std::string location) -> AletheiaError {
-    if (error.code() == ErrorCode::Unknown || error.location())
+    if (!error.code() || error.location())
         return error;
     return error.located(std::move(location));
 }

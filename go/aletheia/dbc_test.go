@@ -116,16 +116,14 @@ func TestValidateDBC_WithIssues(t *testing.T) {
 	}
 }
 
-// A severity other than "error" takes the last arm, a warning.
-func TestValidateDBC_UnknownSeverityReadsAsWarning(t *testing.T) {
+// A severity other than "error" or "warning" is refused at its place.
+func TestValidateDBC_UnknownSeverityIsRefused(t *testing.T) {
 	ctx := t.Context()
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"validation","has_errors":false,"issues":[{"severity":"info","code":"empty_message","detail":"x"}]}`))
-	result, err := c.ValidateDBC(ctx, testDBC())
-	if err != nil {
-		t.Fatalf("ValidateDBC: %v", err)
-	}
-	if len(result.Issues) != 1 || result.Issues[0].Severity != aletheia.SeverityWarning {
-		t.Errorf("issues: got %+v, want one warning", result.Issues)
+	_, err := c.ValidateDBC(ctx, testDBC())
+	requireKind(t, err, aletheia.ErrProtocol)
+	if want := `reply issues/severity: expected "error" or "warning", got "info"`; err.Error() != want {
+		t.Errorf("ValidateDBC: got %q, want %q", err.Error(), want)
 	}
 }
 
@@ -211,8 +209,8 @@ func TestFormatDBC_Shapes(t *testing.T) {
 }
 
 // A FormatDBC response the decoder cannot trust is a protocol error naming
-// the place and what came there. A presence word other than "always" takes
-// the multiplexed arm, which then needs its multiplexor.
+// the place and what came there, a presence word other than "always" or
+// "multiplexed" refused at its place.
 func TestFormatDBC_MalformedResponsesAreProtocolErrors(t *testing.T) {
 	ctx := t.Context()
 	sig := func(fields string) string {
@@ -227,8 +225,8 @@ func TestFormatDBC_MalformedResponsesAreProtocolErrors(t *testing.T) {
 		"standard id past 16 bits":        {`{"id":65536,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[]}`, "reply dbc/messages/id: expected number, got number"},
 		"extended id past 32 bits":        {`{"id":4294967296,"extended":true,"name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[]}`, "reply dbc/messages/id: expected number, got number"},
 		"missing signal name":             {sig(base + `,"presence":"always"`), "reply dbc/messages/signals/name: expected string, got nothing"},
-		"unknown presence":                {sig(`"name":"Sig",` + base + `,"presence":"sometimes"`), "reply dbc/messages/signals/multiplexor: expected string, got nothing"},
-		"missing presence":                {sig(`"name":"Sig",` + base), "reply dbc/messages/signals/presence: expected string, got nothing"},
+		"unknown presence":                {sig(`"name":"Sig",` + base + `,"presence":"sometimes"`), `reply dbc/messages/signals/presence: expected "always" or "multiplexed", got "sometimes"`},
+		"missing presence":                {sig(`"name":"Sig",` + base), `reply dbc/messages/signals/presence: expected "always" or "multiplexed", got nothing`},
 		"multiplexed without multiplexor": {sig(`"name":"Sig",` + base + `,"presence":"multiplexed","multiplex_values":[0]`), "reply dbc/messages/signals/multiplexor: expected string, got nothing"},
 		"non-boolean extended":            {`{"id":100,"extended":"true","name":"Msg","dlc":8,"sender":"ECU","senders":[],"signals":[]}`, "reply dbc/messages/extended: expected boolean, got string"},
 	}

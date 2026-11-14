@@ -123,8 +123,9 @@ func definitionWire(t *testing.T, edit func(msg map[string]any)) map[string]any 
 }
 
 // A message identifier is read at the width its flag names, whose range the
-// kernel proves: either end of each width is read back, and a negative one,
-// no natural number, is refused at its place.
+// kernel proves: either end of each width is read back, as is the largest
+// number the width's field holds, and one past that or a negative one is
+// refused at its place.
 func TestParseDBCMessage_ReadsTheIdentifierAtItsWidth(t *testing.T) {
 	cases := map[string]struct {
 		id       int64
@@ -134,6 +135,10 @@ func TestParseDBCMessage_ReadsTheIdentifierAtItsWidth(t *testing.T) {
 		"standard zero":              {0, false, true},
 		"largest standard":           {1<<11 - 1, false, true},
 		"largest extended":           {1<<29 - 1, true, true},
+		"standard field's ceiling":   {math.MaxUint16, false, true},
+		"extended field's ceiling":   {math.MaxUint32, true, true},
+		"past the standard field":    {math.MaxUint16 + 1, false, false},
+		"past the extended field":    {math.MaxUint32 + 1, true, false},
 		"negative":                   {-1, false, false},
 		"negative, extended flagged": {-1, true, false},
 	}
@@ -156,6 +161,27 @@ func TestParseDBCMessage_ReadsTheIdentifierAtItsWidth(t *testing.T) {
 				t.Errorf("read back %v, want %d (extended %v)", id, tc.id, tc.extended)
 			}
 		})
+	}
+}
+
+// A message's length code is read from the byte count the reply writes: each
+// count a code stands for is read back as that code, and a count none stands
+// for is refused at its place, the largest a uint64 holds among them.
+func TestParseDBCMessage_ReadsTheLengthCodeFromItsByteCount(t *testing.T) {
+	for code, count := range dlcTable {
+		wire := definitionWire(t, func(msg map[string]any) { msg["dlc"] = json.Number(strconv.Itoa(count)) })
+		dbc, err := parseDBCDefinition(wire)
+		if err != nil {
+			t.Fatalf("%d bytes refused: %v", count, err)
+		}
+		if got := dbc.Messages[0].DLC.Value(); int(got) != code {
+			t.Errorf("%d bytes read back as code %d, want %d", count, got, code)
+		}
+	}
+	for _, count := range []string{"9", strconv.FormatUint(math.MaxUint64, 10)} {
+		wire := definitionWire(t, func(msg map[string]any) { msg["dlc"] = json.Number(count) })
+		_, err := parseDBCDefinition(wire)
+		requireReplyRefusal(t, err, "reply dbc/messages/dlc: expected number, got number")
 	}
 }
 
@@ -247,7 +273,7 @@ func TestParsePropertyResult_ReadsTheOptionalTimestamp(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			r, err := parseResponse(`{"status":"` + tc.status + `","property_index":0,"reason":"r"` + tc.field + `}`)
+			r, err := parseResponse(`{"type":"property","status":"` + tc.status + `","property_index":0,"reason":"r"` + tc.field + `}`)
 			if err != nil {
 				t.Fatalf("parseResponse: %v", err)
 			}

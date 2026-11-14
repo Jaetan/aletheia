@@ -59,11 +59,12 @@ func (r Rational) Float64() float64 {
 // parses the text exactly; never build one from a float.
 func IntRational(n int64) Rational {
 	// The magnitude is taken in the unsigned word, where -2^63 has one.
+	negative := n < 0
 	magnitude := uint64(n)
-	if n < 0 {
+	if negative {
 		magnitude = -magnitude
 	}
-	return Rational{Negative: n < 0, Numerator: Uint128{Lo: magnitude}, Denominator: Uint128{Lo: 1}}
+	return Rational{Negative: negative, Numerator: Uint128{Lo: magnitude}, Denominator: Uint128{Lo: 1}}
 }
 
 // Timestamp is a point in time, measured in microseconds since trace start.

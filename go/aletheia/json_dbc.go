@@ -7,10 +7,11 @@ import "math"
 
 // The DBC a reply carries sits at "dbc", and every refusal below names its
 // place from there: a signal's field is at "dbc/messages/signals/<key>". Every
-// key the kernel writes is required, and each place is read by kind only: the
-// ranges and the tags are the kernel's, decided when it read the DBC and proven
-// of every reply. A tag is dispatched with no refusal of its own, the last arm
-// reading every tag the arms before it do not name.
+// key the kernel writes is required, and each place but a tag is read by kind
+// only: the ranges are the kernel's, decided when it read the DBC and proven of
+// every reply. A tag is read with fieldWord, refused outside the words the
+// reply proof gives its place, its last arm reading the one word the arms
+// before it do not name.
 
 // dbcPath is the DBC object's place in a reply.
 const dbcPath replyPath = "dbc"
@@ -203,17 +204,15 @@ func parseDBCMessage(j map[string]any, path replyPath) (DBCMessage, error) {
 	return NewDBCMessage(id, MessageName(name), dlc, NodeName(sender), senders, signals), nil
 }
 
-// readByteOrder reads a signal's byte order, "big_endian" its last arm.
+// readByteOrder reads a signal's byte order, "little_endian" or "big_endian".
 func readByteOrder(j map[string]any, path replyPath) (ByteOrder, error) {
-	name, err := fieldString(j, path, "byteOrder")
+	name, err := fieldWord(j, path, "byteOrder", "little_endian", "big_endian")
 	if err != nil {
 		return 0, err
 	}
 	switch name {
 	case "little_endian":
 		return LittleEndian, nil
-	case "big_endian":
-		fallthrough
 	default:
 		return BigEndian, nil
 	}
@@ -293,18 +292,16 @@ func parseDBCSignal(j map[string]any, path replyPath) (DBCSignal, error) {
 }
 
 // parseSignalPresence reads the presence the kernel states for every signal,
-// "multiplexed" its last arm, whose multiplexor is a string and whose selector
-// values are whole numbers.
+// "always" or "multiplexed", a multiplexed signal's multiplexor a string and
+// its selector values whole numbers.
 func parseSignalPresence(j map[string]any, path replyPath) (SignalPresence, error) {
-	presence, err := fieldString(j, path, "presence")
+	presence, err := fieldWord(j, path, "presence", "always", "multiplexed")
 	if err != nil {
 		return nil, err
 	}
 	switch presence {
 	case "always":
 		return AlwaysPresent{}, nil
-	case "multiplexed":
-		fallthrough
 	default:
 		multiplexor, err := fieldString(j, path, "multiplexor")
 		if err != nil {
@@ -427,10 +424,10 @@ func parseNode(n map[string]any, path replyPath) (DBCNode, error) {
 	return DBCNode{Name: NodeName(name)}, nil
 }
 
-// parseCommentTarget decodes what a comment is attached to, "envVar" its last
-// arm.
+// parseCommentTarget decodes what a comment is attached to: the network, a
+// node, a message, a signal or an environment variable.
 func parseCommentTarget(m map[string]any, path replyPath) (DBCCommentTarget, error) {
-	kind, err := fieldString(m, path, "kind")
+	kind, err := fieldWord(m, path, "kind", "network", "node", "message", "signal", "envVar")
 	if err != nil {
 		return nil, err
 	}
@@ -459,8 +456,6 @@ func parseCommentTarget(m map[string]any, path replyPath) (DBCCommentTarget, err
 			return nil, err
 		}
 		return DBCCommentTargetSignal{ID: id, Signal: SignalName(signal)}, nil
-	case "envVar":
-		fallthrough
 	default:
 		envVar, err := fieldString(m, path, "envVar")
 		if err != nil {
@@ -483,9 +478,9 @@ func parseComment(c map[string]any, path replyPath) (DBCComment, error) {
 	return DBCComment{Target: target, Text: text}, nil
 }
 
-// readAttrScope reads an attribute definition's scope, "nodeSig" its last arm.
+// readAttrScope reads an attribute definition's scope.
 func readAttrScope(m map[string]any, path replyPath) (DBCAttrScope, error) {
-	scope, err := fieldString(m, path, "scope")
+	scope, err := fieldWord(m, path, "scope", "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig")
 	if err != nil {
 		return 0, err
 	}
@@ -502,8 +497,6 @@ func readAttrScope(m map[string]any, path replyPath) (DBCAttrScope, error) {
 		return DBCAttrScopeEnvVar, nil
 	case "nodeMsg":
 		return DBCAttrScopeNodeMsg, nil
-	case "nodeSig":
-		fallthrough
 	default:
 		return DBCAttrScopeNodeSig, nil
 	}
@@ -523,9 +516,9 @@ func readIntBounds(m map[string]any, path replyPath) (minV, maxV int64, err erro
 	return minV, maxV, nil
 }
 
-// parseAttrType decodes an attribute definition's type, "hex" its last arm.
+// parseAttrType decodes an attribute definition's type.
 func parseAttrType(m map[string]any, path replyPath) (DBCAttrType, error) {
-	kind, err := fieldString(m, path, "kind")
+	kind, err := fieldWord(m, path, "kind", "int", "float", "string", "enum", "hex")
 	if err != nil {
 		return nil, err
 	}
@@ -554,8 +547,6 @@ func parseAttrType(m map[string]any, path replyPath) (DBCAttrType, error) {
 			return nil, err
 		}
 		return DBCAttrTypeEnum{Values: values}, nil
-	case "hex":
-		fallthrough
 	default:
 		minV, maxV, err := readIntBounds(m, path)
 		if err != nil {
@@ -565,9 +556,9 @@ func parseAttrType(m map[string]any, path replyPath) (DBCAttrType, error) {
 	}
 }
 
-// parseAttrValue decodes an attribute's value, "hex" its last arm.
+// parseAttrValue decodes an attribute's value.
 func parseAttrValue(m map[string]any, path replyPath) (DBCAttrValue, error) {
-	kind, err := fieldString(m, path, "kind")
+	kind, err := fieldWord(m, path, "kind", "int", "float", "string", "enum", "hex")
 	if err != nil {
 		return nil, err
 	}
@@ -596,8 +587,6 @@ func parseAttrValue(m map[string]any, path replyPath) (DBCAttrValue, error) {
 			return nil, err
 		}
 		return DBCAttrValueEnum{Value: v}, nil
-	case "hex":
-		fallthrough
 	default:
 		v, err := fieldInt64(m, path, "value")
 		if err != nil {
@@ -607,11 +596,9 @@ func parseAttrValue(m map[string]any, path replyPath) (DBCAttrValue, error) {
 	}
 }
 
-// parseAttrTarget decodes what an attribute is assigned to; a kind other than
-// "network", "node" and "envVar" carries a CAN id, and parseAttrTargetAtID
-// reads it.
+// parseAttrTarget decodes what an attribute is assigned to.
 func parseAttrTarget(m map[string]any, path replyPath) (DBCAttrTarget, error) {
-	kind, err := fieldString(m, path, "kind")
+	kind, err := fieldWord(m, path, "kind", "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig")
 	if err != nil {
 		return nil, err
 	}
@@ -630,47 +617,53 @@ func parseAttrTarget(m map[string]any, path replyPath) (DBCAttrTarget, error) {
 			return nil, err
 		}
 		return DBCAttrTargetEnvVar{EnvVar: envVar}, nil
-	case "message", "signal", "nodeMsg", "nodeSig":
-		fallthrough
-	default:
-		return parseAttrTargetAtID(kind, m, path)
-	}
-}
-
-// parseAttrTargetAtID decodes an attribute target that carries a CAN id,
-// "nodeSig" its last arm.
-func parseAttrTargetAtID(kind string, m map[string]any, path replyPath) (DBCAttrTarget, error) {
-	id, err := readCANID(m, path)
-	if err != nil {
-		return nil, err
-	}
-	switch kind {
 	case "message":
+		id, err := readCANID(m, path)
+		if err != nil {
+			return nil, err
+		}
 		return DBCAttrTargetMessage{ID: id}, nil
 	case "signal":
+		id, err := readCANID(m, path)
+		if err != nil {
+			return nil, err
+		}
 		signal, err := fieldString(m, path, "signal")
 		if err != nil {
 			return nil, err
 		}
 		return DBCAttrTargetSignal{ID: id, Signal: SignalName(signal)}, nil
-	}
-	node, err := fieldString(m, path, "node")
-	if err != nil {
-		return nil, err
-	}
-	if kind == "nodeMsg" {
+	case "nodeMsg":
+		id, err := readCANID(m, path)
+		if err != nil {
+			return nil, err
+		}
+		node, err := fieldString(m, path, "node")
+		if err != nil {
+			return nil, err
+		}
 		return DBCAttrTargetNodeMsg{Node: NodeName(node), ID: id}, nil
+	default:
+		id, err := readCANID(m, path)
+		if err != nil {
+			return nil, err
+		}
+		node, err := fieldString(m, path, "node")
+		if err != nil {
+			return nil, err
+		}
+		signal, err := fieldString(m, path, "signal")
+		if err != nil {
+			return nil, err
+		}
+		return DBCAttrTargetNodeSig{Node: NodeName(node), ID: id, Signal: SignalName(signal)}, nil
 	}
-	signal, err := fieldString(m, path, "signal")
-	if err != nil {
-		return nil, err
-	}
-	return DBCAttrTargetNodeSig{Node: NodeName(node), ID: id, Signal: SignalName(signal)}, nil
 }
 
-// parseAttribute decodes one attribute entry, "assignment" its last arm.
+// parseAttribute decodes one attribute entry: a definition, a default or an
+// assignment.
 func parseAttribute(m map[string]any, path replyPath) (DBCAttribute, error) {
-	kind, err := fieldString(m, path, "kind")
+	kind, err := fieldWord(m, path, "kind", "definition", "default", "assignment")
 	if err != nil {
 		return nil, err
 	}
@@ -695,8 +688,6 @@ func parseAttribute(m map[string]any, path replyPath) (DBCAttribute, error) {
 			return nil, err
 		}
 		return DBCAttrDefault{Name: name, Value: value}, nil
-	case "assignment":
-		fallthrough
 	default:
 		target, err := fieldObjectOf(m, path, "target", parseAttrTarget)
 		if err != nil {

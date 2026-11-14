@@ -219,9 +219,41 @@ const (
 	IssueRangeExceedsBits IssueCode = "range_exceeds_bits"
 	// IssueValueDescriptionKeyOutOfRange is a value description key that is no raw value of its signal's bits, the signedness and the bit length deciding.
 	IssueValueDescriptionKeyOutOfRange IssueCode = "value_description_key_out_of_range"
-	// IssueUnknown is unrecognized issue code from the Agda core.
-	IssueUnknown IssueCode = "unknown"
 )
+
+// issueCodes is every IssueCode, the set a reply's issue code is read from.
+var issueCodes = map[IssueCode]struct{}{
+	IssueDuplicateMessageID:            {},
+	IssueDuplicateMessageName:          {},
+	IssueDuplicateSignalName:           {},
+	IssueFactorZero:                    {},
+	IssueMultiplexorNotFound:           {},
+	IssueMultiplexorCycle:              {},
+	IssueGlobalNameCollision:           {},
+	IssueMinExceedsMax:                 {},
+	IssueSignalExceedsDLC:              {},
+	IssueSignalOverlap:                 {},
+	IssueBitLengthZero:                 {},
+	IssueOffsetScaleRange:              {},
+	IssueEmptyMessage:                  {},
+	IssueStartBitOutOfRange:            {},
+	IssueBitLengthExcessive:            {},
+	IssueMultiplexorNonUnitScaling:     {},
+	IssueDuplicateAttributeName:        {},
+	IssueUnknownCommentTarget:          {},
+	IssueUnknownMessageSender:          {},
+	IssueUnknownSignalReceiver:         {},
+	IssueUnknownValueDescriptionTarget: {},
+	IssueTextRoundtripDivergence:       {},
+	IssueMultiValueMuxSelector:         {},
+	IssueMuxMasterIncoherent:           {},
+	IssueUnknownAttributeName:          {},
+	IssueAttributeValueTypeMismatch:    {},
+	IssueAttributeEnumEmpty:            {},
+	IssueAttributeEnumDefaultUnstable:  {},
+	IssueRangeExceedsBits:              {},
+	IssueValueDescriptionKeyOutOfRange: {},
+}
 
 // ValidationIssue is a single issue found during DBC validation.
 type ValidationIssue struct {

@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Unit tests: the client's payload and timestamp checks, the DLC table,
-// Rational's equality, and the FFI backend: how it and the renderer find, open
-// and refuse a library, what it hands the kernel and frees, the exception it
-// throws, and the kernel's allocation count it reads.
+// Rational's equality and the sign its factories read, a whole number read as
+// an int64, the CAN identifiers' widths, and the FFI backend: how it and the
+// renderer find, open and refuse a library, what it hands the kernel and
+// frees, the exception it throws, and the kernel's allocation count it reads.
 #include <catch2/catch_message.hpp>
+#include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -33,6 +35,7 @@
 #include <cstdlib>
 #include <dlfcn.h>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -41,6 +44,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -258,6 +262,104 @@ TEST_CASE("Rational equality is equality of value", "[types]") {
     CHECK(required(Rational::make(false, largest, largest)) == Rational{1, 1});
     CHECK(required(Rational::make(true, largest - 1, 2)) ==
           required(Rational::make(true, (largest - 1) / 2, 1)));
+}
+
+// A whole number of every integral type, the most negative included, keeps its
+// sign and magnitude through both factories, over a denominator of its own
+// type or of another, and a zero is stored unsigned: `integer` stores what it
+// reads unreduced, so a zero read as negative compares unequal to the
+// default. The values come from a table read at run time, where the
+// factories' code runs rather than the compiler's.
+TEMPLATE_TEST_CASE("a whole number of every integral type keeps its sign and magnitude", "[types]",
+                   short, int, long, long long, __int128, unsigned short, unsigned, unsigned long,
+                   unsigned long long, unsigned __int128) {
+    using T = TestType;
+    using Limits = std::numeric_limits<T>;
+    struct Case {
+        T value;
+        SignMagnitude whole;
+    };
+    constexpr auto largest = static_cast<unsigned __int128>(Limits::max());
+    auto const cases = [] {
+        Case const zero{.value = T{0}, .whole = {}};
+        Case const one{.value = T{1}, .whole = {.magnitude = 1}};
+        Case const most{.value = Limits::max(), .whole = {.magnitude = largest}};
+        if constexpr (std::is_signed_v<T>)
+            return std::to_array<Case>(
+                {zero,
+                 one,
+                 most,
+                 {.value = T{-1}, .whole = {.negative = true, .magnitude = 1}},
+                 {.value = Limits::min(), .whole = {.negative = true, .magnitude = largest + 1}}});
+        else
+            return std::to_array<Case>({zero, one, most});
+    }();
+    for (auto const& [value, whole] : cases) {
+        INFO(std::format("{}", value));
+        CHECK(Rational::integer(value) ==
+              required(Rational::make(whole.negative, whole.magnitude, 1)));
+        CHECK(required(Rational::make(value, T{1})) ==
+              required(Rational::make(whole.negative, whole.magnitude, 1)));
+        CHECK(required(Rational::make(value, T{2})) ==
+              required(Rational::make(whole.negative, whole.magnitude, 2)));
+        CHECK(required(Rational::make(value, 2)) ==
+              required(Rational::make(whole.negative, whole.magnitude, 2)));
+        CHECK(required(Rational::make(value, std::uint64_t{2})) ==
+              required(Rational::make(whole.negative, whole.magnitude, 2)));
+    }
+}
+
+// ===========================================================================
+// SignMagnitude and the CAN identifiers at their edges
+// ===========================================================================
+
+TEST_CASE("a whole number reads as an int64 exactly when int64 holds it", "[types]") {
+    // Each edge: the largest int64 and one past it, the smallest and one past
+    // it, and a zero either sign.
+    constexpr auto int64_max = std::numeric_limits<std::int64_t>::max();
+    constexpr auto two_to_63 = static_cast<unsigned __int128>(int64_max) + 1;
+    struct Case {
+        SignMagnitude whole;
+        std::optional<std::int64_t> narrow;
+    };
+    auto const cases = std::to_array<Case>({
+        {.whole = {}, .narrow = 0},
+        {.whole = {.negative = true}, .narrow = 0},
+        {.whole = {.magnitude = int64_max}, .narrow = int64_max},
+        {.whole = {.magnitude = two_to_63}, .narrow = std::nullopt},
+        {.whole = {.negative = true, .magnitude = 1}, .narrow = -1},
+        {.whole = {.negative = true, .magnitude = two_to_63},
+         .narrow = std::numeric_limits<std::int64_t>::min()},
+        {.whole = {.negative = true, .magnitude = two_to_63 + 1}, .narrow = std::nullopt},
+    });
+    for (auto const& [whole, narrow] : cases) {
+        INFO(std::format("{}", whole));
+        CHECK(whole.to_int64() == narrow);
+    }
+}
+
+TEST_CASE("a CAN identifier is admitted up to its width's largest value and refused past it",
+          "[types]") {
+    for (auto const [value, admitted] :
+         std::to_array<std::pair<std::uint16_t, bool>>({{0, true}, {2047, true}, {2048, false}})) {
+        INFO("standard " << value);
+        auto const id = StandardId::create(value);
+        CHECK(id.has_value() == admitted);
+        if (id)
+            CHECK(id->value() == value);
+        else
+            CHECK(id.error().message() == "Standard CAN ID must be 0-2047");
+    }
+    for (auto const [value, admitted] : std::to_array<std::pair<std::uint32_t, bool>>(
+             {{0, true}, {536'870'911, true}, {536'870'912, false}})) {
+        INFO("extended " << value);
+        auto const id = ExtendedId::create(value);
+        CHECK(id.has_value() == admitted);
+        if (id)
+            CHECK(id->value() == value);
+        else
+            CHECK(id.error().message() == "Extended CAN ID must be 0-536870911");
+    }
 }
 
 // ===========================================================================
@@ -544,41 +646,38 @@ TEST_CASE("a start refuses a library that will not serve it, and leaves it unmap
 
 TEST_CASE("the FFI backend hands the kernel the timestamp and bus bits it was given",
           "[ffi][marshal]") {
-    // The recording kernel refuses every call with a message quoting its
+    // The recording kernel answers every call with an envelope quoting its
     // arguments, which is the only way to read what reached an entry the real
-    // kernel acknowledges without reading. Its runtime entry is a no-op, and
-    // the first backend of a process registers its library for the renderer
-    // and marks the runtime up, so this one is built only where the real
-    // library has already done both.
+    // kernel acknowledges without reading; its code is no kernel code, so the
+    // backend's own answer is read, before a reply reader refuses it. Its
+    // runtime entry is a no-op, and the first backend of a process registers
+    // its library for the renderer and marks the runtime up, so this one is
+    // built only where the real library has already done both.
     static_cast<void>(searched_kernel_library(
         "no kernel library holds the process, so the stand-in must not be its first backend"));
-    auto backend =
+    auto const backend =
         required(make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL}));
-    auto client = required(AletheiaClient::create(std::move(backend)));
-    auto const message = [](auto const& result) -> std::string {
-        REQUIRE_FALSE(result.has_value());
-        return std::string{result.error().message()};
-    };
+    auto const state = required(backend->init());
 
-    CHECK_THAT(message(client.send_error(std::stop_token{}, Timestamp{123456})),
+    CHECK_THAT(required(backend->send_error_binary(state, Timestamp{123456})),
                ContainsSubstring("send_error ts=123456"));
 
     auto const extended = CanId{ExtendedId::create(0x18FEF100).value()};
-    CHECK_THAT(message(client.send_remote(std::stop_token{}, Timestamp{7890}, extended)),
+    CHECK_THAT(required(backend->send_remote_binary(state, Timestamp{7890}, extended)),
                ContainsSubstring("send_remote ts=7890 id=" +
                                  std::to_string(can_id_value(extended)) + " extended=1"));
 
     auto const standard = CanId{StandardId::create(0x100).value()};
-    CHECK_THAT(message(client.send_remote(std::stop_token{}, Timestamp{7891}, standard)),
+    CHECK_THAT(required(backend->send_remote_binary(state, Timestamp{7891}, standard)),
                ContainsSubstring("send_remote ts=7891 id=256 extended=0"));
 
     auto const dlc = Dlc::create(2).value();
     FramePayload const data{std::byte{1}, std::byte{2}};
-    CHECK_THAT(message(client.send_frame(std::stop_token{}, Timestamp{99}, standard, dlc, data,
-                                         true, false)),
+    CHECK_THAT(required(backend->send_frame_binary(state, Timestamp{99}, standard, dlc, data, true,
+                                                   false)),
                ContainsSubstring("send_frame ts=99 id=256 extended=0 dlc=2 len=2 brs=1/1 esi=1/0"));
-    CHECK_THAT(message(client.send_frame(std::stop_token{}, Timestamp{99}, standard, dlc, data,
-                                         std::nullopt, std::nullopt)),
+    CHECK_THAT(required(backend->send_frame_binary(state, Timestamp{99}, standard, dlc, data,
+                                                   std::nullopt, std::nullopt)),
                ContainsSubstring("brs=0/0 esi=0/0"));
 }
 

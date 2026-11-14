@@ -29,7 +29,7 @@ from aletheia.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from aletheia.codes import ValidationIssue
+    from aletheia.codes import ErrorCode, ValidationIssue
     from aletheia.common_types import DocumentKey, Location, PositiveInt
 
 type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
@@ -60,11 +60,11 @@ class AletheiaError(Exception):
     """
 
     message: Prose
-    code: str | None
+    code: ErrorCode | None
     location: Location | None
     key: DocumentKey | None
 
-    def __init__(self, message: str, code: str | None = None) -> None:
+    def __init__(self, message: str, code: ErrorCode | None = None) -> None:
         super().__init__(message)
         self.message = Prose(message)
         self.code = code
@@ -87,11 +87,12 @@ class AletheiaError(Exception):
 
 
 class FFIError(AletheiaError):
-    """Library-load / RTS-init / FFI-null-pointer failures.
+    """Library-load, RTS-init and null-reply failures.
 
-    Mirrors Go ``ErrFFI`` and C++ ``ErrorKind::Ffi`` — the kind for
-    `dlopen` / `dlsym` / `hs_init` / `aletheia_init() → null` failures
-    where the boundary itself failed before any Agda code ran.
+    Mirrors Go ``ErrFFI`` and C++ ``ErrorKind::Ffi``: the kind for a
+    `dlopen`, `dlsym` or `hs_init` failure and for a C entry answering
+    null, read as ``<entry> returned null`` (``aletheia_init returned null``,
+    ``aletheia_process returned null``).
     """
 
 
@@ -179,7 +180,7 @@ class InputBoundExceededError(AletheiaError):
         kind: BoundKind,
         observed: PositiveInt,
         limit: Limit,
-        code: str | None = None,
+        code: ErrorCode | None = None,
         *,
         refusal: KernelRefusal | None = None,
     ) -> None:
@@ -230,7 +231,7 @@ class DBCValidationFailedError(AletheiaError):
         issues: list[ValidationIssue],
         *,
         has_errors: bool,
-        code: str | None = None,
+        code: ErrorCode | None = None,
     ) -> None:
         super().__init__(message, code=code)
         self.issues = issues
@@ -264,7 +265,7 @@ class TextRoundTripFailedError(AletheiaError):
         issues: list[ValidationIssue],
         *,
         has_errors: bool,
-        code: str | None = None,
+        code: ErrorCode | None = None,
     ) -> None:
         super().__init__(message, code=code)
         self.issues = issues

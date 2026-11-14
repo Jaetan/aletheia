@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 
 /// What each function outside the one form builds by hand, keyed by its file
 /// below `src/` and its name, and why the form leaves it alone.
-const LEFT_ALONE: [(&str, &str, usize); 12] = [
+const LEFT_ALONE: [(&str, &str, usize); 11] = [
     // The one form itself.
     ("reply_shape.rs", "refusal", 1),
     // The constructor the binary extraction reply's reader calls.
@@ -36,10 +36,8 @@ const LEFT_ALONE: [(&str, &str, usize); 12] = [
     // reach: its header, offsets and reasons, and the buffer the entry hands.
     ("response.rs", "decode_extraction_bin", 6),
     ("backend.rs", "take_extraction_buffer", 2),
-    // A library that answered no reply: a null string, a refusal without its
-    // envelope.
+    // A library that answered no reply: a refusal without its envelope.
     ("backend.rs", "check_buffer_status", 1),
-    ("backend/ffi_backend.rs", "format_rational", 1),
     ("backend/ffi_backend.rs", "parse_decimal", 1),
     ("backend/ffi_backend.rs", "entry_refusal", 1),
     // A request of the crate's own its encoder could not write.

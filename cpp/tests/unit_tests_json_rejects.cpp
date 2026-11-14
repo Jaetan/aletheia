@@ -79,21 +79,28 @@ TEST_CASE("parse_dbc_response rejects a non-boolean extended flag",
     CHECK(dbc_refusal(j.dump()) == "reply dbc/messages/extended: expected boolean, got string");
 }
 
-// The presence is required; a word other than "always" is the last arm,
-// "multiplexed", which then needs its multiplexor.
+// The presence is required and one of "always" and "multiplexed", any other
+// word refused at its place, though the signal carries a multiplexor and its
+// selector values.
 TEST_CASE("parse_dbc_response rejects an unknown or missing presence",
           "[json][parse][dbc][validation]") {
-    {
+    auto const refused = [](Json word) {
         auto j = base_dbc_response();
-        first_signal(j)["presence"] = "sometimes";
-        CHECK(dbc_refusal(j.dump()) ==
-              "reply dbc/messages/signals/multiplexor: expected string, got nothing");
-    }
+        auto& sig = first_signal(j);
+        sig["presence"] = std::move(word);
+        sig["multiplexor"] = "Mode";
+        sig["multiplex_values"] = Json::array({2});
+        return dbc_refusal(j.dump());
+    };
+    CHECK(refused("bogus_word") == R"(reply dbc/messages/signals/presence: expected "always" or )"
+                                   R"("multiplexed", got "bogus_word")");
+    CHECK(refused(0) ==
+          R"(reply dbc/messages/signals/presence: expected "always" or "multiplexed", got number)");
     {
         auto j = base_dbc_response();
         first_signal(j).erase("presence");
-        CHECK(dbc_refusal(j.dump()) ==
-              "reply dbc/messages/signals/presence: expected string, got nothing");
+        CHECK(dbc_refusal(j.dump()) == R"(reply dbc/messages/signals/presence: expected "always" )"
+                                       R"(or "multiplexed", got nothing)");
     }
 }
 
@@ -146,19 +153,6 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
 // (-DALETHEIA_COVERAGE=ON) is what shows which branches they reach.
 // ===========================================================================
 
-TEST_CASE("an error envelope rejects a missing code field", "[json][parse][error]") {
-    auto const r = detail::parse_success(R"({"status": "error", "message": "m"})");
-    REQUIRE_FALSE(r.has_value());
-    CHECK(r.error().kind() == ErrorKind::Protocol);
-    CHECK(r.error().message() == "reply code: expected string, got nothing");
-}
-
-TEST_CASE("an error envelope rejects a non-string code field", "[json][parse][error]") {
-    auto const r = detail::parse_success(R"({"status": "error", "code": 123, "message": "m"})");
-    REQUIRE_FALSE(r.has_value());
-    CHECK(r.error().message() == "reply code: expected string, got number");
-}
-
 TEST_CASE("an error envelope rejects a missing message field", "[json][parse][error]") {
     auto const r = detail::parse_success(R"({"status": "error", "code": "handler_no_dbc"})");
     REQUIRE_FALSE(r.has_value());
@@ -189,7 +183,7 @@ TEST_CASE("parse_event_ack rejects a malformed JSON envelope", "[json][parse][er
 
 TEST_CASE("parse_validation lifts a status=error envelope", "[json][parse][error]") {
     auto const r = detail::parse_validation(
-        R"({"status": "error", "code": "factor_zero", "message": "boom"})");
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Validation);
     CHECK(r.error().message() == "boom");
@@ -256,38 +250,26 @@ TEST_CASE("handler_validation_failed with a missing or malformed issues payload 
          R"("has_errors":true,"issues":[42]})",
          "reply issues: expected object, got number"},
         {R"({"status":"error","code":"handler_validation_failed","message":"m",)"
-         R"("has_errors":true,"issues":[{"severity":"error","code":"x","detail":42}]})",
+         R"("has_errors":true,"issues":[{"severity":"error","code":"factor_zero","detail":42}]})",
          "reply issues/detail: expected string, got number"},
     }));
     auto const r = detail::parse_parsed_dbc(envelope);
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Protocol);
-    CHECK(r.error().code() == ErrorCode::Unknown);
+    CHECK_FALSE(r.error().code().has_value());
     CHECK(r.error().message() == refusal);
 }
 
-TEST_CASE("handler_validation_failed reads a severity outside the set as a warning",
-          "[json][parse][error]") {
-    auto const r = detail::parse_parsed_dbc(
-        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
-        R"("has_errors":true,"issues":[{"severity":"fatal","code":"x","detail":"d"}]})");
-    REQUIRE_FALSE(r.has_value());
-    CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
-    REQUIRE(r.error().issues().has_value());
-    REQUIRE(r.error().issues()->size() == 1);
-    CHECK(r.error().issues()->front().severity == IssueSeverity::Warning);
-}
-
 TEST_CASE("parse_extraction lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_extraction(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_extraction(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().message() == "boom");
 }
 
 TEST_CASE("parse_frame_data lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_frame_data(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_frame_data(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
@@ -307,15 +289,15 @@ TEST_CASE("parse_frame_response rejects a negative timestamp", "[json][parse][er
 }
 
 TEST_CASE("parse_frame_response lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_frame_response(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_frame_response(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
 
 TEST_CASE("parse_stream_result lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_stream_result(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_stream_result(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
@@ -328,7 +310,8 @@ TEST_CASE("parse_stream_result rejects a wrong response type", "[json][parse][er
 
 TEST_CASE("parse_stream_result rejects a warning missing property_index", "[json][parse][error]") {
     auto const r = detail::parse_stream_result(
-        R"({"status": "complete", "results": [], "warnings": [{"kind": "x", "detail": "d"}]})");
+        R"({"status": "complete", "results": [], "warnings": [{"kind": "uncached_atom",
+            "detail": "d"}]})");
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().message() == "reply warnings/property_index: expected number, got nothing");
 }
@@ -341,10 +324,10 @@ TEST_CASE("parse_stream_result rejects a negative warning property_index", "[jso
     CHECK(r.error().message() == "reply warnings/property_index: expected number, got number");
 }
 
-TEST_CASE("parse_stream_result reads every warning kind as the one WarningKind names",
+TEST_CASE("parse_stream_result reads the uncached_atom kind as the one WarningKind names",
           "[json][parse]") {
     auto const r = detail::parse_stream_result(
-        R"({"status": "complete", "results": [], "warnings": [{"kind": "x",
+        R"({"status": "complete", "results": [], "warnings": [{"kind": "uncached_atom",
             "property_index": 3, "detail": "d"}]})");
     REQUIRE(r.has_value());
     REQUIRE(r->warnings.size() == 1);
@@ -354,8 +337,8 @@ TEST_CASE("parse_stream_result reads every warning kind as the one WarningKind n
 }
 
 TEST_CASE("parse_dbc_response lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_dbc_response(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_dbc_response(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
@@ -370,7 +353,6 @@ TEST_CASE("parse_dbc_text_response decodes a success response with issues", "[js
     REQUIRE(r->issues.size() == 1);
     CHECK(r->issues[0].severity == IssueSeverity::Warning);
     CHECK(r->issues[0].code == IssueCode::MultiValueMuxSelector);
-    CHECK(r->issues[0].code_raw == "multi_value_mux_selector");
     CHECK(r->issues[0].detail == "mux");
 }
 

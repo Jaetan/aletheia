@@ -7,6 +7,7 @@
 
 #include <aletheia/limits.hpp>
 
+#include <cstdint>
 #include <exception>
 #include <expected>
 #include <span>
@@ -402,8 +403,8 @@ static constexpr auto formula_tag() -> std::string_view {
 // cap mirrors the kernel's own (`Aletheia.Limits.max-nesting-depth`, exposed
 // as `aletheia::max_nesting_depth`), so a deeper formula is refused here
 // rather than serialized and then rejected on the wire.
-static auto formula_to_json(LtlFormula const& f, int depth = 0) -> Json {
-    if (std::cmp_greater(depth, max_nesting_depth))
+static auto formula_to_json(LtlFormula const& f, std::uint64_t depth = 0) -> Json {
+    if (depth > max_nesting_depth)
         throw std::runtime_error("Formula nesting depth exceeds " +
                                  std::to_string(max_nesting_depth));
     return std::visit(

@@ -4,13 +4,12 @@
 
 ``normalize_dbc`` / ``normalize_signal`` / ``parse_extraction_buffer`` refuse a
 value of the wrong kind, a key the kernel always writes and the reply lacks and
-trailing bytes on the binary extraction buffer; a value's range, a tag's set and
-a list's length are the kernel's, proven of every reply, so a number passes as
-given and a tag outside its set is read, not refused.  Each refusal sets exactly
-one bad field on an otherwise whole reply and reads ``reply <path>: expected
-<what>, got <what came>``, the path the reply proof's.  (Real ``formatDBC``
-output is covered end-to-end by ``test_dbc_corpus_parity`` and
-``test_format_dbc``.)
+trailing bytes on the binary extraction buffer; a value's range and a list's
+length are the kernel's, proven of every reply, so a number passes as given, not
+refused.  Each refusal sets exactly one bad field on an
+otherwise whole reply and reads ``reply <path>: expected <what>, got <what
+came>``, the path the reply proof's.  (Real ``formatDBC`` output is covered
+end-to-end by ``test_dbc_corpus_parity`` and ``test_format_dbc``.)
 """
 
 from __future__ import annotations
@@ -40,12 +39,6 @@ NumericField = Literal["factor", "offset", "minimum", "maximum"]
 
 # The places a reply carries a CAN id beside its messages.
 IdPlace = Literal["comment", "attribute", "unresolved"]
-
-# A presence as a reply spells it, in or out of the pair the kernel writes.
-WirePresence = NewType("WirePresence", str)
-
-# A list of a DBC reply whose entries carry tags the kernel writes from fixed sets.
-TaggedList = Literal["comments", "attributes"]
 
 # Where a refusal names the flag of the CAN id at each place beside the messages.
 _FLAG_PLACES: Final = {
@@ -245,25 +238,29 @@ class TestSignalBitValidation:
 
 
 class TestPresenceValidation:
-    """The ``presence`` discriminator: the reader holds the kinds, the kernel the values.
+    """The ``presence`` discriminator: the reader holds its words and kinds, the kernel the values.
 
     The kernel writes ``presence`` as always or multiplexed, a multiplexor that is
     not empty and at least one selector value, proven of every reply.
     """
 
-    def test_reads_any_presence_but_always_as_multiplexed(self) -> None:
-        """A presence the kernel never writes is read as multiplexed and passed as given."""
+    def test_refuses_a_presence_outside_its_words(self) -> None:
+        """A presence the kernel never writes is refused, whatever multiplexed fields it carries."""
         sig = _valid_signal()
         sig["presence"] = "sometimes"
         sig["multiplexor"] = "Mode"
         sig["multiplex_values"] = [0]
-        assert dict(normalize_signal(sig))["presence"] == "sometimes"
+        with pytest.raises(ProtocolError) as refusal:
+            normalize_signal(sig)
+        assert str(refusal.value) == (
+            'reply dbc/messages/signals/presence: expected "always" or "multiplexed", '
+            + 'got "sometimes"'
+        )
 
-    @pytest.mark.parametrize("presence", [WirePresence("multiplexed"), WirePresence("sometimes")])
-    def test_rejects_a_multiplexor_that_is_not_a_string(self, presence: WirePresence) -> None:
-        """Reject a multiplexor of another kind under any presence but always."""
+    def test_rejects_a_multiplexor_that_is_not_a_string(self) -> None:
+        """Reject a multiplexor of another kind under a multiplexed presence."""
         sig = _valid_signal()
-        sig["presence"] = presence
+        sig["presence"] = "multiplexed"
         sig["multiplexor"] = 7
         sig["multiplex_values"] = [0]
         with pytest.raises(ProtocolError) as refusal:
@@ -279,7 +276,7 @@ class TestPresenceValidation:
         with pytest.raises(ProtocolError) as refusal:
             normalize_signal(sig)
         assert str(refusal.value) == (
-            "reply dbc/messages/signals/presence: expected string, got nothing"
+            'reply dbc/messages/signals/presence: expected "always" or "multiplexed", got nothing'
         )
 
     def test_takes_empty_multiplex_values_as_given(self) -> None:
@@ -337,125 +334,6 @@ class TestPresenceValidation:
         sig["multiplexor"] = "Mode"
         sig["multiplex_values"] = [0, 1]
         assert normalize_signal(sig)["name"] == "S"
-
-
-class TestTagsReadWithoutTheirSets:
-    """A tag's set is the kernel's, proven of every reply: the reader holds the tag's kind.
-
-    A tag outside its set is read, not refused: the last arm of its dispatch
-    takes it, and an attribute definition's scope passes as given.
-    """
-
-    @pytest.mark.parametrize(
-        ("key", "entry", "read"),
-        [
-            pytest.param(
-                "comments",
-                {"target": {"kind": "bogus", "envVar": "E"}, "text": "t"},
-                {"target": {"kind": "envVar", "envVar": "E"}, "text": "t"},
-                id="comment-target",
-            ),
-            pytest.param(
-                "attributes",
-                {
-                    "kind": "definition",
-                    "name": "A",
-                    "scope": "bogus",
-                    "attrType": {"kind": "string"},
-                },
-                {
-                    "kind": "definition",
-                    "name": "A",
-                    "scope": "bogus",
-                    "attrType": {"kind": "string"},
-                },
-                id="attribute-scope",
-            ),
-            pytest.param(
-                "attributes",
-                {
-                    "kind": "definition",
-                    "name": "A",
-                    "scope": "network",
-                    "attrType": {"kind": "bogus", "min": 0, "max": 255},
-                },
-                {
-                    "kind": "definition",
-                    "name": "A",
-                    "scope": "network",
-                    "attrType": {"kind": "hex", "min": 0, "max": 255},
-                },
-                id="attribute-type",
-            ),
-            pytest.param(
-                "attributes",
-                {"kind": "default", "name": "A", "value": {"kind": "bogus", "value": 255}},
-                {"kind": "default", "name": "A", "value": {"kind": "hex", "value": 255}},
-                id="attribute-value",
-            ),
-            pytest.param(
-                "attributes",
-                {
-                    "kind": "assignment",
-                    "name": "A",
-                    "target": {
-                        "kind": "bogus",
-                        "id": 1,
-                        "extended": False,
-                        "node": "N",
-                        "signal": "S",
-                    },
-                    "value": {"kind": "int", "value": 1},
-                },
-                {
-                    "kind": "assignment",
-                    "name": "A",
-                    "target": {
-                        "kind": "nodeSig",
-                        "id": 1,
-                        "extended": False,
-                        "node": "N",
-                        "signal": "S",
-                    },
-                    "value": {"kind": "int", "value": 1},
-                },
-                id="attribute-target",
-            ),
-            pytest.param(
-                "attributes",
-                {
-                    "kind": "bogus",
-                    "name": "A",
-                    "target": {"kind": "network"},
-                    "value": {"kind": "int", "value": 1},
-                },
-                {
-                    "kind": "assignment",
-                    "name": "A",
-                    "target": {"kind": "network"},
-                    "value": {"kind": "int", "value": 1},
-                },
-                id="attribute",
-            ),
-        ],
-    )
-    def test_reads_a_tag_outside_its_set(
-        self, key: TaggedList, entry: JSONValue, read: JSONValue
-    ) -> None:
-        """A tag the kernel never writes is read by its dispatch's last arm, a scope as given."""
-        assert dict(normalize_dbc(_dbc(**{key: [entry]})))[key] == [read]
-
-    def test_rejects_a_scope_that_is_not_a_string(self) -> None:
-        """Reject an attribute definition's scope of another kind."""
-        definition: JSONValue = {
-            "kind": "definition",
-            "name": "A",
-            "scope": 3,
-            "attrType": {"kind": "string"},
-        }
-        with pytest.raises(ProtocolError) as refusal:
-            normalize_dbc(_dbc(attributes=[definition]))
-        assert str(refusal.value) == "reply dbc/attributes/scope: expected string, got number"
 
 
 class TestEnvironmentVarTypeDecode:

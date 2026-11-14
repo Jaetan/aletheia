@@ -17,12 +17,12 @@ RTS up via the shared ``rts_up`` fixture.
 from __future__ import annotations
 
 from fractions import Fraction
-from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, NewType, NotRequired, TypedDict, TypeIs, cast
 
 import pytest
 import yaml
 from _excel_helpers import make_checks_workbook, make_dbc_workbook
+from _repo_root import REPO_ROOT
 
 from aletheia import AletheiaError, InputBoundExceededError, ValidationError
 from aletheia.checks import signal
@@ -31,6 +31,7 @@ from aletheia.yaml_loader import load_checks
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from aletheia.codes import ErrorCode
     from aletheia.common_types import DocumentKey, Location, PositiveInt, Prose
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("rts_up")
 
-_CONTRACT_PATH: Final = Path(__file__).resolve().parents[2] / "docs" / "LOADER_SCENARIOS.yaml"
+_CONTRACT_PATH: Final = REPO_ROOT / "docs" / "LOADER_SCENARIOS.yaml"
 
 # A scenario's identifier, which is its test id.
 ScenarioName = NewType("ScenarioName", str)

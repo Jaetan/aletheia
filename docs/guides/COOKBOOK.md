@@ -690,7 +690,7 @@ parsed as the exact decimal) and for every binding.
 
 ### The `.so` won't load
 
-Symptoms: `aletheia_init() returned null`, an `hs_init` failure, or a
+Symptoms: `aletheia_init returned null`, an `hs_init` failure, or a
 `FileNotFoundError` / `OSError` naming `libaletheia-ffi.so`. The binding could
 not find or load the verified core. From a PyPI install (`pip install
 aletheia`) the library ships inside the package and this should not happen. From

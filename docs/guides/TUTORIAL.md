@@ -563,7 +563,7 @@ Close the stream. `end_stream` returns a `Result<StreamResult>`; on success, `re
 }
 ```
 
-On any failure, read `error().kind()` / `error().code()` / `error().message()`; `ErrorCode` mirrors the kernel's `IssueCode` enum ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+On any failure, read `error().kind()` / `error().code()` / `error().message()`; `ErrorCode` mirrors the kernel's error codes, and `code()` is empty for an error the binding makes itself ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ### CLI Boundary
 
@@ -791,7 +791,7 @@ Close the stream. `end_stream` returns a `StreamResult` with one finalization ve
 }
 ```
 
-On failure, `Error` is an enum you `match` directly, and `Error::Core { code, message }` mirrors the kernel's `IssueCode`; a reply the binding cannot read is `Error::Protocol`, `reply <path>: expected <what>, got <what came>`, and Rust has no dedicated `State` kind, so wrong-lifecycle conditions surface as `Error::Protocol` too ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+On failure, `Error` is an enum you `match` directly, and `Error::Core { code, message }` carries the kernel's code as an `ErrorCode`; a reply the binding cannot read is `Error::Protocol`, `reply <path>: expected <what>, got <what came>`, and Rust has no dedicated `State` kind, so wrong-lifecycle conditions surface as `Error::Protocol` too ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ### CLI Boundary
 

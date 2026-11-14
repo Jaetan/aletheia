@@ -44,9 +44,10 @@ Strategy:
    ``REPLY_NON_EMPTY`` names that the Agda drops, an Agda row they do not name,
    a word one side holds and the other does not (Python's set read from its
    ``Literal`` alias, the ``Literal`` field of a class or of a union of
-   classes, its ``StrEnum`` or its ``BOUND_KIND_*`` codes; Go's from the case
-   literals of a reader's one ``switch``, the literals its ``fieldWord`` calls
-   await, the constants of a named string type, the one ``var`` block of a
+   classes, its ``StrEnum``, the literals a reader's ``field_word`` calls
+   await, an ``if`` testing the one call's word against a literal its arm and
+   the code after it its last arm, or its ``BOUND_KIND_*`` codes; Go's from the
+   literals a reader's ``fieldWord`` calls await, the one ``var`` block of a
    struct type's values, which no line elsewhere may build or reach, or its
    ``BoundKind*`` codes; C++'s from a ``std::to_array`` table of ``{word,
    enumerator}`` pairs, the literals a dispatch compares a word with, the
@@ -55,19 +56,24 @@ Strategy:
    ``bound_kind_*`` codes; Rust's from the string-literal arms of a function's
    one ``match`` on its word, whose final ``_`` arm reads as the word of an arm
    building the variant it builds, the literals its ``field_word`` calls
-   await, a function reading the word into an unused binding, which takes
-   every word, the words one method gives an enum's variants, which no line
-   elsewhere may give or reach, or its ``BOUND_KIND_*`` codes), a C++ or Rust
-   last arm other than the row's last word, a ``bound_kind`` row that differs
-   from ``boundKindCode``, or a row at a place ``RUST_UNTAGGED`` reads past.
+   await, the words one method gives an enum's variants, which no line
+   elsewhere may give or reach, or its ``BOUND_KIND_*`` codes), a last arm
+   other than the row's last word, a ``bound_kind`` row that differs
+   from ``boundKindCode``, or a row at a place ``GO_UNTAGGED`` or
+   ``RUST_UNTAGGED`` reads past.
    The proof leaves an unlisted string place free, so this arm is what holds
    each row the readers rely on.  It lives in ``tools/_reply_places.py``, its
-   C++ reader in ``tools/_reply_places_cpp.py`` and its Rust reader in
+   Go reader in ``tools/_reply_places_go.py``, its C++ reader in
+   ``tools/_reply_places_cpp.py`` and its Rust reader in
    ``tools/_reply_places_rust.py``; a clause of either table or a reader's type
-   or code it cannot read, a place a table names twice, a C++ reader file
-   comparing a word outside the dispatches or looking up a table no reader
-   file declares, and a Rust reader file comparing a word outside the matches
-   and the functions ``RUST_UNTAGGED`` names, exit 2.
+   or code it cannot read, a place a table names twice, a ``replyText`` word
+   that is not identifier-shaped (a Go or Rust reader's literal of another
+   shape compares no word), a Go reader file comparing a word outside the
+   lines its rows read and the switch and select statements of the functions
+   ``GO_UNTAGGED`` names, a C++ reader file comparing a word outside the
+   dispatches or looking up a table no reader file declares, and a Rust reader
+   file comparing a word outside the matches and the functions
+   ``RUST_UNTAGGED`` names, exit 2.
 
 Exit codes:
   0: full parity between Agda SSOT and every mirror.
@@ -98,17 +104,16 @@ from typing import TYPE_CHECKING, NewType
 from tools._common import emit
 from tools._reply_places import (
     AGDA_REPLY_RANGE,
-    GO_REPLY_TEXT,
     PYTHON_REPLY_TEXT,
     REPLY_NON_EMPTY,
     AgdaText,
     ReplyWord,
     check_reply_places,
-    go_reader,
     python_reader,
     read_reply_tables,
 )
 from tools._reply_places_cpp import CPP_REPLY_TEXT, cpp_reader
+from tools._reply_places_go import GO_REPLY_TEXT, go_reader, go_untagged_rows
 from tools._reply_places_rust import (
     RUST_REPLY_TEXT,
     RustSymbol,
@@ -866,6 +871,7 @@ def main() -> int:
     diffs.extend(
         check_reply_places(tables, frozenset(ReplyWord(wire) for wire in agda_boundkind.values()))
     )
+    diffs.extend(go_untagged_rows(tables.agda_text.keys()))
     diffs.extend(rust_untagged_rows(tables.agda_text.keys()))
 
     if diffs:

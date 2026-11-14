@@ -10,18 +10,21 @@ count outside one to the CPUs the process may use is refused, the bound being
 the runtime's own count of them.
 
 The tests in this process read the recording stand-in, which counts four CPUs
-and whose runtime entry is a no-op, under a runtime latch of the test's own
+and whose runtime entry starts nothing and records the command line it is
+handed, under a runtime latch of the test's own
 (``unstarted``).  The claims about a process whose runtime has not started run
-as programs of their own against the built library.
+as programs of their own against the built library.  The command line's
+builder is read as a table, with nothing loaded.
 """
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import os
 import sys
 from fractions import Fraction
-from typing import TYPE_CHECKING, Never, NewType
+from typing import TYPE_CHECKING, NamedTuple, Never, NewType
 
 import pytest
 from _cli_check_helpers import FFI_LIB, dbc_text, never_exceeds_yaml, run_captured, skip_without_ffi
@@ -32,12 +35,21 @@ from _excel_helpers import (
     make_dbc_workbook,
     make_when_then_workbook,
 )
-from _stand_in import StandInName, stand_in_kernel
+from _stand_in import StandInName, keeping, stand_in_kernel
 
-from aletheia import AletheiaClient, FFIBackend, RTSState, ValidationError, start_runtime
+from aletheia import (
+    AletheiaClient,
+    FFIBackend,
+    FFIError,
+    ProtocolError,
+    RTSState,
+    ValidationError,
+    start_runtime,
+)
 from aletheia.checks import signal
 from aletheia.client._enrichment import format_rational
-from aletheia.common_types import Prose
+from aletheia.client._ffi import RuntimeOverride, rts_arguments, take_error_envelope
+from aletheia.common_types import CoreCount, Prose
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -275,6 +287,224 @@ def _mismatches(caplog: pytest.LogCaptureFixture) -> list[Prose]:
     ]
 
 
+# A logger's name, a record's level and the event it carries, as ``logging`` holds them.
+LoggerName = NewType("LoggerName", str)
+LogLevel = NewType("LogLevel", int)
+EventName = NewType("EventName", str)
+
+
+class _Record(NamedTuple):
+    """A captured record with the fields an ``rts.cores_mismatch`` warning carries."""
+
+    logger: LoggerName
+    level: LogLevel
+    line: Prose
+    event: EventName | None
+    active_cores: CoreCount | None
+    requested_cores: CoreCount | None
+
+
+def _records(caplog: pytest.LogCaptureFixture) -> list[_Record]:
+    """Return every record the test captured, in order."""
+    return [
+        _Record(
+            LoggerName(r.name),
+            LogLevel(r.levelno),
+            Prose(r.getMessage()),
+            getattr(r, "event", None),
+            getattr(r, "active_cores", None),
+            getattr(r, "requested_cores", None),
+        )
+        for r in caplog.records
+    ]
+
+
+# The one record four asked of a runtime running on one writes.
+_FOUR_ASKED_OF_ONE = [
+    _Record(
+        LoggerName("aletheia"),
+        LogLevel(logging.WARNING),
+        Prose(f"rts.cores_mismatch active_cores=1 requested_cores={_STAND_IN_CPUS}"),
+        EventName("rts.cores_mismatch"),
+        CoreCount(1),
+        CoreCount(_STAND_IN_CPUS),
+    )
+]
+
+
+# A word of the command line the runtime's start entry is handed, and their
+# count, as the recording stand-in read them.
+RuntimeArgument = NewType("RuntimeArgument", bytes)
+ArgumentCount = NewType("ArgumentCount", int)
+# The flags a caller appends to the runtime's own through the override variable.
+RtsOptions = NewType("RtsOptions", str)
+
+_RTS_OVERRIDE = "ALETHEIA_RTS_OPTS"
+
+
+class _CommandLine(NamedTuple):
+    """The override a start reads, and the command line its runtime entry is then handed."""
+
+    override: RtsOptions | None
+    words: list[RuntimeArgument]
+
+
+_COMMAND_LINES = [
+    _CommandLine(
+        None, [RuntimeArgument(word) for word in (b"aletheia", b"+RTS", b"-M3G", b"-RTS")]
+    ),
+    _CommandLine(
+        RtsOptions("  -M12M   -hT "),
+        [
+            RuntimeArgument(word)
+            for word in (b"aletheia", b"+RTS", b"-M3G", b"-M12M", b"-hT", b"-RTS")
+        ],
+    ),
+    # The environment holds the byte 0xff, which os.environ spells U+DCFF.
+    _CommandLine(
+        RtsOptions("-\udcff -é"),
+        [
+            RuntimeArgument(word)
+            for word in (b"aletheia", b"+RTS", b"-M3G", b"-\xff", b"-\xc3\xa9", b"-RTS")
+        ],
+    ),
+]
+
+
+def _handed(lib: ctypes.CDLL) -> tuple[ArgumentCount, list[RuntimeArgument]]:
+    """Return the count and the words the recording stand-in's runtime entry was last handed."""
+    arguments = lib.aletheia_test_rts_arguments
+    arguments.restype = ctypes.c_char_p
+    words = [RuntimeArgument(word) for word in arguments().split(b"\n")]
+    return ArgumentCount(lib.aletheia_test_rts_argc()), words
+
+
+@pytest.mark.usefixtures("unstarted")
+@pytest.mark.parametrize(
+    "line", _COMMAND_LINES, ids=["no override", "an override", "an override outside UTF-8"]
+)
+def test_a_start_hands_the_runtime_its_name_then_its_heap_cap_then_the_override(
+    line: _CommandLine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A start on one core hands the runtime entry its name, its heap cap and the override.
+
+    The words sit between ``+RTS`` and ``-RTS``, the cap before the override so
+    a caller's own ``-M`` lands later and wins; the override is split on
+    whitespace and its words handed as their bytes, and one core writes no ``-N``.
+    """
+    if line.override is None:
+        monkeypatch.delenv(_RTS_OVERRIDE, raising=False)
+    else:
+        monkeypatch.setenv(_RTS_OVERRIDE, line.override)
+    start_runtime(1, lib_path=stand_in_kernel(_RECORDING))
+    assert RTSState.lib is not None
+    assert _handed(RTSState.lib) == (ArgumentCount(len(line.words)), line.words)
+
+
+# The words every command line opens and closes on: the runtime's name, its
+# heap cap and the closing marker.
+_OPENING = [RuntimeArgument(word) for word in (b"aletheia", b"+RTS", b"-M3G")]
+_CLOSING = RuntimeArgument(b"-RTS")
+
+
+class _Built(NamedTuple):
+    """A core count and an override, and the words the builder writes after the cap."""
+
+    cores: CoreCount
+    override: RuntimeOverride
+    added: list[RuntimeArgument]
+
+
+_BUILT = [
+    _Built(CoreCount(1), RuntimeOverride(b""), []),
+    _Built(CoreCount(4), RuntimeOverride(b""), [RuntimeArgument(b"-N4")]),
+    _Built(
+        CoreCount(1),
+        RuntimeOverride(b"  -M12M   -hT "),
+        [RuntimeArgument(b"-M12M"), RuntimeArgument(b"-hT")],
+    ),
+    _Built(
+        CoreCount(2), RuntimeOverride(b"-hT"), [RuntimeArgument(b"-N2"), RuntimeArgument(b"-hT")]
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "built", _BUILT, ids=["one core", "four cores", "an override", "an override and two cores"]
+)
+def test_the_command_line_names_a_core_count_past_one_then_the_override(built: _Built) -> None:
+    """The builder writes ``-N`` past one core, then the override's words, after the cap.
+
+    It is read directly, as every binding's test reads its own; the override
+    is split on ASCII whitespace.
+    """
+    assert rts_arguments(built.cores, built.override) == [*_OPENING, *built.added, _CLOSING]
+
+
+# An argument's position in a call, counted from one as ctypes's refusal names it.
+ArgumentPosition = NewType("ArgumentPosition", int)
+
+
+class _Mistyped(NamedTuple):
+    """The runtime entry's argument handed another type of its layout, and ctypes's refusal."""
+
+    position: ArgumentPosition
+    refusal: Prose
+
+
+_MISTYPED = [
+    _Mistyped(
+        ArgumentPosition(1),
+        Prose("argument 1: TypeError: expected LP_c_int instance instead of pointer to c_uint"),
+    ),
+    _Mistyped(
+        ArgumentPosition(2),
+        Prose(
+            "argument 2: TypeError: expected LP_LP_c_char_p instance"
+            + " instead of pointer to LP_c_void_p"
+        ),
+    ),
+]
+
+
+@pytest.mark.usefixtures("unstarted")
+@pytest.mark.parametrize("mistyped", _MISTYPED, ids=["the count", "the list"])
+def test_the_runtime_entry_refuses_an_argument_of_another_type_before_it_runs(
+    mistyped: _Mistyped,
+) -> None:
+    """After a start, the runtime entry holds its count to ``int *`` and its list to ``char ***``.
+
+    An ``unsigned`` count and a list of untyped addresses share the right
+    ones' layout, so an entry declared looser would run on them; each is
+    refused at the call, and the entry keeps the command line the start handed it.
+    """
+    start_runtime(1, lib_path=stand_in_kernel(_RECORDING))
+    lib = RTSState.lib
+    assert lib is not None
+    started = _handed(lib)
+    count = ctypes.byref(ctypes.c_int(0))
+    words = ctypes.byref(ctypes.POINTER(ctypes.c_char_p)())
+    if mistyped.position == 1:
+        count = ctypes.byref(ctypes.c_uint(0))
+    else:
+        words = ctypes.byref(ctypes.POINTER(ctypes.c_void_p)())
+    with pytest.raises(ctypes.ArgumentError) as refused:
+        lib.hs_init_with_rtsopts(count, words)
+    assert str(refused.value) == mistyped.refusal
+    assert _handed(lib) == started
+
+
+@pytest.mark.usefixtures("unstarted")
+def test_a_backend_gives_back_the_reference_it_took_and_no_more() -> None:
+    """A backend's close gives back the reference its open took, and a second close keeps none."""
+    backend = FFIBackend(lib_path=stand_in_kernel(_RECORDING))
+    assert RTSState.refcount == 1
+    backend.close(0)
+    assert RTSState.refcount == 0
+    backend.close(0)
+    assert RTSState.refcount == 0
+
+
 @pytest.mark.usefixtures("unstarted")
 def test_a_start_latches_a_library_and_its_count_and_takes_no_reference(
     caplog: pytest.LogCaptureFixture,
@@ -308,17 +538,57 @@ def test_a_render_after_a_start_reads_the_started_library(monkeypatch: pytest.Mo
 def test_a_check_built_after_a_start_sends_its_property_to_the_started_library(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A check's build hands its property's JSON to the library the start opened."""
+    """A check's build hands its property's JSON to the library the start opened.
+
+    The recording stand-in refuses every property, quoting the text it was
+    handed, under a code no error code names: its envelope is read as the
+    build took it, before the build refuses that code.
+    """
     start_runtime(1, lib_path=stand_in_kernel(_RECORDING))
     monkeypatch.setattr("aletheia.client._ffi.find_ffi_library", _no_search)
-    # The recording stand-in refuses every property, quoting the text it was handed.
-    with pytest.raises(ValidationError) as refused:
+    take, taken = keeping(take_error_envelope)
+    monkeypatch.setattr("aletheia.client._helpers.property_check.take_error_envelope", take)
+    with pytest.raises(ProtocolError) as refused:
         _ = signal("S").never_exceeds(220)
-    assert (refused.value.code, str(refused.value)) == (
-        "recording_kernel",
-        'check_property {"operator": "atomic", "predicate":'
-        + ' {"predicate": "lessThanOrEqual", "signal": "S", "value": 220}}',
+    assert (refused.type, refused.value.code, str(refused.value)) == (
+        ProtocolError,
+        None,
+        'reply code: expected an error code, got "recording_kernel"',
     )
+    assert taken == [
+        {
+            "status": "error",
+            "code": "recording_kernel",
+            "message": 'check_property {"operator": "atomic", "predicate":'
+            + ' {"predicate": "lessThanOrEqual", "signal": "S", "value": 220}}',
+        }
+    ]
+
+
+@pytest.mark.usefixtures("unstarted")
+def test_a_check_built_while_the_runtime_is_down_is_refused_naming_the_remedy() -> None:
+    """A check's build before any start names ``start_runtime`` and what it was building."""
+    with pytest.raises(FFIError) as refused:
+        _ = signal("S").never_exceeds(220)
+    assert str(refused.value) == (
+        "GHC runtime not initialized: call aletheia.start_runtime or open a client"
+        + " before building a check"
+    )
+
+
+@pytest.mark.usefixtures("unstarted")
+def test_a_check_refused_without_an_envelope_is_a_protocol_error() -> None:
+    """A property check the library refuses with no error envelope is a wire fault.
+
+    The null stand-in kernel answers the check entry with failure and no
+    envelope; its backend starts the runtime on it, under a latch of the test's
+    own, so the build calls it, and the fault is a ``ProtocolError`` with no code.
+    """
+    _ = FFIBackend(lib_path=stand_in_kernel(StandInName("null_kernel")))
+    with pytest.raises(ProtocolError) as refused:
+        _ = signal("S").never_exceeds(220)
+    assert str(refused.value) == "aletheia_check_property refused without an error"
+    assert refused.value.code is None
 
 
 @pytest.mark.usefixtures("unstarted")
@@ -326,7 +596,11 @@ def test_a_check_built_after_a_start_sends_its_property_to_the_started_library(
 def test_counts_are_held_to_one_through_the_cpus_the_runtime_counts(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """On a stand-in counting four CPUs, 0 and 5 are refused, and 4 asked of one on 1 warns."""
+    """On a stand-in counting four CPUs, 0 and 5 are refused, and 4 asked of one on 1 warns.
+
+    The warning is the ``aletheia`` logger's ``rts.cores_mismatch`` record,
+    carrying both counts as fields.
+    """
     recording = stand_in_kernel(_RECORDING)
     start_runtime(1, lib_path=recording)
     for past in (0, _STAND_IN_CPUS + 1):
@@ -338,7 +612,7 @@ def test_counts_are_held_to_one_through_the_cpus_the_runtime_counts(
     with caplog.at_level(logging.WARNING, logger="aletheia"):
         start_runtime(_STAND_IN_CPUS, lib_path=recording)
     assert RTSState.cores == 1
-    assert _mismatches(caplog) == ["rts.cores_mismatch active_cores=1 requested_cores=4"]
+    assert _records(caplog) == _FOUR_ASKED_OF_ONE
 
 
 @pytest.mark.usefixtures("unstarted")
@@ -358,6 +632,24 @@ def test_a_client_naming_no_count_asks_the_running_count(
             pass
     assert asked == _STAND_IN_CPUS
     assert _mismatches(caplog) == ["rts.cores_mismatch active_cores=4 requested_cores=1"]
+
+
+@pytest.mark.usefixtures("unstarted")
+@pytest.mark.runtime_cores("the count the backend reports beside the running one is the claim")
+def test_a_backend_asking_another_count_reports_the_count_it_asked(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A backend asking four of a runtime running on one reports four, and the ask is warned.
+
+    The runtime keeps its one; the warning is the ``aletheia`` logger's
+    ``rts.cores_mismatch`` record, carrying both counts as fields.
+    """
+    recording = stand_in_kernel(_RECORDING)
+    start_runtime(1, lib_path=recording)
+    with caplog.at_level(logging.WARNING, logger="aletheia"):
+        asked = FFIBackend(rts_cores=_STAND_IN_CPUS, lib_path=recording).rts_cores
+    assert (asked, RTSState.cores) == (_STAND_IN_CPUS, 1)
+    assert _records(caplog) == _FOUR_ASKED_OF_ONE
 
 
 @pytest.mark.usefixtures("rts_up")

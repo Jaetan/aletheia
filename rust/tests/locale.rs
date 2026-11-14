@@ -12,7 +12,7 @@
 use std::io::Write;
 use std::process::Command;
 
-use aletheia::{Client, Error, Rational};
+use aletheia::{Client, Error, ErrorCode, Rational};
 
 const CHILD_ENV: &str = "ALETHEIA_TEST_LOCALE_CHILD";
 const SENTINEL: &str = "ALETHEIA_LOCALE_OK";
@@ -41,9 +41,9 @@ fn failures() -> Vec<String> {
     let mut failures = Vec::new();
     match Rational::from_decimal("1.5\u{20ac}") {
         Err(Error::Validation {
-            code: Some(ref code),
+            code: Some(ErrorCode::TextTrailingInput),
             ..
-        }) if code == "text_trailing_input" => {}
+        }) => {}
         other => failures.push(format!(
             "from_decimal answered {other:?} for 1.5 and a euro sign"
         )),
@@ -52,7 +52,7 @@ fn failures() -> Vec<String> {
         Err(Error::Core {
             ref code,
             ref message,
-        }) if code == "dbc_invalid_character"
+        }) if *code == ErrorCode::DbcInvalidCharacter
             && message.contains("line 10, column 35 (code point 176)") => {}
         other => failures.push(format!(
             "parse_dbc_text answered the degree sign with {other:?}"

@@ -4,11 +4,13 @@
 //! The payload guard and the refusal envelope at the real entries: a
 //! payload of any length but the DLC's byte count never reaches the core,
 //! and one of exactly that length does, the core then refusing it for want
-//! of a DBC with its own code.
+//! of a DBC with its own code. `invoke` refuses a null answer naming the
+//! entry it was handed.
 
 use super::{Backend, FfiBackend, SignalInjection};
 use crate::error::Error;
 use crate::log::LogLevel;
+use crate::response::ErrorCode;
 use crate::types::{CanId, Dlc, Timestamp};
 
 const NO_SIGNALS: SignalInjection<'static> = SignalInjection { values: &[] };
@@ -41,7 +43,7 @@ fn assert_guarded<T: std::fmt::Debug>(entry: &str, result: Result<T, Error>) {
 fn assert_no_dbc<T: std::fmt::Debug>(entry: &str, result: Result<T, Error>) {
     assert!(
         matches!(&result, Err(Error::Core { code, message })
-            if code == "handler_no_dbc" && message == "DBC not loaded"),
+            if *code == ErrorCode::HandlerNoDbc && message == "DBC not loaded"),
         "{entry}: {result:?}"
     );
 }
@@ -88,4 +90,21 @@ fn the_binary_output_entries_carry_the_core_code_of_a_refusal() {
         "update_frame_bin",
         b.update_frame_bin(256, false, dlc8(), &data, NO_SIGNALS),
     );
+}
+
+#[test]
+fn a_null_answer_is_refused_naming_its_entry() {
+    let refused = backend()
+        .invoke("aletheia_process", |_| std::ptr::null_mut())
+        .expect_err("a null answer is no reply");
+    assert!(
+        matches!(
+            refused,
+            Error::NullResponse {
+                entry: "aletheia_process"
+            }
+        ),
+        "got: {refused:?}"
+    );
+    assert_eq!(refused.to_string(), "aletheia_process returned null");
 }

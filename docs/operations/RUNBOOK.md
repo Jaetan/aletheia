@@ -275,7 +275,7 @@ event name.
 
 ### Build / deployment
 
-#### `hs_init` failure / `aletheia_init() returned null`
+#### `hs_init` failure / `aletheia_init returned null`
 
 **Symptom:** Process startup fails with an `hs_init` error or the
 client constructor returns a null backend.

@@ -4,19 +4,24 @@
 // A kernel stand-in that answers the kernel's entries with a refusal quoting
 // what it was handed, so a test can read what a binding marshals to the kernel
 // entries whose arguments the real kernel acknowledges without reading: the
-// timestamp of an error or remote event, the CAN-FD bus bits of a frame, and
-// the size of a command's text. It counts the closes and the frees it is
-// handed, so a test reads that a state was closed or a string released, which
-// the real kernel acknowledges without reading and which only a leak checker
-// would otherwise report. Its renderer answers the rational it was handed, but
-// for one numerator it answers with a null string, so a test can follow a
-// render that held with one that failed, its property check refuses quoting
+// timestamp of an error or remote event, the CAN-FD bus bits of a frame, the
+// value of its extended byte, which the kernel reads only as zero or not, and
+// the size of a command's text. Its extraction to a buffer answers the frame
+// quoted, in a buffer it allocates. It counts the closes it is handed, keeping
+// the state the last one was handed, and the strings and buffers it frees, so
+// a test reads which state was closed or that a string or a buffer was
+// released, which the real kernel acknowledges without reading and which only
+// a leak checker would otherwise report. Its renderer answers the rational it
+// was handed, but for one numerator it answers with a null string, so a test
+// can follow a render that held with one that failed, its property check refuses quoting
 // the property, so a test reads the text a binding sends, and its allocation
 // count is a known value, so a test reads what reached them. It
 // carries every symbol the bindings resolve, at the kernel's own signatures,
-// its count of the process's CPUs is four, and its runtime entry is a no-op, so a process whose first backend opens it
-// reads the runtime as up without one. The build makes it beside the library,
-// where the bindings' tests load it.
+// its count of the process's CPUs is four, and its runtime entry starts
+// nothing, so a process whose first backend opens it reads the runtime as up
+// without one; the entry records the command line it is handed, so a test
+// reads what a binding starts the runtime with. The build makes it beside the
+// library, where the bindings' tests load it.
 #include "aletheia.h"
 
 #include <inttypes.h>
@@ -47,7 +52,35 @@ uint32_t aletheia_abi_version() {
     return ALETHEIA_ABI_VERSION;
 }
 
-void hs_init_with_rtsopts(int *, char ***) {}
+// The command line the runtime entry was last handed: its count, -1 for a null
+// count, and its words joined by newlines, a null word read as <null> and a
+// null list as <null list>, so a binding that loses a word, a pointer or the
+// count reads as such rather than ending the process.
+static int rts_argc = -1;
+static char rts_arguments[512];
+
+void hs_init_with_rtsopts(int *argc, char ***argv) {
+    rts_argc = argc != nullptr ? *argc : -1;
+    if (argv == nullptr || *argv == nullptr) {
+        snprintf(rts_arguments, sizeof rts_arguments, "<null list>");
+        return;
+    }
+    size_t at = 0;
+    rts_arguments[0] = '\0';
+    for (int i = 0; i < rts_argc && at < sizeof rts_arguments; ++i) {
+        const char *word = (*argv)[i];
+        at += (size_t)snprintf(rts_arguments + at, sizeof rts_arguments - at, "%s%s",
+                               i == 0 ? "" : "\n", word != nullptr ? word : "<null>");
+    }
+}
+
+int aletheia_test_rts_argc() {
+    return rts_argc;
+}
+
+const char *aletheia_test_rts_arguments() {
+    return rts_arguments;
+}
 
 // The CPUs the stand-in says the process may use: four, whatever the machine,
 // so a test asks a count past the bound or within it and reads the same answer
@@ -61,27 +94,44 @@ void *aletheia_init() {
     return &state;
 }
 
-// Closes are counted so a test can read that the state it opened was closed.
+// Closes are counted so a test can read that the state it opened was closed,
+// and the state the last one was handed is kept so a test reads which.
 static atomic_int closes;
-void aletheia_close(void *) {
+static _Atomic(void *) last_closed;
+void aletheia_close(void *state) {
+    atomic_store(&last_closed, state);
     atomic_fetch_add(&closes, 1);
 }
 int aletheia_test_close_count() {
     return atomic_load(&closes);
 }
+void *aletheia_test_last_closed() {
+    return atomic_load(&last_closed);
+}
 
-// Frees are counted too: a string the binding failed to release is a leak
-// only a sanitizer would report, where the count reads the release itself.
+// Frees are counted too, a NULL freeing nothing: a string the binding failed
+// to release is a leak only a sanitizer would report, where the count reads
+// the release itself.
 static atomic_int frees;
 void aletheia_free_str(char *p) {
-    atomic_fetch_add(&frees, 1);
+    if (p != nullptr)
+        atomic_fetch_add(&frees, 1);
     free(p);
 }
 int aletheia_test_free_count() {
     return atomic_load(&frees);
 }
 
-void aletheia_free_buf(uint8_t *) {}
+// Buffers are counted as strings are, a NULL releasing nothing.
+static atomic_int buffer_frees;
+void aletheia_free_buf(uint8_t *p) {
+    if (p != nullptr)
+        atomic_fetch_add(&buffer_frees, 1);
+    free(p);
+}
+int aletheia_test_buffer_free_count() {
+    return atomic_load(&buffer_frees);
+}
 
 char *aletheia_process(void *, const struct aletheia_text *input) {
     char detail[64];
@@ -194,27 +244,52 @@ uint64_t aletheia_allocated_bytes() {
     return (UINT64_C(1) << 63) + atomic_fetch_add(&allocation_reads, 1);
 }
 
-char *aletheia_extract_signals(void *, const struct aletheia_frame *) {
-    return refusal("extract_signals");
+// The entry's name, then the identifier, the extended byte, the DLC and the
+// payload length of the frame it was handed.
+static void quote_frame(char *detail, size_t size, const char *entry,
+                        const struct aletheia_frame *frame) {
+    snprintf(detail, size, "%s id=%" PRIu32 " extended=%u dlc=%u len=%u", entry, frame->can_id,
+             frame->extended, frame->dlc, frame->data_len);
 }
 
-// The three binary entries refuse with an error envelope, as the kernel's do.
-int8_t aletheia_build_frame_bin(void *, const struct aletheia_frame *,
+char *aletheia_extract_signals(void *, const struct aletheia_frame *frame) {
+    char detail[96];
+    quote_frame(detail, sizeof detail, "extract_signals", frame);
+    return refusal(detail);
+}
+
+// The build and the update refuse with an error envelope, as the kernel's do.
+int8_t aletheia_build_frame_bin(void *, const struct aletheia_frame *frame,
                                 const struct aletheia_signal_values *,
                                 struct aletheia_buffer *out) {
-    out->err = refusal("build_frame_bin");
+    char detail[96];
+    quote_frame(detail, sizeof detail, "build_frame_bin", frame);
+    out->err = refusal(detail);
     return 1;
 }
 
-int8_t aletheia_update_frame_bin(void *, const struct aletheia_frame *,
+int8_t aletheia_update_frame_bin(void *, const struct aletheia_frame *frame,
                                  const struct aletheia_signal_values *,
                                  struct aletheia_buffer *out) {
-    out->err = refusal("update_frame_bin");
+    char detail[96];
+    quote_frame(detail, sizeof detail, "update_frame_bin", frame);
+    out->err = refusal(detail);
     return 1;
 }
 
-int8_t aletheia_extract_signals_bin(void *, const struct aletheia_frame *,
+// The extraction answers the quote's bytes in a buffer from the allocator
+// aletheia_free_buf releases to, as the kernel's buffer is.
+int8_t aletheia_extract_signals_bin(void *, const struct aletheia_frame *frame,
                                     struct aletheia_buffer *out) {
-    out->err = refusal("extract_signals_bin");
-    return 1;
+    char detail[96];
+    quote_frame(detail, sizeof detail, "extract_signals_bin", frame);
+    size_t size = strlen(detail);
+    uint8_t *data = malloc(size);
+    if (data == nullptr) {
+        *out = (struct aletheia_buffer){.err = refusal("extract_signals_bin out of memory")};
+        return 1;
+    }
+    memcpy(data, detail, size);
+    *out = (struct aletheia_buffer){.data = data, .size = (uint32_t)size};
+    return 0;
 }

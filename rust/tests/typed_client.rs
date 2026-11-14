@@ -8,8 +8,9 @@
 //! `ALETHEIA_LIB` to the built shared library (run_ci / CI does this).
 
 use aletheia::{
-    ByteOrder, CanId, Client, Dbc, DbcMessage, DbcSignal, Dlc, Error, Formula, FrameResponse,
-    IssueCode, IssueSeverity, MockBackend, Predicate, Presence, Rational, Timestamp, Verdict,
+    ByteOrder, CanId, Client, Dbc, DbcMessage, DbcSignal, Dlc, Error, ErrorCode, Formula,
+    FrameResponse, IssueCode, IssueSeverity, MockBackend, Predicate, Presence, Rational, Timestamp,
+    Verdict,
 };
 
 /// A known-good DBC the verified text parser accepts (the shared corpus
@@ -151,7 +152,7 @@ fn parse_dbc_text_lifts_validation_failure() {
             has_errors,
             issues,
         } => {
-            assert_eq!(code, "handler_validation_failed");
+            assert_eq!(code, ErrorCode::HandlerValidationFailed);
             assert!(
                 !message.is_empty(),
                 "the legacy wire message must be carried unchanged"
@@ -196,7 +197,7 @@ fn a_declared_range_beyond_the_bits_refuses_the_dbc() {
                 issues,
                 ..
             }) => {
-                assert_eq!(code, "handler_validation_failed");
+                assert_eq!(code, ErrorCode::HandlerValidationFailed);
                 assert!(has_errors, "range_exceeds_bits is error-severity");
                 let named: Vec<_> = issues
                     .iter()
@@ -282,10 +283,17 @@ fn bytes_document(names: &[&str]) -> Dbc {
 /// client over a mock records it.
 fn parse_dbc_command(dbc: &Dbc) -> String {
     let mock = MockBackend::new();
-    mock.respond_err(Error::NullResponse);
+    mock.respond_err(Error::NullResponse {
+        entry: "aletheia_process",
+    });
     let refused = Client::with_backend(Box::new(mock.clone())).parse_dbc(dbc);
     assert!(
-        matches!(refused, Err(Error::NullResponse)),
+        matches!(
+            refused,
+            Err(Error::NullResponse {
+                entry: "aletheia_process"
+            })
+        ),
         "the mock answers the queued error, got: {refused:?}"
     );
     let mut captured = mock.captured();

@@ -679,7 +679,7 @@ The reply to `aletheia_end_stream` after one frame carrying `Speed` 10.0, the pr
 
 | Field | Type | Description |
 |---|---|---|
-| `kind` | string | `"uncached_atom"`, the one kind the kernel writes, proven by `replyText` in `src/Aletheia/Protocol/ReplyRange.agda`. Each binding refuses a `kind` that is not a string and reads any string: Python and Go keep the word as written, C++ and Rust read it as their one `WarningKind`, `UncachedAtom`. |
+| `kind` | string | `"uncached_atom"`, the one kind the kernel writes, proven by `replyText` in `src/Aletheia/Protocol/ReplyRange.agda`. Every binding refuses any other word at its place, as it refuses a missing or non-string `kind`: `reply warnings/kind: expected "uncached_atom", got "stale_atom"`. |
 | `property_index` | integer | The property's zero-based position in the `setProperties` list. |
 | `detail` | string | The signal no frame of the stream carried. |
 
@@ -1150,7 +1150,7 @@ Per AGENTS.md universal rule "Adversarial-input bounds at parser surfaces", boun
 1. **Agda kernel**, definitive: every bound of the table but the DBC text's, which bounds what a binding reads, is decided inside the verified core, at the parser entry or on the parsed value, and the typed `InputBoundExceeded` error flows out via the protocol `Response`.
 2. **Binding**, short-circuit: Python (`aletheia.InputBoundExceededError`), Go (`*aletheia.InputBoundExceededError`) and C++ (`aletheia::InputBoundExceededError`, the `bound_info()` of an `AletheiaError`) refuse a JSON command past `max-json-bytes` and a DBC text past `max-dbc-text-bytes` before marshaling it across the FFI boundary, so a 100 MB JSON does not allocate buffers in the binding before being rejected. Rust sends every JSON command and DBC text to the kernel as it is and types the kernel's refusal as `Error::InputBoundExceeded(Box<BoundRefusal>)`.
 
-The two layers agree on every limit a binding mirrors: `tools/check_limits_parity.py` (`cabal run shake -- check-limits-parity`, a `tools/run_ci.py` gate) fails on a mirrored constant or kind code that differs from `Aletheia.Limits`, and on a mirror of a limit the kernel alone decides.
+The two layers agree on every limit a binding mirrors: `tools/check_limits_parity.py` (a step of `tools/run_ci.py`'s C++ lane, after the configure of `cpp/build`, or `python/.venv/bin/python -m tools.check_limits_parity` from the repository root over a tree already configured) fails on a mirrored constant or kind code that differs from `Aletheia.Limits`, and on a mirror of a limit the kernel alone decides.
 
 ### Updating bounds
 

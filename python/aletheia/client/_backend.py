@@ -31,6 +31,7 @@ from aletheia.client._ffi import (
     AletheiaRational,
     AletheiaSignalValues,
     AletheiaText,
+    EntrySymbol,
     RTSState,
     open_library,
     take_error_envelope,
@@ -40,7 +41,6 @@ from aletheia.client._refusal import raise_entry_refusal
 from aletheia.client._types import (
     AletheiaError,
     FFIError,
-    ProtocolError,
     StateError,
     encode_maybe_bool,
     validate_payload_length,
@@ -214,18 +214,19 @@ class Backend(Protocol):
 # ---------------------------------------------------------------------------
 
 
-def _decode_and_free_response(lib: ctypes.CDLL, ptr: int) -> bytes:
-    """Read the C-string at ``ptr`` as ``bytes`` and free it.
+def _decode_and_free_response(lib: ctypes.CDLL, ptr: int, entry: EntrySymbol) -> bytes:
+    """Read the C-string ``entry`` answered at ``ptr`` as ``bytes`` and free it.
 
     Common shape for every ``aletheia_*`` C function that returns a
     JSON response via a ``void*`` to a UTF-8 C string allocated by
-    ``aletheia_free_str``-managed storage.
+    ``aletheia_free_str``-managed storage. A null string raises
+    :class:`FFIError` reading ``<entry> returned null``.
     """
     try:
         raw = ctypes.cast(ptr, ctypes.c_char_p).value
         if raw is None:
-            msg = "FFI returned null pointer"
-            raise ProtocolError(msg)
+            msg = f"{entry} returned null"
+            raise FFIError(msg)
         return raw
     finally:
         lib.aletheia_free_str(ptr)
@@ -347,7 +348,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Allocate a fresh Agda session and return the raw ``void*`` address."""
         raw = self._lib.aletheia_init()
         if not raw:
-            msg = "aletheia_init() returned null — FFI initialization failed"
+            msg = "aletheia_init returned null"
             raise FFIError(msg)
         return raw
 
@@ -363,7 +364,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Send a JSON command string and return the JSON response bytes."""
         text = AletheiaText(input_bytes, len(input_bytes))
         result_ptr = self._lib.aletheia_process(ctypes.c_void_p(state), ctypes.byref(text))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(self._lib, result_ptr, EntrySymbol("aletheia_process"))
 
     def send_frame_binary(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
         self,
@@ -398,13 +399,13 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
             esi_value=esi_val,
         )
         result_ptr = self._lib.aletheia_send_frame(ctypes.c_void_p(state), ctypes.byref(frame))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(self._lib, result_ptr, EntrySymbol("aletheia_send_frame"))
 
     def send_error_binary(self, state: int, timestamp: int) -> bytes:
         """Send a CAN error event; returns the JSON response bytes."""
         frame = AletheiaFrame(timestamp=timestamp)
         result_ptr = self._lib.aletheia_send_error(ctypes.c_void_p(state), ctypes.byref(frame))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(self._lib, result_ptr, EntrySymbol("aletheia_send_error"))
 
     def send_remote_binary(
         self,
@@ -417,13 +418,14 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Send a CAN remote frame; returns the JSON response bytes."""
         frame = AletheiaFrame(timestamp=timestamp, can_id=can_id, extended=1 if extended else 0)
         result_ptr = self._lib.aletheia_send_remote(ctypes.c_void_p(state), ctypes.byref(frame))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(self._lib, result_ptr, EntrySymbol("aletheia_send_remote"))
 
     def start_stream_binary(self, state: int) -> bytes:
         """Begin streaming mode; returns the JSON response bytes."""
         return _decode_and_free_response(
             self._lib,
             self._lib.aletheia_start_stream(ctypes.c_void_p(state)),
+            EntrySymbol("aletheia_start_stream"),
         )
 
     def end_stream_binary(self, state: int) -> bytes:
@@ -431,6 +433,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         return _decode_and_free_response(
             self._lib,
             self._lib.aletheia_end_stream(ctypes.c_void_p(state)),
+            EntrySymbol("aletheia_end_stream"),
         )
 
     def format_dbc_binary(self, state: int) -> bytes:
@@ -438,6 +441,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         return _decode_and_free_response(
             self._lib,
             self._lib.aletheia_format_dbc(ctypes.c_void_p(state)),
+            EntrySymbol("aletheia_format_dbc"),
         )
 
     def extract_signals_binary(  # pylint: disable=too-many-arguments
@@ -452,7 +456,9 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Extract signals via the JSON-out path (no JSON on input)."""
         frame = _payload_frame(can_id=can_id, extended=extended, dlc=dlc, data=data)
         result_ptr = self._lib.aletheia_extract_signals(ctypes.c_void_p(state), ctypes.byref(frame))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(
+            self._lib, result_ptr, EntrySymbol("aletheia_extract_signals")
+        )
 
     def build_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
         self,
@@ -632,7 +638,7 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         """
         self._inputs.append(input_bytes)
         if not self._responses:
-            starved = op if op is not None else input_bytes.decode("utf-8", "replace")
+            starved = op if op is not None else input_bytes.decode()
             msg = f"mock backend: no queued response for {starved}"
             raise StateError(msg)
         return self._responses.popleft()
@@ -755,8 +761,8 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         """Raise :class:`BinaryPathUnsupportedError` to trigger JSON fallback.
 
         Mirrors Go ``MockBackend.ExtractSignalsBin`` returning
-        ``ErrBinaryPathUnsupported`` (``go/aletheia/mock.go:222``); the
-        Client catches the sentinel and falls back to JSON.
+        ``ErrBinaryPathUnsupported`` (``go/aletheia/mock.go``); the Client
+        catches the sentinel and falls back to JSON.
         """
         del state, can_id, extended, dlc, data
         raise BinaryPathUnsupportedError(

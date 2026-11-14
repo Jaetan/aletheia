@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use crate::response::ValidationIssue;
+use crate::response::{ErrorCode, ValidationIssue};
 
 /// Errors surfaced by the binding.
 ///
@@ -15,8 +15,8 @@ use crate::response::ValidationIssue;
 /// Kernel feature work grows this enum (typed refusals lift new kernel error
 /// codes into variants), so it is `#[non_exhaustive]`: matches outside this
 /// crate carry a `_` arm, and a new variant is not a breaking change. Errors
-/// the crate does not lift stay reachable as [`Error::Core`] with the raw
-/// wire `code` string.
+/// the crate does not lift stay reachable as [`Error::Core`] with their
+/// [`ErrorCode`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Error {
@@ -46,8 +46,12 @@ pub enum Error {
         /// The call refused, which the message names after `before`.
         operation: &'static str,
     },
-    /// The core returned a null response pointer.
-    NullResponse,
+    /// A C entry answered null where it answers a string, read as `{entry}
+    /// returned null`, such as `aletheia_process returned null`.
+    NullResponse {
+        /// The C entry that answered null, as the library exports it.
+        entry: &'static str,
+    },
     /// A caller-supplied input the binding or the kernel refused as the
     /// caller's own mistake. The binding refuses a CAN ID out of range, a
     /// non-positive denominator given to [`Rational::new`](crate::Rational::new)
@@ -61,13 +65,13 @@ pub enum Error {
     Validation {
         /// What was refused and why.
         message: String,
-        /// The kernel's wire code when the kernel refused the input
-        /// (`text_parse_failure` or `text_trailing_input` for a decimal the
-        /// grammar refuses, `handler_property_refused` for a property or a
-        /// time bound the kernel refuses, `ffi_validation_error` when the shim
-        /// refused the bytes); `None` when the binding refused it itself
-        /// before any call.
-        code: Option<String>,
+        /// The kernel's code when the kernel refused the input
+        /// ([`ErrorCode::TextParseFailure`] or [`ErrorCode::TextTrailingInput`]
+        /// for a decimal the grammar refuses, [`ErrorCode::HandlerPropertyRefused`]
+        /// for a property or a time bound the kernel refuses,
+        /// [`ErrorCode::FfiValidationError`] when the shim refused the bytes);
+        /// `None` when the binding refused it itself before any call.
+        code: Option<ErrorCode>,
         /// Where a loader read the refused number and the key it sat under;
         /// `None` outside a loader.
         located: Option<Box<Located>>,
@@ -75,7 +79,8 @@ pub enum Error {
     /// The core's JSON response could not be parsed or had an unexpected shape.
     Protocol(String),
     /// The core returned a structured error response. `code` is the machine-
-    /// readable wire code from the Agda kernel (e.g. `handler_no_dbc`). A
+    /// readable code the kernel or the shared library wrote (e.g.
+    /// [`ErrorCode::HandlerNoDbc`]). A
     /// response carrying a bound refusal's `bound_kind` / `observed` / `limit`
     /// triple is lifted to [`Error::InputBoundExceeded`] instead of this
     /// generic variant, so any method documented as returning `Error::Core` on
@@ -83,7 +88,7 @@ pub enum Error {
     /// rejection is a bound violation. Likewise, a `handler_validation_failed`
     /// response is lifted to [`Error::ValidationFailed`] and a
     /// `handler_text_roundtrip_failed` one to [`Error::TextRoundtripFailed`].
-    Core { code: String, message: String },
+    Core { code: ErrorCode, message: String },
     /// The core rejected an input for exceeding a structural bound (nesting
     /// depth, atom count, identifier length, the length of a DBC's lists and
     /// strings, a number's magnitude, …). This is the typed lift of an error
@@ -110,8 +115,8 @@ pub enum Error {
     /// every reply refusal takes. The wire `message` is carried unchanged: it
     /// is free text the core composes, not reconstructible from the issues.
     ValidationFailed {
-        /// Machine-readable wire code (always `handler_validation_failed`).
-        code: String,
+        /// Machine-readable code (always [`ErrorCode::HandlerValidationFailed`]).
+        code: ErrorCode,
         /// The unchanged legacy human-readable message from the core.
         message: String,
         /// `true` if at least one issue is error-severity (decoded from the
@@ -132,8 +137,8 @@ pub enum Error {
     /// is an [`Error::Protocol`] naming the place, as for
     /// [`Error::ValidationFailed`] and in the peer bindings.
     TextRoundtripFailed {
-        /// Machine-readable wire code (always `handler_text_roundtrip_failed`).
-        code: String,
+        /// Machine-readable code (always [`ErrorCode::HandlerTextRoundtripFailed`]).
+        code: ErrorCode,
         /// The unchanged legacy human-readable message from the core.
         message: String,
         /// `true` if at least one issue is error-severity (decoded from the wire).
@@ -162,8 +167,8 @@ pub enum Error {
 /// that every `Result<_, Error>` stays small.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoundRefusal {
-    /// Machine-readable wire code (always `input_bound_exceeded`).
-    pub code: String,
+    /// Machine-readable code (always [`ErrorCode::InputBoundExceeded`]).
+    pub code: ErrorCode,
     /// The kernel's message, which [`Display`](std::fmt::Display) renders
     /// unchanged (e.g. `ParseDBC: senders array: array cardinality 10001
     /// exceeds limit 10000`).
@@ -300,7 +305,7 @@ impl fmt::Display for Error {
                 "GHC runtime not initialized: call aletheia::start_runtime or build a Client \
                  before {operation}"
             ),
-            Error::NullResponse => write!(f, "core returned a null response"),
+            Error::NullResponse { entry } => write!(f, "{entry} returned null"),
             Error::Validation {
                 message, located, ..
             } => write_placed(f, located.as_deref(), message),

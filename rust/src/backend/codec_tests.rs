@@ -9,11 +9,12 @@ use std::cell::Cell;
 use super::ffi_backend::decimal_refusal;
 use super::{
     buffer_refusal, check_buffer_status, encode_opt_bool, frame_len, symbols,
-    take_extraction_buffer, Backend, MAX_EXTRACT_BUF,
+    take_extraction_buffer, Backend, FfiUint128, MAX_EXTRACT_BUF,
 };
 use crate::error::Error;
 use crate::limits::BOUND_KIND_NESTING_DEPTH;
 use crate::mock::MockBackend;
+use crate::response::ErrorCode;
 use crate::types::{CanId, Dlc};
 
 #[test]
@@ -21,6 +22,16 @@ fn opt_bool_encodes_presence_then_value() {
     assert_eq!(encode_opt_bool(None), (0, 0));
     assert_eq!(encode_opt_bool(Some(false)), (1, 0));
     assert_eq!(encode_opt_bool(Some(true)), (1, 1));
+}
+
+#[test]
+fn a_u128_passes_as_its_low_word_and_its_high_word() {
+    // Both words non-zero, distinct and neither 1, so a word lost, swapped or
+    // joined by any operator but addition gives another number.
+    let n = (3u128 << 64) + 5;
+    let words = FfiUint128::of(n);
+    assert_eq!((words.lo, words.hi), (5, 3));
+    assert_eq!(FfiUint128 { lo: 5, hi: 3 }.value(), n);
 }
 
 /// `frame_len` over `data` with the DLC whose code is `code`.
@@ -83,7 +94,7 @@ fn a_buffer_refusal_surfaces_the_envelope_code_and_message() {
         buffer_refusal(r#"{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}"#);
     assert!(
         matches!(&err, Error::Core { code, message }
-            if code == "handler_no_dbc" && message == "no DBC loaded"),
+            if *code == ErrorCode::HandlerNoDbc && message == "no DBC loaded"),
         "got: {err:?}"
     );
     // The shim's own refusals carry their code the same way.
@@ -92,7 +103,7 @@ fn a_buffer_refusal_surfaces_the_envelope_code_and_message() {
     );
     assert!(
         matches!(&err, Error::Core { code, message }
-            if code == "ffi_validation_error"
+            if *code == ErrorCode::FfiValidationError
                 && message == "aletheia_update_frame_bin: null out buffer"),
         "got: {err:?}"
     );
@@ -136,7 +147,7 @@ fn a_refused_decimal_is_a_validation_error_carrying_the_refusal_code() {
     ));
     assert!(
         matches!(&err, Error::Validation { message, code: Some(code), located: None }
-            if code == "text_trailing_input" && message == "m"),
+            if *code == ErrorCode::TextTrailingInput && message == "m"),
         "got: {err:?}"
     );
     // The bound refusal keeps its typed error, and a malformed envelope

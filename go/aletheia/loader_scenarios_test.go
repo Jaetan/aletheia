@@ -152,7 +152,7 @@ func requireLoaderRefusal(t *testing.T, sc loaderScenario, err error) {
 		if e.Kind != ErrValidation {
 			t.Errorf("scenario %s: Kind = %v, want %v", sc.Name, e.Kind, ErrValidation)
 		}
-		code, location, key = e.Code, e.Location, e.Key
+		code, location, key = string(e.Code), e.Location, e.Key
 	case "input_bound_exceeded":
 		var e *InputBoundExceededError
 		if !errors.As(err, &e) {
@@ -173,7 +173,7 @@ func requireLoaderRefusal(t *testing.T, sc loaderScenario, err error) {
 		if e.Field != want.Bound.Field {
 			t.Errorf("scenario %s: Field = %q, want %q", sc.Name, e.Field, want.Bound.Field)
 		}
-		code, location, key = e.Code, e.Location, e.Key
+		code, location, key = string(e.Code), e.Location, e.Key
 	default:
 		t.Fatalf("scenario %s: the contract names the kind %q", sc.Name, want.Kind)
 	}

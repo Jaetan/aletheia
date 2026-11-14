@@ -27,12 +27,12 @@ from aletheia.client._helpers.reply_shape import (
     at,
     came,
     came_word,
-    fields,
+    held,
     reply_refusal,
     words,
 )
 from aletheia.client._log import LogEvent, log_event
-from aletheia.client._refusal import envelope_message
+from aletheia.client._refusal import envelope_message, read_error_code
 from aletheia.client._response_parsers import (
     parse_parsed_dbc_response,
     parse_success_or_error,
@@ -53,6 +53,7 @@ from aletheia.client._types import (
     StreamCaches,
     ValidationError,
 )
+from aletheia.codes import ErrorCode
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES, MAX_JSON_BYTES
 from aletheia.types import (
     Command,
@@ -64,7 +65,6 @@ from aletheia.types import (
     ParseDBCCommand,
     ParseDBCTextCommand,
     ParsedDBCResponse,
-    Response,
     SetPropertiesCommand,
     SuccessResponse,
     ValidateDBCCommand,
@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from aletheia.checks import CheckResult
+    from aletheia.client._helpers.reply_shape import ReplyFields
 
 _logger = logging.getLogger("aletheia")
 
@@ -295,7 +296,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
     ) -> None:
         self.close()
 
-    def _send_command(self, command: Command) -> Response:
+    def _send_command(self, command: Command) -> ReplyFields:
         """Send a JSON command via the Backend.
 
         Rejects oversize JSON payloads (`> MAX_JSON_BYTES`) with a typed
@@ -311,15 +312,14 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 BOUND_KIND_INPUT_LENGTH_BYTES,
                 len(json_bytes),
                 MAX_JSON_BYTES,
-                code="input_bound_exceeded",
+                code=ErrorCode.INPUT_BOUND_EXCEEDED,
             )
         with self._ffi_lock:
             if self._backend is None or self._state is None:
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             result_bytes = KernelResponse(self._backend.process(self._state, json_bytes))
-        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
-        return cast("Response", parse_json_object(result_bytes))  # pragma: no mutate
+        return parse_json_object(result_bytes)
 
     def _resolve_signal_indices(
         self,
@@ -436,7 +436,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 BOUND_KIND_INPUT_LENGTH_BYTES,
                 len(text_bytes),
                 MAX_DBC_TEXT_BYTES,
-                code="input_bound_exceeded",
+                code=ErrorCode.INPUT_BOUND_EXCEEDED,
             )
         cmd: ParseDBCTextCommand = {"type": "command", "command": "parseDBCText", "text": text}
         return self._finalize_parsed_dbc(parse_parsed_dbc_response(self._send_command(cmd)))
@@ -465,12 +465,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             "command": "validateDBC",
             "dbc": normalize_dbc_for_wire(dbc),
         }
-        response = self._send_command(cmd)
-        reply = fields(response)
-        status = response.get("status")
+        reply = self._send_command(cmd)
+        status = held(reply, "status")
 
         if status == "validation":
-            has_errors = response.get("has_errors")
+            has_errors = held(reply, "has_errors")
             if not isinstance(has_errors, bool):
                 raise reply_refusal(
                     at(REPLY_ROOT, "has_errors"), BOOLEAN, came(reply, "has_errors")
@@ -480,14 +479,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             return {"status": "validation", "has_errors": has_errors, "issues": read_issues(issues)}
 
         if status == "error":
-            code = response.get("code")
-            msg = envelope_message(response)
-            raise_if_input_bound_exceeded(response)
-            raise_if_dbc_validation_failed(response, msg)
-            raise ProtocolError(
-                msg,
-                code=code if isinstance(code, str) else None,
-            )
+            code = read_error_code(reply)
+            msg = envelope_message(reply)
+            raise_if_input_bound_exceeded(reply)
+            raise_if_dbc_validation_failed(reply, msg)
+            raise ProtocolError(msg, code=code)
 
         raise reply_refusal(
             at(REPLY_ROOT, "status"), words("validation", "error"), came_word(reply, "status")
@@ -512,24 +508,19 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             response_bytes = KernelResponse(self._backend.format_dbc_binary(self._state))
-        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
-        response = cast("Response", parse_json_object(response_bytes))  # pragma: no mutate
-        reply = fields(response)
-        status = response.get("status")
+        reply = parse_json_object(response_bytes)
+        status = held(reply, "status")
 
         if status == "success":
-            dbc = response.get("dbc")
+            dbc = held(reply, "dbc")
             if not is_str_dict(dbc):
                 raise reply_refusal(at(REPLY_ROOT, "dbc"), OBJECT, came(reply, "dbc"))
             return normalize_dbc(dbc)
 
         if status == "error":
-            code = response.get("code")
-            msg = envelope_message(response)
-            raise ProtocolError(
-                msg,
-                code=code if isinstance(code, str) else None,
-            )
+            code = read_error_code(reply)
+            msg = envelope_message(reply)
+            raise ProtocolError(msg, code=code)
 
         raise reply_refusal(
             at(REPLY_ROOT, "status"), words("success", "error"), came_word(reply, "status")
@@ -577,12 +568,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             "command": "formatDBCText",
             "dbc": normalize_dbc_for_wire(dbc),
         }
-        response = self._send_command(cmd)
-        reply = fields(response)
-        status = response.get("status")
+        reply = self._send_command(cmd)
+        status = held(reply, "status")
 
         if status == "success":
-            text = response.get("text")
+            text = held(reply, "text")
             if not isinstance(text, str):
                 raise reply_refusal(at(REPLY_ROOT, "text"), STRING, came(reply, "text"))
             if "issues" not in reply or not isinstance(issues_field := reply["issues"], list):
@@ -590,14 +580,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             return {"status": "success", "text": text, "issues": read_issues(issues_field)}
 
         if status == "error":
-            code = response.get("code")
-            msg = envelope_message(response)
-            raise_if_input_bound_exceeded(response)
-            raise_if_text_roundtrip_failed(response, msg)
-            raise ProtocolError(
-                msg,
-                code=code if isinstance(code, str) else None,
-            )
+            code = read_error_code(reply)
+            msg = envelope_message(reply)
+            raise_if_input_bound_exceeded(reply)
+            raise_if_text_roundtrip_failed(reply, msg)
+            raise ProtocolError(msg, code=code)
 
         raise reply_refusal(
             at(REPLY_ROOT, "status"), words("success", "error"), came_word(reply, "status")

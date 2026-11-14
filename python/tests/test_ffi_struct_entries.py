@@ -8,7 +8,11 @@ frame, NULL signal values or a NULL result buffer is refused cleanly, a result
 buffer that cannot hold the frame is refused before a byte is written, a build
 reports the count it wrote, a text the header refuses or a NULL result is
 refused by every entry reading a text, and every entry reading a text writes
-every field of its result on every call, the stand-ins as the kernel.
+every field of its result on every call, the stand-ins as the kernel. The
+envelope a refused entry leaves is freed once the binding has read it. Every
+argument of every entry is held to the header's type, one of another type
+refused before the library runs, and the property check answers its status as
+a number.
 """
 
 from __future__ import annotations
@@ -37,9 +41,11 @@ from aletheia.client._ffi import (
     configure_ffi_signatures,
     find_ffi_library,
     parse_json_object,
+    take_error_envelope,
     uint128_value,
     wire_rational,
 )
+from aletheia.common_types import Prose
 from aletheia.types import ParseDBCCommand, dump_json
 
 if TYPE_CHECKING:
@@ -323,3 +329,115 @@ def test_a_stand_in_writes_every_field_of_a_time_bound_it_refuses(name: StandInN
     assert time_bound.err != _UNWRITTEN
     lib.aletheia_free_str(time_bound.err)
     assert time_bound.microseconds == 0
+
+
+def test_the_envelope_a_refusal_left_is_freed_once_read() -> None:
+    """The envelope of a refused entry is read whole, then freed through the library.
+
+    The recording kernel counts the strings it frees, a NULL freeing nothing,
+    so the count reads that the envelope's own block was released.
+    """
+    lib = _stand_in(StandInName("recording_kernel"))
+    decimal = AletheiaDecimal()
+    text = _text(EntryText(b"1"))
+    assert lib.aletheia_parse_decimal(ctypes.byref(text), ctypes.byref(decimal)) == 1
+    before = lib.aletheia_test_free_count()
+    envelope = take_error_envelope(lib, decimal, Prose("no envelope"))
+    assert envelope == {"status": "error", "code": "recording_kernel", "message": "parse_decimal"}
+    assert lib.aletheia_test_free_count() == before + 1
+
+
+# A kernel entry's symbol, as the header names it.
+EntryName = NewType("EntryName", str)
+
+# An argument's position in an entry's call, from zero.
+ArgumentIndex = NewType("ArgumentIndex", int)
+
+# What an entry's parameter points to, None for an address (``void *``).
+type Pointee = type[ctypes.Structure | ctypes.c_uint8] | None
+
+# The parameters of every entry that takes one, as the header declares them; a
+# string the kernel answered is handed back by its address.
+_POINTEES: dict[EntryName, tuple[Pointee, ...]] = {
+    EntryName("aletheia_process"): (None, AletheiaText),
+    EntryName("aletheia_free_str"): (None,),
+    EntryName("aletheia_close"): (None,),
+    EntryName("aletheia_send_frame"): (None, AletheiaFrame),
+    EntryName("aletheia_start_stream"): (None,),
+    EntryName("aletheia_end_stream"): (None,),
+    EntryName("aletheia_format_dbc"): (None,),
+    EntryName("aletheia_extract_signals"): (None, AletheiaFrame),
+    EntryName("aletheia_send_error"): (None, AletheiaFrame),
+    EntryName("aletheia_send_remote"): (None, AletheiaFrame),
+    EntryName("aletheia_build_frame_bin"): (
+        None,
+        AletheiaFrame,
+        AletheiaSignalValues,
+        AletheiaBuffer,
+    ),
+    EntryName("aletheia_update_frame_bin"): (
+        None,
+        AletheiaFrame,
+        AletheiaSignalValues,
+        AletheiaBuffer,
+    ),
+    EntryName("aletheia_extract_signals_bin"): (None, AletheiaFrame, AletheiaBuffer),
+    EntryName("aletheia_free_buf"): (ctypes.c_uint8,),
+    EntryName("aletheia_format_rational"): (AletheiaRational,),
+    EntryName("aletheia_parse_decimal"): (AletheiaText, AletheiaDecimal),
+    EntryName("aletheia_parse_time_bound"): (AletheiaText, AletheiaTimeBound),
+    EntryName("aletheia_check_property"): (AletheiaText, AletheiaPropertyCheck),
+}
+
+_ARGUMENTS = [
+    (name, ArgumentIndex(at)) for name, pointees in _POINTEES.items() for at in range(len(pointees))
+]
+
+# The bytes of a buffer handed where a structure belongs, more than any of them holds.
+_ROOM = 64
+
+
+@pytest.mark.parametrize(
+    ("name", "at"), _ARGUMENTS, ids=[f"{name}-{at + 1}" for name, at in _ARGUMENTS]
+)
+def test_an_argument_of_another_type_is_refused_before_the_library_runs(
+    name: EntryName, at: ArgumentIndex
+) -> None:
+    """Each argument of each entry is held to the header's type at the call.
+
+    An address refuses an integer object and a structure pointer a buffer of
+    bytes, the other arguments as the binding hands them. The recording
+    stand-in is the library, so an argument let through reaches an entry that
+    reads only zeros.
+    """
+    lib = _stand_in(StandInName("recording_kernel"))
+    pointees = _POINTEES[name]
+    arguments = [
+        (ctypes.c_ulong(0) if pointee is None else ctypes.create_string_buffer(_ROOM))
+        if index == at
+        else (None if pointee is None else ctypes.byref(pointee()))
+        for index, pointee in enumerate(pointees)
+    ]
+    pointee = pointees[at]
+    reason = (
+        "'c_ulong' object cannot be interpreted as ctypes.c_void_p"
+        if pointee is None
+        else f"expected LP_{pointee.__name__} instance instead of c_char_Array_{_ROOM}"
+    )
+    with pytest.raises(ctypes.ArgumentError) as refused:
+        getattr(lib, name)(*arguments)
+    assert str(refused.value) == f"argument {at + 1}: TypeError: {reason}"
+
+
+def test_a_stand_in_answers_the_property_it_refuses_with_status_one() -> None:
+    """The property check's status is a number: 1 for a refusal, its envelope quoting the text."""
+    lib = _stand_in(StandInName("recording_kernel"))
+    check = AletheiaPropertyCheck()
+    text = _text(EntryText(b"{}"))
+    assert lib.aletheia_check_property(ctypes.byref(text), ctypes.byref(check)) == 1
+    envelope = take_error_envelope(lib, check, Prose("no envelope"))
+    assert envelope == {
+        "status": "error",
+        "code": "recording_kernel",
+        "message": "check_property {}",
+    }

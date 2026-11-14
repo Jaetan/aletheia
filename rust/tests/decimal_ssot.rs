@@ -10,7 +10,7 @@
 //! covered in `rts_uninitialized.rs`.
 
 use aletheia::limits::BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE;
-use aletheia::{BoundRefusal, Client, Error, Rational};
+use aletheia::{BoundRefusal, Client, Error, ErrorCode, Rational};
 
 /// (input, negative, numerator magnitude, denominator): exact, lowest terms.
 /// A negative zero is zero, trailing fraction zeros are trimmed, leading zeros
@@ -109,7 +109,7 @@ fn rejects_malformed_decimals_with_the_kernel_code() {
             matches!(
                 &err,
                 Error::Validation { code: Some(code), message, .. }
-                    if code == expected && message.contains(&at)
+                    if code.as_str() == expected && message.contains(&at)
             ),
             "{text:?}: expected Error::Validation with code {expected:?} saying {at:?}, got {err:?}"
         );
@@ -137,7 +137,7 @@ fn rejects_overflowing_decimals_as_the_bound_refusal() {
                         limit: COMPONENT_LIMIT,
                         field: Some(field),
                         ..
-                    } if code == "input_bound_exceeded"
+                    } if *code == ErrorCode::InputBoundExceeded
                         && bound_kind == BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE
                         && field == "decimal"
                 )
@@ -160,7 +160,7 @@ fn rejects_non_ascii_decimal_as_trailing_input() {
         matches!(
             &err,
             Error::Validation { code: Some(code), message, .. }
-                if code == "text_trailing_input"
+                if *code == ErrorCode::TextTrailingInput
                     && message.contains("parse failed at line 1, column 4")
         ),
         "expected Error::Validation with code \"text_trailing_input\" at column 4, got {err:?}"
@@ -177,7 +177,7 @@ fn rejects_a_nul_byte_as_the_shims_refusal() {
         matches!(
             err,
             Error::Validation { ref message, code: Some(ref code), located: None }
-                if code == "ffi_validation_error" && message == "input contains a NUL byte"
+                if *code == ErrorCode::FfiValidationError && message == "input contains a NUL byte"
         ),
         "expected Error::Validation with code \"ffi_validation_error\", got {err:?}"
     );

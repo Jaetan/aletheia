@@ -372,7 +372,7 @@ TEST_CASE("stream.ended counts the verdicts and warnings, and every warning is r
         ],
         "warnings": [
             {"kind": "uncached_atom", "property_index": 1, "detail": "RPM"},
-            {"kind": "other", "property_index": 0, "detail": "read as an uncached atom"}
+            {"kind": "uncached_atom", "property_index": 0, "detail": "Speed"}
         ]
     })");
     auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
@@ -390,8 +390,7 @@ TEST_CASE("stream.ended counts the verdicts and warnings, and every warning is r
     CHECK(field<std::uint64_t>(ended, "numFails") == 1);
     CHECK(field<std::uint64_t>(ended, "numUnresolved") == 1);
     CHECK(field<std::uint64_t>(ended, "numWarnings") == 2);
-    // The kernel writes one kind of warning, so a kind outside the set reads
-    // as it, and each warning is logged under its event in the reply's order.
+    // Each warning is logged under its event in the reply's order.
     REQUIRE(cap.count("endstream.uncached_atom") == 2);
     std::vector<std::pair<std::uint64_t, std::string>> atoms;
     for (auto const& e : cap.events) {
@@ -401,8 +400,7 @@ TEST_CASE("stream.ended counts the verdicts and warnings, and every warning is r
         atoms.emplace_back(field<std::uint64_t>(e, "property_index"),
                            field<std::string>(e, "detail"));
     }
-    CHECK(atoms == std::vector<std::pair<std::uint64_t, std::string>>{
-                       {1, "RPM"}, {0, "read as an uncached atom"}});
+    CHECK(atoms == std::vector<std::pair<std::uint64_t, std::string>>{{1, "RPM"}, {0, "Speed"}});
 }
 
 TEST_CASE("frame.processed classifies the response and names the frame", "[client][log][fields]") {

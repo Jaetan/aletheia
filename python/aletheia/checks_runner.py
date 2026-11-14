@@ -37,7 +37,6 @@ if TYPE_CHECKING:
     from fractions import Fraction
 
     from aletheia.checks import CheckResult
-    from aletheia.client._helpers.reply_shape import ReplyFields
     from aletheia.client._types import CANFrameTuple
     from aletheia.types import (
         CompleteResponse,
@@ -140,9 +139,7 @@ def _build_violation(
     # but the kernel writes one on every fails entry.
     if "timestamp" not in response:
         raise reply_refusal(
-            at(at(REPLY_ROOT, "results"), "timestamp"),
-            NUMBER,
-            came(cast("ReplyFields", response), "timestamp"),
+            at(at(REPLY_ROOT, "results"), "timestamp"), NUMBER, came(response, "timestamp")
         )
     timestamp_us = response["timestamp"]
     return {

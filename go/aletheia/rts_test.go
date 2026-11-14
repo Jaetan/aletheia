@@ -36,9 +36,36 @@ func TestRTSInitArgv(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv(rtsOverrideEnv, tc.override)
-			if got := rtsInitArgv(tc.cores); !slices.Equal(got, tc.want) {
+			if got := rtsInitArgv(tc.cores, tc.override); !slices.Equal(got, tc.want) {
 				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The words are split on the six ASCII whitespace bytes, space, TAB, LF, CR,
+// VT and FF, as the C++ and Python bindings split them: each of the six
+// separates two words, and every other byte stays in its word, a Unicode
+// space, an ASCII control byte and a byte that is not UTF-8 alike.
+func TestRTSInitArgvSplitsOnASCIIWhitespace(t *testing.T) {
+	cases := map[string]struct {
+		override string
+		words    []string
+	}{
+		"a space":                           {"-a -b", []string{"-a", "-b"}},
+		"a TAB":                             {"-a\t-b", []string{"-a", "-b"}},
+		"an LF":                             {"-a\n-b", []string{"-a", "-b"}},
+		"a CR":                              {"-a\r-b", []string{"-a", "-b"}},
+		"a VT":                              {"-a\v-b", []string{"-a", "-b"}},
+		"an FF":                             {"-a\f-b", []string{"-a", "-b"}},
+		"NBSP, NEL and FS stay in the word": {"-a\xc2\xa0-b\xc2\x85-c\x1c-d", []string{"-a\xc2\xa0-b\xc2\x85-c\x1c-d"}},
+		"a byte that is not UTF-8 stays in the word": {"-a\xff-b", []string{"-a\xff-b"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			want := slices.Concat([]string{"aletheia", "+RTS", rtsHeapCapFlag}, tc.words, []string{"-RTS"})
+			if got := rtsInitArgv(rtsDefaultCores, tc.override); !slices.Equal(got, want) {
+				t.Errorf("got %q, want %q", got, want)
 			}
 		})
 	}

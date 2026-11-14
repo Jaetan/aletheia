@@ -13,6 +13,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/rational_renderer.hpp>
 
 #include <array>
 #include <cstddef>
@@ -219,6 +220,18 @@ TEST_CASE("a frame built from a 64-bit value sets every bit", "[integration][wid
     auto const frame = client.build_frame(std::stop_token{}, message_id(), eight_bytes(), values);
     REQUIRE(frame.has_value());
     CHECK(*frame == FramePayload(8, std::byte{0xFF}));
+}
+
+// A rational crosses into the kernel as two 64-bit words per magnitude, so a
+// numerator and a denominator past 2^64-1 reach the kernel's renderer whole.
+// Two odd numbers two apart share no factor, so it prints both parts.
+TEST_CASE("a rational whose magnitudes pass 2^64-1 reaches the kernel whole",
+          "[integration][wide]") {
+    auto const backend = required(make_ffi_backend(find_lib())); // brings the runtime up
+    constexpr auto two_to_64 = static_cast<unsigned __int128>(u64_max) + 1;
+    CHECK(detail::format_rational_ffi(Rational::integer(two_to_64)) == "18446744073709551616");
+    CHECK(detail::format_rational_ffi(ratio(two_to_64 + 1, two_to_64 + 3)) ==
+          "18446744073709551617/18446744073709551619");
 }
 
 TEST_CASE("a 17-place factor extracts its raw values exactly on both routes",

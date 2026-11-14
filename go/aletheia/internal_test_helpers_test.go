@@ -31,7 +31,7 @@ func requireErrorContains(t *testing.T, err error, substr string) {
 
 // requireRefused holds that the failure is a validation [*Error] carrying the
 // kernel's code and printing exactly the text given.
-func requireRefused(t *testing.T, err error, code, text string) {
+func requireRefused(t *testing.T, err error, code ErrorCode, text string) {
 	t.Helper()
 	var e *Error
 	if !errors.As(err, &e) {

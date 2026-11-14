@@ -186,16 +186,10 @@ pub(crate) fn string(value: &RawValue) -> Option<Cow<'_, str>> {
     if kind(value) != Kind::String {
         return None;
     }
-    // serde_json checked the token as JSON when it read the level holding it,
-    // so a token with no backslash holds no escape and no control character:
-    // the text between its quotes is its content, borrowed as it stands.
     let token = value.get().trim_matches(JSON_SPACE);
-    match token.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
-        Some(content) if !content.contains('\\') => Some(Cow::Borrowed(content)),
-        _ => serde_json::from_str::<Text<'_>>(token)
-            .ok()
-            .map(|text| text.0),
-    }
+    serde_json::from_str::<Text<'_>>(token)
+        .ok()
+        .map(|text| text.0)
 }
 
 /// The boolean `value` holds, or `None` for a value of another kind.
@@ -219,9 +213,8 @@ pub(crate) fn whole(value: &RawValue) -> Option<SignMagnitude> {
         Some(digits) => (true, digits),
         None => (false, text),
     };
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
+    // A u128 parse takes a leading `+`, which JSON never writes, so of the
+    // texts a value holds it takes only a run of decimal digits.
     let magnitude: u128 = digits.parse().ok()?;
     Some(SignMagnitude {
         negative: negative && magnitude != 0,
@@ -319,7 +312,7 @@ impl Number {
         })
     }
 
-    /// The signed number `n`.
+    /// The signed number `n`, a zero unsigned.
     pub(crate) fn signed(n: i64) -> Self {
         Number(SignMagnitude {
             negative: n < 0,
@@ -435,6 +428,30 @@ mod tests {
     }
 
     #[test]
+    fn a_plus_sign_is_no_json_so_a_whole_number_place_never_holds_one() {
+        // `whole` lets a u128 parse refuse what is not a run of digits, and
+        // that parse alone would take a leading `+`.
+        assert_eq!("+5".parse::<u128>(), Ok(5));
+        for text in ["+5", "-+5", " +5"] {
+            assert!(parse(text).is_err(), "{text}");
+            assert!(RawValue::from_string(text.to_owned()).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_string_with_no_escape_is_borrowed_from_the_reply() {
+        let text = r#"{"key":"plain"}"#;
+        let obj = parse_object(text).expect("an object");
+        match obj.get("key").and_then(string) {
+            Some(Cow::Borrowed(s)) => {
+                assert_eq!(s, "plain");
+                assert!(text.as_bytes().as_ptr_range().contains(&s.as_ptr()));
+            }
+            other => panic!("not borrowed: {other:?}"),
+        }
+    }
+
+    #[test]
     fn a_rational_is_a_whole_number_or_its_fraction_object_stored_as_written() {
         let read = |text: &str| {
             rational(value(text)).map(|r| (r.is_negative(), r.numerator(), r.denominator()))
@@ -521,6 +538,23 @@ mod tests {
         assert_eq!(
             to_text(&Wire(&Rational::from(u128::MAX))).expect("a rational is written"),
             MAX
+        );
+    }
+
+    #[test]
+    fn a_signed_number_is_written_with_its_sign_and_a_zero_unsigned() {
+        let written = |n: i64| to_text(&Number::signed(n)).expect("a number is written");
+        assert_eq!(written(-5), "-5");
+        assert_eq!(written(5), "5");
+        assert_eq!(written(i64::MIN), "-9223372036854775808");
+        assert_eq!(written(i64::MAX), "9223372036854775807");
+        assert_eq!(written(0), "0");
+        assert_eq!(
+            Number::signed(0).0,
+            SignMagnitude {
+                negative: false,
+                magnitude: 0,
+            }
         );
     }
 }

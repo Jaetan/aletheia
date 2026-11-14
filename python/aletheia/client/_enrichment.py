@@ -161,7 +161,7 @@ def format_rational(value: Fraction) -> str:
     rational = wire_rational(value)
     raw = lib.aletheia_format_rational(ctypes.byref(rational))
     if not raw:
-        msg = "aletheia_format_rational returned a null pointer"
+        msg = "aletheia_format_rational returned null"
         raise FFIError(msg)
     try:
         return ctypes.cast(raw, ctypes.c_char_p).value.decode()  # type: ignore[union-attr]

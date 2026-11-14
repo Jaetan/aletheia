@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use aletheia::{check, Client, Error, Rational};
+use aletheia::{check, Client, Error, ErrorCode, Rational};
 use aletheia_excel::{load_checks_from_excel, load_dbc_from_excel};
 use rust_xlsxwriter::Workbook;
 use yaml_rust2::{Yaml, YamlLoader};
@@ -206,7 +206,9 @@ fn refusal_differences(err: &Error, expect: &Yaml, scenario: &str) -> Vec<String
         .strip_prefix(&format!("{location}: invalid '{key}': "))
         .unwrap_or_else(|| panic!("{scenario}: 'printed' does not open with its location and key"));
     let (got_kind, got_code, got_message) = match err {
-        Error::Validation { message, code, .. } => ("validation", code.as_deref(), message),
+        Error::Validation { message, code, .. } => {
+            ("validation", code.map(ErrorCode::as_str), message)
+        }
         Error::InputBoundExceeded(refusal) => (
             "input_bound_exceeded",
             Some(refusal.code.as_str()),

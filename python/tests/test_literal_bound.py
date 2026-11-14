@@ -17,7 +17,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -29,9 +28,6 @@ from aletheia.client._ffi import (
     parse_json_object,
 )
 from aletheia.client._response_parsers import raise_if_input_bound_exceeded
-
-if TYPE_CHECKING:
-    from aletheia.types import Response
 
 # The largest `observed` a bound refusal reports, `bound-ceiling` in Aletheia.Limits.
 _OBSERVED_CEILING = 2**128 - 1
@@ -77,7 +73,7 @@ def test_a_long_literal_is_refused_at_the_ceiling() -> None:
         check=False,
     )
     assert done.returncode == 0, done.stderr.decode(errors="replace")
-    reply = cast("Response", parse_json_object(KernelResponse(done.stdout)))
+    reply = parse_json_object(KernelResponse(done.stdout))
     with pytest.raises(InputBoundExceededError) as exc_info:
         raise_if_input_bound_exceeded(reply)
     err = exc_info.value
@@ -132,7 +128,7 @@ def test_a_long_dbc_text_key_is_refused_at_the_ceiling() -> None:
         check=False,
     )
     assert done.returncode == 0, done.stderr.decode(errors="replace")
-    reply = cast("Response", parse_json_object(KernelResponse(done.stdout)))
+    reply = parse_json_object(KernelResponse(done.stdout))
     with pytest.raises(InputBoundExceededError) as exc_info:
         raise_if_input_bound_exceeded(reply)
     err = exc_info.value

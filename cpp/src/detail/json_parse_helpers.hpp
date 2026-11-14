@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// What the JSON response parsers and the DBC parsers share: the table lookup,
-// and the DBC decoder json_parse_dbc.cpp defines for the replies carrying one.
+// The table lookup the JSON response parsers read an error code with, and the
+// DBC decoder json_parse_dbc.cpp defines for the replies carrying one.
 #pragma once
 
 #include <aletheia/dbc.hpp>

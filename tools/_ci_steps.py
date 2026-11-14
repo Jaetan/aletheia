@@ -69,7 +69,6 @@ AGDA_SHAKE_TARGETS: tuple[str, ...] = (
     "check-haskell-ledger",
     "check-bundle-licences",
     "check-runbook",
-    "check-limits-parity",
     "check-stability-bench",
     "check-mutation-setup",
     "check-wire-code-emitters",
@@ -454,6 +453,15 @@ def _run_binding_tests(runner: Runner) -> None:
         CPP_CONFIGURE_STEP,
         f"rm -f build/CMakeCache.txt && cmake -B build {CPP_COMPILERS} > /dev/null",
         cwd=runner.repo_root / "cpp",
+    )
+    # The reply-place gate reads the C++ binding with the flags of the compile
+    # database this configure writes, so it runs right after it.
+    runner.step(
+        "check-limits-parity",
+        [runner.python, "-m", "tools.check_limits_parity"],
+        cwd=runner.repo_root,
+        lane="cpp",
+        needs=(CPP_CONFIGURE_STEP,),
     )
     runner.step(
         CPP_BUILD_STEP,

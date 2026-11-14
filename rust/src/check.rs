@@ -461,6 +461,7 @@ impl ThenCondition {
 mod tests {
     use super::*;
     use crate::backend::ensure_rts_for_test;
+    use crate::response::ErrorCode;
 
     fn r(n: i128) -> Rational {
         Rational::integer(n)
@@ -606,7 +607,7 @@ mod tests {
         let err = built.expect_err("an inverted range is refused");
         assert!(
             matches!(&err, Error::Validation { code: Some(code), located: None, .. }
-                if code == "handler_property_refused"),
+                if *code == ErrorCode::HandlerPropertyRefused),
             "got: {err:?}"
         );
         assert_eq!(

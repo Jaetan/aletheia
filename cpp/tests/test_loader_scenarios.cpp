@@ -219,7 +219,7 @@ static void check_settles_within(std::vector<CheckResult> const& checks, TimeBou
 static void check_refusal(AletheiaError const& error, Refusal const& want) {
     INFO("wire code " << want.code << ", message " << error.message());
     auto const code = error_code_from_string(want.code);
-    REQUIRE(code != ErrorCode::Unknown);
+    REQUIRE(code.has_value());
     CHECK(error.kind() == want.kind);
     CHECK(error.code() == code);
     CHECK(shown(error.location()) == want.location);

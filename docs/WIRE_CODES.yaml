@@ -35,10 +35,14 @@
 #   python/tests/test_wire_codes_parity.py  -- YAML <-> IssueCode/ErrorCode StrEnums
 #   go/aletheia/wire_codes_parity_test.go   -- YAML <-> Issue*/Code* constants
 #   cpp/tests/test_wire_codes_parity.cpp    -- YAML <-> IssueCode/ErrorCode enums
-#   rust/tests/wire_codes.rs                -- YAML <-> IssueCode variants; error
-#                                              codes pass through Error::Core
-#                                              losslessly (no ErrorCode enum by
-#                                              design; typed lifts pinned)
+#   rust/tests/wire_codes.rs                -- YAML <-> IssueCode/ErrorCode variants;
+#                                              error codes pass through
+#                                              Error::Core losslessly (typed
+#                                              lifts pinned), and an in-crate
+#                                              test holds the ErrorCode
+#                                              variants of
+#                                              rust/src/response/error_codes.rs
+#                                              to error_codes in order
 #
 # Adding a new wire code requires coordinated edits:
 #   1. add the Agda constructor (IssueCode: at the END of the ADT, per the
@@ -51,7 +55,8 @@
 #   3. add the matching member in each binding's vocabulary (Python
 #      aletheia/codes/, Go result.go / error.go constants, C++
 #      validation_issue.hpp / error.hpp + the json_parse.cpp tables, Rust
-#      response.rs for issue codes)
+#      response.rs for issue codes and response/error_codes.rs for error
+#      codes)
 #   4. document it in docs/architecture/PROTOCOL.md (Error Code Reference /
 #      the ValidateDBC issue-code list)
 #

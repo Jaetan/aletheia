@@ -155,12 +155,22 @@ What fails the lane:
   and the count sharing the line. The lane fails on more of them than the
   record and on a row the ledger does not name, at any count, since either is
   a line that lost its test; fewer of them, or a row the sweep no longer
-  produces, is a stale record, and fails until the change lowers it. What the ledger names is package-level
-  constants, whose declarations Go's cover profile does not mark as statements,
-  and one generic function's type-constraint union, a line outside any statement;
-  no test executes either, so gremlins never tries their mutants, and each
-  constant's value is held by a test that reads it or feeds it to the kernel's
-  own refusal at the bound. The coverage lane
+  produces, is a stale record, and fails until the change lowers it. What the
+  ledger names lies outside every function body: package-level constants,
+  whose declarations Go's cover profile does not mark as statements; no test
+  executes them, so gremlins never tries their mutants, and each constant's
+  value is held by a test that reads it or feeds it to the kernel's own
+  refusal at the bound. A mutant inside a function body is no row: gremlins
+  reports some of them not covered, every mutant of a case clause's
+  expression among them, since Go's cover tool opens the clause's block after
+  its colon, and the runner plants each one after the sweep, of the package
+  or of a shard (`tools/mutation_go_cases.py`). It makes gremlins' token
+  change at the column gremlins reports in the sweep's copy, runs the
+  package's tests under the sweep's variables, restores the file, and counts
+  the mutant killed, lived or not viable as the run gives, a lived one a
+  survivor held as gremlins' are; where the unmutated tests fail in the copy
+  it plants nothing, and the mutants stay not covered, rows the ledger does
+  not name. The coverage lane
   ([COVERAGE.md](COVERAGE.md)) is the same gap seen from the suite's side.
 - **The unobserved ledger (C++, gated)**: those kills are recorded in the C++
   baseline as `unobserved_ledger`, a row per mutator, repository-relative file,
@@ -193,27 +203,18 @@ independently.
 
 ## Per-binding sub-checks
 
-| Binding | Tool | Hot path (per AGENTS.md cat 14(g) + actual paths) |
+| Binding | Tool | What it mutates (each binding's `hot_path` in `docs/MUTATION_BENCH.yaml`) |
 |---|---|---|
-| Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
-| Go | `gremlins` | `aletheia/client.go`, `client_stream.go`, `client_enrich.go`, `dbc.go`, `json.go`¹, `json_response.go`, `json_dbc.go`, `ffi.go`, `ffi_nocgo.go`, `enrich.go`²; the stringer outputs are held out by `go/.gremlins.yaml` |
-| Rust | `cargo-mutants`, pinned in `docs/MUTATION_BENCH.yaml` | `src/response.rs`, `src/dbc.rs` with `src/dbc/decode.rs` and `src/dbc/encode.rs`, `src/types.rs`, `src/backend.rs` with `src/backend/ffi_backend.rs`, named by `rust/.cargo/mutants.toml`, which the tool reads from the crate; swept in scratch copies of the whole tree, because the suite includes the DBC corpus and the parity snapshots from above the crate at compile time |
-| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default`, the decrement, assignment, bitwise and negation groups, and the four call mutators), what each class of mutant stands for, and the held-out paths (vendored, system, `cpp/tests` and the test double under `cpp/src/detail`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
+| Python | `mutmut`, pinned in `docs/MUTATION_BENCH.yaml` | the files `[tool.mutmut] source_paths` names in `python/pyproject.toml`, the `hot_path`, which `tools/check_mutation_setup.py` holds to that list both ways |
+| Go | `gremlins` | the whole `go/aletheia` package, less the stringer outputs `go/.gremlins.yaml` holds out; the `hot_path` names the files cat 14(g) describes and selects nothing |
+| Rust | `cargo-mutants`, pinned in `docs/MUTATION_BENCH.yaml` | the files `rust/.cargo/mutants.toml` names, which the tool reads from the crate, the `hot_path`, which `tools/check_mutation_setup.py` holds to that list both ways; swept in scratch copies of the whole tree, because the suite includes the DBC corpus and the parity snapshots from above the crate at compile time |
+| C++ | `Mull` 0.34.1 (LLVM 23, from source) | whatever the library and the test binary compile, less the held-out paths `cpp/mull.yml` names (vendored, system, `cpp/tests` and the test double under `cpp/src/detail`); every file the `hot_path` names must hold a mutant; the mutator set (`cxx_default`, the decrement, assignment, bitwise and negation groups, and the four call mutators) and what each class of mutant stands for are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
 
-AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
-**`gremlins`** (`github.com/go-gremlins/gremlins`) instead because both
-zimmski/go-mutesting (last commit 2021) and avito-tech/go-mutesting fail
-on current Go: zimmski panics in `go/types` internals, avito doesn't
-resolve multi-file packages cleanly.  Gremlins covers the same operator
-set (CONDITIONALS_NEGATION / ARITHMETIC_BASE / INVERT_NEGATIVES /
-CONDITIONALS_BOUNDARY) with the same intent, and is actively maintained.
-
-¹ AGENTS.md `protocol.go` → actual `json.go` (request/response protocol marshaling).
-² AGENTS.md `frame.go` → actual `enrich.go` (per-frame violation enrichment).
-
-The actual-vs-AGENTS.md mappings are recorded in `docs/MUTATION_BENCH.yaml`
-to keep prose drift catchable: AGENTS.md is the canonical *requirement*,
-the YAML is the actual *configuration*.
+Go's tool is **`gremlins`** (`github.com/go-gremlins/gremlins`):
+zimmski/go-mutesting (last commit 2021) panics in a current Go's `go/types`
+internals, and avito-tech/go-mutesting does not resolve a package of several
+files.  `go/.gremlins.yaml` turns on the mutators gremlins ships off beside
+its defaults; `docs/MUTATION_BENCH.yaml` records the substitution.
 
 ## Installation
 
@@ -673,8 +674,8 @@ needed.
 
 ## See also
 
-- `AGENTS.md` cat 14(g) (Python / Go / C++ / Rust): canonical hot-path lists
-- `docs/MUTATION_BENCH.yaml`: actual on-disk paths, baseline numbers
+- `AGENTS.md` cat 14(g) (Python / Go / C++ / Rust): what each lane is pointed at and what a survivor owes
+- `docs/MUTATION_BENCH.yaml`: each binding's tool, hot-path files and baseline
 - the mutation tools, each with its job: [§ Architecture](#architecture)
 - `docs/operations/STABILITY.md`: sibling opt-in lane
 - `docs/development/CI_LOCAL.md`: three-layer CI architecture

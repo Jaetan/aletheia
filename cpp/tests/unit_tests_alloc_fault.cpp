@@ -16,6 +16,8 @@
 #include "detail/ffi_logic.hpp"
 #include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
+#include "detail/reply_shape.hpp"
+#include "detail/wide_json.hpp"
 #include "required.hpp"
 #include "test_helpers.hpp"
 #include <aletheia/aletheia.hpp>
@@ -23,6 +25,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <initializer_list>
 #include <memory>
 #include <new>
@@ -31,6 +34,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -133,9 +137,9 @@ constexpr std::string_view k_stream_result = R"({
          "reason": "the atomic predicate never resolved before the stream ended"}
     ],
     "warnings": [
-        {"property_index": 0, "kind": "multiplexor_mirror",
+        {"property_index": 0, "kind": "uncached_atom",
          "detail": "the multiplexor this property reads is mirrored in another message"},
-        {"property_index": 1, "kind": "multiplexor_mirror",
+        {"property_index": 1, "kind": "uncached_atom",
          "detail": "the multiplexor this property reads is mirrored in another message"}
     ]
 })";
@@ -321,6 +325,25 @@ TEST_CASE("the input-bound refusal is built in one allocation", "[alloc_fault][f
     CHECK(allocations_of([] {
               return aletheia::detail::json_input_bound_error(aletheia::max_json_bytes + 1);
           }) == 1);
+}
+
+TEST_CASE("an array of names is read into a vector allocated once", "[alloc_fault][json]") {
+    // Each name is short enough to live inside its string, so the one
+    // allocation is the vector's, reserved for every entry; a vector grown
+    // entry by entry allocates again at each doubling.
+    auto reply = aletheia::detail::Json::object();
+    auto& names = reply["names"] = aletheia::detail::Json::array();
+    for (auto const index : std::views::iota(0, 64))
+        names.push_back(std::format("n{}", index));
+    auto const reads = [&reply]<typename T>(std::type_identity<T>) {
+        return allocations_of([&reply] {
+            return aletheia::detail::field_strings<T>(reply, aletheia::detail::ReplyPath{},
+                                                      "names");
+        });
+    };
+    CHECK(reads(std::type_identity<aletheia::NodeName>{}) == 1);
+    CHECK(reads(std::type_identity<aletheia::SignalName>{}) == 1);
+    CHECK(reads(std::type_identity<std::string>{}) == 1);
 }
 
 // A binary extraction result over the two-signal message: two values, two

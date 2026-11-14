@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from typing import TYPE_CHECKING, LiteralString, cast
+from typing import TYPE_CHECKING, LiteralString
 
 from aletheia.client._backend import Backend, BinaryPathUnsupportedError
 from aletheia.client._client_bin import SignalValues, parse_extraction_buffer
@@ -30,13 +30,13 @@ from aletheia.client._helpers.reply_shape import (
     at,
     came,
     came_word,
-    fields,
+    held,
     reply_refusal,
     words,
 )
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
-from aletheia.client._refusal import envelope_message
+from aletheia.client._refusal import envelope_message, read_error_code
 from aletheia.client._types import (
     ProtocolError,
     SignalExtractionResult,
@@ -52,12 +52,12 @@ if TYPE_CHECKING:
     from fractions import Fraction
 
     from aletheia.client._helpers.reply_shape import ReplyFields
-    from aletheia.types import DLCCode, JSONValue, Response
+    from aletheia.types import DLCCode, JSONValue
 
 _logger = logging.getLogger("aletheia")
 
 
-def _extraction_result(response: Response) -> SignalExtractionResult:
+def _extraction_result(reply: ReplyFields) -> SignalExtractionResult:
     """Read an extraction success reply's three arrays, which the kernel always writes.
 
     Raises:
@@ -65,7 +65,6 @@ def _extraction_result(response: Response) -> SignalExtractionResult:
             an array, or an entry of one is not what the kernel writes there.
 
     """
-    reply = fields(response)
     return SignalExtractionResult(
         values=parse_values_list(_array(reply, "values")),
         errors=parse_errors_list(_array(reply, "errors")),
@@ -171,7 +170,7 @@ class SignalOpsMixin(ClientHostState):
                     dlc=dlc,
                     data=data,
                 )
-                response = cast("Response", parse_json_object(KernelResponse(response_bytes)))
+                reply = parse_json_object(KernelResponse(response_bytes))
             except ProtocolError as exc:
                 log_event(
                     _logger,
@@ -182,10 +181,9 @@ class SignalOpsMixin(ClientHostState):
                 )
                 raise
 
-            if response.get("status") == "error":
-                error_msg = envelope_message(response)
-                error_code_raw = response.get("code")
-                error_code = error_code_raw if isinstance(error_code_raw, str) else None
+            if held(reply, "status") == "error":
+                error_code = read_error_code(reply)
+                error_msg = envelope_message(reply)
                 log_event(
                     _logger,
                     logging.WARNING,
@@ -197,13 +195,12 @@ class SignalOpsMixin(ClientHostState):
                 # ``parse_payload_length_mismatch`` vs ``frame_signal_not_found``
                 # without parsing the message string (matches Go / C++ bindings).
                 raise ProtocolError(error_msg, code=error_code)
-            if response.get("status") != "success":
-                reply = fields(response)
+            if held(reply, "status") != "success":
                 raise reply_refusal(
                     at(REPLY_ROOT, "status"), words("success", "error"), came_word(reply, "status")
                 )
 
-            return _extraction_result(response)
+            return _extraction_result(reply)
 
     def update_frame(  # pylint: disable=too-many-arguments
         self,

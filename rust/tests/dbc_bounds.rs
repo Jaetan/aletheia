@@ -17,7 +17,8 @@ use aletheia::limits::{
 };
 use aletheia::{
     AttrScope, AttrType, Attribute, BoundRefusal, ByteOrder, CanId, Client, Dbc, DbcMessage,
-    DbcSignal, EnvironmentVar, Error, Presence, Rational, RawValueDescription, SignalGroup,
+    DbcSignal, EnvironmentVar, Error, ErrorCode, Presence, Rational, RawValueDescription,
+    SignalGroup,
 };
 
 fn client() -> Client {
@@ -127,7 +128,7 @@ fn assert_refused<T: std::fmt::Debug>(
                 field: f,
                 located,
             } = &**refusal;
-            assert_eq!(code, "input_bound_exceeded");
+            assert_eq!(*code, ErrorCode::InputBoundExceeded);
             assert_eq!(m, message);
             assert_eq!((bound_kind.as_str(), *o, *l), (kind, observed, limit));
             assert_eq!(f.as_deref(), Some(field));

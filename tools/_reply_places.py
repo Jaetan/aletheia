@@ -6,48 +6,54 @@ The reply proof in ``src/Aletheia/Protocol/ReplyRange.agda`` lists, in
 ``replyText``, the words the kernel writes at each string place of a reply and,
 in ``replyNonEmpty``, the arrays it writes with at least one element.  It leaves
 a place no row names free, so this module holds each row a reader relies on: it
-reads both tables, reads the set each Python reader takes at the place from its
-type and the set each Go, C++ and Rust reader takes from its own code, and
-reports a row one side drops, a word one side holds alone and a C++ or Rust last
-arm, which reads every word its other arms do not name, other than the row's
-last word.
+reads both tables and the set each Python reader takes at the place from its
+type or its ``field_word`` call, runs the readers of ``tools/_reply_places_go.py``,
+``tools/_reply_places_cpp.py`` and ``tools/_reply_places_rust.py``, which read
+the set each Go, C++ and Rust reader takes from its own code, and reports a row
+one side drops, a word one side holds alone and a last arm, which reads every
+word its other arms do not name, other than the row's last word.
 
 A clause of either table, or a reader's type or code, that the module cannot
 read is reported rather than passed over, every one of them in one run; the
 two catch-all clauses, which leave every other place free, and the tables' type
-signatures are the only clauses it reads past.
+signatures are the only clauses it reads past.  A ``replyText`` word that is
+not identifier-shaped is reported too, since that shape is what tells a Go or
+Rust reader's word comparison from a comparison of other text.
 """
 
 from __future__ import annotations
 
 import ast
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AGDA_REPLY_RANGE = REPO_ROOT / "src" / "Aletheia" / "Protocol" / "ReplyRange.agda"
 PYTHON_TYPES = REPO_ROOT / "python" / "aletheia" / "types.py"
-PYTHON_DBC_TYPES = REPO_ROOT / "python" / "aletheia" / "_dbc_types.py"
 PYTHON_ISSUE_CODES = REPO_ROOT / "python" / "aletheia" / "codes" / "_issue.py"
-GO_PACKAGE = REPO_ROOT / "go" / "aletheia"
-GO_DBC = GO_PACKAGE / "json_dbc.go"
-GO_RESPONSE = GO_PACKAGE / "json_response.go"
-GO_RESULT = GO_PACKAGE / "result.go"
+PYTHON_DBC_NORMALIZE = (
+    REPO_ROOT / "python" / "aletheia" / "client" / "_helpers" / "dbc_normalize.py"
+)
 
 # A reply place: the keys from the reply's root joined by "/", then, when the
 # row depends on it, the `kind` or `type` its object carries in angle brackets.
 ReplyPlace = NewType("ReplyPlace", str)
 # A string the kernel writes at a reply place.
 ReplyWord = NewType("ReplyWord", str)
-# A top-level name in a Python module: an alias, a class or a field.
+# The shape of every reply word, which the gate holds `replyText` to: a reader
+# comparing a literal of any other text compares no word.
+WORD_SHAPE = r"[A-Za-z_][A-Za-z0-9_]*"
+# A top-level name in a Python module: an alias, a class, a field or a function.
 PySymbol = NewType("PySymbol", str)
+# Python source: a module.
+PyText = NewType("PyText", str)
 # Agda source: a module, a clause of it or a fragment of a clause.
 AgdaText = NewType("AgdaText", str)
 # A top-level name in a Go package: a function or a type.
@@ -56,14 +62,16 @@ GoSymbol = NewType("GoSymbol", str)
 GoText = NewType("GoText", str)
 # The number of a line of a Go file, from 1.
 GoLine = NewType("GoLine", int)
-# A regular expression over a line of Go source.
-GoRegex = NewType("GoRegex", str)
 # A name in the C++ library: a function, a table, an enum or an enumerator.
 CppSymbol = NewType("CppSymbol", str)
 # C++ source: a file, a function of it or a fragment of either.
 CppText = NewType("CppText", str)
 # The number of a line of a C++ file, from 1.
 CppLine = NewType("CppLine", int)
+# The text between a Go, Rust or C++ string literal's quotes, as written or as read.
+LiteralText = NewType("LiteralText", str)
+# The number a Go, Rust or C++ Unicode escape names.
+CodePoint = NewType("CodePoint", int)
 
 
 @dataclass(frozen=True)
@@ -77,14 +85,6 @@ class _OneOf:
 @dataclass(frozen=True)
 class AnyNonEmpty:
     """A place that holds any text but the empty one."""
-
-
-@dataclass(frozen=True)
-class _PyAlias:
-    """A ``Literal`` alias whose arguments are the reader's words."""
-
-    module: Path
-    name: PySymbol
 
 
 @dataclass(frozen=True)
@@ -109,7 +109,38 @@ class _PyBoundKinds:
     """The ``BOUND_KIND_*`` codes of ``python/aletheia/limits.py``."""
 
 
-type _PySet = _PyAlias | _PyField | _PyEnum | _PyBoundKinds
+@dataclass(frozen=True)
+class _PyWordCall:
+    """The literals a function's ``field_word`` calls at a key await."""
+
+    module: Path
+    function: PySymbol
+    key: ReplyWord
+
+
+@dataclass(frozen=True)
+class _PyMappedWordCall:
+    """The words a function's one ``field_word`` call at a key awaits, and the tests mapping them.
+
+    The call is compared where it is read, as the whole test ``field_word(...) ==
+    "<literal>"`` of an ``if`` of the function's body, or a statement of that body
+    assigns it to a name, used nowhere but as the whole left of each test ``<name>
+    == "<literal>"`` of a chain of ``if``s there, assignments alone standing between
+    them.  Each ``if`` has no ``else`` and ends in ``return``; the code after the
+    tests is the last arm.  A row naming a ``helper`` hands it the name there, once,
+    as the first argument of a call of it by its bare name: the helper's chain of
+    tests of its first parameter, read alike, maps on, and the code after it is the
+    last arm.  Python's arms give no value the gate compares, so the last arm reads
+    the awaited words the tests do not name, and must read one word or none.
+    """
+
+    module: Path
+    function: PySymbol
+    key: ReplyWord
+    helper: PySymbol | None = None
+
+
+type _PySet = _PyField | _PyEnum | _PyBoundKinds | _PyWordCall | _PyMappedWordCall
 
 # Every row of `replyText`, with the set the Python reader takes at its place.
 # A dropped Agda row, a word on one side only and an Agda row this table does
@@ -129,102 +160,34 @@ PYTHON_REPLY_TEXT: dict[ReplyPlace, _PySet | AnyNonEmpty] = {
         "issues/severity": _PyEnum(PYTHON_ISSUE_CODES, PySymbol("IssueSeverity")),
         "warnings/severity": _PyEnum(PYTHON_ISSUE_CODES, PySymbol("IssueSeverity")),
         "bound_kind": _PyBoundKinds(),
-        "dbc/messages/signals/byteOrder": _PyAlias(PYTHON_DBC_TYPES, PySymbol("ByteOrder")),
-        "dbc/messages/signals/presence": _PyAlias(PYTHON_DBC_TYPES, PySymbol("SignalPresence")),
+        "dbc/messages/signals/byteOrder": _PyWordCall(
+            PYTHON_DBC_NORMALIZE, PySymbol("normalize_signal"), ReplyWord("byteOrder")
+        ),
+        "dbc/messages/signals/presence": _PyMappedWordCall(
+            PYTHON_DBC_NORMALIZE, PySymbol("_check_presence"), ReplyWord("presence")
+        ),
         "dbc/messages/signals/multiplexor": AnyNonEmpty(),
-        "dbc/comments/target/kind": _PyField(
-            PYTHON_DBC_TYPES, PySymbol("DBCCommentTarget"), PySymbol("kind")
+        "dbc/comments/target/kind": _PyMappedWordCall(
+            PYTHON_DBC_NORMALIZE, PySymbol("_normalize_comment_target"), ReplyWord("kind")
         ),
-        "dbc/attributes/kind": _PyField(
-            PYTHON_DBC_TYPES, PySymbol("DBCAttribute"), PySymbol("kind")
+        "dbc/attributes/kind": _PyMappedWordCall(
+            PYTHON_DBC_NORMALIZE, PySymbol("_normalize_attribute"), ReplyWord("kind")
         ),
-        "dbc/attributes/scope <definition>": _PyAlias(PYTHON_DBC_TYPES, PySymbol("AttrScope")),
-        "dbc/attributes/attrType/kind": _PyField(
-            PYTHON_DBC_TYPES, PySymbol("DBCAttrType"), PySymbol("kind")
+        "dbc/attributes/scope <definition>": _PyWordCall(
+            PYTHON_DBC_NORMALIZE, PySymbol("_normalize_attribute"), ReplyWord("scope")
         ),
-        "dbc/attributes/value/kind": _PyField(
-            PYTHON_DBC_TYPES, PySymbol("DBCAttrValue"), PySymbol("kind")
+        "dbc/attributes/attrType/kind": _PyMappedWordCall(
+            PYTHON_DBC_NORMALIZE, PySymbol("_normalize_attr_type"), ReplyWord("kind")
         ),
-        "dbc/attributes/target/kind": _PyField(
-            PYTHON_DBC_TYPES, PySymbol("DBCAttrTarget"), PySymbol("kind")
+        "dbc/attributes/value/kind": _PyMappedWordCall(
+            PYTHON_DBC_NORMALIZE, PySymbol("_normalize_attr_value"), ReplyWord("kind")
         ),
-    }.items()
-}
-
-
-@dataclass(frozen=True)
-class _GoSwitch:
-    """The ``case`` literals of the one ``switch`` a function holds, the reader's dispatch."""
-
-    module: Path
-    function: GoSymbol
-
-
-@dataclass(frozen=True)
-class _GoWordCall:
-    """The literals a function's ``fieldWord`` calls at a key await."""
-
-    module: Path
-    function: GoSymbol
-    key: ReplyWord
-
-
-@dataclass(frozen=True)
-class _GoConsts:
-    """The string constants of a named type, declared in any file of its package."""
-
-    module: Path
-    name: GoSymbol
-
-
-@dataclass(frozen=True)
-class _GoValues:
-    """The values of a struct of one string field, declared in one ``var`` block of a file.
-
-    A value given its word anywhere else could hold a word the block does not,
-    so the gate refuses, where it stands, a value of the type built or
-    converted to outside the block, an alias of the type, a type parameter it
-    constrains, an unnamed struct a value of it is assigned from, and its field
-    reached outside ``reader``.
-    """
-
-    module: Path
-    name: GoSymbol
-    field: GoSymbol
-    reader: GoSymbol
-
-
-@dataclass(frozen=True)
-class _GoBoundKinds:
-    """The ``BoundKind*`` codes of ``go/aletheia/limits.go``."""
-
-
-type _GoSet = _GoSwitch | _GoWordCall | _GoConsts | _GoValues | _GoBoundKinds
-
-# Every row of `replyText`, with the set the Go reader takes at its place, read
-# from the reader's own code, under the rules PYTHON_REPLY_TEXT is held to.
-GO_REPLY_TEXT: dict[ReplyPlace, _GoSet | AnyNonEmpty] = {
-    ReplyPlace(place): spec
-    for place, spec in {
-        "status": _GoValues(
-            GO_RESPONSE, GoSymbol("replyStatus"), GoSymbol("word"), GoSymbol("fieldStatus")
+        "dbc/attributes/target/kind": _PyMappedWordCall(
+            PYTHON_DBC_NORMALIZE,
+            PySymbol("_normalize_attr_target"),
+            ReplyWord("kind"),
+            PySymbol("_normalize_attr_target_at_id"),
         ),
-        "type": _GoWordCall(GO_RESPONSE, GoSymbol("parseFrameResponse"), ReplyWord("type")),
-        "results/type": _GoSwitch(GO_RESPONSE, GoSymbol("parsePropertyEvent")),
-        "results/status <property>": _GoSwitch(GO_RESPONSE, GoSymbol("readVerdict")),
-        "warnings/kind": _GoConsts(GO_RESULT, GoSymbol("WarningKind")),
-        "issues/severity": _GoSwitch(GO_RESPONSE, GoSymbol("readSeverity")),
-        "warnings/severity": _GoSwitch(GO_RESPONSE, GoSymbol("readSeverity")),
-        "bound_kind": _GoBoundKinds(),
-        "dbc/messages/signals/byteOrder": _GoSwitch(GO_DBC, GoSymbol("readByteOrder")),
-        "dbc/messages/signals/presence": _GoSwitch(GO_DBC, GoSymbol("parseSignalPresence")),
-        "dbc/messages/signals/multiplexor": AnyNonEmpty(),
-        "dbc/comments/target/kind": _GoSwitch(GO_DBC, GoSymbol("parseCommentTarget")),
-        "dbc/attributes/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttribute")),
-        "dbc/attributes/scope <definition>": _GoSwitch(GO_DBC, GoSymbol("readAttrScope")),
-        "dbc/attributes/attrType/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttrType")),
-        "dbc/attributes/value/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttrValue")),
-        "dbc/attributes/target/kind": _GoSwitch(GO_DBC, GoSymbol("parseAttrTarget")),
     }.items()
 }
 
@@ -257,6 +220,39 @@ class Arms:
 
     words: frozenset[ReplyWord]
     last: _LastArm
+
+
+@dataclass(frozen=True)
+class MappingNames:
+    """How a refusal names a mapping, the call whose words it maps, and the mapping's last arm."""
+
+    mapping: Prose
+    call: Prose
+    last_arm: Prose
+
+
+def mapped_last(
+    awaited: frozenset[ReplyWord],
+    named: frozenset[ReplyWord],
+    shared: frozenset[ReplyWord],
+    names: MappingNames,
+) -> frozenset[ReplyWord] | Arms | Prose:
+    """Return the words a call awaits and the one word its mapping's last arm reads, or them alone.
+
+    Each word the mapping's other arms name is one the call awaits; the last arm
+    reads the awaited words they do not name and ``shared``, the words of the
+    arms giving its value, and must read one word or none.
+    """
+    if not named <= awaited:
+        outside = ", ".join(repr(word) for word in sorted(named - awaited))
+        return Prose(f"{names.mapping} names {outside}, which no {names.call} awaits")
+    match sorted(awaited - named | shared):
+        case []:
+            return awaited
+        case [last]:
+            return Arms(awaited, last)
+        case several:
+            return Prose(f"{names.last_arm} reads {', '.join(map(repr, several))} alike")
 
 
 @dataclass(frozen=True)
@@ -344,6 +340,16 @@ def _text_form(rhs: AgdaText, named: dict[AgdaText, AgdaText]) -> _OneOf | AnyNo
     return None if words is None else _OneOf(frozenset(words), words[-1] if words else None)
 
 
+def _unshaped(place: ReplyPlace, form: _OneOf | AnyNonEmpty) -> list[Prose]:
+    """Return a refusal for each word of a ``replyText`` row that is not identifier-shaped."""
+    words = form.words if isinstance(form, _OneOf) else frozenset[ReplyWord]()
+    return [
+        Prose(f"replyText row {place}: '{word}' does not match {WORD_SHAPE}, a reply word's shape")
+        for word in sorted(words)
+        if re.fullmatch(WORD_SHAPE, word) is None
+    ]
+
+
 def _table_of(clause: AgdaText) -> AgdaText | None:
     """Return the table a clause defines a row of, or None for every other clause.
 
@@ -392,6 +398,7 @@ def _parse_agda_reply_places(
             non_empty.add(place)
         elif form is not None:
             text_rows[place] = form
+            unread.extend(_unshaped(place, form))
         else:
             unread.append(Prose(f"{table} row {place} has a form this gate does not read: {rhs!r}"))
     return text_rows, frozenset(non_empty), unread
@@ -489,8 +496,14 @@ def _field_words(spec: _PyField, bound: dict[PySymbol, ast.stmt]) -> frozenset[R
     return frozenset(words)
 
 
-def _enum_words(spec: _PyEnum, node: ast.ClassDef) -> frozenset[ReplyWord] | Prose:
+def _enum_words(spec: _PyEnum, bound: dict[PySymbol, ast.stmt]) -> frozenset[ReplyWord] | Prose:
     """Return the values of a ``StrEnum``'s members, each a string constant."""
+    where = f"{spec.module.relative_to(REPO_ROOT)}:{spec.name}"
+    node = bound.get(spec.name)
+    if node is None:
+        return Prose(f"{where} is not defined")
+    if not isinstance(node, ast.ClassDef):
+        return Prose(f"{where} is not a class")
     words: set[ReplyWord] = set()
     for item in node.body:
         if isinstance(item, ast.Assign):
@@ -500,326 +513,290 @@ def _enum_words(spec: _PyEnum, node: ast.ClassDef) -> frozenset[ReplyWord] | Pro
         else:
             continue
         if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
-            return Prose(
-                f"{spec.module.relative_to(REPO_ROOT)}:{spec.name}.{ast.unparse(member)} "
-                + "is not a string constant"
-            )
+            return Prose(f"{where}.{ast.unparse(member)} is not a string constant")
         words.add(ReplyWord(value.value))
     return frozenset(words)
 
 
-def _named_words(
-    spec: _PyAlias | _PyEnum, bound: dict[PySymbol, ast.stmt]
-) -> frozenset[ReplyWord] | Prose:
-    """Return the words of a ``Literal`` alias or a ``StrEnum``."""
-    where = f"{spec.module.relative_to(REPO_ROOT)}:{spec.name}"
-    node = bound.get(spec.name)
-    if node is None:
-        return Prose(f"{where} is not defined")
-    if isinstance(spec, _PyEnum):
-        if not isinstance(node, ast.ClassDef):
-            return Prose(f"{where} is not a class")
-        return _enum_words(spec, node)
-    value = _alias_value(node)
-    found = None if value is None else _literal_words(value, bound)
-    return Prose(f"{where} is not a Literal of strings") if found is None else found
+@dataclass(frozen=True)
+class _PyCall:
+    """A ``field_word`` call at a key, and its words."""
+
+    node: ast.Call
+    words: frozenset[ReplyWord]
 
 
-def _python_words(spec: _PySet, py_codes: frozenset[ReplyWord]) -> frozenset[ReplyWord] | Prose:
-    """Return the words a Python reader set holds, or why the gate cannot read them."""
+def _literal(arg: ast.expr) -> ReplyWord | None:
+    """Return the text of a string literal, or None for any other expression."""
+    match arg:
+        case ast.Constant(value=str() as text):
+            return ReplyWord(text)
+        case _:
+            return None
+
+
+def _word_calls(function: ast.FunctionDef, key: ReplyWord) -> list[_PyCall] | Prose:
+    """Return each of a function's ``field_word`` calls at ``key``."""
+    at_key: list[_PyCall] = []
+    for node in ast.walk(function):
+        match node:
+            case ast.Call(func=ast.Name(id="field_word"), args=args, keywords=keywords):
+                literals = [_literal(arg) for arg in args[2:]]
+            case _:
+                continue
+        if literals[1:] == [] or literals[0] is None or keywords:
+            return Prose(f"{ast.unparse(node)} names no string literal key or no word")
+        if literals[0] == key:
+            if None in literals[1:]:
+                return Prose(f"{ast.unparse(node)} awaits a word that is not a string literal")
+            words = frozenset(word for word in literals[1:] if word is not None)
+            at_key.append(_PyCall(node, words))
+    return at_key or Prose(f"no field_word call at {key!r}")
+
+
+def _call_words(function: ast.FunctionDef, key: ReplyWord) -> frozenset[ReplyWord] | Prose:
+    """Return the words a function's ``field_word`` calls at ``key`` await."""
+    match _word_calls(function, key):
+        case [*calls]:
+            return frozenset(word for call in calls for word in call.words)
+        case refused:
+            return refused
+
+
+def _test_of(function: ast.FunctionDef, call: ast.Call) -> tuple[ast.If, ast.Compare] | None:
+    """Return the ``if`` of a function's body whose whole test compares ``call``, and the test."""
+    for statement in function.body:
+        match statement:
+            case ast.If(test=ast.Compare(left=left) as compare) if left is call:
+                return statement, compare
+            case _:
+                pass
+    return None
+
+
+def _bound_name(function: ast.FunctionDef, call: ast.Call) -> PySymbol | None:
+    """Return the name a statement of a function's body assigns ``call`` to alone, or None."""
+    for statement in function.body:
+        match statement:
+            case ast.Assign(targets=[ast.Name(id=name)], value=value) if value is call:
+                return PySymbol(name)
+            case _:
+                pass
+    return None
+
+
+# A test of a word: its ``if`` and the comparison that is its whole test.
+type _PyTest = tuple[ast.If, ast.Compare]
+
+
+def _tests_of(function: ast.FunctionDef, name: PySymbol) -> list[_PyTest]:
+    """Return the chain of ``if``s of a function's body from the first testing ``name``.
+
+    An assignment between two of them ends no arm, so the chain goes on past it.
+    """
+    chain: list[_PyTest] = []
+    for statement in function.body:
+        match statement:
+            case ast.If(test=ast.Compare(left=ast.Name(id=tested)) as compare) if tested == name:
+                chain.append((statement, compare))
+            case ast.Assign():
+                pass
+            case _ if chain:
+                break
+            case _:
+                pass
+    return chain
+
+
+def _named_by(tests: list[_PyTest], test_name: Prose) -> frozenset[ReplyWord] | Prose:
+    """Return the literals a mapping's tests compare its word to, each arm ending in return."""
+    named: set[ReplyWord] = set()
+    for test, compare in tests:
+        match compare.ops, compare.comparators:
+            case [ast.Eq()], [ast.Constant(value=str() as word)]:
+                named.add(ReplyWord(word))
+            case _:
+                return Prose(f"{test_name} is not == to one literal")
+        match test:
+            case ast.If(body=[*_, ast.Return()], orelse=[]):
+                pass
+            case _:
+                return Prose(f"{test_name} has an else or an arm not ending in return")
+    return frozenset(named)
+
+
+# The tests mapping a word, how a refusal names them, and how it names one of them.
+type _PyMapping = tuple[list[_PyTest], Prose, Prose]
+
+
+def _hands(node: ast.AST, name: PySymbol, helper: PySymbol) -> bool:
+    """Say whether a node is a call of ``helper`` by its bare name, ``name`` its first argument."""
+    match node:
+        case ast.Call(func=ast.Name(id=callee), args=[ast.Name(id=first), *_]):
+            return callee == helper and first == name
+        case _:
+            return False
+
+
+def _unmapped_use(
+    function: ast.FunctionDef, name: PySymbol, tests: list[_PyTest], helper: PySymbol | None
+) -> Prose | None:
+    """Return how a function uses the name its tests map other than to map it, or None.
+
+    A ``helper`` takes the name once more, from the code after the tests.
+    """
+    after = function.body[function.body.index(tests[-1][0]) + 1 :]
+    if helper is not None and not any(
+        _hands(node, name, helper) for statement in after for node in ast.walk(statement)
+    ):
+        return Prose(f"hands {name} to {helper} nowhere after its tests, as its first argument")
+    read = [node.id for node in ast.walk(function) if isinstance(node, ast.Name)]
+    if read.count(name) != 1 + len(tests) + (0 if helper is None else 1):
+        return Prose(f"uses {name} other than to map it")
+    return None
+
+
+def _mapping_tests(
+    function: ast.FunctionDef, call: ast.Call, key: ReplyWord, helper: PySymbol | None
+) -> _PyMapping | Prose:
+    """Return the tests mapping the word ``call`` reads at ``key``.
+
+    They are the one test comparing the call, or the chain of tests of the name
+    the call is assigned to, a name used nowhere but in them and a ``helper``'s call.
+    """
+    tested = _test_of(function, call)
+    if tested is not None:
+        mapping = Prose(f"the test of the word at {key!r}")
+        if helper is None:
+            return [tested], mapping, mapping
+        return Prose(f"hands the word at {key!r} to {helper} nowhere, testing it where it reads it")
+    bound = _bound_name(function, call)
+    if bound is None:
+        return Prose(f"compares the word field_word reads at {key!r} in no if of its body")
+    tests = _tests_of(function, bound)
+    if not tests:
+        return Prose(f"maps {bound} in no chain of tests of it")
+    refused = _unmapped_use(function, bound, tests, helper)
+    if refused is not None:
+        return refused
+    return tests, Prose(f"the tests of {bound}"), Prose(f"a test of {bound}")
+
+
+def _helper_words(
+    module: ast.Module, helper: PySymbol, names: MappingNames
+) -> tuple[frozenset[ReplyWord], MappingNames] | Prose:
+    """Return the words a helper's tests of its first parameter name, and ``names`` naming them.
+
+    The tests are a chain read as a caller's are, the parameter used nowhere else.
+    """
+    function = _py_function(module, helper)
+    if function is None:
+        return Prose(f"{helper} is not defined")
+    match function.args.posonlyargs + function.args.args:
+        case [first, *_]:
+            word = PySymbol(first.arg)
+        case _:
+            return Prose(f"{helper} takes no positional parameter")
+    tests = _tests_of(function, word)
+    read = [node.id for node in ast.walk(function) if isinstance(node, ast.Name)]
+    if read.count(word) != len(tests):
+        return Prose(f"{helper} uses {word} other than to map it")
+    named = _named_by(tests, Prose(f"a test of {word} in {helper}"))
+    if isinstance(named, str):
+        return named
+    tests_named = Prose(f"the tests of {word} in {helper}")
+    mapping = Prose(f"{names.mapping} and {tests_named}")
+    return named, replace(names, mapping=mapping, last_arm=Prose(f"the code after {tests_named}"))
+
+
+def _mapped_call_words(
+    module: ast.Module, function: ast.FunctionDef, key: ReplyWord, helper: PySymbol | None
+) -> frozenset[ReplyWord] | Arms | Prose:
+    """Return the words a function's one call at ``key`` awaits and the word its last arm reads.
+
+    A ``helper`` handed the word adds the words its tests name to the function's own.
+    """
+    match _word_calls(function, key):
+        case [call]:
+            found = _mapping_tests(function, call.node, key, helper)
+        case [*calls]:
+            return Prose(f"reads {key!r} with field_word {len(calls)} times, not once")
+        case refused:
+            return refused
+    if isinstance(found, str):
+        return found
+    tests, mapping, test_name = found
+    named = _named_by(tests, test_name)
+    if isinstance(named, str):
+        return named
+    names = MappingNames(
+        mapping, Prose(f"field_word call at {key!r}"), Prose(f"the code after {mapping}")
+    )
+    if helper is not None:
+        handed = _helper_words(module, helper, names)
+        if isinstance(handed, str):
+            return handed
+        helper_named, names = handed
+        named |= helper_named
+    return mapped_last(call.words, named, frozenset(), names)
+
+
+def _py_source(path: Path) -> PyText:
+    """Return the text of a Python module."""
+    return PyText(path.read_text(encoding="utf-8"))
+
+
+def _py_function(module: ast.Module, name: PySymbol) -> ast.FunctionDef | None:
+    """Return the function a module defines at its top level as ``name``, or None."""
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    return None
+
+
+def _python_words(
+    spec: _PySet, py_codes: frozenset[ReplyWord]
+) -> frozenset[ReplyWord] | Arms | Prose:
+    """Return a Python reader set's words and last arm, or why the gate cannot read them."""
     if isinstance(spec, _PyBoundKinds):
         return py_codes
     if not spec.module.is_file():
         return Prose(f"{spec.module.relative_to(REPO_ROOT)} not found")
-    bound = _top_level(ast.parse(spec.module.read_text(encoding="utf-8")))
+    module = ast.parse(_py_source(spec.module))
+    if isinstance(spec, _PyWordCall | _PyMappedWordCall):
+        where = f"{spec.module.relative_to(REPO_ROOT)}:{spec.function}"
+        function = _py_function(module, spec.function)
+        if function is None:
+            return Prose(f"{where} is not defined")
+        if isinstance(spec, _PyMappedWordCall):
+            found = _mapped_call_words(module, function, spec.key, spec.helper)
+        else:
+            found = _call_words(function, spec.key)
+        return Prose(f"{where}: {found}") if isinstance(found, str) else found
+    bound = _top_level(module)
     if isinstance(spec, _PyField):
         return _field_words(spec, bound)
-    return _named_words(spec, bound)
+    return _enum_words(spec, bound)
 
 
-# A Go interpreted string, raw string or rune literal, or a comment, matched
-# from the left so that a `//` inside a literal is not taken for a comment.
-_GO_TOKEN = re.compile(
-    r'"(?:[^"\\\n]|\\.)*"|`[^`]*`|' + r"'(?:[^'\\\n]|\\.)*'|//[^\n]*|/\*.*?\*/",
-    flags=re.DOTALL,
-)
-# A Go or C++ string literal holding a reply word, which has no escape.
-_WORD_LITERAL = re.compile(r'^"(?P<word>[^"\\]*)"$')
-# A statement whose clauses are `case` clauses, and one such clause on a line.
-_GO_CASE_HOLDER = re.compile(r"\b(?:switch|select)\b")
-_GO_CASE = re.compile(r"^case\s+(?P<exprs>.*):$")
-# A `fieldWord` call whose arguments hold no call of their own.
-_GO_WORD_CALL = re.compile(r"\bfieldWord\((?P<args>[^()]*)\)")
+# The greatest Unicode code point, and the surrogates, which name no character.
+_MAX_CODE_POINT = 0x10FFFF
+_SURROGATES = range(0xD800, 0xE000)
 
 
-def _go_code(text: GoText) -> GoText:
-    """Return Go source with each comment blanked to its line breaks and its literals kept."""
-    return GoText(
-        _GO_TOKEN.sub(
-            lambda token: (
-                re.sub(r"[^\n]", " ", token.group())
-                if token.group().startswith("/")
-                else token.group()
-            ),
-            text,
-        )
-    )
+def scalar(code: CodePoint) -> LiteralText | None:
+    """Return the character a Unicode escape names, None when the code is no scalar value."""
+    return LiteralText(chr(code)) if code <= _MAX_CODE_POINT and code not in _SURROGATES else None
 
 
-def _go_bare_lines(code: GoText) -> list[GoText]:
-    """Return the lines of Go source whose comments are blanked, each literal blanked too."""
-    bare = _GO_TOKEN.sub(lambda token: re.sub(r"[^\n]", " ", token.group()), code)
-    return [GoText(line) for line in bare.split("\n")]
-
-
-def _go_package() -> dict[Path, GoText]:
-    """Return every non-test file of the Go package, its comments blanked."""
-    return {
-        path: _go_code(GoText(path.read_text(encoding="utf-8")))
-        for path in sorted(GO_PACKAGE.glob("*.go"))
-        if not path.name.endswith("_test.go")
-    }
-
-
-def _go_function(code: GoText, name: GoSymbol) -> GoText | None:
-    """Return a top-level function up to the brace gofmt closes it with, or None when absent."""
-    start = re.search(rf"^func {re.escape(name)}[\[(]", code, flags=re.MULTILINE)
-    if start is None:
-        return None
-    end = code.find("\n}", start.end())
-    return GoText(code[start.start() : None if end < 0 else end])
-
-
-def word_literals(exprs: GoText | CppText) -> frozenset[ReplyWord] | None:
-    """Return the words of a comma-separated list of string literals, or None when one is not."""
-    found = [_WORD_LITERAL.match(expr.strip()) for expr in exprs.split(",")]
-    if None in found:
-        return None
-    return frozenset(ReplyWord(word.group("word")) for word in found if word is not None)
-
-
-def _switch_words(body: GoText) -> frozenset[ReplyWord] | Prose:
-    """Return the words the ``case`` clauses of a function's one ``switch`` name."""
-    holders = len(_GO_CASE_HOLDER.findall(_GO_TOKEN.sub('""', body)))
-    if holders != 1:
-        return Prose(f"the function holds {holders} switch or select statements, not one")
-    words: set[ReplyWord] = set()
-    for line in body.splitlines():
-        clause = line.strip()
-        if re.match(r"case\b", clause) is None:
-            continue
-        case = _GO_CASE.match(clause)
-        found = None if case is None else word_literals(GoText(case.group("exprs")))
-        if found is None:
-            return Prose(f"{clause!r} is not a case of string literals on one line")
-        words |= found
-    return frozenset(words) if words else Prose("the function's switch names no case")
-
-
-def _word_call_words(body: GoText, key: ReplyWord) -> frozenset[ReplyWord] | Prose:
-    """Return the words a function's ``fieldWord`` calls at ``key`` await."""
-    calls = list(_GO_WORD_CALL.finditer(body))
-    if len(calls) != len(re.findall(r"\bfieldWord\(", body)):
-        return Prose("a fieldWord call holds a call of its own")
-    words: set[ReplyWord] = set()
-    for call in calls:
-        args = [GoText(arg.strip()) for arg in call.group("args").split(",")]
-        at = _WORD_LITERAL.match(args[2]) if args[3:] else None
-        if at is None:
-            return Prose(f"fieldWord({call.group('args')}) names no literal key or no word")
-        if at.group("word") != key:
-            continue
-        found = word_literals(GoText(",".join(args[3:])))
-        if found is None:
-            return Prose(f"fieldWord({call.group('args')}) awaits a word that is not a literal")
-        words |= found
-    return frozenset(words) if words else Prose(f"no fieldWord call at {key!r}")
-
-
-def _const_specs(code: GoText) -> Iterator[GoText]:
-    """Yield each constant spec of a file, a group's lines one by one."""
-    group = False
-    for line in code.splitlines():
-        spec = line.strip()
-        if spec == "const (":
-            group = True
-        elif group and spec == ")":
-            group = False
-        elif group and spec:
-            yield GoText(spec)
-        elif spec.startswith("const "):
-            yield GoText(spec.removeprefix("const ").strip())
-
-
-def _const_words(spec: _GoConsts, package: dict[Path, GoText]) -> frozenset[ReplyWord] | Prose:
-    """Return the values of every constant of a named string type in the package."""
-    where = f"{spec.module.relative_to(REPO_ROOT)}:{spec.name}"
-    name = re.escape(spec.name)
-    declared = package.get(spec.module)
-    if declared is None or re.search(rf"^type {name} string\s*$", declared, re.MULTILINE) is None:
-        return Prose(f"{where} is not declared as a string type")
-    typed = re.compile(rf"^\w+\s+{name}\s*=\s*(?P<value>.*)$")
-    words: set[ReplyWord] = set()
-    for path, code in package.items():
-        for const in _const_specs(code):
-            if re.search(rf"\b{name}\b", const) is None:
-                continue
-            m = typed.match(const)
-            word = None if m is None else _WORD_LITERAL.match(m.group("value").strip())
-            if word is None:
-                return Prose(
-                    f"{path.relative_to(REPO_ROOT)}: the constant {const!r} of {spec.name} "
-                    + "is not one name and one string literal"
-                )
-            words.add(ReplyWord(word.group("word")))
-    return frozenset(words) if words else Prose(f"{where} has no constant")
-
-
-# A line of a Go file, its number first; and a line of a file of the Go package.
-type _GoNumbered = tuple[GoLine, GoText]
-type _GoSite = tuple[Path, GoLine]
-
-
-def _var_blocks(code: GoText) -> Iterator[list[_GoNumbered]]:
-    """Yield each ``var ( ... )`` group of a file: its non-blank lines and their numbers."""
-    block: list[_GoNumbered] | None = None
-    for number, line in enumerate(code.split("\n"), start=1):
-        spec = line.strip()
-        if spec == "var (":
-            block = []
-        elif block is not None and spec == ")":
-            yield block
-            block = None
-        elif block is not None and spec:
-            block.append((GoLine(number), GoText(spec)))
-
-
-def fragment_lines(code: GoText | CppText, fragment: GoText | CppText) -> range:
-    """Return the numbers of the lines, from 1, a fragment of a file spans."""
-    start = code.index(fragment)
-    return range(code.count("\n", 0, start) + 1, code.count("\n", 0, start + len(fragment)) + 2)
-
-
-def _go_function_lines(code: GoText, name: GoSymbol) -> frozenset[GoLine]:
-    """Return the lines a top-level function spans, none when the file does not define it."""
-    body = _go_function(code, name)
-    return frozenset() if body is None else frozenset(map(GoLine, fragment_lines(code, body)))
-
-
-@dataclass(frozen=True)
-class _GoBreach:
-    """A line shape that could give a value its word outside its block, and the lines exempt."""
-
-    regex: GoRegex
-    what: Prose
-    exempt: frozenset[_GoSite]
-
-
-def _value_breaches(
-    spec: _GoValues, block: frozenset[_GoSite], declared: _GoSite, reader: frozenset[_GoSite]
-) -> tuple[_GoBreach, ...]:
-    """Return the line shapes that could give a value of the type a word outside its block."""
-    name, field = re.escape(spec.name), re.escape(spec.field)
-    return (
-        _GoBreach(
-            GoRegex(rf"\b{name}\s*\{{"), Prose(f"builds a {spec.name} outside its block"), block
-        ),
-        _GoBreach(
-            GoRegex(rf"\b{name}\s*\("), Prose(f"converts a value to {spec.name}"), frozenset()
-        ),
-        _GoBreach(
-            GoRegex(rf"=\s*{name}\b(?!\s*[{{(])"), Prose(f"aliases {spec.name}"), frozenset()
-        ),
-        _GoBreach(
-            GoRegex(rf"\[\s*\w+(?:\s*,\s*\w+)*\s+~?(?:interface\s*\{{[^}}]*)?\b{name}\b"),
-            Prose(f"constrains a type parameter to {spec.name}"),
-            frozenset(),
-        ),
-        _GoBreach(
-            GoRegex(rf"\bstruct\s*\{{\s*{field}\s+string\s*\}}"),
-            Prose(f"declares an unnamed struct a {spec.name} is assigned from"),
-            frozenset({declared}),
-        ),
-        _GoBreach(
-            GoRegex(rf"\.{field}\b"),
-            Prose(f"reaches the {spec.field} of a value outside {spec.reader}"),
-            reader,
-        ),
-    )
-
-
-def _values_built_elsewhere(
-    spec: _GoValues, package: dict[Path, GoText], block: frozenset[_GoSite], declared: _GoSite
-) -> Iterator[Prose]:
-    """Yield each line of the package that could give a value of the type a word elsewhere."""
-    reader = frozenset(
-        (path, number)
-        for path, code in package.items()
-        for number in _go_function_lines(code, spec.reader)
-    )
-    breaches = _value_breaches(spec, block, declared, reader)
-    for path, code in package.items():
-        bare = _go_bare_lines(code)
-        for number, (line, shown) in enumerate(zip(bare, code.split("\n"), strict=True), start=1):
-            for breach in breaches:
-                if re.search(breach.regex, line) and (path, GoLine(number)) not in breach.exempt:
-                    yield Prose(
-                        f"{path.relative_to(REPO_ROOT)}:{number}: {shown.strip()!r} {breach.what}"
-                    )
-
-
-def _value_words(spec: _GoValues, package: dict[Path, GoText]) -> frozenset[ReplyWord] | Prose:
-    """Return the words of a type's one block of values, or each line that hides them."""
-    where = spec.module.relative_to(REPO_ROOT)
-    code = package.get(spec.module, GoText(""))
-    declaration = f"type {spec.name} struct{{ {spec.field} string }}"
-    at = [
-        GoLine(number)
-        for number, line in enumerate(code.split("\n"), start=1)
-        if line.rstrip() == declaration
-    ]
-    if len(at) != 1:
-        return Prose(f"{where}:{spec.name} is not declared once as {declaration!r}")
-    name = re.escape(spec.name)
-    blocks = [
-        block
-        for block in _var_blocks(code)
-        if any(re.search(rf"\b{name}\b", line) for _, line in block)
-    ]
-    if len(blocks) != 1:
-        return Prose(f"{where}:{spec.name}: {len(blocks)} var blocks declare its values, not one")
-    value = re.compile(rf'^\w+\s*=\s*{name}\{{"(?P<word>[^"\\]*)"\}}$')
-    words: set[ReplyWord] = set()
-    unread: list[Prose] = []
-    for number, line in blocks[0]:
-        if (m := value.match(line)) is None:
-            unread.append(
-                Prose(f"{where}:{number}: {line!r} is not one name and one {spec.name} of a word")
-            )
-        else:
-            words.add(ReplyWord(m.group("word")))
-    block = frozenset((spec.module, number) for number, _ in blocks[0])
-    unread.extend(_values_built_elsewhere(spec, package, block, (spec.module, at[0])))
-    return Prose("; ".join(unread)) if unread else frozenset(words)
-
-
-def _go_words(
-    spec: _GoSet, go_codes: frozenset[ReplyWord], package: dict[Path, GoText]
-) -> frozenset[ReplyWord] | Prose:
-    """Return the words a Go reader set holds, or why the gate cannot read them."""
-    if isinstance(spec, _GoBoundKinds):
-        return go_codes
-    if isinstance(spec, _GoConsts):
-        return _const_words(spec, package)
-    if isinstance(spec, _GoValues):
-        return _value_words(spec, package)
-    where = f"{spec.module.relative_to(REPO_ROOT)}:{spec.function}"
-    code = package.get(spec.module)
-    body = None if code is None else _go_function(code, spec.function)
-    if body is None:
-        return Prose(f"{where} is not defined")
-    found = _switch_words(body) if isinstance(spec, _GoSwitch) else _word_call_words(body, spec.key)
-    return Prose(f"{where}: {found}") if isinstance(found, str) else found
+def read_text(chars: Iterable[LiteralText | None]) -> LiteralText | None:
+    """Return the text a literal's characters and escapes read as, None when one reads as none."""
+    read: list[LiteralText] = []
+    for char in chars:
+        if char is None:
+            return None
+        read.append(char)
+    return LiteralText("".join(read))
 
 
 def read_sets[S](
@@ -858,22 +835,6 @@ def python_reader(py_codes: frozenset[ReplyWord]) -> BindingReader:
         lambda spec: _python_words(spec, py_codes),
         unread,
     )
-
-
-def go_reader(go_codes: frozenset[ReplyWord]) -> BindingReader:
-    """Return the Go reader, whose bound kinds are ``go_codes``."""
-
-    def read(unread: list[Prose]) -> ReaderSets:
-        package = _go_package()
-        return read_sets(
-            Prose("the Go reader"),
-            Prose("GO_REPLY_TEXT"),
-            GO_REPLY_TEXT,
-            lambda spec: _go_words(spec, go_codes, package),
-            unread,
-        )
-
-    return read
 
 
 def read_reply_tables(

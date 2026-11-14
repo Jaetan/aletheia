@@ -135,6 +135,15 @@ dev = [
     # a machine that happens to have the distro package.  run_ci routes the gate
     # through ``python/.venv/bin/cmake-lint``.
     "cmakelang==0.6.13",
+    # tree-sitter and its Go and Rust grammars parse the Go and Rust bindings'
+    # source for the reply-place gate (tools/check_limits_parity.py).  Pinned exactly,
+    # each, for the same reason as cmakelang above: a grammar's release decides
+    # the node kinds and field names the gate reads, and the parser's release
+    # which grammar versions it loads, so a bump is a deliberate act that
+    # re-runs the gate.
+    "tree-sitter==0.25.2",
+    "tree-sitter-go==0.25.0",
+    "tree-sitter-rust==0.24.2",
     # setuptools builds the binding's wheel in the ``check-python-wheel`` gate,
     # from the venv and offline (``pip wheel --no-build-isolation``), so an edit
     # that breaks the package fails the local sweep as well as a fresh install.
@@ -189,6 +198,10 @@ reportExplicitAny = "error"  # Force explicit structure definitions instead of A
 reportPrivateUsage = "error"  # Disallow accessing private members
 reportMissingModuleSource = false  # _install_config.py is generated at install time
 reportImplicitStringConcatenation = "error"  # Require explicit + for string concatenation
+# tools/_vendor holds upstream's code kept verbatim (tools/_vendored.py), which
+# ruff.toml excludes too: basedpyright still reads it, so its types reach the
+# importers, and reports nothing there.
+ignore = ["../tools/_vendor"]
 
 # tools/ lives at the repository root (one level up from this config) and its
 # scripts import siblings as ``from tools.X import ...`` -- the package is run
@@ -308,25 +321,26 @@ show_missing = true
 skip_covered = false
 
 [tool.mutmut]
-# AGENTS.md Python cat 14(g) — mutation testing config.  Hot-path
-# modules per AGENTS.md, mapped to the actual on-disk paths after the
-# protocols split (``client.py`` -> ``aletheia/client/_client.py``) and the
-# IssueCode extraction (``codes/_issue.py`` is new).  ``dbc_loader.py``
-# from AGENTS.md was renamed/split into ``dbc/_converter.py`` + ``yaml_loader.py``;
-# both included.  See ``docs/MUTATION_BENCH.yaml`` for the canonical list and
-# the static gate that enforces it.
+# AGENTS/python.md cat 14(g): mutation testing over the hot-path modules that
+# category names, the Python hot_path of docs/MUTATION_BENCH.yaml, which
+# tools/check_mutation_setup.py holds to source_paths both ways.
 #
-# Implementation note: mutmut 3.x copies ONLY the files in ``source_paths``
-# plus those in ``also_copy`` to the ``mutants/`` work tree.  Tests run from
-# inside that tree, so the whole ``aletheia/`` package needs to be present
-# (siblings import each other).  We mutate just the 5 hot-path files via
-# ``source_paths``, and copy the rest of the package via ``also_copy`` so
-# every ``from aletheia import ...`` resolves inside ``mutants/``.
+# mutmut 3.x copies only the files in ``source_paths`` plus those in
+# ``also_copy`` to the ``mutants/`` work tree, and the tests run from inside
+# it, so the whole ``aletheia/`` package is copied (siblings import each
+# other) and only the hot-path files are mutated.
 # (``source_paths`` and ``pytest_add_cli_args_test_selection`` below are the
 # mutmut 3.6 names; the older ``paths_to_mutate`` / ``tests_dir`` are deprecated
-# and emit a UserWarning — we use the current names so the run is warning-clean.)
+# and emit a UserWarning, so the current names keep the run warning-clean.)
 source_paths = [
     "aletheia/client/_client.py",
+    "aletheia/client/_client_bin.py",
+    "aletheia/client/_streaming.py",
+    "aletheia/client/_response_parsers.py",
+    "aletheia/client/_helpers/reply_shape.py",
+    "aletheia/client/_helpers/property_check.py",
+    "aletheia/client/_backend.py",
+    "aletheia/client/_ffi.py",
     "aletheia/dbc/_converter.py",
     "aletheia/yaml_loader.py",
     "aletheia/codes/_issue.py",
@@ -353,28 +367,15 @@ pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = [
     "--no-header",
     "-x",
-    # Tests that fail under mutmut's mutated-tree cwd because they reach
-    # OUTSIDE the copied python/ work-tree: either expecting repo-root paths
-    # (find_repo_root() / ../../docs/FEATURE_MATRIX.yaml / ../../docs/
-    # LOG_EVENTS.yaml etc.) or importing the repo-root `tools` package (the
-    # agda-opens grammar tests).  All are infrastructure-coverage tests, NOT
-    # hot-path coverage, so excluding them does not weaken the mutation lane's
-    # signal on the 5 modules above.  (The conftest puts the repository root on
-    # the path, so `import tools` resolves in mutants/ too; these tests hold the
-    # tools, not the hot paths, and read the tree above python/ through them.)
+    # A test that reads the tree above python/ finds it through
+    # tests/_repo_root.py, which the lane points at the repository root, so it
+    # runs here as it runs everywhere.  The tests below are kept out because
+    # they import the repo-root `tools` package (the conftest puts the
+    # repository root on the path, so `import tools` resolves in mutants/ too):
+    # they hold the tools, not the hot paths, and the doc-example harness runs
+    # every fence of the documents as a program of its own.
     "--ignore=tests/test_doc_examples_harness.py",
     "--ignore=tests/test_doc_example_semantics.py",
-    "--ignore=tests/test_property_hypothesis.py",
-    "--ignore=tests/test_cross_binding_integration.py",
-    "--ignore=tests/test_cross_binding_roster.py",
-    "--ignore=tests/test_feature_matrix_parity.py",
-    "--ignore=tests/test_log_events_parity.py",
-    "--ignore=tests/test_ffi_abi_layout.py",
-    "--ignore=tests/test_shim_marshalling.py",
-    "--ignore=tests/test_ffi_abi_version.py",
-    "--ignore=tests/test_wire_codes_parity.py",
-    "--ignore=tests/test_loader_scenarios.py",
-    "--ignore=tests/test_unified_client.py",
     # test_check_no_review_marks.py imports the repo-root `tools` package (the
     # review-mark gate it covers): it holds the tools, not a hot path, and reads
     # the tree above python/ through them, like the grammar tests above.
@@ -435,9 +436,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_runtime_closure.py",
     "--ignore=tests/test_check_runtime_imports.py",
     # Same shape: covers the wire-code SSOT gate (repo-root `tools` package).
-    # Infra coverage, not hot-path.  (Its YAML↔enum parity companion,
-    # test_wire_codes_parity.py, is ignored with the repo-root-path cluster
-    # above — it reads ../../docs/WIRE_CODES.yaml.)
+    # Infra coverage, not hot-path.
     "--ignore=tests/test_check_wire_codes.py",
     # Same shape: cover the wire-code emitter, reached-gates and
     # shim-construction gates (repo-root `tools` package).  Infra coverage,
@@ -445,11 +444,6 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_wire_code_emitters.py",
     "--ignore=tests/test_check_gates_reached.py",
     "--ignore=tests/test_check_shim_builds_no_kernel_value.py",
-    # Boots the real FFI in a subprocess to prove the heap cap fires (no .so
-    # under mutants/).
-    "--ignore=tests/test_rts_heap_cap.py",
-    # Same shape: sends a long literal to the real FFI from a subprocess.
-    "--ignore=tests/test_literal_bound.py",
     # Same shape: covers the dist bundle-staging gate (repo-root `tools`
     # package; also reads the build program at the repository root, outside
     # the relocated mutants/ tree).  Infra coverage, not hot-path.
@@ -487,14 +481,13 @@ pytest_add_cli_args = [
     # through the repo-root `tools` package, neither of which the relocated
     # mutants/ tree carries.
     "--ignore=tests/test_cli_check_shipped.py",
-    "--ignore=tests/test_format_dbc.py",
     "--ignore=tests/test_agda_open_grammar.py",
     "--ignore=tests/test_agda_open_grammar_generated.py",
     # CI-tooling unit tests (the lane-parallel scheduler / resource budgets /
     # run_ci orchestrator).  They import the repo-root `tools` package, holding
     # the tools and reading the tree above python/ through them, the class of
     # the agda-open grammar tests above.  They cover
-    # tools/, not the 5 hot-path aletheia/ modules, so excluding them does not
+    # tools/, not the hot-path aletheia/ modules, so excluding them does not
     # weaken the mutation signal on those modules.
     "--ignore=tests/test_resources.py",
     "--ignore=tests/test_scheduler.py",
@@ -561,6 +554,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_coverage_run.py",
     "--ignore=tests/test_mutation_run_gremlins.py",
     "--ignore=tests/test_mutation_go.py",
+    "--ignore=tests/test_mutation_go_cases.py",
     "--ignore=tests/test_mutation_run_rust.py",
     "--ignore=tests/test_mutation_rust_shards.py",
     "--ignore=tests/test_mutation_scratch_tree.py",
@@ -594,7 +588,26 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_test_determinism_net.py",
     "--ignore=tests/test_determinism_guard.py",
     "--ignore=tests/test_check_source_length.py",
+    "--ignore=tests/test_vendored.py",
     "--ignore=tests/test_shake_program.py",
+    # Same shape: the reply-place gate's tests (tools/check_limits_parity.py and
+    # its readers, repo-root `tools` package).  Infra coverage, not hot-path.
+    "--ignore=tests/test_check_limits_parity_reply_cpp_calls.py",
+    "--ignore=tests/test_check_limits_parity_reply_cpp_library.py",
+    "--ignore=tests/test_check_limits_parity_reply_cpp_reads.py",
+    "--ignore=tests/test_check_limits_parity_reply_cpp_rows.py",
+    "--ignore=tests/test_check_limits_parity_reply_cpp_tables.py",
+    "--ignore=tests/test_check_limits_parity_reply_cpp_words.py",
+    "--ignore=tests/test_check_limits_parity_reply_go_breaches.py",
+    "--ignore=tests/test_check_limits_parity_reply_go_dispatches.py",
+    "--ignore=tests/test_check_limits_parity_reply_go_values.py",
+    "--ignore=tests/test_check_limits_parity_reply_go_words.py",
+    "--ignore=tests/test_check_limits_parity_reply_py_words.py",
+    "--ignore=tests/test_check_limits_parity_reply_rust_attributes.py",
+    "--ignore=tests/test_check_limits_parity_reply_rust_breaches.py",
+    "--ignore=tests/test_check_limits_parity_reply_rust_status.py",
+    "--ignore=tests/test_check_limits_parity_reply_rust_words.py",
+    "--ignore=tests/test_check_limits_parity_reply_word_shape.py",
     # Same shape: cover the binding-manifest readers, the SBOM coverage gate
     # and the dependency-ledger gates (repo-root `tools` package).  Infra
     # coverage, not hot-path.
@@ -636,12 +649,11 @@ pytest_add_cli_args = [
     "--ignore=tests/test_clang_format_config.py",
     "--ignore=tests/test_clang_tidy_facts.py",
     "--ignore=tests/test_json_cleanup_abort.py",
-    # Same shape: reads the reply proof's place tables
-    # (src/Aletheia/Protocol/ReplyRange.agda) above python/.  What it holds,
-    # each reply reader's refusal at every place, lives in
-    # client/_response_parsers.py and client/_helpers/reply_shape.py, neither
-    # a hot-path module.
-    "--ignore=tests/test_reply_places_refused_where_broken.py",
+    # Parses the package's own source for the functions that build a
+    # ProtocolError, which under mutants/ are mutmut's rewrite of it: each
+    # function there is copied once per mutant, so every count it holds moves.
+    # It holds the code's shape, which no mutant's behaviour tells.
+    "--ignore=tests/test_reply_refusals_one_form.py",
     # Two excel-loader tests resolve the SHARED cross-binding fixture via
     # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /
     # "demo_workbook.xlsx"`` — repo-root from python/tests/, but python/ from

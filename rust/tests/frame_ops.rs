@@ -5,8 +5,8 @@
 //! `libaletheia-ffi.so`. Set `ALETHEIA_LIB` to the built shared library.
 
 use aletheia::{
-    CanId, Client, Dlc, Error, ExtractionResult, Formula, Frame, FrameResponse, Predicate,
-    Rational, SignalValue, Timestamp,
+    CanId, Client, Dlc, Error, ErrorCode, ExtractionResult, Formula, Frame, FrameResponse,
+    Predicate, Rational, SignalValue, Timestamp,
 };
 
 const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minimal.dbc");
@@ -305,7 +305,7 @@ fn a_frame_entry_refusal_carries_the_core_code() {
     for refusal in refusals {
         match refusal {
             Err(Error::Core { code, message }) => {
-                assert_eq!(code, "handler_no_dbc");
+                assert_eq!(code, ErrorCode::HandlerNoDbc);
                 assert_eq!(message, "DBC not loaded");
             }
             other => panic!("expected the core's handler_no_dbc refusal, got {other:?}"),
@@ -329,7 +329,7 @@ fn coolant_level_entries(num: i64, den: i64) -> [Result<Vec<u8>, Error>; 2] {
 }
 
 /// Asserts a frame entry's answer is the core refusal `code` with `message`.
-fn assert_core_refusal(answer: Result<Vec<u8>, Error>, code: &str, message: &str) {
+fn assert_core_refusal(answer: Result<Vec<u8>, Error>, code: ErrorCode, message: &str) {
     match answer {
         Err(Error::Core {
             code: got_code,
@@ -352,7 +352,7 @@ fn a_value_outside_the_declared_range_is_refused() {
         (-1, "value -1 for signal 'CoolantLevel' is outside [0, 255]"),
     ] {
         for answer in coolant_level_entries(value, 1) {
-            assert_core_refusal(answer, "frame_value_out_of_range", message);
+            assert_core_refusal(answer, ErrorCode::FrameValueOutOfRange, message);
         }
     }
 }
@@ -372,7 +372,7 @@ fn two_signals_sharing_a_bit_are_refused() {
         c.build_frame(msg, dlc, &both),
         c.update_frame(msg, dlc, &[0u8; 8], &both),
     ] {
-        assert_core_refusal(answer, "frame_signals_overlap", "signals overlap");
+        assert_core_refusal(answer, ErrorCode::FrameSignalsOverlap, "signals overlap");
     }
 }
 
@@ -402,7 +402,7 @@ fn a_value_no_raw_value_scales_to_is_refused_rather_than_rounded() {
     for answer in coolant_level_entries(3, 2) {
         assert_core_refusal(
             answer,
-            "frame_value_not_representable",
+            ErrorCode::FrameValueNotRepresentable,
             "no integer raw value scales to value 1.5 for signal 'CoolantLevel' (factor 1, offset 0)",
         );
     }

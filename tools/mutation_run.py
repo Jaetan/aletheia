@@ -221,6 +221,7 @@ from tools.mutation_go import (
     shard_log_name,
     without_gremlins_settings,
 )
+from tools.mutation_go_cases import sweep_go_package
 from tools.mutation_report import (
     SPEC_PATH,
     Baseline,
@@ -358,6 +359,8 @@ def run_python(artifact_dir: Path) -> MutationReport:
     # ALETHEIA_LIB short-circuits the lookup.
     env = dict(os.environ)
     env["ALETHEIA_LIB"] = str(lib)
+    # Read by python/tests/_repo_root.py: a test's ancestors under mutants/ miss the root.
+    env["ALETHEIA_REPO_ROOT"] = str(REPO_ROOT)
     # Erase mutmut's persistent work-tree before every run.  mutmut reuses
     # ``python/mutants/`` across invocations and only invalidates cached
     # kill/survive verdicts on SOURCE changes, NOT on TEST changes (test files
@@ -461,7 +464,7 @@ def run_go(artifact_dir: Path) -> MutationReport:
         # against each mutant: the canonical aletheia/ subpackage, the only Go
         # module holding runtime code.
         cut = None if stage is None else cut_go_shard(tree, stage)
-        proc = run_streaming(gremlins_command(gremlins, tree), cwd=tree / "go", env=env)
+        proc = sweep_go_package(gremlins_command(gremlins, tree), tree, env)
         if stage is not None and cut is not None:
             # The census comes after the sweep, under the package's own
             # configuration: before it, the dry run would leave the package

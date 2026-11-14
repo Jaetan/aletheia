@@ -134,7 +134,7 @@ TEST_CASE("parse_dbc_response rejects a CAN id above the 32-bit position",
 TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][error]") {
     auto const result = detail::parse_stream_result(R"({
         "status": "complete",
-        "results": [{"status": "holds", "property_index": -5}],
+        "results": [{"type": "property", "status": "holds", "property_index": -5}],
         "warnings": []
     })");
     REQUIRE_FALSE(result.has_value());
@@ -180,17 +180,6 @@ TEST_CASE("parse_frame_response rejects fails with missing property_index",
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK(result.error().message() == "reply results/property_index: expected number, got nothing");
-}
-
-TEST_CASE("parse_stream_result rejects entry with missing status", "[json][parse][error]") {
-    auto const result = detail::parse_stream_result(R"({
-        "status": "complete",
-        "results": [{"property_index": 0}],
-        "warnings": []
-    })");
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Protocol);
-    CHECK(result.error().message() == "reply results/status: expected string, got nothing");
 }
 
 TEST_CASE("parse_frame_response rejects a property_index written as a rational object",

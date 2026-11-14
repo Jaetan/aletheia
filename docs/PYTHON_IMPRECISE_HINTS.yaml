@@ -444,7 +444,7 @@ hints:
     count: 4
   - file: python/aletheia/client/_client_bin.py
     text: "Sequence[str]"
-    count: 4
+    count: 5
   - file: python/aletheia/client/_client_bin.py
     text: "bytes"
     count: 5
@@ -456,19 +456,22 @@ hints:
     count: 1
   - file: python/aletheia/client/_client_bin.py
     text: "int"
-    count: 10
+    count: 9
   - file: python/aletheia/client/_client_bin.py
     text: "list[str]"
-    count: 3
+    count: 2
   - file: python/aletheia/client/_client_bin.py
     text: "tuple[dict[str, Fraction], int]"
+    count: 1
+  - file: python/aletheia/client/_client_bin.py
+    text: "tuple[dict[str, str], int]"
     count: 1
   - file: python/aletheia/client/_client_bin.py
     text: "tuple[int, ...]"
     count: 1
   - file: python/aletheia/client/_client_bin.py
     text: "tuple[list[str], int]"
-    count: 3
+    count: 2
   - file: python/aletheia/client/_enrichment.py
     text: "dict[str, Fraction | None]"
     count: 1
@@ -498,10 +501,7 @@ hints:
     count: 4
   - file: python/aletheia/client/_ffi.py
     text: "int | None"
-    count: 1
-  - file: python/aletheia/client/_ffi.py
-    text: "list[bytes]"
-    count: 1
+    count: 2
   - file: python/aletheia/client/_ffi.py
     text: "str"
     count: 1
@@ -553,6 +553,9 @@ hints:
   - file: python/aletheia/client/_helpers/rational.py
     text: "str"
     count: 2
+  - file: python/aletheia/client/_helpers/reply_shape.py
+    text: "ReplyFields | Mapping[str, object]"
+    count: 1
   - file: python/aletheia/client/_log.py
     text: "Final[frozenset[str]]"
     count: 1
@@ -643,9 +646,6 @@ hints:
   - file: python/aletheia/client/_types.py
     text: "str"
     count: 6
-  - file: python/aletheia/client/_types.py
-    text: "str | None"
-    count: 5
   - file: python/aletheia/client/_types.py
     text: "tuple[int, int]"
     count: 1
@@ -759,7 +759,7 @@ hints:
     count: 5
   - file: python/aletheia/types.py
     text: "str"
-    count: 20
+    count: 19
   - file: python/aletheia/types.py
     text: "type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValue] | None"
     count: 1
@@ -2069,6 +2069,9 @@ hints:
     text: "subprocess.CompletedProcess[str]"
     count: 3
   - file: tools/_determinism_guard.py
+    text: "int | None"
+    count: 1
+  - file: tools/_determinism_guard.py
     text: "str"
     count: 1
     reason: "sys.addaudithook's hook is typed Callable[[str, tuple[Any, ...]], Any] in typeshed, so it takes the event's name as a str; _audit_hook names it an AuditEvent at once"
@@ -2513,7 +2516,7 @@ hints:
     count: 18
   - file: tools/check_mutation_setup.py
     text: "int"
-    count: 3
+    count: 2
   - file: tools/check_mutation_setup.py
     text: "list[object]"
     count: 4

@@ -6,6 +6,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include "client_test_access.hpp"
 #include "detail/mock_backend.hpp"
 #include "enrich_sentinels.hpp"
 #include "required.hpp"
@@ -95,11 +96,7 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
           "[client][enrich]") {
     // Zero extraction FFI calls when there is nothing to extract, yet the
     // enrichment must STILL be attached to every Fails/Unresolved result via
-    // the empty-values fallback reason. (The union-empty skip guard has the
-    // same observable contract — 0 extractions + attach-always — and is not
-    // separately reachable through the public API: every LtlFormula leaf
-    // carries a signal name, so a collected diagnostic always wants ≥ 1
-    // signal.)
+    // the empty-values fallback reason.
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
 
@@ -193,6 +190,63 @@ TEST_CASE("end_stream with all properties holding makes zero extraction calls",
     CHECK(count_extraction_sentinels(*mock_ptr) == 0);
     CHECK_FALSE(end_result->results[0].enrichment.has_value());
     CHECK_FALSE(end_result->results[1].enrichment.has_value());
+}
+
+TEST_CASE("end_stream with diagnostics naming no signal extracts no tracked frame",
+          "[client][enrich]") {
+    // Every formula reaches an atomic predicate naming a signal, so the
+    // diagnostics are replaced by ones naming none: with two frames tracked,
+    // the wanted union is empty and no frame is extracted, yet the failing
+    // entry still carries the fallback reason with the core's.
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame 0x100
+    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame 0x200
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "fails", "property_index": 0,
+             "timestamp": 5000000, "reason": "eventually unmet"}
+        ],
+        "warnings": []
+    })");
+    // Read only by a loop that extracts, so the count below is what refuses it.
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "SigA", "value": 5}],
+        "errors": [], "absent": []
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "SigB", "value": 7}],
+        "errors": [], "absent": []
+    })");
+
+    auto client = required(AletheiaClient::create(std::move(mock)));
+    REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
+    PropertyDiagnostic const signalless{.signals = {}, .formula_desc = "eventually(nothing)"};
+    detail::ClientTestAccess::set_diagnostics(client, {signalless, signalless});
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto const dlc = Dlc::create(8).value();
+    FramePayload const data(8, std::byte{0});
+    auto const id1 = CanId{StandardId::create(0x100).value()};
+    auto const id2 = CanId{StandardId::create(0x200).value()};
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id1, dlc, data).has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id2, dlc, data).has_value());
+
+    auto const end_result = client.end_stream(std::stop_token{});
+    REQUIRE(end_result.has_value());
+    REQUIRE(end_result->results.size() == 1);
+
+    CHECK(count_extraction_sentinels(*mock_ptr) == 0);
+    REQUIRE(end_result->results[0].enrichment.has_value());
+    auto const& enrichment = *end_result->results[0].enrichment;
+    CHECK(enrichment.signals.empty());
+    CHECK(enrichment.enriched_reason == "violated: eventually(nothing) [core: eventually unmet]");
 }
 
 TEST_CASE("end_stream frame loop breaks early once the wanted union is covered",

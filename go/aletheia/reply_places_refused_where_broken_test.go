@@ -72,7 +72,7 @@ var breakCorpus = []string{
 // carries, and the kitchen_sink text the kernel refuses.
 type breakEnvelope struct {
 	fixture string
-	code    string
+	code    ErrorCode
 	text    func(base string) string
 }
 
@@ -338,7 +338,7 @@ func breakEnvelopeReplies(t *testing.T, replies map[breakCase]any) {
 	for _, e := range breakEnvelopes {
 		breakSession(t, func(c *Client) {
 			reply := breakLoad(t, c, e.text(base))
-			breakRequire(t, reply, "code", e.code)
+			breakRequire(t, reply, "code", string(e.code))
 			replies[breakCase{readerEnvelope, e.fixture}] = reply
 		})
 	}

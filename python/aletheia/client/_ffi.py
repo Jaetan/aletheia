@@ -10,7 +10,7 @@ import os
 import stat
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType, cast
+from typing import TYPE_CHECKING, NewType
 
 from aletheia.client._helpers.reply_shape import (
     OBJECT,
@@ -28,8 +28,8 @@ from aletheia.types import JSONValue, is_str_dict
 if TYPE_CHECKING:
     from fractions import Fraction
 
+    from aletheia.client._helpers.reply_shape import ReplyFields
     from aletheia.common_types import AllocatedBytes
-    from aletheia.types import Response
 
 # The reply of a kernel entry that answers in JSON, as the bytes it returned.
 KernelResponse = NewType("KernelResponse", bytes)
@@ -53,7 +53,7 @@ def parse_json_object(raw: KernelResponse) -> dict[str, JSONValue]:
     as ``reply: expected object, got <its kind>``.
     """
     try:
-        parsed: JSONValue = json.loads(raw.decode("utf-8"))
+        parsed: JSONValue = json.loads(raw.decode())
     except (ValueError, RecursionError) as exc:
         raise reply_refusal(REPLY_ROOT, _JSON_TEXT, Arrival(str(exc))) from exc
     if not is_str_dict(parsed):
@@ -97,8 +97,13 @@ DEFAULT_RTS_CORES = 1
 # full flag set.  Both share the C signature ``void(int*, char***)``.
 RTS_INIT_SYMBOL = "hs_init_with_rtsopts"
 
-# Environment variable whose whitespace-split flags are appended after the cap.
+# Environment variable whose bytes, split on ASCII whitespace, are appended after the cap,
+# and those bytes as it holds them.
 RTS_OVERRIDE_ENV = "ALETHEIA_RTS_OPTS"
+RuntimeOverride = NewType("RuntimeOverride", bytes)
+
+# A word of the command line the runtime's start entry is handed.
+RuntimeArgument = NewType("RuntimeArgument", bytes)
 
 # The GHC runtime's count of the CPUs the process may use (its affinity set on
 # Linux), callable before the runtime starts: a core count past it is refused.
@@ -134,7 +139,7 @@ class RTSState:
             ValidationError: ``rts_cores`` is outside 1 to the CPUs the process may use.
 
         """
-        start_runtime_on(lib, None if rts_cores is None else CoreCount(rts_cores))
+        start_runtime_on(lib, rts_cores)
         with _RUNTIME_LOCK:
             cls.refcount += 1
 
@@ -158,16 +163,38 @@ def core_count_refusal(requested: CoreCount, available: CoreCount) -> Prose | No
     )
 
 
+# A symbol the library exports, as its header or the GHC runtime names it.
+EntrySymbol = NewType("EntrySymbol", str)
+
+# The C prototype every entry taking no argument shares, ``T name(void)``,
+# built once; each entry bound through it sets its own result type ``T``.
+_NO_ARGUMENTS = ctypes.CFUNCTYPE(None)
+
+
+def _bind_no_argument_entry(
+    lib: ctypes.CDLL,
+    symbol: EntrySymbol,
+    restype: type[ctypes.c_uint32 | ctypes.c_uint64 | ctypes.c_void_p],
+) -> None:
+    """Bind ``symbol`` as ``restype symbol(void)``, what ``lib``'s attribute of that name calls.
+
+    Raises:
+        AttributeError: ``lib`` exports no ``symbol``.
+
+    """
+    entry = _NO_ARGUMENTS((symbol, lib))
+    entry.restype = restype
+    setattr(lib, symbol, entry)
+
+
 def available_cores(lib: ctypes.CDLL) -> CoreCount:
     """Return the CPUs the process may use, as the GHC runtime of ``lib`` counts them."""
-    count = getattr(lib, RTS_PROCESSORS_SYMBOL)
-    count.argtypes = []
-    count.restype = ctypes.c_uint32
-    cpus: CoreCount = count()
+    _bind_no_argument_entry(lib, EntrySymbol(RTS_PROCESSORS_SYMBOL), ctypes.c_uint32)
+    cpus: CoreCount = getattr(lib, RTS_PROCESSORS_SYMBOL)()
     return cpus
 
 
-def start_runtime_on(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
+def start_runtime_on(lib: ctypes.CDLL, cores: int | None) -> None:
     """Start the GHC runtime on ``lib`` with ``cores`` capabilities, unless it runs.
 
     The one start every route takes, :func:`start_runtime` and a backend's
@@ -183,7 +210,7 @@ def start_runtime_on(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
     with _RUNTIME_LOCK:
         running = CoreCount(RTSState.cores) if RTSState.initialized else None
         if cores is not None:
-            asked = cores
+            asked = CoreCount(cores)
         else:
             asked = running if running is not None else CoreCount(DEFAULT_RTS_CORES)
         refusal = core_count_refusal(asked, available_cores(lib))
@@ -204,8 +231,20 @@ def start_runtime_on(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
             )
 
 
+def rts_arguments(cores: CoreCount, override: RuntimeOverride) -> list[RuntimeArgument]:
+    """Return the runtime's command line: its name, heap cap, ``-N`` past one core, the override.
+
+    The words after the name sit between ``+RTS`` and ``-RTS``, the cap first so
+    a ``-M`` among the override's words, split on ASCII whitespace, lands later
+    and wins (the RTS honours the last occurrence of a flag).
+    """
+    count = [b"-N%d" % cores] if cores > DEFAULT_RTS_CORES else []
+    words = [b"aletheia", b"+RTS", DEFAULT_RTS_HEAP_CAP, *count, *override.split(), b"-RTS"]
+    return [RuntimeArgument(word) for word in words]
+
+
 def _start(lib: ctypes.CDLL, cores: CoreCount) -> None:
-    """Call the runtime's start entry with the heap cap, ``-N`` past one core and the override."""
+    """Call the runtime's start entry with :func:`rts_arguments` on the override variable."""
     # hs_init_with_rtsopts honours every flag whatever the library's link-time
     # -rtsopts level (which has no effect for a native shared library), so a
     # caller can pass a profiling flag through ALETHEIA_RTS_OPTS.
@@ -215,14 +254,8 @@ def _start(lib: ctypes.CDLL, cores: CoreCount) -> None:
         ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)),
     ]
     init_fn.restype = None
-    extra_rts = os.environ.get(RTS_OVERRIDE_ENV, "").split()
-    # The heap cap goes FIRST so a caller-supplied -M in ALETHEIA_RTS_OPTS
-    # lands later and wins (the RTS honours the last occurrence of a flag).
-    args: list[bytes] = [b"aletheia", b"+RTS", DEFAULT_RTS_HEAP_CAP]
-    if cores > DEFAULT_RTS_CORES:
-        args.append(b"-N" + str(cores).encode())
-    args.extend(flag.encode("ascii") for flag in extra_rts)
-    args.append(b"-RTS")
+    override = os.environb.get(os.fsencode(RTS_OVERRIDE_ENV), b"")
+    args = rts_arguments(cores, RuntimeOverride(override))
     argc = ctypes.c_int(len(args))
     argv = (ctypes.c_char_p * len(args))(*args)
     argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
@@ -276,7 +309,7 @@ def start_runtime(cores: int, *, lib_path: Path | None = None) -> None:
         FFIError: the library implements another ABI version.
 
     """
-    start_runtime_on(open_library(lib_path), CoreCount(cores))
+    start_runtime_on(open_library(lib_path), cores)
 
 
 def hs_initialized() -> bool:
@@ -339,13 +372,11 @@ def check_abi_version(lib: ctypes.CDLL) -> None:
     older than the version export lacks the symbol and is refused for that.
     """
     try:
-        entry = lib.aletheia_abi_version
+        _bind_no_argument_entry(lib, EntrySymbol("aletheia_abi_version"), ctypes.c_uint32)
     except AttributeError as exc:
         msg = "the library has no aletheia_abi_version: it predates the versioned ABI"
         raise FFIError(msg) from exc
-    entry.argtypes = []
-    entry.restype = ctypes.c_uint32
-    found: int = entry()
+    found: int = lib.aletheia_abi_version()
     if found != ABI_VERSION:
         msg = f"the library implements ABI version {found}, and this binding needs {ABI_VERSION}"
         raise FFIError(msg)
@@ -489,7 +520,7 @@ class AletheiaPropertyCheck(ctypes.Structure):  # pylint: disable=too-few-public
 type EntryOut = AletheiaBuffer | AletheiaDecimal | AletheiaTimeBound | AletheiaPropertyCheck
 
 
-def take_error_envelope(lib: ctypes.CDLL, out: EntryOut, missing: Prose) -> Response:
+def take_error_envelope(lib: ctypes.CDLL, out: EntryOut, missing: Prose) -> ReplyFields:
     """Read and free the error envelope a failed entry left in *out*.
 
     A failure without one is a wire fault, raised as :class:`ProtocolError`
@@ -499,7 +530,7 @@ def take_error_envelope(lib: ctypes.CDLL, out: EntryOut, missing: Prose) -> Resp
     if err is None:
         raise ProtocolError(missing)
     try:
-        return cast("Response", parse_json_object(KernelResponse(ctypes.string_at(err))))
+        return parse_json_object(KernelResponse(ctypes.string_at(err)))
     finally:
         lib.aletheia_free_str(err)
 
@@ -507,13 +538,13 @@ def take_error_envelope(lib: ctypes.CDLL, out: EntryOut, missing: Prose) -> Resp
 def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     """Configure ``argtypes``/``restype`` for every Aletheia FFI entry point.
 
+    The entries taking no argument are bound through the prototype they share.
     Called once after the shared library is loaded.  Split out of
     ``AletheiaClient.__enter__`` so the client module stays focused on
     protocol flow rather than ctypes boilerplate.
     """
     # Core lifecycle + JSON command endpoint
-    lib.aletheia_init.argtypes = []
-    lib.aletheia_init.restype = ctypes.c_void_p
+    _bind_no_argument_entry(lib, EntrySymbol("aletheia_init"), ctypes.c_void_p)
     lib.aletheia_process.argtypes = [ctypes.c_void_p, ctypes.POINTER(AletheiaText)]
     lib.aletheia_process.restype = ctypes.c_void_p
     lib.aletheia_free_str.argtypes = [ctypes.c_void_p]
@@ -598,8 +629,7 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     # The bytes the runtime has allocated since it started, read after a
     # collection.  It needs the runtime started, so :func:`allocated_bytes`
     # calls it only on the library :class:`RTSState` latched.
-    lib.aletheia_allocated_bytes.argtypes = []
-    lib.aletheia_allocated_bytes.restype = ctypes.c_uint64
+    _bind_no_argument_entry(lib, EntrySymbol("aletheia_allocated_bytes"), ctypes.c_uint64)
 
 
 def _validate_lib_path(p: Path, source: str) -> None:

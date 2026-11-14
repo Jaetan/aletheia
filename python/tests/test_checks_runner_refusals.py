@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Literal
 
 import pytest
 
-from aletheia import AletheiaClient, AletheiaError, MockBackend
+from aletheia import AletheiaClient, AletheiaError, ErrorCode, MockBackend
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.checks_runner import run_checks
 
@@ -24,7 +24,11 @@ if TYPE_CHECKING:
 
     from aletheia.types import DBCDefinition, ErrorResponse
 
-_REFUSAL: ErrorResponse = {"status": "error", "code": "handler_err", "message": "kernel says no"}
+_REFUSAL: ErrorResponse = {
+    "status": "error",
+    "code": ErrorCode.HANDLER_NOT_STREAMING,
+    "message": "kernel says no",
+}
 _SUCCESS = json.dumps({"status": "success"}).encode("utf-8")
 _DBC: DBCDefinition = {"version": "", "messages": [], **empty_dbc_tier2()}
 
@@ -43,4 +47,4 @@ def test_a_refusal_is_the_kernels_message(tmp_path: Path, step: Step) -> None:
     with AletheiaClient(backend=backend) as client, pytest.raises(AletheiaError) as excinfo:
         _ = run_checks(_DBC, [], str(log), client=client)
     assert str(excinfo.value) == "kernel says no", step
-    assert excinfo.value.code == "handler_err", step
+    assert excinfo.value.code == "handler_not_streaming", step

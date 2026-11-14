@@ -667,7 +667,7 @@ public:
 TEST_CASE("a client refuses a backend whose init returns no state, by name", "[client][mock]") {
     auto const client = AletheiaClient::create(std::make_unique<NullStateBackend>());
     CHECK(aletheia::detail::error_of(client).kind() == ErrorKind::Ffi);
-    CHECK(aletheia::detail::error_of(client).message() == "backend init() returned null state");
+    CHECK(aletheia::detail::error_of(client).message() == "aletheia_init returned null");
 }
 
 TEST_CASE("set_properties answers the backend's error and stops there", "[client][mock]") {

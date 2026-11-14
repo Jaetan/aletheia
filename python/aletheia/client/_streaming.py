@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import TYPE_CHECKING, NamedTuple
 
 from aletheia.client._client_bin import FrameIdentity
 from aletheia.client._enrichment import format_enriched_reason
@@ -27,7 +27,7 @@ from aletheia.client._helpers.reply_shape import (
     REPLY_ROOT,
     at,
     came_word,
-    fields,
+    held,
     reply_refusal,
     words,
 )
@@ -70,7 +70,6 @@ if TYPE_CHECKING:
         ErrorResponse,
         PropertyBatchResponse,
         PropertyResultEntry,
-        Response,
         SuccessResponse,
     )
 
@@ -131,9 +130,7 @@ class StreamingMixin(ClientHostState):
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             response_bytes = self._backend.start_stream_binary(self._state)
-        response = parse_success_or_error(
-            cast("Response", parse_json_object(KernelResponse(response_bytes))),
-        )
+        response = parse_success_or_error(parse_json_object(KernelResponse(response_bytes)))
         if response["status"] == "success":
             self._caches.clear()
             log_event(_logger, logging.INFO, LogEvent.STREAM_STARTED)
@@ -310,12 +307,11 @@ class StreamingMixin(ClientHostState):
         # Slow path: batched events / errors — full JSON parse.
         # Streaming PropertyResponse is a batch envelope
         # (type=property_batch + results[]); enrich each fails entry.
-        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
-        result = parse_frame_response(response)
-        if result.get("type") == "property_batch":
-            batch = cast("PropertyBatchResponse", result)
+        result = parse_frame_response(parse_json_object(KernelResponse(result_bytes)))
+        # Of the three replies the reader builds, only the batch carries `type`.
+        if "type" in result:
             frame_id = FrameIdentity(can_id, extended, dlc)
-            self._handle_property_batch(batch, frame_id, data, timestamp)
+            self._handle_property_batch(result, frame_id, data, timestamp)
         elif _logger.isEnabledFor(logging.DEBUG):
             log_event(
                 _logger,
@@ -324,7 +320,7 @@ class StreamingMixin(ClientHostState):
                 ts=timestamp,
                 canId=can_id,
                 extended=extended,
-                response=cast("AckResponse | ErrorResponse", result)["status"],
+                response=result["status"],
             )
         return result
 
@@ -461,8 +457,9 @@ class StreamingMixin(ClientHostState):
                 response="ack",
             )
             return {"status": "ack"}
-        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
-        return parse_event_response(response, "error_event", timestamp)
+        return parse_event_response(
+            parse_json_object(KernelResponse(result_bytes)), "error_event", timestamp
+        )
 
     def send_remote(
         self,
@@ -513,8 +510,9 @@ class StreamingMixin(ClientHostState):
                 response="ack",
             )
             return {"status": "ack"}
-        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
-        return parse_event_response(response, "remote_event", timestamp)
+        return parse_event_response(
+            parse_json_object(KernelResponse(result_bytes)), "remote_event", timestamp
+        )
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
         """End streaming mode and finalize all properties.
@@ -545,8 +543,8 @@ class StreamingMixin(ClientHostState):
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             response_bytes = self._backend.end_stream_binary(self._state)
-        response = cast("Response", parse_json_object(KernelResponse(response_bytes)))
-        status = response.get("status")
+        response = parse_json_object(KernelResponse(response_bytes))
+        status = held(response, "status")
 
         if status == "complete":
             todo: list[_EnrichmentTodo] = []
@@ -585,7 +583,7 @@ class StreamingMixin(ClientHostState):
         raise reply_refusal(
             at(REPLY_ROOT, "status"),
             words("complete", "error"),
-            came_word(fields(response), "status"),
+            came_word(response, "status"),
         )
 
     def _collect_finalization_todo(
@@ -611,8 +609,9 @@ class StreamingMixin(ClientHostState):
         Runs one full-frame extraction per last-seen frame (ascending
         ``(canID, extended)`` order — matching Go's explicit sort and C++'s
         ``std::map`` ordering) and merges every extracted signal
-        first-frame-wins into one map.  Stops early once every name in
-        *union* (the signals wanted by any pending enrichment) has a value.
+        first-frame-wins into one map.  Stops before the next frame once every
+        name in *union* (the signals wanted by any pending enrichment) has a
+        value, so a pass that starts with *union* empty extracts nothing.
 
         Raises:
             ProtocolError: If the reader refuses a frame's extraction reply.
@@ -620,10 +619,10 @@ class StreamingMixin(ClientHostState):
         """
         merged: dict[str, Fraction] = {}
         remaining = set(union)
-        for (lf_id, lf_ext), (lf_dlc, lf_data) in sorted(
-            self._caches.last_frames.items(),
-            key=lambda item: (item[0][0], item[0][1]),
-        ):
+        for lf_id, lf_ext in sorted(self._caches.last_frames):
+            if not remaining:
+                return merged
+            lf_dlc, lf_data = self._caches.last_frames[lf_id, lf_ext]
             extraction = self.extract_signals(
                 can_id=lf_id,
                 dlc=lf_dlc,
@@ -634,8 +633,6 @@ class StreamingMixin(ClientHostState):
                 if sig not in merged:
                     merged[sig] = val
                     remaining.discard(sig)
-            if not remaining:
-                break
         return merged
 
     def _enrich_finalization_results(self, todo: list[_EnrichmentTodo]) -> None:
@@ -644,8 +641,8 @@ class StreamingMixin(ClientHostState):
         One shared extraction pass services every pending entry: the frame
         loop in :meth:`_extract_merged_values` runs at most once per
         ``end_stream``, then each entry's enrichment filters the merged map
-        down to its own diagnostic's signals.  An empty signal union skips
-        the extraction pass entirely (zero FFI calls) but every entry still
+        down to its own diagnostic's signals.  An empty signal union
+        extracts no frame (zero FFI calls) but every entry still
         gets its enrichment attached, falling back to the formula
         description when no values are available.
 
@@ -660,7 +657,7 @@ class StreamingMixin(ClientHostState):
         union: set[str] = set()
         for _, diag in todo:
             union.update(diag.signals)
-        merged = self._extract_merged_values(union) if union else {}
+        merged = self._extract_merged_values(union)
         for result, diag in todo:
             values: dict[str, Fraction | None] = {
                 sig: merged[sig] for sig in diag.signals if sig in merged

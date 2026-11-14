@@ -49,11 +49,11 @@ static auto wide_negative_magnitude(Json const& j) -> std::optional<unsigned __i
     if (!j.is_binary())
         return std::nullopt;
     auto const& bytes = j.get_binary();
-    if (!bytes.has_subtype() || bytes.subtype() != wide_negative_subtype ||
-        bytes.size() != wide_negative_bytes)
+    // A node without a subtype answers 2^64-1 here.
+    if (bytes.subtype() != wide_negative_subtype || bytes.size() != wide_negative_bytes)
         return std::nullopt;
-    unsigned __int128 magnitude = 0;
-    for (auto const byte : bytes | std::views::reverse)
+    unsigned __int128 magnitude = bytes.at(bytes.size() - 1);
+    for (auto const byte : bytes | std::views::reverse | std::views::drop(1))
         magnitude = (magnitude << 8U) | byte;
     return magnitude;
 }
@@ -164,7 +164,7 @@ public:
 
 private:
     static void within_bound(std::size_t depth) {
-        if (std::cmp_greater(depth, max_nesting_depth))
+        if (depth > max_nesting_depth)
             throw std::runtime_error("JSON nesting depth " + std::to_string(depth) +
                                      " exceeds limit " + std::to_string(max_nesting_depth));
     }

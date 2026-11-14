@@ -47,7 +47,7 @@ func TestEOS_AlwaysNeverObserved_ManyFrames(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame 5
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
+			"results":[{"type":"property","property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
 			"warnings":[]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame
@@ -88,7 +88,7 @@ func TestEOS_ChangedByOneFrame_Unresolved(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"ChangedBy: single-frame trace"}],
+			"results":[{"type":"property","property_index":0,"status":"unresolved","reason":"ChangedBy: single-frame trace"}],
 			"warnings":[]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame
@@ -129,7 +129,7 @@ func TestEOS_EventuallyNeverObserved_Unresolved(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame 5
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
+			"results":[{"type":"property","property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
 			"warnings":[]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame
@@ -168,7 +168,7 @@ func TestEOS_EventuallyZeroFrames_Fails(t *testing.T) {
 	},
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":0,"reason":"Eventually: never satisfied"}],
+			"results":[{"type":"property","property_index":0,"status":"fails","timestamp":0,"reason":"Eventually: never satisfied"}],
 			"warnings":[]
 		}`), // EndStream
 	)
@@ -198,7 +198,7 @@ func TestEOS_AlwaysZeroFrames_Holds(t *testing.T) {
 	},
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"holds"}],
+			"results":[{"type":"property","property_index":0,"status":"holds"}],
 			"warnings":[]
 		}`), // EndStream
 	)
@@ -234,7 +234,7 @@ func TestEOS_K3Combination_UnresolvedAndHolds(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"And: Unsure ∧ Holds = Unsure"}],
+			"results":[{"type":"property","property_index":0,"status":"unresolved","reason":"And: Unsure ∧ Holds = Unsure"}],
 			"warnings":[]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame
@@ -275,7 +275,7 @@ func TestEOS_K3Combination_UnresolvedOrFails(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"Or: Unsure ∨ Fails = Unsure"}],
+			"results":[{"type":"property","property_index":0,"status":"unresolved","reason":"Or: Unsure ∨ Fails = Unsure"}],
 			"warnings":[]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame
@@ -319,9 +319,9 @@ func TestEOS_MixedVerdicts(t *testing.T) {
 		aletheia.Respond(`{
 			"status":"complete",
 			"results":[
-				{"property_index":0,"status":"holds"},
-				{"property_index":1,"status":"fails","timestamp":1000,"reason":"Eventually: never satisfied"},
-				{"property_index":2,"status":"unresolved","reason":"Atomic: predicate never resolved"}
+				{"type":"property","property_index":0,"status":"holds"},
+				{"type":"property","property_index":1,"status":"fails","timestamp":1000,"reason":"Eventually: never satisfied"},
+				{"type":"property","property_index":2,"status":"unresolved","reason":"Atomic: predicate never resolved"}
 			],
 			"warnings":[]
 		}`), // EndStream
@@ -365,7 +365,7 @@ func TestEOS_UnresolvedCarriesEnrichment(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`), // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
+			"results":[{"type":"property","property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
 			"warnings":[]
 		}`), // EndStream
 		extractionOf(), // the enrichment's extraction of the last frame

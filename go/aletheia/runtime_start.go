@@ -211,7 +211,7 @@ func startRuntimeOn(syms runtimeSymbols, cores int, named bool, logger *slog.Log
 		// The argument vector always carries the heap cap, whatever the core
 		// count, so the host is contained either way. Its array and strings
 		// are leaked on purpose, as the preamble explains.
-		argv := rtsInitArgv(asked)
+		argv := rtsInitArgv(asked, os.Getenv(rtsOverrideEnv))
 		cargv := C.g_alloc_argv(C.int(len(argv)))
 		for i, s := range argv {
 			C.g_set_argv(cargv, C.int(i), C.CString(s))

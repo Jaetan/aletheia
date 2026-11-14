@@ -297,7 +297,7 @@ def _fake_gremlins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Gremlins
     """Let the lane find gremlins on the search path and sweep through the in-process stand-in."""
     install_stand_in(tmp_path, monkeypatch, ToolName("gremlins"), _NEVER_RUNS)
     gremlins = _Gremlins()
-    monkeypatch.setattr(mutation_run, "run_streaming", gremlins)
+    monkeypatch.setattr("tools.mutation_go_cases.run_streaming", gremlins)
     return gremlins
 
 

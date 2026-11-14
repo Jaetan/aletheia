@@ -79,9 +79,16 @@ func TestReadUint128_ExactLarge(t *testing.T) {
 }
 
 // Anything that is not an unsigned integer written as digits is refused
-// rather than coerced, a number past 2^128-1 among them.
+// rather than coerced, a number past 2^128-1 among them: one whose last digit
+// overflows the high word's multiply by ten, the carry into the high word, or
+// the digit's add.
 func TestReadUint128_Rejects(t *testing.T) {
-	for _, s := range []string{"1.5", "-1", "1e3", "nope", "340282366920938463463374607431768211456"} {
+	for _, s := range []string{
+		"1.5", "-1", "1e3", "nope",
+		"1000000000000000000000000000000000000000",
+		"340282366920938463463374607431768211460",
+		"340282366920938463463374607431768211456",
+	} {
 		_, err := readUint128(json.Number(s), "observed")
 		if want := "reply observed: expected number, got number"; err == nil || err.Error() != want {
 			t.Errorf("%q: got %v, want %q", s, err, want)
@@ -106,6 +113,15 @@ func TestParseResponse_RejectsTrailingData(t *testing.T) {
 	}
 	if _, err := parseResponse("{\"a\":1}\n  \t"); err != nil {
 		t.Errorf("trailing whitespace must be accepted: %v", err)
+	}
+}
+
+// A text cut short is refused with the decoder's reason: only a text whose
+// first value parses is read whole again, to name what follows that value.
+func TestParseResponse_ATextCutShortNamesTheDecodersReason(t *testing.T) {
+	const want = "reply: expected JSON text, got unexpected EOF"
+	if _, err := parseResponse(`{"a":1`); err == nil || err.Error() != want {
+		t.Errorf("got %v, want %q", err, want)
 	}
 }
 

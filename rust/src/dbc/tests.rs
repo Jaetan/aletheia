@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 use super::{
-    decode_format_dbc, AttrTarget, AttrType, AttrValue, Attribute, CommentTarget, Dbc, Presence,
+    decode_format_dbc, AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder,
+    CommentTarget, Dbc, Presence,
 };
 use crate::error::Error;
 use crate::types::{CanId, Rational};
@@ -345,6 +346,34 @@ fn attributes_decode_to_typed_vocabulary() {
 }
 
 #[test]
+fn each_scope_word_reads_to_its_scope() {
+    // A scope read wrong is written back as itself, so neither the snapshots
+    // nor the round trip see it: each word is read alone.
+    for (word, scope) in [
+        ("network", AttrScope::Network),
+        ("node", AttrScope::Node),
+        ("message", AttrScope::Message),
+        ("signal", AttrScope::Signal),
+        ("envVar", AttrScope::EnvVar),
+        ("nodeMsg", AttrScope::NodeMsg),
+        ("nodeSig", AttrScope::NodeSig),
+    ] {
+        let mut v: Value = serde_json::from_str(snapshot!("minimal")).expect("valid JSON");
+        v["attributes"] = json!([{
+            "kind": "definition",
+            "name": "X",
+            "scope": word,
+            "attrType": { "kind": "string" }
+        }]);
+        let d = read_value(&v).expect("a definition decodes");
+        let Some(Attribute::Definition { scope: read, .. }) = d.attributes.first() else {
+            panic!("{word}: a definition");
+        };
+        assert_eq!(*read, scope, "{word}");
+    }
+}
+
+#[test]
 fn extended_target_decodes_extended_true() {
     // No corpus fixture has an extended attribute/comment target (all are
     // standard ids), so pin extended_flag's true-path directly — otherwise a
@@ -506,23 +535,205 @@ fn presence_accepts_multiplexed_with_values() {
 }
 
 #[test]
-fn a_presence_word_outside_its_set_reads_as_the_last_arm() {
-    // The kernel writes `always` or `multiplexed`; any word but `always` reads
-    // as `multiplexed`, the set's last arm, which then reads its multiplexor
-    // and selector values.
-    let d = with_signal(|s| {
-        s["presence"] = json!("sometimes");
-        s["multiplexor"] = json!("Mode");
-        s["multiplex_values"] = json!([2]);
-    })
-    .expect("the last arm");
-    assert_eq!(
-        d.messages[0].signals[0].presence,
-        Presence::Multiplexed {
-            multiplexor: "Mode".to_string(),
-            values: vec![2],
-        }
-    );
+fn a_presence_outside_always_and_multiplexed_is_refused_at_its_place() {
+    // The signal carries a multiplexor and its selector values, so the word
+    // alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_signal(|s| {
+                s["presence"] = word;
+                s["multiplexor"] = json!("Mode");
+                s["multiplex_values"] = json!([2]);
+            }),
+            &format!(
+                r#"reply dbc/messages/signals/presence: expected "always" or "multiplexed", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn a_byte_order_is_read_as_its_word() {
+    for (word, order) in [
+        ("little_endian", ByteOrder::LittleEndian),
+        ("big_endian", ByteOrder::BigEndian),
+    ] {
+        let d = with_signal(|s| s["byteOrder"] = json!(word)).expect("a byte order");
+        assert_eq!(d.messages[0].signals[0].byte_order, order, "{word}");
+    }
+}
+
+#[test]
+fn a_byte_order_outside_little_endian_and_big_endian_is_refused_at_its_place() {
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_signal(|s| s["byteOrder"] = word),
+            &format!(
+                r#"reply dbc/messages/signals/byteOrder: expected "little_endian" or "big_endian", got {came}"#
+            ),
+        );
+    }
+}
+
+/// The minimal snapshot with its `key` list set to `entries`, read.
+fn with_entries(key: &str, entries: Value) -> Result<Dbc, Error> {
+    let mut v: Value = serde_json::from_str(snapshot!("minimal")).expect("valid JSON");
+    v[key] = entries;
+    read_value(&v)
+}
+
+#[test]
+fn a_comment_target_kind_outside_its_words_is_refused_at_its_place() {
+    // The target carries the environment variable the last word names, so the
+    // word alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "comments",
+                json!([{ "target": { "kind": word, "envVar": "E" }, "text": "t" }]),
+            ),
+            &format!(
+                r#"reply dbc/comments/target/kind: expected "network", "node", "message", "signal" or "envVar", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_kind_outside_its_words_is_refused_at_its_place() {
+    // The entry carries the target and value of an assignment, the last word,
+    // so the word alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": word,
+                    "name": "X",
+                    "target": { "kind": "network" },
+                    "value": { "kind": "int", "value": 1 }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/kind: expected "definition", "default" or "assignment", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_scope_outside_its_words_is_refused_at_its_place() {
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": "definition",
+                    "name": "X",
+                    "scope": word,
+                    "attrType": { "kind": "string" }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/scope: expected "network", "node", "message", "signal", "envVar", "nodeMsg" or "nodeSig", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_type_kind_outside_its_words_is_refused_at_its_place() {
+    // The type carries the bounds of a hex type, the last word, so the word
+    // alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": "definition",
+                    "name": "X",
+                    "scope": "network",
+                    "attrType": { "kind": word, "min": 0, "max": 1 }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/attrType/kind: expected "int", "float", "string", "enum" or "hex", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_value_kind_outside_its_words_is_refused_at_its_place() {
+    // The value carries the integer of a hex value, the last word, so the word
+    // alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": "default",
+                    "name": "X",
+                    "value": { "kind": word, "value": 1 }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/value/kind: expected "int", "float", "string", "enum" or "hex", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_target_kind_outside_its_words_is_refused_at_its_place() {
+    // The target carries the node, CAN id and signal of a nodeSig target, the
+    // last word, so the word alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": "assignment",
+                    "name": "X",
+                    "target": {
+                        "kind": word,
+                        "node": "N",
+                        "id": 1,
+                        "extended": false,
+                        "signal": "S"
+                    },
+                    "value": { "kind": "int", "value": 1 }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/target/kind: expected "network", "node", "message", "signal", "envVar", "nodeMsg" or "nodeSig", got {came}"#
+            ),
+        );
+    }
 }
 
 #[test]

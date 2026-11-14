@@ -6,14 +6,13 @@ Some gates hold a fact about a tool rather than about the tree: that Agda reuses
 an interface whatever its date, what clang-tidy diagnoses under an option, how
 the JSON library frees a document, what Mull's plugin emits, how cargo-mutants
 deals its shards, what mutmut cannot mutate.  Such a fact moves only when the
-tool does,
-and the tree says when, since each of these tools is pinned to one release on a
-line of its own.  So the gate runs on a branch whose diff moves that line, the
-configuration or harness the fact is about, the gate itself or this module, and
-costs nothing on any other branch.  It also runs wherever the diff cannot be
-read (``tools/_branch_diff.py``), as every gate scoped by the branch does: on an
-empty diff, which is a push to ``main`` and the backstop run, on a git error,
-and under ``ALETHEIA_PIN_GATES_RUN=1``.
+tool does, and the tree says when, since each of these tools is pinned to one
+release on a line of its own.  So the gate runs on a branch whose diff moves
+that line, the configuration or harness the fact is about, the gate itself or
+this module, and costs nothing on any other branch.  It also runs wherever the
+diff cannot be read (``tools/_branch_diff.py``), as every gate scoped by the
+branch does: on an empty diff, which is a push to ``main`` and the backstop run,
+on a git error, and under ``ALETHEIA_PIN_GATES_RUN=1``.
 
 A pin that floats, a floor or a range, cannot scope a gate, since the release it
 admits changes on an install no diff shows.  A gate on such a tool runs on every

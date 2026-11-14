@@ -168,15 +168,17 @@ def _parse_error_entries(
 def _parse_reasons(
     buf: bytes,
     off: int,
-    count: int,
+    error_names: Sequence[str],
     reason_bytes: int,
-) -> tuple[list[str], int]:
-    """Parse the offsets table + UTF-8 reasons blob for ``count`` errors.
+) -> tuple[dict[str, str], int]:
+    """Parse the offsets table + UTF-8 reasons blob, one reason per error name.
 
-    The offsets table ((count + 1) × ``<I``, present even when ``count``
-    is 0) carries cumulative byte offsets into the reasons blob; entry *i*
-    of the returned list is the UTF-8 decode of ``blob[off[i] : off[i+1]]``.
+    The offsets table ((count + 1) × ``<I``, present even when there are no
+    errors) carries cumulative byte offsets into the reasons blob; the
+    returned dict maps ``error_names[i]`` to the UTF-8 decode of
+    ``blob[off[i] : off[i+1]]``.
     """
+    count = len(error_names)
     offsets = tuple(map(int, struct.unpack_from(f"<{count + 1}I", buf, off)))
     off += (count + 1) * _OFFSET_ENTRY_BYTES
     if offsets[0] != 0:
@@ -196,10 +198,10 @@ def _parse_reasons(
         )
         raise ProtocolError(msg)
     blob = buf[off : off + reason_bytes]
-    reasons: list[str] = []
-    for i in range(count):
+    reasons: dict[str, str] = {}
+    for i, name in enumerate(error_names):
         try:
-            reasons.append(blob[offsets[i] : offsets[i + 1]].decode("utf-8"))
+            reasons[name] = blob[offsets[i] : offsets[i + 1]].decode()
         except UnicodeDecodeError as exc:
             msg = f"Invalid UTF-8 in extraction error reason {i}: {exc}"
             raise ProtocolError(msg) from exc
@@ -241,7 +243,7 @@ def parse_extraction_buffer(
     if len(buf) < _HEADER_BYTES:
         msg = f"Binary extraction buffer too short: {len(buf)} bytes (need >= {_HEADER_BYTES})"
         raise ProtocolError(msg)
-    nvals, nerrs, nabss, reason_bytes = map(int, struct.unpack_from(_HEADER_FMT, buf, 0))
+    nvals, nerrs, nabss, reason_bytes = map(int, struct.unpack_from(_HEADER_FMT, buf))
     expected = (
         _HEADER_BYTES
         + nvals * _VALUE_ENTRY_BYTES
@@ -260,18 +262,8 @@ def parse_extraction_buffer(
         )
         raise ProtocolError(msg)
     values, off = _parse_values_segment(buf, _HEADER_BYTES, nvals, names)
-    # Zero-error fast path (the per-frame hot case): with no errors and an
-    # empty reasons blob, the three offsets-table invariants collapse to the
-    # single entry being 0 — one read instead of the general machinery.  Any
-    # other shape (including a malformed one) takes the general path below,
-    # which raises the canonical invariant errors.
-    if nerrs == 0 and reason_bytes == 0 and buf[off : off + 4] == b"\x00\x00\x00\x00":
-        errors: dict[str, str] = {}
-        off += _OFFSET_ENTRY_BYTES
-    else:
-        error_names, off = _parse_error_entries(buf, off, nerrs, names)
-        reasons, off = _parse_reasons(buf, off, nerrs, reason_bytes)
-        errors = dict(zip(error_names, reasons, strict=True))
+    error_names, off = _parse_error_entries(buf, off, nerrs, names)
+    errors, off = _parse_reasons(buf, off, error_names, reason_bytes)
     absent, _ = _parse_absent_segment(buf, off, nabss, names)
     return SignalExtractionResult(values=values, errors=errors, absent=tuple(absent))
 
