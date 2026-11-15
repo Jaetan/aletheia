@@ -3,8 +3,9 @@
 """The third-party files the tree keeps verbatim, under ``tools/_vendor/``.
 
 Each directory there holds files copied byte for byte from one upstream
-release, beside a record, ``UPSTREAM.toml``, naming the release's tag and each
-file's git blob sha upstream.  A verbatim file is upstream's text, not the
+release, beside a record, ``UPSTREAM.toml``, naming the release's tag, the
+toolchain version the bytes were checked at where a toolchain pins one, and
+each file's git blob sha upstream.  A verbatim file is upstream's text, not the
 tree's, so the gates holding the tree's own code to its rules (the linters,
 the type-hint lens) leave the directory alone, the licence header gate leaves
 out the files a record names while holding the record itself, and the
@@ -37,8 +38,10 @@ FileBytes = NewType("FileBytes", bytes)
 BlobSha = NewType("BlobSha", str)
 # A vendored file's name in its directory: ``cindex.py``.
 VendoredName = NewType("VendoredName", str)
-# An upstream release tag: ``llvmorg-23.1.2``.
+# An upstream release tag: ``llvmorg-23.1.5``.
 UpstreamTag = NewType("UpstreamTag", str)
+# An upstream version, as a toolchain pin names it: ``23.1.6``.
+UpstreamVersion = NewType("UpstreamVersion", str)
 
 
 class UnreadRecordError(Exception):
@@ -46,9 +49,10 @@ class UnreadRecordError(Exception):
 
 
 class Upstream(TypedDict, total=False):
-    """A record: the upstream release's tag, and each file's blob sha there by its name here."""
+    """A record: the upstream release's tag, the pinned toolchain version, each file's blob sha."""
 
     tag: UpstreamTag
+    toolchain: UpstreamVersion
     blobs: dict[VendoredName, BlobSha]
 
 

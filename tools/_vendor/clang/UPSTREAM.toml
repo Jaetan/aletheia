@@ -1,9 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 # Where every other file of this directory comes from: LLVM's Python bindings
-# to libclang and LLVM's licence, at the release of the Clang toolchain
-# cpp/toolchain/check_upstream.sh pins, each kept byte for byte.
-tag = "llvmorg-23.1.2"
+# to libclang and LLVM's licence, each kept byte for byte from the release the
+# tag names.  The toolchain is the llvm-toolchain-23 upstream version
+# cpp/toolchain/check_upstream.sh pins, whose source holds these same bytes:
+# apt.llvm.org builds LLVM's release branch, whose version no tag may name
+# yet, so the tag is the newest release holding them.
+tag = "llvmorg-23.1.5"
+toolchain = "23.1.6"
 
 # Each file's git blob sha in llvm-project at that tag, by its name here, with
 # its path there beside it.

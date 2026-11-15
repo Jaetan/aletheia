@@ -5,9 +5,9 @@
 ``tools/_vendor/clang/`` holds LLVM's Python bindings to libclang and LLVM's
 licence, each copied byte for byte from the release its ``UPSTREAM.toml``
 names.  Each file's git blob sha is held to the record, so a one-byte edit
-fails here; the record's tag is held to the ``llvm-toolchain-23`` release
-``cpp/toolchain/check_upstream.sh`` pins, so a toolchain moved without its
-bindings fails here too; the two linters that would otherwise read the
+fails here; the record's toolchain version is held to the ``llvm-toolchain-23``
+upstream version ``cpp/toolchain/check_upstream.sh`` pins, so a toolchain moved
+without its bindings re-checked fails here too; the two linters that would otherwise read the
 directory are told to leave it alone; and the licence header gate leaves out
 the files a record names, and only those.
 """
@@ -30,6 +30,7 @@ from tools._vendored import (
     VENDOR,
     BlobSha,
     FileBytes,
+    UpstreamTag,
     VendoredName,
     blob_sha,
     read_record,
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
 _REPO = Path(__file__).resolve().parents[2]
 _CLANG = _REPO / VENDOR / "clang"
 _TOOLCHAIN = _REPO / "cpp" / "toolchain" / "check_upstream.sh"
-# The prefix LLVM's release tags carry before the version: ``llvmorg-23.1.2``.
+# The prefix LLVM's release tags carry before the version: ``llvmorg-23.1.5``.
 _LLVM_TAG = "llvmorg-"
 
 
@@ -72,11 +73,19 @@ def test_each_vendored_file_is_upstream_s_bytes(name: VendoredName) -> None:
     assert blob_sha(FileBytes((_CLANG / name).read_bytes())) == recorded
 
 
-def test_the_bindings_are_the_release_the_toolchain_pins() -> None:
-    """The record's tag is the ``llvm-toolchain-23`` upstream version the toolchain row names."""
+def test_the_bindings_are_checked_at_the_release_the_toolchain_pins() -> None:
+    """The record's toolchain is the ``llvm-toolchain-23`` upstream version the toolchain row names.
+
+    apt.llvm.org builds LLVM's release branch, whose version no tag may name yet,
+    so the record's tag is a release of the pinned version's major series.
+    """
     row = re.search(r'"llvm-toolchain-23 ([^"\s]+)"', _TOOLCHAIN.read_text(encoding="utf-8"))
     assert row is not None, f"{_TOOLCHAIN} pins no llvm-toolchain-23 release"
-    assert read_record(_CLANG / RECORD).get("tag") == f"{_LLVM_TAG}{row.group(1)}"
+    record = read_record(_CLANG / RECORD)
+    assert record.get("toolchain") == row.group(1)
+    tag = record.get("tag", UpstreamTag(""))
+    assert tag.startswith(_LLVM_TAG)
+    assert tag.removeprefix(_LLVM_TAG).split(".")[0] == row.group(1).split(".")[0]
 
 
 def test_ruff_leaves_the_vendored_files_unread_and_basedpyright_reports_nothing_there() -> None:
