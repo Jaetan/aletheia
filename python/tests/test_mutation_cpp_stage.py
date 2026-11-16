@@ -311,8 +311,7 @@ def test_a_leg_is_recorded_and_never_judged() -> None:
     """A leg's survivors exceed the baseline and the verdict is still not a regression."""
     leg = sliced_legs()[0]
     report = mutation_run.MutationReport(leg.binding, "mull", 1, 2, "")
-    bindings: dict[str, mutation_run.BindingSpec] = {"cpp": {"baseline": {"survivors": 0}}}
-    verdict = mutation_run.drift_for(report, bindings)
+    verdict = mutation_run.drift_for(report, {"cpp": {"baseline": {"survivors": 0}}})
     assert verdict == {"status": "leg", "observed_survivors": 2}
     assert is_cpp_leg(report.binding)
     assert not is_cpp_leg("cpp")

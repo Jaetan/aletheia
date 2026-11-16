@@ -121,7 +121,7 @@ def operator_refusal(
     return Prose("\n".join(lines))
 
 
-def _missing_package(exc: ImportError) -> bool:
+def missing_mutmut(exc: ImportError) -> bool:
     """Say whether ``exc`` is the absence of mutmut, or of libcst, which it installs."""
     return (exc.name or "").split(".", 1)[0] in {"mutmut", "libcst"}
 
@@ -132,7 +132,7 @@ def check() -> ExitStatus:
         refused_made = mutations_of(REFUSED_SOURCE)
         control_made = mutations_of(CONTROL_SOURCE)
     except ImportError as exc:
-        if not _missing_package(exc):
+        if not missing_mutmut(exc):
             raise
         emit(f"check-mutmut-operators: {INSTALL_HINT}")
         return ExitStatus(2)

@@ -135,6 +135,54 @@ def test_tools_told_their_hot_paths_pass(tmp_path: Path, monkeypatch: pytest.Mon
     )
 
 
+@pytest.mark.parametrize(
+    ("table", "named"),
+    [
+        (Prose('process_isolation = "forkserver"\n'), []),
+        (
+            Prose('process_isolation = "fork"\n'),
+            ["[python/mutmut] process_isolation is 'fork', not 'forkserver'"],
+        ),
+        (Prose(""), ["[python/mutmut] process_isolation is None, not 'forkserver'"]),
+    ],
+    ids=["forkserver", "fork", "unset"],
+)
+def test_the_python_lane_forks_each_mutant_from_its_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, table: Prose, named: list[Prose]
+) -> None:
+    """The lane forks each mutant's process from mutmut's server alone, anything else named."""
+    _ = plant(tmp_path, {_PYPROJECT: Prose(f"[tool.mutmut]\n{table}")})
+    monkeypatch.setattr(check_mutation_setup, "PYPROJECT_PATH", tmp_path / _PYPROJECT)
+    found = check_mutation_setup.python_lane_forks_from_a_collecting_server()
+    assert [str(failure).split(":", 1)[0] for failure in found] == named
+
+
+@pytest.mark.parametrize(
+    ("table", "named"),
+    [
+        (Prose("log_to_file = true\n"), []),
+        (
+            Prose("log_to_file = false\n"),
+            ["[python/mutmut] log_to_file is False, not true"],
+        ),
+        (Prose(""), ["[python/mutmut] log_to_file is None, not true"]),
+        (
+            Prose('log_to_file = true\nlog_file_path = "elsewhere.log"\n'),
+            ["[python/mutmut] log_file_path is set"],
+        ),
+    ],
+    ids=["kept", "off", "unset", "moved"],
+)
+def test_the_python_lane_has_mutmut_write_its_log_where_the_lane_keeps_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, table: Prose, named: list[Prose]
+) -> None:
+    """The lane has mutmut log, to its default place, anything else named."""
+    _ = plant(tmp_path, {_PYPROJECT: Prose(f"[tool.mutmut]\n{table}")})
+    monkeypatch.setattr(check_mutation_setup, "PYPROJECT_PATH", tmp_path / _PYPROJECT)
+    found = check_mutation_setup.python_lane_keeps_mutmuts_log()
+    assert [str(failure).split(":", 1)[0] for failure in found] == named
+
+
 def test_a_file_on_one_side_alone_is_named_both_ways(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -324,6 +372,8 @@ _CHECKS: Final = (
     (CheckName("every_runner_has_a_block"), "record"),
     (CheckName("ledger_rows_still_name_their_line"), "record"),
     (CheckName("python_lane_runs_no_doc_harness"), "nothing"),
+    (CheckName("python_lane_forks_from_a_collecting_server"), "nothing"),
+    (CheckName("python_lane_keeps_mutmuts_log"), "nothing"),
     (CheckName("go_lane_runs_no_doc_harness"), "nothing"),
     (CheckName("rust_lane_runs_no_doc_harness"), "nothing"),
     (CheckName("cpp_lane_runs_no_doc_harness"), "nothing"),

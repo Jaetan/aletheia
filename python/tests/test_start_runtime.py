@@ -401,6 +401,27 @@ def test_a_start_hands_the_runtime_its_name_then_its_heap_cap_then_the_override(
     assert _handed(RTSState.lib) == (ArgumentCount(len(line.words)), line.words)
 
 
+@pytest.mark.usefixtures("unstarted")
+def test_a_word_that_is_not_bytes_is_refused_before_the_runtime_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A command line holding something other than bytes raises before the runtime entry runs.
+
+    The runtime reads every word it is handed, so a null in place of one would
+    end the process; the start refuses it in Python instead.
+    """
+    lib = ctypes.CDLL(str(stand_in_kernel(_RECORDING)))
+    before = _handed(lib)
+
+    def with_a_null(_cores: CoreCount, _override: RuntimeOverride) -> list[RuntimeArgument | None]:
+        return [*_OPENING, None, _CLOSING]
+
+    monkeypatch.setattr("aletheia.client._ffi.rts_arguments", with_a_null)
+    with pytest.raises(TypeError):
+        start_runtime(1, lib_path=stand_in_kernel(_RECORDING))
+    assert _handed(lib) == before
+
+
 # The words every command line opens and closes on: the runtime's name, its
 # heap cap and the closing marker.
 _OPENING = [RuntimeArgument(word) for word in (b"aletheia", b"+RTS", b"-M3G")]
@@ -502,6 +523,18 @@ def test_a_backend_gives_back_the_reference_it_took_and_no_more() -> None:
     backend.close(0)
     assert RTSState.refcount == 0
     backend.close(0)
+    assert RTSState.refcount == 0
+
+
+@pytest.mark.usefixtures("unstarted")
+def test_each_open_backend_holds_a_reference_of_its_own() -> None:
+    """Two backends open at once hold two references, and each close gives back its own."""
+    recording = stand_in_kernel(_RECORDING)
+    first, second = FFIBackend(lib_path=recording), FFIBackend(lib_path=recording)
+    assert RTSState.refcount == 2
+    first.close(0)
+    assert RTSState.refcount == 1
+    second.close(0)
     assert RTSState.refcount == 0
 
 

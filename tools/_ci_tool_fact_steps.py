@@ -94,6 +94,14 @@ def register_mutation_fact_steps(runner: Runner) -> None:
         cwd=runner.repo_root,
         lane="python",
     )
+    # What the pinned mutmut writes that the Python lane's witness and its
+    # checks read: the runner's parameter, the .meta, the exits, the count, the log.
+    runner.step(
+        "check-mutmut-witness",
+        [runner.python, "-m", "tools.check_mutmut_witness"],
+        cwd=runner.repo_root,
+        lane="python",
+    )
     # The three slices' union is the whole tree's census.  Both steps follow
     # the sweep in its own lane, because the sweep empties the commit's
     # artifact directory before writing the slice reports there: the census

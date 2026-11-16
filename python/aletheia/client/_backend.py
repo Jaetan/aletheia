@@ -484,7 +484,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         )
         if status != 0:
             _decode_out_err(self._lib, out, "build_frame failed")
-        return ctypes.string_at(out_buf, out.size)
+        return ctypes.string_at(out_buf, size=out.size)
 
     def update_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
         self,
@@ -511,7 +511,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         )
         if status != 0:
             _decode_out_err(self._lib, out, "update_frame failed")
-        return ctypes.string_at(out_buf, out.size)
+        return ctypes.string_at(out_buf, size=out.size)
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
         self,
@@ -533,7 +533,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         if status != 0:
             _decode_out_err(self._lib, out, "extract_signals failed")
         try:
-            return ctypes.string_at(out.data, out.size)
+            return ctypes.string_at(out.data, size=out.size)
         finally:
             self._lib.aletheia_free_buf(out.data)
 

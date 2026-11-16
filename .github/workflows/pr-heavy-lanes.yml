@@ -583,6 +583,15 @@ jobs:
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python' && steps.venv.outcome == 'success' }}
         run: python/.venv/bin/python3 -m tools.check_mutmut_operators
 
+      # What the pinned mutmut writes that the Python lane's witness and its
+      # checks read (the runner's parameter, the .meta, the exits, the count
+      # and the log), each asked of mutmut's own code in a scratch project.
+      # The gate runs only where the branch moved the pin, a reader of it, the
+      # gate or the scoping, logging which.
+      - name: mutmut witness facts (when its pin or a reader moved)
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python' && steps.venv.outcome == 'success' }}
+        run: python/.venv/bin/python3 -m tools.check_mutmut_witness
+
       # Every shard count the Rust runner deals partitions the listing the
       # pinned cargo-mutants gives, so the two jobs' shards are the whole
       # surface once.  The gate reads the branch's diff against `main` and runs

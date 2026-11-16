@@ -20,7 +20,7 @@ from __future__ import annotations
 import ctypes
 import json
 from fractions import Fraction
-from typing import TYPE_CHECKING, NewType
+from typing import TYPE_CHECKING, Literal, NewType
 
 import pytest
 from _dbc_helpers import dbc, message, signal
@@ -49,7 +49,7 @@ from aletheia.common_types import Prose
 from aletheia.types import ParseDBCCommand, dump_json
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 pytestmark = pytest.mark.usefixtures("rts_up")
 
@@ -412,13 +412,15 @@ def test_an_argument_of_another_type_is_refused_before_the_library_runs(
     """
     lib = _stand_in(StandInName("recording_kernel"))
     pointees = _POINTEES[name]
-    arguments = [
-        (ctypes.c_ulong(0) if pointee is None else ctypes.create_string_buffer(_ROOM))
-        if index == at
-        else (None if pointee is None else ctypes.byref(pointee()))
-        for index, pointee in enumerate(pointees)
-    ]
     pointee = pointees[at]
+    declared = getattr(lib, name).argtypes
+    assert declared[at] is (ctypes.c_void_p if pointee is None else ctypes.POINTER(pointee))
+    arguments = [
+        (ctypes.c_ulong(0) if kind is None else ctypes.create_string_buffer(_ROOM))
+        if index == at
+        else (None if kind is None else ctypes.byref(kind()))
+        for index, kind in enumerate(pointees)
+    ]
     reason = (
         "'c_ulong' object cannot be interpreted as ctypes.c_void_p"
         if pointee is None
@@ -427,6 +429,65 @@ def test_an_argument_of_another_type_is_refused_before_the_library_runs(
     with pytest.raises(ctypes.ArgumentError) as refused:
         getattr(lib, name)(*arguments)
     assert str(refused.value) == f"argument {at + 1}: TypeError: {reason}"
+
+
+# What a case makes null: the parameter itself, or the pointer field of the
+# structure it points to, which the header lets be null only beside a zero count.
+type NullAt = Literal["parameter", "field"]
+
+# Each structure with such a field, built with the field null and its count not zero.
+_HOLLOW: dict[Pointee, Callable[[], ctypes.Structure]] = {
+    AletheiaText: lambda: AletheiaText(None, 5),
+    AletheiaFrame: lambda: AletheiaFrame(can_id=0x100, dlc=8, data_len=8),
+    AletheiaSignalValues: lambda: AletheiaSignalValues(count=2),
+}
+
+# Each pointer parameter of each entry, and each such field, on the kernel
+# (None) and on each stand-in.
+_NULLS: list[tuple[StandInName | None, EntryName, ArgumentIndex, NullAt]] = [
+    (library, name, at, where)
+    for library in [None, *_STAND_INS]
+    for name, at in _ARGUMENTS
+    for where in ("parameter", "field")
+    if _POINTEES[name][at] is not None and (where == "parameter" or _POINTEES[name][at] in _HOLLOW)
+]
+
+
+@pytest.mark.parametrize(
+    ("library", "name", "at", "where"),
+    _NULLS,
+    ids=[f"{library or 'kernel'}-{name}-{at + 1}-{where}" for library, name, at, where in _NULLS],
+)
+def test_a_null_the_header_names_is_answered_and_never_read(
+    library: StandInName | None, name: EntryName, at: ArgumentIndex, where: NullAt
+) -> None:
+    """A null where the header names an answer is answered, by the kernel and each stand-in.
+
+    A null parameter, or a text's data, a frame's payload or a signal-value
+    array null beside a count that is not zero: a status answers 1, the
+    renderer a null string, a reply a refusal or nothing, so a binding that
+    loses an argument reads an answer from any of them rather than ending the
+    process.
+    """
+    lib = _LIB if library is None else _stand_in(library)
+    arguments = [
+        (None if kind is None else ctypes.byref(kind()))
+        if index != at
+        else (None if where == "parameter" else ctypes.byref(_HOLLOW[kind]()))
+        for index, kind in enumerate(_POINTEES[name])
+    ]
+    entry = getattr(lib, name)
+    answer = entry(*arguments)
+    if entry.restype is ctypes.c_int8:
+        assert answer == 1
+    elif name == "aletheia_format_rational":
+        assert answer is None
+    elif answer is not None:
+        try:
+            reply = parse_json_object(KernelResponse(ctypes.string_at(answer)))
+        finally:
+            lib.aletheia_free_str(answer)
+        assert reply["status"] == "error"
 
 
 def test_a_stand_in_answers_the_property_it_refuses_with_status_one() -> None:

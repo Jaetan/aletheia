@@ -118,3 +118,9 @@ TEST_CASE("a pretty dump writes an empty container as its two brackets", "[wide_
 TEST_CASE("a zero indent writes each member on a line of its own", "[wide_json]") {
     CHECK(dump_json(parse_json(R"({"a":[1]})"), 0) == "{\n\"a\": [\n1\n]\n}");
 }
+
+TEST_CASE("a pretty dump writes a binary node of another subtype as dump does, at its depth",
+          "[wide_json]") {
+    Json const nested{{"a", Json::array({Json::binary({7, 8}, 2)})}};
+    CHECK(dump_json(nested, 2) == nested.dump(2));
+}

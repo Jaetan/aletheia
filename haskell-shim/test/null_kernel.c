@@ -74,17 +74,20 @@ char *aletheia_format_rational(const struct aletheia_rational *) {
 }
 
 int8_t aletheia_parse_decimal(const struct aletheia_text *, struct aletheia_decimal *out) {
-    *out = (struct aletheia_decimal){};
+    if (out != nullptr)
+        *out = (struct aletheia_decimal){};
     return 1;
 }
 
 int8_t aletheia_parse_time_bound(const struct aletheia_text *, struct aletheia_time_bound *out) {
-    *out = (struct aletheia_time_bound){};
+    if (out != nullptr)
+        *out = (struct aletheia_time_bound){};
     return 1;
 }
 
 int8_t aletheia_check_property(const struct aletheia_text *, struct aletheia_property_check *out) {
-    *out = (struct aletheia_property_check){};
+    if (out != nullptr)
+        *out = (struct aletheia_property_check){};
     return 1;
 }
 
@@ -99,19 +102,22 @@ char *aletheia_extract_signals(void *, const struct aletheia_frame *) {
 int8_t aletheia_build_frame_bin(void *, const struct aletheia_frame *,
                                 const struct aletheia_signal_values *,
                                 struct aletheia_buffer *out) {
-    out->err = nullptr;
+    if (out != nullptr)
+        out->err = nullptr;
     return 1;
 }
 
 int8_t aletheia_update_frame_bin(void *, const struct aletheia_frame *,
                                  const struct aletheia_signal_values *,
                                  struct aletheia_buffer *out) {
-    out->err = nullptr;
+    if (out != nullptr)
+        out->err = nullptr;
     return 1;
 }
 
 int8_t aletheia_extract_signals_bin(void *, const struct aletheia_frame *,
                                     struct aletheia_buffer *out) {
-    out->err = nullptr;
+    if (out != nullptr)
+        out->err = nullptr;
     return 1;
 }

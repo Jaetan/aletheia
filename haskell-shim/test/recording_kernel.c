@@ -20,7 +20,12 @@
 // its count of the process's CPUs is four, and its runtime entry starts
 // nothing, so a process whose first backend opens it reads the runtime as up
 // without one; the entry records the command line it is handed, so a test
-// reads what a binding starts the runtime with. The build makes it beside the
+// reads what a binding starts the runtime with. A null where the header names
+// an answer is answered as the kernel answers it: a null out returns 1 with
+// nothing written, a null frame or text, or a frame's payload or a text's
+// data null beside a length that is not zero, is refused, a null rational
+// answers a null string, so a binding that loses an argument reads an answer
+// from either rather than ending the process. The build makes it beside the
 // library, where the bindings' tests load it.
 #include "aletheia.h"
 
@@ -134,6 +139,8 @@ int aletheia_test_buffer_free_count() {
 }
 
 char *aletheia_process(void *, const struct aletheia_text *input) {
+    if (input == nullptr)
+        return refusal("process null text");
     char detail[64];
     snprintf(detail, sizeof detail, "process size=%zu", input->size);
     return refusal(detail);
@@ -152,12 +159,16 @@ char *aletheia_format_dbc(void *) {
 }
 
 char *aletheia_send_error(void *, const struct aletheia_frame *frame) {
+    if (frame == nullptr)
+        return refusal("send_error null frame");
     char detail[64];
     snprintf(detail, sizeof detail, "send_error ts=%" PRIu64, frame->timestamp);
     return refusal(detail);
 }
 
 char *aletheia_send_remote(void *, const struct aletheia_frame *frame) {
+    if (frame == nullptr)
+        return refusal("send_remote null frame");
     char detail[96];
     snprintf(detail, sizeof detail, "send_remote ts=%" PRIu64 " id=%" PRIu32 " extended=%u",
              frame->timestamp, frame->can_id, frame->extended);
@@ -165,6 +176,8 @@ char *aletheia_send_remote(void *, const struct aletheia_frame *frame) {
 }
 
 char *aletheia_send_frame(void *, const struct aletheia_frame *frame) {
+    if (frame == nullptr)
+        return refusal("send_frame null frame");
     char detail[160];
     snprintf(detail, sizeof detail,
              "send_frame ts=%" PRIu64 " id=%" PRIu32 " extended=%u dlc=%u len=%u brs=%u/%u esi=%u/%u",
@@ -193,6 +206,8 @@ static char *digits(struct aletheia_uint128 n, char *end) {
 // render is the numerator and the denominator in decimal, the numerator
 // signed, so a test reads every word and the sign that reached the kernel.
 char *aletheia_format_rational(const struct aletheia_rational *value) {
+    if (value == nullptr)
+        return nullptr;
     if (value->negative == 0 && value->numerator.hi == 0 &&
         value->numerator.lo == refused_numerator)
         return nullptr;
@@ -206,12 +221,14 @@ char *aletheia_format_rational(const struct aletheia_rational *value) {
 }
 
 int8_t aletheia_parse_decimal(const struct aletheia_text *, struct aletheia_decimal *out) {
-    *out = (struct aletheia_decimal){.err = refusal("parse_decimal")};
+    if (out != nullptr)
+        *out = (struct aletheia_decimal){.err = refusal("parse_decimal")};
     return 1;
 }
 
 int8_t aletheia_parse_time_bound(const struct aletheia_text *, struct aletheia_time_bound *out) {
-    *out = (struct aletheia_time_bound){.err = refusal("parse_time_bound")};
+    if (out != nullptr)
+        *out = (struct aletheia_time_bound){.err = refusal("parse_time_bound")};
     return 1;
 }
 
@@ -219,6 +236,12 @@ int8_t aletheia_parse_time_bound(const struct aletheia_text *, struct aletheia_t
 // control character escaped, the rest dropped once the message is full.
 int8_t aletheia_check_property(const struct aletheia_text *property,
                                struct aletheia_property_check *out) {
+    if (out == nullptr)
+        return 1;
+    if (property == nullptr || (property->data == nullptr && property->size != 0)) {
+        *out = (struct aletheia_property_check){.err = refusal("check_property null text")};
+        return 1;
+    }
     char detail[400];
     size_t at = (size_t)snprintf(detail, sizeof detail, "check_property ");
     for (size_t i = 0; i < property->size && at + 7 < sizeof detail; ++i) {
@@ -248,6 +271,10 @@ uint64_t aletheia_allocated_bytes() {
 // payload length of the frame it was handed.
 static void quote_frame(char *detail, size_t size, const char *entry,
                         const struct aletheia_frame *frame) {
+    if (frame == nullptr) {
+        snprintf(detail, size, "%s null frame", entry);
+        return;
+    }
     snprintf(detail, size, "%s id=%" PRIu32 " extended=%u dlc=%u len=%u", entry, frame->can_id,
              frame->extended, frame->dlc, frame->data_len);
 }
@@ -262,6 +289,8 @@ char *aletheia_extract_signals(void *, const struct aletheia_frame *frame) {
 int8_t aletheia_build_frame_bin(void *, const struct aletheia_frame *frame,
                                 const struct aletheia_signal_values *,
                                 struct aletheia_buffer *out) {
+    if (out == nullptr)
+        return 1;
     char detail[96];
     quote_frame(detail, sizeof detail, "build_frame_bin", frame);
     out->err = refusal(detail);
@@ -271,6 +300,8 @@ int8_t aletheia_build_frame_bin(void *, const struct aletheia_frame *frame,
 int8_t aletheia_update_frame_bin(void *, const struct aletheia_frame *frame,
                                  const struct aletheia_signal_values *,
                                  struct aletheia_buffer *out) {
+    if (out == nullptr)
+        return 1;
     char detail[96];
     quote_frame(detail, sizeof detail, "update_frame_bin", frame);
     out->err = refusal(detail);
@@ -281,6 +312,12 @@ int8_t aletheia_update_frame_bin(void *, const struct aletheia_frame *frame,
 // aletheia_free_buf releases to, as the kernel's buffer is.
 int8_t aletheia_extract_signals_bin(void *, const struct aletheia_frame *frame,
                                     struct aletheia_buffer *out) {
+    if (out == nullptr)
+        return 1;
+    if (frame == nullptr || (frame->data == nullptr && frame->data_len != 0)) {
+        *out = (struct aletheia_buffer){.err = refusal("extract_signals_bin null frame")};
+        return 1;
+    }
     char detail[96];
     quote_frame(detail, sizeof detail, "extract_signals_bin", frame);
     size_t size = strlen(detail);

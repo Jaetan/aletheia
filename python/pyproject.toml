@@ -358,12 +358,21 @@ also_copy = [
 # mutant is answered by a test or a documented pragma, never by deleting a guard.
 do_not_mutate_patterns = ["# pragma: no mutate"]
 pytest_add_cli_args_test_selection = ["tests/"]
-# pytest invocation used to verify each mutant: keep cheap by skipping the
-# slowest non-mutation gates (the doc-example harness, the random-order lane,
-# the property-based hypothesis tests, the cross-binding parity tests — none
-# of them exercise the hot-path modules above with finer granularity than the
-# unit tests).  Mutmut walks ALL tests in the test selection by default, so
-# this narrowing is via a deselect rather than a select.
+# Each mutant's tests run in a process forked from a server that has only
+# collected the suite, never from mutmut's own process, which runs the suite to
+# time it and so starts the kernel's runtime and its threads: a process forked
+# from one holding threads may make only async-signal-safe calls (POSIX fork),
+# so a call into the kernel there could hang where the mutant changed nothing.
+process_isolation = "forkserver"
+# mutmut's own log of each mutant's process, its exit and how long it ran,
+# written to its default place under mutants/, which tools/mutation_run.py
+# keeps beside the lane's report.  A mutant's run that raises exits 255 and is
+# filed as a timeout with nothing else of it kept; this log and the witness
+# tools/mutation_witness.py writes are its record.
+log_to_file = true
+# The pytest invocation that verifies each mutant: mutmut walks every test of
+# the selection, so the tests left out are deselected here, each for the reason
+# beside it.
 pytest_add_cli_args = [
     "--no-header",
     "-x",
@@ -550,6 +559,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_cargo_mutants_shards.py",
     "--ignore=tests/test_check_cpp_slices_census.py",
     "--ignore=tests/test_mutmut_operators.py",
+    "--ignore=tests/test_mutmut_witness.py",
     "--ignore=tests/test_mutation_lane_scope.py",
     "--ignore=tests/test_coverage_run.py",
     "--ignore=tests/test_mutation_run_gremlins.py",
@@ -570,6 +580,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_mutation_cpp_runs.py",
     "--ignore=tests/test_mutation_cpp_dry_run.py",
     "--ignore=tests/test_mutation_run_exact.py",
+    "--ignore=tests/test_mutation_witness.py",
     "--ignore=tests/test_mutation_cpp_config.py",
     "--ignore=tests/test_check_cpp_index_loops.py",
     "--ignore=tests/test_check_cpp_restated_types.py",

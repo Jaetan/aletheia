@@ -38,6 +38,10 @@ RAW_LOG_TAIL_CHARS = 2000
 # A number of mutants: a census's, a bucket's or a file's.
 MutantCount = NewType("MutantCount", int)
 
+# A mutant whose process ended on a signal or an exit mutmut does not know,
+# as ``mutmut results`` lists it: ``<mutant>: segfault`` or ``<mutant>: suspicious``.
+CrashedMutant = NewType("CrashedMutant", str)
+
 # A route a C++ kill took, one of ``KILL_ROUTES`` in ``tools/mutation_routes.py``.
 KillRoute = NewType("KillRoute", str)
 
@@ -84,6 +88,7 @@ class Baseline(TypedDict):
 
     survivors: NotRequired[int]
     timeout_ceiling: NotRequired[int]
+    crash_ceiling: NotRequired[MutantCount]
     total_mutants: NotRequired[int]
     # The suite runs each repository-relative file's C++ mutants cost, which
     # the lane's slices are cut on.
@@ -140,6 +145,8 @@ class DriftEntry(TypedDict):
     delta: NotRequired[int]
     observed_timeouts: NotRequired[int]
     timeout_ceiling: NotRequired[int]
+    observed_crashes: NotRequired[list[CrashedMutant]]
+    crash_ceiling: NotRequired[MutantCount]
     unrecorded_survivors: NotRequired[list[LedgerRow]]
     stale_ledger: NotRequired[list[LedgerRow]]
     unrecorded_unobserved_kills: NotRequired[list[UnobservedRow]]
@@ -206,13 +213,16 @@ class Observed:
     ``timeouts``: the mutants the tool started and could not finish, neither
     killed nor survived, so a run that timed out on nearly everything reports
     no survivors and full efficacy; the drift gate reads this to refuse such
-    a run.  ``generated``: every mutant the tool made, where it puts some in
+    a run.  ``crashes``: the mutants whose process ended on a signal, which
+    no test observed, refused past their ceiling as timeouts are.
+    ``generated``: every mutant the tool made, where it puts some in
     buckets beyond killed, survived and timed out, so a mutant that left the
     surface for one of those moves a count.  ``routes``: the C++ census by
     kill route.  ``mutated_files``: the files the run made a mutant in.
     """
 
     timeouts: int | None = None
+    crashes: tuple[CrashedMutant, ...] | None = None
     generated: MutantCount | None = None
     routes: RouteCensus | None = None
     mutated_files: frozenset[RelPath] | None = None

@@ -484,6 +484,7 @@ _MUTATION_FACT_GATES = {
     "check-mull-plugin-facts": (LaneName("misc"), "tools.check_mull_plugin_facts"),
     "check-cargo-mutants-shards": (LaneName("rust"), "tools.check_cargo_mutants_shards"),
     "check-mutmut-operators": (LaneName("python"), "tools.check_mutmut_operators"),
+    "check-mutmut-witness": (LaneName("python"), "tools.check_mutmut_witness"),
 }
 # The two steps of the census gate, which follow the sweep in its lane.
 _CENSUS_STEPS = ("check-cpp-slices-census-build", "check-cpp-slices-census")

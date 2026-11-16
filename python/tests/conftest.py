@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 from _canonical_dbc import CANONICAL_DBC, make_dbc
 from _hypothesis_profiles import register_profiles
+from _mutation_order import order_for_mutation
 
 from aletheia import RTSState, Signal, start_runtime
 
@@ -31,12 +32,19 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Every test runs under the determinism guard: a clock that stands still unless
 # the test advances it, and no thread, sleep or timed wait.  ``pytester`` runs
-# the guard's own tests as sessions inside the suite's process.
-pytest_plugins = ["tools._determinism_guard", "pytester"]
+# the guard's own tests as sessions inside the suite's process.  The mutation
+# lane's witness names each test as it starts in the file of the mutant's run
+# it watches, and writes nothing outside such a run.
+pytest_plugins = ["tools._determinism_guard", "pytester", "tools.mutation_witness"]
 
 # The property tests' hypothesis profiles exist before pytest configures, which
 # is when ``--hypothesis-profile`` loads the one it names.
 register_profiles()
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Under mutmut, run a mutant's tests in one order on every machine (``_mutation_order``)."""
+    order_for_mutation(items)
 
 
 @dataclass(frozen=True)

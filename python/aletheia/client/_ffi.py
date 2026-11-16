@@ -257,8 +257,11 @@ def _start(lib: ctypes.CDLL, cores: CoreCount) -> None:
     override = os.environb.get(os.fsencode(RTS_OVERRIDE_ENV), b"")
     args = rts_arguments(cores, RuntimeOverride(override))
     argc = ctypes.c_int(len(args))
-    argv = (ctypes.c_char_p * len(args))(*args)
-    argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
+    # Each word as bytes, and a pointer to the array's first word, built by steps
+    # that each refuse None, so the runtime, which reads every word, is never
+    # handed a null in place of a word or of argv.
+    argv = (ctypes.c_char_p * len(args))(*(bytes(word) for word in args))
+    argv_ptr = ctypes.pointer(ctypes.c_char_p.from_buffer(argv))
     init_fn(ctypes.byref(argc), ctypes.byref(argv_ptr))
 
 
@@ -527,10 +530,11 @@ def take_error_envelope(lib: ctypes.CDLL, out: EntryOut, missing: Prose) -> Repl
     with *missing*.
     """
     err: KernelString | None = out.err
-    if err is None:
-        raise ProtocolError(missing)
     try:
-        return parse_json_object(KernelResponse(ctypes.string_at(err)))
+        text = ctypes.c_char_p(err).value
+        if text is None:
+            raise ProtocolError(missing)
+        return parse_json_object(KernelResponse(text))
     finally:
         lib.aletheia_free_str(err)
 

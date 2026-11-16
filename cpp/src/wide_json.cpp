@@ -9,6 +9,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <concepts>
 #include <cstddef>
@@ -182,52 +183,55 @@ public:
     explicit WideWriter(int indent)
         : values_(nlohmann::detail::output_adapter<char, std::string>(out_), ' ')
         , pretty_(indent >= 0)
-        , step_(pretty_ ? static_cast<unsigned>(indent) : 0U) {}
+        , step_(static_cast<unsigned>(std::max(indent, 0))) {}
 
     // The text written so far.
     [[nodiscard]] auto text() && -> std::string { return std::move(out_); }
 
-    void write(Json const& j, unsigned indent) {
+    void write(Json const& j) {
         if (auto const magnitude = wide_negative_magnitude(j)) {
             std::format_to(std::back_inserter(out_), "-{}", magnitude.value());
             return;
         }
         if (j.is_object() && !j.empty()) {
-            write_members(j.get_ref<Json::object_t const&>(), '{', '}', indent);
+            write_members(j.get_ref<Json::object_t const&>(), '{', '}');
             return;
         }
         if (j.is_array() && !j.empty()) {
-            write_members(j.get_ref<Json::array_t const&>(), '[', ']', indent);
+            write_members(j.get_ref<Json::array_t const&>(), '[', ']');
             return;
         }
-        values_.dump(j, pretty_, false, step_, indent);
+        values_.dump(j, pretty_, false, step_, static_cast<unsigned>(margin_.size()));
     }
 
 private:
-    // One member per line, `indent` plus a step in, when pretty; an object's
-    // member is its key and its value.
+    // One member per line, a step further in than the container, when pretty;
+    // an object's member is its key and its value. The margin grows by the step
+    // on the way in and shrinks by it on the way out, so no level's indentation
+    // is computed from another's.
     template<typename Members>
-    void write_members(Members const& members, char open, char close, unsigned indent) {
-        auto const inner = indent + step_;
+    void write_members(Members const& members, char open, char close) {
+        margin_.append(step_, ' ');
         out_ += open;
         for (auto const& [index, member] : std::views::enumerate(members)) {
             if (index > 0)
                 out_ += ',';
             if (pretty_) {
                 out_ += '\n';
-                out_.append(inner, ' ');
+                out_ += margin_;
             }
             if constexpr (std::same_as<Members, Json::object_t>) {
                 values_.dump(Json(member.first), false, false, 0);
                 out_ += pretty_ ? ": " : ":";
-                write(member.second, inner);
+                write(member.second);
             } else {
-                write(member, inner);
+                write(member);
             }
         }
+        margin_.resize(margin_.size() - step_);
         if (pretty_) {
             out_ += '\n';
-            out_.append(indent, ' ');
+            out_ += margin_;
         }
         out_ += close;
     }
@@ -235,6 +239,8 @@ private:
     // Declared before the serializer, which writes into it.
     std::string out_;
     nlohmann::detail::serializer<Json> values_;
+    // The indentation of the members being written, when pretty.
+    std::string margin_;
     bool pretty_;
     unsigned step_;
 };
@@ -251,7 +257,7 @@ auto parse_json(std::string_view input) -> Json {
 
 auto dump_json(Json const& j, int indent) -> std::string {
     WideWriter writer{indent};
-    writer.write(j, 0);
+    writer.write(j);
     return std::move(writer).text();
 }
 

@@ -119,7 +119,21 @@ What fails the lane:
   fired is refused as a disturbed run and the mutant it ended is a hang to
   remove, never a cap to raise.  No test of any binding holds a thread or a
   timed wait, and no Go or Rust mutant can hang a run at all; a Python or C++
-  mutant whose loop never ends is the one way left to reach a cap.
+  mutant whose loop never ends is the one way left to reach a cap.  mutmut
+  also files as a timeout a Python mutant's run that raised, which exits 255
+  with nothing of it kept, so the lane starts mutmut through
+  `tools/mutation_witness.py`.  Among the lane's artifacts, such a run's pytest
+  output and traceback land in `python-witness/<mutant>.txt`, and a run that
+  ended its process before returning (the kernel's runtime exiting, a signal,
+  mutmut's own timeout) leaves `python-witness/<mutant>.running`, its output
+  and a `started` line for each test it began, the last naming the test it
+  was in.  mutmut's own log, `python.mutmut-debug.log`, gives each mutant's
+  exit and how long it ran.  The witness tallies every mutant's run in
+  `python-witness/witnessed-runs.log`, and the lane fails when a mutant
+  mutmut ran is missing from it, so a mutmut that stops handing the witness
+  its runs cannot switch it off unseen.  The mutants mutmut ran are read from
+  its `.meta` files, held first to the count its summary prints, so a reading
+  that finds fewer fails rather than checking nothing.
 - **Kill routes (C++, gated)**: Mull's SQLite report keeps each
   mutant's exit status and the test binary's output, and the runner reads
   from them what ended every run: a test's assertion, which Catch2's failure
@@ -246,6 +260,14 @@ so what it cannot mutate is a refusal the lane carries whole: a `return`, a
 Python lane cannot see, and `tools/check_mutmut_operators.py`, which runs when
 the mutmut pin moves, holds the pinned version to that list, so a release that
 gains an operator re-opens the row rather than counting silently.
+
+The lane's witness and its checks read five things of mutmut's: the
+`mutant_name` parameter of `PytestRunner.run_tests`, the `.meta` files'
+`exit_code_by_key`, what its exits mean, the count its progress line prints,
+and where `log_to_file` writes.  `tools/check_mutmut_witness.py`, which runs
+when the pin, the witness or the lane runner moves, asks each of mutmut's own
+code in a scratch project, so a patched or upgraded mutmut that moved one
+fails there, naming it, before a sweep relies on it.
 
 ### Go: `gremlins`
 

@@ -70,24 +70,30 @@ bindings:
       # rewritten (wrapped, lowered or uppered, up to three mutants per
       # literal), then an assignment's value replaced by None, and the rest
       # a swapped operator, keyword or number. Every literal is one the
-      # module wrote, and Python has no undefined behaviour to crash on, so
-      # a kill is a test failing, an exception the test did not expect
-      # included; mutmut records no reason, so an argument dropped from a
-      # call that then raised is not told apart in the record from one a test
-      # caught by its result. The string mutants split by what the literal
+      # module wrote, and a kill is a test failing, an exception the test did
+      # not expect included; mutmut records no reason, so an argument dropped
+      # from a call that then raised is not told apart in the record from one
+      # a test caught by its result. The string mutants split by what the literal
       # is: a key, a code or an operator name on the wire, which a test that
       # reads the wire kills, or a message meant for a person, which only a
       # test pinning its wording kills.
       survivors: 0
-      total_mutants: 909
+      total_mutants: 3680
       score_pct: 100
-      run_at: "2026-10-28"
+      run_at: "2026-11-15"
       # A mutant mutmut ended at its timeout is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a sweep in which
       # the cap fired, and a timed-out mutant is a hang to remove, never a cap
       # to raise. The tests mutmut runs hold no thread and no timed wait, so a
       # mutant whose loop never ends is the one way left to reach the cap.
       timeout_ceiling: 0
+      # The FFI glue hands the kernel pointers, so a mutant there can end its
+      # process on a signal before any test reports, which mutmut files apart
+      # from its kills: no test observed it, so the lane refuses a sweep in
+      # which one did, naming it. Each pointer the glue hands is built by
+      # steps that refuse None, and the kernel and its stand-ins answer every
+      # null the header names, so a mutant reads an answer instead.
+      crash_ceiling: 0
 
   go:
     # AGENTS.md cat 14(g) names gomut, go-mutesting and mutate. This lane uses
@@ -180,12 +186,12 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 727
-      not_covered: 15
+      generated: 831
+      not_covered: 12
       timeouts: 0
-      total_mutants: 712
+      total_mutants: 819
       score_pct: 100.0
-      run_at: "2026-10-25"
+      run_at: "2026-11-15"
       # A mutant that times out is neither killed nor lived, and no verdict
       # may come from a clock: a survivor runs the whole suite, the slowest
       # run there is, so a cap it reached would hide it as a timeout. A mutant
@@ -450,8 +456,8 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 6
-      total_mutants: 1586
+      survivors: 7
+      total_mutants: 1576
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -515,7 +521,7 @@ bindings:
         cpp/src/yaml.cpp: 24.7
       timeouts: 0
       score_pct: 99.6
-      run_at: "2026-10-27"
+      run_at: "2026-11-15"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -524,12 +530,12 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1556
+        test: 1543
         kernel: 2
         check: 14
-        fault: 8
+        fault: 10
         timeout: 0
-        survived: 6
+        survived: 7
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
       # survivor not named here even at an unchanged count, and a row that no
@@ -549,7 +555,7 @@ bindings:
           file: cpp/src/client.cpp
           text: if (!inj)
           count: 2
-        # an out-parameter the callee writes, 3 mutants, an irreducible C++23
+        # an out-parameter the callee writes, 4 mutants, an irreducible C++23
         # equivalent:
         # from_chars writes its result through a reference, and open_memstream
         # its size through a pointer, on success, and nothing reads either on
@@ -568,6 +574,10 @@ bindings:
         - mutator: cxx_init_const
           file: cpp/benchmarks/stability_snapshot.hpp
           text: std::size_t size = 0;
+          count: 1
+        - mutator: cxx_init_const
+          file: cpp/src/wide_json.cpp
+          text: unsigned __int128 value = 0;
           count: 1
         # the terminate call of a noexcept function, 1 mutant, an equivalent:
         # every backend's close is noexcept, and the FFI one calls the kernel's
@@ -591,7 +601,10 @@ bindings:
       # reporting nothing before the process stops: an instrument is what ends
       # them, and on the shipped build, which runs none of them, nothing would.
       # The rest call the GHC runtime while it is down, which it refuses on any
-      # build by ending the process, before any test can report.
+      # build by ending the process, before any test can report, or skip a call
+      # nlohmann's DOM builder needs, which leaves its stack of open containers
+      # wrong: its own assertion or the standard library's check ends the parse
+      # before any test reads the tree.
       #
       # A row is never a refusal path that itself reads what the language does
       # not define: the loaders' refusals once appended dlerror's answer, which
@@ -693,6 +706,30 @@ bindings:
           text: 'return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;'
           route: check
           refused: get() != pointer()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/wide_json.cpp
+          text: return dom_.end_array();
+          route: fault
+          refused: ''
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/wide_json.cpp
+          text: return dom_.key(value);
+          route: fault
+          refused: ''
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/wide_json.cpp
+          text: return dom_.start_array(length);
+          route: check
+          refused: attempt to access an element in an empty container.
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/wide_json.cpp
+          text: return dom_.start_object(length);
+          route: check
+          refused: attempt to access an element in an empty container.
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/include/aletheia/ltl.hpp
@@ -821,13 +858,13 @@ bindings:
       # frees it is handed (rust/tests/kernel_releases.rs).  A string the
       # kernel returns is copied and released in one function, with no Drop
       # of its own to remove, and the same count holds that release.
-      survivors: 0
-      generated: 386
-      unviable: 62
+      survivors: 2
+      generated: 719
+      unviable: 173
       timeouts: 0
-      total_mutants: 324
-      score_pct: 100.0
-      run_at: "2026-10-25"
+      total_mutants: 546
+      score_pct: 99.6
+      run_at: "2026-11-15"
       # A mutant cargo-mutants ended at its timeout is neither killed nor
       # alive, and no verdict comes from a clock.  None can hang a run by
       # construction: the lane's files hold no wait, no thread and no loop
@@ -836,4 +873,16 @@ bindings:
       # operator, which leaves such a loop finite.  Its cap is a backstop, and
       # the lane refuses a sweep in which it fired.
       timeout_ceiling: 0
-      survivors_ledger: []
+      survivors_ledger:
+        # serde's Visitor requires expecting, whose text lands only in the error
+        # serde builds for a reply of another shape, and every reader drops that
+        # error (parse_object and string end in .ok()), so a body that writes
+        # nothing passes the suite: 2 mutants, an equivalent.
+        - mutator: "replace <impl Deserialize<'de> for Text<'de>>::deserialize::<impl Visitor<'de> for TextVisitor>::expecting -> fmt::Result with Ok(Default::default())"
+          file: rust/src/wire_json.rs
+          text: 'f.write_str("a string")'
+          count: 1
+        - mutator: "replace <impl Deserialize<'de> for Object<'de>>::deserialize::<impl Visitor<'de> for ObjectVisitor>::expecting -> fmt::Result with Ok(Default::default())"
+          file: rust/src/wire_json.rs
+          text: 'f.write_str("an object")'
+          count: 1

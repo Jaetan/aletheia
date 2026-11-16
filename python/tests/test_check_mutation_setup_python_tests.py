@@ -19,7 +19,7 @@ import pytest
 from _gate_exit import stderr_of_exit_2
 from _planted_tree import plant
 
-from tools import check_mutation_setup
+from tools import check_mutation_setup, check_mutation_setup_imports
 from tools._common import RelPath
 
 from aletheia.common_types import Prose
@@ -48,7 +48,7 @@ def _plant_python_tests(
         {RelPath(f"python/tests/{name}"): text for name, text in files.items()}
         | {pyproject: Prose(f"[tool.mutmut]\npytest_add_cli_args = [{args}]\n")},
     )
-    monkeypatch.setattr(check_mutation_setup, "PY_TESTS_DIR", root / "python" / "tests")
+    monkeypatch.setattr(check_mutation_setup_imports, "PY_TESTS_DIR", root / "python" / "tests")
     monkeypatch.setattr(check_mutation_setup, "PYPROJECT_PATH", root / pyproject)
 
 
@@ -903,7 +903,7 @@ def test_a_tests_directory_that_is_missing_exits_2(
     check: Callable[[], list[Prose]],
 ) -> None:
     """With no ``python/tests`` neither check can hold anything, so the gate stops."""
-    monkeypatch.setattr(check_mutation_setup, "PY_TESTS_DIR", tmp_path / "tests")
+    monkeypatch.setattr(check_mutation_setup_imports, "PY_TESTS_DIR", tmp_path / "tests")
     assert (
         stderr_of_exit_2(capsys, check)
         == f"ERROR: cannot read {tmp_path / 'tests'}: No such file or directory\n"

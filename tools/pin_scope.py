@@ -55,6 +55,7 @@ class PinGate(StrEnum):
     JSON_CLEANUP_ABORT = "json-cleanup-abort"
     MULL_PLUGIN_FACTS = "mull-plugin-facts"
     MUTMUT_OPERATORS = "mutmut-operators"
+    MUTMUT_WITNESS = "mutmut-witness"
 
 
 class PinScope(NamedTuple):
@@ -132,6 +133,14 @@ PIN_SCOPES: Mapping[PinGate, tuple[PinScope, ...]] = {
     PinGate.MUTMUT_OPERATORS: (
         PinScope(RelPath("python/pyproject.toml"), PinLine(r"mutmut==")),
         PinScope(RelPath("tools/check_mutmut_operators.py")),
+    ),
+    # The same release, and the two readers of it the gate holds to what it
+    # writes: the witness and the lane's checks of it.
+    PinGate.MUTMUT_WITNESS: (
+        PinScope(RelPath("python/pyproject.toml"), PinLine(r"mutmut==")),
+        PinScope(RelPath("tools/check_mutmut_witness.py")),
+        PinScope(RelPath("tools/mutation_witness.py")),
+        PinScope(RelPath("tools/mutation_run.py")),
     ),
 }
 
