@@ -88,13 +88,18 @@ DirectoryName = NewType("DirectoryName", str)
 
 GATE = "check-mull-plugin-facts"
 CLANG = "clang++-23"
+# The dialect the library is compiled in: cpp/CMakeLists.txt asks for cxx_std_23
+# and leaves CMake's extensions on, which gives -std=gnu++23.  In strict
+# -std=c++23, libstdc++ before 16 does not count unsigned __int128 as integral,
+# which the library's Rational needs, so a strict compile fails before the plugin.
+STANDARD = CompileArg("-std=gnu++23")
 # A compiler the kernel ended with SIGSEGV, as the shell reports it, 128 plus the
 # signal, and as a Python parent reads it, the signal negated.
 CRASHED = ExitStatus(139)
 CRASHED_SIGNAL = ExitStatus(-signal.SIGSEGV)
 REFUSAL = ExitStatus(1)
 NO_ANSWER = ExitStatus(2)
-# How many of a compile's last lines a finding carries.
+# How many of a compile's last lines a finding carries, after its first error.
 TAIL_LINES = 8
 
 PREFIX_MAP_UNIT = RelPath("cpp/src/types.cpp")
@@ -143,9 +148,17 @@ def plugin_path() -> Path:
     return Path.home() / ".local" / "bin" / "mull-ir-frontend-23"
 
 
-def _tail(output: ToolOutput) -> Prose:
-    """Return the last lines of what a compile printed."""
-    return Prose("\n".join(output.splitlines()[-TAIL_LINES:]))
+def _excerpt(output: ToolOutput) -> Prose:
+    """Return what a compile printed that names its cause: its first error, then its last lines.
+
+    The first error comes first only where the last lines miss it, a gap marked
+    ``...``; the notes a compiler prints last seldom name the cause.
+    """
+    lines = output.splitlines()
+    last = lines[-TAIL_LINES:]
+    first = next((line for line in lines if "error:" in line), None)
+    head = [first, "..."] if first is not None and first not in last else []
+    return Prose("\n".join([*head, *last]))
 
 
 def prefix_map_verdict(status: ExitStatus, output: ToolOutput) -> ExitStatus:
@@ -295,7 +308,7 @@ def prefix_map_arm(
     ran = run_capture(
         [
             clang,
-            "-std=c++23",
+            STANDARD,
             f"-fpass-plugin={plugin}",
             "-g",
             "-O0",
@@ -329,7 +342,7 @@ def prefix_map_arm(
                 NO_ANSWER,
                 Prose(
                     f"{CLANG} ended with status {status} compiling {PREFIX_MAP_UNIT} under the"
-                    + f" plugin, neither 0 nor SIGSEGV:\n{_tail(output)}"
+                    + f" plugin, neither 0 nor SIGSEGV:\n{_excerpt(output)}"
                 ),
             )
         ]
@@ -357,7 +370,7 @@ def emit_ir(repo_root: Path, tree: Path, unit: UnitName, scratch: Path) -> IrTex
                 f"{CLANG} could not emit the IR of cpp/src/{unit} (status {ran.returncode});"
                 + " a plugin built without the patches under tools/mull/ ends this way too,"
                 + " its scalar-call mutator aborting clang on a bool-returning call:\n"
-                + _tail(ToolOutput(ran.stdout + ran.stderr))
+                + _excerpt(ToolOutput(ran.stdout + ran.stderr))
             ),
         )
     return IrText(ir_path.read_text(encoding="utf-8", errors="replace"))

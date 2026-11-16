@@ -41,6 +41,8 @@ CronSpec = NewType("CronSpec", str)
 SourcePackage = NewType("SourcePackage", str)
 UpstreamVersion = NewType("UpstreamVersion", str)
 QueryLine = NewType("QueryLine", str)
+# A binding's word, as a workflow's matrix names it.
+BindingWord = NewType("BindingWord", str)
 
 
 class _With(TypedDict, total=False):
@@ -100,6 +102,15 @@ _COLD_JOB = JobName(f"{_COLD_WORKFLOW}:release-replay")
 _COLD_INSTALL = re.compile(
     r'cpp/toolchain/install\.sh "\$\{RUNNER_TEMP\}/llvm-cold"( [a-z0-9.+-]+)+'
 )
+# The shim's cabal project, whose gcc-location line names the C compiler every
+# C compile of the shim runs.
+_SHIM_PROJECT = _REPO / "haskell-shim" / "cabal.project"
+# A step building the shim: a shake target that builds the library, or the sweep.
+_BUILDS_THE_SHIM = re.compile(
+    r"shake -- (?:--keep-going )?(?:build|dist|packages)\b|-m tools\.run_ci\b"
+)
+# A condition narrowed to one side of a binding, its `if` then `rest`.
+_BINDING_SIDE = re.compile(r"(?P<rest>.+) && matrix\.binding (?P<side>==|!=) '(?P<binding>[a-z]+)'")
 # What fetches a signing key: the PPA helper, a keyserver, a key URL.
 _FETCHES_A_KEY = ("add-apt-repository", "keyserver", "gpg.key")
 _SOURCE_LINE = re.compile(r'"(deb [^"]+)"')
@@ -174,6 +185,54 @@ def test_every_toolchain_cache_is_installed_by_the_script_under_its_condition() 
             assert install.get("if") == step.get("if"), job.label
             installs += 1
     assert installs > 0
+
+
+def _shim_compiler() -> SourcePackage:
+    """Return the C compiler the shim's cabal project names, which is its package's name too."""
+    text = _SHIM_PROJECT.read_text(encoding="utf-8")
+    found = re.search(r"^\s*gcc-location:\s*(\S+)", text, re.MULTILINE)
+    assert found is not None, f"{_SHIM_PROJECT} names no gcc-location"
+    return SourcePackage(found.group(1))
+
+
+def _runs_whenever(installs: list[_Step], build: _Step) -> bool:
+    """Say whether the installs run whenever the build does.
+
+    One does when it has no condition or the build's own; two do when they
+    split the build's condition by a binding, one each side.
+    """
+    wanted = build.get("if")
+    conditions = [install.get("if") for install in installs]
+    if None in conditions or wanted in conditions:
+        return True
+    sides: dict[BindingWord, set[Prose]] = {}
+    for condition in conditions:
+        split = _BINDING_SIDE.fullmatch(condition) if condition is not None else None
+        if split is not None and split["rest"] == wanted:
+            sides.setdefault(BindingWord(split["binding"]), set()).add(Prose(split["side"]))
+    return any(found == {"==", "!="} for found in sides.values())
+
+
+def test_every_job_building_the_shim_installs_its_c_compiler_first() -> None:
+    """A job building the FFI library installs the shim project's compiler whenever it builds.
+
+    Every C compile of the shim runs that compiler, and a runner has none of it.
+    """
+    compiler = _shim_compiler()
+    builds = 0
+    for job in _jobs():
+        for at, step in enumerate(job.steps):
+            if not _BUILDS_THE_SHIM.search(step.get("run", "")):
+                continue
+            installs = [
+                earlier
+                for earlier in job.steps[:at]
+                if _INSTALL.fullmatch(earlier.get("run", "").strip())
+                and compiler in earlier.get("run", "").split()
+            ]
+            assert _runs_whenever(installs, step), f"{job.label}: {step.get('name', '')}"
+            builds += 1
+    assert builds > 0
 
 
 def test_a_weekly_job_installs_from_an_empty_directory() -> None:

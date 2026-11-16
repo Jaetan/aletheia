@@ -910,12 +910,15 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # ALETHEIA_REPO_ROOT and ALETHEIA_DOC_INCLUDE are runtime env vars (see
     # set_tests_properties below); the defines here come from CMake-resolved
     # tool paths and TARGET_FILE generator expressions, not from
-    # CMAKE_CURRENT_SOURCE_DIR.
+    # CMAKE_CURRENT_SOURCE_DIR.  A fence compiles in the dialect the library
+    # does, cxx_std_23 with CMake's extensions on: in strict -std=c++23,
+    # libstdc++ before 16 counts no unsigned __int128 as integral, which the
+    # library's Rational needs.
     target_compile_definitions(doc_example_tests
         PRIVATE
             ALETHEIA_DOC_CXX="${CMAKE_CXX_COMPILER}"
             ALETHEIA_DOC_LIB_FILE="$<TARGET_FILE:aletheia-cpp>"
-            ALETHEIA_DOC_CXX_STD="23"
+            ALETHEIA_DOC_CXX_STD_FLAG="${CMAKE_CXX23_EXTENSION_COMPILE_OPTION}"
             ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
     # The stand-in every fence runs against: it forwards each call to the
     # library and logs each refusal, which the harness holds to the codes the
