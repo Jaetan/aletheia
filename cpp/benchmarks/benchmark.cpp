@@ -132,6 +132,7 @@ struct Args {
     int warmup = 2;
     int ops = 5000;       // latency mode: number of operations
     int warmup_ops = 500; // latency mode: warmup operations
+    int lane = 0;         // throughput mode: the one lane to run, 0 for every lane
     bool quick = false;   // scaling mode: fewer iterations
     bool json_output = false;
 };
@@ -146,6 +147,7 @@ static void print_usage(std::string_view argv0) {
         "  --runs N     Number of runs (default: 5, throughput/scaling)\n"
         "  --warmup N   Warmup runs (default: 2, throughput) or ops (default: 500, latency)\n"
         "  --ops N      Operations to measure (default: 5000, latency)\n"
+        "  --lane N     Run only lane N, 1 to 6 (default: 0, every lane, throughput)\n"
         "  --quick      Fewer iterations (scaling)\n"
         "  --json       Emit JSON to stdout\n",
         argv0);
@@ -210,6 +212,8 @@ static auto parse_args(std::span<char* const> argv) -> Args {
             args.warmup_ops = val;
         } else if (arg == "--ops" && has_value) {
             args.ops = parse_count(arg, take_value());
+        } else if (arg == "--lane" && has_value) {
+            args.lane = parse_count(arg, take_value());
         } else {
             std::println(stderr, "Unknown option: {}", arg);
             print_usage(program);
@@ -228,6 +232,11 @@ static auto parse_args(std::span<char* const> argv) -> Args {
             std::println(stderr, "{} must be at least 1, got {}", option, value);
             std::exit(1);
         }
+    }
+    if (args.lane > aletheia::bench::throughput_lanes) {
+        std::println(stderr, "--lane must be between 0 and {}, got {}",
+                     aletheia::bench::throughput_lanes, args.lane);
+        std::exit(1);
     }
 
     return args;
@@ -255,7 +264,7 @@ static auto run(std::span<char* const> argv) -> int try {
     // under --json.
     write_mode_report(stdout, args.mode, [&] {
         if (args.mode == "throughput")
-            run_throughput(lib, args.frames, args.runs, args.warmup, args.json_output);
+            run_throughput(lib, args.frames, args.runs, args.warmup, args.lane, args.json_output);
         else if (args.mode == "latency")
             run_latency(lib, args.ops, args.warmup_ops, args.json_output);
         else if (args.mode == "scaling")

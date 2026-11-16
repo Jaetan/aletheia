@@ -38,11 +38,15 @@ func TestMain(m *testing.M) {
 	case "warm-up fails":
 		cycle = failingCycle(1)
 	case "cycle fails":
-		cycle = failingCycle(2)
+		cycle = failingCycle(warmUpCycles + 1)
 	case "opening snapshot fails":
 		snapshotOf = failingSnapshot(1)
 	case "closing snapshot fails":
 		snapshotOf = failingSnapshot(2)
+	case "allocation grows":
+		allocatedBytes = growingAllocation()
+	case "no allocation count":
+		allocatedBytes = func() (uint64, bool) { return 0, false }
 	}
 	main()
 	os.Exit(0)
@@ -53,8 +57,8 @@ var (
 	errSnapshot = errors.New("/proc/self/fd is gone")
 )
 
-// failingCycle answers a cycle that fails on its nth call, the warm-up being
-// the first, and runs every call before it.
+// failingCycle answers a cycle that fails on its nth call, the warm-ups being
+// the first calls, and runs every call before it.
 func failingCycle(nth int) func(context.Context, *aletheia.FFIBackend, aletheia.DBCDefinition, int) error {
 	calls := 0
 	return func(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, frames int) error {
@@ -76,6 +80,18 @@ func failingSnapshot(nth int) func(string) (snapshot, error) {
 			return snapshot{}, errSnapshot
 		}
 		return takeSnapshot(metric)
+	}
+}
+
+// growingAllocation answers a count of the kernel's allocated bytes that grows
+// by a byte more at every read, as a cycle doing more work than the one
+// before it would.
+func growingAllocation() func() (uint64, bool) {
+	var total, step uint64 = 0, 1000
+	return func() (uint64, bool) {
+		total += step
+		step++
+		return total, true
 	}
 }
 
@@ -119,16 +135,21 @@ func TestEnvCountTakesOnlyWholeNumbersFromOneToMaxInt32(t *testing.T) {
 	}
 }
 
+// equalReadings are the kernel's allocated bytes read before three cycles that
+// each allocated the same.
+var equalReadings = []int64{500, 1500, 2500, 3500}
+
 // Each exact gate fails on a drift of one either way and passes with none, the
-// soft one fails only past its cap, and the verdict fails with any gate.
+// rss row reports any drift and passes, and the verdict fails with any gate.
 func TestExactGatesCatchAnyDrift(t *testing.T) {
 	start := snapshot{RSS: 1 << 20, NumFDs: 5, Goroutines: 3, StablePtrCount: 2}
-	checks := gates(start, start)
+	checks := gates(start, start, equalReadings)
 	if !passed(checks) {
 		t.Errorf("two equal snapshots fail: %+v", checks)
 	}
 	wantGates := [][2]string{
-		{"rss", "soft_threshold"}, {"fd_count", "hard_zero"}, {"goroutines", "hard_zero"}, {"stableptr", "hard_zero"},
+		{"rss", "report"}, {"fd_count", "hard_zero"}, {"goroutines", "hard_zero"}, {"stableptr", "hard_zero"},
+		{"kernel_allocation", "equal_per_cycle"},
 	}
 	if len(checks) != len(wantGates) {
 		t.Fatalf("%d checks, want %d: %+v", len(checks), len(wantGates), checks)
@@ -145,7 +166,6 @@ func TestExactGatesCatchAnyDrift(t *testing.T) {
 		by        []int64
 		threshold int64
 	}{
-		{"rss", func(s *snapshot, d int64) { s.RSS += d }, []int64{rssDeltaBytesCap + 1, -rssDeltaBytesCap - 1}, rssDeltaBytesCap},
 		{"fd_count", func(s *snapshot, d int64) { s.NumFDs += d }, []int64{1, -1}, 0},
 		{"goroutines", func(s *snapshot, d int64) { s.Goroutines += d }, []int64{1, -1}, 0},
 		{"stableptr", func(s *snapshot, d int64) { s.StablePtrCount += d }, []int64{1, -1}, 0},
@@ -154,7 +174,7 @@ func TestExactGatesCatchAnyDrift(t *testing.T) {
 		for _, d := range drift.by {
 			end := start
 			drift.move(&end, d)
-			checks := gates(start, end)
+			checks := gates(start, end, equalReadings)
 			for _, c := range checks {
 				if c.Name != name {
 					if !c.Passed {
@@ -171,11 +191,43 @@ func TestExactGatesCatchAnyDrift(t *testing.T) {
 			}
 		}
 	}
-	for _, d := range []int64{rssDeltaBytesCap, -rssDeltaBytesCap} {
+	for _, d := range []int64{1 << 40, -(1 << 19)} {
 		end := start
 		end.RSS += d
-		if !passed(gates(start, end)) {
-			t.Errorf("an rss drift of %d, at the cap, fails", d)
+		rss := gates(start, end, equalReadings)[0]
+		if rss.Name != "rss" || !rss.Passed || rss.Delta != d {
+			t.Errorf("an rss drift of %d reads %+v; want it reported and passing", d, rss)
+		}
+	}
+}
+
+// The kernel's allocation passes when every cycle allocated the same and
+// fails, alone, when one cycle allocated a byte more, each cycle's bytes and
+// their spread reported either way.
+func TestAllocationGateHoldsEveryCycleEqual(t *testing.T) {
+	start := snapshot{RSS: 1 << 20, NumFDs: 5, Goroutines: 3, StablePtrCount: 2}
+	for _, c := range []struct {
+		readings []int64
+		perCycle []int64
+		spread   int64
+	}{
+		{equalReadings, []int64{1000, 1000, 1000}, 0},
+		{[]int64{500, 1500, 2500, 3501}, []int64{1000, 1000, 1001}, 1},
+		{[]int64{500, 1501, 2501, 3501}, []int64{1001, 1000, 1000}, 1},
+	} {
+		checks := gates(start, start, c.readings)
+		allocation := checks[len(checks)-1]
+		if allocation.Name != "kernel_allocation" || !slices.Equal(allocation.PerCycle, c.perCycle) ||
+			allocation.Spread == nil || *allocation.Spread != c.spread || allocation.Passed != (c.spread == 0) {
+			t.Errorf("readings %v read as %+v; want per cycle %v, spread %d", c.readings, allocation, c.perCycle, c.spread)
+		}
+		if passed(checks) != (c.spread == 0) {
+			t.Errorf("readings %v give the verdict %v", c.readings, passed(checks))
+		}
+		for _, other := range checks[:len(checks)-1] {
+			if !other.Passed {
+				t.Errorf("readings %v fail %s too: %+v", c.readings, other.Name, other)
+			}
 		}
 	}
 }
@@ -229,9 +281,9 @@ func TestByteCountTakesEveryInt64(t *testing.T) {
 		}
 	}
 	for _, c := range []struct{ start, end, delta int64 }{{0, math.MaxInt64, math.MaxInt64}, {math.MaxInt64, 0, -math.MaxInt64}} {
-		rss := gates(snapshot{RSS: c.start}, snapshot{RSS: c.end})[0]
-		if rss.Name != "rss" || rss.Passed || rss.Delta != c.delta {
-			t.Errorf("rss from %d to %d reads %+v; want failed with delta %d", c.start, c.end, rss, c.delta)
+		rss := gates(snapshot{RSS: c.start}, snapshot{RSS: c.end}, equalReadings)[0]
+		if rss.Name != "rss" || rss.Delta != c.delta {
+			t.Errorf("rss from %d to %d reads %+v; want delta %d", c.start, c.end, rss, c.delta)
 		}
 	}
 }
@@ -482,7 +534,25 @@ func TestProgramExitStatus(t *testing.T) {
 			t.Errorf("a run leaking a client per cycle passes: %+v", r)
 		}
 	})
+	t.Run("a cycle allocating more fails the kernel_allocation gate", func(t *testing.T) {
+		requireKernel(t)
+		out := filepath.Join(dir, "allocation.json")
+		if code, stderr := runProgram(t, out, "allocation grows", short...); code != 1 {
+			t.Fatalf("a run whose cycles allocate more each time exits %d with stderr %q, want 1", code, stderr)
+		}
+		r := readReport(t, out)
+		failing := []string{}
+		for _, c := range r.SubChecks {
+			if !c.Passed {
+				failing = append(failing, c.Name)
+			}
+		}
+		if !slices.Equal(failing, []string{"kernel_allocation"}) || r.Passed {
+			t.Errorf("growing allocation fails %v, verdict %v; want kernel_allocation alone, failed", failing, r.Passed)
+		}
+	})
 	for _, failed := range []struct{ mode, line string }{
+		{"no allocation count", "the opening snapshot failed: reading the kernel's allocated bytes: the runtime is not running"},
 		{"warm-up fails", "the warm-up cycle failed: " + errCycle.Error()},
 		{"cycle fails", "cycle 1 of 2 failed: " + errCycle.Error()},
 		{"opening snapshot fails", "the opening snapshot failed: " + errSnapshot.Error()},

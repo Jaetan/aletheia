@@ -43,12 +43,13 @@ MEASURES_VAR = "LANE_MEASURES"
 
 # A change under any of these moves every binding's measurement, or the
 # measuring itself: the kernel, the harness that drives the four bindings, the
-# schema their reports follow, the gate that judges them, this question and
-# the workflow running all of it.
+# schema their reports follow, the counting of each lane's instructions, the
+# gate that judges them, this question and the workflow running all of it.
 BENCHMARK_GLOBAL_PATHS = (
     *KERNEL_PATHS,
     "benchmarks/",
     "tools/benchmark_gate.py",
+    "tools/benchmark_instructions.py",
     "tools/benchmark_scope.py",
     "tools/check_bench_schema.py",
     "tools/mutation_run.py",  # the reading of the diff this question asks

@@ -16,12 +16,17 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <print>
 #include <ranges>
+#include <span>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -96,63 +101,72 @@ static auto run_throughput_bench(std::string name, auto bench_fn, int num_frames
 }
 
 // The six measurements the throughput mode takes, in the order the summary
-// table prints them.
+// table prints them, or the one lane asked for: one lane runs by itself for an
+// instruction count that holds nothing else.
 static auto collect_throughput_results(fs::path const& lib, int num_frames, int num_runs,
-                                       int warmup) -> std::vector<ThroughputResult> {
+                                       int warmup, int lane) -> std::vector<ThroughputResult> {
     auto const dbc_20 = make_can20_dbc();
     auto const dbc_fd = make_canfd_dbc();
 
+    struct Lane {
+        std::string_view name;
+        std::function<double(int)> run;
+    };
+    std::array<Lane, aletheia::bench::throughput_lanes> const lanes{{
+        {.name = "CAN 2.0B: Stream LTL (2 props)",
+         .run =
+             [&](int n) {
+                 return bench_streaming(lib, dbc_20, make_can20_properties(), can20_id, can20_dlc,
+                                        can20_frame(), n);
+             }},
+        {.name = "CAN 2.0B: Signal Extraction",
+         .run =
+             [&](int n) {
+                 return bench_extraction(lib, dbc_20, can20_id, can20_dlc, can20_frame(), n);
+             }},
+        {.name = "CAN 2.0B: Frame Building",
+         .run =
+             [&](int n) {
+                 return bench_building(lib, dbc_20, can20_id, can20_dlc, can20_signals(), n);
+             }},
+        {.name = "CAN-FD:   Stream LTL (3 props)",
+         .run =
+             [&](int n) {
+                 return bench_streaming(lib, dbc_fd, make_canfd_properties(), canfd_id, canfd_dlc,
+                                        canfd_frame(), n);
+             }},
+        {.name = "CAN-FD:   Signal Extraction",
+         .run =
+             [&](int n) {
+                 return bench_extraction(lib, dbc_fd, canfd_id, canfd_dlc, canfd_frame(), n);
+             }},
+        {.name = "CAN-FD:   Frame Building",
+         .run =
+             [&](int n) {
+                 return bench_building(lib, dbc_fd, canfd_id, canfd_dlc, canfd_signals(), n);
+             }},
+    }};
+    auto const selected = lane == 0
+                              ? std::span{lanes}
+                              : std::span{lanes}.subspan(static_cast<std::size_t>(lane - 1), 1);
+
     std::vector<ThroughputResult> results;
-
-    // CAN 2.0B benchmarks
-    results.push_back(run_throughput_bench(
-        "CAN 2.0B: Stream LTL (2 props)",
-        [&](int n) {
-            return bench_streaming(lib, dbc_20, make_can20_properties(), can20_id, can20_dlc,
-                                   can20_frame(), n);
-        },
-        num_frames, num_runs, warmup));
-
-    results.push_back(run_throughput_bench(
-        "CAN 2.0B: Signal Extraction",
-        [&](int n) { return bench_extraction(lib, dbc_20, can20_id, can20_dlc, can20_frame(), n); },
-        num_frames, num_runs, warmup));
-
-    results.push_back(run_throughput_bench(
-        "CAN 2.0B: Frame Building",
-        [&](int n) { return bench_building(lib, dbc_20, can20_id, can20_dlc, can20_signals(), n); },
-        num_frames, num_runs, warmup));
-
-    // CAN-FD benchmarks
-    results.push_back(run_throughput_bench(
-        "CAN-FD:   Stream LTL (3 props)",
-        [&](int n) {
-            return bench_streaming(lib, dbc_fd, make_canfd_properties(), canfd_id, canfd_dlc,
-                                   canfd_frame(), n);
-        },
-        num_frames, num_runs, warmup));
-
-    results.push_back(run_throughput_bench(
-        "CAN-FD:   Signal Extraction",
-        [&](int n) { return bench_extraction(lib, dbc_fd, canfd_id, canfd_dlc, canfd_frame(), n); },
-        num_frames, num_runs, warmup));
-
-    results.push_back(run_throughput_bench(
-        "CAN-FD:   Frame Building",
-        [&](int n) { return bench_building(lib, dbc_fd, canfd_id, canfd_dlc, canfd_signals(), n); },
-        num_frames, num_runs, warmup));
+    for (auto const& [name, run] : selected)
+        results.push_back(
+            run_throughput_bench(std::string{name}, run, num_frames, num_runs, warmup));
     return results;
 }
 
 namespace aletheia::bench {
 
-void run_throughput(fs::path const& lib, int num_frames, int num_runs, int warmup, bool emit_json) {
+void run_throughput(fs::path const& lib, int num_frames, int num_runs, int warmup, int lane,
+                    bool emit_json) {
     print_header("Aletheia Throughput Benchmark (C++)");
     std::println(out_file(), "Frames per run: {}", num_frames);
     std::println(out_file(), "Runs: {}", num_runs);
     std::println(out_file(), "Warmup runs: {}", warmup);
 
-    auto const results = collect_throughput_results(lib, num_frames, num_runs, warmup);
+    auto const results = collect_throughput_results(lib, num_frames, num_runs, warmup, lane);
 
     // Summary table
     std::println(out_file(), "");
@@ -186,7 +200,8 @@ void run_throughput(fs::path const& lib, int num_frames, int num_runs, int warmu
             {"language", "cpp"},
             {"timestamp", iso_timestamp()},
             {"system", get_system_info()},
-            {"parameters", {{"frames", num_frames}, {"runs", num_runs}, {"warmup", warmup}}},
+            {"parameters",
+             {{"frames", num_frames}, {"runs", num_runs}, {"warmup", warmup}, {"lane", lane}}},
             {"results", json_results},
         };
         std::println("{}", output.dump(2));

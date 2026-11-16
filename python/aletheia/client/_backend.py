@@ -28,14 +28,13 @@ from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 from aletheia.client._ffi import (
     AletheiaBuffer,
     AletheiaFrame,
-    AletheiaRational,
     AletheiaSignalValues,
     AletheiaText,
     EntrySymbol,
     RTSState,
     open_library,
     take_error_envelope,
-    wire_rational,
+    wire_rationals,
 )
 from aletheia.client._refusal import raise_entry_refusal
 from aletheia.client._types import (
@@ -280,10 +279,9 @@ def _signal_values(
 ) -> AletheiaSignalValues:
     """Pack the signal indices and their values into one ``struct aletheia_signal_values``."""
     n = len(indices)
-    rationals = (wire_rational(value) for value in values)
     return AletheiaSignalValues(
         indices=(ctypes.c_uint32 * n)(*indices),
-        values=(AletheiaRational * n)(*rationals),
+        values=wire_rationals(values),
         count=n,
     )
 

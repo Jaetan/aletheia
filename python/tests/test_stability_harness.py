@@ -14,11 +14,16 @@ reads, and one whose resource cannot be read as a count fails, naming the
 opening or the closing snapshot, rather than reading the resource as zero.
 That filesystem is a tree the test lays out, through ``psutil.PROCFS_PATH``,
 and the cycles are replaced by ones that load no kernel, or run with a client
-that loads none.
+that loads none.  The kernel's allocated bytes are read from a counter each
+test sets: the same allocation in every measured cycle passes, a cycle that
+allocates more fails the ``kernel_allocation`` gate alone, and a count the
+runtime cannot give leaves the run without a verdict.  The resident set size
+is reported and decides nothing.
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
@@ -34,11 +39,11 @@ from _processes import CommandWord
 
 from aletheia import AletheiaError
 from aletheia.client._ffi import RTSState
-from aletheia.common_types import PositiveInt, Prose
+from aletheia.common_types import AllocatedBytes, PositiveInt, Prose
 from benchmarks import stability
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
     from types import TracebackType
 
     from aletheia.types import DBCDefinition, DLCCode
@@ -63,12 +68,19 @@ _STATM: Final = "1000 300 0 0 0 0 0\n"
 _RESIDENT_PAGES: Final = 300
 
 
+# A sub-check's name in the report.
+_CheckName = Literal["rss", "fd_count", "ctypes_handles", "logger_handlers", "kernel_allocation"]
+
+
 class _SubCheck(TypedDict):
     """One sub-check of the report, in the fields these tests read."""
 
-    name: Literal["rss", "fd_count", "ctypes_handles", "logger_handlers"]
+    name: _CheckName
+    gate: Literal["hard_zero", "equal_per_cycle", "report"]
     start: ResourceCount
     delta: ResourceCount
+    per_cycle: list[AllocatedBytes]
+    spread: AllocatedBytes
     passed: bool
 
 
@@ -85,6 +97,26 @@ class _Report(TypedDict):
 def _no_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the harness with no argument, as ``tools/stability_run.py`` does."""
     monkeypatch.setattr(sys, "argv", [CommandWord("benchmarks/stability.py")])
+
+
+def _allocation_counter(steps: Iterable[AllocatedBytes]) -> Callable[[], AllocatedBytes | None]:
+    """Answer the kernel's allocated bytes as a run reads them: each read adds the next step."""
+    remaining = iter(steps)
+    total = AllocatedBytes(0)
+
+    def read() -> AllocatedBytes | None:
+        nonlocal total
+        total = AllocatedBytes(total + next(remaining))
+        return total
+
+    return read
+
+
+@pytest.fixture(autouse=True)
+def _equal_allocation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Have every measured cycle allocate the same bytes, unless a test sets its own counter."""
+    counter = _allocation_counter(itertools.repeat(AllocatedBytes(1000)))
+    monkeypatch.setattr(stability, "allocated_bytes", counter)
 
 
 def _no_cycle(**_cycle: PositiveInt | DBCDefinition) -> None:
@@ -211,9 +243,9 @@ def test_a_snapshot_reads_the_counts_the_process_filesystem_holds(
     _without_kernel(monkeypatch)
     _fake_procfs(monkeypatch, tmp_path)
     assert stability.main() == 0
-    starts = {check["name"]: check["start"] for check in _report(capsys)["sub_checks"]}
-    assert starts["rss"] == _RESIDENT_PAGES * os.sysconf("SC_PAGE_SIZE")
-    assert starts["fd_count"] == 1
+    checks = _checks(capsys)
+    assert checks["rss"]["start"] == _RESIDENT_PAGES * os.sysconf("SC_PAGE_SIZE")
+    assert checks["fd_count"]["start"] == 1
 
 
 def test_a_descriptor_the_window_leaves_open_fails_the_verdict(
@@ -234,6 +266,91 @@ def test_a_descriptor_the_window_leaves_open_fails_the_verdict(
     checks = {check["name"]: check for check in report["sub_checks"]}
     assert (checks["fd_count"]["delta"], checks["fd_count"]["passed"]) == (1, False)
     assert not report["passed"]
+
+
+def _checks(capsys: pytest.CaptureFixture[Prose]) -> dict[_CheckName, _SubCheck]:
+    """Read the report's sub-checks by name."""
+    return {check["name"]: check for check in _report(capsys)["sub_checks"]}
+
+
+def test_the_same_allocation_in_every_cycle_passes_and_reports_each(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose], tmp_path: Path
+) -> None:
+    """Measured cycles allocating alike pass the allocation gate, each cycle's bytes reported."""
+    _without_kernel(monkeypatch)
+    monkeypatch.setenv("ALETHEIA_STABILITY_CYCLES", "3")
+    _fake_procfs(monkeypatch, tmp_path)
+    assert stability.main() == 0
+    allocation = _checks(capsys)["kernel_allocation"]
+    assert allocation["gate"] == "equal_per_cycle"
+    assert (allocation["per_cycle"], allocation["spread"], allocation["passed"]) == (
+        [1000, 1000, 1000],
+        0,
+        True,
+    )
+
+
+def test_a_cycle_allocating_more_fails_the_allocation_gate_alone(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose], tmp_path: Path
+) -> None:
+    """A measured cycle allocating a byte more than the others fails that gate alone, exit 1."""
+    _without_kernel(monkeypatch)
+    monkeypatch.setenv("ALETHEIA_STABILITY_CYCLES", "3")
+    _fake_procfs(monkeypatch, tmp_path)
+    steps = [AllocatedBytes(step) for step in (5, 1000, 1000, 1001)]
+    monkeypatch.setattr(stability, "allocated_bytes", _allocation_counter(steps))
+    assert stability.main() == 1
+    checks = _checks(capsys)
+    allocation = checks["kernel_allocation"]
+    assert (allocation["per_cycle"], allocation["spread"], allocation["passed"]) == (
+        [1000, 1000, 1001],
+        1,
+        False,
+    )
+    assert [name for name, check in checks.items() if not check["passed"]] == ["kernel_allocation"]
+
+
+def _no_runtime() -> AllocatedBytes | None:
+    """Answer no count, as the binding does while the runtime is down."""
+    return None
+
+
+def test_a_runtime_giving_no_allocated_bytes_leaves_the_run_without_a_verdict(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose], tmp_path: Path
+) -> None:
+    """A count the runtime cannot give exits 2 naming the opening snapshot, with no report."""
+    _without_kernel(monkeypatch)
+    _fake_procfs(monkeypatch, tmp_path)
+    monkeypatch.setattr(stability, "allocated_bytes", _no_runtime)
+    assert stability.main() == 2
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert captured.err == (
+        "stability: the opening snapshot failed: "
+        "reading the kernel's allocated bytes: the runtime is not running\n"
+    )
+
+
+def test_the_resident_set_size_is_reported_and_decides_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose], tmp_path: Path
+) -> None:
+    """A resident set that grows by a thousand pages over the window is printed and passes."""
+    _without_kernel(monkeypatch)
+    statm = _fake_procfs(monkeypatch, tmp_path)
+
+    def _cycle_growing_the_resident_set(**_cycle: PositiveInt | DBCDefinition) -> None:
+        """Hold a thousand more resident pages, as a run whose collector ran late would."""
+        statm.write_text("2000 1300 0 0 0 0 0\n", encoding="utf-8")
+
+    monkeypatch.setattr(stability, "WARMUP_CYCLES", 0)
+    monkeypatch.setattr(stability, "_run_cycle", _cycle_growing_the_resident_set)
+    assert stability.main() == 0
+    rss = _checks(capsys)["rss"]
+    assert (rss["gate"], rss["delta"], rss["passed"]) == (
+        "report",
+        1000 * os.sysconf("SC_PAGE_SIZE"),
+        True,
+    )
 
 
 class _ClientLeakingAHandle:

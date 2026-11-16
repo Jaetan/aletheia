@@ -188,8 +188,8 @@ TEST_CASE("a short run exits 0 with its report on stdout", "[stability][process]
     std::vector<std::string> names;
     for (auto const& check : report.at("sub_checks"))
         names.push_back(check.at("name").get<std::string>());
-    CHECK(names ==
-          std::vector<std::string>{"rss", "fd_count", "active_thread_count", "malloc_info"});
+    CHECK(names == std::vector<std::string>{"rss", "fd_count", "active_thread_count", "malloc_info",
+                                            "kernel_allocation"});
 }
 
 TEST_CASE("a descriptor leaked between the snapshots exits 1 with the descriptor gate failed",

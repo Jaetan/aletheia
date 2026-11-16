@@ -38,7 +38,7 @@ use serde_json::{json, Value};
 
 use latency::run_latency;
 use scaling::run_scaling;
-use throughput::run_throughput;
+use throughput::{run_throughput, THROUGHPUT_LANES};
 
 // ---------------------------------------------------------------------------
 // System info & timestamp
@@ -174,6 +174,7 @@ struct Args {
     runs: usize,
     warmup: usize,
     ops: usize,
+    lane: usize,
     json: bool,
     quick: bool,
 }
@@ -201,6 +202,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut runs: Option<usize> = None;
     let mut warmup: Option<usize> = None;
     let mut ops: Option<usize> = None;
+    let mut lane: usize = 0;
     let mut json = false;
     let mut quick = false;
 
@@ -224,6 +226,10 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 i += 1;
                 ops = Some(parse_num(argv, i, "--ops")?);
             }
+            "--lane" => {
+                i += 1;
+                lane = parse_num(argv, i, "--lane")?;
+            }
             other => return Err(format!("Unknown option: {other}")),
         }
         i += 1;
@@ -243,6 +249,11 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     // two untimed passes before a throughput lane, five hundred untimed
     // operations before a latency lane.
     let def_warmup = if mode == Mode::Latency { 500 } else { 2 };
+    if lane > THROUGHPUT_LANES {
+        return Err(format!(
+            "--lane must be between 0 and {THROUGHPUT_LANES}, got {lane}"
+        ));
+    }
 
     Ok(Args {
         mode,
@@ -250,6 +261,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         runs: runs.unwrap_or(def_runs),
         warmup: warmup.unwrap_or(def_warmup),
         ops: ops.unwrap_or(def_ops),
+        lane,
         json,
         quick,
     })
@@ -318,10 +330,14 @@ fn measure(args: &Args, lib: &str, out: &mut Output<'_>) -> io::Result<()> {
         Mode::Throughput => {
             out.line(&format!("Frames per run: {}", args.frames))?;
             out.line(&format!("Runs: {}", args.runs))?;
-            let results = run_throughput(out, args.frames, args.runs, args.warmup)?;
+            let results = run_throughput(out, args.frames, args.runs, args.warmup, args.lane)?;
             if args.json {
-                let parameters =
-                    json!({"frames": args.frames, "runs": args.runs, "warmup": args.warmup});
+                let parameters = json!({
+                    "frames": args.frames,
+                    "runs": args.runs,
+                    "warmup": args.warmup,
+                    "lane": args.lane,
+                });
                 out.json_report(&list_report(mode, parameters, results))?;
             }
         }

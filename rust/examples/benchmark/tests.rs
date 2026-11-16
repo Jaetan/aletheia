@@ -6,6 +6,7 @@
 
 use std::io::{self, Write};
 
+use super::throughput::select_lane;
 use super::{parse_args, run, Mode, Output};
 
 const LIB: &str = "libaletheia-ffi.so";
@@ -154,6 +155,14 @@ fn a_refused_argument_writes_no_text() {
             &["latency", "--warmup", "1.5"],
             "--warmup requires a numeric argument",
         ),
+        (
+            &["throughput", "--lane"],
+            "--lane requires a numeric argument",
+        ),
+        (
+            &["throughput", "--lane", "7"],
+            "--lane must be between 0 and 6, got 7",
+        ),
     ] {
         let (mut stdout, mut stderr) = (Stream::taking_all(), Stream::taking_all());
         assert_eq!(
@@ -180,6 +189,19 @@ fn the_warmup_defaults_to_the_modes_own() {
         let parsed = parse_args(&argv(args)).expect("the arguments are accepted");
         assert_eq!(parsed.warmup, warmup, "{args:?}");
     }
+}
+
+/// Lane 0 is every lane, and lane `k` the `k`-th alone, counted from 1; the
+/// last lane is taken.
+#[test]
+fn a_lane_selects_itself_alone_or_every_lane() {
+    let lanes = ["a", "b", "c", "d", "e", "f"];
+    assert_eq!(select_lane(&lanes, 0), &lanes[..]);
+    for (k, lane) in lanes.iter().enumerate() {
+        assert_eq!(select_lane(&lanes, k + 1), &[*lane][..]);
+    }
+    let parsed = parse_args(&argv(&["throughput", "--lane", "6"])).expect("lane 6 is accepted");
+    assert_eq!(parsed.lane, 6);
 }
 
 /// A run that names no mode measures throughput.

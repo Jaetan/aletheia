@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import stat
+import struct
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType
@@ -26,6 +27,7 @@ from aletheia.common_types import CoreCount, Prose
 from aletheia.types import JSONValue, is_str_dict
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from fractions import Fraction
 
     from aletheia.client._helpers.reply_shape import ReplyFields
@@ -445,22 +447,52 @@ _WORD_BITS = 64
 _WORD_MASK = (1 << _WORD_BITS) - 1
 
 
-def wire_uint128(magnitude: Magnitude) -> AletheiaUint128:
-    """Split a magnitude below ``2**128`` into the two words of ``struct aletheia_uint128``."""
-    return AletheiaUint128(lo=magnitude & _WORD_MASK, hi=magnitude >> _WORD_BITS)
+# ``struct aletheia_rational`` as bytes, in AletheiaRational's field order and
+# native byte order: the numerator's low and high words, the denominator's, the
+# sign byte, then the padding up to the structure's size.
+_RATIONAL_FIELDS = "=4QB"
+
+# The bytes of one ``struct aletheia_rational``.
+RationalRow = NewType("RationalRow", bytes)
+_RATIONAL_ROW = struct.Struct(
+    f"{_RATIONAL_FIELDS}{ctypes.sizeof(AletheiaRational) - struct.calcsize(_RATIONAL_FIELDS)}x"
+)
+
+
+def _rational_row(value: Fraction) -> RationalRow:
+    """Lay out a rational whose components fit 128 bits as one ``struct aletheia_rational``'s bytes.
+
+    The sign travels in its own byte, 0 for zero as the header asks, so each
+    component crosses as its magnitude; a component of ``2**128`` or more is
+    refused by ``struct`` rather than truncated.
+    """
+    numerator = value.numerator
+    negative = numerator < 0
+    magnitude = -numerator if negative else numerator
+    denominator = value.denominator
+    return RationalRow(
+        _RATIONAL_ROW.pack(
+            magnitude & _WORD_MASK,
+            magnitude >> _WORD_BITS,
+            denominator & _WORD_MASK,
+            denominator >> _WORD_BITS,
+            1 if negative else 0,
+        )
+    )
 
 
 def wire_rational(value: Fraction) -> AletheiaRational:
-    """Lay out a rational whose components fit 128 bits as ``struct aletheia_rational``.
+    """Lay out a rational whose components fit 128 bits as ``struct aletheia_rational``."""
+    return AletheiaRational.from_buffer_copy(_rational_row(value))
 
-    The sign travels in its own byte, 0 for zero as the header asks, so each
-    component crosses as its magnitude.
+
+def wire_rationals(values: Sequence[Fraction]) -> ctypes.Array[AletheiaRational]:
+    """Lay out rationals whose components fit 128 bits as an array of ``struct aletheia_rational``.
+
+    The rows are packed as bytes and copied into the array once, which costs a
+    fraction of building each rational's three structures field by field.
     """
-    return AletheiaRational(
-        numerator=wire_uint128(Magnitude(abs(value.numerator))),
-        denominator=wire_uint128(Magnitude(value.denominator)),
-        negative=1 if value < 0 else 0,
-    )
+    return (AletheiaRational * len(values)).from_buffer_copy(b"".join(map(_rational_row, values)))
 
 
 def uint128_value(words: AletheiaUint128) -> Magnitude:

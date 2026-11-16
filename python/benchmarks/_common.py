@@ -198,14 +198,18 @@ class BenchmarkConfig:
 FrameCount = NewType("FrameCount", int)
 RunCount = NewType("RunCount", int)
 OperationCount = NewType("OperationCount", int)
+# A throughput lane, counted from 1 in the order the mode reports them; 0 is
+# every lane.
+LaneNumber = NewType("LaneNumber", int)
 
 
 class ThroughputParameters(TypedDict):
-    """Throughput's flags: frames per pass, timed passes, untimed warmup passes."""
+    """Throughput's flags: frames per pass, timed passes, untimed warmup passes, the lane run."""
 
     frames: FrameCount
     runs: RunCount
     warmup: RunCount
+    lane: LaneNumber
 
 
 class LatencyParameters(TypedDict):

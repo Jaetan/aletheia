@@ -2,12 +2,16 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # The cross-language benchmark on a GitHub-hosted runner (ubuntu-24.04,
-# 4-core / ~16 GB), with the supported toolchain (clang-23 / Python 3.14 / Go
-# stable), in two legs on every pull request: throughput, gated against the
-# committed GHA baseline and advisory, and `load scaling`, which fails when the
+# 4-core / ~16 GB), with the supported toolchain pinned to the versions the
+# committed instruction counts rest on (clang-23, Python 3.14.10, Go 1.27.4,
+# Rust 1.98.1), in two legs on every pull request: throughput, which prints
+# each lane's frames per second and holds each lane's instructions per
+# operation, counted under valgrind, to the counts committed in
+# benchmarks/instruction_counts.json, and `load scaling`, which fails when the
 # bytes a binding's DBC load allocates outgrow the doublings of its messages or
-# of one number's digits and is a check the main branch ruleset requires.  A
-# manual run measures the one mode it is given.  Results are printed to the
+# of one number's digits and is a check the main branch ruleset requires.  Both
+# gates read counts, so a run's verdict does not rest on the runner's speed.
+# A manual run measures the one mode it is given.  Results are printed to the
 # log and uploaded as an artifact.
 # The toolchain setup mirrors pr-full-ci.yml and reuses its cache keys so the
 # Agda build and the clang-23 debs are warm if that workflow has run.
@@ -67,6 +71,7 @@ jobs:
       GHC_VERSION: '9.8.4'
       AGDA_VERSION: '2.8.0'
       STDLIB_VERSION: 'v2.4'
+      RUST_VERSION: '1.98.1'
       # Defaults apply on pull_request (no inputs); the PR gate is consistent
       # because every PR run uses these same values, matching the baseline.
       FRAMES: ${{ github.event.inputs.frames || '5000' }}
@@ -81,10 +86,12 @@ jobs:
       - name: Ensure a local `main` ref for `git diff main...HEAD`
         run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
 
-      - name: Set up Python 3.14
+      # Exact versions: an instruction count rests on the interpreter's build,
+      # and the committed counts record the toolchain they were taken with.
+      - name: Set up Python 3.14.10
         uses: actions/setup-python@v7
         with:
-          python-version: '3.14'
+          python-version: '3.14.10'
           # Cache pip's wheel-download cache, keyed on the dependency manifest,
           # so `pip install -e python/.[dev]` reuses downloaded wheels across
           # runs (the venv itself is re-created each run; this saves the fetch).
@@ -213,14 +220,21 @@ jobs:
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
 
-      - name: Set up Go
+      - name: Set up Go 1.27.4
         if: env.LANE_MEASURES != '0'
         uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version: '1.27.4'
           cache-dependency-path: |
             go/go.sum
             go/excel/go.sum
+
+      - name: Set up Rust ${{ env.RUST_VERSION }}
+        if: env.LANE_MEASURES != '0'
+        run: |
+          set -euo pipefail
+          rustup toolchain install "${RUST_VERSION}" --profile minimal --no-self-update
+          rustup default "${RUST_VERSION}"
 
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
       # toolchain) from apt.llvm.org.  Reuses pr-full-ci.yml's deb-cache key.
@@ -381,64 +395,39 @@ jobs:
           read -ra args <<< "${BENCH_ARGS}"
           bash benchmarks/run_all.sh "${args[@]}" --bench "${BENCH}"
 
-      # PR gate.  Throughput: fail the check on a noticeable regression vs the
-      # committed GHA baseline; with no baseline yet the gate reports + passes
-      # (bootstrap), and benchmarks/gha_baseline.json is seeded from that
-      # known-good run.  Scaling: fail when the bytes a binding's DBC load
-      # allocates outgrow the doublings of its messages or of one number's
-      # digits (tools/benchmark_gate.py says by how much).  PR-only:
-      # exploratory workflow_dispatch runs are not gated.
-      #
-      # Only throughput retries.  The scaling gate reads allocated bytes, a
-      # count a re-measure repeats to within a few kilobytes, so a second run
-      # could only agree with the first.
-      #
-      # Retry-once WITH RE-MEASURE (jitter watch, 2026-07-02): #132 failed this
-      # gate with a uniform ~2.7× slowdown across EVERY binding and category on
-      # a doc-only commit — a slow runner, not a regression (a real regression
-      # is asymmetric: only the touched path slows).  Re-judging the same stale
-      # numbers would be pointless, so a failed gate re-RUNS the benchmark once
-      # and re-gates.  First-attempt results are preserved and uploaded as the
-      # `…-attempt1` artifact.  TALLY: each retry emits a `FLAKE-RETRY` warning
-      # annotation + step-summary line, and leaves the attempt1 artifact —
-      # count retries across runs with:
-      #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
-      #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
-      # It reads the results the measurement writes, so it waits on that step.
-      - name: Regression gate (throughput retries once with re-measure)
-        if: ${{ env.LANE_MEASURES != '0' && github.event_name == 'pull_request' && !cancelled() && steps.measure.outcome == 'success' }}
+      # The throughput leg's gate reads counts, not times: each lane of each
+      # binding runs alone under valgrind's cachegrind at two frame counts, and
+      # the difference over the frames is its instructions per operation
+      # (tools/benchmark_instructions.py).
+      - name: Install valgrind (throughput)
+        if: ${{ env.LANE_MEASURES != '0' && matrix.bench == 'throughput' && !cancelled() && steps.ready.outcome == 'success' }}
         run: |
           set -euo pipefail
-          gate=(--bench "${BENCH}")
-          if [ "${BENCH}" = throughput ]; then gate+=(--threshold-pct 30); fi
-          if python/.venv/bin/python3 -m tools.benchmark_gate "${gate[@]}"; then
-            exit 0
-          fi
-          if [ "${BENCH}" = scaling ]; then
-            exit 1
-          fi
-          echo "::warning title=FLAKE-RETRY::${BENCH} gate failed on attempt 1 — re-measuring once (runner jitter suspected; see the jitter watch)"
-          {
-            echo "## ⚠ FLAKE-RETRY: cross-language ${BENCH}"
-            echo ""
-            echo "Attempt 1 failed the regression gate; the benchmark re-measured once."
-            echo "If attempt 2 passes, attempt 1 was runner jitter (a symmetric global"
-            echo "slowdown = slow runner; a real regression is asymmetric). First-attempt"
-            echo "results are in the benchmark-${BENCH}-results-attempt1 artifact."
-          } >> "${GITHUB_STEP_SUMMARY}"
-          mkdir -p benchmarks/results-attempt1
-          # Non-fatal (nothing to copy if the measure step itself died early)
-          # but VOCAL — a real copy failure must not silently lose attempt-1.
-          cp benchmarks/results/*.json benchmarks/results-attempt1/ \
-            || echo "::warning title=FLAKE-RETRY::could not preserve attempt-1 benchmark results (none written before the failure?)"
-          rm -f benchmarks/results/*.json
-          source python/.venv/bin/activate
-          read -ra args <<< "${BENCH_ARGS}"
-          bash benchmarks/run_all.sh "${args[@]}" --bench "${BENCH}"
-          python/.venv/bin/python3 -m tools.benchmark_gate "${gate[@]}"
+          sudo apt-get update
+          sudo apt-get install -y valgrind
 
-      # Print + upload AFTER the gate so a retried run's artifact holds the
-      # FINAL (attempt-2) results; the first attempt uploads separately below.
+      - name: Count each lane's instructions (throughput)
+        if: ${{ env.LANE_MEASURES != '0' && matrix.bench == 'throughput' && !cancelled() && steps.measure.outcome == 'success' }}
+        id: count
+        run: python/.venv/bin/python3 -m tools.benchmark_instructions
+
+      # PR gate.  Throughput: fail when a lane's instructions per operation
+      # moved more than 5% from benchmarks/instruction_counts.json either way,
+      # or the counts rest on another toolchain.  Scaling: fail when the bytes
+      # a binding's DBC load allocates outgrow the doublings of its messages or
+      # of one number's digits.  tools/benchmark_gate.py says by how much.
+      # Both read counts a re-run repeats, so a failed gate is a verdict and
+      # nothing re-runs.  PR-only: exploratory workflow_dispatch runs are not
+      # gated.  It reads what the measurement and the count write, so it waits
+      # on them.
+      - name: Regression gate
+        if: ${{ env.LANE_MEASURES != '0' && github.event_name == 'pull_request' && !cancelled() && steps.measure.outcome == 'success' && (matrix.bench != 'throughput' || steps.count.outcome == 'success') }}
+        run: |
+          set -euo pipefail
+          if [ "${BENCH}" = throughput ]; then check=instructions; else check="${BENCH}"; fi
+          python/.venv/bin/python3 -m tools.benchmark_gate --bench "${check}"
+
+      # Print + upload after the gate, the instruction counts among them.
       - name: Print the result JSON
         if: always()
         run: |
@@ -457,14 +446,6 @@ jobs:
           name: benchmark-${{ env.BENCH }}-results
           path: benchmarks/results/*.json
           if-no-files-found: warn
-
-      - name: Upload first-attempt results (only exists on a retry)
-        if: always() && env.LANE_MEASURES != '0'
-        uses: actions/upload-artifact@v7
-        with:
-          name: benchmark-${{ env.BENCH }}-results-attempt1
-          path: benchmarks/results-attempt1/*.json
-          if-no-files-found: ignore
 
       # Save ccache (split-save like pr-full-ci: `!cancelled()` so it persists
       # even if the regression gate above failed; skip on an exact-sha re-run

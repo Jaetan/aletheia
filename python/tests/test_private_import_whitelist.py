@@ -285,6 +285,12 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_from_decimal.py", "aletheia.client._ffi", "wire_rational"),
         ("test_from_decimal.py", "aletheia.client._helpers.rational", "decimal_value"),
+        # The packers every sent rational goes through are read back through
+        # the structure's own fields, a layout no public path exposes.
+        ("test_wire_rationals.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_wire_rationals.py", "aletheia.client._ffi", "Word"),
+        ("test_wire_rationals.py", "aletheia.client._ffi", "wire_rational"),
+        ("test_wire_rationals.py", "aletheia.client._ffi", "wire_rationals"),
         # Each reader of a kernel rational (a reply's dict, the decimal entry's
         # out-parameter, an extraction value) is held to checking kinds only,
         # on parts the kernel never writes, which no public path reaches.
@@ -295,8 +301,7 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ),
         ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "AletheiaRational"),
-        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "Magnitude"),
-        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "wire_uint128"),
+        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "AletheiaUint128"),
         (
             "test_reader_drops_denominator_checks.py",
             "aletheia.client._helpers.rational",

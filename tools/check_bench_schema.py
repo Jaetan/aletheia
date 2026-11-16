@@ -58,7 +58,7 @@ RUNNER_PATH = REPO / "benchmarks" / "run_all.sh"
 # the workload tiny while still exercising the flag), so a binding that drops or
 # renames a flag fails the gate instead of slipping through on its default.
 MODE_ARGS: dict[str, list[str]] = {
-    "throughput": ["--frames", "100", "--runs", "1", "--warmup", "0", "--json"],
+    "throughput": ["--frames", "100", "--runs", "1", "--warmup", "0", "--lane", "0", "--json"],
     "latency": ["--ops", "50", "--warmup", "0", "--json"],
     "scaling": ["--quick", "--runs", "1", "--json"],
 }
@@ -82,6 +82,18 @@ MODE_PARAMETERS = {
     }
     for mode, args in MODE_ARGS.items()
 }
+
+
+# The one-lane run: throughput's arguments with the lane its report must hold
+# alone, the CAN 2.0B frame-building lane, so every harness is held to running
+# the lane it is asked for and no other.
+ONE_LANE = Count(3)
+_LANE_AT = MODE_ARGS["throughput"].index("--lane") + 1
+ONE_LANE_ARGS = [
+    *MODE_ARGS["throughput"][:_LANE_AT],
+    str(ONE_LANE),
+    *MODE_ARGS["throughput"][_LANE_AT + 1 :],
+]
 
 
 # A shell variable a lane of the runner fills, a binding as the schema names
@@ -222,7 +234,7 @@ def _obj_map(value: object) -> dict[object, object]:
     return cast("dict[object, object]", value)
 
 
-def _lib_env() -> dict[str, str]:
+def lib_env() -> dict[str, str]:
     """Environment with ALETHEIA_LIB at the built core (as run_all.sh sets it)."""
     env = dict(os.environ)
     so = REPO / "build" / "libaletheia-ffi.so"
@@ -232,7 +244,7 @@ def _lib_env() -> dict[str, str]:
     return env
 
 
-def _bindings(*, built: bool) -> list[Binding]:
+def bindings(*, built: bool) -> list[Binding]:
     """Every binding.
 
     Python is interpreted, so its source IS what runs — always checkable and the
@@ -285,19 +297,20 @@ def _bindings(*, built: bool) -> list[Binding]:
     ]
 
 
-def _argv(binding: Binding, mode: str) -> list[str]:
+def _argv(binding: Binding, mode: str, *, one_lane: bool) -> list[str]:
+    args = ONE_LANE_ARGS if one_lane else MODE_ARGS[mode]
     if binding.python_module:
-        return [str(binding.exe), "-m", f"benchmarks.{mode}", *MODE_ARGS[mode]]
-    return [str(binding.exe), mode, *MODE_ARGS[mode]]
+        return [str(binding.exe), "-m", f"benchmarks.{mode}", *args]
+    return [str(binding.exe), mode, *args]
 
 
-def _run(binding: Binding, mode: str) -> dict[object, object]:
-    """Run one binding in one mode and return its parsed JSON payload."""
+def _run(binding: Binding, mode: str, *, one_lane: bool = False) -> dict[object, object]:
+    """Run one binding in one mode, or its one-lane run, and return its parsed JSON payload."""
     # Fixed argv (no shell); each element is a str we constructed, not user input.
     proc = subprocess.run(
-        _argv(binding, mode),
+        _argv(binding, mode, one_lane=one_lane),
         cwd=binding.cwd,
-        env=_lib_env(),
+        env=lib_env(),
         capture_output=True,
         text=True,
         timeout=300,
@@ -408,11 +421,27 @@ def _check_dict_mode(results: object, spec: dict[object, object]) -> list[str]:
 
 
 def validate(
-    name: str, mode: str, payload: dict[object, object], schema: dict[object, object]
+    name: str,
+    mode: str,
+    payload: dict[object, object],
+    schema: dict[object, object],
+    *,
+    one_lane: Count | None = None,
 ) -> list[str]:
-    """Return conformance errors (empty == conformant). Structure only."""
+    """Return conformance errors (empty == conformant). Structure only.
+
+    With ``one_lane``, the payload is a throughput run asked for that lane
+    alone: its parameters record the lane, and its results hold that lane only.
+    """
     spec = _obj_map(_obj_map(schema["modes"])[mode])
     envelope = _obj_map(schema["envelope"])
+    parameters = MODE_PARAMETERS[mode]
+    lanes = _strs(spec.get("lane_names", []))
+    label = f"[{name} / {mode}]"
+    if one_lane is not None:
+        parameters = {**parameters, SchemaKey("lane"): one_lane}
+        lanes = lanes[one_lane - 1 : one_lane]
+        label = f"[{name} / {mode} --lane {one_lane}]"
     env_errors = _check_envelope(
         payload,
         mode,
@@ -420,17 +449,17 @@ def validate(
         Envelope(
             top=frozenset(SchemaKey(k) for k in _strs(envelope["top_keys"])),
             system=frozenset(SchemaKey(k) for k in _strs(_obj_map(envelope["system_keys"])[name])),
-            parameters=MODE_PARAMETERS[mode],
+            parameters=parameters,
         ),
     )
     if env_errors and env_errors[0].startswith("top keys"):
-        return [f"[{name} / {mode}] {e}" for e in env_errors]
+        return [f"{label} {e}" for e in env_errors]
     results = payload.get("results")
     if spec["results_container"] == "list":
-        body = _check_list_mode(results, _strs(spec["row_keys"]), _strs(spec["lane_names"]))
+        body = _check_list_mode(results, _strs(spec["row_keys"]), lanes)
     else:
         body = _check_dict_mode(results, spec)
-    return [f"[{name} / {mode}] {e}" for e in env_errors + body]
+    return [f"{label} {e}" for e in env_errors + body]
 
 
 def check_all(schema: dict[object, object], *, built: bool) -> tuple[list[str], list[str]]:
@@ -438,7 +467,7 @@ def check_all(schema: dict[object, object], *, built: bool) -> tuple[list[str], 
     errors: list[str] = []
     notices: list[str] = []
     modes = _strs(_obj_map(schema["envelope"])["benchmarks"])
-    for binding in _bindings(built=built):
+    for binding in bindings(built=built):
         if not binding.available:
             if binding.required:
                 detail = "expected a built benchmark binary" if built else "expected python/.venv"
@@ -453,6 +482,12 @@ def check_all(schema: dict[object, object], *, built: bool) -> tuple[list[str], 
                 errors.append(f"[{binding.name} / {mode}] run failed: {exc}")
                 continue
             errors.extend(validate(binding.name, mode, payload, schema))
+        try:
+            payload = _run(binding, "throughput", one_lane=True)
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            errors.append(f"[{binding.name} / throughput --lane {ONE_LANE}] run failed: {exc}")
+            continue
+        errors.extend(validate(binding.name, "throughput", payload, schema, one_lane=ONE_LANE))
     return errors, notices
 
 
@@ -496,7 +531,25 @@ def _self_test(schema: dict[object, object]) -> int:
         if not validate("python", "throughput", _obj_map(bad), schema):
             _err(f"SELF-TEST FAIL: gate accepted a bad payload ({label})")
             return 1
-    _out(f"self-test: all {len(mutations)} injected mutations were rejected -- gate has teeth")
+    one = {
+        **good,
+        "parameters": {**parameters, "lane": ONE_LANE},
+        "results": good_rows[ONE_LANE - 1 : ONE_LANE],
+    }
+    if validate("python", "throughput", one, schema, one_lane=ONE_LANE):
+        _err("SELF-TEST FAIL: a conformant one-lane payload was rejected")
+        return 1
+    one_lane_mutations = [
+        ("a one-lane run reporting every lane", {**one, "results": good_rows}),
+        ("a one-lane run reporting another lane", {**one, "results": good_rows[:1]}),
+        ("a one-lane run not recording its lane", {**one, "parameters": parameters}),
+    ]
+    for label, bad in one_lane_mutations:
+        if not validate("python", "throughput", _obj_map(bad), schema, one_lane=ONE_LANE):
+            _err(f"SELF-TEST FAIL: gate accepted a bad payload ({label})")
+            return 1
+    rejected = len(mutations) + len(one_lane_mutations)
+    _out(f"self-test: all {rejected} injected mutations were rejected -- gate has teeth")
     return 0
 
 

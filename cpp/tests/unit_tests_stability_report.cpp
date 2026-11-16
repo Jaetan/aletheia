@@ -29,8 +29,6 @@
 
 using aletheia::bench::all_passed;
 using aletheia::bench::build_sub_checks;
-using aletheia::bench::k_malloc_delta_bytes_cap;
-using aletheia::bench::k_rss_delta_bytes_cap;
 using aletheia::bench::report_text;
 using aletheia::bench::Snapshot;
 using aletheia::bench::write_report_text;
@@ -43,18 +41,21 @@ constexpr Snapshot start{.rss_bytes = std::int64_t{1024} * 1024,
                          .active_thread_count = 3,
                          .malloc_info_bytes = 4096};
 
-// What one check is expected to read: its name, its gate and its threshold.
+// The kernel's allocation read once, before no cycle: no drift to judge.
+std::vector<std::int64_t> const opening_only{500};
+
+// What one check is expected to read: its name and its gate.
 struct Gate {
     std::string_view name;
     std::string_view gate;
-    std::int64_t threshold;
 };
 
-constexpr std::array<Gate, 4> gates{{
-    {.name = "rss", .gate = "soft_threshold", .threshold = k_rss_delta_bytes_cap},
-    {.name = "fd_count", .gate = "hard_zero", .threshold = 0},
-    {.name = "active_thread_count", .gate = "hard_zero", .threshold = 0},
-    {.name = "malloc_info", .gate = "soft_threshold", .threshold = k_malloc_delta_bytes_cap},
+constexpr std::array<Gate, 5> gates{{
+    {.name = "rss", .gate = "report"},
+    {.name = "fd_count", .gate = "hard_zero"},
+    {.name = "active_thread_count", .gate = "hard_zero"},
+    {.name = "malloc_info", .gate = "report"},
+    {.name = "kernel_allocation", .gate = "equal_per_cycle"},
 }};
 
 } // namespace
@@ -74,12 +75,12 @@ static auto drifted(std::string_view name, std::int64_t by) -> Snapshot {
 }
 
 TEST_CASE("build_sub_checks passes every gate with no drift", "[benchmark][stability]") {
-    auto const checks = build_sub_checks(start, start);
+    auto const checks = build_sub_checks(start, start, opening_only);
     REQUIRE(checks.size() == gates.size());
     for (auto const [check, gate] : std::views::zip(checks, gates)) {
         CHECK(check.name == gate.name);
         CHECK(check.gate == gate.gate);
-        CHECK(check.threshold == gate.threshold);
+        CHECK(check.threshold == 0);
         CHECK(check.delta == 0);
         CHECK(check.passed);
     }
@@ -90,7 +91,7 @@ TEST_CASE("build_sub_checks fails an exact gate on a drift of one either way, an
           "[benchmark][stability]") {
     auto const name = GENERATE(as<std::string>{}, "fd_count", "active_thread_count");
     auto const by = GENERATE(std::int64_t{1}, std::int64_t{-1});
-    auto const checks = build_sub_checks(start, drifted(name, by));
+    auto const checks = build_sub_checks(start, drifted(name, by), opening_only);
     for (auto const& check : checks) {
         CAPTURE(check.name);
         CHECK(check.passed == (check.name != name));
@@ -100,21 +101,43 @@ TEST_CASE("build_sub_checks fails an exact gate on a drift of one either way, an
     CHECK_FALSE(all_passed(checks));
 }
 
-TEST_CASE("build_sub_checks fails a soft gate only past its cap, either way",
+TEST_CASE("build_sub_checks reports the resident set and the allocator's bytes whatever they drift",
           "[benchmark][stability]") {
-    auto const [name, cap] = GENERATE(table<std::string, std::int64_t>(
-        {{"rss", k_rss_delta_bytes_cap}, {"malloc_info", k_malloc_delta_bytes_cap}}));
-    auto const sign = GENERATE(std::int64_t{1}, std::int64_t{-1});
-    auto const at_cap = build_sub_checks(start, drifted(name, sign * cap));
-    CHECK(all_passed(at_cap));
-    auto const past_cap = build_sub_checks(start, drifted(name, sign * (cap + 1)));
-    for (auto const& check : past_cap) {
+    auto const name = GENERATE(as<std::string>{}, "rss", "malloc_info");
+    auto const by = GENERATE(std::int64_t{1024} * 1024 * 1024 * 1024, -(std::int64_t{512} * 1024));
+    auto const checks = build_sub_checks(start, drifted(name, by), opening_only);
+    for (auto const& check : checks) {
         CAPTURE(check.name);
-        CHECK(check.passed == (check.name != name));
-        CHECK(check.delta == (check.name == name ? sign * (cap + 1) : 0));
-        CHECK(check.end - check.start == check.delta);
+        CHECK(check.passed);
+        CHECK(check.delta == (check.name == name ? by : 0));
     }
-    CHECK_FALSE(all_passed(past_cap));
+    CHECK(all_passed(checks));
+}
+
+TEST_CASE("build_sub_checks holds the kernel's allocation equal in every cycle",
+          "[benchmark][stability]") {
+    struct Case {
+        std::vector<std::int64_t> readings;
+        std::vector<std::int64_t> per_cycle;
+        std::int64_t spread;
+    };
+    auto const c = GENERATE(values<Case>({
+        {.readings = {500, 1500, 2500, 3500}, .per_cycle = {1000, 1000, 1000}, .spread = 0},
+        {.readings = {500, 1500, 2500, 3501}, .per_cycle = {1000, 1000, 1001}, .spread = 1},
+        {.readings = {500, 1501, 2501, 3501}, .per_cycle = {1001, 1000, 1000}, .spread = 1},
+    }));
+    auto const checks = build_sub_checks(start, start, c.readings);
+    auto const& allocation = checks.back();
+    CHECK(allocation.name == "kernel_allocation");
+    CHECK(allocation.per_cycle == c.per_cycle);
+    CHECK(allocation.spread == c.spread);
+    CHECK(allocation.delta == c.readings.back() - c.readings.front());
+    CHECK(allocation.passed == (c.spread == 0));
+    CHECK(all_passed(checks) == (c.spread == 0));
+    for (auto const& check : checks | std::views::take(checks.size() - 1)) {
+        CAPTURE(check.name);
+        CHECK(check.passed);
+    }
 }
 
 TEST_CASE("report_text writes the counts, each check in order, and the verdict",
@@ -122,7 +145,7 @@ TEST_CASE("report_text writes the counts, each check in order, and the verdict",
     auto end = start;
     end.rss_bytes = std::int64_t{2} * 1024 * 1024;
     end.fd_count = 6;
-    CHECK(report_text(2, 3, 1.5, build_sub_checks(start, end)) == R"({
+    CHECK(report_text(2, 3, 1.5, build_sub_checks(start, end, {500, 1500, 2501})) == R"({
   "binding": "cpp",
   "cycles": 2,
   "frames_per_cycle": 3,
@@ -131,11 +154,11 @@ TEST_CASE("report_text writes the counts, each check in order, and the verdict",
   "sub_checks": [
     {
       "name": "rss",
-      "gate": "soft_threshold",
+      "gate": "report",
       "start": 1048576,
       "end": 2097152,
       "delta": 1048576,
-      "threshold": 52428800,
+      "threshold": 0,
       "passed": true
     },
     {
@@ -158,12 +181,23 @@ TEST_CASE("report_text writes the counts, each check in order, and the verdict",
     },
     {
       "name": "malloc_info",
-      "gate": "soft_threshold",
+      "gate": "report",
       "start": 4096,
       "end": 4096,
       "delta": 0,
-      "threshold": 52428800,
+      "threshold": 0,
       "passed": true
+    },
+    {
+      "name": "kernel_allocation",
+      "gate": "equal_per_cycle",
+      "start": 500,
+      "end": 2501,
+      "delta": 2001,
+      "threshold": 0,
+      "per_cycle": [1000, 1001],
+      "spread": 1,
+      "passed": false
     }
   ],
   "passed": false
@@ -172,7 +206,8 @@ TEST_CASE("report_text writes the counts, each check in order, and the verdict",
 }
 
 TEST_CASE("report_text counts the total frames past an int", "[benchmark][stability]") {
-    auto const text = report_text(100000, 100000, 0.0, build_sub_checks(start, start));
+    auto const text =
+        report_text(100000, 100000, 0.0, build_sub_checks(start, start, opening_only));
     CHECK(text.contains("\"total_frames\": 10000000000,\n"));
     CHECK(text.ends_with("  \"passed\": true\n}\n"));
 }

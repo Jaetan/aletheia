@@ -51,8 +51,11 @@ _HEADER_BYTES = struct.calcsize(_HEADER_FMT)
 # Fixed per-entry sizes of the four count-driven segments.  A value entry is
 # packed: the index, the sign byte, then the numerator's and the denominator's
 # 16 little-endian bytes, 35 bytes.
-_VALUE_ENTRY_FMT = "<HB16s16s"
-_VALUE_ENTRY_BYTES = struct.calcsize(_VALUE_ENTRY_FMT)
+# One value entry: the signal index, the sign byte, then the numerator's and the
+# denominator's 128-bit magnitudes, each as its low and high little-endian words.
+_VALUE_ENTRY = struct.Struct("<HB4Q")
+_VALUE_ENTRY_BYTES = _VALUE_ENTRY.size
+_WORD_BITS = 64
 _ERROR_ENTRY_BYTES = struct.calcsize("<HB")
 _OFFSET_ENTRY_BYTES = struct.calcsize("<I")
 _ABSENT_ENTRY_BYTES = struct.calcsize("<H")
@@ -127,21 +130,23 @@ def _parse_values_segment(
     count: int,
     names: Sequence[str],
 ) -> tuple[dict[str, Fraction], int]:
-    """Parse the values segment: ``count`` × ``<HB16s16s`` (35 bytes each).
+    """Parse the values segment: ``count`` × ``<HB4Q`` (35 bytes each).
 
     Returns Fraction values to preserve exact rational precision from the
     Agda core: the wire carries a sign and two 128-bit magnitudes, so no
     quantization is needed.  The kernel proves every denominator positive, so
     the parts are read as written.  Any sign byte but 0 is negative, as the
-    header reads one.
+    header reads one.  The caller has held the buffer to the length its header
+    implies, so the segment is whole.
     """
+    end = off + count * _VALUE_ENTRY_BYTES
     values: dict[str, Fraction] = {}
-    for _ in range(count):
-        idx, negative, num_bytes, den_bytes = struct.unpack_from(_VALUE_ENTRY_FMT, buf, off)
-        off += _VALUE_ENTRY_BYTES
-        value = Fraction(int.from_bytes(num_bytes, "little"), int.from_bytes(den_bytes, "little"))
-        values[names[idx]] = -value if negative else value
-    return values, off
+    for idx, negative, num_lo, num_hi, den_lo, den_hi in _VALUE_ENTRY.iter_unpack(buf[off:end]):
+        numerator = num_lo | num_hi << _WORD_BITS
+        values[names[int(idx)]] = Fraction(
+            -numerator if negative else numerator, den_lo | den_hi << _WORD_BITS
+        )
+    return values, end
 
 
 def _parse_error_entries(

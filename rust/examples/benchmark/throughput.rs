@@ -83,11 +83,26 @@ fn bench_building(dbc: &Dbc, dlc: Dlc, signals: &[SignalValue], num_frames: u64)
 /// One throughput lane: its wire name and a `frames -> fps` runner.
 type Lane<'a> = (&'static str, Box<dyn Fn(u64) -> f64 + 'a>);
 
+/// The lanes the throughput mode measures: three for each frame family.
+pub(crate) const THROUGHPUT_LANES: usize = 6;
+
+/// Every lane for 0, and the `k`-th alone otherwise, counted from 1 in the
+/// order the mode reports them, so one lane can run by itself for an
+/// instruction count that holds nothing else.
+pub(crate) fn select_lane<T>(lanes: &[T], k: usize) -> &[T] {
+    if k == 0 {
+        lanes
+    } else {
+        &lanes[k - 1..k]
+    }
+}
+
 pub(crate) fn run_throughput(
     out: &mut Output<'_>,
     frames: u64,
     runs: usize,
     warmup: usize,
+    lane: usize,
 ) -> io::Result<Vec<Value>> {
     let dbc20 = can20_dbc();
     let dbcfd = canfd_dbc();
@@ -130,7 +145,7 @@ pub(crate) fn run_throughput(
     ];
 
     let mut results = Vec::new();
-    for (name, run) in &lanes {
+    for (name, run) in select_lane(&lanes, lane) {
         let name: &str = name;
         out.line(&format!("\n{name}:"))?;
         for _ in 0..warmup {

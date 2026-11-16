@@ -113,26 +113,44 @@ func TestThroughputLaneMeasuresEveryRun(t *testing.T) {
 	}
 }
 
-// A count that measures nothing is refused by name, and one of each with no
-// warmup is taken, warming up being a choice.
+// A count that measures nothing and a lane the mode does not have are refused
+// by name, and one of each with no warmup is taken at either end of the lanes,
+// warming up being a choice.
 func TestCountsRefuseWhatMeasuresNothing(t *testing.T) {
 	for _, c := range []struct {
-		frames, runs, ops, warmup int
-		want                      string
+		frames, runs, ops, warmup, lane int
+		want                            string
 	}{
-		{0, 5, 5000, 2, "--frames must be at least 1, got 0"},
-		{-100, 5, 5000, 2, "--frames must be at least 1, got -100"},
-		{10000, 0, 5000, 2, "--runs must be at least 1, got 0"},
-		{10000, 5, 0, 2, "--ops must be at least 1, got 0"},
-		{10000, 5, 5000, -1, "--warmup must not be negative, got -1"},
+		{0, 5, 5000, 2, 0, "--frames must be at least 1, got 0"},
+		{-100, 5, 5000, 2, 0, "--frames must be at least 1, got -100"},
+		{10000, 0, 5000, 2, 0, "--runs must be at least 1, got 0"},
+		{10000, 5, 0, 2, 0, "--ops must be at least 1, got 0"},
+		{10000, 5, 5000, -1, 0, "--warmup must not be negative, got -1"},
+		{10000, 5, 5000, 2, -1, "--lane must be between 0 and 6, got -1"},
+		{10000, 5, 5000, 2, 7, "--lane must be between 0 and 6, got 7"},
 	} {
-		err := checkCounts(c.frames, c.runs, c.ops, c.warmup)
+		err := checkCounts(c.frames, c.runs, c.ops, c.warmup, c.lane)
 		if err == nil || err.Error() != c.want {
-			t.Errorf("checkCounts(%d, %d, %d, %d) = %v, want %q", c.frames, c.runs, c.ops, c.warmup, err, c.want)
+			t.Errorf("checkCounts(%d, %d, %d, %d, %d) = %v, want %q", c.frames, c.runs, c.ops, c.warmup, c.lane, err, c.want)
 		}
 	}
-	if err := checkCounts(1, 1, 1, 0); err != nil {
-		t.Errorf("checkCounts(1, 1, 1, 0) = %v, want nil", err)
+	for _, lane := range []int{0, 6} {
+		if err := checkCounts(1, 1, 1, 0, lane); err != nil {
+			t.Errorf("checkCounts(1, 1, 1, 0, %d) = %v, want nil", lane, err)
+		}
+	}
+}
+
+// Lane 0 is every lane, and lane k the k-th alone, counted from 1.
+func TestSelectLaneAnswersOneLaneOrEvery(t *testing.T) {
+	lanes := []string{"a", "b", "c", "d", "e", "f"}
+	if got := selectLane(lanes, 0); !slices.Equal(got, lanes) {
+		t.Errorf("selectLane(lanes, 0) = %v, want every lane", got)
+	}
+	for k, want := range lanes {
+		if got := selectLane(lanes, k+1); !slices.Equal(got, []string{want}) {
+			t.Errorf("selectLane(lanes, %d) = %v, want [%s]", k+1, got, want)
+		}
 	}
 }
 
@@ -352,6 +370,7 @@ func TestProgramExitStatus(t *testing.T) {
 		{[]string{"latency", "--ops", "0", "--warmup", "0"}, "--ops must be at least 1, got 0"},
 		{[]string{"scaling", "--quick", "--runs", "0"}, "--runs must be at least 1, got 0"},
 		{[]string{"throughput", "--frames", "100", "--runs", "1", "--warmup", "-1"}, "--warmup must not be negative, got -1"},
+		{[]string{"throughput", "--frames", "100", "--runs", "1", "--lane", "7"}, "--lane must be between 0 and 6, got 7"},
 		{[]string{"thruput", "--frames", "10", "--runs", "1"}, `unknown mode "thruput", expected throughput, latency or scaling`},
 		{[]string{"--frames", "10", "latency"}, `unexpected argument "latency"`},
 		{[]string{"latency", "--ops", "10", "--"}, `unexpected argument "--json"`},

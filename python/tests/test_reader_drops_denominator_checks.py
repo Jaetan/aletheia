@@ -16,7 +16,7 @@ from fractions import Fraction
 import pytest
 
 from aletheia.client._client_bin import parse_extraction_buffer
-from aletheia.client._ffi import AletheiaDecimal, AletheiaRational, Magnitude, wire_uint128
+from aletheia.client._ffi import AletheiaDecimal, AletheiaRational, AletheiaUint128
 from aletheia.client._helpers.rational import decimal_value
 from aletheia.client._helpers.reply_shape import ReplyPath, read_rational
 
@@ -34,7 +34,7 @@ def test_read_rational_hands_the_parts_to_fraction() -> None:
 def test_decimal_value_hands_the_parts_to_fraction() -> None:
     """The decimal entry's parts reach ``Fraction`` unchecked: a zero denominator is its error."""
     zero = AletheiaRational(
-        numerator=wire_uint128(Magnitude(1)), denominator=wire_uint128(Magnitude(0))
+        numerator=AletheiaUint128(lo=1, hi=0), denominator=AletheiaUint128(lo=0, hi=0)
     )
     with pytest.raises(ZeroDivisionError, match=r"^Fraction\(1, 0\)$"):
         _ = decimal_value(AletheiaDecimal(value=zero))

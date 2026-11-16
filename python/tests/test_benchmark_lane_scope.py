@@ -45,7 +45,7 @@ _NOTHING_STEP = Prose("Nothing to measure on this diff")
 _UNGATED_STEPS = (
     Prose("Checkout (full history, for the diff the scope reads)"),
     Prose("Ensure a local `main` ref for `git diff main...HEAD`"),
-    Prose("Set up Python 3.14"),
+    Prose("Set up Python 3.14.10"),
     Prose("Create the dev venv (python/.venv) with aletheia installed"),
     _QUESTION_STEP,
     Prose("Print the result JSON"),
@@ -155,7 +155,8 @@ _UNMEASURED: tuple[tuple[RelPath, ...], ...] = (
 )
 
 # Diffs every leg measures on: the kernel, each binding, the harness, its
-# schema check, its gate, this question, the diff reading it asks, the workflow.
+# schema check, the instruction count, its gate, this question, the diff
+# reading it asks, the workflow.
 _MEASURED: tuple[tuple[RelPath, ...], ...] = (
     (RelPath("src/Aletheia/DBC/Validator/Checks.agda"),),
     (RelPath("haskell-shim/src/AletheiaFFI.hs"),),
@@ -167,6 +168,7 @@ _MEASURED: tuple[tuple[RelPath, ...], ...] = (
     (RelPath("benchmarks/run_all.sh"),),
     (RelPath("tools/check_bench_schema.py"),),
     (RelPath("tools/benchmark_gate.py"),),
+    (RelPath("tools/benchmark_instructions.py"),),
     (RelPath("tools/benchmark_scope.py"),),
     (RelPath("tools/mutation_run.py"),),
     (RelPath(".github/workflows/benchmark.yml"),),
