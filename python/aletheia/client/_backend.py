@@ -31,7 +31,9 @@ from aletheia.client._ffi import (
     AletheiaSignalValues,
     AletheiaText,
     EntrySymbol,
+    KernelString,
     RTSState,
+    free_kernel_string,
     open_library,
     take_error_envelope,
     wire_rationals,
@@ -228,7 +230,7 @@ def _decode_and_free_response(lib: ctypes.CDLL, ptr: int, entry: EntrySymbol) ->
             raise FFIError(msg)
         return raw
     finally:
-        lib.aletheia_free_str(ptr)
+        free_kernel_string(lib, KernelString(ptr))
 
 
 def _decode_out_err(

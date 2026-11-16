@@ -38,7 +38,7 @@ func TestMain(m *testing.M) {
 	case "warm-up fails":
 		cycle = failingCycle(1)
 	case "cycle fails":
-		cycle = failingCycle(warmUpCycles + 1)
+		cycle = failingCycle(2)
 	case "opening snapshot fails":
 		snapshotOf = failingSnapshot(1)
 	case "closing snapshot fails":
@@ -57,8 +57,8 @@ var (
 	errSnapshot = errors.New("/proc/self/fd is gone")
 )
 
-// failingCycle answers a cycle that fails on its nth call, the warm-ups being
-// the first calls, and runs every call before it.
+// failingCycle answers a cycle that fails on its nth call, the warm-up being
+// the first, and runs every call before it.
 func failingCycle(nth int) func(context.Context, *aletheia.FFIBackend, aletheia.DBCDefinition, int) error {
 	calls := 0
 	return func(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, frames int) error {
@@ -508,7 +508,10 @@ func TestProgramExitStatus(t *testing.T) {
 			t.Errorf("a run whose kernel did not load wrote %q (%v), want nothing", written, err)
 		}
 	})
-	short := slices.Concat([]string{"ALETHEIA_LIB="}, counts)
+	// The runtime's idle-time collector off, as tools/stability_run.py runs
+	// the harness: that collection allocates in the kernel's heap once the
+	// process idles, which the kernel_allocation gate would read.
+	short := slices.Concat([]string{"ALETHEIA_LIB=", "ALETHEIA_RTS_OPTS=-I0"}, counts)
 	t.Run("a short run passes", func(t *testing.T) {
 		requireKernel(t)
 		out := filepath.Join(dir, "short.json")

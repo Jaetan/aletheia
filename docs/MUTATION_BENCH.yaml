@@ -78,9 +78,9 @@ bindings:
       # reads the wire kills, or a message meant for a person, which only a
       # test pinning its wording kills.
       survivors: 0
-      total_mutants: 3680
+      total_mutants: 3689
       score_pct: 100
-      run_at: "2026-11-15"
+      run_at: "2026-11-16"
       # A mutant mutmut ended at its timeout is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a sweep in which
       # the cap fired, and a timed-out mutant is a hang to remove, never a cap

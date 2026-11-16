@@ -8,7 +8,8 @@ once at ``FRAMES_HIGH``.  The difference of the two instruction totals over
 the difference of the frame counts is the lane's instructions per operation:
 the process's start, the kernel's load and the lane's own setup are in both
 totals and cancel.  Every Python run compiles its modules afresh, so neither
-total reads bytecode the other wrote.
+total reads bytecode the other wrote, and every run turns the GHC runtime's
+idle-time collector off, so no total rests on how long the process idled.
 
 A count is a function of the tree and the toolchain, not of the machine's
 speed or load: measured on one host, a Python lane repeats to within two
@@ -37,7 +38,7 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 import yaml
 
-from tools._common import ExecutorFactory, WorkerCount
+from tools._common import COUNTED_RTS_OPTS, ExecutorFactory, WorkerCount
 from tools._resources import cpu_budget
 from tools.check_bench_schema import REPO, SCHEMA_PATH, Binding, bindings, lib_env
 
@@ -152,6 +153,7 @@ def count_run(run: CountedRun) -> InstructionCount:
         log = Path(scratch) / "valgrind.log"
         env = {
             **lib_env(),
+            "ALETHEIA_RTS_OPTS": COUNTED_RTS_OPTS,
             "PYTHONHASHSEED": "0",
             "PYTHONPYCACHEPREFIX": str(Path(scratch) / "pycache"),
         }

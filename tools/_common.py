@@ -56,6 +56,13 @@ GateName = NewType("GateName", str)
 # How many calls a pool may run at once.
 WorkerCount = NewType("WorkerCount", int)
 
+# The GHC runtime option every run whose count is a gate passes: it turns the
+# runtime's idle-time collector off.  That collection runs once the process has
+# idled long enough and allocates in the kernel's heap (808 bytes a time,
+# measured), so a count of the kernel's allocation or of a run's instructions
+# would otherwise rest on how long the process happened to idle.
+COUNTED_RTS_OPTS = "-I0"
+
 # A variable's name and value in a process's environment, and one word of a command line.
 EnvName = NewType("EnvName", str)
 EnvValue = NewType("EnvValue", str)

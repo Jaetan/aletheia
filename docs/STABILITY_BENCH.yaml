@@ -109,7 +109,7 @@ bindings:
       # heap-typed profile during the Python lane's run.
       - name: heap_profile
         gate: report
-        source_marker: 'env["ALETHEIA_RTS_OPTS"] = "-hT"'
+        source_marker: 'env["ALETHEIA_RTS_OPTS"] = f"-hT {COUNTED_RTS_OPTS}"'
       - name: heap_profile_archive
         gate: hard_zero
         source_marker: 'artifact_dir / "aletheia-ffi.hp"'

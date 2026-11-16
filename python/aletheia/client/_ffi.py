@@ -43,6 +43,15 @@ _JSON_TEXT = Expectation("JSON text")
 KernelString = NewType("KernelString", int)
 
 
+def free_kernel_string(lib: ctypes.CDLL, address: KernelString | None) -> None:
+    """Free a string the library allocated, passing its address as a pointer whatever is declared.
+
+    A bare Python ``int`` crosses an entry declared without ``argtypes`` as a
+    C ``int``, its high half dropped, so the address is wrapped before the call.
+    """
+    lib.aletheia_free_str(ctypes.c_void_p(address))
+
+
 def parse_json_object(raw: KernelResponse) -> dict[str, JSONValue]:
     """Read a kernel response as the JSON object it should spell.
 
@@ -568,7 +577,7 @@ def take_error_envelope(lib: ctypes.CDLL, out: EntryOut, missing: Prose) -> Repl
             raise ProtocolError(missing)
         return parse_json_object(KernelResponse(text))
     finally:
-        lib.aletheia_free_str(err)
+        free_kernel_string(lib, err)
 
 
 def configure_ffi_signatures(lib: ctypes.CDLL) -> None:

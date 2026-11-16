@@ -60,15 +60,17 @@ static auto name_of(std::string_view set) -> std::string_view {
 // Runs the harness with its stdout on the file at `out_path` and its stderr
 // on the file at `err_path`, over the environment this process started with,
 // with each `NAME=value` of `extra` set and, where `extra` sets none, the
-// kernel to load and one cycle of one frame, and answers its exit code, or -1
-// when a signal ended it.
+// kernel to load, one cycle of one frame and the runtime's idle-time collector
+// off, as tools/stability_run.py runs it, since that collection allocates in
+// the kernel's heap once the process idles; answers its exit code, or -1 when
+// a signal ended it.
 static auto exit_code(std::filesystem::path const& out_path, std::filesystem::path const& err_path,
                       std::vector<std::string> const& extra) -> int {
     auto settings = extra;
     for (auto& set : std::vector<std::string>{
              "ALETHEIA_LIB=" +
                  (aletheia::test::repo_root() / "build" / "libaletheia-ffi.so").string(),
-             "ALETHEIA_STABILITY_CYCLES=1", "ALETHEIA_STABILITY_FRAMES=1"})
+             "ALETHEIA_STABILITY_CYCLES=1", "ALETHEIA_STABILITY_FRAMES=1", "ALETHEIA_RTS_OPTS=-I0"})
         if (std::ranges::none_of(
                 extra, [&set](std::string_view given) { return name_of(given) == name_of(set); }))
             settings.push_back(std::move(set));

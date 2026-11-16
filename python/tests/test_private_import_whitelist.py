@@ -285,6 +285,11 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_from_decimal.py", "aletheia.client._ffi", "wire_rational"),
         ("test_from_decimal.py", "aletheia.client._helpers.rational", "decimal_value"),
+        # The free entry's declaration and the wrapping of an address are read
+        # without a call that could free a truncated pointer.
+        ("test_kernel_string_free.py", "aletheia.client._ffi", "KernelString"),
+        ("test_kernel_string_free.py", "aletheia.client._ffi", "configure_ffi_signatures"),
+        ("test_kernel_string_free.py", "aletheia.client._ffi", "free_kernel_string"),
         # The packers every sent rational goes through are read back through
         # the structure's own fields, a layout no public path exposes.
         ("test_wire_rationals.py", "aletheia.client._ffi", "AletheiaRational"),

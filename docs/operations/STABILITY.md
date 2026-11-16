@@ -131,7 +131,7 @@ Every gate is an exact count, so a run's verdict is a function of the tree and n
 * **Equal per cycle**: the kernel's allocated bytes, read after every measured cycle, are the same in every cycle.  A cycle doing more work than the one before it fails, as a growing structure the kernel walks each cycle would make it.  Measured over two runs, every measured cycle of each binding allocates exactly the same bytes.
 * **Report**: the resident set, the Go heap's live bytes, glibc's `malloc_info` total and the GHC heap profile are printed and archived and decide nothing, since they move with when the collectors run.  Memory held without more work done each cycle is therefore not gated.
 
-The harnesses run warm-up cycles before the window opens: the first cycles a process runs allocate more in the kernel than every later one (in Go, the second cycle allocates 1,024 bytes more than the third, measured).
+The harnesses run warm-up cycles before the window opens, since the first cycle a process runs allocates more in the kernel than every later one.
 
 ### Why anon_inode FDs are excluded from `fd_count`
 

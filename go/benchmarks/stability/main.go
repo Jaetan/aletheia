@@ -276,9 +276,6 @@ func envCount(name string, defaultValue int) (int, error) {
 	return int(n), nil
 }
 
-// warmUpCycles is how many cycles run before the window opens.
-const warmUpCycles = 2
-
 // cycle is the cycle main runs, the warm-up included, a variable so that a
 // test can run main with one that leaks or fails.
 var cycle = runCycle
@@ -359,14 +356,10 @@ func main() {
 	}
 	dbc := minimalDBC()
 
-	// Two cycles before the window opens, so the first initialisation's own
-	// memory is inside neither snapshot: the second cycle a process runs
-	// allocates 1,024 bytes more in the kernel than every later one (measured),
-	// so it is warm-up too.
-	for i := 0; i < warmUpCycles; i++ {
-		if err := cycle(ctx, backend, dbc, 100); err != nil {
-			die("the warm-up cycle failed: %v", err)
-		}
+	// One cycle before the window opens, so the first initialisation's own
+	// memory is inside neither snapshot.
+	if err := cycle(ctx, backend, dbc, 100); err != nil {
+		die("the warm-up cycle failed: %v", err)
 	}
 	runtime.GC()
 

@@ -15,7 +15,7 @@ import ctypes
 from typing import TYPE_CHECKING
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
-from aletheia.client._ffi import started_library, wire_rational
+from aletheia.client._ffi import KernelString, free_kernel_string, started_library, wire_rational
 from aletheia.client._types import FFIError, PropertyDiagnostic, ValidationError
 from aletheia.common_types import Prose
 from aletheia.limits import MAX_NESTING_DEPTH
@@ -166,7 +166,7 @@ def format_rational(value: Fraction) -> str:
     try:
         return ctypes.cast(raw, ctypes.c_char_p).value.decode()  # type: ignore[union-attr]
     finally:
-        lib.aletheia_free_str(raw)
+        free_kernel_string(lib, KernelString(raw))
 
 
 def _format_predicate(pred: SignalPredicate) -> str:

@@ -460,11 +460,14 @@ aletheia_check_property(const struct aletheia_text *property, struct aletheia_pr
 
 /*
  * The bytes the runtime has allocated since it started, in every session and
- * thread of the process. The call runs a collection first, because the
- * runtime counts an allocation area only when it collects it, so the count
- * covers every allocation made before the call, and the difference of two
- * calls is what ran between them allocated. Call it only once the runtime
- * has started (hs_init).
+ * thread of the process. The runtime counts an allocation area only when it
+ * collects it, and a block of pinned objects only when it retires the block,
+ * so the call retires each capability's current pinned block and then runs a
+ * collection: the count covers every allocation made before the call but the
+ * objects the call places to retire those blocks, and the difference of two
+ * calls is what ran between them allocated. The call leaves the calling thread
+ * with no preferred capability. Call it only once the runtime has started
+ * (hs_init).
  */
 [[nodiscard]] uint64_t aletheia_allocated_bytes();
 
