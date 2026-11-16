@@ -235,6 +235,26 @@ def test_every_job_building_the_shim_installs_its_c_compiler_first() -> None:
     assert builds > 0
 
 
+def test_every_toolchain_install_brings_the_builds_the_upstream_check_holds() -> None:
+    """Every install names libstdc++-15-dev, whose packages are the gcc-15 and gcc-16 builds.
+
+    cpp/toolchain/check_upstream.sh, which ends every install, holds an
+    installed llvm-toolchain-23, gcc-15 and gcc-16 build to its recorded
+    upstream, and an install of clang-23 alone brings neither gcc build.
+    """
+    upstream = (_REPO / "cpp" / "toolchain" / "check_upstream.sh").read_text(encoding="utf-8")
+    assert '"gcc-15 ' in upstream
+    assert '"gcc-16 ' in upstream
+    installs = 0
+    for job in _jobs():
+        for step in job.steps:
+            run = step.get("run", "").strip()
+            if _INSTALL.fullmatch(run) or _COLD_INSTALL.fullmatch(run):
+                assert "libstdc++-15-dev" in run.split(), f"{job.label}: {run}"
+                installs += 1
+    assert installs > 0
+
+
 def test_a_weekly_job_installs_from_an_empty_directory() -> None:
     """One scheduled job refreshes apt's lists and downloads every package, as no cached run does.
 

@@ -417,18 +417,20 @@ jobs:
       # Every lane's suite loads the FFI library, and every C compile of the
       # shim runs the compiler haskell-shim/cabal.project names, clang-23, which
       # compiles include/aletheia.h as C23; the C++ legs install it with their
-      # LLVM libraries above, and every other lane installs it alone.  Its own
-      # key, since a cache hit installs the cached .debs whatever the step asks
-      # for, so a key stands for one package list.
+      # LLVM libraries above, and every other lane installs the toolchain the
+      # other workflows' jobs do, under their key: a cache hit installs the
+      # cached .debs whatever the step asks for, so a key stands for one package
+      # list, and libstdc++-15-dev brings the gcc-15 and gcc-16 builds
+      # cpp/toolchain/check_upstream.sh holds the install to.
       - name: Cache clang-23 .debs (the shim's C compiler)
         if: env.LANE_SWEEPS != '0' && matrix.binding != 'cpp'
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-noble-v2
+          key: clang23-libstdcxx15-noble-v2
       - name: Install the shim's C compiler (clang-23 from apt.llvm.org)
         if: env.LANE_SWEEPS != '0' && matrix.binding != 'cpp'
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 
       # No prebuilt Mull deb exists past LLVM 15, and the supported toolchain is
       # clang-23: UB can differ by compiler version, so the mutation lane MUST
