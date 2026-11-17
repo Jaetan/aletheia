@@ -857,13 +857,14 @@ bindings:
       # crate's, and an arithmetic swap the compiler refuses on a constant.
       # A kill is a test failing, a panic included.
       #
-      # No survivor.  The Drop impl that returns the backend handle to the
-      # kernel frees nothing when removed, which the real kernel acknowledges
-      # without reading; a test reads the release from the recording kernel
-      # the build makes beside the library, which counts the closes and the
-      # frees it is handed (rust/tests/kernel_releases.rs).  A string the
-      # kernel returns is copied and released in one function, with no Drop
-      # of its own to remove, and the same count holds that release.
+      # The two survivors are the equivalent pair the ledger below records.
+      # The Drop impl that returns the backend handle to the kernel frees
+      # nothing when removed, which the real kernel acknowledges without
+      # reading; a test reads the release from the recording kernel the
+      # build makes beside the library, which counts the closes and the frees
+      # it is handed (rust/tests/kernel_releases.rs).  A string the kernel
+      # returns is copied and released in one function, with no Drop of its
+      # own to remove, and the same count holds that release.
       survivors: 2
       generated: 719
       unviable: 173

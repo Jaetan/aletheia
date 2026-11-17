@@ -43,6 +43,8 @@ UpstreamVersion = NewType("UpstreamVersion", str)
 QueryLine = NewType("QueryLine", str)
 # A binding's word, as a workflow's matrix names it.
 BindingWord = NewType("BindingWord", str)
+# A module directly under tools/, as `-m tools.<module>` runs it.
+ToolModule = NewType("ToolModule", str)
 
 
 class _With(TypedDict, total=False):
@@ -105,9 +107,18 @@ _COLD_INSTALL = re.compile(
 # The shim's cabal project, whose gcc-location line names the C compiler every
 # C compile of the shim runs.
 _SHIM_PROJECT = _REPO / "haskell-shim" / "cabal.project"
-# A step building the shim: a shake target that builds the library, or the sweep.
+# The tools that start shake, and so build the shim.
+_SHAKE_TOOLS = (
+    ToolModule("check_build_incremental"),
+    ToolModule("check_reproducible_build"),
+    ToolModule("run_ci"),
+)
+# A tool's start of shake: an argument list naming `shake` then `--`.
+_STARTS_SHAKE = re.compile(r'"shake",\s*"--"')
+# A step building the shim: a shake target that builds the library, or a tool starting shake.
 _BUILDS_THE_SHIM = re.compile(
-    r"shake -- (?:--keep-going )?(?:build|dist|packages)\b|-m tools\.run_ci\b"
+    r"shake -- (?:--keep-going )?(?:build|dist|packages)\b"
+    + rf"|-m tools\.(?:{'|'.join(map(re.escape, _SHAKE_TOOLS))})\b"
 )
 # A condition narrowed to one side of a binding, its `if` then `rest`.
 _BINDING_SIDE = re.compile(r"(?P<rest>.+) && matrix\.binding (?P<side>==|!=) '(?P<binding>[a-z]+)'")
@@ -233,6 +244,17 @@ def test_every_job_building_the_shim_installs_its_c_compiler_first() -> None:
             assert _runs_whenever(installs, step), f"{job.label}: {step.get('name', '')}"
             builds += 1
     assert builds > 0
+
+
+def test_the_tools_read_as_building_the_shim_are_those_starting_shake() -> None:
+    """A step running a tool is read as a build exactly when that tool's source starts shake."""
+    starting = sorted(
+        ToolModule(path.stem)
+        for path in (_REPO / "tools").glob("*.py")
+        if _STARTS_SHAKE.search(path.read_text(encoding="utf-8"))
+    )
+    assert starting == sorted(_SHAKE_TOOLS)
+    assert all(_BUILDS_THE_SHIM.search(f"python3 -m tools.{tool}") for tool in _SHAKE_TOOLS)
 
 
 def test_every_toolchain_install_brings_the_builds_the_upstream_check_holds() -> None:
