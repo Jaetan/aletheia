@@ -26,7 +26,7 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ)
-open import Data.Product using (_×_; _,_; Σ; proj₂)
+open import Data.Product using (_×_; _,_; Σ; proj₁; proj₂)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; sym)
@@ -264,7 +264,7 @@ mux-EmitsOK (SelBy n) rest' n-small =
           (∷-stop refl)
           (bind-nothing
             (parse (pair (withPrefix ('m' ∷ []) nat) (literal ('M' ∷ []))))
-            (λ x → pure ((λ (n , _) → n) x))
+            (λ x → pure (proj₁ x))
             (advancePosition pos ' ')
             ('m' ∷ emit nat n ++ₗ ' ' ∷ ':' ∷ rest')
             (pair-left-succeeds-right-fails
@@ -319,7 +319,7 @@ mux-EmitsOK NotMux rest' _ =
                         pos (':' ∷ rest') (∷-stop refl)
                         (bind-nothing
                           (parse (pair (withPrefix ('m' ∷ []) nat) (literal ('M' ∷ []))))
-                          (λ x → pure ((λ (n , _) → n) x))
+                          (λ x → pure (proj₁ x))
                           (advancePosition pos ' ') (':' ∷ rest')
                           (pair-left-fails (withPrefix ('m' ∷ []) nat) (literal ('M' ∷ []))
                                            (advancePosition pos ' ') (':' ∷ rest')

@@ -1,8 +1,9 @@
 -- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 -- SPDX-License-Identifier: BSD-2-Clause
 -- | What the rule modules share: trimming, the build's two interpreters,
--- the package version a .cabal declares, the GHC runtime libraries a shared
--- object links, and the MAlonzo symlink cabal reads.
+-- the package version a .cabal declares, the compilers the shim's project
+-- names, the GHC runtime libraries a shared object links, and the MAlonzo
+-- symlink cabal reads.
 module Shared where
 
 import Development.Shake
@@ -59,11 +60,39 @@ parseCabalVersion contents =
       of (x:_) -> x
          []    -> ""
 
+-- | The shim's cabal project, whose lines name the compilers every compile of
+-- the kernel library runs: @with-compiler:@ its GHC, @gcc-location:@ its C
+-- compiler.
+shimProject :: FilePath
+shimProject = "haskell-shim/cabal.project"
+
+-- | The first word the shim's project gives a field; an error naming the
+-- project and the field when no line gives one.
+shimProjectField :: String -> Action String
+shimProjectField field = do
+    text <- readFile' shimProject
+    case [ c | l <- lines text
+             , Just rest <- [stripPrefix (field ++ ":") (dropWhile (== ' ') l)]
+             , c <- take 1 (words rest) ] of
+        c : _ -> pure c
+        [] -> error (shimProject ++ " names no " ++ field)
+
+-- | The GHC the shim's project names, which builds the kernel library.
+shimGhc :: Action String
+shimGhc = shimProjectField "with-compiler"
+
+-- | The C compiler the shim's project names, which compiles the library's C
+-- and the stand-in kernels.
+shimCCompiler :: Action String
+shimCCompiler = shimProjectField "gcc-location"
+
 -- | Get GHC runtime .so dependencies for a shared library.
--- Runs ldd and filters for libraries under GHC's lib directory.
+-- Runs ldd and filters for libraries under the lib directory of the GHC the
+-- shim's project names.
 getGhcDeps :: FilePath -> Action [FilePath]
 getGhcDeps soPath = do
-    Stdout ghcLibDir <- cmd "ghc" "--print-libdir"
+    ghc <- shimGhc
+    Stdout ghcLibDir <- cmd ghc "--print-libdir"
     let ghcBase = strip ghcLibDir
     Stdout lddOutput <- cmd "ldd" soPath
     let deps = [ resolvedPath

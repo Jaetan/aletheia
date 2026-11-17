@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _GUIDE = RelPath("docs/development/BUILDING.md")
-_AGDA_LIB = RelPath("aletheia.agda-lib")
+_STDLIB_WORKFLOW = RelPath(".github/workflows/pr-full-ci.yml")
 _CMAKE = RelPath("cpp/CMakeLists.txt")
 _GO_MOD = RelPath("go/go.mod")
 _PYPROJECT = RelPath("python/pyproject.toml")
@@ -38,7 +38,7 @@ _GUIDE_TEXT = Prose("""# Building
 
 ## Prerequisites
 
-Agda's standard library, at the tag the library file depends on:
+Agda's standard library, at the tag the workflows clone:
 
 ```sh
 git clone https://github.com/agda/agda-stdlib ~/.agda/agda-stdlib
@@ -66,7 +66,7 @@ Python at the floor the manifest states, `requires-python = ">=3.14"`.
 _FILES: Mapping[RelPath, Prose] = MappingProxyType(
     {
         _GUIDE: _GUIDE_TEXT,
-        _AGDA_LIB: Prose("name: aletheia\ninclude: src\ndepend: standard-library-2.4\n"),
+        _STDLIB_WORKFLOW: Prose("env:\n  STDLIB_VERSION: 'v2.4'\n"),
         _CMAKE: Prose("cmake_minimum_required(VERSION 3.25)\nproject(aletheia CXX)\n"),
         _GO_MOD: Prose("module github.com/example/aletheia\n\ngo 1.24.0\n"),
         _PYPROJECT: Prose('[project]\nname = "aletheia"\nrequires-python = ">=3.14"\n'),
@@ -74,7 +74,7 @@ _FILES: Mapping[RelPath, Prose] = MappingProxyType(
 )
 
 _SOURCES = [
-    pytest.param(_AGDA_LIB, Prose("standard-library"), id="stdlib"),
+    pytest.param(_STDLIB_WORKFLOW, Prose("standard-library"), id="stdlib"),
     pytest.param(_CMAKE, Prose("CMake"), id="cmake"),
     pytest.param(_GO_MOD, Prose("Go"), id="go"),
     pytest.param(_PYPROJECT, Prose("Python"), id="python"),
@@ -128,7 +128,7 @@ def test_a_guide_stating_every_pin_its_files_hold_is_clean(tmp_path: Path) -> No
         pytest.param(
             Prose("git checkout v2.4"),
             Prose("git checkout v2.3"),
-            _differs(Prose("standard-library"), Version("2.3"), _AGDA_LIB, Version("2.4")),
+            _differs(Prose("standard-library"), Version("2.3"), _STDLIB_WORKFLOW, Version("2.4")),
             id="stdlib",
         ),
         pytest.param(
@@ -162,10 +162,10 @@ def test_a_guide_stating_a_value_its_file_does_not_pin_is_a_finding(
     ("source", "old", "new", "finding"),
     [
         pytest.param(
-            _AGDA_LIB,
-            Prose("standard-library-2.4"),
-            Prose("standard-library-2.5"),
-            _differs(Prose("standard-library"), Version("2.4"), _AGDA_LIB, Version("2.5")),
+            _STDLIB_WORKFLOW,
+            Prose("STDLIB_VERSION: 'v2.4'"),
+            Prose("STDLIB_VERSION: 'v2.5'"),
+            _differs(Prose("standard-library"), Version("2.4"), _STDLIB_WORKFLOW, Version("2.5")),
             id="stdlib",
         ),
         pytest.param(
@@ -254,7 +254,9 @@ def test_the_go_patch_version_is_not_held(
 @pytest.mark.parametrize(
     ("old", "source", "name"),
     [
-        pytest.param(Prose("git checkout v2.4"), _AGDA_LIB, Prose("standard-library"), id="stdlib"),
+        pytest.param(
+            Prose("git checkout v2.4"), _STDLIB_WORKFLOW, Prose("standard-library"), id="stdlib"
+        ),
         pytest.param(Prose("cmake version 3.25"), _CMAKE, Prose("CMake"), id="cmake"),
         pytest.param(Prose("go version go1.24"), _GO_MOD, Prose("Go"), id="go"),
         pytest.param(
@@ -275,8 +277,8 @@ def test_a_pin_the_guide_no_longer_states_is_a_finding(
     ("source", "text", "name"),
     [
         pytest.param(
-            _AGDA_LIB,
-            Prose("name: aletheia\ninclude: src\n"),
+            _STDLIB_WORKFLOW,
+            Prose("env:\n  AGDA_VERSION: '2.9.0'\n"),
             Prose("standard-library"),
             id="stdlib",
         ),
@@ -358,9 +360,11 @@ def test_the_four_pins_findings_come_stdlib_cmake_go_python(tmp_path: Path) -> N
     files = _swapped(_FILES, _PYPROJECT, Prose('">=3.14"'), Prose('">=3.15"'))
     files = _swapped(files, _GO_MOD, Prose("go 1.24.0"), Prose("go 1.25.0"))
     files = _swapped(files, _CMAKE, Prose("VERSION 3.25"), Prose("VERSION 3.28"))
-    files = _swapped(files, _AGDA_LIB, Prose("standard-library-2.4"), Prose("standard-library-2.5"))
+    files = _swapped(
+        files, _STDLIB_WORKFLOW, Prose("STDLIB_VERSION: 'v2.4'"), Prose("STDLIB_VERSION: 'v2.5'")
+    )
     assert _run(tmp_path, files) == [
-        _differs(Prose("standard-library"), Version("2.4"), _AGDA_LIB, Version("2.5")),
+        _differs(Prose("standard-library"), Version("2.4"), _STDLIB_WORKFLOW, Version("2.5")),
         _differs(Prose("CMake"), Version("3.25"), _CMAKE, Version("3.28")),
         _differs(Prose("Go"), Version("1.24"), _GO_MOD, Version("1.25")),
         _differs(Prose("Python"), Version("3.14"), _PYPROJECT, Version("3.15")),
@@ -369,12 +373,12 @@ def test_the_four_pins_findings_come_stdlib_cmake_go_python(tmp_path: Path) -> N
 
 def test_each_pins_finding_keeps_its_place_whatever_its_kind(tmp_path: Path) -> None:
     """An unread, unpinned, unstated and differing pin are reported in the pins' order."""
-    files = _swapped(_without(_AGDA_LIB), _PYPROJECT, Prose('">=3.14"'), Prose('">=3.15"'))
+    files = _swapped(_without(_STDLIB_WORKFLOW), _PYPROJECT, Prose('">=3.14"'), Prose('">=3.15"'))
     files = _swapped(files, _GUIDE, Prose("go version go1.24"), Prose(""))
     files = {**files, _CMAKE: Prose("project(aletheia CXX)\n")}
     unchecked = Prose("the standard-library pin the guide states is unchecked")
-    assert _run(tmp_path, files, absent={_AGDA_LIB}) == [
-        Prose(f"aletheia.agda-lib: could not be read, so {unchecked}"),
+    assert _run(tmp_path, files, absent={_STDLIB_WORKFLOW}) == [
+        Prose(f"{_STDLIB_WORKFLOW}: could not be read, so {unchecked}"),
         Prose("cpp/CMakeLists.txt: pins no CMake version, so the guide's is unchecked"),
         Prose("docs/development/BUILDING.md: no longer states the Go pin go/go.mod holds"),
         _differs(Prose("Python"), Version("3.14"), _PYPROJECT, Version("3.15")),

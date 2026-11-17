@@ -21,17 +21,20 @@
 # GitHub generates the agda-stdlib archive on request, so a later download
 # of the same tag can hash otherwise; the texts' own hashes are what the
 # check holds.
-ghc: "9.8.4"
+ghc: "9.12.2"
 tarball:
-  url: https://downloads.haskell.org/~ghc/9.8.4/ghc-9.8.4-src.tar.xz
-  sha256: "17e8188f3c8a5c2f73fb4e35d01032e8dc258835ec876d52c8ad8ee3d24b2fc5"
+  url: https://downloads.haskell.org/~ghc/9.12.2/ghc-9.12.2-src.tar.xz
+  sha256: "0e49cd5dde43f348c5716e5de9a5d7a0f8d68d945dc41cf75dfdefe65084f933"
 sources:
-  Agda-2.8.0:
-    url: https://hackage.haskell.org/package/Agda-2.8.0/Agda-2.8.0.tar.gz
-    sha256: "86841907e78a5aafcf57b09edb7d50036f7de1b2217c8b58e2c57d6004969ba0"
-  agda-stdlib-2.4:
-    url: https://github.com/agda/agda-stdlib/archive/refs/tags/v2.4.tar.gz
-    sha256: "dd0fab4519523d6c08cd9583a4f5eac38ab135a12ccdab1fb164c271075f6747"
+  Agda-2.9.0:
+    url: https://hackage.haskell.org/package/Agda-2.9.0/Agda-2.9.0.tar.gz
+    sha256: "cef2143d6fc420e2c3250bbdd3bfe27c6ca9c64c114fb7cb00e919bdb019575b"
+  agda-stdlib-2.4.1:
+    url: https://github.com/agda/agda-stdlib/archive/refs/tags/v2.4.1.tar.gz
+    sha256: "eab52969e7cf4a4f80e5beea756ee9aebc670fba4b11f4516abc9e35693db3f2"
+  FARSH-d74ef3a2:
+    url: https://raw.githubusercontent.com/Bulat-Ziganshin/FARSH/d74ef3a21cd4cde0a97639ec400f42c6169cca93/LICENSE
+    sha256: "45f50bc5bbb292bc1f051813ed234305070c9a184ec0017dfd09b9b380355b34"
   blaze-textual-0.1.0.0:
     url: https://hackage.haskell.org/package/blaze-textual-0.1.0.0/blaze-textual-0.1.0.0.tar.gz
     sha256: "f3118f5cc619eb1d4869bfc0b13ab3e24280e93bb4592735867a7592c12a8262"
@@ -59,73 +62,84 @@ sources:
   singletons-2.0.1:
     url: https://hackage.haskell.org/package/singletons-2.0.1/singletons-2.0.1.tar.gz
     sha256: "fd149d3da367eebe81728a7a61389f18bb18b3cddd611b7aed6c0b265110ba41"
+  unicode-licence:
+    url: https://www.unicode.org/license.txt
+    sha256: "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
 texts:
-  Agda-2.8.0/LICENSE:
-    source: Agda-2.8.0
-    from: Agda-2.8.0/LICENSE
-    sha256: "a07da943d7a2a735b2c9ad6cd3a7bdb8d4908e4160d43787c7365f871e30b7d9"
+  Agda-2.9.0/LICENSE:
+    source: Agda-2.9.0
+    from: Agda-2.9.0/LICENSE
+    sha256: "ac320c14c854babc54bcbf57665103dbd1c7c883b069c3ae50c3842ea06429d1"
   array-0.5.8.0/LICENSE:
     from: libraries/array/LICENSE
     sha256: "87ededd935c29e5b06e2a42de021a11c753cbbb4be331992a2ffbef1281b03ef"
-  base-4.19.2.0/LICENSE:
-    from: libraries/base/LICENSE
-    sha256: "768c070bd0b7d820d169ee8153d5487acfc262cbbc10dfce18d05c0bb2d2800d"
-  base-4.19.2.0/LICENSE-foldable1-classes-compat:
+  base-4.21.0.0/LICENSE-foldable1-classes-compat:
     source: foldable1-classes-compat-0.1
     from: foldable1-classes-compat-0.1/LICENSE
     sha256: "82ab0af27f020db618c16c81c00785ec16af863f8a77d2dbd54d10f318a2f4ae"
-  base-4.19.2.0/LICENSE-nhc98:
-    source: nhc98-licence
-    from: the page's text, its markup removed, from the nhc98 compiler's copyright paragraph, its LICENCE section and where nhc98 is published
-    sha256: "8a20262bed4fdaf515ad8d2500d1799eb7fb7eaf57b696185520d1b29b94f387"
-  base-4.19.2.0/LICENSE-primitive:
+  base-4.21.0.0/LICENSE-primitive:
     source: primitive-0.7.3.0
     from: primitive-0.7.3.0/LICENSE
     sha256: "cd6b51ecce7bc97a7bbd8500797c350a72f2f9c8e3aaf9d7154b9064d16316ea"
-  base-4.19.2.0/LICENSE-singletons:
-    source: singletons-2.0.1
-    from: singletons-2.0.1/LICENSE
-    sha256: "0570e5dff3a7f66dfdf19a9b59bc08fda5453f9a1a93ef2ddabd844ec7ad9038"
-  base-4.19.2.0/LICENSE-ucd2haskell:
-    from: libraries/base/tools/ucd2haskell/LICENSE
-    sha256: "29cdc35dd13d8c15bafa535d5a6e864688abc47f06879755d0a404f5759974fc"
-  base-4.19.2.0/NOTICE:
-    from: written from libraries/base/Data/OldList.hs and libraries/base/GHC/List.hs, whose comments credit HBC and nhc12
-    sha256: "a26223ce35536a4c58d87ab6e72de2d1ce19f3c8d7045f930cd52b693a63b2b5"
-  binary-0.8.9.1/LICENSE:
-    from: libraries/binary/LICENSE
-    sha256: "b0400f7ccef7de35184d413828dabcd15e6970b11972d11c6100f869f6de1831"
-  binary-0.8.9.1/LICENSE-cereal:
+  base-4.21.0.0/LICENSE:
+    from: libraries/base/LICENSE
+    sha256: "768c070bd0b7d820d169ee8153d5487acfc262cbbc10dfce18d05c0bb2d2800d"
+  binary-0.8.9.3/LICENSE-cereal:
     source: cereal-0.3.5.2
     from: cereal-0.3.5.2/LICENSE
     sha256: "e7f7c5e8b93b49eff6c78a18e0c64ecbf07e9d039a424d71387e832a11f543b0"
-  bytestring-0.12.1.0/LICENSE:
-    from: libraries/bytestring/LICENSE
-    sha256: "236de8169415cc6e1fd5fbb96035dd36dacc6444e8a600575566753cda4cbf7d"
-  bytestring-0.12.1.0/LICENSE-blaze-textual:
+  binary-0.8.9.3/LICENSE:
+    from: libraries/binary/LICENSE
+    sha256: "b0400f7ccef7de35184d413828dabcd15e6970b11972d11c6100f869f6de1831"
+  bytestring-0.12.2.0/LICENSE-blaze-textual:
     source: blaze-textual-0.1.0.0
     from: blaze-textual-0.1.0.0/LICENSE
     sha256: "ad33b0ce49deffa788aa9b8867a4c4fbbeff7b67f0a004a760eac9aecbf21a8b"
-  containers-0.6.8/LICENSE:
-    from: libraries/containers/containers/LICENSE
-    sha256: "7904b49880da042ab0e3125ef4da8ba2322b7b5e13de13bc6a322e5e2670bc5c"
-  containers-0.6.8/LICENSE-lens:
+  bytestring-0.12.2.0/LICENSE:
+    from: libraries/bytestring/LICENSE
+    sha256: "236de8169415cc6e1fd5fbb96035dd36dacc6444e8a600575566753cda4cbf7d"
+  containers-0.7/LICENSE-lens:
     source: lens-4.14
     from: lens-4.14/LICENSE
     sha256: "9d3d74bb1a3e2306c0bcb048716611e0ddf1246e12abb23cb59b97575f00a2c8"
+  containers-0.7/LICENSE:
+    from: libraries/containers/containers/LICENSE
+    sha256: "7904b49880da042ab0e3125ef4da8ba2322b7b5e13de13bc6a322e5e2670bc5c"
   deepseq-1.5.1.0/LICENSE:
     from: libraries/deepseq/LICENSE
     sha256: "bb015371a164f83d605ffefa79007f0cf42b8984d4e80cc6f11bdc14d60c8ea3"
-  ghc-bignum-1.3/LICENSE:
-    from: libraries/ghc-bignum/LICENSE
-    sha256: "e06de4065c35a04115f989bd4922ae9446a68c6cbd7f21a8c9703ad259e374ac"
   ghc-bignum-1.3/LICENSE-integer-gmp:
     from: libraries/integer-gmp/LICENSE
     sha256: "dc0c6562d468ad57a2cd27a19e139da9cdd84eb41439a110817b815dcdbcedf3"
-  ghc-boot-th-9.8.4/LICENSE:
+  ghc-bignum-1.3/LICENSE:
+    from: libraries/ghc-bignum/LICENSE
+    sha256: "e06de4065c35a04115f989bd4922ae9446a68c6cbd7f21a8c9703ad259e374ac"
+  ghc-boot-th-9.12.2/LICENSE:
     from: libraries/ghc-boot-th/LICENSE
     sha256: "e06c13b8a117652621781c15d622bd4c62c568307954f7136955b4b656d14ec1"
-  ghc-prim-0.11.0/LICENSE:
+  ghc-internal-9.1202.0/LICENSE-nhc98:
+    source: nhc98-licence
+    from: the page's text, its markup removed, from the nhc98 compiler's copyright paragraph, its LICENCE section and where nhc98 is published
+    sha256: "8a20262bed4fdaf515ad8d2500d1799eb7fb7eaf57b696185520d1b29b94f387"
+  ghc-internal-9.1202.0/LICENSE-singletons:
+    source: singletons-2.0.1
+    from: singletons-2.0.1/LICENSE
+    sha256: "0570e5dff3a7f66dfdf19a9b59bc08fda5453f9a1a93ef2ddabd844ec7ad9038"
+  ghc-internal-9.1202.0/LICENSE-ucd2haskell:
+    from: libraries/ghc-internal/tools/ucd2haskell/LICENSE
+    sha256: "29cdc35dd13d8c15bafa535d5a6e864688abc47f06879755d0a404f5759974fc"
+  ghc-internal-9.1202.0/LICENSE:
+    from: libraries/ghc-internal/LICENSE
+    sha256: "768c070bd0b7d820d169ee8153d5487acfc262cbbc10dfce18d05c0bb2d2800d"
+  ghc-internal-9.1202.0/LICENSE-unicode:
+    source: unicode-licence
+    from: the page's text, the Unicode License V3 the Unicode Character Database is published under
+    sha256: "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+  ghc-internal-9.1202.0/NOTICE:
+    from: written from libraries/ghc-internal/src/GHC/Internal/Data/OldList.hs and
+      libraries/ghc-internal/src/GHC/Internal/List.hs, whose comments credit HBC and nhc12
+    sha256: "e4ae8fac71286bd43ce2c702416398100ab7efac3698c29dcb378da0f29a8041"
+  ghc-prim-0.13.0/LICENSE:
     from: libraries/ghc-prim/LICENSE
     sha256: "e17dc2656f2bdc4b5715a6a35fa4cdfa403b0e95a8d63e97366818e067fe6f6e"
   libffi-3.4.6/LICENSE:
@@ -134,9 +148,10 @@ texts:
   pretty-1.1.3.6/LICENSE:
     from: libraries/pretty/LICENSE
     sha256: "43ea4e43d7fa62834449ab5ba5a8dd07cd86ceea5cfafe385f3e236c88b493b4"
-  rts-1.0.2/LICENSE:
-    from: LICENSE
-    sha256: "e06c13b8a117652621781c15d622bd4c62c568307954f7136955b4b656d14ec1"
+  rts-1.0.2/LICENSE-FARSH:
+    source: FARSH-d74ef3a2
+    from: FARSH's LICENSE at d74ef3a2
+    sha256: "45f50bc5bbb292bc1f051813ed234305070c9a184ec0017dfd09b9b380355b34"
   rts-1.0.2/LICENSE-LLVM.TXT:
     from: rts/linker/ELFRelocs/LICENSE-LLVM.TXT
     sha256: "abd4d8794808bacb1eb6924d49efafd9ab6eef88faaaeb5d3cfa13ee3670d672"
@@ -146,21 +161,24 @@ texts:
     sha256: "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
   rts-1.0.2/LICENSE-xxHash:
     from: rts/xxhash.h, its opening comment (lines 1 to 34)
-    sha256: "20bf2c9b132fe78c4256abb204159403d987af7a45345f1bdde07ecc094bed7f"
+    sha256: "16b36aa535c9275f8291bfa64d0ded1c12f3aa28d30ea0e1f6baa3074cf32522"
+  rts-1.0.2/LICENSE:
+    from: LICENSE
+    sha256: "e06c13b8a117652621781c15d622bd4c62c568307954f7136955b4b656d14ec1"
   rts-1.0.2/NOTICE:
     from: written from rts/StgPrimFloat.c, whose comment credits HBC
     sha256: "9598db4e0734a5250e4e145584746beb23240845c5564fb5847487e91b6ac9ff"
   standard-library-2.4/LICENCE:
-    source: agda-stdlib-2.4
-    from: agda-stdlib-2.4/LICENCE
+    source: agda-stdlib-2.4.1
+    from: agda-stdlib-2.4.1/LICENCE
     sha256: "5e3d2ff549b60ca7466ea71c2adb6bec4fe9f55daef0a479ebdfcd621af1599f"
-  template-haskell-2.21.0.0/LICENSE:
-    from: libraries/template-haskell/LICENSE
-    sha256: "29a12cdf7350473abfa64d71beb390216c6ad7827843726c9c3a7afab912be72"
-  template-haskell-2.21.0.0/LICENSE-filepath:
+  template-haskell-2.23.0.0/LICENSE-filepath:
     source: filepath-1.4.2.2
     from: filepath-1.4.2.2/LICENSE
     sha256: "ab5d673bec862e824a264b00113a4ba4fe3edfd303fa7175da85d4e1c7e595cd"
-  text-2.1.1/LICENSE:
+  template-haskell-2.23.0.0/LICENSE:
+    from: libraries/template-haskell/LICENSE
+    sha256: "29a12cdf7350473abfa64d71beb390216c6ad7827843726c9c3a7afab912be72"
+  text-2.1.2/LICENSE:
     from: libraries/text/LICENSE
     sha256: "cf522e3d53b8d1768695fe5b66438baf4514fcd64b7a95739960f2f5b50c6ee8"

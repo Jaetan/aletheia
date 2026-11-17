@@ -23,7 +23,7 @@ executable agda-iwyu-reader
     build-depends:    base
                     , containers
                     , unordered-containers
-                    , Agda ==2.8.0
+                    , Agda ==2.9.0
     default-language: Haskell2010
     default-extensions: PatternSynonyms
     ghc-options:      -Wall

@@ -73,9 +73,9 @@ jobs:
       id-token: write   # mint the ambient OIDC token for keyless Sigstore signing
       packages: write   # push the runtime image to GHCR (tag pushes only)
     env:
-      GHC_VERSION: '9.8.4'
-      AGDA_VERSION: '2.8.0'
-      STDLIB_VERSION: 'v2.4'
+      GHC_VERSION: '9.12.2'
+      AGDA_VERSION: '2.9.0'
+      STDLIB_VERSION: 'v2.4.1'
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v7

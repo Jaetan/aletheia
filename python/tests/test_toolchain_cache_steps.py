@@ -30,6 +30,7 @@ from _workflows import (
     ToolCache,
     TreePath,
     every_job,
+    workflow_files,
 )
 
 from aletheia.common_types import Prose
@@ -67,6 +68,11 @@ GHC_INSTALL = ShellText(
     + "  exit 1\n"
     + "}\n"
 )
+# The GHC every workflow sets up, as its env line spells it, and the GHC the
+# shim's project builds the kernel library with.
+GHC_VERSION_LINE = re.compile(r"^\s+GHC_VERSION:\s*'([^']*)'\s*$", re.MULTILINE)
+SHIM_PROJECT = REPO_ROOT / "haskell-shim" / "cabal.project"
+WITH_COMPILER = re.compile(r"^with-compiler:\s*ghc-(\S+)\s*$", re.MULTILINE)
 GHC_DIR = CachePaths("${{ env.GHC_DIR }}")
 GHC_KEY = CacheKey("ghc${{ env.GHC_VERSION }}-noble-v2")
 
@@ -148,6 +154,40 @@ def _ghc_setup(step: Step) -> bool:
 
 def _refreshes_index(step: Step) -> bool:
     return step.get("run", "").strip() == INDEX_REFRESH
+
+
+def test_every_workflow_sets_up_the_ghc_the_shims_project_builds_with() -> None:
+    """Every GHC_VERSION a workflow sets is the version the shim's project names.
+
+    The project pins the compiler, so a workflow setting up another builds with
+    a GHC it never installed and installs one nothing builds with.
+    """
+    pinned = WITH_COMPILER.findall(SHIM_PROJECT.read_text(encoding="utf-8"))
+    assert len(pinned) == 1, pinned
+    named = sorted(
+        (path.name, version)
+        for path in workflow_files()
+        for version in GHC_VERSION_LINE.findall(path.read_text(encoding="utf-8"))
+    )
+    assert named
+    assert {version for _, version in named} == set(pinned), named
+
+
+def test_every_workflow_sets_up_one_agda_and_one_standard_library() -> None:
+    """The workflows name one Agda and one standard-library tag between them.
+
+    The building guide's tag is held to the full-CI workflow's, so a workflow
+    naming another would build with a toolchain nothing documents.
+    """
+    for pin in ("AGDA_VERSION", "STDLIB_VERSION"):
+        line = re.compile(rf"^\s+{pin}:\s*'([^']*)'\s*$", re.MULTILINE)
+        named = sorted(
+            (path.name, version)
+            for path in workflow_files()
+            for version in line.findall(path.read_text(encoding="utf-8"))
+        )
+        assert named, pin
+        assert len({version for _, version in named}) == 1, named
 
 
 def test_some_job_installs_agda() -> None:

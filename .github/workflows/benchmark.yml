@@ -69,9 +69,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      GHC_VERSION: '9.8.4'
-      AGDA_VERSION: '2.8.0'
-      STDLIB_VERSION: 'v2.4'
+      GHC_VERSION: '9.12.2'
+      AGDA_VERSION: '2.9.0'
+      STDLIB_VERSION: 'v2.4.1'
       RUST_VERSION: '1.98.1'
       # Defaults apply on pull_request (no inputs); the PR gate is consistent
       # because every PR run uses these same values, matching the baseline.

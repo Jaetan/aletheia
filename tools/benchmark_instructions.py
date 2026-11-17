@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 import yaml
 
-from tools._common import COUNTED_RTS_OPTS, ExecutorFactory, WorkerCount
+from tools._common import COUNTED_RTS_OPTS, ExecutorFactory, WorkerCount, shim_ghc
 from tools._resources import cpu_budget
 from tools.check_bench_schema import REPO, SCHEMA_PATH, Binding, bindings, lib_env
 
@@ -243,7 +243,7 @@ def toolchain(targets: Sequence[Binding]) -> dict[ToolName, ToolVersion]:
     )
     return {
         ToolName("python"): _first_line(words),
-        ToolName("ghc"): _first_line((CommandWord("ghc"), CommandWord("--numeric-version"))),
+        ToolName("ghc"): _first_line((CommandWord(shim_ghc()), CommandWord("--numeric-version"))),
         ToolName("c++"): _first_line((_cxx_compiler(), CommandWord("--version"))),
         ToolName("go"): _first_line(
             (CommandWord("go"), CommandWord("env"), CommandWord("GOVERSION"))

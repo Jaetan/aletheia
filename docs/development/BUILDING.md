@@ -4,7 +4,7 @@
 
 This document is the step-by-step guide to building Aletheia from source, and it ends with the ledger of what the build and the bindings depend on, under which licences. Version and release metadata live in [DISTRIBUTION.md](DISTRIBUTION.md); status in [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
-> **Note on version pins.** The toolchain versions called out below (GHC 9.8.4, Cabal 3.16.1.0, Agda 2.8.0, agda-stdlib 2.4) are the *tested* combination, not the *only* combination that works. We pin them in CI and refresh them deliberately during AGENTS.md review rounds; the **Last Updated** stamp at the top of this file says when these versions were last revalidated. If you hit a build failure after a long gap, first check whether your local toolchain has drifted past the listed versions, then check whether this document has been updated more recently than your last build.
+> **Note on version pins.** The toolchain versions called out below (GHC 9.12.2, Cabal 3.16.1.0, Agda 2.9.0, agda-stdlib 2.4.1) are the *tested* combination, not the *only* combination that works. We pin them in CI and refresh them deliberately during AGENTS.md review rounds; the **Last Updated** stamp at the top of this file says when these versions were last revalidated. If you hit a build failure after a long gap, first check whether your local toolchain has drifted past the listed versions, then check whether this document has been updated more recently than your last build.
 
 ## Contents
 
@@ -62,13 +62,12 @@ sudo apt-get install build-essential pkg-config clang-23 llvm-23 llvm-23-linker-
 
 ### GHC (Glasgow Haskell Compiler)
 
-**Version**: 9.8.x recommended (9.8.4 known-good)
+**Version**: 9.12.2, the GHC `haskell-shim/cabal.project` names (`with-compiler: ghc-9.12.2`). The build asks for `ghc-9.12.2` by name, so it needs that GHC installed, whichever `ghc` ghcup has set.
 
 ~~~bash
-# Using ghcup (recommended); 9.8.4 is the tested version, other 9.8.x should work
+# Using ghcup (recommended)
 curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
-ghcup install ghc 9.8.4
-ghcup set ghc 9.8.4
+ghcup install ghc 9.12.2
 
 # Verify installation
 ghc --version
@@ -93,15 +92,15 @@ cabal --version
 
 ### Agda
 
-**Version**: 2.8.0 (exact version required; MAlonzo code generation changed between versions, and the standard library 2.4 targets this release)
+**Version**: 2.9.0 (exact version required; MAlonzo code generation changed between versions, and the standard library 2.4.1 targets this release), built with the GHC above, so the IWYU gate's reader finds Agda's library in that GHC's cabal store
 
 ~~~bash
 # Install via cabal
-cabal install Agda-2.8.0
+cabal install Agda-2.9.0 --with-compiler=ghc-9.12.2
 
 # Verify installation
 agda --version
-# Should output: Agda version 2.8.0
+# Should output: Agda version 2.9.0
 
 # Verify Agda is in PATH
 which agda
@@ -120,7 +119,7 @@ fish_add_path ~/.cabal/bin
 
 ### Agda standard library
 
-**Version**: 2.4 (exact version required)
+**Version**: 2.4.1 (exact version required)
 
 ~~~bash
 # Clone the standard library
@@ -128,7 +127,7 @@ mkdir -p ~/.agda
 cd ~/.agda
 git clone https://github.com/agda/agda-stdlib.git
 cd agda-stdlib
-git checkout v2.4
+git checkout v2.4.1
 
 # Register the library with Agda
 echo "$HOME/.agda/agda-stdlib/standard-library.agda-lib" >> ~/.agda/libraries
@@ -155,7 +154,7 @@ agda test.agda
 **Troubleshooting Agda stdlib**:
 
 - **`Cannot find module Data.Nat`**: Check that `~/.agda/libraries` contains the full path to `standard-library.agda-lib` and that `~/.agda/defaults` contains `standard-library`.
-- **Version mismatch errors**: Ensure you checked out `v2.4` (not `main`). Run `cd ~/.agda/agda-stdlib && git checkout v2.4`.
+- **Version mismatch errors**: Ensure you checked out `v2.4.1` (not `main`). Run `cd ~/.agda/agda-stdlib && git checkout v2.4.1`.
 
 ### Python
 
@@ -671,6 +670,7 @@ The compiled shared library links against these Haskell packages, at the version
 |---|---|
 | GHC RTS | BSD-3-Clause |
 | base | BSD-3-Clause |
+| ghc-internal | BSD-3-Clause |
 | ghc-prim | BSD-3-Clause |
 | ghc-bignum | BSD-3-Clause |
 | text | BSD-2-Clause |

@@ -24,10 +24,11 @@ compiled in and are not read, nor are package descriptions, whose licence field
 is the package's own.
 
 A line is a hit when it says where code came from (borrowed, vendored, taken,
-copied, adapted, ported, lifted, stolen, ripped or cribbed from something;
-derived from a named package, library, project or code; originally written or
-contributed; based on someone's code; written based on; inspired by; a port
-of; a version of someone's code; a ``Source:`` or ``From:`` URL; stolen), or
+copied, adapted, adopted, modified, ported, lifted, stolen, ripped or cribbed,
+one adverb allowed before it, from something; derived from a named package,
+library, project or code; originally written or contributed; based on
+someone's code; written based on; inspired by; a port of; a version of
+someone's code; a ``Source:`` or ``From:`` URL, or data from one; stolen), or
 when it grants a licence (a licence's grant sentence, an SPDX identifier, a
 ``License:`` field, a work said to be under a licence or copyrighted by
 someone), unless it points at the package's own licence file (``see the file
@@ -112,7 +113,8 @@ _OWN_BSD = re.compile(r"(?i)^\W*licen[cs]e\s*:\s*(bsd-?style|bsd3-style)\W*$")
 # The words every BSD licence opens its conditions with, which mark a BSD package's own text.
 _BSD_WORDS = Prose("redistribution and use in source and binary forms")
 _PROVENANCE = re.compile(
-    r"(?i)\b(borrowed|vendored|taken|copied|adapted|ported|lifted|stolen|ripped|cribbed) from\b"
+    r"(?i)\b(borrowed|vendored|taken|copied|adapted|adopted|modified|ported|lifted|stolen|ripped"
+    + r"|cribbed) (\w+ly )?from\b|\bdata from\s*:?\s*https?://"
     + r"|\bderived from (the )?[`'\"@]?[\w.-]+[`'\"@]? (package|library|project|code)\b"
     + r"|\boriginally (written|contributed)\b|\bbased on (the )?([\w.-]+ )?code\b"
     + r"|\bwritten based on\b|\binspired by\b|\ban? (\w+ )?port of\b"

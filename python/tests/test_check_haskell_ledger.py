@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import pytest
 from _processes import CommandWord
 
+from tools._common import shim_ghc_pkg
 from tools.check_haskell_ledger import (
     DIFFERS,
     HASKELL_LAYER,
@@ -319,7 +320,7 @@ def _stand_in(
 
 def _ghc_pkg(package: GhcPackage) -> Command:
     """Return the ghc-pkg command that asks the licence of ``package``."""
-    words = ("ghc-pkg", "field", package, "license", "--simple-output")
+    words = (shim_ghc_pkg(), "field", package, "license", "--simple-output")
     return [CommandWord(word) for word in words]
 
 
@@ -425,7 +426,7 @@ def test_main_is_unchecked_when_ldd_cannot_read_the_library(
     )
 
 
-@pytest.mark.parametrize("absent", [CommandWord("ldd"), CommandWord("ghc-pkg")])
+@pytest.mark.parametrize("absent", [CommandWord("ldd"), CommandWord(shim_ghc_pkg())])
 def test_main_is_unchecked_when_a_tool_it_runs_is_not_on_the_search_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, absent: CommandWord
 ) -> None:

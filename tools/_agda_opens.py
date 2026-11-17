@@ -10,11 +10,11 @@ wildcard)?  It finds *every* open the Agda grammar permits, in *every* position
 and classifies it — not just top-level ``open import`` / ``import`` blocks.
 
 Grounding — Agda's concrete grammar, ``src/full/Agda/Syntax/Parser/Parser.y``
-(pinned tag ``v2.8.0``, matching the Agda the build uses; BSD-2-Clause).  It is
+(pinned tag ``v2.9.0``, matching the Agda the build uses; BSD-2-Clause).  It is
 not vendored; fetch a local, git-ignored working copy on demand with::
 
     curl -fsSL \
-      https://raw.githubusercontent.com/agda/agda/v2.8.0/src/full/Agda/Syntax/Parser/Parser.y \
+      https://raw.githubusercontent.com/agda/agda/v2.9.0/src/full/Agda/Syntax/Parser/Parser.y \
       -o .agda-reference/Parser.y
 
 The productions that matter — ``ImportDirective`` / ``Open`` / ``ModuleName``:

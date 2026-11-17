@@ -166,7 +166,7 @@ Agda (all logic + proofs, compiled via the MAlonzo backend)
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
 | **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented build process, built on Ubuntu in continuous integration and on WSL2 by hand. One-time build-time toolchain; runtime is just the shared library + Python. |
-| **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
+| **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.9.0 is stable. GHC is industry-proven. Only standard library dependencies. |
 | **Agda learning curve** | Modifying core requires expertise | Medium | Binding APIs are stable. Core changes rare. Can contract experts if needed. |
 
 ### People Risks

@@ -53,9 +53,9 @@ permissions:
   contents: read
 
 env:
-  GHC_VERSION: '9.8.4'
-  AGDA_VERSION: '2.8.0'
-  STDLIB_VERSION: 'v2.4'
+  GHC_VERSION: '9.12.2'
+  AGDA_VERSION: '2.9.0'
+  STDLIB_VERSION: 'v2.4.1'
 
 jobs:
   # ── reproducible-build (REQUIRED-intended; deterministic) ──────────────────

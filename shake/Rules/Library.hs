@@ -34,6 +34,16 @@ newtype AgdaVersion = AgdaVersion ()
   deriving newtype (Hashable, Binary, NFData)
 type instance RuleResult AgdaVersion = String
 
+-- | Shake oracle key for a compiler's version, the compiler named by the
+-- command the shim's project gives it.  A compiler is no file Shake can
+-- `need` either: `<compiler> --version` is queried each build, and a change
+-- re-fires every rule that compiles with it, so a compiler move rebuilds the
+-- library and the stand-ins rather than leaving them built by the old one.
+newtype CompilerVersion = CompilerVersion String
+  deriving stock (Show, Eq)
+  deriving newtype (Hashable, Binary, NFData)
+type instance RuleResult CompilerVersion = String
+
 -- | Convert a MAlonzo .hs path (relative to build/) to its Haskell module name,
 -- e.g. "MAlonzo/Code/Aletheia/Protocol/ResponseFormat.hs"
 --   ->  "MAlonzo.Code.Aletheia.Protocol.ResponseFormat".
@@ -109,22 +119,6 @@ readMemAvailableMB = do
 shimHeaderStamp :: FilePath
 shimHeaderStamp = "build/shim-header.stamp"
 
--- | The shim's cabal project, which names the C compiler every C compile of
--- the shim runs.
-shimProject :: FilePath
-shimProject = "haskell-shim/cabal.project"
-
--- | The C compiler the shim's project names on its @gcc-location:@ line, so
--- the stand-ins are compiled as the library's own C is.
-shimCCompiler :: Action String
-shimCCompiler = do
-    text <- readFile' shimProject
-    case [ c | l <- lines text
-             , Just rest <- [stripPrefix "gcc-location:" (dropWhile (== ' ') l)]
-             , c <- take 1 (words rest) ] of
-        c : _ -> pure c
-        [] -> error (shimProject ++ " names no gcc-location")
-
 -- | The stand-in kernels the bindings' tests load in place of the library: one
 -- at an ABI version no binding was written against, one exporting the version
 -- alone, one exporting no kernel symbol, one whose kernel answers null, and
@@ -147,6 +141,9 @@ libraryRules = do
     -- a toolchain bump rebuilds the MAlonzo output even with no .agda source change.
     _ <- addOracle $ \(AgdaVersion ()) -> do
         Stdout verOut <- cmd "agda" "--version"
+        pure (strip verOut)
+    _ <- addOracle $ \(CompilerVersion compiler) -> do
+        Stdout verOut <- cmd compiler "--version"
         pure (strip verOut)
 
     phony "build" $ do
@@ -261,6 +258,7 @@ libraryRules = do
         headers <- getDirectoryFiles "" ["haskell-shim/include//*.h"]
         need (source : headers)
         cc <- shimCCompiler
+        _ <- askOracle (CompilerVersion cc)
         cmd_ cc ["-std=gnu23", "-shared", "-fPIC", "-I", "haskell-shim/include", "-o", out, source]
 
     "build/libaletheia-ffi.so" %> \out -> do
@@ -277,6 +275,10 @@ libraryRules = do
         need (map ("src" </>) agdaSources)
         need ["aletheia.agda-lib"]       -- toolchain inputs (mirror build-agda) so a
         _ <- askOracle (AgdaVersion ())  -- stdlib/flag/agda-version bump re-fires the .so
+        ghc <- shimGhc                   -- and so does a move of either compiler
+        _ <- askOracle (CompilerVersion ghc)
+        cc <- shimCCompiler
+        _ <- askOracle (CompilerVersion cc)
         need [ shimHeaderStamp
              , shimProject
              , "haskell-shim/src/AletheiaFFI.hs"
@@ -311,9 +313,8 @@ libraryRules = do
         putInfo "Building FFI shared library (incremental; cabal owns .hs -> .so)..."
         -- UR-3.3: pass -ffile-prefix-map through to GHC's C compiler so any
         -- C-side debug info / __FILE__ embeddings strip the build-host path.
-        -- Cannot use the bare `-fdebug-prefix-map` GHC flag here — that was
-        -- only added to GHC in 9.10, and we pin GHC 9.8.4 (see the CI
-        -- workflows' GHC_VERSION).
+        -- GHC has no prefix-map flag of its own (`--show-options` lists none),
+        -- so the C compiler's is passed through.
         --
         -- Same-host reproducibility was verified empirically WITHOUT this flag
         -- (two clean builds → bit-identical libaletheia-ffi.so),
@@ -342,32 +343,35 @@ libraryRules = do
             "aletheia-ffi"
 
         -- Find and copy the built .so.  cabal keeps a SEPARATE dist-newstyle
-        -- tree per package version (aletheia-<VER>/…), so a bare
-        -- `find … | head -1` is non-deterministic when a stale tree from a prior
-        -- version lingers (readdir order is unstable) — after a version bump it
-        -- can silently copy the OLD version's .so (verified: it shipped a
-        -- Jun-build .so under a bumped version).  Scope to the CURRENT package
-        -- version's subtree (the stable, semantic boundary — NOT cabal's
-        -- internal component layout) and FAIL LOUD on anything but exactly one
-        -- match rather than guessing: the exactly-one check is the real guard,
-        -- so no coupling to the `f/aletheia-ffi/…` path is needed (there is one
-        -- libaletheia-ffi.so per version tree).  (`dist` additionally prunes
-        -- stale trees up front; this rule is the always-on guard.)
+        -- tree per compiler and per package version (ghc-<GHC>/aletheia-<VER>/…),
+        -- so a bare `find … | head -1` is non-deterministic when a stale tree
+        -- from a prior compiler or version lingers (readdir order is unstable)
+        -- and can silently copy the OLD build's .so (verified: it shipped a
+        -- Jun-build .so under a bumped version).  Scope to the subtree of the
+        -- CURRENT compiler and package version (the stable, semantic boundary,
+        -- NOT cabal's internal component layout) and FAIL LOUD on anything but
+        -- exactly one match rather than guessing: the exactly-one check is the
+        -- real guard, so no coupling to the `f/aletheia-ffi/…` path is needed
+        -- (there is one libaletheia-ffi.so per such tree).  (`dist`
+        -- additionally prunes stale trees up front; this rule is the always-on
+        -- guard.)
         cabalContents <- liftIO $ readFile "haskell-shim/aletheia.cabal"
         let ver = parseCabalVersion cabalContents
         when (null ver) $
             error "Could not parse `version:` from haskell-shim/aletheia.cabal"
+        Stdout ghcNumeric <- cmd ghc "--numeric-version"
+        let tree = "ghc-" ++ strip ghcNumeric ++ "/aletheia-" ++ ver
         Stdout rawSo <- cmd (Cwd "haskell-shim") Shell
-            ( "find dist-newstyle -type f -path '*/aletheia-" ++ ver
+            ( "find dist-newstyle -type f -path '*/" ++ tree
               ++ "/*' -name 'libaletheia-ffi.so'" )
         case filter (not . null) (map strip (lines rawSo)) of
             [trimmedPath] -> do
                 cmd_ (Cwd "haskell-shim") "cp" trimmedPath ("../" ++ out)
                 putInfo $ "Shared library created: " ++ out
-                                ++ " (from aletheia-" ++ ver ++ ")"
+                                ++ " (from " ++ tree ++ ")"
             [] -> error $ "No libaletheia-ffi.so under haskell-shim/dist-newstyle"
-                        ++ " for the current version aletheia-" ++ ver
+                        ++ " for " ++ tree
                         ++ " (did `cabal build aletheia-ffi` run?)."
-            many -> error $ "Ambiguous libaletheia-ffi.so for aletheia-" ++ ver
+            many -> error $ "Ambiguous libaletheia-ffi.so for " ++ tree
                         ++ " — expected exactly one, found "
                         ++ show (length many) ++ ": " ++ intercalate ", " many

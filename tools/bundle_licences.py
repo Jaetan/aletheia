@@ -15,7 +15,7 @@ under ``packaging/licenses/``, a folder ``<name>-<version>`` per work: for the
 kernel, ``Agda-<version>`` (the Agda on the search path) and each Agda library
 it depends on as ``depend:`` names it; for a GHC package, its name and version
 as its library file names them, the runtime system's way (``_thr``) aside; for
-libffi, the release named by the ``ffi.h`` of the GHC on the search path.
+libffi, the release named by the ``ffi.h`` of the GHC the shim's project names.
 Each folder holds the licence the work declares (a package's
 ``license-file``; for the runtime system, which declares none, GHC's own) and
 that of each work whose code is compiled into it, since GHC's install carries
@@ -36,7 +36,7 @@ The commands:
 * ``check LIBRARY...`` holds the kept folders to the libraries given (the
   kernel among them), both ways, the record to the kept texts, both ways, each
   text naming a copyright, the record's upstream sources to the texts naming
-  them, both ways, the record to the GHC on the search path, and the
+  them, both ways, the record to the GHC the shim's project names, and the
   verdicts to the record and the kept texts: every tarball the audit reads
   scanned, every tarball scanned one the record names at the SHA-256 it
   records, and each verdict, one per hit and on a tarball scanned, one kept
@@ -55,9 +55,10 @@ The commands:
   redistributed on its own.
 
 Exit 0 when held; 1 on a finding; 2 when it cannot check: the record, the
-verdicts or ``aletheia.agda-lib`` cannot be read, ghc, ghc-pkg or agda is not on the search
-path or names no version, no ``ffi.h`` among the runtime system's include
-directories names a libffi release, or the bundle has no ``lib/``.
+verdicts or ``aletheia.agda-lib`` cannot be read, the GHC the shim's project
+names, its ghc-pkg or agda is not on the search path or names no version, no
+``ffi.h`` among the runtime system's include directories names a libffi
+release, or the bundle has no ``lib/``.
 """
 
 from __future__ import annotations
@@ -73,7 +74,7 @@ import yaml
 from yaml import MappingNode, Node, SafeLoader, SequenceNode
 from yaml.error import YAMLError
 
-from tools._common import emit, find_executable, run_capture
+from tools._common import emit, find_executable, run_capture, shim_ghc, shim_ghc_pkg
 from tools.check_haskell_ledger import library_name
 from tools.sbom_generate import GhcVersion, ghc_library
 
@@ -435,7 +436,7 @@ def kept_findings(
     )
     if record["ghc"] != ghc:
         out.append(
-            Prose(f"{KEPT / RECORD}: records GHC {record['ghc']}, the search path's is {ghc}")
+            Prose(f"{KEPT / RECORD}: records GHC {record['ghc']}, the shim's project names {ghc}")
         )
     if not record["tarball"]["url"].endswith(f"/ghc-{record['ghc']}-src.tar.xz"):
         out.append(Prose(f"{KEPT / RECORD}: its tarball is not GHC {record['ghc']}'s source"))
@@ -552,18 +553,19 @@ def _binding_findings(bundle: Path) -> list[Prose]:
 
 
 def ghc_version() -> GhcVersion:
-    """Return the version of the GHC on the search path, raising when ghc names none."""
-    read = run_capture([find_executable("ghc"), "--numeric-version"])
+    """Return the version of the GHC the shim's project names, raising when it names none."""
+    ghc = shim_ghc()
+    read = run_capture([find_executable(ghc), "--numeric-version"])
     if read.returncode != 0 or not read.stdout.strip():
-        message = f"ghc --numeric-version names no version: {read.stderr.strip()}"
+        message = f"{ghc} --numeric-version names no version: {read.stderr.strip()}"
         raise LicenceUnreadError(message)
     return GhcVersion(read.stdout.strip())
 
 
 def ghc_libffi() -> LibffiRelease:
-    """Return the libffi release the GHC on the search path builds its runtime system with."""
+    """Return the libffi release the GHC the shim's project names builds its runtime system with."""
     read = run_capture(
-        [find_executable("ghc-pkg"), "field", "rts", "include-dirs", "--simple-output"]
+        [find_executable(shim_ghc_pkg()), "field", "rts", "include-dirs", "--simple-output"]
     )
     directories = [Path(word) for word in read.stdout.split()] if read.returncode == 0 else []
     for directory in directories:

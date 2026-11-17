@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType, NotRequired, TypedDict, cast
 
-from tools._common import emit, run_capture, sha256_file
+from tools._common import emit, run_capture, sha256_file, shim_ghc
 from tools._manifests import (
     DistributionName,
     ManifestError,
@@ -161,8 +161,8 @@ def _agda_stdlib(repo: Path) -> str:
 
 
 def _ghc_version() -> str:
-    """Return the GHC numeric version, or ``"unknown"`` if GHC is absent."""
-    return _probe("ghc", ["--numeric-version"])
+    """Return the shim GHC's numeric version, or ``"unknown"`` if that GHC is absent."""
+    return _probe(shim_ghc(), ["--numeric-version"])
 
 
 def _cabal_version() -> str:
@@ -184,16 +184,16 @@ def _aletheia_version(repo: Path) -> str:
 
 
 def _ghc_libdir() -> str:
-    """Return GHC's library directory, or ``"unknown"`` if GHC is absent."""
-    return _probe("ghc", ["--print-libdir"])
+    """Return the shim GHC's library directory, or ``"unknown"`` if that GHC is absent."""
+    return _probe(shim_ghc(), ["--print-libdir"])
 
 
 # A GHC package's name and version, as a runtime library's file name spells them.
 GhcPackage = NewType("GhcPackage", str)
 GhcVersion = NewType("GhcVersion", str)
 
-# libHSbase-4.19.2.0-9f38-ghc9.8.4.so: the package, its version, an optional
-# unit hash (GHC 9.8 writes four characters of it, earlier ones none), then the
+# libHSbase-4.21.0.0-8bb5-ghc9.12.2.so: the package, its version, an optional
+# unit hash (GHC 9.8 and later write four characters of it, earlier ones none), then the
 # compiler that built it.
 _GHC_LIBRARY = re.compile(r"libHS([A-Za-z0-9_-]+?)-(\d[\w.-]*?)(?:-[a-z0-9]{4,})?-ghc[\d.]+\.so")
 

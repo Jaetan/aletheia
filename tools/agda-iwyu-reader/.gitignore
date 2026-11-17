@@ -1,6 +1,7 @@
 # Build artifacts — the reader is built on demand against the cabal store
 # (see agda-iwyu-reader.cabal); only the source is tracked.
 /agda-iwyu-reader
+/agda-iwyu-reader.toolchain
 *.hi
 *.o
 dist-newstyle/

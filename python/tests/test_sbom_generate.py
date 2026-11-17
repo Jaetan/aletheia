@@ -31,6 +31,7 @@ from _sbom_fixtures import (
     make_bindings_tree,
 )
 
+from tools._common import shim_ghc
 from tools._manifests import ManifestError
 from tools.sbom_generate import (
     GhcPackage,
@@ -56,8 +57,8 @@ ToolAnswer = NewType("ToolAnswer", str)
 # The answer each toolchain probe the generator makes gets in place of the
 # installed tool's, keyed by the tool's command line.
 _TOOL_ANSWERS: dict[tuple[CommandWord, ...], ToolAnswer] = {
-    (CommandWord("ghc"), CommandWord("--numeric-version")): ToolAnswer("9.10.1"),
-    (CommandWord("ghc"), CommandWord("--print-libdir")): ToolAnswer("/opt/ghc/lib"),
+    (CommandWord(shim_ghc()), CommandWord("--numeric-version")): ToolAnswer("9.10.1"),
+    (CommandWord(shim_ghc()), CommandWord("--print-libdir")): ToolAnswer("/opt/ghc/lib"),
     (CommandWord("cabal"), CommandWord("--numeric-version")): ToolAnswer("3.12.1.0"),
     (CommandWord("agda"), CommandWord("--version")): ToolAnswer("Agda version 2.8.0"),
 }

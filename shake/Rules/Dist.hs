@@ -329,7 +329,8 @@ distRules = do
         Stdout commitTime <- cmd Shell "git log -1 --format=%ct HEAD"
         let commitEpoch = strip commitTime
         Stdout buildDate  <- cmd Shell ("date -u -Iseconds -d @" ++ commitEpoch)
-        Stdout ghcVer    <- cmd Shell "ghc --numeric-version"
+        ghc <- shimGhc
+        Stdout ghcVer    <- cmd ghc "--numeric-version"
         Stdout cabalVer  <- cmd Shell "cabal --numeric-version"
         -- agda --version emits multi-line output (version + cabal flag list);
         -- take only the first line.
