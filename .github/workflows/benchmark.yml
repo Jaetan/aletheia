@@ -7,7 +7,8 @@
 # Rust 1.98.1), in two legs on every pull request: throughput, which prints
 # each lane's frames per second and holds each lane's instructions per
 # operation, counted under valgrind, to the counts committed in
-# benchmarks/instruction_counts.json, and `load scaling`, which fails when the
+# benchmarks/instruction_counts.json and to the budgets for its bus in
+# benchmarks/instruction_budgets.json, and `load scaling`, which fails when the
 # bytes a binding's DBC load allocates outgrow the doublings of its messages or
 # of one number's digits and is a check the main branch ruleset requires.  Both
 # gates read counts, so a run's verdict does not rest on the runner's speed.
@@ -413,7 +414,8 @@ jobs:
 
       # PR gate.  Throughput: fail when a lane's instructions per operation
       # moved more than 5% from benchmarks/instruction_counts.json either way,
-      # or the counts rest on another toolchain.  Scaling: fail when the bytes
+      # or are over its budget in benchmarks/instruction_budgets.json, or the
+      # counts or the budgets rest on another toolchain.  Scaling: fail when the bytes
       # a binding's DBC load allocates outgrow the doublings of its messages or
       # of one number's digits.  tools/benchmark_gate.py says by how much.
       # Both read counts a re-run repeats, so a failed gate is a verdict and

@@ -8,7 +8,13 @@ committed count either way passes, at either end of the bound; a lane a count
 past it either way fails, naming the lane and why; a lane or a binding one
 side lacks fails by name; counts taken with another toolchain or at other
 frame counts fail naming what differs, before any lane is compared; and a run
-with no report, or no committed counts, fails rather than passing vacuously.
+with no report, no committed counts or no budgets fails rather than passing
+vacuously. A lane at its budget passes and one instruction over it fails,
+named; a noted limitation over its budget passes, reported as one, and fails
+once within it, asking for a recalibration; a noted limitation with no budget,
+and a lane only the budgets or only the run holds, fail by name; and budgets
+calibrated with another toolchain or at other frame counts fail naming what
+differs.
 
 The load scaling check, ``--bench scaling``: its factor sits between a linear
 load's doubling and a quadratic one's, and it reads the schema's sweeps that
@@ -31,11 +37,17 @@ import itertools
 import json
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict
 
 import pytest
 from _bench_schema import BindingId, RowKey, SweepName, schema
 
+from tools.benchmark_budgets import (
+    SLOWER_RUNNER_CPU,
+    BudgetRecord,
+    FramesPerSecond,
+    bus_of,
+)
 from tools.benchmark_gate import (
     BINDINGS,
     MAX_ALLOCATION_DOUBLING,
@@ -73,6 +85,10 @@ _FRAMES = [FrameCount(100), FrameCount(1100)]
 
 # Each binding's lanes and their instructions per operation.
 type _Counts = dict[BindingName, dict[LaneName, InstructionCount]]
+# A calibrating run's worst rate as a multiple of its lane's bus.
+RateOverBus = NewType("RateOverBus", float)
+# The lanes a budget record lists as under their bus.
+type _Limitations = dict[BindingName, list[LaneName]]
 
 
 def _one(binding: BindingName, count: InstructionCount) -> _Counts:
@@ -95,10 +111,41 @@ def _report(
     }
 
 
+def _budgets(
+    counts: _Counts,
+    rate: RateOverBus = RateOverBus(100),
+    *,
+    limitations: _Limitations | None = None,
+    toolchain: dict[ToolName, ToolVersion] | None = None,
+    frames: list[FrameCount] | None = None,
+) -> BudgetRecord:
+    """Return budgets calibrated from ``counts`` at ``rate`` times each lane's bus."""
+    return {
+        "host": {ToolName("cpu"): SLOWER_RUNNER_CPU},
+        "toolchain": dict(_TOOLCHAIN) if toolchain is None else toolchain,
+        "frames": list(_FRAMES) if frames is None else frames,
+        "lanes": {
+            binding: {
+                lane: {"instructions": count, "fps_min": FramesPerSecond(bus_of(lane) * rate)}
+                for lane, count in lanes.items()
+            }
+            for binding, lanes in counts.items()
+        },
+        "limitations": {} if limitations is None else limitations,
+    }
+
+
 def _instructions(
-    tmp_path: Path, committed: InstructionReport | None, measured: InstructionReport | None
+    tmp_path: Path,
+    committed: InstructionReport | None,
+    measured: InstructionReport | None,
+    budgets: BudgetRecord | Literal["absent"] | None = None,
 ) -> int:
-    """Write the two reports, as present, and run the instruction check on them."""
+    """Write the reports and the budgets, as present, and run the instruction check on them.
+
+    Unless given, the budgets are a hundred times each committed lane's count,
+    so no lane meets them.
+    """
     results = tmp_path / "results"
     results.mkdir()
     if measured is not None:
@@ -106,7 +153,26 @@ def _instructions(
     counts = tmp_path / "instruction_counts.json"
     if committed is not None:
         _ = counts.write_text(json.dumps(committed), encoding="utf-8")
-    return main(["--bench", "instructions", "--results-dir", str(results), "--counts", str(counts)])
+    record = tmp_path / "instruction_budgets.json"
+    if budgets != "absent":
+        written = (
+            _budgets({} if committed is None else committed["counts"])
+            if budgets is None
+            else budgets
+        )
+        _ = record.write_text(json.dumps(written), encoding="utf-8")
+    return main(
+        [
+            "--bench",
+            "instructions",
+            "--results-dir",
+            str(results),
+            "--counts",
+            str(counts),
+            "--budgets",
+            str(record),
+        ]
+    )
 
 
 def test_the_gate_reads_every_language_the_schema_names() -> None:
@@ -201,13 +267,124 @@ def test_counts_taken_otherwise_are_not_compared(
     assert _LANE not in captured.out
 
 
-@pytest.mark.parametrize("absent", ["committed", "measured"])
-def test_a_missing_report_fails(tmp_path: Path, absent: Literal["committed", "measured"]) -> None:
-    """No run report, or no committed counts, fails rather than passing vacuously."""
+@pytest.mark.parametrize("absent", ["committed", "measured", "budgets"])
+def test_a_missing_report_fails(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Prose],
+    absent: Literal["committed", "measured", "budgets"],
+) -> None:
+    """No run report, no committed counts or no budgets fails rather than passing vacuously."""
     report = _report(_one(_CPP, InstructionCount(1)))
     committed = None if absent == "committed" else report
     measured = None if absent == "measured" else report
-    assert _instructions(tmp_path, committed, measured) == 1
+    budgets = "absent" if absent == "budgets" else None
+    assert _instructions(tmp_path, committed, measured, budgets) == 1
+    named = {
+        "committed": "no committed counts",
+        "measured": "no instruction report",
+        "budgets": "no budgets",
+    }
+    assert named[absent] in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("now", "status"), [(InstructionCount(100_000), 0), (InstructionCount(100_001), 1)]
+)
+def test_a_lane_over_its_budget_fails_named(
+    tmp_path: Path, capsys: pytest.CaptureFixture[Prose], now: InstructionCount, status: ExitStatus
+) -> None:
+    """A lane at its budget passes; an instruction over it fails, naming the lane and why."""
+    counts = _one(_CPP, InstructionCount(100_000))
+    budgets = _budgets(counts, RateOverBus(1))
+    assert _instructions(tmp_path, _report(counts), _report(_one(_CPP, now)), budgets) == status
+    err = capsys.readouterr().err
+    assert (f"cpp / {_LANE}: {now:,} of a budget of 100,000, over its budget" in err) == bool(
+        status
+    )
+
+
+@pytest.mark.parametrize(
+    ("rate", "status", "said"),
+    [
+        (RateOverBus(0.5), 0, Prose("(a noted limitation)")),
+        (RateOverBus(1), 1, Prose("no longer a limitation: recalibrate")),
+    ],
+)
+def test_a_noted_limitation_passes_over_its_budget_and_fails_within_it(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Prose],
+    rate: RateOverBus,
+    status: ExitStatus,
+    said: Prose,
+) -> None:
+    """A noted lane over its budget is reported and passes; one within it asks to recalibrate."""
+    counts = _one(_CPP, InstructionCount(100_000))
+    budgets = _budgets(counts, rate, limitations={_CPP: [_LANE]})
+    assert _instructions(tmp_path, _report(counts), _report(counts), budgets) == status
+    captured = capsys.readouterr()
+    assert said in captured.out + captured.err
+
+
+@pytest.mark.parametrize(
+    ("budgeted", "limitations", "missing"),
+    [
+        ({}, {}, Prose(f"cpp / {_LANE}: no budget")),
+        (
+            {_CPP: {_LANE: InstructionCount(1), _OTHER_LANE: InstructionCount(1)}},
+            {},
+            Prose(f"cpp / {_OTHER_LANE}: no count in this run"),
+        ),
+        (
+            _one(_CPP, InstructionCount(1)),
+            {_GO: [_LANE]},
+            Prose(f"go / {_LANE}: a noted limitation with no budget"),
+        ),
+    ],
+)
+def test_a_lane_the_budgets_or_the_run_lacks_fails_named(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Prose],
+    budgeted: _Counts,
+    limitations: _Limitations,
+    missing: Prose,
+) -> None:
+    """A lane with no budget, a budget with no count and an unbudgeted limitation fail, named."""
+    counts = _one(_CPP, InstructionCount(1))
+    budgets = _budgets(budgeted, limitations=limitations)
+    assert _instructions(tmp_path, _report(counts), _report(counts), budgets) == 1
+    assert missing in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("toolchain", "frames", "named"),
+    [
+        (
+            {**_TOOLCHAIN, ToolName("go"): ToolVersion("go1.27.3")},
+            None,
+            Prose("go: committed 'go1.27.3', this run 'go1.27.4'"),
+        ),
+        (
+            None,
+            [FrameCount(100), FrameCount(2100)],
+            Prose("frames: committed [100, 2100], this run [100, 1100]"),
+        ),
+    ],
+)
+def test_budgets_calibrated_otherwise_ask_for_a_recalibration(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Prose],
+    toolchain: dict[ToolName, ToolVersion] | None,
+    frames: list[FrameCount] | None,
+    named: Prose,
+) -> None:
+    """Budgets taken with another toolchain or at other frame counts fail naming what differs."""
+    counts = _one(_CPP, InstructionCount(100_000))
+    budgets = _budgets(counts, toolchain=toolchain, frames=frames)
+    assert _instructions(tmp_path, _report(counts), _report(counts), budgets) == 1
+    captured = capsys.readouterr()
+    assert named in captured.err
+    assert "Recalibrate" in captured.err
+    assert _LANE not in captured.out
 
 
 _SWEEP_IDS = [sweep.key for sweep in SWEEPS]

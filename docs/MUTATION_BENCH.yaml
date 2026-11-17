@@ -457,7 +457,7 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 7
-      total_mutants: 1576
+      total_mutants: 1578
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -521,7 +521,7 @@ bindings:
         cpp/src/yaml.cpp: 24.7
       timeouts: 0
       score_pct: 99.6
-      run_at: "2026-11-15"
+      run_at: "2026-11-16"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -530,9 +530,9 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1543
+        test: 1544
         kernel: 2
-        check: 14
+        check: 15
         fault: 10
         timeout: 0
         survived: 7
@@ -730,6 +730,12 @@ bindings:
           text: return dom_.start_object(length);
           route: check
           refused: attempt to access an element in an empty container.
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/benchmarks/stability_report.hpp
+          text: 'per_cycle.empty() ? 0 : std::ranges::max(per_cycle) - std::ranges::min(per_cycle);'
+          route: check
+          refused: __first != __last
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/include/aletheia/ltl.hpp

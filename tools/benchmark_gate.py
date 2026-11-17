@@ -23,12 +23,22 @@ under valgrind, against the counts committed in
 more than that below it fails too, since a count left above a speedup would
 let a later slowdown through unseen, so a change that moves a lane past the
 bound either way commits the counts its run measured, saying why.  A count
-repeats to within a few hundredths of a percent from run to run, so the
+repeats far inside the bound from run to run and runner to runner, so the
 runner's speed and load do not move the verdict; the frames per second the
 throughput mode prints decide nothing.  Counts taken with another toolchain
 or at other frame counts are not compared: the check names what differs, and
 the counts are refreshed.  A lane or a binding either side lacks fails by
 name.
+
+The same check holds each lane to the bus it serves: a lane whose count is
+over its budget in ``benchmarks/instruction_budgets.json``, the most
+instructions per operation the slower runner class executes at the bus's
+frames a second (``tools/benchmark_budgets.py``), fails.  A noted limitation,
+a lane the record lists as under its bus when calibrated, is reported over its
+budget without failing, and fails once within it, since the record then says
+less than the lanes do.  Budgets calibrated with another toolchain or at other
+frame counts fail naming what differs, a missing record fails, and a lane
+either side lacks fails by name.
 """
 
 from __future__ import annotations
@@ -40,21 +50,31 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast
 
+from tools.benchmark_budgets import BUDGETS_PATH, budget_of
 from tools.benchmark_instructions import RESULT_PATH
 
 from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
-    from tools.benchmark_instructions import InstructionCount, InstructionReport
+    from tools.benchmark_budgets import BudgetRecord
+    from tools.benchmark_instructions import (
+        BindingName,
+        FrameCount,
+        InstructionCount,
+        InstructionReport,
+        LaneName,
+        ToolName,
+        ToolVersion,
+    )
 
 # The bindings benchmarked by run_all.sh, the languages benchmarks/SCHEMA.yaml
 # names. The scaling check fails a binding with no result file.
 BINDINGS = ("cpp", "go", "python", "rust")
 
 # A lane whose instructions per operation moved more than this percentage from
-# its committed count, either way, fails.  Measured on one host, a lane repeats
-# to within a few hundredths of a percent from run to run, and the C library's
-# CPU-dependent code paths move a count by at most 0.25%.
+# its committed count, either way, fails.  Three runs of one tree on three
+# runner classes, the GHC runtime's idle collector off, spread 20 lanes of 24 by
+# under 0.1% and the widest, Go's CAN-FD signal extraction, by 0.475%.
 MAX_INSTRUCTION_DRIFT_PERCENT = 5
 
 # The counts the instruction check holds each lane to.
@@ -282,18 +302,18 @@ def _drift(was: InstructionCount, now: InstructionCount) -> Prose | None:
     return None
 
 
-def _unlike(committed: InstructionReport, measured: InstructionReport) -> list[Prose]:
-    """Answer each tool, and the frame counts, the two reports were taken with differently."""
-    was, now = committed["toolchain"], measured["toolchain"]
+def _unlike(
+    toolchain: dict[ToolName, ToolVersion], frames: list[FrameCount], measured: InstructionReport
+) -> list[Prose]:
+    """Answer each tool, and the frame counts, a record and this run were taken with differently."""
+    now = measured["toolchain"]
     unlike = [
-        Prose(f"{tool}: committed {was.get(tool)!r}, this run {now.get(tool)!r}")
-        for tool in sorted(was.keys() | now.keys())
-        if was.get(tool) != now.get(tool)
+        Prose(f"{tool}: committed {toolchain.get(tool)!r}, this run {now.get(tool)!r}")
+        for tool in sorted(toolchain.keys() | now.keys())
+        if toolchain.get(tool) != now.get(tool)
     ]
-    if committed["frames"] != measured["frames"]:
-        unlike.append(
-            Prose(f"frames: committed {committed['frames']}, this run {measured['frames']}")
-        )
+    if frames != measured["frames"]:
+        unlike.append(Prose(f"frames: committed {frames}, this run {measured['frames']}"))
     return unlike
 
 
@@ -318,37 +338,129 @@ def _lane_failures(committed: InstructionReport, measured: InstructionReport) ->
     return failures
 
 
-def _check_instructions(measured_path: Path, counts_path: Path) -> ExitStatus:
-    """Fail when a lane moved past the bound, or the two reports cannot be compared."""
+_OVER_BUDGET = Prose(
+    "over its budget: the lane no longer keeps up with its bus on the slower runner"
+)
+_NO_LONGER_LIMITED = Prose(
+    "within its budget, so no longer a limitation: recalibrate, so the record gates it"
+)
+
+
+def _judged(
+    binding: BindingName,
+    lane: LaneName,
+    now: InstructionCount,
+    budget: InstructionCount,
+    *,
+    noted: bool,
+) -> Prose | None:
+    """Print a lane's count against its budget, and answer why the budgets refuse it, or None."""
+    over = now > budget
+    reason = None
+    if noted and not over:
+        reason = _NO_LONGER_LIMITED
+    elif over and not noted:
+        reason = _OVER_BUDGET
+    note = "  (a noted limitation)" if noted else ""
+    flag = f"  <-- {reason}" if reason is not None else note
+    cells = f"{now:>11,} of {budget:>11,} ({100 * (budget - now) / budget:+6.2f}% left)"
+    _emit(f"  {binding:7s} {lane:32s} {cells}{flag}")
+    if reason is None:
+        return None
+    return Prose(f"{binding} / {lane}: {now:,} of a budget of {budget:,}, {reason}")
+
+
+def _budget_failures(budgets: BudgetRecord, measured: InstructionReport) -> list[Prose]:
+    """Print each lane's count against its budget, and answer each lane the budgets refuse."""
+    failures: list[Prose] = []
+    bindings = budgets["lanes"].keys() | budgets["limitations"].keys() | measured["counts"].keys()
+    for binding in sorted(bindings):
+        calibrated = budgets["lanes"].get(binding, {})
+        counted = measured["counts"].get(binding, {})
+        noted = set(budgets["limitations"].get(binding, []))
+        failures.extend(
+            Prose(f"{binding} / {lane}: a noted limitation with no budget")
+            for lane in sorted(noted - calibrated.keys())
+        )
+        for lane in sorted(calibrated.keys() | counted.keys()):
+            calibration, now = calibrated.get(lane), counted.get(lane)
+            if calibration is None or now is None:
+                side = "no budget" if calibration is None else "no count in this run"
+                failures.append(Prose(f"{binding} / {lane}: {side}"))
+                continue
+            failure = _judged(binding, lane, now, budget_of(lane, calibration), noted=lane in noted)
+            if failure is not None:
+                failures.append(failure)
+    return failures
+
+
+def _read_records(
+    measured_path: Path, counts_path: Path, budgets_path: Path
+) -> tuple[InstructionReport, InstructionReport, BudgetRecord] | None:
+    """Answer the run's report, the committed counts and the budgets, or None, naming the absent."""
     if not measured_path.is_file():
         _fail(f"benchmark-gate: no instruction report at {measured_path}")
-        return ExitStatus(1)
+        return None
     measured = cast("InstructionReport", json.loads(measured_path.read_text(encoding="utf-8")))
     if not counts_path.is_file():
         _fail(
             f"benchmark-gate: no committed counts at {counts_path}: commit this run's"
             + f" {measured_path.name} there once its counts are known-good"
         )
-        return ExitStatus(1)
+        return None
+    if not budgets_path.is_file():
+        _fail(
+            f"benchmark-gate: no budgets at {budgets_path}: calibrate them with"
+            + " tools/benchmark_budgets.py from a run on the slower runner"
+        )
+        return None
     committed = cast("InstructionReport", json.loads(counts_path.read_text(encoding="utf-8")))
-    unlike = _unlike(committed, measured)
-    if unlike:
+    budgets = cast("BudgetRecord", json.loads(budgets_path.read_text(encoding="utf-8")))
+    return measured, committed, budgets
+
+
+def _check_instructions(measured_path: Path, counts_path: Path, budgets_path: Path) -> ExitStatus:
+    """Fail on a lane past the bound or over its budget, or on records that cannot be compared."""
+    records = _read_records(measured_path, counts_path, budgets_path)
+    if records is None:
+        return ExitStatus(1)
+    measured, committed, budgets = records
+    unlike_counts = _unlike(committed["toolchain"], committed["frames"], measured)
+    unlike_budgets = _unlike(budgets["toolchain"], budgets["frames"], measured)
+    if unlike_counts:
         _fail("benchmark-gate: FAIL: the committed counts rest on another toolchain or frames:")
-        for line in unlike:
+        for line in unlike_counts:
             _fail(f"  {line}")
         _fail(f"Refresh {counts_path} from this run's {measured_path.name}.")
+    if unlike_budgets:
+        _fail("benchmark-gate: FAIL: the budgets rest on another toolchain or frames:")
+        for line in unlike_budgets:
+            _fail(f"  {line}")
+        _fail(
+            f"Recalibrate {budgets_path} with tools/benchmark_budgets.py"
+            + " from a run on the slower runner."
+        )
+    if unlike_counts or unlike_budgets:
         return ExitStatus(1)
     _emit(
         "benchmark-gate: fail if any lane's instructions per operation moved more than"
         + f" {MAX_INSTRUCTION_DRIFT_PERCENT}% from its committed count, either way\n"
     )
     failures = _lane_failures(committed, measured)
+    _emit(
+        "\nbenchmark-gate: fail if any lane's instructions per operation are over its budget,"
+        + " the most the slower runner executes at its bus's frames a second\n"
+    )
+    failures += _budget_failures(budgets, measured)
     if failures:
         _fail("\nbenchmark-gate: FAIL:")
         for line in failures:
             _fail(f"  {line}")
         return ExitStatus(1)
-    _emit("\nbenchmark-gate: ok (every lane within the bound of its committed count)")
+    _emit(
+        "\nbenchmark-gate: ok (every lane within the bound of its committed count"
+        + " and within its budget)"
+    )
     return ExitStatus(0)
 
 
@@ -356,8 +468,8 @@ def _check_instructions(measured_path: Path, counts_path: Path) -> ExitStatus:
 type Check = Literal["scaling", "instructions"]
 
 
-def _parse_args(argv: list[str] | None) -> tuple[Check, Path, Path]:
-    """Parse CLI args into (bench, results_dir, counts)."""
+def _parse_args(argv: list[str] | None) -> tuple[Check, Path, Path, Path]:
+    """Parse CLI args into (bench, results_dir, counts, budgets)."""
     parser = argparse.ArgumentParser(description=__doc__)
     _ = parser.add_argument(
         "--bench", choices=("scaling", "instructions"), required=True, help="The check to run."
@@ -374,16 +486,27 @@ def _parse_args(argv: list[str] | None) -> tuple[Check, Path, Path]:
         default=COUNTS_PATH,
         help="Committed instruction counts (default: benchmarks/instruction_counts.json).",
     )
+    _ = parser.add_argument(
+        "--budgets",
+        type=Path,
+        default=BUDGETS_PATH,
+        help="The lanes' budgets (default: benchmarks/instruction_budgets.json).",
+    )
     args = parser.parse_args(argv)
-    return (cast("Check", args.bench), cast("Path", args.results_dir), cast("Path", args.counts))
+    return (
+        cast("Check", args.bench),
+        cast("Path", args.results_dir),
+        cast("Path", args.counts),
+        cast("Path", args.budgets),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run the check ``--bench`` names; return the exit code."""
-    bench, results_dir, counts_path = _parse_args(argv)
+    bench, results_dir, counts_path, budgets_path = _parse_args(argv)
     if bench == "scaling":
         return _check_scaling(results_dir, MAX_ALLOCATION_DOUBLING)
-    return _check_instructions(results_dir / RESULT_PATH.name, counts_path)
+    return _check_instructions(results_dir / RESULT_PATH.name, counts_path, budgets_path)
 
 
 if __name__ == "__main__":

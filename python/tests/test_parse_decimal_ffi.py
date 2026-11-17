@@ -40,8 +40,10 @@ from _decimal_cases import (
 from aletheia.client._ffi import (
     AletheiaDecimal,
     AletheiaText,
+    KernelString,
     configure_ffi_signatures,
     find_ffi_library,
+    free_kernel_string,
 )
 from aletheia.client._helpers.rational import decimal_value
 
@@ -69,14 +71,14 @@ def _parse_decimal(text: str) -> dict[str, object]:
     if _LIB.aletheia_parse_decimal(text_arg, ctypes.byref(out)) == 0:
         value = decimal_value(out)
         return {"numerator": value.numerator, "denominator": value.denominator}
-    err: int | None = out.err
+    err: KernelString | None = out.err
     assert err is not None
     try:
         parsed = json.loads(ctypes.string_at(err).decode())
         assert isinstance(parsed, dict)
         return cast("dict[str, object]", parsed)
     finally:
-        _LIB.aletheia_free_str(err)
+        free_kernel_string(_LIB, err)
 
 
 @pytest.mark.parametrize(("text", "numerator", "denominator"), SUCCESS_CASES)

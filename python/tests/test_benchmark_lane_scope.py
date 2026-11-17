@@ -167,6 +167,7 @@ _MEASURED: tuple[tuple[RelPath, ...], ...] = (
     (RelPath("rust/src/backend.rs"),),
     (RelPath("benchmarks/run_all.sh"),),
     (RelPath("tools/check_bench_schema.py"),),
+    (RelPath("tools/benchmark_budgets.py"),),
     (RelPath("tools/benchmark_gate.py"),),
     (RelPath("tools/benchmark_instructions.py"),),
     (RelPath("tools/benchmark_scope.py"),),

@@ -14,7 +14,8 @@ idle-time collector off, so no total rests on how long the process idled.
 A count is a function of the tree and the toolchain, not of the machine's
 speed or load: measured on one host, a Python lane repeats to within two
 instructions in 283,716 and a Go lane to within about 60 per operation, and
-the C library's CPU-dependent code paths move a count by at most 0.25%.  The
+three runs of one tree on three runner classes spread the widest lane, Go's
+CAN-FD signal extraction, by 0.475%.  The
 report records the toolchain the counts rest on, so
 ``tools/benchmark_gate.py --bench instructions`` can refuse a comparison
 across toolchains by name.

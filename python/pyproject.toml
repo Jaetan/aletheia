@@ -407,6 +407,7 @@ pytest_add_cli_args = [
     # `benchmarks/compare.py`), and read the schema above python/.  Infra
     # coverage, not hot-path.
     "--ignore=tests/test_benchmark_gate.py",
+    "--ignore=tests/test_benchmark_budgets.py",
     "--ignore=tests/test_benchmark_instructions.py",
     "--ignore=tests/test_benchmark_compare.py",
     # Same shape: reads the load-scaling factor from the repo-root `tools`
@@ -464,6 +465,9 @@ pytest_add_cli_args = [
     "--ignore=tests/test_doc_only_path_exemption.py",
     # Same shape: reads .github/workflows/pr-full-ci.yml through parents[2].
     "--ignore=tests/test_full_ci_records.py",
+    # Reads the tree's Python sources, not mutmut's copy, to hold how every
+    # call hands its arguments to the library, so no mutant moves what it reads.
+    "--ignore=tests/test_ffi_address_crossing.py",
     # The demo gate reaches repo-root `examples/demo` via parents[2] (only
     # `python/` in the relocated mutants/ tree, so the glob is empty) AND runs
     # each demo in a SUBPROCESS that imports the INSTALLED package, never the

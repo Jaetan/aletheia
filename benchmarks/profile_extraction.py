@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 from aletheia import AletheiaClient
 from aletheia.client._backend import FFIBackend
-from aletheia.client._ffi import AletheiaFrame
+from aletheia.client._ffi import AletheiaFrame, KernelString, free_kernel_string
 from aletheia.client._helpers.json_codec import (
     parse_absent_list,
     parse_errors_list,
@@ -139,7 +139,7 @@ def _measure_extraction(
         t[3] += now - prev
         prev = now
         # D: free the FFI buffer + build Python result objects
-        lib.aletheia_free_str(result_ptr)
+        free_kernel_string(lib, KernelString(result_ptr))
         stats = _ExtractStats(
             len(result_str),
             len(parse_values_list(response.get("values", []))),
@@ -202,14 +202,14 @@ def profile_ffi_roundtrip(client: AletheiaClient) -> None:
     lib = backend._lib  # pyright: ignore[reportPrivateUsage]  # pylint: disable=W0212
 
     for _ in range(WARMUP):
-        lib.aletheia_free_str(lib.aletheia_format_dbc(state))
+        free_kernel_string(lib, KernelString(lib.aletheia_format_dbc(ctypes.c_void_p(state))))
 
     t_total = 0
     for _ in range(ITERATIONS):
         a0 = time.perf_counter_ns()
-        ptr = lib.aletheia_format_dbc(state)
+        ptr = lib.aletheia_format_dbc(ctypes.c_void_p(state))
         a1 = time.perf_counter_ns()
-        lib.aletheia_free_str(ptr)
+        free_kernel_string(lib, KernelString(ptr))
         t_total += a1 - a0
 
     print(f"\n{'=' * 60}")

@@ -37,9 +37,11 @@ from aletheia.client._ffi import (
     AletheiaText,
     AletheiaTimeBound,
     KernelResponse,
+    KernelString,
     Magnitude,
     configure_ffi_signatures,
     find_ffi_library,
+    free_kernel_string,
     parse_json_object,
     take_error_envelope,
     uint128_value,
@@ -53,8 +55,9 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("rts_up")
 
-# The opaque session handle ``aletheia_init`` answers.
-StateHandle = NewType("StateHandle", int)
+# The opaque session handle ``aletheia_init`` answers, held as the pointer it is so
+# it crosses every entry whole.
+StateHandle = NewType("StateHandle", ctypes.c_void_p)
 
 _LIB = ctypes.CDLL(str(find_ffi_library()))
 configure_ffi_signatures(_LIB)
@@ -75,7 +78,7 @@ _UNWRITTEN = 2**64 - 1
 @pytest.fixture(name="state")
 def _state() -> Iterator[StateHandle]:
     """Open a session with the two-signal DBC loaded, and close it after."""
-    state = StateHandle(_LIB.aletheia_init())
+    state = StateHandle(ctypes.c_void_p(_LIB.aletheia_init()))
     command = dump_json(_PARSE_DBC).encode()
     _take_response(_LIB.aletheia_process(state, ctypes.byref(AletheiaText(command, len(command)))))
     try:
@@ -89,7 +92,7 @@ def _take_response(pointer: int) -> KernelResponse:
     try:
         return KernelResponse(ctypes.string_at(pointer))
     finally:
-        _LIB.aletheia_free_str(pointer)
+        free_kernel_string(_LIB, KernelString(pointer))
 
 
 def _error(buffer: AletheiaBuffer) -> str:
@@ -315,7 +318,8 @@ def test_a_stand_in_writes_every_field_of_a_decimal_it_refuses(name: StandInName
     text = _text(EntryText(b"1"))
     assert lib.aletheia_parse_decimal(ctypes.byref(text), ctypes.byref(decimal)) == 1
     assert decimal.err != _UNWRITTEN
-    lib.aletheia_free_str(decimal.err)
+    decimal_err: KernelString | None = decimal.err
+    free_kernel_string(lib, decimal_err)
     assert _fields(decimal.value) == _ZERO
 
 
@@ -327,7 +331,8 @@ def test_a_stand_in_writes_every_field_of_a_time_bound_it_refuses(name: StandInN
     text = _text(EntryText(b"1"))
     assert lib.aletheia_parse_time_bound(ctypes.byref(text), ctypes.byref(time_bound)) == 1
     assert time_bound.err != _UNWRITTEN
-    lib.aletheia_free_str(time_bound.err)
+    time_bound_err: KernelString | None = time_bound.err
+    free_kernel_string(lib, time_bound_err)
     assert time_bound.microseconds == 0
 
 
@@ -486,7 +491,7 @@ def test_a_null_the_header_names_is_answered_and_never_read(
         try:
             reply = parse_json_object(KernelResponse(ctypes.string_at(answer)))
         finally:
-            lib.aletheia_free_str(answer)
+            free_kernel_string(lib, KernelString(answer))
         assert reply["status"] == "error"
 
 

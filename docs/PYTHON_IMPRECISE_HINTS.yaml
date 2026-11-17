@@ -1731,9 +1731,6 @@ hints:
     text: "int"
     count: 2
   - file: python/tests/test_parse_decimal_ffi.py
-    text: "int | None"
-    count: 1
-  - file: python/tests/test_parse_decimal_ffi.py
     text: "str"
     count: 2
   - file: python/tests/test_predicate_sync.py

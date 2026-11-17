@@ -278,6 +278,10 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "AletheiaText"),
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "configure_ffi_signatures"),
         ("test_parse_decimal_ffi.py", "aletheia.client._helpers.rational", "decimal_value"),
+        # A refusal's string is freed through the one wrapper that passes its
+        # address as a pointer, and the address is named as one.
+        ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "KernelString"),
+        ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "free_kernel_string"),
         # The rational the decimal entry answers is read by one helper, held on
         # an out-parameter the kernel never writes (a sign byte past 1), which
         # no public path reaches, laid out by the helper the binding packs a
@@ -400,6 +404,10 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "find_ffi_library"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "KernelResponse"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "parse_json_object"),
+        # Every string an entry answers is freed through the one wrapper that
+        # passes its address as a pointer, and the address is named as one.
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "KernelString"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "free_kernel_string"),
         # The words of a rational the entries wrote, read back field by field.
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "Magnitude"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "uint128_value"),
