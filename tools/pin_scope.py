@@ -140,6 +140,7 @@ PIN_SCOPES: Mapping[PinGate, tuple[PinScope, ...]] = {
         PinScope(RelPath("python/pyproject.toml"), PinLine(r"mutmut==")),
         PinScope(RelPath("tools/check_mutmut_witness.py")),
         PinScope(RelPath("tools/mutation_witness.py")),
+        PinScope(RelPath("tools/mutation_python.py")),
         PinScope(RelPath("tools/mutation_run.py")),
     ),
 }

@@ -36,6 +36,7 @@ tools/mutation_cpp_census.py       The C++ census held to the bool-call twin and
 tools/mutation_ccache_evict.sh     The C++ lane's compiler cache cut to its run's working set before the save
 tools/mutation_cpp_dry_run.py      A dry run of one C++ leg over the tree the lane built: the mutants a sweep of it would run
 tools/build_mull.sh                Mull built from source against LLVM 23, with the patches in tools/mull/
+tools/mutation_python.py           The Python lane's shards: which mutants each tests, and the proof they add up
 tools/mutation_go.py               The Go lane's shards: which files each sweeps, and the proof they add up
 tools/mutation_rust.py             The Rust lane: cargo-mutants in shards, over scratch copies of the tree
 tools/mutation_report.py           The report and baseline shapes the lanes share
@@ -75,7 +76,16 @@ the Go survivors meet the baseline and the ledgers.  The census is taken
 after the sweep because a dry run before it leaves the package compiled for
 the coverage run gremlins sets every mutant's time limit from, and every
 `go test` of the sweep runs with `-count=1` so no run of it is served from
-the test cache (`tools/mutation_go.py`).  The merge refuses a leg whose reports are missing or
+the test cache (`tools/mutation_go.py`).  The Python lane is two shards and
+the same merge: every shard (`ALETHEIA_MUTATION_PYTHON_STAGE=1` or `2`) makes
+every mutant and runs mutmut's whole-suite runs, then tests the mutants the
+witness deals it from the sorted names (`tools/mutation_witness.py
+--shard`), reports as the binding `python-1` or `python-2` and judges no
+survivor; it records the census it read and the mutants it judged, and the
+merge (`ALETHEIA_MUTATION_PYTHON_STAGE=merge`, the directory in
+`ALETHEIA_MUTATION_PYTHON_SHARDS`) holds the shards to one census of one
+commit, each having judged exactly its deal, before their sums meet the
+baseline (`tools/mutation_python.py`).  The merge refuses a leg whose reports are missing or
 doubled, or whose summary records another commit.  The
 `mutation testing` check the branch ruleset requires reports those lanes and
 the merge: it passes only on the single result meaning every one of them
@@ -127,11 +137,21 @@ What fails the lane:
   ended its process before returning (the kernel's runtime exiting, a signal,
   mutmut's own timeout) leaves `python-witness/<mutant>.running`, its output
   and a `started` line for each test it began, the last naming the test it
-  was in.  mutmut's own log, `python.mutmut-debug.log`, gives each mutant's
-  exit and how long it ran.  The witness tallies every mutant's run in
+  was in.  mutmut's own log, `python.mutmut-debug.log` (a shard's
+  `python-<n>.mutmut-debug.log`), gives each mutant's exit and how long it
+  ran.  The witness tallies every mutant's run in
   `python-witness/witnessed-runs.log`, and the lane fails when a mutant
   mutmut ran is missing from it, so a mutmut that stops handing the witness
-  its runs cannot switch it off unseen.  The mutants mutmut ran are read from
+  its runs cannot switch it off unseen.  A mutant that hands the library an
+  address through a C int keeps its low 32 bits, which still name the block
+  wherever the block lies below 2^32, as an interpreter built without
+  position independence places its heap, so a test there can pass on what
+  crashes where the heap lies above.  Where the lane's own heap starts below
+  2^32, it runs mutmut with `MALLOC_MMAP_THRESHOLD_=0` and
+  `MALLOC_MMAP_MAX_=2147483647`, under which glibc's malloc places every
+  block by mmap, above 4 GiB, and on every host a mutant's run whose heap
+  starts below 2^32 as its tests end leaves `python-witness/<mutant>.heap`,
+  which fails the lane.  The mutants mutmut ran are read from
   its `.meta` files, held first to the count its summary prints, so a reading
   that finds fewer fails rather than checking nothing.
 - **Kill routes (C++, gated)**: Mull's SQLite report keeps each
@@ -521,6 +541,17 @@ ALETHEIA_MUTATION_CPP_STAGE=1       # sweep slice 1; reports as cpp-1, judges no
                                     # likewise slices 2 and 3
 ALETHEIA_MUTATION_CPP_STAGE=merge \
 ALETHEIA_MUTATION_CPP_LEGS=<dir>    # sweep nothing; merge every slice's reports found under <dir>
+~~~
+
+The Python lane in shards likewise, each shard's artifact directory moved
+under one directory before the merge (unset, every mutant is tested in one
+process):
+
+~~~bash
+ALETHEIA_MUTATION_PYTHON_STAGE=1        # test the first shard's deal; reports as python-1
+                                        # likewise shard 2
+ALETHEIA_MUTATION_PYTHON_STAGE=merge \
+ALETHEIA_MUTATION_PYTHON_SHARDS=<dir>   # test nothing; merge every shard's reports under <dir>
 ~~~
 
 ## Setting / updating a baseline

@@ -32,6 +32,20 @@ no ``mutant_name``.  Each named run is tallied in ``witnessed-runs.log`` before
 its tests start, and the lane fails when a mutant mutmut ran a child for is
 missing from it, so a mutmut that stopped calling ``run_tests`` cannot switch
 the witness off unseen.
+
+A mutant that hands the library an address through a C int keeps its low 32
+bits, which still name the block wherever the block lies below 2^32, as an
+interpreter built without position independence places its heap; one built
+with it places the heap above.  Where the lane's own heap starts below 2^32,
+it runs mutmut under ``PLACEMENT_ENV``, where glibc's malloc places every
+block by mmap, above 4 GiB, and on every host a run whose process's heap
+starts below 2^32 when its tests end leaves ``<mutant>.heap`` naming where,
+which fails the lane.
+With ``--shard K/N`` the wrapper deals mutmut's mutants as cargo-mutants
+deals its own: ``collect_source_file_mutation_data``, which lists every
+mutant for mutmut's run, is wrapped to keep every N-th of the sorted names
+from the K-th, so N runs of one tree test every mutant once between them
+(``tools/mutation_python.py`` holds them to that).
 This module imports nothing of the package under test: mutmut's children must
 import the mutated copy, never one this process already holds.
 """
@@ -46,15 +60,39 @@ import sys
 import traceback
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType, NoReturn, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, NoReturn, Protocol, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     import click
+    from mutmut.mutation.data import SourceFileMutationData
     from mutmut.runners.harness import PytestRunner
 
-    from tools._common import CommandWord, EnvName
+    from tools._common import CommandWord, EnvName, EnvValue
+
+    # mutmut's listing as its run calls it, which a shard's deal wraps.
+    type _MutmutLister = Lister[
+        SourceFileMutationData, MutmutExit | None, dict[SourcePath, SourceFileMutationData]
+    ]
+
+    class _MutmutMain(Protocol):
+        """The part of ``mutmut.__main__`` the witness runs and deals."""
+
+        @property
+        def cli(self) -> click.Group:
+            """The command line mutmut runs."""
+            ...
+
+        @property
+        def collect_source_file_mutation_data(self) -> _MutmutLister:
+            """The listing mutmut's run calls, looked up in the module as it runs."""
+            ...
+
+        @collect_source_file_mutation_data.setter
+        def collect_source_file_mutation_data(self, listing: _MutmutLister) -> None:
+            """Replace the listing, as the deal does."""
+
 
 # The variable naming the file a mutant's run writes to, set in its process alone.
 WITNESS_FILE_ENV: EnvName = cast("EnvName", "ALETHEIA_MUTATION_WITNESS")
@@ -70,6 +108,55 @@ MutantName = NewType("MutantName", str)
 
 # A pytest node id, as pytest names a test it starts.
 TestId = NewType("TestId", str)
+
+# An address in a process's memory.
+Address = NewType("Address", int)
+
+# A process's memory map, as /proc/<pid>/maps writes it.
+MapsText = NewType("MapsText", str)
+
+# The map a mutant's run reads when its tests end: its own process's.
+PROCESS_MAPS = Path("/proc/self/maps")
+
+# Every block by mmap, also past the 65,536 live mmapped blocks after which
+# malloc would grow the heap again, which a process running the whole suite passes.
+PLACEMENT_ENV: dict[EnvName, EnvValue] = {
+    cast("EnvName", "MALLOC_MMAP_THRESHOLD_"): cast("EnvValue", "0"),
+    cast("EnvName", "MALLOC_MMAP_MAX_"): cast("EnvValue", "2147483647"),
+}
+
+# The suffix of the file a mutant's run leaves when its process's heap starts below 2^32.
+LOW_HEAP_SUFFIX = ".heap"
+
+# The first address a C int cannot hold.
+_PAST_32_BITS = Address(1 << 32)
+
+
+def low_heap(maps: MapsText) -> Address | None:
+    """Return where the heap ``maps`` names starts, where that is below 2^32, else None."""
+    for line in maps.splitlines():
+        if line.endswith("[heap]"):
+            start = Address(int(line.partition("-")[0], 16))
+            return start if start < _PAST_32_BITS else None
+    return None
+
+
+def placement_env(maps: Path) -> dict[EnvName, EnvValue]:
+    """Return ``PLACEMENT_ENV`` where ``maps`` puts the heap below 2^32, else nothing.
+
+    Above it the settings change no verdict and slow every allocation.
+    """
+    heap = low_heap(MapsText(maps.read_text(encoding="utf-8", errors="replace")))
+    return {} if heap is None else PLACEMENT_ENV
+
+
+def _leave_low_heap(witness_dir: Path, mutant: MutantName, maps: Path) -> None:
+    """Leave ``<mutant>.heap`` naming where the heap starts, where ``maps`` puts it below 2^32."""
+    heap = low_heap(MapsText(maps.read_text(encoding="utf-8", errors="replace")))
+    if heap is not None:
+        _ = (witness_dir / f"{mutant}{LOW_HEAP_SUFFIX}").write_text(
+            f"{heap:#x}\n", encoding="utf-8"
+        )
 
 
 def witness_path(witness_dir: Path, mutant: MutantName) -> Path:
@@ -90,12 +177,13 @@ def pytest_runtest_logstart(nodeid: TestId) -> None:
             _ = record.write(f"started {nodeid}\n")
 
 
-def witnessed[**P, R](run_tests: Callable[P, R], witness_dir: Path) -> Callable[P, R]:
+def witnessed[**P, R](run_tests: Callable[P, R], witness_dir: Path, maps: Path) -> Callable[P, R]:
     """Return ``run_tests`` wrapped so a mutant's run that does not return leaves its witness.
 
     ``run_tests`` is mutmut's ``PytestRunner.run_tests``, whose ``mutant_name``
     names the mutant, ``None`` for the runs naming none.  A ``run_tests``
-    without that parameter is refused here, before any run.
+    without that parameter is refused here, before any run.  A run that
+    returns or raises reads its process's heap from ``maps`` as it ends.
     """
     signature = inspect.signature(run_tests)
     if MUTANT_PARAMETER not in signature.parameters:
@@ -131,10 +219,69 @@ def witnessed[**P, R](run_tests: Callable[P, R], witness_dir: Path) -> Callable[
                     _ = os.environ.pop(WITNESS_FILE_ENV, None)
                 else:
                     os.environ[WITNESS_FILE_ENV] = named
+                _leave_low_heap(witness_dir, name, maps)
         running.unlink()
         return result
 
     return run
+
+
+# A shard's place among the shards a deal makes, from one, and how many it makes.
+ShardPlace = NewType("ShardPlace", int)
+ShardCount = NewType("ShardCount", int)
+
+# The text ``--shard`` takes, ``K/N``.
+DealText = NewType("DealText", str)
+
+
+class Deal(NamedTuple):
+    """The shard a run tests: the ``place``-th of ``shards``."""
+
+    place: ShardPlace
+    shards: ShardCount
+
+
+def parse_deal(text: DealText) -> Deal:
+    """Read ``K/N``, a shard from one to N of N; raise ``argparse.ArgumentTypeError`` else."""
+    place, _, shards = text.partition("/")
+    if not (place.isdigit() and shards.isdigit() and 1 <= int(place) <= int(shards)):
+        message = f"{text!r} is not K/N with 1 <= K <= N"
+        raise argparse.ArgumentTypeError(message)
+    return Deal(ShardPlace(int(place)), ShardCount(int(shards)))
+
+
+# A mutant as mutmut's listing gives it: its file's data, its name, its exit so far.
+type ListedMutant[Data, Exit] = tuple[Data, MutantName, Exit]
+
+# The mutants mutmut's listing gives it to run.
+type ListedMutants[Data, Exit] = list[ListedMutant[Data, Exit]]
+
+# What mutmut's listing returns: the mutants to run, and every file's data by path.
+type Listing[Data, Exit, Files] = tuple[ListedMutants[Data, Exit], Files]
+
+# mutmut's listing, called with ``mutant_names`` alone.
+type Lister[Data, Exit, Files] = Callable[..., Listing[Data, Exit, Files]]
+
+# A mutant's exit as mutmut files it, and a source file as mutmut keys its data.
+MutmutExit = NewType("MutmutExit", int)
+SourcePath = NewType("SourcePath", str)
+
+
+def dealt[D, R](mutants: Sequence[ListedMutant[D, R]], deal: Deal) -> ListedMutants[D, R]:
+    """Keep the mutants ``deal`` gives its shard: every N-th of their sorted names from the K-th."""
+    names = sorted(name for _, name, _ in mutants)
+    mine = set(names[deal.place - 1 :: deal.shards])
+    return [mutant for mutant in mutants if mutant[1] in mine]
+
+
+def dealing[D, R, B](collect: Lister[D, R, B], deal: Deal) -> Lister[D, R, B]:
+    """Return mutmut's mutant listing wrapped to keep the mutants ``deal`` gives its shard."""
+
+    def collect_dealt(*, mutant_names: Sequence[MutantName]) -> Listing[D, R, B]:
+        mutants, by_path = collect(mutant_names=mutant_names)
+        return dealt(mutants, deal), by_path
+
+    return collect_dealt
 
 
 def main(argv: list[CommandWord] | None = None) -> NoReturn:
@@ -146,14 +293,25 @@ def main(argv: list[CommandWord] | None = None) -> NoReturn:
         required=True,
         help="the directory each mutant run that does not return leaves its witness in",
     )
+    _ = parser.add_argument(
+        "--shard",
+        type=lambda text: parse_deal(DealText(text)),
+        help="test only the mutants a deal into N shards gives the K-th: K/N",
+    )
     known, rest = parser.parse_known_args(argv)
     witness_dir = cast("Path", known.witness_dir)
     witness_dir.mkdir(parents=True, exist_ok=True)
     # mutmut is the mutation extra's alone, so it is imported where it is used.
     runner = cast("type[PytestRunner]", import_module("mutmut.runners.harness").PytestRunner)
-    runner.run_tests = witnessed(runner.run_tests, witness_dir)
-    cli = cast("click.Group", import_module("mutmut.__main__").cli)
-    cli.main(args=rest, prog_name="mutmut")
+    runner.run_tests = witnessed(runner.run_tests, witness_dir, PROCESS_MAPS)
+    mutmut_main = cast("_MutmutMain", import_module("mutmut.__main__"))
+    deal = cast("Deal | None", known.shard)
+    if deal is not None:
+        # mutmut's run looks the listing up in its module as it runs.
+        mutmut_main.collect_source_file_mutation_data = dealing(
+            mutmut_main.collect_source_file_mutation_data, deal
+        )
+    mutmut_main.cli.main(args=rest, prog_name="mutmut")
     raise SystemExit(0)
 
 

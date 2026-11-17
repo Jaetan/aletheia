@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The heavy-lanes workflow carries the C++ legs and the Go shards, and one merge of both.
+"""The heavy-lanes workflow carries the C++ legs and the Python and Go shards, and one merge.
 
 ``.github/workflows/pr-heavy-lanes.yml`` gives every leg ``sliced_legs`` names
-and every Go shard a lane of its own, uploads each one's reports under a name
+and every Python and Go shard a lane of its own, uploads each one's reports under a name
 the merge job's download patterns reach, and the required check reports the
 lanes and the merge together.  A slice or a shard with no lane, a part whose
 artifact the merge cannot see, or a required check that reads only one of the
@@ -32,6 +32,14 @@ from tools.mutation_go import (
     ShardNumber,
     shard_binding,
 )
+from tools.mutation_python import (
+    PYTHON_MERGE_STAGE,
+    PYTHON_SHARDS,
+    PYTHON_SHARDS_ENV,
+    PYTHON_STAGE_ENV,
+)
+from tools.mutation_python import ShardNumber as PythonShard
+from tools.mutation_python import shard_binding as python_shard_binding
 from tools.mutation_rust import (
     RUST_JOBS,
     RUST_JOBS_ENV,
@@ -131,6 +139,20 @@ def test_every_go_shard_is_one_lane_and_no_lane_sweeps_the_package_whole() -> No
             assert entry["go_shard"] == ""
 
 
+def test_every_python_shard_is_one_lane_and_no_lane_tests_every_mutant() -> None:
+    """One matrix entry per shard, named as the shard reports, and only Python lanes carry one."""
+    entries = _matrix()
+    python = [entry for entry in entries if entry["binding"] == "python"]
+    assert [(entry["lane"], entry["python_shard"]) for entry in python] == [
+        (python_shard_binding(PythonShard(n)), str(n)) for n in range(1, PYTHON_SHARDS + 1)
+    ]
+    for entry in python:
+        assert entry["skip_python"] == ""
+    for entry in entries:
+        if entry["binding"] != "python":
+            assert entry["python_shard"] == ""
+
+
 def test_every_rust_job_is_one_lane_and_no_lane_sweeps_the_crate_whole() -> None:
     """One matrix entry per job, named as the job reports, and only Rust lanes carry one."""
     entries = _matrix()
@@ -153,6 +175,7 @@ def test_the_sweep_step_hands_each_lane_its_slice() -> None:
     sweeps = [step for step in _steps(_LANE_JOB) if "tools.mutation_run" in str(step.get("run"))]
     assert len(sweeps) == 1
     assert _env(sweeps[0])[CPP_STAGE_ENV] == "${{ matrix.stage }}"
+    assert _env(sweeps[0])[PYTHON_STAGE_ENV] == "${{ matrix.python_shard }}"
     assert _env(sweeps[0])[GO_STAGE_ENV] == "${{ matrix.go_shard }}"
     assert _env(sweeps[0])[RUST_STAGE_ENV] == "${{ matrix.rust_job }}"
 
@@ -260,7 +283,7 @@ def test_the_merge_reads_every_part_and_no_other_lane() -> None:
         for step in _steps(_MERGE_JOB)
         if str(step.get("uses", "")).startswith("actions/download-artifact@")
     ]
-    assert len(downloads) == 3
+    assert len(downloads) == 4
     reaching = {
         binding: [
             _with(step)["path"]
@@ -271,7 +294,7 @@ def test_the_merge_reads_every_part_and_no_other_lane() -> None:
                 for entry in _matrix()
             )
         ]
-        for binding in ("cpp", "go", "rust")
+        for binding in ("cpp", "python", "go", "rust")
     }
     assert all(len(found) == 1 for found in reaching.values()), reaching
     merges = [step for step in _steps(_MERGE_JOB) if "tools.mutation_run" in str(step.get("run"))]
@@ -283,7 +306,9 @@ def test_the_merge_reads_every_part_and_no_other_lane() -> None:
     assert env[GO_SHARDS_ENV] == reaching["go"][0]
     assert env[RUST_STAGE_ENV] == RUST_MERGE_STAGE
     assert env[RUST_JOBS_ENV] == reaching["rust"][0]
-    assert env["ALETHEIA_MUTATION_SKIP_PYTHON"] == "1"
+    assert env[PYTHON_STAGE_ENV] == PYTHON_MERGE_STAGE
+    assert env[PYTHON_SHARDS_ENV] == reaching["python"][0]
+    assert "ALETHEIA_MUTATION_SKIP_PYTHON" not in env
     assert "ALETHEIA_MUTATION_SKIP_GO" not in env
     assert "ALETHEIA_MUTATION_SKIP_CPP" not in env
     assert "ALETHEIA_MUTATION_SKIP_RUST" not in env

@@ -73,6 +73,22 @@ The C++ lane in legs, so CI can sweep the tree in slices across machines
                                merge.
   - ALETHEIA_MUTATION_CPP_LEGS   that directory, read by the merge stage only.
 
+The Python lane in shards, so CI can test its mutants across machines
+(``tools/mutation_python.py``):
+
+  - ALETHEIA_MUTATION_PYTHON_STAGE  unset: every mutant is tested in this
+                               process.  A shard number: mutmut makes every
+                               mutant and the witness deals them, this shard
+                               testing the sorted names its place is dealt,
+                               and the run writes the census it read beside
+                               its log; a shard judges no
+                               survivor.  ``merge``: nothing is tested; the
+                               shards' records, logs and reports are read from
+                               the directory ALETHEIA_MUTATION_PYTHON_SHARDS
+                               names, held to one census, and gated as the
+                               whole lane is.
+  - ALETHEIA_MUTATION_PYTHON_SHARDS that directory, read by the merge stage only.
+
 The Go lane in shards, so CI can sweep the package's files across machines
 (``tools/mutation_go.py``):
 
@@ -118,6 +134,11 @@ Artifacts written:
     python.json    {binding, tool, total_mutants, killed, survived, timeouts,
                    generated, routes, mutated_files, score_pct, raw_log_tail,
                    error}, null where the tool has no such figure
+    python-1.json, python-1.raw.txt, python-shard-1.json
+                   one shard's report, log and record (its commit, the census
+                   and the mutants it judged) where the run is one shard of
+                   the Python lane (ALETHEIA_MUTATION_PYTHON_STAGE); recorded,
+                   not gated
     go.json        same shape
     go-1.json, go-1.raw.txt, go-shard-1.json
                    one shard's census, log and record (the dry run's census,
@@ -186,7 +207,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NewType, cast
+from typing import TYPE_CHECKING, Literal, NewType
 
 from tools._branch_diff import branch_changes
 from tools._common import (
@@ -220,6 +241,19 @@ from tools.mutation_go import (
     without_gremlins_settings,
 )
 from tools.mutation_go_cases import sweep_go_package
+from tools.mutation_python import (
+    PYTHON_LANE,
+    PYTHON_MERGE_STAGE,
+    PYTHON_SHARDS_ENV,
+    PYTHON_STAGE_ENV,
+    ShardNumber,
+    python_stage,
+    read_exits,
+    read_python_shards,
+    record_python_shard,
+    shard_deal,
+)
+from tools.mutation_python import shard_binding as python_shard_binding
 from tools.mutation_report import (
     SPEC_PATH,
     CrashedMutant,
@@ -231,7 +265,13 @@ from tools.mutation_report import (
     scratch_tree_or_report,
 )
 from tools.mutation_rust import run_rust, rust_survivor_rows
-from tools.mutation_witness import TALLY_FILE, MutantName
+from tools.mutation_witness import (
+    LOW_HEAP_SUFFIX,
+    PROCESS_MAPS,
+    TALLY_FILE,
+    MutantName,
+    placement_env,
+)
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -358,12 +398,7 @@ def python_witness_refusal(artifact_dir: Path, mutants: Path, raw: Prose) -> Pro
     if not totals:
         return Prose("mutmut printed no count to hold its .meta files to, so no run was checked")
     total = int(totals[-1][1])
-    exits: dict[MutantName, ExitStatus | None] = {}
-    for meta in mutants.rglob("*.meta"):
-        exits |= cast(
-            "dict[MutantName, ExitStatus | None]",
-            json.loads(meta.read_text(encoding="utf-8"))["exit_code_by_key"],
-        )
+    exits = read_exits(mutants)
     if len(exits) < total:
         return Prose(
             f"mutmut's .meta files name {len(exits)} of the {total} mutants its summary "
@@ -381,7 +416,24 @@ def python_witness_refusal(artifact_dir: Path, mutants: Path, raw: Prose) -> Pro
     )
 
 
-def _keep_python_witnesses(artifact_dir: Path, mutants: Path) -> Prose:
+def python_placement_refusal(artifact_dir: Path) -> Prose | None:
+    """Return why a mutant's run may have read an address a C int cut short, or None.
+
+    A run whose process's heap started below 2^32 as its tests ended left
+    ``<mutant>.heap``: there, an address that lost its high half can still name
+    its block, so a test may have passed on what crashes where it does not.
+    """
+    low = sorted((artifact_dir / PYTHON_WITNESS_DIR).glob(f"*{LOW_HEAP_SUFFIX}"))
+    if not low:
+        return None
+    return Prose(
+        f"{len(low)} mutants' runs ended with their heap below 2^32, where an address "
+        + "cut to 32 bits still names its block: mutmut must run under "
+        + f"tools/mutation_witness.py's PLACEMENT_ENV, first {low[0].stem}"
+    )
+
+
+def _keep_python_witnesses(artifact_dir: Path, mutants: Path, binding: Binding) -> Prose:
     """Keep mutmut's log beside the report and return each witness for the raw record.
 
     A ``.txt`` witness is a run that raised, which mutmut files as a timeout; a
@@ -391,7 +443,7 @@ def _keep_python_witnesses(artifact_dir: Path, mutants: Path) -> Prose:
     """
     log = mutants / MUTMUT_LOG
     if log.is_file():
-        _ = shutil.copy2(log, artifact_dir / f"python.{MUTMUT_LOG}")
+        _ = shutil.copy2(log, artifact_dir / f"{binding}.{MUTMUT_LOG}")
     kept = Prose("")
     witnesses = artifact_dir / PYTHON_WITNESS_DIR
     for suffix, how in ((".txt", "raised"), (".running", "ended its process before returning")):
@@ -404,11 +456,36 @@ def _keep_python_witnesses(artifact_dir: Path, mutants: Path) -> Prose:
     return kept
 
 
+def _crashes(results: Prose) -> tuple[CrashedMutant, ...]:
+    """Name the mutants whose process a signal or an exit mutmut does not know ended."""
+    return tuple(
+        sorted(
+            CrashedMutant(f"{name}: {status}") for name, status in _CRASHED_MUTANT.findall(results)
+        )
+    )
+
+
 def run_python(artifact_dir: Path) -> MutationReport:
-    """Mutmut run on Python hot-path; parses ``mutmut results`` summary."""
+    """Mutmut run on Python hot-path; parses ``mutmut results`` summary.
+
+    The stage (``python_stage``) selects the whole lane, one shard of it, or
+    the merge of the shards' sweeps (``tools/mutation_python.py``).
+    """
+    try:
+        stage = python_stage()
+    except ValueError as exc:
+        return MutationReport(PYTHON_LANE, "mutmut", 0, 0, "", error=str(exc))
+    if stage == PYTHON_MERGE_STAGE:
+        return merge_python_shards(artifact_dir, ShortSha(short_sha(REPO_ROOT)))
+    return _sweep_python(artifact_dir, stage)
+
+
+def _sweep_python(artifact_dir: Path, stage: ShardNumber | None) -> MutationReport:
+    """Sweep the whole lane, or one shard of it, and report it under its binding."""
+    binding = PYTHON_LANE if stage is None else python_shard_binding(stage)
     checked = _check_python_tools()
     if isinstance(checked, str):
-        return MutationReport("python", "mutmut", 0, 0, "", error=checked)
+        return MutationReport(binding, "mutmut", 0, 0, "", error=checked)
     mutmut_bin, lib = checked
     cwd = REPO_ROOT / "python"
     # ALETHEIA_LIB is required because mutmut copies the source tree into
@@ -421,6 +498,9 @@ def run_python(artifact_dir: Path) -> MutationReport:
     env["ALETHEIA_LIB"] = str(lib)
     # Read by python/tests/_repo_root.py: a test's ancestors under mutants/ miss the root.
     env["ALETHEIA_REPO_ROOT"] = str(REPO_ROOT)
+    # Read by glibc's malloc as each process starts, where this interpreter's
+    # heap lies below 2^32 (tools/mutation_witness.py).
+    env |= placement_env(PROCESS_MAPS)
     # Erase mutmut's persistent work-tree before every run.  mutmut reuses
     # ``python/mutants/`` across invocations and only invalidates cached
     # kill/survive verdicts on SOURCE changes, NOT on TEST changes (test files
@@ -444,6 +524,8 @@ def run_python(artifact_dir: Path) -> MutationReport:
     # (ALETHEIA_LIB), and every word naming a program is an absolute path (no
     # S607).  The run goes through the witness, which mutmut's children inherit.
     witness = [str(WITNESS_SCRIPT), "--witness-dir", str(artifact_dir / PYTHON_WITNESS_DIR)]
+    if stage is not None:
+        witness += ["--shard", shard_deal(stage)]
     run_proc = run_streaming(
         [str(cwd / ".venv" / "bin" / "python3"), *witness, "run"], cwd=cwd, env=env
     )
@@ -453,38 +535,96 @@ def run_python(artifact_dir: Path) -> MutationReport:
         [str(mutmut_bin), "results"], cwd=cwd, env=env, capture_output=True, text=True, check=False
     )
     raw += "=== mutmut results ===\n" + results_proc.stdout + results_proc.stderr + "\n"
-    raw += _keep_python_witnesses(artifact_dir, cwd / "mutants")
-    (artifact_dir / "python.raw.txt").write_text(raw)
+    raw += _keep_python_witnesses(artifact_dir, cwd / "mutants", binding)
+    if stage is not None:
+        header = record_python_shard(
+            stage, ShortSha(short_sha(REPO_ROOT)), cwd / "mutants", artifact_dir
+        )
+        if header is None:
+            (artifact_dir / f"{binding}.raw.txt").write_text(raw)
+            return MutationReport(
+                binding, "mutmut", 0, 0, raw, error="mutmut made no mutant, so no shard ran"
+            )
+        raw = header + raw
+    (artifact_dir / f"{binding}.raw.txt").write_text(raw)
 
     counts = parse_mutmut(raw)
     if counts.total == 0 and (run_proc.returncode != 0 or results_proc.returncode != 0):
         return MutationReport(
-            "python",
+            binding,
             "mutmut",
             0,
             0,
             raw,
             error=(
                 f"mutmut run/results failed: exit "
-                f"{run_proc.returncode}/{results_proc.returncode} (see python.raw.txt)"
+                f"{run_proc.returncode}/{results_proc.returncode} (see {binding}.raw.txt)"
             ),
         )
-    refusal = python_witness_refusal(artifact_dir, cwd / "mutants", Prose(raw))
+    refusal = python_witness_refusal(
+        artifact_dir, cwd / "mutants", Prose(raw)
+    ) or python_placement_refusal(artifact_dir)
     if refusal is not None:
-        return MutationReport(
-            "python", "mutmut", counts.killed, counts.survived, raw, error=refusal
-        )
-    crashes = sorted(
-        CrashedMutant(f"{name}: {status}")
-        for name, status in _CRASHED_MUTANT.findall(results_proc.stdout)
-    )
+        return MutationReport(binding, "mutmut", counts.killed, counts.survived, raw, error=refusal)
     return MutationReport(
-        "python",
+        binding,
         "mutmut",
         counts.killed,
         counts.survived,
         raw,
-        observed=Observed(timeouts=counts.timeout, crashes=tuple(crashes)),
+        observed=Observed(timeouts=counts.timeout, crashes=_crashes(Prose(results_proc.stdout))),
+    )
+
+
+# The section of a sweep's log ``mutmut results`` printed, which names the
+# mutants that ended their process.
+_RESULTS_SECTION = re.compile(
+    r"^=== mutmut results ===\n(.*?)(?:^=== |\Z)", re.MULTILINE | re.DOTALL
+)
+
+
+def merge_python_shards(artifact_dir: Path, commit: ShortSha) -> MutationReport:
+    """Merge the shards' sweeps found under the directory ``PYTHON_SHARDS_ENV`` names.
+
+    Each shard's record, log and report are wanted exactly once under that
+    directory, and the records must add up to one whole sweep
+    (``tools/mutation_python.py``); a shard whose own run reported an error
+    refuses the merge with it.  The merged report is the lane's ``python``
+    report, its counts the shards' sums read off their logs and its log every
+    shard's log, so the drift gate holds it to the record as a whole sweep's.
+    """
+    shards_env = os.environ.get(PYTHON_SHARDS_ENV, "")
+    if not shards_env:
+        msg = (
+            f"{PYTHON_STAGE_ENV}={PYTHON_MERGE_STAGE} reads the shards from "
+            + f"{PYTHON_SHARDS_ENV}: unset"
+        )
+        return MutationReport(PYTHON_LANE, "mutmut", 0, 0, "", error=msg)
+    shards_dir = Path(shards_env)
+    raw = f"=== merge of the Python shards under {shards_dir} ===\n"
+    parts = read_python_shards(shards_dir, commit)
+    if not isinstance(parts, list):
+        return MutationReport(PYTHON_LANE, "mutmut", 0, 0, raw + parts, error=parts)
+    raw += "".join(part.log for part in parts)
+    (artifact_dir / f"{PYTHON_LANE}.raw.txt").write_text(raw)
+    failed = [part for part in parts if part.error]
+    if failed:
+        error = f"Python shard {failed[0].record.number} failed: {failed[0].error}"
+        return MutationReport(PYTHON_LANE, "mutmut", 0, 0, raw, error=error)
+    counts = [parse_mutmut(part.log) for part in parts]
+    crashes = sorted(
+        crash
+        for part in parts
+        for section in _RESULTS_SECTION.findall(part.log)
+        for crash in _crashes(Prose(section))
+    )
+    return MutationReport(
+        PYTHON_LANE,
+        "mutmut",
+        sum(count.killed for count in counts),
+        sum(count.survived for count in counts),
+        raw,
+        observed=Observed(timeouts=sum(count.timeout for count in counts), crashes=tuple(crashes)),
     )
 
 

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Literal
 
 from tools.mutation_cpp_legs import is_cpp_leg
 from tools.mutation_go import Binding, is_go_shard
+from tools.mutation_python import is_python_shard
 from tools.mutation_report import (
     Baseline,
     BindingSpec,
@@ -55,14 +56,16 @@ def _ungated(rep: MutationReport) -> DriftEntry | None:
 
     A C++ leg is one slice of the tree: its count is recorded and the merge
     over the slices is what is gated.
-    A Go shard is one part of the package, and a Rust job one part of the
-    crate's sweep, each judged with the others by the merge in the same way.
+    A Go shard is one part of the package, a Python shard one deal of the
+    lane's mutants, and a Rust job one part of the crate's sweep, each judged
+    with the others by the merge in the same way.
     """
     if rep.error:
         return {"status": "error", "error": rep.error}
     if (
         is_cpp_leg(rep.binding)
         or is_go_shard(Binding(rep.binding))
+        or is_python_shard(Binding(rep.binding))
         or is_rust_job(RustBinding(rep.binding))
     ):
         return {"status": "leg", "observed_survivors": rep.survived}

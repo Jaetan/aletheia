@@ -23,6 +23,8 @@ import yaml
 
 from tools._common import RelPath, scratch_worktree
 
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
     from collections.abc import Generator
 
@@ -41,6 +43,9 @@ MutantCount = NewType("MutantCount", int)
 # A mutant whose process ended on a signal or an exit mutmut does not know,
 # as ``mutmut results`` lists it: ``<mutant>: segfault`` or ``<mutant>: suspicious``.
 CrashedMutant = NewType("CrashedMutant", str)
+
+# A report file's name, as a run writes it into its artifact directory.
+ArtifactName = NewType("ArtifactName", str)
 
 # A route a C++ kill took, one of ``KILL_ROUTES`` in ``tools/mutation_routes.py``.
 KillRoute = NewType("KillRoute", str)
@@ -269,6 +274,17 @@ class MutationReport:
             "raw_log_tail": self.raw_log[-RAW_LOG_TAIL_CHARS:],
             "error": self.error,
         }
+
+
+def one_file(directory: Path, name: ArtifactName) -> Path | Prose:
+    """Find the one file of that name under the directory, or say how many there are.
+
+    A merge wants each part's report exactly once, wherever the download put it.
+    """
+    found = sorted(directory.rglob(name))
+    if len(found) != 1:
+        return Prose(f"{len(found)} copies of {name} under {directory}, wanted one")
+    return found[0]
 
 
 @contextlib.contextmanager

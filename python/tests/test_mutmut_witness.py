@@ -20,7 +20,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Literal, NewType
+from typing import TYPE_CHECKING, Literal, NewType, cast
 
 import pytest
 
@@ -199,6 +199,18 @@ def _renamed(*, mutant: MutantName | None, tests: list[Prose]) -> ExitStatus:
     return ExitStatus(0)
 
 
+# The listing mutmut's run calls, which a shard's deal wraps.
+_LISTING = Prose("collect_source_file_mutation_data")
+
+# What the stand-in listing gives: each mutant's file data, name and exit, and
+# every file's data by path.
+type _ListedMutant = tuple[SimpleNamespace, MutantName, ExitStatus | None]
+type _Listed = list[_ListedMutant]
+type _ByPath = dict[Prose, SimpleNamespace]
+
+# How the stand-in run and listing behave: as pinned, or with one fact of the deal moved.
+type _ListingMove = Literal["as pinned", "called otherwise", "names", "checked only", "absent"]
+
 # Where and how the pinned release keeps its exits and its log.
 _META_KEY = Prose("exit_code_by_key")
 _META_SUFFIX = Prose(".meta")
@@ -218,9 +230,12 @@ class _Release:
     log: Prose = _LOG
 
 
-def _stand_ins(release: _Release) -> dict[Prose, SimpleNamespace]:
-    """Return mutmut's five modules as ``release`` behaves, by the names the gate imports."""
+def _stand_ins(
+    release: _Release, listing_move: _ListingMove = "as pinned"
+) -> dict[Prose, SimpleNamespace]:
+    """Return mutmut's six modules as ``release`` and ``listing_move`` behave, by their names."""
     stats = SimpleNamespace(status_by_exit_code=release.table, print_status=None)
+    saved: list[SimpleNamespace] = []
 
     def source_data(*, path: Prose) -> SimpleNamespace:
         """Stand in for ``SourceFileMutationData``, writing its ``.meta`` as ``release`` does."""
@@ -230,6 +245,7 @@ def _stand_ins(release: _Release) -> dict[Prose, SimpleNamespace]:
             meta = Path("mutants") / f"{path}{release.suffix}"
             text = json.dumps({release.key: data.exit_code_by_key})
             _ = meta.write_text(text, encoding="utf-8")
+            saved.append(data)
 
         data.save = save
         return data
@@ -254,7 +270,23 @@ def _stand_ins(release: _Release) -> dict[Prose, SimpleNamespace]:
         log.parent.mkdir(parents=True, exist_ok=True)
         logging.getLogger("mutmut").addHandler(logging.FileHandler(log))
 
+    def listing(*, mutant_names: tuple[MutantName, ...]) -> tuple[_Listed, _ByPath]:
+        """Stand in for mutmut's listing of the saved file's mutants, as ``release`` gives them."""
+        _ = mutant_names
+        mutants = [
+            (data, name, code) for data in saved for name, code in data.exit_code_by_key.items()
+        ]
+        if listing_move == "names":
+            return cast("_Listed", [name for _, name, _ in mutants]), {}
+        if listing_move == "checked only":
+            mutants = [mutant for mutant in mutants if mutant[2] is not None]
+        return mutants, {Prose("m.py"): saved[-1]}
+
     stats.print_stats = print_stats
+    names = () if listing_move == "called otherwise" else (_LISTING,)
+    main = SimpleNamespace(_run=SimpleNamespace(__code__=SimpleNamespace(co_names=names)))
+    if listing_move != "absent":
+        main.collect_source_file_mutation_data = listing
     config = SimpleNamespace(log_to_file=release.log_to_file)
     run_tests = _named if release.parameter == "mutant_name" else _renamed
     return {
@@ -265,6 +297,7 @@ def _stand_ins(release: _Release) -> dict[Prose, SimpleNamespace]:
         Prose("mutmut.mutation.data"): SimpleNamespace(SourceFileMutationData=source_data),
         Prose("mutmut.configuration"): SimpleNamespace(config=lambda: config),
         Prose("mutmut.utils.logging_utils"): SimpleNamespace(setup_file_logging=setup_file_logging),
+        Prose("mutmut.__main__"): main,
     }
 
 
@@ -326,6 +359,32 @@ def test_each_fact_a_release_could_move_is_refused_by_name(
         assert found == []
     else:
         assert any(refusal in line for line in found), found
+
+
+@pytest.mark.parametrize(
+    ("listing_move", "refusal"),
+    [
+        ("called otherwise", "mutmut's run does not look collect_source_file_mutation_data up"),
+        ("absent", "mutmut has no collect_source_file_mutation_data for a shard's deal"),
+        ("names", "mutmut's listing no longer gives each mutant's data, name and exit"),
+        ("checked only", "the first shard of two is dealt"),
+    ],
+)
+def test_each_fact_the_deal_rests_on_is_refused_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutmut_logger: logging.Logger,
+    listing_move: _ListingMove,
+    refusal: Prose,
+) -> None:
+    """A run calling its listing otherwise, or a listing gone, reshaped or filtered, is refused."""
+    _ = mutmut_logger
+    stand_ins = _stand_ins(_Release(), listing_move)
+    monkeypatch.setattr(check_mutmut_witness, "import_module", stand_ins.__getitem__)
+    monkeypatch.chdir(tmp_path)
+    found = check_mutmut_witness.facts_refused(tmp_path)
+    assert len(found) == 1, found
+    assert found[0][: len(refusal)] == refusal, found
 
 
 def test_a_lane_check_passing_a_short_tally_is_refused(

@@ -3,8 +3,11 @@
 """Hold that the pinned mutmut writes what the Python lane's witness and its checks read.
 
 The witness (``tools/mutation_witness.py``) and the lane's checks of it
-(``tools/mutation_run.py``) read five things of mutmut's: ``run_tests`` names
-the mutant whose tests run in a ``mutant_name`` parameter; a mutant's exit is
+(``tools/mutation_run.py``) read six things of mutmut's: ``run_tests`` names
+the mutant whose tests run in a ``mutant_name`` parameter; mutmut's run looks
+``collect_source_file_mutation_data`` up in its module as it runs, and that
+listing gives each mutant as its file's data, its name and its exit, which a
+shard's deal keeps every N-th of; a mutant's exit is
 kept in its source file's ``.meta`` under ``exit_code_by_key``; the exits 1, 0,
 33, 34, 37 and 255 mean killed, survived, no tests, skipped, caught by the
 type check and timeout, and a mutant not yet checked has none; the progress
@@ -21,7 +24,8 @@ none; a ``.meta`` that ``SourceFileMutationData.save`` writes and the line
 ``print_stats`` prints are read back by the lane's parser and its tally check,
 which must count each status, pass the tally of the three runs, and refuse it
 without one; and ``setup_file_logging``'s file is looked for where the lane
-keeps it from.
+keeps it from; and the run's code is read for the listing's name, the
+listing then dealt one shard of two of the project's mutants.
 
 Exits 0 when every fact holds or nothing they rest on moved, 1 naming each
 fact that no longer holds, and 2 when the venv has no mutmut to ask.
@@ -48,17 +52,34 @@ from tools.mutation_run import (
     parse_mutmut,
     python_witness_refusal,
 )
-from tools.mutation_witness import TALLY_FILE, MutantName, witnessed
+from tools.mutation_witness import (
+    PROCESS_MAPS,
+    TALLY_FILE,
+    Deal,
+    MutantName,
+    ShardCount,
+    ShardPlace,
+    dealing,
+    witnessed,
+)
 from tools.pin_scope import PinGate, gate_runs
 
 from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+    from types import FunctionType
 
     from mutmut.configuration import Config
     from mutmut.mutation.data import SourceFileMutationData
     from mutmut.runners.harness import PytestRunner
+
+    from tools.mutation_witness import Lister
+
+    # mutmut's listing: each mutant's file data, name and exit, and every file's data.
+    type _MutmutListing = Lister[
+        SourceFileMutationData, ExitStatus | None, Mapping[Prose, SourceFileMutationData]
+    ]
 
 # One mutant per exit the lane reads, and what mutmut must file each as.
 _KILLED = MutantName("m.x_f__mutmut_1")
@@ -130,6 +151,45 @@ def _tally_check_refusals(artifacts: Path, mutants: Path, line: Prose) -> list[P
     return refusals
 
 
+# The listing mutmut's run calls, which a shard's deal wraps in mutmut's module.
+_LISTING = "collect_source_file_mutation_data"
+
+
+def _deal_refusals() -> list[Prose]:
+    """Return how mutmut's run no longer takes the deal the witness makes of its listing.
+
+    The run must name the listing as a global, looked up in its module when it
+    runs, so the wrapper installed there is what it calls; and the listing,
+    over the scratch project's ``.meta``, must give its mutants in the shape
+    the deal reads, so dealing the first shard of two keeps every second name.
+    """
+    module = import_module("mutmut.__main__")
+    refusals: list[Prose] = []
+    run = cast("FunctionType | None", vars(module).get("_run"))
+    if run is None or _LISTING not in run.__code__.co_names:
+        refusals.append(
+            Prose(f"mutmut's run does not look {_LISTING} up in its module: no shard is dealt")
+        )
+    listing = cast("_MutmutListing | None", vars(module).get(_LISTING))
+    if listing is None:
+        refusals.append(Prose(f"mutmut has no {_LISTING} for a shard's deal to wrap"))
+        return refusals
+    try:
+        mutants, _ = dealing(listing, Deal(ShardPlace(1), ShardCount(2)))(mutant_names=())
+    except (TypeError, ValueError) as exc:
+        refusals.append(
+            Prose(f"mutmut's listing no longer gives each mutant's data, name and exit: {exc!r}")
+        )
+        return refusals
+    dealt = sorted(MutantName(name) for _, name, _ in mutants)
+    wanted = sorted(_EXITS)[::2]
+    if dealt != wanted:
+        refusals.append(
+            Prose(f"the first shard of two is dealt {dealt} of mutmut's listing, not {wanted}")
+        )
+    return refusals
+
+
 def facts_refused(scratch: Path) -> list[Prose]:
     """Return each fact the venv's mutmut no longer holds, asked from ``scratch``.
 
@@ -138,7 +198,7 @@ def facts_refused(scratch: Path) -> list[Prose]:
     refusals: list[Prose] = []
     runner = cast("type[PytestRunner]", import_module("mutmut.runners.harness").PytestRunner)
     try:
-        _ = witnessed(runner.run_tests, scratch / "witness")
+        _ = witnessed(runner.run_tests, scratch / "witness", PROCESS_MAPS)
     except TypeError as exc:
         refusals.append(Prose(f"the witness cannot install on PytestRunner.run_tests: {exc}"))
 
@@ -159,6 +219,7 @@ def facts_refused(scratch: Path) -> list[Prose]:
     for name, code in _EXITS.items():
         data.exit_code_by_key[name] = code
     data.save()
+    refusals += _deal_refusals()
     line = _printed_summary({Prose("m.py"): data})
     counts = parse_mutmut(line)
     if counts != _COUNTS:

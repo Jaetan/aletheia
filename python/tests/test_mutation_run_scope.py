@@ -35,8 +35,15 @@ import pytest
 
 from tools import _branch_diff, mutation_run
 from tools._common import RelPath, git_ls_files
+from tools.mutation_python import (
+    PYTHON_SHARDS_ENV,
+    PYTHON_STAGE_ENV,
+    ShardNumber,
+    dealt,
+    read_record,
+)
 from tools.mutation_report import CrashedMutant, DriftStatus, MutantCount
-from tools.mutation_witness import TALLY_FILE
+from tools.mutation_witness import LOW_HEAP_SUFFIX, PLACEMENT_ENV, TALLY_FILE, MutantName
 
 from aletheia.common_types import Prose
 
@@ -393,6 +400,75 @@ def test_run_python_names_the_repository_root_and_the_library_to_mutmut(
         assert call.kwargs["env"]["ALETHEIA_LIB"] == str(lib)
 
 
+@pytest.mark.parametrize(
+    ("heap", "placed"),
+    [
+        ("0689e000-068e0000 rw-p 00000000 00:00 0  [heap]\n", ("0", "2147483647")),
+        ("55d1c3a2b000-55d1c3b4c000 rw-p 00000000 00:00 0  [heap]\n", ("131072", None)),
+    ],
+    ids=["heap below 2^32", "heap above"],
+)
+def test_run_python_runs_mutmut_under_the_placement_settings_where_its_heap_is_low(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, heap: Prose, placed: tuple[Prose | None, ...]
+) -> None:
+    """The run starts mutmut under the settings where the lane's heap lies below 2^32 alone.
+
+    Elsewhere the environment reaches mutmut as it was.
+    """
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    maps = tmp_path / "maps"
+    _ = maps.write_text(heap, encoding="utf-8")
+    mutmut = Mock(return_value=subprocess.CompletedProcess(["mutmut"], 0, stdout="", stderr=""))
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "PROCESS_MAPS", maps)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", mutmut)
+    monkeypatch.setattr(mutation_run.subprocess, "run", mutmut)
+    monkeypatch.setenv("MALLOC_MMAP_THRESHOLD_", "131072")
+    monkeypatch.delenv("MALLOC_MMAP_MAX_", raising=False)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    _ = mutation_run.run_python(artifacts)
+
+    run_call = mutmut.call_args_list[0]
+    assert tuple(run_call.kwargs["env"].get(name) for name in PLACEMENT_ENV) == placed
+
+
+def test_run_python_refuses_a_run_whose_heap_lay_below_2_32(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A run the witness found with its heap below 2^32 fails the lane, naming the first."""
+    witnesses = tmp_path / "artifacts" / mutation_run.PYTHON_WITNESS_DIR
+
+    def swept_low() -> None:
+        _witnessed_sweep(tmp_path, MutantCount(3))()
+        for index in (3, 2):
+            _ = (witnesses / f"m.f__mutmut_{index}{LOW_HEAP_SUFFIX}").write_text("0x689e000\n")
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    fake_run = _Mutmut(Prose("⠴ 3/3  🎉 3 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0\n"), swept_low)
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
+    monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
+    (tmp_path / "artifacts").mkdir()
+
+    report = mutation_run.run_python(tmp_path / "artifacts")
+
+    assert report.error == (
+        "2 mutants' runs ended with their heap below 2^32, where an address cut to 32 bits "
+        + "still names its block: mutmut must run under tools/mutation_witness.py's "
+        + "PLACEMENT_ENV, first m.f__mutmut_2"
+    )
+    assert mutation_run.python_placement_refusal(tmp_path / "unwitnessed") is None
+
+
 def test_run_python_reports_the_mutants_mutmut_timed_out(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -667,3 +743,154 @@ def test_run_python_refuses_a_tally_check_with_nothing_to_hold_it_to(
     monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
 
     assert mutation_run.run_python(artifacts).error == error
+
+
+def _shard_sweep(root: Path, number: ShardNumber, names: list[MutantName]) -> Callable[[], None]:
+    """Return a stand-in step leaving what shard ``number``'s witnessed sweep leaves.
+
+    mutmut's ``.meta`` names every mutant, the shard's deal killed and the rest
+    unchecked, and the witness's tally names each of the deal's runs.
+    """
+
+    def swept() -> None:
+        judged = dealt(names, number)
+        meta = root / "python" / "mutants" / "m.py.meta"
+        meta.parent.mkdir(parents=True, exist_ok=True)
+        exits = {name: (1 if name in judged else None) for name in names}
+        _ = meta.write_text(json.dumps({"exit_code_by_key": exits}))
+        tally = root / "artifacts" / mutation_run.PYTHON_WITNESS_DIR / TALLY_FILE
+        tally.parent.mkdir(parents=True, exist_ok=True)
+        _ = tally.write_text("".join(f"{name}\n" for name in judged))
+
+    return swept
+
+
+_NAMES = [MutantName(f"m.f__mutmut_{n}") for n in range(1, 5)]
+
+
+def test_run_python_runs_one_shard_through_the_witness_and_records_its_deal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A shard hands the witness its deal, reports under its own name and records its census."""
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    summary = Prose("⠴ 2/4  🎉 2 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0\n")
+    mutmut = Mock(wraps=_Mutmut(summary, _shard_sweep(tmp_path, ShardNumber(2), _NAMES)))
+    monkeypatch.setenv(PYTHON_STAGE_ENV, "2")
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "short_sha", _fixed_sha)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", mutmut)
+    monkeypatch.setattr(mutation_run.subprocess, "run", mutmut)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    report = mutation_run.run_python(artifacts)
+
+    assert (report.binding, report.error, report.killed) == ("python-2", None, 2)
+    assert mutmut.call_args_list[0].args[0][-3:] == ["--shard", "2/2", "run"]
+    log = (artifacts / "python-2.raw.txt").read_text(encoding="utf-8")
+    assert log.startswith("=== Python shard 2 of 2: 2 of 4 mutants ===\n=== mutmut run ===\n")
+    assert not (artifacts / "python.raw.txt").exists()
+    record = read_record(artifacts / "python-shard-2.json")
+    assert (record.commit, record.census, record.judged) == (
+        "testsha",
+        tuple(_NAMES),
+        dealt(_NAMES, ShardNumber(2)),
+    )
+
+
+def _leave_shard_lane(
+    directory: Path, number: ShardNumber, log: Prose, error: Prose | None
+) -> None:
+    """Leave what a shard's lane uploads: its record, its log and its report."""
+    lane = directory / f"mutation-python-{number}"
+    lane.mkdir(parents=True)
+    record = {
+        "shard": number,
+        "commit": "testsha",
+        "census": _NAMES,
+        "judged": list(dealt(_NAMES, number)),
+    }
+    _ = (lane / f"python-shard-{number}.json").write_text(json.dumps(record))
+    _ = (lane / f"python-{number}.raw.txt").write_text(log)
+    _ = (lane / f"python-{number}.json").write_text(json.dumps({"error": error}))
+
+
+# What each shard's log says: its progress line, what ``mutmut results`` named,
+# and for the second a witness after the results, whose output names no crash.
+_SHARD_LOGS = (
+    Prose(
+        "=== mutmut run ===\n⠴ 2/4  🎉 1 🫥 0  ⏰ 0  🤔 1  🙁 0  🔇 0  🧙 0\n\n"
+        + "=== mutmut results ===\n    m.f__mutmut_1: segfault\n\n"
+    ),
+    Prose(
+        "=== mutmut run ===\n⠴ 2/4  🎉 1 🫥 0  ⏰ 1  🤔 0  🙁 0  🔇 0  🧙 0\n\n"
+        + "=== mutmut results ===\n    m.f__mutmut_2: timeout\n\n"
+        + "=== raised: m.f__mutmut_4.txt ===\n    m.f__mutmut_9: suspicious\n"
+    ),
+)
+
+
+def _merge_stage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, shards: Path) -> None:
+    """Run the Python lane as the merge stage over ``shards``, with no tool to reach for."""
+
+    def no_tools() -> tuple[Path, Path]:
+        message = "the merge reached for mutmut"
+        raise AssertionError(message)
+
+    monkeypatch.setenv(PYTHON_STAGE_ENV, "merge")
+    monkeypatch.setenv(PYTHON_SHARDS_ENV, str(shards))
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "short_sha", _fixed_sha)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", no_tools)
+
+
+def test_run_python_merges_the_shards_into_the_lanes_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The merge sums the shards' counts, names their results' crashes, and needs no mutmut."""
+    shards = tmp_path / "python-shards"
+    for number, log in enumerate(_SHARD_LOGS, start=1):
+        _leave_shard_lane(shards, ShardNumber(number), log, None)
+    _merge_stage(monkeypatch, tmp_path, shards)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    report = mutation_run.run_python(artifacts)
+
+    assert (report.binding, report.error) == ("python", None)
+    assert (report.killed, report.survived, report.observed.timeouts) == (2, 0, 1)
+    assert report.observed.crashes == (CrashedMutant("m.f__mutmut_1: segfault"),)
+    raw = (artifacts / "python.raw.txt").read_text(encoding="utf-8")
+    assert raw == f"=== merge of the Python shards under {shards} ===\n" + "".join(_SHARD_LOGS)
+
+
+def test_run_python_refuses_a_merge_a_shard_of_which_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A shard whose own run reported an error fails the merge with that error."""
+    shards = tmp_path / "python-shards"
+    _leave_shard_lane(shards, ShardNumber(1), _SHARD_LOGS[0], None)
+    _leave_shard_lane(shards, ShardNumber(2), _SHARD_LOGS[1], Prose("the witness is off"))
+    _merge_stage(monkeypatch, tmp_path, shards)
+    (tmp_path / "artifacts").mkdir()
+
+    report = mutation_run.run_python(tmp_path / "artifacts")
+
+    assert report.error == "Python shard 2 failed: the witness is off"
+
+
+def test_run_python_refuses_a_merge_naming_no_shards_and_a_stage_that_is_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The merge without its directory, and a misspelt stage, each fail naming the variable."""
+    _merge_stage(monkeypatch, tmp_path, tmp_path)
+    monkeypatch.delenv(PYTHON_SHARDS_ENV)
+    assert mutation_run.run_python(tmp_path).error == (
+        f"{PYTHON_STAGE_ENV}=merge reads the shards from {PYTHON_SHARDS_ENV}: unset"
+    )
+    monkeypatch.setenv(PYTHON_STAGE_ENV, "3")
+    assert str(mutation_run.run_python(tmp_path).error).startswith(f"{PYTHON_STAGE_ENV}='3'")
