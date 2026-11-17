@@ -32,13 +32,16 @@ name.
 
 The same check holds each lane to the bus it serves: a lane whose count is
 over its budget in ``benchmarks/instruction_budgets.json``, the most
-instructions per operation the slower runner class executes at the bus's
-frames a second (``tools/benchmark_budgets.py``), fails.  A noted limitation,
-a lane the record lists as under its bus when calibrated, is reported over its
-budget without failing, and fails once within it, since the record then says
-less than the lanes do.  Budgets calibrated with another toolchain or at other
-frame counts fail naming what differs, a missing record fails, and a lane
-either side lacks fails by name.
+instructions per operation the runner class the record was calibrated on
+executes at the bus's frames a second (``tools/benchmark_budgets.py``),
+fails.  A noted limitation, a lane the record lists as under its bus when
+calibrated, is reported over its budget without failing, and fails once within
+it, since the record then says less than the lanes do.  Budgets calibrated
+with another toolchain or at other frame counts fail naming what differs, a
+missing record fails, and a lane either side lacks fails by name.  A run on a
+class ranked slower than the record's, or on a class the ranking lacks, is
+noted for a recalibration from it, without failing: the verdict is the
+counts', whatever runner the run drew.
 """
 
 from __future__ import annotations
@@ -50,8 +53,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast
 
-from tools.benchmark_budgets import BUDGETS_PATH, budget_of
-from tools.benchmark_instructions import RESULT_PATH
+from tools.benchmark_budgets import BUDGETS_PATH, budget_of, class_rank
+from tools.benchmark_instructions import RESULT_PATH, ToolName
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -63,7 +66,6 @@ if TYPE_CHECKING:
         InstructionCount,
         InstructionReport,
         LaneName,
-        ToolName,
         ToolVersion,
     )
 
@@ -339,7 +341,7 @@ def _lane_failures(committed: InstructionReport, measured: InstructionReport) ->
 
 
 _OVER_BUDGET = Prose(
-    "over its budget: the lane no longer keeps up with its bus on the slower runner"
+    "over its budget: the lane no longer keeps up with its bus on the calibrating runner"
 )
 _NO_LONGER_LIMITED = Prose(
     "within its budget, so no longer a limitation: recalibrate, so the record gates it"
@@ -411,12 +413,38 @@ def _read_records(
     if not budgets_path.is_file():
         _fail(
             f"benchmark-gate: no budgets at {budgets_path}: calibrate them with"
-            + " tools/benchmark_budgets.py from a run on the slower runner"
+            + " tools/benchmark_budgets.py from a run on the slowest runner class drawn"
         )
         return None
     committed = cast("InstructionReport", json.loads(counts_path.read_text(encoding="utf-8")))
     budgets = cast("BudgetRecord", json.loads(budgets_path.read_text(encoding="utf-8")))
     return measured, committed, budgets
+
+
+def runner_notice(budgets: BudgetRecord, measured: InstructionReport) -> Prose | None:
+    """Answer the notice a run on a class ranked slower than the record's owes, or None.
+
+    A class the ranking lacks may be slower than every class it holds, so a
+    run on one is noted too.  The notice is GitHub's annotation, and fails
+    nothing.
+    """
+    calibrated = budgets["host"].get(ToolName("cpu"))
+    drawn = measured["host"].get(ToolName("cpu"))
+    rank = class_rank(drawn)
+    if rank is None:
+        return Prose(
+            f"::notice::benchmark-gate: this run drew {drawn!r}, a runner class"
+            + " tools/benchmark_budgets.py's RUNNER_CLASSES does not rank: rank it, and"
+            + " recalibrate the budgets from this run if it ranks slowest"
+        )
+    calibrated_rank = class_rank(calibrated)
+    if calibrated_rank is not None and rank >= calibrated_rank:
+        return None
+    return Prose(
+        f"::notice::benchmark-gate: this run drew the {drawn}, ranked slower than the"
+        + f" {calibrated} the budgets were calibrated on: recalibrate them from this run's"
+        + " artifact with python -m tools.benchmark_budgets"
+    )
 
 
 def _check_instructions(measured_path: Path, counts_path: Path, budgets_path: Path) -> ExitStatus:
@@ -425,6 +453,9 @@ def _check_instructions(measured_path: Path, counts_path: Path, budgets_path: Pa
     if records is None:
         return ExitStatus(1)
     measured, committed, budgets = records
+    notice = runner_notice(budgets, measured)
+    if notice is not None:
+        _emit(notice)
     unlike_counts = _unlike(committed["toolchain"], committed["frames"], measured)
     unlike_budgets = _unlike(budgets["toolchain"], budgets["frames"], measured)
     if unlike_counts:
@@ -438,7 +469,7 @@ def _check_instructions(measured_path: Path, counts_path: Path, budgets_path: Pa
             _fail(f"  {line}")
         _fail(
             f"Recalibrate {budgets_path} with tools/benchmark_budgets.py"
-            + " from a run on the slower runner."
+            + " from a run on the slowest runner class drawn."
         )
     if unlike_counts or unlike_budgets:
         return ExitStatus(1)
@@ -449,7 +480,7 @@ def _check_instructions(measured_path: Path, counts_path: Path, budgets_path: Pa
     failures = _lane_failures(committed, measured)
     _emit(
         "\nbenchmark-gate: fail if any lane's instructions per operation are over its budget,"
-        + " the most the slower runner executes at its bus's frames a second\n"
+        + " the most the calibrating runner executes at its bus's frames a second\n"
     )
     failures += _budget_failures(budgets, measured)
     if failures:

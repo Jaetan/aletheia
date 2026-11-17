@@ -43,7 +43,7 @@ import pytest
 from _bench_schema import BindingId, RowKey, SweepName, schema
 
 from tools.benchmark_budgets import (
-    SLOWER_RUNNER_CPU,
+    RUNNER_CLASSES,
     BudgetRecord,
     FramesPerSecond,
     bus_of,
@@ -105,7 +105,7 @@ def _report(
     """Return an instruction report holding ``counts``, the toolchain and frames as given."""
     return {
         "toolchain": dict(_TOOLCHAIN) if toolchain is None else toolchain,
-        "host": {ToolName("cpu"): ToolVersion("a runner")},
+        "host": {ToolName("cpu"): RUNNER_CLASSES[0]},
         "frames": list(_FRAMES) if frames is None else frames,
         "counts": counts,
     }
@@ -121,7 +121,7 @@ def _budgets(
 ) -> BudgetRecord:
     """Return budgets calibrated from ``counts`` at ``rate`` times each lane's bus."""
     return {
-        "host": {ToolName("cpu"): SLOWER_RUNNER_CPU},
+        "host": {ToolName("cpu"): RUNNER_CLASSES[0]},
         "toolchain": dict(_TOOLCHAIN) if toolchain is None else toolchain,
         "frames": list(_FRAMES) if frames is None else frames,
         "lanes": {
@@ -385,6 +385,42 @@ def test_budgets_calibrated_otherwise_ask_for_a_recalibration(
     assert named in captured.err
     assert "Recalibrate" in captured.err
     assert _LANE not in captured.out
+
+
+@pytest.mark.parametrize(
+    ("calibrated", "drawn", "noted"),
+    [
+        (RUNNER_CLASSES[1], RUNNER_CLASSES[0], Prose("ranked slower than the")),
+        (RUNNER_CLASSES[1], RUNNER_CLASSES[1], None),
+        (RUNNER_CLASSES[1], RUNNER_CLASSES[2], None),
+        (RUNNER_CLASSES[1], ToolVersion("AMD EPYC 9999 Unseen"), Prose("does not rank")),
+        (ToolVersion("AMD EPYC 9999 Unseen"), RUNNER_CLASSES[-1], Prose("ranked slower than")),
+    ],
+    ids=["slower", "the same", "faster", "unranked run", "unranked record"],
+)
+def test_a_run_on_a_slower_class_than_the_records_is_noted_and_fails_nothing(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Prose],
+    calibrated: ToolVersion,
+    drawn: ToolVersion,
+    noted: Prose | None,
+) -> None:
+    """A run on a class ranked slower, or on one the ranking lacks, is noted; the verdict stays."""
+    counts = _one(_CPP, InstructionCount(100_000))
+    budgets = _budgets(counts)
+    budgets["host"] = {ToolName("cpu"): calibrated}
+    measured = _report(counts)
+    measured["host"] = {ToolName("cpu"): drawn}
+    assert _instructions(tmp_path, _report(counts), measured, budgets) == 0
+    notices = [
+        line for line in capsys.readouterr().out.splitlines() if line.startswith("::notice::")
+    ]
+    if noted is None:
+        assert notices == []
+    else:
+        assert len(notices) == 1, notices
+        assert noted in notices[0]
+        assert str(drawn) in notices[0]
 
 
 _SWEEP_IDS = [sweep.key for sweep in SWEEPS]
