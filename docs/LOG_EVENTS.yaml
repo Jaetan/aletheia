@@ -83,16 +83,6 @@ events:
     level: debug
     description: A remote event was forwarded to the streaming session.
 
-  # --- Enrichment diagnostics (warn) ---
-
-  - name: enrichment.property_index_oob
-    level: warn
-    description: A violation referenced a property index outside the registered set — record dropped, stream continues.
-
-  - name: enrichment.extraction_failed
-    level: warn
-    description: Signal extraction for violation enrichment did not return a result — enrichment skipped for that frame.
-
   # --- Extraction cache (debug / warn) ---
 
   - name: cache.hit
@@ -111,11 +101,11 @@ events:
 
   - name: extraction.process_failed
     level: warn
-    description: An extraction request failed at the FFI process boundary — error recorded, stream continues.
+    description: An extraction request failed before its reply could be read; the call that needed it returns the error.
 
   - name: extraction.parse_failed
     level: warn
-    description: An extraction response could not be parsed (malformed JSON or schema violation) — error recorded, stream continues.
+    description: An extraction reply carried the kernel's refusal or could not be read; the call that needed it returns the error.
 
   # --- End-of-stream diagnostics (warn) ---
 

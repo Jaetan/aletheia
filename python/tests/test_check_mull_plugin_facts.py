@@ -12,12 +12,14 @@ for the two units, its home path replaced; each refusal is a corruption of it.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType
 
 import pytest
 from _processes import CommandWord
+from _repo_root import REPO_ROOT
 
 from tools import check_mull_plugin_facts
 from tools._common import RelPath
@@ -306,14 +308,19 @@ def _toolchain(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, plugin: bool 
     return plugin_file
 
 
+# What a stand-in prefix-map compile prints by default.
+_CRASHED_SAID = Prose("crashed\n")
+
+
 def _answers(
     monkeypatch: pytest.MonkeyPatch,
     *,
     prefix_map: ExitStatus,
     ir: Mapping[UnitName, IrText],
     ir_status: ExitStatus = _EMITTED,
+    said: Prose = _CRASHED_SAID,
 ) -> list[_Call]:
-    """Answer the prefix-map compile with ``prefix_map`` and each IR compile by writing ``ir``."""
+    """Answer the prefix-map compile with ``prefix_map`` and ``said``, an IR compile with ``ir``."""
     asked: list[_Call] = []
 
     def answer(
@@ -324,7 +331,7 @@ def _answers(
     ) -> subprocess.CompletedProcess[Prose]:
         asked.append(_Call(cmd, cwd, None if env is None else env.get(EnvName("MULL_CONFIG"))))
         if "-emit-llvm" not in cmd:
-            return subprocess.CompletedProcess(cmd, prefix_map, Prose(""), Prose("crashed\n"))
+            return subprocess.CompletedProcess(cmd, prefix_map, Prose(""), said)
         unit = next(name for name in ir if cmd[-5].endswith(f"/cpp/src/{name}"))
         if ir_status == 0:
             _ = Path(cmd[-1]).write_text(ir[unit], encoding="utf-8")
@@ -375,7 +382,7 @@ def test_every_fact_holding_passes_silently(
     prefix_map, identifiers, reach = asked[0], asked[1], asked[2]
     assert prefix_map.cmd[:6] == [
         "/usr/bin/clang++-23",
-        "-std=c++23",
+        "-std=gnu++23",
         f"-fpass-plugin={plugin}",
         "-g",
         "-O0",
@@ -444,6 +451,46 @@ def test_a_prefix_map_compile_ending_another_way_is_no_answer(
         f"{_GATE}: clang++-23 ended with status 1 compiling cpp/src/types.cpp under the plugin,"
         + " neither 0 nor SIGSEGV:\ncrashed\n"
     )
+
+
+def test_a_no_answer_names_the_compile_s_first_error_before_its_last_lines(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The first error, which the notes a compiler prints last seldom name, leads the excerpt."""
+    _ = _toolchain(monkeypatch, tmp_path)
+    root = _repository(tmp_path)
+    notes = [f"note: in call {index}" for index in range(12)]
+    said = Prose("\n".join(["types.cpp:3: error: the cause", *notes]) + "\n")
+    _ = _answers(monkeypatch, prefix_map=ExitStatus(1), ir=_ir(), said=said)
+    assert check(root) == ExitStatus(2)
+    excerpt = "\n".join(["types.cpp:3: error: the cause", "...", *notes[-8:]])
+    assert capsys.readouterr().out == (
+        f"{_GATE}: clang++-23 ended with status 1 compiling cpp/src/types.cpp under the plugin,"
+        + f" neither 0 nor SIGSEGV:\n{excerpt}\n"
+    )
+
+
+def test_the_prefix_map_compile_is_in_the_library_s_dialect(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The arm compiles as the library's build does, GNU's dialect of its standard.
+
+    In strict ISO mode libstdc++ before 16 counts no ``unsigned __int128`` as
+    integral, which the library needs, so a strict compile fails before the
+    plugin is asked anything.
+    """
+    cmake = (REPO_ROOT / "cpp" / "CMakeLists.txt").read_text(encoding="utf-8")
+    standard = re.search(r"target_compile_features\(aletheia-cpp PUBLIC cxx_std_(\d+)\)", cmake)
+    assert standard is not None
+    assert "CXX_EXTENSIONS" not in cmake
+    assert f"-std=gnu++{standard.group(1)}" == check_mull_plugin_facts.STANDARD
+    _ = _toolchain(monkeypatch, tmp_path)
+    root = _repository(tmp_path)
+    asked = _answers(monkeypatch, prefix_map=ExitStatus(139), ir=_ir())
+    _ = check(root)
+    compiles = [call for call in asked if "-emit-llvm" not in call.cmd]
+    assert compiles
+    assert all(check_mull_plugin_facts.STANDARD in call.cmd for call in compiles)
 
 
 def test_corrupt_identifiers_in_the_emitted_ir_refuse(

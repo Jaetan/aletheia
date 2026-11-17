@@ -16,6 +16,8 @@
 #include "detail/ffi_logic.hpp"
 #include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
+#include "detail/reply_shape.hpp"
+#include "detail/wide_json.hpp"
 #include "required.hpp"
 #include "test_helpers.hpp"
 #include <aletheia/aletheia.hpp>
@@ -23,6 +25,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <format>
+#include <initializer_list>
 #include <memory>
 #include <new>
 #include <ranges>
@@ -30,6 +34,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -72,7 +77,7 @@ constexpr std::string_view k_dbc_response = R"({
                 "signed": false, "factor": 1, "offset": 0,
                 "minimum": 0, "maximum": 65535,
                 "unit": "kilometres per hour", "presence": "always",
-                "receivers": ["InstrumentClusterNodeName"]
+                "receivers": ["InstrumentClusterNodeName"], "valueDescriptions": []
             }]
         }],
         "valueTables": [{
@@ -108,15 +113,14 @@ constexpr std::string_view k_extraction = R"({
     ],
     "errors": [
         {"name": "CoolantTemperatureInDegreesCelsius",
-         "reason": "the signal extends past the end of the frame this message carries"},
+         "error": "the signal extends past the end of the frame this message carries"},
         {"name": "IntakeAirTemperatureInDegreesCelsius",
-         "reason": "the multiplexor selects another signal for this frame"}
+         "error": "the multiplexor selects another signal for this frame"}
     ],
     "absent": ["FuelLevelAsAPercentageOfTankCapacity", "AmbientAirTemperatureInDegreesCelsius"]
 })";
 
 constexpr std::string_view k_property_batch = R"({
-    "status": "success",
     "type": "property_batch",
     "results": [
         {"type": "property", "status": "holds", "property_index": 0},
@@ -133,9 +137,9 @@ constexpr std::string_view k_stream_result = R"({
          "reason": "the atomic predicate never resolved before the stream ended"}
     ],
     "warnings": [
-        {"property_index": 0, "kind": "multiplexor_mirror",
+        {"property_index": 0, "kind": "uncached_atom",
          "detail": "the multiplexor this property reads is mirrored in another message"},
-        {"property_index": 1, "kind": "multiplexor_mirror",
+        {"property_index": 1, "kind": "uncached_atom",
          "detail": "the multiplexor this property reads is mirrored in another message"}
     ]
 })";
@@ -285,7 +289,8 @@ TEST_CASE("the check builder releases its temporaries when an allocation fails",
         auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
         std::vector<aletheia::CheckResult> checks;
         checks.push_back(aletheia::check::signal("EngineSpeedInRevolutionsPerMinute")
-                             .never_exceeds(aletheia::PhysicalValue{aletheia::Rational{6000, 1}}));
+                             .never_exceeds(aletheia::PhysicalValue{aletheia::Rational{6000, 1}})
+                             .value());
         checks.push_back(aletheia::check::signal("VehicleSpeedInKilometresPerHour")
                              .stays_between(aletheia::PhysicalValue{aletheia::Rational{0, 1}},
                                             aletheia::PhysicalValue{aletheia::Rational{220, 1}})
@@ -322,6 +327,25 @@ TEST_CASE("the input-bound refusal is built in one allocation", "[alloc_fault][f
           }) == 1);
 }
 
+TEST_CASE("an array of names is read into a vector allocated once", "[alloc_fault][json]") {
+    // Each name is short enough to live inside its string, so the one
+    // allocation is the vector's, reserved for every entry; a vector grown
+    // entry by entry allocates again at each doubling.
+    auto reply = aletheia::detail::Json::object();
+    auto& names = reply["names"] = aletheia::detail::Json::array();
+    for (auto const index : std::views::iota(0, 64))
+        names.push_back(std::format("n{}", index));
+    auto const reads = [&reply]<typename T>(std::type_identity<T>) {
+        return allocations_of([&reply] {
+            return aletheia::detail::field_strings<T>(reply, aletheia::detail::ReplyPath{},
+                                                      "names");
+        });
+    };
+    CHECK(reads(std::type_identity<aletheia::NodeName>{}) == 1);
+    CHECK(reads(std::type_identity<aletheia::SignalName>{}) == 1);
+    CHECK(reads(std::type_identity<std::string>{}) == 1);
+}
+
 // A binary extraction result over the two-signal message: two values, two
 // errors with a reason each, two absent names. Every name and reason is longer
 // than a string holds inline, so each is one allocation when copied.
@@ -335,10 +359,14 @@ static auto two_of_each_extraction() -> std::vector<std::byte> {
         for (auto const shift : std::views::iota(0, 32) | std::views::stride(8))
             buf.push_back(static_cast<std::byte>((v >> static_cast<unsigned>(shift)) & 0xFFU));
     };
-    auto const i64 = [&](std::int64_t v) {
-        auto const bits = static_cast<std::uint64_t>(v);
-        for (auto const shift : std::views::iota(0, 64) | std::views::stride(8))
-            buf.push_back(static_cast<std::byte>((bits >> static_cast<unsigned>(shift)) & 0xFFU));
+    // A value record's rational: the sign byte, then the numerator and the
+    // denominator as 128-bit little-endian words.
+    auto const rational = [&](std::uint64_t numerator, std::uint64_t denominator) {
+        buf.push_back(std::byte{0});
+        for (auto const word : {numerator, std::uint64_t{0}, denominator, std::uint64_t{0}})
+            for (auto const shift : std::views::iota(0, 64) | std::views::stride(8))
+                buf.push_back(
+                    static_cast<std::byte>((word >> static_cast<unsigned>(shift)) & 0xFFU));
     };
     constexpr std::string_view first_reason = "the signal extends past the end of the frame";
     constexpr std::string_view second_reason = "the multiplexor selects another signal";
@@ -347,11 +375,9 @@ static auto two_of_each_extraction() -> std::vector<std::byte> {
     u16(2);
     u32(static_cast<std::uint32_t>(first_reason.size() + second_reason.size()));
     u16(0);
-    i64(3000);
-    i64(1);
+    rational(3000, 1);
     u16(1);
-    i64(85);
-    i64(2);
+    rational(85, 2);
     for (auto const idx : {std::uint16_t{0}, std::uint16_t{1}}) {
         u16(idx);
         buf.push_back(std::byte{0});

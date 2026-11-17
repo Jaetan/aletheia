@@ -9,7 +9,12 @@
 module Aletheia.DBC.Validity.ErrorChecks where
 open import Aletheia.DBC.Identifier using (nameStr)
 
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBCMessage; DBCSignal; Always; When)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBCMessage; DBCSignal; Always; When
+  ; DBCAttrDef; DBCAttrDefault; DBCAttrAssign; AttrDef; ATInt; ATFloat; ATString; ATEnum; ATHex
+  ; EnvironmentVar)
+open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
+open import Aletheia.CAN.Encoding.Arithmetic using (rawRange)
+open import Data.Rational.Literals using (fromℤ)
 open import Aletheia.DBC.Validator using
   ( checkBitLengthZero; checkAllBitLengthZero
   ; checkFactorZeroSig; checkAllFactorZero
@@ -23,8 +28,13 @@ open import Aletheia.DBC.Validator using
   ; checkMuxCycleSig; checkAllMuxCycle
   ; walkMux
   ; checkRangeExceedsBitsSig; checkAllRangeExceedsBits
+  ; signalSubject; minMaxIssue; checkMinMaxSig; checkAllMinMax
+  ; attrSubject; attrTypeMinMax; checkAttrMinMax; checkAllAttrMinMax
+  ; envVarSubject; checkAllEnvVarMinMax
+  ; checkKeyRange; checkKeyRangeSig; checkAllKeyRange
   )
-open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; BitsInFrame; MuxResolvable; MuxAcyclic; RangeWithinBits)
+open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; BitsInFrame; MuxResolvable; MuxAcyclic; RangeWithinBits
+  ; MinLeqMax; KeyInRange; KeysInRange; AttrTypeMinLeqMax; AttrMinLeqMax; EnvVarMinLeqMax)
 open import Aletheia.DBC.Validity.Combinators using
   ( liftConcatMap-sound; liftConcatMap-complete
   ; requireDec-sound; requireDec-complete
@@ -41,7 +51,7 @@ open import Data.Nat using (_+_; _*_)
 open import Data.Nat.Properties using (_≤?_; _≟_)
 open import Data.Integer using (+_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
-open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.DecRat using (DecRat; toℚ; _≤ᵈ_; _≤?ᵈ_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Data.Product using (_,_; proj₁; proj₂)
@@ -369,3 +379,118 @@ checkAllRangeExceedsBits-complete : ∀ msgs →
   checkAllRangeExceedsBits msgs ≡ []
 checkAllRangeExceedsBits-complete = liftConcatMap-complete _ λ msg →
   liftConcatMap-complete _ (checkRangeExceedsBitsSig-complete (messageNameStr msg)) _
+
+-- ============================================================================
+-- CHECK 7: MIN EXCEEDS MAX (signals, attribute definitions, environment
+-- variables)
+-- ============================================================================
+
+minMaxIssue-sound : ∀ subject lo hi → minMaxIssue subject lo hi ≡ [] → lo ≤ᵈ hi
+minMaxIssue-sound _ lo hi = requireDec-sound (lo ≤?ᵈ hi) _
+
+minMaxIssue-complete : ∀ subject lo hi → lo ≤ᵈ hi → minMaxIssue subject lo hi ≡ []
+minMaxIssue-complete _ lo hi = requireDec-complete (lo ≤?ᵈ hi) _
+
+checkMinMaxSig-sound : ∀ msgName sig →
+  checkMinMaxSig msgName sig ≡ [] → MinLeqMax sig
+checkMinMaxSig-sound msgName sig =
+  minMaxIssue-sound (signalSubject msgName sig) (SignalDef.minimum sd) (SignalDef.maximum sd)
+  where sd = DBCSignal.signalDef sig
+
+checkMinMaxSig-complete : ∀ msgName sig →
+  MinLeqMax sig → checkMinMaxSig msgName sig ≡ []
+checkMinMaxSig-complete msgName sig =
+  minMaxIssue-complete (signalSubject msgName sig) (SignalDef.minimum sd) (SignalDef.maximum sd)
+  where sd = DBCSignal.signalDef sig
+
+checkAllMinMax-sound : ∀ msgs →
+  checkAllMinMax msgs ≡ [] →
+  All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs
+checkAllMinMax-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkMinMaxSig-sound (messageNameStr msg)) _
+
+checkAllMinMax-complete : ∀ msgs →
+  All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs →
+  checkAllMinMax msgs ≡ []
+checkAllMinMax-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkMinMaxSig-complete (messageNameStr msg)) _
+
+attrTypeMinMax-sound : ∀ subject t → attrTypeMinMax subject t ≡ [] → AttrTypeMinLeqMax t
+attrTypeMinMax-sound s (ATInt lo hi)   = minMaxIssue-sound s (IntDecRat.value lo) (IntDecRat.value hi)
+attrTypeMinMax-sound s (ATFloat lo hi) = minMaxIssue-sound s lo hi
+attrTypeMinMax-sound _ ATString        = λ _ → tt
+attrTypeMinMax-sound _ (ATEnum _)      = λ _ → tt
+attrTypeMinMax-sound s (ATHex lo hi)   = minMaxIssue-sound s (NatDecRat.value lo) (NatDecRat.value hi)
+
+attrTypeMinMax-complete : ∀ subject t → AttrTypeMinLeqMax t → attrTypeMinMax subject t ≡ []
+attrTypeMinMax-complete s (ATInt lo hi)   = minMaxIssue-complete s (IntDecRat.value lo) (IntDecRat.value hi)
+attrTypeMinMax-complete s (ATFloat lo hi) = minMaxIssue-complete s lo hi
+attrTypeMinMax-complete _ ATString        = λ _ → refl
+attrTypeMinMax-complete _ (ATEnum _)      = λ _ → refl
+attrTypeMinMax-complete s (ATHex lo hi)   = minMaxIssue-complete s (NatDecRat.value lo) (NatDecRat.value hi)
+
+checkAttrMinMax-sound : ∀ a → checkAttrMinMax a ≡ [] → AttrMinLeqMax a
+checkAttrMinMax-sound (DBCAttrDef d)     eq = attrTypeMinMax-sound (attrSubject d) (AttrDef.attrType d) eq
+checkAttrMinMax-sound (DBCAttrDefault _) _  = tt
+checkAttrMinMax-sound (DBCAttrAssign _)  _  = tt
+
+checkAttrMinMax-complete : ∀ a → AttrMinLeqMax a → checkAttrMinMax a ≡ []
+checkAttrMinMax-complete (DBCAttrDef d)     ok = attrTypeMinMax-complete (attrSubject d) (AttrDef.attrType d) ok
+checkAttrMinMax-complete (DBCAttrDefault _) _  = refl
+checkAttrMinMax-complete (DBCAttrAssign _)  _  = refl
+
+checkAllAttrMinMax-sound : ∀ attrs → checkAllAttrMinMax attrs ≡ [] → All AttrMinLeqMax attrs
+checkAllAttrMinMax-sound = liftConcatMap-sound _ checkAttrMinMax-sound
+
+checkAllAttrMinMax-complete : ∀ attrs → All AttrMinLeqMax attrs → checkAllAttrMinMax attrs ≡ []
+checkAllAttrMinMax-complete = liftConcatMap-complete _ checkAttrMinMax-complete
+
+checkAllEnvVarMinMax-sound : ∀ evs → checkAllEnvVarMinMax evs ≡ [] → All EnvVarMinLeqMax evs
+checkAllEnvVarMinMax-sound = liftConcatMap-sound _ λ ev →
+  minMaxIssue-sound (envVarSubject ev) (EnvironmentVar.minimum ev) (EnvironmentVar.maximum ev)
+
+checkAllEnvVarMinMax-complete : ∀ evs → All EnvVarMinLeqMax evs → checkAllEnvVarMinMax evs ≡ []
+checkAllEnvVarMinMax-complete = liftConcatMap-complete _ λ ev →
+  minMaxIssue-complete (envVarSubject ev) (EnvironmentVar.minimum ev) (EnvironmentVar.maximum ev)
+
+-- ============================================================================
+-- VALUE DESCRIPTION KEY OUT OF RANGE
+-- ============================================================================
+
+checkKeyRange-sound : ∀ subject sd k → checkKeyRange subject sd k ≡ [] → KeyInRange sd k
+checkKeyRange-sound _ sd k eq =
+  requireDec-sound (proj₁ raw ≤?ᵣ fromℤ k) _ (proj₁ halves)
+  , requireDec-sound (fromℤ k ≤?ᵣ proj₂ raw) _ (proj₂ halves)
+  where
+    raw = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
+    halves = ++-≡[]-split eq
+
+checkKeyRange-complete : ∀ subject sd k → KeyInRange sd k → checkKeyRange subject sd k ≡ []
+checkKeyRange-complete _ sd k (low , high) =
+  ++-≡[]-combine
+    (requireDec-complete (proj₁ raw ≤?ᵣ fromℤ k) _ low)
+    (requireDec-complete (fromℤ k ≤?ᵣ proj₂ raw) _ high)
+  where
+    raw = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
+
+checkKeyRangeSig-sound : ∀ msgName sig → checkKeyRangeSig msgName sig ≡ [] → KeysInRange sig
+checkKeyRangeSig-sound msgName sig =
+  liftConcatMap-sound _
+    (λ e → checkKeyRange-sound (signalSubject msgName sig) (DBCSignal.signalDef sig) (proj₁ e)) _
+
+checkKeyRangeSig-complete : ∀ msgName sig → KeysInRange sig → checkKeyRangeSig msgName sig ≡ []
+checkKeyRangeSig-complete msgName sig =
+  liftConcatMap-complete _
+    (λ e → checkKeyRange-complete (signalSubject msgName sig) (DBCSignal.signalDef sig) (proj₁ e)) _
+
+checkAllKeyRange-sound : ∀ msgs →
+  checkAllKeyRange msgs ≡ [] →
+  All (λ m → All KeysInRange (DBCMessage.signals m)) msgs
+checkAllKeyRange-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkKeyRangeSig-sound (messageNameStr msg)) _
+
+checkAllKeyRange-complete : ∀ msgs →
+  All (λ m → All KeysInRange (DBCMessage.signals m)) msgs →
+  checkAllKeyRange msgs ≡ []
+checkAllKeyRange-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkKeyRangeSig-complete (messageNameStr msg)) _

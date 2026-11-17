@@ -19,6 +19,7 @@ open import Aletheia.DBC.Identifier using (_≡csᵇ_)
 open import Data.List using (List; []; _∷_; map; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc)
+open import Data.Unit using (tt)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
@@ -31,7 +32,7 @@ open import Aletheia.LTL.SignalPredicate using (SignalPredicate; Unknown; Signal
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL)
 open import Aletheia.LTL.Simplify using (simplify)
-open import Aletheia.Protocol.Message using (Response)
+open import Aletheia.Protocol.Message using (Response; ++-∷-nonEmpty)
 open import Aletheia.Protocol.StreamState.Types using (StreamState; Streaming; PropertyState; mkPropertyState)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.Trace.Time using (Timestamp; μs)
@@ -375,7 +376,7 @@ dispatchIterResult {n} vdbc (updatedProps , nothing , []) tf cache =
   (Streaming n vdbc updatedProps (just tf) cache , Response.Ack)
 dispatchIterResult {n} vdbc (updatedProps , nothing , c ∷ cs) tf cache =
   let satisfactions = map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) (c ∷ cs)
-  in (Streaming n vdbc updatedProps (just tf) cache , Response.PropertyResponse satisfactions)
+  in (Streaming n vdbc updatedProps (just tf) cache , Response.PropertyResponse satisfactions tt)
 dispatchIterResult {n} vdbc (allProps , just (idx , ce) , completions) tf cache =
   let open Counterexample ce
       ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) (TimedFrame.tsBounded violatingFrame) reason
@@ -384,4 +385,5 @@ dispatchIterResult {n} vdbc (allProps , just (idx , ce) , completions) tf cache 
       -- Source-order: completions encountered BEFORE the halt come first;
       -- the violation closes the batch.
       results = satisfactions ++ₗ (violation ∷ [])
-  in (Streaming n vdbc allProps (just tf) cache , Response.PropertyResponse results)
+  in (Streaming n vdbc allProps (just tf) cache
+     , Response.PropertyResponse results (++-∷-nonEmpty satisfactions violation))

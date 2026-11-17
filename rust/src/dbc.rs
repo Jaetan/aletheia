@@ -10,43 +10,28 @@
 //! `python/tests/fixtures/dbc_corpus/parity_snapshots/`:
 //!
 //! - **rationals** (`factor`/`offset`/`minimum`/`maximum`) are a bare integer
-//!   when the denominator is 1, else a `{"numerator","denominator"}` object —
-//!   handled by [`crate::response::rational_from_value`].
+//!   when the denominator is 1, else a `{"numerator","denominator"}` object,
+//!   each component exact to its 128 bits.
 //! - **presence** is flat: `"presence": "multiplexed"` plus sibling
 //!   `"multiplexor"` / `"multiplex_values"` fields (modelled here as the typed
 //!   [`Presence`] enum), or `"always"`.
-//! - **extended** CAN ids carry a sibling `"extended": true` (absent ⇒ standard).
+//! - **CAN ids** carry a sibling `"extended"` flag on every identifier, which
+//!   names the id's width.
 //!
 //! This module holds the full typed document family, including the `BA_*`
 //! attribute vocabulary ([`Attribute`] / [`AttrType`] / [`AttrValue`] /
 //! [`AttrScope`] / [`AttrTarget`]), and its queries and lookups; its `decode`
 //! part reads the document from the canonical JSON and its `encode` part writes
-//! it back. Only `unresolved_value_descs` stays raw-JSON pass-through (empty in
-//! practice).
-
-use serde_json::{json, Value};
+//! it back.
 
 use crate::error::Error;
 use crate::response::ValidationIssue;
-use crate::types::{CanId, Rational};
+use crate::types::{CanId, Rational, SignMagnitude};
 
 mod decode;
 mod encode;
 
 pub(crate) use decode::{decode_format_dbc, decode_parsed_dbc};
-
-/// The optional `extended` flag on a CAN-id-bearing target (absent ⇒ standard).
-fn extended_flag(t: &Value) -> bool {
-    t.get("extended").and_then(Value::as_bool).unwrap_or(false)
-}
-
-/// Encode-side mirror of [`extended_flag`]: attach `"extended": true` only
-/// when set (absent ⇒ standard ID, per the wire convention in the module doc).
-fn set_extended(o: &mut Value, extended: bool) {
-    if extended {
-        o["extended"] = json!(true);
-    }
-}
 
 // ── Leaf types ──────────────────────────────────────────────────────────────
 
@@ -62,8 +47,8 @@ pub enum ByteOrder {
 /// One `(value, description)` entry from a `VAL_` line or value table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValueDescription {
-    /// The raw signal value.
-    pub value: i64,
+    /// The raw signal value, in either sign.
+    pub value: SignMagnitude,
     /// Its human-readable meaning.
     pub description: String,
 }
@@ -79,7 +64,7 @@ pub enum Presence {
         multiplexor: String,
         /// Selector values for which this signal is present (a list — the core
         /// and JSON path support multi-value selectors).
-        values: Vec<u64>,
+        values: Vec<u128>,
     },
 }
 
@@ -142,6 +127,20 @@ pub struct DbcMessage {
 pub struct Node {
     /// Node name.
     pub name: String,
+}
+
+/// A `VAL_` line of the text-parse path whose CAN id and signal name matched
+/// no parsed signal, kept whole so the validator's
+/// [`IssueCode::UnknownValueDescriptionTarget`](crate::IssueCode::UnknownValueDescriptionTarget)
+/// check can warn about it (Go's `DBCRawValueDesc`, C++'s `DbcRawValueDesc`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawValueDescription {
+    /// The CAN id the line names.
+    pub id: CanId,
+    /// The signal name the line names.
+    pub signal_name: String,
+    /// The line's `(value, description)` entries.
+    pub entries: Vec<ValueDescription>,
 }
 
 /// A named value table (`VAL_TABLE_`).
@@ -374,9 +373,6 @@ pub enum Attribute {
 }
 
 /// A parsed DBC document.
-///
-/// Every field is typed except `unresolved_value_descs`, which is carried as
-/// raw JSON pass-through (it is empty for every well-formed DBC the core emits).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dbc {
     /// `VERSION` string.
@@ -395,8 +391,9 @@ pub struct Dbc {
     pub comments: Vec<Comment>,
     /// Attribute vocabulary (`BA_DEF_` / `BA_DEF_DEF_` / `BA_`), in wire order.
     pub attributes: Vec<Attribute>,
-    /// Unresolved `VAL_` targets flagged by the validator — raw JSON pass-through.
-    pub unresolved_value_descs: Vec<Value>,
+    /// The text-parse path's `VAL_` lines that matched no signal, which the
+    /// validator warns about.
+    pub unresolved_value_descs: Vec<RawValueDescription>,
 }
 
 /// The success result of the parse methods
@@ -475,8 +472,8 @@ impl DbcMessage {
     /// The selector values associated with `multiplexor` across the message's
     /// multiplexed signals, in first-seen order (deduplicated).
     #[must_use]
-    pub fn multiplex_values(&self, multiplexor: &str) -> Vec<u64> {
-        let mut out: Vec<u64> = Vec::new();
+    pub fn multiplex_values(&self, multiplexor: &str) -> Vec<u128> {
+        let mut out: Vec<u128> = Vec::new();
         for s in &self.signals {
             if let Presence::Multiplexed {
                 multiplexor: m,

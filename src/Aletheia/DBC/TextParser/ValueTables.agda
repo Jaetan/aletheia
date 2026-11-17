@@ -32,21 +32,21 @@
 -- can still match.  (Cf. `parseMuxMarker` ordering in `TextParser.Topology`.)
 --
 -- Zero-entry handling: `VAL_TABLE_ Empty ;` is syntactically valid — the
--- `many parseValueEntry` combinator accepts zero entries.  Corpus-never-
+-- `many ValueEntry-format` combinator accepts zero entries.  Corpus-never-
 -- seen but grammar-allowed; `emitValueTable` mirrors this on the output
 -- side so the roundtrip composes.
 module Aletheia.DBC.TextParser.ValueTables where
 
 open import Data.List using (List)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ)
-open import Data.Product using (_×_; _,_)
+open import Data.Integer using (ℤ)
+open import Data.Product using (_×_)
 open import Data.Char using (Char)
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; _>>=_; fail; many)
 open import Aletheia.DBC.TextParser.Lexer using
-  (parseStringLit; parseWS; parseNewline; parseNatural)
+  (parseNewline)
 open import Aletheia.DBC.TextParser.Format using (parse)
 open import Aletheia.DBC.TextParser.Format.ValueTable using (ValueTable-format)
 open import Aletheia.DBC.TextParser.Format.ValueDescription using
@@ -56,25 +56,6 @@ open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.Types using (ValueTable)
-
--- ============================================================================
--- ENTRY PARSER
--- ============================================================================
-
--- One `ws nat ws string-lit` pair.  Called under `many`, which terminates
--- when the next character is the `;` terminator (the mandatory leading
--- `parseWS` fails on `;`, so the repetition stops cleanly without a
--- separator combinator).
--- `parseStringLit : Parser (List Char)` and
--- `ValueTable.entries : List (ℕ × List Char)`, so the entry pair carries
--- raw chars throughout.
-parseValueEntry : Parser (ℕ × List Char)
-parseValueEntry = do
-  _ ← parseWS
-  v ← parseNatural
-  _ ← parseWS
-  desc ← parseStringLit
-  pure (v , desc)
 
 -- ============================================================================
 -- VAL_TABLE_ LINE
@@ -117,7 +98,7 @@ open import Aletheia.DBC.Types using (RawValueDesc; mkRawValueDesc) public
 -- `parseValueDescription`'s bind chain calls.  A where-bound version
 -- has different identity from any external mirror; `bind-just-step`
 -- needs the SAME function on both sides of its equation.
-buildResultP : Maybe CANId → Identifier → List (ℕ × List Char)
+buildResultP : Maybe CANId → Identifier → List (ℤ × List Char)
              → Parser RawValueDesc
 buildResultP nothing       _    _   = fail
 buildResultP (just canId)  sigId vds = pure (mkRawValueDesc canId sigId vds)

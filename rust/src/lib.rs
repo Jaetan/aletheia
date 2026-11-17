@@ -18,6 +18,14 @@
 //!   **binary FFI** ([`Client::start_stream`], [`Client::send_frame`],
 //!   [`Client::end_stream`]) — the same fast path the other bindings use in
 //!   production. [`Client::process`] remains as a raw JSON escape hatch.
+//! - **Violation enrichment**: each violation a frame decides, and each final
+//!   `Fails` or `Unresolved` verdict, carries the values of the signals its
+//!   formula names, read from the frame that decided it or, at the end of the
+//!   stream, from the last frame per CAN id, with a description of its formula
+//!   ([`Enrichment`]). An extraction the enrichment needs and the kernel
+//!   refuses is logged (`extraction.process_failed` or
+//!   `extraction.parse_failed`) and returned as the error of
+//!   [`Client::send_frame`] or [`Client::end_stream`].
 //! - A [`Backend`] dependency-injection seam ([`Client::with_backend`] /
 //!   [`ClientBuilder::build_with_backend`]): the [`Client`] is built over a
 //!   production FFI backend by default, or a test [`MockBackend`] (or any custom
@@ -40,8 +48,7 @@ use std::sync::Arc;
 
 use crate::enrich::PropertyDiagnostic;
 use crate::log::events;
-
-use serde_json::json;
+use crate::wire_json::Wire;
 
 #[cfg(feature = "async")]
 mod async_client;
@@ -51,13 +58,18 @@ mod client_stream;
 mod dbc;
 mod enrich;
 mod error;
+pub mod limits;
 pub mod log;
 mod ltl;
 mod mock;
+#[cfg(test)]
+mod reply_places_refused_where_broken;
+mod reply_shape;
 mod response;
 #[cfg(feature = "async")]
 pub mod testing;
 mod types;
+mod wire_json;
 #[cfg(feature = "yaml")]
 pub mod yaml;
 
@@ -68,19 +80,21 @@ pub use backend::{allocated_bytes, start_runtime, Backend, SignalInjection};
 pub use check::Check;
 pub use dbc::{
     AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
-    DbcMessage, DbcSignal, EnvironmentVar, Node, ParsedDbc, Presence, SignalGroup,
-    ValueDescription, ValueTable,
+    DbcMessage, DbcSignal, EnvironmentVar, Node, ParsedDbc, Presence, RawValueDescription,
+    SignalGroup, ValueDescription, ValueTable,
 };
-pub use error::{Error, Located};
+pub use error::{BoundRefusal, Error, Located};
 pub use log::{LogField, LogLevel, LogRecord, LogValue, Logger};
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
 pub use mock::MockBackend;
 pub use response::{
-    DbcText, Enrichment, ExtractionResult, FrameResponse, IssueCode, IssueSeverity, PropertyResult,
-    SignalError, SignalValue, StreamResult, StreamWarning, ValidationIssue, ValidationResult,
-    Verdict,
+    DbcText, Enrichment, ErrorCode, ExtractionResult, FrameResponse, IssueCode, IssueSeverity,
+    PropertyResult, SignalError, SignalValue, StreamResult, StreamWarning, ValidationIssue,
+    ValidationResult, Verdict, WarningKind,
 };
-pub use types::{CanId, Dlc, Rational, TimeBound, Timestamp, MAX_EXTENDED_ID, MAX_STANDARD_ID};
+pub use types::{
+    CanId, Dlc, Rational, SignMagnitude, TimeBound, Timestamp, MAX_EXTENDED_ID, MAX_STANDARD_ID,
+};
 #[cfg(feature = "yaml")]
 pub use yaml::{load_checks_from_yaml, load_checks_from_yaml_file};
 
@@ -351,51 +365,42 @@ impl Client {
         }
     }
 
-    /// Extract every signal value from one frame, or `None` if the extraction
-    /// FFI call failed. Called once per distinct frame — callers filter per
-    /// diagnostic — so a frame deciding several violations is extracted once.
-    fn extract_all(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Option<Vec<(String, Rational)>> {
-        let res = self.extract_signals(id, dlc, data).ok()?;
-        Some(
-            res.values
-                .into_iter()
-                .map(|sv| (sv.name, sv.value))
-                .collect(),
-        )
+    /// Every signal value one frame carries, extracted through
+    /// [`Client::extract_signals`], which logs a refusal before returning it.
+    /// Called once per distinct frame, the callers filtering per diagnostic,
+    /// so a frame deciding several violations is extracted once.
+    fn extract_all(
+        &self,
+        id: CanId,
+        dlc: Dlc,
+        data: &[u8],
+    ) -> Result<Vec<(String, Rational)>, Error> {
+        let res = self.extract_signals(id, dlc, data)?;
+        Ok(res
+            .values
+            .into_iter()
+            .map(|sv| (sv.name, sv.value))
+            .collect())
     }
 
-    /// Collect the `(result-slot, diagnostic)` pairs needing enrichment — the
-    /// results whose verdict is in `verdicts` with an in-range `property_index`.
-    /// Out-of-range indices emit `enrichment.property_index_oob` and are skipped.
-    /// The `diags` borrow is released before the caller extracts (avoids a
-    /// re-entrant borrow). Streaming enriches `Fails`; end-of-stream also
-    /// enriches `Unresolved` (matching the Go / Python bindings).
+    /// The `(result-slot, diagnostic)` pairs needing enrichment: the results
+    /// whose verdict is in `verdicts`, each property index read directly, the
+    /// kernel proving it below the number of properties `set_properties`
+    /// installed. The `diags` borrow is released before the caller extracts.
+    /// Streaming enriches `Fails`; end-of-stream also enriches `Unresolved`
+    /// (matching the Go / Python bindings).
     fn enrichment_todo(
         &self,
         results: &[PropertyResult],
         verdicts: &[Verdict],
     ) -> Vec<(usize, PropertyDiagnostic)> {
-        let n = self.diags.borrow().len();
-        let mut todo = Vec::new();
-        for (slot, r) in results.iter().enumerate() {
-            if !verdicts.contains(&r.verdict) {
-                continue;
-            }
-            let idx = r.property_index as usize;
-            if idx >= n {
-                self.emit(
-                    LogLevel::Warn,
-                    events::ENRICHMENT_PROPERTY_INDEX_OOB,
-                    &[
-                        LogField::new("property_index", LogValue::U64(u64::from(r.property_index))),
-                        LogField::new("count", LogValue::U64(n as u64)),
-                    ],
-                );
-                continue;
-            }
-            todo.push((slot, self.diags.borrow()[idx].clone()));
-        }
-        todo
+        let diags = self.diags.borrow();
+        results
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| verdicts.contains(&r.verdict))
+            .map(|(slot, r)| (slot, diags[r.property_index as usize].clone()))
+            .collect()
     }
 
     /// Attach a [`Enrichment`] built from `diag` + extracted `values` to one result.
@@ -421,44 +426,28 @@ impl Client {
         });
     }
 
-    /// The diagnostic's signal values from an already-extracted frame's values.
-    /// A `None` extraction means the FFI call failed: emit
-    /// `enrichment.extraction_failed` for `prop_index` and yield no values.
-    fn diag_values(
-        &self,
-        diag: &PropertyDiagnostic,
-        extracted: Option<&[(String, Rational)]>,
-        prop_index: u32,
-    ) -> Vec<(String, Rational)> {
-        match extracted {
-            Some(all) => select_diag_values(diag, all),
-            None => {
-                self.emit(
-                    LogLevel::Warn,
-                    events::ENRICHMENT_EXTRACTION_FAILED,
-                    &[LogField::new(
-                        "property_index",
-                        LogValue::U64(u64::from(prop_index)),
-                    )],
-                );
-                Vec::new()
-            }
-        }
-    }
-
     /// Enrich the `Fails` verdicts decided by the current frame. The frame is
     /// extracted once and its values reused across every violation it decided.
-    fn enrich_streaming(&self, results: &mut [PropertyResult], id: CanId, dlc: Dlc, data: &[u8]) {
+    ///
+    /// # Errors
+    /// The extraction's refusal, which [`Client::extract_signals`] logged.
+    fn enrich_streaming(
+        &self,
+        results: &mut [PropertyResult],
+        id: CanId,
+        dlc: Dlc,
+        data: &[u8],
+    ) -> Result<(), Error> {
         let todo = self.enrichment_todo(results, &[Verdict::Fails]);
         if todo.is_empty() {
-            return;
+            return Ok(());
         }
-        let extracted = self.extract_all(id, dlc, data);
+        let extracted = self.extract_all(id, dlc, data)?;
         for (slot, diag) in todo {
-            let pidx = results[slot].property_index;
-            let values = self.diag_values(&diag, extracted.as_deref(), pidx);
+            let values = select_diag_values(&diag, &extracted);
             self.set_enrichment(&mut results[slot], &diag, values);
         }
+        Ok(())
     }
 
     /// Enrich the final `Fails` / `Unresolved` verdicts at end-of-stream from
@@ -468,13 +457,17 @@ impl Client {
     /// frame loop stops as soon as all of them are merged, and is skipped
     /// outright when no diagnostic references any signal (enrichment still
     /// attaches below, with the no-values fallback reason).
-    fn enrich_eos(&self, results: &mut [PropertyResult]) {
+    ///
+    /// # Errors
+    /// The first extraction's refusal, which [`Client::extract_signals`]
+    /// logged; no result is enriched then.
+    fn enrich_eos(&self, results: &mut [PropertyResult]) -> Result<(), Error> {
         if self.diags.borrow().is_empty() {
-            return;
+            return Ok(());
         }
         let todo = self.enrichment_todo(results, &[Verdict::Fails, Verdict::Unresolved]);
         if todo.is_empty() {
-            return;
+            return Ok(());
         }
         // The union of signal names any todo diagnostic wants, consumed as the
         // frame loop merges them ⇒ empty means extraction has nothing left to
@@ -486,7 +479,6 @@ impl Client {
         // `merged` stays a Vec to preserve the documented deterministic
         // first-seen order; `seen` is the O(1) membership guard beside it.
         let mut merged: Vec<(String, Rational)> = Vec::new();
-        let mut any_failed = false;
         if !remaining.is_empty() {
             // Snapshot the last frames so no borrow is held across extraction. Sort
             // by (id value, extended) so the first-seen merge below is deterministic
@@ -501,17 +493,12 @@ impl Client {
             frames.sort_by_key(|(id, _, _)| (id.value(), id.is_extended()));
             let mut seen: HashSet<String> = HashSet::new();
             for (id, dlc, data) in &frames {
-                match self.extract_all(*id, *dlc, data) {
-                    Some(found) => {
-                        for (name, value) in found {
-                            if !seen.contains(&name) {
-                                remaining.remove(name.as_str());
-                                seen.insert(name.clone());
-                                merged.push((name, value));
-                            }
-                        }
+                for (name, value) in self.extract_all(*id, *dlc, data)? {
+                    if !seen.contains(&name) {
+                        remaining.remove(name.as_str());
+                        seen.insert(name.clone());
+                        merged.push((name, value));
                     }
-                    None => any_failed = true,
                 }
                 if remaining.is_empty() {
                     break;
@@ -520,30 +507,31 @@ impl Client {
         }
         for (slot, diag) in todo {
             let values = select_diag_values(&diag, &merged);
-            // Wanted signals but got none, and an extraction failed → that
-            // failure is why enrichment is missing the values.
-            if values.is_empty() && !diag.signals.is_empty() && any_failed {
-                self.emit(
-                    LogLevel::Warn,
-                    events::ENRICHMENT_EXTRACTION_FAILED,
-                    &[LogField::new(
-                        "property_index",
-                        LogValue::U64(u64::from(results[slot].property_index)),
-                    )],
-                );
-            }
             self.set_enrichment(&mut results[slot], &diag, values);
         }
+        Ok(())
     }
 
     /// Send one raw JSON command line to the core and return its raw JSON
     /// response. The low-level escape hatch beneath the typed methods.
+    ///
+    /// A raw command can load another DBC into the core, so every call empties
+    /// the client's signal-name cache: extraction then reads the names from the
+    /// kernel's JSON replies until the next typed [`Client::parse_dbc`] or
+    /// [`Client::parse_dbc_text`] refills the cache for the binary path.
     ///
     /// # Errors
     /// Returns [`Error`] if a required symbol is missing or the core returns a
     /// null response. The core reads every byte of `command`, and answers a NUL
     /// among them with an `ffi_validation_error` response.
     pub fn process(&self, command: &str) -> Result<String, Error> {
+        self.signal_names.borrow_mut().clear();
+        self.send_command(command)
+    }
+
+    /// Send one command the typed methods wrote, keeping the signal-name cache:
+    /// each typed method knows what its command changes in the core.
+    fn send_command(&self, command: &str) -> Result<String, Error> {
         self.backend.process(command)
     }
 
@@ -558,8 +546,7 @@ impl Client {
     /// as identifier length or message count), or [`Error::Protocol`] on an
     /// unexpected response.
     pub fn parse_dbc_text(&self, text: &str) -> Result<ParsedDbc, Error> {
-        let cmd = json!({ "type": "command", "command": "parseDBCText", "text": text });
-        let raw = self.process(&cmd.to_string())?;
+        let raw = self.send_command(&wire_json::command("parseDBCText", "text", text)?)?;
         let parsed = dbc::decode_parsed_dbc(&raw)?;
         self.populate_signal_names(&parsed.dbc);
         self.emit(
@@ -595,12 +582,7 @@ impl Client {
     /// (a list or a string longer than its limit), [`Error::Core`] on any other
     /// core rejection, or [`Error::Protocol`] on an unexpected response.
     pub fn parse_dbc(&self, dbc: &Dbc) -> Result<ParsedDbc, Error> {
-        // Build the envelope then move the serialized DBC in: `json!({…: expr})`
-        // deep-copies a `Value` operand (via `to_value(&expr)`), which would
-        // double-allocate a large document.
-        let mut cmd = json!({ "type": "command", "command": "parseDBC" });
-        cmd["dbc"] = dbc.to_value();
-        let raw = self.process(&cmd.to_string())?;
+        let raw = self.send_command(&wire_json::command("parseDBC", "dbc", &Wire(dbc))?)?;
         let parsed = dbc::decode_parsed_dbc(&raw)?;
         self.populate_signal_names(&parsed.dbc);
         self.emit(
@@ -638,9 +620,7 @@ impl Client {
     /// bounds (a list or a string longer than its limit), or [`Error::Core`] /
     /// [`Error::Protocol`] on any other core error or an unexpected response.
     pub fn validate_dbc(&self, dbc: &Dbc) -> Result<ValidationResult, Error> {
-        let mut cmd = json!({ "type": "command", "command": "validateDBC" });
-        cmd["dbc"] = dbc.to_value();
-        let raw = self.process(&cmd.to_string())?;
+        let raw = self.send_command(&wire_json::command("validateDBC", "dbc", &Wire(dbc))?)?;
         response::decode_validation(&raw)
     }
 
@@ -667,9 +647,7 @@ impl Client {
     /// anything is formatted; [`Error::Core`] if the document fails Agda-side
     /// parsing; or [`Error::Protocol`] on an unexpected response.
     pub fn format_dbc_text(&self, dbc: &Dbc) -> Result<DbcText, Error> {
-        let mut cmd = json!({ "type": "command", "command": "formatDBCText" });
-        cmd["dbc"] = dbc.to_value();
-        let raw = self.process(&cmd.to_string())?;
+        let raw = self.send_command(&wire_json::command("formatDBCText", "dbc", &Wire(dbc))?)?;
         response::decode_format_text(&raw)
     }
 }

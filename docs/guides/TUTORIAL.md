@@ -47,7 +47,7 @@ Multiple rows with the same Message ID are grouped into one message. If you have
 
 ### Step 3: Fill in the Checks Sheet
 
-| Check Name | Signal | Condition | Value | Min | Max | Time (ms) | Severity |
+| Check Name | Signal | Condition | Value | Min | Max | Time (µs) | Severity |
 |-----------|--------|-----------|-------|-----|-----|-----------|----------|
 | Speed limit | VehicleSpeed | never_exceeds | 120 | | | | safety |
 | Brake pressure in range | BrakePressure | stays_between | | 0 | 6553.5 | | warning |
@@ -60,7 +60,7 @@ The When-Then sheet is optional: leave it empty if simple signal bounds are all 
 
 For causal checks like "when X happens, Y must follow within T ms":
 
-| Check Name | When Signal | When Condition | When Value | Then Signal | Then Condition | Then Value | Then Min | Then Max | Within (ms) | Severity |
+| Check Name | When Signal | When Condition | When Value | Then Signal | Then Condition | Then Value | Then Min | Then Max | Within (µs) | Severity |
 |-----------|-----------|---------------|-----------|-----------|--------------|-----------|---------|---------|------------|----------|
 | Brake response | BrakePressure | exceeds | 500 | BrakeActive | equals | 1 | | | 100 | safety |
 
@@ -144,7 +144,7 @@ checks:
     condition: settles_between
     min: -1.0
     max: 1.0
-    within_ms: 5000
+    within_us: 5000000
     severity: info
 
   # Causal check: when/then
@@ -157,7 +157,7 @@ checks:
       signal: BrakeActive
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
     severity: safety
 ~~~
 
@@ -234,9 +234,11 @@ Use the fluent Check API for programmatic verification.
 ```python
 from fractions import Fraction
 
-from aletheia import AletheiaClient, checks
+from aletheia import AletheiaClient, checks, start_runtime
 from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log
+
+start_runtime(1)
 
 # Define checks using industry vocabulary
 check_list = [
@@ -254,6 +256,10 @@ check_list = [
 ### Step 2: Simple Signal Checks
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Upper bound
 checks.signal("Speed").never_exceeds(220)        # G(speed < 220)
 
@@ -267,21 +273,25 @@ checks.signal("Temp").stays_between(80, 100)     # G(80 <= temp <= 100)
 checks.signal("Fault").never_equals(255)         # G(not(fault == 255))
 
 # Settling (time-bounded range)
-checks.signal("Temp").settles_between(80, 100).within(5000)
+checks.signal("Temp").settles_between(80, 100).within(5_000_000)
 ```
 
 ### Step 3: When/Then Causal Checks
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Brake light must activate within 100ms of pedal press
 checks.when("BrakePedal").exceeds(50) \
      .then("BrakeLight").equals(1) \
-     .within(100)
+     .within(100_000)
 
 # Engine must start within 2s of ignition
 checks.when("Ignition").equals(1) \
      .then("EngineRPM").exceeds(500) \
-     .within(2000)
+     .within(2_000_000)
 ```
 
 ### Step 4: Stream CAN Frames
@@ -321,7 +331,9 @@ Full LTL control with Signal, Predicate, and Property types.
 ```python
 from fractions import Fraction
 
-from aletheia import Signal
+from aletheia import Signal, start_runtime
+
+start_runtime(1)
 
 # Equality
 Signal("Gear").equals(0)
@@ -345,6 +357,10 @@ Signal("Temperature").stable_within(2)  # Temperature stable within +/-2
 ### Step 2: Temporal Operators
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Always (globally): must hold for all frames
 Signal("Speed").less_than(220).always()           # G(speed < 220)
 
@@ -354,16 +370,20 @@ Signal("EngineTemp").greater_than(90).eventually() # F(temp > 90)
 # Never: must never hold
 Signal("Fault").equals(0xFF).never()               # G(not(fault == 0xFF))
 
-# Time-bounded: within T milliseconds
-Signal("DoorClosed").equals(1).within(100)         # F_{<=100ms}(door == 1)
+# Time-bounded: within T microseconds
+Signal("DoorClosed").equals(1).within(100_000)         # F_{<=100ms}(door == 1)
 
-# Duration: hold for at least T milliseconds
-Signal("DoorClosed").equals(1).for_at_least(50)    # G_{<=50ms}(door == 1)
+# Duration: hold for at least T microseconds
+Signal("DoorClosed").equals(1).for_at_least(50_000)    # G_{<=50ms}(door == 1)
 ```
 
 ### Step 3: Logical Composition
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # AND two predicates
 left_brake = Signal("LeftBrake").equals(1)
 right_brake = Signal("RightBrake").equals(1)
@@ -377,7 +397,7 @@ any_error = error1.or_(error2).never()
 # Implication: whenever the brake is pressed, speed decreases within 100ms
 brake = Signal("BrakePedal").greater_than(0)
 decel = Signal("Speed").changed_by(-5)
-brake.implies(decel.within(100)).always()
+brake.implies(decel.within(100_000)).always()
 
 # Until: whenever the power is off, the start button stays released until ACC mode
 power_off = Signal("PowerMode").equals(0)
@@ -389,6 +409,10 @@ power_off.implies(start_btn.not_().until(power_acc)).always()
 ### Step 4: Advanced Operators
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Release: dual of Until
 # Brake must stay engaged until ignition releases it
 ignition = Signal("Ignition").equals(1)
@@ -398,10 +422,10 @@ ignition.release(brake)
 # Metric Until: time-bounded until
 speed_ok = Signal("Speed").greater_than(50)
 brake_evt = Signal("Brake").equals(1)
-speed_ok.metric_until(1000, brake_evt)    # within 1 second
+speed_ok.metric_until(1_000_000, brake_evt)    # within 1 second
 
 # Metric Release: time-bounded release
-ignition.metric_release(5000, brake)      # within 5 seconds
+ignition.metric_release(5_000_000, brake)      # within 5 seconds
 ```
 
 ### Step 5: Signal Operations
@@ -498,11 +522,16 @@ BO_ 256 Engine: 8 ECU
 
 ### Step 3: Register a Check
 
-Build a check with the fluent `check::signal(...)` API and register it. Numeric thresholds are **exact rationals**: `PhysicalValue{Rational{220, 1}}` is 220, never a `double`:
+Build a check with the fluent `check::signal(...)` API and register it. Numeric thresholds are **exact rationals**: `PhysicalValue{Rational{220, 1}}` is 220, never a `double`. The kernel checks a check as it is built, so its runtime must be up; the client opened in Step 1 started it, and starting it again on the same library with the same core count changes nothing. The builder returns a `Result<CheckResult>`:
 
 ```cpp
+    if (!start_runtime("/opt/aletheia/lib/libaletheia-ffi.so", 1))
+        return 1;
+    auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
+    if (!speed_limit)
+        return 1;
     std::vector<CheckResult> checks;  // CheckResult is move-only
-    checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
+    checks.push_back(*std::move(speed_limit));
     if (!client.add_checks(stop, std::move(checks)))
         return 1;
 ```
@@ -534,7 +563,7 @@ Close the stream. `end_stream` returns a `Result<StreamResult>`; on success, `re
 }
 ```
 
-On any failure, read `error().kind()` / `error().code()` / `error().message()`; `ErrorCode` mirrors the kernel's `IssueCode` enum ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+On any failure, read `error().kind()` / `error().code()` / `error().message()`; `ErrorCode` mirrors the kernel's error codes, and `code()` is empty for an error the binding makes itself ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ### CLI Boundary
 
@@ -607,10 +636,16 @@ BO_ 256 Engine: 8 ECU
 
 ### Step 3: Register a Check
 
-Numeric thresholds are **exact rationals**, built with `aletheia.IntRational(n)` (never a `float64`):
+Numeric thresholds are **exact rationals**, built with `aletheia.IntRational(n)` (never a `float64`). The kernel checks a check as it is built, so its runtime must be up; the client opened in Step 1 started it, and starting it again with the same core count changes nothing:
 
 ```go
-    speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+    if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+        panic(err)
+    }
+    speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+    if err != nil {
+        panic(err)
+    }
     if err := client.AddChecks(ctx, []aletheia.CheckResult{speedLimit}); err != nil {
         panic(err)
     }
@@ -685,12 +720,13 @@ Add the crate as a path/git dependency (it is not published to crates.io), build
 aletheia = { path = "…" }
 ~~~
 
-`Client::new()` loads the default library and returns a ready client (for RTS cores / a logger use `Client::builder()`; for tests, `Client::with_backend(Box::new(MockBackend::new()))` needs no `.so`):
+The program starts the kernel's GHC runtime first, as every program that builds a check does: the kernel checks each check where it is built. `Client::new()` then loads the default library and returns a ready client (for RTS cores / a logger use `Client::builder()`; for tests, `Client::with_backend(Box::new(MockBackend::new()))` needs no `.so`):
 
 ```rust
 use aletheia::{check, CanId, Client, Dlc, FrameResponse, Timestamp};
 
 fn main() -> Result<(), aletheia::Error> {
+    aletheia::start_runtime(1, None)?;
     let client = Client::new()?;
 ```
 
@@ -716,10 +752,10 @@ BO_ 256 Engine: 8 ECU
 
 ### Step 3: Register a Check
 
-Numeric thresholds are **exact rationals**, and an `i64` literal converts directly: `never_exceeds(220)` is 220, never an `f64`:
+Numeric thresholds are **exact rationals**, and an integer literal converts directly: `never_exceeds(220)` is 220, never an `f64`. The kernel checks the check as it is built, so `never_exceeds` returns `Result<Check, Error>`:
 
 ```rust
-    client.add_checks(&[check::signal("Speed").never_exceeds(220)])?;
+    client.add_checks(&[check::signal("Speed").never_exceeds(220)?])?;
 ```
 
 ### Step 4: Stream a Frame
@@ -755,7 +791,7 @@ Close the stream. `end_stream` returns a `StreamResult` with one finalization ve
 }
 ```
 
-On failure, `Error` is an enum you `match` directly, and `Error::Core { code, message }` mirrors the kernel's `IssueCode`; Rust has no dedicated `State` kind, so wrong-lifecycle conditions surface as `Error::Protocol` ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+On failure, `Error` is an enum you `match` directly, and `Error::Core { code, message }` carries the kernel's code as an `ErrorCode`; a reply the binding cannot read is `Error::Protocol`, `reply <path>: expected <what>, got <what came>`, and Rust has no dedicated `State` kind, so wrong-lifecycle conditions surface as `Error::Protocol` too ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ### CLI Boundary
 

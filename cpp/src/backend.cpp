@@ -49,23 +49,19 @@ auto BackendState::operator=(BackendState&& other) noexcept -> BackendState& {
     return *this;
 }
 
-// SignalInjection refuses the two shapes the FFI would read past: three arrays
+// SignalInjection refuses the two shapes the FFI would read past: two arrays
 // that are not the same length, and a length its 32-bit count cannot carry.
 auto SignalInjection::create(std::span<std::uint32_t const> indices,
-                             std::span<std::int64_t const> numerators,
-                             std::span<std::int64_t const> denominators)
-    -> Result<SignalInjection> {
-    if (indices.size() != numerators.size() || indices.size() != denominators.size())
+                             std::span<Rational const> values) -> Result<SignalInjection> {
+    if (indices.size() != values.size())
         return detail::validation_refusal(
-            std::format("signal injection arrays differ in length: {} indices, {} numerators, "
-                        "{} denominators",
-                        indices.size(), numerators.size(), denominators.size()));
+            std::format("signal injection arrays differ in length: {} indices, {} values",
+                        indices.size(), values.size()));
     if (auto refusal = detail::wire_count_refusal(indices.size()))
         return detail::validation_refusal(std::move(refusal).value());
     SignalInjection block;
     block.indices_ = indices;
-    block.numerators_ = numerators;
-    block.denominators_ = denominators;
+    block.values_ = values;
     return block;
 }
 

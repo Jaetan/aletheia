@@ -7,7 +7,9 @@
 #include <aletheia/limits.hpp>
 
 #include "detail/client_checks.hpp"
+#include "detail/ffi_abi.hpp"
 #include "detail/json.hpp"
+#include "detail/kernel_value.hpp"
 
 #include <algorithm>
 #include <array>
@@ -64,20 +66,15 @@ namespace aletheia {
 using detail::make_cancellation_error;
 using detail::validate_payload;
 
-// The signal name a wire index denotes, or a placeholder for an index the
-// DBC message does not have (a kernel/binding drift, surfaced rather than
-// dropped).
-static auto signal_name_at(std::vector<std::string> const& names, std::uint16_t idx) -> SignalName {
-    return idx < names.size() ? SignalName{names.at(idx)}
-                              : SignalName{std::format("signal_{}", idx)};
-}
-
 // Wire layout of the binary extraction buffer (src/Aletheia/Main/Binary.agda,
 // processExtractBin header comment): a header of three u16 counts and one u32
 // reason byte count, then one record per value, error, offset and absent
-// signal.
+// signal. A value record is its signal's u16 index, a sign byte that is
+// negative when it is not 0, then the numerator's and the denominator's u128
+// magnitudes. Every index is the kernel's, proven within the signals of the
+// frame's message, so it indexes their names directly.
 constexpr std::size_t k_header_bytes = 10;
-constexpr std::size_t k_value_record_bytes = 18;
+constexpr std::size_t k_value_record_bytes = 35;
 constexpr std::size_t k_error_record_bytes = 3;
 constexpr std::size_t k_offset_bytes = 4;
 constexpr std::size_t k_absent_record_bytes = 2;
@@ -101,7 +98,7 @@ auto AletheiaClient::create(std::unique_ptr<IBackend> backend, Logger logger,
         .and_then([](BackendState state) -> Result<BackendState> {
             if (!state)
                 return std::unexpected(
-                    AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
+                    AletheiaError{ErrorKind::Ffi, "aletheia_init returned null"});
             return state;
         })
         .transform([&](BackendState state) {
@@ -275,24 +272,22 @@ auto AletheiaClient::format_dbc_text(std::stop_token stop, DbcDefinition const& 
 // Signals
 // ---------------------------------------------------------------------------
 
-// Constructs a SignalValue from a wire-extracted (idx, num, den) triple.
-// Centralizes the den-positive normalization required for cross-binding
-// wire symmetry and keeps `parse_extraction_bin`
-// under the clang-tidy readability-function-size threshold.
-static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
-                              std::vector<std::string> const& names) -> Result<SignalValue> {
-    auto name = signal_name_at(names, idx);
-    if (den == 0)
-        return std::unexpected(AletheiaError{
-            ErrorKind::Protocol,
-            std::format("Zero denominator in extraction value for {}", std::string_view{name})});
-    auto const rat_or_err = Rational::make(num, den);
-    if (!rat_or_err)
-        return std::unexpected(
-            AletheiaError{ErrorKind::Protocol,
-                          std::format("Invalid rational in extraction value for {}: num={}, den={}",
-                                      std::string_view{name}, num, den)});
-    return SignalValue{.name = std::move(name), .value = PhysicalValue{rat_or_err.value()}};
+// The u128 magnitude at a byte offset the caller has bounds-checked: its low
+// u64, then its high u64.
+static auto read_uint128(std::span<std::byte const> buf, std::size_t off) -> unsigned __int128 {
+    return detail::uint128_of(detail::FfiUint128{.lo = read_native<std::uint64_t>(buf, off),
+                                                 .hi = read_native<std::uint64_t>(buf, off + 8)});
+}
+
+// One value record: the signal its index names and the kernel's rational,
+// stored as the kernel wrote it, a zero unsigned as the JSON path reads it.
+static auto wire_signal_value(std::span<std::byte const> record,
+                              std::vector<std::string> const& names) -> SignalValue {
+    auto const numerator = read_uint128(record, 3);
+    auto const negative = read_native<std::uint8_t>(record, 2) != 0 && numerator != 0;
+    return SignalValue{.name = SignalName{names.at(read_native<std::uint16_t>(record, 0))},
+                       .value = PhysicalValue{detail::KernelValue::rational(
+                           negative, numerator, read_uint128(record, 19))}};
 }
 
 // True iff `bytes` is well-formed UTF-8 (RFC 3629): continuation bytes in
@@ -398,8 +393,8 @@ static auto wire_signal_errors(std::span<std::byte const> buf, std::size_t error
     std::vector<SignalError> errors;
     errors.reserve(nerrs);
     for (auto const [record, bound] : std::views::zip(records, bounds)) {
-        auto name = signal_name_at(
-            names, read_native<std::uint16_t>(std::span<std::byte const>{record}, 0));
+        SignalName name{
+            names.at(read_native<std::uint16_t>(std::span<std::byte const>{record}, 0))};
         auto const slice =
             detail::subspan_at(buf, reasons_off + bound.front(), bound.back() - bound.front());
         if (!is_valid_utf8(slice))
@@ -417,7 +412,7 @@ static auto wire_signal_errors(std::span<std::byte const> buf, std::size_t error
 // Parses the binary extraction layout emitted by `aletheia_extract_signals_bin`.
 // Layout and byte order (native; little-endian on all supported platforms) are
 // documented in src/Aletheia/Main/Binary.agda (processExtractBin header
-// comment): Header (3×u16 counts + u32 reasonBytes) + Values (×18B) +
+// comment): Header (3×u16 counts + u32 reasonBytes) + Values (×35B) +
 // Errors (×3B) + Offsets ((nErrors+1)×u32, always present) + Reasons (UTF-8
 // blob) + Absent (×2B).  Cross-arch deployment would require byteswapping on
 // the reader side.
@@ -456,15 +451,8 @@ static auto parse_extraction_bin(std::span<std::byte const> buf,
     // view's and not an addition this loop repeats.
     for (auto const entry :
          detail::subspan_at(buf, off, std::size_t{nvals} * k_value_record_bytes) |
-             std::views::chunk(k_value_record_bytes)) {
-        std::span<std::byte const> const record{entry};
-        auto sv = wire_signal_value(read_native<std::uint16_t>(record, 0),
-                                    read_native<std::int64_t>(record, 2),
-                                    read_native<std::int64_t>(record, 10), names);
-        if (!sv)
-            return std::unexpected(detail::error_of(sv));
-        result.values.push_back(std::move(sv).value());
-    }
+             std::views::chunk(k_value_record_bytes))
+        result.values.push_back(wire_signal_value(std::span<std::byte const>{entry}, names));
     off += std::size_t{nvals} * k_value_record_bytes;
     // Errors + Offsets + Reasons — all three segments lie within the buffer
     // by the exact-size check above; the helper verifies the offset-table
@@ -479,8 +467,8 @@ static auto parse_extraction_bin(std::span<std::byte const> buf,
     for (auto const entry :
          detail::subspan_at(buf, off, std::size_t{nabss} * k_absent_record_bytes) |
              std::views::chunk(k_absent_record_bytes)) {
-        result.absent.push_back(signal_name_at(
-            names, read_native<std::uint16_t>(std::span<std::byte const>{entry}, 0)));
+        result.absent.emplace_back(
+            names.at(read_native<std::uint16_t>(std::span<std::byte const>{entry}, 0)));
     }
     return result;
 }
@@ -514,7 +502,7 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
 }
 
 auto AletheiaClient::ResolvedSignals::injection() const -> Result<SignalInjection> {
-    return SignalInjection::create(indices, numerators, denominators);
+    return SignalInjection::create(indices, values);
 }
 
 auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
@@ -537,13 +525,12 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
             std::format("no DBC message for CAN ID {} (extended={})", id_value, is_extended)});
     }
 
-    // Sized once from the input, so the three arrays are the block the FFI
+    // Sized once from the input, so the two arrays are the block the FFI
     // reads and not a growth that could diverge from it.
     ResolvedSignals resolved{.indices = std::vector<std::uint32_t>(signals.size()),
-                             .numerators = std::vector<std::int64_t>(signals.size()),
-                             .denominators = std::vector<std::int64_t>(signals.size())};
-    for (auto const& [sv, index, numerator, denominator] :
-         std::views::zip(signals, resolved.indices, resolved.numerators, resolved.denominators)) {
+                             .values = std::vector<Rational>(signals.size())};
+    for (auto const& [sv, index, value] :
+         std::views::zip(signals, resolved.indices, resolved.values)) {
         auto const it = signal_index_.find(detail::SignalKey{
             .id_value = id_value, .is_extended = is_extended, .signal_name = sv.name.get()});
         if (it == signal_index_.end()) {
@@ -552,9 +539,7 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
                                                    std::string_view{sv.name}, id_value)});
         }
         index = it->second;
-        auto const& r = sv.value.get();
-        numerator = r.numerator();
-        denominator = r.denominator();
+        value = sv.value.get();
     }
     return resolved;
 }
@@ -593,53 +578,38 @@ auto AletheiaClient::update_frame(std::stop_token stop, CanId id, Dlc dlc,
 
 auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<std::byte const> data,
                                               std::uint32_t id_value, bool is_extended)
-    -> std::optional<ExtractionResult> {
-    // Use binary path when signal name cache is populated. Mirrors the
-    // ErrorKind::BinaryUnsupported fallback contract in extract_signals:
-    // only that kind triggers the JSON fallback; any other error is a real
-    // failure (decode / truncation / genuine FFI error) logged + surfaced
-    // as std::nullopt.
+    -> Result<ExtractionResult> {
+    // The fallback contract of extract_signals: only ErrorKind::BinaryUnsupported
+    // falls through to the JSON path. Any other error, and a reply the reader
+    // refuses, is logged under `event` and returned. The warning carries the
+    // message but no kind field, as Python's and Go's events do.
+    auto const failed = [this, id_value](std::string_view event, AletheiaError const& error) {
+        logger_.warn(event,
+                     {{"canId", static_cast<std::uint64_t>(id_value)}, {"error", error.message()}});
+        return std::unexpected(error);
+    };
     auto const names_it = signal_names_.find(detail::MessageKey{id_value, is_extended});
     if (names_it != signal_names_.end()) {
         auto const buf = backend_->extract_signals_bin(state_, id, dlc, data);
         if (buf) {
             auto bin_result = parse_extraction_bin(buf.value(), names_it->second);
-            if (!bin_result) {
-                logger_.warn("extraction.parse_failed",
-                             {{"canId", static_cast<std::uint64_t>(id_value)},
-                              {"error", detail::error_of(bin_result).message()}});
-                return std::nullopt;
-            }
-            return std::move(bin_result).value();
+            if (!bin_result)
+                return failed("extraction.parse_failed", detail::error_of(bin_result));
+            return bin_result;
         }
-        if (detail::error_of(buf).kind() != ErrorKind::BinaryUnsupported) {
-            logger_.warn("extraction.process_failed",
-                         {{"canId", static_cast<std::uint64_t>(id_value)},
-                          {"error", detail::error_of(buf).message()}});
-            return std::nullopt;
-        }
+        if (detail::error_of(buf).kind() != ErrorKind::BinaryUnsupported)
+            return failed("extraction.process_failed", detail::error_of(buf));
         // BinaryUnsupported: fall through to JSON path.
     }
 
     // Fallback: JSON path.
-    //
-    // Matches the binary path above: log and return nullopt for any failure
-    // other than BinaryUnsupported.  The log warning carries the message but no
-    // kind field, to preserve cross-binding parity with Python and Go's
-    // `extraction.process_failed` event signature.
     auto const resp = backend_->extract_signals_binary(state_, id, dlc, data);
-    if (!resp) {
-        logger_.warn("extraction.process_failed", {{"canId", static_cast<std::uint64_t>(id_value)},
-                                                   {"error", detail::error_of(resp).message()}});
-        return std::nullopt;
-    }
+    if (!resp)
+        return failed("extraction.process_failed", detail::error_of(resp));
     auto result = detail::parse_extraction(resp.value());
-    if (!result.has_value()) {
-        logger_.warn("extraction.parse_failed", {{"canId", static_cast<std::uint64_t>(id_value)},
-                                                 {"error", detail::error_of(result).message()}});
-        return std::nullopt;
-    }
-    return std::move(result).value();
+    if (!result)
+        return failed("extraction.parse_failed", detail::error_of(result));
+    return result;
 }
 
 } // namespace aletheia

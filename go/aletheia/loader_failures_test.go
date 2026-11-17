@@ -165,6 +165,16 @@ func expectKind(err error, kind ErrorKind, code int) {
 	}
 }
 
+// expectNullReply fails the child unless err is the refusal of a null from
+// the C entry named: kind ErrFFI, reading `<entry> returned null`.
+func expectNullReply(err error, entry string, code int) {
+	var e *Error
+	if !errors.As(err, &e) || e.Kind != ErrFFI || e.Error() != entry+" returned null" {
+		fmt.Printf("FAIL: got %v, want an ErrFFI error reading %q\n", err, entry+" returned null")
+		os.Exit(code)
+	}
+}
+
 func expectEqual(got, want string, code int) {
 	if got != want {
 		fmt.Printf("FAIL: got %q, want %q\n", got, want)
@@ -181,7 +191,7 @@ func runLoaderScenario(scenario string) {
 		}
 	}()
 	lib := os.Getenv("ALETHEIA_LIB")
-	half := Rational{Numerator: 1, Denominator: 2}
+	half := ratOf(1, 2)
 	switch scenario {
 	case "symbolless":
 		// The loader resolves the ABI version first and reports it by name;
@@ -239,9 +249,25 @@ func runLoaderScenario(scenario string) {
 			os.Exit(31)
 		}
 		_, err = b.Init()
-		expect(err, "aletheia_init returned null", 32)
+		expectNullReply(err, "aletheia_init", 32)
+		var id StandardID
+		var dlc DLC
 		_, err = b.Process(0, "{}")
-		expect(err, "aletheia_process returned null", 33)
+		expectNullReply(err, "aletheia_process", 33)
+		_, err = b.SendFrameBinary(0, Timestamp{}, id, dlc, nil, nil, nil)
+		expectNullReply(err, "aletheia_send_frame", 58)
+		_, err = b.SendErrorBinary(0, Timestamp{})
+		expectNullReply(err, "aletheia_send_error", 59)
+		_, err = b.SendRemoteBinary(0, Timestamp{}, id)
+		expectNullReply(err, "aletheia_send_remote", 60)
+		_, err = b.StartStreamBinary(0)
+		expectNullReply(err, "aletheia_start_stream", 61)
+		_, err = b.EndStreamBinary(0)
+		expectNullReply(err, "aletheia_end_stream", 62)
+		_, err = b.FormatDBCBinary(0)
+		expectNullReply(err, "aletheia_format_dbc", 63)
+		_, err = b.ExtractSignalsBinary(0, id, dlc, nil)
+		expectNullReply(err, "aletheia_extract_signals", 64)
 		// The stand-in counts no allocation, and its zero is a count, read
 		// through the entry the start recorded.
 		if allocated, ok := AllocatedBytes(); !ok || allocated != 0 {
@@ -249,17 +275,24 @@ func runLoaderScenario(scenario string) {
 			os.Exit(51)
 		}
 		_, err = formatRational(half)
-		expect(err, "aletheia_format_rational returned a null pointer", 34)
+		expectNullReply(err, "aletheia_format_rational", 34)
 		_, err = FromDecimal("0.1")
 		expect(err, "aletheia_parse_decimal failed without an error", 35)
 		expectKind(err, ErrProtocol, 36)
+		// The time-bound parser and the property check refuse with no
+		// envelope, which reaches the caller as a protocol error naming the
+		// entry.
+		_, err = ParseTimeBound("1")
+		expect(err, "aletheia_parse_time_bound refused without an error", 38)
+		expectKind(err, ErrProtocol, 39)
+		err = checkFormula(Atomic{Predicate: Equals{Signal: "S", Value: IntRational(3)}})
+		expect(err, "aletheia_check_property refused without an error", 56)
+		expectKind(err, ErrProtocol, 57)
 		// With the renderer refusing, the enrichment falls back to the
-		// formula alone and the refusal message's rational to a bare form.
+		// formula alone.
 		diag := PropertyDiagnostic{Signals: []SignalName{"Speed"}, FormulaDesc: "always(Speed < 220)"}
 		values := map[SignalName]Rational{"Speed": half}
 		expectEqual(formatObservedBase(diag, values), "violated: always(Speed < 220)", 37)
-		expectEqual(formatRationalExact(Rational{Numerator: 3, Denominator: 1}), "3", 38)
-		expectEqual(formatRationalExact(Rational{Numerator: 1, Denominator: 3}), "1/3", 39)
 	case "recording-kernel":
 		// The stand-in answers 2^63 plus the reads made before, so the first
 		// two reads of a fresh process set the count's top bit, which a read

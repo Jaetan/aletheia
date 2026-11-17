@@ -160,7 +160,7 @@ data ExtractionErrorCode : Set where
   OutOfBounds         : ExtractionErrorCode  -- 1: extracted value outside min/max range
   BitExtractionFailed : ExtractionErrorCode  -- 2: bit-level read or scaling step failed
   -- 3: the exact value's reduced numerator magnitude or denominator exceeds
-  -- `max-rational-component-magnitude`, the signed 64-bit range of the
+  -- `max-rational-component-magnitude`, the 128-bit magnitude range of the
   -- binary wire's rational slots.  Minted by categorizeWith on both paths
   -- when `wireFits` refuses a Success, so the shim's encoder pokes only
   -- values the kernel proved fit (string twin:
@@ -226,15 +226,17 @@ resultToCode (Success _)              = BitExtractionFailed
 categorizeIndexed : String → ℕ → ExtractionResult → IndexedExtractionResults
 categorizeIndexed name = categorizeWith (λ _ r → resultToCode r , resultToString name r)
 
+-- A message's signals from position `idx` on, each keyed by its position in
+-- the message (top level, so a proof can follow it).
+extractIndexedFrom : ∀ {n} → CANFrame n → DBCMessage → ℕ → List DBCSignal → IndexedExtractionResults
+extractIndexedFrom _ _ _ [] = emptyPartitioned
+extractIndexedFrom frame msg idx (sig ∷ sigs) =
+  combinePartitioned (categorizeIndexed (signalNameStr sig) idx (extractSignalDirect msg frame sig))
+                     (extractIndexedFrom frame msg (suc idx) sigs)
+
 -- Extract all signals from a message, returning indexed results.
 extractAllSignalsIndexedFromMessage : ∀ {n} → CANFrame n → DBCMessage → IndexedExtractionResults
-extractAllSignalsIndexedFromMessage frame msg = go 0 (DBCMessage.signals msg)
-  where
-    go : ℕ → List DBCSignal → IndexedExtractionResults
-    go _ [] = emptyPartitioned
-    go idx (sig ∷ sigs) =
-      combinePartitioned (categorizeIndexed (signalNameStr sig) idx (extractSignalDirect msg frame sig))
-                         (go (suc idx) sigs)
+extractAllSignalsIndexedFromMessage frame msg = extractIndexedFrom frame msg 0 (DBCMessage.signals msg)
 
 extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → FrameError ⊎ IndexedExtractionResults
 extractAllSignalsIndexed dbc frame with findMessageById (CANFrame.id frame) dbc

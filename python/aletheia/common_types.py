@@ -32,6 +32,10 @@ DocumentKey = NewType("DocumentKey", str)
 # between two such reads, as the scaling program counts one load's.
 AllocatedBytes = NewType("AllocatedBytes", int)
 
+# A time window in whole microseconds, as a loader reads a check's ``within_us``
+# through the kernel.
+Microseconds = NewType("Microseconds", int)
+
 # A count of the GHC runtime's cores (its ``-N``), as ``aletheia.start_runtime``,
 # a client or a backend asks for them, or as the runtime counts the CPUs the
 # process may use.

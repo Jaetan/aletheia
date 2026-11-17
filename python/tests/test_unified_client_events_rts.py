@@ -16,6 +16,9 @@ fixtures with the streaming/lifecycle tests:
 The ``simple_dbc`` fixture comes from ``conftest.py``.
 """
 
+import logging
+from typing import Literal, NamedTuple
+
 import pytest
 
 from aletheia import (
@@ -28,6 +31,19 @@ from aletheia import (
 )
 from aletheia.client._response_parsers import parse_event_response
 from aletheia.types import DLCCode
+
+
+class _TraceEvent(NamedTuple):
+    """A trace-event kind the client passes the parser and the event it logs."""
+
+    kind: Literal["error_event", "remote_event"]
+    logged: Literal["error_event.sent", "remote_event.sent"]
+
+
+_TRACE_EVENTS = [
+    _TraceEvent("error_event", "error_event.sent"),
+    _TraceEvent("remote_event", "remote_event.sent"),
+]
 
 
 class TestSendErrorRemote:
@@ -106,33 +122,80 @@ class TestSendErrorRemote:
         """parse_event_response raises the kernel's message verbatim for error_event errors."""
         with pytest.raises(ProtocolError) as exc_info:
             parse_event_response(
-                {"status": "error", "message": "test error", "code": "test_code"},
+                {
+                    "status": "error",
+                    "message": "test error",
+                    "code": "handler_non_monotonic_timestamp",
+                },
                 "error_event",
                 1000,
             )
         assert str(exc_info.value) == "test error"
-        assert exc_info.value.code == "test_code"
+        assert exc_info.value.code == "handler_non_monotonic_timestamp"
 
     def test_send_remote_error_response_raises_protocol_error(self) -> None:
         """parse_event_response raises the kernel's message verbatim for remote_event errors."""
         with pytest.raises(ProtocolError) as exc_info:
             parse_event_response(
-                {"status": "error", "message": "remote rejected", "code": "handler_err"},
+                {"status": "error", "message": "remote rejected", "code": "handler_not_streaming"},
                 "remote_event",
                 1000,
             )
         assert str(exc_info.value) == "remote rejected"
-        assert exc_info.value.code == "handler_err"
+        assert exc_info.value.code == "handler_not_streaming"
+
+    @pytest.mark.parametrize("event", _TRACE_EVENTS)
+    def test_event_ack_logs_the_event_and_returns_the_ack(
+        self, caplog: pytest.LogCaptureFixture, event: _TraceEvent
+    ) -> None:
+        """An ack reply logs one DEBUG event carrying the timestamp and returns the ack."""
+        with caplog.at_level(logging.DEBUG, logger="aletheia"):
+            answered = parse_event_response({"status": "ack"}, event.kind, 1000)
+        assert answered == {"status": "ack"}
+        assert [
+            (record.name, record.levelno, record.getMessage()) for record in caplog.records
+        ] == [("aletheia", logging.DEBUG, f"{event.logged} ts=1000 response=ack")]
+
+    @pytest.mark.parametrize("event", _TRACE_EVENTS)
+    def test_event_error_logs_the_event_and_its_code_then_raises(
+        self, caplog: pytest.LogCaptureFixture, event: _TraceEvent
+    ) -> None:
+        """An error reply logs one DEBUG event carrying the timestamp and the code, then raises."""
+        with caplog.at_level(logging.DEBUG, logger="aletheia"), pytest.raises(ProtocolError) as exc:
+            parse_event_response(
+                {"status": "error", "code": "handler_not_streaming", "message": "rejected"},
+                event.kind,
+                1000,
+            )
+        assert str(exc.value) == "rejected"
+        assert exc.value.code == "handler_not_streaming"
+        assert [
+            (record.name, record.levelno, record.getMessage()) for record in caplog.records
+        ] == [
+            (
+                "aletheia",
+                logging.DEBUG,
+                f"{event.logged} ts=1000 response=error code=handler_not_streaming",
+            )
+        ]
+
+    def test_unknown_event_kind_is_refused_by_name(self) -> None:
+        """An event kind with no log event is refused, naming the kind."""
+        with pytest.raises(ProtocolError) as exc:
+            parse_event_response({"status": "ack"}, "data_event", 1000)
+        assert str(exc.value) == "Unknown event_kind 'data_event'"
 
     def test_send_error_success_status_rejected(self) -> None:
-        """parse_event_response rejects "success" — trace events must emit "ack"."""
-        with pytest.raises(ProtocolError, match="Unexpected error_event response status"):
+        """parse_event_response rejects "success": trace events must emit "ack"."""
+        with pytest.raises(ProtocolError) as exc_info:
             parse_event_response({"status": "success"}, "error_event", 1000)
+        assert str(exc_info.value) == 'reply status: expected "ack" or "error", got "success"'
 
     def test_send_remote_success_status_rejected(self) -> None:
-        """parse_event_response rejects "success" — trace events must emit "ack"."""
-        with pytest.raises(ProtocolError, match="Unexpected remote_event response status"):
+        """parse_event_response rejects "success": trace events must emit "ack"."""
+        with pytest.raises(ProtocolError) as exc_info:
             parse_event_response({"status": "success"}, "remote_event", 1000)
+        assert str(exc_info.value) == 'reply status: expected "ack" or "error", got "success"'
 
     def test_send_remote_extended(self, simple_dbc: DBCDefinition) -> None:
         """send_remote with extended=True accepts 29-bit IDs."""

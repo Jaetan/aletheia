@@ -14,19 +14,29 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, LiteralString
 
 from aletheia.client._backend import Backend, BinaryPathUnsupportedError
-from aletheia.client._client_bin import parse_extraction_buffer
+from aletheia.client._client_bin import SignalValues, parse_extraction_buffer
 from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.client._helpers.json_codec import (
     parse_absent_list,
     parse_errors_list,
     parse_values_list,
 )
+from aletheia.client._helpers.reply_shape import (
+    ARRAY,
+    REPLY_ROOT,
+    at,
+    came,
+    came_word,
+    held,
+    reply_refusal,
+    words,
+)
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
-from aletheia.client._refusal import envelope_message
+from aletheia.client._refusal import envelope_message, read_error_code
 from aletheia.client._types import (
     ProtocolError,
     SignalExtractionResult,
@@ -36,16 +46,37 @@ from aletheia.client._types import (
     validate_can_id,
     validate_payload_length,
 )
-from aletheia.common_types import Prose
-from aletheia.types import DLCCode, is_object_list
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from fractions import Fraction
 
-    from aletheia.types import Response
+    from aletheia.client._helpers.reply_shape import ReplyFields
+    from aletheia.types import DLCCode, JSONValue
 
 _logger = logging.getLogger("aletheia")
+
+
+def _extraction_result(reply: ReplyFields) -> SignalExtractionResult:
+    """Read an extraction success reply's three arrays, which the kernel always writes.
+
+    Raises:
+        ProtocolError: If ``values``, ``errors`` or ``absent`` is absent or not
+            an array, or an entry of one is not what the kernel writes there.
+
+    """
+    return SignalExtractionResult(
+        values=parse_values_list(_array(reply, "values")),
+        errors=parse_errors_list(_array(reply, "errors")),
+        absent=tuple(parse_absent_list(_array(reply, "absent"))),
+    )
+
+
+def _array(reply: ReplyFields, key: LiteralString) -> list[JSONValue]:
+    """Read the array ``key`` holds at an extraction reply's root."""
+    if key in reply and isinstance(value := reply[key], list):
+        return value
+    raise reply_refusal(at(REPLY_ROOT, key), ARRAY, came(reply, key))
 
 
 class SignalOpsMixin(ClientHostState):
@@ -72,8 +103,8 @@ class SignalOpsMixin(ClientHostState):
         cmd_name: str,
         *,
         extended: bool,
-    ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
-        """Resolve signal name → (indices, numerators, denominators)."""
+    ) -> SignalValues:
+        """Resolve signal names to their indices and values."""
 
     def extract_signals(
         self,
@@ -139,7 +170,7 @@ class SignalOpsMixin(ClientHostState):
                     dlc=dlc,
                     data=data,
                 )
-                response = cast("Response", parse_json_object(KernelResponse(response_bytes)))
+                reply = parse_json_object(KernelResponse(response_bytes))
             except ProtocolError as exc:
                 log_event(
                     _logger,
@@ -150,12 +181,9 @@ class SignalOpsMixin(ClientHostState):
                 )
                 raise
 
-            if response.get("status") == "error":
-                error_msg = envelope_message(
-                    response, Prose("extract_signals failed: Unknown error")
-                )
-                error_code_raw = response.get("code")
-                error_code = error_code_raw if isinstance(error_code_raw, str) else None
+            if held(reply, "status") == "error":
+                error_code = read_error_code(reply)
+                error_msg = envelope_message(reply)
                 log_event(
                     _logger,
                     logging.WARNING,
@@ -167,19 +195,12 @@ class SignalOpsMixin(ClientHostState):
                 # ``parse_payload_length_mismatch`` vs ``frame_signal_not_found``
                 # without parsing the message string (matches Go / C++ bindings).
                 raise ProtocolError(error_msg, code=error_code)
-            if response.get("status") != "success":
-                msg = f"Unexpected status: {response.get('status')}"
-                raise ProtocolError(msg)
+            if held(reply, "status") != "success":
+                raise reply_refusal(
+                    at(REPLY_ROOT, "status"), words("success", "error"), came_word(reply, "status")
+                )
 
-            for key in ("values", "errors", "absent"):
-                if not is_object_list(response.get(key, [])):
-                    msg = f"Expected '{key}' to be a list"
-                    raise ProtocolError(msg)
-            return SignalExtractionResult(
-                values=parse_values_list(response.get("values", [])),
-                errors=parse_errors_list(response.get("errors", [])),
-                absent=tuple(parse_absent_list(response.get("absent", []))),
-            )
+            return _extraction_result(reply)
 
     def update_frame(  # pylint: disable=too-many-arguments
         self,
@@ -207,8 +228,11 @@ class SignalOpsMixin(ClientHostState):
         Raises:
             StateError: If the client is not initialized or no DBC is loaded
             ValidationError: If ``frame`` does not match ``dlc``, the DLC or
-                CAN ID is invalid, no DBC message has the CAN ID, a signal name
-                is unknown, or a value overflows the Int64 wire range
+                CAN ID is invalid, no DBC message has the CAN ID, or a signal
+                name is unknown
+            InputBoundExceededError: If a value's numerator magnitude or
+                denominator exceeds 2^128-1, the build's slots (``field``
+                ``"signal value"``)
             TypeError: If a value is a ``bool`` or a ``float``
             ProtocolError: If the kernel refuses the update; ``code`` names the
                 refusal, among them ``frame_value_out_of_range`` for a value
@@ -219,7 +243,7 @@ class SignalOpsMixin(ClientHostState):
         """
         expected_bytes = validate_payload_length(dlc, frame)
         validate_can_id(can_id, extended=extended)
-        indices, nums, dens = self._resolve_signal_indices(
+        resolved = self._resolve_signal_indices(
             signals,
             can_id,
             "update_frame",
@@ -236,9 +260,8 @@ class SignalOpsMixin(ClientHostState):
                     extended=extended,
                     dlc=dlc,
                     data=frame,
-                    indices=indices,
-                    numerators=nums,
-                    denominators=dens,
+                    indices=resolved.indices,
+                    values=resolved.values,
                     expected_bytes=expected_bytes,
                 )
             )
@@ -265,8 +288,10 @@ class SignalOpsMixin(ClientHostState):
         Raises:
             StateError: If the client is not initialized or no DBC is loaded
             ValidationError: If the DLC or CAN ID is invalid, no DBC message has
-                the CAN ID, a signal name is unknown, or a value overflows the
-                Int64 wire range
+                the CAN ID, or a signal name is unknown
+            InputBoundExceededError: If a value's numerator magnitude or
+                denominator exceeds 2^128-1, the build's slots (``field``
+                ``"signal value"``)
             TypeError: If a value is a ``bool`` or a ``float``
             ProtocolError: If the kernel refuses the build; ``code`` names the
                 refusal, among them ``frame_value_out_of_range`` for a value
@@ -276,7 +301,7 @@ class SignalOpsMixin(ClientHostState):
 
         """
         validate_can_id(can_id, extended=extended)
-        indices, nums, dens = self._resolve_signal_indices(
+        resolved = self._resolve_signal_indices(
             signals,
             can_id,
             "build_frame",
@@ -292,9 +317,8 @@ class SignalOpsMixin(ClientHostState):
                     can_id=can_id,
                     extended=extended,
                     dlc=dlc,
-                    indices=indices,
-                    numerators=nums,
-                    denominators=dens,
+                    indices=resolved.indices,
+                    values=resolved.values,
                     expected_bytes=dlc_to_bytes(dlc),
                 )
             )

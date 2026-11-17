@@ -11,18 +11,24 @@ overrides without changing the wire format.
 
 from __future__ import annotations
 
+import json
 from fractions import Fraction
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, NewType, TypedDict
 
 from aletheia import AletheiaClient
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.types import DLCByteCount
+from aletheia.types import DLCByteCount, DLCCode, JSONValue
 
 if TYPE_CHECKING:
     from typing import Unpack
 
-    from aletheia._dbc_types import ByteOrder, SignalPresence
+    from aletheia import SignalExtractionResult
+    from aletheia._dbc_types import ByteOrder, SignalName, SignalPresence
     from aletheia.types import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
+
+
+# A kernel reply's bytes, as a stand-in backend answers a command with them.
+KernelReply = NewType("KernelReply", bytes)
 
 
 class SignalOverrides(TypedDict, total=False):
@@ -147,6 +153,53 @@ def dbc(messages: list[DBCMessage], version: str = "1.0") -> DBCDefinition:
     return {"version": version, "messages": messages, **empty_dbc_tier2()}
 
 
+def kernel_signal(name: SignalName) -> JSONValue:
+    """Return an always-present 8-bit signal as the kernel's reply writes one."""
+    return {
+        "name": name,
+        "startBit": 0,
+        "length": 8,
+        "byteOrder": "little_endian",
+        "signed": False,
+        "factor": 1,
+        "offset": 0,
+        "minimum": 0,
+        "maximum": 255,
+        "unit": "",
+        "receivers": [],
+        "valueDescriptions": [],
+        "presence": "always",
+    }
+
+
+# A message's CAN id as a reply writes it.
+MessageId = NewType("MessageId", int)
+
+
+def kernel_message(message_id: MessageId, *signals: JSONValue) -> JSONValue:
+    """Return a standard 8-byte message holding ``signals``, as the kernel's reply writes one."""
+    return {
+        "id": message_id,
+        "extended": False,
+        "name": f"M{message_id}",
+        "dlc": 8,
+        "sender": "",
+        "senders": [],
+        "signals": list(signals),
+    }
+
+
+def parse_dbc_reply(*messages: JSONValue) -> KernelReply:
+    """Return the kernel's parseDBC success reply holding ``messages``, every other list empty."""
+    body: JSONValue = {
+        "version": "",
+        "messages": list(messages),
+        **{key: list[JSONValue]() for key in empty_dbc_tier2()},
+    }
+    reply: JSONValue = {"status": "success", "dbc": body, "warnings": list[JSONValue]()}
+    return KernelReply(json.dumps(reply).encode())
+
+
 def assert_non_terminating_rational(bad: DBCDefinition, field: str) -> None:
     """Parse ``bad`` and assert it raises the non-terminating-rational error.
 
@@ -161,3 +214,17 @@ def assert_non_terminating_rational(bad: DBCDefinition, field: str) -> None:
     assert result["status"] == "error"
     assert result["code"] == "parse_non_terminating_rational"
     assert field in result["message"]
+
+
+# A CAN-FD frame's 64 data bytes, read as one little-endian number.
+FrameNumber = NewType("FrameNumber", int)
+
+
+def extract_fd(sig: DBCSignal, frame: FrameNumber) -> SignalExtractionResult:
+    """Load one 64-byte CAN-FD message 0x300 holding ``sig`` and extract it from ``frame``."""
+    with AletheiaClient() as client:
+        parsed = client.parse_dbc(dbc([message(0x300, "Fd", [sig], dlc=64)]))
+        assert parsed["status"] == "success", parsed
+        return client.extract_signals(
+            can_id=0x300, dlc=DLCCode(15), data=bytearray(frame.to_bytes(64, "little"))
+        )

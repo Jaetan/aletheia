@@ -22,6 +22,7 @@ module brings the GHC runtime up via the shared ``rts_up`` fixture.
 from __future__ import annotations
 
 from fractions import Fraction
+from typing import NewType
 
 import pytest
 from _decimal_cases import (
@@ -44,7 +45,7 @@ from aletheia import (
     ValidationError,
     from_decimal,
 )
-from aletheia.client._ffi import AletheiaDecimal, AletheiaRational
+from aletheia.client._ffi import AletheiaDecimal, wire_rational
 from aletheia.client._helpers.rational import decimal_value
 from aletheia.codes import ErrorCode
 from aletheia.limits import (
@@ -163,20 +164,33 @@ def test_from_decimal_failure_without_an_envelope_is_a_protocol_error() -> None:
 
 
 @pytest.mark.parametrize(
-    "rational",
-    [AletheiaRational(numerator=1, denominator=0), AletheiaRational(numerator=1, denominator=-1)],
-    ids=["zero", "negative"],
+    "value",
+    [Fraction(-157, 50), Fraction(2**128 - 1), Fraction(-1, 2**128 - 1), Fraction(0)],
+    ids=["negative", "widest", "widest-denominator", "zero"],
 )
-def test_decimal_value_refuses_a_non_positive_denominator(rational: AletheiaRational) -> None:
-    """A rational the kernel never answers is a wire fault, worded as Go, C++ and Rust word it."""
-    with pytest.raises(ProtocolError) as exc_info:
-        _ = decimal_value(AletheiaDecimal(value=rational))
-    assert str(exc_info.value) == (
-        f"aletheia_parse_decimal answered a non-positive denominator {rational.denominator}"
-    )
+def test_decimal_value_reads_the_answered_rational(value: Fraction) -> None:
+    """The sign and both 128-bit magnitudes are the kernel's answer, read as the exact fraction."""
+    assert decimal_value(AletheiaDecimal(value=wire_rational(value))) == value
 
 
-def test_decimal_value_reads_the_answered_rational() -> None:
-    """A positive denominator is the kernel's answer, read as the exact fraction."""
-    out = AletheiaDecimal(value=AletheiaRational(numerator=-157, denominator=50))
-    assert decimal_value(out) == Fraction(-157, 50)
+def test_decimal_value_reads_any_sign_byte_but_zero_as_negative() -> None:
+    """The header reads any byte but 0 as negative, and so does the binding."""
+    rational = wire_rational(Fraction(3, 4))
+    rational.negative = 2
+    assert decimal_value(AletheiaDecimal(value=rational)) == Fraction(-3, 4)
+
+
+# The sign byte of ``struct aletheia_rational``.
+SignByte = NewType("SignByte", int)
+
+
+@pytest.mark.parametrize(
+    ("value", "negative"),
+    [(Fraction(-3, 4), SignByte(1)), (Fraction(0), SignByte(0)), (Fraction(3, 4), SignByte(0))],
+    ids=["negative", "zero", "positive"],
+)
+def test_wire_rational_writes_the_sign_byte_as_the_library_does(
+    value: Fraction, negative: SignByte
+) -> None:
+    """The binding writes 1 for a negative value and 0 for zero or above, as the library writes."""
+    assert wire_rational(value).negative == negative

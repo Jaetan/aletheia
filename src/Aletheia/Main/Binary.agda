@@ -29,7 +29,8 @@
 --   Layout (offsets-table variant — every segment start is O(1) arithmetic
 --   from the header; reason i is an O(1) slice):
 --     Header:  3 × u16 (nValues, nErrors, nAbsent) + u32 reasonBytes
---     Values:  nValues × (signal_index:u16, numerator:i64, denominator:i64) = 18 bytes each
+--     Values:  nValues × (signal_index:u16, negative:u8, numerator:u128, denominator:u128) = 35 bytes each,
+--              each u128 its low then its high u64
 --     Errors:  nErrors × (signal_index:u16, error_code:u8) = 3 bytes each
 --              Error codes: the u8 values pinned by extractionErrorCodeToℕ
 --              (CAN/BatchExtraction.agda — one distinct code per
@@ -46,7 +47,7 @@
 --            code 1.
 --
 -- Byte order: native (platform-dependent; little-endian on x86_64/aarch64).
--- Multi-byte integers (u16, i64) use the host's native byte order via Haskell's
+-- Multi-byte integers (u16, u32, u64) use the host's native byte order via Haskell's
 -- Storable poke. Every binding runs on the same host, so this is safe.
 --
 -- Timestamp monotonicity enforcement:

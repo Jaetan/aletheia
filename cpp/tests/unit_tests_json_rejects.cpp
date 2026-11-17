@@ -12,7 +12,9 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/json.hpp"
+#include "detail/wide_json.hpp"
 #include "required.hpp"
+#include "u128_testing.hpp"
 #include <aletheia/aletheia.hpp>
 #include <aletheia/detail/checked.hpp>
 
@@ -25,6 +27,7 @@
 #include <memory>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -36,12 +39,21 @@ using namespace aletheia;
 using Json = nlohmann::json;
 using aletheia::test::make_test_dbc;
 using Catch::Matchers::ContainsSubstring;
+using Catch::Matchers::StartsWith;
+
+// The refusal parse_dbc_response answers for `reply`.
+static auto dbc_refusal(std::string const& reply) -> std::string {
+    auto const result = detail::parse_dbc_response(reply);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    return std::string{result.error().message()};
+}
 
 // ===========================================================================
-// Decode-validation tightening (parse_dbc_response rejects malformed
-// signal/message metadata).  The base is the serializer's own output for
-// make_test_dbc(), so each positive case proves well-formed core output still
-// decodes; each rejection mutates exactly one field.
+// parse_dbc_response refuses malformed signal and message places. The base is
+// the serializer's own output for make_test_dbc(), so each positive case
+// proves well-formed core output still decodes; each refusal mutates exactly
+// one field.
 // ===========================================================================
 
 static auto base_dbc_response() -> Json {
@@ -64,62 +76,48 @@ TEST_CASE("parse_dbc_response rejects a non-boolean extended flag",
           "[json][parse][dbc][validation]") {
     auto j = base_dbc_response();
     j.at("dbc").at("messages").at(0)["extended"] = "true";
-    CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
+    CHECK(dbc_refusal(j.dump()) == "reply dbc/messages/extended: expected boolean, got string");
 }
 
-// signal startBit 0-511 / length 1-512 (the type-level ceiling: the largest
-// CAN-FD frame; per-frame fit is the kernel's entry-gate check, not the
-// decoder's)
-TEST_CASE("parse_dbc_response rejects out-of-range startBit/length",
-          "[json][parse][dbc][validation]") {
-    auto const reject = [](char const* field, int value) {
-        auto j = base_dbc_response();
-        first_signal(j)[field] = value;
-        return !detail::parse_dbc_response(j.dump()).has_value();
-    };
-    auto const accept = [](char const* field, int value) {
-        auto j = base_dbc_response();
-        first_signal(j)[field] = value;
-        return detail::parse_dbc_response(j.dump()).has_value();
-    };
-    CHECK(reject("startBit", 512));
-    CHECK(accept("startBit", 511)); // boundary
-    CHECK(reject("length", 0));
-    CHECK(accept("length", 1)); // minimum valid length (lower boundary)
-    CHECK(reject("length", 513));
-    CHECK(accept("length", 512)); // full-frame CAN-FD boundary
-}
-
-// explicit presence discriminator (unknown / missing rejected)
+// The presence is required and one of "always" and "multiplexed", any other
+// word refused at its place, though the signal carries a multiplexor and its
+// selector values.
 TEST_CASE("parse_dbc_response rejects an unknown or missing presence",
           "[json][parse][dbc][validation]") {
-    {
+    auto const refused = [](Json word) {
         auto j = base_dbc_response();
-        first_signal(j)["presence"] = "sometimes";
-        CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
-    }
+        auto& sig = first_signal(j);
+        sig["presence"] = std::move(word);
+        sig["multiplexor"] = "Mode";
+        sig["multiplex_values"] = Json::array({2});
+        return dbc_refusal(j.dump());
+    };
+    CHECK(refused("bogus_word") == R"(reply dbc/messages/signals/presence: expected "always" or )"
+                                   R"("multiplexed", got "bogus_word")");
+    CHECK(refused(0) ==
+          R"(reply dbc/messages/signals/presence: expected "always" or "multiplexed", got number)");
     {
         auto j = base_dbc_response();
         first_signal(j).erase("presence");
-        CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
+        CHECK(dbc_refusal(j.dump()) == R"(reply dbc/messages/signals/presence: expected "always" )"
+                                       R"(or "multiplexed", got nothing)");
     }
 }
 
-// multiplexed presence requires non-empty multiplexor + values
+// A multiplexed presence carries its multiplexor and its selector values, each
+// value a whole number to 2^128-1.
 TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
           "[json][parse][dbc][validation]") {
-    auto const make_mux = [](char const* mux, Json values) {
-        auto j = base_dbc_response();
-        auto& sig = first_signal(j);
+    // The values are written into the reply as text, so a value past what
+    // nlohmann::json holds reaches the reader as written.
+    auto const make_mux = [](std::string_view values) {
+        auto j = detail::parse_json(base_dbc_response().dump());
+        auto& sig = j.at("dbc").at("messages").at(0).at("signals").at(0);
         sig["presence"] = "multiplexed";
-        sig["multiplexor"] = mux;
-        sig["multiplex_values"] = std::move(values);
-        return j;
+        sig["multiplexor"] = "Mode";
+        sig["multiplex_values"] = detail::parse_json(values);
+        return detail::dump_json(j);
     };
-    // empty values
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", Json::array()).dump()).has_value());
-    // empty multiplexor
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("", Json::array({0})).dump()).has_value());
     // missing values
     {
         auto j = base_dbc_response();
@@ -127,19 +125,23 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
         sig["presence"] = "multiplexed";
         sig["multiplexor"] = "Mode";
         sig.erase("multiplex_values");
-        CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
+        CHECK(dbc_refusal(j.dump()) ==
+              "reply dbc/messages/signals/multiplex_values: expected array, got nothing");
     }
-    // multiplex values at and past both ends of the u32 range
-    CHECK(detail::parse_dbc_response(make_mux("Mode", Json::array({4294967295LL})).dump())
-              .has_value());
-    for (auto const past : {std::int64_t{4294967296LL}, std::int64_t{-1}}) {
-        auto const r = detail::parse_dbc_response(make_mux("Mode", Json::array({past})).dump());
-        REQUIRE_FALSE(r.has_value());
-        CHECK_THAT(std::string{r.error().message()},
-                   ContainsSubstring("out of range (0-4294967295)"));
-    }
-    // well-formed multiplexed — accepted
-    CHECK(detail::parse_dbc_response(make_mux("Mode", Json::array({0, 1})).dump()).has_value());
+    // the largest value is read exactly; a negative one, or one past 2^128-1,
+    // is refused
+    auto const largest =
+        detail::parse_dbc_response(make_mux("[340282366920938463463374607431768211455]"));
+    REQUIRE(largest.has_value());
+    auto const& presence = largest->messages.at(0).signals.at(0).presence;
+    REQUIRE(std::holds_alternative<Multiplexed>(presence));
+    CHECK(std::get<Multiplexed>(presence).multiplex_values ==
+          std::vector{MultiplexValue{std::numeric_limits<unsigned __int128>::max()}});
+    for (auto const* const past : {"[340282366920938463463374607431768211456]", "[-1]"})
+        CHECK(dbc_refusal(make_mux(past)) ==
+              "reply dbc/messages/signals/multiplex_values: expected number, got number");
+    // well-formed multiplexed, accepted
+    CHECK(detail::parse_dbc_response(make_mux("[0, 1]")).has_value());
 }
 
 // ===========================================================================
@@ -151,73 +153,53 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
 // (-DALETHEIA_COVERAGE=ON) is what shows which branches they reach.
 // ===========================================================================
 
-TEST_CASE("make_json_error rejects a missing code field", "[json][parse][error]") {
-    auto const r = detail::parse_success(R"({"status": "error", "message": "m"})");
-    CHECK_FALSE(r.has_value());
-    CHECK(r.error().kind() == ErrorKind::Protocol);
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("missing or non-string 'code'"));
-}
-
-TEST_CASE("make_json_error rejects a non-string code field", "[json][parse][error]") {
-    auto const r = detail::parse_success(R"({"status": "error", "code": 123, "message": "m"})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("missing or non-string 'code'"));
-}
-
-TEST_CASE("make_json_error rejects a missing message field", "[json][parse][error]") {
+TEST_CASE("an error envelope rejects a missing message field", "[json][parse][error]") {
     auto const r = detail::parse_success(R"({"status": "error", "code": "handler_no_dbc"})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()},
-               ContainsSubstring("missing or non-string 'message'"));
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply message: expected string, got nothing");
 }
 
-TEST_CASE("make_json_error rejects a non-string message field", "[json][parse][error]") {
+TEST_CASE("an error envelope rejects a non-string message field", "[json][parse][error]") {
     auto const r =
         detail::parse_success(R"({"status": "error", "code": "handler_no_dbc", "message": 123})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()},
-               ContainsSubstring("missing or non-string 'message'"));
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply message: expected string, got number");
 }
 
-TEST_CASE("parse_rational_as_int rejects a non-numeric property_index", "[json][parse][error]") {
+TEST_CASE("parse_frame_response rejects a non-numeric property_index", "[json][parse][error]") {
     auto const r = detail::parse_frame_response(
-        R"({"type": "property_batch", "results": [{"status": "holds", "property_index": "x"}]})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()},
-               ContainsSubstring("Expected integer or {numerator, denominator}"));
-}
-
-TEST_CASE("require_int rejects a fractional rational component", "[json][parse][error]") {
-    auto const r = detail::parse_extraction(
-        R"({"status": "success", "values": [{"name": "S", "value": {"numerator": 1.5, "denominator": 2}}]})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("must be an integer"));
+        R"({"type": "property_batch", "results": [{"type": "property", "status": "holds",
+            "property_index": "x"}]})");
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply results/property_index: expected number, got string");
 }
 
 TEST_CASE("parse_event_ack rejects a malformed JSON envelope", "[json][parse][error]") {
     auto const r = detail::parse_event_ack("{");
-    CHECK_FALSE(r.has_value());
+    REQUIRE_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{r.error().message()}, StartsWith("reply: expected JSON text, got "));
 }
 
 TEST_CASE("parse_validation lifts a status=error envelope", "[json][parse][error]") {
     auto const r = detail::parse_validation(
-        R"({"status": "error", "code": "factor_zero", "message": "boom"})");
-    CHECK_FALSE(r.has_value());
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
+    REQUIRE_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Validation);
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+    CHECK(r.error().message() == "boom");
 }
 
 TEST_CASE("parse_validation rejects a wrong response type", "[json][parse][error]") {
     auto const r = detail::parse_validation(R"({"status": "weird"})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Expected validation response"));
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == R"(reply status: expected "validation" or "error", got "weird")");
 }
 
 TEST_CASE("parse_validation rejects a malformed JSON envelope", "[json][parse][error]") {
     auto const r = detail::parse_validation("{");
-    CHECK_FALSE(r.has_value());
+    REQUIRE_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{r.error().message()}, StartsWith("reply: expected JSON text, got "));
 }
 
 TEST_CASE("handler_validation_failed envelope lifts issues into the typed error",
@@ -232,8 +214,9 @@ TEST_CASE("handler_validation_failed envelope lifts issues into the typed error"
         R"("detail":"Signal 'S': offset/scale out of range"}]})");
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
-    // The legacy message text is untouched by the lift.
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("duplicate signal name 'S'"));
+    // The message text is untouched by the lift.
+    CHECK(r.error().message() ==
+          "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'");
     REQUIRE(r.error().issues().has_value());
     auto const& issues = *r.error().issues();
     REQUIRE(issues.size() == 2);
@@ -245,119 +228,117 @@ TEST_CASE("handler_validation_failed envelope lifts issues into the typed error"
     CHECK(issues[1].detail == "Signal 'S': offset/scale out of range");
 }
 
-TEST_CASE("handler_validation_failed without structured fields degrades to nullopt",
+TEST_CASE("handler_validation_failed with a missing or malformed issues payload is refused at "
+          "its place",
           "[json][parse][error]") {
-    // Cores predating the structured envelope emit only code/message; the
-    // decode must not fail harder than before.
-    auto const r =
-        detail::parse_parsed_dbc(R"({"status":"error","code":"handler_validation_failed",)"
-                                 R"("message":"ParseDBCText: validation failed: boom"})");
-    REQUIRE_FALSE(r.has_value());
-    CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
-    CHECK_FALSE(r.error().issues().has_value());
-}
-
-TEST_CASE("handler_validation_failed with a malformed issues payload degrades to nullopt",
-          "[json][parse][error]") {
-    auto const* const envelope = GENERATE(
-        // has_errors missing
-        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
-        R"("issues":[]})",
-        // has_errors ill-typed
-        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
-        R"("has_errors":"yes","issues":[]})",
-        // issues not an array
-        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
-        R"("has_errors":true,"issues":{}})",
-        // a non-object element
-        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
-        R"("has_errors":true,"issues":[42]})",
-        // an unknown severity
-        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
-        R"("has_errors":true,"issues":[{"severity":"fatal","code":"x","detail":"d"}]})",
-        // an ill-typed detail field
-        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
-        R"("has_errors":true,"issues":[{"severity":"error","code":"x","detail":42}]})");
+    // The kernel writes has_errors and issues on every validation refusal, so
+    // an envelope without them, or holding them malformed, is the wire's
+    // fault: a Protocol error, not the validation refusal.
+    auto const [envelope, refusal] = GENERATE(table<char const*, char const*>({
+        {R"({"status":"error","code":"handler_validation_failed","message":"m"})",
+         "reply has_errors: expected boolean, got nothing"},
+        {R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+         R"("issues":[]})",
+         "reply has_errors: expected boolean, got nothing"},
+        {R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+         R"("has_errors":"yes","issues":[]})",
+         "reply has_errors: expected boolean, got string"},
+        {R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+         R"("has_errors":true,"issues":{}})",
+         "reply issues: expected array, got object"},
+        {R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+         R"("has_errors":true,"issues":[42]})",
+         "reply issues: expected object, got number"},
+        {R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+         R"("has_errors":true,"issues":[{"severity":"error","code":"factor_zero","detail":42}]})",
+         "reply issues/detail: expected string, got number"},
+    }));
     auto const r = detail::parse_parsed_dbc(envelope);
     REQUIRE_FALSE(r.has_value());
-    CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
-    CHECK(r.error().message() == "m");
-    CHECK_FALSE(r.error().issues().has_value());
+    CHECK(r.error().kind() == ErrorKind::Protocol);
+    CHECK_FALSE(r.error().code().has_value());
+    CHECK(r.error().message() == refusal);
 }
 
 TEST_CASE("parse_extraction lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_extraction(R"({"status": "error", "code": "x", "message": "boom"})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+    auto const r = detail::parse_extraction(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "boom");
 }
 
 TEST_CASE("parse_frame_data lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_frame_data(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_frame_data(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
 
 TEST_CASE("parse_frame_data rejects an unexpected status", "[json][parse][error]") {
     auto const r = detail::parse_frame_data(R"({"status": "weird"})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Unexpected frame data status"));
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == R"(reply status: expected "success" or "error", got "weird")");
 }
 
 TEST_CASE("parse_frame_response rejects a negative timestamp", "[json][parse][error]") {
     auto const r = detail::parse_frame_response(
-        R"({"type": "property_batch", "results": [{"status": "holds", "property_index": 0, "timestamp": -5}]})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Negative timestamp"));
+        R"({"type": "property_batch", "results": [{"type": "property", "status": "fails",
+            "property_index": 0, "timestamp": -5, "reason": "r"}]})");
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply results/timestamp: expected number, got number");
 }
 
 TEST_CASE("parse_frame_response lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_frame_response(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_frame_response(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
 
-TEST_CASE("parse_frame_response rejects an empty property_batch", "[json][parse][error]") {
-    auto const r = detail::parse_frame_response(R"({"type": "property_batch", "results": []})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("non-empty array"));
-}
-
 TEST_CASE("parse_stream_result lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_stream_result(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_stream_result(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
 
 TEST_CASE("parse_stream_result rejects a wrong response type", "[json][parse][error]") {
     auto const r = detail::parse_stream_result(R"({"status": "weird"})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Expected complete response"));
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == R"(reply status: expected "complete" or "error", got "weird")");
 }
 
 TEST_CASE("parse_stream_result rejects a warning missing property_index", "[json][parse][error]") {
     auto const r = detail::parse_stream_result(
-        R"({"status": "complete", "results": [], "warnings": [{"kind": "x"}]})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()},
-               ContainsSubstring("missing required 'property_index'"));
+        R"({"status": "complete", "results": [], "warnings": [{"kind": "uncached_atom",
+            "detail": "d"}]})");
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply warnings/property_index: expected number, got nothing");
 }
 
 TEST_CASE("parse_stream_result rejects a negative warning property_index", "[json][parse][error]") {
     auto const r = detail::parse_stream_result(
-        R"({"status": "complete", "results": [], "warnings": [{"property_index": -1}]})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()},
-               ContainsSubstring("Negative warning property_index"));
+        R"({"status": "complete", "results": [], "warnings": [{"kind": "uncached_atom",
+            "property_index": -1, "detail": "d"}]})");
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply warnings/property_index: expected number, got number");
+}
+
+TEST_CASE("parse_stream_result reads the uncached_atom kind as the one WarningKind names",
+          "[json][parse]") {
+    auto const r = detail::parse_stream_result(
+        R"({"status": "complete", "results": [], "warnings": [{"kind": "uncached_atom",
+            "property_index": 3, "detail": "d"}]})");
+    REQUIRE(r.has_value());
+    REQUIRE(r->warnings.size() == 1);
+    CHECK(r->warnings[0].kind == WarningKind::UncachedAtom);
+    CHECK(r->warnings[0].property_index == PropertyIndex{3});
+    CHECK(r->warnings[0].detail == "d");
 }
 
 TEST_CASE("parse_dbc_response lifts a status=error envelope", "[json][parse][error]") {
-    auto const r =
-        detail::parse_dbc_response(R"({"status": "error", "code": "x", "message": "boom"})");
+    auto const r = detail::parse_dbc_response(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "boom"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
@@ -372,15 +353,14 @@ TEST_CASE("parse_dbc_text_response decodes a success response with issues", "[js
     REQUIRE(r->issues.size() == 1);
     CHECK(r->issues[0].severity == IssueSeverity::Warning);
     CHECK(r->issues[0].code == IssueCode::MultiValueMuxSelector);
-    CHECK(r->issues[0].code_raw == "multi_value_mux_selector");
     CHECK(r->issues[0].detail == "mux");
 }
 
-TEST_CASE("parse_dbc_text_response defaults an absent issues field to empty", "[json][parse]") {
+TEST_CASE("parse_dbc_text_response rejects an absent issues field", "[json][parse][error]") {
+    // The kernel writes the issues of every text, none included.
     auto const r = detail::parse_dbc_text_response(R"({"status":"success","text":"x"})");
-    REQUIRE(r.has_value());
-    CHECK(r->text == "x");
-    CHECK(r->issues.empty());
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply issues: expected array, got nothing");
 }
 
 TEST_CASE("parse_dbc_text_response rejects a non-array issues field", "[json][parse][error]") {
@@ -388,21 +368,20 @@ TEST_CASE("parse_dbc_text_response rejects a non-array issues field", "[json][pa
     // response is a protocol error, not silently harvested from an object's values.
     auto const r =
         detail::parse_dbc_text_response(R"({"status":"success","text":"x","issues":{}})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("'issues' must be an array"));
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply issues: expected array, got object");
 }
 
 TEST_CASE("parse_dbc_text_response rejects an unexpected status", "[json][parse][error]") {
     auto const r = detail::parse_dbc_text_response(R"({"status":"weird"})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()},
-               ContainsSubstring("Unexpected formatDBCText response status"));
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == R"(reply status: expected "success" or "error", got "weird")");
 }
 
 TEST_CASE("parse_dbc_text_response rejects a missing text field", "[json][parse][error]") {
     auto const r = detail::parse_dbc_text_response(R"({"status":"success"})");
-    CHECK_FALSE(r.has_value());
-    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Missing or non-string 'text'"));
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().message() == "reply text: expected string, got nothing");
 }
 
 TEST_CASE("DbcDefinition unresolvedValueDescs keeps an extended CAN ID across serialize -> parse",
@@ -411,7 +390,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs keeps an extended CAN ID across se
     dbc.unresolved_value_descs.push_back(DbcRawValueDesc{
         .can_id = CanId{*ExtendedId::create(0x18FEF100)},
         .signal_name = "Phantom",
-        .entries = {DbcValueEntry{.value = 0, .description = "Off"}},
+        .entries = {DbcValueEntry{.value = SignMagnitude{}, .description = "Off"}},
     });
 
     auto const cmd_str = required(detail::serialize_parse_dbc(dbc));
@@ -428,6 +407,33 @@ TEST_CASE("DbcDefinition unresolvedValueDescs keeps an extended CAN ID across se
     CHECK(std::get<ExtendedId>(rvd.can_id).value() == 0x18FEF100);
 }
 
+// The metric operators the nesting test wraps a formula in, each at a bound of
+// one microsecond: the bounded eventually and always of one operand, and the
+// bounded until and release of two.
+constexpr auto nesting_bound = TimeBound{1};
+
+static auto metric_eventually(LtlFormula f) -> LtlFormula {
+    return LtlFormula{MetricEventually{.bound = nesting_bound,
+                                       .formula = std::make_unique<LtlFormula>(std::move(f))}};
+}
+
+static auto metric_always(LtlFormula f) -> LtlFormula {
+    return LtlFormula{MetricAlways{.bound = nesting_bound,
+                                   .formula = std::make_unique<LtlFormula>(std::move(f))}};
+}
+
+static auto metric_until(LtlFormula left, LtlFormula right) -> LtlFormula {
+    return LtlFormula{MetricUntil{.bound = nesting_bound,
+                                  .left = std::make_unique<LtlFormula>(std::move(left)),
+                                  .right = std::make_unique<LtlFormula>(std::move(right))}};
+}
+
+static auto metric_release(LtlFormula left, LtlFormula right) -> LtlFormula {
+    return LtlFormula{MetricRelease{.bound = nesting_bound,
+                                    .left = std::make_unique<LtlFormula>(std::move(left)),
+                                    .right = std::make_unique<LtlFormula>(std::move(right))}};
+}
+
 TEST_CASE("serialize_set_properties refuses a formula nested past the depth bound",
           "[json][serialize][bounds]") {
     // Nesting to the bound is accepted and one level more is refused here
@@ -435,68 +441,58 @@ TEST_CASE("serialize_set_properties refuses a formula nested past the depth boun
     // the unary operand, or the left or the right operand of a binary one.
     // Every alternative that carries a formula is its own serializer
     // instantiation, so each is nested on its own: the unary ones through their
-    // operand, the binary ones through the left and through the right.
+    // operand, the binary ones through the left and through the right. No
+    // alternative captures anything, so each holds nothing of the frame the
+    // generator was built in.
     using Wrap = std::function<LtlFormula(LtlFormula, LtlFormula)>;
-    auto const us = Timestamp{1};
-    // The generator is built once and serves its alternatives on the later
-    // entries of this body, each of them a fresh frame, so an alternative
-    // holds nothing by reference: the two helpers below are captured by value
-    // where they are used, as the bound is.
-    auto const metric_until = [us](LtlFormula left, LtlFormula right) {
-        return LtlFormula{MetricUntil{.bound = us,
-                                      .left = std::make_unique<LtlFormula>(std::move(left)),
-                                      .right = std::make_unique<LtlFormula>(std::move(right))}};
-    };
-    auto const metric_release = [us](LtlFormula left, LtlFormula right) {
-        return LtlFormula{MetricRelease{.bound = us,
-                                        .left = std::make_unique<LtlFormula>(std::move(left)),
-                                        .right = std::make_unique<LtlFormula>(std::move(right))}};
-    };
-    auto const wrap = GENERATE_COPY(
-        Wrap{[](LtlFormula f, LtlFormula) { return ltl::next(std::move(f)); }},
-        Wrap{[](LtlFormula f, LtlFormula) { return ltl::weak_next(std::move(f)); }},
-        Wrap{[](LtlFormula f, LtlFormula) { return ltl::always(std::move(f)); }},
-        Wrap{[](LtlFormula f, LtlFormula) { return ltl::eventually(std::move(f)); }},
-        Wrap{[](LtlFormula f, LtlFormula) { return ltl::negate(std::move(f)); }},
-        Wrap{[us](LtlFormula f, LtlFormula) { return ltl::within(us, std::move(f)); }},
-        Wrap{[us](LtlFormula f, LtlFormula) { return ltl::always_within(us, std::move(f)); }},
-        Wrap{
-            [](LtlFormula f, LtlFormula leaf) { return ltl::both(std::move(f), std::move(leaf)); }},
-        Wrap{
-            [](LtlFormula f, LtlFormula leaf) { return ltl::both(std::move(leaf), std::move(f)); }},
-        Wrap{[](LtlFormula f, LtlFormula leaf) {
-            return ltl::either(std::move(f), std::move(leaf));
-        }},
-        Wrap{[](LtlFormula f, LtlFormula leaf) {
-            return ltl::either(std::move(leaf), std::move(f));
-        }},
-        Wrap{[](LtlFormula f, LtlFormula leaf) {
-            return ltl::until(std::move(f), std::move(leaf));
-        }},
-        Wrap{[](LtlFormula f, LtlFormula leaf) {
-            return ltl::until(std::move(leaf), std::move(f));
-        }},
-        Wrap{[](LtlFormula f, LtlFormula leaf) {
-            return ltl::release(std::move(f), std::move(leaf));
-        }},
-        Wrap{[](LtlFormula f, LtlFormula leaf) {
-            return ltl::release(std::move(leaf), std::move(f));
-        }},
-        Wrap{[metric_until](LtlFormula f, LtlFormula leaf) {
-            return metric_until(std::move(f), std::move(leaf));
-        }},
-        Wrap{[metric_until](LtlFormula f, LtlFormula leaf) {
-            return metric_until(std::move(leaf), std::move(f));
-        }},
-        Wrap{[metric_release](LtlFormula f, LtlFormula leaf) {
-            return metric_release(std::move(f), std::move(leaf));
-        }},
-        Wrap{[metric_release](LtlFormula f, LtlFormula leaf) {
-            return metric_release(std::move(leaf), std::move(f));
-        }});
+    auto const wrap =
+        GENERATE(Wrap{[](LtlFormula f, LtlFormula) { return ltl::next(std::move(f)); }},
+                 Wrap{[](LtlFormula f, LtlFormula) { return ltl::weak_next(std::move(f)); }},
+                 Wrap{[](LtlFormula f, LtlFormula) { return ltl::always(std::move(f)); }},
+                 Wrap{[](LtlFormula f, LtlFormula) { return ltl::eventually(std::move(f)); }},
+                 Wrap{[](LtlFormula f, LtlFormula) { return ltl::negate(std::move(f)); }},
+                 Wrap{[](LtlFormula f, LtlFormula) { return metric_eventually(std::move(f)); }},
+                 Wrap{[](LtlFormula f, LtlFormula) { return metric_always(std::move(f)); }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return ltl::both(std::move(f), std::move(leaf));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return ltl::both(std::move(leaf), std::move(f));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return ltl::either(std::move(f), std::move(leaf));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return ltl::either(std::move(leaf), std::move(f));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return ltl::until(std::move(f), std::move(leaf));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return ltl::until(std::move(leaf), std::move(f));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return ltl::release(std::move(f), std::move(leaf));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return ltl::release(std::move(leaf), std::move(f));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return metric_until(std::move(f), std::move(leaf));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return metric_until(std::move(leaf), std::move(f));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return metric_release(std::move(f), std::move(leaf));
+                 }},
+                 Wrap{[](LtlFormula f, LtlFormula leaf) {
+                     return metric_release(std::move(leaf), std::move(f));
+                 }});
     auto const nest = [&wrap](std::uint64_t depth) {
         auto const leaf = [] {
-            return ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{1, 1}}));
+            return ltl::atomic(
+                Equals{.signal = SignalName{"S"}, .value = PhysicalValue{Rational{1, 1}}});
         };
         auto f = leaf();
         std::ranges::for_each(std::views::repeat(0, depth),
@@ -511,19 +507,33 @@ TEST_CASE("serialize_set_properties refuses a formula nested past the depth boun
     CHECK(detail::error_of(deep).message() == "Formula nesting depth exceeds 64");
 }
 
-TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
+TEST_CASE("a rational whose magnitudes reach 2^128-1 is written exactly",
           "[json][serialize][rational]") {
-    // The numerator cannot be normalised, since its absolute value does not
-    // exist; the wire carries it un-normalised rather than the serializer
-    // computing it.
-    constexpr auto lowest = std::numeric_limits<std::int64_t>::min();
-    std::vector<LtlFormula> props;
-    props.push_back(ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{lowest, 1}})));
-    auto const j = Json::parse(required(detail::serialize_set_properties(props)));
-    auto const& value = j.at("properties").at(0).at("predicate").at("value");
-    REQUIRE(value.is_object());
-    CHECK(value.at("numerator") == lowest);
-    CHECK(value.at("denominator") == 1);
+    // A whole number is written as its signed digits and any other as the
+    // {numerator, denominator} object, each magnitude whole to 128 bits.
+    constexpr auto largest = std::numeric_limits<unsigned __int128>::max();
+    auto const written = [](Rational value) {
+        std::vector<LtlFormula> props;
+        props.push_back(
+            ltl::atomic(Equals{.signal = SignalName{"S"}, .value = PhysicalValue{value}}));
+        return detail::parse_json(required(detail::serialize_set_properties(props)))
+            .at("properties")
+            .at(0)
+            .at("predicate")
+            .at("value");
+    };
+    CHECK(detail::sign_magnitude_of(
+              written(Rational::integer(std::numeric_limits<std::int64_t>::min()))) ==
+          SignMagnitude{.negative = true, .magnitude = static_cast<unsigned __int128>(1) << 63U});
+    CHECK(detail::sign_magnitude_of(written(required(Rational::make(true, largest, 1)))) ==
+          SignMagnitude{.negative = true, .magnitude = largest});
+    // Two consecutive whole numbers share no factor, so the pair is reduced.
+    auto const fraction = written(required(Rational::make(true, largest, largest - 1)));
+    REQUIRE(fraction.is_object());
+    CHECK(detail::sign_magnitude_of(fraction.at("numerator")) ==
+          SignMagnitude{.negative = true, .magnitude = largest});
+    CHECK(detail::sign_magnitude_of(fraction.at("denominator")) ==
+          SignMagnitude{.negative = false, .magnitude = largest - 1});
 }
 
 // The constructor and make are templates over the integral types, so each
@@ -557,23 +567,28 @@ TEMPLATE_TEST_CASE("Rational refuses a non-positive denominator on both construc
     }
 }
 
-TEST_CASE("an integer field past the signed 64-bit range is refused by its width",
+TEST_CASE("a rational's components are read whole to 2^128-1 and refused past it",
           "[json][parse][bounds]") {
-    // The largest unsigned value takes the unsigned branch of the reader,
-    // where the signed one would wrap it to minus one and accept it.
-    auto const big = detail::parse_extraction(R"({
-        "status": "success",
-        "values": [{"name": "S", "value": {"numerator": 18446744073709551615, "denominator": 1}}],
-        "errors": [], "absent": []
-    })");
-    REQUIRE_FALSE(big.has_value());
-    CHECK_THAT(std::string{big.error().message()}, ContainsSubstring("out of range"));
-    auto const var = detail::parse_dbc_response(R"({
-        "status": "success",
-        "dbc": {"version": "1.0", "messages": [],
-                "environmentVars": [{"name": "Wide", "varType": 18446744073709551615,
-                                     "initial": 0, "minimum": 0, "maximum": 0}]}
-    })");
-    REQUIRE_FALSE(var.has_value());
-    CHECK_THAT(std::string{var.error().message()}, ContainsSubstring("varType is out of range"));
+    auto const extracted = [](std::string_view numerator, std::string_view denominator) {
+        return detail::parse_extraction(
+            R"({"status": "success", "values": [{"name": "S", "value": {"numerator": )" +
+            std::string{numerator} + R"(, "denominator": )" + std::string{denominator} +
+            R"(}}], "errors": [], "absent": []})");
+    };
+    constexpr auto largest = std::numeric_limits<unsigned __int128>::max();
+    auto const whole = extracted("-340282366920938463463374607431768211455",
+                                 "340282366920938463463374607431768211454");
+    REQUIRE(whole.has_value());
+    REQUIRE(whole->values.size() == 1);
+    auto const& value = whole->values[0].value.get();
+    CHECK(value.negative());
+    CHECK(value.numerator() == largest);
+    CHECK(value.denominator() == largest - 1);
+    for (auto const& [numerator, denominator] :
+         {std::pair{"340282366920938463463374607431768211456", "1"},
+          std::pair{"1", "340282366920938463463374607431768211456"}}) {
+        auto const past = extracted(numerator, denominator);
+        REQUIRE_FALSE(past.has_value());
+        CHECK(past.error().message() == "reply values/value: expected a rational, got object");
+    }
 }

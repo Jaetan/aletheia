@@ -6,7 +6,8 @@
 --
 -- Purpose: Facade re-exporting all proof lemmas about batch extraction/building
 --   operations from per-topic submodules.
--- Submodules: Roundtrip, Completeness, ReasonParity, WireFits, Capstone.
+-- Submodules: Roundtrip, Completeness, ReasonParity, WireFits, IndexBound,
+--   Capstone.
 --
 -- Proof flow:
 --   1. a loaded DBC is a ValidDBC, carrying IsValidDBC
@@ -58,6 +59,27 @@ open import Aletheia.CAN.Batch.Properties.WireFits public using
   ; combinePartitioned-All
   ; extractAllSignalsFromMessage-values-fit
   ; extractAllSignals-values-fit
+  )
+
+-- Every index the binary extraction reply carries names a signal of its
+-- message, and the DBC reply writes that signal's name at that index
+open import Aletheia.CAN.Batch.Properties.IndexBound public using
+  ( KeysAll
+  ; categorizeWith-keys
+  ; extractIndexedFrom-below
+  ; extractAllSignalsIndexedFromMessage-below
+  ; IndexedBelow
+  ; extractAllSignalsIndexed-below
+  ; signalEntryName
+  ; signalNameAt
+  ; formatDBCMessage-signals
+  ; formatDBCSignal-name
+  ; formatDBCSignals-length
+  ; formatDBCSignals-name-at
+  ; NamedAt
+  ; named-below
+  ; IndexedNamed
+  ; extractAllSignalsIndexed-named
   )
 
 -- Capstone theorem: IsValidDBC → batch roundtrip

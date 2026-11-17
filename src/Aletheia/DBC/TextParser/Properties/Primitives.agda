@@ -5,7 +5,7 @@
 -- Per-primitive roundtrip lemmas for the DBC text-format parser.
 --
 -- The module provides the identifier lemmas (`parseIdentifier-roundtrip`,
--- `parseWord-roundtrip`, the `atMost` and decision steps they rest on),
+-- `parseWord-roundtrip`, the run and decision steps they rest on),
 -- the keyword helpers (`char-matches`, `parseCharsSeq-success`,
 -- `string-success`, `string-*>-success`), the `<|>` and bind reduction
 -- lemmas, the one-space and one-tab `parseWS` lemmas, and
@@ -31,9 +31,9 @@ open import Data.Char using () renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Properties using (toℕ-injective)
 open import Data.List using (foldr; length)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.Nat using (ℕ; zero; suc; _≤_; z≤n; s≤s; _∸_; _<ᵇ_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _≤_; z≤n; s≤s; _∸_; _<ᵇ_)
 open import Data.Nat.Properties using
-  (≡⇒≡ᵇ; ≡ᵇ⇒≡; m≤n⇒m≤1+n; m≤m+n; ≤-trans; <ᵇ⇒<; <⇒≤pred)
+  (≡⇒≡ᵇ; ≡ᵇ⇒≡; m≤n⇒m≤1+n; m≤m+n; ≤-trans; <ᵇ⇒<; <⇒≤pred; +-suc)
 open import Data.Unit using (tt)
 open import Relation.Nullary.Decidable using (⌊_⌋; yes; no)
 open import Relation.Nullary using (¬_)
@@ -47,7 +47,7 @@ open import Aletheia.DBC.Identifier using
   (Identifier; parseIdentifierField; parseIdentifierField-on-valid;
    isIdentStart; isIdentCont; isWordᵇ; isKeywordᵇ; validIdentifierᵇ; allᵇ)
 open import Aletheia.DBC.TextParser.Lexer using
-  (parseIdentifier; parseIdentifier-start; parseWord; identRun; decideRun; decideName; atMost;
+  (parseIdentifier; parseIdentifier-start; parseWord; identRun; decideName; runFrom;
    parseStringLit; parseStringChar; parseWS; isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; escapeChar-chars)
@@ -56,7 +56,7 @@ open import Aletheia.DBC.TextFormatter.Emitter using
 -- `(cs : List Char)` and parses back to the same `cs` — so no `fromList∘toList`
 -- step is needed anywhere, and this module stays `--safe`.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; []-stop; ∷-stop; bind-just-step;
+  (SuffixStops; ∷-stop; bind-just-step;
    manyHelper-satisfy-exhaust-many;
    advancePositions-++)
 open import Aletheia.Parser.Position.Properties using (samePosᵇ-advance; samePosᵇ-advance2)
@@ -110,8 +110,8 @@ valid-length cs valid =
     (proj₁ (T-∧-split {length cs <ᵇ suc max-identifier-length} {not (isKeywordᵇ cs)}
       (proj₂ (T-∧-split {isWordᵇ cs} valid)))))
 
--- Its tail has at most `max-identifier-length ∸ 1`: the count `atMost` is
--- given in `parseIdentifier`.  `pred n` is `n ∸ 1` by definition.
+-- Its tail has at most `max-identifier-length ∸ 1`: the count `runFrom` is
+-- given in `identRun`.  `pred n` is `n ∸ 1` by definition.
 valid-tail-length : ∀ (h : Char) (t : List Char) → T (validIdentifierᵇ (h ∷ t))
   → length t ≤ max-identifier-length ∸ 1
 valid-tail-length h t valid = <⇒≤pred (valid-length (h ∷ t) valid)
@@ -158,39 +158,30 @@ satisfy-success-T : ∀ (P : Char → Bool) (pos : Position) (h : Char) (cs : Li
 satisfy-success-T P pos h cs ph rewrite T→true ph = refl
 
 -- ============================================================================
--- atMost on a run that stops, and the decision after the run
+-- The run reader on a run that stops
 -- ============================================================================
 
--- `atMost n pred` on `t ++ₗ suffix` reads exactly `t` when every element of
--- `t` satisfies `pred`, `t` is within the count, and the suffix stops it.
--- Induction on `t` and `n` together; the `(c ∷ t) / suc n` step rewrites
--- `pred c` to `true` and reuses the tail's result.
-atMost-exhaust : ∀ (n : ℕ) (pred : Char → Bool) (pos : Position)
-                   (t suffix : List Char)
-  → All (λ c → pred c ≡ true) t
+-- `runFrom start k n` on `t ++ₗ suffix` reads exactly `t` when every
+-- element of `t` is a continuation character, `t` is within the count, and
+-- the suffix stops it.  Induction on `t` and `n` together; the
+-- `(c ∷ t) / suc n` step rewrites `isIdentCont c` to `true` and reuses the
+-- tail's result.
+runFrom-exhaust : ∀ (start : Position) (k n : ℕ) .(eq : k + n ≡ max-identifier-length)
+                    (pos : Position) (t suffix : List Char)
+  → All (λ c → isIdentCont c ≡ true) t
   → length t ≤ n
-  → SuffixStops pred suffix
-  → proj₂ (atMost n pred pos (t ++ₗ suffix))
-    ≡ just (mkResult t (advancePositions pos t) suffix)
-atMost-exhaust zero    pred pos []      []      _  _ _ = refl
-atMost-exhaust (suc n) pred pos []      []      _  _ _ = refl
-atMost-exhaust zero    pred pos []      (c ∷ _) _  _ _ = refl
-atMost-exhaust (suc n) pred pos []      (c ∷ _) _  _ (∷-stop pc) rewrite pc = refl
-atMost-exhaust zero    pred pos (c ∷ t) suffix  _  () _
-atMost-exhaust (suc n) pred pos (c ∷ t) suffix (pc ∷ pt) (s≤s len≤) ss
-  rewrite pc
-  with atMost n pred (advancePosition pos c) (t ++ₗ suffix)
-     | atMost-exhaust n pred (advancePosition pos c) t suffix pt len≤ ss
-... | _ , just _ | refl = refl
-
--- `decideRun` on a suffix that stops `isIdentCont` is the decision itself:
--- no further identifier character follows the run.
-decideRun-stops : ∀ (start : Position) (run : List Char) (pos : Position)
-                    (suffix : List Char)
   → SuffixStops isIdentCont suffix
-  → proj₂ (decideRun start run pos suffix) ≡ proj₂ (decideName start run pos suffix)
-decideRun-stops start run pos []      []-stop      = refl
-decideRun-stops start run pos (c ∷ _) (∷-stop pc) rewrite pc = refl
+  → proj₂ (runFrom start k n eq pos (t ++ₗ suffix))
+    ≡ just (mkResult t (advancePositions pos t) suffix)
+runFrom-exhaust start k n       eq pos []      []      _  _ _ = refl
+runFrom-exhaust start k zero    eq pos []      (c ∷ _) _  _ (∷-stop pc) rewrite pc = refl
+runFrom-exhaust start k (suc n) eq pos []      (c ∷ _) _  _ (∷-stop pc) rewrite pc = refl
+runFrom-exhaust start k zero    eq pos (c ∷ t) suffix  _  () _
+runFrom-exhaust start k (suc n) eq pos (c ∷ t) suffix (pc ∷ pt) (s≤s len≤) ss
+  rewrite pc
+  with runFrom start (suc k) n (trans (sym (+-suc k n)) eq) (advancePosition pos c) (t ++ₗ suffix)
+     | runFrom-exhaust start (suc k) n (trans (sym (+-suc k n)) eq) (advancePosition pos c) t suffix pt len≤ ss
+... | _ , just _ | refl = refl
 
 -- `decideName` on a valid Identifier's own characters returns it where it
 -- stands, consuming nothing: `parseIdentifierField-on-valid`.
@@ -209,15 +200,14 @@ decideName-valid start i pos input
 -- Parsing a valid Identifier's characters concatenated with a stopping
 -- suffix returns that Identifier plus the untouched suffix.  `identRun`
 -- reads exactly the characters (one `bind-just-step` per stage, `satisfy
--- isIdentStart` then `atMost (max-identifier-length ∸ 1) isIdentCont`, the
--- `pure` definitional), `decideRun` sees the suffix stop, and `decideName`
--- accepts the run, chained via `trans`.  `subst` on `sym cs-eq` lifts the
+-- isIdentStart` then `runFrom` over the continuation characters, the `pure`
+-- definitional), and `decideName` accepts the run, chained via `trans`.  `subst` on `sym cs-eq` lifts the
 -- concrete-shape proof (`h ∷ t` form) back to the `Identifier.name i` form
 -- the public theorem advertises; `Identifier.name : List Char` is the
 -- substrate the parser machinery operates on, so no `toList` wrap is needed.
 
 -- Lift `All (T ∘ P) xs` to `All (λ c → P c ≡ true) xs`, the form
--- `manyHelper-satisfy-exhaust-many` and `atMost-exhaust` demand.
+-- `manyHelper-satisfy-exhaust-many` and `runFrom-exhaust` demand.
 private
   T-All→≡true : ∀ {P : Char → Bool} {xs : List Char}
              → All (T ∘ P) xs
@@ -256,42 +246,46 @@ parseIdentifier-roundtrip pos i suffix ss
     tail-len = valid-tail-length h t
                  (subst (λ cs → T (validIdentifierᵇ cs)) cs-eq (Identifier.valid i))
 
+    -- The continuation characters, read from the name's first.
+    tail-run : Parser (List Char)
+    tail-run = runFrom pos 1 tail-count refl
+
     -- satisfy isIdentStart consumes h, advancing to pos' with tail t++suffix.
     run-satisfy :
-      proj₂ (identRun pos ((h ∷ t) ++ₗ suffix))
-      ≡ proj₂ ((atMost tail-count isIdentCont >>= λ t' → pure (h ∷ t'))
+      proj₂ (identRun pos pos ((h ∷ t) ++ₗ suffix))
+      ≡ proj₂ ((tail-run >>= λ t' → pure (h ∷ t'))
                  pos' (t ++ₗ suffix))
     run-satisfy =
       bind-just-step (satisfy isIdentStart)
-                     (λ h' → atMost tail-count isIdentCont >>= λ t' → pure (h' ∷ t'))
+                     (λ h' → tail-run >>= λ t' → pure (h' ∷ t'))
                      pos ((h ∷ t) ++ₗ suffix)
                      h pos' (t ++ₗ suffix)
                      (satisfy-success-T isIdentStart pos h (t ++ₗ suffix) start)
 
-    -- atMost consumes exactly t, advancing to pos'' with suffix; the `pure`
-    -- then yields the run where it stands.
-    run-atMost :
-      proj₂ ((atMost tail-count isIdentCont >>= λ t' → pure (h ∷ t'))
+    -- The run reader consumes exactly t, advancing to pos'' with suffix;
+    -- the `pure` then yields the run where it stands.
+    run-tail :
+      proj₂ ((tail-run >>= λ t' → pure (h ∷ t'))
                pos' (t ++ₗ suffix))
       ≡ just (mkResult (h ∷ t) pos'' suffix)
-    run-atMost =
-      bind-just-step (atMost tail-count isIdentCont)
+    run-tail =
+      bind-just-step tail-run
                      (λ t' → pure (h ∷ t'))
                      pos' (t ++ₗ suffix)
                      t pos'' suffix
-                     (atMost-exhaust tail-count isIdentCont pos' t suffix
+                     (runFrom-exhaust pos 1 tail-count refl pos' t suffix
                         (T-All→≡true conts) tail-len ss)
 
     -- The run read, the decision runs at pos'' on the suffix.
     step-run :
       proj₂ (parseIdentifier pos ((h ∷ t) ++ₗ suffix))
-      ≡ proj₂ (decideRun pos (h ∷ t) pos'' suffix)
+      ≡ proj₂ (decideName pos (h ∷ t) pos'' suffix)
     step-run =
       trans (cong proj₂ (parseIdentifier-start pos h (t ++ₗ suffix) (T→true start)))
-            (bind-just-step identRun (decideRun pos)
+            (bind-just-step (identRun pos) (decideName pos)
                             pos ((h ∷ t) ++ₗ suffix)
                             (h ∷ t) pos'' suffix
-                            (trans run-satisfy run-atMost))
+                            (trans run-satisfy run-tail))
 
     -- The decision accepts the Identifier's own characters.
     step-decide :
@@ -306,9 +300,7 @@ parseIdentifier-roundtrip pos i suffix ss
     concrete-proof :
       proj₂ (parseIdentifier pos ((h ∷ t) ++ₗ suffix))
       ≡ just (mkResult i (advancePositions pos (h ∷ t)) suffix)
-    concrete-proof =
-      trans step-run
-        (trans (decideRun-stops pos (h ∷ t) pos'' suffix ss) step-decide)
+    concrete-proof = trans step-run step-decide
 
 -- ============================================================================
 -- parseWord-roundtrip

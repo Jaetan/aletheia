@@ -103,8 +103,14 @@ fn scan_trace_size(
 /// `BrakePressure` bound in `Three predicates` is the rational `13107/2`.
 fn complexity_levels() -> Vec<(&'static str, Vec<Formula>)> {
     let implication = Formula::Always(Box::new(Formula::implies(
-        Formula::Atomic(Predicate::less_than("EngineSpeed", Rational::integer(1000))),
-        Formula::Atomic(Predicate::less_than("EngineTemp", Rational::integer(100))),
+        Formula::Atomic(Predicate::LessThan {
+            signal: "EngineSpeed".to_string(),
+            value: Rational::integer(1000),
+        }),
+        Formula::Atomic(Predicate::LessThan {
+            signal: "EngineTemp".to_string(),
+            value: Rational::integer(100),
+        }),
     )));
     vec![
         (

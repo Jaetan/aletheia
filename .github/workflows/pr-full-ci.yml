@@ -246,16 +246,20 @@ jobs:
       # the latest stable Clang (23, see cpp/CMakeLists.txt + AGENTS/cpp.md), so
       # install clang-23 from apt.llvm.org.  libstdc++-15-dev provides the C++23
       # libstdc++ (std::expected / std::format) clang auto-selects; g++ is NOT
-      # installed (cgo + GHC use cc/gcc-13).  run_ci invokes clang-23 /
+      # installed (cgo uses cc/gcc-13; the kernel library's C is clang-23's,
+      # haskell-shim/cabal.project).  run_ci invokes clang-23 /
       # clang-tidy-23 explicitly and routes clang-format through the venv-pinned
-      # binary, so no update-alternatives is needed.  Adjust on red runs.
+      # binary, so no update-alternatives is needed.  libclang1-23 holds the
+      # libclang the reply-place gate reads the C++ binding through; clang-23
+      # depends on it, so the cached packages are the same with it named.
+      # Adjust on red runs.
       - name: Cache clang-23 .debs (Clang is a large download)
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
           key: clang23-libstdcxx15-noble-v2
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libstdc++-15-dev
 
       # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
       # / Catch2) for every C++ tree run_ci configures: the test build, the

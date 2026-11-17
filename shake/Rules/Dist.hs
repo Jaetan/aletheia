@@ -14,6 +14,18 @@ import Data.List (isInfixOf, stripPrefix)
 import Control.Monad (when, unless, forM, forM_)
 import Shared
 
+-- | The C recipe of docs/development/DISTRIBUTION.md, section "Compile and
+-- link", line for line, which README.txt and the dist report print:
+-- tools/check_dist_staging.py holds the two to one text.
+cRecipe :: [String]
+cRecipe =
+    [ "gcc -std=gnu23 -I/path/to/aletheia/include \\"
+    , "    -L/path/to/aletheia/lib \\"
+    , "    -Wl,-rpath,/path/to/aletheia/lib \\"
+    , "    -o my_app main.c \\"
+    , "    -laletheia-ffi -l:\"$(basename /path/to/aletheia/lib/libHSrts-*.so)\""
+    ]
+
 -- | Parse the digest-pinned base image from Dockerfile.runtime.
 -- Returns the image reference of the FIRST `FROM` line — the runtime
 -- stage's base (e.g. `python:3.14-slim@sha256:...`); later `FROM` lines
@@ -326,15 +338,16 @@ distRules = do
         let gitTreeStatus = if null (strip gitDirty) then "clean" else "dirty"
         let pad n s = s ++ replicate (max 0 (n - length s)) ' '
         let readmeFile = distDir </> "README.txt"
-        let readmeText = unlines
+        let readmeText = unlines $
                 [ "Aletheia"
                 , "========"
                 , ""
                 , "This tarball ships a pre-built Aletheia release artifact."
                 , ""
                 , "Contents:"
-                , "  lib/libaletheia-ffi.so     Verified Agda kernel + GHC runtime"
-                , "  lib/libHS*.so libffi.so.8  GHC runtime dependencies (RPATH=$ORIGIN)"
+                , "  lib/libaletheia-ffi.so     Verified Agda kernel and the C ABI (RPATH=$ORIGIN)"
+                , "  lib/libHSrts-*.so          GHC runtime, which defines hs_init"
+                , "  lib/libHS*.so libffi.so.8  The other Haskell libraries and libffi the two above need"
                 , "  licenses/                  License texts of the third-party code in lib/"
                 , "  include/aletheia.h         C ABI header (C / C++-via-C consumers)"
                 , "  bindings/python            Python package (pure ctypes, no build step)"
@@ -349,9 +362,9 @@ distRules = do
                 , ""
                 , "Quick start (from the unpacked tarball):"
                 , "  ./install.sh                # prints how to wire your shell + language"
-                , "  # or, for a C program directly against the C ABI:"
-                , "  gcc -Iinclude -Llib -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
-                , ""
+                , "  # or, for a C program against the C ABI, /path/to/aletheia being this directory:"
+                ] ++ map ("  " ++) cRecipe ++
+                [ ""
                 , "Verification (verify-then-trust order):"
                 , "  1. Tarball signature — see MANIFEST.txt Verification for the exact cosign"
                 , "     command (key-based or keyless, matching how this build was signed)"
@@ -527,9 +540,9 @@ distRules = do
             putInfo $ "      --signature " ++ tarSigFile ++ " " ++ tarball
             putInfo $ "    # Release (sign with ALETHEIA_COSIGN_TLOG=1, then verify without --insecure-ignore-tlog)"
         putInfo ""
-        putInfo "  Usage (no LD_LIBRARY_PATH needed — RPATH handles resolution):"
-        putInfo "    gcc -Idist/aletheia/include -Ldist/aletheia/lib \\"
-        putInfo "        -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
+        putInfo "  Usage from C, /path/to/aletheia being the absolute path of dist/aletheia (the RPATH"
+        putInfo "  finds the libraries, with no LD_LIBRARY_PATH):"
+        mapM_ (putInfo . ("    " ++)) cRecipe
         putInfo ""
 
     -- Native OS packages (.deb + .rpm) over the SAME payload the release

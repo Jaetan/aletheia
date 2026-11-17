@@ -3,397 +3,455 @@
 
 //! Decoding of the core's canonical DBC JSON into the typed `Dbc` document,
 //! and of the `parseDBCText` and `formatDBC` responses that carry it.
-
-use serde_json::Value;
+//!
+//! The DBC a reply carries sits at `dbc`, and every refusal names its place
+//! from there: a signal's field is at `dbc/messages/signals/<key>`. Every key
+//! the kernel writes is required, and each number or string is read by kind
+//! only, its range the kernel's, decided when it read the DBC and proven of
+//! every reply. A signal's byte order and presence, a comment target's kind,
+//! an attribute's kind, a definition's scope and type kind and an attribute's
+//! value kind and target kind are read by `field_word`, which refuses a word
+//! outside the place's words, every other tag as a string; one function
+//! dispatches each tag, its match naming every word the kernel writes at the
+//! place but the last, which the final arm reads.
 
 use super::{
-    extended_flag, AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment,
-    CommentTarget, Dbc, DbcMessage, DbcSignal, EnvironmentVar, Node, ParsedDbc, Presence,
+    AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
+    DbcMessage, DbcSignal, EnvironmentVar, Node, ParsedDbc, Presence, RawValueDescription,
     SignalGroup, ValueDescription, ValueTable,
 };
 use crate::error::Error;
-use crate::response::{parse_object, protocol, rational_from_value, str_field, u32_field};
-use crate::types::{Dlc, Rational, MAX_EXTENDED_ID, MAX_STANDARD_ID};
+use crate::reply_shape::{
+    came, field_array, field_bool, field_i64, field_natural, field_naturals, field_object,
+    field_object_of, field_objects, field_rational, field_sign_magnitude, field_string,
+    field_strings, field_word, refusal, ReplyPath, ReplyStatus, NUMBER, ROOT,
+};
+use crate::response::{decode_reply, read_issues};
+use crate::types::{CanId, Dlc};
+use crate::wire_json::Object;
 
-// ── Decode helpers ──────────────────────────────────────────────────────────
-
-fn arr<'a>(obj: &'a Value, key: &str) -> &'a [Value] {
-    obj.get(key)
-        .and_then(Value::as_array)
-        .map_or(&[], Vec::as_slice)
-}
-
-fn str_array(obj: &Value, key: &str) -> Vec<String> {
-    arr(obj, key)
-        .iter()
-        .filter_map(|v| v.as_str().map(ToString::to_string))
-        .collect()
-}
-
-fn i64_field(obj: &Value, key: &str) -> Result<i64, Error> {
-    obj.get(key)
-        .and_then(Value::as_i64)
-        .ok_or_else(|| protocol(format!("missing or non-integer field {key:?}")))
-}
-
-fn decode_value_descs(obj: &Value, key: &str) -> Result<Vec<ValueDescription>, Error> {
-    arr(obj, key)
-        .iter()
-        .map(|v| {
-            Ok(ValueDescription {
-                value: i64_field(v, "value")?,
-                description: str_field(v, "description"),
-            })
-        })
-        .collect()
-}
-
-pub(super) fn decode_presence(sig: &Value) -> Result<Presence, Error> {
-    match str_field(sig, "presence").as_str() {
-        "always" => Ok(Presence::Always),
-        "multiplexed" => {
-            let multiplexor = str_field(sig, "multiplexor");
-            if multiplexor.is_empty() {
-                return Err(protocol(
-                    "multiplexed signal requires a non-empty \"multiplexor\"",
-                ));
-            }
-            let raw = arr(sig, "multiplex_values");
-            if raw.is_empty() {
-                return Err(protocol(
-                    "multiplexed signal requires a non-empty \"multiplex_values\" array",
-                ));
-            }
-            let values = raw
-                .iter()
-                .map(|v| {
-                    let n = v
-                        .as_u64()
-                        .ok_or_else(|| protocol("multiplex_values entry is not a u64"))?;
-                    if n > u64::from(u32::MAX) {
-                        return Err(protocol(format!(
-                            "multiplex_values entry {n} exceeds u32 range (0-{})",
-                            u32::MAX
-                        )));
-                    }
-                    Ok(n)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Presence::Multiplexed {
-                multiplexor,
-                values,
-            })
-        }
-        other => Err(protocol(format!("unknown signal presence {other:?}"))),
-    }
-}
-
-fn decode_byte_order(sig: &Value) -> Result<ByteOrder, Error> {
-    match str_field(sig, "byteOrder").as_str() {
-        "little_endian" => Ok(ByteOrder::LittleEndian),
-        "big_endian" => Ok(ByteOrder::BigEndian),
-        other => Err(protocol(format!("unknown byteOrder {other:?}"))),
-    }
-}
-
-fn rational_field(obj: &Value, key: &str) -> Result<Rational, Error> {
-    obj.get(key)
-        .ok_or_else(|| protocol(format!("missing rational field {key:?}")))
-        .and_then(rational_from_value)
-}
-
-pub(super) fn decode_signal(sig: &Value) -> Result<DbcSignal, Error> {
-    let start_bit = u32_field(sig, "startBit")?;
-    if start_bit > 511 {
-        return Err(protocol(format!(
-            "startBit {start_bit} out of range (0-511)"
-        )));
-    }
-    let length = u32_field(sig, "length")?;
-    if !(1..=512).contains(&length) {
-        return Err(protocol(format!(
-            "bit length {length} out of range (1-512)"
-        )));
-    }
-    Ok(DbcSignal {
-        name: str_field(sig, "name"),
-        start_bit,
-        length,
-        byte_order: decode_byte_order(sig)?,
-        signed: sig.get("signed").and_then(Value::as_bool).unwrap_or(false),
-        factor: rational_field(sig, "factor")?,
-        offset: rational_field(sig, "offset")?,
-        minimum: rational_field(sig, "minimum")?,
-        maximum: rational_field(sig, "maximum")?,
-        unit: str_field(sig, "unit"),
-        receivers: str_array(sig, "receivers"),
-        value_descriptions: decode_value_descs(sig, "valueDescriptions")?,
-        presence: decode_presence(sig)?,
-    })
-}
-
-pub(super) fn decode_message(msg: &Value) -> Result<DbcMessage, Error> {
-    let signals = arr(msg, "signals")
-        .iter()
-        .map(decode_signal)
-        .collect::<Result<Vec<_>, _>>()?;
-    let extended = match msg.get("extended") {
-        None => false,
-        Some(v) => v
-            .as_bool()
-            .ok_or_else(|| protocol("message \"extended\" must be a boolean"))?,
-    };
-    let id = u32_field(msg, "id")?;
-    let max_id = if extended {
-        MAX_EXTENDED_ID
-    } else {
-        u32::from(MAX_STANDARD_ID)
-    };
-    if id > max_id {
-        return Err(protocol(format!(
-            "CAN ID {id} exceeds {bits}-bit range (0-{max_id})",
-            bits = if extended { 29 } else { 11 }
-        )));
-    }
-    let dlc = u32_field(msg, "dlc")?;
-    Dlc::from_bytes(dlc as usize).map_err(|_| {
-        protocol(format!(
-            "DLC byte count {dlc} is not a valid CAN/CAN-FD length"
-        ))
-    })?;
-    Ok(DbcMessage {
-        id,
-        extended,
-        name: str_field(msg, "name"),
-        dlc,
-        sender: str_field(msg, "sender"),
-        senders: str_array(msg, "senders"),
-        signals,
-    })
-}
-
-fn decode_comment_target(t: &Value) -> Result<CommentTarget, Error> {
-    match str_field(t, "kind").as_str() {
-        "network" => Ok(CommentTarget::Network),
-        "node" => Ok(CommentTarget::Node {
-            node: str_field(t, "node"),
-        }),
-        "message" => Ok(CommentTarget::Message {
-            id: u32_field(t, "id")?,
-            extended: extended_flag(t),
-        }),
-        "signal" => Ok(CommentTarget::Signal {
-            id: u32_field(t, "id")?,
-            extended: extended_flag(t),
-            signal: str_field(t, "signal"),
-        }),
-        "envVar" => Ok(CommentTarget::EnvVar {
-            env_var: str_field(t, "envVar"),
-        }),
-        other => Err(protocol(format!("unknown comment target kind {other:?}"))),
-    }
-}
-
-fn decode_comment(c: &Value) -> Result<Comment, Error> {
-    let target = c
-        .get("target")
-        .ok_or_else(|| protocol("comment missing 'target'"))
-        .and_then(decode_comment_target)?;
-    Ok(Comment {
-        target,
-        text: str_field(c, "text"),
-    })
-}
-
-fn decode_attr_scope(s: &str) -> Result<AttrScope, Error> {
-    match s {
-        "network" => Ok(AttrScope::Network),
-        "node" => Ok(AttrScope::Node),
-        "message" => Ok(AttrScope::Message),
-        "signal" => Ok(AttrScope::Signal),
-        "envVar" => Ok(AttrScope::EnvVar),
-        "nodeMsg" => Ok(AttrScope::NodeMsg),
-        "nodeSig" => Ok(AttrScope::NodeSig),
-        other => Err(protocol(format!("unknown attribute scope {other:?}"))),
-    }
-}
-
-fn decode_attr_type(t: &Value) -> Result<AttrType, Error> {
-    match str_field(t, "kind").as_str() {
-        "int" => Ok(AttrType::Int {
-            min: i64_field(t, "min")?,
-            max: i64_field(t, "max")?,
-        }),
-        "float" => Ok(AttrType::Float {
-            min: rational_field(t, "min")?,
-            max: rational_field(t, "max")?,
-        }),
-        "string" => Ok(AttrType::String),
-        "enum" => Ok(AttrType::Enum {
-            values: str_array(t, "values"),
-        }),
-        "hex" => Ok(AttrType::Hex {
-            min: i64_field(t, "min")?,
-            max: i64_field(t, "max")?,
-        }),
-        other => Err(protocol(format!("unknown attribute type kind {other:?}"))),
-    }
-}
-
-fn decode_attr_value(v: &Value) -> Result<AttrValue, Error> {
-    match str_field(v, "kind").as_str() {
-        "int" => Ok(AttrValue::Int(i64_field(v, "value")?)),
-        "float" => Ok(AttrValue::Float(rational_field(v, "value")?)),
-        "string" => Ok(AttrValue::String(str_field(v, "value"))),
-        "enum" => Ok(AttrValue::Enum(i64_field(v, "value")?)),
-        "hex" => Ok(AttrValue::Hex(i64_field(v, "value")?)),
-        other => Err(protocol(format!("unknown attribute value kind {other:?}"))),
-    }
-}
-
-fn decode_attr_target(t: &Value) -> Result<AttrTarget, Error> {
-    match str_field(t, "kind").as_str() {
-        "network" => Ok(AttrTarget::Network),
-        "node" => Ok(AttrTarget::Node {
-            node: str_field(t, "node"),
-        }),
-        "message" => Ok(AttrTarget::Message {
-            id: u32_field(t, "id")?,
-            extended: extended_flag(t),
-        }),
-        "signal" => Ok(AttrTarget::Signal {
-            id: u32_field(t, "id")?,
-            extended: extended_flag(t),
-            signal: str_field(t, "signal"),
-        }),
-        "envVar" => Ok(AttrTarget::EnvVar {
-            env_var: str_field(t, "envVar"),
-        }),
-        "nodeMsg" => Ok(AttrTarget::NodeMsg {
-            node: str_field(t, "node"),
-            id: u32_field(t, "id")?,
-            extended: extended_flag(t),
-        }),
-        "nodeSig" => Ok(AttrTarget::NodeSig {
-            node: str_field(t, "node"),
-            id: u32_field(t, "id")?,
-            extended: extended_flag(t),
-            signal: str_field(t, "signal"),
-        }),
-        other => Err(protocol(format!("unknown attribute target kind {other:?}"))),
-    }
-}
-
-fn decode_attribute(a: &Value) -> Result<Attribute, Error> {
-    match str_field(a, "kind").as_str() {
-        "definition" => Ok(Attribute::Definition {
-            name: str_field(a, "name"),
-            scope: decode_attr_scope(&str_field(a, "scope"))?,
-            attr_type: a
-                .get("attrType")
-                .ok_or_else(|| protocol("attribute definition missing 'attrType'"))
-                .and_then(decode_attr_type)?,
-        }),
-        "default" => Ok(Attribute::Default {
-            name: str_field(a, "name"),
-            value: a
-                .get("value")
-                .ok_or_else(|| protocol("attribute default missing 'value'"))
-                .and_then(decode_attr_value)?,
-        }),
-        "assignment" => Ok(Attribute::Assignment {
-            name: str_field(a, "name"),
-            target: a
-                .get("target")
-                .ok_or_else(|| protocol("attribute assignment missing 'target'"))
-                .and_then(decode_attr_target)?,
-            value: a
-                .get("value")
-                .ok_or_else(|| protocol("attribute assignment missing 'value'"))
-                .and_then(decode_attr_value)?,
-        }),
-        other => Err(protocol(format!("unknown attribute kind {other:?}"))),
-    }
-}
-
-pub(super) fn decode_env_var(e: &Value) -> Result<EnvironmentVar, Error> {
-    let var_type = i64_field(e, "varType")?;
-    if !(0..=2).contains(&var_type) {
-        return Err(protocol(format!(
-            "environment variable varType {var_type} out of range (0-2)"
-        )));
-    }
-    Ok(EnvironmentVar {
-        name: str_field(e, "name"),
-        var_type,
-        initial: rational_field(e, "initial")?,
-        minimum: rational_field(e, "minimum")?,
-        maximum: rational_field(e, "maximum")?,
-    })
-}
-
-fn decode_value_table(t: &Value) -> Result<ValueTable, Error> {
-    Ok(ValueTable {
-        name: str_field(t, "name"),
-        entries: decode_value_descs(t, "entries")?,
-    })
-}
-
-fn map_array<T>(
-    obj: &Value,
-    key: &str,
-    f: impl Fn(&Value) -> Result<T, Error>,
-) -> Result<Vec<T>, Error> {
-    arr(obj, key).iter().map(f).collect()
-}
-
-impl Dbc {
-    /// Decode a [`Dbc`] from the canonical-JSON `dbc` object.
-    pub(crate) fn from_value(obj: &Value) -> Result<Self, Error> {
-        Ok(Dbc {
-            version: str_field(obj, "version"),
-            messages: map_array(obj, "messages", decode_message)?,
-            nodes: arr(obj, "nodes")
-                .iter()
-                .map(|n| Node {
-                    name: str_field(n, "name"),
-                })
-                .collect(),
-            value_tables: map_array(obj, "valueTables", decode_value_table)?,
-            environment_vars: map_array(obj, "environmentVars", decode_env_var)?,
-            signal_groups: arr(obj, "signalGroups")
-                .iter()
-                .map(|g| SignalGroup {
-                    name: str_field(g, "name"),
-                    signals: str_array(g, "signals"),
-                })
-                .collect(),
-            comments: map_array(obj, "comments", decode_comment)?,
-            attributes: map_array(obj, "attributes", decode_attribute)?,
-            unresolved_value_descs: arr(obj, "unresolvedValueDescs").to_vec(),
-        })
-    }
-}
-
-/// Decode a `parseDBCText` response into the typed document plus any validation
-/// warnings the core reported.
+/// Decode a `parseDBCText` / `parseDBC` response into the typed document plus
+/// the warnings the core reported.
 pub(crate) fn decode_parsed_dbc(raw: &str) -> Result<ParsedDbc, Error> {
-    let obj = parse_object(raw)?;
-    let dbc = obj
-        .get("dbc")
-        .ok_or_else(|| protocol("parse response missing 'dbc'"))
-        .and_then(Dbc::from_value)?;
-    let warnings = arr(&obj, "warnings")
-        .iter()
-        .map(crate::response::decode_issue)
-        .collect::<Result<Vec<_>, Error>>()?;
+    let reply = decode_reply(raw, ReplyStatus::Success)?;
+    let dbc = field_object(&reply, ROOT, "dbc")?;
+    field_array(&reply, ROOT, "warnings")?;
+    let dbc = read_dbc(&dbc)?;
+    let warnings = read_issues(&reply, "warnings")?;
     Ok(ParsedDbc { dbc, warnings })
 }
 
 /// Decode a `formatDBC` response (`{"dbc": …}`) into the typed document.
 pub(crate) fn decode_format_dbc(raw: &str) -> Result<Dbc, Error> {
-    let obj = parse_object(raw)?;
-    obj.get("dbc")
-        .ok_or_else(|| protocol("formatDBC response missing 'dbc'"))
-        .and_then(Dbc::from_value)
+    let reply = decode_reply(raw, ReplyStatus::Success)?;
+    read_dbc(&field_object(&reply, ROOT, "dbc")?)
+}
+
+/// The DBC object of a reply, at `dbc`.
+fn read_dbc(dbc: &Object<'_>) -> Result<Dbc, Error> {
+    let path = ROOT.at("dbc");
+    let version = field_string(dbc, path, "version")?.into_owned();
+    let messages = field_objects(dbc, path, "messages", read_message)?;
+    let signal_groups = field_objects(dbc, path, "signalGroups", read_signal_group)?;
+    let environment_vars = field_objects(dbc, path, "environmentVars", read_environment_var)?;
+    let value_tables = field_objects(dbc, path, "valueTables", read_value_table)?;
+    let nodes = field_objects(dbc, path, "nodes", read_node)?;
+    let comments = field_objects(dbc, path, "comments", read_comment)?;
+    let attributes = field_objects(dbc, path, "attributes", read_attribute)?;
+    let unresolved_value_descs = field_objects(
+        dbc,
+        path,
+        "unresolvedValueDescs",
+        read_raw_value_description,
+    )?;
+    Ok(Dbc {
+        version,
+        messages,
+        nodes,
+        value_tables,
+        environment_vars,
+        signal_groups,
+        comments,
+        attributes,
+        unresolved_value_descs,
+    })
+}
+
+/// The identifier of the object at `path`: its `extended` flag, then `id` at
+/// the width the flag names, whose range the kernel proves. A number past the
+/// width's integer type, which the kernel never writes, is refused as the
+/// number the place does not hold.
+fn read_can_id(obj: &Object<'_>, path: ReplyPath<'_>) -> Result<CanId, Error> {
+    if field_bool(obj, path, "extended")? {
+        field_natural(obj, path, "id").map(CanId::Extended)
+    } else {
+        field_natural(obj, path, "id").map(CanId::Standard)
+    }
+}
+
+/// A message's byte count, one a length code stands for; a count no code
+/// stands for, which the kernel never writes, is refused as the number the
+/// place does not hold.
+fn read_dlc(message: &Object<'_>, path: ReplyPath<'_>) -> Result<u32, Error> {
+    let count: u32 = field_natural(message, path, "dlc")?;
+    if Dlc::from_bytes(count as usize).is_err() {
+        return Err(refusal(path.at("dlc"), NUMBER, came(message, "dlc")));
+    }
+    Ok(count)
+}
+
+/// One message at `path`, its signals included.
+fn read_message(message: &Object<'_>, path: ReplyPath<'_>) -> Result<DbcMessage, Error> {
+    let signals = field_objects(message, path, "signals", read_signal)?;
+    let name = field_string(message, path, "name")?.into_owned();
+    let id = read_can_id(message, path)?;
+    let dlc = read_dlc(message, path)?;
+    let sender = field_string(message, path, "sender")?.into_owned();
+    let senders = field_strings(message, path, "senders")?;
+    Ok(DbcMessage {
+        id: id.value(),
+        extended: id.is_extended(),
+        name,
+        dlc,
+        sender,
+        senders,
+        signals,
+    })
+}
+
+/// A signal's byte order, `big_endian` its last arm.
+fn byte_order(word: &str) -> ByteOrder {
+    match word {
+        "little_endian" => ByteOrder::LittleEndian,
+        _ => ByteOrder::BigEndian,
+    }
+}
+
+/// One signal at `path`.
+fn read_signal(signal: &Object<'_>, path: ReplyPath<'_>) -> Result<DbcSignal, Error> {
+    Ok(DbcSignal {
+        name: field_string(signal, path, "name")?.into_owned(),
+        start_bit: field_natural(signal, path, "startBit")?,
+        length: field_natural(signal, path, "length")?,
+        byte_order: byte_order(field_word(
+            signal,
+            path,
+            "byteOrder",
+            &["little_endian", "big_endian"],
+        )?),
+        signed: field_bool(signal, path, "signed")?,
+        factor: field_rational(signal, path, "factor")?,
+        offset: field_rational(signal, path, "offset")?,
+        minimum: field_rational(signal, path, "minimum")?,
+        maximum: field_rational(signal, path, "maximum")?,
+        unit: field_string(signal, path, "unit")?.into_owned(),
+        receivers: field_strings(signal, path, "receivers")?,
+        value_descriptions: field_objects(
+            signal,
+            path,
+            "valueDescriptions",
+            read_value_description,
+        )?,
+        presence: presence(
+            field_word(signal, path, "presence", &["always", "multiplexed"])?,
+            signal,
+            path,
+        )?,
+    })
+}
+
+/// The presence the kernel states for every signal, `multiplexed` its last
+/// arm, whose multiplexor is a string and whose selector values are whole
+/// numbers.
+fn presence(word: &str, signal: &Object<'_>, path: ReplyPath<'_>) -> Result<Presence, Error> {
+    match word {
+        "always" => Ok(Presence::Always),
+        _ => Ok(Presence::Multiplexed {
+            multiplexor: field_string(signal, path, "multiplexor")?.into_owned(),
+            values: field_naturals(signal, path, "multiplex_values")?,
+        }),
+    }
+}
+
+/// One signal group: its name and its members' names.
+fn read_signal_group(group: &Object<'_>, path: ReplyPath<'_>) -> Result<SignalGroup, Error> {
+    Ok(SignalGroup {
+        name: field_string(group, path, "name")?.into_owned(),
+        signals: field_strings(group, path, "signals")?,
+    })
+}
+
+/// One environment variable, its `varType` the tag the kernel proves it to
+/// be.
+fn read_environment_var(var: &Object<'_>, path: ReplyPath<'_>) -> Result<EnvironmentVar, Error> {
+    Ok(EnvironmentVar {
+        name: field_string(var, path, "name")?.into_owned(),
+        var_type: field_natural(var, path, "varType")?,
+        initial: field_rational(var, path, "initial")?,
+        minimum: field_rational(var, path, "minimum")?,
+        maximum: field_rational(var, path, "maximum")?,
+    })
+}
+
+/// One value description: a signed key and its text.
+fn read_value_description(
+    entry: &Object<'_>,
+    path: ReplyPath<'_>,
+) -> Result<ValueDescription, Error> {
+    Ok(ValueDescription {
+        value: field_sign_magnitude(entry, path, "value")?,
+        description: field_string(entry, path, "description")?.into_owned(),
+    })
+}
+
+/// One value table: its name and its entries.
+fn read_value_table(table: &Object<'_>, path: ReplyPath<'_>) -> Result<ValueTable, Error> {
+    Ok(ValueTable {
+        name: field_string(table, path, "name")?.into_owned(),
+        entries: field_objects(table, path, "entries", read_value_description)?,
+    })
+}
+
+/// One value description the text parser could not attach to a signal, at
+/// `path`: its CAN id read as a message's, its signal name and its entries.
+fn read_raw_value_description(
+    desc: &Object<'_>,
+    path: ReplyPath<'_>,
+) -> Result<RawValueDescription, Error> {
+    Ok(RawValueDescription {
+        id: read_can_id(desc, path)?,
+        signal_name: field_string(desc, path, "signalName")?.into_owned(),
+        entries: field_objects(desc, path, "entries", read_value_description)?,
+    })
+}
+
+/// One node.
+fn read_node(node: &Object<'_>, path: ReplyPath<'_>) -> Result<Node, Error> {
+    Ok(Node {
+        name: field_string(node, path, "name")?.into_owned(),
+    })
+}
+
+/// What a comment is attached to, `envVar` its last arm.
+fn comment_target(
+    word: &str,
+    target: &Object<'_>,
+    path: ReplyPath<'_>,
+) -> Result<CommentTarget, Error> {
+    match word {
+        "network" => Ok(CommentTarget::Network),
+        "node" => Ok(CommentTarget::Node {
+            node: field_string(target, path, "node")?.into_owned(),
+        }),
+        "message" => {
+            let id = read_can_id(target, path)?;
+            Ok(CommentTarget::Message {
+                id: id.value(),
+                extended: id.is_extended(),
+            })
+        }
+        "signal" => {
+            let id = read_can_id(target, path)?;
+            Ok(CommentTarget::Signal {
+                id: id.value(),
+                extended: id.is_extended(),
+                signal: field_string(target, path, "signal")?.into_owned(),
+            })
+        }
+        _ => Ok(CommentTarget::EnvVar {
+            env_var: field_string(target, path, "envVar")?.into_owned(),
+        }),
+    }
+}
+
+/// One comment: its target and its text.
+fn read_comment(comment: &Object<'_>, path: ReplyPath<'_>) -> Result<Comment, Error> {
+    let target = field_object_of(comment, path, "target", |target, place| {
+        let kind = field_word(
+            target,
+            place,
+            "kind",
+            &["network", "node", "message", "signal", "envVar"],
+        )?;
+        comment_target(kind, target, place)
+    })?;
+    let text = field_string(comment, path, "text")?.into_owned();
+    Ok(Comment { target, text })
+}
+
+/// An attribute definition's scope, `nodeSig` its last arm.
+fn attr_scope(word: &str) -> AttrScope {
+    match word {
+        "network" => AttrScope::Network,
+        "node" => AttrScope::Node,
+        "message" => AttrScope::Message,
+        "signal" => AttrScope::Signal,
+        "envVar" => AttrScope::EnvVar,
+        "nodeMsg" => AttrScope::NodeMsg,
+        _ => AttrScope::NodeSig,
+    }
+}
+
+/// An attribute definition's type, `hex` its last arm; an INT or HEX type is
+/// bounded by its integer `min` and `max`, a FLOAT type by its rational ones.
+fn attr_type(word: &str, attr_type: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrType, Error> {
+    match word {
+        "int" => Ok(AttrType::Int {
+            min: field_i64(attr_type, path, "min")?,
+            max: field_i64(attr_type, path, "max")?,
+        }),
+        "float" => Ok(AttrType::Float {
+            min: field_rational(attr_type, path, "min")?,
+            max: field_rational(attr_type, path, "max")?,
+        }),
+        "string" => Ok(AttrType::String),
+        "enum" => Ok(AttrType::Enum {
+            values: field_strings(attr_type, path, "values")?,
+        }),
+        _ => Ok(AttrType::Hex {
+            min: field_i64(attr_type, path, "min")?,
+            max: field_i64(attr_type, path, "max")?,
+        }),
+    }
+}
+
+/// An attribute's value, `hex` its last arm.
+fn attr_value(word: &str, value: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrValue, Error> {
+    match word {
+        "int" => Ok(AttrValue::Int(field_i64(value, path, "value")?)),
+        "float" => Ok(AttrValue::Float(field_rational(value, path, "value")?)),
+        "string" => Ok(AttrValue::String(
+            field_string(value, path, "value")?.into_owned(),
+        )),
+        "enum" => Ok(AttrValue::Enum(field_i64(value, path, "value")?)),
+        _ => Ok(AttrValue::Hex(field_i64(value, path, "value")?)),
+    }
+}
+
+/// What an attribute is assigned to, `nodeSig` its last arm; a target other
+/// than the network, a node or an environment variable carries a CAN id, read
+/// before the names beside it.
+fn attr_target(word: &str, target: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrTarget, Error> {
+    match word {
+        "network" => Ok(AttrTarget::Network),
+        "node" => Ok(AttrTarget::Node {
+            node: field_string(target, path, "node")?.into_owned(),
+        }),
+        "envVar" => Ok(AttrTarget::EnvVar {
+            env_var: field_string(target, path, "envVar")?.into_owned(),
+        }),
+        "message" => {
+            let id = read_can_id(target, path)?;
+            Ok(AttrTarget::Message {
+                id: id.value(),
+                extended: id.is_extended(),
+            })
+        }
+        "signal" => {
+            let id = read_can_id(target, path)?;
+            Ok(AttrTarget::Signal {
+                id: id.value(),
+                extended: id.is_extended(),
+                signal: field_string(target, path, "signal")?.into_owned(),
+            })
+        }
+        "nodeMsg" => {
+            let id = read_can_id(target, path)?;
+            Ok(AttrTarget::NodeMsg {
+                node: field_string(target, path, "node")?.into_owned(),
+                id: id.value(),
+                extended: id.is_extended(),
+            })
+        }
+        _ => {
+            let id = read_can_id(target, path)?;
+            Ok(AttrTarget::NodeSig {
+                node: field_string(target, path, "node")?.into_owned(),
+                id: id.value(),
+                extended: id.is_extended(),
+                signal: field_string(target, path, "signal")?.into_owned(),
+            })
+        }
+    }
+}
+
+/// One attribute entry at `path`: its kind and its name, then what the kind
+/// carries.
+fn read_attribute(attribute_entry: &Object<'_>, path: ReplyPath<'_>) -> Result<Attribute, Error> {
+    let kind = field_word(
+        attribute_entry,
+        path,
+        "kind",
+        &["definition", "default", "assignment"],
+    )?;
+    let name = field_string(attribute_entry, path, "name")?.into_owned();
+    attribute(kind, name, attribute_entry, path)
+}
+
+/// An attribute entry by its kind, `assignment` its last arm: a definition's
+/// scope and type, a default's value, an assignment's target and value.
+fn attribute(
+    word: &str,
+    name: String,
+    entry: &Object<'_>,
+    path: ReplyPath<'_>,
+) -> Result<Attribute, Error> {
+    match word {
+        "definition" => Ok(Attribute::Definition {
+            name,
+            scope: attr_scope(field_word(
+                entry,
+                path,
+                "scope",
+                &[
+                    "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig",
+                ],
+            )?),
+            attr_type: field_object_of(entry, path, "attrType", read_attr_type)?,
+        }),
+        "default" => Ok(Attribute::Default {
+            name,
+            value: field_object_of(entry, path, "value", read_attr_value)?,
+        }),
+        _ => Ok(Attribute::Assignment {
+            name,
+            target: field_object_of(entry, path, "target", read_attr_target)?,
+            value: field_object_of(entry, path, "value", read_attr_value)?,
+        }),
+    }
+}
+
+/// An attribute definition's type object at `path`, read by its kind.
+fn read_attr_type(type_entry: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrType, Error> {
+    let kind = field_word(
+        type_entry,
+        path,
+        "kind",
+        &["int", "float", "string", "enum", "hex"],
+    )?;
+    attr_type(kind, type_entry, path)
+}
+
+/// An attribute's value object at `path`, read by its kind.
+fn read_attr_value(value: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrValue, Error> {
+    let kind = field_word(
+        value,
+        path,
+        "kind",
+        &["int", "float", "string", "enum", "hex"],
+    )?;
+    attr_value(kind, value, path)
+}
+
+/// An attribute assignment's target object at `path`, read by its kind.
+fn read_attr_target(target: &Object<'_>, path: ReplyPath<'_>) -> Result<AttrTarget, Error> {
+    let kind = field_word(
+        target,
+        path,
+        "kind",
+        &[
+            "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig",
+        ],
+    )?;
+    attr_target(kind, target, path)
 }

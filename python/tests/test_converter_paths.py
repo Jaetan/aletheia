@@ -45,9 +45,10 @@ def _write_valid_dbc(tmp_path: Path) -> Path:
     return path
 
 
-# Parses cleanly but fails kernel validation with one error (duplicate signal
-# name 'S') and warnings (min > max on the first 'S'), so the error envelope
-# carries both issue severities.
+# Parses cleanly but fails kernel validation with errors (duplicate signal
+# name 'S', min > max on the first 'S') and warnings (the first 'S''s bits
+# carry values outside its range), so the error envelope carries both issue
+# severities.
 _VALIDATION_FAILING_DBC_TEXT = (
     'VERSION ""\n\nNS_ :\n\nBS_:\n\nBU_:\n\n'
     "BO_ 256 M: 8 ECU1\n"
@@ -55,13 +56,13 @@ _VALIDATION_FAILING_DBC_TEXT = (
     ' SG_ S : 8|8@1+ (1,0) [0|255] "" Vector__XXX\n'
 )
 
-# Parses AND validates successfully (no duplicate) but the single signal's
-# range is inverted (min 5 > max 1), a warning-severity issue — so the parse
-# succeeds and carries exactly one warning on its envelope.
+# Parses AND validates successfully but the single signal's bits carry values
+# above its declared maximum 100, a warning-severity issue, so the parse
+# succeeds and carries a warning on its envelope.
 _VALIDATION_WARNING_DBC_TEXT = (
     'VERSION ""\n\nNS_ :\n\nBS_:\n\nBU_:\n\n'
     "BO_ 256 M: 8 ECU1\n"
-    ' SG_ S : 0|8@1+ (1,0) [5|1] "" Vector__XXX\n'
+    ' SG_ S : 0|8@1+ (1,0) [0|100] "" Vector__XXX\n'
 )
 
 
@@ -111,16 +112,16 @@ def test_response_helper_returns_dbc_and_warnings() -> None:
     The shared ``dbc_and_warnings_from_response`` (which the CLI's load path
     and ``dbc_to_json`` both delegate to) must surface the parse warnings,
     not only the DBC body — the ``validate`` subcommand reads them as the
-    complete validation result without a second kernel pass. The inverted
-    range on the lone signal is a warning-severity issue, so the parse
-    succeeds and the returned warning list is non-empty.
+    complete validation result without a second kernel pass. The lone
+    signal's bits carry values above its declared maximum, a warning-severity
+    issue, so the parse succeeds and the returned warning list is non-empty.
     """
     with AletheiaClient() as client:
         response = client.parse_dbc_text(_VALIDATION_WARNING_DBC_TEXT)
     parsed_dbc, warnings = dbc_and_warnings_from_response(response, "warn.dbc")
     assert parsed_dbc["messages"], "the parsed DBC body must be returned"
     codes = {issue["code"] for issue in warnings}
-    assert "min_exceeds_max" in codes
+    assert "offset_scale_range" in codes
     assert all(issue["severity"] == "warning" for issue in warnings)
 
 

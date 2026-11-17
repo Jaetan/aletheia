@@ -321,8 +321,8 @@ parse nonNewlineRun   = many-parser (satisfy isNonNewline) >>= λ _ → pure tt
 -- `EmitsOK (many f) [] suffix` and the trailing-suffix branch of the
 -- non-empty case.  User-provided per-construct (cannot be derived from
 -- a single `firstChar` predicate — the prototypical depth-2 failure
--- `parseValueEntry pos (' ' ∷ ';' ∷ rest)` wins on `' '` at the head
--- but loses two binds in when `parseNatural` rejects `';'`).
+-- `parse ValueEntry-format pos (' ' ∷ ';' ∷ rest)` wins on `' '` at the
+-- head but loses binds in when the key rejects `';'`).
 -- Outcome level (`proj₂`): under the E2 watermark encoding the pair
 -- also carries the failure's depth, which is diagnostic metadata the
 -- certificate must not constrain.
@@ -474,10 +474,8 @@ mutual
     → proj₂ (parse f pos (emit f a ++ₗ suffix))
       ≡ just (mkResult a (advancePositions pos (emit f a)) suffix)
 
-  -- `manyHelper`-level roundtrip lemma, parametric over a Format.  Body
-  -- mirrors `manyHelper-parseValueEntry-body` from
-  -- `Properties/ValueTables/ValueTable.agda` but with `roundtrip f` in
-  -- place of the per-construct iter-eq lemma.  Inducts on the list `xs`
+  -- `manyHelper`-level roundtrip lemma, parametric over a Format, with
+  -- `roundtrip f` as the per-iteration step.  Inducts on the list `xs`
   -- with a measure at least as long as `xs`.  One iteration via `manyHelper-prog-cons`
   -- + recursive call on `xs`.
   manyHelper-roundtrip-list : ∀ {A} (f : Format A)

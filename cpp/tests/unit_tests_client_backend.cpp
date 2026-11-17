@@ -65,8 +65,8 @@ static auto streaming_client(std::initializer_list<char const*> frame_responses)
     }
     auto* mock = backend.get();
     auto client = required(AletheiaClient::create(std::move(backend)));
-    auto const prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    auto const prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     return {std::move(client), mock};
@@ -240,8 +240,8 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
     backend_a->queue_response(R"({"status":"ack"})");     // send_frame
     auto a = required(AletheiaClient::create(std::move(backend_a)));
 
-    auto const prop = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    auto const prop = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}}))));
     REQUIRE(a.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(a.start_stream(std::stop_token{}).has_value());
 
@@ -286,7 +286,7 @@ TEST_CASE("the public mock factory answers without anything queued", "[client][m
     SECTION("a frame request comes back as a payload of the size asked for") {
         auto const id = CanId{StandardId::create(0x100).value()};
         auto const dlc = Dlc::create(8).value();
-        auto const signals = SignalInjection::create({}, {}, {}).value();
+        auto const signals = SignalInjection::create({}, {}).value();
         auto const built = backend->build_frame_bin(state, id, dlc, signals, 8);
         REQUIRE(built.has_value());
         CHECK(built->size() == 8);
@@ -409,31 +409,30 @@ TEST_CASE("the backend state is released exactly once over a client's life", "[c
 
 TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][injection]") {
     std::vector<std::uint32_t> const indices{0, 1};
-    std::vector<std::int64_t> const numerators{1, 2};
-    std::vector<std::int64_t> const denominators{1, 2};
+    std::vector<Rational> const values{Rational{1, 1}, Rational{1, 2}};
 
-    SECTION("three arrays of equal length are accepted") {
-        auto const block = SignalInjection::create(indices, numerators, denominators);
+    SECTION("two arrays of equal length are accepted") {
+        auto const block = SignalInjection::create(indices, values);
         REQUIRE(block.has_value());
         CHECK(block->count() == 2);
         CHECK(block->indices().size() == 2);
+        CHECK(block->values().size() == 2);
     }
 
-    SECTION("a shorter numerator array is refused, not truncated") {
-        std::vector<std::int64_t> const short_numerators{1};
-        auto const block = SignalInjection::create(indices, short_numerators, denominators);
+    SECTION("a shorter value array is refused, not truncated") {
+        std::vector<Rational> const short_values{Rational{1, 1}};
+        auto const block = SignalInjection::create(indices, short_values);
         REQUIRE_FALSE(block.has_value());
         CHECK(block.error().kind() == ErrorKind::Validation);
-        CHECK(block.error().message().contains(
-            "differ in length: 2 indices, 1 numerators, 2 denominators"));
+        CHECK(block.error().message().contains("differ in length: 2 indices, 1 values"));
     }
 
-    SECTION("a shorter denominator array is refused too") {
-        std::vector<std::int64_t> const short_denominators{1};
-        auto const block = SignalInjection::create(indices, numerators, short_denominators);
+    SECTION("a shorter index array is refused too") {
+        std::vector<std::uint32_t> const short_indices{0};
+        auto const block = SignalInjection::create(short_indices, values);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().message().contains(
-            "differ in length: 2 indices, 2 numerators, 1 denominators"));
+        CHECK(block.error().kind() == ErrorKind::Validation);
+        CHECK(block.error().message().contains("differ in length: 1 indices, 2 values"));
     }
 }
 
@@ -443,7 +442,7 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
 // the lengths, so the refusal is exercised with a real length at no memory cost.
 TEST_CASE("SignalInjection refuses a block wider than the wire's count", "[client][injection]") {
     constexpr std::size_t count = std::size_t{1} << 32U;
-    constexpr auto bytes = count * sizeof(std::int64_t);
+    constexpr auto bytes = count * sizeof(Rational);
     auto* const region =
         mmap(nullptr, bytes, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (region == MAP_FAILED)
@@ -463,9 +462,9 @@ TEST_CASE("SignalInjection refuses a block wider than the wire's count", "[clien
     };
     Reservation const reservation{region, bytes};
     std::span<std::uint32_t const> const indices{static_cast<std::uint32_t const*>(region), count};
-    std::span<std::int64_t const> const values{static_cast<std::int64_t const*>(region), count};
+    std::span<Rational const> const values{static_cast<Rational const*>(region), count};
 
-    auto const block = SignalInjection::create(indices, values, values);
+    auto const block = SignalInjection::create(indices, values);
     REQUIRE_FALSE(block.has_value());
     CHECK(block.error().kind() == ErrorKind::Validation);
     CHECK(block.error().message() ==
@@ -484,7 +483,7 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
     // The mock ignores the injection contents; an empty block suffices.
-    auto const signals = SignalInjection::create({}, {}, {}).value();
+    auto const signals = SignalInjection::create({}, {}).value();
 
     {
         auto const result = mock.build_frame_bin(state, id, dlc, signals, 8);
@@ -521,7 +520,7 @@ TEST_CASE("MockBackend hands out queued frame buffers in order, each once", "[cl
     auto const state = required(mock.init());
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    auto const signals = SignalInjection::create({}, {}, {}).value();
+    auto const signals = SignalInjection::create({}, {}).value();
     mock.queue_frame_bytes({std::byte{0x01}});
     mock.queue_frame_bytes({std::byte{0x02}});
     auto const first = mock.build_frame_bin(state, id, dlc, signals, 8);
@@ -668,13 +667,13 @@ public:
 TEST_CASE("a client refuses a backend whose init returns no state, by name", "[client][mock]") {
     auto const client = AletheiaClient::create(std::make_unique<NullStateBackend>());
     CHECK(aletheia::detail::error_of(client).kind() == ErrorKind::Ffi);
-    CHECK(aletheia::detail::error_of(client).message() == "backend init() returned null state");
+    CHECK(aletheia::detail::error_of(client).message() == "aletheia_init returned null");
 }
 
 TEST_CASE("set_properties answers the backend's error and stops there", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(
-        R"({"status": "error", "code": "handler_validation_failed", "message": "bad"})");
+    mock->queue_response(R"({"status": "error", "code": "handler_validation_failed",)"
+                         R"( "message": "bad", "has_errors": true, "issues": []})");
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto const result = client.set_properties(std::stop_token{}, std::span<LtlFormula const>{});
     REQUIRE_FALSE(result.has_value());
@@ -683,10 +682,10 @@ TEST_CASE("set_properties answers the backend's error and stops there", "[client
 
 TEST_CASE("a stream that fails to start or end logs neither event", "[client][mock][log]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(
-        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
-    mock->queue_response(
-        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
+    mock->queue_response(R"({"status": "error", "code": "handler_validation_failed",)"
+                         R"( "message": "no", "has_errors": true, "issues": []})");
+    mock->queue_response(R"({"status": "error", "code": "handler_validation_failed",)"
+                         R"( "message": "no", "has_errors": true, "issues": []})");
     std::vector<std::string> events;
     Logger const logger([&](LogRecord const& r) { events.emplace_back(r.event); });
     auto client = required(AletheiaClient::create(std::move(mock), logger));

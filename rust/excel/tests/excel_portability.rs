@@ -10,7 +10,7 @@
 //! ever stored), parsed exactly by the kernel `from_decimal`, which is RTS-gated;
 //! the tests bring up a backend first.
 
-use aletheia::{check, ByteOrder, Client, Presence, Rational};
+use aletheia::{check, ByteOrder, Client, Presence, Rational, TimeBound};
 use aletheia_excel::{load_checks_from_excel, load_dbc_from_excel};
 
 fn demo() -> std::path::PathBuf {
@@ -31,7 +31,10 @@ fn demo_workbook_checks_match_the_builders() {
     // checks[0] is the first Checks-sheet row; checks[6] the first When-Then row.
     assert_eq!(
         checks[0].formula(),
-        check::signal("VehicleSpeed").never_exceeds(220).formula()
+        check::signal("VehicleSpeed")
+            .never_exceeds(220)
+            .expect("check")
+            .formula()
     );
     assert_eq!(checks[0].name(), "Speed limit");
     assert_eq!(checks[0].severity(), "safety");
@@ -42,7 +45,7 @@ fn demo_workbook_checks_match_the_builders() {
             .exceeds(50)
             .then("BrakeLight")
             .equals(1)
-            .within(100)
+            .within(TimeBound(100_000))
             .unwrap()
             .formula()
     );

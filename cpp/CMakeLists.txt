@@ -344,9 +344,12 @@ add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}
     src/json_serialize.cpp
     src/json_parse.cpp
     src/json_parse_dbc.cpp
+    src/property_check.cpp
     src/rational_renderer.cpp
+    src/reply_shape.cpp
     src/runtime_start.cpp
     src/types.cpp
+    src/wide_json.cpp
     src/yaml.cpp)
 
 target_include_directories(aletheia-cpp
@@ -391,7 +394,7 @@ target_link_libraries(aletheia-cpp
         $<BUILD_INTERFACE:OpenXLSX::OpenXLSX>)
 
 set_target_properties(aletheia-cpp PROPERTIES
-    SOVERSION 3
+    SOVERSION 4
     VERSION ${PROJECT_VERSION})
 
 # Namespaced alias so a downstream add_subdirectory() consumer links
@@ -530,6 +533,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/unit_tests_json_formula.cpp
         tests/unit_tests_json_rejects.cpp
         tests/unit_tests_json_guards.cpp
+        tests/unit_tests_wide_json.cpp
+        tests/unit_tests_reply_refusals_one_form.cpp
         tests/unit_tests_client.cpp
         tests/unit_tests_client_backend.cpp
         tests/unit_tests_enrich.cpp
@@ -585,7 +590,9 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
             tests/integration_tests_checks.cpp
             tests/integration_tests_nested_mux.cpp
             tests/integration_tests_end_of_stream.cpp
-            tests/integration_tests_geometry.cpp)
+            tests/integration_tests_geometry.cpp
+            tests/integration_tests_wide_numbers.cpp
+            tests/integration_tests_reply_places.cpp)
         target_link_libraries(unit_tests PRIVATE Threads::Threads)
         # The two loaders reach the binary only through their own suites: the
         # library links statically here, so an object no test references is
@@ -669,10 +676,13 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/integration_tests_nested_mux.cpp
         tests/integration_tests_end_of_stream.cpp
         tests/integration_tests_geometry.cpp
+        tests/integration_tests_wide_numbers.cpp
+        tests/integration_tests_reply_places.cpp
         tests/integration_tests_size_bounds.cpp)
+    # Its reply-place and wide-number cases read real replies with the binding's own readers.
     target_link_libraries(integration_tests
-        PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
-    target_include_directories(integration_tests PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
+        PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Threads::Threads Catch2::Catch2WithMain)
+    target_include_directories(integration_tests PRIVATE src ${ALETHEIA_KERNEL_HEADER_DIR})
     add_test(NAME integration_tests COMMAND integration_tests)
     set_tests_properties(integration_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
@@ -900,12 +910,15 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # ALETHEIA_REPO_ROOT and ALETHEIA_DOC_INCLUDE are runtime env vars (see
     # set_tests_properties below); the defines here come from CMake-resolved
     # tool paths and TARGET_FILE generator expressions, not from
-    # CMAKE_CURRENT_SOURCE_DIR.
+    # CMAKE_CURRENT_SOURCE_DIR.  A fence compiles in the dialect the library
+    # does, cxx_std_23 with CMake's extensions on: in strict -std=c++23,
+    # libstdc++ before 16 counts no unsigned __int128 as integral, which the
+    # library's Rational needs.
     target_compile_definitions(doc_example_tests
         PRIVATE
             ALETHEIA_DOC_CXX="${CMAKE_CXX_COMPILER}"
             ALETHEIA_DOC_LIB_FILE="$<TARGET_FILE:aletheia-cpp>"
-            ALETHEIA_DOC_CXX_STD="23"
+            ALETHEIA_DOC_CXX_STD_FLAG="${CMAKE_CXX23_EXTENSION_COMPILE_OPTION}"
             ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
     # The stand-in every fence runs against: it forwards each call to the
     # library and logs each refusal, which the harness holds to the codes the
@@ -937,64 +950,6 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         endforeach()
     endif()
 
-    # Benchmark (uses real FFI backend, requires libaletheia-ffi.so at runtime,
-    # loaded via dlopen. The CMake build will succeed without the .so, but the
-    # resulting binary will fail at startup with a dlopen error. Build the
-    # Haskell shim first with `cabal run shake -- build` from the repo root.)
-    add_executable(benchmark
-        benchmarks/benchmark.cpp
-        benchmarks/benchmark_fixtures.cpp
-        benchmarks/benchmark_stats.cpp
-        benchmarks/benchmark_output.cpp
-        benchmarks/benchmark_throughput.cpp
-        benchmarks/benchmark_latency.cpp
-        benchmarks/benchmark_scaling.cpp)
-    target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
-
-    # The benchmark program's exit status, held by running the built program:
-    # an argument it refuses, refused before the kernel is searched for, and a
-    # report its stdout refuses. The run that writes a report loads the kernel.
-    add_executable(benchmark_program_tests tests/benchmark_program_tests.cpp)
-    target_compile_features(benchmark_program_tests PRIVATE cxx_std_23)
-    target_link_libraries(benchmark_program_tests PRIVATE Catch2::Catch2WithMain)
-    target_compile_definitions(benchmark_program_tests
-        PRIVATE ALETHEIA_BENCHMARK_BIN="$<TARGET_FILE:benchmark>")
-    add_dependencies(benchmark_program_tests benchmark)
-    add_test(NAME benchmark_program_tests COMMAND benchmark_program_tests)
-    set_tests_properties(benchmark_program_tests PROPERTIES
-        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
-
-    # Stability benchmark (long-run leak detection).
-    # Same dlopen/.so requirement as `benchmark`.  Output is JSON to stdout.
-    add_executable(stability_bench benchmarks/stability_bench.cpp)
-    target_link_libraries(stability_bench PRIVATE aletheia-cpp)
-
-    # The stability harness's exit paths, each held by a run of the built
-    # harness in a process of its own. A snapshot fails, a descriptor leaks
-    # between the snapshots, or a measured cycle cannot load the kernel,
-    # through status_open_fault, a library the test preloads into the harness
-    # alone, so no case needs privilege. The harness loads the kernel the test
-    # names, or the stand-in that refuses every call.
-    add_library(status_open_fault SHARED tests/status_open_fault.cpp)
-    target_compile_features(status_open_fault PRIVATE cxx_std_23)
-    # The preload reads its counts with the harness's whole-number read, an
-    # inline function of the snapshot header, whose includes reach the
-    # library's headers; it links nothing of the library.
-    target_include_directories(status_open_fault PRIVATE src benchmarks include)
-    target_link_libraries(status_open_fault PRIVATE ${CMAKE_DL_LIBS})
-    add_executable(stability_bench_tests tests/stability_bench_tests.cpp)
-    target_compile_features(stability_bench_tests PRIVATE cxx_std_23)
-    target_link_libraries(stability_bench_tests
-        PRIVATE nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
-    target_compile_definitions(stability_bench_tests PRIVATE
-        ALETHEIA_STABILITY_BENCH="$<TARGET_FILE:stability_bench>"
-        ALETHEIA_STATUS_OPEN_FAULT="$<TARGET_FILE:status_open_fault>"
-        ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
-    add_dependencies(stability_bench_tests stability_bench status_open_fault)
-    add_test(NAME stability_bench_tests COMMAND stability_bench_tests)
-    set_tests_properties(stability_bench_tests PROPERTIES ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
-
-    message(STATUS
-        "benchmark + stability_bench targets require libaletheia-ffi.so at runtime: "
-        "build the Haskell shim first with `cabal run shake -- build`")
+    # The benchmark programs and the tests that run them.
+    include(tests/benchmark_programs.cmake)
 endif()

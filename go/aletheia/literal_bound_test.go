@@ -5,9 +5,9 @@
 
 // A command or a DBC text holding one long number is refused, and the process
 // that sent it lives. The kernel refuses a number whose rational components
-// pass the signed 64-bit range, and its refusal reports the measured magnitude
-// up to 2^64-1 and that ceiling past it, with "at least" before the ceiling in
-// the message. A command of about 100 KB whose one number has 100,001 digits
+// pass 2^128-1, and its refusal reports the measured magnitude up to that
+// bound and the bound itself past it, the message then naming no number. A
+// command of about 100 KB whose one number has 100,001 digits
 // gets that refusal, and so does a DBC text whose one VAL_ key has 100,000
 // digits, naming the field. Each is sent from a child, this same binary run
 // again with a variable set: a kernel that echoes or folds the number whole
@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,18 +92,17 @@ func TestLongLiteralRefusedAtTheCeiling(t *testing.T) {
 		t.Fatalf("the child ended with %v:\n%s", err, stderr.String())
 	}
 
-	_, err = decodeResponse(stdout.String(), "success")
+	_, err = decodeResponse(stdout.String(), statusSuccess)
 	var bex *InputBoundExceededError
 	if !errors.As(err, &bex) {
 		t.Fatalf("the reply is not a bound refusal: %v", err)
 	}
 	want := InputBoundExceededError{
 		BoundKind: BoundKindRationalComponentMagnitude,
-		Observed:  math.MaxUint64,
-		Limit:     MaxRationalComponentMagnitude,
+		Observed:  rationalBound,
+		Limit:     rationalBound,
 		Code:      CodeInputBoundExceeded,
-		Message: fmt.Sprintf("rational component magnitude at least %d exceeds limit %d",
-			uint64(math.MaxUint64), MaxRationalComponentMagnitude),
+		Message:   "rational component magnitude exceeds limit " + rationalBound.String(),
 	}
 	if *bex != want {
 		t.Fatalf("refusal = %+v, want %+v", *bex, want)
@@ -168,19 +166,18 @@ func TestLongDBCTextKeyRefusedAtTheCeiling(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("the child ended with %v:\n%s", err, stderr.String())
 	}
-	_, err = decodeResponse(stdout.String(), "success")
+	_, err = decodeResponse(stdout.String(), statusSuccess)
 	var bex *InputBoundExceededError
 	if !errors.As(err, &bex) {
 		t.Fatalf("the reply is not a bound refusal: %v", err)
 	}
 	want := InputBoundExceededError{
 		BoundKind: BoundKindRationalComponentMagnitude,
-		Observed:  math.MaxUint64,
-		Limit:     MaxRationalComponentMagnitude,
+		Observed:  rationalBound,
+		Limit:     rationalBound,
 		Code:      CodeInputBoundExceeded,
 		Field:     "value description key",
-		Message: fmt.Sprintf("ParseDBCText: value description key: rational component magnitude at least %d exceeds limit %d",
-			uint64(math.MaxUint64), MaxRationalComponentMagnitude),
+		Message:   "ParseDBCText: value description key: rational component magnitude exceeds limit " + rationalBound.String(),
 	}
 	if *bex != want {
 		t.Fatalf("refusal = %+v, want %+v", *bex, want)

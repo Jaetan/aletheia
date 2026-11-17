@@ -6,8 +6,10 @@
 package aletheia
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,17 +37,8 @@ func requireSameFormula(t *testing.T, got, want CheckResult) {
 	}
 }
 
-// mustCheck is a builder call that can refuse, in a fixture where it does not:
-// a refusal here is a mistake in the fixture, and the panic says where.
-func mustCheck(r CheckResult, err error) CheckResult {
-	if err != nil {
-		panic(err)
-	}
-	return r
-}
-
 // halves is a rational over two, for the decimal bounds below.
-func halves(n int64) Rational { return Rational{Numerator: n, Denominator: 2} }
+func halves(n int64) Rational { return ratOf(n, 2) }
 
 // Each written condition builds the check the builder of the same name builds,
 // with the decimals parsed exactly rather than rounded.
@@ -56,30 +49,30 @@ func TestLoadYAML_SimpleConditions(t *testing.T) {
 	}{
 		"never exceeds": {
 			"checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 220\n",
-			func(*testing.T) CheckResult { return CheckSignal("Speed").NeverExceeds(IntRational(220)) },
+			func(*testing.T) CheckResult { return must(CheckSignal("Speed").NeverExceeds(IntRational(220))) },
 		},
 		"never below, a decimal": {
 			"checks:\n  - signal: Voltage\n    condition: never_below\n    value: 11.5\n",
-			func(*testing.T) CheckResult { return CheckSignal("Voltage").NeverBelow(halves(23)) },
+			func(*testing.T) CheckResult { return must(CheckSignal("Voltage").NeverBelow(halves(23))) },
 		},
 		"never equals": {
 			"checks:\n  - signal: ErrorCode\n    condition: never_equals\n    value: 255\n",
-			func(*testing.T) CheckResult { return CheckSignal("ErrorCode").NeverEquals(IntRational(255)) },
+			func(*testing.T) CheckResult { return must(CheckSignal("ErrorCode").NeverEquals(IntRational(255))) },
 		},
 		"equals": {
 			"checks:\n  - signal: Gear\n    condition: equals\n    value: 0\n",
-			func(*testing.T) CheckResult { return CheckSignal("Gear").Equals(IntRational(0)).Always() },
+			func(*testing.T) CheckResult { return must(CheckSignal("Gear").Equals(IntRational(0)).Always()) },
 		},
 		"stays between, two decimals": {
 			"checks:\n  - signal: Voltage\n    condition: stays_between\n    min: 11.5\n    max: 14.5\n",
 			func(*testing.T) CheckResult {
-				return mustCheck(CheckSignal("Voltage").StaysBetween(halves(23), halves(29)))
+				return must(CheckSignal("Voltage").StaysBetween(halves(23), halves(29)))
 			},
 		},
 		"settles between": {
-			"checks:\n  - signal: CoolantTemp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_ms: 5000\n",
+			"checks:\n  - signal: CoolantTemp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_us: 5000000\n",
 			func(*testing.T) CheckResult {
-				return mustCheck(CheckSignal("CoolantTemp").SettlesBetween(IntRational(80), IntRational(100)).Within(5000))
+				return must(CheckSignal("CoolantTemp").SettlesBetween(IntRational(80), IntRational(100)).Within(TimeBound{Microseconds: 5_000_000}))
 			},
 		},
 	}
@@ -102,8 +95,8 @@ func TestLoadYAML_SeveralChecks(t *testing.T) {
 	if len(checks) != 2 {
 		t.Fatalf("the document carried %d checks, want two", len(checks))
 	}
-	requireSameFormula(t, checks[0], CheckSignal("Speed").NeverExceeds(IntRational(220)))
-	requireSameFormula(t, checks[1], mustCheck(CheckSignal("Voltage").StaysBetween(halves(23), halves(29))))
+	requireSameFormula(t, checks[0], must(CheckSignal("Speed").NeverExceeds(IntRational(220))))
+	requireSameFormula(t, checks[1], must(CheckSignal("Voltage").StaysBetween(halves(23), halves(29))))
 }
 
 // A trigger and an obligation build the check the builders of the same names
@@ -115,24 +108,24 @@ func TestLoadYAML_WhenThen(t *testing.T) {
 	}{
 		"exceeds, then equals": {
 			"checks:\n  - name: \"Brake response\"\n    when:\n      signal: BrakePedal\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 100\n",
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_us: 100000\n",
 			func(*testing.T) CheckResult {
-				return mustCheck(CheckWhen("BrakePedal").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(100))
+				return must(CheckWhen("BrakePedal").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(TimeBound{Microseconds: 100_000}))
 			},
 		},
 		"equals, then exceeds": {
 			"checks:\n  - when:\n      signal: Ignition\n      condition: equals\n      value: 1\n" +
-				"    then:\n      signal: RPM\n      condition: exceeds\n      value: 500\n    within_ms: 2000\n",
+				"    then:\n      signal: RPM\n      condition: exceeds\n      value: 500\n    within_us: 2000000\n",
 			func(*testing.T) CheckResult {
-				return mustCheck(CheckWhen("Ignition").Equals(IntRational(1)).Then("RPM").Exceeds(IntRational(500)).Within(2000))
+				return must(CheckWhen("Ignition").Equals(IntRational(1)).Then("RPM").Exceeds(IntRational(500)).Within(TimeBound{Microseconds: 2_000_000}))
 			},
 		},
 		"drops below, then stays between": {
 			"checks:\n  - when:\n      signal: FuelLevel\n      condition: drops_below\n      value: 10\n" +
-				"    then:\n      signal: FuelWarning\n      condition: stays_between\n      min: 1\n      max: 1\n    within_ms: 50\n",
+				"    then:\n      signal: FuelWarning\n      condition: stays_between\n      min: 1\n      max: 1\n    within_us: 50000\n",
 			func(*testing.T) CheckResult {
-				return mustCheck(CheckWhen("FuelLevel").DropsBelow(IntRational(10)).Then("FuelWarning").
-					StaysBetween(IntRational(1), IntRational(1)).Within(50))
+				return must(CheckWhen("FuelLevel").DropsBelow(IntRational(10)).Then("FuelWarning").
+					StaysBetween(IntRational(1), IntRational(1)).Within(TimeBound{Microseconds: 50_000}))
 			},
 		},
 	}
@@ -168,7 +161,7 @@ func TestLoadYAML_Metadata(t *testing.T) {
 		},
 		"both, on a trigger and an obligation": {
 			"checks:\n  - name: \"Brake response\"\n    when:\n      signal: BrakePedal\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 100\n    severity: safety\n",
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_us: 100000\n    severity: safety\n",
 			"Brake response", "safety",
 		},
 	}
@@ -207,7 +200,7 @@ func TestLoadYAML_FromAPath(t *testing.T) {
 			if len(checks) != 1 {
 				t.Fatalf("the file carried %d checks, want one", len(checks))
 			}
-			requireSameFormula(t, checks[0], CheckSignal("Speed").NeverExceeds(IntRational(220)))
+			requireSameFormula(t, checks[0], must(CheckSignal("Speed").NeverExceeds(IntRational(220))))
 		})
 	}
 
@@ -246,65 +239,65 @@ func TestLoadYAML_Refusals(t *testing.T) {
 			"checks:\n  - signal: Voltage\n    condition: stays_between\n    max: 14.5\n", "requires 'min' and 'max'",
 		},
 		"a settling with no range": {
-			"checks:\n  - signal: Temp\n    condition: settles_between\n    within_ms: 5000\n", "requires 'min' and 'max'",
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    within_us: 5000000\n", "requires 'min' and 'max'",
 		},
 		"a settling with no time": {
-			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n", "requires 'within_ms'",
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n", "requires 'within_us'",
 		},
 		"a trigger the vocabulary lacks": {
 			"checks:\n  - when:\n      signal: Brake\n      condition: bogus\n      value: 50\n" +
-				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 100\n",
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_us: 100000\n",
 			"unknown when condition 'bogus'",
 		},
 		"an obligation the vocabulary lacks": {
 			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: BrakeLight\n      condition: bogus\n      value: 1\n    within_ms: 100\n",
+				"    then:\n      signal: BrakeLight\n      condition: bogus\n      value: 1\n    within_us: 100000\n",
 			"unknown then condition 'bogus'",
 		},
 		"an obligation with no value": {
 			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: BrakeLight\n      condition: equals\n    within_ms: 100\n",
+				"    then:\n      signal: BrakeLight\n      condition: equals\n    within_us: 100000\n",
 			"then condition 'equals' requires 'value'",
 		},
 		"an obligation with half a range": {
 			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: Speed\n      condition: stays_between\n      max: 30\n    within_ms: 100\n",
+				"    then:\n      signal: Speed\n      condition: stays_between\n      max: 30\n    within_us: 100000\n",
 			"then condition 'stays_between' requires 'min' and 'max'",
 		},
 		"a trigger with no obligation": {
-			"checks:\n  - name: \"Incomplete\"\n    when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n    within_ms: 100\n",
+			"checks:\n  - name: \"Incomplete\"\n    when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n    within_us: 100000\n",
 			"must have 'signal' or 'when'/'then'",
 		},
 		"a trigger and an obligation with no time": {
 			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
 				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n",
-			"require 'within_ms'",
+			"require 'within_us'",
 		},
 		"a time that is not a whole number": {
-			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_ms: 1.5\n",
-			"check '<unnamed>': 'within_ms' must be a whole number, got \"1.5\"",
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_us: 1.5\n",
+			"Check '<unnamed>': invalid 'within_us': timebound 1.5 is not a whole number",
 		},
 		"a negative time": {
-			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_ms: -5\n",
-			"check '<unnamed>': 'within_ms' must be non-negative, got \"-5\"",
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_us: -5\n",
+			"Check '<unnamed>': invalid 'within_us': timebound -5 is negative",
 		},
 		"a trigger and an obligation with a time that is not a number": {
 			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 0x64\n",
-			"Check '<unnamed>': invalid 'within_ms': parse failed at line 1, column 2",
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_us: 0x64\n",
+			"Check '<unnamed>': invalid 'within_us': parse failed at line 1, column 2",
 		},
 		"a trigger and an obligation with a time that is not a whole number": {
 			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 2.5\n",
-			"check '<unnamed>': 'within_ms' must be a whole number, got \"2.5\"",
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_us: 2.5\n",
+			"Check '<unnamed>': invalid 'within_us': timebound 2.5 is not a whole number",
 		},
 		"a trigger and an obligation with a negative time": {
 			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: -1\n",
-			"check '<unnamed>': 'within_ms' must be non-negative, got \"-1\"",
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_us: -1\n",
+			"Check '<unnamed>': invalid 'within_us': timebound -1 is negative",
 		},
 		"a list where a time belongs": {
-			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_ms: [100]\n",
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_us: [100]\n",
 			"expected a numeric scalar value",
 		},
 		"a value that is not a number": {
@@ -312,18 +305,22 @@ func TestLoadYAML_Refusals(t *testing.T) {
 			"Check '<unnamed>': invalid 'value': parse failed at line 1, column",
 		},
 		"a bound that is not a number": {
-			"checks:\n  - signal: S\n    condition: settles_between\n    min: 0\n    max: .inf\n    within_ms: 100\n",
+			"checks:\n  - signal: S\n    condition: settles_between\n    min: 0\n    max: .inf\n    within_us: 100000\n",
 			"Check '<unnamed>': invalid 'max': parse failed at line 1, column",
 		},
 		"a trigger value that is not a number": {
 			"checks:\n  - when:\n      signal: A\n      condition: exceeds\n      value: .nan\n" +
-				"    then:\n      signal: B\n      condition: equals\n      value: 1\n    within_ms: 100\n",
+				"    then:\n      signal: B\n      condition: equals\n      value: 1\n    within_us: 100000\n",
 			"Check '<unnamed>': invalid 'value': parse failed at line 1, column",
 		},
 		"an obligation bound that is not a number": {
 			"checks:\n  - name: \"Lamp\"\n    when:\n      signal: A\n      condition: exceeds\n      value: 50\n" +
-				"    then:\n      signal: B\n      condition: stays_between\n      min: .nan\n      max: 1\n    within_ms: 100\n",
+				"    then:\n      signal: B\n      condition: stays_between\n      min: .nan\n      max: 1\n    within_us: 100000\n",
 			"Check 'Lamp': invalid 'min': parse failed at line 1, column",
+		},
+		"an inverted range": {
+			"checks:\n  - name: C\n    signal: S\n    condition: stays_between\n    min: 5\n    max: 1\n",
+			"Check 'C': between: min 5 exceeds max 1",
 		},
 		"a list where a value belongs": {
 			"checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: [1, 2]\n", "expected a numeric scalar value",
@@ -343,13 +340,21 @@ func TestLoadYAML_Refusals(t *testing.T) {
 	}
 }
 
-// A value whose numerator is past the kernel's component bound reaches the
-// caller as the kernel's typed bound refusal, unwrapped, the observed
-// magnitude saturated at the largest the kernel counts, and located at the
-// check and the key.
+// A value whose numerator is past the kernel's component bound, 2^128-1,
+// reaches the caller as the kernel's typed bound refusal, unwrapped, the
+// observed magnitude saturated at the bound, and located at the check and the
+// key.
 func TestLoadYAML_ValuePastTheComponentBound(t *testing.T) {
-	_, err := LoadChecksFromYAML("checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n")
-	bound := requireBoundExceeded(t, err, BoundKindRationalComponentMagnitude, 18446744073709551615, 9223372036854775807, "decimal")
+	_, err := LoadChecksFromYAML("checks:\n  - signal: S\n    condition: never_exceeds\n    value: 1" + strings.Repeat("0", 39) + "\n")
+	var bound *InputBoundExceededError
+	if !errors.As(err, &bound) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bound.BoundKind != BoundKindRationalComponentMagnitude || bound.Observed != rationalBound ||
+		bound.Limit != rationalBound || bound.Field != "decimal" {
+		t.Errorf("bound %s %s / %s field %q, want %s %s / %s field %q", bound.BoundKind, bound.Observed, bound.Limit,
+			bound.Field, BoundKindRationalComponentMagnitude, rationalBound, rationalBound, "decimal")
+	}
 	if bound.Location != "Check '<unnamed>'" || bound.Key != "value" {
 		t.Errorf("Location, Key = %q, %q, want %q, %q", bound.Location, bound.Key, "Check '<unnamed>'", "value")
 	}

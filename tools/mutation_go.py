@@ -42,7 +42,13 @@ import yaml
 
 from tools._common import CommandWord, EnvName, EnvValue, RelPath, git_ls_files
 from tools.mutation_cpp_slices import MutantCounts, Slice, partition
-from tools.mutation_report import MutantCount, MutationReport, Observed
+from tools.mutation_report import (
+    ArtifactName,
+    MutantCount,
+    MutationReport,
+    Observed,
+    one_file,
+)
 
 from aletheia.common_types import Prose
 
@@ -90,9 +96,6 @@ GREMLINS_BUCKETS: tuple[GremlinsBucket, ...] = get_args(GremlinsBucket)
 
 # A gremlins configuration file's text.
 GremlinsConfigText = NewType("GremlinsConfigText", str)
-
-# A report file's name, as a run writes it into its artifact directory.
-ArtifactName = NewType("ArtifactName", str)
 
 # The log of a sweep of the whole package, or of the shards' sweeps merged.
 GO_RAW_LOG = ArtifactName("go.raw.txt")
@@ -539,22 +542,14 @@ def record_go_shard(
     )
 
 
-def _one_file(directory: Path, name: ArtifactName) -> Path | Prose:
-    """Find the one file of that name under the directory, or say how many there are."""
-    found = sorted(directory.rglob(name))
-    if len(found) != 1:
-        return Prose(f"{len(found)} copies of {name} under {directory}, wanted one")
-    return found[0]
-
-
 def _read_go_shard(
     shards_dir: Path, artifact_dir: Path, number: ShardNumber
 ) -> tuple[ShardSweep, MutationReport] | Prose:
     """Copy one shard's record and log beside the merge and read them, or say what is wrong."""
-    record_path = _one_file(shards_dir, shard_record_name(number))
+    record_path = one_file(shards_dir, shard_record_name(number))
     if not isinstance(record_path, Path):
         return record_path
-    log_path = _one_file(shards_dir, shard_log_name(number))
+    log_path = one_file(shards_dir, shard_log_name(number))
     if not isinstance(log_path, Path):
         return log_path
     _ = shutil.copyfile(record_path, artifact_dir / record_path.name)

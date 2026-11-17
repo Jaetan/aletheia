@@ -30,15 +30,18 @@ from aletheia.client._ffi import (
     AletheiaFrame,
     AletheiaSignalValues,
     AletheiaText,
+    EntrySymbol,
+    KernelString,
     RTSState,
+    free_kernel_string,
     open_library,
     take_error_envelope,
+    wire_rationals,
 )
 from aletheia.client._refusal import raise_entry_refusal
 from aletheia.client._types import (
     AletheiaError,
     FFIError,
-    ProtocolError,
     StateError,
     encode_maybe_bool,
     validate_payload_length,
@@ -47,6 +50,7 @@ from aletheia.common_types import Prose
 from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
+    from fractions import Fraction
     from pathlib import Path
 
 
@@ -166,8 +170,7 @@ class Backend(Protocol):
         extended: bool,
         dlc: int,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Build a CAN frame returning raw payload bytes (no JSON)."""
@@ -182,8 +185,7 @@ class Backend(Protocol):
         dlc: int,
         data: bytes | bytearray,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Update specific signals in an existing frame returning raw payload bytes."""
@@ -213,21 +215,22 @@ class Backend(Protocol):
 # ---------------------------------------------------------------------------
 
 
-def _decode_and_free_response(lib: ctypes.CDLL, ptr: int) -> bytes:
-    """Read the C-string at ``ptr`` as ``bytes`` and free it.
+def _decode_and_free_response(lib: ctypes.CDLL, ptr: int, entry: EntrySymbol) -> bytes:
+    """Read the C-string ``entry`` answered at ``ptr`` as ``bytes`` and free it.
 
     Common shape for every ``aletheia_*`` C function that returns a
     JSON response via a ``void*`` to a UTF-8 C string allocated by
-    ``aletheia_free_str``-managed storage.
+    ``aletheia_free_str``-managed storage. A null string raises
+    :class:`FFIError` reading ``<entry> returned null``.
     """
     try:
         raw = ctypes.cast(ptr, ctypes.c_char_p).value
         if raw is None:
-            msg = "FFI returned null pointer"
-            raise ProtocolError(msg)
+            msg = f"{entry} returned null"
+            raise FFIError(msg)
         return raw
     finally:
-        lib.aletheia_free_str(ptr)
+        free_kernel_string(lib, KernelString(ptr))
 
 
 def _decode_out_err(
@@ -274,15 +277,13 @@ def _payload_frame(
 
 def _signal_values(
     indices: tuple[int, ...],
-    numerators: tuple[int, ...],
-    denominators: tuple[int, ...],
+    values: tuple[Fraction, ...],
 ) -> AletheiaSignalValues:
-    """Pack the parallel signal arrays into one ``struct aletheia_signal_values``."""
+    """Pack the signal indices and their values into one ``struct aletheia_signal_values``."""
     n = len(indices)
     return AletheiaSignalValues(
         indices=(ctypes.c_uint32 * n)(*indices),
-        numerators=(ctypes.c_int64 * n)(*numerators),
-        denominators=(ctypes.c_int64 * n)(*denominators),
+        values=wire_rationals(values),
         count=n,
     )
 
@@ -347,7 +348,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Allocate a fresh Agda session and return the raw ``void*`` address."""
         raw = self._lib.aletheia_init()
         if not raw:
-            msg = "aletheia_init() returned null — FFI initialization failed"
+            msg = "aletheia_init returned null"
             raise FFIError(msg)
         return raw
 
@@ -363,7 +364,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Send a JSON command string and return the JSON response bytes."""
         text = AletheiaText(input_bytes, len(input_bytes))
         result_ptr = self._lib.aletheia_process(ctypes.c_void_p(state), ctypes.byref(text))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(self._lib, result_ptr, EntrySymbol("aletheia_process"))
 
     def send_frame_binary(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
         self,
@@ -398,13 +399,13 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
             esi_value=esi_val,
         )
         result_ptr = self._lib.aletheia_send_frame(ctypes.c_void_p(state), ctypes.byref(frame))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(self._lib, result_ptr, EntrySymbol("aletheia_send_frame"))
 
     def send_error_binary(self, state: int, timestamp: int) -> bytes:
         """Send a CAN error event; returns the JSON response bytes."""
         frame = AletheiaFrame(timestamp=timestamp)
         result_ptr = self._lib.aletheia_send_error(ctypes.c_void_p(state), ctypes.byref(frame))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(self._lib, result_ptr, EntrySymbol("aletheia_send_error"))
 
     def send_remote_binary(
         self,
@@ -417,13 +418,14 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Send a CAN remote frame; returns the JSON response bytes."""
         frame = AletheiaFrame(timestamp=timestamp, can_id=can_id, extended=1 if extended else 0)
         result_ptr = self._lib.aletheia_send_remote(ctypes.c_void_p(state), ctypes.byref(frame))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(self._lib, result_ptr, EntrySymbol("aletheia_send_remote"))
 
     def start_stream_binary(self, state: int) -> bytes:
         """Begin streaming mode; returns the JSON response bytes."""
         return _decode_and_free_response(
             self._lib,
             self._lib.aletheia_start_stream(ctypes.c_void_p(state)),
+            EntrySymbol("aletheia_start_stream"),
         )
 
     def end_stream_binary(self, state: int) -> bytes:
@@ -431,6 +433,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         return _decode_and_free_response(
             self._lib,
             self._lib.aletheia_end_stream(ctypes.c_void_p(state)),
+            EntrySymbol("aletheia_end_stream"),
         )
 
     def format_dbc_binary(self, state: int) -> bytes:
@@ -438,6 +441,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         return _decode_and_free_response(
             self._lib,
             self._lib.aletheia_format_dbc(ctypes.c_void_p(state)),
+            EntrySymbol("aletheia_format_dbc"),
         )
 
     def extract_signals_binary(  # pylint: disable=too-many-arguments
@@ -452,7 +456,9 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Extract signals via the JSON-out path (no JSON on input)."""
         frame = _payload_frame(can_id=can_id, extended=extended, dlc=dlc, data=data)
         result_ptr = self._lib.aletheia_extract_signals(ctypes.c_void_p(state), ctypes.byref(frame))
-        return _decode_and_free_response(self._lib, result_ptr)
+        return _decode_and_free_response(
+            self._lib, result_ptr, EntrySymbol("aletheia_extract_signals")
+        )
 
     def build_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
         self,
@@ -462,24 +468,23 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         extended: bool,
         dlc: int,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Build a CAN frame from signal values; returns the packed payload bytes."""
         frame = AletheiaFrame(can_id=can_id, extended=1 if extended else 0, dlc=dlc)
-        values = _signal_values(indices, numerators, denominators)
+        packed = _signal_values(indices, values)
         out_buf = (ctypes.c_uint8 * expected_bytes)()
         out = AletheiaBuffer(data=out_buf, size=expected_bytes)
         status = self._lib.aletheia_build_frame_bin(
             ctypes.c_void_p(state),
             ctypes.byref(frame),
-            ctypes.byref(values),
+            ctypes.byref(packed),
             ctypes.byref(out),
         )
         if status != 0:
             _decode_out_err(self._lib, out, "build_frame failed")
-        return ctypes.string_at(out_buf, out.size)
+        return ctypes.string_at(out_buf, size=out.size)
 
     def update_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
         self,
@@ -490,24 +495,23 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         dlc: int,
         data: bytes | bytearray,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Update specified signals in ``data``; returns the new packed frame bytes."""
         frame = _payload_frame(can_id=can_id, extended=extended, dlc=dlc, data=data)
-        values = _signal_values(indices, numerators, denominators)
+        packed = _signal_values(indices, values)
         out_buf = (ctypes.c_uint8 * expected_bytes)()
         out = AletheiaBuffer(data=out_buf, size=expected_bytes)
         status = self._lib.aletheia_update_frame_bin(
             ctypes.c_void_p(state),
             ctypes.byref(frame),
-            ctypes.byref(values),
+            ctypes.byref(packed),
             ctypes.byref(out),
         )
         if status != 0:
             _decode_out_err(self._lib, out, "update_frame failed")
-        return ctypes.string_at(out_buf, out.size)
+        return ctypes.string_at(out_buf, size=out.size)
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
         self,
@@ -529,7 +533,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         if status != 0:
             _decode_out_err(self._lib, out, "extract_signals failed")
         try:
-            return ctypes.string_at(out.data, out.size)
+            return ctypes.string_at(out.data, size=out.size)
         finally:
             self._lib.aletheia_free_buf(out.data)
 
@@ -555,10 +559,13 @@ class MockBackend:  # pylint: disable=too-many-public-methods
     ```python
     from aletheia import AletheiaClient, MockBackend
 
-    backend = MockBackend([
-        b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parse_dbc
-        b'{"status":"ack"}',  # send_frame
-    ])
+    # The kernel's parse_dbc reply carries every list of the DBC, here empty.
+    parsed = (
+        b'{"status":"success","warnings":[],"dbc":{"version":"","messages":[],'
+        b'"signalGroups":[],"environmentVars":[],"valueTables":[],"nodes":[],'
+        b'"comments":[],"attributes":[],"unresolvedValueDescs":[]}}'
+    )
+    backend = MockBackend([parsed, b'{"status":"ack"}'])  # parse_dbc, then send_frame
     with AletheiaClient(backend=backend) as client:
         client.parse_dbc(dbc)
         client.send_frame(0, 0x100, 1, b"\x00")
@@ -631,7 +638,7 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         """
         self._inputs.append(input_bytes)
         if not self._responses:
-            starved = op if op is not None else input_bytes.decode("utf-8", "replace")
+            starved = op if op is not None else input_bytes.decode()
             msg = f"mock backend: no queued response for {starved}"
             raise StateError(msg)
         return self._responses.popleft()
@@ -718,12 +725,11 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         extended: bool,
         dlc: int,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Record a ``<binary:buildFrameBin>`` sentinel; return the queued packed frame bytes."""
-        del state, can_id, extended, dlc, indices, numerators, denominators, expected_bytes
+        del state, can_id, extended, dlc, indices, values, expected_bytes
         # The next queued response is treated as the packed frame bytes.
         return self._record_and_pop(b"<binary:buildFrameBin>")
 
@@ -736,12 +742,11 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         dlc: int,
         data: bytes | bytearray,
         indices: tuple[int, ...],
-        numerators: tuple[int, ...],
-        denominators: tuple[int, ...],
+        values: tuple[Fraction, ...],
         expected_bytes: int,
     ) -> bytes:
         """Record a ``<binary:updateFrameBin>`` sentinel; return the queued packed frame bytes."""
-        del state, can_id, extended, dlc, data, indices, numerators, denominators, expected_bytes
+        del state, can_id, extended, dlc, data, indices, values, expected_bytes
         return self._record_and_pop(b"<binary:updateFrameBin>")
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
@@ -756,8 +761,8 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         """Raise :class:`BinaryPathUnsupportedError` to trigger JSON fallback.
 
         Mirrors Go ``MockBackend.ExtractSignalsBin`` returning
-        ``ErrBinaryPathUnsupported`` (``go/aletheia/mock.go:222``); the
-        Client catches the sentinel and falls back to JSON.
+        ``ErrBinaryPathUnsupported`` (``go/aletheia/mock.go``); the Client
+        catches the sentinel and falls back to JSON.
         """
         del state, can_id, extended, dlc, data
         raise BinaryPathUnsupportedError(

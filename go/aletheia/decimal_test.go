@@ -14,29 +14,34 @@ package aletheia
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
 
 // Valid literals parse to the exact rational, canonicalised: a negative zero
 // is zero, trailing fraction zeros are trimmed, leading zeros are accepted,
-// and the largest int64 fits, as does its negation.
+// a magnitude past 64 bits is carried, and the magnitude bound 2^128-1 fits,
+// as does its negation.
 func TestFromDecimalSuccess(t *testing.T) {
 	cases := []struct {
-		in       string
-		num, den int64
+		in   string
+		want Rational
 	}{
-		{"3.14", 157, 50},
-		{"42", 42, 1},
-		{"0.1", 1, 10},
-		{"-3.14", -157, 50},
-		{"0", 0, 1},
-		{"-0", 0, 1},
-		{"0.000", 0, 1},
-		{"0.10", 1, 10},
-		{"00.1", 1, 10},
-		{"9223372036854775807", 9223372036854775807, 1},
-		{"-9223372036854775807", -9223372036854775807, 1},
+		{"3.14", ratOf(157, 50)},
+		{"42", ratOf(42, 1)},
+		{"0.1", ratOf(1, 10)},
+		{"-3.14", ratOf(-157, 50)},
+		{"0", ratOf(0, 1)},
+		{"-0", ratOf(0, 1)},
+		{"0.000", ratOf(0, 1)},
+		{"0.10", ratOf(1, 10)},
+		{"00.1", ratOf(1, 10)},
+		{"9223372036854775807", ratOf(math.MaxInt64, 1)},
+		{"-9223372036854775808", ratOf(math.MinInt64, 1)},
+		{"99999999999999999999.5", Rational{Numerator: Uint128{Hi: 10, Lo: 15532559262904483839}, Denominator: Uint128{Lo: 2}}},
+		{"340282366920938463463374607431768211455", Rational{Numerator: rationalBound, Denominator: Uint128{Lo: 1}}},
+		{"-340282366920938463463374607431768211455", Rational{Negative: true, Numerator: rationalBound, Denominator: Uint128{Lo: 1}}},
 	}
 	for _, c := range cases {
 		r, err := FromDecimal(c.in)
@@ -44,8 +49,8 @@ func TestFromDecimalSuccess(t *testing.T) {
 			t.Errorf("FromDecimal(%q): unexpected error: %v", c.in, err)
 			continue
 		}
-		if r != (Rational{Numerator: c.num, Denominator: c.den}) {
-			t.Errorf("FromDecimal(%q) = %d/%d, want %d/%d", c.in, r.Numerator, r.Denominator, c.num, c.den)
+		if r != c.want {
+			t.Errorf("FromDecimal(%q) = %+v, want %+v", c.in, r, c.want)
 		}
 	}
 }
@@ -60,7 +65,7 @@ func TestFromDecimalSuccess(t *testing.T) {
 // literal only up to the NUL, would accept it.
 func TestFromDecimalCodedRefusals(t *testing.T) {
 	kernel := map[string]struct {
-		code   string
+		code   ErrorCode
 		column int
 	}{
 		"3.14xyz": {CodeTextTrailingInput, 5},
@@ -104,41 +109,31 @@ func TestFromDecimalCodedRefusals(t *testing.T) {
 }
 
 // A numerator or denominator whose magnitude is past the kernel's rational
-// component bound is the typed bound refusal, its field "decimal": the most
-// negative int64 is one past the bound and a fraction of nineteen decimal
-// places has a denominator past it, each observed exact; a numerator of
-// twenty-one digits is past what the kernel measures, observed saturated.
+// component bound, 2^128-1, is the typed bound refusal, its field "decimal":
+// a forty-digit integer part, thirty-nine decimal places and one past the
+// bound on the negative side. The kernel reports a magnitude up to the bound,
+// so each observes the bound and the message names no number.
 func TestFromDecimalBoundRefusals(t *testing.T) {
-	observed := map[string]uint64{
-		"99999999999999999999.5": 18446744073709551615,
-		"0.0000000000000000001":  10000000000000000000,
-		"-9223372036854775808":   9223372036854775808,
-	}
-	for in, want := range observed {
+	message := "decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"
+	for _, in := range []string{
+		"1" + strings.Repeat("0", 39),
+		"0." + strings.Repeat("0", 38) + "1",
+		"-340282366920938463463374607431768211456",
+	} {
 		_, err := FromDecimal(in)
 		var bex *InputBoundExceededError
 		if !errors.As(err, &bex) {
 			t.Errorf("FromDecimal(%q): want *InputBoundExceededError, got %v", in, err)
 			continue
 		}
-		if bex.Code != CodeInputBoundExceeded || bex.Field != "decimal" || bex.Observed != want || bex.Limit != 9223372036854775807 {
-			t.Errorf("FromDecimal(%q): code %q field %q observed %d limit %d, want %q %q %d %d",
-				in, bex.Code, bex.Field, bex.Observed, bex.Limit, CodeInputBoundExceeded, "decimal", want, uint64(9223372036854775807))
+		if bex.Code != CodeInputBoundExceeded || bex.BoundKind != BoundKindRationalComponentMagnitude ||
+			bex.Field != "decimal" || bex.Observed != rationalBound || bex.Limit != rationalBound {
+			t.Errorf("FromDecimal(%q): code %q kind %q field %q observed %s limit %s, want %q %q %q %s %s",
+				in, bex.Code, bex.BoundKind, bex.Field, bex.Observed, bex.Limit,
+				CodeInputBoundExceeded, BoundKindRationalComponentMagnitude, "decimal", rationalBound, rationalBound)
 		}
-	}
-}
-
-// A rational over a non-positive denominator is refused as the malfunction it
-// would be, since the kernel answers every denominator positive.
-func TestDecimalAnswersTheKernelNeverGives(t *testing.T) {
-	var aErr *Error
-	for _, den := range []int64{0, -1} {
-		_, err := decimalValue(1, den)
-		if !errors.As(err, &aErr) || aErr.Kind != ErrProtocol {
-			t.Errorf("decimalValue(1, %d): %v", den, err)
+		if got := bex.Error(); got != message {
+			t.Errorf("FromDecimal(%q): Error() = %q, want %q", in, got, message)
 		}
-	}
-	if r, err := decimalValue(1, 2); err != nil || r != (Rational{Numerator: 1, Denominator: 2}) {
-		t.Errorf("decimalValue(1, 2) = %v, %v", r, err)
 	}
 }

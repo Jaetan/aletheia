@@ -21,17 +21,17 @@ from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
-from aletheia import AletheiaClient
+from aletheia import AletheiaClient, start_runtime
 
 # Shared vocabulary lives in ``_common``.
 from benchmarks._common import (
     CAN20_SPEC,
     CANFD_SPEC,
-    DEFAULT_CAN20_PROPERTIES,
-    DEFAULT_CANFD_PROPERTIES,
     FrameSpec,
     LatencyParameters,
     OperationCount,
+    default_can20_properties,
+    default_canfd_properties,
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
@@ -275,12 +275,16 @@ def _run() -> None:
     print(f"Operations: {args.ops:,}", file=out)
     print(f"Warmup: {args.warmup:,}", file=out)
 
+    # Every client here runs on one core; the kernel checks the property
+    # bundles as they are built, before any client opens.
+    start_runtime(1)
+
     all_stats = run_latency_suite(
         LatencyContext(
             label="CAN 2.0B",
             dbc=load_dbc(),
             spec=CAN20_SPEC,
-            properties=DEFAULT_CAN20_PROPERTIES,
+            properties=default_can20_properties(),
             num_ops=args.ops,
             warmup=args.warmup,
             file=out,
@@ -291,7 +295,7 @@ def _run() -> None:
             label="CAN-FD",
             dbc=load_canfd_dbc(),
             spec=CANFD_SPEC,
-            properties=DEFAULT_CANFD_PROPERTIES,
+            properties=default_canfd_properties(),
             num_ops=args.ops,
             warmup=args.warmup,
             file=out,

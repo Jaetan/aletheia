@@ -32,7 +32,8 @@ open import Data.List using (List; []; _∷_; foldr; length)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using (ℕ; _<_; s≤s; z≤n)
+open import Data.Integer using (ℤ; +_; -[1+_])
+open import Data.Nat using (_<_; s≤s; z≤n)
 open import Data.Product using (_×_; _,_; proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
@@ -74,20 +75,22 @@ open import Aletheia.DBC.TextParser.Format.ValueTable public
 -- ============================================================================
 
 -- Per-entry: the DSL emit reduces (through `iso → pair → withWS`) to
--- `' ' ∷ showNat-chars v ++ ' ' ∷ quoteStringLit-chars d`, definitionally
--- equal to `emitValueEntry-chars (v , d)` since `showℕ-dec-chars =
--- showNat-chars` (alias in `Emitter.agda`).
+-- `' ' ∷ showInt-chars z ++ ' ' ∷ quoteStringLit-chars d` once the key's
+-- sign picks the `int` branch, definitionally equal to
+-- `emitValueEntry-chars (z , d)` since `showℤ-dec-chars = showInt-chars`
+-- (alias in `Emitter.agda`).
 emit-ValueEntry-format-eq-emitValueEntry-chars :
-  ∀ (e : ℕ × List Char)
+  ∀ (e : ℤ × List Char)
   → emit ValueEntry-format e ≡ emitValueEntry-chars e
-emit-ValueEntry-format-eq-emitValueEntry-chars (v , d) = refl
+emit-ValueEntry-format-eq-emitValueEntry-chars (+ _ , _)    = refl
+emit-ValueEntry-format-eq-emitValueEntry-chars (-[1+ _ ] , _) = refl
 
 -- Entries fold: `concatMap (emit ValueEntry-format) entries ++ terminator
 -- ≡ foldr (λ e acc → emitValueEntry-chars e ++ acc) terminator entries`.
 -- Closes by structural induction over `entries`; the cons case unfolds
--- `concatMap` then re-associates `++` to push `terminator` inside the
--- recursion.
-emit-many-eq-foldr : ∀ (entries : List (ℕ × List Char)) (terminator : List Char)
+-- `concatMap`, re-associates `++` to push `terminator` inside the
+-- recursion, then rewrites the head entry by the per-entry bridge.
+emit-many-eq-foldr : ∀ (entries : List (ℤ × List Char)) (terminator : List Char)
   → emit (manyF ValueEntry-format) entries ++ₗ terminator
     ≡ foldr (λ e acc → emitValueEntry-chars e ++ₗ acc) terminator entries
 emit-many-eq-foldr [] terminator = refl
@@ -95,8 +98,10 @@ emit-many-eq-foldr (e ∷ rest) terminator =
   trans (++ₗ-assoc (emit ValueEntry-format e)
                     (emit (manyF ValueEntry-format) rest)
                     terminator)
-        (cong (emit ValueEntry-format e ++ₗ_)
-              (emit-many-eq-foldr rest terminator))
+        (trans (cong (emit ValueEntry-format e ++ₗ_)
+                     (emit-many-eq-foldr rest terminator))
+               (cong (_++ₗ foldr (λ e′ acc → emitValueEntry-chars e′ ++ₗ acc) terminator rest)
+                     (emit-ValueEntry-format-eq-emitValueEntry-chars e)))
 
 -- Top-level bridge: full `emit ValueTable-format vt ≡ emitValueTable-chars vt`.
 -- LHS reduces (through nested isos) to:

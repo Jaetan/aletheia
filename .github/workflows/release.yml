@@ -24,7 +24,9 @@
 # smoke test (unpack → source env.sh → load the .so from the bundled Python
 # package), the cross-binding bundle validation (tools/bundle_validate.py
 # builds + runs a real consumer per compiled binding from the recipes the
-# bundled installers print), a real `dpkg -i` install smoke of the .deb, and
+# bundled installers print), the C example of docs/development/DISTRIBUTION.md
+# built with both of its C recipes and run (tools/bundle_c_example.py), a real
+# `dpkg -i` install smoke of the .deb, and
 # the runtime-image build (whose in-Dockerfile verify stages build/load every
 # compiled binding against the image's own /opt/aletheia and check every
 # package in the image carries its licence text).  Each matches the
@@ -205,6 +207,20 @@ jobs:
           rm /tmp/cosign
           cosign version
 
+      - name: Cache clang-23 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang23-libstdcxx15-noble-v2
+      # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
+      # toolchain) compiles both the kernel library's C (haskell-shim/cabal.project)
+      # and the bundled C++ binding (cpp/CMakeLists.txt), so it is installed from
+      # apt.llvm.org before the build.  Same package set + cache key as
+      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        id: clang
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+
       - name: Build + keyless-sign the distribution tarball
         id: dist
         env:
@@ -318,21 +334,6 @@ jobs:
           rustup default stable
           rustc --version && cargo --version
 
-      - name: Cache clang-23 .debs (Clang is a large download)
-        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
-        uses: actions/cache@v6
-        with:
-          path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v2
-      # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
-      # enforces Clang (cpp/CMakeLists.txt), so install clang-23 (the supported
-      # toolchain) from apt.llvm.org.  Same package set + cache key as
-      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
-      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
-        id: clang
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
-
       # The bundle ships install.fish / env.fish; with fish on PATH the
       # validator also runs the fish installer, checks bash/fish recipe
       # parity, and sources env.fish — the multi-shell divergence class the
@@ -364,6 +365,16 @@ jobs:
           python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
             --require cpp,go,rust \
             --fetchcontent-cache "${HOME}/fetchcontent-cache"
+
+      # The C example of docs/development/DISTRIBUTION.md, built against the
+      # tarball with each C recipe there and run.  The recipes name gcc and ask
+      # for C23; clang-23, installed above, stands for it.
+      - name: Build and run the guide's C example against the bundle (gates publish)
+        if: ${{ !cancelled() && steps.dist.outcome == 'success' && steps.clang.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python/.venv/bin/python3 -m tools.bundle_c_example dist/aletheia.tar.gz \
+            --c-compiler clang-23
 
       # `shake packages` re-needs `dist` (a Shake phony re-runs), so the
       # tarball is rebuilt + re-signed here.  That is sound because the dist

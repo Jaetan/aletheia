@@ -25,9 +25,9 @@ from typing import TYPE_CHECKING, NewType, TypeGuard
 # Direct sub-module import avoids re-entering ``client/__init__.py`` when
 # this module is loaded transitively from ``client._helpers`` during package
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).
-from aletheia.client._helpers.rational import from_decimal
+from aletheia.client._helpers.rational import TimeBoundText, from_decimal, parse_time_bound
 from aletheia.client._types import AletheiaError, ValidationError
-from aletheia.common_types import DocumentKey, Location
+from aletheia.common_types import DocumentKey, Location, Microseconds
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -89,21 +89,59 @@ def get_number(d: Mapping[str, JSONValue], key: str, ctx: str) -> Fraction:
     raise ValidationError(msg)
 
 
-def get_int(d: Mapping[str, JSONValue], key: str, ctx: str) -> int:
-    """Extract a required whole-number field of a YAML check.
+def _read_time_bound(text: TimeBoundText, location: Location, key: DocumentKey) -> Microseconds:
+    """Return the whole microseconds the kernel reads *text* as, located as a number's refusal.
 
-    The text is read as :func:`get_number` reads it and must be whole (unit
-    denominator).
+    The kernel decides what a time bound is, as :func:`_read_number` lets it
+    decide a number.  RTS-gated, as :func:`~aletheia.from_decimal` is.
     """
-    val = d.get(key)
+    try:
+        return parse_time_bound(text)
+    except AletheiaError as exc:
+        if exc.code is not None:
+            exc.locate(location, key)
+        raise
+
+
+def get_time_bound(val: JSONValue, key: DocumentKey, ctx: Location) -> Microseconds:
+    """Read a YAML check's time window *val*, whole microseconds read by the kernel.
+
+    The text is the YAML scalar as the document spells it, under *key*; any
+    other value is refused as not a number.
+    """
     if isinstance(val, str):
-        frac = _read_number(NumberText(val), Location(ctx), DocumentKey(key))
-        if frac.denominator != 1:
-            msg = f"{ctx}: '{key}' must be a whole number, got {frac}"
-            raise ValidationError(msg)
-        return frac.numerator
-    msg = f"{ctx}: missing or invalid '{key}' (expected integer)"
+        return _read_time_bound(TimeBoundText(val), ctx, key)
+    msg = f"{ctx}: missing or invalid '{key}' (expected number)"
     raise ValidationError(msg)
+
+
+def get_excel_time_bound(val: JSONValue, key: DocumentKey, ctx: Location) -> Microseconds:
+    """Read an Excel time window cell *val*, whole microseconds read by the kernel.
+
+    The trimmed text of a text-formatted cell is read; a number cell is refused
+    with the "format it as TEXT" message :func:`get_excel_number` gives.
+    """
+    if isinstance(val, str):
+        return _read_time_bound(TimeBoundText(val.strip()), ctx, key)
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        msg = (
+            f"{ctx}: '{key}' is a number cell (got {val}); format it as TEXT so the "
+            "exact value is preserved (a number cell stores a lossy float)"
+        )
+        raise ValidationError(msg)
+    msg = f"{ctx}: missing or invalid '{key}' (expected a text-formatted number)"
+    raise ValidationError(msg)
+
+
+def locate_refusal(location: Location, error: AletheiaError) -> None:
+    """Locate a refusal no single key holds, such as a check its builder refused.
+
+    An error that carries a code and no location gains *location*; an error a
+    reader already located, or one without a code (the runtime down, a
+    malformed reply), is left as it is.
+    """
+    if error.code is not None and error.location is None:
+        error.locate(location)
 
 
 def get_excel_number(d: Mapping[str, JSONValue], key: str, ctx: str) -> Fraction:

@@ -193,7 +193,7 @@ def recipe_shape_errors(recipes: dict[str, list[str]]) -> list[str]:
 # ── Step execution ──────────────────────────────────────────────────────────
 
 
-def _run_step(
+def run_step(
     name: str,
     argv: list[str],
     *,
@@ -223,7 +223,7 @@ def _available_shells() -> tuple[str, ...]:
 def run_installer(bundle: Path, shell: str) -> str:
     """Run the bundle's installer for ``shell``, returning its captured stdout."""
     installer, _ = _SHELL_FILES[shell]
-    proc = _run_step(installer, [find_executable(shell), str(bundle / installer)])
+    proc = run_step(installer, [find_executable(shell), str(bundle / installer)])
     return proc.stdout
 
 
@@ -239,7 +239,7 @@ def source_env(bundle: Path, shell: str) -> Path:
         script = f'cd / && source {target} && printf %s "$ALETHEIA_LIB"'
     else:
         script = f"cd /; source {target}; printf %s $ALETHEIA_LIB"
-    proc = _run_step(f"{env_file} (foreign cwd)", [find_executable(shell), "-c", script])
+    proc = run_step(f"{env_file} (foreign cwd)", [find_executable(shell), "-c", script])
     value = proc.stdout.strip()
     if not value.startswith("/"):
         message = f"{env_file}: ALETHEIA_LIB is not absolute: {value!r}"
@@ -352,9 +352,9 @@ def run_cpp_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> N
     ]
     if cfg.fetchcontent_cache is not None:
         configure.append(f"-DFETCHCONTENT_BASE_DIR={cfg.fetchcontent_cache.resolve()}")
-    _ = _run_step("cpp: cmake configure", configure)
-    _ = _run_step("cpp: cmake build", cpp_consumer_build_command(cmake, build))
-    scenario = _run_step(
+    _ = run_step("cpp: cmake configure", configure)
+    _ = run_step("cpp: cmake build", cpp_consumer_build_command(cmake, build))
+    scenario = run_step(
         "cpp: scenario", [str(build / "your_app"), str(cfg.dbc)], env=_consumer_env(lib)
     )
     assert_consumer_ok("cpp", scenario.stdout)
@@ -415,13 +415,13 @@ def run_go_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> No
     go = find_executable("go")
     env = _consumer_env(lib)
     env["CGO_ENABLED"] = "1"
-    _ = _run_step("go: mod init", [go, "mod", "init", "consumer"], cwd=src, env=env)
+    _ = run_step("go: mod init", [go, "mod", "init", "consumer"], cwd=src, env=env)
     for line in recipe:
         argv = shlex.split(line)
         argv[0] = go  # the shape check pinned the leading word; resolve it on PATH
-        _ = _run_step(f"go: {line}", argv, cwd=src, env=env)
-    _ = _run_step("go: build", [go, "build", "-o", "consumer", "."], cwd=src, env=env)
-    scenario = _run_step("go: scenario", [str(src / "consumer"), str(cfg.dbc)], env=env)
+        _ = run_step(f"go: {line}", argv, cwd=src, env=env)
+    _ = run_step("go: build", [go, "build", "-o", "consumer", "."], cwd=src, env=env)
+    scenario = run_step("go: scenario", [str(src / "consumer"), str(cfg.dbc)], env=env)
     assert_consumer_ok("go", scenario.stdout)
 
 
@@ -441,9 +441,9 @@ def run_rust_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> 
     _ = shutil.copy(FIXTURE_DIR / "consumer_rust" / "src" / "main.rs", src / "src" / "main.rs")
     cargo = find_executable("cargo")
     env = _consumer_env(lib)
-    _ = _run_step("rust: cargo build", [cargo, "build"], cwd=src, env=env)
+    _ = run_step("rust: cargo build", [cargo, "build"], cwd=src, env=env)
     scenario_bin = src / "target" / "debug" / "consumer"
-    scenario = _run_step("rust: scenario", [str(scenario_bin), str(cfg.dbc)], env=env)
+    scenario = run_step("rust: scenario", [str(scenario_bin), str(cfg.dbc)], env=env)
     assert_consumer_ok("rust", scenario.stdout)
 
 
@@ -495,7 +495,7 @@ def run_consumers(
 # ── Validation flow ─────────────────────────────────────────────────────────
 
 
-def _unpack(tarball: Path, work: Path) -> Path:
+def unpack_bundle(tarball: Path, work: Path) -> Path:
     """Unpack the distribution tarball into ``work``; return the bundle root."""
     with tarfile.open(tarball, "r:gz") as archive:
         archive.extractall(work, filter="data")
@@ -508,7 +508,7 @@ def _unpack(tarball: Path, work: Path) -> Path:
 
 def _validate_in(cfg: Config, work: Path) -> list[ConsumerOutcome]:
     """Unpack, run installers + env scripts, then drive the consumers."""
-    bundle = _unpack(cfg.tarball, work)
+    bundle = unpack_bundle(cfg.tarball, work)
     if cfg.shell not in _available_shells():
         message = f"--shell {cfg.shell} requested but {cfg.shell} is not in PATH"
         raise BundleValidationError(message)
@@ -581,7 +581,7 @@ def _run_corruption(
     """Corrupt a copy of the bundle, re-pack it, and validate the copy."""
     with tempfile.TemporaryDirectory(prefix="aletheia-selftest-") as tmp:
         tmp_path = Path(tmp)
-        bundle = _unpack(cfg.tarball, tmp_path)
+        bundle = unpack_bundle(cfg.tarball, tmp_path)
         corrupt(bundle)
         corrupted = tmp_path / f"corrupted-{name}.tar.gz"
         with tarfile.open(corrupted, "w:gz") as archive:

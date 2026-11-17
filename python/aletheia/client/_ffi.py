@@ -8,24 +8,48 @@ import json
 import logging
 import os
 import stat
+import struct
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType, cast
+from typing import TYPE_CHECKING, NewType
 
+from aletheia.client._helpers.reply_shape import (
+    OBJECT,
+    REPLY_ROOT,
+    Arrival,
+    Expectation,
+    came_as,
+    reply_refusal,
+)
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import FFIError, ProtocolError, ValidationError
 from aletheia.common_types import CoreCount, Prose
 from aletheia.types import JSONValue, is_str_dict
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from fractions import Fraction
+
+    from aletheia.client._helpers.reply_shape import ReplyFields
     from aletheia.common_types import AllocatedBytes
-    from aletheia.types import Response
 
 # The reply of a kernel entry that answers in JSON, as the bytes it returned.
 KernelResponse = NewType("KernelResponse", bytes)
 
+# What a reply's bytes hold before they are read as an object.
+_JSON_TEXT = Expectation("JSON text")
+
 # The address of a string the library allocated, read and then freed.
 KernelString = NewType("KernelString", int)
+
+
+def free_kernel_string(lib: ctypes.CDLL, address: KernelString | None) -> None:
+    """Free a string the library allocated, passing its address as a pointer whatever is declared.
+
+    A bare Python ``int`` crosses an entry declared without ``argtypes`` as a
+    C ``int``, its high half dropped, so the address is wrapped before the call.
+    """
+    lib.aletheia_free_str(ctypes.c_void_p(address))
 
 
 def parse_json_object(raw: KernelResponse) -> dict[str, JSONValue]:
@@ -35,16 +59,16 @@ def parse_json_object(raw: KernelResponse) -> dict[str, JSONValue]:
     callers get ``dict[str, JSONValue]`` instead of ``dict[Unknown, Unknown]``.
     A response that is not UTF-8, is not JSON, holds an integer longer than
     the interpreter converts or nests deeper than the decoder's recursion
-    holds raises ``ProtocolError``, never the decoder's own error.
+    holds is refused as ``reply: expected JSON text, got <the decoder's
+    message>``, never with the decoder's own error; JSON that is not an object
+    as ``reply: expected object, got <its kind>``.
     """
     try:
-        parsed: object = json.loads(raw.decode("utf-8"))
+        parsed: JSONValue = json.loads(raw.decode())
     except (ValueError, RecursionError) as exc:
-        msg = f"FFI returned invalid JSON: {exc}"
-        raise ProtocolError(msg) from exc
+        raise reply_refusal(REPLY_ROOT, _JSON_TEXT, Arrival(str(exc))) from exc
     if not is_str_dict(parsed):
-        msg = f"Expected JSON object, got {type(parsed).__name__}"
-        raise ProtocolError(msg)
+        raise reply_refusal(REPLY_ROOT, OBJECT, came_as(parsed))
     return parsed
 
 
@@ -84,8 +108,13 @@ DEFAULT_RTS_CORES = 1
 # full flag set.  Both share the C signature ``void(int*, char***)``.
 RTS_INIT_SYMBOL = "hs_init_with_rtsopts"
 
-# Environment variable whose whitespace-split flags are appended after the cap.
+# Environment variable whose bytes, split on ASCII whitespace, are appended after the cap,
+# and those bytes as it holds them.
 RTS_OVERRIDE_ENV = "ALETHEIA_RTS_OPTS"
+RuntimeOverride = NewType("RuntimeOverride", bytes)
+
+# A word of the command line the runtime's start entry is handed.
+RuntimeArgument = NewType("RuntimeArgument", bytes)
 
 # The GHC runtime's count of the CPUs the process may use (its affinity set on
 # Linux), callable before the runtime starts: a core count past it is refused.
@@ -121,7 +150,7 @@ class RTSState:
             ValidationError: ``rts_cores`` is outside 1 to the CPUs the process may use.
 
         """
-        start_runtime_on(lib, None if rts_cores is None else CoreCount(rts_cores))
+        start_runtime_on(lib, rts_cores)
         with _RUNTIME_LOCK:
             cls.refcount += 1
 
@@ -145,16 +174,38 @@ def core_count_refusal(requested: CoreCount, available: CoreCount) -> Prose | No
     )
 
 
+# A symbol the library exports, as its header or the GHC runtime names it.
+EntrySymbol = NewType("EntrySymbol", str)
+
+# The C prototype every entry taking no argument shares, ``T name(void)``,
+# built once; each entry bound through it sets its own result type ``T``.
+_NO_ARGUMENTS = ctypes.CFUNCTYPE(None)
+
+
+def _bind_no_argument_entry(
+    lib: ctypes.CDLL,
+    symbol: EntrySymbol,
+    restype: type[ctypes.c_uint32 | ctypes.c_uint64 | ctypes.c_void_p],
+) -> None:
+    """Bind ``symbol`` as ``restype symbol(void)``, what ``lib``'s attribute of that name calls.
+
+    Raises:
+        AttributeError: ``lib`` exports no ``symbol``.
+
+    """
+    entry = _NO_ARGUMENTS((symbol, lib))
+    entry.restype = restype
+    setattr(lib, symbol, entry)
+
+
 def available_cores(lib: ctypes.CDLL) -> CoreCount:
     """Return the CPUs the process may use, as the GHC runtime of ``lib`` counts them."""
-    count = getattr(lib, RTS_PROCESSORS_SYMBOL)
-    count.argtypes = []
-    count.restype = ctypes.c_uint32
-    cpus: CoreCount = count()
+    _bind_no_argument_entry(lib, EntrySymbol(RTS_PROCESSORS_SYMBOL), ctypes.c_uint32)
+    cpus: CoreCount = getattr(lib, RTS_PROCESSORS_SYMBOL)()
     return cpus
 
 
-def start_runtime_on(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
+def start_runtime_on(lib: ctypes.CDLL, cores: int | None) -> None:
     """Start the GHC runtime on ``lib`` with ``cores`` capabilities, unless it runs.
 
     The one start every route takes, :func:`start_runtime` and a backend's
@@ -170,7 +221,7 @@ def start_runtime_on(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
     with _RUNTIME_LOCK:
         running = CoreCount(RTSState.cores) if RTSState.initialized else None
         if cores is not None:
-            asked = cores
+            asked = CoreCount(cores)
         else:
             asked = running if running is not None else CoreCount(DEFAULT_RTS_CORES)
         refusal = core_count_refusal(asked, available_cores(lib))
@@ -191,8 +242,20 @@ def start_runtime_on(lib: ctypes.CDLL, cores: CoreCount | None) -> None:
             )
 
 
+def rts_arguments(cores: CoreCount, override: RuntimeOverride) -> list[RuntimeArgument]:
+    """Return the runtime's command line: its name, heap cap, ``-N`` past one core, the override.
+
+    The words after the name sit between ``+RTS`` and ``-RTS``, the cap first so
+    a ``-M`` among the override's words, split on ASCII whitespace, lands later
+    and wins (the RTS honours the last occurrence of a flag).
+    """
+    count = [b"-N%d" % cores] if cores > DEFAULT_RTS_CORES else []
+    words = [b"aletheia", b"+RTS", DEFAULT_RTS_HEAP_CAP, *count, *override.split(), b"-RTS"]
+    return [RuntimeArgument(word) for word in words]
+
+
 def _start(lib: ctypes.CDLL, cores: CoreCount) -> None:
-    """Call the runtime's start entry with the heap cap, ``-N`` past one core and the override."""
+    """Call the runtime's start entry with :func:`rts_arguments` on the override variable."""
     # hs_init_with_rtsopts honours every flag whatever the library's link-time
     # -rtsopts level (which has no effect for a native shared library), so a
     # caller can pass a profiling flag through ALETHEIA_RTS_OPTS.
@@ -202,17 +265,14 @@ def _start(lib: ctypes.CDLL, cores: CoreCount) -> None:
         ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)),
     ]
     init_fn.restype = None
-    extra_rts = os.environ.get(RTS_OVERRIDE_ENV, "").split()
-    # The heap cap goes FIRST so a caller-supplied -M in ALETHEIA_RTS_OPTS
-    # lands later and wins (the RTS honours the last occurrence of a flag).
-    args: list[bytes] = [b"aletheia", b"+RTS", DEFAULT_RTS_HEAP_CAP]
-    if cores > DEFAULT_RTS_CORES:
-        args.append(b"-N" + str(cores).encode())
-    args.extend(flag.encode("ascii") for flag in extra_rts)
-    args.append(b"-RTS")
+    override = os.environb.get(os.fsencode(RTS_OVERRIDE_ENV), b"")
+    args = rts_arguments(cores, RuntimeOverride(override))
     argc = ctypes.c_int(len(args))
-    argv = (ctypes.c_char_p * len(args))(*args)
-    argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
+    # Each word as bytes, and a pointer to the array's first word, built by steps
+    # that each refuse None, so the runtime, which reads every word, is never
+    # handed a null in place of a word or of argv.
+    argv = (ctypes.c_char_p * len(args))(*(bytes(word) for word in args))
+    argv_ptr = ctypes.pointer(ctypes.c_char_p.from_buffer(argv))
     init_fn(ctypes.byref(argc), ctypes.byref(argv_ptr))
 
 
@@ -263,7 +323,7 @@ def start_runtime(cores: int, *, lib_path: Path | None = None) -> None:
         FFIError: the library implements another ABI version.
 
     """
-    start_runtime_on(open_library(lib_path), CoreCount(cores))
+    start_runtime_on(open_library(lib_path), cores)
 
 
 def hs_initialized() -> bool:
@@ -315,7 +375,7 @@ def allocated_bytes() -> AllocatedBytes | None:
 
 # ``ALETHEIA_ABI_VERSION``: the version of the structures and signatures this
 # binding lays out, which ``test_ffi_abi_version.py`` holds to the header's.
-ABI_VERSION = 3
+ABI_VERSION = 4
 
 
 def check_abi_version(lib: ctypes.CDLL) -> None:
@@ -326,13 +386,11 @@ def check_abi_version(lib: ctypes.CDLL) -> None:
     older than the version export lacks the symbol and is refused for that.
     """
     try:
-        entry = lib.aletheia_abi_version
+        _bind_no_argument_entry(lib, EntrySymbol("aletheia_abi_version"), ctypes.c_uint32)
     except AttributeError as exc:
         msg = "the library has no aletheia_abi_version: it predates the versioned ABI"
         raise FFIError(msg) from exc
-    entry.argtypes = []
-    entry.restype = ctypes.c_uint32
-    found: int = entry()
+    found: int = lib.aletheia_abi_version()
     if found != ABI_VERSION:
         msg = f"the library implements ABI version {found}, and this binding needs {ABI_VERSION}"
         raise FFIError(msg)
@@ -368,13 +426,97 @@ class AletheiaFrame(ctypes.Structure):  # pylint: disable=too-few-public-methods
     )
 
 
+class AletheiaUint128(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_uint128``: an unsigned 128-bit number, ``lo + hi * 2**64``."""
+
+    _fields_ = (
+        ("lo", ctypes.c_uint64),
+        ("hi", ctypes.c_uint64),
+    )
+
+
+class AletheiaRational(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_rational``: numerator / denominator, negated when negative is not 0."""
+
+    _fields_ = (
+        ("numerator", AletheiaUint128),
+        ("denominator", AletheiaUint128),
+        ("negative", ctypes.c_uint8),
+    )
+
+
+# One word of ``struct aletheia_uint128``, below ``2**64``.
+Word = NewType("Word", int)
+
+# A number one ``struct aletheia_uint128`` carries, below ``2**128``: a
+# rational component's magnitude.
+Magnitude = NewType("Magnitude", int)
+
+_WORD_BITS = 64
+_WORD_MASK = (1 << _WORD_BITS) - 1
+
+
+# ``struct aletheia_rational`` as bytes, in AletheiaRational's field order and
+# native byte order: the numerator's low and high words, the denominator's, the
+# sign byte, then the padding up to the structure's size.
+_RATIONAL_FIELDS = "=4QB"
+
+# The bytes of one ``struct aletheia_rational``.
+RationalRow = NewType("RationalRow", bytes)
+_RATIONAL_ROW = struct.Struct(
+    f"{_RATIONAL_FIELDS}{ctypes.sizeof(AletheiaRational) - struct.calcsize(_RATIONAL_FIELDS)}x"
+)
+
+
+def _rational_row(value: Fraction) -> RationalRow:
+    """Lay out a rational whose components fit 128 bits as one ``struct aletheia_rational``'s bytes.
+
+    The sign travels in its own byte, 0 for zero as the header asks, so each
+    component crosses as its magnitude; a component of ``2**128`` or more is
+    refused by ``struct`` rather than truncated.
+    """
+    numerator = value.numerator
+    negative = numerator < 0
+    magnitude = -numerator if negative else numerator
+    denominator = value.denominator
+    return RationalRow(
+        _RATIONAL_ROW.pack(
+            magnitude & _WORD_MASK,
+            magnitude >> _WORD_BITS,
+            denominator & _WORD_MASK,
+            denominator >> _WORD_BITS,
+            1 if negative else 0,
+        )
+    )
+
+
+def wire_rational(value: Fraction) -> AletheiaRational:
+    """Lay out a rational whose components fit 128 bits as ``struct aletheia_rational``."""
+    return AletheiaRational.from_buffer_copy(_rational_row(value))
+
+
+def wire_rationals(values: Sequence[Fraction]) -> ctypes.Array[AletheiaRational]:
+    """Lay out rationals whose components fit 128 bits as an array of ``struct aletheia_rational``.
+
+    The rows are packed as bytes and copied into the array once, which costs a
+    fraction of building each rational's three structures field by field.
+    """
+    return (AletheiaRational * len(values)).from_buffer_copy(b"".join(map(_rational_row, values)))
+
+
+def uint128_value(words: AletheiaUint128) -> Magnitude:
+    """Read the number the two words of ``struct aletheia_uint128`` spell."""
+    lo: Word = words.lo
+    hi: Word = words.hi
+    return Magnitude(lo | hi << _WORD_BITS)
+
+
 class AletheiaSignalValues(ctypes.Structure):  # pylint: disable=too-few-public-methods
-    """``struct aletheia_signal_values``: parallel signal indices and rationals."""
+    """``struct aletheia_signal_values``: signal indices and the rationals to write."""
 
     _fields_ = (
         ("indices", ctypes.POINTER(ctypes.c_uint32)),
-        ("numerators", ctypes.POINTER(ctypes.c_int64)),
-        ("denominators", ctypes.POINTER(ctypes.c_int64)),
+        ("values", ctypes.POINTER(AletheiaRational)),
         ("count", ctypes.c_uint32),
     )
 
@@ -390,15 +532,6 @@ class AletheiaBuffer(ctypes.Structure):  # pylint: disable=too-few-public-method
     )
 
 
-class AletheiaRational(ctypes.Structure):  # pylint: disable=too-few-public-methods
-    """``struct aletheia_rational``: an exact rational."""
-
-    _fields_ = (
-        ("numerator", ctypes.c_int64),
-        ("denominator", ctypes.c_int64),
-    )
-
-
 class AletheiaDecimal(ctypes.Structure):  # pylint: disable=too-few-public-methods
     """``struct aletheia_decimal``: a parsed decimal, or the error the parser set."""
 
@@ -409,33 +542,54 @@ class AletheiaDecimal(ctypes.Structure):  # pylint: disable=too-few-public-metho
     )
 
 
-def take_error_envelope(
-    lib: ctypes.CDLL, out: AletheiaBuffer | AletheiaDecimal, missing: Prose
-) -> Response:
+class AletheiaTimeBound(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_time_bound``: a parsed time bound, or the error the kernel set."""
+
+    _fields_ = (
+        ("microseconds", ctypes.c_uint64),
+        # A raw address, not ``c_char_p``, so the string can be freed after reading.
+        ("err", ctypes.c_void_p),
+    )
+
+
+class AletheiaPropertyCheck(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_property_check``: the error the kernel set on refusing a property."""
+
+    _fields_ = (
+        # A raw address, not ``c_char_p``, so the string can be freed after reading.
+        ("err", ctypes.c_void_p),
+    )
+
+
+type EntryOut = AletheiaBuffer | AletheiaDecimal | AletheiaTimeBound | AletheiaPropertyCheck
+
+
+def take_error_envelope(lib: ctypes.CDLL, out: EntryOut, missing: Prose) -> ReplyFields:
     """Read and free the error envelope a failed entry left in *out*.
 
     A failure without one is a wire fault, raised as :class:`ProtocolError`
     with *missing*.
     """
     err: KernelString | None = out.err
-    if err is None:
-        raise ProtocolError(missing)
     try:
-        return cast("Response", parse_json_object(KernelResponse(ctypes.string_at(err))))
+        text = ctypes.c_char_p(err).value
+        if text is None:
+            raise ProtocolError(missing)
+        return parse_json_object(KernelResponse(text))
     finally:
-        lib.aletheia_free_str(err)
+        free_kernel_string(lib, err)
 
 
 def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     """Configure ``argtypes``/``restype`` for every Aletheia FFI entry point.
 
+    The entries taking no argument are bound through the prototype they share.
     Called once after the shared library is loaded.  Split out of
     ``AletheiaClient.__enter__`` so the client module stays focused on
     protocol flow rather than ctypes boilerplate.
     """
     # Core lifecycle + JSON command endpoint
-    lib.aletheia_init.argtypes = []
-    lib.aletheia_init.restype = ctypes.c_void_p
+    _bind_no_argument_entry(lib, EntrySymbol("aletheia_init"), ctypes.c_void_p)
     lib.aletheia_process.argtypes = [ctypes.c_void_p, ctypes.POINTER(AletheiaText)]
     lib.aletheia_process.restype = ctypes.c_void_p
     lib.aletheia_free_str.argtypes = [ctypes.c_void_p]
@@ -483,15 +637,14 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     # Returns a CString that the caller must free via ``aletheia_free_str``.
     # Display path only — bindings call this to render predicate values for
     # human-readable diagnostics.
-    # The rational crosses as one ``struct aletheia_rational``; the shim moves
-    # a negative denominator's sign to the numerator.
+    # The rational crosses as one ``struct aletheia_rational``.
     lib.aletheia_format_rational.argtypes = [ctypes.POINTER(AletheiaRational)]
     lib.aletheia_format_rational.restype = ctypes.c_void_p
 
     # Cross-binding decimal → exact rational SSOT (the float principle).
     # Takes a decimal string and writes a ``struct aletheia_decimal``: the
-    # rational on success (status 0), or on a parse failure / Int64 overflow
-    # a ``{"status":"error",...}`` envelope in ``err`` (status 1), freed via
+    # rational on success (status 0), or on a parse failure or a component past
+    # the bound a ``{"status":"error",...}`` envelope in ``err`` (status 1), freed via
     # ``aletheia_free_str``.  Consumed by
     # ``aletheia.client._helpers.rational.from_decimal``.
     lib.aletheia_parse_decimal.argtypes = [
@@ -500,21 +653,36 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     ]
     lib.aletheia_parse_decimal.restype = ctypes.c_int8
 
+    # A time bound's text, whole microseconds, read as a property's time bound
+    # is read: the microseconds on success (status 0), or the kernel's refusal
+    # envelope in ``err`` (status 1).  Consumed by the loaders' ``within_us``.
+    lib.aletheia_parse_time_bound.argtypes = [
+        ctypes.POINTER(AletheiaText),
+        ctypes.POINTER(AletheiaTimeBound),
+    ]
+    lib.aletheia_parse_time_bound.restype = ctypes.c_int8
+
+    # A property's JSON read as set_properties reads one, its signal names
+    # decided as identifiers only: status 0 on acceptance, or the kernel's
+    # refusal envelope in ``err`` (status 1).  Consumed by the builders.
+    lib.aletheia_check_property.argtypes = [
+        ctypes.POINTER(AletheiaText),
+        ctypes.POINTER(AletheiaPropertyCheck),
+    ]
+    lib.aletheia_check_property.restype = ctypes.c_int8
+
     # The bytes the runtime has allocated since it started, read after a
     # collection.  It needs the runtime started, so :func:`allocated_bytes`
     # calls it only on the library :class:`RTSState` latched.
-    lib.aletheia_allocated_bytes.argtypes = []
-    lib.aletheia_allocated_bytes.restype = ctypes.c_uint64
+    _bind_no_argument_entry(lib, EntrySymbol("aletheia_allocated_bytes"), ctypes.c_uint64)
 
 
 def _validate_lib_path(p: Path, source: str) -> None:
     """Reject a candidate ``libaletheia-ffi.so`` path that fails security gates.
 
-    Applied to every resolution path — env var, install config, build dir,
-    dist-newstyle scan.  Earlier versions restricted these checks to the
-    ``ALETHEIA_LIB`` env var; the fallback paths bypassed the symlink and
-    permission gates even though they are equally untrusted from a
-    "could be tampered post-install" standpoint.
+    Applied to every resolution path (env var, install config, build dir,
+    dist-newstyle scan): each is as open to tampering after install as the
+    ``ALETHEIA_LIB`` env var.
 
     ``source`` is interpolated into error messages ("ALETHEIA_LIB=…",
     "install config", "build dir", "dist-newstyle") so the operator knows

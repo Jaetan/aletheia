@@ -3,27 +3,72 @@
 
 //! The [`Backend`] dependency-injection seam and the [`MockBackend`] test double.
 //! The seam exercises the [`Client`] against a recorded/replayed mock
-//! command backend. Most tests need no `libaletheia-ffi.so`; the four that render
-//! predicate thresholds (`add_checks` → `set_properties`) do, because the rational
-//! renderer is a process-global MAlonzo export that always loads the real `.so` and
-//! is vocal when the RTS is down (point 2) — they call [`rts_up`] to bring the RTS
-//! up. The mock only ever replaces the command backend, never the renderer.
+//! command backend. Most tests need no `libaletheia-ffi.so`; the ones that build
+//! checks do, because the kernel checks a check as it is built and
+//! `set_properties` renders each predicate threshold, both through process-global
+//! MAlonzo exports that always load the real `.so` and are vocal while the RTS is
+//! down: they call [`rts_up`] to bring the RTS up. The mock only ever replaces the
+//! command backend, never the property check or the renderer.
 
 use std::sync::{Arc, Mutex};
 
 use aletheia::log::events;
 use aletheia::{
-    check, Backend, CanId, Client, Dlc, Error, FrameResponse, LogField, LogRecord, LogValue,
-    MockBackend, Rational, SignalInjection, Timestamp, Verdict,
+    check, Backend, CanId, Client, Dlc, Error, ErrorCode, FrameResponse, LogField, LogRecord,
+    LogValue, MockBackend, Rational, SignalInjection, Timestamp, Verdict,
 };
 
-/// Bring the GHC RTS up via a throwaway real backend, so the (now-vocal) rational
-/// renderer works while the rest of the flow runs over the mock. The renderer is a
-/// process-global MAlonzo export that always loads the real `.so`; the RTS is
+/// Bring the GHC RTS up via a throwaway real backend, so the check builders and
+/// the rational renderer work while the rest of the flow runs over the mock. Both
+/// are process-global MAlonzo exports that always load the real `.so`; the RTS is
 /// one-shot, so the throwaway client can drop immediately (the init stays latched).
 /// Mirrors the C++ `rts_setup_listener` / Python `rts_up` fixture.
 fn rts_up() {
     drop(Client::new().expect("init GHC RTS (set ALETHEIA_LIB to a built libaletheia-ffi.so)"));
+}
+
+/// The kernel's answer to `set_properties` and `start_stream`.
+const SUCCESS: &str = r#"{"status":"success"}"#;
+/// The kernel's answer to a frame that decided nothing.
+const ACK: &str = r#"{"status":"ack"}"#;
+
+/// The check most tests install, once the runtime is up.
+fn speed_at_most_1000() -> aletheia::Check {
+    check::signal("EngineSpeed")
+        .never_exceeds(1000)
+        .expect("check")
+}
+
+/// A frame's answer failing property `property_index` at timestamp 0 with
+/// `reason`.
+fn violation_at(property_index: u32, reason: &str) -> String {
+    format!(
+        r#"{{"type":"property_batch","results":[{{"type":"property","status":"fails","property_index":{property_index},"timestamp":0,"reason":"{reason}"}}]}}"#
+    )
+}
+
+/// The end of a stream failing each property of `indices` at timestamp 5.
+fn end_stream_failing(indices: &[u32]) -> String {
+    let results: Vec<String> = indices
+        .iter()
+        .map(|i| format!(r#"{{"type":"property","status":"fails","property_index":{i},"timestamp":5,"reason":"x"}}"#))
+        .collect();
+    format!(
+        r#"{{"status":"complete","results":[{}],"warnings":[]}}"#,
+        results.join(",")
+    )
+}
+
+/// An extraction's JSON answer carrying each `(name, value)` of `values`.
+fn extraction_of(values: &[(&str, i64)]) -> String {
+    let values: Vec<String> = values
+        .iter()
+        .map(|(name, value)| format!(r#"{{"name":"{name}","value":{value}}}"#))
+        .collect();
+    format!(
+        r#"{{"status":"success","values":[{}],"errors":[],"absent":[]}}"#,
+        values.join(",")
+    )
 }
 
 /// The mock records the exact `<binary:OP>` sentinel for every binary-path op —
@@ -36,11 +81,7 @@ fn mock_records_the_canonical_binary_sentinels() {
     let ts = Timestamp(0);
     let id = CanId::standard(256).expect("id");
     let dlc = Dlc::new(8).expect("dlc");
-    let no_signals = SignalInjection {
-        indices: &[],
-        nums: &[],
-        dens: &[],
-    };
+    let no_signals = SignalInjection { values: &[] };
 
     // One queued response per call, popped FIFO in call order.
     m.respond_json(r#"{"r":"process"}"#)
@@ -105,16 +146,13 @@ fn mock_records_the_canonical_binary_sentinels() {
 fn client_over_mock_enriches_via_a_hidden_extract_call() {
     rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#) // add_checks → set_properties (process)
-        .respond_json(r#"{"status":"ack"}"#) // start_stream
-        .respond_json(
-            r#"{"type":"property_batch","results":[{"status":"fails","property_index":0,"reason":"over limit"}]}"#,
-        ) // send_frame → a violation
-        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":4000,"denominator":1}}]}"#); // the hidden extract for enrichment
+    m.respond_json(SUCCESS) // add_checks → set_properties (process)
+        .respond_json(SUCCESS) // start_stream
+        .respond_json(violation_at(0, "over limit")) // send_frame → a violation
+        .respond_json(extraction_of(&[("EngineSpeed", 4000)])); // the hidden extract for enrichment
 
     let c = Client::with_backend(Box::new(m.clone()));
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
-        .expect("add_checks");
+    c.add_checks(&[speed_at_most_1000()]).expect("add_checks");
     c.start_stream().expect("start_stream");
     let resp = c
         .send_frame(
@@ -169,7 +207,7 @@ fn client_over_mock_enriches_via_a_hidden_extract_call() {
 #[test]
 fn clone_shares_the_capture_log() {
     let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#);
+    m.respond_json(SUCCESS);
     let c = Client::with_backend(Box::new(m.clone()));
     c.start_stream().expect("start_stream");
     // The original clone observes what the client's clone captured.
@@ -207,7 +245,7 @@ fn exhausted_queue_is_an_error() {
 fn queued_error_propagates() {
     let m = MockBackend::new();
     m.respond_err(Error::Core {
-        code: "no_dbc".to_string(),
+        code: ErrorCode::HandlerNoDbc,
         message: "no DBC loaded".to_string(),
     });
     let c = Client::with_backend(Box::new(m));
@@ -223,7 +261,7 @@ fn build_with_backend_applies_logger_and_ignores_rts_cores() {
     let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&captured);
     let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#);
+    m.respond_json(SUCCESS);
 
     let c = Client::builder()
         .rts_cores(4) // ignored on the injection path — no FFI, no RTS
@@ -250,83 +288,57 @@ fn a_nul_inside_a_command_reaches_the_backend_whole() {
     assert_eq!(m.captured(), vec!["a\0b".to_string()]);
 }
 
-/// A verdict carrying an out-of-range `property_index` is left un-enriched and
-/// logged as `enrichment.property_index_oob` (previously untested skip path).
-#[test]
-fn out_of_range_property_index_is_skipped_and_logged() {
-    rts_up(); // add_checks → set_properties renders the threshold via the kernel
+/// The kernel's refusal of the extraction a violation's enrichment needs: an
+/// error envelope on the extraction's JSON path.
+const NO_DBC: &str = r#"{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}"#;
+
+/// A client over `m` logging each record's event into the returned list.
+fn logged_client(m: &MockBackend) -> (Client, Arc<Mutex<Vec<String>>>) {
     let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&captured);
-    let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#) // add_checks → set_properties
-        .respond_json(r#"{"status":"ack"}"#) // start_stream
-        // Only index 0 is valid (one check), but the verdict names index 5.
-        .respond_json(
-            r#"{"type":"property_batch","results":[{"status":"fails","property_index":5,"reason":"x"}]}"#,
-        );
-
     let c = Client::builder()
         .logger(move |rec: &LogRecord| sink.lock().expect("lock").push(rec.event.to_string()))
         .build_with_backend(Box::new(m.clone()));
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
-        .expect("add_checks");
-    c.start_stream().expect("start_stream");
-    let resp = c
-        .send_frame(
-            Timestamp(0),
-            CanId::standard(256).unwrap(),
-            Dlc::new(8).unwrap(),
-            &[0u8; 8],
-            None,
-            None,
-        )
-        .expect("send_frame");
-
-    let FrameResponse::Verdicts(results) = resp else {
-        panic!("expected a property_batch");
-    };
-    assert!(
-        results[0].enrichment.is_none(),
-        "an out-of-range property_index must be left un-enriched"
-    );
-    let names = captured.lock().expect("lock").clone();
-    assert!(
-        names
-            .iter()
-            .any(|e| e == events::ENRICHMENT_PROPERTY_INDEX_OOB),
-        "expected enrichment.property_index_oob, got: {names:?}"
-    );
-    // The OOB verdict was skipped *before* any extraction.
-    assert!(!m
-        .captured()
-        .contains(&"<binary:extractAllSignals>".to_string()));
+    (c, captured)
 }
 
-/// When the enrichment extract for a violation fails, the client logs
-/// `enrichment.extraction_failed` (previously untested warn path).
-#[test]
-fn extraction_failure_during_enrichment_is_logged() {
-    rts_up(); // add_checks → set_properties renders the threshold via the kernel
-    let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&captured);
-    let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#) // add_checks
-        .respond_json(r#"{"status":"ack"}"#) // start_stream
-        .respond_json(
-            r#"{"type":"property_batch","results":[{"status":"fails","property_index":0,"reason":"x"}]}"#,
-        ) // a violation needing enrichment
-        .respond_err(Error::Core {
-            code: "extraction_failed".to_string(),
-            message: "boom".to_string(),
-        }); // the enrichment extract call fails
+/// `err` is the kernel's `handler_no_dbc` refusal, its message kept, and the
+/// extraction that met it was logged as `extraction.parse_failed`, every event
+/// logged one the vocabulary names.
+fn assert_the_extraction_refusal(err: &Error, captured: &Arc<Mutex<Vec<String>>>) {
+    match err {
+        Error::Core { code, message } => {
+            assert_eq!(*code, ErrorCode::HandlerNoDbc);
+            assert_eq!(message, "no DBC loaded");
+        }
+        other => panic!("expected the kernel's handler_no_dbc refusal, got {other:?}"),
+    }
+    let names = captured.lock().expect("lock").clone();
+    assert!(
+        names.iter().any(|e| e == events::EXTRACTION_PARSE_FAILED),
+        "expected extraction.parse_failed, got: {names:?}"
+    );
+    assert!(
+        names.iter().all(|e| events::ALL.contains(&e.as_str())),
+        "every event logged is one the vocabulary names, got: {names:?}"
+    );
+}
 
-    let c = Client::builder()
-        .logger(move |rec: &LogRecord| sink.lock().expect("lock").push(rec.event.to_string()))
-        .build_with_backend(Box::new(m.clone()));
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
-        .expect("add_checks");
+/// An extraction the enrichment of a frame's violation needs and the kernel
+/// refuses is returned by `send_frame` with the kernel's code and message,
+/// rather than the violation going without its enrichment.
+#[test]
+fn a_refused_extraction_is_returned_by_the_frame_whose_violation_needs_it() {
+    rts_up(); // the check's build and set_properties' render need the runtime
+    let m = MockBackend::new();
+    m.respond_json(SUCCESS) // add_checks
+        .respond_json(SUCCESS) // start_stream
+        .respond_json(violation_at(0, "x")) // a violation needing enrichment
+        .respond_json(NO_DBC); // the enrichment extract call is refused
+    let (c, captured) = logged_client(&m);
+    c.add_checks(&[speed_at_most_1000()]).expect("add_checks");
     c.start_stream().expect("start_stream");
-    let _ = c
+    let err = c
         .send_frame(
             Timestamp(0),
             CanId::standard(256).unwrap(),
@@ -335,19 +347,41 @@ fn extraction_failure_during_enrichment_is_logged() {
             None,
             None,
         )
-        .expect("send_frame");
-
-    let names = captured.lock().expect("lock").clone();
-    assert!(
-        names
-            .iter()
-            .any(|e| e == events::ENRICHMENT_EXTRACTION_FAILED),
-        "expected enrichment.extraction_failed, got: {names:?}"
-    );
+        .expect_err("the refused extraction is returned");
+    assert_the_extraction_refusal(&err, &captured);
     // The extract WAS attempted (the violation triggered enrichment).
     assert!(m
         .captured()
         .contains(&"<binary:extractAllSignals>".to_string()));
+}
+
+/// An extraction the enrichment of a final verdict needs and the kernel
+/// refuses is returned by `end_stream` with the kernel's code and message.
+#[test]
+fn a_refused_extraction_is_returned_by_the_end_of_the_stream() {
+    rts_up(); // the check's build and set_properties' render need the runtime
+    let m = MockBackend::new();
+    m.respond_json(SUCCESS) // add_checks
+        .respond_json(SUCCESS) // start_stream
+        .respond_json(ACK) // send_frame (caches last_frames)
+        .respond_json(end_stream_failing(&[0])) // end_stream → enrich_eos
+        .respond_json(NO_DBC); // the enrichment extract call is refused
+    let (c, captured) = logged_client(&m);
+    c.add_checks(&[speed_at_most_1000()]).expect("add_checks");
+    c.start_stream().expect("start_stream");
+    c.send_frame(
+        Timestamp(0),
+        CanId::standard(256).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 256");
+    let err = c
+        .end_stream()
+        .expect_err("the refused extraction is returned");
+    assert_the_extraction_refusal(&err, &captured);
 }
 
 /// A backend error from the public `extract_signals` (the FFI/process boundary)
@@ -363,7 +397,7 @@ fn extract_signals_process_failure_is_logged() {
     let sink = Arc::clone(&captured);
     let m = MockBackend::new();
     m.respond_err(Error::Core {
-        code: "boom".to_string(),
+        code: ErrorCode::FfiValidationError,
         message: "backend unavailable".to_string(),
     });
     let c = Client::builder()
@@ -467,18 +501,15 @@ fn extract_signals_parse_failure_is_logged() {
 fn enrich_eos_stops_extracting_once_wanted_signals_merged() {
     rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#) // add_checks
-        .respond_json(r#"{"status":"ack"}"#) // start_stream
-        .respond_json(r#"{"status":"ack"}"#) // send_frame id 256 (caches last_frames)
-        .respond_json(r#"{"status":"ack"}"#) // send_frame id 512 (caches last_frames)
-        .respond_json(
-            r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"}],"warnings":[]}"#,
-        ) // end_stream → enrich_eos
-        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":100,"denominator":1}}]}"#); // frame 256 satisfies the union
+    m.respond_json(SUCCESS) // add_checks
+        .respond_json(SUCCESS) // start_stream
+        .respond_json(ACK) // send_frame id 256 (caches last_frames)
+        .respond_json(ACK) // send_frame id 512 (caches last_frames)
+        .respond_json(end_stream_failing(&[0])) // end_stream → enrich_eos
+        .respond_json(extraction_of(&[("EngineSpeed", 100)])); // frame 256 satisfies the union
 
     let c = Client::with_backend(Box::new(m.clone()));
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
-        .expect("add_checks");
+    c.add_checks(&[speed_at_most_1000()]).expect("add_checks");
     c.start_stream().expect("start_stream");
     c.send_frame(
         Timestamp(0),
@@ -539,19 +570,16 @@ fn enrich_eos_stops_extracting_once_wanted_signals_merged() {
 fn enrich_eos_merges_across_frames_until_wanted_signals_found() {
     rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#) // add_checks
-        .respond_json(r#"{"status":"ack"}"#) // start_stream
-        .respond_json(r#"{"status":"ack"}"#) // send_frame id 256 (caches last_frames)
-        .respond_json(r#"{"status":"ack"}"#) // send_frame id 512 (caches last_frames)
-        .respond_json(
-            r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"}],"warnings":[]}"#,
-        ) // end_stream → enrich_eos
-        .respond_json(r#"{"values":[{"name":"CoolantTemp","value":{"numerator":90,"denominator":1}}]}"#) // frame 256: nothing wanted → keep going
-        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":200,"denominator":1}}]}"#); // frame 512: the wanted signal
+    m.respond_json(SUCCESS) // add_checks
+        .respond_json(SUCCESS) // start_stream
+        .respond_json(ACK) // send_frame id 256 (caches last_frames)
+        .respond_json(ACK) // send_frame id 512 (caches last_frames)
+        .respond_json(end_stream_failing(&[0])) // end_stream → enrich_eos
+        .respond_json(extraction_of(&[("CoolantTemp", 90)])) // frame 256: nothing wanted → keep going
+        .respond_json(extraction_of(&[("EngineSpeed", 200)])); // frame 512: the wanted signal
 
     let c = Client::with_backend(Box::new(m.clone()));
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
-        .expect("add_checks");
+    c.add_checks(&[speed_at_most_1000()]).expect("add_checks");
     c.start_stream().expect("start_stream");
     c.send_frame(
         Timestamp(0),
@@ -611,20 +639,20 @@ fn enrich_eos_merges_across_frames_until_wanted_signals_found() {
 fn enrich_eos_two_properties_share_one_extraction_pass() {
     rts_up(); // add_checks → set_properties renders the thresholds via the kernel
     let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#) // add_checks
-        .respond_json(r#"{"status":"ack"}"#) // start_stream
-        .respond_json(r#"{"status":"ack"}"#) // send_frame id 256 (caches last_frames)
-        .respond_json(r#"{"status":"ack"}"#) // send_frame id 512 (caches last_frames)
-        .respond_json(
-            r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"},{"status":"fails","property_index":1,"reason":"y"}],"warnings":[]}"#,
-        ) // end_stream → enrich_eos, two todo diagnostics
-        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":100,"denominator":1}}]}"#) // frame 256: property 0's signal
-        .respond_json(r#"{"values":[{"name":"CoolantTemp","value":{"numerator":90,"denominator":1}}]}"#); // frame 512: property 1's signal
+    m.respond_json(SUCCESS) // add_checks
+        .respond_json(SUCCESS) // start_stream
+        .respond_json(ACK) // send_frame id 256 (caches last_frames)
+        .respond_json(ACK) // send_frame id 512 (caches last_frames)
+        .respond_json(end_stream_failing(&[0, 1])) // end_stream → enrich_eos, two todo diagnostics
+        .respond_json(extraction_of(&[("EngineSpeed", 100)])) // frame 256: property 0's signal
+        .respond_json(extraction_of(&[("CoolantTemp", 90)])); // frame 512: property 1's signal
 
     let c = Client::with_backend(Box::new(m.clone()));
     c.add_checks(&[
-        check::signal("EngineSpeed").never_exceeds(1000),
-        check::signal("CoolantTemp").never_exceeds(120),
+        speed_at_most_1000(),
+        check::signal("CoolantTemp")
+            .never_exceeds(120)
+            .expect("check"),
     ])
     .expect("add_checks");
     c.start_stream().expect("start_stream");
@@ -699,22 +727,20 @@ fn enrich_eos_two_properties_share_one_extraction_pass() {
 fn enrich_eos_first_frame_wins_for_a_contended_signal() {
     rts_up(); // add_checks → set_properties renders the thresholds via the kernel
     let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#) // add_checks
-        .respond_json(r#"{"status":"ack"}"#) // start_stream
-        .respond_json(r#"{"status":"ack"}"#) // send_frame id 256 (caches last_frames)
-        .respond_json(r#"{"status":"ack"}"#) // send_frame id 512 (caches last_frames)
-        .respond_json(
-            r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"},{"status":"fails","property_index":1,"reason":"y"}],"warnings":[]}"#,
-        ) // end_stream → enrich_eos
-        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":1,"denominator":1}}]}"#) // frame 256: EngineSpeed's first (winning) value
-        .respond_json(
-            r#"{"values":[{"name":"EngineSpeed","value":{"numerator":2,"denominator":1}},{"name":"CoolantTemp","value":{"numerator":3,"denominator":1}}]}"#,
-        ); // frame 512: a contending EngineSpeed + the still-missing CoolantTemp
+    m.respond_json(SUCCESS) // add_checks
+        .respond_json(SUCCESS) // start_stream
+        .respond_json(ACK) // send_frame id 256 (caches last_frames)
+        .respond_json(ACK) // send_frame id 512 (caches last_frames)
+        .respond_json(end_stream_failing(&[0, 1])) // end_stream → enrich_eos
+        .respond_json(extraction_of(&[("EngineSpeed", 1)])) // frame 256: EngineSpeed's first (winning) value
+        .respond_json(extraction_of(&[("EngineSpeed", 2), ("CoolantTemp", 3)])); // frame 512: a contending EngineSpeed + the still-missing CoolantTemp
 
     let c = Client::with_backend(Box::new(m.clone()));
     c.add_checks(&[
-        check::signal("EngineSpeed").never_exceeds(1000),
-        check::signal("CoolantTemp").never_exceeds(120),
+        speed_at_most_1000(),
+        check::signal("CoolantTemp")
+            .never_exceeds(120)
+            .expect("check"),
     ])
     .expect("add_checks");
     c.start_stream().expect("start_stream");
@@ -783,16 +809,15 @@ fn enrich_eos_first_frame_wins_for_a_contended_signal() {
 fn enrich_eos_no_todo_makes_no_extract_calls() {
     rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let m = MockBackend::new();
-    m.respond_json(r#"{"status":"ack"}"#) // add_checks
-        .respond_json(r#"{"status":"ack"}"#) // start_stream
-        .respond_json(r#"{"status":"ack"}"#) // send_frame (caches last_frames)
+    m.respond_json(SUCCESS) // add_checks
+        .respond_json(SUCCESS) // start_stream
+        .respond_json(ACK) // send_frame (caches last_frames)
         .respond_json(
-            r#"{"status":"complete","results":[{"status":"holds","property_index":0,"reason":""}],"warnings":[]}"#,
+            r#"{"status":"complete","results":[{"type":"property","status":"holds","property_index":0}],"warnings":[]}"#,
         ); // end_stream → nothing to enrich
 
     let c = Client::with_backend(Box::new(m.clone()));
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
-        .expect("add_checks");
+    c.add_checks(&[speed_at_most_1000()]).expect("add_checks");
     c.start_stream().expect("start_stream");
     c.send_frame(
         Timestamp(0),

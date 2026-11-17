@@ -4,9 +4,9 @@
 //! A command or a DBC text holding one long number is refused, and the process
 //! that sent it lives.
 //!
-//! The kernel refuses a number whose rational components pass the signed
-//! 64-bit range, and its refusal reports the measured magnitude up to 2^64-1
-//! and that ceiling past it, with "at least" before the ceiling in the message.
+//! The kernel refuses a number whose rational components pass 2^128-1, and
+//! its refusal reports the measured magnitude up to that bound and the bound
+//! itself past it, the message then naming no number.
 //! A command of about 100 KB whose one number has 100,001 digits gets that
 //! refusal, and so does a DBC text whose one VAL_ key has 100,000 digits,
 //! naming the field. No typed method can send such a number, so each goes
@@ -15,10 +15,13 @@
 //! process that called it, so the parent reads the child's reply and exit
 //! status rather than sharing its end.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::process::Command;
 
+use aletheia::limits::BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE;
 use aletheia::Client;
+use serde_json::value::RawValue;
 
 const CHILD_ENV: &str = "ALETHEIA_LITERAL_BOUND_CHILD";
 const TEST_NAME: &str = "long_literal_refused_at_the_ceiling";
@@ -30,7 +33,60 @@ const REPLY_MARKER: &str = "ALETHEIA_LITERAL_REPLY:";
 const ZEROS: usize = 100_000;
 
 /// The largest rational component the kernel accepts, `max-rational-component-magnitude`.
-const LIMIT: u64 = 9_223_372_036_854_775_807;
+const LIMIT: u128 = u128::MAX;
+
+/// A reply's places, each kept as the JSON text the kernel wrote, so a number
+/// past 64 bits is read exactly.
+type Reply = BTreeMap<String, Box<RawValue>>;
+
+/// The string a reply place holds.
+fn text(reply: &Reply, key: &str) -> String {
+    serde_json::from_str(reply[key].get())
+        .unwrap_or_else(|e| panic!("reply {key}: {e}: {}", reply[key].get()))
+}
+
+/// The natural number a reply place holds, read from its digits.
+fn natural(reply: &Reply, key: &str) -> u128 {
+    reply[key]
+        .get()
+        .parse()
+        .unwrap_or_else(|e| panic!("reply {key}: {e}: {}", reply[key].get()))
+}
+
+/// Asserts `reply` is the bound refusal of a rational component past the
+/// bound, its places exactly the triple, the code, the message `message` and,
+/// when `field` names one, the field: the measured magnitude past the bound is
+/// reported as the bound itself.
+fn assert_the_bound_refusal(reply: &str, field: Option<&str>, message: &str) {
+    let reply: Reply = serde_json::from_str(reply).expect("the reply is a JSON object");
+    let mut keys = vec![
+        "bound_kind",
+        "code",
+        "limit",
+        "message",
+        "observed",
+        "status",
+    ];
+    keys.extend(field.map(|_| "field"));
+    keys.sort_unstable();
+    assert_eq!(
+        reply.keys().map(String::as_str).collect::<Vec<_>>(),
+        keys,
+        "the reply's places"
+    );
+    assert_eq!(text(&reply, "status"), "error");
+    assert_eq!(text(&reply, "code"), "input_bound_exceeded");
+    assert_eq!(
+        text(&reply, "bound_kind"),
+        BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE
+    );
+    if let Some(field) = field {
+        assert_eq!(text(&reply, "field"), field);
+    }
+    assert_eq!(natural(&reply, "observed"), LIMIT);
+    assert_eq!(natural(&reply, "limit"), LIMIT);
+    assert_eq!(text(&reply, "message"), message);
+}
 
 /// The child's exit when the call returned an error rather than a reply,
 /// distinct from the end under test.
@@ -90,22 +146,10 @@ fn long_literal_refused_at_the_ceiling() {
         .split_once(REPLY_MARKER)
         .and_then(|(_, rest)| rest.lines().next())
         .expect("the child printed its reply");
-    let reply: serde_json::Value = serde_json::from_str(reply).expect("the reply is JSON");
-    assert_eq!(reply["status"], "error", "{reply}");
-    assert_eq!(reply["code"], "input_bound_exceeded", "{reply}");
-    assert_eq!(
-        reply["bound_kind"], "rational_component_magnitude",
-        "{reply}"
-    );
-    assert_eq!(reply["observed"].as_u64(), Some(u64::MAX), "{reply}");
-    assert_eq!(reply["limit"].as_u64(), Some(LIMIT), "{reply}");
-    assert_eq!(
-        reply["message"],
-        format!(
-            "rational component magnitude at least {} exceeds limit {LIMIT}",
-            u64::MAX
-        ),
-        "{reply}"
+    assert_the_bound_refusal(
+        reply,
+        None,
+        &format!("rational component magnitude exceeds limit {LIMIT}"),
     );
 }
 
@@ -168,22 +212,11 @@ fn long_dbc_text_key_refused_at_the_ceiling() {
         .split_once(REPLY_MARKER)
         .and_then(|(_, rest)| rest.lines().next())
         .expect("the child printed its reply");
-    let reply: serde_json::Value = serde_json::from_str(reply).expect("the reply is JSON");
-    assert_eq!(reply["status"], "error", "{reply}");
-    assert_eq!(reply["code"], "input_bound_exceeded", "{reply}");
-    assert_eq!(
-        reply["bound_kind"], "rational_component_magnitude",
-        "{reply}"
-    );
-    assert_eq!(reply["field"], "value description key", "{reply}");
-    assert_eq!(reply["observed"].as_u64(), Some(u64::MAX), "{reply}");
-    assert_eq!(reply["limit"].as_u64(), Some(LIMIT), "{reply}");
-    assert_eq!(
-        reply["message"],
-        format!(
-            "ParseDBCText: value description key: rational component magnitude at least {} exceeds limit {LIMIT}",
-            u64::MAX
+    assert_the_bound_refusal(
+        reply,
+        Some("value description key"),
+        &format!(
+            "ParseDBCText: value description key: rational component magnitude exceeds limit {LIMIT}"
         ),
-        "{reply}"
     );
 }

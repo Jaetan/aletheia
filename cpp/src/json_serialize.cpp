@@ -3,17 +3,13 @@
 // JSON serialization: C++ types → JSON command strings for the Agda core.
 #include "detail/bad_alloc.hpp"
 #include "detail/json.hpp"
+#include "detail/wide_json.hpp"
 
 #include <aletheia/limits.hpp>
 
-#include <nlohmann/json.hpp>
-
 #include <cstdint>
-#include <cstdlib>
 #include <exception>
 #include <expected>
-#include <limits>
-#include <numeric>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -23,34 +19,18 @@
 #include <variant>
 #include <vector>
 
-using Json = nlohmann::json;
-
 namespace aletheia::detail {
 
 // `can_id_value` / `can_id_is_extended` live in `<aletheia/types.hpp>`.
 
+// A rational as its exact components, a whole number as its signed digits and
+// any other as the {numerator, denominator} object. A Rational is stored
+// reduced with a zero unsigned, so every binding writes one value alike.
 static auto rational_to_json(Rational const& r) -> Json {
-    // Normalize via gcd so the wire shape is byte-identical with Python's
-    // ``Fraction`` (auto-canonical) and Go's parseRational sign convention,
-    // preserving cross-binding wire symmetry.
-    //
-    // Guard ``INT64_MIN`` before ``std::abs``, whose result would overflow:
-    // the numerator is emitted raw, un-normalised, rather than faulting. The
-    // denominator cannot be it, being positive by construction.
-    if (r.numerator() == std::numeric_limits<std::int64_t>::min()) {
-        return {{"numerator", r.numerator()}, {"denominator", r.denominator()}};
-    }
-    auto num = r.numerator();
-    auto den = r.denominator();
-    // No sign normalisation: a Rational's constructor enforces a positive
-    // denominator, so only the numerator can be negative, and the gcd with a
-    // positive denominator is at least one.
-    auto const g = std::gcd(std::abs(num), den);
-    num /= g;
-    den /= g;
-    if (den == 1)
-        return num;
-    return {{"numerator", num}, {"denominator", den}};
+    auto numerator = json_of(r.negative(), r.numerator());
+    if (r.denominator() == 1)
+        return numerator;
+    return {{"numerator", std::move(numerator)}, {"denominator", r.denominator()}};
 }
 
 // A JSON array of the elements of `items`, each through `to_json`.
@@ -86,7 +66,15 @@ static auto presence_to_json(SignalPresence const& p, Json& sig) -> void {
 // The wire form of one {value, description} pair, shared by a signal's inline
 // entries and a value table's rows.
 static auto value_entry_to_json(DbcValueEntry const& e) -> Json {
-    return {{"value", e.value}, {"description", e.description}};
+    return {{"value", json_of(e.value)}, {"description", e.description}};
+}
+
+// An identifier as the kernel's formatter writes one, the extended flag beside
+// the number whatever its value, so a definition reads alike on the way in and
+// on the way out.
+static auto attach_can_id(Json& obj, CanId const& id) -> void {
+    obj["id"] = can_id_value(id);
+    obj["extended"] = can_id_is_extended(id);
 }
 
 // A node-valued field crosses the wire as the plain string it always was; the
@@ -119,20 +107,13 @@ static auto signal_def_to_json(DbcSignal const& s) -> Json {
 
 static auto message_to_json(DbcMessage const& m) -> Json {
     Json msg = {
-        {"id", can_id_value(m.id)},
         {"name", m.name.get()},
         {"dlc", dlc_to_bytes(m.dlc)},
         {"sender", m.sender.get()},
         {"senders", node_names_to_json(m.senders)},
         {"signals", json_array(m.signals, signal_def_to_json)},
     };
-    // Mirror the Agda wire form: emit "extended" only when the CAN ID is
-    // extended (29-bit). Agda omits the field for standard 11-bit frames;
-    // its parser accepts both forms but the omit-when-false shape is
-    // canonical (matches attach_can_id used for comment / attribute targets,
-    // and the same convention enforced by the Python and Go bindings).
-    if (can_id_is_extended(m.id))
-        msg["extended"] = true;
+    attach_can_id(msg, m.id);
     return msg;
 }
 
@@ -157,19 +138,12 @@ static auto value_table_to_json(DbcValueTable const& t) -> Json {
 
 // ---------------------------------------------------------------------------
 // Tier 2 serializers (nodes / comments / attributes). Wire format mirrors
-// Agda's formatter in src/Aletheia/DBC/Formatter.agda — every tagged union
-// carries "kind" as the first field, and extended-ID flags are emitted only
-// when true to match formatCANId's omission on 11-bit IDs.
+// Agda's formatter in src/Aletheia/DBC/Formatter.agda: every tagged union
+// carries "kind" as the first field.
 // ---------------------------------------------------------------------------
 
 static auto node_to_json(DbcNode const& n) -> Json {
     return {{"name", n.name.get()}};
-}
-
-static auto attach_can_id(Json& obj, CanId const& id) -> void {
-    obj["id"] = can_id_value(id);
-    if (can_id_is_extended(id))
-        obj["extended"] = true;
 }
 
 // Comment targets and attribute targets are two variants over the same seven
@@ -315,14 +289,12 @@ static auto attribute_to_json(DbcAttribute const& a) -> Json {
         a);
 }
 
-// JSON wire form for one unresolved RawValueDesc.
-// Mirrors message_to_json's leading {id, extended} pair via attach_can_id.
+// JSON wire form for one unresolved RawValueDesc, its identifier written as
+// message_to_json writes one.
 static auto raw_value_desc_to_json(DbcRawValueDesc const& rvd) -> Json {
-    Json out = {{"id", can_id_value(rvd.can_id)},
-                {"signalName", rvd.signal_name},
+    Json out = {{"signalName", rvd.signal_name},
                 {"entries", json_array(rvd.entries, value_entry_to_json)}};
-    if (can_id_is_extended(rvd.can_id))
-        out["extended"] = true;
+    attach_can_id(out, rvd.can_id);
     return out;
 }
 
@@ -431,8 +403,8 @@ static constexpr auto formula_tag() -> std::string_view {
 // cap mirrors the kernel's own (`Aletheia.Limits.max-nesting-depth`, exposed
 // as `aletheia::max_nesting_depth`), so a deeper formula is refused here
 // rather than serialized and then rejected on the wire.
-static auto formula_to_json(LtlFormula const& f, int depth = 0) -> Json {
-    if (std::cmp_greater(depth, max_nesting_depth))
+static auto formula_to_json(LtlFormula const& f, std::uint64_t depth = 0) -> Json {
+    if (depth > max_nesting_depth)
         throw std::runtime_error("Formula nesting depth exceeds " +
                                  std::to_string(max_nesting_depth));
     return std::visit(
@@ -443,7 +415,7 @@ static auto formula_to_json(LtlFormula const& f, int depth = 0) -> Json {
                 out["predicate"] = predicate_to_json(v.predicate);
             } else {
                 if constexpr (requires { v.bound; }) {
-                    out["timebound"] = v.bound.count();
+                    out["timebound"] = v.bound.microseconds;
                 }
                 if constexpr (requires { v.formula; }) {
                     out["formula"] = formula_to_json(*v.formula, depth + 1);
@@ -479,7 +451,7 @@ static auto encoder_refusal(std::exception const& e) -> std::unexpected<Aletheia
 template<typename Encode>
 static auto encoded(Encode encode, int indent = -1) -> Result<std::string> {
     try {
-        return encode().dump(indent);
+        return dump_json(encode(), indent);
     } catch (std::exception const& e) {
         return encoder_refusal(e);
     }
@@ -501,8 +473,8 @@ auto serialize_parse_dbc_text(std::string_view text) -> Result<std::string> {
 }
 
 auto serialize_parsed_dbc_response(DbcDefinition const& dbc) -> std::string {
-    return Json{{"status", "success"}, {"dbc", dbc_to_json(dbc)}, {"warnings", Json::array()}}
-        .dump();
+    return dump_json(
+        Json{{"status", "success"}, {"dbc", dbc_to_json(dbc)}, {"warnings", Json::array()}});
 }
 
 auto serialize_validate_dbc(DbcDefinition const& dbc) -> Result<std::string> {
@@ -520,6 +492,10 @@ auto serialize_set_properties(std::span<LtlFormula const> props) -> Result<std::
                     {"properties",
                      json_array(props, [](LtlFormula const& f) { return formula_to_json(f); })}};
     });
+}
+
+auto serialize_property(LtlFormula const& formula) -> Result<std::string> {
+    return encoded([&formula] { return formula_to_json(formula); });
 }
 
 } // namespace aletheia::detail

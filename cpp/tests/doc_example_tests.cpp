@@ -453,7 +453,7 @@ static auto compile_program(fs::path const& src_path, fs::path const& out_path) 
     // sanitizer is active.
     auto const lib_dir = std::filesystem::path{ALETHEIA_DOC_LIB_FILE}.parent_path();
     std::ostringstream cmd;
-    cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
+    cmd << sh_quote(ALETHEIA_DOC_CXX) << " " << ALETHEIA_DOC_CXX_STD_FLAG << " -I"
         << sh_quote(doc_include_dir()) << " -o " << sh_quote(out_path.string()) << " "
         << sh_quote(src_path.string()) << " " << sh_quote(ALETHEIA_DOC_LIB_FILE) << " -Wl,-rpath,"
         << sh_quote(lib_dir.string()) << " -ldl -lpthread -lstdc++fs -Werror=unused-result "
@@ -473,7 +473,7 @@ static auto compile_program(fs::path const& src_path, fs::path const& out_path) 
 // own names.
 static auto harness_uses_of(fs::path const& src_path) -> std::vector<HarnessUse> {
     std::ostringstream cmd;
-    cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
+    cmd << sh_quote(ALETHEIA_DOC_CXX) << " " << ALETHEIA_DOC_CXX_STD_FLAG << " -I"
         << sh_quote(doc_include_dir()) << " -fsyntax-only -ferror-limit=0 -fno-spell-checking "
         << sh_quote(src_path.string());
     auto const [rc, diagnostics] = run_capture(cmd.str());

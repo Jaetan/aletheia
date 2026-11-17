@@ -117,13 +117,13 @@ impl<F: Fn(&LogRecord) + Send + Sync> Logger for F {
     }
 }
 
-/// The cross-binding structured-log event vocabulary — the full canonical set,
+/// The cross-binding structured-log event vocabulary: the full canonical set,
 /// authoritative in `docs/LOG_EVENTS.yaml` and shared with the Python / Go / C++
-/// bindings (Python's `LogEvent` enum is the analogue). All 16 names are defined
+/// bindings (Python's `LogEvent` enum is the analogue). Every name is defined
 /// here, so downstream code can refer to any vocabulary event uniformly across
-/// bindings even where this client does not yet emit it; [`ALL`](events::ALL) lists them and
+/// bindings even where this client does not emit it; [`ALL`](events::ALL) lists them and
 /// the `log_events` parity test pins the set to the YAML. The subset this client
-/// emits today is noted per-constant.
+/// emits is noted per-constant.
 pub mod events {
     // --- Emitted by this client ---
 
@@ -146,13 +146,13 @@ pub mod events {
     /// An end-of-stream warning: an atom referenced a signal the cache never observed. *(emitted)*
     pub const ENDSTREAM_UNCACHED_ATOM: &str = "endstream.uncached_atom";
 
-    /// A violation referenced a property index outside the registered set. *(emitted)*
-    pub const ENRICHMENT_PROPERTY_INDEX_OOB: &str = "enrichment.property_index_oob";
-    /// Signal extraction for violation enrichment returned no result. *(emitted)*
-    pub const ENRICHMENT_EXTRACTION_FAILED: &str = "enrichment.extraction_failed";
-    /// An extraction request failed at the FFI process boundary. *(emitted)*
+    /// An extraction request failed before its reply could be read; the
+    /// client returns the error, from an enrichment as from `extract_signals`.
+    /// *(emitted)*
     pub const EXTRACTION_PROCESS_FAILED: &str = "extraction.process_failed";
-    /// An extraction response could not be parsed. *(emitted)*
+    /// An extraction reply carried the kernel's refusal or could not be read;
+    /// the client returns the error, from an enrichment as from
+    /// `extract_signals`. *(emitted)*
     pub const EXTRACTION_PARSE_FAILED: &str = "extraction.parse_failed";
 
     // --- Vocabulary completeness (defined but not emitted by this client) ---
@@ -170,7 +170,7 @@ pub mod events {
     pub const CACHE_FULL: &str = "cache.full";
 
     /// Every event in the canonical vocabulary, in `docs/LOG_EVENTS.yaml` order.
-    pub const ALL: [&str; 16] = [
+    pub const ALL: [&str; 14] = [
         DBC_PARSED,
         PROPERTIES_SET,
         STREAM_STARTED,
@@ -179,8 +179,6 @@ pub mod events {
         FRAME_PROCESSED,
         ERROR_EVENT_SENT,
         REMOTE_EVENT_SENT,
-        ENRICHMENT_PROPERTY_INDEX_OOB,
-        ENRICHMENT_EXTRACTION_FAILED,
         CACHE_HIT,
         CACHE_MISS,
         CACHE_FULL,

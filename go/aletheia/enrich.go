@@ -10,7 +10,7 @@ import (
 
 // formatRational is [FormatRational] for the package's own use.
 func formatRational(r Rational) (string, error) {
-	return formatRationalFFI(r.Numerator, r.Denominator)
+	return formatRationalFFI(r)
 }
 
 // FormatRational renders a Rational as the display string every binding
@@ -157,7 +157,7 @@ func (p *formulaPrinter) predicate(pred Predicate) string {
 	case Between:
 		return fmt.Sprintf("%s <= %s <= %s", p.rat(v.Min), v.Signal, p.rat(v.Max))
 	case ChangedBy:
-		if v.Delta.Numerator >= 0 {
+		if !v.Delta.Negative {
 			return fmt.Sprintf("Δ%s >= %s", v.Signal, p.rat(v.Delta))
 		}
 		return fmt.Sprintf("Δ%s <= %s", v.Signal, p.rat(v.Delta))

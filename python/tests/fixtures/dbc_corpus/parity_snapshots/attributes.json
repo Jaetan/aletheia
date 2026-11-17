@@ -157,6 +157,7 @@
       "kind": "assignment",
       "name": "MsgCycleTime",
       "target": {
+        "extended": false,
         "id": 400,
         "kind": "message"
       },
@@ -169,6 +170,7 @@
       "kind": "assignment",
       "name": "SignalPriority",
       "target": {
+        "extended": false,
         "id": 400,
         "kind": "signal",
         "signal": "Value"
@@ -194,6 +196,7 @@
       "kind": "assignment",
       "name": "NodeMsgAccess",
       "target": {
+        "extended": false,
         "id": 400,
         "kind": "nodeMsg",
         "node": "Sensor"
@@ -207,6 +210,7 @@
       "kind": "assignment",
       "name": "NodeSigAccess",
       "target": {
+        "extended": false,
         "id": 400,
         "kind": "nodeSig",
         "node": "Sensor",
@@ -231,6 +235,7 @@
   "messages": [
     {
       "dlc": 8,
+      "extended": false,
       "id": 400,
       "name": "Payload",
       "sender": "ECU",

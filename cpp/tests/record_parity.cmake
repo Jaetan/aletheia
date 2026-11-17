@@ -50,8 +50,8 @@ endif()
 # Cross-binding wire-code parity test (yaml-cpp + aletheia-cpp, Catch2).
 # Reads docs/WIRE_CODES.yaml (the kernel-anchored wire-code SSOT) and
 # asserts the IssueCode and ErrorCode enums are each a bijection with
-# their YAML section: every wire code maps to a non-Unknown enumerator
-# and no enumerator lacks an SSOT row. Pure vocabulary test: no RTS, no
+# their YAML section: every wire code maps to an enumerator and no
+# enumerator lacks an SSOT row. Pure vocabulary test: no RTS, no
 # FFI backend, so no rts_setup_listener.cpp.
 add_executable(wire_codes_tests tests/test_wire_codes_parity.cpp)
 target_link_libraries(wire_codes_tests

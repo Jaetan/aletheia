@@ -31,6 +31,10 @@ def infinitely_often(formula: Property | Predicate) -> Property:
 
     Example:
     ```python
+    from aletheia import start_runtime
+
+    start_runtime(1)
+
     # Speed exceeds 100 infinitely often (repeated acceleration)
     infinitely_often(Signal("Speed").greater_than(100))
 
@@ -61,6 +65,10 @@ def eventually_always(formula: Property | Predicate) -> Property:
 
     Example:
     ```python
+    from aletheia import start_runtime
+
+    start_runtime(1)
+
     # Temperature eventually stabilizes below 70 degrees
     eventually_always(Signal("Temperature").less_than(70))
 
@@ -87,6 +95,10 @@ def never(formula: Property | Predicate) -> Property:
 
     Example:
     ```python
+    from aletheia import start_runtime
+
+    start_runtime(1)
+
     # Critical fault never occurs
     never(Signal("CriticalFault").equals(1))
 

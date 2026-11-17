@@ -76,11 +76,12 @@ def main() -> int:
     """Stream ``frames`` frames and report the resident-set growth as JSON."""
     shape, frames = sys.argv[1], int(sys.argv[2])
     dbc = build_dbc(shape)
-    properties = (
-        [] if shape == EMPTY_MESSAGE else [Signal("Speed").less_than(5000).always().to_dict()]
-    )
 
     with AletheiaClient() as client:
+        # The kernel checks a property as it is built, so the client opens first.
+        properties = (
+            [] if shape == EMPTY_MESSAGE else [Signal("Speed").less_than(5000).always().to_dict()]
+        )
         # Fail loud on setup errors: an error-path session would still run the
         # loop but measure nothing meaningful, giving false coverage for the
         # bounded-residency regression.

@@ -24,15 +24,26 @@ orchestration is covered through a ``main`` end-to-end with monkeypatched runner
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
+from unittest.mock import Mock
 
 import pytest
 
 from tools import _branch_diff, mutation_run
 from tools._common import RelPath, git_ls_files
+from tools.mutation_python import (
+    PYTHON_SHARDS_ENV,
+    PYTHON_STAGE_ENV,
+    ShardNumber,
+    dealt,
+    read_record,
+)
+from tools.mutation_report import CrashedMutant, DriftStatus, MutantCount
+from tools.mutation_witness import LOW_HEAP_SUFFIX, PLACEMENT_ENV, TALLY_FILE, MutantName
 
 from aletheia.common_types import Prose
 
@@ -298,6 +309,25 @@ class _Mutmut(NamedTuple):
         return subprocess.CompletedProcess(cmd, 0, stdout=self.summary, stderr="")
 
 
+def _witnessed_sweep(root: Path, count: MutantCount) -> Callable[[], None]:
+    """Return a stand-in step leaving what a witnessed sweep of ``count`` mutants leaves.
+
+    That is mutmut's ``.meta`` naming each, killed, and the witness's tally of each
+    run, so the lane's witness check holds and the test reads what it is about.
+    """
+
+    def swept() -> None:
+        names = [f"m.f__mutmut_{index}" for index in range(1, count + 1)]
+        meta = root / "python" / "mutants" / "m.py.meta"
+        meta.parent.mkdir(parents=True, exist_ok=True)
+        _ = meta.write_text(json.dumps({"exit_code_by_key": dict.fromkeys(names, 1)}))
+        tally = root / "artifacts" / mutation_run.PYTHON_WITNESS_DIR / TALLY_FILE
+        tally.parent.mkdir(parents=True, exist_ok=True)
+        _ = tally.write_text("".join(f"{name}\n" for name in names))
+
+    return swept
+
+
 def test_run_python_erases_stale_mutants_tree(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -339,6 +369,106 @@ def test_run_python_erases_stale_mutants_tree(
     assert not stale.exists()
 
 
+def test_run_python_names_the_repository_root_and_the_library_to_mutmut(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both mutmut calls run with the repository's root and its built library named.
+
+    The suite runs from mutmut's copy under python/mutants/, where a test's own
+    ancestors stop one level short of the root, so the tests that read the
+    tree above python/ find it through ``ALETHEIA_REPO_ROOT``, and the library
+    loader through ``ALETHEIA_LIB``.
+    """
+    lib = tmp_path / "build" / "libaletheia-ffi.so"
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", lib)
+
+    mutmut = Mock(return_value=subprocess.CompletedProcess(["mutmut"], 0, stdout="", stderr=""))
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", mutmut)
+    monkeypatch.setattr(mutation_run.subprocess, "run", mutmut)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    mutation_run.run_python(artifacts)
+
+    assert mutmut.call_count == 2
+    for call in mutmut.call_args_list:
+        assert call.kwargs["env"]["ALETHEIA_REPO_ROOT"] == str(tmp_path)
+        assert call.kwargs["env"]["ALETHEIA_LIB"] == str(lib)
+
+
+@pytest.mark.parametrize(
+    ("heap", "placed"),
+    [
+        ("0689e000-068e0000 rw-p 00000000 00:00 0  [heap]\n", ("0", "2147483647")),
+        ("55d1c3a2b000-55d1c3b4c000 rw-p 00000000 00:00 0  [heap]\n", ("131072", None)),
+    ],
+    ids=["heap below 2^32", "heap above"],
+)
+def test_run_python_runs_mutmut_under_the_placement_settings_where_its_heap_is_low(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, heap: Prose, placed: tuple[Prose | None, ...]
+) -> None:
+    """The run starts mutmut under the settings where the lane's heap lies below 2^32 alone.
+
+    Elsewhere the environment reaches mutmut as it was.
+    """
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    maps = tmp_path / "maps"
+    _ = maps.write_text(heap, encoding="utf-8")
+    mutmut = Mock(return_value=subprocess.CompletedProcess(["mutmut"], 0, stdout="", stderr=""))
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "PROCESS_MAPS", maps)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", mutmut)
+    monkeypatch.setattr(mutation_run.subprocess, "run", mutmut)
+    monkeypatch.setenv("MALLOC_MMAP_THRESHOLD_", "131072")
+    monkeypatch.delenv("MALLOC_MMAP_MAX_", raising=False)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    _ = mutation_run.run_python(artifacts)
+
+    run_call = mutmut.call_args_list[0]
+    assert tuple(run_call.kwargs["env"].get(name) for name in PLACEMENT_ENV) == placed
+
+
+def test_run_python_refuses_a_run_whose_heap_lay_below_2_32(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A run the witness found with its heap below 2^32 fails the lane, naming the first."""
+    witnesses = tmp_path / "artifacts" / mutation_run.PYTHON_WITNESS_DIR
+
+    def swept_low() -> None:
+        _witnessed_sweep(tmp_path, MutantCount(3))()
+        for index in (3, 2):
+            _ = (witnesses / f"m.f__mutmut_{index}{LOW_HEAP_SUFFIX}").write_text("0x689e000\n")
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    fake_run = _Mutmut(Prose("⠴ 3/3  🎉 3 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0\n"), swept_low)
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
+    monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
+    (tmp_path / "artifacts").mkdir()
+
+    report = mutation_run.run_python(tmp_path / "artifacts")
+
+    assert report.error == (
+        "2 mutants' runs ended with their heap below 2^32, where an address cut to 32 bits "
+        + "still names its block: mutmut must run under tools/mutation_witness.py's "
+        + "PLACEMENT_ENV, first m.f__mutmut_2"
+    )
+    assert mutation_run.python_placement_refusal(tmp_path / "unwitnessed") is None
+
+
 def test_run_python_reports_the_mutants_mutmut_timed_out(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -352,7 +482,10 @@ def test_run_python_reports_the_mutants_mutmut_timed_out(
     def fake_tools() -> tuple[Path, Path]:
         return (tmp_path / "mutmut", tmp_path / "lib.so")
 
-    fake_run = _Mutmut(Prose("⠴ 10/10  🎉 9 🫥 0  ⏰ 1  🤔 0  🙁 0  🔇 0  🧙 0\n"), _nothing)
+    fake_run = _Mutmut(
+        Prose("⠴ 10/10  🎉 9 🫥 0  ⏰ 1  🤔 0  🙁 0  🔇 0  🧙 0\n"),
+        _witnessed_sweep(tmp_path, MutantCount(10)),
+    )
     monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
     monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
@@ -367,3 +500,397 @@ def test_run_python_reports_the_mutants_mutmut_timed_out(
         report, {"python": {"baseline": {"survivors": 0, "timeout_ceiling": 0}}}
     )
     assert verdict["status"] == "regression"
+
+
+# Two mutants whose process a signal or an unknown exit ended, as ``mutmut results`` lists them.
+_CRASHED = Prose(
+    "⠴ 10/10  🎉 7 🫥 0  ⏰ 0  🤔 1  🙁 0  🔇 0  🧙 0\n"
+    + "    aletheia.client._ffi.x_take__mutmut_6: segfault\n"
+    + "    aletheia.client._ffi.x_configure__mutmut_43: suspicious\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("ceiling", "status"),
+    [(MutantCount(0), "regression"), (MutantCount(2), "ok")],
+    ids=["over", "at the ceiling"],
+)
+def test_run_python_reports_the_mutants_that_ended_their_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ceiling: MutantCount, status: DriftStatus
+) -> None:
+    """A mutant whose process ended on a signal reaches the report, named, and the ceiling holds it.
+
+    mutmut files a process a signal ended as ``segfault`` and one an exit it
+    does not know ended as ``suspicious``, beside its kills: no test observed
+    either, so a sweep past the baseline's ceiling fails the lane naming each.
+    """
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    fake_run = _Mutmut(_CRASHED, _witnessed_sweep(tmp_path, MutantCount(10)))
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
+    monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    report = mutation_run.run_python(artifacts)
+
+    named = [
+        CrashedMutant("aletheia.client._ffi.x_configure__mutmut_43: suspicious"),
+        CrashedMutant("aletheia.client._ffi.x_take__mutmut_6: segfault"),
+    ]
+    assert report.observed.crashes == tuple(named)
+    verdict = mutation_run.drift_for(
+        report,
+        {"python": {"baseline": {"survivors": 0, "timeout_ceiling": 0, "crash_ceiling": ceiling}}},
+    )
+    assert verdict["status"] == status
+    if status == "regression":
+        assert (verdict.get("observed_crashes"), verdict.get("crash_ceiling")) == (named, ceiling)
+
+
+def test_run_python_runs_mutmut_through_the_witness(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The run starts mutmut through the witness, whose children inherit it; results run alone.
+
+    A mutmut that wrote no log and a run that raised nowhere leave nothing beside
+    the report and nothing witnessed in its raw record.
+    """
+    mutmut_bin = tmp_path / "python" / ".venv" / "bin" / "mutmut"
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (mutmut_bin, tmp_path / "lib.so")
+
+    mutmut = Mock(return_value=subprocess.CompletedProcess(["mutmut"], 0, stdout="", stderr=""))
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", mutmut)
+    monkeypatch.setattr(mutation_run.subprocess, "run", mutmut)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    _ = mutation_run.run_python(artifacts)
+
+    run_call, results_call = mutmut.call_args_list
+    assert run_call.args[0] == [
+        str(mutmut_bin.with_name("python3")),
+        str(mutation_run.WITNESS_SCRIPT),
+        "--witness-dir",
+        str(artifacts / mutation_run.PYTHON_WITNESS_DIR),
+        "run",
+    ]
+    assert results_call.args[0] == [str(mutmut_bin), "results"]
+    assert mutation_run.WITNESS_SCRIPT.is_file()
+    assert not (artifacts / f"python.{mutation_run.MUTMUT_LOG}").exists()
+    assert "=== raised:" not in (artifacts / "python.raw.txt").read_text()
+
+
+def test_run_python_keeps_each_witness_and_mutmuts_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Each witness lands in the raw record and on stderr, and mutmut's log beside the report.
+
+    A ``.txt`` witness is a run that raised, a ``.running`` one a run that ended
+    its process before returning; the record says which each was.
+    """
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    raised = artifacts / mutation_run.PYTHON_WITNESS_DIR / "m__mutmut_9.txt"
+    ended = artifacts / mutation_run.PYTHON_WITNESS_DIR / "m__mutmut_4.running"
+    log = tmp_path / "python" / "mutants" / mutation_run.MUTMUT_LOG
+
+    def ran() -> None:
+        # What witnessed runs leave: two witnesses, and mutmut's log under mutants/.
+        _witnessed_sweep(tmp_path, MutantCount(10))()
+        raised.parent.mkdir(exist_ok=True)
+        _ = raised.write_text("m__mutmut_9\nERROR: not found\n")
+        _ = ended.write_text("m__mutmut_4\nstarted tests/test_a.py::test_one\n")
+        log.parent.mkdir(parents=True, exist_ok=True)
+        _ = log.write_text("Completed m__mutmut_9: exit=255\n")
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    fake_run = _Mutmut(Prose("⠴ 10/10  🎉 9 🫥 0  ⏰ 1  🤔 0  🙁 0  🔇 0  🧙 0\n"), ran)
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
+    monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
+
+    report = mutation_run.run_python(artifacts)
+
+    assert report.observed.timeouts == 1
+    raw = (artifacts / "python.raw.txt").read_text()
+    assert "=== raised: m__mutmut_9.txt ===\nm__mutmut_9\nERROR: not found\n" in raw
+    assert (
+        "=== ended its process before returning: m__mutmut_4.running ===\n"
+        + "m__mutmut_4\nstarted tests/test_a.py::test_one\n"
+    ) in raw
+    kept = artifacts / f"python.{mutation_run.MUTMUT_LOG}"
+    assert kept.read_text() == "Completed m__mutmut_9: exit=255\n"
+    err = capsys.readouterr().err
+    assert f"[mutation] python: a mutant's run raised, witnessed in {raised}\n" in err
+    assert (
+        "[mutation] python: a mutant's run ended its process before returning, "
+        + f"witnessed in {ended}\n"
+    ) in err
+
+
+# Each mutant's exit as mutmut's .meta records it: two killed or survived, one
+# timed out, one with no tests (never run) and one never checked.
+_EXITS = {
+    "m.a__mutmut_1": 1,
+    "m.b__mutmut_2": 0,
+    "m.c__mutmut_3": 33,
+    "m.d__mutmut_4": 255,
+    "m.e__mutmut_5": None,
+}
+
+
+@pytest.mark.parametrize(
+    ("tallied", "error"),
+    [
+        (["m.a__mutmut_1", "m.b__mutmut_2", "m.d__mutmut_4"], None),
+        (
+            ["m.a__mutmut_1"],
+            "the witness tallied no run of 2 mutants mutmut ran, so it is off "
+            + "(tools/mutation_witness.py), first m.b__mutmut_2, m.d__mutmut_4",
+        ),
+    ],
+    ids=["every run tallied", "two runs missing"],
+)
+def test_run_python_refuses_a_sweep_whose_runs_the_witness_did_not_see(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tallied: list[Prose], error: Prose | None
+) -> None:
+    """Every mutant mutmut ran a child for is in the witness's tally, or the lane fails.
+
+    A mutant with no tests, or never checked, has no child and is not expected.
+    """
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    def ran() -> None:
+        # What the run leaves: mutmut's .meta under mutants/, the witness's tally.
+        meta = tmp_path / "python" / "mutants" / "m.py.meta"
+        meta.parent.mkdir(parents=True, exist_ok=True)
+        _ = meta.write_text(json.dumps({"exit_code_by_key": _EXITS}))
+        tally = artifacts / mutation_run.PYTHON_WITNESS_DIR / TALLY_FILE
+        tally.parent.mkdir(exist_ok=True)
+        _ = tally.write_text("".join(f"{name}\n" for name in tallied))
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    fake_run = _Mutmut(Prose("⠴ 5/5  🎉 1 🫥 1  ⏰ 1  🤔 0  🙁 1  🔇 0  🧙 0\n"), ran)
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
+    monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
+
+    assert mutation_run.run_python(artifacts).error == error
+
+
+@pytest.mark.parametrize(
+    ("named", "summary", "error"),
+    [
+        (
+            MutantCount(4),
+            Prose("⠴ 5/5  🎉 5 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0\n"),
+            "mutmut's .meta files name 4 of the 5 mutants its summary counts, so the witness's "
+            + "tally was held to no run of the others",
+        ),
+        (
+            MutantCount(0),
+            Prose("⠴ 5/5  🎉 5 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0\n"),
+            "mutmut's .meta files name 0 of the 5 mutants its summary counts, so the witness's "
+            + "tally was held to no run of the others",
+        ),
+        (
+            MutantCount(5),
+            Prose(""),
+            "mutmut printed no count to hold its .meta files to, so no run was checked",
+        ),
+    ],
+    ids=["fewer than counted", "none found", "no count printed"],
+)
+def test_run_python_refuses_a_tally_check_with_nothing_to_hold_it_to(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    named: MutantCount,
+    summary: Prose,
+    error: Prose,
+) -> None:
+    """The .meta files are held to mutmut's own count, so a reading that finds fewer fails.
+
+    A mutmut that moved or renamed them would otherwise leave the tally held to
+    no run at all, and the check would pass on nothing.
+    """
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    swept = _witnessed_sweep(tmp_path, named) if named else _nothing
+    fake_run = _Mutmut(summary, swept)
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
+    monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
+
+    assert mutation_run.run_python(artifacts).error == error
+
+
+def _shard_sweep(root: Path, number: ShardNumber, names: list[MutantName]) -> Callable[[], None]:
+    """Return a stand-in step leaving what shard ``number``'s witnessed sweep leaves.
+
+    mutmut's ``.meta`` names every mutant, the shard's deal killed and the rest
+    unchecked, and the witness's tally names each of the deal's runs.
+    """
+
+    def swept() -> None:
+        judged = dealt(names, number)
+        meta = root / "python" / "mutants" / "m.py.meta"
+        meta.parent.mkdir(parents=True, exist_ok=True)
+        exits = {name: (1 if name in judged else None) for name in names}
+        _ = meta.write_text(json.dumps({"exit_code_by_key": exits}))
+        tally = root / "artifacts" / mutation_run.PYTHON_WITNESS_DIR / TALLY_FILE
+        tally.parent.mkdir(parents=True, exist_ok=True)
+        _ = tally.write_text("".join(f"{name}\n" for name in judged))
+
+    return swept
+
+
+_NAMES = [MutantName(f"m.f__mutmut_{n}") for n in range(1, 5)]
+
+
+def test_run_python_runs_one_shard_through_the_witness_and_records_its_deal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A shard hands the witness its deal, reports under its own name and records its census."""
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    summary = Prose("⠴ 2/4  🎉 2 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0\n")
+    mutmut = Mock(wraps=_Mutmut(summary, _shard_sweep(tmp_path, ShardNumber(2), _NAMES)))
+    monkeypatch.setenv(PYTHON_STAGE_ENV, "2")
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "short_sha", _fixed_sha)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", mutmut)
+    monkeypatch.setattr(mutation_run.subprocess, "run", mutmut)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    report = mutation_run.run_python(artifacts)
+
+    assert (report.binding, report.error, report.killed) == ("python-2", None, 2)
+    assert mutmut.call_args_list[0].args[0][-3:] == ["--shard", "2/2", "run"]
+    log = (artifacts / "python-2.raw.txt").read_text(encoding="utf-8")
+    assert log.startswith("=== Python shard 2 of 2: 2 of 4 mutants ===\n=== mutmut run ===\n")
+    assert not (artifacts / "python.raw.txt").exists()
+    record = read_record(artifacts / "python-shard-2.json")
+    assert (record.commit, record.census, record.judged) == (
+        "testsha",
+        tuple(_NAMES),
+        dealt(_NAMES, ShardNumber(2)),
+    )
+
+
+def _leave_shard_lane(
+    directory: Path, number: ShardNumber, log: Prose, error: Prose | None
+) -> None:
+    """Leave what a shard's lane uploads: its record, its log and its report."""
+    lane = directory / f"mutation-python-{number}"
+    lane.mkdir(parents=True)
+    record = {
+        "shard": number,
+        "commit": "testsha",
+        "census": _NAMES,
+        "judged": list(dealt(_NAMES, number)),
+    }
+    _ = (lane / f"python-shard-{number}.json").write_text(json.dumps(record))
+    _ = (lane / f"python-{number}.raw.txt").write_text(log)
+    _ = (lane / f"python-{number}.json").write_text(json.dumps({"error": error}))
+
+
+# What each shard's log says: its progress line, what ``mutmut results`` named,
+# and for the second a witness after the results, whose output names no crash.
+_SHARD_LOGS = (
+    Prose(
+        "=== mutmut run ===\n⠴ 2/4  🎉 1 🫥 0  ⏰ 0  🤔 1  🙁 0  🔇 0  🧙 0\n\n"
+        + "=== mutmut results ===\n    m.f__mutmut_1: segfault\n\n"
+    ),
+    Prose(
+        "=== mutmut run ===\n⠴ 2/4  🎉 1 🫥 0  ⏰ 1  🤔 0  🙁 0  🔇 0  🧙 0\n\n"
+        + "=== mutmut results ===\n    m.f__mutmut_2: timeout\n\n"
+        + "=== raised: m.f__mutmut_4.txt ===\n    m.f__mutmut_9: suspicious\n"
+    ),
+)
+
+
+def _merge_stage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, shards: Path) -> None:
+    """Run the Python lane as the merge stage over ``shards``, with no tool to reach for."""
+
+    def no_tools() -> tuple[Path, Path]:
+        message = "the merge reached for mutmut"
+        raise AssertionError(message)
+
+    monkeypatch.setenv(PYTHON_STAGE_ENV, "merge")
+    monkeypatch.setenv(PYTHON_SHARDS_ENV, str(shards))
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "short_sha", _fixed_sha)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", no_tools)
+
+
+def test_run_python_merges_the_shards_into_the_lanes_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The merge sums the shards' counts, names their results' crashes, and needs no mutmut."""
+    shards = tmp_path / "python-shards"
+    for number, log in enumerate(_SHARD_LOGS, start=1):
+        _leave_shard_lane(shards, ShardNumber(number), log, None)
+    _merge_stage(monkeypatch, tmp_path, shards)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    report = mutation_run.run_python(artifacts)
+
+    assert (report.binding, report.error) == ("python", None)
+    assert (report.killed, report.survived, report.observed.timeouts) == (2, 0, 1)
+    assert report.observed.crashes == (CrashedMutant("m.f__mutmut_1: segfault"),)
+    raw = (artifacts / "python.raw.txt").read_text(encoding="utf-8")
+    assert raw == f"=== merge of the Python shards under {shards} ===\n" + "".join(_SHARD_LOGS)
+
+
+def test_run_python_refuses_a_merge_a_shard_of_which_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A shard whose own run reported an error fails the merge with that error."""
+    shards = tmp_path / "python-shards"
+    _leave_shard_lane(shards, ShardNumber(1), _SHARD_LOGS[0], None)
+    _leave_shard_lane(shards, ShardNumber(2), _SHARD_LOGS[1], Prose("the witness is off"))
+    _merge_stage(monkeypatch, tmp_path, shards)
+    (tmp_path / "artifacts").mkdir()
+
+    report = mutation_run.run_python(tmp_path / "artifacts")
+
+    assert report.error == "Python shard 2 failed: the witness is off"
+
+
+def test_run_python_refuses_a_merge_naming_no_shards_and_a_stage_that_is_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The merge without its directory, and a misspelt stage, each fail naming the variable."""
+    _merge_stage(monkeypatch, tmp_path, tmp_path)
+    monkeypatch.delenv(PYTHON_SHARDS_ENV)
+    assert mutation_run.run_python(tmp_path).error == (
+        f"{PYTHON_STAGE_ENV}=merge reads the shards from {PYTHON_SHARDS_ENV}: unset"
+    )
+    monkeypatch.setenv(PYTHON_STAGE_ENV, "3")
+    assert str(mutation_run.run_python(tmp_path).error).startswith(f"{PYTHON_STAGE_ENV}='3'")

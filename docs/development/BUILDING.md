@@ -47,6 +47,8 @@ brew install gmp                                  # macOS
 
 A missing `libgmp` surfaces as `ld: cannot find -lgmp` at link time (see [Troubleshooting](#missing-libgmp-ld-cannot-find--lgmp)).
 
+The reply-place gate (`tools/check_limits_parity.py`) reads the C++ binding through libclang 23, loaded from `/usr/lib/llvm-23/lib/libclang-23.so.23`, which the `libclang1-23` package installs; `clang-23` depends on it, so the Clang 23 toolchain brings it. Where it does not load, the gate exits 2 naming that path.
+
 ### Python interpreter from source
 
 `tools/build_python.sh <version> <prefix>` builds CPython from the python.org source release and installs it into `<prefix>` with `make altinstall`. uv's prebuilt CPython lacks `os.pidfd_open`, which CPython compiles only where the build's kernel headers define that syscall, and its Tk has no Xft, so it draws only core X fonts; this build has neither gap. The script verifies the tarball's Sigstore signature against the release manager's identity, builds with clang-23 using PGO, LTO, the tail-calling interpreter and BOLT, fails when any stdlib module a Linux build can have is missing or does not import, and links tkinter against the system Tk 9.0. Its build dependencies as Debian packages, beyond the [system libraries](#system-libraries), with `cosign` on `PATH`:
@@ -726,12 +728,13 @@ The Rust binding (`rust/`) wraps `libaletheia-ffi.so` via the `libloading` crate
 | Crate | License | Role |
 |---|---|---|
 | libloading | ISC | Runtime `dlopen` of `libaletheia-ffi.so` |
-| serde_json | MIT OR Apache-2.0 | JSON protocol serialization/deserialization |
+| serde | MIT OR Apache-2.0 | The `Deserialize` and `Serialize` impls the crate reads each reply and writes each request with |
+| serde_json | MIT OR Apache-2.0 | JSON protocol serialization/deserialization, every number kept as its digits (`raw_value` feature) |
 | yaml-rust2 | MIT OR Apache-2.0 | YAML check-rule loader (optional `yaml` feature, on by default) |
 | futures-channel | MIT OR Apache-2.0 | Async client reply channel (optional `async` feature) |
 | futures-util | MIT OR Apache-2.0 | Stream combinators for the lazy async batch send (optional `async` feature) |
 
-`serde` (MIT OR Apache-2.0) is pulled in transitively by `serde_json`. Dev-only (test/bench, not shipped): `futures` and `yaml-rust2`.
+Dev-only (test/bench, not shipped): `futures` and `yaml-rust2`.
 
 The optional `aletheia-excel` crate (`rust/excel/`) is a separate crate so the `.xlsx` dependency chain is not imposed on core users; its third-party crates, pinned in `rust/excel/Cargo.toml`:
 

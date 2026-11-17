@@ -18,18 +18,25 @@ wrapper over its stable C ABI. (The **Haskell** binding, by contrast, is *native
 
 A **typed client** over one stream in the verified core:
 
-- **Validated value types** — `CanId` (an enum of 11-bit `Standard` / 29-bit
-  `Extended`), `Dlc`, `Rational`, `Timestamp`, `TimeBound` — each rejects
-  out-of-range input at construction (`Result`), mirroring the Go and C++
-  bindings' newtype discipline.
-- **LTL** — `Predicate` and `Formula` are native, exhaustively-matchable Rust
+- **Typed values**: `CanId` (an enum of 11-bit `Standard` / 29-bit
+  `Extended`) and `Dlc` refuse out-of-range input at construction (`Result`),
+  mirroring the Go and C++ bindings' newtype discipline; a `Rational` is exact,
+  its numerator and denominator each up to 2^128-1 and always in lowest terms;
+  `Timestamp` and `TimeBound` are whole microseconds, and `TimeBound::parse`
+  reads a window through the kernel.
+- **LTL**: `Predicate` and `Formula` are native, exhaustively-matchable Rust
   enums (no sealed-interface ceremony) that serialize to the exact wire shape the
-  Agda core accepts.
-- **`Client`** — load a DBC (`parse_dbc_text`), bind properties
+  Agda core accepts. Their builders, like the Check DSL's, hand what they build
+  to the kernel and return `Result`, so a property is refused where it is built.
+- **`Client`**: load a DBC (`parse_dbc_text`), bind properties
   (`set_properties`), then stream frames through the **binary FFI**
   (`start_stream` / `send_frame` / `send_error` / `send_remote` / `end_stream`)
-  and extract signals (`extract_signals`) — the same fast path the other bindings
-  use in production. `process` remains as a raw JSON escape hatch.
+  and extract signals (`extract_signals`), the same fast path the other bindings
+  use in production. `process` remains as a raw JSON escape hatch, and empties
+  the client's signal-name cache, since a raw command can load another DBC.
+- **Readers**: every reply place holding what the kernel never writes there is
+  refused as `Error::Protocol` in the one form the four bindings share,
+  `reply <path>: expected <what>, got <what came>`.
 
 The two ownership rules that cgo hides from the Go binding are enforced here:
 

@@ -60,7 +60,7 @@ open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextParser.Topology using (parseSignalLine)
 open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; smallNat-by-eval)
-open import Aletheia.DBC.Bounds using (SignalMagnitudes)
+open import Aletheia.DBC.Bounds using (SignalMagnitudes; startBit-small; bitLength-small)
 open import Aletheia.CAN.Endianness using (unconvertStartBit)
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (RawSignal; mkRawSignal;
@@ -346,8 +346,8 @@ expectedRaw-small mux sig fb mux-small fb≤64 m =
   mux-small
   , unconvertStartBit-small fb (DBCSignal.byteOrder sig)
       (SignalDef.startBit (DBCSignal.signalDef sig)) (SignalDef.bitLength (DBCSignal.signalDef sig))
-      (SignalMagnitudes.startBit m) fb≤64
-  , SignalMagnitudes.bitLength m
+      (startBit-small (SignalMagnitudes.startBit m)) fb≤64
+  , bitLength-small (SignalMagnitudes.bitLength m)
   , SignalMagnitudes.factor m , SignalMagnitudes.offset m
   , SignalMagnitudes.minimum m , SignalMagnitudes.maximum m
 

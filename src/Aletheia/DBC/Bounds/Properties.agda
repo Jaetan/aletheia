@@ -15,7 +15,7 @@ open import Data.Empty using (⊥)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (nothing; just)
-open import Data.Nat using (ℕ; suc; _≤_)
+open import Data.Nat using (ℕ; suc; _≤_; _≤ᵇ_)
 open import Data.Nat.Properties using (≤⇒≤ᵇ)
 open import Data.Product using (∃-syntax; _×_; _,_)
 open import Data.Sum using (inj₁; inj₂)
@@ -52,10 +52,10 @@ Accepted : ∀ {P : Set} → Checked P → Set
 Accepted (inj₁ _) = ⊥
 Accepted (inj₂ _) = ⊤
 
-decide-accepts : ∀ {P : Set} {e} {d : Dec₀ P} → T (does₀ d) → Accepted (decide e d)
+decide-accepts : ∀ {P : Set} {d : Dec₀ P} {e} → T (does₀ d) → Accepted (decide d e)
 decide-accepts {d = true because₀ _} _ = tt
 
-bound-accepts : ∀ {kind tag n limit} → n ≤ limit → Accepted (bound kind tag n limit)
+bound-accepts : ∀ {kind tag n limit} .⦃ _ : T (1 ≤ᵇ limit) ⦄ → n ≤ limit → Accepted (bound kind tag n limit)
 bound-accepts le = decide-accepts (≤⇒≤ᵇ le)
 
 bind-accepts : ∀ {P Q : Set} {c : Checked P} {k : @0 P → Checked Q}

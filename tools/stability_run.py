@@ -53,6 +53,7 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 from tools._common import (
+    COUNTED_RTS_OPTS,
     find_executable,
     prepare_artifact_dir,
     short_sha,
@@ -200,7 +201,7 @@ def run_python_with_heap_profile(artifact_dir: Path, base_env: dict[str, str]) -
     renames ``aletheia.hp`` to the cat 16 spec filename afterwards.
     """
     env = dict(base_env)
-    env["ALETHEIA_RTS_OPTS"] = "-hT"
+    env["ALETHEIA_RTS_OPTS"] = f"-hT {COUNTED_RTS_OPTS}"
     env["PYTHONPATH"] = str(REPO_ROOT / "python")
     venv_python = REPO_ROOT / "python" / ".venv" / "bin" / "python3"
     python_exe = str(venv_python) if venv_python.is_file() else sys.executable
@@ -249,6 +250,8 @@ def main() -> int:
     lib = find_lib()
     base_env = dict(os.environ)
     base_env["ALETHEIA_LIB"] = str(lib)
+    # Every harness gates the kernel's allocation per cycle exactly.
+    base_env["ALETHEIA_RTS_OPTS"] = COUNTED_RTS_OPTS
 
     runs: list[Run] = [run_python_with_heap_profile(artifact_dir, base_env)]
 

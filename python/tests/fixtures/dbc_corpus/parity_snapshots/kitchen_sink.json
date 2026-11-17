@@ -157,6 +157,7 @@
       "kind": "assignment",
       "name": "GenMsgCycleTime",
       "target": {
+        "extended": false,
         "id": 256,
         "kind": "message"
       },
@@ -169,6 +170,7 @@
       "kind": "assignment",
       "name": "SignalPriority",
       "target": {
+        "extended": false,
         "id": 256,
         "kind": "signal",
         "signal": "Speed"
@@ -194,6 +196,7 @@
       "kind": "assignment",
       "name": "NodeMsgRole",
       "target": {
+        "extended": false,
         "id": 256,
         "kind": "nodeMsg",
         "node": "Gateway"
@@ -207,6 +210,7 @@
       "kind": "assignment",
       "name": "NodeSigRole",
       "target": {
+        "extended": false,
         "id": 256,
         "kind": "nodeSig",
         "node": "Gateway",
@@ -234,6 +238,7 @@
     },
     {
       "target": {
+        "extended": false,
         "id": 256,
         "kind": "message"
       },
@@ -241,6 +246,7 @@
     },
     {
       "target": {
+        "extended": false,
         "id": 256,
         "kind": "signal",
         "signal": "Temp"
@@ -267,6 +273,7 @@
   "messages": [
     {
       "dlc": 8,
+      "extended": false,
       "id": 256,
       "name": "EngineStatus",
       "sender": "Engine",
@@ -342,6 +349,7 @@
     },
     {
       "dlc": 8,
+      "extended": false,
       "id": 300,
       "name": "BrakeMux",
       "sender": "Brake",

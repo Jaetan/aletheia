@@ -10,6 +10,7 @@
 
 #include <aletheia/enrich.hpp>
 #include <aletheia/error.hpp>
+#include <aletheia/limits.hpp>
 #include <aletheia/yaml.hpp>
 
 #include "temp_path.hpp"
@@ -26,7 +27,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <utility>
 #include <vector>
 
 using namespace aletheia;
@@ -109,7 +109,7 @@ checks:
     condition: settles_between
     min: 85
     max: 95
-    within_ms: 5000
+    within_us: 5000000
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
@@ -132,7 +132,7 @@ checks:
       signal: BrakeLight
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
@@ -152,7 +152,7 @@ checks:
       signal: ReverseLight
       condition: exceeds
       value: 0
-    within_ms: 200
+    within_us: 200000
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
@@ -173,7 +173,7 @@ checks:
       condition: stays_between
       min: 1
       max: 1
-    within_ms: 500
+    within_us: 500000
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
@@ -222,7 +222,7 @@ checks:
       signal: BrakeLight
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
     severity: safety
 )");
     REQUIRE(result.has_value());
@@ -254,7 +254,7 @@ checks:
       signal: Warning
       condition: equals
       value: 1
-    within_ms: 500
+    within_us: 500000
     severity: warning
 )");
     REQUIRE(result.has_value());
@@ -327,7 +327,7 @@ checks:
       signal: BrakeLight
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 3);
@@ -417,24 +417,35 @@ checks:
     CHECK(error.text() == "Check '<unnamed>': invalid 'value': parse failed at line 1, column 1");
 }
 
-// The kernel reads within_ms as it reads every number, and the loader refuses,
-// at the check, a reading that is not whole, one that is negative and one too
-// large for the check builder's microseconds, whichever kind of check reads it.
-TEST_CASE("yaml: a within_ms the check cannot take as its bound is refused at the check",
+// The kernel reads within_us as a time bound in whole microseconds, and refuses
+// a fraction, a negative bound and one past 2^64-1 in its own words, which the
+// loader locates at the check and the key, whichever kind of check reads it.
+TEST_CASE("yaml: a within_us the kernel refuses is located at the check and the key",
           "[yaml][error]") {
     struct Row {
         std::string_view within;
-        std::string_view message;
+        ErrorKind kind;
+        ErrorCode code;
+        std::string_view printed;
     };
     constexpr std::array rows = {
-        Row{.within = "1.5", .message = "Check 'C': 'within_ms' must be a whole number, got 1.5"},
-        Row{.within = "-5", .message = "Check 'C': 'within_ms' must be non-negative, got -5"},
-        Row{.within = "9300000000000000",
-            .message = "Check 'C': invalid 'within_ms': time overflows microsecond conversion"},
+        Row{.within = "1.5",
+            .kind = ErrorKind::Validation,
+            .code = ErrorCode::HandlerPropertyRefused,
+            .printed = "Check 'C': invalid 'within_us': timebound 1.5 is not a whole number"},
+        Row{.within = "-5",
+            .kind = ErrorKind::Validation,
+            .code = ErrorCode::HandlerPropertyRefused,
+            .printed = "Check 'C': invalid 'within_us': timebound -5 is negative"},
+        Row{.within = "99999999999999999999",
+            .kind = ErrorKind::InputBoundExceeded,
+            .code = ErrorCode::InputBoundExceeded,
+            .printed = "Check 'C': invalid 'within_us': time bound: rational component magnitude "
+                       "99999999999999999999 exceeds limit 18446744073709551615"},
     };
     for (auto const& row : rows) {
-        INFO("within_ms: " << row.within);
-        auto const within = "    within_ms: " + std::string{row.within} + "\n";
+        INFO("within_us: " << row.within);
+        auto const within = "    within_us: " + std::string{row.within} + "\n";
         auto const settles = load_checks_from_yaml_string("checks:\n  - name: C\n"
                                                           "    signal: Speed\n"
                                                           "    condition: settles_between\n"
@@ -447,33 +458,39 @@ TEST_CASE("yaml: a within_ms the check cannot take as its bound is refused at th
             within);
         for (auto const* result : std::array{&settles, &when_then}) {
             REQUIRE_FALSE(result->has_value());
-            CHECK(result->error().kind() == ErrorKind::Validation);
-            CHECK(result->error().message() == row.message);
+            auto const& error = result->error();
+            CHECK(error.kind() == row.kind);
+            CHECK(error.code() == row.code);
+            CHECK(error.location().value_or("") == "Check 'C'");
+            CHECK(error.key().value_or("") == "within_us");
+            CHECK(error.text() == row.printed);
         }
     }
 }
 
-// The builder's refusal of a range whose min is above its max is the loader's
-// answer, as Rust's loader returns it.
-TEST_CASE("yaml: a range whose min is above its max is the builder's refusal", "[yaml][error]") {
+// The kernel's refusal of a range whose min is above its max is the loader's
+// answer, located at the check under no key, since no single key holds it.
+TEST_CASE("yaml: a range whose min is above its max is the kernel's refusal at the check",
+          "[yaml][error]") {
     auto const* const range = "    min: 5\n    max: 1\n";
     auto const stays = load_checks_from_yaml_string(
         std::string{"checks:\n  - signal: Speed\n    condition: stays_between\n"} + range);
     auto const settles = load_checks_from_yaml_string(
         std::string{"checks:\n  - signal: Speed\n    condition: settles_between\n"} + range +
-        "    within_ms: 100\n");
+        "    within_us: 100000\n");
     auto const then = load_checks_from_yaml_string(
         "checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n"
         "    then:\n      signal: Speed\n      condition: stays_between\n      min: 5\n"
-        "      max: 1\n    within_ms: 100\n");
-    for (auto const& [result, message] :
-         {std::pair{&stays, "stays_between: lo (5) must be <= hi (1)"},
-          std::pair{&settles, "settles_between: lo (5) must be <= hi (1)"},
-          std::pair{&then, "then stays_between: lo (5) must be <= hi (1)"}}) {
-        INFO(message);
+        "      max: 1\n    within_us: 100000\n");
+    for (auto const* result : std::array{&stays, &settles, &then}) {
         REQUIRE_FALSE(result->has_value());
-        CHECK(result->error().kind() == ErrorKind::Validation);
-        CHECK(result->error().message() == message);
+        auto const& error = result->error();
+        CHECK(error.kind() == ErrorKind::Validation);
+        CHECK(error.code() == ErrorCode::HandlerPropertyRefused);
+        CHECK(error.message() == "between: min 5 exceeds max 1");
+        CHECK(error.location().value_or("") == "Check '<unnamed>'");
+        CHECK_FALSE(error.key().has_value());
+        CHECK(error.text() == "Check '<unnamed>': between: min 5 exceeds max 1");
     }
 }
 
@@ -489,7 +506,7 @@ checks:
                ContainsSubstring("requires 'min' and 'max'"));
 }
 
-TEST_CASE("yaml: missing within_ms for settles_between", "[yaml][error]") {
+TEST_CASE("yaml: missing within_us for settles_between", "[yaml][error]") {
     auto const result = load_checks_from_yaml_string(R"(
 checks:
   - signal: Speed
@@ -498,7 +515,7 @@ checks:
     max: 90
 )");
     REQUIRE(!result.has_value());
-    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("requires 'within_ms'"));
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("requires 'within_us'"));
 }
 
 TEST_CASE("yaml: unknown when condition", "[yaml][error]") {
@@ -512,7 +529,7 @@ checks:
       signal: Light
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
 )");
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
@@ -530,7 +547,7 @@ checks:
       signal: Light
       condition: bogus_then
       value: 1
-    within_ms: 100
+    within_us: 100000
 )");
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
@@ -573,7 +590,7 @@ checks:
                ContainsSubstring("must have 'signal' or 'when'/'then'"));
 }
 
-TEST_CASE("yaml: when/then missing within_ms", "[yaml][error]") {
+TEST_CASE("yaml: when/then missing within_us", "[yaml][error]") {
     auto const result = load_checks_from_yaml_string(R"(
 checks:
   - when:
@@ -587,7 +604,7 @@ checks:
 )");
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
-               ContainsSubstring("when/then checks require 'within_ms'"));
+               ContainsSubstring("when/then checks require 'within_us'"));
 }
 
 TEST_CASE("yaml: check entry not a mapping", "[yaml][error]") {
@@ -656,7 +673,7 @@ TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
     auto const& bound_info = result.error().bound_info();
     REQUIRE(bound_info.has_value());
     CHECK(bound_info->bound_kind == "input_length_bytes");
-    CHECK(bound_info->limit == 64ULL * 1024 * 1024);
+    CHECK(bound_info->limit == max_dbc_text_bytes);
 }
 
 TEST_CASE("yaml: inline string size cap rejected", "[yaml][hardening]") {
@@ -670,7 +687,7 @@ TEST_CASE("yaml: inline string size cap rejected", "[yaml][hardening]") {
     auto const& bound_info = result.error().bound_info();
     REQUIRE(bound_info.has_value());
     CHECK(bound_info->bound_kind == "input_length_bytes");
-    CHECK(bound_info->limit == 64ULL * 1024 * 1024);
+    CHECK(bound_info->limit == max_dbc_text_bytes);
 }
 
 TEST_CASE("yaml: then stays_between missing min/max", "[yaml][error]") {
@@ -684,7 +701,7 @@ checks:
       signal: Light
       condition: stays_between
       min: 1
-    within_ms: 100
+    within_us: 100000
 )");
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
@@ -721,7 +738,7 @@ checks:
       signal: Light
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
 )");
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
@@ -767,7 +784,7 @@ TEST_CASE("yaml: settles_between with one bound is refused as a pair, whichever 
     auto const result =
         load_checks_from_yaml_string("checks:\n  - signal: Speed\n"
                                      "    condition: settles_between\n    " +
-                                     std::string{present} + ": 80\n    within_ms: 500\n");
+                                     std::string{present} + ": 80\n    within_us: 500000\n");
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
                ContainsSubstring("condition 'settles_between' requires 'min' and 'max'"));
@@ -784,7 +801,7 @@ checks:
       signal: Light
       condition: stays_between
       max: 2
-    within_ms: 100
+    within_us: 100000
 )");
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
@@ -808,7 +825,7 @@ checks:
     condition: settles_between
     min: 80
     max: 95
-    within_ms: 30000
+    within_us: 30000000
   - name: braking dims the lamp within a tenth of a second
     when:
       signal: BrakePedalPositionAsAPercentage
@@ -818,7 +835,7 @@ checks:
       signal: BrakeLampIlluminationState
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
 )";
     REQUIRE(load_checks_from_yaml_string(doc).has_value());
     aletheia::test::alloc_fault::expect_balanced([] { return load_checks_from_yaml_string(doc); });
@@ -852,9 +869,9 @@ checks:
     condition: settles_between
     min: 85
     max: 95
-    within_ms: [5000]
+    within_us: [5000000]
 )",
-            .wording = "missing or invalid 'within_ms' (expected integer)"},
+            .wording = "missing or invalid 'within_us' (expected integer)"},
         Row{.text = R"(
 checks:
   - when: 5
@@ -862,7 +879,7 @@ checks:
       signal: BrakeLight
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
 )",
             .wording = "missing or invalid 'when' (expected mapping)"},
     };

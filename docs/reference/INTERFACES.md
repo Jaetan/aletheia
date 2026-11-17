@@ -63,24 +63,46 @@ equivalents are in the [Rust API Guide](RUST_API.md)):
 
 **Check API** — "Speed must never exceed 220":
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 checks.signal("Speed").never_exceeds(220)
 ```
 ```cpp
+if (!aletheia::start_runtime_from_env(1))
+    return 1;
 [[maybe_unused]] auto _check =
     aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue{aletheia::Rational{220, 1}});
 ```
 ```go
-aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+    panic(err)
+}
+speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+if err != nil {
+    panic(err)
+}
+_ = speedLimit
 ```
 
 **Raw DSL** — the same property built directly in LTL:
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 Signal("Speed").less_than(220).always()
 ```
 ```cpp
-[[maybe_unused]] auto _formula = aletheia::ltl::always(aletheia::ltl::atomic(
+if (!aletheia::start_runtime_from_env(1))
+    return 1;
+[[maybe_unused]] auto _formula =
     aletheia::ltl::less_than(aletheia::SignalName{"Speed"},
-                             aletheia::PhysicalValue{aletheia::Rational{220, 1}})));
+                             aletheia::PhysicalValue{aletheia::Rational{220, 1}})
+        .transform([](aletheia::Predicate p) {
+            return aletheia::ltl::always(aletheia::ltl::atomic(std::move(p)));
+        });
 ```
 ```go
 _ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}}
@@ -187,6 +209,10 @@ Each `checks.signal(...)` / `checks.when(...)` call returns a `CheckResult` obje
 ```python
 from fractions import Fraction
 
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Value bounds (decimals are exact Fractions — the float principle: no float)
 checks.signal("VehicleSpeed").never_exceeds(220)      # G(speed <= 220)
 checks.signal("BatteryVoltage").never_below(11)       # G(voltage >= 11)
@@ -199,7 +225,7 @@ checks.signal("FaultCode").never_equals(255)           # G(not(fault == 255))
 checks.signal("ParkingBrake").equals(1).always()        # G(brake == 1)
 
 # Settling (time-bounded range)
-checks.signal("CoolantTemp").settles_between(80, 100).within(5000)
+checks.signal("CoolantTemp").settles_between(80, 100).within(5_000_000)
 # G_{<=5000ms}(80 <= temp <= 100)
 ```
 
@@ -208,20 +234,24 @@ checks.signal("CoolantTemp").settles_between(80, 100).within(5000)
 Express response-time requirements: "when X happens, Y must follow within T ms."
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Brake light must activate within 100ms of pedal press
 checks.when("BrakePedal").exceeds(50) \
      .then("BrakeLight").equals(1) \
-     .within(100)
+     .within(100_000)
 
 # Engine must start within 2s of ignition
 checks.when("Ignition").equals(1) \
      .then("EngineRPM").exceeds(500) \
-     .within(2000)
+     .within(2_000_000)
 
 # Fuel warning must activate within 50ms of low fuel
 checks.when("FuelLevel").drops_below(10) \
      .then("FuelWarning").stays_between(1, 1) \
-     .within(50)
+     .within(50_000)
 ```
 
 **Semantics**: The timer starts when the 'when' condition transitions from false to true (rising edge). If 'then' becomes true within the deadline, the check passes for that window. If the 'when' condition triggers again later, a new independent window starts.
@@ -248,6 +278,10 @@ Every check can carry a name and severity for reporting. Metadata does not
 affect the LTL formula.
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 check = (
     checks.signal("VehicleSpeed").never_exceeds(220)
     .named("Speed limit")
@@ -264,14 +298,16 @@ check.to_dict()       # LTL formula (same with or without metadata)
 ```python
 from fractions import Fraction
 
-from aletheia import AletheiaClient, checks
+from aletheia import AletheiaClient, checks, start_runtime
 from aletheia.dbc import dbc_to_json
+
+start_runtime(1)
 
 check_list = [
     checks.signal("VehicleSpeed").never_exceeds(220),
     checks.signal("BrakePressure").stays_between(Fraction("0"), Fraction("6553.5")),
     checks.when("BrakePressure").exceeds(500)
-         .then("BrakeActive").equals(1).within(100),
+         .then("BrakeActive").equals(1).within(100_000),
 ]
 
 dbc = dbc_to_json("vehicle.dbc")
@@ -313,7 +349,7 @@ class CheckSignalPredicate:
     def always(self) -> CheckResult
 
 class SettlesBuilder:
-    def within(self, time_ms: int) -> CheckResult
+    def within(self, time_us: int) -> CheckResult
 
 class WhenSignal:
     def exceeds(self, value: int | Fraction) -> WhenCondition
@@ -329,7 +365,7 @@ class ThenSignal:
     def stays_between(self, lo: int | Fraction, hi: int | Fraction) -> ThenCondition
 
 class ThenCondition:
-    def within(self, time_ms: int) -> CheckResult
+    def within(self, time_us: int) -> CheckResult
 
 class CheckResult:
     def named(self, name: str) -> CheckResult
@@ -404,7 +440,7 @@ checks:
 | Condition | LTL | Meaning |
 |-----------|-----|---------|
 | `stays_between` | G(min <= s <= max) | Signal always in range |
-| `settles_between` | G_{<=t}(min <= s <= max) | Signal in range for duration (also requires `within_ms`) |
+| `settles_between` | G_{<=t}(min <= s <= max) | Signal in range for duration (also requires `within_us`) |
 
 ~~~yaml
 checks:
@@ -419,7 +455,7 @@ checks:
     condition: settles_between
     min: 80
     max: 100
-    within_ms: 5000               # required for settles_between
+    within_us: 5000000            # required for settles_between
 ~~~
 
 #### When/Then Checks
@@ -435,7 +471,7 @@ checks:
       signal: BrakeLight
       condition: equals            # equals | exceeds | stays_between
       value: 1
-    within_ms: 100                 # response deadline in ms
+    within_us: 100000              # response deadline in µs
     severity: safety
 ~~~
 
@@ -477,7 +513,7 @@ checks:
       signal: BrakeLight
       condition: equals
       value: 1
-    within_ms: 100
+    within_us: 100000
     severity: safety
 ~~~
 
@@ -488,10 +524,10 @@ Errors reference the check name (or `<unnamed>` if no name is set):
 ~~~
 Check 'Speed limit': missing or invalid 'value' (expected number)
 Check '<unnamed>': unknown condition 'bogus'
-Check 'Brake response': when/then checks require 'within_ms'
+Check 'Brake response': when/then checks require 'within_us'
 ~~~
 
-Every number, `within_ms` included, is read by the kernel from its text as the document spells it. A number the kernel refuses is the kernel's error, with its code and fields, carrying the check and the key it sat under (`location` and `key`), which lead its printed form; [`LOADER_SCENARIOS.yaml`](../LOADER_SCENARIOS.yaml) holds the four bindings' loaders to one answer per spelling:
+Every number, `within_us` included, is read by the kernel from its text as the document spells it. A number the kernel refuses is the kernel's error, with its code and fields, carrying the check and the key it sat under (`location` and `key`), which lead its printed form; [`LOADER_SCENARIOS.yaml`](../LOADER_SCENARIOS.yaml) holds the four bindings' loaders to one answer per spelling:
 
 ~~~
 Check 'Speed limit': invalid 'value': parse failed at line 1, column 4 (first unparseable statement starts at line 1, column 4)
@@ -538,7 +574,7 @@ Message IDs can be hex strings (`0x100`) or decimal (`256`).
 
 **3. Fill in the Checks sheet** (one row per simple check):
 
-| Check Name | Signal | Condition | Value | Min | Max | Time (ms) | Severity |
+| Check Name | Signal | Condition | Value | Min | Max | Time (µs) | Severity |
 |-----------|--------|-----------|-------|-----|-----|-----------|----------|
 | Speed limit | EngineSpeed | never_exceeds | 8000 | | | | safety |
 | Temp range | EngineTemp | stays_between | | -40 | 215 | | warning |
@@ -548,7 +584,7 @@ Leave cells empty (not zero) for fields that don't apply to a condition.
 
 **4. Fill in the When-Then sheet** (one row per causal check):
 
-| Check Name | When Signal | When Condition | When Value | Then Signal | Then Condition | Then Value | Then Min | Then Max | Within (ms) | Severity |
+| Check Name | When Signal | When Condition | When Value | Then Signal | Then Condition | Then Value | Then Min | Then Max | Within (µs) | Severity |
 |-----------|-----------|---------------|-----------|-----------|--------------|-----------|---------|---------|------------|----------|
 | Brake response | BrakePressure | exceeds | 500 | BrakeLight | equals | 1 | | | 100 | safety |
 
@@ -613,7 +649,7 @@ multiplexed. If both are empty, the signal is always-present.
 | Value | float | conditional | For value-based conditions |
 | Min | float | conditional | For range-based conditions |
 | Max | float | conditional | For range-based conditions |
-| Time (ms) | int | conditional | Required for `settles_between` |
+| Time (µs) | int | conditional | Required for `settles_between` |
 | Severity | string | no | e.g. `critical`, `warning`, `safety` |
 
 ### When-Then Sheet Columns
@@ -629,7 +665,7 @@ multiplexed. If both are empty, the signal is always-present.
 | Then Value | float | conditional | For `equals`/`exceeds` |
 | Then Min | float | conditional | For `stays_between` |
 | Then Max | float | conditional | For `stays_between` |
-| Within (ms) | int | yes | Response deadline |
+| Within (µs) | int | yes | Response deadline |
 | Severity | string | no | |
 
 ### Error Messages
@@ -695,6 +731,10 @@ All conditions are documented in the [YAML Schema](#yaml-schema) section above. 
 All four tiers produce identical LTL formulas. This check:
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Check API
 checks.signal("VehicleSpeed").never_exceeds(220)
 ```
@@ -713,6 +753,10 @@ checks:
 ~~~
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # DSL
 Signal("VehicleSpeed").less_than(220).always()
 ```
@@ -739,7 +783,7 @@ All produce:
 
 See [PROTOCOL.md § Structured Logging](../architecture/PROTOCOL.md#structured-logging) for the canonical event taxonomy (category × level × event-name table) — this section covers only the per-binding wiring.
 
-**Python**: the package prints nothing until the host configures the `aletheia` logger. A `NullHandler` sits on it, so without a handler of the host's no record reaches stderr, the failed-frame warnings (`enrichment.extraction_failed`, `extraction.process_failed`, `extraction.parse_failed`) included. Attach a handler to turn them on:
+**Python**: the package prints nothing until the host configures the `aletheia` logger. A `NullHandler` sits on it, so without a handler of the host's no record reaches stderr, the failed-frame warnings (`extraction.process_failed`, `extraction.parse_failed`) included. Attach a handler to turn them on:
 ```python
 import logging
 logging.getLogger("aletheia").setLevel(logging.INFO)

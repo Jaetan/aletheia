@@ -11,7 +11,7 @@ response.  The checks on where a signal sits in its message's frame are in
 """
 
 from fractions import Fraction
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import pytest
 from _dbc_helpers import mux_signal
@@ -26,12 +26,6 @@ from _validator_helpers import (
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError, ValidationIssue
 from aletheia.codes import IssueCode, IssueSeverity
 from aletheia.common_types import Prose
-
-if TYPE_CHECKING:
-    from aletheia.types import (
-        Command,
-        Response,
-    )
 
 
 class TestValidDBCPassesClean:
@@ -50,7 +44,7 @@ class TestValidDBCPassesClean:
 
         assert result["status"] == "validation"
         assert result["has_errors"] is False
-        assert result["issues"] == []
+        assert not result["issues"]
 
     def test_valid_multiple_messages(self) -> None:
         """Verify valid multiple messages."""
@@ -76,7 +70,7 @@ class TestValidDBCPassesClean:
             result = client.validate_dbc(dbc)
 
         assert result["has_errors"] is False
-        assert result["issues"] == []
+        assert not result["issues"]
 
 
 class TestDuplicateMessageId:
@@ -167,7 +161,7 @@ class TestFactorZero:
 
 
 def test_min_exceeds_max_detected() -> None:
-    """Verify min exceeds max detected."""
+    """A signal whose minimum exceeds its maximum is an error naming both numbers."""
     dbc = single_message_dbc(
         [
             make_signal("BadRange", minimum=100, maximum=50),
@@ -176,10 +170,13 @@ def test_min_exceeds_max_detected() -> None:
     with AletheiaClient() as client:
         result = client.validate_dbc(dbc)
 
-    # min_exceeds_max is a warning, not an error
-    assert result["has_errors"] is False
-    codes = [i["code"] for i in result["issues"]]
-    assert "min_exceeds_max" in codes
+    assert result["has_errors"] is True
+    expected: ValidationIssue = {
+        "severity": IssueSeverity.ERROR,
+        "code": IssueCode.MIN_EXCEEDS_MAX,
+        "detail": "Message 'Msg1', signal 'BadRange': minimum 100 exceeds maximum 50",
+    }
+    assert expected in result["issues"]
 
 
 # Check 6: Signal names must be globally unique across all messages.
@@ -761,34 +758,3 @@ class TestParseDBCDualLayerValidation:
             response = client.parse_dbc(dbc)
 
         assert response["status"] == "success"
-
-
-# validate_dbc must reject wire responses with unknown severity strings.
-#
-# Agda only emits "error" or "warning". A different value means the wire
-# protocol has drifted — treat it as a ProtocolError for cross-binding
-# parity with C++ and Go.
-
-
-def test_unknown_severity_raises_protocol_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify unknown severity raises protocol error."""
-    dbc = single_message_dbc([make_signal("Sig1")])
-    with AletheiaClient() as client:
-
-        def fake_send(_cmd: Command) -> Response:
-            # Inject a deliberately-unknown issue severity to exercise the
-            # client's validation-response rejection path.
-            return cast(
-                "Response",
-                {
-                    "status": "validation",
-                    "has_errors": False,
-                    "issues": [{"severity": "info", "code": "empty_message", "detail": "x"}],
-                },
-            )
-
-        monkeypatch.setattr(client, "_send_command", fake_send)
-        with pytest.raises(ProtocolError, match="severity"):
-            client.validate_dbc(dbc)

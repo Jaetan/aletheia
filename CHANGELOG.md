@@ -383,6 +383,269 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C ABI 4, every binding): a rational's numerator and denominator,
+  a multiplex value and a value-description key reach 2^128 - 1 in magnitude,
+  the sign held apart.** Go `Uint128`, C++ `unsigned __int128` and Rust `u128`
+  carry them and `aletheia.h` requires C23; every reply reader words a refusal
+  `reply <path>: expected <kind>, got <what came>`, and the two `enrichment.*`
+  log events are retired.
+
+  - **BREAKING (Rust): a validation issue's severity and code and an error
+    reply's code outside their sets are refused at their place.** A severity
+    other than `error` or `warning` is refused as `reply issues/severity:
+    expected "error" or "warning", got "fatal"`, where it read as `Warning`;
+    an issue code outside `IssueCode` as `expected an issue code`, where it
+    read as `IssueCode::Unknown`; an error reply's code outside the
+    `error_codes` of `docs/WIRE_CODES.yaml` as `expected an error code`, where
+    `Error::Core` carried it. `IssueCode::Unknown(String)` is removed and
+    `IssueCode::from_wire` returns `Option<IssueCode>`.
+
+  - **BREAKING (Rust): a DBC's byte order, signal presence, comment target
+    kind, attribute kind, attribute definition scope, attribute type kind,
+    attribute value kind and attribute target kind outside their words are
+    refused at their place.**
+    A byte order other than `little_endian` or `big_endian` is refused as
+    `reply dbc/messages/signals/byteOrder: expected "little_endian" or
+    "big_endian", got "bogus_word"`, where it read as `ByteOrder::BigEndian`;
+    a presence other than `always` or `multiplexed` as `expected "always" or
+    "multiplexed"`, where it read as `Presence::Multiplexed`; a comment
+    target's kind outside `network`, `node`, `message`, `signal` and `envVar`,
+    where it read as `CommentTarget::EnvVar`; an attribute's kind outside
+    `definition`, `default` and `assignment`, where it read as
+    `Attribute::Assignment`; an attribute definition's scope outside
+    `network`, `node`, `message`, `signal`, `envVar`, `nodeMsg` and
+    `nodeSig`, where it read as `AttrScope::NodeSig`; an attribute type's kind
+    outside `int`, `float`, `string`, `enum` and `hex`, where it read as
+    `AttrType::Hex`; an attribute value's kind outside `int`, `float`,
+    `string`, `enum` and `hex`, where it read as `AttrValue::Hex`, and an
+    attribute target's kind outside `network`, `node`, `message`, `signal`,
+    `envVar`, `nodeMsg` and `nodeSig`, where it read as `AttrTarget::NodeSig`.
+
+  - **BREAKING (Rust): every error code the crate hands out is an
+    `ErrorCode`.** The public `ErrorCode` enum has one variant per error code
+    of `docs/WIRE_CODES.yaml`, in its order; `ErrorCode::from_wire` reads the
+    wire word into `Option<ErrorCode>` and `as_str` writes it. The `code` of
+    `Error::Core`, `Error::ValidationFailed`, `Error::TextRoundtripFailed` and
+    `BoundRefusal` is an `ErrorCode` where it was a `String`, and
+    `Error::Validation`'s an `Option<ErrorCode>` where it was an
+    `Option<String>`. `IssueCode` gains `Copy`; its `as_str`, as
+    `ErrorCode`'s and `IssueSeverity`'s, takes `self` by value and returns
+    `&'static str`.
+
+  - **BREAKING (Rust): a null reply from a C entry is
+    `Error::NullResponse { entry }`.** Each text endpoint of the library's
+    backend refuses a null string as `<entry> returned null`, such as
+    `aletheia_process returned null`, where the unit `Error::NullResponse`
+    read `core returned a null response`; a null render reads
+    `aletheia_format_rational returned null` as `Error::NullResponse`, where
+    it was an `Error::Protocol` reading `aletheia_format_rational returned a
+    null pointer`.
+
+  - **BREAKING (Rust): `ALETHEIA_RTS_OPTS` is read as bytes and split on the
+    six ASCII whitespace bytes, as the C++, Go and Python bindings read and
+    split it.** Space, TAB, LF, CR, VT and FF separate its flags and every
+    other byte stays in its flag, where `split_whitespace` also cut a flag at
+    a Unicode space such as U+00A0 (no-break space) or U+0085 (next line); a
+    value that is not UTF-8 keeps its bytes inside their flags, where it was
+    read as empty and none of its flags reached the runtime.
+
+  - **BREAKING (Go): a validation issue's severity and code and an error
+    reply's code outside their sets are refused at their place.** A severity
+    other than `error` or `warning` is refused as `reply issues/severity:
+    expected "error" or "warning", got "fatal"`, where it read as
+    `SeverityWarning`; an issue code outside the `IssueCode` constants as
+    `expected an issue code`, and an error reply's code outside the
+    `error_codes` of `docs/WIRE_CODES.yaml` as `expected an error code`, where
+    both were carried as written. `IssueUnknown` is removed.
+
+  - **BREAKING (Go): a property result's type and status and a stream
+    warning's kind outside their sets are refused at their place.** A result's
+    type other than `property` is refused as `reply results/type: expected
+    "property", got "verdict"`, where a frame's batch read it as `property`
+    and the end of a stream did not read it; a status other than `fails`,
+    `holds` or `unresolved` as `reply results/status: expected "fails",
+    "holds" or "unresolved", got "bogus"`, where it read as `Unresolved`; a
+    warning's kind other than `uncached_atom` as `reply warnings/kind:
+    expected "uncached_atom", got "stale_atom"`, where it was carried as
+    written.
+
+  - **BREAKING (Go): a DBC's byte order, signal presence, comment target kind,
+    attribute kind, attribute definition scope, attribute type kind, attribute
+    value kind and attribute target kind outside their words are refused at
+    their place.** A byte order other than
+    `little_endian` or `big_endian` is refused as
+    `reply dbc/messages/signals/byteOrder: expected "little_endian" or
+    "big_endian", got "bogus_word"`, where it read as `BigEndian`; a presence
+    other than `always` or `multiplexed` as `expected "always" or
+    "multiplexed"`, where it read as multiplexed; a comment target's kind
+    outside `network`, `node`, `message`, `signal` and `envVar`, where it read
+    as an environment variable, an attribute's kind outside `definition`,
+    `default` and `assignment`, where it read as an assignment, an attribute
+    definition's scope outside `network`, `node`, `message`, `signal`,
+    `envVar`, `nodeMsg` and `nodeSig`, where it read as `DBCAttrScopeNodeSig`,
+    an attribute type's kind outside `int`, `float`, `string`, `enum` and
+    `hex`, where it read as a hex type, an attribute value's kind outside
+    `int`, `float`, `string`, `enum` and `hex`, where it read as a hex value,
+    and an attribute assignment target's kind outside `network`, `node`,
+    `message`, `signal`, `envVar`, `nodeMsg` and `nodeSig`, where it read as a
+    node signal target, alike.
+
+  - **BREAKING (Go): `Error.Code` is an `ErrorCode`.** `type ErrorCode string`
+    types every `Code*` constant, and the `Code` of `Error`,
+    `InputBoundExceededError`, `ValidationFailedError` and
+    `TextRoundTripFailedError` is an `ErrorCode` where it was a `string`.
+
+  - **BREAKING (Go): `ALETHEIA_RTS_OPTS` is split on the six ASCII whitespace
+    bytes, as the C++ and Python bindings split it.** Space, TAB, LF, CR, VT
+    and FF separate its flags and every other byte stays in its flag, where
+    `strings.Fields` also cut a flag at a Unicode space such as U+00A0
+    (no-break space) or U+0085 (next line).
+
+  - **BREAKING (C++): a validation issue's severity and code and an error
+    reply's code outside their sets are refused at their place.** A severity
+    other than `error` or `warning` is refused as `reply issues/severity:
+    expected "error" or "warning", got "fatal"`, where it read as
+    `IssueSeverity::Warning`; an issue code outside `IssueCode` as `expected
+    an issue code`, where it read as `IssueCode::Unknown` with the word kept
+    in `code_raw`; an error reply's code outside the `error_codes` of
+    `docs/WIRE_CODES.yaml` as `expected an error code`, where it read as
+    `ErrorCode::Unknown`. `IssueCode::Unknown`, `ErrorCode::Unknown` and
+    `ValidationIssue::code_raw` are removed, which moves `ValidationIssue`'s
+    layout under `libaletheia-cpp`'s `SOVERSION 4`; `AletheiaError::code()`
+    and `error_code_from_string` return `std::optional<ErrorCode>`, empty for
+    a refusal the binding makes itself and for a word no code names.
+
+  - **BREAKING (C++): a property result's type and status and a stream
+    warning's kind outside their sets are refused at their place.** A result's
+    type other than `property` is refused as `reply results/type: expected
+    "property", got "verdict"`, where a frame's batch read it as `property`
+    and the end of a stream did not read it; a status other than `fails`,
+    `holds` or `unresolved` as `reply results/status: expected "fails",
+    "holds" or "unresolved", got "bogus"`, where it read as
+    `Verdict::Unresolved`; a warning's kind other than `uncached_atom` as
+    `reply warnings/kind: expected "uncached_atom", got "stale_atom"`, where
+    it read as `WarningKind::UncachedAtom`.
+
+  - **BREAKING (C++): a DBC's byte order, signal presence, comment target
+    kind, attribute kind, attribute definition scope, attribute type kind,
+    attribute value kind and attribute target kind outside their words are
+    refused at their place.** A byte order other than `little_endian` or
+    `big_endian` is refused as `reply
+    dbc/messages/signals/byteOrder: expected "little_endian" or "big_endian",
+    got "bogus_word"`, where it read as `ByteOrder::BigEndian`; a presence
+    other than `always` or `multiplexed` as `expected "always" or
+    "multiplexed"`, where it read as `Multiplexed`; a comment target kind
+    other than `network`, `node`, `message`, `signal` or `envVar` as `reply
+    dbc/comments/target/kind: expected "network", "node", "message", "signal"
+    or "envVar"`, where it read as `DbcCommentTargetEnvVar`; an attribute kind
+    other than `definition`, `default` or `assignment` as `reply
+    dbc/attributes/kind: expected "definition", "default" or "assignment"`,
+    where it read as `DbcAttrAssign`; an attribute definition's scope other
+    than `network`, `node`, `message`, `signal`, `envVar`, `nodeMsg` or
+    `nodeSig` as `reply dbc/attributes/scope: expected "network", "node",
+    "message", "signal", "envVar", "nodeMsg" or "nodeSig"`, where it read as
+    `DbcAttrScope::NodeSig`; an attribute type kind other than `int`, `float`,
+    `string`, `enum` or `hex` as `reply dbc/attributes/attrType/kind: expected
+    "int", "float", "string", "enum" or "hex"`, where it read as
+    `DbcAttrTypeHex`; an attribute value kind other than `int`, `float`,
+    `string`, `enum` or `hex` as `reply dbc/attributes/value/kind: expected
+    "int", "float", "string", "enum" or "hex"`, where it read as
+    `DbcAttrValueHex`; an attribute target kind other than `network`, `node`,
+    `message`, `signal`, `envVar`, `nodeMsg` or `nodeSig` as `reply
+    dbc/attributes/target/kind: expected "network", "node", "message",
+    "signal", "envVar", "nodeMsg" or "nodeSig"`, where it read as
+    `DbcAttrTargetNodeSig`.
+
+  - **BREAKING (C++): a null reply from a C entry is refused with kind
+    `Ffi`.** Each text endpoint of the library's backend refuses a null
+    string as `<entry> returned null`, such as `aletheia_process returned
+    null`, with kind `Ffi`, where it was kind `Protocol`; a null render reads
+    `aletheia_format_rational returned null`, where it read
+    `aletheia_format_rational returned a null pointer`.
+
+  - **BREAKING (C++): `issue_code_label` is removed, and
+    `to_string(issue.code)` renders an issue's code.** The function returned
+    `code_raw` for a code outside `IssueCode`; with such a code refused at its
+    place it returned `to_string(issue.code)`, which the CLI's `validate`
+    report now calls, its output unchanged. The removal is a break of the same
+    `SOVERSION 4`.
+
+  - **BREAKING (Python): a validation issue's severity and code outside their
+    sets are refused at their place.** A severity other than `error` or
+    `warning` is refused as `reply issues/severity: expected "error" or
+    "warning", got "fatal"`, and an issue code outside `IssueCode` as `expected
+    an issue code`, where both were returned as written; a `ValidationIssue`
+    holds its severity and code as the `IssueSeverity` and `IssueCode` members
+    their words name, where it held the reply's strings.
+
+  - **BREAKING (Python): a DBC's byte order, signal presence, comment target
+    kind, attribute kind, attribute definition scope, attribute type kind,
+    attribute value kind and attribute target kind outside their words are
+    refused at their place.** A byte order other than `little_endian` or
+    `big_endian` is refused as `reply dbc/messages/signals/byteOrder: expected
+    "little_endian" or "big_endian", got "bogus_word"`, where it was returned as
+    written; a presence other than `always` or `multiplexed` as `expected
+    "always" or "multiplexed"`, where a signal carrying a multiplexor kept it as
+    written and one carrying none was refused at
+    `dbc/messages/signals/multiplexor`; a comment target kind other than
+    `network`, `node`, `message`, `signal` or `envVar` as `reply
+    dbc/comments/target/kind: expected "network", "node", "message", "signal" or
+    "envVar"`, where a target carrying an `envVar` read as an `envVar` target
+    and one carrying none was refused at `dbc/comments/target/envVar`; an
+    attribute kind other than `definition`, `default` or `assignment` as `reply
+    dbc/attributes/kind: expected "definition", "default" or "assignment"`,
+    where an attribute carrying a `target` and a `value` read as an assignment
+    and one missing either was refused at `dbc/attributes/target` or
+    `dbc/attributes/value`; an attribute definition's scope other than
+    `network`, `node`, `message`, `signal`, `envVar`, `nodeMsg` or `nodeSig` as
+    `reply dbc/attributes/scope: expected "network", "node", "message",
+    "signal", "envVar", "nodeMsg" or "nodeSig"`, where it was returned as
+    written; an attribute type kind other than `int`, `float`, `string`, `enum`
+    or `hex` as `reply dbc/attributes/attrType/kind: expected "int", "float",
+    "string", "enum" or "hex"`, where a type carrying a `min` and a `max` read
+    as a `hex` type and one carrying neither was refused at
+    `dbc/attributes/attrType/min`; an attribute value kind other than `int`,
+    `float`, `string`, `enum` or `hex` as `reply dbc/attributes/value/kind:
+    expected "int", "float", "string", "enum" or "hex"`, where a value carrying
+    a whole number read as a `hex` value and one carrying any other value or
+    none was refused at `dbc/attributes/value/value`; an attribute target kind
+    other than `network`, `node`, `message`, `signal`, `envVar`, `nodeMsg` or
+    `nodeSig` as `reply dbc/attributes/target/kind: expected "network", "node",
+    "message", "signal", "envVar", "nodeMsg" or "nodeSig"`, where a target
+    carrying an `id`, `extended`, `node` and `signal` read as a `nodeSig` target
+    and one missing any of them was refused at the first it missed, in that
+    order, under `dbc/attributes/target`.
+
+  - **BREAKING (Python): every error code the package hands out is an
+    `ErrorCode`.** The `code` of `AletheiaError` and of every error deriving
+    from it, and the `code` its constructors take, is an `ErrorCode | None`
+    where it was a `str | None`, and an `ErrorResponse`'s `code` an
+    `ErrorCode` where it was a `str`. A member compares equal to its word and
+    serialises as it.
+
+  - **BREAKING (Python): a null reply from a C entry is an `FFIError`.** Each
+    text endpoint of `FFIBackend` refuses a null string as `<entry> returned
+    null`, such as `aletheia_process returned null`, with `FFIError`, where it
+    raised `ProtocolError` reading `FFI returned null pointer`; a null render
+    reads `aletheia_format_rational returned null`, where it read
+    `aletheia_format_rational returned a null pointer`.
+
+  - **BREAKING (Python): `FFIBackend.init`'s `FFIError` reads `aletheia_init
+    returned null`,** the text the C++, Go and Rust bindings give, where it
+    named the call `aletheia_init()` and added that the FFI initialization
+    failed.
+
+  - **BREAKING (Python): a non-ASCII `ALETHEIA_RTS_OPTS` flag meets the
+    runtime's own refusal.** The variable's bytes, split on ASCII whitespace, reach the GHC
+    runtime as the environment holds them, so a flag such as `-é` is refused
+    as the runtime refuses any flag it does not know, `unknown RTS option: -é`
+    on stderr and an exit status of 1, where Python raised
+    `UnicodeEncodeError` before starting it.
+
+  - **BREAKING (Go): a null render reads `aletheia_format_rational returned
+    null`,** the text every binding gives a C entry's null reply, where it read
+    `aletheia_format_rational returned a null pointer`.
+
 - **BREAKING: every error the C++ binding answers is a `Result<T>`, only
   `std::bad_alloc` is thrown, and `AletheiaClient::open` opens a client in one
   call; `libaletheia-cpp` is installed at `SOVERSION 3`.**

@@ -25,6 +25,7 @@ fn add_checks_binds_a_dsl_check_and_detects_a_violation() {
     // A check built via the fluent DSL, attached with add_checks.
     let chk = check::signal("EngineSpeed")
         .never_exceeds(1000)
+        .expect("check")
         .named("speed-limit")
         .with_severity("error");
     c.add_checks(&[chk]).expect("add_checks");
@@ -67,7 +68,9 @@ fn add_checks_holds_for_a_conforming_frame() {
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
 
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+    c.add_checks(&[check::signal("EngineSpeed")
+        .never_exceeds(1000)
+        .expect("check")])
         .expect("add_checks");
     c.start_stream().expect("start stream");
 

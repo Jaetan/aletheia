@@ -48,6 +48,9 @@ from aletheia.types import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, Awaitable, Iterable
 
+# The kernel checks a property as it is built, so the runtime is up first.
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 
 def _main_task() -> asyncio.Task[None]:
     """Name the task the test body runs in, which ``asyncio.run`` made."""

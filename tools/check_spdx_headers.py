@@ -14,10 +14,14 @@ Haskell/Cabal).  The pair must be adjacent and in that order.
 Scope is an *allowlist* of source/build/config extensions (see ``_EXT_COMMENT``
 and ``_BASENAME_COMMENT``).  Everything else is excluded by construction:
 documentation (``*.md``), archived review-finding data (``.archive/``),
-files with no comment syntax (``*.json``), binaries (``*.xlsx``, ``*.bin``),
-and generated artefacts (``go.sum``, ``*.snapshot``, Go ``*_string.go``,
-anything whose first lines carry a ``DO NOT EDIT`` or ``Code generated``
-marker).
+upstream's code kept verbatim under upstream's licence (each file under
+``tools/_vendor/`` that its directory's ``UPSTREAM.toml`` names,
+``tools/_vendored.py``; the record itself and any file it does not name are
+the tree's own), files with no comment syntax (``*.json``), binaries
+(``*.xlsx``, ``*.bin``), and generated artefacts (``go.sum``, ``*.snapshot``,
+Go ``*_string.go``, anything whose first lines carry a ``DO NOT EDIT`` or
+``Code generated`` marker).  A record that cannot be read leaves which files
+are upstream's unknown, so the gate exits 2 naming it.
 
 Placement respects each language's leading-line rules:
 
@@ -52,7 +56,8 @@ import sys
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from tools._common import emit, find_executable, git_toplevel, run_capture
+from tools._common import RelPath, emit, find_executable, git_toplevel, run_capture
+from tools._vendored import UnreadRecordError, recorded_blobs
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -209,13 +214,18 @@ def _apply_header(lines: list[str], style: str, suffix: str) -> list[str]:
 
 
 def _candidates(repo_root: Path) -> Iterator[tuple[Path, str]]:
-    """Yield (path, comment-style) for every in-scope tracked file."""
+    """Yield (path, comment-style) for every in-scope tracked file.
+
+    Raises ``UnreadRecordError`` naming a vendored directory's record that cannot be read.
+    """
     listed = run_capture(
         [find_executable("git"), "-C", str(repo_root), "ls-files"],
         check=True,
     )
-    for rel in listed.stdout.splitlines():
-        if any(rel.startswith(prefix) for prefix in _EXCLUDED_PREFIXES):
+    tracked = [RelPath(rel) for rel in listed.stdout.splitlines()]
+    upstream = recorded_blobs(repo_root, tracked)
+    for rel in tracked:
+        if rel in upstream or any(rel.startswith(prefix) for prefix in _EXCLUDED_PREFIXES):
             continue
         path = repo_root / rel
         style = _comment_style(path)
@@ -286,7 +296,11 @@ def main() -> int:
         emit(f"SPDX: {year_error}")
         return 1
 
-    offenders, mismatched, fixed = _scan(repo_root, apply_mode=args.apply)
+    try:
+        offenders, mismatched, fixed = _scan(repo_root, apply_mode=args.apply)
+    except UnreadRecordError as unread:
+        emit(f"SPDX: a vendored directory's record cannot be read: {unread}")
+        return 2
 
     if mismatched:
         emit(f"SPDX: {len(mismatched)} licence declaration(s) the repository does not allow:")

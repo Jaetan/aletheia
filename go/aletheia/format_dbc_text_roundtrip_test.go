@@ -5,7 +5,6 @@ package aletheia
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -35,39 +34,43 @@ func TestFormatDBCText_SuccessCarriesTextAndIssues(t *testing.T) {
 	}
 }
 
-// A success without the field carries no issues, rather than a nil the caller
-// has to test for.
-func TestFormatDBCText_AbsentIssuesDefaultsEmpty(t *testing.T) {
-	out, err := parseDBCTextResponse(`{"status":"success","text":"x"}`)
+// The kernel writes the issues whatever they are, so a success without the
+// field is refused there, and an empty one carries no issues rather than a
+// nil the caller has to test for.
+func TestFormatDBCText_IssuesAreRead(t *testing.T) {
+	_, err := parseDBCTextResponse(`{"status":"success","text":"x"}`)
+	if want := "reply issues: expected array, got nothing"; err == nil || err.Error() != want {
+		t.Errorf("got %v, want %q", err, want)
+	}
+	out, err := parseDBCTextResponse(`{"status":"success","text":"x","issues":[]}`)
 	if err != nil {
 		t.Fatalf("parseDBCTextResponse: %v", err)
 	}
-	if len(out.Issues) != 0 {
-		t.Errorf("len(Issues) = %d, want 0 for an absent issues field", len(out.Issues))
+	if out.Issues == nil || len(out.Issues) != 0 {
+		t.Errorf("Issues = %#v, want empty and not nil", out.Issues)
 	}
 }
 
 // Every response the decoder cannot trust is refused with a protocol error
-// naming what is wrong: a status that is neither success nor an error
-// envelope, a text field missing or of the wrong type, and an issues field
-// that is present but not an array of objects each carrying a severity the
-// vocabulary has. The Python and Rust decoders refuse the wrong-typed issues
+// naming the place and what came there: a status that is neither success nor
+// an error envelope, a text field missing or of the wrong type, and an issues
+// field that is not an array of objects each carrying a severity. The Python and Rust decoders refuse the wrong-typed issues
 // field too, where reading it through a helper that treats a wrong type as
 // absent would have dropped it.
 func TestFormatDBCText_RefusesMalformedResponses(t *testing.T) {
 	cases := map[string]struct {
-		raw    string
-		substr string
+		raw  string
+		want string
 	}{
-		"status is neither":    {`{"status":"pending","text":"x"}`, "expected success response"},
-		"no text":              {`{"status":"success"}`, "missing or non-string 'text'"},
-		"text is not a string": {`{"status":"success","text":3}`, "missing or non-string 'text'"},
-		"issues is not a list": {`{"status":"success","text":"x","issues":{}}`, "'issues' must be an array"},
+		"status is neither":    {`{"status":"pending","text":"x"}`, `reply status: expected "success" or "error", got "pending"`},
+		"no text":              {`{"status":"success"}`, "reply text: expected string, got nothing"},
+		"text is not a string": {`{"status":"success","text":3}`, "reply text: expected string, got number"},
+		"issues is not a list": {`{"status":"success","text":"x","issues":{}}`, "reply issues: expected array, got object"},
 		"an issue is not an object": {
-			`{"status":"success","text":"x","issues":["divergence"]}`, "expected object in issues array"},
+			`{"status":"success","text":"x","issues":["divergence"]}`, "reply issues: expected object, got string"},
 		"an issue has no severity": {
-			`{"status":"success","text":"x","issues":[{"code":"text_roundtrip_divergence"}]}`,
-			"unknown validation severity"},
+			`{"status":"success","text":"x","issues":[{"code":"text_roundtrip_divergence","detail":"d"}]}`,
+			`reply issues/severity: expected "error" or "warning", got nothing`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -78,8 +81,8 @@ func TestFormatDBCText_RefusesMalformedResponses(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected a protocol error, got nil")
 			}
-			if !strings.Contains(err.Error(), tc.substr) {
-				t.Errorf("Error() = %q, want it to mention %q", err.Error(), tc.substr)
+			if err.Error() != tc.want {
+				t.Errorf("Error() = %q, want %q", err.Error(), tc.want)
 			}
 		})
 	}

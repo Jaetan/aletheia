@@ -148,3 +148,10 @@ open import Aletheia.DBC.RationalRenderer public
 -- Main's scope (`using ()`).
 open import Aletheia.DBC.TextParser.DecimalEntry public
   using ()
+
+-- Microsecond-text → time bound entry point for the FFI shim.  Exposed so
+-- `aletheia_parse_time_bound` can call `parseTimeBound` (a loader's
+-- `within_us` decided as the property parse decides a time bound).  Opened
+-- only to force MAlonzo compilation of the module.
+open import Aletheia.LTL.TimeBoundEntry public
+  using ()

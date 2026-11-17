@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, NamedTuple, TextIO, TypedDict
 # that any wheel/setuptools shim overhead shows up in the numbers — matches
 # how end users measure Aletheia in production.  Do not reintroduce
 # ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
-from aletheia import AletheiaClient
+from aletheia import AletheiaClient, start_runtime
 
 # Shared benchmark vocabulary — frame specs, default property bundles, JSON
 # envelope, system info.  Consolidated in ``_common.py`` to keep the suite
@@ -31,13 +31,14 @@ from aletheia import AletheiaClient
 from benchmarks._common import (
     CAN20_SPEC,
     CANFD_SPEC,
-    DEFAULT_CAN20_PROPERTIES,
-    DEFAULT_CANFD_PROPERTIES,
     BenchmarkConfig,
     FrameCount,
     FrameSpec,
+    LaneNumber,
     RunCount,
     ThroughputParameters,
+    default_can20_properties,
+    default_canfd_properties,
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
@@ -168,6 +169,8 @@ def _build_benchmarks(
     pylint ``too-many-locals`` cap; also makes the benchmark inventory
     easy to spot independently of the run loop.
     """
+    can20_properties = default_can20_properties()
+    canfd_properties = default_canfd_properties()
     # Builder scratchpad: the explicit element type gives the lambdas their
     # ``n: int`` context (pyright does not infer it through the NamedBenchmark
     # constructor), then each pair is wrapped into the public NamedBenchmark.
@@ -175,14 +178,14 @@ def _build_benchmarks(
         # --- CAN 2.0B ---
         (
             "CAN 2.0B: Stream LTL (2 props)",
-            lambda n: benchmark_streaming(dbc, n, CAN20_SPEC, DEFAULT_CAN20_PROPERTIES),
+            lambda n: benchmark_streaming(dbc, n, CAN20_SPEC, can20_properties),
         ),
         ("CAN 2.0B: Signal Extraction", lambda n: benchmark_signal_extraction(dbc, n, CAN20_SPEC)),
         ("CAN 2.0B: Frame Building", lambda n: benchmark_frame_building(dbc, n, CAN20_SPEC)),
         # --- CAN-FD ---
         (
             "CAN-FD:   Stream LTL (3 props)",
-            lambda n: benchmark_streaming(canfd_dbc, n, CANFD_SPEC, DEFAULT_CANFD_PROPERTIES),
+            lambda n: benchmark_streaming(canfd_dbc, n, CANFD_SPEC, canfd_properties),
         ),
         (
             "CAN-FD:   Signal Extraction",
@@ -191,6 +194,18 @@ def _build_benchmarks(
         ("CAN-FD:   Frame Building", lambda n: benchmark_frame_building(canfd_dbc, n, CANFD_SPEC)),
     ]
     return [NamedBenchmark(*_entry) for _entry in raw]
+
+
+# The lanes the throughput mode measures: three for each frame family.
+THROUGHPUT_LANES = 6
+
+
+def select_lane(benchmarks: list[NamedBenchmark], lane: LaneNumber) -> list[NamedBenchmark]:
+    """Answer every lane for 0, and the ``lane``-th alone otherwise, counted from 1.
+
+    One lane runs by itself for an instruction count that holds nothing else.
+    """
+    return benchmarks if lane == 0 else benchmarks[lane - 1 : lane]
 
 
 def _print_summary(results: list[_BenchResult], file: TextIO) -> None:
@@ -226,14 +241,30 @@ def _to_json_payload(r: _BenchResult) -> _JsonPayload:
     }
 
 
-def _run() -> None:
-    """Parse args, run the benchmark suite, emit summary."""
+def parse_arguments() -> argparse.Namespace:
+    """Read the mode's flags from the command line, refusing a lane the mode does not have."""
     parser = argparse.ArgumentParser(description="Throughput benchmark")
     parser.add_argument("--frames", type=int, default=10000, help="Frames per run")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs")
     parser.add_argument("--warmup", type=int, default=2, help="Warmup runs")
+    parser.add_argument(
+        "--lane",
+        type=int,
+        default=0,
+        help=f"Run only this lane, 1 to {THROUGHPUT_LANES} (default: 0, every lane)",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON to stdout")
     args = parser.parse_args()
+    lane = LaneNumber(args.lane)
+    if not 0 <= lane <= THROUGHPUT_LANES:
+        parser.error(f"--lane must be between 0 and {THROUGHPUT_LANES}, got {lane}")
+    return args
+
+
+def _run() -> None:
+    """Parse args, run the benchmark suite, emit summary."""
+    args = parse_arguments()
+    lane = LaneNumber(args.lane)
 
     cfg = BenchmarkConfig(
         num_frames=args.frames,
@@ -250,7 +281,10 @@ def _run() -> None:
     print(f"Runs: {cfg.num_runs}", file=out)
     print(f"Warmup runs: {cfg.warmup_runs}", file=out)
 
-    benchmarks = _build_benchmarks(load_dbc(), load_canfd_dbc())
+    # Every client here runs on one core; the kernel checks the property
+    # bundles as they are built, before any client opens.
+    start_runtime(1)
+    benchmarks = select_lane(_build_benchmarks(load_dbc(), load_canfd_dbc()), lane)
 
     results: list[_BenchResult] = []
     for name, func in benchmarks:
@@ -268,6 +302,7 @@ def _run() -> None:
             "frames": FrameCount(cfg.num_frames),
             "runs": RunCount(cfg.num_runs),
             "warmup": RunCount(cfg.warmup_runs),
+            "lane": lane,
         }
         emit_json_report("throughput", parameters, [_to_json_payload(r) for r in results])
 

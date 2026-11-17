@@ -99,7 +99,7 @@ func unknownEvents(known map[string]struct{}, emitted []capturedRecord) []string
 // membership check below passing over a smaller vocabulary.
 func TestLogEventsYAML_Schema(t *testing.T) {
 	events := loadLogEvents(t)
-	if got, want := len(events), 16; got != want {
+	if got, want := len(events), 14; got != want {
 		t.Fatalf("the document names %d events, and the four bindings share %d", got, want)
 	}
 	seen := make(map[string]struct{}, len(events))
@@ -157,7 +157,7 @@ const dbcParsedJSON = `{
 		"version": "1.0",
 		"messages": [{
 			"id": 256, "extended": false, "name": "EngineData", "dlc": 8,
-			"sender": "ECU",
+			"sender": "ECU", "senders": [],
 			"signals": [{
 				"name": "Speed", "startBit": 0, "length": 16,
 				"byteOrder": "little_endian", "signed": false,
@@ -166,10 +166,13 @@ const dbcParsedJSON = `{
 				"minimum": {"numerator": 0, "denominator": 1},
 				"maximum": {"numerator": 300, "denominator": 1},
 				"unit": "kph", "presence": "always",
-				"valueDescriptions": []
+				"receivers": [], "valueDescriptions": []
 			}]
-		}]
-	}
+		}],
+		"signalGroups": [], "environmentVars": [], "valueTables": [], "nodes": [],
+		"comments": [], "attributes": [], "unresolvedValueDescs": []
+	},
+	"warnings": []
 }`
 
 // A workflow through the whole client emits nothing the document does not
@@ -195,7 +198,7 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 		// observed, which is reported one event per warning.
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],
+			"results":[{"type":"property","property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],
 			"warnings":[{"kind":"uncached_atom","property_index":0,"detail":"UnobservedSignal"}]
 		}`),
 		// The extraction the end of stream asks for, which reuses what the

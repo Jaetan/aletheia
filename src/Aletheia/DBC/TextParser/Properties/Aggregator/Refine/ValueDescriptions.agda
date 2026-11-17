@@ -33,7 +33,7 @@ open import Data.List.Relation.Unary.AllPairs using (AllPairs; _∷_)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ)
+open import Data.Integer using (ℤ)
 open import Data.Product using (_×_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong)
@@ -89,7 +89,7 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.F
 -- COLLECT-FROM-SIGNAL-SINGLETON
 -- ============================================================================
 
-singletonFromVds : CANId → Identifier → List (ℕ × List Char) → Maybe RawValueDesc
+singletonFromVds : CANId → Identifier → List (ℤ × List Char) → Maybe RawValueDesc
 singletonFromVds _   _    []        = nothing
 singletonFromVds cid name (x ∷ vds) = just (mkRawValueDesc cid name (x ∷ vds))
 
@@ -105,7 +105,7 @@ collectFromSignal-singleton cid s =
 -- (in the cons branch) trivially has canId ≡ cid; the [] branch passes
 -- the input All through unchanged.
 prependVdsRvd-canId-all :
-    ∀ (cid : CANId) (name : Identifier) (vds : List (ℕ × List Char))
+    ∀ (cid : CANId) (name : Identifier) (vds : List (ℤ × List Char))
       (rest : List RawValueDesc)
   → All (λ rvd → RawValueDesc.canId rvd ≡ cid) rest
   → All (λ rvd → RawValueDesc.canId rvd ≡ cid) (prependVdsRvd cid name vds rest)
@@ -117,7 +117,7 @@ prependVdsRvd-canId-all _   _    (_ ∷ _)   _    pred = refl ∷ pred
 -- when name' ≢ name, sending the if-step to the else branch, and the
 -- recursion lands on `rest`.)
 lookup-vd-on-prependVdsRvd-name-≢-pass :
-    ∀ (cid : CANId) (name name' : Identifier) (vds : List (ℕ × List Char))
+    ∀ (cid : CANId) (name name' : Identifier) (vds : List (ℤ × List Char))
       (rest : List RawValueDesc)
   → name' ≢ name
   → lookup-vd cid name (prependVdsRvd cid name' vds rest) ≡ lookup-vd cid name rest
@@ -133,7 +133,7 @@ lookup-vd-on-prependVdsRvd-name-≢-pass cid name name' (_ ∷ _)   rest n'≢n
 -- `rest`'s lookup result — which the caller pre-establishes as `nothing`
 -- (driven by within-message name uniqueness).
 lookup-vd-on-prependVdsRvd-name-eq :
-    ∀ (cid : CANId) (name : Identifier) (vds : List (ℕ × List Char))
+    ∀ (cid : CANId) (name : Identifier) (vds : List (ℤ × List Char))
       (rest : List RawValueDesc)
   → lookup-vd cid name rest ≡ nothing
   → lookup-vd cid name (prependVdsRvd cid name vds rest)
@@ -386,7 +386,7 @@ lookup-on-collected (m₀ ∷ rest) m s (there m∈rest) s∈sigs (m₀-≢-all 
 -- (matches the just case → record-η under the s.vds equation).
 
 attachWithMaybe-on-singletonFromVds :
-    ∀ (cid : CANId) (s : DBCSignal) (vds : List (ℕ × List Char))
+    ∀ (cid : CANId) (s : DBCSignal) (vds : List (ℤ × List Char))
   → DBCSignal.valueDescriptions s ≡ vds
   → attachWithMaybe s (singletonFromVds cid (DBCSignal.name s) vds) ≡ s
 attachWithMaybe-on-singletonFromVds _   _ []        _   = refl
@@ -517,7 +517,7 @@ attachValueDescs-on-collectFromMessages msgs msg-uniq all-wfs =
 -- ≡ []) and `record (clearVds s) { vds = (x ∷ vds) }` (via double-update
 -- collapse, then eq : s.vds ≡ x ∷ vds) to `s`.
 attachWithMaybe-clearVds-on-singletonFromVds :
-    ∀ (cid : CANId) (s : DBCSignal) (vds : List (ℕ × List Char))
+    ∀ (cid : CANId) (s : DBCSignal) (vds : List (ℤ × List Char))
   → DBCSignal.valueDescriptions s ≡ vds
   → attachWithMaybe (clearVds s) (singletonFromVds cid (DBCSignal.name s) vds) ≡ s
 attachWithMaybe-clearVds-on-singletonFromVds _   s [] eq =
@@ -653,7 +653,7 @@ ident-name-as-vd-name-stop :
 ident-name-as-vd-name-stop n = identifier-name-stop n
 
 prependVdsRvd-stops :
-    ∀ (cid : CANId) (name : Identifier) (vds : List (ℕ × List Char))
+    ∀ (cid : CANId) (name : Identifier) (vds : List (ℤ × List Char))
       (rest : List RawValueDesc)
   → All RawValueDescStop rest
   → All RawValueDescStop (prependVdsRvd cid name vds rest)

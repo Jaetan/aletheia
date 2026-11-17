@@ -3,28 +3,27 @@
 
 // The two code vocabularies this binding carries are the ones
 // docs/WIRE_CODES.yaml names, which the orchestrator's own gate anchors to the
-// kernel. Each is compared both ways, so a code the document has and the
-// binding lacks fails, and so does one the binding has and the document
-// dropped.
+// kernel. Go offering no way to enumerate constants, the test reads each
+// vocabulary's constants from the package's source and holds them, the set the
+// reply readers read its codes from and its section to one set of codes: a
+// constant left out of the set and the document fails, and so does a row no
+// constant declares.
 //
-// The constants are listed below by hand, Go offering no way to enumerate
-// them: removing one breaks the build here, and a code added to the document
-// alone fails the comparison. A code added to the package and to neither is
-// what the probe over the source catches, which reads the declarations rather
-// than a list.
-//
-// IssueUnknown is not among them. It is what this binding uses when a wire
-// code is missing, not a code the kernel emits, and a test below holds the
-// document to never naming it. A code the kernel adds and this binding does
-// not know still crosses: the decoder carries it rather than refusing it.
-//
-// The Python, C++ and Rust suites hold their own vocabularies the same way.
+// The Python, C++ and Rust suites hold their own vocabularies against the
+// document.
 
 package aletheia_test
 
 import (
+	"go/ast"
+	"go/constant"
+	"go/parser"
+	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -76,111 +75,6 @@ func yamlNameSet(t *testing.T, section string, rows []wireCodeRow) map[string]st
 	return names
 }
 
-// goIssueCodes is every issue code the binding declares.
-var goIssueCodes = []aletheia.IssueCode{
-	aletheia.IssueDuplicateMessageID,
-	aletheia.IssueDuplicateMessageName,
-	aletheia.IssueDuplicateSignalName,
-	aletheia.IssueFactorZero,
-	aletheia.IssueMultiplexorNotFound,
-	aletheia.IssueMultiplexorCycle,
-	aletheia.IssueGlobalNameCollision,
-	aletheia.IssueMinExceedsMax,
-	aletheia.IssueSignalExceedsDLC,
-	aletheia.IssueSignalOverlap,
-	aletheia.IssueBitLengthZero,
-	aletheia.IssueOffsetScaleRange,
-	aletheia.IssueEmptyMessage,
-	aletheia.IssueStartBitOutOfRange,
-	aletheia.IssueBitLengthExcessive,
-	aletheia.IssueMultiplexorNonUnitScaling,
-	aletheia.IssueDuplicateAttributeName,
-	aletheia.IssueUnknownCommentTarget,
-	aletheia.IssueUnknownMessageSender,
-	aletheia.IssueUnknownSignalReceiver,
-	aletheia.IssueUnknownValueDescriptionTarget,
-	aletheia.IssueTextRoundtripDivergence,
-	aletheia.IssueMultiValueMuxSelector,
-	aletheia.IssueMuxMasterIncoherent,
-	aletheia.IssueUnknownAttributeName,
-	aletheia.IssueAttributeValueTypeMismatch,
-	aletheia.IssueAttributeEnumEmpty,
-	aletheia.IssueAttributeEnumDefaultUnstable,
-	aletheia.IssueRangeExceedsBits,
-}
-
-// goErrorCodes is every error code the binding declares.
-var goErrorCodes = []string{
-	aletheia.CodeParseMissingField,
-	aletheia.CodeParseInvalidByteOrder,
-	aletheia.CodeParseInvalidPresence,
-	aletheia.CodeParseMissingSigned,
-	aletheia.CodeParseInvalidSigned,
-	aletheia.CodeParseNotAnObject,
-	aletheia.CodeParseExtCanIDOutOfRange,
-	aletheia.CodeParseStdCanIDOutOfRange,
-	aletheia.CodeParseDefaultCanIDOutOfRange,
-	aletheia.CodeParseInvalidDLCBytes,
-	aletheia.CodeParseRootNotObject,
-	aletheia.CodeParseMissingSignalName,
-	aletheia.CodeParseSignalBitLengthZero,
-	aletheia.CodeParseSignalStartBitExceedsFrame,
-	aletheia.CodeParseSignalBitLengthExceedsFrame,
-	aletheia.CodeParseSignalBigEndianOverflow,
-	aletheia.CodeParseInvalidKind,
-	aletheia.CodeParseNonTerminatingRational,
-	aletheia.CodeParseInvalidIdentifier,
-	aletheia.CodeParseNonIntegerMultiplexValue,
-	aletheia.CodeParseNonNaturalField,
-	aletheia.CodeParseDLCCodeOutOfRange,
-	aletheia.CodeParsePayloadLengthMismatch,
-	aletheia.CodeParsePayloadByteOutOfRange,
-	aletheia.CodeParseNonPositiveDenominator,
-	aletheia.CodeParseSignalArrayLengthMismatch,
-	aletheia.CodeParseTimestampPastWire,
-	aletheia.CodeTextParseFailure,
-	aletheia.CodeTextTrailingInput,
-	aletheia.CodeDBCTextAttributeRefinementFailed,
-	aletheia.CodeFrameSignalNotFound,
-	aletheia.CodeFrameSignalIndexOOB,
-	aletheia.CodeFrameValueOutOfRange,
-	aletheia.CodeFrameValueNotRepresentable,
-	aletheia.CodeFrameSignalsOverlap,
-	aletheia.CodeFrameSignalPastFrameEnd,
-	aletheia.CodeFrameCanIDNotFound,
-	aletheia.CodeFrameCanIDMismatch,
-	aletheia.CodeFrameSignalValueOutOfBounds,
-	aletheia.CodeInputBoundExceeded,
-	aletheia.CodeDBCInvalidCharacter,
-	aletheia.CodeDBCKeywordName,
-	aletheia.CodeRouteMissingField,
-	aletheia.CodeRouteUnknownCommand,
-	aletheia.CodeRouteMissingCommandField,
-	aletheia.CodeRouteMissingDBCField,
-	aletheia.CodeRouteMissingPropsField,
-	aletheia.CodeHandlerNoDBC,
-	aletheia.CodeHandlerAlreadyStreaming,
-	aletheia.CodeHandlerNotStreaming,
-	aletheia.CodeHandlerStreamNotStarted,
-	aletheia.CodeHandlerStreamActive,
-	aletheia.CodeHandlerPropertyParseFailed,
-	aletheia.CodeHandlerUnknownSignal,
-	aletheia.CodeHandlerValidationFailed,
-	aletheia.CodeHandlerTextRoundtripFailed,
-	aletheia.CodeHandlerNonMonotonicTimestamp,
-	aletheia.CodeDispatchMissingTypeField,
-	aletheia.CodeDispatchUnknownMessageType,
-	aletheia.CodeDispatchInvalidJSON,
-	aletheia.CodeDispatchRequestNotObject,
-	aletheia.CodeExtractionMuxValueMismatch,
-	aletheia.CodeExtractionSignalPastFrameEnd,
-	aletheia.CodeExtractionMuxSignalNotFound,
-	aletheia.CodeExtractionMuxChainCycle,
-	aletheia.CodeExtractionMuxExtractionFailed,
-	aletheia.CodeExtractionValueExceedsWireRange,
-	aletheia.CodeFFIValidationError,
-}
-
 // Every row of both sections names a code once and says what it is for.
 func TestWireCodesYAMLSchema(t *testing.T) {
 	doc := loadWireCodes(t)
@@ -197,54 +91,100 @@ func TestWireCodesYAMLSchema(t *testing.T) {
 	}
 }
 
-// Each vocabulary and its section name the same codes, in both directions.
+// Each vocabulary's constants, its readers' set and its section name the same
+// codes.
 func TestWireCodes_MatchTheirSections(t *testing.T) {
 	doc := loadWireCodes(t)
-	issueNames := make([]string, 0, len(goIssueCodes))
-	for _, c := range goIssueCodes {
-		issueNames = append(issueNames, string(c))
-	}
+	declared := declaredCodes(t)
 	cases := map[string]struct {
-		rows      []wireCodeRow
-		declared  []string
-		constants string
+		rows     []wireCodeRow
+		declared map[string]struct{}
+		read     map[string]struct{}
 	}{
-		"issue codes": {doc.IssueCodes, issueNames, "Issue"},
-		"error codes": {doc.ErrorCodes, goErrorCodes, "Code"},
+		"issue codes": {doc.IssueCodes, declared["IssueCode"], codeWords(aletheia.IssueCodes)},
+		"error codes": {doc.ErrorCodes, declared["ErrorCode"], codeWords(aletheia.ErrorCodes)},
 	}
 	for section, tc := range cases {
 		t.Run(section, func(t *testing.T) {
-			inDocument := yamlNameSet(t, section, tc.rows)
-			declared := make(map[string]struct{}, len(tc.declared))
-			for _, name := range tc.declared {
-				if _, dup := declared[name]; dup {
-					t.Fatalf("the list of %s constants names %q twice", tc.constants, name)
-				}
-				declared[name] = struct{}{}
+			holders := []struct {
+				name  string
+				codes map[string]struct{}
+			}{
+				{"the package's constants", tc.declared},
+				{"the readers' set", tc.read},
+				{"the document", yamlNameSet(t, section, tc.rows)},
 			}
-			for name := range inDocument {
-				if _, ok := declared[name]; !ok {
-					t.Errorf("%q is in the document and the binding declares no %s constant for it, "+
-						"or the constant is not in the list above", name, tc.constants)
-				}
+			every := map[string]struct{}{}
+			for _, holder := range holders {
+				maps.Copy(every, holder.codes)
 			}
-			for name := range declared {
-				if _, ok := inDocument[name]; !ok {
-					t.Errorf("the binding declares %q and the document has no row for it", name)
+			for _, code := range slices.Sorted(maps.Keys(every)) {
+				var lacking []string
+				for _, holder := range holders {
+					if _, ok := holder.codes[code]; !ok {
+						lacking = append(lacking, holder.name)
+					}
+				}
+				if len(lacking) > 0 {
+					t.Errorf("%s: %q is not in %s", section, code, strings.Join(lacking, " or "))
 				}
 			}
 		})
 	}
 }
 
-// The binding's own default for a missing code never becomes a code of the
-// wire: the kernel does not emit it, and the C++ and Rust bindings keep their
-// equivalents out of the document too.
-func TestWireCodesIssueUnknownIsNotAWireCode(t *testing.T) {
-	doc := loadWireCodes(t)
-	yamlNames := yamlNameSet(t, "issue_codes", doc.IssueCodes)
-	if _, ok := yamlNames[string(aletheia.IssueUnknown)]; ok {
-		t.Fatalf("the document names %q, which is what this binding uses when the "+
-			"wire carries no code", aletheia.IssueUnknown)
+// declaredCodes reads the package's non-test files, whatever their build
+// constraints say, for the constants declared with each code type, by the
+// type's name.
+func declaredCodes(t *testing.T) map[string]map[string]struct{} {
+	t.Helper()
+	paths, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("listing the package's files: %v", err)
 	}
+	declared := map[string]map[string]struct{}{"ErrorCode": {}, "IssueCode": {}}
+	fset := token.NewFileSet()
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				value := spec.(*ast.ValueSpec)
+				typ, ok := value.Type.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				codes, ok := declared[typ.Name]
+				if !ok {
+					continue
+				}
+				for _, v := range value.Values {
+					lit, ok := v.(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						t.Fatalf("%s: a constant of type %s whose value is no string literal", fset.Position(v.Pos()), typ.Name)
+					}
+					codes[constant.StringVal(constant.MakeFromLiteral(lit.Value, lit.Kind, 0))] = struct{}{}
+				}
+			}
+		}
+	}
+	return declared
+}
+
+// codeWords is the words of a set of codes.
+func codeWords[T ~string](codes map[T]struct{}) map[string]struct{} {
+	words := make(map[string]struct{}, len(codes))
+	for code := range codes {
+		words[string(code)] = struct{}{}
+	}
+	return words
 }

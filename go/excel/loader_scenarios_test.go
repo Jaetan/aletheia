@@ -6,9 +6,12 @@ package excel
 import (
 	"bytes"
 	"errors"
+	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
@@ -28,7 +31,7 @@ import (
 // schema lacks fails here rather than going unread.
 type loaderScenarios struct {
 	YAML         []loaderScenario `yaml:"yaml"`
-	YAMLWithinMs []loaderScenario `yaml:"yaml_within_ms"`
+	YAMLWithinUs []loaderScenario `yaml:"yaml_within_us"`
 	Excel        []loaderScenario `yaml:"excel"`
 }
 
@@ -42,10 +45,11 @@ type loaderScenario struct {
 }
 
 // loaderScenarioExpect is either the value the loader reads (a rational, or
-// the milliseconds of a YAML within_ms) or a refusal.
+// the microseconds of a YAML within_us) or a refusal. A magnitude is read as
+// its digits, since it reaches 2^128-1, which no Go integer type holds.
 type loaderScenarioExpect struct {
-	Rational     []int64              `yaml:"rational"`
-	Milliseconds *int64               `yaml:"milliseconds"`
+	Rational     []string             `yaml:"rational"`
+	Microseconds *uint64              `yaml:"microseconds"`
 	Kind         string               `yaml:"kind"`
 	Code         string               `yaml:"code"`
 	Location     string               `yaml:"location"`
@@ -57,8 +61,8 @@ type loaderScenarioExpect struct {
 // loaderScenarioBound is the typed bound error's fields.
 type loaderScenarioBound struct {
 	Kind     string `yaml:"kind"`
-	Observed uint64 `yaml:"observed"`
-	Limit    uint64 `yaml:"limit"`
+	Observed string `yaml:"observed"`
+	Limit    string `yaml:"limit"`
 	Field    string `yaml:"field"`
 }
 
@@ -91,10 +95,26 @@ func expectedRational(t *testing.T, sc loaderScenario) (aletheia.Rational, bool)
 	if sc.Expect.Rational == nil {
 		return aletheia.Rational{}, false
 	}
-	if len(sc.Expect.Rational) != 2 || sc.Expect.Kind != "" || sc.Expect.Milliseconds != nil {
+	if len(sc.Expect.Rational) != 2 || sc.Expect.Kind != "" || sc.Expect.Microseconds != nil {
 		t.Fatalf("scenario %s: the contract's expect is malformed: %+v", sc.Name, sc.Expect)
 	}
-	return aletheia.Rational{Numerator: sc.Expect.Rational[0], Denominator: sc.Expect.Rational[1]}, true
+	numerator, negative := strings.CutPrefix(sc.Expect.Rational[0], "-")
+	return aletheia.Rational{
+		Negative:    negative,
+		Numerator:   contractMagnitude(t, sc, numerator),
+		Denominator: contractMagnitude(t, sc, sc.Expect.Rational[1]),
+	}, true
+}
+
+// contractMagnitude is the natural number a row spells in digits.
+func contractMagnitude(t *testing.T, sc loaderScenario, digits string) aletheia.Uint128 {
+	t.Helper()
+	v, ok := new(big.Int).SetString(digits, 10)
+	if !ok || v.Sign() < 0 || v.BitLen() > 128 {
+		t.Fatalf("scenario %s: the contract's %q is no magnitude up to 2^128-1", sc.Name, digits)
+	}
+	low := new(big.Int).And(v, new(big.Int).SetUint64(math.MaxUint64))
+	return aletheia.Uint128{Hi: new(big.Int).Rsh(v, 64).Uint64(), Lo: low.Uint64()}
 }
 
 // requireLoaderRefusal holds that the error is the refusal the row names: the
@@ -104,7 +124,7 @@ func expectedRational(t *testing.T, sc loaderScenario) (aletheia.Rational, bool)
 func requireLoaderRefusal(t *testing.T, sc loaderScenario, err error) {
 	t.Helper()
 	want := sc.Expect
-	if want.Rational != nil || want.Milliseconds != nil {
+	if want.Rational != nil || want.Microseconds != nil {
 		t.Fatalf("scenario %s: the contract's expect is malformed: %+v", sc.Name, want)
 	}
 	if err == nil {
@@ -120,7 +140,7 @@ func requireLoaderRefusal(t *testing.T, sc loaderScenario, err error) {
 		if e.Kind != aletheia.ErrValidation {
 			t.Errorf("scenario %s: Kind = %v, want %v", sc.Name, e.Kind, aletheia.ErrValidation)
 		}
-		code, location, key = e.Code, e.Location, e.Key
+		code, location, key = string(e.Code), e.Location, e.Key
 	case "input_bound_exceeded":
 		var e *aletheia.InputBoundExceededError
 		if !errors.As(err, &e) {
@@ -132,16 +152,16 @@ func requireLoaderRefusal(t *testing.T, sc loaderScenario, err error) {
 		if e.BoundKind != want.Bound.Kind {
 			t.Errorf("scenario %s: BoundKind = %q, want %q", sc.Name, e.BoundKind, want.Bound.Kind)
 		}
-		if e.Observed != want.Bound.Observed {
-			t.Errorf("scenario %s: Observed = %d, want %d", sc.Name, e.Observed, want.Bound.Observed)
+		if observed := contractMagnitude(t, sc, want.Bound.Observed); e.Observed != observed {
+			t.Errorf("scenario %s: Observed = %s, want %s", sc.Name, e.Observed, observed)
 		}
-		if e.Limit != want.Bound.Limit {
-			t.Errorf("scenario %s: Limit = %d, want %d", sc.Name, e.Limit, want.Bound.Limit)
+		if limit := contractMagnitude(t, sc, want.Bound.Limit); e.Limit != limit {
+			t.Errorf("scenario %s: Limit = %s, want %s", sc.Name, e.Limit, limit)
 		}
 		if e.Field != want.Bound.Field {
 			t.Errorf("scenario %s: Field = %q, want %q", sc.Name, e.Field, want.Bound.Field)
 		}
-		code, location, key = e.Code, e.Location, e.Key
+		code, location, key = string(e.Code), e.Location, e.Key
 	default:
 		t.Fatalf("scenario %s: the contract names the kind %q", sc.Name, want.Kind)
 	}
@@ -224,7 +244,7 @@ func TestLoaderScenarios_Excel(t *testing.T) {
 				if len(checks) != 1 {
 					t.Fatalf("scenario %s: the workbook carried %d checks, want one", sc.Name, len(checks))
 				}
-				if got, built := checks[0].Formula(), aletheia.CheckSignal("Speed").NeverExceeds(want).Formula(); !reflect.DeepEqual(got, built) {
+				if got, built := checks[0].Formula(), mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(want)).Formula(); !reflect.DeepEqual(got, built) {
 					t.Errorf("scenario %s: the loaded check is %#v, want %#v", sc.Name, got, built)
 				}
 				return

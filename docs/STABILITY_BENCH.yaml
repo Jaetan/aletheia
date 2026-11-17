@@ -13,15 +13,18 @@
 # root.  Fields:
 #   name:           stable identifier; for python, go and cpp, the name the
 #                   binding's report gives the sub-check
-#   gate:           hard_zero | soft_threshold
+#   gate:           hard_zero | equal_per_cycle | report
 #                     hard_zero:        exact 0 drift after close+gc; spec calls
 #                                       this a "genuine leak detector"
-#                     soft_threshold:   empirically-tuned percentage / absolute
-#                                       cap; threshold lives next to the
-#                                       assertion in the harness, NOT in this
-#                                       file.  This file declares "the check
-#                                       must exist," not "the check must pass
-#                                       at threshold X."
+#                     equal_per_cycle:  the same count in every measured cycle,
+#                                       exactly: the kernel's allocated bytes,
+#                                       so a cycle doing more work than the one
+#                                       before it fails
+#                     report:           read and printed, deciding nothing: a
+#                                       reading that moves with when the
+#                                       collectors run, such as the resident
+#                                       set, so no gate rests on the runner's
+#                                       speed or load
 #   source_file:    optional, the path from repo root to the file that makes
 #                   the sub-check's read, where that is not the harness
 #   source_marker:  substring the static gate requires in source_file, or in
@@ -37,7 +40,7 @@ bindings:
     harness: python/benchmarks/stability.py
     sub_checks:
       - name: rss
-        gate: soft_threshold
+        gate: report
         source_marker: "rss = psutil.Process().memory_info().rss"
       - name: fd_count
         gate: hard_zero
@@ -48,12 +51,15 @@ bindings:
       - name: logger_handlers
         gate: hard_zero
         source_marker: "logging.getLogger(LOGGER_NAME).handlers"
+      - name: kernel_allocation
+        gate: equal_per_cycle
+        source_marker: "readings.append(_kernel_allocated())"
 
   go:
     harness: go/benchmarks/stability/main.go
     sub_checks:
       - name: rss
-        gate: soft_threshold
+        gate: report
         source_marker: "heap, err := readHeapBytes(metric)"
       - name: fd_count
         gate: hard_zero
@@ -64,6 +70,9 @@ bindings:
       - name: stableptr
         gate: hard_zero
         source_marker: "aletheia.StablePtrCount()"
+      - name: kernel_allocation
+        gate: equal_per_cycle
+        source_marker: "reading, err := kernelAllocated()"
 
   cpp:
     harness: cpp/benchmarks/stability_bench.cpp
@@ -72,7 +81,7 @@ bindings:
       # makes the reads, so each row reads the header and is held at the
       # read's call.
       - name: rss
-        gate: soft_threshold
+        gate: report
         source_file: cpp/benchmarks/stability_snapshot.hpp
         source_marker: 'status_field(status, "VmRSS:")'
       - name: fd_count
@@ -84,9 +93,12 @@ bindings:
         source_file: cpp/benchmarks/stability_snapshot.hpp
         source_marker: 'status_field(status, "Threads:")'
       - name: malloc_info
-        gate: soft_threshold
+        gate: report
         source_file: cpp/benchmarks/stability_snapshot.hpp
         source_marker: "malloc_info_bytes(open, write)"
+      - name: kernel_allocation
+        gate: equal_per_cycle
+        source_marker: "readings.push_back(reading.value())"
 
   agda:
     harness: tools/stability_run.py
@@ -96,8 +108,8 @@ bindings:
       # env-var → hs_init_with_rtsopts plumbing) so the GHC RTS emits the
       # heap-typed profile during the Python lane's run.
       - name: heap_profile
-        gate: soft_threshold
-        source_marker: 'env["ALETHEIA_RTS_OPTS"] = "-hT"'
+        gate: report
+        source_marker: 'env["ALETHEIA_RTS_OPTS"] = f"-hT {COUNTED_RTS_OPTS}"'
       - name: heap_profile_archive
         gate: hard_zero
         source_marker: 'artifact_dir / "aletheia-ffi.hp"'

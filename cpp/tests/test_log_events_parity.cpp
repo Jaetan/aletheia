@@ -10,6 +10,8 @@
 //      backend is a member of the canonical YAML name set — catches a
 //      future binding-side emit-call that drifts from the cross-binding
 //      canonical set.
+//   3. The workflow reaches each event it is meant to, so the check above
+//      holds over more than a handful of events.
 //
 // This is the mechanism half of the log-events parity gate, mirroring
 // python/tests/test_log_events_parity.py and go/aletheia/log_events_test.go:
@@ -22,7 +24,7 @@
 //   - set_properties     (properties.set)
 //   - start_stream       (stream.started)
 //   - send_frame ack     (frame.processed)
-//   - send_frame violate (frame.processed + cache.miss + enrichment.*)
+//   - send_frame violate (frame.processed + cache.miss)
 //   - end_stream         (stream.ended + endstream.uncached_atom per warning)
 //
 // Events not exercised (require exotic setups; they remain protected by
@@ -40,6 +42,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <initializer_list>
 #include <memory>
 #include <ranges>
 #include <set>
@@ -102,7 +105,7 @@ static auto canonical_event_set() -> std::set<std::string> {
 
 TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
     auto const rows = load_log_events();
-    REQUIRE(rows.size() == 16);
+    REQUIRE(rows.size() == 14);
 
     std::set<std::string> seen;
     for (auto const [i, row] : std::views::enumerate(rows)) {
@@ -137,7 +140,7 @@ constexpr std::string_view k_parse_dbc_response = R"JSON({
         "version": "1.0",
         "messages": [{
             "id": 256, "extended": false, "name": "EngineData", "dlc": 8,
-            "sender": "ECU",
+            "sender": "ECU", "senders": [],
             "signals": [{
                 "name": "Speed", "startBit": 0, "length": 16,
                 "byteOrder": "little_endian", "signed": false,
@@ -147,10 +150,13 @@ constexpr std::string_view k_parse_dbc_response = R"JSON({
                 "maximum": {"numerator": 300, "denominator": 1},
                 "unit": "kph",
                 "presence": "always",
-                "valueDescriptions": []
+                "receivers": [], "valueDescriptions": []
             }]
-        }]
-    }
+        }],
+        "signalGroups": [], "environmentVars": [], "valueTables": [], "nodes": [],
+        "comments": [], "attributes": [], "unresolvedValueDescs": []
+    },
+    "warnings": []
 })JSON";
 
 // Drive one full client workflow against a queued mock and return the set of
@@ -193,8 +199,8 @@ static auto events_of_one_workflow() -> std::set<std::string> {
     REQUIRE(client.parse_dbc_text(std::stop_token{}, k_dbc_source_text).has_value());
 
     // 3. set_properties
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
@@ -240,15 +246,15 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
         CHECK(in_canonical);
     }
 
-    // Sanity floor: dbc.parsed must be exercised. Without it a workflow that
-    // stopped reaching the parse paths would leave the gate asserting nothing
-    // about them.
-    CHECK(unique_emitted.contains("dbc.parsed"));
-
-    // Sanity floor: the EndStream Complete carries an uncached_atom warning,
-    // so the per-warning event MUST fire — otherwise a future refactor that
-    // drops the emit site would slip past this gate.
-    CHECK(unique_emitted.contains("endstream.uncached_atom"));
+    // The floor: a workflow that stopped reaching these would leave the check
+    // above passing over a handful of events, so each is required by name.
+    // The EndStream Complete carries an uncached_atom warning, so the
+    // per-warning event fires too.
+    for (auto const* const event : {"dbc.parsed", "properties.set", "stream.started",
+                                    "frame.processed", "stream.ended", "endstream.uncached_atom"}) {
+        INFO("expected event: " << event);
+        CHECK(unique_emitted.contains(event));
+    }
 }
 
 // The gate's rejection logic on its own, independent of any workflow: the

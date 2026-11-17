@@ -17,7 +17,6 @@ package aletheia
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -42,22 +41,25 @@ const (
 	rtsProcessorsSymbol = "getNumberOfProcessors"
 )
 
-// rtsOverrideFlags are the flags the environment adds, none when it sets
-// nothing, with which one process can tighten or extend what the runtime gets.
-func rtsOverrideFlags() []string {
-	return strings.Fields(os.Getenv(rtsOverrideEnv))
+// rtsSpace reports whether r is one of the six ASCII whitespace bytes that
+// separate the words of rtsOverrideEnv: space, TAB, LF, CR, VT and FF. None is
+// part of a longer UTF-8 sequence and a byte that is not UTF-8 reaches it as
+// utf8.RuneError, so every other byte stays in its word.
+func rtsSpace(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\v' || r == '\f'
 }
 
 // rtsInitArgv is the argument vector the runtime is started with, in the
 // order the budgets document fixes: the program name, the cap, a core count
-// when one was asked for, whatever the environment adds, and the closing
-// marker. It touches nothing outside itself, so a test can read it directly.
-// The cap is in every vector, whatever the core count.
-func rtsInitArgv(cores int) []string {
+// when one was asked for, the words of override, the value of rtsOverrideEnv
+// split where rtsSpace holds, and the closing marker. It touches nothing
+// outside itself, so a test can read it directly. The cap is in every vector,
+// whatever the core count.
+func rtsInitArgv(cores int, override string) []string {
 	argv := []string{"aletheia", "+RTS", rtsHeapCapFlag}
 	if cores > rtsDefaultCores {
 		argv = append(argv, fmt.Sprintf("-N%d", cores))
 	}
-	argv = append(argv, rtsOverrideFlags()...)
+	argv = append(argv, strings.FieldsFunc(override, rtsSpace)...)
 	return append(argv, "-RTS")
 }

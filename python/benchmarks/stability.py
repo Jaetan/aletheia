@@ -5,15 +5,17 @@
 Exercises the FFI surface for ``cycles × frames`` (default 10 × 100_000 = 1M
 total frames) and asserts no per-iteration drift on:
 
-  - RSS (soft threshold):        psutil.Process().memory_info().rss
   - FD count (hard zero):        the /proc/self/fd entries naming a real resource
   - ctypes handles (hard zero):  RTSState.refcount post-final-close
   - logger handlers (hard zero): len(logging.getLogger("aletheia").handlers)
+  - kernel allocation (equal per cycle): the bytes the kernel allocates in each
+    measured cycle, every cycle's the same, so a cycle doing more work than the
+    one before it fails
 
 Per AGENTS.md Python cat 25 "Long-run resource leakage sub-checks": **drift on
-any sub-check is a finding**.  Hard-zero gates are exact equality (no noise
-tolerance allowed); soft-threshold gates carry an empirically-tuned cap that
-lives next to the assertion below — change the value, the diff is visible.
+any sub-check is a finding**.  Every gate is an exact count, so the runner's
+speed and load decide nothing.  The resident set size (RSS) is printed beside
+them and decides nothing: it moves with when the collectors run.
 
 Output: JSON written to stdout (and optionally
 ``benchmarks/stability/<commit>/python.json`` when invoked through
@@ -25,6 +27,7 @@ from __future__ import annotations
 import argparse
 import functools
 import gc
+import itertools
 import json
 import logging
 import os
@@ -35,9 +38,9 @@ from typing import TYPE_CHECKING, Literal
 
 import psutil
 
-from aletheia import AletheiaClient
+from aletheia import AletheiaClient, allocated_bytes
 from aletheia.client._ffi import RTSState
-from aletheia.common_types import ExitStatus, PositiveInt, Prose
+from aletheia.common_types import AllocatedBytes, ExitStatus, PositiveInt, Prose
 from benchmarks._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc, run_report
 
 if TYPE_CHECKING:
@@ -45,19 +48,10 @@ if TYPE_CHECKING:
 
     from aletheia.types import DBCDefinition
 
-# Soft-threshold caps (empirically established 2026-05-08, WSL2 quiet host;
-# revise inline if a future reviewer runs the harness on a host that rejects
-# these as too tight or too loose).
-RSS_DELTA_BYTES_CAP = 50 * 1024 * 1024  # 50 MiB across 1M frames
-
-# Warmup cycles before the measurement window opens.  The GHC RTS heap +
-# MAlonzo dictionaries + lazy Agda structures need a substantial workload
-# before they reach steady state — an empirical probe (2026-05-09)
-# showed the heap plateaus around cycle 7 of 100k frames (≈700k frames);
-# the original 10-frame warmup left 137-154 MiB of RTS warmup leaking
-# into the measurement window.  7 cycles
-# of WARMUP gives ≥ 30 MiB headroom over the 50 MiB threshold without
-# inflating the bench beyond ~10s wall.
+# Warmup cycles before the measurement window opens.  The first cycle
+# allocates more than every later one (133,861,232 bytes against 130,579,632
+# for a cycle of 20,000 frames, measured), and the resident set the report
+# prints settles around the seventh cycle of 100,000 frames.
 WARMUP_CYCLES = 7
 LOGGER_NAME = "aletheia"
 
@@ -131,6 +125,15 @@ def _proc_snapshot() -> dict[str, int]:
     }
 
 
+def _kernel_allocated() -> AllocatedBytes:
+    """Read the bytes the kernel has allocated, refusing a runtime that is not running."""
+    count = allocated_bytes()
+    if count is None:
+        msg = "reading the kernel's allocated bytes: the runtime is not running"
+        raise SnapshotError(msg)
+    return count
+
+
 def _run_cycle(frames_per_cycle: int, dbc: DBCDefinition) -> None:
     """One open/load/run/close cycle.
 
@@ -152,10 +155,13 @@ def _run_cycle(frames_per_cycle: int, dbc: DBCDefinition) -> None:
         client.end_stream()
 
 
-def _build_sub_checks(start: dict[str, int], end: dict[str, int]) -> list[dict[str, object]]:
-    """Build the four sub-check verdict dicts from start/end snapshots.
+def _build_sub_checks(
+    start: dict[str, int], end: dict[str, int], per_cycle: list[AllocatedBytes]
+) -> list[dict[str, object]]:
+    """Build the sub-check verdicts from the window's two snapshots and each cycle's allocation.
 
-    Hard-zero gates use exact equality; soft-threshold uses |delta| ≤ cap.
+    Hard-zero gates use exact equality, and the kernel's allocation is the same
+    in every measured cycle; the resident set size is reported and passes.
     """
     rss_delta = end["rss"] - start["rss"]
     fd_delta = end["num_fds"] - start["num_fds"]
@@ -164,12 +170,19 @@ def _build_sub_checks(start: dict[str, int], end: dict[str, int]) -> list[dict[s
     return [
         {
             "name": "rss",
-            "gate": "soft_threshold",
+            "gate": "report",
             "start": start["rss"],
             "end": end["rss"],
             "delta": rss_delta,
-            "threshold": RSS_DELTA_BYTES_CAP,
-            "passed": abs(rss_delta) <= RSS_DELTA_BYTES_CAP,
+            "passed": True,
+        },
+        {
+            "name": "kernel_allocation",
+            "gate": "equal_per_cycle",
+            "per_cycle": per_cycle,
+            "spread": max(per_cycle) - min(per_cycle),
+            "threshold": 0,
+            "passed": max(per_cycle) == min(per_cycle),
         },
         {
             "name": "fd_count",
@@ -265,6 +278,7 @@ def _measure(cycles: PositiveInt, frames: PositiveInt) -> ExitStatus:
 
     try:
         start = _proc_snapshot()
+        readings = [_kernel_allocated()]
     except SnapshotError as err:
         print(f"stability: the opening snapshot failed: {err}", file=sys.stderr)
         return NO_VERDICT
@@ -273,13 +287,14 @@ def _measure(cycles: PositiveInt, frames: PositiveInt) -> ExitStatus:
     for cycle in range(cycles):
         try:
             _stage(functools.partial(_run_cycle, frames_per_cycle=frames, dbc=dbc))
-        except _StageError as err:
+            # Force a GC between cycles so any per-cycle Python allocations are
+            # reclaimed before we measure the next snapshot — keeps the hard-zero
+            # gates from being defeated by lazy GC.
+            gc.collect()
+            readings.append(_kernel_allocated())
+        except (_StageError, SnapshotError) as err:
             print(f"stability: cycle {cycle + 1} of {cycles} failed: {err}", file=sys.stderr)
             return NO_VERDICT
-        # Force a GC between cycles so any per-cycle Python allocations are
-        # reclaimed before we measure the next snapshot — keeps the hard-zero
-        # gates from being defeated by lazy GC.
-        gc.collect()
 
     gc.collect()
     try:
@@ -289,7 +304,8 @@ def _measure(cycles: PositiveInt, frames: PositiveInt) -> ExitStatus:
         return NO_VERDICT
     elapsed = time.monotonic() - t0
 
-    sub_checks = _build_sub_checks(start, end)
+    per_cycle = [AllocatedBytes(after - before) for before, after in itertools.pairwise(readings)]
+    sub_checks = _build_sub_checks(start, end, per_cycle)
     report = {
         "binding": "python",
         "cycles": cycles,

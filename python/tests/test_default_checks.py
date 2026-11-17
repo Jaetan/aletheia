@@ -9,12 +9,16 @@ and that property indices are consistent across defaults + session checks.
 import math
 from fractions import Fraction
 
+import pytest
 from _dbc_helpers import dbc, message
 from _dbc_helpers import signal as dbc_signal
 
 from aletheia import AletheiaClient
 from aletheia.checks import signal
 from aletheia.types import DLCCode
+
+# The kernel checks a property as it is built, so the runtime is up first.
+pytestmark = pytest.mark.usefixtures("rts_up")
 
 # Simple DBC for testing
 SIMPLE_DBC = dbc(

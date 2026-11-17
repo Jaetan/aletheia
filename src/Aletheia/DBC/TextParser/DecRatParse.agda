@@ -25,7 +25,7 @@
 -- Both shapes hand their digit runs to `Aletheia.DBC.DecRat.Literal`, the
 -- one literal core shared with the JSON grammar, which folds the digits
 -- only when the value fits the component bound and holds the literal at
--- 2^64 otherwise, so a literal of any length costs time linear in its
+-- 2^128 otherwise, so a literal of any length costs time linear in its
 -- length.  The roundtrip proofs in
 -- `Aletheia.DBC.TextParser.DecRatParse.Properties` rest on the core's
 -- exactness theorem.

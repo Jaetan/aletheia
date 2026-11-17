@@ -63,10 +63,14 @@ BO_ 256 Engine: 8 ECU
     if (!client.parse_dbc_text(stop, dbc_text))
         return 1;
 
-    // Every method returns std::expected; an error carries an AletheiaError.
+    // Every method returns std::expected; an error carries an AletheiaError. A
+    // predicate builder hands its predicate to the kernel's check, on the
+    // runtime the client started, and returns a Result too.
+    auto below = ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}});
+    if (!below)
+        return 1;
     std::vector<LtlFormula> properties;
-    properties.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+    properties.push_back(ltl::always(ltl::atomic(*below)));
     if (!client.set_properties(stop, properties) || !client.start_stream(stop))
         return 1;
 

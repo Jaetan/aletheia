@@ -9,8 +9,9 @@ Breaks down the per-frame cost into:
   C. Response parsing (json.loads)
   D. Python result construction (parse_values_list etc.)
 
-Also compares CAN 2.0B (2 signals, 8 bytes) vs CAN-FD (26 signals, 64 bytes)
-to show per-signal scaling.
+Also compares a CAN 2.0B frame of examples/example.dbc with a 64-byte CAN-FD
+frame of examples/example_canfd.dbc, each labelled with its message's signal
+count, to show per-signal scaling.
 
 Usage: python3 benchmarks/profile_extraction.py
 """
@@ -22,10 +23,11 @@ import ctypes
 import json
 import time
 from pathlib import Path
-from typing import NamedTuple, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 from aletheia import AletheiaClient
 from aletheia.client._backend import FFIBackend
+from aletheia.client._ffi import AletheiaFrame, KernelString, free_kernel_string
 from aletheia.client._helpers.json_codec import (
     parse_absent_list,
     parse_errors_list,
@@ -33,7 +35,10 @@ from aletheia.client._helpers.json_codec import (
 )
 from aletheia.client._types import validate_can_id
 from aletheia.dbc import dbc_to_json
-from aletheia.types import DLCCode
+from aletheia.types import DLCCode, JSONValue
+
+if TYPE_CHECKING:
+    from aletheia.types import DBCDefinition
 
 # --- White-box access note ----------------------------------------------------
 # This profiler must reach the raw FFI handles (``client._backend._lib`` +
@@ -52,9 +57,9 @@ from aletheia.types import DLCCode
 class _ExtractResponse(TypedDict, total=False):
     """The signal-extraction FFI response shape this profiler reads."""
 
-    values: list[object]
-    errors: list[object]
-    absent: list[object]
+    values: list[JSONValue]
+    errors: list[JSONValue]
+    absent: list[JSONValue]
 
 
 class _FrameCase(NamedTuple):
@@ -86,6 +91,10 @@ class _ExtractStats(NamedTuple):
     n_absent: int
 
 
+# A message's CAN id in a DBC, and how many signals it carries.
+MessageId = NewType("MessageId", int)
+SignalCount = NewType("SignalCount", int)
+
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 ITERATIONS = 5000
 WARMUP = 500
@@ -104,18 +113,18 @@ def _measure_extraction(
         prev = time.perf_counter_ns()
         # A: argument preparation (ctypes construction)
         validate_can_id(case.can_id, extended=case.extended)
-        ffi_args = (
-            ctypes.c_uint32(case.can_id),
-            ctypes.c_uint8(ext_val),
-            ctypes.c_uint8(case.dlc),
-            (ctypes.c_uint8 * len(case.data))(*case.data),
-            ctypes.c_uint8(len(case.data)),
+        frame = AletheiaFrame(
+            data=(ctypes.c_uint8 * len(case.data)).from_buffer_copy(case.data),
+            can_id=case.can_id,
+            extended=ext_val,
+            dlc=case.dlc,
+            data_len=len(case.data),
         )
         now = time.perf_counter_ns()
         t[0] += now - prev
         prev = now
         # B: FFI call
-        result_ptr = lib.aletheia_extract_signals(state, *ffi_args)
+        result_ptr = lib.aletheia_extract_signals(ctypes.c_void_p(state), ctypes.byref(frame))
         now = time.perf_counter_ns()
         t[1] += now - prev
         prev = now
@@ -130,7 +139,7 @@ def _measure_extraction(
         t[3] += now - prev
         prev = now
         # D: free the FFI buffer + build Python result objects
-        lib.aletheia_free_str(result_ptr)
+        free_kernel_string(lib, KernelString(result_ptr))
         stats = _ExtractStats(
             len(result_str),
             len(parse_values_list(response.get("values", []))),
@@ -193,14 +202,14 @@ def profile_ffi_roundtrip(client: AletheiaClient) -> None:
     lib = backend._lib  # pyright: ignore[reportPrivateUsage]  # pylint: disable=W0212
 
     for _ in range(WARMUP):
-        lib.aletheia_free_str(lib.aletheia_format_dbc(state))
+        free_kernel_string(lib, KernelString(lib.aletheia_format_dbc(ctypes.c_void_p(state))))
 
     t_total = 0
     for _ in range(ITERATIONS):
         a0 = time.perf_counter_ns()
-        ptr = lib.aletheia_format_dbc(state)
+        ptr = lib.aletheia_format_dbc(ctypes.c_void_p(state))
         a1 = time.perf_counter_ns()
-        lib.aletheia_free_str(ptr)
+        free_kernel_string(lib, KernelString(ptr))
         t_total += a1 - a0
 
     print(f"\n{'=' * 60}")
@@ -210,7 +219,7 @@ def profile_ffi_roundtrip(client: AletheiaClient) -> None:
 
 
 def _canfd_frame() -> bytearray:
-    """Build the 64-byte CAN-FD sample frame (26 signals)."""
+    """Build the 64-byte sample frame of example_canfd.dbc's message 0x200."""
     return bytearray(
         [0x00, 0xE1, 0xF5, 0x05]
         + [0x00, 0x6C, 0xDC, 0x02]
@@ -222,18 +231,22 @@ def _canfd_frame() -> bytearray:
     )
 
 
+def _signal_count(dbc: DBCDefinition, can_id: MessageId) -> SignalCount:
+    """Count the signals of the message ``can_id`` in ``dbc``."""
+    return SignalCount(next(len(m["signals"]) for m in dbc["messages"] if m["id"] == can_id))
+
+
 def main() -> int:
     """Run the FFI-roundtrip baseline and the CAN 2.0B / CAN-FD extraction profiles."""
     argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     dbc_20 = dbc_to_json(str(EXAMPLES_DIR / "example.dbc"))
     dbc_fd = dbc_to_json(str(EXAMPLES_DIR / "example_canfd.dbc"))
 
-    # CAN 2.0B: 2 signals, 8 bytes
     frame_20 = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
-    case_20 = _FrameCase(0x100, 8, frame_20, extended=False, label="CAN 2.0B (2 signals, 8 bytes)")
-    case_fd = _FrameCase(
-        0x200, 15, _canfd_frame(), extended=False, label="CAN-FD (26 signals, 64 bytes)"
-    )
+    label_20 = f"CAN 2.0B ({_signal_count(dbc_20, MessageId(0x100))} signals, 8 bytes)"
+    case_20 = _FrameCase(0x100, 8, frame_20, extended=False, label=label_20)
+    label_fd = f"CAN-FD ({_signal_count(dbc_fd, MessageId(0x200))} signals, 64 bytes)"
+    case_fd = _FrameCase(0x200, 15, _canfd_frame(), extended=False, label=label_fd)
 
     print("Aletheia Extraction Profiler")
     print(f"Iterations: {ITERATIONS}, Warmup: {WARMUP}")

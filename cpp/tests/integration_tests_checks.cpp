@@ -29,6 +29,7 @@
 #include "find_lib.hpp"
 #include "integration_fixtures.hpp"
 #include "required.hpp"
+#include "u128_testing.hpp"
 
 using aletheia::test::required;
 
@@ -139,8 +140,8 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     // Property: always(Speed < 200)
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{200, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{200, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -181,8 +182,8 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     // Property: always(Speed < 120) — will be violated by Speed=150
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{120, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{120, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -231,8 +232,8 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{500, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{500, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -305,13 +306,13 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
     REQUIRE(parsed->dbc.messages[0].signals.size() == 1);
     auto const& sig = parsed->dbc.messages[0].signals[0];
     REQUIRE(sig.value_descriptions.size() == 4);
-    CHECK(sig.value_descriptions[0].value == 0);
+    CHECK(sig.value_descriptions[0].value == SignMagnitude{.magnitude = 0});
     CHECK(sig.value_descriptions[0].description == "Off");
-    CHECK(sig.value_descriptions[1].value == 1);
+    CHECK(sig.value_descriptions[1].value == SignMagnitude{.magnitude = 1});
     CHECK(sig.value_descriptions[1].description == "Cranking");
-    CHECK(sig.value_descriptions[2].value == 2);
+    CHECK(sig.value_descriptions[2].value == SignMagnitude{.magnitude = 2});
     CHECK(sig.value_descriptions[2].description == "Running");
-    CHECK(sig.value_descriptions[3].value == 3);
+    CHECK(sig.value_descriptions[3].value == SignMagnitude{.magnitude = 3});
     CHECK(sig.value_descriptions[3].description == "Stall");
 
     auto const formatted = client.format_dbc_text(std::stop_token{}, parsed->dbc);
@@ -500,7 +501,8 @@ TEST_CASE("a bound that names no part of a DBC carries no field", "[integration]
     REQUIRE(client.parse_dbc(std::stop_token{}, make_bounds_dbc()).has_value());
     // 63 always-wrappers around an atomic predicate nest the command's JSON
     // past max_nesting_depth.
-    auto formula = ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{0, 1}}));
+    auto formula =
+        ltl::atomic(required(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{0, 1}})));
     std::ranges::for_each(std::views::repeat(0, 63),
                           [&formula](auto) { formula = ltl::always(std::move(formula)); });
     std::vector<LtlFormula> properties;
@@ -571,7 +573,8 @@ BO_ 256 EngineStatus: 8 Engine
 
 static auto speed_below(PhysicalValue threshold) -> std::vector<LtlFormula> {
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, threshold))));
+    props.push_back(
+        ltl::always(ltl::atomic(required(ltl::less_than(SignalName{"Speed"}, threshold)))));
     return props;
 }
 

@@ -18,15 +18,15 @@ kernel → SSOT → binding chain.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
 import yaml
+from _repo_root import REPO_ROOT
 from _yaml_shape import as_str_object_dict
 
 from aletheia.codes import ErrorCode, IssueCode
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = REPO_ROOT
 _YAML_PATH = _REPO_ROOT / "docs" / "WIRE_CODES.yaml"
 
 

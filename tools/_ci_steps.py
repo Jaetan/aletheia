@@ -31,6 +31,7 @@ from tools._common import (
     BUILD_STEP,
     CPP_COMPILERS,
     CPP_CONFIGURE_STEP,
+    CPP_DATABASE_TESTS,
     CPP_LINT_LANE,
     CPP_LINT_TREE,
     PYTEST_SUITE_ARGS,
@@ -69,7 +70,6 @@ AGDA_SHAKE_TARGETS: tuple[str, ...] = (
     "check-haskell-ledger",
     "check-bundle-licences",
     "check-runbook",
-    "check-limits-parity",
     "check-stability-bench",
     "check-mutation-setup",
     "check-wire-code-emitters",
@@ -112,8 +112,9 @@ HEAVY_STEPS: frozenset[str] = frozenset(
 # format check and pylint — interpreted, no compile).  The split of
 # ``gofmt``/``cargo fmt`` out of their ``go vet``/``clippy`` partners exists to
 # make this allowlist expressible.
-# ``check-dist-staging`` qualifies too: it only parses the build program and runs
-# ``git ls-files`` / shell syntax checks, and ``git ls-files`` reads the INDEX —
+# ``check-dist-staging`` qualifies too: it only parses the build program and the
+# distribution guide's C section and runs ``git ls-files`` / shell syntax checks,
+# and ``git ls-files`` reads the INDEX:
 # exactly the staged content the pre-commit tier is defined over.  So does
 # ``check-clang-format-config``: two dumps of the pinned clang-format's
 # configuration and a read of ``cpp/.clang-format``.
@@ -339,11 +340,12 @@ def _run_binding_tests(runner: Runner) -> None:
     """Run the Python / Go / C++ / Rust binding test lanes."""
     # ─── Binding tests ────────────────────────────────────────
     # Deterministic pytest lane.
-    # The cross-CLI parity harness (tests/test_cli_parity.py) is excluded from
-    # every python-lane pytest invocation: it needs the C++ CLI binary that the
-    # cpp lane builds, so under --parallel it would race the cmake build and
-    # skip — a silent coverage hole. It runs once as its own step in the cpp
-    # lane, after ctest (see below), where lane serialism guarantees the binary.
+    # The cross-CLI parity harness (tests/test_cli_parity.py) and the tests
+    # reading the C++ compile database (CPP_DATABASE_TESTS) are excluded from
+    # every python-lane pytest invocation: they need the C++ CLI binary or the
+    # configure that the cpp lane makes, which a python lane running beside it
+    # or on another runner does not have.  Each runs once as its own step in
+    # the cpp lane (see below), where lane serialism guarantees what it needs.
     runner.step(
         "pytest",
         [runner.python, "-m", "pytest", *PYTEST_SUITE_ARGS],
@@ -454,6 +456,15 @@ def _run_binding_tests(runner: Runner) -> None:
         f"rm -f build/CMakeCache.txt && cmake -B build {CPP_COMPILERS} > /dev/null",
         cwd=runner.repo_root / "cpp",
     )
+    # The reply-place gate reads the C++ binding with the flags of the compile
+    # database this configure writes, so it runs right after it.
+    runner.step(
+        "check-limits-parity",
+        [runner.python, "-m", "tools.check_limits_parity"],
+        cwd=runner.repo_root,
+        lane="cpp",
+        needs=(CPP_CONFIGURE_STEP,),
+    )
     runner.step(
         CPP_BUILD_STEP,
         "cmake --build build",
@@ -477,6 +488,15 @@ def _run_binding_tests(runner: Runner) -> None:
         cwd=runner.repo_root / "python",
         lane="cpp",
         needs=(BUILD_STEP, CPP_BUILD_STEP),
+    )
+    # The reply-place gate's tests that read the compile database the cpp
+    # lane's configure writes, in the cpp lane after it.
+    runner.step(
+        "pytest (C++ compile database)",
+        [runner.python, "-m", "pytest", *CPP_DATABASE_TESTS, "--hypothesis-profile=ci"],
+        cwd=runner.repo_root / "python",
+        lane="cpp",
+        needs=(CPP_CONFIGURE_STEP,),
     )
     # The installed package: a project of its own finds it with find_package and
     # links and runs the client and both loaders, where the branch moves what

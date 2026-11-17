@@ -99,7 +99,7 @@ func runRenderWithoutRuntimeChild() {
 		code int
 	}{
 		{"the rational renderer", func() error {
-			_, err := formatRational(Rational{Numerator: 1, Denominator: 2})
+			_, err := formatRational(ratOf(1, 2))
 			return err
 		}, 4},
 		{"the decimal parser", func() error {

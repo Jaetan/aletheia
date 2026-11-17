@@ -25,7 +25,10 @@ fn loads_the_shared_cross_binding_fixture() {
     // First check: Speed never_exceeds 220 (integer scalar → 220/1).
     assert_eq!(
         checks[0].formula(),
-        check::signal("Speed").never_exceeds(220).formula()
+        check::signal("Speed")
+            .never_exceeds(220)
+            .expect("check")
+            .formula()
     );
     assert_eq!(checks[0].signal_name(), "Speed");
 

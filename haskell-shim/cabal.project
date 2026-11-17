@@ -1,0 +1,9 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
+packages: .
+
+-- Every C compile cabal runs for the shim (hsc2hs, the c-sources, GHC's own
+-- stubs) uses the toolchain's C compiler, which compiles include/aletheia.h
+-- as C23.  The stand-in kernels' rule reads the compiler from this line.
+program-locations
+  gcc-location: clang-23

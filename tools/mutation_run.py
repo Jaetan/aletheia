@@ -73,6 +73,22 @@ The C++ lane in legs, so CI can sweep the tree in slices across machines
                                merge.
   - ALETHEIA_MUTATION_CPP_LEGS   that directory, read by the merge stage only.
 
+The Python lane in shards, so CI can test its mutants across machines
+(``tools/mutation_python.py``):
+
+  - ALETHEIA_MUTATION_PYTHON_STAGE  unset: every mutant is tested in this
+                               process.  A shard number: mutmut makes every
+                               mutant and the witness deals them, this shard
+                               testing the sorted names its place is dealt,
+                               and the run writes the census it read beside
+                               its log; a shard judges no
+                               survivor.  ``merge``: nothing is tested; the
+                               shards' records, logs and reports are read from
+                               the directory ALETHEIA_MUTATION_PYTHON_SHARDS
+                               names, held to one census, and gated as the
+                               whole lane is.
+  - ALETHEIA_MUTATION_PYTHON_SHARDS that directory, read by the merge stage only.
+
 The Go lane in shards, so CI can sweep the package's files across machines
 (``tools/mutation_go.py``):
 
@@ -118,6 +134,11 @@ Artifacts written:
     python.json    {binding, tool, total_mutants, killed, survived, timeouts,
                    generated, routes, mutated_files, score_pct, raw_log_tail,
                    error}, null where the tool has no such figure
+    python-1.json, python-1.raw.txt, python-shard-1.json
+                   one shard's report, log and record (its commit, the census
+                   and the mutants it judged) where the run is one shard of
+                   the Python lane (ALETHEIA_MUTATION_PYTHON_STAGE); recorded,
+                   not gated
     go.json        same shape
     go-1.json, go-1.raw.txt, go-shard-1.json
                    one shard's census, log and record (the dry run's census,
@@ -192,7 +213,6 @@ from tools._branch_diff import branch_changes
 from tools._common import (
     EnvName,
     EnvValue,
-    RelPath,
     prepare_artifact_dir,
     run_capture,
     run_streaming,
@@ -200,7 +220,7 @@ from tools._common import (
     write_and_report_summary,
 )
 from tools.mutation_cpp import cpp_survivor_rows, cpp_unobserved_rows, run_cpp
-from tools.mutation_cpp_legs import is_cpp_leg
+from tools.mutation_drift import drift_for
 from tools.mutation_go import (
     GO_CONFIG,
     GO_LANE,
@@ -213,7 +233,6 @@ from tools.mutation_go import (
     go_refusal,
     go_stage,
     gremlins_command,
-    is_go_shard,
     merge_go_shards,
     parse_gremlins_summary,
     record_go_shard,
@@ -221,26 +240,40 @@ from tools.mutation_go import (
     shard_log_name,
     without_gremlins_settings,
 )
+from tools.mutation_go_cases import sweep_go_package
+from tools.mutation_python import (
+    PYTHON_LANE,
+    PYTHON_MERGE_STAGE,
+    PYTHON_SHARDS_ENV,
+    PYTHON_STAGE_ENV,
+    ShardNumber,
+    python_stage,
+    read_exits,
+    read_python_shards,
+    record_python_shard,
+    shard_deal,
+)
+from tools.mutation_python import shard_binding as python_shard_binding
 from tools.mutation_report import (
     SPEC_PATH,
-    Baseline,
-    BindingSpec,
+    CrashedMutant,
     DriftEntry,
-    LedgerRow,
-    MutantCount,
     MutationReport,
     Observed,
-    RouteCensus,
     SurvivorKey,
-    UnobservedKey,
     load_spec,
     scratch_tree_or_report,
-    unobserved_ledger_to_rows,
-    unobserved_rows_to_ledger,
 )
-from tools.mutation_rust import RustBinding, is_rust_job, run_rust, rust_survivor_rows
+from tools.mutation_rust import run_rust, rust_survivor_rows
+from tools.mutation_witness import (
+    LOW_HEAP_SUFFIX,
+    PROCESS_MAPS,
+    TALLY_FILE,
+    MutantName,
+    placement_env,
+)
 
-from aletheia.common_types import Prose
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -250,22 +283,6 @@ ARTIFACT_BASE = REPO_ROOT / "benchmarks" / "mutation"
 
 # Exit codes (mirrors the CHANGELOG / stability runners' convention).
 SPEC_ERROR_EXIT = 2
-
-
-def rows_to_ledger(rows: dict[SurvivorKey, int]) -> list[LedgerRow]:
-    """Render survivor rows in the ledger's row shape, sorted by identity."""
-    return [
-        {"mutator": mutator, "file": file, "text": text, "count": count}
-        for (mutator, file, text), count in sorted(rows.items())
-    ]
-
-
-def ledger_to_rows(ledger: list[LedgerRow]) -> dict[SurvivorKey, int]:
-    """Read a ledger back into survivor rows keyed by identity."""
-    rows: dict[SurvivorKey, int] = collections.Counter()
-    for row in ledger:
-        rows[(row["mutator"], row["file"], row["text"])] += row["count"]
-    return rows
 
 
 @dataclass
@@ -283,7 +300,12 @@ class MutmutCounts:
         return self.killed + self.survived + self.timeout + self.skipped
 
 
-def _parse_mutmut(raw: str) -> MutmutCounts:
+# A mutant ``mutmut results`` lists as ending on a signal it names (``segfault``, which it
+# also gives a process it killed) or on an exit it does not know (``suspicious``).
+_CRASHED_MUTANT = re.compile(r"^\s*(\S+): (segfault|suspicious)$", re.MULTILINE)
+
+
+def parse_mutmut(raw: str) -> MutmutCounts:
     """Tally per-status mutant counts from ``mutmut run`` / ``results`` output.
 
     mutmut 3.x's authoritative tally is the live progress line that ``mutmut
@@ -343,11 +365,127 @@ def _check_python_tools() -> tuple[Path, Path] | str:
     return (mutmut_bin, lib)
 
 
+# A mutant's run that raises exits 255, which mutmut files as a timeout and
+# keeps nothing of, and one that ends its process leaves only its exit status:
+# the witness writes what each did under this directory of the lane's artifacts
+# (tools/mutation_witness.py), and mutmut's own log, written under mutants/
+# where its log_to_file puts it by default, is kept beside them.
+WITNESS_SCRIPT = REPO_ROOT / "tools" / "mutation_witness.py"
+PYTHON_WITNESS_DIR = "python-witness"
+MUTMUT_LOG = "mutmut-debug.log"
+
+
+# The exits mutmut files a mutant under without forking a run for it: no tests
+# to run, skipped, and caught by the type check.  One never checked has none.
+_NOT_RUN = frozenset({ExitStatus(33), ExitStatus(34), ExitStatus(37)})
+
+
+# mutmut's progress line, whose second number counts every mutant it judged.
+_MUTMUT_TOTAL = re.compile(r"(\d+)/(\d+)\s+🎉")
+
+
+def python_witness_refusal(artifact_dir: Path, mutants: Path, raw: Prose) -> Prose | None:
+    """Return why the witness's tally does not cover mutmut's runs, or None where it does.
+
+    mutmut's ``.meta`` files give each mutant's exit, and they are held first to
+    mutmut's own count: files naming fewer mutants than its summary counts
+    would hold the tally to fewer runs than there were.  Every exit but those of
+    ``_NOT_RUN`` and none comes from a child, which tallies its mutant before
+    its tests start, so a name missing from the tally is a run the witness did
+    not see, and it is off for every run like it.
+    """
+    totals = _MUTMUT_TOTAL.findall(raw)
+    if not totals:
+        return Prose("mutmut printed no count to hold its .meta files to, so no run was checked")
+    total = int(totals[-1][1])
+    exits = read_exits(mutants)
+    if len(exits) < total:
+        return Prose(
+            f"mutmut's .meta files name {len(exits)} of the {total} mutants its summary "
+            + "counts, so the witness's tally was held to no run of the others"
+        )
+    ran = {name for name, code in exits.items() if code not in {None, *_NOT_RUN}}
+    tally = artifact_dir / PYTHON_WITNESS_DIR / TALLY_FILE
+    lines = tally.read_text(encoding="utf-8").splitlines() if tally.is_file() else []
+    missing = sorted(ran - {MutantName(line) for line in lines})
+    if not missing:
+        return None
+    return Prose(
+        f"the witness tallied no run of {len(missing)} mutants mutmut ran, so it is off "
+        + f"(tools/mutation_witness.py), first {', '.join(missing[:3])}"
+    )
+
+
+def python_placement_refusal(artifact_dir: Path) -> Prose | None:
+    """Return why a mutant's run may have read an address a C int cut short, or None.
+
+    A run whose process's heap started below 2^32 as its tests ended left
+    ``<mutant>.heap``: there, an address that lost its high half can still name
+    its block, so a test may have passed on what crashes where it does not.
+    """
+    low = sorted((artifact_dir / PYTHON_WITNESS_DIR).glob(f"*{LOW_HEAP_SUFFIX}"))
+    if not low:
+        return None
+    return Prose(
+        f"{len(low)} mutants' runs ended with their heap below 2^32, where an address "
+        + "cut to 32 bits still names its block: mutmut must run under "
+        + f"tools/mutation_witness.py's PLACEMENT_ENV, first {low[0].stem}"
+    )
+
+
+def _keep_python_witnesses(artifact_dir: Path, mutants: Path, binding: Binding) -> Prose:
+    """Keep mutmut's log beside the report and return each witness for the raw record.
+
+    A ``.txt`` witness is a run that raised, which mutmut files as a timeout; a
+    ``.running`` one is a run that ended its process before returning, whose
+    last ``started`` line names the test it was in.  Each is named on stderr
+    too, so the log of a lane that went red says where that run's cause is.
+    """
+    log = mutants / MUTMUT_LOG
+    if log.is_file():
+        _ = shutil.copy2(log, artifact_dir / f"{binding}.{MUTMUT_LOG}")
+    kept = Prose("")
+    witnesses = artifact_dir / PYTHON_WITNESS_DIR
+    for suffix, how in ((".txt", "raised"), (".running", "ended its process before returning")):
+        for witness in sorted(witnesses.glob(f"*{suffix}")):
+            _ = sys.stderr.write(
+                f"[mutation] python: a mutant's run {how}, witnessed in {witness}\n"
+            )
+            text = witness.read_text(encoding="utf-8")
+            kept = Prose(f"{kept}=== {how}: {witness.name} ===\n{text}\n")
+    return kept
+
+
+def _crashes(results: Prose) -> tuple[CrashedMutant, ...]:
+    """Name the mutants whose process a signal or an exit mutmut does not know ended."""
+    return tuple(
+        sorted(
+            CrashedMutant(f"{name}: {status}") for name, status in _CRASHED_MUTANT.findall(results)
+        )
+    )
+
+
 def run_python(artifact_dir: Path) -> MutationReport:
-    """Mutmut run on Python hot-path; parses ``mutmut results`` summary."""
+    """Mutmut run on Python hot-path; parses ``mutmut results`` summary.
+
+    The stage (``python_stage``) selects the whole lane, one shard of it, or
+    the merge of the shards' sweeps (``tools/mutation_python.py``).
+    """
+    try:
+        stage = python_stage()
+    except ValueError as exc:
+        return MutationReport(PYTHON_LANE, "mutmut", 0, 0, "", error=str(exc))
+    if stage == PYTHON_MERGE_STAGE:
+        return merge_python_shards(artifact_dir, ShortSha(short_sha(REPO_ROOT)))
+    return _sweep_python(artifact_dir, stage)
+
+
+def _sweep_python(artifact_dir: Path, stage: ShardNumber | None) -> MutationReport:
+    """Sweep the whole lane, or one shard of it, and report it under its binding."""
+    binding = PYTHON_LANE if stage is None else python_shard_binding(stage)
     checked = _check_python_tools()
     if isinstance(checked, str):
-        return MutationReport("python", "mutmut", 0, 0, "", error=checked)
+        return MutationReport(binding, "mutmut", 0, 0, "", error=checked)
     mutmut_bin, lib = checked
     cwd = REPO_ROOT / "python"
     # ALETHEIA_LIB is required because mutmut copies the source tree into
@@ -358,6 +496,11 @@ def run_python(artifact_dir: Path) -> MutationReport:
     # ALETHEIA_LIB short-circuits the lookup.
     env = dict(os.environ)
     env["ALETHEIA_LIB"] = str(lib)
+    # Read by python/tests/_repo_root.py: a test's ancestors under mutants/ miss the root.
+    env["ALETHEIA_REPO_ROOT"] = str(REPO_ROOT)
+    # Read by glibc's malloc as each process starts, where this interpreter's
+    # heap lies below 2^32 (tools/mutation_witness.py).
+    env |= placement_env(PROCESS_MAPS)
     # Erase mutmut's persistent work-tree before every run.  mutmut reuses
     # ``python/mutants/`` across invocations and only invalidates cached
     # kill/survive verdicts on SOURCE changes, NOT on TEST changes (test files
@@ -378,36 +521,110 @@ def run_python(artifact_dir: Path) -> MutationReport:
     # The run is the long half and streams, so a sweep killed by a wall clock
     # still leaves the log of how far it got; ``results`` is a fast read of the
     # state the run wrote and stays captured.  Both carry a custom ``env``
-    # (ALETHEIA_LIB), and ``str(mutmut_bin)`` is an absolute path (no S607).
-    run_proc = run_streaming([str(mutmut_bin), "run"], cwd=cwd, env=env)
+    # (ALETHEIA_LIB), and every word naming a program is an absolute path (no
+    # S607).  The run goes through the witness, which mutmut's children inherit.
+    witness = [str(WITNESS_SCRIPT), "--witness-dir", str(artifact_dir / PYTHON_WITNESS_DIR)]
+    if stage is not None:
+        witness += ["--shard", shard_deal(stage)]
+    run_proc = run_streaming(
+        [str(cwd / ".venv" / "bin" / "python3"), *witness, "run"], cwd=cwd, env=env
+    )
     raw = "=== mutmut run ===\n" + run_proc.stdout + "\n"
     # Even on non-zero exit, mutants may have been generated; capture results.
     results_proc = subprocess.run(
         [str(mutmut_bin), "results"], cwd=cwd, env=env, capture_output=True, text=True, check=False
     )
     raw += "=== mutmut results ===\n" + results_proc.stdout + results_proc.stderr + "\n"
-    (artifact_dir / "python.raw.txt").write_text(raw)
+    raw += _keep_python_witnesses(artifact_dir, cwd / "mutants", binding)
+    if stage is not None:
+        header = record_python_shard(
+            stage, ShortSha(short_sha(REPO_ROOT)), cwd / "mutants", artifact_dir
+        )
+        if header is None:
+            (artifact_dir / f"{binding}.raw.txt").write_text(raw)
+            return MutationReport(
+                binding, "mutmut", 0, 0, raw, error="mutmut made no mutant, so no shard ran"
+            )
+        raw = header + raw
+    (artifact_dir / f"{binding}.raw.txt").write_text(raw)
 
-    counts = _parse_mutmut(raw)
+    counts = parse_mutmut(raw)
     if counts.total == 0 and (run_proc.returncode != 0 or results_proc.returncode != 0):
         return MutationReport(
-            "python",
+            binding,
             "mutmut",
             0,
             0,
             raw,
             error=(
                 f"mutmut run/results failed: exit "
-                f"{run_proc.returncode}/{results_proc.returncode} (see python.raw.txt)"
+                f"{run_proc.returncode}/{results_proc.returncode} (see {binding}.raw.txt)"
             ),
         )
+    refusal = python_witness_refusal(
+        artifact_dir, cwd / "mutants", Prose(raw)
+    ) or python_placement_refusal(artifact_dir)
+    if refusal is not None:
+        return MutationReport(binding, "mutmut", counts.killed, counts.survived, raw, error=refusal)
     return MutationReport(
-        "python",
+        binding,
         "mutmut",
         counts.killed,
         counts.survived,
         raw,
-        observed=Observed(timeouts=counts.timeout),
+        observed=Observed(timeouts=counts.timeout, crashes=_crashes(Prose(results_proc.stdout))),
+    )
+
+
+# The section of a sweep's log ``mutmut results`` printed, which names the
+# mutants that ended their process.
+_RESULTS_SECTION = re.compile(
+    r"^=== mutmut results ===\n(.*?)(?:^=== |\Z)", re.MULTILINE | re.DOTALL
+)
+
+
+def merge_python_shards(artifact_dir: Path, commit: ShortSha) -> MutationReport:
+    """Merge the shards' sweeps found under the directory ``PYTHON_SHARDS_ENV`` names.
+
+    Each shard's record, log and report are wanted exactly once under that
+    directory, and the records must add up to one whole sweep
+    (``tools/mutation_python.py``); a shard whose own run reported an error
+    refuses the merge with it.  The merged report is the lane's ``python``
+    report, its counts the shards' sums read off their logs and its log every
+    shard's log, so the drift gate holds it to the record as a whole sweep's.
+    """
+    shards_env = os.environ.get(PYTHON_SHARDS_ENV, "")
+    if not shards_env:
+        msg = (
+            f"{PYTHON_STAGE_ENV}={PYTHON_MERGE_STAGE} reads the shards from "
+            + f"{PYTHON_SHARDS_ENV}: unset"
+        )
+        return MutationReport(PYTHON_LANE, "mutmut", 0, 0, "", error=msg)
+    shards_dir = Path(shards_env)
+    raw = f"=== merge of the Python shards under {shards_dir} ===\n"
+    parts = read_python_shards(shards_dir, commit)
+    if not isinstance(parts, list):
+        return MutationReport(PYTHON_LANE, "mutmut", 0, 0, raw + parts, error=parts)
+    raw += "".join(part.log for part in parts)
+    (artifact_dir / f"{PYTHON_LANE}.raw.txt").write_text(raw)
+    failed = [part for part in parts if part.error]
+    if failed:
+        error = f"Python shard {failed[0].record.number} failed: {failed[0].error}"
+        return MutationReport(PYTHON_LANE, "mutmut", 0, 0, raw, error=error)
+    counts = [parse_mutmut(part.log) for part in parts]
+    crashes = sorted(
+        crash
+        for part in parts
+        for section in _RESULTS_SECTION.findall(part.log)
+        for crash in _crashes(Prose(section))
+    )
+    return MutationReport(
+        PYTHON_LANE,
+        "mutmut",
+        sum(count.killed for count in counts),
+        sum(count.survived for count in counts),
+        raw,
+        observed=Observed(timeouts=sum(count.timeout for count in counts), crashes=tuple(crashes)),
     )
 
 
@@ -461,7 +678,7 @@ def run_go(artifact_dir: Path) -> MutationReport:
         # against each mutant: the canonical aletheia/ subpackage, the only Go
         # module holding runtime code.
         cut = None if stage is None else cut_go_shard(tree, stage)
-        proc = run_streaming(gremlins_command(gremlins, tree), cwd=tree / "go", env=env)
+        proc = sweep_go_package(gremlins_command(gremlins, tree), tree, env)
         if stage is not None and cut is not None:
             # The census comes after the sweep, under the package's own
             # configuration: before it, the dry run would leave the package
@@ -709,235 +926,6 @@ def _run_enabled_bindings(
         (artifact_dir / f"{rep.binding}.json").write_text(json.dumps(rep.to_dict(), indent=2))
         reports.append(rep)
     return reports, elapsed
-
-
-def _ungated(rep: MutationReport) -> DriftEntry | None:
-    """Return the verdict no baseline enters into, or None where one does.
-
-    A C++ leg is one slice of the tree: its count is recorded and the merge
-    over the slices is what is gated.
-    A Go shard is one part of the package, and a Rust job one part of the
-    crate's sweep, each judged with the others by the merge in the same way.
-    """
-    if rep.error:
-        return {"status": "error", "error": rep.error}
-    if (
-        is_cpp_leg(rep.binding)
-        or is_go_shard(Binding(rep.binding))
-        or is_rust_job(RustBinding(rep.binding))
-    ):
-        return {"status": "leg", "observed_survivors": rep.survived}
-    return None
-
-
-def _fail(entry: DriftEntry, status: Literal["regression", "stale"]) -> None:
-    """Mark the run off its record, a regression outranking a stale record."""
-    if entry["status"] != "regression":
-        entry["status"] = status
-
-
-def drift_for(
-    rep: MutationReport,
-    bindings: dict[str, BindingSpec],
-    survivor_rows: dict[SurvivorKey, int] | None = None,
-    unobserved_rows: dict[UnobservedKey, int] | None = None,
-    not_covered_rows: dict[SurvivorKey, int] | None = None,
-) -> DriftEntry:
-    """Compute one binding's drift verdict against its YAML baseline.
-
-    The record is a measurement of the tree, held exactly both ways: a run
-    worse than the record is a regression, and a run better than it is a
-    stale record, which fails too, so the change that improves the tree
-    lowers the record in the same commit and the record never names a figure
-    no run gives.  ``survivor_rows`` are the run's survivors by identity where
-    the tool reports them, held to a ``survivors_ledger``.  ``unobserved_rows``
-    are the kills no test observes by behaviour, held to an
-    ``unobserved_ledger``: a line whose mutation runs into an operation the
-    language does not define, with no test saying so, is a gap somebody has
-    to look at rather than a number to carry.  ``not_covered_rows`` are the
-    mutants on lines no test executes, held to a ``not_covered`` count and a
-    ``not_covered_ledger``.  The report's own counts are held too: the
-    mutants judged, every mutant the tool made, the C++ census by kill route,
-    and the files it made a mutant in, which must hold every file of the
-    binding's ``hot_path``.  Where the tool makes no such observation it is
-    ``None`` and holds nothing.
-    """
-    spec = bindings.get(rep.binding, {})
-    spec_baseline = spec.get("baseline", {})
-    early = _ungated(rep) or _over_ceiling(rep, spec_baseline)
-    if early is not None:
-        return early
-    baseline = spec_baseline.get("survivors")
-    if baseline is None:
-        return {"status": "first_run", "observed_survivors": rep.survived}
-    entry: DriftEntry = {
-        "status": "ok",
-        "observed_survivors": rep.survived,
-        "baseline_survivors": baseline,
-    }
-    if rep.survived != baseline:
-        entry["delta"] = rep.survived - baseline
-        _fail(entry, "regression" if rep.survived > baseline else "stale")
-    _judge_counts(entry, spec_baseline, rep)
-    _judge_routes(entry, spec_baseline, rep.observed.routes)
-    _judge_hot_path(entry, spec.get("hot_path", []), rep.observed.mutated_files)
-    _judge_not_covered(entry, spec_baseline, not_covered_rows)
-    _judge_unobserved(entry, spec_baseline, unobserved_rows)
-    # A survivor the ledger does not name is a regression even at an unchanged
-    # count; a recorded row the run no longer leaves alive is a stale record,
-    # deleted by the change that kills or removes its mutant.
-    ledger = spec_baseline.get("survivors_ledger")
-    if ledger is None or survivor_rows is None:
-        return entry
-    recorded = collections.Counter(ledger_to_rows(ledger))
-    observed = collections.Counter(survivor_rows)
-    unrecorded = rows_to_ledger(dict(observed - recorded))
-    stale = rows_to_ledger(dict(recorded - observed))
-    if stale:
-        entry["stale_ledger"] = stale
-        _fail(entry, "stale")
-    if unrecorded:
-        entry["unrecorded_survivors"] = unrecorded
-        _fail(entry, "regression")
-    return entry
-
-
-def _over_ceiling(rep: MutationReport, spec_baseline: Baseline) -> DriftEntry | None:
-    """Refuse a run past the record's timeout ceiling, whatever else it reports.
-
-    A mutant that timed out is neither killed nor survived, so a sweep whose
-    timeouts hide survivors reports fewer of them than the tree has, and the
-    survivor count alone cannot tell it from a clean run: the ceiling is
-    checked first.
-    """
-    ceiling = spec_baseline.get("timeout_ceiling")
-    timeouts = rep.observed.timeouts
-    if ceiling is None or timeouts is None or timeouts <= ceiling:
-        return None
-    return {
-        "status": "regression",
-        "observed_survivors": rep.survived,
-        "observed_timeouts": timeouts,
-        "timeout_ceiling": ceiling,
-    }
-
-
-def _judge_counts(entry: DriftEntry, spec_baseline: Baseline, rep: MutationReport) -> None:
-    """Hold the mutants the run judged, and every mutant the tool made, to the record.
-
-    Both are the surface, a property of the source, its tests and the tool, so
-    a count off the record either way is a record that no longer describes
-    the tree.  A run that reports no generated count where the record holds
-    one is off the record too: a count compared against nothing holds nothing.
-    """
-    recorded_total = spec_baseline.get("total_mutants")
-    if recorded_total is not None:
-        entry["observed_total_mutants"] = MutantCount(rep.total_mutants)
-        entry["baseline_total_mutants"] = MutantCount(recorded_total)
-        if rep.total_mutants != recorded_total:
-            _fail(entry, "stale")
-    recorded_generated = spec_baseline.get("generated")
-    if recorded_generated is not None:
-        entry["observed_generated"] = rep.observed.generated
-        entry["baseline_generated"] = recorded_generated
-        if rep.observed.generated != recorded_generated:
-            _fail(entry, "stale")
-
-
-def _judge_routes(entry: DriftEntry, spec_baseline: Baseline, routes: RouteCensus | None) -> None:
-    """Hold the C++ census to the record route by route, a route one side lacks counting zero.
-
-    A kill moving from a test to a check or a signal is a test that stopped
-    observing it, which the unobserved ledger names; one moving the other way
-    is a test that learned to.  Either changes what the census says, and
-    either fails until the record follows.
-    """
-    recorded = spec_baseline.get("kill_routes")
-    if recorded is None or routes is None:
-        return
-    if any(routes.get(r, 0) != recorded.get(r, 0) for r in routes.keys() | recorded.keys()):
-        entry["observed_kill_routes"] = routes
-        entry["baseline_kill_routes"] = recorded
-        _fail(entry, "stale")
-
-
-def _judge_hot_path(
-    entry: DriftEntry, hot_path: list[RelPath], mutated_files: frozenset[RelPath] | None
-) -> None:
-    """Refuse a run with no mutant in a file the binding's hot path names.
-
-    The list names the files the lane exists to mutate.  One no mutant
-    reaches, because no suite the mutation build links reaches it or the
-    tool drops its mutants, is surface the lane does not have.
-    """
-    if mutated_files is None:
-        return
-    missing = [path for path in hot_path if path not in mutated_files]
-    if missing:
-        entry["hot_path_without_mutants"] = missing
-        _fail(entry, "regression")
-
-
-def _judge_not_covered(
-    entry: DriftEntry,
-    spec_baseline: Baseline,
-    not_covered_rows: dict[SurvivorKey, int] | None,
-) -> None:
-    """Hold the run's not-covered mutants to the record, by count and by row.
-
-    The count is the rows' sum, one per mutant the tool named.  More of them
-    than recorded is a line that lost its test, and so is a row the ledger
-    does not name, at any count: a regression.  Fewer, or a recorded row the
-    run no longer produces, is a line that gained a test, which lowers the
-    record in the change that wrote the test.
-    """
-    recorded_count = spec_baseline.get("not_covered")
-    if recorded_count is not None and not_covered_rows is not None:
-        observed_count = sum(not_covered_rows.values())
-        entry["observed_not_covered"] = observed_count
-        entry["baseline_not_covered"] = recorded_count
-        if observed_count != recorded_count:
-            _fail(entry, "regression" if observed_count > recorded_count else "stale")
-    ledger = spec_baseline.get("not_covered_ledger")
-    if ledger is None or not_covered_rows is None:
-        return
-    recorded = collections.Counter(ledger_to_rows(ledger))
-    observed = collections.Counter(not_covered_rows)
-    stale = rows_to_ledger(dict(recorded - observed))
-    unrecorded = rows_to_ledger(dict(observed - recorded))
-    if stale:
-        entry["stale_not_covered_ledger"] = stale
-        _fail(entry, "stale")
-    if unrecorded:
-        entry["unrecorded_not_covered"] = unrecorded
-        _fail(entry, "regression")
-
-
-def _judge_unobserved(
-    entry: DriftEntry,
-    spec_baseline: Baseline,
-    unobserved_rows: dict[UnobservedKey, int] | None,
-) -> None:
-    """Hold the run's unobserved kills to the recorded ledger, both ways.
-
-    A row the record does not name is a regression, as an unrecorded survivor
-    is.  A recorded row the run no longer produces is a stale record: a test
-    that learned to observe a kill lowers the record in the change that
-    taught it.
-    """
-    ledger = spec_baseline.get("unobserved_ledger")
-    if ledger is None or unobserved_rows is None:
-        return
-    recorded = collections.Counter(unobserved_ledger_to_rows(ledger))
-    observed = collections.Counter(unobserved_rows)
-    stale = unobserved_rows_to_ledger(dict(recorded - observed))
-    unrecorded = unobserved_rows_to_ledger(dict(observed - recorded))
-    if stale:
-        entry["stale_unobserved_ledger"] = stale
-        _fail(entry, "stale")
-    if unrecorded:
-        entry["unrecorded_unobserved_kills"] = unrecorded
-        _fail(entry, "regression")
 
 
 def main() -> int:

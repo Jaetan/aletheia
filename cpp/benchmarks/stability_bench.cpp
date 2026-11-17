@@ -5,16 +5,18 @@
 // Exercises the FFI surface for cycles × frames (default 10 × 100_000 = 1M
 // total frames) and asserts no per-iteration drift on:
 //
-//   - RSS (soft threshold): /proc/self/status VmRSS
 //   - FD count (hard zero): /proc/self/fd, anon_inode filtered
 //   - active_thread_count (hard zero): /proc/self/status Threads
-//   - malloc_info (soft threshold): glibc malloc_info(0, FILE*) total bytes
+//   - kernel_allocation (equal per cycle): the bytes the kernel allocates in
+//     each measured cycle, the same in every cycle, so a cycle doing more work
+//     than the one before it fails
 //
 // Per the long-run resource-leakage sub-checks in AGENTS/cpp.md, drift on any
-// sub-check is a finding.  Hard-zero gates are exact equality (no noise
-// tolerance allowed); soft-threshold gates carry an empirically-tuned cap
-// beside the gate in stability_report.hpp, so changing the value makes the
-// diff visible.  The reads live in stability_snapshot.hpp.  The process tests
+// sub-check is a finding.  Every gate is an exact count, so the runner's speed
+// and load decide nothing.  The resident set (/proc/self/status VmRSS) and
+// glibc's malloc_info total are reported beside them and decide nothing: they
+// move with when the collectors run.  The reads live in
+// stability_snapshot.hpp and the gates in stability_report.hpp.  The process tests
 // in cpp/tests/stability_bench_tests.cpp hold the exit statuses below, among
 // them a run that leaks a descriptor between the snapshots failing the FD gate.
 //
@@ -38,25 +40,26 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <expected>
 #include <filesystem>
+#include <format>
+#include <limits>
 #include <print>
 #include <ranges>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
+#include <vector>
 
 namespace {
 
-// Warmup cycles before the measurement window opens.  The GHC RTS heap,
-// MAlonzo dictionaries and lazy Agda structures need a substantial workload
-// before they reach steady state: measured, the heap plateaus around the
-// seventh cycle of 100k frames, and a warmup of a few hundred frames leaves
-// on the order of 138 MiB of RTS growth inside the measurement window.  Seven
-// cycles give at least 30 MiB of headroom under the 50 MiB cap without pushing
-// the bench beyond a few seconds of wall time.
+// Warmup cycles before the measurement window opens.  The first cycles a
+// process runs allocate more in the kernel than every later one, and the
+// resident set the report prints settles around the seventh cycle of 100k
+// frames.
 constexpr int k_warmup_cycles = 7;
 
 } // namespace
@@ -70,6 +73,18 @@ using aletheia::bench::write_report_text;
 // The snapshot of this process the gates judge, or the read that refused it.
 static auto snapshot_self() -> std::expected<Snapshot, std::string> {
     return aletheia::bench::take_snapshot("/proc/self/status", "/proc/self/fd");
+}
+
+// The bytes the kernel has allocated, or why they cannot be read.
+static auto kernel_allocated() -> std::expected<std::int64_t, std::string> {
+    auto const count = aletheia::allocated_bytes();
+    if (!count)
+        return std::unexpected("reading the kernel's allocated bytes: the runtime is not running");
+    if (*count > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+        return std::unexpected(std::format(
+            "reading the kernel's allocated bytes: {} bytes, past the int64 the gate compares",
+            *count));
+    return static_cast<std::int64_t>(*count);
 }
 
 // minimal_dbc constructs a single-message DBC sufficient for parse_dbc +
@@ -171,6 +186,12 @@ static auto run() -> int {
         std::println(stderr, "the opening snapshot failed: {}", aletheia::detail::error_of(start));
         return 2;
     }
+    auto const first = kernel_allocated();
+    if (!first) {
+        std::println(stderr, "the opening snapshot failed: {}", aletheia::detail::error_of(first));
+        return 2;
+    }
+    std::vector<std::int64_t> readings{first.value()};
     auto const t0 = std::chrono::steady_clock::now();
 
     for (auto const i : std::views::iota(0, cycles)) {
@@ -180,6 +201,12 @@ static auto run() -> int {
             std::println(stderr, "cycle {}: {}", i, e.what());
             return 2;
         }
+        auto const reading = kernel_allocated();
+        if (!reading) {
+            std::println(stderr, "cycle {}: {}", i, aletheia::detail::error_of(reading));
+            return 2;
+        }
+        readings.push_back(reading.value());
     }
 
     auto const end = snapshot_self();
@@ -190,7 +217,7 @@ static auto run() -> int {
     auto const elapsed =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
-    auto const sub_checks = build_sub_checks(start.value(), end.value());
+    auto const sub_checks = build_sub_checks(start.value(), end.value(), readings);
     if (auto const written =
             write_report_text(stdout, report_text(cycles, frames, elapsed, sub_checks));
         !written) {

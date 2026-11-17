@@ -107,7 +107,9 @@ class DBCMessage(TypedDict):
     sender: str
     senders: NotRequired[list[str]]  # Additional BO_TX_BU_ transmitters (primary is ``sender``)
     signals: list[DBCSignal]
-    extended: NotRequired[bool]  # Optional: true for 29-bit, false/absent for 11-bit
+    # True for a 29-bit id. A parsed reply always carries it; an input may omit
+    # it for an 11-bit id.
+    extended: NotRequired[bool]
 
 
 class DBCSignalGroup(TypedDict):

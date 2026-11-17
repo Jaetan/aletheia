@@ -15,7 +15,8 @@ The canonical wire doc is the ``processExtractBin`` header comment in
 
 - Header:  ``<HHHI`` — nValues, nErrors, nAbsent (``u16`` each) +
   reasonBytes (``u32``)
-- Values:  nValues × (idx ``u16``, numerator ``i64``, denominator ``i64``)
+- Values:  nValues × (idx ``u16``, negative ``u8``, numerator and
+  denominator each an unsigned 128-bit ``lo``, ``hi`` pair of ``u64``)
 - Errors:  nErrors × (idx ``u16``, code ``u8``)
 - Offsets: (nErrors + 1) × ``u32`` cumulative byte offsets into Reasons —
   always present (a single 0 when nErrors is 0)
@@ -47,8 +48,14 @@ if TYPE_CHECKING:
 _HEADER_FMT = "<HHHI"
 _HEADER_BYTES = struct.calcsize(_HEADER_FMT)
 
-# Fixed per-entry sizes of the four count-driven segments.
-_VALUE_ENTRY_BYTES = struct.calcsize("<Hqq")
+# Fixed per-entry sizes of the four count-driven segments.  A value entry is
+# packed: the index, the sign byte, then the numerator's and the denominator's
+# 16 little-endian bytes, 35 bytes.
+# One value entry: the signal index, the sign byte, then the numerator's and the
+# denominator's 128-bit magnitudes, each as its low and high little-endian words.
+_VALUE_ENTRY = struct.Struct("<HB4Q")
+_VALUE_ENTRY_BYTES = _VALUE_ENTRY.size
+_WORD_BITS = 64
 _ERROR_ENTRY_BYTES = struct.calcsize("<HB")
 _OFFSET_ENTRY_BYTES = struct.calcsize("<I")
 _ABSENT_ENTRY_BYTES = struct.calcsize("<H")
@@ -80,9 +87,9 @@ class ExtractionErrorCode(IntEnum):
     BIT_EXTRACTION_FAILED = 2
     # Agda: ``Aletheia.CAN.BatchExtraction.ValueExceedsWireRange``: the
     # exact value's reduced numerator magnitude or denominator exceeds
-    # 9223372036854775807, the symmetric bound of the wire's rational slots;
-    # the kernel's batch categoriser refuses the value with this code on
-    # both extraction paths, so the int64 slot never wraps.
+    # 340282366920938463463374607431768211455, the bound of the wire's
+    # 128-bit rational slots; the kernel's batch categoriser refuses the value
+    # with this code on both extraction paths, so no slot wraps.
     VALUE_EXCEEDS_WIRE_RANGE = 3
     # Agda: ``Aletheia.CAN.BatchExtraction.MuxSignalNotFound``
     MUX_SIGNAL_NOT_FOUND = 4
@@ -111,21 +118,10 @@ class FrameIdentity:
 
 @dataclass(frozen=True, slots=True)
 class SignalValues:
-    """Parallel tuples of signal indices and rational values (num/den)."""
+    """Parallel tuples of signal indices and their exact values."""
 
     indices: tuple[int, ...]
-    numerators: tuple[int, ...]
-    denominators: tuple[int, ...]
-
-
-def _signal_name(names: Sequence[str], idx: int) -> str:
-    """Resolve a wire signal index against the caller's name table.
-
-    Used by the error / absent segment parsers; the values loop inlines the
-    same conditional because a per-entry helper call is measurable on the
-    per-frame extraction hot path.
-    """
-    return names[idx] if idx < len(names) else f"signal_{idx}"
+    values: tuple[Fraction, ...]
 
 
 def _parse_values_segment(
@@ -134,23 +130,23 @@ def _parse_values_segment(
     count: int,
     names: Sequence[str],
 ) -> tuple[dict[str, Fraction], int]:
-    """Parse the values segment: ``count`` × ``<Hqq`` (18 bytes each).
+    """Parse the values segment: ``count`` × ``<HB4Q`` (35 bytes each).
 
     Returns Fraction values to preserve exact rational precision from the
-    Agda core — the wire format already carries int64 numerator/denominator
-    pairs, so no quantization is needed.
+    Agda core: the wire carries a sign and two 128-bit magnitudes, so no
+    quantization is needed.  The kernel proves every denominator positive, so
+    the parts are read as written.  Any sign byte but 0 is negative, as the
+    header reads one.  The caller has held the buffer to the length its header
+    implies, so the segment is whole.
     """
+    end = off + count * _VALUE_ENTRY_BYTES
     values: dict[str, Fraction] = {}
-    n_names = len(names)
-    for _ in range(count):
-        idx, num, den = map(int, struct.unpack_from("<Hqq", buf, off))
-        off += _VALUE_ENTRY_BYTES
-        name = names[idx] if idx < n_names else f"signal_{idx}"
-        if den == 0:
-            msg = f"Zero denominator in extraction value for {name!r}"
-            raise ProtocolError(msg)
-        values[name] = Fraction(num, den)
-    return values, off
+    for idx, negative, num_lo, num_hi, den_lo, den_hi in _VALUE_ENTRY.iter_unpack(buf[off:end]):
+        numerator = num_lo | num_hi << _WORD_BITS
+        values[names[int(idx)]] = Fraction(
+            -numerator if negative else numerator, den_lo | den_hi << _WORD_BITS
+        )
+    return values, end
 
 
 def _parse_error_entries(
@@ -170,22 +166,24 @@ def _parse_error_entries(
     for _ in range(count):
         idx, _code = map(int, struct.unpack_from("<HB", buf, off))
         off += _ERROR_ENTRY_BYTES
-        entry_names.append(_signal_name(names, idx))
+        entry_names.append(names[idx])
     return entry_names, off
 
 
 def _parse_reasons(
     buf: bytes,
     off: int,
-    count: int,
+    error_names: Sequence[str],
     reason_bytes: int,
-) -> tuple[list[str], int]:
-    """Parse the offsets table + UTF-8 reasons blob for ``count`` errors.
+) -> tuple[dict[str, str], int]:
+    """Parse the offsets table + UTF-8 reasons blob, one reason per error name.
 
-    The offsets table ((count + 1) × ``<I``, present even when ``count``
-    is 0) carries cumulative byte offsets into the reasons blob; entry *i*
-    of the returned list is the UTF-8 decode of ``blob[off[i] : off[i+1]]``.
+    The offsets table ((count + 1) × ``<I``, present even when there are no
+    errors) carries cumulative byte offsets into the reasons blob; the
+    returned dict maps ``error_names[i]`` to the UTF-8 decode of
+    ``blob[off[i] : off[i+1]]``.
     """
+    count = len(error_names)
     offsets = tuple(map(int, struct.unpack_from(f"<{count + 1}I", buf, off)))
     off += (count + 1) * _OFFSET_ENTRY_BYTES
     if offsets[0] != 0:
@@ -205,10 +203,10 @@ def _parse_reasons(
         )
         raise ProtocolError(msg)
     blob = buf[off : off + reason_bytes]
-    reasons: list[str] = []
-    for i in range(count):
+    reasons: dict[str, str] = {}
+    for i, name in enumerate(error_names):
         try:
-            reasons.append(blob[offsets[i] : offsets[i + 1]].decode("utf-8"))
+            reasons[name] = blob[offsets[i] : offsets[i + 1]].decode()
         except UnicodeDecodeError as exc:
             msg = f"Invalid UTF-8 in extraction error reason {i}: {exc}"
             raise ProtocolError(msg) from exc
@@ -226,7 +224,7 @@ def _parse_absent_segment(
     for _ in range(count):
         (idx,) = map(int, struct.unpack_from("<H", buf, off))
         off += _ABSENT_ENTRY_BYTES
-        absent.append(_signal_name(names, idx))
+        absent.append(names[idx])
     return absent, off
 
 
@@ -241,12 +239,16 @@ def parse_extraction_buffer(
     Reasons, and Absent segments in that order (see the module docstring
     and the ``processExtractBin`` header comment in
     ``Aletheia.Main.Binary``).  The buffer length must equal the total
-    the header implies exactly — shorter and longer are both rejected.
+    the header implies exactly: shorter and longer are both rejected.
+
+    *names* lists the signals of the frame's message in order.  The kernel
+    proves every signal index below their count, so each segment reads
+    ``names[idx]`` directly; an index past them raises ``IndexError``.
     """
     if len(buf) < _HEADER_BYTES:
         msg = f"Binary extraction buffer too short: {len(buf)} bytes (need >= {_HEADER_BYTES})"
         raise ProtocolError(msg)
-    nvals, nerrs, nabss, reason_bytes = map(int, struct.unpack_from(_HEADER_FMT, buf, 0))
+    nvals, nerrs, nabss, reason_bytes = map(int, struct.unpack_from(_HEADER_FMT, buf))
     expected = (
         _HEADER_BYTES
         + nvals * _VALUE_ENTRY_BYTES
@@ -265,18 +267,8 @@ def parse_extraction_buffer(
         )
         raise ProtocolError(msg)
     values, off = _parse_values_segment(buf, _HEADER_BYTES, nvals, names)
-    # Zero-error fast path (the per-frame hot case): with no errors and an
-    # empty reasons blob, the three offsets-table invariants collapse to the
-    # single entry being 0 — one read instead of the general machinery.  Any
-    # other shape (including a malformed one) takes the general path below,
-    # which raises the canonical invariant errors.
-    if nerrs == 0 and reason_bytes == 0 and buf[off : off + 4] == b"\x00\x00\x00\x00":
-        errors: dict[str, str] = {}
-        off += _OFFSET_ENTRY_BYTES
-    else:
-        error_names, off = _parse_error_entries(buf, off, nerrs, names)
-        reasons, off = _parse_reasons(buf, off, nerrs, reason_bytes)
-        errors = dict(zip(error_names, reasons, strict=True))
+    error_names, off = _parse_error_entries(buf, off, nerrs, names)
+    errors, off = _parse_reasons(buf, off, error_names, reason_bytes)
     absent, _ = _parse_absent_segment(buf, off, nabss, names)
     return SignalExtractionResult(values=values, errors=errors, absent=tuple(absent))
 

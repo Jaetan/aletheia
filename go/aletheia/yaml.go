@@ -123,7 +123,7 @@ type yamlCheck struct {
 	Value     *yamlScalar `yaml:"value"`
 	Min       *yamlScalar `yaml:"min"`
 	Max       *yamlScalar `yaml:"max"`
-	WithinMs  *yamlScalar `yaml:"within_ms"`
+	WithinUs  *yamlScalar `yaml:"within_us"`
 	Severity  string      `yaml:"severity"`
 	When      *yamlClause `yaml:"when"`
 	Then      *yamlClause `yaml:"then"`
@@ -150,23 +150,16 @@ func nodeRational(s *yamlScalar, name, key string) (Rational, error) {
 	return r, nil
 }
 
-// nodeMilliseconds is a check's time bound, read as nodeRational reads a
-// number and located under within_ms, the key every time bound sits under. A
-// value the kernel reads that is not a whole number, or is negative, is
-// refused in this loader's own words, naming the check and the text as
-// written.
-func nodeMilliseconds(s *yamlScalar, name string) (int64, error) {
-	r, err := nodeRational(s, name, "within_ms")
+// nodeMicroseconds is a check's time bound, a whole number of microseconds
+// the kernel reads from the text the document spells it with, and refuses
+// located at the check and under within_us, the key every time bound sits
+// under.
+func nodeMicroseconds(s *yamlScalar, name string) (TimeBound, error) {
+	t, err := ParseTimeBound(s.text)
 	if err != nil {
-		return 0, err
+		return TimeBound{}, Locate(err, fmt.Sprintf("Check '%s'", name), "within_us")
 	}
-	if r.Denominator != 1 {
-		return 0, validationError(fmt.Sprintf("check '%s': 'within_ms' must be a whole number, got %q", name, s.text))
-	}
-	if r.Numerator < 0 {
-		return 0, validationError(fmt.Sprintf("check '%s': 'within_ms' must be non-negative, got %q", name, s.text))
-	}
-	return r.Numerator, nil
+	return t, nil
 }
 
 // parseYAMLChecks is the checks a document carries. It is decoded twice, once
@@ -199,7 +192,9 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	for _, entry := range file.Checks {
 		r, err := parseYAMLCheck(entry)
 		if err != nil {
-			return nil, err
+			// A refusal no key holds, such as a check its builder refused,
+			// is located at the check.
+			return nil, locateRefusal(err, fmt.Sprintf("Check '%s'", checkName(entry.Name)))
 		}
 		results = append(results, r)
 	}
@@ -261,11 +256,11 @@ func (v yamlSimpleValues) Range() (Rational, Rational, error) {
 	return lo, hi, nil
 }
 
-func (v yamlSimpleValues) Within() (int64, error) {
-	if v.entry.WithinMs == nil {
-		return 0, v.requires("'within_ms'")
+func (v yamlSimpleValues) Within() (TimeBound, error) {
+	if v.entry.WithinUs == nil {
+		return TimeBound{}, v.requires("'within_us'")
 	}
-	return nodeMilliseconds(v.entry.WithinMs, v.name)
+	return nodeMicroseconds(v.entry.WithinUs, v.name)
 }
 
 // parseYAMLSimple builds a check written as one signal and one condition. The
@@ -319,10 +314,10 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	if entry.Then == nil {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': must have 'signal' or 'when'/'then'", name))
 	}
-	if entry.WithinMs == nil {
-		return CheckResult{}, validationError(fmt.Sprintf("check '%s': when/then checks require 'within_ms'", name))
+	if entry.WithinUs == nil {
+		return CheckResult{}, validationError(fmt.Sprintf("check '%s': when/then checks require 'within_us'", name))
 	}
-	withinMs, err := nodeMilliseconds(entry.WithinMs, name)
+	within, err := nodeMicroseconds(entry.WithinUs, name)
 	if err != nil {
 		return CheckResult{}, err
 	}
@@ -352,5 +347,5 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown then condition '%s'", name, then.Condition))
 	}
 	return DispatchThen(whenResult.Then(then.Signal), then.Condition,
-		yamlThenValues{name: name, clause: then}, withinMs)
+		yamlThenValues{name: name, clause: then}, within)
 }

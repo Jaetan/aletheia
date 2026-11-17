@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 use super::*;
+use aletheia::ErrorCode;
 use rust_xlsxwriter::Workbook;
 use std::path::PathBuf;
 
@@ -128,7 +129,7 @@ fn simple_checks_round_trip_to_the_builders() {
                     Cell::Empty,
                     Cell::Str("80"),
                     Cell::Str("100"),
-                    Cell::Str("5000"),
+                    Cell::Str("5000000"),
                     Cell::Str("info"),
                 ],
             ],
@@ -138,7 +139,10 @@ fn simple_checks_round_trip_to_the_builders() {
     assert_eq!(checks.len(), 3);
     assert_eq!(
         checks[0].formula(),
-        check::signal("VehicleSpeed").never_exceeds(220).formula()
+        check::signal("VehicleSpeed")
+            .never_exceeds(220)
+            .unwrap()
+            .formula()
     );
     assert_eq!(checks[0].name(), "Speed limit");
     assert_eq!(checks[0].severity(), "safety");
@@ -153,7 +157,7 @@ fn simple_checks_round_trip_to_the_builders() {
         checks[2].formula(),
         check::signal("CoolantTemp")
             .settles_between(80, 100)
-            .within(5000)
+            .within(TimeBound(5_000_000))
             .unwrap()
             .formula()
     );
@@ -179,7 +183,7 @@ fn when_then_round_trips_to_the_builder() {
                 Cell::Str("1"),
                 Cell::Empty,
                 Cell::Empty,
-                Cell::Str("100"),
+                Cell::Str("100000"),
                 Cell::Str("safety"),
             ]],
         )],
@@ -192,7 +196,7 @@ fn when_then_round_trips_to_the_builder() {
             .exceeds(50)
             .then("BrakeLight")
             .equals(1)
-            .within(100)
+            .within(TimeBound(100_000))
             .unwrap()
             .formula()
     );
@@ -425,7 +429,7 @@ fn a_refused_whole_number_is_located_under_its_header() {
     let Error::Validation { code, .. } = &err else {
         panic!("expected a validation refusal, got {err:?}");
     };
-    assert_eq!(code.as_deref(), Some("text_trailing_input"), "{err:?}");
+    assert_eq!(*code, Some(ErrorCode::TextTrailingInput), "{err:?}");
     assert_eq!(err.location(), Some("Row 2"), "{err:?}");
     assert_eq!(err.key(), Some("DLC"), "{err:?}");
     assert_eq!(

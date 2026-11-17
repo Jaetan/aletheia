@@ -4,7 +4,7 @@
 //
 // Reads docs/LOADER_SCENARIOS.yaml and runs each scenario through the YAML
 // loader or the Excel loaders.  A rational row loads the check, or the DBC
-// signal's factor, at exactly that value; a milliseconds row loads the
+// signal's factor, at exactly that value; a microseconds row loads the
 // settles_between check with exactly that bound; a refusal row keeps the kernel's
 // kind, code and bound fields, carries the location and the key the loader
 // read the number at, and prints as the row's `printed`.  The other bindings'
@@ -20,12 +20,14 @@
 #include <aletheia/limits.hpp>
 #include <aletheia/yaml.hpp>
 
-#include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <format>
+#include <limits>
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -55,7 +57,7 @@ struct Scenario {
     std::string name;
     std::string sheet; // Excel only
     std::string value;
-    std::variant<Rational, std::chrono::milliseconds, Refusal> expect;
+    std::variant<Rational, TimeBound, Refusal> expect;
 };
 
 } // namespace
@@ -65,26 +67,46 @@ static auto kind_of(std::string const& kind) -> ErrorKind {
     return kind == "validation" ? ErrorKind::Validation : ErrorKind::InputBoundExceeded;
 }
 
-// A row gives one answer, a rational, milliseconds or a refusal; a reading
+// A whole number of the contract, read from its digits: its magnitude reaches
+// 2^128-1, past every integer yaml-cpp converts to.
+static auto whole_of(YAML::Node const& node) -> SignMagnitude {
+    auto const text = node.as<std::string>();
+    auto const negative = text.starts_with('-');
+    auto const digits = std::string_view{text}.substr(negative ? 1 : 0);
+    REQUIRE_FALSE(digits.empty());
+    constexpr auto max = std::numeric_limits<unsigned __int128>::max();
+    unsigned __int128 magnitude = 0;
+    for (auto const c : digits) {
+        REQUIRE((c >= '0' && c <= '9'));
+        auto const digit = static_cast<unsigned __int128>(c - '0');
+        REQUIRE(magnitude <= (max - digit) / 10);
+        magnitude = (magnitude * 10) + digit;
+    }
+    return SignMagnitude{.negative = negative, .magnitude = magnitude};
+}
+
+// A row gives one answer, a rational, microseconds or a refusal; a reading
 // given with anything else is a mistake in the contract.
-static auto expectation_of(YAML::Node const& expect)
-    -> std::variant<Rational, std::chrono::milliseconds, Refusal> {
+static auto expectation_of(YAML::Node const& expect) -> std::variant<Rational, TimeBound, Refusal> {
     if (auto const rational = expect["rational"]) {
-        REQUIRE_FALSE(expect["milliseconds"].IsDefined());
+        REQUIRE_FALSE(expect["microseconds"].IsDefined());
         REQUIRE_FALSE(expect["kind"].IsDefined());
-        return Rational::make(rational[0].as<std::int64_t>(), rational[1].as<std::int64_t>())
+        auto const numerator = whole_of(rational[0]);
+        auto const denominator = whole_of(rational[1]);
+        REQUIRE_FALSE(denominator.negative);
+        return Rational::make(numerator.negative, numerator.magnitude, denominator.magnitude)
             .value();
     }
-    if (auto const milliseconds = expect["milliseconds"]) {
+    if (auto const microseconds = expect["microseconds"]) {
         REQUIRE_FALSE(expect["kind"].IsDefined());
-        return std::chrono::milliseconds{milliseconds.as<std::int64_t>()};
+        return TimeBound{microseconds.as<std::uint64_t>()};
     }
     std::optional<InputBoundExceededError> bound;
     if (auto const node = expect["bound"])
         bound = InputBoundExceededError{
             .bound_kind = node["kind"].as<std::string>(),
-            .observed = node["observed"].as<std::uint64_t>(),
-            .limit = node["limit"].as<std::uint64_t>(),
+            .observed = whole_of(node["observed"]).magnitude,
+            .limit = whole_of(node["limit"]).magnitude,
             .field = node["field"].as<std::string>(),
         };
     return Refusal{
@@ -145,9 +167,13 @@ static auto shown(std::optional<std::string> const& member) -> std::string {
     return member.value_or("(absent)");
 }
 
+// A rational as its sign, numerator and denominator, for a failure to print.
+static auto shown(Rational const& r) -> std::string {
+    return std::format("{}{}/{}", r.negative() ? "-" : "", r.numerator(), r.denominator());
+}
+
 static void check_rational(Rational const& got, Rational const& want) {
-    INFO("loaded " << got.numerator() << "/" << got.denominator() << ", contract "
-                   << want.numerator() << "/" << want.denominator());
+    INFO("loaded " << shown(got) << ", contract " << shown(want));
     CHECK(got == want);
 }
 
@@ -163,20 +189,20 @@ static auto threshold(CheckResult const& check) -> Rational {
 static void check_never_exceeds(std::vector<CheckResult> const& checks, Rational const& want) {
     REQUIRE(checks.size() == 1);
     auto const built = check::signal("Speed").never_exceeds(PhysicalValue{want});
+    REQUIRE(built.has_value());
     CHECK(format_formula(checks.front().to_formula()) ==
-          format_formula(built.to_formula()).value());
+          format_formula(built->to_formula()).value());
     check_rational(threshold(checks.front()), want);
 }
 
 // The bound of a settles_between check: the window of its MetricAlways.
-static auto window(CheckResult const& check) -> Timestamp {
+static auto window(CheckResult const& check) -> TimeBound {
     return std::get<MetricAlways>(check.formula().value).bound;
 }
 
-// Every milliseconds row's check: Speed settling between 0 and 100 within the
+// Every microseconds row's check: Speed settling between 0 and 100 within the
 // row's bound, as the Check API builds it.
-static void check_settles_within(std::vector<CheckResult> const& checks,
-                                 std::chrono::milliseconds want) {
+static void check_settles_within(std::vector<CheckResult> const& checks, TimeBound want) {
     REQUIRE(checks.size() == 1);
     auto const built =
         check::signal("Speed")
@@ -185,14 +211,15 @@ static void check_settles_within(std::vector<CheckResult> const& checks,
     REQUIRE(built.has_value());
     CHECK(format_formula(checks.front().to_formula()) ==
           format_formula(built->to_formula()).value());
-    INFO("loaded " << window(checks.front()).count() << "us, contract " << want.count() << "ms");
+    INFO("loaded " << window(checks.front()).microseconds << "us, contract " << want.microseconds
+                   << "us");
     CHECK(window(checks.front()) == want);
 }
 
 static void check_refusal(AletheiaError const& error, Refusal const& want) {
     INFO("wire code " << want.code << ", message " << error.message());
     auto const code = error_code_from_string(want.code);
-    REQUIRE(code != ErrorCode::Unknown);
+    REQUIRE(code.has_value());
     CHECK(error.kind() == want.kind);
     CHECK(error.code() == code);
     CHECK(shown(error.location()) == want.location);
@@ -221,14 +248,14 @@ static auto yaml_document(std::string const& value) -> std::string {
 }
 
 // The contract's settles_between document with the row's bound written verbatim.
-static auto yaml_within_ms_document(std::string const& value) -> std::string {
+static auto yaml_within_us_document(std::string const& value) -> std::string {
     return "checks:\n"
            "  - name: \"C\"\n"
            "    signal: Speed\n"
            "    condition: settles_between\n"
            "    min: 0\n"
            "    max: 100\n"
-           "    within_ms: " +
+           "    within_us: " +
            value + "\n";
 }
 
@@ -245,13 +272,13 @@ TEST_CASE("loader scenarios: the YAML loader answers each number as the contract
     }
 }
 
-TEST_CASE("loader scenarios: the YAML loader answers each within_ms as the contract reads it",
+TEST_CASE("loader scenarios: the YAML loader answers each within_us as the contract reads it",
           "[loader_scenarios][yaml]") {
-    for (auto const& scenario : scenarios("yaml_within_ms")) {
-        DYNAMIC_SECTION("yaml_within_ms scenario " << scenario.name) {
+    for (auto const& scenario : scenarios("yaml_within_us")) {
+        DYNAMIC_SECTION("yaml_within_us scenario " << scenario.name) {
             auto const result =
-                load_checks_from_yaml_string(yaml_within_ms_document(scenario.value));
-            if (auto const* want = std::get_if<std::chrono::milliseconds>(&scenario.expect))
+                load_checks_from_yaml_string(yaml_within_us_document(scenario.value));
+            if (auto const* want = std::get_if<TimeBound>(&scenario.expect))
                 check_settles_within(loaded(result), *want);
             else
                 check_refusal(refused(result), std::get<Refusal>(scenario.expect));

@@ -86,7 +86,9 @@ The `Signal` class provides fluent methods for building atomic predicates.
 ```python
 from fractions import Fraction
 
-from aletheia import Signal
+from aletheia import Signal, start_runtime
+
+start_runtime(1)
 
 # Equality
 Signal("Gear").equals(0)                    # Gear is in park (0)
@@ -104,6 +106,10 @@ Signal("BatteryVoltage").between(Fraction("11.5"), Fraction("14.5"))  # 11.5 <= 
 #### Change Detection
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Directional change — sign of delta determines direction
 Signal("Speed").changed_by(-10)  # Speed decreased by 10+ km/h
 Signal("RPM").changed_by(500)    # RPM increased by 500+
@@ -114,6 +120,10 @@ Signal("RPM").changed_by(500)    # RPM increased by 500+
 #### Stability
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Signal stayed within tolerance of previous value
 Signal("Temperature").stable_within(2)  # Temperature stable within +/-2
 ```
@@ -131,6 +141,10 @@ Build LTL formulas by chaining temporal operators on predicates.
 Property must hold for all frames in the trace.
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Speed must always stay below 220 km/h
 Signal("Speed").less_than(220).always()
 
@@ -143,6 +157,10 @@ Signal("Gear").between(0, 6).always()
 Property must hold at some point in the trace.
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Engine must eventually reach operating temperature
 Signal("EngineTemp").greater_than(90).eventually()
 
@@ -155,6 +173,10 @@ Signal("DoorClosed").equals(1).eventually()
 Property must never hold (always negated).
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Error code must never be 0xFF
 Signal("ErrorCode").equals(0xFF).never()
 
@@ -165,11 +187,15 @@ Signal("Speed").greater_than(300).never()
 #### Bounded Temporal Operators
 
 ```python
-# Must hold within time_ms milliseconds
-brake_pressed.within(100)
+from aletheia import start_runtime
 
-# Must hold continuously for at least time_ms milliseconds
-Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced door sensor
+start_runtime(1)
+
+# Must hold within time_us microseconds
+brake_pressed.within(100_000)
+
+# Must hold continuously for at least time_us microseconds
+Signal("DoorClosed").equals(1).for_at_least(50_000)  # Debounced door sensor
 ```
 
 #### Next Operator (Use with Caution)
@@ -177,6 +203,10 @@ Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced door sensor
 The `Next` operator evaluates a formula at the next frame:
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Next: property must hold at next frame
 Signal("Speed").less_than(100).next()
 ```
@@ -225,6 +255,10 @@ Combine predicates and properties using logical operators.
 #### Predicate Composition
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Both conditions must hold
 left_ok = Signal("LeftBrake").equals(1)
 right_ok = Signal("RightBrake").equals(1)
@@ -242,6 +276,10 @@ enabled = Signal("Enabled").equals(1).not_()
 #### Property Composition
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # AND: both properties must hold
 speed_ok = Signal("Speed").less_than(220).always()
 voltage_ok = Signal("Voltage").between(11, 14).always()
@@ -256,16 +294,24 @@ powered = charging.or_(engine_running)
 #### Implication
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Whenever the brake is pressed, the speed decreases within 100 ms
 brake_pressed = Signal("BrakePedal").greater_than(0)
 speed_decreasing = Signal("Speed").changed_by(-5)
 
-brake_pressed.implies(speed_decreasing.within(100)).always()
+brake_pressed.implies(speed_decreasing.within(100_000)).always()
 ```
 
 #### Until
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Power mode transition: whenever the power is off, the start button stays
 # released until the power mode reaches ACC
 power_off = Signal("PowerMode").equals(0)
@@ -284,6 +330,10 @@ power_off.implies(power_start.not_().until(power_acc)).always()
 The Release operator is the dual of Until: `phi R psi` means psi holds until phi releases it (or forever if phi never holds).
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Brake must stay engaged until ignition turns on
 ignition_on = Signal("Ignition").equals(1)
 brake_engaged = Signal("Brake").equals(1)
@@ -294,26 +344,34 @@ property = ignition_on.release(brake_engaged)
 
 #### Metric Until
 
-Time-bounded Until: `phi U_{<=t} psi` means phi holds until psi becomes true within t milliseconds.
+Time-bounded Until: `phi U_{<=t} psi` means phi holds until psi becomes true within t microseconds.
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Speed must stay above 50 until brake pressed (within 1 second)
 speed_ok = Signal("Speed").greater_than(50)
 brake = Signal("Brake").equals(1)
-property = speed_ok.metric_until(1000, brake)
+property = speed_ok.metric_until(1_000_000, brake)
 ```
 
 **Use case**: State transitions with time constraints. The left property must hold continuously until the right property becomes true, and this must happen within the specified time bound.
 
 #### Metric Release
 
-Time-bounded Release: `phi R_{<=t} psi` means psi holds until phi releases it within t milliseconds.
+Time-bounded Release: `phi R_{<=t} psi` means psi holds until phi releases it within t microseconds.
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Safety: Brake engaged through the first 5 seconds, released sooner once the ignition is on
 ignition = Signal("Ignition").equals(1)
 brake = Signal("Brake").equals(1)
-property = ignition.metric_release(5000, brake)
+property = ignition.metric_release(5_000_000, brake)
 ```
 
 **Use case**: Safety properties with maximum delay constraints. The right property must hold until the left property releases it, with a maximum time bound.
@@ -329,6 +387,10 @@ from aletheia import infinitely_often, eventually_always, never
 **`infinitely_often(formula)`** — G(F(phi)): property holds infinitely many times (liveness).
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Speed exceeds 100 infinitely often (repeated acceleration)
 infinitely_often(Signal("Speed").greater_than(100))
 
@@ -339,6 +401,10 @@ Signal("Speed").greater_than(100).eventually().always()
 **`eventually_always(formula)`** — F(G(phi)): property eventually holds forever (stability).
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Temperature eventually stabilizes below 70 degrees
 eventually_always(Signal("Temperature").less_than(70))
 
@@ -349,6 +415,10 @@ Signal("Temperature").less_than(70).always().eventually()
 **`never(formula)`** — G(not(phi)): property never holds (strongest safety).
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Critical fault never occurs
 never(Signal("FaultCode").equals(0xFF))
 
@@ -397,6 +467,10 @@ with AletheiaClient() as client:
 ```python
 from fractions import Fraction
 
+from aletheia import start_runtime
+
+start_runtime(1)
+
 properties = [
     # P1: Speed always in valid range
     Signal("VehicleSpeed").between(0, 300).always(),
@@ -436,12 +510,16 @@ with AletheiaClient() as client:
 ### Example 3: Brake Safety Property
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Safety property: If brake pressure is applied, speed must decrease within 100ms
 
 brake_pressed = Signal("BrakePressure").greater_than(0)
 speed_decreasing = Signal("VehicleSpeed").changed_by(-5)  # Decreased by at least 5 km/h
 
-property = brake_pressed.implies(speed_decreasing.within(100))
+property = brake_pressed.implies(speed_decreasing.within(100_000))
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
@@ -472,6 +550,10 @@ with AletheiaClient() as client:
 ### Example 4: Power Mode State Machine
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Property: once stopped, the vehicle does not accelerate until the brake is released
 
 stopped = Signal("VehicleSpeed").equals(0)
@@ -594,7 +676,7 @@ if result["has_errors"]:
         print(f"[{issue['severity']}] {issue['code']}: {issue['detail']}")
 ```
 
-**Returns**: `{"status": "validation", "has_errors": bool, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
+**Returns**: `{"status": "validation", "has_errors": bool, "issues": [{"severity": IssueSeverity, "code": IssueCode, "detail": str}, ...]}`
 
 **Raises**: `InputBoundExceededError` when the DBC is past one of the kernel's bounds, as `parse_dbc()` raises it.
 
@@ -611,7 +693,7 @@ dbc_out = client.format_dbc()
 
 Render a DBC definition as `.dbc` file text through the verified formatter, returning the text only when it provably re-parses to the input. Does not require `parse_dbc()` and does not modify client state.
 
-**Returns**: `{"status": "success", "text": str, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
+**Returns**: `{"status": "success", "text": str, "issues": [{"severity": IssueSeverity, "code": IssueCode, "detail": str}, ...]}`
 
 **Raises**: `InputBoundExceededError` when the DBC is past one of the kernel's bounds, as `parse_dbc()` raises it; with `nodes` empty, the nodes derived from the message senders are bounded too. `TextRoundTripFailedError` when the emitted text does not re-parse to the input.
 
@@ -622,7 +704,9 @@ Set LTL checks, merging with default checks from the constructor. Calls `set_pro
 ```python
 from fractions import Fraction
 
-from aletheia import checks
+from aletheia import checks, start_runtime
+
+start_runtime(1)
 
 check_list = [
     checks.signal("VehicleSpeed").never_exceeds(220),
@@ -639,6 +723,10 @@ This is the preferred way to set checks when using the Check API or YAML/Excel l
 Set LTL properties to check (use `.to_dict()` on DSL properties).
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 properties = [
     Signal("VehicleSpeed").less_than(250).always(),
     Signal("Acceleration").between(-10, 10).always()
@@ -882,6 +970,10 @@ A property naming a signal the DBC does not carry is refused with the error enve
 
 <!-- refuses: handler_unknown_signal -->
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 property = Signal("InvalidSignal").less_than(100).always()
 
 response = client.set_properties([property.to_dict()])
@@ -959,8 +1051,8 @@ class Predicate:
     def eventually(self) -> Property    # F(p)
     def never(self) -> Property         # G(not p)
     def next(self) -> Property          # X(p) — rarely useful, see warning above
-    def within(self, time_ms: int) -> Property       # F_{<=t}(p)
-    def for_at_least(self, time_ms: int) -> Property  # G_{<=t}(p)
+    def within(self, time_us: int) -> Property       # F_{<=t}(p)
+    def for_at_least(self, time_us: int) -> Property  # G_{<=t}(p)
 
     # Logical operators
     def and_(self, other: Predicate) -> Predicate
@@ -985,8 +1077,8 @@ class Property:
     def next(self) -> Property  # For nested formulas - see Next Operator warning
     def until(self, other: Property) -> Property
     def release(self, other: Property) -> Property
-    def metric_until(self, time_ms: int, other: Property) -> Property
-    def metric_release(self, time_ms: int, other: Property) -> Property
+    def metric_until(self, time_us: int, other: Property) -> Property
+    def metric_release(self, time_us: int, other: Property) -> Property
 
     # Serialization
     def to_dict(self) -> LTLFormula

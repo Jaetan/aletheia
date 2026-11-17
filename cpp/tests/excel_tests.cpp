@@ -15,7 +15,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <string>
-#include <utility>
+#include <tuple>
 #include <variant>
 
 #include "excel_workbooks.hpp"
@@ -39,7 +39,7 @@ using Catch::Matchers::ContainsSubstring;
 
 TEST_CASE("excel: never_exceeds", "[excel][simple]") {
     TempPath const tf("excel_never_exceeds.xlsx");
-    // Check Name, Signal, Condition, Value, Min, Max, Time (ms), Severity
+    // Check Name, Signal, Condition, Value, Min, Max, Time (µs), Severity
     make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "220", "", "", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -85,11 +85,13 @@ TEST_CASE("excel: equals always", "[excel][simple]") {
 
 TEST_CASE("excel: settles_between", "[excel][simple]") {
     TempPath const tf("excel_settles.xlsx");
-    make_checks_workbook(tf.path, {{"", "Coolant", "settles_between", "", "85", "95", "5000", ""}});
+    make_checks_workbook(tf.path,
+                         {{"", "Coolant", "settles_between", "", "85", "95", "5000000", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    CHECK((*result)[0].condition_desc() == "between 85 and 95 within 5000ms");
+    CHECK((*result)[0].condition_desc() == "between 85 and 95 within 5000000\u00b5s");
+    CHECK(format_formula((*result)[0].to_formula()) == "always within 5s (85 <= Coolant <= 95)");
 }
 
 // ===========================================================================
@@ -100,9 +102,9 @@ TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
     TempPath const tf("excel_wt_exc_eq.xlsx");
     // Check Name, When Signal, When Condition, When Value,
     // Then Signal, Then Condition, Then Value, Then Min, Then Max,
-    // Within (ms), Severity
+    // Within (µs), Severity
     make_wt_workbook(tf.path, {{"", "BrakePedal", "exceeds", "50", "BrakeLight", "equals", "1", "",
-                                "", "100", ""}});
+                                "", "100000", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
@@ -110,33 +112,55 @@ TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
           "always(not(BrakePedal > 50) or eventually within 100ms (BrakeLight = 1))");
 }
 
-TEST_CASE("excel: a negative Within (ms) is the bound's own refusal", "[excel][when-then]") {
-    TempPath const tf("excel_wt_negative_within.xlsx");
-    make_wt_workbook(tf.path, {{"", "BrakePedal", "exceeds", "50", "BrakeLight", "equals", "1", "",
-                                "", "-1", ""}});
-    auto const result = load_checks_from_excel(tf.path);
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Validation);
-    CHECK(result.error().text() == "time must be non-negative");
+// A time bound the kernel refuses is located at the row and the column header,
+// keeping the kernel's code and message, in either sheet's time column.
+TEST_CASE("excel: a time bound the kernel refuses is located at the row and the column",
+          "[excel][when-then]") {
+    TempPath const settles("excel_settles_fractional_time.xlsx");
+    make_checks_workbook(settles.path,
+                         {{"", "Temp", "settles_between", "", "80", "100", "100.5", ""}});
+    TempPath const then("excel_wt_negative_within.xlsx");
+    make_wt_workbook(then.path, {{"", "BrakePedal", "exceeds", "50", "BrakeLight", "equals", "1",
+                                  "", "", "-1500", ""}});
+    for (auto const& [path, key, printed] :
+         {std::tuple{&settles.path, "Time (\u00b5s)",
+                     "Row 2: invalid 'Time (\u00b5s)': timebound 100.5 is not a whole number"},
+          std::tuple{&then.path, "Within (\u00b5s)",
+                     "Row 2: invalid 'Within (\u00b5s)': timebound -1500 is negative"}}) {
+        INFO(printed);
+        auto const result = load_checks_from_excel(*path);
+        REQUIRE_FALSE(result.has_value());
+        auto const& error = result.error();
+        CHECK(error.kind() == ErrorKind::Validation);
+        CHECK(error.code() == ErrorCode::HandlerPropertyRefused);
+        CHECK(error.location().value_or("") == "Row 2");
+        CHECK(error.key().value_or("") == key);
+        CHECK(error.text() == printed);
+    }
 }
 
-TEST_CASE("excel: a range whose Min is above its Max is the builder's refusal", "[excel]") {
+// The kernel's refusal of a range whose Min is above its Max is the loader's
+// answer, located at the row under no column, since no single column holds it.
+TEST_CASE("excel: a range whose Min is above its Max is the kernel's refusal at the row",
+          "[excel]") {
     TempPath const checks("excel_inverted_range_checks.xlsx");
     make_checks_workbook(checks.path, {{"", "Speed", "stays_between", "", "5", "1", "", ""}});
     TempPath const settles("excel_inverted_range_settles.xlsx");
-    make_checks_workbook(settles.path, {{"", "Speed", "settles_between", "", "5", "1", "100", ""}});
+    make_checks_workbook(settles.path,
+                         {{"", "Speed", "settles_between", "", "5", "1", "100000", ""}});
     TempPath const then("excel_inverted_range_then.xlsx");
     make_wt_workbook(then.path, {{"", "BrakePedal", "exceeds", "50", "Speed", "stays_between", "",
-                                  "5", "1", "100", ""}});
-    for (auto const& [path, message] :
-         {std::pair{&checks.path, "stays_between: lo (5) must be <= hi (1)"},
-          std::pair{&settles.path, "settles_between: lo (5) must be <= hi (1)"},
-          std::pair{&then.path, "then stays_between: lo (5) must be <= hi (1)"}}) {
-        INFO(message);
+                                  "5", "1", "100000", ""}});
+    for (auto const* path : {&checks.path, &settles.path, &then.path}) {
+        INFO(path->filename().string());
         auto const result = load_checks_from_excel(*path);
         REQUIRE_FALSE(result.has_value());
-        CHECK(result.error().kind() == ErrorKind::Validation);
-        CHECK(result.error().text() == message);
+        auto const& error = result.error();
+        CHECK(error.kind() == ErrorKind::Validation);
+        CHECK(error.code() == ErrorCode::HandlerPropertyRefused);
+        CHECK(error.location().value_or("") == "Row 2");
+        CHECK_FALSE(error.key().has_value());
+        CHECK(error.text() == "Row 2: between: min 5 exceeds max 1");
     }
 }
 
@@ -154,8 +178,8 @@ TEST_CASE("excel: a template path that cannot be looked at is refused, not throw
 
 TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
     TempPath const tf("excel_wt_eq_exc.xlsx");
-    make_wt_workbook(
-        tf.path, {{"", "Gear", "equals", "1", "ReverseLight", "exceeds", "0", "", "", "200", ""}});
+    make_wt_workbook(tf.path, {{"", "Gear", "equals", "1", "ReverseLight", "exceeds", "0", "", "",
+                                "200000", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
@@ -166,7 +190,7 @@ TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
 TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
     TempPath const tf("excel_wt_drop_sb.xlsx");
     make_wt_workbook(tf.path, {{"", "FuelLevel", "drops_below", "10", "FuelWarning",
-                                "stays_between", "", "1", "1", "500", ""}});
+                                "stays_between", "", "1", "1", "500000", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
@@ -217,7 +241,7 @@ TEST_CASE("excel: defaults when no name or severity", "[excel][metadata]") {
 TEST_CASE("excel: when-then with metadata", "[excel][metadata]") {
     TempPath const tf("excel_meta_wt.xlsx");
     make_wt_workbook(tf.path, {{"Brake response", "BrakePedal", "exceeds", "50", "BrakeLight",
-                                "equals", "1", "", "", "100", "safety"}});
+                                "equals", "1", "", "", "100000", "safety"}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     CHECK((*result)[0].name() == "Brake response");
@@ -442,11 +466,13 @@ TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
     auto const ws = doc.workbook().worksheet("Checks");
     OpenXLSX::XLCellValue const v1 = ws.cell(1, 1).value();
     OpenXLSX::XLCellValue const v3 = ws.cell(1, 3).value();
+    OpenXLSX::XLCellValue const v7 = ws.cell(1, 7).value();
     OpenXLSX::XLCellValue const v8 = ws.cell(1, 8).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Check Name");
     CHECK(v3.get<std::string>() == "Condition");
+    CHECK(v7.get<std::string>() == "Time (\u00b5s)");
     CHECK(v8.get<std::string>() == "Severity");
 }
 
@@ -464,7 +490,7 @@ TEST_CASE("excel: template When-Then headers correct", "[excel][template]") {
     doc.close();
 
     CHECK(v1.get<std::string>() == "Check Name");
-    CHECK(v10.get<std::string>() == "Within (ms)");
+    CHECK(v10.get<std::string>() == "Within (\u00b5s)");
     CHECK(v11.get<std::string>() == "Severity");
 }
 
@@ -522,13 +548,13 @@ TEST_CASE("excel: missing time for settles_between", "[excel][error]") {
     make_checks_workbook(tf.path, {{"", "Coolant", "settles_between", "", "85", "95", "", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
-    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("requires 'Time (ms)'"));
+    CHECK(result.error().text() == "Row 2: condition 'settles_between' requires 'Time (\u00b5s)'");
 }
 
 TEST_CASE("excel: unknown when condition", "[excel][error]") {
     TempPath const tf("excel_err_when.xlsx");
     make_wt_workbook(
-        tf.path, {{"", "Brake", "bogus_when", "50", "Light", "equals", "1", "", "", "100", ""}});
+        tf.path, {{"", "Brake", "bogus_when", "50", "Light", "equals", "1", "", "", "100000", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
@@ -537,8 +563,8 @@ TEST_CASE("excel: unknown when condition", "[excel][error]") {
 
 TEST_CASE("excel: unknown then condition", "[excel][error]") {
     TempPath const tf("excel_err_then.xlsx");
-    make_wt_workbook(
-        tf.path, {{"", "Brake", "exceeds", "50", "Light", "bogus_then", "1", "", "", "100", ""}});
+    make_wt_workbook(tf.path, {{"", "Brake", "exceeds", "50", "Light", "bogus_then", "1", "", "",
+                                "100000", ""}});
     auto const result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),

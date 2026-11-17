@@ -61,26 +61,29 @@ auto defaults = aletheia::AletheiaClient::open({.default_checks = std::move(chec
 
 ## Check API
 
-`check::signal(name)` builds a property from a fluent, plain-English condition, the recommended starting point (no LTL knowledge required). Each terminal returns a `CheckResult` you register with `add_checks`, and `stays_between` a `Result<CheckResult>`, refusing with kind `Validation` a lo above its hi.
+`check::signal(name)` builds a property from a fluent, plain-English condition, the recommended starting point (no LTL knowledge required). The call that finishes a check hands its whole formula to the kernel, which refuses a lo above its hi and a signal name that is no identifier with the reason `set_properties` would give, as kind `Validation` with the kernel's code: `never_exceeds`, `never_below`, `never_equals` and `stays_between` return a `Result<CheckResult>` you register with `add_checks`, and a chain returns it at the call that finishes it, `.always()` or `.within(bound)`. The kernel's runtime must be up, which `start_runtime_from_env` or an open client sees to; while it is down, a builder returns an error of kind `Ffi`.
 
 ```cpp
 using namespace aletheia;
+if (!start_runtime_from_env(1))
+    return 1;
 auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
 auto coolant = check::signal("Coolant").stays_between(
     PhysicalValue{Rational{80, 1}}, PhysicalValue{Rational{105, 1}});
 auto gear = check::signal("Gear").never_equals(PhysicalValue{Rational{-1, 1}});
-(void)speed_limit;
-(void)coolant;
-(void)gear;
+if (!speed_limit || !coolant || !gear)
+    return 1;
 ```
 
-Response-time / causal checks use `check::when(...).then(...)`. Their `within`, and `settles_between`'s, returns `Result<CheckResult>`, refusing with kind `Validation` a `stays_between` or `settles_between` range whose lo is above its hi, a negative bound, or one whose microseconds overflow int64:
+Response-time / causal checks use `check::when(...).then(...)` and close with `.within(bound)`, as `settles_between(...)` does: a `TimeBound` in whole microseconds, so `TimeBound{500'000}` is half a second. The kernel reads the whole formula, the trigger included:
 
 ```cpp
 using namespace aletheia;
+if (!start_runtime_from_env(1))
+    return 1;
 auto brake_response = check::when("Brake").exceeds(PhysicalValue{Rational{50, 1}})
                           .then("Decel").exceeds(PhysicalValue{Rational{2, 1}})
-                          .within(std::chrono::milliseconds{500});
+                          .within(TimeBound{500'000});
 if (!brake_response)
     return 1;
 ```
@@ -91,19 +94,23 @@ A check's `condition_desc()` is its condition in words, every threshold rendered
 
 ## Raw LTL DSL
 
-For full temporal control, build formulas directly with `ltl::`. A predicate compares a signal against a value (`equals`, `less_than`, `greater_than`, `less_than_or_equal`, `greater_than_or_equal`), against a range (`between`), or against its own recent history (`changed_by`, `stable_within`). `atomic` lifts one into a formula, and formulas compose under the boolean constructors (`negate`, `both`, `either`, `implies`) and the temporal ones (`next`, `weak_next`, `always`, `eventually`, `until`, `release`, and the time-bounded `within` and `always_within`). `never(p)` is the shorthand for an always-negated predicate:
+For full temporal control, build formulas directly with `ltl::`. A predicate compares a signal against a value (`equals`, `less_than`, `greater_than`, `less_than_or_equal`, `greater_than_or_equal`), against a range (`between`), or against its own recent history (`changed_by`, `stable_within`). `atomic` lifts one into a formula, and formulas compose under the boolean constructors (`negate`, `both`, `either`, `implies`) and the temporal ones (`next`, `weak_next`, `always`, `eventually`, `until`, `release`, and the time-bounded `within` and `always_within`). `never(p)` is the shorthand for an always-negated predicate. Each predicate builder hands the kernel what it builds and returns a `Result<Predicate>`, and `within` and `always_within`, which take a `TimeBound`, a `Result<LtlFormula>`, so the runtime must be up; a predicate written as its struct, such as `LessThan{...}`, is checked when `set_properties` installs it:
 
 ```cpp
 using namespace aletheia;
+if (!start_runtime_from_env(1))
+    return 1;
+auto below = ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}});
+auto at_most = ltl::less_than_or_equal(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}});
+auto pressed = ltl::equals(SignalName{"BrakePressed"}, PhysicalValue{Rational{1, 1}});
+if (!below || !at_most || !pressed)
+    return 1;
 // always(Speed < 220)
-auto always_safe = ltl::always(ltl::atomic(
-    ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
-// always(Speed <= 220) — inclusive variant
-auto always_le = ltl::always(ltl::atomic(
-    ltl::less_than_or_equal(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+auto always_safe = ltl::always(ltl::atomic(*below));
+// always(Speed <= 220), the inclusive variant
+auto always_le = ltl::always(ltl::atomic(*at_most));
 // eventually(BrakePressed == 1)
-auto brakes_apply = ltl::eventually(ltl::atomic(
-    ltl::equals(SignalName{"BrakePressed"}, PhysicalValue{Rational{1, 1}})));
+auto brakes_apply = ltl::eventually(ltl::atomic(*pressed));
 (void)always_safe;
 (void)always_le;
 (void)brakes_apply;
@@ -113,7 +120,7 @@ auto brakes_apply = ltl::eventually(ltl::atomic(
 
 ## Core Types
 
-Numeric fields are **exact rationals**: `Rational{1, 10}` is a tenth exactly, where the `double` `0.1` is not. The two-argument constructor takes constants only, so a pair outside int64 or a denominator that is not positive fails the build; a pair known at run time goes through `Rational::make(n, d)`, which returns `Result<Rational>`, and a whole number through `Rational::integer(n)`, which cannot fail. CAN IDs and DLC codes are validated newtypes constructed through factory functions that return `std::expected`:
+Numeric fields are **exact rationals**: `Rational{1, 10}` is a tenth exactly, where the `double` `0.1` is not. A `Rational` is a sign and a numerator and a denominator each reaching 2^128-1, stored reduced, so `Rational{2200, 10}` equals `Rational{220, 1}`. The two-argument constructor takes constants only, so a denominator that is not positive fails the build; a pair known at run time goes through `Rational::make(n, d)`, which returns `Result<Rational>`, and a whole number through `Rational::integer(n)`, which cannot fail. CAN IDs and DLC codes are validated newtypes constructed through factory functions that return `std::expected`:
 
 ```cpp
 using namespace aletheia;
@@ -167,8 +174,11 @@ BO_ 256 Engine: 8 ECU
     if (auto parsed = client.parse_dbc_text(stop, dbc); !parsed)
         return fail("parse_dbc_text", parsed.error());
 
+    auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
+    if (!speed_limit)
+        return fail("never_exceeds", speed_limit.error());
     std::vector<CheckResult> checks;  // CheckResult is move-only
-    checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
+    checks.push_back(*std::move(speed_limit));
     if (auto added = client.add_checks(stop, std::move(checks)); !added)
         return fail("add_checks", added.error());
     if (auto started = client.start_stream(stop); !started)
@@ -199,14 +209,17 @@ Outside (or inside) streaming, decode and synthesize frames directly. `dlc` must
 
 Each value is written exactly or refused: one outside the signal's declared range fails with code `frame_value_out_of_range`, one that no integer raw value scales to under the signal's factor and offset with `frame_value_not_representable`, and two requested signals sharing a bit with `frame_signals_overlap`. A written value reads back unchanged wherever the frame carries its signal: always, or for a multiplexed signal when its multiplexor's value selects it.
 
-A `SignalValue` is a name beside an exact value:
+A `SignalValue` is a name beside an exact value, whose sign and magnitudes `negative()`, `numerator()` and `denominator()` read:
 
 ```cpp
 using namespace aletheia;
 auto decoded = client.extract_signals(std::stop_token{}, can_id, dlc, data);
 if (decoded)
-    for (auto const& value : decoded->values)
-        std::cout << value.name.get() << " = " << value.value.get().numerator() << '\n';
+    for (auto const& value : decoded->values) {
+        auto const& r = value.value.get();
+        std::cout << std::format("{} = {}{}/{}\n", value.name.get(), r.negative() ? "-" : "",
+                                 r.numerator(), r.denominator());
+    }
 
 std::vector<SignalValue> injected{
     SignalValue{SignalName{"VehicleSpeed"}, PhysicalValue{Rational{72, 1}}}};

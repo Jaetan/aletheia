@@ -130,7 +130,7 @@ func TestLoadExcelDBCDecimalRefusalCarriesRowContext(t *testing.T) {
 }
 
 // TestLoadExcelDBCIntRefusalCarriesRowContext: same contract for the
-// whole-number path (xlsxInt).
+// whole-number path (xlsxWhole).
 func TestLoadExcelDBCIntRefusalCarriesRowContext(t *testing.T) {
 	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
 		_ = f.SetCellValue("DBC", "D2", "eight") // DLC: text, not decimal grammar

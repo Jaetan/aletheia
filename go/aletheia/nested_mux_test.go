@@ -43,8 +43,8 @@ func nestedMuxDBC() aletheia.DBCDefinition {
 			ID: sid, Name: "NestedMuxMessage", DLC: dlc, Sender: "ECU",
 			Signals: []aletheia.DBCSignal{
 				byteSignal("Mode", 0, 8, 255, aletheia.AlwaysPresent{}),
-				byteSignal("SubMode", 8, 8, 255, under("Mode", 3)),
-				byteSignal("Detail", 16, 16, 65535, under("SubMode", 7)),
+				byteSignal("SubMode", 8, 8, 255, under("Mode", aletheia.MultiplexValue{Lo: 3})),
+				byteSignal("Detail", 16, 16, 65535, under("SubMode", aletheia.MultiplexValue{Lo: 7})),
 			},
 		}},
 	}
@@ -175,7 +175,7 @@ func TestNestedMux_CycleIsRefused(t *testing.T) {
 			Factor:    ratOf(1, 1), Offset: ratOf(0, 1), Minimum: ratOf(0, 1), Maximum: ratOf(255, 1),
 			Presence: aletheia.Multiplexed{
 				Multiplexor:     aletheia.SignalName(multiplexor),
-				MultiplexValues: []aletheia.MultiplexValue{1},
+				MultiplexValues: []aletheia.MultiplexValue{{Lo: 1}},
 			},
 		}
 	}

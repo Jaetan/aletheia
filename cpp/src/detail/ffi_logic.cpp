@@ -13,7 +13,6 @@
 #include <aletheia/detail/checked.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/limits.hpp>
-#include <aletheia/types.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -82,15 +81,6 @@ auto wire_count_refusal(std::size_t count) -> std::optional<std::string> {
         return std::nullopt;
     return std::format("signal injection carries {} values, more than the wire's count holds",
                        count);
-}
-
-auto decimal_value(std::int64_t numerator, std::int64_t denominator) -> Result<Rational> {
-    return Rational::make(numerator, denominator).transform_error([denominator](auto const&) {
-        return AletheiaError{
-            ErrorKind::Protocol,
-            std::format("aletheia_parse_decimal answered a non-positive denominator {}",
-                        denominator)};
-    });
 }
 
 auto abi_version_refusal(std::uint32_t found) -> std::optional<std::string> {

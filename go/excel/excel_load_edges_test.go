@@ -5,6 +5,7 @@ package excel
 
 import (
 	"errors"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,26 +70,18 @@ func TestLoadExcelRefusesARow(t *testing.T) {
 			name: "a settling with no time",
 			load: checks,
 			row:  []any{nil, "Temp", "settles_between", nil, 80, 100, nil, nil},
-			says: "requires 'Time (ms)'",
-		},
-		{
-			// A whole-number field answers with the numerator of whatever it
-			// parses, so without the refusal 100.5 milliseconds becomes 201.
-			name: "a settling time written as a fraction",
-			load: checks,
-			row:  []any{nil, "Temp", "settles_between", nil, 80, 100, "100.5", nil},
-			says: "'Time (ms)' must be a whole number",
+			says: "requires 'Time (µs)'",
 		},
 		{
 			name: "a when condition no check leads with",
 			load: whenThen,
-			row:  []any{nil, "Brake", "bogus", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
+			row:  []any{nil, "Brake", "bogus", 50, "BrakeLight", "equals", 1, nil, nil, 100_000, nil},
 			says: "unknown when condition 'bogus'",
 		},
 		{
 			name: "a then condition no check closes with",
 			load: whenThen,
-			row:  []any{nil, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, nil, nil, 100, nil},
+			row:  []any{nil, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, nil, nil, 100_000, nil},
 			says: "unknown then condition 'bogus'",
 		},
 		{
@@ -110,6 +103,26 @@ func TestLoadExcelRefusesARow(t *testing.T) {
 			says: "'Start Bit' must be a whole number",
 		},
 		{
+			// A start bit and a length are 16-bit fields: a value one cannot
+			// hold is refused here, and the kernel decides the rest.
+			name: "a negative start bit",
+			load: dbc,
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", -1, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
+			says: "row 2: 'Start Bit' -1 out of range [0, 65535]",
+		},
+		{
+			name: "a length past a 16-bit field",
+			load: dbc,
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 65536, "little_endian", "FALSE", 1, 0, 0, 100, ""},
+			says: "row 2: 'Length' 65536 out of range [0, 65535]",
+		},
+		{
+			name: "a negative multiplex value",
+			load: dbc,
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", -1},
+			says: "row 2: 'Multiplex Value' must be non-negative, got -1",
+		},
+		{
 			name: "a multiplexor with no value",
 			load: dbc,
 			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
@@ -128,14 +141,65 @@ func TestLoadExcelRefusesARow(t *testing.T) {
 	}
 }
 
+// TestLoadExcelKernelRefusesARow: a time bound the kernel refuses is located at
+// the row and its column header, and a check its builder refuses at the row
+// with no header, each keeping the kernel's code and message.
+func TestLoadExcelKernelRefusesARow(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		build   func(*testing.T, [][]any) string
+		row     []any
+		key     string
+		printed string
+	}{
+		{
+			name:    "a settling time written as a fraction",
+			build:   makeChecksWorkbook,
+			row:     []any{nil, "Temp", "settles_between", nil, 80, 100, "100.5", nil},
+			key:     "Time (µs)",
+			printed: "Row 2: invalid 'Time (µs)': timebound 100.5 is not a whole number",
+		},
+		{
+			name:    "a negative response time",
+			build:   makeWhenThenWorkbook,
+			row:     []any{nil, "Brake", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, "-1500", nil},
+			key:     "Within (µs)",
+			printed: "Row 2: invalid 'Within (µs)': timebound -1500 is negative",
+		},
+		{
+			name:    "a range whose minimum exceeds its maximum",
+			build:   makeChecksWorkbook,
+			row:     []any{nil, "Voltage", "stays_between", nil, 5, 1, nil, nil},
+			printed: "Row 2: between: min 5 exceeds max 1",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := LoadChecks(c.build(t, [][]any{c.row}))
+			var e *aletheia.Error
+			if !errors.As(err, &e) {
+				t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+			}
+			if e.Kind != aletheia.ErrValidation || e.Code != aletheia.CodeHandlerPropertyRefused {
+				t.Errorf("Kind, Code: got %v, %q, want %v, %q", e.Kind, e.Code, aletheia.ErrValidation, aletheia.CodeHandlerPropertyRefused)
+			}
+			if e.Location != "Row 2" || e.Key != c.key {
+				t.Errorf("Location, Key: got %q, %q, want %q, %q", e.Location, e.Key, "Row 2", c.key)
+			}
+			if got := err.Error(); got != c.printed {
+				t.Errorf("Error(): got %q, want %q", got, c.printed)
+			}
+		})
+	}
+}
+
 // TestLoadExcelRefusesAValuePastTheWireRange: the value is a text cell carrying
-// the literal, which no float could hold. The kernel reads it as past its
-// component bound and refuses it, rather than clamping it, and the loader
-// answers with the kernel's typed bound error located at the row and the
-// column header.
+// the literal, which no float could hold, and whose numerator in lowest terms
+// is past 2^128-1. The kernel reads it as past its component bound and refuses
+// it, rather than clamping it, and the loader answers with the kernel's typed
+// bound error located at the row and the column header.
 func TestLoadExcelRefusesAValuePastTheWireRange(t *testing.T) {
 	_, err := LoadChecks(makeChecksWorkbook(t, [][]any{
-		{nil, "Speed", "never_exceeds", "99999999999999999999.5", nil, nil, nil, nil},
+		{nil, "Speed", "never_exceeds", "340282366920938463463374607431768211455.5", nil, nil, nil, nil},
 	}))
 	var bound *aletheia.InputBoundExceededError
 	if !errors.As(err, &bound) {
@@ -146,6 +210,9 @@ func TestLoadExcelRefusesAValuePastTheWireRange(t *testing.T) {
 	}
 	if bound.Field != "decimal" {
 		t.Errorf("Field: got %q, want %q", bound.Field, "decimal")
+	}
+	if want := (aletheia.Uint128{Hi: math.MaxUint64, Lo: math.MaxUint64}); bound.Limit != want {
+		t.Errorf("Limit: got %s, want %s", bound.Limit, want)
 	}
 	if bound.Location != "Row 2" || bound.Key != "Value" {
 		t.Errorf("Location, Key: got %q, %q, want %q, %q", bound.Location, bound.Key, "Row 2", "Value")
@@ -278,7 +345,7 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 	_ = f.SetCellValue("When-Then", "E2", "BrakeLight")
 	_ = f.SetCellValue("When-Then", "F2", "equals")
 	_ = f.SetCellValue("When-Then", "G2", "1")
-	_ = f.SetCellValue("When-Then", "J2", "100")
+	_ = f.SetCellValue("When-Then", "J2", "100000")
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "combined.xlsx")
@@ -292,8 +359,9 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 		t.Fatalf("expected 2 checks, got %d", len(checks))
 	}
 	// First is simple check, second is when/then.
-	assertSameFormula(t, aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220)).Formula(), checks[0].Formula())
-	expected1, _ := aletheia.CheckWhen("Brake").Exceeds(aletheia.IntRational(50)).Then("BrakeLight").Equals(aletheia.IntRational(1)).Within(100)
+	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))).Formula(), checks[0].Formula())
+	expected1 := mustCheck(aletheia.CheckWhen("Brake").Exceeds(aletheia.IntRational(50)).Then("BrakeLight").Equals(aletheia.IntRational(1)).
+		Within(aletheia.TimeBound{Microseconds: 100_000}))
 	assertSameFormula(t, expected1.Formula(), checks[1].Formula())
 }
 

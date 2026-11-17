@@ -22,14 +22,15 @@
 -- `DBC/TextParser/` that transitively imports it, out of `--safe`.
 module Aletheia.DBC.TextParser.Lexer where
 
-open import Data.Bool using (Bool; true; false; _∨_; not; if_then_else_)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Data.Bool using (Bool; T; true; false; _∨_; not; if_then_else_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; subst)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Base using (isDigit)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _∸_; _+_)
-open import Data.List using (length; takeWhileᵇ)
+open import Data.Nat using (ℕ; zero; suc; _∸_; _+_; _<_; _<ᵇ_; z≤n; s≤s)
+open import Data.Nat.Properties using (+-suc; +-monoʳ-<; <⇒<ᵇ)
+open import Data.List using (takeWhileᵇ)
 open import Data.Sum using (inj₁; inj₂)
 open import Data.Product using (_,_)
 open import Aletheia.Limits using (max-identifier-length)
@@ -50,7 +51,7 @@ open import Aletheia.DBC.DecRat.Literal using (natLiteral)
 parseDigits : Parser (List Char)
 parseDigits = some (satisfy isDigit)
 
--- A natural number: its digits, or 2^64 when the run holds at least 65
+-- A natural number: its digits, or 2^128 when the run holds at least 129
 -- significant digits (`Aletheia.DBC.DecRat.Literal.natLiteral`), which the
 -- bound checks after the parse refuse.
 parseNatural : Parser ℕ
@@ -80,30 +81,37 @@ isNonNewline c = not (⌊ c ≟ᶜ '\n' ⌋ ∨ ⌊ c ≟ᶜ '\r' ⌋)
 -- IDENTIFIERS
 -- ============================================================================
 
--- At most `n` characters satisfying `pred`, read one at a time; stops at the
--- first other character or when `n` are read.  Structural on the input; the
--- counter is data beside it.
-atMost : ℕ → (Char → Bool) → Parser (List Char)
-atMost _       _    pos []       = at pos , just (mkResult [] pos [])
-atMost zero    _    pos input    = at pos , just (mkResult [] pos input)
-atMost (suc n) pred pos (c ∷ cs) with pred c
-... | false = at pos , just (mkResult [] pos (c ∷ cs))
-... | true with atMost n pred (advancePosition pos c) cs
-...   | pos′ , just r  = pos′ , just (mkResult (c ∷ ParseResult.value r) (ParseResult.position r) (ParseResult.remaining r))
-...   | pos′ , nothing = pos′ , nothing
-
--- The run of identifier characters: a start character, then at most
--- `max-identifier-length ∸ 1` continuation characters.
-identRun : Parser (List Char)
-identRun =
-  satisfy isIdentStart >>= λ h →
-  atMost (max-identifier-length ∸ 1) isIdentCont >>= λ t →
-  pure (h ∷ t)
-
 -- How many characters at the head satisfy `pred`.
 countWhile : (Char → Bool) → List Char → ℕ
 countWhile _    []       = 0
 countWhile pred (c ∷ cs) = if pred c then suc (countWhile pred cs) else 0
+
+-- A name that filled the bound and runs on is longer than the bound.
+full-past : ∀ k m → k + 0 ≡ max-identifier-length → T (max-identifier-length <ᵇ k + suc m)
+full-past k m eq = <⇒<ᵇ (subst (_< k + suc m) eq (+-monoʳ-< k (s≤s z≤n)))
+
+-- The continuation characters of a name started at `start`: `k` read so
+-- far, at most `n` more, `k + n` the bound.  A further one past the bound
+-- refuses the name by its length, counted to its end.  Structural on the
+-- input; the counts are data beside it.
+runFrom : Position → (k n : ℕ) → .(k + n ≡ max-identifier-length) → Parser (List Char)
+runFrom _     _ _       _  pos []       = at pos , just (mkResult [] pos [])
+runFrom start k zero    eq pos (c ∷ cs) with isIdentCont c
+... | true  = refuse (refused start (TooLong (k + suc (countWhile isIdentCont cs)) (full-past k _ eq))) pos (c ∷ cs)
+... | false = at pos , just (mkResult [] pos (c ∷ cs))
+runFrom start k (suc n) eq pos (c ∷ cs) with isIdentCont c
+... | false = at pos , just (mkResult [] pos (c ∷ cs))
+... | true with runFrom start (suc k) n (trans (sym (+-suc k n)) eq) (advancePosition pos c) cs
+...   | pos′ , just r  = pos′ , just (mkResult (c ∷ ParseResult.value r) (ParseResult.position r) (ParseResult.remaining r))
+...   | pos′ , nothing = pos′ , nothing
+
+-- The run of identifier characters of a name started at `start`: a start
+-- character, then its continuation characters.
+identRun : Position → Parser (List Char)
+identRun start =
+  satisfy isIdentStart >>= λ h →
+  runFrom start 1 (max-identifier-length ∸ 1) refl >>= λ t →
+  pure (h ∷ t)
 
 -- The one identifier decision on a finished run, read from `start`: the
 -- identifier, or the refusal on the watermark.
@@ -112,14 +120,6 @@ decideName start run pos input with parseIdentifierField run
 ... | inj₂ i = at pos , just (mkResult i pos input)
 ... | inj₁ e = refuse (refused start e) pos input
 
--- After the run: a further identifier character is the 129th, and the name
--- is refused by its length, counted to its end; otherwise the decision.
-decideRun : Position → List Char → Parser Identifier
-decideRun start run pos [] = decideName start run pos []
-decideRun start run pos (c ∷ cs) with isIdentCont c
-... | true  = refuse (refused start (TooLong (length run + suc (countWhile isIdentCont cs)))) pos (c ∷ cs)
-... | false = decideName start run pos (c ∷ cs)
-
 -- An identifier, read where `pos` stands: the run, then the decision, a
 -- refusal carrying `pos` as the name's start.  A word starting with a
 -- character no identifier starts with (a digit) is read to its end and
@@ -127,13 +127,13 @@ decideRun start run pos (c ∷ cs) with isIdentCont c
 parseIdentifier : Parser Identifier
 parseIdentifier pos [] = at pos , nothing
 parseIdentifier pos (c ∷ cs) =
-  if isIdentStart c then (identRun >>= decideRun pos) pos (c ∷ cs)
+  if isIdentStart c then (identRun pos >>= decideName pos) pos (c ∷ cs)
   else if isIdentCont c then refuse (refused pos (BadChars (c ∷ takeWhileᵇ isIdentCont cs))) pos (c ∷ cs)
   else (at pos , nothing)
 
 -- On a start character the identifier parser is the run then the decision.
 parseIdentifier-start : ∀ pos h cs → isIdentStart h ≡ true
-  → parseIdentifier pos (h ∷ cs) ≡ (identRun >>= decideRun pos) pos (h ∷ cs)
+  → parseIdentifier pos (h ∷ cs) ≡ (identRun pos >>= decideName pos) pos (h ∷ cs)
 parseIdentifier-start pos h cs eq rewrite eq = refl
 
 -- A word: the identifier grammar alone, every character kept, no decision.

@@ -10,14 +10,14 @@ from typing import TYPE_CHECKING, Final, NewType, TypedDict, cast
 import pytest
 import yaml
 
-from aletheia import FFIError, PropertyDiagnostic
+from aletheia import AletheiaError, FFIError, PropertyDiagnostic
 from aletheia.client._enrichment import (
     build_diagnostic,
     collect_signals,
     format_enriched_reason,
     format_formula,
 )
-from aletheia.client._helpers.rational import decode_wire_rational
+from aletheia.client._helpers.reply_shape import ReplyPath, read_rational
 from aletheia.dsl import Signal
 from aletheia.types import JSONValue
 
@@ -56,7 +56,8 @@ def _rationals_read(node: dict[WireField, WireTree]) -> dict[WireField, WireTree
     if not isinstance(node.get(WireField("predicate")), str):
         return node
     return {
-        key: decode_wire_rational(v) if key in _RATIONAL_FIELDS else v for key, v in node.items()
+        key: read_rational(cast("JSONValue", v), ReplyPath(key)) if key in _RATIONAL_FIELDS else v
+        for key, v in node.items()
     }
 
 
@@ -92,12 +93,12 @@ class TestFormatFormula:
 
     def test_metric_always(self) -> None:
         """Verify metric always."""
-        f = Signal("Speed").less_than(220).for_at_least(5000).to_dict()
+        f = Signal("Speed").less_than(220).for_at_least(5_000_000).to_dict()
         assert format_formula(f) == "always within 5s (Speed < 220)"
 
     def test_metric_eventually(self) -> None:
         """Verify metric eventually."""
-        f = Signal("Mode").equals(1).within(2000).to_dict()
+        f = Signal("Mode").equals(1).within(2_000_000).to_dict()
         assert format_formula(f) == "eventually within 2s (Mode = 1)"
 
     def test_next(self) -> None:
@@ -204,7 +205,7 @@ class TestFormatPredicate:
         """Verify metric until."""
         speed = Signal("Speed").less_than(50).always()
         brake = Signal("Brake").equals(1).always()
-        f = speed.metric_until(1000, brake).to_dict()
+        f = speed.metric_until(1_000_000, brake).to_dict()
         result = format_formula(f)
         assert "until within 1s" in result
 
@@ -212,7 +213,7 @@ class TestFormatPredicate:
         """Verify metric release."""
         a = Signal("A").equals(1).always()
         b = Signal("B").equals(0).always()
-        f = a.metric_release(500, b).to_dict()
+        f = a.metric_release(500_000, b).to_dict()
         result = format_formula(f)
         assert "release within 500ms" in result
 
@@ -451,8 +452,8 @@ class TestRendererVocalWhenRTSDown:
         """A reachable-path render with the RTS down raises, not a fabricated value."""
         # Patch the STATE, not hs_initialized itself, so the real source-of-truth
         # chain (RTSState.initialized -> hs_initialized -> the guard) is exercised.
-        monkeypatch.setattr("aletheia.client._ffi.RTSState.initialized", False)
         f = Signal("Speed").less_than(220).always().to_dict()
+        monkeypatch.setattr("aletheia.client._ffi.RTSState.initialized", False)
         with pytest.raises(FFIError) as refused:
             format_formula(f)
         assert str(refused.value) == (
@@ -479,8 +480,12 @@ class TestRendererVocalWhenRTSDown:
 
         monkeypatch.setattr("aletheia.client._enrichment.started_library", _null_library)
         f = Signal("Speed").less_than(220).always().to_dict()
-        with pytest.raises(FFIError, match="null"):
+        with pytest.raises(AletheiaError) as refused:
             format_formula(f)
+        assert (type(refused.value), str(refused.value)) == (
+            FFIError,
+            "aletheia_format_rational returned null",
+        )
 
     def test_enriched_reason_degrades_on_render_failure(
         self, monkeypatch: pytest.MonkeyPatch

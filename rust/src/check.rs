@@ -1,36 +1,40 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! Fluent check DSL — domain-friendly builders that compile to LTL [`Formula`]s
+//! Fluent check DSL: domain-friendly builders that compile to LTL [`Formula`]s
 //! plus display metadata. The "engineers / CI" tier above the raw enums.
 //!
 //! Two entry points mirror the other bindings' check builders:
-//! - [`signal`] — single-signal invariants:
-//!   `check::signal("Speed").never_exceeds(120)`.
-//! - [`when`] — causal when/then:
-//!   `check::when("Brake").exceeds(50).then("Light").equals(1).within(100)`.
+//! - [`signal`], single-signal invariants:
+//!   `check::signal("Speed").never_exceeds(120)?`.
+//! - [`when`], causal when/then:
+//!   `check::when("Brake").exceeds(50).then("Light").equals(1).within(TimeBound(100_000))?`.
 //!
-//! Numeric values take `impl Into<Rational>`, so an `i64` literal works directly
-//! (`never_exceeds(120)`); fractions use `Rational::new(1, 4)?`. The raw LTL
-//! combinators (until / release / metric / and / or) stay on [`Formula`] for
-//! power users — this module covers the common check vocabulary the peers expose.
+//! Numeric values take `impl Into<Rational>`, so an integer literal works
+//! directly (`never_exceeds(120)`); fractions use `Rational::new(1, 4)?`. A
+//! window is a [`TimeBound`] in microseconds. Each chain's finishing call
+//! hands the formula it made to the kernel's property parse, which refuses a
+//! zero denominator, a range whose minimum is above its maximum, a time bound
+//! past its limit and a signal name that is no identifier with the reason
+//! `set_properties` would give, so a check is refused where it is built. The
+//! parse needs the GHC runtime up ([`start_runtime`](crate::start_runtime) or a
+//! client) and never starts it: while the runtime is down each finishing call
+//! answers [`Error::RtsNotInitialized`]. The raw LTL combinators (until /
+//! release / metric / and / or) stay on [`Formula`] for power users; this
+//! module covers the common check vocabulary the peers expose.
 
 use crate::backend::format_rational;
 use crate::error::Error;
-use crate::ltl::{Formula, Predicate};
+use crate::ltl::{check_formula, Formula, Predicate};
 use crate::types::{Rational, TimeBound};
-
-const US_PER_MS: u64 = 1000;
 
 /// One piece of a check's deferred condition description. Literal text is fixed
 /// when the check is built; a [`Rational`] is rendered lazily at
 /// [`Check::condition_desc`] read-time via the kernel `formatℚ` (the SSOT
-/// renderer). Deferring keeps check *construction* infallible — only reading the
-/// description can surface a library-load error — so the fluent builder chain
-/// (`when().then().equals().within()`) stays `?`-free.
+/// renderer), so building a check renders nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DescPart {
-    /// Fixed text — an operator, a separator, or the `within {n}ms` suffix.
+    /// Fixed text: an operator, a separator, or the `within {n}µs` suffix.
     Lit(String),
     /// A threshold rendered via the kernel at read-time.
     Rat(Rational),
@@ -51,6 +55,12 @@ fn between_desc(lo: Rational, hi: Rational) -> Vec<DescPart> {
     ]
 }
 
+/// `parts` followed by ` within {bound}µs`, the window in microseconds.
+fn within_desc(mut parts: Vec<DescPart>, bound: TimeBound) -> Vec<DescPart> {
+    parts.push(DescPart::Lit(format!(" within {}µs", bound.micros())));
+    parts
+}
+
 /// Render a deferred description, delegating every threshold to the kernel
 /// `formatℚ` so the output is byte-identical to the other bindings (no local
 /// fallback).
@@ -65,45 +75,39 @@ fn render_desc(parts: &[DescPart]) -> Result<String, Error> {
     Ok(out)
 }
 
-/// Render a rational into an inverted-range **validation error message** (`5`, or
-/// `1/4`). Display descriptions delegate to the kernel `formatℚ` (see [`DescPart`]
-/// / [`render_desc`]); `rat_str` is retained only for these error strings, which
-/// must report a bad range without depending on a fallible FFI library load.
-fn rat_str(r: Rational) -> String {
-    // Exact via the kernel format_rational when the RTS is up (a terminating
-    // decimal or fraction, matching enrich.rs and the C++/Go/Python bindings);
-    // else a bare "num/den" fraction fallback: a range-validation error can be
-    // constructed before the runtime starts, so this must not depend on it and
-    // must never emit a lossy float.
-    if let Ok(s) = format_rational(r) {
-        return s;
-    }
-    if r.denominator() == 1 {
-        r.numerator().to_string()
-    } else {
-        format!("{}/{}", r.numerator(), r.denominator())
-    }
-}
-
-/// Convert milliseconds to a microsecond [`TimeBound`], guarding overflow.
-fn ms_to_bound(ms: u64) -> Result<TimeBound, Error> {
-    let micros = ms.checked_mul(US_PER_MS).ok_or_else(|| {
-        Error::validation(format!("time {ms} ms overflows microsecond conversion"))
-    })?;
-    Ok(TimeBound(micros))
-}
-
-/// `G(predicate)` — the predicate holds at every step.
+/// `G(predicate)`: the predicate holds at every step.
 fn always_pred(p: Predicate) -> Formula {
     Formula::Always(Box::new(Formula::Atomic(p)))
+}
+
+/// The check over `formula`, once the kernel's property parse reads it.
+fn checked(
+    formula: Formula,
+    signal_name: String,
+    condition_desc: Vec<DescPart>,
+) -> Result<Check, Error> {
+    check_formula(&formula)?;
+    Ok(Check {
+        formula,
+        name: String::new(),
+        severity: String::new(),
+        signal_name,
+        condition_desc,
+    })
 }
 
 /// A built check: an LTL [`Formula`] plus display/reporting metadata.
 ///
 /// The metadata (`name`, `severity`, condition description) is **not** sent to
-/// the core — [`Client::add_checks`](crate::Client::add_checks) binds only the
-/// formula. It is for the caller's reporting (and, later, violation enrichment).
+/// the core: [`Client::add_checks`](crate::Client::add_checks) binds only the
+/// formula. It is for the caller's reporting (and violation enrichment).
 /// Immutable; [`Check::named`] / [`Check::with_severity`] return a new value.
+///
+/// Every chain's finishing call answers `Result<Check, Error>`: the kernel's
+/// refusal of the formula, typed as [`Rational::from_decimal`] types one
+/// ([`Error::Validation`] carrying the kernel's code,
+/// [`Error::InputBoundExceeded`] for a bound), or
+/// [`Error::RtsNotInitialized`] while the runtime is down.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Check {
     formula: Formula,
@@ -114,16 +118,6 @@ pub struct Check {
 }
 
 impl Check {
-    fn new(formula: Formula, signal_name: String, condition_desc: Vec<DescPart>) -> Check {
-        Check {
-            formula,
-            name: String::new(),
-            severity: String::new(),
-            signal_name,
-            condition_desc,
-        }
-    }
-
     /// The LTL formula this check compiles to (what `add_checks` binds).
     #[must_use]
     pub fn formula(&self) -> &Formula {
@@ -134,7 +128,7 @@ impl Check {
     pub fn name(&self) -> &str {
         &self.name
     }
-    /// Severity label (empty if unset) — free-form, matching the other bindings.
+    /// Severity label (empty if unset), free-form, matching the other bindings.
     #[must_use]
     pub fn severity(&self) -> &str {
         &self.severity
@@ -146,14 +140,11 @@ impl Check {
     }
     /// Human-readable description of the condition, with thresholds rendered via
     /// the kernel `formatℚ` (the SSOT renderer; byte-identical to the other
-    /// bindings).
+    /// bindings) and a window as ` within {n}µs`.
     ///
     /// # Errors
-    /// [`Error`] if the kernel renderer's shared library cannot be loaded. The
-    /// renderer loads `libaletheia-ffi.so` itself, independently of any backend, so
-    /// this depends only on whether the library is locatable (see `ALETHEIA_LIB`) —
-    /// not on whether a [`Client`](crate::Client) exists (a `MockBackend` client
-    /// does not load the `.so` for you).
+    /// [`Error::RtsNotInitialized`] if the GHC runtime is down: the renderer
+    /// never starts it.
     pub fn condition_desc(&self) -> Result<String, Error> {
         render_desc(&self.condition_desc)
     }
@@ -174,7 +165,7 @@ impl Check {
 
 // ── Single-signal checks ─────────────────────────────────────────────────────
 
-/// Begin a single-signal check: `check::signal("Speed").never_exceeds(120)`.
+/// Begin a single-signal check: `check::signal("Speed").never_exceeds(120)?`.
 #[must_use]
 pub fn signal(name: impl Into<String>) -> Signal {
     Signal { name: name.into() }
@@ -187,68 +178,69 @@ pub struct Signal {
 }
 
 impl Signal {
-    /// `G(signal <= value)` — the signal never goes above `value`; `value`
-    /// itself is allowed (inclusive — matches the Agda core's `LessThanOrEqual`
-    /// and the dual [`never_below`](Self::never_below) `>=`; "never exceeds 220"
-    /// lets 220 pass).
-    #[must_use]
-    pub fn never_exceeds(self, value: impl Into<Rational>) -> Check {
+    /// `G(signal <= value)`: the signal never goes above `value`; `value`
+    /// itself is allowed (inclusive, matching the Agda core's
+    /// `LessThanOrEqual` and the dual [`never_below`](Self::never_below) `>=`;
+    /// "never exceeds 220" lets 220 pass).
+    ///
+    /// # Errors
+    /// The kernel's refusal of the check (see [`Check`]).
+    pub fn never_exceeds(self, value: impl Into<Rational>) -> Result<Check, Error> {
         let v = value.into();
         let f = always_pred(Predicate::LessThanOrEqual {
             signal: self.name.clone(),
             value: v,
         });
-        Check::new(f, self.name, op_desc("<= ", v))
+        checked(f, self.name, op_desc("<= ", v))
     }
 
-    /// `G(signal >= value)` — the signal never drops below `value`.
-    #[must_use]
-    pub fn never_below(self, value: impl Into<Rational>) -> Check {
+    /// `G(signal >= value)`: the signal never drops below `value`.
+    ///
+    /// # Errors
+    /// The kernel's refusal of the check (see [`Check`]).
+    pub fn never_below(self, value: impl Into<Rational>) -> Result<Check, Error> {
         let v = value.into();
         let f = always_pred(Predicate::GreaterThanOrEqual {
             signal: self.name.clone(),
             value: v,
         });
-        Check::new(f, self.name, op_desc(">= ", v))
+        checked(f, self.name, op_desc(">= ", v))
     }
 
     /// `G(lo <= signal <= hi)`.
     ///
     /// # Errors
-    /// [`Error::Validation`] if `lo > hi` (an inverted, always-false range).
+    /// The kernel's refusal of the check (see [`Check`]), a range whose `lo` is
+    /// above its `hi` among them.
     pub fn stays_between(
         self,
         lo: impl Into<Rational>,
         hi: impl Into<Rational>,
     ) -> Result<Check, Error> {
         let (lo, hi) = (lo.into(), hi.into());
-        if !lo.le(hi) {
-            return Err(Error::validation(format!(
-                "stays_between: lo ({}) must be <= hi ({})",
-                rat_str(lo),
-                rat_str(hi)
-            )));
-        }
         let f = always_pred(Predicate::Between {
             signal: self.name.clone(),
             min: lo,
             max: hi,
         });
-        Ok(Check::new(f, self.name, between_desc(lo, hi)))
+        checked(f, self.name, between_desc(lo, hi))
     }
 
-    /// `G(¬(signal == value))` — the signal never equals `value`.
-    #[must_use]
-    pub fn never_equals(self, value: impl Into<Rational>) -> Check {
+    /// `G(¬(signal == value))`: the signal never equals `value`.
+    ///
+    /// # Errors
+    /// The kernel's refusal of the check (see [`Check`]).
+    pub fn never_equals(self, value: impl Into<Rational>) -> Result<Check, Error> {
         let v = value.into();
         let f = Formula::never(Predicate::Equals {
             signal: self.name.clone(),
             value: v,
         });
-        Check::new(f, self.name, op_desc("!= ", v))
+        checked(f, self.name, op_desc("!= ", v))
     }
 
-    /// Begin an `equals(value).always()` chain.
+    /// Begin an `equals(value).always()` chain, which
+    /// [`SignalEquals::always`] checks.
     #[must_use]
     pub fn equals(self, value: impl Into<Rational>) -> SignalEquals {
         SignalEquals {
@@ -257,21 +249,19 @@ impl Signal {
         }
     }
 
-    /// Begin a `settles_between(lo, hi).within(ms)` chain. An inverted range is
-    /// captured and surfaced from [`Settles::within`] so the chain stays fluent.
+    /// Begin a `settles_between(lo, hi).within(bound)` chain, which
+    /// [`Settles::within`] checks, so the chain never breaks.
     #[must_use]
     pub fn settles_between(self, lo: impl Into<Rational>, hi: impl Into<Rational>) -> Settles {
-        let (lo, hi) = (lo.into(), hi.into());
         Settles {
-            range_ok: lo.le(hi),
             name: self.name,
-            lo,
-            hi,
+            lo: lo.into(),
+            hi: hi.into(),
         }
     }
 }
 
-/// Intermediate from [`Signal::equals`] — finish with [`SignalEquals::always`].
+/// Intermediate from [`Signal::equals`]; finish with [`SignalEquals::always`].
 #[derive(Debug, Clone)]
 pub struct SignalEquals {
     name: String,
@@ -279,60 +269,52 @@ pub struct SignalEquals {
 }
 
 impl SignalEquals {
-    /// `G(signal == value)` — the signal equals `value` at every step.
-    #[must_use]
-    pub fn always(self) -> Check {
+    /// `G(signal == value)`: the signal equals `value` at every step.
+    ///
+    /// # Errors
+    /// The kernel's refusal of the check (see [`Check`]).
+    pub fn always(self) -> Result<Check, Error> {
         let f = always_pred(Predicate::Equals {
             signal: self.name.clone(),
             value: self.value,
         });
-        Check::new(f, self.name, op_desc("= ", self.value))
+        checked(f, self.name, op_desc("= ", self.value))
     }
 }
 
-/// Intermediate from [`Signal::settles_between`] — finish with [`Settles::within`].
+/// Intermediate from [`Signal::settles_between`]; finish with [`Settles::within`].
 #[derive(Debug, Clone)]
 pub struct Settles {
     name: String,
     lo: Rational,
     hi: Rational,
-    range_ok: bool,
 }
 
 impl Settles {
-    /// `G≤ms(lo <= signal <= hi)` — the signal stays within `[lo, hi]` over the
-    /// first `ms` milliseconds.
+    /// `G≤bound(lo <= signal <= hi)`: the signal stays within `[lo, hi]` over
+    /// the first `bound` microseconds.
     ///
     /// # Errors
-    /// [`Error::Validation`] if the range was inverted (`lo > hi`) or `ms`
-    /// overflows the microsecond conversion.
-    pub fn within(self, ms: u64) -> Result<Check, Error> {
-        if !self.range_ok {
-            return Err(Error::validation(format!(
-                "settles_between: lo ({}) must be <= hi ({})",
-                rat_str(self.lo),
-                rat_str(self.hi)
-            )));
-        }
-        let bound = ms_to_bound(ms)?;
-        let f = Formula::always_within(
+    /// The kernel's refusal of the check (see [`Check`]), a range whose `lo` is
+    /// above its `hi` among them.
+    pub fn within(self, bound: TimeBound) -> Result<Check, Error> {
+        let f = Formula::MetricAlways {
             bound,
-            Formula::Atomic(Predicate::Between {
+            inner: Box::new(Formula::Atomic(Predicate::Between {
                 signal: self.name.clone(),
                 min: self.lo,
                 max: self.hi,
-            }),
-        );
-        let mut desc = between_desc(self.lo, self.hi);
-        desc.push(DescPart::Lit(format!(" within {ms}ms")));
-        Ok(Check::new(f, self.name, desc))
+            })),
+        };
+        let desc = within_desc(between_desc(self.lo, self.hi), bound);
+        checked(f, self.name, desc)
     }
 }
 
 // ── Causal when/then checks ──────────────────────────────────────────────────
 
 /// Begin a causal when/then check:
-/// `check::when("Brake").exceeds(50).then("Light").equals(1).within(100)`.
+/// `check::when("Brake").exceeds(50).then("Light").equals(1).within(TimeBound(100_000))?`.
 #[must_use]
 pub fn when(name: impl Into<String>) -> When {
     When { name: name.into() }
@@ -410,7 +392,7 @@ impl ThenSignal {
             signal: self.name.clone(),
             value: v,
         };
-        self.respond(response, op_desc("= ", v), None)
+        self.respond(response, op_desc("= ", v))
     }
     /// Response: the then-signal exceeds `value`.
     #[must_use]
@@ -420,42 +402,27 @@ impl ThenSignal {
             signal: self.name.clone(),
             value: v,
         };
-        self.respond(response, op_desc("> ", v), None)
+        self.respond(response, op_desc("> ", v))
     }
-    /// Response: the then-signal stays between `lo` and `hi` (inverted range is
-    /// surfaced from [`ThenCondition::within`]).
+    /// Response: the then-signal stays between `lo` and `hi`, which
+    /// [`ThenCondition::within`] checks, so the chain never breaks.
     #[must_use]
     pub fn stays_between(self, lo: impl Into<Rational>, hi: impl Into<Rational>) -> ThenCondition {
         let (lo, hi) = (lo.into(), hi.into());
-        let range_err = if lo.le(hi) {
-            None
-        } else {
-            Some(format!(
-                "then stays_between: lo ({}) must be <= hi ({})",
-                rat_str(lo),
-                rat_str(hi)
-            ))
-        };
         let response = Predicate::Between {
             signal: self.name.clone(),
             min: lo,
             max: hi,
         };
-        self.respond(response, between_desc(lo, hi), range_err)
+        self.respond(response, between_desc(lo, hi))
     }
 
-    fn respond(
-        self,
-        response: Predicate,
-        desc: Vec<DescPart>,
-        range_err: Option<String>,
-    ) -> ThenCondition {
+    fn respond(self, response: Predicate, desc: Vec<DescPart>) -> ThenCondition {
         ThenCondition {
             trigger: self.trigger,
             response,
             then_signal: self.name,
             then_desc: desc,
-            range_err,
         }
     }
 }
@@ -467,30 +434,26 @@ pub struct ThenCondition {
     response: Predicate,
     then_signal: String,
     then_desc: Vec<DescPart>,
-    /// The rendered inverted-range error (with `lo`/`hi`), captured from
-    /// `stays_between` and surfaced here so the chain stays fluent.
-    range_err: Option<String>,
 }
 
 impl ThenCondition {
-    /// `G(trigger → F≤ms(response))` — whenever the trigger holds, the response
-    /// must follow within `ms` milliseconds.
+    /// `G(trigger → F≤bound(response))`: whenever the trigger holds, the
+    /// response must follow within `bound` microseconds. The kernel checks the
+    /// whole formula, trigger included.
     ///
     /// # Errors
-    /// [`Error::Validation`] if a `stays_between` response range was inverted or
-    /// `ms` overflows the microsecond conversion.
-    pub fn within(self, ms: u64) -> Result<Check, Error> {
-        if let Some(err) = self.range_err {
-            return Err(Error::validation(err));
-        }
-        let bound = ms_to_bound(ms)?;
+    /// The kernel's refusal of the check (see [`Check`]), a `stays_between`
+    /// response whose `lo` is above its `hi` among them.
+    pub fn within(self, bound: TimeBound) -> Result<Check, Error> {
         let f = Formula::Always(Box::new(Formula::implies(
             Formula::Atomic(self.trigger),
-            Formula::eventually_within(bound, Formula::Atomic(self.response)),
+            Formula::MetricEventually {
+                bound,
+                inner: Box::new(Formula::Atomic(self.response)),
+            },
         )));
-        let mut desc = self.then_desc;
-        desc.push(DescPart::Lit(format!(" within {ms}ms")));
-        Ok(Check::new(f, self.then_signal, desc))
+        let desc = within_desc(self.then_desc, bound);
+        checked(f, self.then_signal, desc)
     }
 }
 
@@ -498,8 +461,9 @@ impl ThenCondition {
 mod tests {
     use super::*;
     use crate::backend::ensure_rts_for_test;
+    use crate::response::ErrorCode;
 
-    fn r(n: i64) -> Rational {
+    fn r(n: i128) -> Rational {
         Rational::integer(n)
     }
     fn atom(p: Predicate) -> Formula {
@@ -508,9 +472,10 @@ mod tests {
 
     #[test]
     fn never_exceeds_is_always_less_than_or_equal() {
-        // Inclusive: never_exceeds(v) compiles to G(s <= v), so s == v passes
-        // (matches Agda's LessThanOrEqual and the dual never_below's >=).
-        let c = signal("Speed").never_exceeds(120);
+        ensure_rts_for_test(); // the builder checks its formula, the description renders through the kernel
+                               // Inclusive: never_exceeds(v) compiles to G(s <= v), so s == v passes
+                               // (matches Agda's LessThanOrEqual and the dual never_below's >=).
+        let c = signal("Speed").never_exceeds(120).expect("valid");
         assert_eq!(
             *c.formula(),
             Formula::Always(Box::new(atom(Predicate::LessThanOrEqual {
@@ -519,13 +484,13 @@ mod tests {
             })))
         );
         assert_eq!(c.signal_name(), "Speed");
-        ensure_rts_for_test(); // condition_desc renders the threshold via the kernel
         assert_eq!(c.condition_desc().unwrap(), "<= 120");
     }
 
     #[test]
     fn never_below_is_always_gte() {
-        let c = signal("V").never_below(5);
+        ensure_rts_for_test(); // the builder checks its formula through the kernel
+        let c = signal("V").never_below(5).expect("valid");
         assert_eq!(
             *c.formula(),
             Formula::Always(Box::new(atom(Predicate::GreaterThanOrEqual {
@@ -537,7 +502,8 @@ mod tests {
 
     #[test]
     fn never_equals_is_never_of_equals() {
-        let c = signal("Mode").never_equals(3);
+        ensure_rts_for_test(); // the builder checks its formula, the description renders through the kernel
+        let c = signal("Mode").never_equals(3).expect("valid");
         assert_eq!(
             *c.formula(),
             Formula::never(Predicate::Equals {
@@ -545,13 +511,13 @@ mod tests {
                 value: r(3),
             })
         );
-        ensure_rts_for_test(); // condition_desc renders the threshold via the kernel
         assert_eq!(c.condition_desc().unwrap(), "!= 3");
     }
 
     #[test]
     fn equals_always_and_stays_between() {
-        let eq = signal("S").equals(1).always();
+        ensure_rts_for_test(); // each builder checks its formula through the kernel
+        let eq = signal("S").equals(1).always().expect("valid");
         assert_eq!(
             *eq.formula(),
             Formula::Always(Box::new(atom(Predicate::Equals {
@@ -572,32 +538,36 @@ mod tests {
 
     #[test]
     fn settles_between_within_is_always_within() {
+        ensure_rts_for_test(); // the builder checks its formula, the description renders through the kernel
         let c = signal("S")
             .settles_between(0, 10)
-            .within(100)
+            .within(TimeBound(100_000))
             .expect("valid");
         assert_eq!(
             *c.formula(),
-            Formula::always_within(
-                TimeBound(100_000),
-                atom(Predicate::Between {
+            Formula::MetricAlways {
+                bound: TimeBound(100_000),
+                inner: Box::new(atom(Predicate::Between {
                     signal: "S".to_string(),
                     min: r(0),
                     max: r(10),
-                })
-            )
+                })),
+            }
         );
-        ensure_rts_for_test(); // condition_desc renders the threshold via the kernel
-        assert_eq!(c.condition_desc().unwrap(), "between 0 and 10 within 100ms");
+        assert_eq!(
+            c.condition_desc().unwrap(),
+            "between 0 and 10 within 100000µs"
+        );
     }
 
     #[test]
     fn when_then_within_is_always_implies_eventually_within() {
+        ensure_rts_for_test(); // the builder checks its formula, the description renders through the kernel
         let c = when("Brake")
             .exceeds(50)
             .then("Light")
             .equals(1)
-            .within(100)
+            .within(TimeBound(1_500))
             .expect("valid");
         assert_eq!(
             *c.formula(),
@@ -606,52 +576,80 @@ mod tests {
                     signal: "Brake".to_string(),
                     value: r(50),
                 }),
-                Formula::eventually_within(
-                    TimeBound(100_000),
-                    atom(Predicate::Equals {
+                Formula::MetricEventually {
+                    bound: TimeBound(1_500),
+                    inner: Box::new(atom(Predicate::Equals {
                         signal: "Light".to_string(),
                         value: r(1),
-                    })
-                )
+                    })),
+                }
             )))
         );
         assert_eq!(c.signal_name(), "Light");
+        assert_eq!(c.condition_desc().unwrap(), "= 1 within 1500µs");
     }
 
     #[test]
     fn metadata_is_chainable() {
+        ensure_rts_for_test(); // the builder checks its formula through the kernel
         let c = signal("S")
             .never_exceeds(1)
+            .expect("valid")
             .named("limit")
             .with_severity("error");
         assert_eq!(c.name(), "limit");
         assert_eq!(c.severity(), "error");
     }
 
-    #[test]
-    fn inverted_and_overflow_ranges_error() {
-        assert!(signal("S").stays_between(10, 5).is_err());
-        assert!(signal("S").settles_between(10, 5).within(100).is_err());
-        assert!(signal("S").settles_between(0, 10).within(u64::MAX).is_err());
-        assert!(when("A")
-            .exceeds(1)
-            .then("B")
-            .stays_between(10, 5)
-            .within(100)
-            .is_err());
+    /// Assert that `built` is the kernel's refusal of an inverted range: a
+    /// validation error carrying the kernel's code and its message.
+    fn assert_inverted(built: Result<Check, Error>, min: i32, max: i32) {
+        let err = built.expect_err("an inverted range is refused");
+        assert!(
+            matches!(&err, Error::Validation { code: Some(code), located: None, .. }
+                if *code == ErrorCode::HandlerPropertyRefused),
+            "got: {err:?}"
+        );
+        assert_eq!(
+            err.to_string(),
+            format!("between: min {min} exceeds max {max}")
+        );
     }
 
     #[test]
-    fn inverted_range_error_renders_rational_via_kernel() {
-        ensure_rts_for_test(); // RTS up -> rat_str routes through format_rational
-        let err = signal("Speed")
-            .stays_between(Rational::new(1, 2).unwrap(), 0)
-            .unwrap_err();
-        // 1/2 renders as the exact decimal "0.5" (kernel format_rational, matching
-        // enrich.rs and the C++/Go/Python bindings), not rat_str's bare "1/2".
-        assert!(
-            format!("{err}").contains("0.5"),
-            "error should render 1/2 as the kernel decimal 0.5; got: {err}"
+    fn an_inverted_range_is_the_kernels_refusal_where_the_chain_finishes() {
+        ensure_rts_for_test(); // each builder checks its formula through the kernel
+        assert_inverted(signal("S").stays_between(10, 5), 10, 5);
+        assert_inverted(
+            signal("S").settles_between(10, 5).within(TimeBound(100)),
+            10,
+            5,
         );
+        assert_inverted(
+            when("A")
+                .exceeds(1)
+                .then("B")
+                .stays_between(10, 5)
+                .within(TimeBound(100)),
+            10,
+            5,
+        );
+    }
+
+    #[test]
+    fn a_window_reaches_from_zero_to_the_largest_time_bound() {
+        ensure_rts_for_test(); // each builder checks its formula through the kernel
+        for bound in [TimeBound(0), TimeBound(u64::MAX)] {
+            signal("S")
+                .settles_between(0, 10)
+                .within(bound)
+                .unwrap_or_else(|e| panic!("settles within {bound:?}: {e}"));
+            when("A")
+                .exceeds(1)
+                .then("B")
+                .equals(1)
+                .within(bound)
+                .unwrap_or_else(|e| panic!("when then within {bound:?}: {e}"));
+        }
     }
 }

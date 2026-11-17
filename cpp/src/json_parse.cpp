@@ -4,19 +4,21 @@
 #include "detail/bad_alloc.hpp"
 #include "detail/json.hpp"
 #include "detail/json_parse_helpers.hpp"
+#include "detail/reply_shape.hpp"
+#include "detail/wide_json.hpp"
 
-#include <aletheia/detail/checked.hpp>
 #include <aletheia/limits.hpp>
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <expected>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -90,6 +92,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"handler_stream_not_started", ErrorCode::HandlerStreamNotStarted},
     {"handler_stream_active", ErrorCode::HandlerStreamActive},
     {"handler_property_parse_failed", ErrorCode::HandlerPropertyParseFailed},
+    {"handler_property_refused", ErrorCode::HandlerPropertyRefused},
     {"handler_unknown_signal", ErrorCode::HandlerUnknownSignal},
     {"handler_validation_failed", ErrorCode::HandlerValidationFailed},
     {"handler_text_roundtrip_failed", ErrorCode::HandlerTextRoundtripFailed},
@@ -112,188 +115,20 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
 
 } // namespace
 
-auto error_code_from_string(std::string_view s) -> ErrorCode {
-    return lookup(error_code_table, s).value_or(ErrorCode::Unknown);
+auto error_code_from_string(std::string_view s) -> std::optional<ErrorCode> {
+    return lookup(error_code_table, s);
 }
 
 } // namespace aletheia
 
 namespace aletheia::detail {
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCode::Unknown)
-    -> AletheiaError {
-    return {kind, std::move(msg), code};
-}
-
-// Parse JSON with the `max_nesting_depth` bound enforced via nlohmann's
-// SAX-style parse callback.  Defense-in-depth against malformed-but-bound-
-// passing responses (the FFI-entry size cap fires first for oversize inputs;
-// a 1 MiB response with 10⁵ nesting still depth-bombs the recursive-descent
-// parser via stack overflow without this guard).  See AGENTS.md universal
-// rule "Adversarial-input bounds at parser surfaces".
-//
-// Throws `std::runtime_error` (not typed `InputBoundExceeded`) by design:
-// `InputBoundExceeded` carries the kernel-side `bound_kind / observed / limit`
-// triple, whose `bound_kind` is one of the kernel's own `BoundKind`
-// constructors (see `src/Aletheia/Limits.agda`).
-// JSON nesting depth is a client-side guard against malformed *responses*
-// from the kernel — not an inbound kernel input bound — so it doesn't fit
-// any `BoundKind` and the typed shape would be misleading.  wire_guarded,
-// which every parse_* runs inside, converts the `runtime_error` to a Protocol
-// `Result<>` error, the right semantic class (malformed/corrupted server reply).
-static auto parse_bounded(std::string_view input) -> Json {
-    auto const callback = [](int depth, Json::parse_event_t /*event*/, Json& /*parsed*/) -> bool {
-        if (std::cmp_greater(depth, max_nesting_depth)) {
-            throw std::runtime_error("JSON nesting depth " + std::to_string(depth) +
-                                     " exceeds limit " + std::to_string(max_nesting_depth));
-        }
-        return true;
-    };
-    return Json::parse(input, callback);
-}
-
-// Defined with the issue-code table further down; needed by the
-// handler_validation_failed lift below.
-static auto parse_issue_entry(Json const& issue) -> Result<ValidationIssue>;
-
-// Lift the structured issues array from a handler_validation_failed envelope
-// (parseDBC / parseDBCText rejects carry the same {severity, code, detail}
-// elements as a validation response).  `has_errors` and every `issues`
-// element must be present and well-typed for the lift to populate; a
-// malformed payload degrades to nullopt rather than a Protocol error, so the
-// AletheiaError still carries kind/code/message — the same rule as the
-// bound_info lift, lift_bound_info.
-static auto lift_validation_issues(Json const& j) -> std::optional<std::vector<ValidationIssue>> {
-    if (!j.contains("has_errors") || !j.at("has_errors").is_boolean() || !j.contains("issues") ||
-        !j.at("issues").is_array())
-        return std::nullopt;
-    std::vector<ValidationIssue> issues;
-    try {
-        for (auto const& issue : j.at("issues")) {
-            auto entry = parse_issue_entry(issue);
-            if (!entry)
-                return std::nullopt;
-            issues.push_back(std::move(entry).value());
-        }
-    } catch (Json::exception const&) {
-        // A non-object element or an ill-typed field throws from nlohmann's
-        // value(); degrade identically to a failed entry parse. Nothing else is
-        // caught: a check of this file's own that stops firing propagates.
-        return std::nullopt;
-    }
-    return issues;
-}
-
-// Lift the structured `bound_kind / observed / limit` triple, and the `field`
-// a DBC size bound adds, from an input_bound_exceeded envelope.  The triple
-// must be present and well-typed, and `field` absent or a string, for the lift
-// to populate; anything else degrades to nullopt rather than to a Protocol
-// error, so the AletheiaError still carries kind/code/message.
-static auto lift_bound_info(Json const& j) -> std::optional<InputBoundExceededError> {
-    if (!j.contains("bound_kind") || !j.at("bound_kind").is_string() || !j.contains("observed") ||
-        !j.at("observed").is_number_unsigned() || !j.contains("limit") ||
-        !j.at("limit").is_number_unsigned())
-        return std::nullopt;
-    std::optional<std::string> field;
-    if (j.contains("field")) {
-        if (!j.at("field").is_string())
-            return std::nullopt;
-        field = j.at("field").get<std::string>();
-    }
-    return InputBoundExceededError{
-        .bound_kind = j.at("bound_kind").get<std::string>(),
-        .observed = j.at("observed").get<std::uint64_t>(),
-        .limit = j.at("limit").get<std::uint64_t>(),
-        .field = std::move(field),
-    };
-}
-
-/// Extract error from a JSON response with status=="error", parsing the code field.
-///
-/// Both ``code`` and ``message`` must be non-null strings — a missing or
-/// non-string value surfaces as a ``Protocol`` error rather than being
-/// papered over with a default, which would turn a malformed response into a
-/// plausible-looking one. Matches Python's ``build_error_response``.
-static auto make_json_error(ErrorKind kind, Json const& j) -> AletheiaError {
-    if (!j.contains("code") || !j.at("code").is_string())
-        return make_error(ErrorKind::Protocol, "Error response missing or non-string 'code' field");
-    if (!j.contains("message") || !j.at("message").is_string())
-        return make_error(ErrorKind::Protocol,
-                          "Error response missing or non-string 'message' field");
-    auto const code = error_code_from_string(j.at("code").get<std::string>());
-    // The bound code carries its own kind whatever the caller guessed from the
-    // response section, so the typed bound-info shape is uniform across the
-    // JSON, DBC-text and binary parser surfaces, as in the Python and Go
-    // bindings' typed input-bound errors.
-    auto effective_kind =
-        code == ErrorCode::InputBoundExceeded ? ErrorKind::InputBoundExceeded : kind;
-    // A round-trip refusal gets its own kind regardless of the caller's default,
-    // so a caller discriminates it from a structural validation failure by kind().
-    if (code == ErrorCode::HandlerTextRoundtripFailed)
-        effective_kind = ErrorKind::TextRoundtrip;
-    std::optional<InputBoundExceededError> bound_info;
-    if (effective_kind == ErrorKind::InputBoundExceeded)
-        bound_info = lift_bound_info(j);
-    std::optional<std::vector<ValidationIssue>> issues;
-    if (code == ErrorCode::HandlerValidationFailed || code == ErrorCode::HandlerTextRoundtripFailed)
-        issues = lift_validation_issues(j);
-    return AletheiaError{effective_kind, j.at("message").get<std::string>(), code,
-                         std::move(bound_info), std::move(issues)};
-}
-
-// Decode a JSON {numerator, denominator} object into a Rational, validating
-// den > 0.  Caller is responsible for first verifying
-// `j.is_object() && j.contains("numerator") && j.contains("denominator")`.
-static auto parse_rational_dict(Json const& j) -> Rational {
-    auto const num = require_int<std::int64_t>(j.at("numerator"), "rational numerator");
-    auto const den = require_int<std::int64_t>(j.at("denominator"), "rational denominator");
-    // The kernel emits rationals with a positive denominator (the ℕ⁺ invariant),
-    // so a non-positive denominator is a wire-format violation — rejected here
-    // rather than silently sign-normalized.  Mirrors Python
-    // (extract_rational_from_dict), Go (parseRational), and Rust (Rational::new),
-    // which all reject den <= 0 at the wire instead of rewriting it, so a
-    // malformed payload surfaces rather than hiding.
-    auto const rational = Rational::make(num, den);
-    if (!rational)
-        throw std::runtime_error("Non-positive denominator in rational: " + j.dump());
-    return rational.value();
-}
-
-// Decode a binary-output entry's refusal envelope (declared in detail/json.hpp)
-// with the JSON path's own `make_json_error`, so the code, the message and any
-// structured fields surface as they do on a JSON response.
-auto binary_refusal(std::string_view envelope, ErrorKind coded) -> AletheiaError {
-    try {
-        auto const j = parse_bounded(envelope);
-        if (j.value("status", "") != "error")
-            return make_error(ErrorKind::Protocol,
-                              "Error envelope without status \"error\": " + std::string{envelope});
-        return make_json_error(coded, j);
-    } catch (std::exception const& e) {
-        rethrow_if_bad_alloc(e);
-        return make_error(ErrorKind::Protocol,
-                          "Malformed error envelope " + std::string{envelope} + ": " + e.what());
-    }
-}
-
-// Agda emits an exact rational as an integer or as
-// {"numerator": n, "denominator": d}.  A bare float is rejected: the wire
-// carries exact rationals only, so a float is a wire-format violation rather
-// than a value to approximate, which is how the Go, Rust and Python decoders
-// treat it too.  Throws on any other shape; callers catch at the public API
-// boundary.
-auto parse_rational(Json const& j) -> Rational {
-    if (j.is_number_integer())
-        return Rational::integer(require_int<std::int64_t>(j, "rational integer"));
-    // contains() answers false on anything but an object, so it is the one test.
-    if (j.contains("numerator") && j.contains("denominator"))
-        return parse_rational_dict(j);
-    throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
-}
+// Every reader below requires each key the kernel writes and reads each place
+// by kind only, refusing what the kernel never writes there in the one form of
+// detail/reply_shape.hpp: the ranges and the tags are the kernel's, proven of
+// every reply. An issue's severity and code, an error reply's code, a property
+// result's type and status and a stream warning's kind are each refused outside
+// their set.
 
 // String → IssueCode lookup table.  Same shape as `error_code_table` at the
 // top of this file; linear scan is fine on the cold validation path.
@@ -328,56 +163,131 @@ constexpr auto issue_code_table = std::to_array<IssueCodeEntry>({
     {"attribute_enum_empty", IssueCode::AttributeEnumEmpty},
     {"attribute_enum_default_unstable", IssueCode::AttributeEnumDefaultUnstable},
     {"range_exceeds_bits", IssueCode::RangeExceedsBits},
+    {"value_description_key_out_of_range", IssueCode::ValueDescriptionKeyOutOfRange},
 });
 
-static auto parse_issue_code(std::string_view s) -> IssueCode {
-    return lookup(issue_code_table, s).value_or(IssueCode::Unknown);
+// The severities the kernel writes.
+constexpr auto severity_table = std::to_array<std::pair<std::string_view, IssueSeverity>>({
+    {"error", IssueSeverity::Error},
+    {"warning", IssueSeverity::Warning},
+});
+
+// One validation issue at `path`: its code, one of the issue codes, its detail
+// string and its severity, one of the severities.
+static auto read_issue(Json const& issue, ReplyPath const& path) -> ValidationIssue {
+    auto const code = field_member(issue, path, "code", issue_code_table, expect_issue_code);
+    auto detail = field_string(issue, path, "detail");
+    auto const severity = field_member(issue, path, "severity", severity_table);
+    return ValidationIssue{.severity = severity, .code = code, .detail = std::move(detail)};
 }
 
-// Parse one validation-issue entry ({severity, code, detail}); shared by the
-// validate-response and parsed-DBC-warnings decoders.
-static auto parse_issue_entry(Json const& issue) -> Result<ValidationIssue> {
-    auto const sev_str = issue.value("severity", "");
-    constexpr auto severities = std::to_array<std::pair<std::string_view, IssueSeverity>>({
-        {"error", IssueSeverity::Error},
-        {"warning", IssueSeverity::Warning},
-    });
-    auto const severity = lookup(severities, sev_str);
-    if (!severity)
-        return std::unexpected(
-            make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
-    auto const code_str = issue.value("code", "");
-    return ValidationIssue{
-        .severity = severity.value(),
-        .code = parse_issue_code(code_str),
-        .code_raw = code_str,
-        .detail = issue.value("detail", ""),
+// The issues at `key` of a reply's root: a validation reply's, a DBC
+// refusal's, a parsed DBC's warnings or a DBC text's issues.
+static auto read_issues(Json const& reply, std::string_view key) -> std::vector<ValidationIssue> {
+    return field_objects(reply, ReplyPath{}, key, read_issue);
+}
+
+namespace {
+
+// The has_errors flag and the issues an envelope carries, a validation reply
+// or a DBC refusal, both of which the kernel writes on it.
+struct IssuesPayload {
+    std::vector<ValidationIssue> issues;
+    bool has_errors = false;
+};
+
+} // namespace
+
+static auto read_issues_payload(Json const& reply) -> IssuesPayload {
+    auto const has_errors = field_bool(reply, ReplyPath{}, "has_errors");
+    return IssuesPayload{.issues = read_issues(reply, "issues"), .has_errors = has_errors};
+}
+
+// The keys of a bound refusal's triple.
+constexpr auto bound_triple_keys =
+    std::to_array<std::string_view>({"bound_kind", "observed", "limit"});
+
+// The bound a refusal says was crossed, nullopt for an envelope of another
+// code. An envelope of any code holding part of the triple holds it whole,
+// with a string `field` if it names one, and a bound refusal holds the triple
+// always; each broken key is refused at its place. The kernel proves the
+// observed size and the limit positive, so they are read with no range check.
+static auto read_bound_info(Json const& envelope, ErrorCode code)
+    -> std::optional<InputBoundExceededError> {
+    ReplyPath const root;
+    auto const held = std::ranges::any_of(
+        bound_triple_keys, [&](std::string_view key) { return envelope.contains(key); });
+    if (!held) {
+        if (code == ErrorCode::InputBoundExceeded)
+            throw reply_refusal(root.at("bound_kind"), expect_string, came(envelope, "bound_kind"));
+        return std::nullopt;
+    }
+    auto bound = InputBoundExceededError{
+        .bound_kind = field_string(envelope, root, "bound_kind"),
+        .observed = field_uint128(envelope, root, "observed"),
+        .limit = field_uint128(envelope, root, "limit"),
+        .field = envelope.contains("field") ? std::optional{field_string(envelope, root, "field")}
+                                            : std::nullopt,
     };
+    if (code != ErrorCode::InputBoundExceeded)
+        return std::nullopt;
+    return bound;
 }
 
-// The same wire shapes in an integer position: the rational must reduce to a
-// whole number (parse_rational_dict has already refused a non-positive
-// denominator, so the division is safe).
-static auto parse_rational_as_int(Json const& j) -> std::int64_t {
-    auto const r = parse_rational(j);
-    if (r.numerator() % r.denominator() != 0)
-        throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
-    return r.numerator() / r.denominator();
+// The error an error envelope carries, its code, one of the error codes, and
+// its message string. It is typed `kind` unless its code names its own: a
+// bound refusal is InputBoundExceeded with its bound, as the Python and Go
+// bindings' typed input-bound errors are, and a round-trip refusal
+// TextRoundtrip, so a caller tells it from a structural validation failure by
+// kind(). A validation or round-trip refusal carries its issues, the element
+// shape of a validation reply. A place of the envelope holding what the kernel
+// never writes there is refused.
+static auto envelope_error(Json const& envelope, ErrorKind kind) -> AletheiaError {
+    ReplyPath const root;
+    auto const code = field_member(envelope, root, "code", error_code_table, expect_error_code);
+    auto message = field_string(envelope, root, "message");
+    auto bound_info = read_bound_info(envelope, code);
+    std::optional<std::vector<ValidationIssue>> issues;
+    if (code == ErrorCode::HandlerValidationFailed || code == ErrorCode::HandlerTextRoundtripFailed)
+        issues = read_issues_payload(envelope).issues;
+    auto effective_kind = kind;
+    if (code == ErrorCode::InputBoundExceeded)
+        effective_kind = ErrorKind::InputBoundExceeded;
+    if (code == ErrorCode::HandlerTextRoundtripFailed)
+        effective_kind = ErrorKind::TextRoundtrip;
+    return AletheiaError{effective_kind, std::move(message), code, std::move(bound_info),
+                         std::move(issues)};
+}
+
+// Decode a binary-output entry's refusal envelope (declared in detail/json.hpp)
+// as the JSON path decodes an error reply, so the code, the message and any
+// structured fields surface as they do on a JSON response. Text that is not an
+// envelope, or an envelope that is not an error, is the library malfunctioning,
+// refused in the form of every reply place, which names no entry.
+auto binary_refusal(std::string_view envelope, ErrorKind coded) -> AletheiaError {
+    try {
+        auto const reply = read_reply(envelope);
+        field_status(reply, ReplyPath{}, "status", {ReplyStatus::Error});
+        return envelope_error(reply, coded);
+    } catch (std::exception const& e) {
+        rethrow_if_bad_alloc(e);
+        return AletheiaError{ErrorKind::Protocol, e.what()};
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Public parsing functions
 //
-// Each function runs inside wire_guarded, which answers what JSON access and
-// validated-type construction throw as a Protocol error: the text is the
-// kernel's reply, so a shape it does not have is a fault of the wire.
+// Each function runs inside wire_guarded, which answers what a reader throws
+// as a Protocol error: the text is the kernel's reply, so a shape it does not
+// have is a fault of the wire.
 // ---------------------------------------------------------------------------
 
 // The Protocol error a parse's exception is, called from the handler so
 // std::bad_alloc leaves as it came; one function, whatever the parse.
 static auto wire_fault(std::exception const& e) -> std::unexpected<AletheiaError> {
     rethrow_if_bad_alloc(e);
-    return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
+    return std::unexpected(AletheiaError{ErrorKind::Protocol, e.what()});
 }
 
 template<typename Parse>
@@ -389,138 +299,126 @@ static auto wire_guarded(Parse parse) -> decltype(parse()) {
     }
 }
 
+// The reply `raw` holds when its status is `want`; an error reply is the error
+// it carries, typed `kind` unless its code names its own. Every parser below
+// but the frame response's opens with it, so a reply that is malformed, an
+// error, or not the answer to the command asked is refused in one place.
+static auto decode_reply(std::string_view raw, ReplyStatus want, ErrorKind kind) -> Result<Json> {
+    auto reply = read_reply(raw);
+    if (field_status(reply, ReplyPath{}, "status", {want, ReplyStatus::Error}) ==
+        ReplyStatus::Error)
+        return std::unexpected(envelope_error(reply, kind));
+    return reply;
+}
+
 auto parse_success(std::string_view input) -> Result<void> {
     return wire_guarded([&] -> Result<void> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-        if (status == "success")
-            return {};
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-        return std::unexpected(make_error(ErrorKind::Protocol, "Unexpected status: " + status));
+        return decode_reply(input, ReplyStatus::Success, ErrorKind::Protocol)
+            .transform([](Json const& /*reply*/) {});
     });
 }
 
 auto parse_event_ack(std::string_view input) -> Result<void> {
     return wire_guarded([&] -> Result<void> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-        if (status == "ack")
-            return {};
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-        return std::unexpected(make_error(ErrorKind::Protocol, "Unexpected status: " + status));
+        return decode_reply(input, ReplyStatus::Ack, ErrorKind::Protocol)
+            .transform([](Json const& /*reply*/) {});
     });
 }
 
 auto parse_validation(std::string_view input) -> Result<ValidationResult> {
     return wire_guarded([&] -> Result<ValidationResult> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Validation, j));
-        if (status != "validation")
-            return std::unexpected(make_error(ErrorKind::Protocol, "Expected validation response"));
-
-        std::vector<ValidationIssue> issues;
-        for (auto const& issue : j.at("issues")) {
-            auto entry = parse_issue_entry(issue);
-            if (!entry)
-                return std::unexpected(detail::error_of(entry));
-            issues.push_back(std::move(entry).value());
-        }
-        return ValidationResult{
-            .has_errors = j.value("has_errors", false),
-            .issues = std::move(issues),
-        };
+        return decode_reply(input, ReplyStatus::Validation, ErrorKind::Validation)
+            .transform([](Json const& reply) {
+                auto payload = read_issues_payload(reply);
+                return ValidationResult{.has_errors = payload.has_errors,
+                                        .issues = std::move(payload.issues)};
+            });
     });
+}
+
+// One extracted value at `path`: the signal's name and its exact value.
+static auto read_signal_value(Json const& v, ReplyPath const& path) -> SignalValue {
+    return SignalValue{
+        .name = SignalName{field_string(v, path, "name")},
+        .value = PhysicalValue{field_rational(v, path, "value")},
+    };
+}
+
+// One extraction error at `path`: the signal's name and the kernel's reason.
+static auto read_signal_error(Json const& e, ReplyPath const& path) -> SignalError {
+    return SignalError{
+        .name = SignalName{field_string(e, path, "name")},
+        .reason = field_string(e, path, "error"),
+    };
 }
 
 auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
     return wire_guarded([&] -> Result<ExtractionResult> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-        if (status != "success")
-            return std::unexpected(
-                make_error(ErrorKind::Protocol, "Unexpected extraction status: " + status));
-
-        std::vector<SignalValue> values;
-        for (auto const& v : j.value("values", Json::array()))
-            values.emplace_back(SignalName{v.at("name").get<std::string>()},
-                                PhysicalValue{parse_rational(v.at("value"))});
-
-        std::vector<SignalError> errors;
-        for (auto const& e : j.value("errors", Json::array()))
-            errors.emplace_back(SignalName{e.at("name").get<std::string>()}, e.value("error", ""));
-
-        std::vector<SignalName> absent;
-        for (auto const& a : j.value("absent", Json::array()))
-            absent.emplace_back(a.get<std::string>());
-
-        return ExtractionResult{
-            .values = std::move(values),
-            .errors = std::move(errors),
-            .absent = std::move(absent),
-        };
+        return decode_reply(input, ReplyStatus::Success, ErrorKind::Protocol)
+            .transform([](Json const& reply) {
+                ReplyPath const root;
+                return ExtractionResult{
+                    .values = field_objects(reply, root, "values", read_signal_value),
+                    .errors = field_objects(reply, root, "errors", read_signal_error),
+                    .absent = field_strings<SignalName>(reply, root, "absent"),
+                };
+            });
     });
 }
 
+// A payload out of a JSON reply. Only the mock backend answers this way; the
+// library returns the bytes themselves. A number past a byte, which the
+// kernel never writes, is refused as the number the place does not hold.
 auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
     return wire_guarded([&] -> Result<FramePayload> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-        if (status != "success")
-            return std::unexpected(
-                make_error(ErrorKind::Protocol, "Unexpected frame data status: " + status));
-
-        auto const& data = j.at("data");
-        FramePayload payload;
-        for (auto const& byte_val : data)
-            payload.push_back(
-                static_cast<std::byte>(require_uint<std::uint8_t>(byte_val, "frame data byte")));
-        return payload;
+        return decode_reply(input, ReplyStatus::Success, ErrorKind::Protocol)
+            .transform([](Json const& reply) {
+                ReplyPath const root;
+                auto const place = root.at("data");
+                FramePayload payload;
+                for (auto const& byte : field_array(reply, root, "data"))
+                    payload.push_back(
+                        static_cast<std::byte>(read_unsigned<std::uint8_t>(byte, place)));
+                return payload;
+            });
     });
 }
 
-// Parse one inner per-property verdict object — shared between the
-// streaming PropertyBatch path (frame response) and the EndStream
-// StreamResult path (parse_stream_result).
-static auto parse_property_result_entry(Json const& r) -> PropertyResult {
-    auto const entry_status = r.value("status", "");
-    constexpr auto verdicts = std::to_array<std::pair<std::string_view, Verdict>>({
-        {"holds", Verdict::Holds},
-        {"fails", Verdict::Fails},
-        {"unresolved", Verdict::Unresolved},
-    });
-    auto const verdict = lookup(verdicts, entry_status);
-    if (!verdict)
-        throw std::runtime_error("Unknown verdict status: " + entry_status);
-    auto const idx = parse_rational_as_int(r.at("property_index"));
-    if (idx < 0)
-        throw std::runtime_error("Negative property_index: " + std::to_string(idx));
+// The verdicts the kernel writes.
+constexpr auto verdict_table = std::to_array<std::pair<std::string_view, Verdict>>({
+    {"fails", Verdict::Fails},
+    {"holds", Verdict::Holds},
+    {"unresolved", Verdict::Unresolved},
+});
 
-    std::optional<Timestamp> ts;
-    if (r.contains("timestamp")) {
-        auto const ts_val = parse_rational_as_int(r.at("timestamp"));
-        if (ts_val < 0)
-            throw std::runtime_error("Negative timestamp: " + std::to_string(ts_val));
-        ts = Timestamp{ts_val};
-    }
+// The type, the status and the property index every verdict carries.
+static auto read_verdict(Json const& r, ReplyPath const& path) -> PropertyResult {
+    field_word(r, path, "type", {"property"});
+    auto const verdict = field_member(r, path, "status", verdict_table);
+    auto const index = field_unsigned<std::size_t>(r, path, "property_index");
+    return PropertyResult{.property_index = PropertyIndex{index}, .verdict = verdict};
+}
 
-    std::string reason;
-    if (r.contains("reason") && r.at("reason").is_string())
-        reason = r.at("reason").get<std::string>();
+// The timestamp at `path`, which echoes a frame's: the binding sends every
+// timestamp as an int64, so a number past one, which the kernel never writes
+// back, is refused as the number the place does not hold.
+static auto read_timestamp(Json const& r, ReplyPath const& path) -> Timestamp {
+    auto const microseconds = field_unsigned<std::uint64_t>(r, path, "timestamp");
+    if (!std::in_range<Timestamp::rep>(microseconds))
+        throw reply_refusal(path.at("timestamp"), expect_number, came(r, "timestamp"));
+    return Timestamp{static_cast<Timestamp::rep>(microseconds)};
+}
 
-    return PropertyResult{
-        .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-        .verdict = verdict.value(),
-        .timestamp = ts,
-        .reason = std::move(reason),
-    };
+// One event of a frame's batch at `path`: its verdict, the timestamp of the
+// frame that broke the property on a failure, and a reason on every verdict
+// but a hold.
+static auto read_property_event(Json const& r, ReplyPath const& path) -> PropertyResult {
+    auto result = read_verdict(r, path);
+    if (result.verdict == Verdict::Fails)
+        result.timestamp = read_timestamp(r, path);
+    if (result.verdict != Verdict::Holds)
+        result.reason = field_string(r, path, "reason");
+    return result;
 }
 
 auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
@@ -533,151 +431,91 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         return FrameResponse{Ack{}};
 
     return wire_guarded([&] -> Result<FrameResponse> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-
-        if (status == "ack")
-            return FrameResponse{Ack{}};
-
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-
-        // A streaming PropertyResponse is a batch envelope
-        // `{"type": "property_batch", "results": [...]}`.  Each results entry
-        // is a PropertyResult (holds/fails/unresolved); a violation closes the
-        // batch, in source order, per the Agda dispatchIterResult invariant.
-        if (j.value("type", "") == "property_batch") {
-            auto const& raw_results = j.at("results");
-            if (!raw_results.is_array() || raw_results.empty())
-                throw std::runtime_error(
-                    "property_batch response 'results' must be a non-empty array "
-                    "(zero-event frames are encoded as ack)");
-            std::vector<PropertyResult> results;
-            for (auto const& r : raw_results)
-                results.push_back(parse_property_result_entry(r));
-            return FrameResponse{PropertyBatch{.results = std::move(results)}};
+        auto const reply = read_reply(input);
+        ReplyPath const root;
+        // A batch carries no status of its own, each of its events carrying
+        // one, and is told by its type.
+        if (reply.contains("status")) {
+            if (field_status(reply, root, "status", {ReplyStatus::Ack, ReplyStatus::Error}) ==
+                ReplyStatus::Ack)
+                return FrameResponse{Ack{}};
+            return std::unexpected(envelope_error(reply, ErrorKind::Protocol));
         }
-
-        return std::unexpected(
-            make_error(ErrorKind::Protocol, "Unexpected frame response: status=" + status +
-                                                " type=" + j.value("type", "")));
+        field_word(reply, root, "type", {"property_batch"});
+        return FrameResponse{
+            PropertyBatch{.results = field_objects(reply, root, "results", read_property_event)}};
     });
 }
 
-// Parse one entry in the `warnings` array.  Kept apart from
-// `parse_stream_result` so that function stays under clang-tidy's
-// cognitive-complexity threshold.
-static auto parse_stream_warning_entry(Json const& w) -> StreamWarning {
-    if (!w.contains("property_index"))
-        throw std::runtime_error("Warning entry missing required 'property_index' field");
-    auto kind = w.value("kind", "");
-    auto const idx = parse_rational_as_int(w.at("property_index"));
-    if (idx < 0)
-        throw std::runtime_error("Negative warning property_index: " + std::to_string(idx));
-    auto detail = w.value("detail", "");
+// One end-of-stream verdict at `path`. A failure carries the timestamp of the
+// frame that broke the property, and an unresolved verdict a timestamp only
+// where its key holds one: an absent or null key is no timestamp.
+static auto read_property_result(Json const& r, ReplyPath const& path) -> PropertyResult {
+    auto result = read_verdict(r, path);
+    if (result.verdict == Verdict::Holds)
+        return result;
+    if (result.verdict == Verdict::Fails || holds_non_null(r, "timestamp"))
+        result.timestamp = read_timestamp(r, path);
+    result.reason = field_string(r, path, "reason");
+    return result;
+}
+
+// One end-of-stream warning at `path`.
+static auto read_stream_warning(Json const& w, ReplyPath const& path) -> StreamWarning {
+    field_word(w, path, "kind", {"uncached_atom"});
     return StreamWarning{
-        .kind = std::move(kind),
-        .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-        .detail = std::move(detail),
+        .kind = WarningKind::UncachedAtom,
+        .property_index = PropertyIndex{field_unsigned<std::size_t>(w, path, "property_index")},
+        .detail = field_string(w, path, "detail"),
     };
 }
 
 auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
     return wire_guarded([&] -> Result<StreamResult> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-        if (status != "complete")
-            return std::unexpected(make_error(ErrorKind::Protocol, "Expected complete response"));
-
-        std::vector<PropertyResult> results;
-        for (auto const& r : j.at("results"))
-            results.push_back(parse_property_result_entry(r));
-
-        std::vector<StreamWarning> warnings;
-        if (j.contains("warnings")) {
-            for (auto const& w : j.at("warnings"))
-                warnings.push_back(parse_stream_warning_entry(w));
-        }
-        return StreamResult{.results = std::move(results), .warnings = std::move(warnings)};
+        return decode_reply(input, ReplyStatus::Complete, ErrorKind::Protocol)
+            .transform([](Json const& reply) {
+                ReplyPath const root;
+                return StreamResult{
+                    .results = field_objects(reply, root, "results", read_property_result),
+                    .warnings = field_objects(reply, root, "warnings", read_stream_warning),
+                };
+            });
     });
 }
 
 auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
     return wire_guarded([&] -> Result<DbcDefinition> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-        if (status != "success")
-            return std::unexpected(
-                make_error(ErrorKind::Protocol, "Unexpected DBC response status: " + status));
-        if (!j.contains("dbc"))
-            return std::unexpected(
-                make_error(ErrorKind::Protocol, "Missing 'dbc' field in response"));
-        return parse_dbc_definition(j.at("dbc"));
+        return decode_reply(input, ReplyStatus::Success, ErrorKind::Protocol)
+            .transform([](Json const& reply) {
+                return parse_dbc_definition(field_object(reply, ReplyPath{}, "dbc"));
+            });
     });
 }
 
 auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
     return wire_guarded([&] -> Result<ParsedDBC> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-        if (status != "success")
-            return std::unexpected(
-                make_error(ErrorKind::Protocol, "Unexpected parsed-DBC status: " + status));
-        if (!j.contains("dbc"))
-            return std::unexpected(
-                make_error(ErrorKind::Protocol, "Missing 'dbc' field in parsed-DBC response"));
-        auto dbc = parse_dbc_definition(j.at("dbc"));
-
-        std::vector<ValidationIssue> warnings;
-        if (j.contains("warnings")) {
-            for (auto const& issue : j.at("warnings")) {
-                auto entry = parse_issue_entry(issue);
-                if (!entry)
-                    return std::unexpected(detail::error_of(entry));
-                warnings.push_back(std::move(entry).value());
-            }
-        }
-        return ParsedDBC{.dbc = std::move(dbc), .warnings = std::move(warnings)};
+        return decode_reply(input, ReplyStatus::Success, ErrorKind::Protocol)
+            .transform([](Json const& reply) {
+                ReplyPath const root;
+                auto const& dbc = field_object(reply, root, "dbc");
+                // The warnings are held to an array before the DBC is read, so a
+                // reply broken at both is refused at its warnings, as the other
+                // bindings refuse it.
+                static_cast<void>(field_array(reply, root, "warnings"));
+                auto definition = parse_dbc_definition(dbc);
+                return ParsedDBC{.dbc = std::move(definition),
+                                 .warnings = read_issues(reply, "warnings")};
+            });
     });
 }
 
 auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
     return wire_guarded([&] -> Result<DbcText> {
-        auto const j = parse_bounded(input);
-        auto const status = j.value("status", "");
-        if (status == "error")
-            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
-        if (status != "success")
-            return std::unexpected(make_error(
-                ErrorKind::Protocol, "Unexpected formatDBCText response status: " + status));
-        if (!j.contains("text") || !j.at("text").is_string())
-            return std::unexpected(
-                make_error(ErrorKind::Protocol,
-                           "Missing or non-string 'text' field in formatDBCText response"));
-        // Absent issues → empty; a present-but-non-array issues field is a
-        // protocol error, not silently harvested (nlohmann range-for over an
-        // object would iterate its values).  Parity with the Python/Go/Rust
-        // decoders; mirrors the is_array() guard in lift_validation_issues.
-        std::vector<ValidationIssue> issues;
-        if (j.contains("issues")) {
-            if (!j.at("issues").is_array())
-                return std::unexpected(make_error(
-                    ErrorKind::Protocol, "'issues' must be an array in formatDBCText response"));
-            for (auto const& issue : j.at("issues")) {
-                auto entry = parse_issue_entry(issue);
-                if (!entry)
-                    return std::unexpected(detail::error_of(entry));
-                issues.push_back(std::move(entry).value());
-            }
-        }
-        return DbcText{.text = j.at("text").get<std::string>(), .issues = std::move(issues)};
+        return decode_reply(input, ReplyStatus::Success, ErrorKind::Protocol)
+            .transform([](Json const& reply) {
+                return DbcText{.text = field_string(reply, ReplyPath{}, "text"),
+                               .issues = read_issues(reply, "issues")};
+            });
     });
 }
 
@@ -703,14 +541,6 @@ auto to_string(IssueCode code) -> std::string_view {
         if (c == code)
             return name;
     return "unknown";
-}
-
-auto issue_code_label(ValidationIssue const& issue) -> std::string_view {
-    // Preserve the original wire string for an unrecognized code so a future
-    // core code round-trips instead of degrading to the literal "unknown".
-    if (issue.code == IssueCode::Unknown && !issue.code_raw.empty())
-        return issue.code_raw;
-    return to_string(issue.code);
 }
 
 } // namespace aletheia

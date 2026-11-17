@@ -280,6 +280,7 @@ def test_each_gate_is_named_in_the_log_as_its_step_is() -> None:
         "json-cleanup-abort",
         "mull-plugin-facts",
         "mutmut-operators",
+        "mutmut-witness",
     ]
 
 

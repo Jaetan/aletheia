@@ -45,6 +45,10 @@ Python DSL for LTL Properties
 Use the fluent Signal interface to build properties:
 
 ```python
+from aletheia import start_runtime
+
+start_runtime(1)
+
 # Temporal operators
 Signal("Speed").less_than(220).always()
 Signal("DoorClosed").equals(1).eventually()
@@ -55,7 +59,7 @@ brake = Signal("Brake").equals(1)
 throttle = Signal("Throttle")
 speed_decreases = Signal("Speed").changed_by(-10)
 brake.and_(throttle.equals(0))
-brake.implies(speed_decreases.within(100)).always()
+brake.implies(speed_decreases.within(100_000)).always()
 ```
 """
 

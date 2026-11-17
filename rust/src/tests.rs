@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use super::*;
 
 /// Correctness gate for the binary extraction fast path: the packed-binary
@@ -75,8 +78,8 @@ fn extract_binary_path_matches_json_path() {
 /// formula DSL (every predicate names a signal), so this drives the private
 /// state directly: when no todo diagnostic wants any signal, end-of-stream
 /// enrichment must skip the frame snapshot + extraction loop entirely (zero
-/// backend calls, hence no `enrichment.extraction_failed` warns) while
-/// still attaching the no-values enrichment to every todo result.
+/// backend calls, hence no extraction refusal to return) while still
+/// attaching the no-values enrichment to every todo result.
 #[test]
 fn enrich_eos_skips_extraction_when_no_diag_wants_signals() {
     let m = MockBackend::new();
@@ -100,7 +103,8 @@ fn enrich_eos_skips_extraction_when_no_diag_wants_signals() {
         enrichment: None,
     }];
 
-    c.enrich_eos(&mut results);
+    c.enrich_eos(&mut results)
+        .expect("a skipped extraction refuses nothing");
 
     assert!(
         !m.captured()
@@ -116,5 +120,147 @@ fn enrich_eos_skips_extraction_when_no_diag_wants_signals() {
     assert_eq!(
         e.enriched_reason, "violated: always(TRUE) [core: x]",
         "the no-values fallback reason must be used"
+    );
+}
+
+/// A backend that hands every call to the FFI backend and counts the
+/// extractions by path: `binary` the packed buffer, which the client reads
+/// with its cached signal names, `json` the kernel's JSON reply, which it
+/// reads without them.
+struct PathCounting {
+    inner: FfiBackend,
+    binary: Rc<Cell<usize>>,
+    json: Rc<Cell<usize>>,
+}
+
+impl Backend for PathCounting {
+    fn process(&self, input: &str) -> Result<String, Error> {
+        self.inner.process(input)
+    }
+    fn send_frame_binary(
+        &self,
+        ts: Timestamp,
+        id: CanId,
+        dlc: Dlc,
+        data: &[u8],
+        brs: Option<bool>,
+        esi: Option<bool>,
+    ) -> Result<String, Error> {
+        self.inner.send_frame_binary(ts, id, dlc, data, brs, esi)
+    }
+    fn send_error_binary(&self, ts: Timestamp) -> Result<String, Error> {
+        self.inner.send_error_binary(ts)
+    }
+    fn send_remote_binary(&self, ts: Timestamp, id: CanId) -> Result<String, Error> {
+        self.inner.send_remote_binary(ts, id)
+    }
+    fn start_stream_binary(&self) -> Result<String, Error> {
+        self.inner.start_stream_binary()
+    }
+    fn end_stream_binary(&self) -> Result<String, Error> {
+        self.inner.end_stream_binary()
+    }
+    fn format_dbc_binary(&self) -> Result<String, Error> {
+        self.inner.format_dbc_binary()
+    }
+    fn extract_signals_binary(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<String, Error> {
+        self.json.set(self.json.get() + 1);
+        self.inner.extract_signals_binary(id, dlc, data)
+    }
+    fn extract_signals_bin(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<Vec<u8>, Error> {
+        self.binary.set(self.binary.get() + 1);
+        self.inner.extract_signals_bin(id, dlc, data)
+    }
+    fn build_frame_bin(
+        &self,
+        id: u32,
+        extended: bool,
+        dlc: Dlc,
+        signals: SignalInjection<'_>,
+    ) -> Result<Vec<u8>, Error> {
+        self.inner.build_frame_bin(id, extended, dlc, signals)
+    }
+    fn update_frame_bin(
+        &self,
+        id: u32,
+        extended: bool,
+        dlc: Dlc,
+        frame: &[u8],
+        signals: SignalInjection<'_>,
+    ) -> Result<Vec<u8>, Error> {
+        self.inner
+            .update_frame_bin(id, extended, dlc, frame, signals)
+    }
+}
+
+/// Each typed method keeps the signal-name cache, since each knows what its
+/// command changes in the core: an extraction after `set_properties`,
+/// `validate_dbc` or `format_dbc_text` takes the binary path, as one right
+/// after the typed load does. A raw `process` empties the cache, so the
+/// extraction after it takes the JSON path. A typed `parse_dbc` refills the
+/// cache before each method, so each path is that one method's.
+#[test]
+fn every_typed_method_keeps_the_signal_name_cache_and_process_empties_it() {
+    const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minimal.dbc");
+    let binary = Rc::new(Cell::new(0));
+    let json = Rc::new(Cell::new(0));
+    let c = Client::with_backend(Box::new(PathCounting {
+        inner: FfiBackend::new(None, None, LogLevel::Warn)
+            .expect("load libaletheia-ffi.so for test (is ALETHEIA_LIB set?)"),
+        binary: Rc::clone(&binary),
+        json: Rc::clone(&json),
+    }));
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC").dbc;
+    let id = CanId::standard(256).expect("valid id");
+    let dlc = Dlc::new(8).expect("valid dlc");
+    let property = Formula::Always(Box::new(Formula::Atomic(Predicate::LessThan {
+        signal: "EngineSpeed".to_owned(),
+        value: Rational::integer(1000),
+    })));
+    let raw = wire_json::command("validateDBC", "dbc", &Wire(&dbc)).expect("a raw command");
+
+    // The path the next extraction takes, read from the counts it moves.
+    let next_path = || {
+        let before = (binary.get(), json.get());
+        c.extract_signals(id, dlc, &[0u8; 8]).expect("extract");
+        match (binary.get() - before.0, json.get() - before.1) {
+            (1, 0) => "binary",
+            (0, 1) => "json",
+            moved => panic!("one extraction moved the counts by {moved:?}"),
+        }
+    };
+    let steps: [(&str, &dyn Fn()); 5] = [
+        ("parse_dbc", &|| {}),
+        ("set_properties", &|| {
+            c.set_properties(std::slice::from_ref(&property))
+                .expect("set properties");
+        }),
+        ("validate_dbc", &|| {
+            c.validate_dbc(&dbc).expect("validate DBC");
+        }),
+        ("format_dbc_text", &|| {
+            c.format_dbc_text(&dbc).expect("format DBC text");
+        }),
+        ("process", &|| {
+            c.process(&raw).expect("raw command");
+        }),
+    ];
+    let paths: Vec<(&str, &str)> = steps
+        .iter()
+        .map(|(method, step)| {
+            c.parse_dbc(&dbc).expect("the typed load refills the cache");
+            step();
+            (*method, next_path())
+        })
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            ("parse_dbc", "binary"),
+            ("set_properties", "binary"),
+            ("validate_dbc", "binary"),
+            ("format_dbc_text", "binary"),
+            ("process", "json"),
+        ]
     );
 }

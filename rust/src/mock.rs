@@ -33,7 +33,13 @@
 //! response — the no-surprise contract now shared by all four bindings'
 //! `MockBackend`s (an under-provisioned test fails loudly at the missing
 //! response). A test queues exactly the responses it expects, including the
-//! `extract_signals_binary` calls the client makes during violation enrichment.
+//! `extract_signals_binary` calls the client makes during violation enrichment,
+//! whose refusal the `send_frame` or `end_stream` that asked for it returns.
+//! Each reply is read in the status its command awaits: `validation` for
+//! `validate_dbc`, `success` for every other DBC command, `set_properties`,
+//! `start_stream` and `extract_signals`, `ack` or a property batch for
+//! `send_frame`, `ack` for `send_error` and `send_remote`, `complete` for
+//! `end_stream`.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;

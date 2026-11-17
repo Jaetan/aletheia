@@ -35,10 +35,14 @@
 #   python/tests/test_wire_codes_parity.py  -- YAML <-> IssueCode/ErrorCode StrEnums
 #   go/aletheia/wire_codes_parity_test.go   -- YAML <-> Issue*/Code* constants
 #   cpp/tests/test_wire_codes_parity.cpp    -- YAML <-> IssueCode/ErrorCode enums
-#   rust/tests/wire_codes.rs                -- YAML <-> IssueCode variants; error
-#                                              codes pass through Error::Core
-#                                              losslessly (no ErrorCode enum by
-#                                              design; typed lifts pinned)
+#   rust/tests/wire_codes.rs                -- YAML <-> IssueCode/ErrorCode variants;
+#                                              error codes pass through
+#                                              Error::Core losslessly (typed
+#                                              lifts pinned), and an in-crate
+#                                              test holds the ErrorCode
+#                                              variants of
+#                                              rust/src/response/error_codes.rs
+#                                              to error_codes in order
 #
 # Adding a new wire code requires coordinated edits:
 #   1. add the Agda constructor (IssueCode: at the END of the ADT, per the
@@ -51,7 +55,8 @@
 #   3. add the matching member in each binding's vocabulary (Python
 #      aletheia/codes/, Go result.go / error.go constants, C++
 #      validation_issue.hpp / error.hpp + the json_parse.cpp tables, Rust
-#      response.rs for issue codes)
+#      response.rs for issue codes and response/error_codes.rs for error
+#      codes)
 #   4. document it in docs/architecture/PROTOCOL.md (Error Code Reference /
 #      the ValidateDBC issue-code list)
 #
@@ -82,7 +87,7 @@ issue_codes:
     description: Signals of two or more messages share a name; one issue names those messages.
 
   - name: min_exceeds_max
-    description: A signal's physical minimum exceeds its maximum.
+    description: A minimum exceeds its maximum, on a signal, a numeric attribute definition or an environment variable.
 
   - name: signal_exceeds_dlc
     description: A signal's bit range extends past the message's DLC byte count.
@@ -154,6 +159,9 @@ issue_codes:
 
   - name: range_exceeds_bits
     description: A signal's declared minimum or maximum lies beyond the values its bits carry after scaling.
+
+  - name: value_description_key_out_of_range
+    description: A value description key is no raw value of its signal's bits, the signedness and the bit length deciding.
 
 # ── Error codes (the *ErrorCode families + errorCode, Error.agda) ──
 error_codes:
@@ -256,7 +264,7 @@ error_codes:
     description: Reading the multiplexor signal's own bits failed.
 
   - name: extraction_value_exceeds_wire_range
-    description: The extracted exact value's reduced numerator or denominator exceeds the signed 64-bit binary-wire range.
+    description: The extracted exact value's reduced numerator magnitude or denominator exceeds 340282366920938463463374607431768211455 (2^128-1, `max-rational-component-magnitude`), the range of the binary wire's rational slots.
 
   - name: extraction_signal_past_frame_end
     description: The signal's last bit lies past the end of the frame that arrived.
@@ -316,16 +324,19 @@ error_codes:
     description: startStream was called while a stream is already active.
 
   - name: handler_not_streaming
-    description: A frame was submitted outside streaming mode.
+    description: endStream was called outside a stream.
 
   - name: handler_stream_not_started
-    description: endStream was called before startStream.
+    description: A data frame was submitted with a DBC loaded but no stream started.
 
   - name: handler_stream_active
     description: The operation is forbidden while a stream is active.
 
   - name: handler_property_parse_failed
-    description: An LTL property failed to parse.
+    description: A property of a set_properties list failed to parse; the message names its index and the reason.
+
+  - name: handler_property_refused
+    description: A property or a time bound checked on its own, before any session holds it, was refused; the message is the reason alone.
 
   - name: handler_unknown_signal
     description: A property names a signal no signal of the loaded DBC carries; the message names it.

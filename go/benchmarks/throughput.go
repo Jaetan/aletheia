@@ -79,7 +79,21 @@ type throughputResult struct {
 	USPerFrame float64 `json:"us_per_frame"`
 }
 
-func runThroughput(backend *aletheia.FFIBackend, out io.Writer, numFrames, numRuns, warmupRuns int) []throughputResult {
+// throughputLanes is the number of lanes the throughput mode measures: three
+// for each frame family.
+const throughputLanes = 6
+
+// selectLane answers every lane for 0, and the k-th lane alone otherwise, k
+// counted from 1 in the order the mode reports them, so one lane can run by
+// itself for an instruction count that holds nothing else.
+func selectLane[T any](lanes []T, k int) []T {
+	if k == 0 {
+		return lanes
+	}
+	return lanes[k-1 : k]
+}
+
+func runThroughput(backend *aletheia.FFIBackend, out io.Writer, numFrames, numRuns, warmupRuns, only int) []throughputResult {
 	type lane struct {
 		name string
 		run  func(int) (float64, error)
@@ -100,7 +114,7 @@ func runThroughput(backend *aletheia.FFIBackend, out io.Writer, numFrames, numRu
 	}
 
 	var results []throughputResult
-	for _, l := range lanes {
+	for _, l := range selectLane(lanes, only) {
 		r, err := throughputLane(out, l.name, l.run, numFrames, numRuns, warmupRuns)
 		if err != nil {
 			die("%v", err)

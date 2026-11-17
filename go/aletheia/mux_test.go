@@ -10,9 +10,6 @@ import (
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
-// ratOf is the exact rational n over d.
-func ratOf(n, d int64) aletheia.Rational { return aletheia.Rational{Numerator: n, Denominator: d} }
-
 // muxDBC is one message carrying two signals that are always there and three
 // that depend on a selector: two under value zero and one under value one.
 func muxDBC() aletheia.DBCDefinition {
@@ -37,19 +34,19 @@ func muxDBC() aletheia.DBCDefinition {
 						Name: "Temperature", StartBit: 8, BitLength: 16, IsSigned: true,
 						ByteOrder: aletheia.LittleEndian,
 						Factor:    ratOf(1, 10), Offset: ratOf(-40, 1), Minimum: ratOf(-40, 1), Maximum: ratOf(215, 1),
-						Unit: "degC", Presence: under(0),
+						Unit: "degC", Presence: under(aletheia.MultiplexValue{Lo: 0}),
 					},
 					{
 						Name: "Pressure", StartBit: 8, BitLength: 16,
 						ByteOrder: aletheia.LittleEndian,
 						Factor:    ratOf(1, 100), Offset: ratOf(0, 1), Minimum: ratOf(0, 1), Maximum: ratOf(655, 1),
-						Unit: "bar", Presence: under(1),
+						Unit: "bar", Presence: under(aletheia.MultiplexValue{Lo: 1}),
 					},
 					{
 						Name: "RPM", StartBit: 24, BitLength: 16,
 						ByteOrder: aletheia.LittleEndian,
 						Factor:    ratOf(1, 1), Offset: ratOf(0, 1), Minimum: ratOf(0, 1), Maximum: ratOf(10000, 1),
-						Unit: "rpm", Presence: under(0),
+						Unit: "rpm", Presence: under(aletheia.MultiplexValue{Lo: 0}),
 					},
 					{
 						Name: "Voltage", StartBit: 40, BitLength: 16,
@@ -103,10 +100,10 @@ func TestMessage_MultiplexorNames(t *testing.T) {
 		ID: mustStdID(0x400), Name: "DualMux", DLC: mustDLC(8), Sender: "ECU",
 		Signals: []aletheia.DBCSignal{
 			{Name: "MuxA", Presence: aletheia.AlwaysPresent{}},
-			{Name: "SigA1", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{0}}},
+			{Name: "SigA1", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{{Lo: 0}}}},
 			{Name: "MuxB", Presence: aletheia.AlwaysPresent{}},
-			{Name: "SigB1", Presence: aletheia.Multiplexed{Multiplexor: "MuxB", MultiplexValues: []aletheia.MultiplexValue{0}}},
-			{Name: "SigA2", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{1}}},
+			{Name: "SigB1", Presence: aletheia.Multiplexed{Multiplexor: "MuxB", MultiplexValues: []aletheia.MultiplexValue{{Lo: 0}}}},
+			{Name: "SigA2", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{{Lo: 1}}}},
 		},
 	}
 	cases := map[string]struct {
@@ -140,7 +137,7 @@ func TestMessage_MultiplexValues(t *testing.T) {
 		multiplexor aletheia.SignalName
 		want        []aletheia.MultiplexValue
 	}{
-		"the message's multiplexor": {"MuxSelector", []aletheia.MultiplexValue{0, 1}},
+		"the message's multiplexor": {"MuxSelector", []aletheia.MultiplexValue{{Lo: 0}, {Lo: 1}}},
 		"a name that is not one":    {"NonExistent", nil},
 	}
 	for name, tc := range cases {
@@ -154,11 +151,11 @@ func TestMessage_MultiplexValues(t *testing.T) {
 		ID: mustStdID(0x400), Name: "DualMux", DLC: mustDLC(8), Sender: "ECU",
 		Signals: []aletheia.DBCSignal{
 			{Name: "MuxA", Presence: aletheia.AlwaysPresent{}},
-			{Name: "SigA1", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{0}}},
-			{Name: "SigA2", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{1}}},
+			{Name: "SigA1", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{{Lo: 0}}}},
+			{Name: "SigA2", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{{Lo: 1}}}},
 		},
 	}
-	if got := dual.MultiplexValues("MuxA"); !slices.Equal(got, []aletheia.MultiplexValue{0, 1}) {
+	if got := dual.MultiplexValues("MuxA"); !slices.Equal(got, []aletheia.MultiplexValue{{Lo: 0}, {Lo: 1}}) {
 		t.Errorf("values across two signals: got %v, want [0 1]", got)
 	}
 }
@@ -173,10 +170,10 @@ func TestMessage_SignalsForMuxValue(t *testing.T) {
 		value       aletheia.MultiplexValue
 		want        []string
 	}{
-		"the first value":         {"MuxSelector", 0, []string{"MuxSelector", "Temperature", "RPM", "Voltage"}},
-		"the second":              {"MuxSelector", 1, []string{"MuxSelector", "Pressure", "Voltage"}},
-		"a value nothing selects": {"MuxSelector", 99, []string{"MuxSelector", "Voltage"}},
-		"a name that is not one":  {"NonExistent", 0, []string{"MuxSelector", "Voltage"}},
+		"the first value":         {"MuxSelector", aletheia.MultiplexValue{}, []string{"MuxSelector", "Temperature", "RPM", "Voltage"}},
+		"the second":              {"MuxSelector", aletheia.MultiplexValue{Lo: 1}, []string{"MuxSelector", "Pressure", "Voltage"}},
+		"a value nothing selects": {"MuxSelector", aletheia.MultiplexValue{Lo: 99}, []string{"MuxSelector", "Voltage"}},
+		"a name that is not one":  {"NonExistent", aletheia.MultiplexValue{}, []string{"MuxSelector", "Voltage"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -310,12 +307,12 @@ func TestDefinition_MessageIsADeepCopy(t *testing.T) {
 			func(m *aletheia.DBCMessage) {
 				mux, ok := m.Signals[1].Presence.(aletheia.Multiplexed)
 				if ok {
-					mux.MultiplexValues[0] = 99
+					mux.MultiplexValues[0] = aletheia.MultiplexValue{Lo: 99}
 				}
 			},
 			func(m *aletheia.DBCMessage) bool {
 				mux, ok := m.Signals[1].Presence.(aletheia.Multiplexed)
-				return ok && mux.MultiplexValues[0] == 99
+				return ok && mux.MultiplexValues[0] == (aletheia.MultiplexValue{Lo: 99})
 			},
 		},
 		"the name and the signals": {
@@ -351,7 +348,7 @@ func TestDefinition_PointerPresenceIsCopiedToo(t *testing.T) {
 				Factor:    ratOf(1, 1), Offset: ratOf(0, 1), Minimum: ratOf(0, 1), Maximum: ratOf(7, 1),
 				Presence: &aletheia.Multiplexed{
 					Multiplexor:     "Sel",
-					MultiplexValues: []aletheia.MultiplexValue{3, 4},
+					MultiplexValues: []aletheia.MultiplexValue{{Lo: 3}, {Lo: 4}},
 				},
 			}},
 		}},
@@ -364,12 +361,12 @@ func TestDefinition_PointerPresenceIsCopiedToo(t *testing.T) {
 	if !ok {
 		t.Fatalf("the copy's presence is %T, want a pointer to Multiplexed", c.Signals[0].Presence)
 	}
-	cpMux.MultiplexValues[0] = 99
+	cpMux.MultiplexValues[0] = aletheia.MultiplexValue{Lo: 99}
 	origMux, ok := dbc.Messages[0].Signals[0].Presence.(*aletheia.Multiplexed)
 	if !ok {
 		t.Fatalf("the original's presence is %T, want a pointer to Multiplexed", dbc.Messages[0].Signals[0].Presence)
 	}
-	if origMux.MultiplexValues[0] == 99 {
+	if origMux.MultiplexValues[0] == (aletheia.MultiplexValue{Lo: 99}) {
 		t.Error("editing the copy's values reached the definition")
 	}
 }
@@ -411,8 +408,8 @@ func richCopyDBC() aletheia.DBCDefinition {
 						Presence:  aletheia.AlwaysPresent{},
 						Receivers: []aletheia.NodeName{"NodeA", "NodeB"},
 						ValueDescriptions: []aletheia.DBCValueEntry{
-							{Value: 0, Description: "off"},
-							{Value: 1, Description: "on"},
+							{Value: aletheia.SignMagnitude{}, Description: "off"},
+							{Value: aletheia.SignMagnitude{Magnitude: aletheia.Uint128{Lo: 1}}, Description: "on"},
 						},
 					},
 					{
@@ -421,7 +418,7 @@ func richCopyDBC() aletheia.DBCDefinition {
 						Factor:    ratOf(1, 1), Offset: ratOf(0, 1), Minimum: ratOf(0, 1), Maximum: ratOf(100, 1),
 						Presence: aletheia.Multiplexed{
 							Multiplexor:     "Mode",
-							MultiplexValues: []aletheia.MultiplexValue{0, 1},
+							MultiplexValues: []aletheia.MultiplexValue{{Lo: 0}, {Lo: 1}},
 						},
 						Receivers: []aletheia.NodeName{"NodeC"},
 					},

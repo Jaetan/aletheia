@@ -21,7 +21,7 @@ open import Data.String using (String; fromList)
 open import Data.List using (List; []; map)
 open import Data.List.NonEmpty using (List⁺)
 open import Data.Nat using (ℕ)
-open import Data.Integer using ()
+open import Data.Integer using (ℤ)
 open import Data.Product using (_×_)
 open import Function using (_∘_)
 open import Aletheia.DBC.DecRat using (DecRat)
@@ -56,7 +56,7 @@ record DBCSignal : Set where
     unit : List Char                 -- DBC unit literal
     presence : SignalPresence        -- Conditional presence for multiplexing
     receivers : CanonicalReceivers   -- Node names from SG_ trailing receiver list (refined to exclude singleton-Vector__XXX)
-    valueDescriptions : List (ℕ × List Char)  -- DBC VAL_ keyword: (numeric value, label) pairs scoped to this signal.  Empty list when no VAL_ entries exist for this signal — matches the cantools-equivalent empty-then-attach pattern at refine time.
+    valueDescriptions : List (ℤ × List Char)  -- DBC VAL_ keyword: (raw value, label) pairs scoped to this signal.  Empty list when no VAL_ entries exist for this signal — matches the cantools-equivalent empty-then-attach pattern at refine time.
 
 record DBCMessage : Set where
   field
@@ -98,7 +98,7 @@ record EnvironmentVar : Set where
 record ValueTable : Set where
   field
     name : Identifier
-    entries : List (ℕ × List Char)  -- (numeric value, description)
+    entries : List (ℤ × List Char)  -- (raw value, description)
 
 -- Raw value description from a DBC VAL_ line.  Carries the
 -- owning message's `CANId`, the signal `Identifier`, and the value-label
@@ -115,7 +115,7 @@ record RawValueDesc : Set where
   field
     canId      : CANId
     signalName : Identifier
-    entries    : List (ℕ × List Char)
+    entries    : List (ℤ × List Char)
 
 -- Drop the `valueDescriptions` field on a signal/message.  Used by the
 -- text-roundtrip universal: `parseMessage` produces signals with `vds = []`
@@ -383,6 +383,9 @@ data IssueCode : Set where
   -- A signal's declared [minimum, maximum] reaches past the values its bits
   -- carry after scaling, so a value the range admits could not be encoded.
   RangeExceedsBits              : IssueCode
+  -- A value description key no raw value of its signal's bits takes, the
+  -- signedness and the bit length deciding.
+  ValueDescriptionKeyOutOfRange : IssueCode
 
 -- A single validation issue
 record ValidationIssue : Set where

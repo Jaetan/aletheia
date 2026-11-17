@@ -175,6 +175,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.LTL.SignalPredicate.Types
                       MAlonzo.Code.Aletheia.LTL.Simplify
                       MAlonzo.Code.Aletheia.LTL.Syntax
+                      MAlonzo.Code.Aletheia.LTL.TimeBoundEntry
                       MAlonzo.Code.Aletheia.Limits
                       MAlonzo.Code.Aletheia.Main
                       MAlonzo.Code.Aletheia.Main.Binary
@@ -197,6 +198,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.Protocol.JSON.Shallow
                       MAlonzo.Code.Aletheia.Protocol.JSON.Types
                       MAlonzo.Code.Aletheia.Protocol.Message
+                      MAlonzo.Code.Aletheia.Protocol.ReplyRange
                       MAlonzo.Code.Aletheia.Protocol.Response
                       MAlonzo.Code.Aletheia.Protocol.ResponseFormat
                       MAlonzo.Code.Aletheia.Protocol.Routing
@@ -566,9 +568,11 @@ foreign-library aletheia-ffi
     hs-source-dirs:   src, .
     -- AletheiaFFI.Wire is hsc2hs source that reads its layouts from the
     -- header, and the ABI version export is C that returns the header's.
+    -- The header is C23 (cabal.project names the compiler).
     include-dirs:     include
     c-sources:        cbits/abi_version.c
                       cbits/allocation.c
+    cc-options:       -std=gnu23
     build-depends:
         base >= 4.14 && < 5,
         text >= 1.2
@@ -615,6 +619,7 @@ test-suite abi-layout
     other-modules:    AletheiaFFI.Wire
     c-sources:        test/abi_layout.c
     include-dirs:     include
+    cc-options:       -std=gnu23
     build-depends:
         base >= 4.14 && < 5
     default-language: Haskell2010

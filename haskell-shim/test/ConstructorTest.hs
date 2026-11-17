@@ -17,8 +17,9 @@
 -- processJSONLine in setup, then processStartStreamDirect, processFrameRaw,
 -- processErrorFrameRaw, processRemoteFrameRaw, processExtractRaw,
 -- processFormatDBCDirect, processBuildFrameRaw, processUpdateFrameRaw,
--- processExtractBinRaw, formatErrorEnvelope and processEndStreamDirect, and
--- the kernel's frame refusals through both answer channels.
+-- processExtractBinRaw, formatErrorEnvelope and processEndStreamDirect, the
+-- kernel's frame refusals through both answer channels, and the stateless
+-- entries parseDecimal, formatRational, parseTimeBound and checkPropertyText.
 --
 -- This is NOT a substitute for the Agda proofs — handler correctness is proven
 -- formally. This test exists solely to catch MAlonzo coerce-target drift at
@@ -43,6 +44,9 @@ import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
 import qualified MAlonzo.Code.Aletheia.Error as AgdaError
 import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
+import qualified MAlonzo.Code.Aletheia.DBC.RationalRenderer as AgdaRR
+import qualified MAlonzo.Code.Aletheia.DBC.TextParser.DecimalEntry as AgdaDE
+import qualified MAlonzo.Code.Aletheia.LTL.TimeBoundEntry as AgdaTB
 
 -- ============================================================================
 -- HELPERS — mirror AletheiaFFI.hs / BinaryOutput.hs call and coerce sites
@@ -58,7 +62,7 @@ extractResult result =
 
 -- | The JSON envelope of a binary-output refusal.  Mirrors kernelErrorOut in
 -- BinaryOutput.hs.
-envelope :: AgdaError.T_Error_388 -> T.Text
+envelope :: AgdaError.T_Error_484 -> T.Text
 envelope err = unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text
 
 -- | Extract (state, Either envelope bytes) from a binary-out Σ pair.
@@ -70,6 +74,31 @@ extractSumBytes result =
     in case sumResult of
          AgdaSum.C_inj'8321'_38 errAny -> (st, Left (envelope (unsafeCoerce errAny)))
          AgdaSum.C_inj'8322'_42 bytesAny -> (st, Right (map fromIntegral (unsafeCoerce bytesAny :: [Integer])))
+
+-- | A stateless entry's `Error ⊎ A`: the refusal's envelope or the value.
+-- Mirrors aletheia_parse_decimal, aletheia_parse_time_bound and
+-- aletheia_check_property in AletheiaFFI.hs.
+extractSum :: AgdaSum.T__'8846'__30 -> Either T.Text a
+extractSum (AgdaSum.C_inj'8321'_38 errAny) = Left (envelope (unsafeCoerce errAny))
+extractSum (AgdaSum.C_inj'8322'_42 valueAny) = Right (unsafeCoerce valueAny)
+
+-- | A decimal's numerator and denominator.  Mirrors aletheia_parse_decimal.
+parseDecimal :: String -> Either T.Text (Integer, Integer)
+parseDecimal s = parts <$> extractSum (unsafeCoerce (AgdaDE.d_parseDecimal_52 (T.pack s)))
+  where
+    parts :: AgdaDE.T_WireRational_8 -> (Integer, Integer)
+    parts rat = (AgdaDE.d_numerator_16 rat, AgdaDE.d_denominator_18 rat)
+
+-- | A microsecond text's time bound.  Mirrors aletheia_parse_time_bound.
+parseTimeBound :: String -> Either T.Text Integer
+parseTimeBound s = extractSum (unsafeCoerce (AgdaTB.d_parseTimeBound_52 (T.pack s)))
+
+-- | A property text's check.  Mirrors aletheia_check_property, which reads
+-- nothing of the success.
+checkProperty :: String -> Either T.Text ()
+checkProperty s = case unsafeCoerce (AgdaJSON.d_checkPropertyText_114 (T.pack s)) :: AgdaSum.T__'8846'__30 of
+    AgdaSum.C_inj'8321'_38 errAny -> Left (envelope (unsafeCoerce errAny))
+    AgdaSum.C_inj'8322'_42 _ -> Right ()
 
 -- | Extract (state, Either envelope PartitionedResults). Highest-risk path:
 -- mirrors aletheia_extract_signals_bin in AletheiaFFI.hs.
@@ -85,7 +114,7 @@ extractSumIER result =
 -- | Process a JSON command (used in setup).
 processJSON :: AgdaState.T_StreamState_32 -> String
             -> (AgdaState.T_StreamState_32, T.Text)
-processJSON state input = extractResult (AgdaJSON.d_processJSONLine_74 state (T.pack input))
+processJSON state input = extractResult (AgdaJSON.d_processJSONLine_88 state (T.pack input))
 
 -- | Walk PartitionedResults — forces field dispatch + full list traversals
 -- of values / errors / absent. Mirrors packPartitionedResults in
@@ -199,7 +228,7 @@ main = do
 
     -- ------------------------------------------------------------------------
     -- Setup: load DBC + properties + start stream.
-    --   exercises: d_initialState_44, d_processJSONLine_74,
+    --   exercises: d_initialState_44, d_processJSONLine_88,
     --              d_processStartStreamDirect_28
     -- ------------------------------------------------------------------------
     let state0 = AgdaState.d_initialState_44
@@ -438,6 +467,38 @@ main = do
             return False
     putStrLn ""
 
+    -- ------------------------------------------------------------------------
+    -- Tests 20-23: the stateless entries, each read through the shim's coerce
+    -- targets: a 128-bit component, a rendered fraction, a time bound and its
+    -- refusal, a property and its refusal.
+    -- ------------------------------------------------------------------------
+    putStrLn "Test 20: parseDecimal, -(2^128 - 1), expect its numerator and denominator 1"
+    let r20 = parseDecimal "-340282366920938463463374607431768211455"
+    pass20 <- assertTrue "128-bit decimal" (show r20) (r20 == Right (1 - 2 ^ (128 :: Int), 1))
+
+    putStrLn "Test 21: formatRational, -1/3 and 2^64, expect \"-1/3\" and \"18446744073709551616\""
+    let r21 = map (\(n, d) -> unsafeCoerce (AgdaRR.d_formatRational_166 n d) :: T.Text) [(-1, 3), (2 ^ (64 :: Int), 1)]
+    pass21 <- assertTrue "Rendered rationals" (show r21) (r21 == map T.pack ["-1/3", "18446744073709551616"])
+
+    putStrLn "Test 22: parseTimeBound, 18446744073709551615 and -1, expect the bound and the negative refusal"
+    let r22 = parseTimeBound "18446744073709551615"
+    pass22a <- assertTrue "Time bound" (show r22) (r22 == Right (2 ^ (64 :: Int) - 1))
+    pass22b <- case parseTimeBound "-1" of
+        Left errText -> assertContains "Negative time bound refusal" "timebound -1 is negative" (T.unpack errText)
+        Right n -> putStrLn ("  Unexpected time bound: " ++ show n) >> return False
+
+    putStrLn "Test 23: checkPropertyText, a between 1..5 and 5..1, expect acceptance and the order refusal"
+    let between :: Int -> Int -> String
+        between lo hi = concat
+            [ "{\"operator\":\"always\",\"formula\":{\"operator\":\"atomic\",\"predicate\":"
+            , "{\"predicate\":\"between\",\"signal\":\"Speed\",\"min\":", show lo, ",\"max\":", show hi, "}}}" ]
+        r23 = checkProperty (between 1 5)
+    pass23a <- assertTrue "Property accepted" (show r23) (r23 == Right ())
+    pass23b <- case checkProperty (between 5 1) of
+        Left errText -> assertContains "Order refusal" "between: min 5 exceeds max 1" (T.unpack errText)
+        Right () -> putStrLn "  Unexpected acceptance" >> return False
+    putStrLn ""
+
     putStrLn "Test 15: processEndStreamDirect — expect summary response"
     let (_, r15) = endStream state3
     let r15s = T.unpack r15
@@ -450,7 +511,8 @@ main = do
     -- ------------------------------------------------------------------------
     let checks = [pass1, pass2, pass3, pass4, pass5, pass6, pass7, pass8,
                   pass9, pass10, pass11, pass12, pass12b, pass13, pass14, pass15,
-                  pass16, pass17, pass18, pass19]
+                  pass16, pass17, pass18, pass19, pass20, pass21, pass22a, pass22b,
+                  pass23a, pass23b]
     if and checks
         then putStrLn ("All " ++ show (length checks) ++ " checks passed.") >> exitSuccess
         else putStrLn "SOME CHECKS FAILED." >> exitFailure

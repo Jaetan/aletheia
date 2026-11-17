@@ -50,8 +50,12 @@ _SCRIPT_IDS = [p.relative_to(_EXAMPLES_DIR).as_posix() for p in _SCRIPTS]
 
 # The refusals an example shows on purpose, in the order the kernel answers them.
 _STATED_REFUSALS: dict[Path, list[ErrorCode]] = {
-    # Its hard-error DBC, overlapping signals, refused at load.
-    _DEMO_DIR / "dbc_validation.py": [ErrorCode.HANDLER_VALIDATION_FAILED],
+    # Its two hard-error DBCs, overlapping signals and a minimum past its
+    # maximum, each refused at load.
+    _DEMO_DIR / "dbc_validation.py": [
+        ErrorCode.HANDLER_VALIDATION_FAILED,
+        ErrorCode.HANDLER_VALIDATION_FAILED,
+    ],
 }
 
 # Why every example runs as a user runs it.

@@ -7,7 +7,7 @@
 -- Purpose: Prove that the success partition of the shared categoriser, and
 --   so of extractAllSignals, holds only values `wireFits` accepts: both
 --   components of each at most `max-rational-component-magnitude`.  The
---   FFI shim's binary encoder pokes these as Int64; its arm for a value
+--   FFI shim's binary encoder writes these as a sign and 128-bit magnitudes; its arm for a value
 --   that does not fit is unreachable.
 --   Every definition is erased, so the extraction handler can carry the
 --   proof beside the values it returns and MAlonzo compiles none of it.

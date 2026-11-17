@@ -10,9 +10,9 @@ which is how it reaches bytes no binding sends, and checks the envelope itself:
 
     peek → Agda ``parseDecimal`` → the rational component magnitude bound → wire JSON
 
-Every refusal past the peek is the kernel's decision.  Success returns the bare
-``{"numerator","denominator"}`` shape the bindings' ``decode_wire_rational``
-consumes; a refusal returns the ``{"status":"error",...}`` envelope every
+Every refusal past the peek is the kernel's decision.  Success writes the
+rational into the result's ``value``, read here as its numerator and
+denominator; a refusal returns the ``{"status":"error",...}`` envelope every
 kernel refusal is rendered as (``code``, ``message`` and the code's own fields,
 ``_decimal_cases`` spells them), and a text the shim refuses before the kernel
 reads it (a NUL byte, bytes that are not UTF-8) the three-key
@@ -40,9 +40,12 @@ from _decimal_cases import (
 from aletheia.client._ffi import (
     AletheiaDecimal,
     AletheiaText,
+    KernelString,
     configure_ffi_signatures,
     find_ffi_library,
+    free_kernel_string,
 )
+from aletheia.client._helpers.rational import decimal_value
 
 # The parser MAlonzo code needs a live GHC RTS; the module-scoped fixture brings
 # it up (idempotent, refcounted) for every test here.  Loading the .so below
@@ -66,15 +69,16 @@ def _parse_decimal(text: str) -> dict[str, object]:
     raw = text.encode(errors="surrogateescape")
     text_arg = ctypes.byref(AletheiaText(raw, len(raw)))
     if _LIB.aletheia_parse_decimal(text_arg, ctypes.byref(out)) == 0:
-        return {"numerator": out.value.numerator, "denominator": out.value.denominator}
-    err: int | None = out.err
+        value = decimal_value(out)
+        return {"numerator": value.numerator, "denominator": value.denominator}
+    err: KernelString | None = out.err
     assert err is not None
     try:
         parsed = json.loads(ctypes.string_at(err).decode())
         assert isinstance(parsed, dict)
         return cast("dict[str, object]", parsed)
     finally:
-        _LIB.aletheia_free_str(err)
+        free_kernel_string(_LIB, err)
 
 
 @pytest.mark.parametrize(("text", "numerator", "denominator"), SUCCESS_CASES)

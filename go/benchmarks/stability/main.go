@@ -4,14 +4,20 @@
 // Command stability is the Go long-run resource-leakage harness.
 //
 // Each cycle opens a client, streams frames through the FFI surface and closes
-// it. Four measurements are compared, before the cycles and after:
+// it. Three counts are compared, before the cycles and after, and one is read
+// after every cycle:
 //
-//   - rss, a soft threshold, read from runtime/metrics
 //   - fd_count, exact, the entries of /proc/self/fd that name a real resource
 //   - goroutines, exact, runtime.NumGoroutine after the last Close
 //   - stableptr, exact, the handles the binding still holds on the Haskell side
+//   - kernel_allocation, the bytes the kernel allocates in each cycle, the
+//     same in every cycle, so a cycle doing more work than the one before
+//     fails
 //
-// Drift on any of them is a finding, and the exact gates carry no tolerance.
+// Drift on any of them is a finding, and no gate carries a tolerance, so the
+// runner's speed and load decide nothing. The Go heap's live bytes, read from
+// runtime/metrics, are reported as rss and decide nothing: they move with when
+// the collector runs.
 //
 // The cycle and frame counts come from ALETHEIA_STABILITY_CYCLES and
 // ALETHEIA_STABILITY_FRAMES. The report is JSON on stdout, and
@@ -40,9 +46,6 @@ import (
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
-// The soft cap, measured on a quiet host, changed here where a diff shows it.
-const rssDeltaBytesCap int64 = 50 * 1024 * 1024
-
 // die reports a failure that produced no verdict and exits with the code the
 // runner reads as an environment failure rather than as drift.
 func die(format string, args ...any) {
@@ -64,7 +67,11 @@ type subCheck struct {
 	End       int64  `json:"end"`
 	Delta     int64  `json:"delta"`
 	Threshold int64  `json:"threshold"`
-	Passed    bool   `json:"passed"`
+	// PerCycle and Spread are the kernel_allocation gate's: each cycle's bytes,
+	// and the most one cycle allocated less what the least did.
+	PerCycle []int64 `json:"per_cycle,omitempty"`
+	Spread   *int64  `json:"spread,omitempty"`
+	Passed   bool    `json:"passed"`
 }
 
 type report struct {
@@ -77,7 +84,7 @@ type report struct {
 	Passed         bool       `json:"passed"`
 }
 
-// heapMetric is the runtime/metrics count of bytes the rss gate compares.
+// heapMetric is the runtime/metrics count of bytes the rss row reports.
 const heapMetric = "/memory/classes/heap/objects:bytes"
 
 // kindNames names the kinds of runtime/metrics value, to which the package
@@ -209,8 +216,10 @@ var frameID, frameDLC, framePayload = mustFrame()
 // minimalDBC describes the one message, with one signal, so that the harness
 // measures what it accounts for rather than the cost of checking a formula.
 func minimalDBC() aletheia.DBCDefinition {
-	rat := func(n, d int64) aletheia.Rational {
-		return aletheia.Rational{Numerator: n, Denominator: d}
+	rat := func(n int64, d uint64) aletheia.Rational {
+		r := aletheia.IntRational(n)
+		r.Denominator = aletheia.Uint128{Lo: d}
+		return r
 	}
 	msg := aletheia.NewDBCMessage(frameID, "EngineStatus", frameDLC, "ECU1", nil, []aletheia.DBCSignal{
 		{
@@ -275,23 +284,52 @@ var cycle = runCycle
 // variable so that a test can run main with one that fails.
 var snapshotOf = takeSnapshot
 
-// gates compares the two snapshots. An exact gate passes only when they
-// agree, so it carries no threshold. The names and gate words are
-// docs/STABILITY_BENCH.yaml's.
-func gates(start, end snapshot) []subCheck {
+// allocatedBytes reads the bytes the kernel has allocated, false while the
+// runtime is down; a variable so that a test can run main with a count of its
+// own.
+var allocatedBytes = aletheia.AllocatedBytes
+
+// kernelAllocated reads the kernel's allocated bytes, refusing a runtime that
+// gives none.
+func kernelAllocated() (int64, error) {
+	n, ok := allocatedBytes()
+	if !ok {
+		return 0, errors.New("reading the kernel's allocated bytes: the runtime is not running")
+	}
+	return byteCount(n)
+}
+
+// gates compares the two snapshots and each cycle's allocation. An exact gate
+// passes only when they agree, so it carries no threshold, and the
+// allocation passes only when every cycle allocated the same. The names and
+// gate words are docs/STABILITY_BENCH.yaml's.
+func gates(start, end snapshot, readings []int64) []subCheck {
 	exact := func(name string, from, to int64) subCheck {
 		return subCheck{Name: name, Gate: "hard_zero", Start: from, End: to, Delta: to - from, Passed: to == from}
 	}
+	perCycle := make([]int64, 0, len(readings))
+	for i := 1; i < len(readings); i++ {
+		perCycle = append(perCycle, readings[i]-readings[i-1])
+	}
+	spread := int64(0)
+	if len(perCycle) > 0 {
+		spread = slices.Max(perCycle) - slices.Min(perCycle)
+	}
+	allocation := subCheck{
+		Name: "kernel_allocation", Gate: "equal_per_cycle",
+		Start: readings[0], End: readings[len(readings)-1], Delta: readings[len(readings)-1] - readings[0],
+		PerCycle: perCycle, Spread: &spread, Passed: spread == 0,
+	}
 	return []subCheck{
 		{
-			Name: "rss", Gate: "soft_threshold",
+			Name: "rss", Gate: "report",
 			Start: start.RSS, End: end.RSS, Delta: end.RSS - start.RSS,
-			Threshold: rssDeltaBytesCap,
-			Passed:    abs(end.RSS-start.RSS) <= rssDeltaBytesCap,
+			Passed: true,
 		},
 		exact("fd_count", start.NumFDs, end.NumFDs),
 		exact("goroutines", start.Goroutines, end.Goroutines),
 		exact("stableptr", start.StablePtrCount, end.StablePtrCount),
+		allocation,
 	}
 }
 
@@ -329,6 +367,11 @@ func main() {
 	if err != nil {
 		die("the opening snapshot failed: %v", err)
 	}
+	first, err := kernelAllocated()
+	if err != nil {
+		die("the opening snapshot failed: %v", err)
+	}
+	readings := []int64{first}
 	t0 := time.Now()
 
 	for i := 0; i < cycles; i++ {
@@ -336,6 +379,11 @@ func main() {
 			die("cycle %d of %d failed: %v", i+1, cycles, err)
 		}
 		runtime.GC()
+		reading, err := kernelAllocated()
+		if err != nil {
+			die("cycle %d of %d failed: %v", i+1, cycles, err)
+		}
+		readings = append(readings, reading)
 	}
 
 	end, err := snapshotOf(heapMetric)
@@ -344,7 +392,7 @@ func main() {
 	}
 	elapsed := time.Since(t0).Seconds()
 
-	subChecks := gates(start, end)
+	subChecks := gates(start, end, readings)
 	allPassed := passed(subChecks)
 
 	r := report{
@@ -365,11 +413,4 @@ func main() {
 	if !allPassed {
 		os.Exit(1)
 	}
-}
-
-func abs(x int64) int64 {
-	if x < 0 {
-		return -x
-	}
-	return x
 }

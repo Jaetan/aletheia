@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 // The fuzz targets, one for each parser or serializer the binding owns:
-// serializeCommand, parseResponse, parseExtractionBin, parseRational and
+// serializeCommand, parseResponse, parseExtractionBin, readRational and
 // parseDBCDefinition, under the five names the binding's standard pins. Each
 // seeds a small corpus with f.Add and asserts that no input panics, which is
 // what these exist for; the ordinary tests cover what the parsers accept and
@@ -65,23 +65,26 @@ func FuzzMarshalCommand(f *testing.F) {
 }
 
 // The binary extraction decoder answers or refuses, never panics, whatever
-// the bytes: a short read, a size that does not match the header, an index
-// past the names, a denominator of zero, an offsets table that breaks one of
-// its invariants, a reason slice that is not UTF-8.
+// the bytes: a short read, a size that does not match the header, a
+// denominator of zero, an offsets table that breaks one of its invariants, a
+// reason slice that is not UTF-8. Every index has a name, as the kernel proves
+// each one lies within its message's signals, so the names cover every index
+// the two-byte field carries.
 func FuzzDecodeBinaryFrame(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 0, 0, 0, 0, 0}, "Speed,RPM,Temp")
 	f.Add([]byte{}, "")
 	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF}, "X")
 	f.Add(make([]byte, 256), "A,B,C,D,E,F,G,H")
-	f.Add(binExtractionValue(1, 3), "Sig")                          // one value, empty offsets table
+	f.Add(binExtractionValue(ratOf(1, 3)), "Sig")                   // one value, empty offsets table
 	f.Add(binExtractionErrors([]string{"boom", "näh"}, nil), "Sig") // two errors with reasons
 	f.Add(binExtractionErrors([]string{"x"}, []uint32{0, 2}), "S")  // offsets end past the reason bytes
 
-	f.Fuzz(func(t *testing.T, buf []byte, csvNames string) {
-		var names []string
-		if csvNames != "" {
-			names = []string{csvNames} // one signal name per run
-		}
+	names := make([]string, 1<<16)
+	for i := range names {
+		names[i] = "S"
+	}
+	// The second argument stays for the corpus the seeds above recorded.
+	f.Fuzz(func(t *testing.T, buf []byte, _ string) {
 		_, _ = parseExtractionBin(buf, names)
 	})
 }
@@ -103,7 +106,7 @@ func FuzzParseRationalNumber(f *testing.F) {
 		if err := json.Unmarshal([]byte(raw), &v); err != nil {
 			return // not JSON, so not this parser's to answer for
 		}
-		_, _ = parseRational(v)
+		_, _ = readRational(v, "v")
 	})
 }
 

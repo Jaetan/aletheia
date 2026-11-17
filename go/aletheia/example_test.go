@@ -59,7 +59,7 @@ func Example() {
 		log.Fatal(err)
 	}
 	speed, _ := result.Get("Speed")
-	fmt.Printf("Speed = %d/%d km/h\n", speed.Numerator, speed.Denominator)
+	fmt.Printf("Speed = %s/%s km/h\n", speed.Numerator, speed.Denominator)
 	// Output:
 	// 0 validation warning(s)
 	// Speed = 400/1 km/h
@@ -74,7 +74,10 @@ func Example_options() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+	speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+	if err != nil {
+		log.Fatal(err)
+	}
 	client, err := aletheia.NewClient(
 		backend,
 		aletheia.WithLogger(logger),
@@ -124,16 +127,17 @@ func ExampleInputBoundExceededError() {
 	}
 	defer client.Close()
 
-	// A factor past 2^63-1, which every number in a DBC is held to.
+	// A factor past 2^128-1, which every number in a DBC is held to; the
+	// kernel measures a magnitude up to that bound, so it observes the bound.
 	const text = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\nBO_ 256 M: 8 ECU\n" +
-		" SG_ S : 0|8@1+ (9223372036854775808,0) [0|255] \"\" ECU\n"
+		" SG_ S : 0|8@1+ (340282366920938463463374607431768211456,0) [0|255] \"\" ECU\n"
 	_, err = client.ParseDBCText(context.Background(), text)
 	var bex *aletheia.InputBoundExceededError
 	if errors.As(err, &bex) {
-		fmt.Printf("rejected %s = %d (limit %d)\n", bex.Field, bex.Observed, bex.Limit)
+		fmt.Printf("rejected %s = %s (limit %s)\n", bex.Field, bex.Observed, bex.Limit)
 	}
 	// Output:
-	// rejected signal factor = 9223372036854775808 (limit 9223372036854775807)
+	// rejected signal factor = 340282366920938463463374607431768211455 (limit 340282366920938463463374607431768211455)
 }
 
 func ExampleValidationFailedError() {
@@ -183,7 +187,7 @@ func ExampleTextRoundTripFailedError() {
 	}
 	dbc := parsed.DBC
 	dbc.Messages[0].Signals[1].Presence = aletheia.Multiplexed{
-		Multiplexor: "Mux", MultiplexValues: []aletheia.MultiplexValue{1, 2},
+		Multiplexor: "Mux", MultiplexValues: []aletheia.MultiplexValue{{Lo: 1}, {Lo: 2}},
 	}
 	_, err = client.FormatDBCText(ctx, dbc)
 	var trte *aletheia.TextRoundTripFailedError
@@ -212,7 +216,10 @@ func ExampleSignal() {
 	if _, err := client.ParseDBCText(ctx, exampleDBC); err != nil {
 		log.Fatal(err)
 	}
-	atMost220 := aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220))
+	atMost220, err := aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220))
+	if err != nil {
+		log.Fatal(err)
+	}
 	property := aletheia.Always{Inner: aletheia.Atomic{Predicate: atMost220}}
 	if err := client.SetProperties(ctx, []aletheia.Formula{property}); err != nil {
 		log.Fatal(err)
@@ -249,9 +256,11 @@ func ExampleClient_SendFramesSeq() {
 	if _, err := client.ParseDBCText(ctx, exampleDBC); err != nil {
 		log.Fatal(err)
 	}
-	speedLimit := aletheia.Always{Inner: aletheia.Atomic{
-		Predicate: aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220)),
-	}}
+	atMost220, err := aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220))
+	if err != nil {
+		log.Fatal(err)
+	}
+	speedLimit := aletheia.Always{Inner: aletheia.Atomic{Predicate: atMost220}}
 	if err := client.SetProperties(ctx, []aletheia.Formula{speedLimit}); err != nil {
 		log.Fatal(err)
 	}

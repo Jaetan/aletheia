@@ -19,7 +19,7 @@ import pytest
 from _gate_exit import stderr_of_exit_2
 from _planted_tree import plant
 
-from tools import check_mutation_setup
+from tools import check_mutation_setup, check_mutation_setup_imports
 from tools._common import RelPath
 
 from aletheia.common_types import Prose
@@ -48,7 +48,7 @@ def _plant_python_tests(
         {RelPath(f"python/tests/{name}"): text for name, text in files.items()}
         | {pyproject: Prose(f"[tool.mutmut]\npytest_add_cli_args = [{args}]\n")},
     )
-    monkeypatch.setattr(check_mutation_setup, "PY_TESTS_DIR", root / "python" / "tests")
+    monkeypatch.setattr(check_mutation_setup_imports, "PY_TESTS_DIR", root / "python" / "tests")
     monkeypatch.setattr(check_mutation_setup, "PYPROJECT_PATH", root / pyproject)
 
 
@@ -873,6 +873,7 @@ def test_a_test_the_mutated_tree_cannot_satisfy_is_named(
         {
             TestFile("test_a_asserting.py"): Prose(above),
             TestFile("test_b_walking.py"): Prose('DOCS = "../../docs"\n'),
+            TestFile("test_b_climbing.py"): Prose("ROOT = Path(__file__).parent.parent.parent\n"),
             TestFile("test_c_skip.py"): Prose(f"{above}pytest.skip('absent')\n"),
             TestFile("test_d_skipif.py"): Prose(f"{above}@pytest.mark.skipif(True)\n"),
             TestFile("test_e_importorskip.py"): Prose(f"{above}pytest.importorskip('x')\n"),
@@ -883,6 +884,7 @@ def test_a_test_the_mutated_tree_cannot_satisfy_is_named(
     )
     assert check_mutation_setup.every_above_tree_test_skips_or_is_ignored() == [
         _not_ignored_above_tree(TestFile("test_a_asserting.py")),
+        _not_ignored_above_tree(TestFile("test_b_climbing.py")),
         _not_ignored_above_tree(TestFile("test_b_walking.py")),
     ]
 
@@ -901,7 +903,7 @@ def test_a_tests_directory_that_is_missing_exits_2(
     check: Callable[[], list[Prose]],
 ) -> None:
     """With no ``python/tests`` neither check can hold anything, so the gate stops."""
-    monkeypatch.setattr(check_mutation_setup, "PY_TESTS_DIR", tmp_path / "tests")
+    monkeypatch.setattr(check_mutation_setup_imports, "PY_TESTS_DIR", tmp_path / "tests")
     assert (
         stderr_of_exit_2(capsys, check)
         == f"ERROR: cannot read {tmp_path / 'tests'}: No such file or directory\n"

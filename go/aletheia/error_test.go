@@ -13,7 +13,7 @@ import (
 )
 
 // errorEnvelope is an error response carrying the code and message.
-func errorEnvelope(code, msg string) aletheia.MockResponse {
+func errorEnvelope(code aletheia.ErrorCode, msg string) aletheia.MockResponse {
 	return aletheia.Respond(fmt.Sprintf(`{"status":"error","code":%q,"message":%q}`, code, msg))
 }
 
@@ -32,7 +32,7 @@ func TestCodedErrorEnvelopesReachTheCaller(t *testing.T) {
 	parseDBC := func(c *aletheia.Client) error { _, err := c.ParseDBC(ctx, testDBC()); return err }
 	formatDBC := func(c *aletheia.Client) error { _, err := c.FormatDBC(ctx); return err }
 	cases := map[string]struct {
-		code string
+		code aletheia.ErrorCode
 		msg  string
 		call func(*aletheia.Client) error
 	}{
@@ -133,19 +133,19 @@ func TestError_CauseIsRenderedAndUnwrapped(t *testing.T) {
 // message or its own text; an error with no location prints that alone.
 func TestError_LocationLeadsTheText(t *testing.T) {
 	const parseFailure = "parse failed at line 1, column 1"
-	const bound = "decimal: rational component magnitude 9223372036854775808 exceeds limit 9223372036854775807"
+	const bound = "decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"
 	coded := func(location, key string) *aletheia.Error {
 		return &aletheia.Error{Kind: aletheia.ErrValidation, Code: aletheia.CodeTextParseFailure,
 			Message: parseFailure, Location: location, Key: key}
 	}
 	kernelBound := func(location, key string) *aletheia.InputBoundExceededError {
 		return &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
-			Observed: 9223372036854775808, Limit: 9223372036854775807, Code: aletheia.CodeInputBoundExceeded,
+			Observed: rationalBound, Limit: rationalBound, Code: aletheia.CodeInputBoundExceeded,
 			Field: "decimal", Message: bound, Location: location, Key: key}
 	}
 	bindingBound := func(location, key string) *aletheia.InputBoundExceededError {
 		return &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
-			Observed: 10, Limit: 5, Code: aletheia.CodeInputBoundExceeded, Location: location, Key: key}
+			Observed: aletheia.Uint128{Lo: 10}, Limit: aletheia.Uint128{Lo: 5}, Code: aletheia.CodeInputBoundExceeded, Location: location, Key: key}
 	}
 	cases := map[string]struct {
 		err  error
@@ -190,8 +190,8 @@ func TestLocate(t *testing.T) {
 	}
 
 	bound := &aletheia.InputBoundExceededError{BoundKind: aletheia.BoundKindRationalComponentMagnitude,
-		Observed: 18446744073709551615, Limit: 9223372036854775807, Code: aletheia.CodeInputBoundExceeded,
-		Field: "decimal", Message: "decimal: rational component magnitude at least 18446744073709551615 exceeds limit 9223372036854775807"}
+		Observed: rationalBound, Limit: rationalBound, Code: aletheia.CodeInputBoundExceeded,
+		Field: "decimal", Message: "decimal: rational component magnitude exceeds limit 340282366920938463463374607431768211455"}
 	var gotBound *aletheia.InputBoundExceededError
 	if !errors.As(aletheia.Locate(bound, "Row 2", "Factor"), &gotBound) {
 		t.Fatal("a located bound error is not an *aletheia.InputBoundExceededError")
@@ -212,6 +212,25 @@ func TestLocate(t *testing.T) {
 	foreign := errors.New("not ours")
 	if got := aletheia.Locate(foreign, "Row 2", "Value"); got != foreign {
 		t.Errorf("Locate(foreign) = %#v, want the error it was given", got)
+	}
+}
+
+// An error prints its text alone when no loader located it, after the
+// location when no key holds the refusal, and after the location and the
+// quoted key otherwise.
+func TestError_PrintsAfterItsLocationAndKey(t *testing.T) {
+	cases := map[string]struct {
+		location, key, want string
+	}{
+		"unlocated":          {"", "", "refused"},
+		"located, no key":    {"Row 2", "", "Row 2: refused"},
+		"located with a key": {"Row 2", "Factor", "Row 2: invalid 'Factor': refused"},
+	}
+	for name, tc := range cases {
+		e := &aletheia.Error{Kind: aletheia.ErrValidation, Message: "refused", Location: tc.location, Key: tc.key}
+		if got := e.Error(); got != tc.want {
+			t.Errorf("%s: Error() = %q, want %q", name, got, tc.want)
+		}
 	}
 }
 

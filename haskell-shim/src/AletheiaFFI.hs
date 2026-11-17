@@ -9,17 +9,20 @@
 -- Marshaling logic lives in AletheiaFFI.Marshal; binary output writers live
 -- in AletheiaFFI.BinaryOutput. This file is the entry-point surface only.
 --
--- Lifecycle: hs_init → aletheia_init → (process | send_* | start/end_stream)*
--- → aletheia_close → hs_exit.  Strings returned by aletheia_* must be freed
--- via aletheia_free_str; binary buffers via aletheia_free_buf.
+-- Lifecycle: hs_init, once per process → aletheia_init → (process | send_* |
+-- start/end_stream)* → aletheia_close.  hs_exit is never called (aletheia.h):
+-- the runtime cannot start again after it, and ends with the process.
+-- Strings returned by aletheia_* must be freed via aletheia_free_str; binary
+-- buffers via aletheia_free_buf.
 module AletheiaFFI where
 
 import Foreign.C.String (CString)
 import Foreign.StablePtr (StablePtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr)
 import Foreign.Marshal.Alloc (free)
 import Foreign.Ptr (Ptr, nullPtr)
-import Foreign.Storable (Storable, peek)
+import Foreign.Storable (Storable, peek, poke)
 import Foreign.Marshal.Array (peekArray)
+import Data.Bits (toIntegralSized)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Int (Int8)
 import Data.Word (Word8)
@@ -30,6 +33,7 @@ import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
 import qualified MAlonzo.Code.Aletheia.DBC.RationalRenderer as AgdaRR
 import qualified MAlonzo.Code.Aletheia.DBC.TextParser.DecimalEntry as AgdaDE
+import qualified MAlonzo.Code.Aletheia.LTL.TimeBoundEntry as AgdaTB
 import qualified MAlonzo.Code.Aletheia.Main.Binary as AgdaBin
 import qualified MAlonzo.Code.Aletheia.Main.JSON as AgdaJSON
 import qualified MAlonzo.Code.Aletheia.Protocol.StreamState.Types as AgdaState
@@ -99,7 +103,7 @@ aletheia_process statePtr inputPtr = do
     case input of
       Left reason -> errorJSON reason
       Right inputStr ->
-        runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_74 s (T.pack inputStr))
+        runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_88 s (T.pack inputStr))
 
 -- ============================================================================
 -- BINARY-INPUT JSON ENTRY POINTS (binary in, JSON out)
@@ -212,7 +216,8 @@ runBinDispatch ctx statePtr f out
       dispatchBytesResult ctx (unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30) out
 
 -- | Read the signal values the caller passed, refusing NULL, as the three
--- parallel arrays the kernel takes.
+-- parallel lists the kernel takes: the indices, the signed numerators and
+-- the denominators.
 peekSignalValues :: String -> Ptr SignalValues
                  -> IO (Either String ([Integer], [Integer], [Integer]))
 peekSignalValues ctx valuesPtr
@@ -221,9 +226,11 @@ peekSignalValues ctx valuesPtr
       v <- peek valuesPtr
       let n = fromIntegral (svCount v)
       indicesE <- peekArrayChecked (ctx ++ " indices") n (svIndices v)
-      numsE <- peekArrayChecked (ctx ++ " nums") n (svNumerators v)
-      densE <- peekArrayChecked (ctx ++ " dens") n (svDenominators v)
-      pure ((,,) <$> (map toInteger <$> indicesE) <*> (map toInteger <$> numsE) <*> (map toInteger <$> densE))
+      ratsE <- peekArrayChecked (ctx ++ " values") n (svValues v)
+      pure (do
+        indices <- indicesE
+        (nums, dens) <- unzip . map rationalParts <$> ratsE
+        pure (map toInteger indices, nums, dens))
 
 foreign export ccall aletheia_build_frame_bin
     :: StateHandle -> Ptr Frame -> Ptr SignalValues -> Ptr Buffer -> IO Int8
@@ -264,7 +271,7 @@ aletheia_update_frame_bin statePtr framePtr valuesPtr out
     ctx = "aletheia_update_frame_bin"
 
 -- | Wire format documented in Main/Binary.agda processExtractBinRaw (canonical
--- source).  Header(3×u16 + u32 reasonBytes) + Values(×18B) + Errors(×3B)
+-- source).  Header(3×u16 + u32 reasonBytes) + Values(×35B) + Errors(×3B)
 -- + Offsets((nErrors+1)×u32) + Reasons(UTF-8 blob) + Absent(×2B).
 -- Native byte order.
 foreign export ccall aletheia_extract_signals_bin
@@ -327,21 +334,15 @@ aletheia_free_str = free
 -- Rational&)`) with a single Agda kernel function.  Cross-binding
 -- parity is proven in `Aletheia.DBC.RationalRenderer.Properties`.
 --
--- Sign normalisation: Go and C++ allow `Rational{Numerator:int64,
--- Denominator:int64}` with negative denom (Python `Fraction` rejects
--- it on construction).  When the binding hands us `denom < 0`, move
--- the sign to the numerator before calling Agda — `_/_` requires a
--- positive ℕ denominator.
+-- The wire carries the sign apart from the magnitudes, so the denominator
+-- is the natural `formatRational` takes and the numerator carries the sign.
 foreign export ccall aletheia_format_rational :: Ptr WireRational -> IO CString
 aletheia_format_rational :: Ptr WireRational -> IO CString
 aletheia_format_rational valuePtr
   | valuePtr == nullPtr = pure nullPtr
   | otherwise = do
-      WireRational num denom <- peek valuePtr
-      let (n, d) | denom < 0 = (-num, -denom)
-                 | otherwise = (num, denom)
-          result = AgdaRR.d_formatRational_166 (toInteger n) (toInteger d)
-      newUtf8 (unsafeCoerce result :: T.Text)
+      (num, denom) <- rationalParts <$> peek valuePtr
+      newUtf8 (unsafeCoerce (AgdaRR.d_formatRational_166 num denom) :: T.Text)
 
 -- ============================================================================
 -- DECIMAL → EXACT RATIONAL (kernel SSOT for decimal parsing)
@@ -357,12 +358,13 @@ aletheia_format_rational valuePtr
 -- between languages.  `parseDecimal` answers `Error ⊎ WireRational`: a parse
 -- failure, a partial parse and a component past the magnitude bound are each
 -- a typed kernel error, rendered by `formatErrorEnvelope` as every kernel
--- refusal is; a `WireRational`'s components fit `int64_t` by its erased
--- proof, so `fromInteger` is lossless (held by `check-erasure`).  The shim's
--- own refusal of the text (a NULL, an unreadable size, bytes that are not
--- UTF-8, a NUL among them) is `ffi_validation_error`, as on `aletheia_process`.  The rational is
--- written into `out`; a failure sets its error to a JSON envelope the caller
--- frees via `aletheia_free_str`.
+-- refusal is; a `WireRational`'s magnitudes are at most 2^128 - 1 by its
+-- erased proof, so `wireRational` writes every one, and its `Nothing` is
+-- unreachable and refused rather than written.  The shim's own refusal of the
+-- text (a NULL, an unreadable size, bytes that are not UTF-8, a NUL among
+-- them) is `ffi_validation_error`, as on `aletheia_process`.  Every call
+-- writes both fields of `out`: the rational and a NULL error, or a zero
+-- rational and a JSON envelope the caller frees via `aletheia_free_str`.
 foreign export ccall aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
 aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
 aletheia_parse_decimal inputPtr out
@@ -376,11 +378,64 @@ aletheia_parse_decimal inputPtr out
             AgdaSum.C_inj'8321'_38 errAny -> kernelErrorText (unsafeCoerce errAny) >>= refuse
             AgdaSum.C_inj'8322'_42 ratAny -> do
               let rat = unsafeCoerce ratAny :: AgdaDE.T_WireRational_8
-              pokeDecimalValue out (WireRational (fromInteger (AgdaDE.d_numerator_16 rat))
-                                                 (fromInteger (AgdaDE.d_denominator_18 rat)))
-              pure 0
+              case wireRational (AgdaDE.d_numerator_16 rat) (AgdaDE.d_denominator_18 rat) of
+                Just value -> poke out (Decimal value nullPtr) >> pure 0
+                Nothing -> errorJSON "aletheia_parse_decimal: the decimal does not fit the 128-bit wire words"
+                             >>= refuse
   where
-    refuse envelope = pokeDecimalErr out envelope >> pure 1
+    refuse envelope = poke out (Decimal (WireRational zero zero 0) envelope) >> pure 1
+    zero = WireUint128 0 0
+
+-- ============================================================================
+-- TIME BOUND AND PROPERTY CHECKS (the kernel's property parse, at build time)
+-- ============================================================================
+
+-- | Parse a microsecond text into the whole number of microseconds it denotes,
+-- or the kernel's refusal, as a property's time bound is decided: the text is
+-- read as `aletheia_parse_decimal` reads one, then `parseTimeBound` refuses a
+-- negative or fractional bound with the property parse's own reason and one
+-- past `max-time-bound`, 2^64 - 1, as a bound refusal.  The kernel answers a
+-- natural at most that limit, so `toIntegralSized` writes every one and its
+-- `Nothing` is unreachable and refused rather than written.  Every call writes
+-- both fields of `out`, zero microseconds beside a refusal.
+foreign export ccall aletheia_parse_time_bound :: Ptr WireText -> Ptr TimeBound -> IO Int8
+aletheia_parse_time_bound :: Ptr WireText -> Ptr TimeBound -> IO Int8
+aletheia_parse_time_bound inputPtr out
+  | out == nullPtr = pure 1
+  | otherwise = do
+      input <- peekText inputPtr
+      case input of
+        Left reason -> errorJSON reason >>= refuse
+        Right s ->
+          case unsafeCoerce (AgdaTB.d_parseTimeBound_52 (T.pack s)) :: AgdaSum.T__'8846'__30 of
+            AgdaSum.C_inj'8321'_38 errAny -> kernelErrorText (unsafeCoerce errAny) >>= refuse
+            AgdaSum.C_inj'8322'_42 nAny ->
+              case toIntegralSized (unsafeCoerce nAny :: Integer) of
+                Just microseconds -> poke out (TimeBound microseconds nullPtr) >> pure 0
+                Nothing -> errorJSON "aletheia_parse_time_bound: the time bound does not fit 64 bits"
+                             >>= refuse
+  where
+    refuse envelope = poke out (TimeBound 0 envelope) >> pure 1
+
+-- | Check one property's JSON text as set_properties reads a property, before
+-- any session holds it: `checkPropertyText` reads it as a request is read,
+-- then decides every field, ordering, denominator and time bound, and each
+-- signal name as an identifier, leaving a name's presence in a DBC to
+-- set_properties.  Every call writes the error: NULL on success.
+foreign export ccall aletheia_check_property :: Ptr WireText -> Ptr PropertyCheck -> IO Int8
+aletheia_check_property :: Ptr WireText -> Ptr PropertyCheck -> IO Int8
+aletheia_check_property inputPtr out
+  | out == nullPtr = pure 1
+  | otherwise = do
+      input <- peekText inputPtr
+      case input of
+        Left reason -> errorJSON reason >>= refuse
+        Right s ->
+          case unsafeCoerce (AgdaJSON.d_checkPropertyText_114 (T.pack s)) :: AgdaSum.T__'8846'__30 of
+            AgdaSum.C_inj'8321'_38 errAny -> kernelErrorText (unsafeCoerce errAny) >>= refuse
+            AgdaSum.C_inj'8322'_42 _ -> poke out (PropertyCheck nullPtr) >> pure 0
+  where
+    refuse envelope = poke out (PropertyCheck envelope) >> pure 1
 
 foreign export ccall aletheia_free_buf :: Ptr Word8 -> IO ()
 aletheia_free_buf :: Ptr Word8 -> IO ()

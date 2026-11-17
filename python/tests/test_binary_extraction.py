@@ -11,7 +11,7 @@ parity between the binary wire and the JSON fallback path.
 import struct
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NewType
 
 import pytest
 from _dbc_helpers import dbc, message, signal
@@ -21,6 +21,7 @@ from aletheia.client._client_bin import (
     ExtractionErrorCode,
     parse_extraction_buffer,
 )
+from aletheia.client._ffi import Magnitude
 from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
@@ -39,6 +40,37 @@ _AGDA_SKIP_REASON = (
 )
 
 
+# One packed 35-byte value entry of the extraction buffer.
+ValueEntry = NewType("ValueEntry", bytes)
+
+# A value entry's sign byte, any byte but 0 meaning negative.
+SignByte = NewType("SignByte", int)
+
+# A signal's index on the wire.
+WireIndex = NewType("WireIndex", int)
+
+# A segment of the extraction buffer that carries signal indices.
+Segment = Literal["values", "errors", "absent"]
+
+# A whole packed extraction response buffer, written by hand.
+ExtractionReply = NewType("ExtractionReply", bytes)
+
+# The text a ProtocolError carries.
+RefusalText = NewType("RefusalText", str)
+
+
+def _value_entry(
+    idx: WireIndex, negative: SignByte, magnitude: Magnitude, den: Magnitude
+) -> ValueEntry:
+    """Pack one 35-byte value entry: the index, the sign byte, then both 128-bit magnitudes."""
+    mask = (1 << 64) - 1
+    return ValueEntry(
+        struct.pack(
+            "<HBQQQQ", idx, negative, magnitude & mask, magnitude >> 64, den & mask, den >> 64
+        )
+    )
+
+
 def _extraction_buffer(
     values: Sequence[tuple[int, int, int]] = (),
     errors: Sequence[tuple[int, int, str]] = (),
@@ -46,7 +78,8 @@ def _extraction_buffer(
 ) -> bytes:
     """Pack a wire-conformant extraction response buffer.
 
-    ``values`` entries are (signal_index, numerator, denominator);
+    ``values`` entries are (signal_index, numerator, denominator), each packed
+    as the sign byte and the two magnitudes' low and high words;
     ``errors`` entries are (signal_index, code, reason).  The offsets
     table and reasons blob are derived from the reasons' UTF-8 byte
     lengths, matching the layout in the ``processExtractBin`` header
@@ -57,7 +90,12 @@ def _extraction_buffer(
     for blob in reason_blobs:
         offsets.append(offsets[-1] + len(blob))
     parts = [struct.pack("<HHHI", len(values), len(errors), len(absent), offsets[-1])]
-    parts.extend(struct.pack("<Hqq", idx, num, den) for idx, num, den in values)
+    parts.extend(
+        _value_entry(
+            WireIndex(idx), SignByte(1 if num < 0 else 0), Magnitude(abs(num)), Magnitude(den)
+        )
+        for idx, num, den in values
+    )
     parts.extend(struct.pack("<HB", idx, code) for idx, code, _ in errors)
     parts.append(struct.pack(f"<{len(errors) + 1}I", *offsets))
     parts.extend(reason_blobs)
@@ -81,16 +119,22 @@ class TestParseExtractionBuffer:
         result = parse_extraction_buffer(buf, NAMES)
         assert result.values == {"Speed": 220.0, "RPM": 3500.0, "Temp": 42.5}
 
-    def test_denominator_zero_raises(self) -> None:
-        """Denominator zero raises ProtocolError (not silent coercion)."""
-        buf = _extraction_buffer(values=[(0, 999, 0)])
-        with pytest.raises(ProtocolError, match="Zero denominator"):
-            parse_extraction_buffer(buf, NAMES)
+    @pytest.mark.parametrize("segment", ["values", "errors", "absent"])
+    @pytest.mark.parametrize("past", [WireIndex(len(NAMES)), WireIndex(0xFFFF)])
+    def test_signal_index_past_the_names_raises_index_error(
+        self, segment: Segment, past: WireIndex
+    ) -> None:
+        """Each segment indexes the name table with the unsigned wire index: past it is IndexError.
 
-    def test_signal_index_out_of_range(self) -> None:
-        """Index beyond names list uses fallback name."""
-        result = parse_extraction_buffer(_extraction_buffer(values=[(99, 42, 1)]), NAMES)
-        assert result.values == {"signal_99": 42.0}
+        The index ``0xFFFF`` read as signed would be -1, a name the table has.
+        """
+        buf = {
+            "values": _extraction_buffer(values=[(past, 42, 1)]),
+            "errors": _extraction_buffer(errors=[(past, 0, "reason")]),
+            "absent": _extraction_buffer(absent=[past]),
+        }[segment]
+        with pytest.raises(IndexError, match=r"^tuple index out of range$"):
+            _ = parse_extraction_buffer(buf, NAMES)
 
     def test_all_segments_with_multibyte_utf8_reason(self) -> None:
         """Value + two distinct wire reasons (one multi-byte UTF-8) + absent.
@@ -145,6 +189,12 @@ class TestParseExtractionBuffer:
         with pytest.raises(ProtocolError, match="too short"):
             parse_extraction_buffer(b"\x00" * 9, NAMES)
 
+    def test_header_alone_is_truncated_not_too_short(self) -> None:
+        """A whole header passes the header check and lacks the offsets table it implies."""
+        with pytest.raises(ProtocolError) as refused:
+            parse_extraction_buffer(b"\x00" * 10, NAMES)
+        assert str(refused.value) == "Truncated binary extraction buffer: need 14 bytes, have 10"
+
     def test_empty_result(self) -> None:
         """Zero counts: the offsets table is the single u32 0, reasonBytes 0."""
         buf = _extraction_buffer()
@@ -154,11 +204,26 @@ class TestParseExtractionBuffer:
         assert result.errors == {}
         assert result.absent == ()
 
+    def test_zero_error_reply_reads_its_offsets_table(self) -> None:
+        """A reply without errors reads its offsets table as every reply does, then its absent."""
+        buf = _extraction_buffer(values=[(0, 220, 1), (1, -3500, 1), (2, 85, 2)], absent=[3])
+        result = parse_extraction_buffer(buf, NAMES)
+        assert result.values == {
+            "Speed": Fraction(220),
+            "RPM": Fraction(-3500),
+            "Temp": Fraction(85, 2),
+        }
+        assert result.errors == {}
+        assert result.absent == ("Mode",)
+
     def test_trailing_byte_rejected(self) -> None:
         """One byte past the header-implied total raises ProtocolError."""
         buf = _extraction_buffer(values=[(0, 100, 1)])
-        with pytest.raises(ProtocolError, match="trailing"):
+        with pytest.raises(ProtocolError) as refused:
             parse_extraction_buffer(buf + b"\x00", NAMES)
+        assert str(refused.value) == (
+            "Binary extraction buffer has trailing bytes: expected 49 bytes, have 50"
+        )
 
     def test_truncated_buffer_rejected(self) -> None:
         """One byte short of the header-implied total raises ProtocolError."""
@@ -166,19 +231,79 @@ class TestParseExtractionBuffer:
         with pytest.raises(ProtocolError, match="Truncated"):
             parse_extraction_buffer(buf[:-1], NAMES)
 
+    def test_128_bit_components_read_exactly(self) -> None:
+        """Both words of each magnitude are read, on either sign."""
+        widest = 2**128 - 1
+        buf = _extraction_buffer(values=[(0, widest, 1), (1, -1, widest), (2, -(2**64), 3)])
+        result = parse_extraction_buffer(buf, NAMES)
+        assert result.values == {
+            "Speed": Fraction(widest),
+            "RPM": Fraction(-1, widest),
+            "Temp": Fraction(-(2**64), 3),
+        }
+
+    def test_any_sign_byte_but_zero_is_negative(self) -> None:
+        """The header reads any sign byte but 0 as negative, and so does the reader."""
+        entry = _value_entry(WireIndex(0), SignByte(2), Magnitude(5), Magnitude(2))
+        buf = struct.pack("<HHHI", 1, 0, 0, 0) + entry + struct.pack("<I", 0)
+        assert parse_extraction_buffer(buf, NAMES).values == {"Speed": Fraction(-5, 2)}
+
+    def test_fraction_exact_roundtrip(self) -> None:
+        """Extraction preserves exact rationals (no float quantization)."""
+        # 1/3 is not representable as IEEE 754 double
+        result = parse_extraction_buffer(_extraction_buffer(values=[(0, 1, 3)]), NAMES)
+        assert result.values["Speed"] == Fraction(1, 3)
+        # Verify it's an exact Fraction, not a float approximation
+        assert isinstance(result.values["Speed"], Fraction)
+        assert result.values["Speed"].numerator == 1
+        assert result.values["Speed"].denominator == 3
+
+
+class TestReasonOffsets:
+    """Test the offsets table and the reasons blob it delimits."""
+
     def test_first_offset_nonzero_rejected(self) -> None:
-        """off[0] != 0 raises ProtocolError."""
+        """off[0] != 0 raises ProtocolError naming off[0]."""
         buf = (
-            struct.pack("<HHHI", 0, 1, 0, 1)
+            struct.pack("<HHHI", 0, 1, 0, 2)
             + struct.pack("<HB", 0, 0)
-            + struct.pack("<II", 1, 1)
-            + b"x"
+            + struct.pack("<II", 1, 2)
+            + b"xy"
         )
-        with pytest.raises(ProtocolError, match="start at 0"):
+        with pytest.raises(ProtocolError) as refused:
             parse_extraction_buffer(buf, NAMES)
+        assert str(refused.value) == "Extraction reason offsets must start at 0, got 1"
+
+    @pytest.mark.parametrize(
+        ("buf", "refusal"),
+        [
+            pytest.param(
+                ExtractionReply(struct.pack("<HHHI", 0, 0, 0, 0) + struct.pack("<I", 1)),
+                RefusalText("Extraction reason offsets must start at 0, got 1"),
+                id="first-offset-nonzero",
+            ),
+            pytest.param(
+                ExtractionReply(struct.pack("<HHHI", 0, 0, 0, 1) + struct.pack("<I", 0) + b"x"),
+                RefusalText("Extraction reason offsets end at 0, expected reasonBytes 1"),
+                id="reason-bytes-past-the-offsets",
+            ),
+        ],
+    )
+    def test_no_errors_still_checks_the_offsets_table(
+        self, buf: ExtractionReply, refusal: RefusalText
+    ) -> None:
+        """A reply without errors is refused when its offsets table is not the single 0."""
+        with pytest.raises(ProtocolError) as refused:
+            parse_extraction_buffer(buf, NAMES)
+        assert str(refused.value) == refusal
+
+    def test_error_with_empty_reason_decoded(self) -> None:
+        """Equal adjacent offsets delimit an empty reason, which is carried, not refused."""
+        result = parse_extraction_buffer(_extraction_buffer(errors=[(0, 0, "")]), NAMES)
+        assert result.errors == {"Speed": ""}
 
     def test_non_monotone_offsets_rejected(self) -> None:
-        """A decreasing offset pair raises ProtocolError."""
+        """A decreasing offset pair raises ProtocolError naming both offsets."""
         buf = (
             struct.pack("<HHHI", 0, 2, 0, 1)
             + struct.pack("<HB", 0, 0)
@@ -186,8 +311,11 @@ class TestParseExtractionBuffer:
             + struct.pack("<III", 0, 2, 1)
             + b"x"
         )
-        with pytest.raises(ProtocolError, match="monotone"):
+        with pytest.raises(ProtocolError) as refused:
             parse_extraction_buffer(buf, NAMES)
+        assert str(refused.value) == (
+            "Extraction reason offsets not monotone non-decreasing: offset[1] = 2 > offset[2] = 1"
+        )
 
     def test_final_offset_reason_bytes_mismatch_rejected(self) -> None:
         """off[nErrors] != reasonBytes raises ProtocolError."""
@@ -210,16 +338,6 @@ class TestParseExtractionBuffer:
         )
         with pytest.raises(ProtocolError, match="Invalid UTF-8"):
             parse_extraction_buffer(buf, NAMES)
-
-    def test_fraction_exact_roundtrip(self) -> None:
-        """Extraction preserves exact rationals (no float quantization)."""
-        # 1/3 is not representable as IEEE 754 double
-        result = parse_extraction_buffer(_extraction_buffer(values=[(0, 1, 3)]), NAMES)
-        assert result.values["Speed"] == Fraction(1, 3)
-        # Verify it's an exact Fraction, not a float approximation
-        assert isinstance(result.values["Speed"], Fraction)
-        assert result.values["Speed"].numerator == 1
-        assert result.values["Speed"].denominator == 3
 
 
 def _agda_constructors() -> list[str]:

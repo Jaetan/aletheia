@@ -111,7 +111,7 @@ api_speed = signal("VehicleSpeed").never_exceeds(220).to_dict()
 print(f"\n  Excel 'Speed limit' == Check API: {excel_speed == api_speed}")
 
 excel_brake = checks[6].to_dict()
-api_brake = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
+api_brake = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100_000).to_dict()
 print(f"  Excel 'Brake light' == Check API: {excel_brake == api_brake}")
 
 

@@ -27,13 +27,16 @@ from typing import TYPE_CHECKING, NoReturn
 
 import pytest
 
-from tools._common import find_executable, read_shake_program, run_capture
+from tools._common import ShakeSource, find_executable, read_shake_program, run_capture
+from tools.bundle_c_example import GUIDE, read_c_guide
 from tools.check_dist_staging import (
     COULD_NOT_CHECK,
     DistStagingError,
+    check_c_recipe,
     check_licence_texts_tracked,
     find_fish,
     main,
+    parse_c_recipe,
     parse_stage_bindings,
 )
 
@@ -60,6 +63,35 @@ main = do
             , ":(exclude)go/aletheia/*_test.go", ":(exclude)go/aletheia/testdata" ]
         stageBinding "rust"
             [ "rust/Cargo.toml", "rust/LICENSE.md" ]
+cRecipe :: [String]
+cRecipe =
+    [ "gcc -std=gnu23 -I/path/to/aletheia/include \\\\"
+    , "    -laletheia-ffi -l:\\"$(basename /path/to/aletheia/lib/libHSrts-*.so)\\""
+    ]
+"""
+
+# The guide's C section in the shape the reader takes, its first recipe the one
+# the fixture build program's cRecipe spells.
+_GUIDE_TEXT = r"""### C
+
+#### Compile and link
+
+~~~bash
+gcc -std=gnu23 -I/path/to/aletheia/include \
+    -laletheia-ffi -l:"$(basename /path/to/aletheia/lib/libHSrts-*.so)"
+~~~
+
+#### Relative RPATH (relocatable binary)
+
+~~~bash
+gcc -std=gnu23 -Ialetheia/include -o bin/my_app main.c
+~~~
+
+#### Minimal C example
+
+~~~c
+int main(void) { return 0; }
+~~~
 """
 
 _LICENCE_TEXT = "Copyright (c) 2008-2009, Tom Harper\n"
@@ -91,6 +123,7 @@ GOOD_FILES = {
     "rust/LICENSE.md": "BSD-2-Clause\n",
     "packaging/licenses/sources.yaml": _LICENCE_RECORD,
     "packaging/licenses/text-2.1.1/LICENSE": _LICENCE_TEXT,
+    GUIDE: _GUIDE_TEXT,
 }
 
 
@@ -190,7 +223,8 @@ def test_fixture_happy_path_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         "bash+fish syntax OK" if find_fish() else "bash syntax OK; fish absent, .fish skipped"
     )
     assert said[-1].endswith(
-        f"{fish_note}; LICENSE.md, its binding copies and the licence texts tracked"
+        f"{fish_note}; LICENSE.md, its binding copies and the licence texts tracked; "
+        + f"the C recipe dist prints is the one of {GUIDE}"
     )
 
 
@@ -564,12 +598,12 @@ def test_fish_absent_locally_skips_loudly(
         return subprocess.CompletedProcess(cmd, 0, Prose(""), Prose(""))
 
     monkeypatch.setattr("tools.check_dist_staging.run_capture", syntax_clean)
-    licences = {
+    read_from_disk = {
         rel: text
         for rel, text in GOOD_FILES.items()
-        if rel.startswith("packaging/licenses/") or rel.endswith("LICENSE.md")
+        if rel.startswith("packaging/licenses/") or rel.endswith("LICENSE.md") or rel == GUIDE
     }
-    assert _write_files(tmp_path, licences) == root
+    assert _write_files(tmp_path, read_from_disk) == root
     assert _run(monkeypatch, _write_shakefile(tmp_path), root) == 0
     out = capsys.readouterr().out
     assert "skipping" in out
@@ -579,3 +613,99 @@ def test_fish_absent_locally_skips_loudly(
         [bash, "-n", str(root / "packaging/env.sh")],
         [bash, "-n", str(root / "packaging/install.sh")],
     ]
+
+
+# ── The C recipe the dist rule prints ───────────────────────────────────────
+
+_GUIDE = read_c_guide(Prose(_GUIDE_TEXT))
+_WANTED = (
+    Prose("gcc -std=gnu23 -I/path/to/aletheia/include \\"),
+    Prose('    -laletheia-ffi -l:"$(basename /path/to/aletheia/lib/libHSrts-*.so)"'),
+)
+
+
+def test_the_c_recipe_reads_as_the_lines_it_prints() -> None:
+    """``cRecipe``'s escaped backslash and quotes read as the shell line has them, the guide's."""
+    assert parse_c_recipe(ShakeSource(GOOD_SHAKEFILE)) == _WANTED
+    assert not check_c_recipe(ShakeSource(GOOD_SHAKEFILE), _GUIDE)
+
+
+def _starts(failures: list[Prose]) -> list[Prose]:
+    """Return the first sixty characters of each failure, the part naming what failed."""
+    return [Prose(failure[:60]) for failure in failures]
+
+
+def test_a_c_recipe_unlike_the_guide_fails() -> None:
+    """TEETH: a line of cRecipe the guide does not write fails, naming both."""
+    program = ShakeSource(GOOD_SHAKEFILE.replace("gcc -std=gnu23 -I/path", "gcc -I/path", 1))
+    assert program != GOOD_SHAKEFILE
+    failures = check_c_recipe(program, _GUIDE)
+    assert _starts(failures) == ["cRecipe ['gcc -I/path/to/aletheia/include \\\\', '    -lalethe"]
+    assert f"is not the Compile and link recipe of {GUIDE}, ['gcc -std=gnu23 " in failures[0]
+
+
+def test_a_second_c_link_line_fails() -> None:
+    """TEETH: a literal outside cRecipe spelling the link flag is a second recipe, and fails."""
+    program = ShakeSource(GOOD_SHAKEFILE + 'report = putInfo "cc -laletheia-ffi app.c"\n')
+    assert _starts(check_c_recipe(program, _GUIDE)) == [
+        "the build program spells -laletheia-ffi 1 times outside cRec"
+    ]
+
+
+def test_a_build_program_without_a_c_recipe_fails() -> None:
+    """TEETH: no cRecipe fails, and the link line printed in its place fails too."""
+    before, _, _ = GOOD_SHAKEFILE.partition("cRecipe ::")
+    program = ShakeSource(before + 'x = "cc -laletheia-ffi"\n')
+    assert parse_c_recipe(program) is None
+    assert _starts(check_c_recipe(program, _GUIDE)) == [
+        "the build program defines no cRecipe, the list README.txt an",
+        "the build program spells -laletheia-ffi 1 times outside cRec",
+    ]
+
+
+@pytest.mark.parametrize("literals", [r'"a\nb"', r'"a" ++ "b"', '"a\\   \\b"', '"a'])
+def test_a_c_recipe_in_another_form_could_not_check(literals: Prose) -> None:
+    """TEETH: another escape, an expression, a gap or an open literal is refused, not misread."""
+    program = ShakeSource(f"cRecipe =\n    [ {literals} ]\n")
+    with pytest.raises(DistStagingError, match=r"cRecipe(: unbalanced| is not a list)"):
+        _ = parse_c_recipe(program)
+
+
+def test_a_c_recipe_defined_twice_could_not_check() -> None:
+    """TEETH: two definitions are refused rather than one of them read."""
+    program = ShakeSource('cRecipe =\n    [ "a" ]\ncRecipe =\n    [ "a" ]\n')
+    with pytest.raises(DistStagingError, match="defines cRecipe 2 times"):
+        _ = parse_c_recipe(program)
+
+
+def _stand_in_for_git_and_scripts(monkeypatch: pytest.MonkeyPatch) -> io.StringIO:
+    """Answer every git query as tracked and every script as clean; return the stderr seen."""
+    _ = _skip_script_checks(monkeypatch)
+    monkeypatch.setattr("tools.check_dist_staging.git_ls_files", _every_pathspec_tracked)
+    err = io.StringIO()
+    monkeypatch.setattr("sys.stderr", err)
+    return err
+
+
+def test_a_guide_without_its_c_section_could_not_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TEETH: a guide the reader cannot take is COULD-NOT-CHECK, naming the guide and why."""
+    repo = _write_files(tmp_path, {**GOOD_FILES, GUIDE: "### C++\n"})
+    err = _stand_in_for_git_and_scripts(monkeypatch)
+    assert _run(monkeypatch, _write_shakefile(tmp_path), repo) == COULD_NOT_CHECK
+    assert f"{repo / GUIDE}: 0 '### C' sections, not one" in err.getvalue()
+
+
+def test_the_guide_flag_names_the_guide_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--guide reads that file rather than the repository's: one unlike cRecipe fails."""
+    repo = _write_files(tmp_path, GOOD_FILES)
+    planted = tmp_path / "planted.md"
+    _ = planted.write_text(
+        _GUIDE_TEXT.replace("gcc -std=gnu23 -I/path", "gcc -I/path", 1), encoding="utf-8"
+    )
+    err = _stand_in_for_git_and_scripts(monkeypatch)
+    assert _run(monkeypatch, _write_shakefile(tmp_path), repo, "--guide", str(planted)) == 1
+    assert f"is not the Compile and link recipe of {GUIDE}, ['gcc -I/path" in err.getvalue()

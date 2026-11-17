@@ -24,7 +24,7 @@ open import Aletheia.Protocol.Message using (Response; Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
 import Aletheia.Error as Err
-open import Aletheia.Limits using (BoundKind; boundKindCode; saturateObserved)
+open import Aletheia.Limits using (BoundKind; boundKindCode; saturateObserved; saturateBound)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData; Warning; WarningKind; UncachedAtom)
 open import Aletheia.LTL.Incremental using (formatLTLReason)
 open import Aletheia.Trace.Time using (tsValue)
@@ -39,14 +39,19 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   TextRoundTripDivergence; MultiValueMuxSelector; MuxMasterIncoherent;
   UnknownAttributeName; AttributeValueTypeMismatch;
   AttributeEnumEmpty; AttributeEnumDefaultUnstable; RangeExceedsBits;
-  ValidationIssue)
+  ValueDescriptionKeyOutOfRange; ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
--- A natural written as a JSON number through `saturateObserved`: the
--- formatter writes no natural above `observed-ceiling`, the top of the range
--- every binding's reader holds (`ResponseFormat.Properties.formatResponse-readable`).
+-- A natural written as a JSON number through `saturateObserved`: at most
+-- `observed-ceiling`, the range of the places a position, an index or a
+-- count sits (`ResponseFormat.Properties.formatResponse-in-range`).
 saturated : ℕ → JSON
 saturated n = JNumber (ℕtoℚ (saturateObserved n))
+
+-- A bound refusal's `observed` or `limit` written through `saturateBound`,
+-- at most `bound-ceiling`, the 128-bit range every binding's bound refusal holds.
+boundSaturated : ℕ → JSON
+boundSaturated n = JNumber (ℕtoℚ (saturateBound n))
 
 -- Shared header + variant-specific extras for PropertyResult JSON output.
 -- Every PropertyResult variant emits the same `type`/`status`/`property_index`
@@ -138,6 +143,7 @@ formatIssueCode AttributeValueTypeMismatch    = "attribute_value_type_mismatch"
 formatIssueCode AttributeEnumEmpty            = "attribute_enum_empty"
 formatIssueCode AttributeEnumDefaultUnstable  = "attribute_enum_default_unstable"
 formatIssueCode RangeExceedsBits              = "range_exceeds_bits"
+formatIssueCode ValueDescriptionKeyOutOfRange = "value_description_key_out_of_range"
 
 formatValidationIssue : ValidationIssue → JSON
 formatValidationIssue issue =
@@ -163,14 +169,15 @@ formatValidationIssue issue =
 --     exposes `field` + `keyword`.
 --   * `ValidationFailed` / `TextRoundTripFailed` expose `has_errors` + `issues`.
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
--- Every natural here goes through `saturated`: a position or a limit is
--- written at most as the ceiling, as `observed` is.
+-- Every natural here goes through `saturated`, a position written at most as
+-- the 64-bit ceiling, but a bound refusal's `observed` and `limit`, which go
+-- through `boundSaturated`.
 private
   boundInfoFields : BoundKind → ℕ → ℕ → List (String × JSON)
   boundInfoFields kind observed limit =
     ("bound_kind" , JStringS (boundKindCode kind)) ∷
-    ("observed"   , saturated observed) ∷
-    ("limit"      , saturated limit) ∷
+    ("observed"   , boundSaturated observed) ∷
+    ("limit"      , boundSaturated limit) ∷
     []
 
 errorExtras : Err.Error → List (String × JSON)
@@ -192,9 +199,9 @@ errorExtras (Err.DispatchErr (Err.InvalidJSON pos)) =
   ("line"   , saturated (Position.line pos)) ∷
   ("column" , saturated (Position.column pos)) ∷
   []
-errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
-errorExtras (Err.InputBoundExceededAt (Err.InPart f) k o l) = ("field" , JStringS f) ∷ boundInfoFields k o l
-errorExtras (Err.InputBoundExceededAt (Err.AtText pos) k o l) =
+errorExtras (Err.InputBoundExceeded k o l _) = boundInfoFields k o l
+errorExtras (Err.InputBoundExceededAt (Err.InPart f) k o l _) = ("field" , JStringS f) ∷ boundInfoFields k o l
+errorExtras (Err.InputBoundExceededAt (Err.AtText pos) k o l _) =
   ("line"   , saturated (Position.line pos)) ∷
   ("column" , saturated (Position.column pos)) ∷
   boundInfoFields k o l
@@ -274,7 +281,7 @@ formatResponse (ExtractionResultsResponse values errors absent _) =
     ("errors" , JArray (map formatSignalError errors)) ∷
     ("absent" , JArray (map JStringS absent)) ∷
     [])
-formatResponse (PropertyResponse results) =
+formatResponse (PropertyResponse results _) =
   -- Per-frame batch of property events.  Carries one
   -- top-level object that bindings parse as a single response, with the
   -- inner `results` array preserving source order (satisfactions that

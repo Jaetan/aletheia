@@ -31,7 +31,6 @@ import "C"
 
 import (
 	"errors"
-	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -74,9 +73,9 @@ func FromDecimal(s string) (Rational, error) {
 			return Rational{}, protocolError("aletheia_parse_decimal failed without an error")
 		}
 		defer C.decimal_call_free_str(entries.freeStr, out.err)
-		return Rational{}, refusedLiteral(binaryRefusal("aletheia_parse_decimal", C.GoString(out.err)))
+		return Rational{}, refusedLiteral(binaryRefusal(C.GoString(out.err)))
 	}
-	return decimalValue(int64(out.value.numerator), int64(out.value.denominator))
+	return rationalOf(out.value), nil
 }
 
 // refusedLiteral gives a coded refusal of the literal the kind of a caller's
@@ -89,13 +88,4 @@ func refusedLiteral(err error) error {
 		return &Error{Kind: ErrValidation, Code: e.Code, Message: e.Message}
 	}
 	return err
-}
-
-// decimalValue is the parsed rational, whose denominator the kernel answers
-// positive; any other is the ABI or the kernel malfunctioning.
-func decimalValue(numerator, denominator int64) (Rational, error) {
-	if denominator <= 0 {
-		return Rational{}, protocolError(fmt.Sprintf("aletheia_parse_decimal answered a non-positive denominator %d", denominator))
-	}
-	return Rational{Numerator: numerator, Denominator: denominator}, nil
 }

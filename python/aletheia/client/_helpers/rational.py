@@ -6,29 +6,36 @@ from __future__ import annotations
 
 import ctypes
 from fractions import Fraction
-from typing import TYPE_CHECKING, TypeGuard
+from typing import NewType, TypeGuard
 
 from aletheia.client._ffi import (
     AletheiaDecimal,
     AletheiaText,
+    AletheiaTimeBound,
     started_library,
     take_error_envelope,
+    uint128_value,
 )
 from aletheia.client._refusal import raise_entry_refusal
-from aletheia.client._types import ProtocolError, ValidationError
-from aletheia.common_types import Prose
-from aletheia.types import is_str_dict
+from aletheia.client._types import (
+    InputBoundExceededError,
+    KernelRefusal,
+    ValidationError,
+)
+from aletheia.codes import ErrorCode
+from aletheia.common_types import Microseconds, Prose
+from aletheia.limits import (
+    BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
+    MAX_RATIONAL_COMPONENT_MAGNITUDE,
+    BoundField,
+)
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+# A time window's text, whole microseconds as a loader's document spells them.
+TimeBoundText = NewType("TimeBoundText", str)
 
-    from aletheia.types import JSONValue
-
-# int64 bounds match the Haskell ``Int64`` numerator/denominator that the
-# Agda core consumes; the binary FFI wire packs each component as ``<q``
-# little-endian, so a value outside this range cannot cross the boundary.
-_INT64_MAX = (1 << 63) - 1
-_INT64_MIN = -(1 << 63)
+# The part of a build a value wider than its wire slot names, as the kernel
+# names the part of a JSON number past the bound.
+_SIGNAL_VALUE_FIELD = BoundField("signal value")
 
 
 def is_pure_int(v: object) -> TypeGuard[int]:
@@ -37,8 +44,8 @@ def is_pure_int(v: object) -> TypeGuard[int]:
     Python's ``bool`` is a subclass of ``int`` (``isinstance(True, int)``
     returns ``True``), so plain ``isinstance(v, int)`` is insufficient
     for "is this a numeric integer?" checks.  This guard rejects bools
-    while accepting all other ``int`` values.  The wire rational decoders
-    here and the DBC reply checks of ``dbc_normalize`` use it.
+    while accepting all other ``int`` values.  The whole-number reply checks
+    of ``dbc_normalize`` and ``_response_parsers`` use it.
     """
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -80,9 +87,8 @@ def from_decimal(s: str) -> Fraction:
             ``ffi_validation_error`` when the shim refused the text before the
             kernel read it (a NUL byte, or a lone surrogate, the one text a
             ``str`` holds that is not UTF-8).
-        ProtocolError: the FFI answered a failure without an envelope, a
-            malformed envelope or a non-positive denominator (an ABI / kernel
-            malfunction).
+        ProtocolError: the FFI answered a failure without an envelope or with
+            a malformed one (an ABI / kernel malfunction).
 
     """
     lib = started_library(Prose("parsing decimals"))
@@ -98,23 +104,48 @@ def from_decimal(s: str) -> Fraction:
     return decimal_value(out)
 
 
+def parse_time_bound(s: TimeBoundText) -> Microseconds:
+    """Read a time window's text as the whole microseconds the kernel reads it as.
+
+    The kernel reads *s* as :func:`from_decimal` reads a decimal, then as it
+    reads a property's time bound: a whole, non-negative number of
+    microseconds at most 2^64-1.  Vocal, as :func:`from_decimal` is: it never
+    starts the runtime.
+
+    Raises:
+        FFIError: the GHC runtime is not started (no
+            :func:`~aletheia.start_runtime` and no client).
+        InputBoundExceededError: the number is past 2^64-1 (``field``
+            ``"time bound"``), or a component of the decimal is past the
+            rational bound (``field`` ``"decimal"``).
+        ValidationError: the text was refused, its ``code`` saying how: a text
+            that is no decimal as :func:`from_decimal` refuses it, or
+            ``handler_property_refused`` for a negative or fractional
+            number (``timebound -1500 is negative``, ``timebound 1.5 is not a
+            whole number``).
+
+    """
+    lib = started_library(Prose("reading a time bound"))
+    out = AletheiaTimeBound()
+    raw = s.encode(errors="surrogatepass")
+    text = AletheiaText(raw, len(raw))
+    if lib.aletheia_parse_time_bound(ctypes.byref(text), ctypes.byref(out)) != 0:
+        missing = Prose("aletheia_parse_time_bound failed without an error")
+        raise_entry_refusal(take_error_envelope(lib, out, missing), error=ValidationError)
+    microseconds: Microseconds = out.microseconds
+    return microseconds
+
+
 def decimal_value(out: AletheiaDecimal) -> Fraction:
     """Read the rational the decimal entry answered into *out*.
 
-    The kernel answers lowest terms over a positive denominator; anything else
-    is the ABI or the kernel malfunctioning, which ``Fraction`` would hide by
-    moving the sign.
-
-    Raises:
-        ProtocolError: the denominator is not positive.
-
+    The kernel proves its answer lowest terms over a positive denominator, so
+    the parts are read as written.  Any sign byte but 0 is negative, as the
+    header reads one.
     """
-    numerator: int = out.value.numerator
-    denominator: int = out.value.denominator
-    if denominator <= 0:
-        msg = f"aletheia_parse_decimal answered a non-positive denominator {denominator}"
-        raise ProtocolError(msg)
-    return Fraction(numerator, denominator)
+    value = Fraction(uint128_value(out.value.numerator), uint128_value(out.value.denominator))
+    negative: int = out.value.negative
+    return -value if negative else value
 
 
 def to_exact_fraction(value: int | Fraction) -> Fraction:
@@ -160,7 +191,8 @@ def to_exact_fraction(value: int | Fraction) -> Fraction:
 def reject_inexact(value: object, ctx: str) -> None:
     """Reject a non-exact value (a ``float`` or ``bool``) at an outbound *rational* wire field.
 
-    The outbound twin of :func:`decode_wire_rational`, applied at exactly the
+    The outbound twin of
+    :func:`~aletheia.client._helpers.reply_shape.read_rational`, applied at exactly the
     fields the Agda kernel parses as ℚ — signal ``factor``/``offset``/``minimum``/
     ``maximum``, env-var ``initial``/``minimum``/``maximum``, *float-kind*
     attribute ``min``/``max``/``value``, and predicate
@@ -174,9 +206,8 @@ def reject_inexact(value: object, ctx: str) -> None:
     ``startBit``, ``dlc``, ``id``, value-table values, int/hex attribute bounds…)
     are left to the kernel's own typed validation, which rejects a non-integer
     there loudly (e.g. ``parse_non_integer_multiplex_value``) rather than
-    silently.  This mirrors the inbound decoder, which likewise routes only the
-    rational fields through :func:`decode_wire_rational` and lets the kernel
-    validate the integer fields.
+    silently.  The reply readers likewise read only the rational fields as
+    rationals.
 
     Args:
         value: The single field value to check.
@@ -201,104 +232,33 @@ def reject_inexact(value: object, ctx: str) -> None:
         raise ValidationError(msg)
 
 
-def fraction_to_wire_pair(value: Fraction) -> tuple[int, int]:
-    """Convert a Fraction to (numerator, denominator) for the binary frame FFI.
+def check_wire_bound(value: Fraction) -> None:
+    """Refuse a signal value the binary frame FFI's slots cannot hold.
 
-    Exact int64 numerator/denominator extraction required by the binary-frame
-    endpoints (``aletheia_build_frame_bin`` / ``aletheia_update_frame_bin``,
-    which take ``POINTER(c_int64)`` arrays): the Agda core works in ℚ and the
-    wire carries int64 numerator/denominator pairs, so a Fraction flows through
-    losslessly.
+    The binary-frame endpoints (``aletheia_build_frame_bin`` /
+    ``aletheia_update_frame_bin``) take each value as a sign and two unsigned
+    128-bit magnitudes, so a Fraction whose components fit flows through
+    losslessly.  A wider one would be truncated by ctypes, so it is refused
+    before packing, as the kernel refuses a JSON number past the bound: the
+    magnitude it measured is past the reported ceiling, so the refusal names
+    only the limit.
 
     Raises:
-        ValidationError: If either component overflows the Int64 wire range.
+        InputBoundExceededError: the numerator's magnitude or the denominator
+            exceeds :data:`~aletheia.limits.MAX_RATIONAL_COMPONENT_MAGNITUDE`
+            (``field`` ``"signal value"``).
 
     """
     n, d = value.numerator, value.denominator
-    if not _INT64_MIN <= n <= _INT64_MAX or not _INT64_MIN <= d <= _INT64_MAX:
-        msg = f"Fraction {value!r} components exceed int64 range"
-        raise ValidationError(msg)
-    return (n, d)
-
-
-def extract_rational_from_dict(
-    d: Mapping[str, JSONValue],
-    context: str,
-) -> tuple[int, int]:
-    """Extract (numerator, denominator) from a rational dict.
-
-    Raises ProtocolError if the dict is malformed or denominator is non-positive.
-    Mirrors Go ``validateRational`` (rejects ``<= 0``) and the Agda kernel
-    invariant that the denominator is a ``ℕ⁺``.  A negative denominator on
-    the wire would otherwise be silently sign-flipped by ``Fraction(n, d)``,
-    hiding the wire-format violation.
-    """
-    numerator = d.get("numerator")
-    denominator = d.get("denominator")
-    # is_pure_int rejects bool subclass so a malicious response
-    # {"numerator": true, "denominator": false} cannot coerce to
-    # Fraction(1, 0).  Mirrors the Go encoding/json + C++
-    # nlohmann/json bool→int rejection contract.
-    if not is_pure_int(numerator):
-        msg = f"Expected {context}.numerator to be int"
-        raise ProtocolError(msg)
-    if not is_pure_int(denominator):
-        msg = f"Expected {context}.denominator to be int"
-        raise ProtocolError(msg)
-    if denominator <= 0:
-        msg = f"Expected {context}.denominator to be positive, got {denominator}"
-        raise ProtocolError(msg)
-    return numerator, denominator
-
-
-def validate_integer_field(field_name: str, raw_value: object) -> int:
-    """Validate + extract an integer-valued response field as ``int``.
-
-    The field's Agda-side type is ``ℕ`` / ``ℤ`` (timestamps in microseconds,
-    property indices); it arrives on the wire either as a plain int or as
-    ``{"numerator": N, "denominator": 1}``, never with a fractional
-    component.  Returns ``N``.  A non-unit denominator indicates a
-    wire-format violation by the kernel and is rejected.
-    """
-    # is_pure_int over isinstance(raw_value, int) so a `true` on the wire
-    # (json deserialised as Python bool) is rejected rather than silently
-    # treated as numerator=1.
-    if is_pure_int(raw_value):
-        return raw_value
-    if not is_str_dict(raw_value):
-        msg = f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
-        raise ProtocolError(msg)
-    numerator, denominator = extract_rational_from_dict(raw_value, field_name)
-    if denominator != 1:
-        msg = (
-            f"Expected {field_name} to be an integer (denominator == 1), "
-            f"got {numerator}/{denominator}"
+    if max(abs(n), d) > MAX_RATIONAL_COMPONENT_MAGNITUDE:
+        message = Prose(
+            f"{_SIGNAL_VALUE_FIELD}: rational component magnitude exceeds limit "
+            + f"{MAX_RATIONAL_COMPONENT_MAGNITUDE}"
         )
-        raise ProtocolError(msg)
-    return numerator
-
-
-def decode_wire_rational(value_raw: object) -> Fraction:
-    """Decode an exact rational from a core *response* (the internal wire).
-
-    Computed values cross the FFI boundary as exact rationals only — a bare
-    integer or a ``{"numerator": n, "denominator": d}`` object — never a float:
-    a float on the wire would mean a computed value escaped the rational kernel.
-    A float, string, or bool is therefore a wire-format violation, rejected here:
-    nothing internal to the program is ever a float (a decimal is an exact
-    rational, carried as an int or a {numerator, denominator} object).
-    """
-    if isinstance(value_raw, bool):
-        # bool is an int subclass; reject so True/False can't slip through.
-        msg = "Expected a wire rational (int or {numerator, denominator}), got bool"
-        raise ProtocolError(msg)
-    if isinstance(value_raw, int):
-        return Fraction(value_raw)
-    if is_str_dict(value_raw):
-        n, d = extract_rational_from_dict(value_raw, "rational")
-        return Fraction(n, d)
-    msg = (
-        "Expected a wire rational (int or {numerator, denominator}), "
-        f"got {type(value_raw).__name__}"
-    )
-    raise ProtocolError(msg)
+        raise InputBoundExceededError(
+            BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
+            MAX_RATIONAL_COMPONENT_MAGNITUDE,
+            MAX_RATIONAL_COMPONENT_MAGNITUDE,
+            code=ErrorCode.INPUT_BOUND_EXCEEDED,
+            refusal=KernelRefusal(message, _SIGNAL_VALUE_FIELD),
+        )

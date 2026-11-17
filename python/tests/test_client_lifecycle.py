@@ -123,7 +123,9 @@ def test_parse_dbc_text_exactly_at_limit_allowed(monkeypatch: pytest.MonkeyPatch
     """A DBC text exactly at MAX_DBC_TEXT_BYTES is allowed (bound is `>`, not `>=`)."""
     text = "x" * 100
     monkeypatch.setattr("aletheia.client._client.MAX_DBC_TEXT_BYTES", len(text.encode()))
-    backend = MockBackend([_resp({"status": "error", "message": "bad", "code": "x"})])
+    backend = MockBackend(
+        [_resp({"status": "error", "message": "bad", "code": "text_parse_failure"})]
+    )
     with AletheiaClient(backend=backend) as client:
         # At exactly the limit, `> limit` admits it → reaches the backend (the
         # canned error response); a `>= limit` mutant would reject it first.

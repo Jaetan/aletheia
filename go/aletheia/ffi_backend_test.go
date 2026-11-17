@@ -171,6 +171,47 @@ func ffiClient(t *testing.T) *aletheia.Client {
 	return client
 }
 
+// A trace holding a frame whose identifier the DBC does not describe ends
+// with every verdict and its enrichment: the kernel answers that frame's
+// extraction with an error entry, not a refusal, so re-reading the last
+// frames, the unknown identifier's first since it sorts first, loses nothing.
+func TestFFI_EndStreamKeepsVerdictsPastAnUnknownIdentifier(t *testing.T) {
+	ctx := t.Context()
+	client := ffiClient(t)
+	if _, err := client.ParseDBCText(ctx, ffiEndpointDBC); err != nil {
+		t.Fatalf("ParseDBCText: %v", err)
+	}
+	low, err := aletheia.Signal("Sig").LessThan(aletheia.IntRational(10))
+	if err != nil {
+		t.Fatalf("LessThan: %v", err)
+	}
+	if err := client.SetProperties(ctx, []aletheia.Formula{aletheia.Eventually{Inner: aletheia.Atomic{Predicate: low}}}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := client.StartStream(ctx); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+	known, _ := aletheia.NewStandardID(0x100)
+	unknown, _ := aletheia.NewStandardID(0x050)
+	for i, id := range []aletheia.CANID{known, unknown} {
+		ts := aletheia.Timestamp{Microseconds: int64(i+1) * 1000}
+		if _, err := client.SendFrame(ctx, ts, id, dlc8(), aletheia.FramePayload{0xFF, 0, 0, 0, 0, 0, 0, 0}, nil, nil); err != nil {
+			t.Fatalf("SendFrame on %v: %v", id, err)
+		}
+	}
+	sr, err := client.EndStream(ctx)
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(sr.Results) != 1 || sr.Results[0].Verdict != aletheia.Fails || sr.Results[0].Enrichment == nil {
+		t.Fatalf("expected one enriched failing verdict, got %+v", sr.Results)
+	}
+	// Sig reads 0x00FF counts of a quarter.
+	if got := sr.Results[0].Enrichment.Signals["Sig"]; got != ratOf(255, 4) {
+		t.Errorf("Sig = %+v, want 255/4", got)
+	}
+}
+
 // ffiEndpointClient boots a client on the real library with that DBC loaded,
 // and the message identifier and length to address it with.
 func ffiEndpointClient(t *testing.T) (*aletheia.Client, aletheia.CANID, aletheia.DLC) {
@@ -215,7 +256,7 @@ func TestFFIBackend_BuildAndUpdateFrameBinPlaceTheSignal(t *testing.T) {
 	client, id, dlc := ffiEndpointClient(t)
 	ctx := t.Context()
 	built, err := client.BuildFrame(ctx, id, dlc, []aletheia.SignalValue{
-		{Name: "Sig", Value: aletheia.Rational{Numerator: 100, Denominator: 1}},
+		{Name: "Sig", Value: ratOf(100, 1)},
 	})
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
@@ -224,7 +265,7 @@ func TestFFIBackend_BuildAndUpdateFrameBinPlaceTheSignal(t *testing.T) {
 		t.Errorf("built payload = % x, want % x", built, want)
 	}
 	updated, err := client.UpdateFrame(ctx, id, dlc, built, []aletheia.SignalValue{
-		{Name: "Sig", Value: aletheia.Rational{Numerator: 4, Denominator: 1}},
+		{Name: "Sig", Value: ratOf(4, 1)},
 	})
 	if err != nil {
 		t.Fatalf("UpdateFrame: %v", err)
@@ -321,21 +362,21 @@ func TestFFIBackend_BinaryFrameRefusalCarriesTheKernelMessage(t *testing.T) {
 	ctx := t.Context()
 	refusals := map[string]struct {
 		value   aletheia.Rational
-		code    string
+		code    aletheia.ErrorCode
 		message string
 	}{
 		"above the declared maximum": {
-			value:   aletheia.Rational{Numerator: 100000, Denominator: 1},
+			value:   ratOf(100000, 1),
 			code:    aletheia.CodeFrameValueOutOfRange,
 			message: "value 100000 for signal 'Sig' is outside [0, 8000]",
 		},
 		"below the declared minimum": {
-			value:   aletheia.Rational{Numerator: -1, Denominator: 1},
+			value:   ratOf(-1, 1),
 			code:    aletheia.CodeFrameValueOutOfRange,
 			message: "value -1 for signal 'Sig' is outside [0, 8000]",
 		},
 		"between two raw values": {
-			value:   aletheia.Rational{Numerator: 1, Denominator: 10},
+			value:   ratOf(1, 10),
 			code:    aletheia.CodeFrameValueNotRepresentable,
 			message: "no integer raw value scales to value 0.1 for signal 'Sig' (factor 0.25, offset 0)",
 		},
@@ -385,7 +426,7 @@ func TestFFIBackend_BinaryFrameBuildsTheBoundsAndTheSteps(t *testing.T) {
 	}{
 		"the declared minimum": {aletheia.IntRational(0), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}},
 		"the declared maximum": {aletheia.IntRational(8000), aletheia.FramePayload{0x00, 0x7D, 0, 0, 0, 0, 0, 0}},
-		"one raw step":         {aletheia.Rational{Numerator: 1, Denominator: 4}, aletheia.FramePayload{0x01, 0, 0, 0, 0, 0, 0, 0}},
+		"one raw step":         {ratOf(1, 4), aletheia.FramePayload{0x01, 0, 0, 0, 0, 0, 0, 0}},
 	}
 	for name, tc := range cases {
 		signals := []aletheia.SignalValue{{Name: "Sig", Value: tc.value}}

@@ -544,7 +544,7 @@ _NEVER_RUN = ScriptSource("raise SystemExit('the stand-in never runs')")
 def _fake_lane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Lane:
     install_stand_in(tmp_path, monkeypatch, ToolName("gremlins"), _NEVER_RUN)
     lane = _Lane(_Gremlins(), install_copies(monkeypatch, tmp_path / "copies"), _Listings())
-    monkeypatch.setattr(mutation_run, "run_streaming", lane.gremlins)
+    monkeypatch.setattr("tools.mutation_go_cases.run_streaming", lane.gremlins)
     monkeypatch.setattr(mutation_run, "run_capture", lane.gremlins)
     monkeypatch.setattr("tools.mutation_go.git_ls_files", lane.listings)
     return lane

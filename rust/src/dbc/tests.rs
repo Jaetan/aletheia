@@ -1,8 +1,13 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-use super::{AttrTarget, AttrType, AttrValue, Attribute, CommentTarget, Dbc, Presence};
+use super::{
+    decode_format_dbc, AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder,
+    CommentTarget, Dbc, Presence,
+};
+use crate::error::Error;
 use crate::types::{CanId, Rational};
+use crate::wire_json::{to_text, Wire};
 use serde_json::{json, Value};
 
 macro_rules! snapshot {
@@ -26,31 +31,54 @@ const SNAPSHOTS: &[(&str, &str)] = &[
     ("kitchen_sink", snapshot!("kitchen_sink")),
 ];
 
-fn decode(json: &str) -> Dbc {
-    let v: Value = serde_json::from_str(json).expect("snapshot is valid JSON");
-    Dbc::from_value(&v).expect("snapshot decodes to Dbc")
+/// The DBC a `formatDBC` reply carrying `dbc`, the text of a DBC object,
+/// reads to.
+fn read(dbc: &str) -> Result<Dbc, Error> {
+    decode_format_dbc(&format!(r#"{{"status":"success","dbc":{dbc}}}"#))
 }
 
-/// Every committed corpus snapshot must decode — the empirical check that the
+fn decode(json: &str) -> Dbc {
+    read(json).expect("snapshot decodes to Dbc")
+}
+
+/// The DBC a reply carrying `v` reads to.
+fn read_value(v: &Value) -> Result<Dbc, Error> {
+    read(&v.to_string())
+}
+
+/// The kernel's JSON the writer gives `d`.
+fn written(d: &Dbc) -> String {
+    to_text(&Wire(d)).expect("a DBC is written")
+}
+
+/// Assert that `result` is the reply refusal printing `text`.
+#[track_caller]
+fn assert_refused(result: Result<Dbc, Error>, text: &str) {
+    match result {
+        Err(Error::Protocol(m)) => assert_eq!(m, text),
+        other => panic!("expected the refusal {text:?}, got {other:?}"),
+    }
+}
+
+/// Every committed corpus snapshot must decode: the empirical check that the
 /// typed model matches the core's canonical wire shape (catches a wrong field
 /// guess loudly rather than silently).
 #[test]
 fn all_corpus_snapshots_decode() {
     for (name, json) in SNAPSHOTS {
-        let v: Value = serde_json::from_str(json).expect("valid JSON");
-        Dbc::from_value(&v).unwrap_or_else(|e| panic!("snapshot {name} failed to decode: {e:?}"));
+        read(json).unwrap_or_else(|e| panic!("snapshot {name} failed to decode: {e:?}"));
     }
 }
 
-/// `to_value` must be the exact inverse of `from_value` over the whole
-/// corpus — in-process, so it reaches branches the all-standard kitchen_sink
-/// `.so` round-trips can't: the `extended`-true serialize path (extended_can)
-/// and every attribute variant (attributes).
+/// The writer must be the exact inverse of the reader over the whole corpus,
+/// in-process, so it reaches branches the all-standard kitchen_sink `.so`
+/// round-trips can't: the `extended`-true path (extended_can) and every
+/// attribute variant (attributes).
 #[test]
 fn serialize_round_trips_every_snapshot() {
     for (name, json) in SNAPSHOTS {
         let d = decode(json);
-        let reparsed = Dbc::from_value(&d.to_value())
+        let reparsed = read(&written(&d))
             .unwrap_or_else(|e| panic!("serialize round-trip {name} failed to re-decode: {e:?}"));
         assert_eq!(reparsed, d, "serialize round-trip mismatch for {name}");
     }
@@ -72,7 +100,7 @@ fn multiplexing_presence_is_typed() {
         }
     );
     assert_eq!(m.multiplexor_names(), vec!["Mode"]);
-    assert_eq!(m.multiplex_values("Mode"), vec![0_u64, 1, 2]);
+    assert_eq!(m.multiplex_values("Mode"), vec![0_u128, 1, 2]);
 }
 
 #[test]
@@ -111,28 +139,68 @@ fn message_by_name_finds_the_named_message_only() {
     assert!(d.message_by_name("NoSuchMessage").is_none());
 }
 
-#[test]
-fn multiplex_value_at_the_u32_maximum_is_accepted() {
-    // The kernel's selector values are u32; the decoder refuses a value past
-    // the maximum and accepts the maximum itself.
+/// The multiplexing snapshot with `PayloadA`'s selector values written as
+/// `member`, the member text in place of its `multiplex_values` key.
+fn with_multiplex_values(member: &str) -> Result<Dbc, Error> {
     let mut v: Value = serde_json::from_str(snapshot!("multiplexing")).expect("valid JSON");
-    v["messages"][0]["signals"][1]["multiplex_values"] = json!([u32::MAX]);
-    let d = Dbc::from_value(&v).expect("u32::MAX is a valid selector value");
-    assert_eq!(
-        d.messages[0].signals[1].presence,
-        Presence::Multiplexed {
-            multiplexor: "Mode".to_string(),
-            values: vec![u64::from(u32::MAX)]
-        }
-    );
-    v["messages"][0]["signals"][1]["multiplex_values"] = json!([u64::from(u32::MAX) + 1]);
-    assert!(Dbc::from_value(&v).is_err());
+    let signal = v["messages"][0]["signals"][1]
+        .as_object_mut()
+        .expect("PayloadA");
+    signal.remove("multiplex_values");
+    signal.insert("@".to_string(), json!(0));
+    read(&v.to_string().replace(r#""@":0"#, member))
 }
 
 #[test]
-fn comment_target_extended_flag_defaults_to_standard() {
-    // The corpus writes no `extended` key on its message and signal comment
-    // targets, so each decodes as a standard id; the key set true is read.
+fn multiplex_values_are_whole_numbers_up_to_2_128_minus_1() {
+    // Either end of the range and an empty array are read back; a value that
+    // is not an array, an absent one, and an entry that is no natural number
+    // or past 2^128-1 are refused at their place, as Go's reader refuses them.
+    let read_back = |member: &str| match with_multiplex_values(member) {
+        Ok(d) => d.messages[0].signals[1].presence.clone(),
+        Err(e) => panic!("{member}: {e}"),
+    };
+    assert_eq!(
+        read_back(r#""multiplex_values":[0,340282366920938463463374607431768211455]"#),
+        Presence::Multiplexed {
+            multiplexor: "Mode".to_string(),
+            values: vec![0, u128::MAX],
+        }
+    );
+    assert_eq!(
+        read_back(r#""multiplex_values":[]"#),
+        Presence::Multiplexed {
+            multiplexor: "Mode".to_string(),
+            values: Vec::new(),
+        }
+    );
+    let place = "reply dbc/messages/signals/multiplex_values";
+    for (member, refusal) in [
+        (r#""multiplex_values":3"#, "expected array, got number"),
+        (r#""absent":0"#, "expected array, got nothing"),
+        (
+            r#""multiplex_values":[340282366920938463463374607431768211456]"#,
+            "expected number, got number",
+        ),
+        (r#""multiplex_values":[-1]"#, "expected number, got number"),
+        (r#""multiplex_values":["3"]"#, "expected number, got string"),
+        (
+            r#""multiplex_values":[1,-1]"#,
+            "expected number, got number",
+        ),
+    ] {
+        assert_refused(
+            with_multiplex_values(member),
+            &format!("{place}: {refusal}"),
+        );
+    }
+}
+
+#[test]
+fn a_comment_target_lacking_its_extended_flag_is_refused() {
+    // The kernel writes the flag on every identifier, so each message and
+    // signal comment target of the corpus carries it, false there; the flag
+    // set true is read, and a target lacking it is refused at its place.
     let d = decode(snapshot!("comments_groups"));
     let on_ids: Vec<bool> =
         d.comments
@@ -145,18 +213,29 @@ fn comment_target_extended_flag_defaults_to_standard() {
             .collect();
     assert!(!on_ids.is_empty() && on_ids.iter().all(|e| !e));
     let mut v: Value = serde_json::from_str(snapshot!("comments_groups")).expect("valid JSON");
-    let target = v["comments"]
+    let target = &mut v["comments"]
         .as_array_mut()
         .expect("comments")
         .iter_mut()
         .find(|c| c["target"]["kind"] == "message")
-        .expect("a message comment");
-    target["target"]["extended"] = json!(true);
-    let d = Dbc::from_value(&v).expect("decodes");
+        .expect("a message comment")["target"];
+    target["extended"] = json!(true);
+    let d = read_value(&v).expect("decodes");
     assert!(d
         .comments
         .iter()
         .any(|c| matches!(c.target, CommentTarget::Message { extended: true, .. })));
+    let target = &mut v["comments"]
+        .as_array_mut()
+        .expect("comments")
+        .iter_mut()
+        .find(|c| c["target"]["kind"] == "message")
+        .expect("a message comment")["target"];
+    target.as_object_mut().expect("a target").remove("extended");
+    assert_refused(
+        read_value(&v),
+        "reply dbc/comments/target/extended: expected boolean, got nothing",
+    );
 }
 
 #[test]
@@ -267,20 +346,47 @@ fn attributes_decode_to_typed_vocabulary() {
 }
 
 #[test]
+fn each_scope_word_reads_to_its_scope() {
+    // A scope read wrong is written back as itself, so neither the snapshots
+    // nor the round trip see it: each word is read alone.
+    for (word, scope) in [
+        ("network", AttrScope::Network),
+        ("node", AttrScope::Node),
+        ("message", AttrScope::Message),
+        ("signal", AttrScope::Signal),
+        ("envVar", AttrScope::EnvVar),
+        ("nodeMsg", AttrScope::NodeMsg),
+        ("nodeSig", AttrScope::NodeSig),
+    ] {
+        let mut v: Value = serde_json::from_str(snapshot!("minimal")).expect("valid JSON");
+        v["attributes"] = json!([{
+            "kind": "definition",
+            "name": "X",
+            "scope": word,
+            "attrType": { "kind": "string" }
+        }]);
+        let d = read_value(&v).expect("a definition decodes");
+        let Some(Attribute::Definition { scope: read, .. }) = d.attributes.first() else {
+            panic!("{word}: a definition");
+        };
+        assert_eq!(*read, scope, "{word}");
+    }
+}
+
+#[test]
 fn extended_target_decodes_extended_true() {
     // No corpus fixture has an extended attribute/comment target (all are
     // standard ids), so pin extended_flag's true-path directly — otherwise a
     // misnamed/mishandled flag would silently read false (the extended-id
     // conflation bug-class fixed for message_by_id in the read-side slice).
-    let v = json!({
-        "attributes": [{
-            "kind": "assignment",
-            "name": "X",
-            "target": { "kind": "message", "id": 77, "extended": true },
-            "value": { "kind": "int", "value": 1 }
-        }]
-    });
-    let d = Dbc::from_value(&v).expect("decode minimal extended-target attribute");
+    let mut v: Value = serde_json::from_str(snapshot!("minimal")).expect("valid JSON");
+    v["attributes"] = json!([{
+        "kind": "assignment",
+        "name": "X",
+        "target": { "kind": "message", "id": 77, "extended": true },
+        "value": { "kind": "int", "value": 1 }
+    }]);
+    let d = read_value(&v).expect("decode an extended-target attribute");
     let Some(Attribute::Assignment {
         target: AttrTarget::Message { id, extended },
         ..
@@ -290,16 +396,11 @@ fn extended_target_decodes_extended_true() {
     };
     assert_eq!((*id, *extended), (77, true));
 
-    // And the serialize side preserves extended-true on the target (the
-    // `set_extended` call in attr_target_to_value, which no snapshot hits).
-    assert_eq!(
-        Dbc::from_value(&d.to_value()).expect("serialize round-trip"),
-        d
-    );
-    assert_eq!(
-        d.to_value()["attributes"][0]["target"]["extended"],
-        json!(true)
-    );
+    // And the writer keeps extended-true on the target, which no snapshot
+    // reaches.
+    assert_eq!(read(&written(&d)).expect("serialize round-trip"), d);
+    let back: Value = serde_json::from_str(&written(&d)).expect("valid JSON");
+    assert_eq!(back["attributes"][0]["target"]["extended"], json!(true));
 }
 
 #[test]
@@ -317,186 +418,327 @@ fn rational_object_form_round_trips() {
     );
 }
 
-// ── decode-validation: reject malformed core output (positive + rejection cases) ──
-// These call the private decoders directly; the corpus snapshots above are the
-// positive end-to-end witness that the core's own output still decodes.
-use super::decode::{decode_env_var, decode_message, decode_presence, decode_signal};
+// ── The reader reads each place by kind: the kernel proves every range ──
+// Each case edits the first message of the minimal snapshot, or its first
+// signal, and reads the reply whole, so the refusal names its place from the
+// reply's root.
 
-fn valid_signal() -> Value {
-    json!({
-        "name": "S", "startBit": 0, "length": 8, "byteOrder": "little_endian",
-        "signed": false, "factor": 1, "offset": 0, "minimum": 0, "maximum": 100,
-        "unit": "", "receivers": [], "valueDescriptions": [], "presence": "always"
-    })
+/// The minimal snapshot with its first message edited by `edit`, read.
+fn with_message(edit: impl FnOnce(&mut Value)) -> Result<Dbc, Error> {
+    let mut v: Value = serde_json::from_str(snapshot!("minimal")).expect("valid JSON");
+    edit(&mut v["messages"][0]);
+    read_value(&v)
 }
 
-fn valid_message() -> Value {
-    json!({
-        "id": 0x100, "extended": false, "name": "M", "dlc": 8,
-        "sender": "", "senders": [], "signals": []
-    })
-}
-
-fn valid_env_var() -> Value {
-    json!({ "name": "E", "varType": 0, "initial": 0, "minimum": 0, "maximum": 10 })
-}
-
-// message id range (per `extended`) + DLC byte-count
-#[test]
-fn message_rejects_standard_id_over_11_bits() {
-    let mut m = valid_message();
-    m["id"] = json!(0x800); // 2048 > MAX_STANDARD_ID (0x7FF)
-    assert!(decode_message(&m).is_err());
+/// The minimal snapshot with its first signal edited by `edit`, read.
+fn with_signal(edit: impl FnOnce(&mut Value)) -> Result<Dbc, Error> {
+    with_message(|m| edit(&mut m["signals"][0]))
 }
 
 #[test]
-fn message_accepts_max_standard_id() {
-    let mut m = valid_message();
-    m["id"] = json!(0x7FF);
-    assert!(decode_message(&m).is_ok());
-}
-
-#[test]
-fn message_rejects_extended_id_over_29_bits() {
-    let mut m = valid_message();
-    m["extended"] = json!(true);
-    m["id"] = json!(0x2000_0000u64); // 1<<29 > MAX_EXTENDED_ID (0x1FFFFFFF)
-    assert!(decode_message(&m).is_err());
-}
-
-#[test]
-fn message_accepts_max_extended_id() {
-    let mut m = valid_message();
-    m["extended"] = json!(true);
-    m["id"] = json!(0x1FFF_FFFFu64);
-    assert!(decode_message(&m).is_ok());
+fn a_message_identifier_is_read_at_the_width_its_flag_names() {
+    // Either end of each width is read back; a negative one, no natural
+    // number, is refused at its place whichever its flag.
+    for (id, extended) in [(0, false), (0x7FF, false), (0x1FFF_FFFF, true)] {
+        let d = with_message(|m| {
+            m["id"] = json!(id);
+            m["extended"] = json!(extended);
+        })
+        .unwrap_or_else(|e| panic!("{id}: {e}"));
+        let m = &d.messages[0];
+        assert_eq!((m.id, m.extended), (id, extended));
+        let can_id = m.can_id().expect("a valid identifier");
+        assert_eq!((can_id.value(), can_id.is_extended()), (id, extended));
+    }
+    for extended in [false, true] {
+        assert_refused(
+            with_message(|m| {
+                m["id"] = json!(-1);
+                m["extended"] = json!(extended);
+            }),
+            "reply dbc/messages/id: expected number, got number",
+        );
+    }
 }
 
 #[test]
 fn message_rejects_invalid_dlc_byte_count() {
-    let mut m = valid_message();
-    m["dlc"] = json!(9); // 9 is not a valid CAN/CAN-FD byte count
-    assert!(decode_message(&m).is_err());
+    // 9 is no CAN/CAN-FD byte count, so no length code stands for it.
+    assert_refused(
+        with_message(|m| m["dlc"] = json!(9)),
+        "reply dbc/messages/dlc: expected number, got number",
+    );
 }
 
 #[test]
 fn message_accepts_canfd_dlc_byte_count() {
-    let mut m = valid_message();
-    m["dlc"] = json!(64); // valid CAN-FD length
-    assert!(decode_message(&m).is_ok());
+    let d = with_message(|m| m["dlc"] = json!(64)).expect("valid CAN-FD length");
+    assert_eq!(d.messages[0].dlc, 64);
 }
 
 #[test]
 fn message_rejects_non_bool_extended() {
-    let mut m = valid_message();
-    m["extended"] = json!("true"); // string, not bool
-    assert!(decode_message(&m).is_err());
-}
-
-// signal startBit 0-511 / length 1-512 (the type-level ceiling: the
-// largest CAN-FD frame; per-frame fit is the kernel's entry-gate check)
-#[test]
-fn signal_rejects_start_bit_over_511() {
-    let mut s = valid_signal();
-    s["startBit"] = json!(512);
-    assert!(decode_signal(&s).is_err());
+    assert_refused(
+        with_message(|m| m["extended"] = json!("true")),
+        "reply dbc/messages/extended: expected boolean, got string",
+    );
 }
 
 #[test]
-fn signal_accepts_max_start_bit() {
-    let mut s = valid_signal();
-    s["startBit"] = json!(511);
-    assert!(decode_signal(&s).is_ok());
+fn a_signal_start_bit_is_read_anywhere_in_the_largest_frame() {
+    // Either end of a CAN-FD frame's 512 bits is read back; a negative bit, no
+    // natural number, is refused at its place.
+    for bit in [0, 511] {
+        let d = with_signal(|s| s["startBit"] = json!(bit)).expect("a start bit");
+        assert_eq!(d.messages[0].signals[0].start_bit, bit);
+    }
+    assert_refused(
+        with_signal(|s| s["startBit"] = json!(-1)),
+        "reply dbc/messages/signals/startBit: expected number, got number",
+    );
 }
 
 #[test]
-fn signal_rejects_zero_length() {
-    let mut s = valid_signal();
-    s["length"] = json!(0);
-    assert!(decode_signal(&s).is_err());
-}
-
-#[test]
-fn signal_rejects_length_over_512() {
-    let mut s = valid_signal();
-    s["length"] = json!(513);
-    assert!(decode_signal(&s).is_err());
-}
-
-#[test]
-fn signal_accepts_max_length() {
-    let mut s = valid_signal();
-    s["length"] = json!(512);
-    assert!(decode_signal(&s).is_ok());
-}
-
-#[test]
-fn signal_accepts_min_length() {
-    let mut s = valid_signal();
-    s["length"] = json!(1); // minimum valid length (lower boundary)
-    assert!(decode_signal(&s).is_ok());
-}
-
-// multiplexed presence requires non-empty multiplexor + values
-#[test]
-fn presence_rejects_multiplexed_with_empty_values() {
-    let sig = json!({ "presence": "multiplexed", "multiplexor": "Mode", "multiplex_values": [] });
-    assert!(decode_presence(&sig).is_err());
+fn a_signal_length_is_read_back_at_either_end() {
+    for length in [1, 512] {
+        let d = with_signal(|s| s["length"] = json!(length)).expect("a length");
+        assert_eq!(d.messages[0].signals[0].length, length);
+    }
 }
 
 #[test]
 fn presence_rejects_multiplexed_with_missing_values() {
-    let sig = json!({ "presence": "multiplexed", "multiplexor": "Mode" });
-    assert!(decode_presence(&sig).is_err());
-}
-
-#[test]
-fn presence_rejects_multiplexed_with_empty_multiplexor() {
-    let sig = json!({ "presence": "multiplexed", "multiplexor": "", "multiplex_values": [0] });
-    assert!(decode_presence(&sig).is_err());
+    assert_refused(
+        with_signal(|s| {
+            s["presence"] = json!("multiplexed");
+            s["multiplexor"] = json!("Mode");
+        }),
+        "reply dbc/messages/signals/multiplex_values: expected array, got nothing",
+    );
 }
 
 #[test]
 fn presence_accepts_multiplexed_with_values() {
-    let sig =
-        json!({ "presence": "multiplexed", "multiplexor": "Mode", "multiplex_values": [0, 1] });
-    assert!(matches!(
-        decode_presence(&sig),
-        Ok(Presence::Multiplexed { .. })
-    ));
-}
-
-// multiplex_values entries are bounded to u32 (cross-binding parity with Go)
-#[test]
-fn presence_rejects_multiplex_value_over_u32() {
-    let sig = json!({
-        "presence": "multiplexed",
-        "multiplexor": "Mode",
-        "multiplex_values": [5_000_000_000_u64], // > u32::MAX
-    });
-    assert!(decode_presence(&sig).is_err());
-}
-
-// unknown presence discriminator rejected
-#[test]
-fn presence_rejects_unknown_discriminator() {
-    let sig = json!({ "presence": "sometimes" });
-    assert!(decode_presence(&sig).is_err());
-}
-
-// environment-variable varType 0-2
-#[test]
-fn env_var_rejects_var_type_out_of_range() {
-    let mut e = valid_env_var();
-    e["varType"] = json!(3);
-    assert!(decode_env_var(&e).is_err());
+    let d = with_signal(|s| {
+        s["presence"] = json!("multiplexed");
+        s["multiplexor"] = json!("Mode");
+        s["multiplex_values"] = json!([0, 1]);
+    })
+    .expect("a multiplexed signal");
+    assert_eq!(
+        d.messages[0].signals[0].presence,
+        Presence::Multiplexed {
+            multiplexor: "Mode".to_string(),
+            values: vec![0, 1],
+        }
+    );
 }
 
 #[test]
-fn env_var_accepts_var_type_boundaries() {
-    for vt in 0..=2 {
-        let mut e = valid_env_var();
-        e["varType"] = json!(vt);
-        assert!(decode_env_var(&e).is_ok(), "varType {vt} should decode");
+fn a_presence_outside_always_and_multiplexed_is_refused_at_its_place() {
+    // The signal carries a multiplexor and its selector values, so the word
+    // alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_signal(|s| {
+                s["presence"] = word;
+                s["multiplexor"] = json!("Mode");
+                s["multiplex_values"] = json!([2]);
+            }),
+            &format!(
+                r#"reply dbc/messages/signals/presence: expected "always" or "multiplexed", got {came}"#
+            ),
+        );
     }
+}
+
+#[test]
+fn a_byte_order_is_read_as_its_word() {
+    for (word, order) in [
+        ("little_endian", ByteOrder::LittleEndian),
+        ("big_endian", ByteOrder::BigEndian),
+    ] {
+        let d = with_signal(|s| s["byteOrder"] = json!(word)).expect("a byte order");
+        assert_eq!(d.messages[0].signals[0].byte_order, order, "{word}");
+    }
+}
+
+#[test]
+fn a_byte_order_outside_little_endian_and_big_endian_is_refused_at_its_place() {
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_signal(|s| s["byteOrder"] = word),
+            &format!(
+                r#"reply dbc/messages/signals/byteOrder: expected "little_endian" or "big_endian", got {came}"#
+            ),
+        );
+    }
+}
+
+/// The minimal snapshot with its `key` list set to `entries`, read.
+fn with_entries(key: &str, entries: Value) -> Result<Dbc, Error> {
+    let mut v: Value = serde_json::from_str(snapshot!("minimal")).expect("valid JSON");
+    v[key] = entries;
+    read_value(&v)
+}
+
+#[test]
+fn a_comment_target_kind_outside_its_words_is_refused_at_its_place() {
+    // The target carries the environment variable the last word names, so the
+    // word alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "comments",
+                json!([{ "target": { "kind": word, "envVar": "E" }, "text": "t" }]),
+            ),
+            &format!(
+                r#"reply dbc/comments/target/kind: expected "network", "node", "message", "signal" or "envVar", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_kind_outside_its_words_is_refused_at_its_place() {
+    // The entry carries the target and value of an assignment, the last word,
+    // so the word alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": word,
+                    "name": "X",
+                    "target": { "kind": "network" },
+                    "value": { "kind": "int", "value": 1 }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/kind: expected "definition", "default" or "assignment", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_scope_outside_its_words_is_refused_at_its_place() {
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": "definition",
+                    "name": "X",
+                    "scope": word,
+                    "attrType": { "kind": "string" }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/scope: expected "network", "node", "message", "signal", "envVar", "nodeMsg" or "nodeSig", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_type_kind_outside_its_words_is_refused_at_its_place() {
+    // The type carries the bounds of a hex type, the last word, so the word
+    // alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": "definition",
+                    "name": "X",
+                    "scope": "network",
+                    "attrType": { "kind": word, "min": 0, "max": 1 }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/attrType/kind: expected "int", "float", "string", "enum" or "hex", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_value_kind_outside_its_words_is_refused_at_its_place() {
+    // The value carries the integer of a hex value, the last word, so the word
+    // alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": "default",
+                    "name": "X",
+                    "value": { "kind": word, "value": 1 }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/value/kind: expected "int", "float", "string", "enum" or "hex", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn an_attribute_target_kind_outside_its_words_is_refused_at_its_place() {
+    // The target carries the node, CAN id and signal of a nodeSig target, the
+    // last word, so the word alone is refused.
+    for (word, came) in [
+        (json!("bogus_word"), r#""bogus_word""#),
+        (json!(0), "number"),
+    ] {
+        assert_refused(
+            with_entries(
+                "attributes",
+                json!([{
+                    "kind": "assignment",
+                    "name": "X",
+                    "target": {
+                        "kind": word,
+                        "node": "N",
+                        "id": 1,
+                        "extended": false,
+                        "signal": "S"
+                    },
+                    "value": { "kind": "int", "value": 1 }
+                }]),
+            ),
+            &format!(
+                r#"reply dbc/attributes/target/kind: expected "network", "node", "message", "signal", "envVar", "nodeMsg" or "nodeSig", got {came}"#
+            ),
+        );
+    }
+}
+
+#[test]
+fn env_var_types_are_read_back() {
+    let d = decode(snapshot!("env_vars"));
+    let types: Vec<i64> = d.environment_vars.iter().map(|e| e.var_type).collect();
+    assert_eq!(types, vec![1, 0, 2]);
 }

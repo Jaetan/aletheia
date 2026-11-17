@@ -5,6 +5,7 @@
   "messages": [
     {
       "dlc": 8,
+      "extended": false,
       "id": 300,
       "name": "Transmission",
       "sender": "ECU",

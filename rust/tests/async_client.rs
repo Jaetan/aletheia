@@ -43,7 +43,9 @@ fn async_streaming_flow_carries_enrichment() {
         let msg = dbc.message_by_id(id).expect("EngineStatus").clone();
         let dlc = Dlc::new(8).expect("dlc");
 
-        c.add_checks(vec![check::signal("EngineSpeed").never_exceeds(1000)])
+        c.add_checks(vec![check::signal("EngineSpeed")
+            .never_exceeds(1000)
+            .expect("check")])
             .await
             .expect("add_checks");
         c.start_stream().await.expect("start stream");
@@ -125,13 +127,15 @@ fn async_send_frames_stream_yields_per_frame() {
         let id = CanId::standard(256).expect("id");
         let msg = dbc.message_by_id(id).expect("EngineStatus").clone();
         let dlc = Dlc::new(8).expect("dlc");
-        c.add_checks(vec![check::signal("EngineSpeed").never_exceeds(1000)])
-            .await
-            .expect("add_checks");
+        c.add_checks(vec![check::signal("EngineSpeed")
+            .never_exceeds(1000)
+            .expect("check")])
+        .await
+        .expect("add_checks");
         c.start_stream().await.expect("start stream");
 
         let mut frames = Vec::new();
-        for (i, speed) in [100i64, 4000, 200].into_iter().enumerate() {
+        for (i, speed) in [100i128, 4000, 200].into_iter().enumerate() {
             let data = c
                 .build_frame(
                     msg.clone(),

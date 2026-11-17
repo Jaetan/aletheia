@@ -3,7 +3,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- The JSON parser reads back every integer the formatter writes whose
--- magnitude is below 2^64, as the rational the integer is.
+-- magnitude is below 2^128 (`heldMagnitude`), as the rational the integer is.
 module Aletheia.Protocol.JSON.Properties.Roundtrip.Number where
 
 open import Data.Bool using (Bool; true; false)
@@ -229,17 +229,17 @@ private
       not-large (inj₁ big)         = <-irrefl refl (≤-<-trans big k<)
       not-large (inj₂ (s≤s ()))
 
--- An integer's digits read back to the integer, below 2^64.
-bareInt64 : ∀ neg n → n < heldMagnitude →
+-- An integer's digits read back to the integer, below 2^128.
+bareInt : ∀ neg n → n < heldMagnitude →
   decimalLiteral neg (showNat-chars n) [] (+ 0) ≡ canonicalizeDecRat (applySign neg n) 0 0
-bareInt64 nothing  zero    _  = refl
-bareInt64 (just _) zero    _  = refl
-bareInt64 nothing  (suc k) n< = signedDecRat-canon-+ (rawLiteral (showNat-chars (suc k) ++ []) 0 0) k 0 0 _ (canon64 k n<)
-bareInt64 (just c) (suc k) n< = signedDecRat-canon-neg (rawLiteral (showNat-chars (suc k) ++ []) 0 0) c k 0 0 _ (canon64 k n<)
+bareInt nothing  zero    _  = refl
+bareInt (just _) zero    _  = refl
+bareInt nothing  (suc k) n< = signedDecRat-canon-+ (rawLiteral (showNat-chars (suc k) ++ []) 0 0) k 0 0 _ (canon64 k n<)
+bareInt (just c) (suc k) n< = signedDecRat-canon-neg (rawLiteral (showNat-chars (suc k) ++ []) 0 0) c k 0 0 _ (canon64 k n<)
 
 int-value : ∀ neg n → n < heldMagnitude → toℚ (scientificLiteral neg (showNat-chars n) [] nothing []) ≡ intValue (applySign neg n)
 int-value neg n n< =
-  cong toℚ (trans (scientific-int neg (showNat-chars n)) (trans (bareInt64 neg n n<) (canonicalizeDecRat-zero-exp (applySign neg n))))
+  cong toℚ (trans (scientific-int neg (showNat-chars n)) (trans (bareInt neg n n<) (canonicalizeDecRat-zero-exp (applySign neg n))))
 
 -- ============================================================================
 -- THE NUMBER
@@ -318,7 +318,7 @@ parseRational-neg pos k suffix k< end =
         (cong (λ v → just (mkResult v (advancePositions pos ('-' ∷ showNat-chars (suc k))) suffix))
               (int-value (just '-') (suc k) k<))
 
--- Every integer the formatter writes whose magnitude is below 2^64 reads
+-- Every integer the formatter writes whose magnitude is below 2^128 reads
 -- back as itself.
 parseNumber-showsℤ : ∀ pos z suffix → ∣ z ∣ < heldMagnitude → NumberEnd suffix →
   proj₂ (parseNumber pos (showsℤ z suffix))

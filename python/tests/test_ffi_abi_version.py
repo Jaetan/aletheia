@@ -12,21 +12,21 @@ the directory ``ALETHEIA_LIB`` names, or the repository's ``build/``.
 """
 
 import re
-from pathlib import Path
 
 import pytest
+from _repo_root import REPO_ROOT
 from _stand_in import StandInName, stand_in_kernel
 
 from aletheia import FFIBackend, FFIError, RTSState, start_runtime
 from aletheia.client._ffi import ABI_VERSION
 
-_SHIM = Path(__file__).resolve().parents[2] / "haskell-shim"
+_SHIM = REPO_ROOT / "haskell-shim"
 
 
 def test_the_binding_version_is_the_header_s() -> None:
     """``ABI_VERSION`` is the ``ALETHEIA_ABI_VERSION`` the header defines."""
     header = (_SHIM / "include" / "aletheia.h").read_text(encoding="utf-8")
-    match = re.search(r"enum \{ ALETHEIA_ABI_VERSION = (\d+) \};", header)
+    match = re.search(r"constexpr uint32_t ALETHEIA_ABI_VERSION = (\d+);", header)
     assert match is not None
     assert int(match[1]) == ABI_VERSION
 
@@ -53,5 +53,8 @@ def test_a_start_on_a_library_at_another_version_is_refused_and_starts_nothing()
 
 def test_a_library_without_the_version_export_is_refused() -> None:
     """A loadable library with no version export predates the versioned ABI."""
-    with pytest.raises(FFIError, match="predates the versioned ABI"):
+    with pytest.raises(FFIError) as refused:
         FFIBackend(lib_path=stand_in_kernel(StandInName("symbolless")))
+    assert str(refused.value) == (
+        "the library has no aletheia_abi_version: it predates the versioned ABI"
+    )

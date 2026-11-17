@@ -24,11 +24,12 @@ namespace aletheia::test {
 // The header row each sheet kind carries. Held as views over string literals
 // so nothing runs a constructor before main.
 inline constexpr std::array<std::string_view, 8> checks_hdr = {
-    "Check Name", "Signal", "Condition", "Value", "Min", "Max", "Time (ms)", "Severity"};
+    "Check Name", "Signal", "Condition", "Value", "Min", "Max", "Time (\u00b5s)", "Severity"};
 
 inline constexpr std::array<std::string_view, 11> wt_hdr = {
-    "Check Name", "When Signal", "When Condition", "When Value",  "Then Signal", "Then Condition",
-    "Then Value", "Then Min",    "Then Max",       "Within (ms)", "Severity"};
+    "Check Name",  "When Signal",      "When Condition", "When Value",
+    "Then Signal", "Then Condition",   "Then Value",     "Then Min",
+    "Then Max",    "Within (\u00b5s)", "Severity"};
 
 inline constexpr std::array<std::string_view, 16> dbc_hdr = {
     "Message ID",      "Message Name", "DLC",    "Signal", "Start Bit", "Length", "Byte Order",

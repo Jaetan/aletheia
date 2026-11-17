@@ -6,7 +6,10 @@
 //! builder's default checks; a client naming no core count asks for the count
 //! running. Its own test binary (= its own process) because the claims are
 //! about a process whose runtime nothing has started, and one test because the
-//! steps share that one start.
+//! steps share that one start. The checks load from YAML, so the file builds
+//! with the `yaml` feature, as the other YAML tests do.
+
+#![cfg(feature = "yaml")]
 
 use std::sync::{Arc, Mutex};
 
@@ -57,13 +60,18 @@ fn default_checks_holding_a_decimal_load_after_a_start_and_a_count_less_client_r
     assert_eq!(aletheia::allocated_bytes(), None);
     let refused = Rational::from_decimal("1.5").expect_err("no runtime runs yet");
     assert!(
-        matches!(refused, Error::RtsNotInitialized),
+        matches!(
+            refused,
+            Error::RtsNotInitialized {
+                operation: "parsing decimals"
+            }
+        ),
         "got: {refused:?}"
     );
     assert_eq!(
         refused.to_string(),
         "GHC runtime not initialized: call aletheia::start_runtime or build a Client before \
-         rendering or parsing a number"
+         parsing decimals"
     );
     // Zero is outside the bound on every machine; the bound's own figure is the
     // machine's, which the stand-in test holds whole on its four CPUs.

@@ -10,6 +10,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "libloading",
+ "serde",
  "serde_json",
  "yaml-rust2",
 ]

@@ -78,7 +78,7 @@ using SignalPresence = std::variant<AlwaysPresent, Multiplexed>;
 // global VAL_TABLE_ section). Defined ahead of DbcSignal so the latter
 // can hold a vector of complete-typed entries.
 struct DbcValueEntry {
-    std::int64_t value;
+    SignMagnitude value;
     std::string description;
 };
 
@@ -369,8 +369,8 @@ struct DbcDefinition {
     std::string version; // plain string (not a domain identifier)
     std::vector<DbcMessage> messages;
     // Tier 1 DBC metadata (the Agda ``DBC`` record's signalGroups,
-    // environmentVars and valueTables). Absent on the wire equals empty here:
-    // format_dbc always emits all three arrays even when they are empty.
+    // environmentVars and valueTables). The kernel writes every array, an
+    // empty one included, and a reply lacking one is refused.
     std::vector<DbcSignalGroup> signal_groups;
     std::vector<DbcEnvironmentVar> environment_vars;
     std::vector<DbcValueTable> value_tables;
@@ -379,8 +379,8 @@ struct DbcDefinition {
     std::vector<DbcComment> comments;
     std::vector<DbcAttribute> attributes;
     // VAL_ lines naming no signal of `messages`: the text parser collects
-    // them, and the JSON wire carries them as `unresolvedValueDescs` (absent
-    // equals empty).  A DBC with more than
+    // them, and the JSON wire carries them as `unresolvedValueDescs`, an
+    // array every reply holds.  A DBC with more than
     // max_unresolved_value_descriptions_per_file of them is refused.
     std::vector<DbcRawValueDesc> unresolved_value_descs;
 

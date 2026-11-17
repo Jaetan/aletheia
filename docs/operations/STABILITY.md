@@ -77,10 +77,11 @@ Spec is authoritative: see `docs/STABILITY_BENCH.yaml`.
 
 | Sub-check         | Gate           | Source                                          |
 | ----------------- | -------------- | ----------------------------------------------- |
-| `rss`             | soft 50 MiB    | `psutil.Process().memory_info().rss`            |
-| `fd_count`        | hard zero      | `/proc/self/fd` (anon_inode filtered)           |
-| `ctypes_handles`  | hard zero      | `RTSState.refcount` after the final close, against its value after the warm-up |
-| `logger_handlers` | hard zero      | `len(logging.getLogger("aletheia").handlers)`   |
+| `rss`               | report          | `psutil.Process().memory_info().rss`            |
+| `fd_count`          | hard zero       | `/proc/self/fd` (anon_inode filtered)           |
+| `ctypes_handles`    | hard zero       | `RTSState.refcount` after the final close, against its value after the warm-up |
+| `logger_handlers`   | hard zero       | `len(logging.getLogger("aletheia").handlers)`   |
+| `kernel_allocation` | equal per cycle | `aletheia.allocated_bytes()` after each cycle    |
 
 Harness: `python/benchmarks/stability.py`.
 
@@ -88,10 +89,11 @@ Harness: `python/benchmarks/stability.py`.
 
 | Sub-check     | Gate           | Source                                                |
 | ------------- | -------------- | ----------------------------------------------------- |
-| `rss`         | soft 50 MiB    | `runtime/metrics /memory/classes/heap/objects:bytes`  |
-| `fd_count`    | hard zero      | `/proc/self/fd` (anon_inode filtered)                 |
-| `goroutines`  | hard zero      | `runtime.NumGoroutine`                                |
-| `stableptr`   | hard zero      | `aletheia.StablePtrCount()` (Init++ / Close--)         |
+| `rss`               | report          | `runtime/metrics /memory/classes/heap/objects:bytes`  |
+| `fd_count`          | hard zero       | `/proc/self/fd` (anon_inode filtered)                 |
+| `goroutines`        | hard zero       | `runtime.NumGoroutine`                                |
+| `stableptr`         | hard zero       | `aletheia.StablePtrCount()` (Init++ / Close--)         |
+| `kernel_allocation` | equal per cycle | `aletheia.AllocatedBytes()` after each cycle          |
 
 Harness: `go/benchmarks/stability/main.go`.
 
@@ -99,10 +101,11 @@ Harness: `go/benchmarks/stability/main.go`.
 
 | Sub-check              | Gate           | Source                                            |
 | ---------------------- | -------------- | ------------------------------------------------- |
-| `rss`                  | soft 50 MiB    | `/proc/self/status` `VmRSS:`                      |
-| `fd_count`             | hard zero      | `/proc/self/fd` (anon_inode filtered)             |
-| `active_thread_count`  | hard zero      | `/proc/self/status` `Threads:`                    |
-| `malloc_info`          | soft 50 MiB    | glibc `malloc_info()` aggregate `<total size=…/>` |
+| `rss`                  | report          | `/proc/self/status` `VmRSS:`                      |
+| `fd_count`             | hard zero       | `/proc/self/fd` (anon_inode filtered)             |
+| `active_thread_count`  | hard zero       | `/proc/self/status` `Threads:`                    |
+| `malloc_info`          | report          | glibc `malloc_info()` aggregate `<total size=…/>` |
+| `kernel_allocation`    | equal per cycle | `aletheia::allocated_bytes()` after each cycle    |
 
 Harness: `cpp/benchmarks/stability_bench.cpp`, its reads in `cpp/benchmarks/stability_snapshot.hpp` and its gates and report in `cpp/benchmarks/stability_report.hpp`.
 
@@ -120,21 +123,15 @@ transitive Haskell dep compiled `-prof`); not enabled by default.  When
 needed: rebuild with `--enable-profiling` and re-run with
 `ALETHEIA_RTS_OPTS="-p -hT"`.
 
-## Threshold model
+## Gate model
 
-Two tiers:
+Every gate is an exact count, so a run's verdict is a function of the tree and never of the runner's speed or load, and a failed run is not re-run:
 
-* **Hard zero**: exact equality after `Close()` + GC.  Any drift is a
-  finding regardless of magnitude.  These are the genuine leak detectors.
-* **Soft threshold**: empirically-tuned cap that lives next to the
-  assertion in the harness source (search for `RSS_DELTA_BYTES_CAP`,
-  `rssDeltaBytesCap`, `k_rss_delta_bytes_cap`, `k_malloc_delta_bytes_cap`).  GC and arena
-  fragmentation create real noise; these gates ride that noise and only
-  fire on outliers.
+* **Hard zero**: exact equality after `Close()` + GC.  Any drift is a finding regardless of magnitude.  These are the genuine leak detectors.
+* **Equal per cycle**: the kernel's allocated bytes, read after every measured cycle, are the same in every cycle.  A cycle doing more work than the one before it fails, as a growing structure the kernel walks each cycle would make it.  Measured over two runs, every measured cycle of each binding allocates exactly the same bytes.
+* **Report**: the resident set, the Go heap's live bytes, glibc's `malloc_info` total and the GHC heap profile are printed and archived and decide nothing, since they move with when the collectors run.  Memory held without more work done each cycle is therefore not gated.
 
-Soft thresholds are intentionally NOT in `STABILITY_BENCH.yaml`: the spec
-declares "the check must exist," the harness declares "the check passes at
-threshold X."  When threshold X must change, `git diff` makes that visible.
+The harnesses run warm-up cycles before the window opens, since the first cycle a process runs allocates more in the kernel than every later one.
 
 ### Why anon_inode FDs are excluded from `fd_count`
 

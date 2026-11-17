@@ -31,6 +31,7 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Integer using (ℤ)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (toList)
@@ -62,8 +63,7 @@ open import Aletheia.DBC.TextParser.Format.ValueDescription as FmtVD using
   (ValueDescription-format; RawValueDescNameStop)
 
 -- Reuse the per-entries `emit-many-eq-foldr` bridge from the VAL_TABLE_
--- side (the entry shape is identical — `emit ValueEntry-format e ≡
--- emitValueEntry-chars e` definitionally).
+-- side (the entry shape is identical, `ValueEntry-format`).
 open import Aletheia.DBC.TextParser.Properties.ValueTables.ValueTable using
   (emit-many-eq-foldr)
 
@@ -145,7 +145,7 @@ parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop keys-small =
       (trans step-many-newline
         step-buildResult))
   where
-    triple : ℕ × Identifier × List (ℕ × List Char)
+    triple : ℕ × Identifier × List (ℤ × List Char)
     triple = ( rawCanIdℕ (RawValueDesc.canId rvd)
              , RawValueDesc.signalName rvd
              , RawValueDesc.entries rvd )
@@ -158,7 +158,7 @@ parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop keys-small =
     pos-line : Position
     pos-line = advancePositions pos (emit ValueDescription-format triple)
 
-    cont-line : (ℕ × Identifier × List (ℕ × List Char))
+    cont-line : (ℕ × Identifier × List (ℤ × List Char))
               → Parser RawValueDesc
     cont-line t =
       many parseNewline >>= λ _ →

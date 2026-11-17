@@ -4,14 +4,17 @@
 
 -- The bounds a DBC meets before it is validated, loaded or formatted: how
 -- many items each of its lists holds, how long each of its texts is and
--- which characters it holds, which names it uses, and how large each of its
--- numbers is.  `IsBoundedDBC` states them; `checkBounds` decides them,
--- refusing with the first bound crossed or returning the DBC as a
--- `BoundedDBC`, with the erased proof that it meets every one.
+-- which characters it holds, and how large each of its numbers is.
+-- `IsBoundedDBC` states them; `checkBounds` decides them, refusing with the
+-- first bound crossed or returning the DBC as a `BoundedDBC`, with the
+-- erased proof that it meets every one.  A name is no bound of this module:
+-- each is decided as it is read (`Aletheia.DBC.Identifier`), its grammar,
+-- its length and the DBC keywords in one decision, and a DBC holds every
+-- name as an `Identifier` carrying that witness.
 --
--- Order of discovery: every count, then every text, then every name, then
--- every magnitude.  Counts: messages, then per message its signals, senders,
--- and per signal its receivers and multiplex values; attributes and per
+-- Order of discovery: every count, then every text, then every magnitude.
+-- Counts: messages, then per message its signals, senders, and per signal
+-- its receivers and multiplex values; attributes and per
 -- attribute its enum labels; comments; nodes; value tables; value
 -- descriptions in total; signal groups and per group its members;
 -- environment variables; unresolved value descriptions.  Texts: version,
@@ -19,13 +22,7 @@
 -- string values, value-table labels, unresolved value labels; each is held
 -- to its length and then to the DBC character set (printable ASCII but `"`
 -- and `\`, or TAB, LF, CR), the first character outside it refused with its
--- index and code point.  Names: every identifier, per message its name,
--- sender, senders and per signal its name, receivers and multiplexor; signal
--- groups and their members; environment variables; value tables; nodes;
--- comment and attribute targets; the signals of unresolved value
--- descriptions; each refused as a DBC keyword or past the identifier
--- length; an attribute name, a quoted string on the wire, is held to the
--- identifier rules as well: ASCII, the grammar, no keyword, the length.
+-- index and code point.
 --
 -- Each bound is one decision carrying its evidence erased; the refusal is
 -- built where the decision is made and names the field.
@@ -38,7 +35,8 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.List.NonEmpty using () renaming (length to length⁺)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Nat using (ℕ; suc; _≤_; _≤ᵇ_; _+_; _≡ᵇ_)
-open import Data.Nat.Properties using (≤ᵇ-reflects-≤)
+open import Data.Integer using (ℤ; ∣_∣)
+open import Data.Nat.Properties using (≤ᵇ-reflects-≤; ≤-trans)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (String)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -48,14 +46,14 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; subst; sym
 open import Relation.Nullary.Negation using (contradiction)
 open import Relation.Nullary.Reflects using (invert)
 
-open import Aletheia.Data.Dec0 using (Dec₀; _because₀_; dec₀)
+open import Aletheia.Data.Dec0 using (Dec₀; _because₀_; dec₀; does₀)
 open import Aletheia.Parser.Position using (Position; advancePosition)
 open import Aletheia.DBC.Identifier using
   ( firstFailing )
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.DecRat using (DecRat)
-open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; SmallDecRat; largerComponent)
+open import Aletheia.DBC.DecRat.Magnitude using (SmallNat; SmallDecRat; largerComponent; smallNat-by-eval)
 open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
 open import Data.List.NonEmpty using (toList)
 open import Aletheia.DBC.Types using
@@ -67,8 +65,10 @@ open import Aletheia.DBC.Types using
 open import Aletheia.Error using
   ( Error; InputBoundExceededAt; InPart; InvalidCharacter; InField )
 open import Aletheia.Limits using
-  ( BoundKind; ArrayCardinality; StringLength; RationalComponentMagnitude
-  ; max-rational-component-magnitude; max-messages-per-file
+  ( BoundKind; ArrayCardinality; StringLength; RationalComponentMagnitude; past-≤ᵇ
+  ; max-rational-component-magnitude; max-start-bit; max-bit-length; max-multiplex-value
+  ; max-value-description-key-magnitude
+  ; max-attribute-magnitude; max-messages-per-file
   ; max-signals-per-message; max-attributes-per-file; max-comments-per-file
   ; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file; max-signal-groups-per-file
@@ -96,21 +96,23 @@ _>>=_ : ∀ {P Q : Set} → Checked P → (@0 P → Checked Q) → Checked Q
 inj₁ e     >>= _ = inj₁ e
 inj₂ [ p ] >>= k = k p
 
--- Turn a decision into a verdict, refusing with the given error.
-decide : ∀ {P : Set} → Error → Dec₀ P → Checked P
-decide _ (true  because₀ r) = inj₂ [ invert r ]
-decide e (false because₀ _) = inj₁ e
+-- Turn a decision into a verdict, refusing with the error built from its
+-- having come out false.
+decide : ∀ {P : Set} (d : Dec₀ P) → (does₀ d ≡ false → Error) → Checked P
+decide (true  because₀ r) _ = inj₂ [ invert r ]
+decide (false because₀ _) e = inj₁ (e refl)
 
 -- The one decision every bound makes.
 within : (n limit : ℕ) → Dec₀ (n ≤ limit)
 within n limit = dec₀ (n ≤ᵇ limit) (≤ᵇ-reflects-≤ n limit)
 
-bound : BoundKind → String → (n limit : ℕ) → Checked (n ≤ limit)
-bound kind tag n limit =
-  decide (InputBoundExceededAt (InPart tag) kind n limit) (within n limit)
+-- A refusal carries that `n` passed the limit, at least 1 at every bound.
+bound : BoundKind → String → (n limit : ℕ) → .⦃ T (1 ≤ᵇ limit) ⦄ → Checked (n ≤ limit)
+bound kind tag n limit ⦃ one ⦄ =
+  decide (within n limit) (λ eq → InputBoundExceededAt (InPart tag) kind n limit (one , past-≤ᵇ n limit eq))
 
-count : String → (n limit : ℕ) → Checked (n ≤ limit)
-count = bound ArrayCardinality
+count : String → (n limit : ℕ) → .⦃ T (1 ≤ᵇ limit) ⦄ → Checked (n ≤ limit)
+count tag n limit = bound ArrayCardinality tag n limit
 
 ShortText : List Char → Set
 ShortText cs = length cs ≤ max-string-length-characters
@@ -310,7 +312,7 @@ text tag cs =
   bound StringLength tag (length cs) max-string-length-characters >>= λ s →
   chars stringCharᵇ tag cs >>= λ a → inj₂ [ (s , a) ]
 
-LabelsOK : List (ℕ × List Char) → Set
+LabelsOK : List (ℤ × List Char) → Set
 LabelsOK = All (TextOK ∘ proj₂)
 
 record SignalTexts (sig : DBCSignal) : Set where
@@ -340,7 +342,7 @@ record DBCTexts (dbc : DBC) : Set where
     valueTables          : All (LabelsOK ∘ ValueTable.entries) (DBC.valueTables dbc)
     unresolvedValueDescs : All (LabelsOK ∘ RawValueDesc.entries) (DBC.unresolvedValueDescs dbc)
 
-labels : String → (vs : List (ℕ × List Char)) → Checked (LabelsOK vs)
+labels : String → (vs : List (ℤ × List Char)) → Checked (LabelsOK vs)
 labels tag = every (λ e → text tag (proj₂ e))
 
 signalTexts : (sig : DBCSignal) → Checked (SignalTexts sig)
@@ -387,7 +389,7 @@ dbcTexts dbc =
 -- ============================================================================
 
 -- A number whose larger reduced component passes the bound is refused
--- naming its field; a value the parser held is 2^64 on that component.
+-- naming its field; a value the parser held is 2^128 on that component.
 magnitude : String → (d : DecRat) → Checked (SmallDecRat d)
 magnitude tag d =
   bound RationalComponentMagnitude tag (largerComponent d) max-rational-component-magnitude
@@ -395,19 +397,36 @@ magnitude tag d =
 natMagnitude : String → (n : ℕ) → Checked (SmallNat n)
 natMagnitude tag n = bound RationalComponentMagnitude tag n max-rational-component-magnitude
 
-SmallKeys : List (ℕ × List Char) → Set
-SmallKeys = All (SmallNat ∘ proj₁)
+-- A value-description key, signed, within its own bound in magnitude.
+SmallKey : ℤ × List Char → Set
+SmallKey e = ∣ proj₁ e ∣ ≤ max-value-description-key-magnitude
 
-smallKeys : String → (vs : List (ℕ × List Char)) → Checked (SmallKeys vs)
-smallKeys tag = every (λ e → natMagnitude tag (proj₁ e))
+SmallKeys : List (ℤ × List Char) → Set
+SmallKeys = All SmallKey
+
+smallKeys : String → (vs : List (ℤ × List Char)) → Checked (SmallKeys vs)
+smallKeys tag =
+  every (λ e → bound RationalComponentMagnitude tag ∣ proj₁ e ∣ max-value-description-key-magnitude)
+
+-- A multiplex value within its own bound.
+SmallSelector : ℕ → Set
+SmallSelector n = n ≤ max-multiplex-value
 
 SmallSelectors : SignalPresence → Set
 SmallSelectors Always      = ⊤
-SmallSelectors (When _ vs) = All SmallNat (toList vs)
+SmallSelectors (When _ vs) = All SmallSelector (toList vs)
 
 smallSelectors : (p : SignalPresence) → Checked (SmallSelectors p)
 smallSelectors Always      = inj₂ [ tt ]
-smallSelectors (When _ vs) = every (natMagnitude "multiplex value") (toList vs)
+smallSelectors (When _ vs) =
+  every (λ n → bound RationalComponentMagnitude "multiplex value" n max-multiplex-value) (toList vs)
+
+-- Each narrower bound implies the component bound, by evaluation.
+startBit-small : ∀ {n} → n ≤ max-start-bit → SmallNat n
+startBit-small p = ≤-trans p (smallNat-by-eval max-start-bit tt)
+
+bitLength-small : ∀ {n} → n ≤ max-bit-length → SmallNat n
+bitLength-small p = ≤-trans p (smallNat-by-eval max-bit-length tt)
 
 record SignalMagnitudes (sig : DBCSignal) : Set where
   field
@@ -415,8 +434,8 @@ record SignalMagnitudes (sig : DBCSignal) : Set where
     offset    : SmallDecRat (SignalDef.offset  (DBCSignal.signalDef sig))
     minimum   : SmallDecRat (SignalDef.minimum (DBCSignal.signalDef sig))
     maximum   : SmallDecRat (SignalDef.maximum (DBCSignal.signalDef sig))
-    startBit  : SmallNat (SignalDef.startBit  (DBCSignal.signalDef sig))
-    bitLength : SmallNat (SignalDef.bitLength (DBCSignal.signalDef sig))
+    startBit  : SignalDef.startBit  (DBCSignal.signalDef sig) ≤ max-start-bit
+    bitLength : SignalDef.bitLength (DBCSignal.signalDef sig) ≤ max-bit-length
     selectors : SmallSelectors (DBCSignal.presence sig)
     keys      : SmallKeys (DBCSignal.valueDescriptions sig)
 
@@ -426,8 +445,8 @@ signalMagnitudes sig =
   magnitude "signal offset"  (SignalDef.offset  def) >>= λ o →
   magnitude "signal minimum" (SignalDef.minimum def) >>= λ lo →
   magnitude "signal maximum" (SignalDef.maximum def) >>= λ hi →
-  natMagnitude "signal start bit" (SignalDef.startBit def) >>= λ sb →
-  natMagnitude "signal length" (SignalDef.bitLength def) >>= λ bl →
+  bound RationalComponentMagnitude "signal start bit" (SignalDef.startBit def) max-start-bit >>= λ sb →
+  bound RationalComponentMagnitude "signal length" (SignalDef.bitLength def) max-bit-length >>= λ bl →
   smallSelectors (DBCSignal.presence sig) >>= λ s →
   smallKeys "value description key" (DBCSignal.valueDescriptions sig) >>= λ k →
   inj₂ [ record { factor = f ; offset = o ; minimum = lo ; maximum = hi
@@ -448,39 +467,50 @@ envVarMagnitudes e =
   magnitude "environment variable maximum"       (EnvironmentVar.maximum e) >>= λ hi →
   inj₂ [ record { initial = i ; minimum = lo ; maximum = hi } ]
 
+-- An INT, HEX or ENUM attribute number within the attributes' own bound.
+SmallAttr : DecRat → Set
+SmallAttr d = largerComponent d ≤ max-attribute-magnitude
+
+attrMagnitude : String → (d : DecRat) → Checked (SmallAttr d)
+attrMagnitude tag d =
+  bound RationalComponentMagnitude tag (largerComponent d) max-attribute-magnitude
+
+smallAttr-small : ∀ d → SmallAttr d → SmallDecRat d
+smallAttr-small _ p = ≤-trans p (smallNat-by-eval max-attribute-magnitude tt)
+
 SmallType : AttrType → Set
-SmallType (ATInt lo hi)   = SmallDecRat (IntDecRat.value lo) × SmallDecRat (IntDecRat.value hi)
+SmallType (ATInt lo hi)   = SmallAttr (IntDecRat.value lo) × SmallAttr (IntDecRat.value hi)
 SmallType (ATFloat lo hi) = SmallDecRat lo × SmallDecRat hi
 SmallType ATString        = ⊤
 SmallType (ATEnum _)      = ⊤
-SmallType (ATHex lo hi)   = SmallDecRat (NatDecRat.value lo) × SmallDecRat (NatDecRat.value hi)
+SmallType (ATHex lo hi)   = SmallAttr (NatDecRat.value lo) × SmallAttr (NatDecRat.value hi)
 
 smallType : (t : AttrType) → Checked (SmallType t)
 smallType (ATInt lo hi)   =
-  magnitude "attribute minimum" (IntDecRat.value lo) >>= λ l →
-  magnitude "attribute maximum" (IntDecRat.value hi) >>= λ h → inj₂ [ (l , h) ]
+  attrMagnitude "attribute minimum" (IntDecRat.value lo) >>= λ l →
+  attrMagnitude "attribute maximum" (IntDecRat.value hi) >>= λ h → inj₂ [ (l , h) ]
 smallType (ATFloat lo hi) =
   magnitude "attribute minimum" lo >>= λ l →
   magnitude "attribute maximum" hi >>= λ h → inj₂ [ (l , h) ]
 smallType ATString        = inj₂ [ tt ]
 smallType (ATEnum _)      = inj₂ [ tt ]
 smallType (ATHex lo hi)   =
-  magnitude "attribute minimum" (NatDecRat.value lo) >>= λ l →
-  magnitude "attribute maximum" (NatDecRat.value hi) >>= λ h → inj₂ [ (l , h) ]
+  attrMagnitude "attribute minimum" (NatDecRat.value lo) >>= λ l →
+  attrMagnitude "attribute maximum" (NatDecRat.value hi) >>= λ h → inj₂ [ (l , h) ]
 
 SmallValue : AttrValue → Set
-SmallValue (AVInt v)    = SmallDecRat (IntDecRat.value v)
+SmallValue (AVInt v)    = SmallAttr (IntDecRat.value v)
 SmallValue (AVFloat d)  = SmallDecRat d
 SmallValue (AVString _) = ⊤
-SmallValue (AVEnum v)   = SmallDecRat (NatDecRat.value v)
-SmallValue (AVHex v)    = SmallDecRat (NatDecRat.value v)
+SmallValue (AVEnum v)   = SmallAttr (NatDecRat.value v)
+SmallValue (AVHex v)    = SmallAttr (NatDecRat.value v)
 
 smallValue : (v : AttrValue) → Checked (SmallValue v)
-smallValue (AVInt v)    = magnitude "attribute value" (IntDecRat.value v)
+smallValue (AVInt v)    = attrMagnitude "attribute value" (IntDecRat.value v)
 smallValue (AVFloat d)  = magnitude "attribute value" d
 smallValue (AVString _) = inj₂ [ tt ]
-smallValue (AVEnum v)   = magnitude "attribute value" (NatDecRat.value v)
-smallValue (AVHex v)    = magnitude "attribute value" (NatDecRat.value v)
+smallValue (AVEnum v)   = attrMagnitude "attribute value" (NatDecRat.value v)
+smallValue (AVHex v)    = attrMagnitude "attribute value" (NatDecRat.value v)
 
 AttributeMagnitudes : DBCAttribute → Set
 AttributeMagnitudes (DBCAttrDef d)     = SmallType (AttrDef.attrType d)

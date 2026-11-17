@@ -21,10 +21,9 @@
 #include <aletheia/error.hpp>
 
 #include "detail/ffi_abi.hpp"
-#include "detail/ffi_logic.hpp"
+#include "detail/kernel_value.hpp"
 #include "detail/rts_init.hpp"
 
-#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -118,16 +117,16 @@ static auto kernel_string(Call call, std::string_view reading, std::string_view 
     auto* raw = call(entries);
     if (raw == nullptr)
         return std::unexpected(
-            AletheiaError{ErrorKind::Ffi, std::string{returned_null} + " returned a null pointer"});
+            AletheiaError{ErrorKind::Ffi, std::string{returned_null} + " returned null"});
     auto const deleter = [&entries](char* p) { entries.free_str(p); };
     std::unique_ptr<char, decltype(deleter)> const guard{raw, deleter};
     return std::string{raw};
 }
 
-auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> Result<std::string> {
+auto format_rational_ffi(Rational const& r) -> Result<std::string> {
     return kernel_string(
         [&](RuntimeEntries const& entries) {
-            FfiRational const value{.numerator = num, .denominator = denom};
+            auto const value = wire_rational(r);
             return entries.format_rational(&value);
         },
         "rendering", "aletheia_format_rational");
@@ -139,7 +138,7 @@ auto parse_decimal_ffi(std::string_view input) -> Result<std::expected<Rational,
         return std::unexpected(detail::error_of(started));
     auto const& entries = started.value();
     auto const text = ffi_text(input);
-    FfiDecimal out{.value = {.numerator = 0, .denominator = 0}, .err = nullptr};
+    FfiDecimal out{.value = {}, .err = nullptr};
     if (entries.parse_decimal(&text, &out) != 0) {
         if (out.err == nullptr)
             return std::unexpected(AletheiaError{ErrorKind::Protocol,
@@ -148,8 +147,7 @@ auto parse_decimal_ffi(std::string_view input) -> Result<std::expected<Rational,
         std::unique_ptr<char, decltype(deleter)> const guard{out.err, deleter};
         return std::expected<Rational, std::string>{std::unexpect, out.err};
     }
-    return decimal_value(out.value.numerator, out.value.denominator)
-        .transform([](Rational value) -> std::expected<Rational, std::string> { return value; });
+    return rational_of(out.value);
 }
 
 void register_default_lib_path(std::filesystem::path const& lib_path) {

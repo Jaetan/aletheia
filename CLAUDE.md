@@ -215,7 +215,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 - **Build failures**: `cabal run shake -- clean && cabal run shake -- build`.
 - **MAlonzo name mismatch**: build prints exact `sed` command — run it.
 - **Type-checking OOM / runaway elaboration**: always cap the heap `+RTS -M16G -RTS`.
-- **`hs_init` failure / `aletheia_init() returned null`**: `.so` built against different GHC than loaded. Rebuild (`cabal run shake -- build`); ensure no stale copy in `$LD_LIBRARY_PATH`.
+- **`hs_init` failure / `aletheia_init returned null`**: `.so` built against different GHC than loaded. Rebuild (`cabal run shake -- build`); ensure no stale copy in `$LD_LIBRARY_PATH`.
 - **`.so` load failure**: every binding reads `ALETHEIA_LIB`; Python's loader then checks `_install_config.LIBRARY_PATH` → `build/libaletheia-ffi.so` → `haskell-shim/dist-newstyle/**`. Regen via `cabal run shake -- install` or set `ALETHEIA_LIB`.
 - **`library implements ABI version N`**: `.so` and binding differ in C ABI; rebuild and reinstall both (RUNBOOK.md).
 - **DBC validation rejection**: check `ValidationIssue.code` enum — table in [PROTOCOL.md § Error Code Reference](docs/architecture/PROTOCOL.md#error-code-reference). `aletheia validate --dbc <file>` to see all issues.

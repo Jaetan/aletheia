@@ -5,6 +5,7 @@
   "messages": [
     {
       "dlc": 8,
+      "extended": false,
       "id": 256,
       "name": "EngineStatus",
       "sender": "Engine",
@@ -67,6 +68,7 @@
     },
     {
       "dlc": 4,
+      "extended": false,
       "id": 512,
       "name": "BrakeStatus",
       "sender": "Brake",

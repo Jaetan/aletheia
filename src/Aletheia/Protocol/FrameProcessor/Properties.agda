@@ -8,7 +8,7 @@
 --   and timestamp-monotonicity theorems used by downstream proofs and
 --   FFI consumers, grouped by topic.
 --
--- The actual proofs live in five sibling submodules so that IDE
+-- The actual proofs live in sibling submodules so that IDE
 -- jump-to-definition stays fast and each layer can be re-checked
 -- independently:
 --
@@ -24,6 +24,9 @@
 --   Properties.Monotonic — Timestamp monotonicity enforcement at the step
 --                          level + trace-level lift to Trace.CANTrace.Monotonic
 --                          (P28-P29).
+--   Properties.VerdictPreserved — The extract-once step against the spec step.
+--   Properties.PropertyIndex — Every property index a reply carries is below
+--                          the count the session holds.
 --
 -- Public API consumed downstream of this module:
 --   - `AllBelow`, `mkPredTable-lookup` — used by `Protocol.Adequacy.WarmCache`.
@@ -104,3 +107,17 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Monotonic public
 -- `extractTable-faithful`.
 open import Aletheia.Protocol.FrameProcessor.Properties.VerdictPreserved public
   using ( stepL-cong; evalPredicateTVT-faithful; stepProperty-preserves )
+
+-- ============================================================================
+-- PROPERTY INDICES
+-- ============================================================================
+-- Every property index a reply carries is below the count of properties the
+-- session holds, which is the length of the list the last accepted
+-- set_properties was handed: a set_properties that succeeds sets it, a DBC
+-- load empties it, and every other command keeps it.
+open import Aletheia.Protocol.FrameProcessor.Properties.PropertyIndex public
+  using ( propertyCount; resultIndex; IndicesBelow; Keeps; Settled; Loads
+        ; handleDataFrame-keeps; handleTraceEvent-keeps; handleStartStream-keeps
+        ; handleEndStream-keeps; handleSetProperties-settles
+        ; handleParseDBC-loads; handleParseDBCText-loads
+        ; handleValidateDBC-keeps; handleFormatDBCText-keeps )

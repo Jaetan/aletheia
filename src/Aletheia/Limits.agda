@@ -15,11 +15,17 @@
 -- any payload whose length is not the DLC's.
 --
 -- Cross-references:
---   * docs/architecture/PROTOCOL.md § Limits — wire-side documentation.
---   * Aletheia.Error — the `InputBoundExceeded` constructor of `Error`.
---   * Each binding mirrors `InputBoundExceededError` at the FFI entry
---     to short-circuit before marshaling: Python aletheia.exceptions,
---     Go *aletheia.InputBoundExceededError, C++ aletheia::InputBoundExceededError.
+--   * docs/architecture/PROTOCOL.md § Limits: wire-side documentation.
+--   * Aletheia.Error: the `InputBoundExceeded` constructor of `Error`.
+--   * Each binding types the refusal: Python aletheia.InputBoundExceededError,
+--     Go *aletheia.InputBoundExceededError, C++ aletheia::InputBoundExceededError,
+--     Rust aletheia::Error::InputBoundExceeded.
+--   * Python (aletheia.limits), Go (go/aletheia/limits.go) and C++
+--     (aletheia/limits.hpp) mirror every bound constant below except the
+--     ones `KERNEL_ONLY` in tools/check_limits_parity.py names, which the
+--     kernel alone decides; Rust (rust/src/limits.rs) mirrors the bound
+--     kinds' wire codes alone.  That gate holds the four mirrors to this
+--     module.
 --
 -- Rationale for values:
 --   * 64 MiB input — commercial automotive DBCs are 1-10 MiB; 6× headroom.
@@ -36,9 +42,12 @@
 --   * 1024 atoms/property — LTL property atom complexity.
 module Aletheia.Limits where
 
-open import Data.Bool using (Bool; if_then_else_)
-open import Data.Nat using (ℕ; _<ᵇ_)
+open import Data.Bool using (Bool; T; false; if_then_else_)
+open import Data.Nat using (ℕ; suc; _<ᵇ_; _≤ᵇ_; s≤s)
+open import Data.Nat.Properties using (<⇒<ᵇ; ≤⇒≤ᵇ; ≰⇒>)
+open import Data.Product using (_×_)
 open import Data.String using (String)
+open import Relation.Binary.PropositionalEquality using (_≡_; subst)
 
 -- ============================================================================
 -- BOUND KIND ENUM
@@ -64,9 +73,12 @@ data BoundKind : Set where
   AtomCount               : BoundKind
   -- Number of properties submitted in one `setProperties` call.
   PropertyCount           : BoundKind
-  -- Magnitude of a JSON number's rational components (|numerator| and
-  -- denominator of the exact ℚ a JSON number literal or
-  -- {"numerator", "denominator"} object component denotes).
+  -- A number past its field's limit: a rational's |numerator| or
+  -- denominator (a JSON number, a DBC literal, a decimal entry), a
+  -- multiplex value, a value-description key's magnitude, a signal's start
+  -- bit or length, an attribute's INT, HEX or ENUM value or INT or HEX
+  -- bound, or a metric time bound, each against its own `max-*` constant
+  -- below.
   RationalComponentMagnitude : BoundKind
 
 boundKindCode : BoundKind → String
@@ -189,24 +201,49 @@ max-properties-per-stream = 1024
 -- denominator of the exact rational it denotes, measured on the parsed
 -- (reduced) form, for a JSON number, a DBC literal and a decimal entered
 -- through `aletheia_parse_decimal` alike (`DBC.Bounds.magnitude`).
--- 2^63 - 1, the signed 64-bit range of the binary FFI's rational slots.
--- The limit is a magnitude: the one Int64 value of magnitude 2^63
--- (numerator -2^63) is refused even though a two's-complement slot could
--- carry it, keeping the structured `observed` / `limit` pair a plain
--- comparison.
+-- 2^128 - 1, the unsigned 128-bit magnitude of the binary FFI's rational
+-- slots, whose sign is a field of its own.
 max-rational-component-magnitude : ℕ
-max-rational-component-magnitude = 9223372036854775807
+max-rational-component-magnitude = 340282366920938463463374607431768211455
+
+-- A signal's start bit and length: the bits of a 64-byte frame.
+max-start-bit : ℕ
+max-start-bit = 511
+
+max-bit-length : ℕ
+max-bit-length = 512
+
+-- A multiplex value names a raw value of its multiplexor; a value-description
+-- key names a raw value of its signal, signed, so its magnitude is bounded.
+max-multiplex-value : ℕ
+max-multiplex-value = 340282366920938463463374607431768211455
+
+max-value-description-key-magnitude : ℕ
+max-value-description-key-magnitude = 340282366920938463463374607431768211455
+
+-- An environment variable's type code: 0 integer, 1 float, 2 string.
+max-var-type : ℕ
+max-var-type = 2
+
+-- An attribute's INT, HEX or ENUM value or bound, in magnitude.
+max-attribute-magnitude : ℕ
+max-attribute-magnitude = 9223372036854775807
+
+-- A metric operator's time bound, in microseconds: the timestamp range, so
+-- every accepted window can close within a stream.
+max-time-bound : ℕ
+max-time-bound = 18446744073709551615
 
 
 -- ============================================================================
 -- REPORTED OBSERVED VALUE
 -- ============================================================================
 
--- The largest `observed` a bound refusal reports: 2^64 - 1, the top of the
--- unsigned 64-bit range, which every binding's typed `observed` holds.  A
--- measured value past it is reported as this ceiling, and the message puts
--- "at least" before it, so a refusal never renders its measured value in
--- more than twenty digits however long the input that crossed the bound.
+-- The largest natural a reply writes for a timestamp, a position, an index
+-- or a count: 2^64 - 1, the top of the unsigned 64-bit range, which every
+-- binding's typed field holds.  A measured value past it is reported as this
+-- ceiling, and the message puts "at least" before it, so a refusal never
+-- renders such a value in more than twenty digits however long its input.
 observed-ceiling : ℕ
 observed-ceiling = 18446744073709551615
 
@@ -215,7 +252,33 @@ observed-ceiling = 18446744073709551615
 observedSaturates : ℕ → Bool
 observedSaturates o = observed-ceiling <ᵇ o
 
--- The `observed` a refusal reports: the measured value, or the ceiling when
--- the measured value is past it.
+-- The natural a reply writes: the measured value, or the ceiling when the
+-- measured value is past it.
 saturateObserved : ℕ → ℕ
 saturateObserved o = if observedSaturates o then observed-ceiling else o
+
+-- The largest `observed` and `limit` a bound refusal reports: 2^128 - 1, the
+-- unsigned 128-bit range every binding's typed bound refusal holds.  A
+-- measured value past it is reported as this ceiling, and the message then
+-- names no measured value, only the limit.
+bound-ceiling : ℕ
+bound-ceiling = 340282366920938463463374607431768211455
+
+boundSaturates : ℕ → Bool
+boundSaturates o = bound-ceiling <ᵇ o
+
+saturateBound : ℕ → ℕ
+saturateBound o = if boundSaturates o then bound-ceiling else o
+
+-- What a bound refusal carries, erased: a limit of at least 1, passed by
+-- the measured value.
+Passes : ℕ → ℕ → Set
+Passes observed limit = T (1 ≤ᵇ limit) × T (limit <ᵇ observed)
+
+-- A decision `n ≤ᵇ limit`, or `n <ᵇ suc limit`, that came out false: `n`
+-- passed `limit`.
+past-≤ᵇ : ∀ n limit → (n ≤ᵇ limit) ≡ false → T (limit <ᵇ n)
+past-≤ᵇ n limit eq = <⇒<ᵇ (≰⇒> {n} {limit} (λ n≤ → subst T eq (≤⇒≤ᵇ n≤)))
+
+past-<ᵇ : ∀ n limit → (n <ᵇ suc limit) ≡ false → T (limit <ᵇ n)
+past-<ᵇ n limit eq = <⇒<ᵇ (≰⇒> {n} {limit} (λ n≤ → subst T eq (<⇒<ᵇ (s≤s n≤))))

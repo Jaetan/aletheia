@@ -738,7 +738,7 @@ _DBC_MUX_MSG = (
 
 
 class TestMuxQueryCommand:
-    """Test 'aletheia mux-query' -- pure DBC traversal, no FFI needed."""
+    """Test 'aletheia mux-query': a message's multiplex structure, read through the kernel."""
 
     @pytest.fixture
     def dbc_file(self, tmp_path: Path) -> Path:

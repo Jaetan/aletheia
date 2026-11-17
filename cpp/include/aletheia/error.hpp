@@ -19,7 +19,7 @@ enum class ErrorKind {
     Protocol,           // JSON protocol error from Agda core
     Validation,         // DBC structural issues
     State,              // Wrong state (e.g., send_frame when not streaming)
-    Ffi,                // Library load / RTS initialization failure
+    Ffi,                // Library load / runtime start failure, a null reply
     BinaryUnsupported,  // Backend cannot service the binary-path call (use JSON
                         // fallback); mirrors Go's ErrBinaryPathUnsupported sentinel.
     Cancellation,       // std::stop_token requested cancellation; cooperative at
@@ -43,20 +43,14 @@ enum class ErrorKind {
 /// Machine-readable error codes mirroring the Agda `Error` ADT and the shim's
 /// own refusal.
 ///
-/// Each named constant other than `Unknown` maps 1:1 to a string emitted by
-/// `errorCode` in `Aletheia.Error` — the Parse / DBC-text / Frame / Route /
-/// Handler / Dispatch / Extraction families plus the consolidated top-level
+/// Each constant maps 1:1 to a string emitted by `errorCode` in
+/// `Aletheia.Error` — the Parse / DBC-text / Frame / Route / Handler /
+/// Dispatch / Extraction families plus the consolidated top-level
 /// `input_bound_exceeded` code (`WithContext` delegates to its inner error),
 /// or, for `FfiValidationError`, by the shared library refusing an argument
-/// it cannot read or a buffer it cannot write to.
-///
-/// `Unknown` is the code of an error no wire code names: a refusal the
-/// binding makes itself (a factory's range, a check builder's bound, a
-/// loader's own reading), which Python, Go and Rust report with no code, and
-/// `error_code_from_string`'s answer for a code the C++ binding does not
-/// recognise. It mirrors no Agda constructor.
+/// it cannot read or a buffer it cannot write to. A reply holding a code
+/// outside them is refused.
 enum class ErrorCode {
-    Unknown,
     // Parse errors
     ParseMissingField,
     ParseInvalidByteOrder,
@@ -121,6 +115,8 @@ enum class ErrorCode {
     HandlerStreamNotStarted,
     HandlerStreamActive,
     HandlerPropertyParseFailed,
+    // A property or a time bound checked on its own was refused.
+    HandlerPropertyRefused,
     // A property names a signal no signal of the loaded DBC carries.
     HandlerUnknownSignal,
     HandlerValidationFailed,
@@ -142,12 +138,17 @@ enum class ErrorCode {
     FfiValidationError,
 };
 
-/// Parse an error code string from Agda JSON into the enum.
-[[nodiscard]] auto error_code_from_string(std::string_view s) -> ErrorCode;
+/// The error code a wire string names, std::nullopt for a string no code
+/// names.
+[[nodiscard]] auto error_code_from_string(std::string_view s) -> std::optional<ErrorCode>;
 
 class AletheiaError {
     ErrorKind kind_;
-    ErrorCode code_;
+    // The wire code of a refusal the kernel or the shared library made;
+    // std::nullopt for a refusal the binding makes itself (a factory's range,
+    // a check builder's bound, a loader's own reading), which Python, Go and
+    // Rust report with no code either.
+    std::optional<ErrorCode> code_;
     std::string message_;
     // Populated only when `kind_ == ErrorKind::InputBoundExceeded`; carries
     // the structured `bound_kind/observed/limit` and, for a DBC size bound,
@@ -157,16 +158,17 @@ class AletheiaError {
     std::optional<InputBoundExceededError> bound_info_;
     // Populated when `code_` is `HandlerValidationFailed` (parseDBC /
     // parseDBCText rejects) or `HandlerTextRoundtripFailed` (formatDBCText
-    // round-trip refusal) and the envelope carried well-typed `has_errors` +
-    // `issues` fields; the elements use the same {severity, code, detail} shape
-    // as a validation response.  Any other error — including one of those
-    // envelopes without the structured fields — has `std::nullopt`.
+    // round-trip refusal), from the `has_errors` and `issues` fields every such
+    // envelope carries (one without them is refused as a Protocol error); the
+    // elements use the same {severity, code, detail} shape as a validation
+    // response.  An error of any other code has `std::nullopt`.
     std::optional<std::vector<ValidationIssue>> issues_;
-    /// Where a loader read a refused number and the key it sat under, one
-    /// fact set by `located`; any other error has `std::nullopt`.
+    /// Where a loader read a refused number and the key it sat under, or
+    /// where it built a check its builder refused, under no key; one fact set
+    /// by `located`, and any other error has `std::nullopt`.
     struct Place {
         std::string location;
-        std::string key;
+        std::optional<std::string> key;
     };
     std::optional<Place> place_;
 
@@ -174,7 +176,7 @@ public:
     // constexpr so the constexpr factories in types.hpp can answer an error in
     // a constant expression.
     constexpr AletheiaError(ErrorKind kind, std::string message,
-                            ErrorCode code = ErrorCode::Unknown,
+                            std::optional<ErrorCode> code = std::nullopt,
                             std::optional<InputBoundExceededError> bound_info = std::nullopt,
                             std::optional<std::vector<ValidationIssue>> issues = std::nullopt)
         : kind_(kind)
@@ -184,7 +186,7 @@ public:
         , issues_(std::move(issues)) {}
 
     [[nodiscard]] constexpr auto kind() const -> ErrorKind { return kind_; }
-    [[nodiscard]] constexpr auto code() const -> ErrorCode { return code_; }
+    [[nodiscard]] constexpr auto code() const -> std::optional<ErrorCode> { return code_; }
     [[nodiscard]] constexpr auto message() const -> std::string_view { return message_; }
     [[nodiscard]] auto bound_info() const -> std::optional<InputBoundExceededError> const& {
         return bound_info_;
@@ -192,14 +194,15 @@ public:
     [[nodiscard]] auto issues() const -> std::optional<std::vector<ValidationIssue>> const& {
         return issues_;
     }
-    /// Where a loader read the refused number: a check of a YAML document or a
-    /// row of a workbook.
+    /// Where a loader read the refused number, or built the refused check: a
+    /// check of a YAML document or a row of a workbook.
     [[nodiscard]] auto location() const -> std::optional<std::string> {
         return place_.transform([](Place const& place) { return place.location; });
     }
-    /// The key or column header the refused number sat under.
+    /// The key or column header the refused number sat under; std::nullopt for
+    /// a refusal no single key holds, such as a check its builder refused.
     [[nodiscard]] auto key() const -> std::optional<std::string> {
-        return place_.transform([](Place const& place) { return place.key; });
+        return place_.and_then([](Place const& place) { return place.key; });
     }
 
     /// This error, kind, code and fields kept, with the location and the key a
@@ -210,12 +213,24 @@ public:
         return copy;
     }
 
+    /// This error, kind, code and fields kept, with the location of a refusal
+    /// no single key holds, such as a check its builder refused.
+    [[nodiscard]] auto located(std::string location) const -> AletheiaError {
+        auto copy = *this;
+        copy.place_ = Place{.location = std::move(location), .key = std::nullopt};
+        return copy;
+    }
+
     /// The error as every binding prints it: `<location>: invalid '<key>':
-    /// <message>` for a located error, the message alone for any other.
+    /// <message>` for an error located under a key, `<location>: <message>` for
+    /// one located under none, the message alone for any other.
     [[nodiscard]] auto text() const -> std::string {
-        if (place_)
-            return place_.value().location + ": invalid '" + place_.value().key + "': " + message_;
-        return message_;
+        if (!place_)
+            return message_;
+        auto const& place = place_.value();
+        if (!place.key)
+            return place.location + ": " + message_;
+        return place.location + ": invalid '" + place.key.value() + "': " + message_;
     }
 };
 
@@ -248,7 +263,7 @@ public:
 
     [[nodiscard]] auto error() const -> AletheiaError const& { return error_; }
     [[nodiscard]] auto kind() const -> ErrorKind { return error_.kind(); }
-    [[nodiscard]] auto code() const -> ErrorCode { return error_.code(); }
+    [[nodiscard]] auto code() const -> std::optional<ErrorCode> { return error_.code(); }
 };
 } // namespace detail
 

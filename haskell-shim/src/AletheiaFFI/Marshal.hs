@@ -8,15 +8,16 @@
 --
 -- The kernel decides every invariant a value it accepts carries; nothing here
 -- builds a kernel value or decides what the kernel accepts.  What stays is
--- reading the caller's memory (text decoded as UTF-8) and formatting the
--- shim's own refusals (a NULL pointer, unreadable text) as the JSON error
--- envelope every entry answers with.
+-- reading the caller's memory (text decoded as UTF-8, a rational's 128-bit
+-- words as integers), writing the kernel's numbers back as those words, and
+-- formatting the shim's own refusals (a NULL pointer, unreadable text) as the
+-- JSON error envelope every entry answers with.
 module AletheiaFFI.Marshal where
 
 import Control.Exception (IOException, try)
-import Data.Bits (toIntegralSized)
+import Data.Bits ((.&.), shiftL, shiftR, toIntegralSized)
 import Data.Char (ord)
-import Data.Word (Word8, Word32)
+import Data.Word (Word8, Word32, Word64)
 import Foreign.C.String (CString)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Ptr (Ptr, castPtr, nullPtr)
@@ -28,7 +29,7 @@ import GHC.IO.Encoding (utf8)
 import Numeric (showHex)
 import Unsafe.Coerce (unsafeCoerce)
 
-import AletheiaFFI.Wire (WireText (..))
+import AletheiaFFI.Wire (WireRational (..), WireText (..), WireUint128 (..))
 
 
 -- | The caller's text decoded as UTF-8, whatever the process locale, or the
@@ -110,3 +111,34 @@ mkErrorJson msg =
 mkMaybeBool :: Word8 -> Word8 -> Maybe Bool
 mkMaybeBool 0 _ = Nothing
 mkMaybeBool _ v = Just (v /= 0)
+
+-- | The number a 128-bit pair holds.
+uint128Value :: WireUint128 -> Integer
+uint128Value (WireUint128 lo hi) = toInteger hi `shiftL` 64 + toInteger lo
+
+-- | The 128-bit pair holding a natural, or Nothing for a negative number or
+-- one past 2^128 - 1.  The low word is the natural masked to 64 bits, so its
+-- conversion is exact.
+uint128Of :: Integer -> Maybe WireUint128
+uint128Of n
+    | n < 0 = Nothing
+    | otherwise = WireUint128 (fromInteger (n .&. lowWord)) <$> toIntegralSized (n `shiftR` 64)
+  where
+    lowWord = toInteger (maxBound :: Word64)
+
+-- | A rational's numerator, its sign applied, and its denominator, as the
+-- kernel entries take them.  Any sign byte but 0 reads as negative, as
+-- `aletheia.h` states, so a negative zero is zero.
+rationalParts :: WireRational -> (Integer, Integer)
+rationalParts r = (signed (uint128Value (ratNumerator r)), uint128Value (ratDenominator r))
+  where
+    signed m
+        | ratNegative r /= 0 = negate m
+        | otherwise = m
+
+-- | The rational a numerator and a non-negative denominator write, its sign
+-- byte 1 for a negative numerator and 0 otherwise, or Nothing when either
+-- magnitude passes 2^128 - 1.
+wireRational :: Integer -> Integer -> Maybe WireRational
+wireRational num den =
+    WireRational <$> uint128Of (abs num) <*> uint128Of den <*> pure (if num < 0 then 1 else 0)

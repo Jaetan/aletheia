@@ -7,7 +7,9 @@ The heap cap is not a recoverable error: when it fires the process terminates
 FFI client with the default cap and processes a workload, and a second boots it
 under a tight ``ALETHEIA_RTS_OPTS=-M12M`` cap over a large DBC and must abort
 (non-zero exit, no success sentinel). Both run out of process because the
-abort ends the process and the GHC runtime starts once per process.
+abort ends the process and the GHC runtime starts once per process.  A third
+boots it with a flag outside ASCII, whose bytes reach the runtime, which
+refuses the flag itself.
 """
 
 from __future__ import annotations
@@ -115,3 +117,25 @@ def test_tight_cap_aborts_the_process() -> None:
     # so a non-zero, non-3 exit is the GHC heap abort (containment), not a masked
     # parse failure.
     assert result.returncode != 3, f"unexpected parse error, not a heap abort: {result.stderr}"
+
+
+@pytest.mark.process(
+    "the GHC runtime reads its flags once per process and a flag it does not know ends the"
+    + " whole process, so the refusal is read as a fresh process's exit status and stderr"
+)
+def test_a_flag_outside_ascii_reaches_the_runtime_which_refuses_it() -> None:
+    """A word of the override outside ASCII reaches the runtime as its bytes, unencoded.
+
+    The runtime names the flag it does not know, prints its usage and exits 1.
+    """
+    _skip_without_ffi()
+    result = _run_workload(MessageCount(5), RtsOptions("-é"))
+    assert (result.returncode, result.stdout, result.stderr.splitlines()[:3]) == (
+        ExitStatus(1),
+        Prose(""),
+        [
+            "aletheia: unknown RTS option: -é",
+            "aletheia: ",
+            "aletheia: Usage: <prog> <args> [+RTS <rtsopts> | -RTS <args>] ... --RTS <args>",
+        ],
+    )

@@ -63,8 +63,13 @@ BO_ 256 Engine: 8 ECU
 		panic(err)
 	}
 
-	// The property: the decoded Speed signal never exceeds 220 km/h.
-	speedLimit := aletheia.Never(aletheia.Signal("Speed").GreaterThan(aletheia.IntRational(220)))
+	// The property: the decoded Speed signal never exceeds 220 km/h. The
+	// kernel checks the predicate as it is built.
+	overLimit, err := aletheia.Signal("Speed").GreaterThan(aletheia.IntRational(220))
+	if err != nil {
+		panic(err)
+	}
+	speedLimit := aletheia.Never(overLimit)
 	if err := client.SetProperties(ctx, []aletheia.Formula{speedLimit}); err != nil {
 		panic(err)
 	}

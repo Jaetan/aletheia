@@ -12,7 +12,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <format>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -74,92 +76,96 @@ using NodeName = Strong<struct NodeNameTag, std::string>;
 using Unit = Strong<struct UnitTag, std::string>;
 
 // ---------------------------------------------------------------------------
-// Rational: exact numerator/denominator
+// Rational: exact sign, numerator and denominator
 // ---------------------------------------------------------------------------
 
-// Exact rational with the invariant `den_ > 0`, enforced by every ctor +
-// factory.  Class (not struct): a public-fields
-// struct invites direct writes that would bypass the invariant; private
-// fields + `numerator()` / `denominator()` accessors make `den_ > 0` a
-// type-level guarantee rather than a callsite discipline.
+namespace detail {
+// The readers' way to the values the kernel built and proved: a Rational
+// reduced with a positive denominator, an identifier within its width.
+// Defined where the readers live.
+struct KernelValue;
+} // namespace detail
+
+// A whole number as a sign and a magnitude reaching 2^128-1: a value
+// description's key. Printed through `std::format`, a zero reads unsigned
+// whatever `negative` says.
+struct SignMagnitude {
+    bool negative = false;
+    unsigned __int128 magnitude = 0;
+
+    // The value as an int64, or nullopt when it lies outside int64.
+    [[nodiscard]] constexpr auto to_int64() const -> std::optional<std::int64_t> {
+        constexpr auto int64_max =
+            static_cast<unsigned __int128>(std::numeric_limits<std::int64_t>::max());
+        if (!negative)
+            return magnitude <= int64_max ? std::optional{static_cast<std::int64_t>(magnitude)}
+                                          : std::nullopt;
+        if (magnitude > int64_max + 1)
+            return std::nullopt;
+        return static_cast<std::int64_t>(static_cast<unsigned __int128>(0) - magnitude);
+    }
+
+    constexpr auto operator==(SignMagnitude const&) const -> bool = default;
+};
+
+// Exact rational: a sign, a numerator magnitude and a denominator, each
+// magnitude reaching 2^128-1 as the kernel's numbers do. Every factory stores
+// the value reduced, with a denominator of at least 1 and a zero unsigned, so
+// two Rationals are equal exactly when their fields are. Private fields keep
+// those facts a property of the type rather than of each call site.
 class Rational {
 public:
     constexpr Rational() = default;
 
-    // Exact-numeric boundary — the float principle: a `double` must not narrow
-    // silently into the numerator/denominator, and a `bool` must not pass as a
-    // numeric value.  A non-template `Rational(int64_t, int64_t)` admits both
-    // through paren-init (`Rational(7.9, 2)` truncates to 7/2 with only a
-    // warning; `Rational(true, 1)` is silent), so the parameters are constrained
-    // to non-bool integral types — a decimal must instead go through
-    // `Rational::from_decimal` (the kernel decimal SSOT).  Go/Rust get this for
-    // free from their `int64`-typed rationals; this brings C++ to the same bar.
-    // Constant expressions only: `make` checks the pair, so a literal outside
-    // int64 or with a denominator that is not positive fails the build, and a
+    // Exact-numeric boundary, the float principle: a `double` must not narrow
+    // silently into a component, and a `bool` must not pass as a number, so the
+    // parameters are non-bool integral types and a decimal goes through
+    // `Rational::from_decimal` (the kernel decimal SSOT). Constant expressions
+    // only: a literal whose denominator is not positive fails the build, and a
     // pair known at run time goes through `make` or `integer`.
     template<std::integral N, std::integral D>
         requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
     consteval Rational(N n, D d) : Rational(make(n, d).value()) {}
 
-    [[nodiscard]] constexpr auto numerator() const -> std::int64_t { return num_; }
+    [[nodiscard]] constexpr auto negative() const -> bool { return negative_; }
+    [[nodiscard]] constexpr auto numerator() const -> unsigned __int128 { return num_; }
+    [[nodiscard]] constexpr auto denominator() const -> unsigned __int128 { return den_; }
 
-private:
-    // The stores, reached once the pair is known to hold the invariant.
-    struct Unchecked {};
-    constexpr Rational(std::int64_t n, std::int64_t d, Unchecked /*unchecked*/)
-        : num_(n)
-        , den_(d) {}
+    constexpr auto operator==(Rational const&) const -> bool = default;
 
-public:
-    [[nodiscard]] constexpr auto denominator() const -> std::int64_t { return den_; }
-
-    // Cross-multiply comparison (avoids floating-point).
-    // __int128 is a Clang/GCC extension (not standard C++); the project
-    // builds Clang-only on Linux (latest stable Clang — see
-    // cpp/CMakeLists.txt), where it is always available.
-    // A double-precision fallback would silently lose precision on large
-    // numerator/denominator pairs, so we refuse to build rather than ship it.
-    static_assert(sizeof(__int128) >= 16, "Aletheia requires __int128 support "
-                                          "(Clang on Linux — see cpp/CMakeLists.txt).");
-    constexpr auto operator<=>(Rational const& rhs) const {
-        // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
-        auto const lhs_prod = static_cast<__int128>(num_) * rhs.den_;
-        auto const rhs_prod = static_cast<__int128>(rhs.num_) * den_;
-        return lhs_prod <=> rhs_prod;
-    }
-    constexpr auto operator==(Rational const& rhs) const -> bool {
-        return (*this <=> rhs) == std::strong_ordering::equal;
+    // The value a sign and two magnitudes denote, reduced, or a Validation
+    // error for a zero denominator.
+    [[nodiscard]] static constexpr auto make(bool negative, unsigned __int128 numerator,
+                                             unsigned __int128 denominator) -> Result<Rational> {
+        if (denominator == 0)
+            return detail::validation_refusal("Rational denominator must be positive");
+        return reduced(negative, numerator, denominator);
     }
 
-    // Validated factory: a Validation error for a component outside int64 or a
-    // denominator that is not positive.
+    // The value `num / den`, reduced, or a Validation error for a denominator
+    // that is not positive.
     template<std::integral N, std::integral D>
         requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
     [[nodiscard]] static constexpr auto make(N num, D den) -> Result<Rational> {
-        // Representability before narrowing: a uint64_t > INT64_MAX would
-        // otherwise wrap to a negative/wrong value before the den > 0 check,
-        // yielding a misleading error or an incorrect Rational.
-        if (!std::in_range<std::int64_t>(num) || !std::in_range<std::int64_t>(den))
-            return detail::validation_refusal("Rational: numerator/denominator out of int64 range");
-        auto const den64 = static_cast<std::int64_t>(den);
-        if (den64 <= 0)
+        auto const divisor = sign_magnitude(widened(den));
+        if (divisor.negative || divisor.magnitude == 0)
             return detail::validation_refusal("Rational denominator must be positive");
-        return Rational{static_cast<std::int64_t>(num), den64, Unchecked{}};
+        auto const whole = sign_magnitude(widened(num));
+        return reduced(whole.negative, whole.magnitude, divisor.magnitude);
     }
 
-    // The whole number `n / 1`, which cannot fail: the type holds every value
-    // of `n` within int64, so a `uint64_t`, like a `bool` or a `double`, does
+    // The whole number `n / 1`, which cannot fail: every integral type up to
+    // 128 bits holds only values the type carries. A `bool` or a `double` does
     // not compile.
     template<std::integral I>
-        requires(!std::same_as<I, bool> &&
-                 std::in_range<std::int64_t>(std::numeric_limits<I>::min()) &&
-                 std::in_range<std::int64_t>(std::numeric_limits<I>::max()))
+        requires(!std::same_as<I, bool>)
     [[nodiscard]] static constexpr auto integer(I n) -> Rational {
-        return Rational{static_cast<std::int64_t>(n), 1, Unchecked{}};
+        auto const whole = sign_magnitude(widened(n));
+        return Rational{whole.negative, whole.magnitude, 1, Unchecked{}};
     }
 
     // Parse a decimal literal into an exact Rational via the Agda kernel's
-    // decimal SSOT (`aletheia_parse_decimal`) — the float principle: a decimal
+    // decimal SSOT (`aletheia_parse_decimal`), the float principle: a decimal
     // is an exact rational (denominator 2^a*5^b), never a float64. The grammar
     // is the kernel's: `-?digits` or `-?digits.digits+` (no `+` sign, no
     // leading/trailing `.`, no exponent). The GHC runtime must be up
@@ -174,8 +180,45 @@ public:
     [[nodiscard]] static auto from_decimal(std::string_view s) -> Result<Rational>;
 
 private:
-    std::int64_t num_ = 0;
-    std::int64_t den_ = 1;
+    friend struct detail::KernelValue;
+
+    // The stores, reached once the fields are known reduced, the denominator
+    // positive and a zero unsigned.
+    struct Unchecked {};
+    constexpr Rational(bool negative, unsigned __int128 num, unsigned __int128 den,
+                       Unchecked /*unchecked*/)
+        : num_(num)
+        , den_(den)
+        , negative_(negative) {}
+
+    // `n` at 128 bits, its signedness kept, then its sign and magnitude, the
+    // most negative included: every integral type reaches one comparison.
+    template<std::integral I>
+    [[nodiscard]] static constexpr auto widened(I n) {
+        if constexpr (std::is_signed_v<I>)
+            return static_cast<__int128>(n);
+        else
+            return static_cast<unsigned __int128>(n);
+    }
+    [[nodiscard]] static constexpr auto sign_magnitude(__int128 n) -> SignMagnitude {
+        auto const wide = static_cast<unsigned __int128>(n);
+        return n < 0 ? SignMagnitude{.negative = true,
+                                     .magnitude = static_cast<unsigned __int128>(0) - wide}
+                     : SignMagnitude{.negative = false, .magnitude = wide};
+    }
+    [[nodiscard]] static constexpr auto sign_magnitude(unsigned __int128 n) -> SignMagnitude {
+        return {.negative = false, .magnitude = n};
+    }
+
+    [[nodiscard]] static constexpr auto reduced(bool negative, unsigned __int128 num,
+                                                unsigned __int128 den) -> Rational {
+        auto const g = std::gcd(num, den);
+        return Rational{negative && num != 0, num / g, den / g, Unchecked{}};
+    }
+
+    unsigned __int128 num_ = 0;
+    unsigned __int128 den_ = 1;
+    bool negative_ = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -223,7 +266,7 @@ concept RationalIntegerable = requires { Rational::integer(std::declval<I>()); }
 // template argument is a substitution failure, so a refused literal reads false.
 template<auto N, auto D>
 concept RationalLiteral =
-    requires { typename std::integral_constant<std::int64_t, Rational{N, D}.numerator()>; };
+    requires { typename std::integral_constant<bool, Rational{N, D}.negative()>; };
 } // namespace detail
 
 static_assert(std::constructible_from<Rational, int, int>, "integer construction must still work");
@@ -240,19 +283,23 @@ static_assert(!detail::StrongOfable<PhysicalValue, bool, int>, "of(...) must rej
 static_assert(!detail::StrongOfable<RationalFactor, double, int>,
               "DBC factor of(...) must reject a double");
 static_assert(detail::RationalIntegerable<int> && detail::RationalIntegerable<std::int64_t> &&
-                  detail::RationalIntegerable<std::uint32_t>,
-              "a whole number of any type within int64 must build");
-static_assert(!detail::RationalIntegerable<std::uint64_t>,
-              "a type passing int64 must not build a whole number");
+                  detail::RationalIntegerable<std::uint64_t> &&
+                  detail::RationalIntegerable<unsigned __int128>,
+              "a whole number of every integral type up to 128 bits must build");
 static_assert(!detail::RationalIntegerable<double>, "a double must not narrow via integer");
 static_assert(!detail::RationalIntegerable<bool>, "a bool must not pass through integer");
 static_assert(detail::RationalLiteral<1, 10>, "a literal fraction must build");
 static_assert(!detail::RationalLiteral<1, 0>, "a zero denominator must not build");
 static_assert(!detail::RationalLiteral<1, -1>, "a negative denominator must not build");
-static_assert(!detail::RationalLiteral<std::uint64_t{1} << 63U, 1>,
-              "a numerator past int64 must not build");
-static_assert(!detail::RationalLiteral<1, std::uint64_t{1} << 63U>,
-              "a denominator past int64 must not build");
+static_assert(detail::RationalLiteral<std::uint64_t{1} << 63U, 1>,
+              "a numerator past int64 must build");
+static_assert(detail::RationalLiteral<1, std::uint64_t{1} << 63U>,
+              "a denominator past int64 must build");
+static_assert(Rational{2, 4} == Rational{1, 2}, "a value is stored reduced");
+static_assert(Rational{0, 5} == Rational{}, "a zero is stored unsigned over 1");
+static_assert(Rational{-3, 6}.negative() && Rational{-3, 6}.numerator() == 1 &&
+                  Rational{-3, 6}.denominator() == 2,
+              "the sign is its own field, the magnitudes reduced");
 
 // ---------------------------------------------------------------------------
 // Integer domain types (distinct bit-level types)
@@ -261,7 +308,7 @@ static_assert(!detail::RationalLiteral<1, std::uint64_t{1} << 63U>,
 using BitPosition = Strong<struct BitPositionTag, std::uint16_t>;
 using BitLength = Strong<struct BitLengthTag, std::uint16_t>;
 using PropertyIndex = Strong<struct PropertyIndexTag, std::size_t>;
-using MultiplexValue = Strong<struct MultiplexValueTag, std::uint32_t>;
+using MultiplexValue = Strong<struct MultiplexValueTag, unsigned __int128>;
 
 // ---------------------------------------------------------------------------
 // Frame payload: variable-length raw bytes (up to 64 for CAN-FD)
@@ -276,6 +323,7 @@ using FramePayload = std::vector<std::byte>;
 class StandardId {
     std::uint16_t value_;
     explicit constexpr StandardId(std::uint16_t v) : value_(v) {}
+    friend struct detail::KernelValue;
 
     static constexpr std::uint16_t max_id = (1U << 11U) - 1; // 11-bit CAN ID
 
@@ -292,6 +340,7 @@ public:
 class ExtendedId {
     std::uint32_t value_;
     explicit constexpr ExtendedId(std::uint32_t v) : value_(v) {}
+    friend struct detail::KernelValue;
 
     static constexpr std::uint32_t max_id = (1U << 29U) - 1; // 29-bit CAN ID
 
@@ -326,10 +375,31 @@ using CanId = std::variant<StandardId, ExtendedId>;
 
 using Timestamp = std::chrono::microseconds;
 
-// Scale into the Timestamp domain: the check builder's millisecond bound and
-// the renderer's time bound (Go `usPerMillisecond`, Rust `US_PER_MILLISECOND`).
-inline constexpr Timestamp::rep us_per_millisecond = 1'000;
-inline constexpr Timestamp::rep us_per_second = 1'000'000;
+// Scale out of the microsecond domain: the renderer prints a time bound in
+// seconds or milliseconds when it divides evenly (Go `usPerMillisecond`, Rust
+// `US_PER_MILLISECOND`).
+inline constexpr std::uint64_t us_per_millisecond = 1'000;
+inline constexpr std::uint64_t us_per_second = 1'000'000;
+
+// ---------------------------------------------------------------------------
+// TimeBound: a time window's bound in whole microseconds
+// ---------------------------------------------------------------------------
+
+// A time window's bound in whole microseconds, the kernel's own unit, reaching
+// 2^64-1 as the kernel's time bound does. Built from a count
+// (`TimeBound{100'000}`) or read from text through the kernel; no chrono
+// duration converts into it, so a negative one cannot wrap.
+struct TimeBound {
+    std::uint64_t microseconds = 0;
+
+    // A time bound written in microseconds, as the YAML and Excel loaders read
+    // one, decided by the kernel (`aletheia_parse_time_bound`): its whole
+    // microseconds, or the kernel's refusal typed as `Rational::from_decimal`'s.
+    // The GHC runtime must be up.
+    [[nodiscard]] static auto parse(std::string_view text) -> Result<TimeBound>;
+
+    constexpr auto operator==(TimeBound const&) const -> bool = default;
+};
 
 // ---------------------------------------------------------------------------
 // DLC: 0-15 (CAN-FD), validated at construction
@@ -409,3 +479,18 @@ struct Frame {
 };
 
 } // namespace aletheia
+
+// `std::format("{}", key)` prints a SignMagnitude as its signed decimal, a
+// zero unsigned.
+template<>
+struct std::formatter<aletheia::SignMagnitude> {
+    static constexpr auto parse(std::format_parse_context& ctx)
+        -> std::format_parse_context::iterator {
+        return ctx.begin();
+    }
+    static auto format(aletheia::SignMagnitude const& v, std::format_context& ctx)
+        -> std::format_context::iterator {
+        return std::format_to(ctx.out(), "{}{}", v.negative && v.magnitude != 0 ? "-" : "",
+                              v.magnitude);
+    }
+};

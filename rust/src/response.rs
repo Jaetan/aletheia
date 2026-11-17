@@ -2,11 +2,25 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! Typed decoding of the JSON responses the core returns.
+//!
+//! Every reader requires each key the kernel writes and reads each place by
+//! kind only, refusing what the kernel never writes there in the one form of
+//! `reply_shape`: the ranges and the tags are the kernel's, proven of every
+//! reply. An issue's severity and code, an error reply's code, a property
+//! result's type and status and a stream warning's kind hold a member of their
+//! set or are refused at their place, a word outside it quoted.
 
-use serde_json::Value;
-
-use crate::error::Error;
+use crate::error::{BoundRefusal, Error};
+use crate::reply_shape::{
+    came, field_bool, field_member, field_natural, field_objects, field_rational, field_status,
+    field_string, field_strings, field_word, read_reply, refusal, ReplyPath, ReplyStatus, ROOT,
+    STRING,
+};
 use crate::types::Rational;
+use crate::wire_json::{self, Kind, Object};
+pub use error_codes::ErrorCode;
+
+mod error_codes;
 
 /// The final verdict for one property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,11 +62,20 @@ pub struct PropertyResult {
     pub enrichment: Option<Enrichment>,
 }
 
+/// The kind of a [`StreamWarning`]: the kernel writes `uncached_atom`, and a
+/// reply holding another kind is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WarningKind {
+    /// A property asked about a signal no frame of the stream carried, so its
+    /// atom was never cached.
+    UncachedAtom,
+}
+
 /// A diagnostic warning emitted at `end_stream` (e.g. an atom never cached).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamWarning {
-    /// Warning kind (e.g. `uncached_atom`).
-    pub kind: String,
+    /// What the warning says of its property.
+    pub kind: WarningKind,
     /// The property the warning concerns.
     pub property_index: u32,
     /// Free-text detail (e.g. the signal name).
@@ -111,10 +134,8 @@ pub struct ExtractionResult {
     pub absent: Vec<String>,
 }
 
-/// The severity of a validation issue. The core's severity set is closed
-/// (exactly `error` / `warning`), so an unknown wire value is rejected at decode
-/// — the deliberate counterpart to the forward-compatible [`IssueCode::Unknown`]
-/// (the code set may grow; the severity set will not). Mirrors the Python / Go /
+/// The severity of a validation issue: the kernel writes `error` or `warning`,
+/// and a reply holding another word there is refused. Mirrors the Python / Go /
 /// C++ typed severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IssueSeverity {
@@ -125,14 +146,6 @@ pub enum IssueSeverity {
 }
 
 impl IssueSeverity {
-    fn from_wire(s: &str) -> Result<Self, Error> {
-        match s {
-            "error" => Ok(IssueSeverity::Error),
-            "warning" => Ok(IssueSeverity::Warning),
-            other => Err(protocol(format!("unknown validation severity {other:?}"))),
-        }
-    }
-
     /// The wire string for this severity.
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -150,18 +163,13 @@ impl std::fmt::Display for IssueSeverity {
 }
 
 /// A machine-readable DBC validation issue code, mirroring the Agda `IssueCode`
-/// ADT and the Python / Go / C++ vocabularies. Unknown wire codes map to
-/// [`IssueCode::Unknown`] so a future core code round-trips rather than failing
-/// the decode (the code set may grow; cf. the strict [`IssueSeverity`]).
+/// ADT and the Python / Go / C++ vocabularies: a reply holding a code outside
+/// them is refused.
 ///
 /// The vocabulary is minted by the kernel and grows with kernel features, so
 /// this enum is `#[non_exhaustive]`: matches outside this crate carry a `_`
-/// arm, and a new kernel code is not a breaking change. Version-skew note: a
-/// code arrives as [`IssueCode::Unknown`] while this crate predates it and as
-/// a named variant once the crate knows it — so logic that must be stable
-/// across crate upgrades should key on [`IssueCode::as_str`] (the wire string
-/// for named and unknown codes alike), never on `Unknown`'s payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// arm, and a new kernel code is not a breaking change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IssueCode {
     /// A CAN id two or more messages share; one issue names them all.
@@ -225,16 +233,17 @@ pub enum IssueCode {
     /// A signal's declared minimum or maximum lies beyond the values its bits
     /// carry after scaling.
     RangeExceedsBits,
-    /// A code outside the known vocabulary (forward-compatible).
-    Unknown(String),
+    /// A value description's key is no raw value of its signal's bits, the
+    /// signedness and the bit length deciding.
+    ValueDescriptionKeyOutOfRange,
 }
 
 impl IssueCode {
-    /// Map a wire code string to an [`IssueCode`], falling back to
-    /// [`IssueCode::Unknown`] for an unrecognised value.
+    /// The [`IssueCode`] a wire code string names, `None` for a string that
+    /// names none.
     #[must_use]
-    pub fn from_wire(s: &str) -> Self {
-        match s {
+    pub fn from_wire(s: &str) -> Option<Self> {
+        Some(match s {
             "duplicate_message_id" => IssueCode::DuplicateMessageId,
             "duplicate_signal_name" => IssueCode::DuplicateSignalName,
             "factor_zero" => IssueCode::FactorZero,
@@ -264,13 +273,14 @@ impl IssueCode {
             "attribute_enum_empty" => IssueCode::AttributeEnumEmpty,
             "attribute_enum_default_unstable" => IssueCode::AttributeEnumDefaultUnstable,
             "range_exceeds_bits" => IssueCode::RangeExceedsBits,
-            other => IssueCode::Unknown(other.to_string()),
-        }
+            "value_description_key_out_of_range" => IssueCode::ValueDescriptionKeyOutOfRange,
+            _ => return None,
+        })
     }
 
     /// The canonical wire string for this code.
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(self) -> &'static str {
         match self {
             IssueCode::DuplicateMessageId => "duplicate_message_id",
             IssueCode::DuplicateSignalName => "duplicate_signal_name",
@@ -301,7 +311,7 @@ impl IssueCode {
             IssueCode::AttributeEnumEmpty => "attribute_enum_empty",
             IssueCode::AttributeEnumDefaultUnstable => "attribute_enum_default_unstable",
             IssueCode::RangeExceedsBits => "range_exceeds_bits",
-            IssueCode::Unknown(s) => s,
+            IssueCode::ValueDescriptionKeyOutOfRange => "value_description_key_out_of_range",
         }
     }
 }
@@ -321,20 +331,6 @@ pub struct ValidationIssue {
     pub code: IssueCode,
     /// Human-readable detail.
     pub detail: String,
-}
-
-/// Decode one validation-issue wire object. Strict on field *presence/type*:
-/// `severity` and `code` must be present strings (a missing/non-string field is a
-/// protocol error, matching the peer bindings). Strict on the `severity`
-/// *vocabulary* (closed set), but lenient on the `code` *vocabulary*
-/// ([`IssueCode::from_wire`] maps an unrecognised — but present — code to
-/// `Unknown`, since the code set may grow).
-pub(crate) fn decode_issue(w: &Value) -> Result<ValidationIssue, Error> {
-    Ok(ValidationIssue {
-        severity: IssueSeverity::from_wire(&req_str_field(w, "severity", "validation issue")?)?,
-        code: IssueCode::from_wire(&req_str_field(w, "code", "validation issue")?),
-        detail: str_field(w, "detail"),
-    })
 }
 
 /// The result of `validate_dbc`: every issue found, plus whether any are errors.
@@ -366,293 +362,308 @@ pub(crate) fn protocol(msg: impl Into<String>) -> Error {
     Error::Protocol(msg.into())
 }
 
-/// Parse a raw response string to a JSON object and surface any core error.
-pub(crate) fn parse_object(raw: &str) -> Result<Value, Error> {
-    let value: Value =
-        serde_json::from_str(raw).map_err(|e| protocol(format!("invalid JSON response: {e}")))?;
-    if value.get("status").and_then(Value::as_str) == Some("error") {
-        let code = value
-            .get("code")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_string();
-        let wire_message = value.get("message").and_then(Value::as_str);
-        let message = wire_message.unwrap_or_default().to_string();
-        // Lift the structured input_bound_exceeded triple, with the kernel's
-        // `message` and the `field` a DBC size refusal names, into the typed
-        // Error::InputBoundExceeded when it is present and well-typed (parity
-        // with Go's *InputBoundExceededError, C++'s make_json_error, and
-        // Python's build_error_response). A malformed or partial triple, a
-        // `message` that is missing or not a string, or a `field` that is
-        // present but not a string, degrades to the generic Error::Core rather
-        // than being reported as a bound error; an absent `field` is `None`.
-        if code == "input_bound_exceeded" {
-            let field = match value.get("field") {
-                None => Some(None),
-                Some(raw) => raw.as_str().map(|f| Some(f.to_string())),
-            };
-            if let (Some(bound_kind), Some(observed), Some(limit), Some(field), Some(_)) = (
-                value.get("bound_kind").and_then(Value::as_str),
-                value.get("observed").and_then(Value::as_u64),
-                value.get("limit").and_then(Value::as_u64),
-                field,
-                wire_message,
-            ) {
-                return Err(Error::InputBoundExceeded {
+// ── The error envelope ──────────────────────────────────────────────────────
+
+/// The keys of a bound refusal's triple.
+const BOUND_TRIPLE_KEYS: [&str; 3] = ["bound_kind", "observed", "limit"];
+
+/// The two spellings of an acknowledgement: the kernel writes the compact one
+/// and a mock the spaced one.
+const ACK_COMPACT: &str = r#"{"status":"ack"}"#;
+const ACK_SPACED: &str = r#"{"status": "ack"}"#;
+
+/// Whether `raw` is an acknowledgement in one of its two spellings: almost
+/// every answer is, and comparing bytes is cheaper than reading them.
+fn is_ack(raw: &str) -> bool {
+    raw == ACK_COMPACT || raw == ACK_SPACED
+}
+
+/// Read a reply whose status is `want` or `error`, and lift an error into its
+/// typed [`Error`]. Every typed decoder opens with it, so a reply that is
+/// malformed, an error, or not the answer to the command asked is refused in
+/// one place.
+pub(crate) fn decode_reply(raw: &str, want: ReplyStatus) -> Result<Object<'_>, Error> {
+    let reply = read_reply(raw)?;
+    let status = field_status(&reply, ROOT, "status", &[want, ReplyStatus::Error])?;
+    if status == ReplyStatus::Error {
+        return Err(error_status(&reply));
+    }
+    Ok(reply)
+}
+
+/// The error a binary-output entry's error envelope carries, read as the JSON
+/// path reads one: text that is not an envelope, or an envelope that is not an
+/// error, is refused in the one form of every reply place.
+pub(crate) fn error_envelope(raw: &str) -> Error {
+    match read_reply(raw) {
+        Ok(reply) => error_status(&reply),
+        Err(refused) => refused,
+    }
+}
+
+/// The error an error envelope carries, always an error: the envelope's
+/// status is `error` and its code and message are strings, and where the code
+/// carries a payload of its own the typed variant carries it, [`Error::Core`]
+/// the code and message otherwise. A place of the envelope holding what the
+/// kernel never writes there is refused.
+fn error_status(reply: &Object<'_>) -> Error {
+    match lift_error(reply) {
+        Ok(lifted) | Err(lifted) => lifted,
+    }
+}
+
+/// The typed error of an error envelope, or the refusal of one of its places.
+/// An envelope of any code holding part of a bound refusal's triple holds it
+/// whole, with a string `field` if it names one, and a bound refusal holds
+/// the triple always; a validation or round-trip refusal holds its
+/// `has_errors` flag and its issues whole.
+fn lift_error(reply: &Object<'_>) -> Result<Error, Error> {
+    field_status(reply, ROOT, "status", &[ReplyStatus::Error])?;
+    let code = field_member(reply, ROOT, "code", "an error code", ErrorCode::from_wire)?;
+    let message = field_string(reply, ROOT, "message")?.into_owned();
+    match read_bound_triple(reply)? {
+        Some(triple) => {
+            let field = bound_field(reply)?;
+            if code == ErrorCode::InputBoundExceeded {
+                return Ok(Error::InputBoundExceeded(Box::new(BoundRefusal {
                     code,
                     message,
-                    bound_kind: bound_kind.to_string(),
-                    observed,
-                    limit,
+                    bound_kind: triple.kind,
+                    observed: triple.observed,
+                    limit: triple.limit,
                     field,
                     located: None,
-                });
+                })));
             }
         }
-        // Lift the structured handler_validation_failed envelope into the typed
-        // Error::ValidationFailed when the `has_errors` flag and `issues` array
-        // are present and well-typed (each element the exact shape of a
-        // "validation" response issue). A missing or malformed payload —
-        // including any single ill-typed issue element — degrades to the
-        // generic Error::Core rather than being reported as a typed validation
-        // failure; the legacy `message` text is carried unchanged either way.
-        if code == "handler_validation_failed" {
-            if let (Some(has_errors), Some(arr)) = (
-                value.get("has_errors").and_then(Value::as_bool),
-                value.get("issues").and_then(Value::as_array),
-            ) {
-                if let Ok(issues) = arr.iter().map(decode_issue).collect::<Result<Vec<_>, _>>() {
-                    return Err(Error::ValidationFailed {
-                        code,
-                        message,
-                        has_errors,
-                        issues,
-                    });
-                }
-            }
+        None if code == ErrorCode::InputBoundExceeded => {
+            return Err(refusal(
+                ROOT.at("bound_kind"),
+                STRING,
+                came(reply, "bound_kind"),
+            ));
         }
-        // Lift the structured handler_text_roundtrip_failed envelope into the
-        // typed Error::TextRoundtripFailed (format_dbc_text round-trip refusal),
-        // same shape and degrade rule as the handler_validation_failed lift
-        // above.
-        if code == "handler_text_roundtrip_failed" {
-            if let (Some(has_errors), Some(arr)) = (
-                value.get("has_errors").and_then(Value::as_bool),
-                value.get("issues").and_then(Value::as_array),
-            ) {
-                if let Ok(issues) = arr.iter().map(decode_issue).collect::<Result<Vec<_>, _>>() {
-                    return Err(Error::TextRoundtripFailed {
-                        code,
-                        message,
-                        has_errors,
-                        issues,
-                    });
-                }
-            }
+        None => {}
+    }
+    if code == ErrorCode::HandlerValidationFailed {
+        let (has_errors, issues) = issues_payload(reply)?;
+        return Ok(Error::ValidationFailed {
+            code,
+            message,
+            has_errors,
+            issues,
+        });
+    }
+    if code == ErrorCode::HandlerTextRoundtripFailed {
+        let (has_errors, issues) = issues_payload(reply)?;
+        return Ok(Error::TextRoundtripFailed {
+            code,
+            message,
+            has_errors,
+            issues,
+        });
+    }
+    Ok(Error::Core { code, message })
+}
+
+/// The bound a refusal says was crossed: its kind, the size observed and the
+/// limit.
+struct BoundTriple {
+    kind: String,
+    observed: u128,
+    limit: u128,
+}
+
+/// A bound refusal's triple, `None` when the envelope holds none of its keys.
+/// An envelope holding any of them holds all three, each broken key refused at
+/// its place; the kernel proves the observed size and the limit positive, so
+/// they are read without a range check, and the kind is read as the string it
+/// is.
+fn read_bound_triple(reply: &Object<'_>) -> Result<Option<BoundTriple>, Error> {
+    if BOUND_TRIPLE_KEYS.iter().all(|key| reply.get(key).is_none()) {
+        return Ok(None);
+    }
+    Ok(Some(BoundTriple {
+        kind: field_string(reply, ROOT, "bound_kind")?.into_owned(),
+        observed: field_natural(reply, ROOT, "observed")?,
+        limit: field_natural(reply, ROOT, "limit")?,
+    }))
+}
+
+/// The part of the input a bound refusal names, `None` when it names none.
+fn bound_field(reply: &Object<'_>) -> Result<Option<String>, Error> {
+    if reply.get("field").is_none() {
+        return Ok(None);
+    }
+    field_string(reply, ROOT, "field").map(|field| Some(field.into_owned()))
+}
+
+/// The `has_errors` flag and the issues an envelope carries, a validation
+/// reply or a DBC refusal, both of which the kernel writes on it.
+fn issues_payload(reply: &Object<'_>) -> Result<(bool, Vec<ValidationIssue>), Error> {
+    let has_errors = field_bool(reply, ROOT, "has_errors")?;
+    let issues = read_issues(reply, "issues")?;
+    Ok((has_errors, issues))
+}
+
+/// The validation issues at `key` of a reply's root: the validation reply's,
+/// the warnings of a parsed DBC and the issues of a DBC refusal.
+pub(crate) fn read_issues(reply: &Object<'_>, key: &str) -> Result<Vec<ValidationIssue>, Error> {
+    field_objects(reply, ROOT, key, read_issue)
+}
+
+/// One validation issue at `path`: its code, one of the [`IssueCode`]s, its
+/// detail and its severity, one of the [`IssueSeverity`] words.
+fn read_issue(issue: &Object<'_>, path: ReplyPath<'_>) -> Result<ValidationIssue, Error> {
+    let code = field_member(issue, path, "code", "an issue code", IssueCode::from_wire)?;
+    let detail = field_string(issue, path, "detail")?.into_owned();
+    let severity = severity(field_word(issue, path, "severity", &["error", "warning"])?);
+    Ok(ValidationIssue {
+        severity,
+        code,
+        detail,
+    })
+}
+
+/// An issue's severity, `warning` its last arm.
+fn severity(word: &str) -> IssueSeverity {
+    match word {
+        "error" => IssueSeverity::Error,
+        _ => IssueSeverity::Warning,
+    }
+}
+
+// ── Command answers ─────────────────────────────────────────────────────────
+
+/// Decode the answer to a command that carries nothing but its success:
+/// `set_properties` and `start_stream`.
+pub(crate) fn decode_success(raw: &str) -> Result<(), Error> {
+    decode_reply(raw, ReplyStatus::Success).map(drop)
+}
+
+/// Decode the answer to an error or remote event: the kernel resolves both to
+/// an acknowledgement, the only status either carries.
+pub(crate) fn decode_event_ack(raw: &str) -> Result<(), Error> {
+    if is_ack(raw) {
+        return Ok(());
+    }
+    decode_reply(raw, ReplyStatus::Ack).map(drop)
+}
+
+/// Decode a `send_frame` answer: an acknowledgement when nothing happened, a
+/// batch of property events when something did, or a typed error. A batch
+/// carries no status of its own, each of its events carrying one, and is told
+/// by its type.
+pub(crate) fn decode_frame(raw: &str) -> Result<FrameResponse, Error> {
+    if is_ack(raw) {
+        return Ok(FrameResponse::Ack);
+    }
+    let reply = read_reply(raw)?;
+    if reply.get("status").is_some() {
+        let status = field_status(
+            &reply,
+            ROOT,
+            "status",
+            &[ReplyStatus::Ack, ReplyStatus::Error],
+        )?;
+        if status == ReplyStatus::Ack {
+            return Ok(FrameResponse::Ack);
         }
-        return Err(Error::Core { code, message });
+        return Err(error_status(&reply));
     }
-    Ok(value)
+    field_word(&reply, ROOT, "type", &["property_batch"])?;
+    let results = field_objects(&reply, ROOT, "results", read_property_event)?;
+    Ok(FrameResponse::Verdicts(results))
 }
 
-pub(crate) fn str_field(obj: &Value, key: &str) -> String {
-    obj.get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-/// Read a *required* string field: a protocol error if it is missing or not a
-/// string (the strict counterpart to [`str_field`], matching the peer bindings,
-/// which reject a missing/non-string `code` / `name` rather than blanking it).
-pub(crate) fn req_str_field(obj: &Value, key: &str, ctx: &str) -> Result<String, Error> {
-    obj.get(key)
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-        .ok_or_else(|| protocol(format!("{ctx}: missing or non-string {key:?} field")))
-}
-
-pub(crate) fn u32_field(obj: &Value, key: &str) -> Result<u32, Error> {
-    obj.get(key)
-        .and_then(Value::as_u64)
-        .and_then(|n| u32::try_from(n).ok())
-        .ok_or_else(|| protocol(format!("missing or out-of-range u32 field {key:?}")))
-}
-
-pub(crate) fn bool_field(obj: &Value, key: &str) -> Result<bool, Error> {
-    obj.get(key)
-        .and_then(Value::as_bool)
-        .ok_or_else(|| protocol(format!("missing or non-boolean field {key:?}")))
-}
-
-/// Decode a rational from a response scalar (plain integer) or
-/// `{"numerator","denominator"}` object.
-pub(crate) fn rational_from_value(v: &Value) -> Result<Rational, Error> {
-    if let Some(n) = v.as_i64() {
-        return Ok(Rational::integer(n));
+/// One event of a frame's batch at `path`: its verdict, the timestamp of the
+/// frame that broke the property on a failure, and a reason on every verdict
+/// but a hold.
+fn read_property_event(event: &Object<'_>, path: ReplyPath<'_>) -> Result<PropertyResult, Error> {
+    let mut result = read_verdict(event, path)?;
+    if result.verdict == Verdict::Fails {
+        result.timestamp = Some(field_natural(event, path, "timestamp")?);
     }
-    if v.is_object() {
-        let num = v
-            .get("numerator")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| protocol("rational object missing integer numerator"))?;
-        let den = v
-            .get("denominator")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| protocol("rational object missing integer denominator"))?;
-        return Rational::new(num, den);
+    if result.verdict != Verdict::Holds {
+        result.reason = field_string(event, path, "reason")?.into_owned();
     }
-    Err(protocol(format!(
-        "expected number or rational object, got {v}"
-    )))
+    Ok(result)
 }
 
-fn parse_verdict(s: &str) -> Result<Verdict, Error> {
-    match s {
-        "holds" => Ok(Verdict::Holds),
-        "fails" => Ok(Verdict::Fails),
-        "unresolved" => Ok(Verdict::Unresolved),
-        other => Err(protocol(format!("unknown verdict status {other:?}"))),
-    }
+/// Decode an `end_stream` answer: one final verdict per property, and the
+/// warnings the kernel raised.
+pub(crate) fn decode_stream(raw: &str) -> Result<StreamResult, Error> {
+    let reply = decode_reply(raw, ReplyStatus::Complete)?;
+    let results = field_objects(&reply, ROOT, "results", read_property_result)?;
+    let warnings = field_objects(&reply, ROOT, "warnings", read_stream_warning)?;
+    Ok(StreamResult { results, warnings })
 }
 
-fn parse_property_result(obj: &Value) -> Result<PropertyResult, Error> {
-    let verdict = parse_verdict(&str_field(obj, "status"))?;
-    let property_index = u32_field(obj, "property_index")?;
-    let timestamp = obj.get("timestamp").and_then(Value::as_u64);
-    // Enrichment is not on the wire — the verified core emits only the raw
-    // `reason`. The client computes [`Enrichment`] from the registered formulas
-    // + last-known signal values (see `crate::enrich`) and fills this in.
+/// One end-of-stream verdict at `path`. A failure carries the timestamp of the
+/// frame that broke the property, and an unresolved verdict a timestamp only
+/// where its key holds one: an absent or null key is no timestamp. Every
+/// verdict but a hold carries a reason.
+fn read_property_result(result: &Object<'_>, path: ReplyPath<'_>) -> Result<PropertyResult, Error> {
+    let mut read = read_verdict(result, path)?;
+    if read.verdict == Verdict::Holds {
+        return Ok(read);
+    }
+    let timestamped = result
+        .get("timestamp")
+        .is_some_and(|timestamp| wire_json::kind(timestamp) != Kind::Null);
+    if read.verdict == Verdict::Fails || timestamped {
+        read.timestamp = Some(field_natural(result, path, "timestamp")?);
+    }
+    read.reason = field_string(result, path, "reason")?.into_owned();
+    Ok(read)
+}
+
+/// The type, the status and the property index every verdict carries, the
+/// index read directly; the reason and the timestamp are the caller's to read.
+fn read_verdict(result: &Object<'_>, path: ReplyPath<'_>) -> Result<PropertyResult, Error> {
+    field_word(result, path, "type", &["property"])?;
+    let status = field_word(result, path, "status", &["fails", "holds", "unresolved"])?;
+    let property_index = field_natural(result, path, "property_index")?;
+    // Enrichment is not on the wire: the verified core writes only the raw
+    // `reason`, and the client computes [`Enrichment`] from the registered
+    // formulas and the last-known signal values (see `crate::enrich`).
     Ok(PropertyResult {
         property_index,
-        verdict,
-        reason: str_field(obj, "reason"),
-        timestamp,
+        verdict: verdict(status),
+        reason: String::new(),
+        timestamp: None,
         enrichment: None,
     })
 }
 
-fn property_list(obj: &Value) -> Result<Vec<PropertyResult>, Error> {
-    obj.get("results")
-        .and_then(Value::as_array)
-        .map(|arr| arr.iter().map(parse_property_result).collect())
-        .unwrap_or_else(|| Ok(Vec::new()))
-}
-
-/// Decode a `set_properties` / `start_stream` success response (status only).
-pub(crate) fn decode_ack_or_success(raw: &str) -> Result<(), Error> {
-    let obj = parse_object(raw)?;
-    // Require an explicit ack/success status so response-shape drift surfaces
-    // instead of being silently accepted (parse_object already turned a
-    // status:"error" envelope into Err).
-    match obj.get("status").and_then(Value::as_str) {
-        Some("ack" | "success") => Ok(()),
-        other => Err(protocol(format!(
-            "expected status \"ack\" or \"success\", got {other:?}"
-        ))),
+/// A verdict's status, `unresolved` its last arm.
+fn verdict(word: &str) -> Verdict {
+    match word {
+        "fails" => Verdict::Fails,
+        "holds" => Verdict::Holds,
+        _ => Verdict::Unresolved,
     }
 }
 
-/// Decode a `send_frame` response: `ack`, or a non-empty `property_batch` of
-/// verdicts. Strict (mirrors Go `parseFrameResponse`): an empty batch or an
-/// unrecognised status/type is a protocol error, not a silent `Ack` — so
-/// wire-shape drift surfaces instead of being swallowed.
-pub(crate) fn decode_frame(raw: &str) -> Result<FrameResponse, Error> {
-    let obj = parse_object(raw)?;
-    if obj.get("status").and_then(Value::as_str) == Some("ack") {
-        return Ok(FrameResponse::Ack);
-    }
-    if obj.get("type").and_then(Value::as_str) == Some("property_batch") {
-        let results = property_list(&obj)?;
-        if results.is_empty() {
-            return Err(protocol(
-                "property_batch response 'results' must be non-empty (zero-event frames are encoded as ack)",
-            ));
-        }
-        return Ok(FrameResponse::Verdicts(results));
-    }
-    Err(protocol(format!(
-        "unexpected frame response: status={:?}, type={:?}",
-        obj.get("status").and_then(Value::as_str),
-        obj.get("type").and_then(Value::as_str)
-    )))
+/// One end-of-stream warning at `path`: its kind, its property's index and
+/// its detail.
+fn read_stream_warning(warning: &Object<'_>, path: ReplyPath<'_>) -> Result<StreamWarning, Error> {
+    field_word(warning, path, "kind", &["uncached_atom"])?;
+    Ok(StreamWarning {
+        kind: WarningKind::UncachedAtom,
+        property_index: field_natural(warning, path, "property_index")?,
+        detail: field_string(warning, path, "detail")?.into_owned(),
+    })
 }
 
-/// Decode an `end_stream` (`status:"complete"`) response.
-pub(crate) fn decode_stream(raw: &str) -> Result<StreamResult, Error> {
-    let obj = parse_object(raw)?;
-    let results = property_list(&obj)?;
-    let warnings = obj
-        .get("warnings")
-        .and_then(Value::as_array)
-        .map(|arr| -> Result<Vec<_>, Error> {
-            arr.iter()
-                .map(|w| {
-                    Ok(StreamWarning {
-                        kind: str_field(w, "kind"),
-                        property_index: u32_field(w, "property_index")?,
-                        detail: str_field(w, "detail"),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_else(|| Ok(Vec::new()))?;
-    Ok(StreamResult { results, warnings })
-}
-
-/// Decode an `extract_signals` response.
+/// Decode an `extract_signals` answer on the JSON path: each extracted value
+/// with its signal's name, each extraction error with the kernel's reason,
+/// and the names of the signals the frame does not carry.
 pub(crate) fn decode_extraction(raw: &str) -> Result<ExtractionResult, Error> {
-    let obj = parse_object(raw)?;
-    let values = obj
-        .get("values")
-        .and_then(Value::as_array)
-        .map(|arr| -> Result<Vec<_>, Error> {
-            arr.iter()
-                .map(|v| {
-                    let value = v
-                        .get("value")
-                        .ok_or_else(|| protocol("extraction value missing 'value'"))
-                        .and_then(rational_from_value)?;
-                    Ok(SignalValue {
-                        name: str_field(v, "name"),
-                        value,
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_else(|| Ok(Vec::new()))?;
-    // `errors` entries are objects `{"name", "error"}`; `absent` entries are bare
-    // strings (`JArray (map JStringS ...)`). Strict on structure (a non-object
-    // error entry or non-string absent entry is a protocol error, matching the
-    // Go/C++/Python decoders) so wire-shape drift surfaces; the `error` reason
-    // field stays lenient (defaults to "" if absent, like the peers).
-    let errors = obj
-        .get("errors")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .map(|e| {
-                    Ok(SignalError {
-                        name: req_str_field(e, "name", "extraction error")?,
-                        reason: str_field(e, "error"),
-                    })
-                })
-                .collect::<Result<Vec<_>, Error>>()
-        })
-        .unwrap_or_else(|| Ok(Vec::new()))?;
-    let absent = obj
-        .get("absent")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .map(|a| {
-                    a.as_str()
-                        .map(ToString::to_string)
-                        .ok_or_else(|| protocol("extraction 'absent' entry must be a string"))
-                })
-                .collect::<Result<Vec<_>, Error>>()
-        })
-        .unwrap_or_else(|| Ok(Vec::new()))?;
+    let reply = decode_reply(raw, ReplyStatus::Success)?;
+    let values = field_objects(&reply, ROOT, "values", read_signal_value)?;
+    let errors = field_objects(&reply, ROOT, "errors", read_signal_error)?;
+    let absent = field_strings(&reply, ROOT, "absent")?;
     Ok(ExtractionResult {
         values,
         errors,
@@ -660,35 +671,52 @@ pub(crate) fn decode_extraction(raw: &str) -> Result<ExtractionResult, Error> {
     })
 }
 
-/// Resolve a wire signal index to its name via the per-CAN-id name cache,
-/// falling back to `signal_<idx>` for an index past the cache (matching Go's
-/// `signalNameByIndex`).
-fn name_by_index(names: &[String], idx: u16) -> String {
-    names
-        .get(idx as usize)
-        .cloned()
-        .unwrap_or_else(|| format!("signal_{idx}"))
+/// One extracted value at `path`: the signal's name and its exact value.
+fn read_signal_value(value: &Object<'_>, path: ReplyPath<'_>) -> Result<SignalValue, Error> {
+    Ok(SignalValue {
+        name: field_string(value, path, "name")?.into_owned(),
+        value: field_rational(value, path, "value")?,
+    })
 }
 
-fn read_u16_ne(bytes: &[u8]) -> u16 {
-    u16::from_ne_bytes(bytes.try_into().expect("caller passes a 2-byte slice"))
+/// One extraction error at `path`: the signal's name and the kernel's reason.
+fn read_signal_error(error: &Object<'_>, path: ReplyPath<'_>) -> Result<SignalError, Error> {
+    Ok(SignalError {
+        name: field_string(error, path, "name")?.into_owned(),
+        reason: field_string(error, path, "error")?.into_owned(),
+    })
 }
 
-fn read_u32_ne(bytes: &[u8]) -> u32 {
-    u32::from_ne_bytes(bytes.try_into().expect("caller passes a 4-byte slice"))
+/// The name of the signal at `index` of its message's signal table, read
+/// directly: the kernel proves every index it writes within the table.
+fn signal_name(names: &[String], index: u16) -> String {
+    names[usize::from(index)].clone()
+}
+
+fn read_u16_le(bytes: &[u8]) -> u16 {
+    u16::from_le_bytes(bytes.try_into().expect("caller passes a 2-byte slice"))
+}
+
+fn read_u32_le(bytes: &[u8]) -> u32 {
+    u32::from_le_bytes(bytes.try_into().expect("caller passes a 4-byte slice"))
+}
+
+/// The 128-bit magnitude a 16-byte slice holds: its low `u64`, then its high
+/// `u64`, each little-endian, which is the slice read as one little-endian `u128`.
+fn read_u128_le(bytes: &[u8]) -> u128 {
+    u128::from_le_bytes(bytes.try_into().expect("caller passes a 16-byte slice"))
 }
 
 /// Decode the packed binary extraction buffer (the hot path) into the same
 /// [`ExtractionResult`] the JSON path produces.
 ///
 /// Wire format -- see `Aletheia.Main.Binary` (processExtractBin), the canonical
-/// source. Byte order is the host's NATIVE order (Haskell `Storable` poke); the
-/// kernel and every binding run on one host, so `from_ne_bytes` is the faithful
-/// read (identical to little-endian on the supported x86_64 / aarch64 hosts):
+/// source. Every multi-byte field is little-endian, as Go's reader reads it:
 ///
 /// ~~~text
 /// header:  u16 nValues, u16 nErrors, u16 nAbsent, u32 reasonBytes = 10 bytes
-/// values:  nValues x (u16 index, i64 numerator, i64 denominator)  = 18 bytes
+/// values:  nValues x (u16 index, u8 negative, u128 numerator,
+///          u128 denominator)                                      = 35 bytes
 /// errors:  nErrors x (u16 index, u8 code)                         =  3 bytes
 /// offsets: (nErrors + 1) x u32 -- cumulative byte offsets into reasons;
 ///          always present (the single entry 0 when nErrors == 0), and
@@ -697,6 +725,12 @@ fn read_u32_ne(bytes: &[u8]) -> u32 {
 /// reasons: reasonBytes of UTF-8; error i's reason = bytes [off[i], off[i+1])
 /// absent:  nAbsent x (u16 index)                                  =  2 bytes
 /// ~~~
+///
+/// Each u128 is its low u64 then its high u64, and any sign byte but 0 is
+/// negative. A value is the kernel's rational, reduced over a positive
+/// denominator by the kernel's proof, so it is stored as written, a zero
+/// unsigned as the JSON path reads it. Each signal index names its signal in
+/// `names` directly, the kernel proving it within the message's signal table.
 ///
 /// The reason strings are kernel-minted and byte-identical to what the JSON
 /// path surfaces for the same error, so [`SignalError::reason`] carries the
@@ -707,9 +741,8 @@ fn read_u32_ne(bytes: &[u8]) -> u32 {
 /// Pure (bytes + names in, result out; no FFI) so the offset arithmetic is unit-
 /// and mutation-testable -- the real-FFI happy path is excluded from mutation.
 /// A malformed buffer (short header, wrong total length, violated offset
-/// invariants, non-UTF-8 reason bytes, non-positive denominator) is rejected
-/// rather than panicked-on or silently truncated, matching the Go decoder and
-/// the JSON path's strictness.
+/// invariants, non-UTF-8 reason bytes) is rejected rather than panicked-on or
+/// silently truncated, matching the Go decoder.
 pub(crate) fn decode_extraction_bin(
     buf: &[u8],
     names: &[String],
@@ -717,17 +750,17 @@ pub(crate) fn decode_extraction_bin(
     if buf.len() < 10 {
         return Err(protocol("extraction binary buffer too short for header"));
     }
-    let nvals = read_u16_ne(&buf[0..2]) as usize;
-    let nerrs = read_u16_ne(&buf[2..4]) as usize;
-    let nabss = read_u16_ne(&buf[4..6]) as usize;
-    let reason_bytes = read_u32_ne(&buf[6..10]) as usize;
+    let nvals = read_u16_le(&buf[0..2]) as usize;
+    let nerrs = read_u16_le(&buf[2..4]) as usize;
+    let nabss = read_u16_le(&buf[4..6]) as usize;
+    let reason_bytes = read_u32_le(&buf[6..10]) as usize;
 
     // Validate the exact total up front: header + all sections must consume the
     // whole buffer, so a truncated OR trailing-byte buffer is rejected before any
     // slicing (no panic, no silent drop). u16 counts x fixed strides plus a u32
     // reason-blob length sum below 2^33, which cannot overflow usize on the
     // supported 64-bit hosts.
-    let expected = 10 + 18 * nvals + 3 * nerrs + 4 * (nerrs + 1) + reason_bytes + 2 * nabss;
+    let expected = 10 + 35 * nvals + 3 * nerrs + 4 * (nerrs + 1) + reason_bytes + 2 * nabss;
     if buf.len() != expected {
         return Err(protocol(format!(
             "extraction binary buffer length {} != expected {expected} \
@@ -736,27 +769,20 @@ pub(crate) fn decode_extraction_bin(
         )));
     }
 
-    let (values_bytes, rest) = buf[10..].split_at(18 * nvals);
+    let (values_bytes, rest) = buf[10..].split_at(35 * nvals);
     let (errors_bytes, rest) = rest.split_at(3 * nerrs);
     let (offsets_bytes, rest) = rest.split_at(4 * (nerrs + 1));
     let (reasons_bytes, absent_bytes) = rest.split_at(reason_bytes);
 
     let mut values = Vec::with_capacity(nvals);
-    for chunk in values_bytes.as_chunks::<18>().0 {
-        let idx = read_u16_ne(&chunk[0..2]);
-        let num = i64::from_ne_bytes(chunk[2..10].try_into().expect("8-byte slice"));
-        let den = i64::from_ne_bytes(chunk[10..18].try_into().expect("8-byte slice"));
-        let name = name_by_index(names, idx);
-        // A successful extraction never has den <= 0; treat it as a corrupt buffer
-        // (mirrors the JSON path's Rational::new rejection and the Go decoder).
-        if den <= 0 {
-            return Err(protocol(format!(
-                "non-positive denominator {den} for extracted signal {name:?} (index {idx})"
-            )));
-        }
+    for chunk in values_bytes.as_chunks::<35>().0 {
         values.push(SignalValue {
-            name,
-            value: Rational::new(num, den)?,
+            name: signal_name(names, read_u16_le(&chunk[0..2])),
+            value: Rational::from_kernel(
+                chunk[2] != 0,
+                read_u128_le(&chunk[3..19]),
+                read_u128_le(&chunk[19..35]),
+            ),
         });
     }
 
@@ -767,7 +793,7 @@ pub(crate) fn decode_extraction_bin(
         .as_chunks::<4>()
         .0
         .iter()
-        .map(|chunk| read_u32_ne(chunk))
+        .map(|chunk| read_u32_le(chunk))
         .collect();
     if offsets[0] != 0 {
         return Err(protocol(format!(
@@ -795,11 +821,11 @@ pub(crate) fn decode_extraction_bin(
         .iter()
         .zip(offsets.windows(2))
     {
-        let idx = read_u16_ne(&chunk[0..2]);
+        let idx = read_u16_le(&chunk[0..2]);
         // chunk[2] is the u8 error code (kernel SSOT: extractionErrorCodeToℕ in
         // Aletheia.CAN.BatchExtraction) -- transported, never surfaced: the wire
         // reason below is authoritative, so an unknown code is not rejected.
-        let name = name_by_index(names, idx);
+        let name = signal_name(names, idx);
         let reason = std::str::from_utf8(&reasons_bytes[span[0] as usize..span[1] as usize])
             .map_err(|e| {
                 protocol(format!(
@@ -813,7 +839,7 @@ pub(crate) fn decode_extraction_bin(
 
     let mut absent = Vec::with_capacity(nabss);
     for chunk in absent_bytes.as_chunks::<2>().0 {
-        absent.push(name_by_index(names, read_u16_ne(chunk)));
+        absent.push(signal_name(names, read_u16_le(chunk)));
     }
 
     Ok(ExtractionResult {
@@ -823,57 +849,23 @@ pub(crate) fn decode_extraction_bin(
     })
 }
 
-fn issue_list(obj: &Value) -> Result<Vec<ValidationIssue>, Error> {
-    obj.get("issues")
-        .and_then(Value::as_array)
-        .map(|arr| arr.iter().map(decode_issue).collect())
-        .unwrap_or_else(|| Ok(Vec::new()))
-}
-
 /// Decode a `validateDBC` (`status:"validation"`) response.
 pub(crate) fn decode_validation(raw: &str) -> Result<ValidationResult, Error> {
-    let obj = parse_object(raw)?;
-    match obj.get("status").and_then(Value::as_str) {
-        Some("validation") => Ok(ValidationResult {
-            has_errors: bool_field(&obj, "has_errors")?,
-            issues: issue_list(&obj)?,
-        }),
-        other => Err(protocol(format!(
-            "expected status \"validation\", got {other:?}"
-        ))),
-    }
+    let reply = decode_reply(raw, ReplyStatus::Validation)?;
+    let (has_errors, issues) = issues_payload(&reply)?;
+    Ok(ValidationResult { has_errors, issues })
 }
 
-/// Decode a `formatDBCText` (`status:"success"`) response into the `.dbc` text.
+/// Decode a `formatDBCText` (`status:"success"`) response into the `.dbc` text
+/// and its advisory `wfTextIssues` diagnostics.
 pub(crate) fn decode_format_text(raw: &str) -> Result<DbcText, Error> {
-    let obj = parse_object(raw)?;
-    match obj.get("status").and_then(Value::as_str) {
-        Some("success") => {
-            let text = obj
-                .get("text")
-                .and_then(Value::as_str)
-                .ok_or_else(|| protocol("formatDBCText response missing 'text'"))?
-                .to_string();
-            // The wfTextIssues diagnostics (warning-severity, advisory).  Absent
-            // → empty; a present-but-non-array `issues`, or a non-object element,
-            // is a protocol error (not silently dropped to empty).
-            let issues = match obj.get("issues") {
-                None | Some(Value::Null) => Vec::new(),
-                Some(Value::Array(arr)) => arr
-                    .iter()
-                    .map(decode_issue)
-                    .collect::<Result<Vec<_>, _>>()?,
-                Some(_) => {
-                    return Err(protocol("formatDBCText response 'issues' must be an array"))
-                }
-            };
-            Ok(DbcText { text, issues })
-        }
-        other => Err(protocol(format!(
-            "expected status \"success\", got {other:?}"
-        ))),
-    }
+    let reply = decode_reply(raw, ReplyStatus::Success)?;
+    let text = field_string(&reply, ROOT, "text")?.into_owned();
+    let issues = read_issues(&reply, "issues")?;
+    Ok(DbcText { text, issues })
 }
 
+#[cfg(test)]
+mod tag_tests;
 #[cfg(test)]
 mod tests;

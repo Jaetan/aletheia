@@ -181,6 +181,76 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}) == 2); // --value missing
 }
 
+// --value is read by the kernel's decimal grammar, so a whole number written
+// with a zero fraction selects that value, one at 2^128-1 is printed whole, and
+// a text the kernel refuses is named with the kernel's message; a fraction and
+// a negative number, which no multiplex value is, are refused, the negative
+// one named as the kernel's canonical number, each with the error exit. The
+// value is read before it is paired with --mux, so a refused text is named
+// without --mux too.
+TEST_CASE("mux-query reads --value through the kernel", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found: run 'cabal run shake -- build' first");
+    }
+    auto const mux =
+        (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "multiplexing.dbc")
+            .string();
+    auto const args = [&](std::string const& value,
+                          bool const paired = true) -> std::vector<std::string> {
+        if (!paired)
+            return {"mux-query", "--dbc", mux, "0x64", "--value", value};
+        return {"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", value};
+    };
+    std::string const header = "Message 0x64 BasicMux (DLC 8)\n";
+    struct Row {
+        std::string value;
+        bool paired = true;
+        int code = 0;
+        std::string out;
+        std::string err;
+    };
+    std::vector<Row> const rows{
+        {.value = "1.0",
+         .out = header + "Multiplexor Mode = 1: 3 signals present\n"
+                         "  Mode\n  PayloadB\n  CommonCounter\n"},
+        {.value = "340282366920938463463374607431768211455",
+         .out = header + "Multiplexor Mode = 340282366920938463463374607431768211455: 2 signals "
+                         "present\n  Mode\n  CommonCounter\n"},
+        {.value = "1.5", .code = 2, .err = "Error: invalid --value: 1.5\n"},
+        {.value = "-1.5", .code = 2, .err = "Error: invalid --value: -1.5\n"},
+        {.value = "-1", .code = 2, .err = "Error: --value must not be negative, got -1\n"},
+        {.value = "-1.0", .code = 2, .err = "Error: --value must not be negative, got -1\n"},
+        {.value = "abc",
+         .code = 2,
+         .err = "Error: invalid --value: abc: parse failed at line 1, column 1\n"},
+        {.value = "abc",
+         .paired = false,
+         .code = 2,
+         .err = "Error: invalid --value: abc: parse failed at line 1, column 1\n"},
+        {.value = "340282366920938463463374607431768211456",
+         .code = 2,
+         .err = "Error: invalid --value: 340282366920938463463374607431768211456: decimal: "
+                "rational component magnitude exceeds limit "
+                "340282366920938463463374607431768211455\n"},
+    };
+    for (auto const& row : rows) {
+        CAPTURE(row.value, row.paired);
+        std::ostringstream const err;
+        auto* const old = std::cerr.rdbuf(err.rdbuf());
+        auto const [code, out] = run_capture(args(row.value, row.paired));
+        std::cerr.rdbuf(old);
+        CHECK(code == row.code);
+        CHECK(out == row.out);
+        CHECK(err.str() == row.err);
+    }
+    // The JSON report writes the value as the whole number it is.
+    auto json_args = args("340282366920938463463374607431768211455");
+    json_args.emplace_back("--json");
+    auto const [code, out] = run_capture(json_args);
+    CHECK(code == 0);
+    CHECK(out.contains("\"value\": 340282366920938463463374607431768211455"));
+}
+
 TEST_CASE("extract refuses a payload that is not a whole number of bytes", "[cli]") {
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");

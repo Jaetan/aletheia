@@ -12,9 +12,10 @@ use aletheia::Error;
 use aletheia_excel::{load_checks_from_excel, load_dbc_from_excel};
 use rust_xlsxwriter::Workbook;
 
-/// The refusal a number read answers while the runtime is down.
+/// The refusal a decimal read answers while the runtime is down: every load
+/// here reads a decimal first, a when-then row its trigger's value.
 const RUNTIME_DOWN: &str = "GHC runtime not initialized: call aletheia::start_runtime or build a \
-                            Client before rendering or parsing a number";
+                            Client before parsing decimals";
 
 fn demo() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo/demo_workbook.xlsx")
@@ -25,8 +26,13 @@ fn demo() -> std::path::PathBuf {
 fn assert_the_runtime_refusal<T: std::fmt::Debug>(loaded: Result<T, Error>) {
     let err = loaded.expect_err("a load reading a number with the RTS down must be refused");
     assert!(
-        matches!(err, Error::RtsNotInitialized),
-        "expected Error::RtsNotInitialized; got: {err:?}"
+        matches!(
+            err,
+            Error::RtsNotInitialized {
+                operation: "parsing decimals"
+            }
+        ),
+        "expected Error::RtsNotInitialized before parsing decimals; got: {err:?}"
     );
     assert_eq!(err.to_string(), RUNTIME_DOWN);
     assert_eq!((err.location(), err.key()), (None, None));
@@ -44,7 +50,7 @@ fn when_then_workbook(path: &std::path::Path) {
         "Then Value",
         "Then Min",
         "Then Max",
-        "Within (ms)",
+        "Within (µs)",
         "Severity",
     ];
     const ROW: [&str; 11] = [
@@ -57,7 +63,7 @@ fn when_then_workbook(path: &std::path::Path) {
         "1",
         "",
         "",
-        "100",
+        "100000",
         "",
     ];
     let mut workbook = Workbook::new();

@@ -91,8 +91,10 @@ func mustDLC(v uint8) aletheia.DLC {
 }
 
 // rat is a shorthand for creating Rational values in benchmark DBC definitions.
-func rat(num, den int64) aletheia.Rational {
-	return aletheia.Rational{Numerator: num, Denominator: den}
+func rat(num int64, den uint64) aletheia.Rational {
+	r := aletheia.IntRational(num)
+	r.Denominator = aletheia.Uint128{Lo: den}
+	return r
 }
 
 func can20DBC() aletheia.DBCDefinition {
@@ -349,6 +351,7 @@ type throughputParameters struct {
 	Frames int `json:"frames"`
 	Runs   int `json:"runs"`
 	Warmup int `json:"warmup"`
+	Lane   int `json:"lane"`
 }
 
 type latencyParameters struct {
@@ -429,10 +432,10 @@ func (r *reportWriter) check(benchmark string) error {
 }
 
 // checkCounts refuses a count that measures nothing, since a row computed
-// from nothing reads as a rate of zero rather than as a failure. Every count
-// is checked whichever mode is running, so the refusal does not depend on
-// which flag that mode reads.
-func checkCounts(frames, runs, ops, warmup int) error {
+// from nothing reads as a rate of zero rather than as a failure, and a lane
+// the throughput mode does not have. Every count is checked whichever mode is
+// running, so the refusal does not depend on which flag that mode reads.
+func checkCounts(frames, runs, ops, warmup, lane int) error {
 	for _, count := range []struct {
 		flag  string
 		value int
@@ -443,6 +446,9 @@ func checkCounts(frames, runs, ops, warmup int) error {
 	}
 	if warmup < 0 {
 		return fmt.Errorf("--warmup must not be negative, got %d", warmup)
+	}
+	if lane < 0 || lane > throughputLanes {
+		return fmt.Errorf("--lane must be between 0 and %d, got %d", throughputLanes, lane)
 	}
 	return nil
 }
@@ -478,6 +484,7 @@ func main() {
 	warmup := fs.Int("warmup", throughputWarmupRuns,
 		fmt.Sprintf("Warmup runs (throughput) / warmup ops (latency, default %d)", latencyWarmupOps))
 	ops := fs.Int("ops", 5000, "Operations to measure (latency)")
+	lane := fs.Int("lane", 0, fmt.Sprintf("Run only this throughput lane, 1 to %d (0: every lane)", throughputLanes))
 	quick := fs.Bool("quick", false, "Fewer iterations (scaling)")
 	jsonFlag := fs.Bool("json", false, "Emit JSON to stdout")
 
@@ -499,7 +506,7 @@ func main() {
 	if err := checkMode(mode, fs.Args()); err != nil {
 		die("%v", err)
 	}
-	if err := checkCounts(*frames, *runs, *ops, *warmup); err != nil {
+	if err := checkCounts(*frames, *runs, *ops, *warmup, *lane); err != nil {
 		die("%v", err)
 	}
 
@@ -529,9 +536,9 @@ func main() {
 		fmt.Fprintf(out, "Frames per run: %d\n", *frames)
 		fmt.Fprintf(out, "Runs: %d\n", *runs)
 		fmt.Fprintf(out, "Warmup runs: %d\n", *warmup)
-		results := runThroughput(backend, out, *frames, *runs, *warmup)
+		results := runThroughput(backend, out, *frames, *runs, *warmup, *lane)
 		if *jsonFlag {
-			emitJSON("throughput", throughputParameters{Frames: *frames, Runs: *runs, Warmup: *warmup}, results)
+			emitJSON("throughput", throughputParameters{Frames: *frames, Runs: *runs, Warmup: *warmup, Lane: *lane}, results)
 		}
 
 	case "latency":

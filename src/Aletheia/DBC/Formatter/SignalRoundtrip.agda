@@ -21,6 +21,7 @@ open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers; mkCanonicalFromList-list)
 
 open import Data.Char using (Char)
+open import Data.Integer using (ℤ)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_)
 open import Data.List using (List; []; _∷_; map)
 open import Data.List.NonEmpty as List⁺ using ()
@@ -53,7 +54,7 @@ open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
 
 private
   mkSignal : Identifier → SignalDef → ByteOrder → List Char → SignalPresence → CanonicalReceivers
-           → List (ℕ × List Char) → DBCSignal
+           → List (ℤ × List Char) → DBCSignal
   mkSignal n sd bo u p rs vds = record
     { name = n ; signalDef = sd ; byteOrder = bo ; unit = u ; presence = p ; receivers = rs
     ; valueDescriptions = vds }

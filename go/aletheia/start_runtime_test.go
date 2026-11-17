@@ -118,7 +118,7 @@ func runStartScenario(scenario string) {
 	}()
 	ctx := context.Background()
 	lib := os.Getenv(startLibEnv)
-	half := Rational{Numerator: 1, Denominator: 2}
+	half := ratOf(1, 2)
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, nil))
 	switch scenario {
@@ -167,33 +167,37 @@ func runStartScenario(scenario string) {
 	case "refusals":
 		// Before any start the parser and the renderer name the remedy and
 		// open nothing; after one, both read the library the runtime started on.
+		const decimals = "GHC runtime not initialized: call aletheia.StartRuntime or open a client before parsing decimals"
 		_, err := FromDecimal("1.5")
-		expectText(err, ErrFFI, "GHC runtime not initialized: call aletheia.StartRuntime or open a client before parsing decimals", 21)
+		expectText(err, ErrFFI, decimals, 21)
 		_, err = formatRational(half)
 		expectText(err, ErrFFI, "GHC runtime not initialized: call aletheia.StartRuntime or open a client before rendering", 22)
 		// A loader reading a number returns the parser's refusal as it is,
 		// unlocated and with no checks, a when-then check reading its time
-		// bound first; its own refusal of a document answers on the document.
+		// bound first through the time-bound entry; its own refusal of a
+		// document answers on the document.
 		const whenThen = "checks:\n  - name: w\n    when:\n      signal: Brake\n      condition: exceeds\n" +
 			"      value: 50\n    then:\n      signal: Light\n      condition: equals\n" +
-			"      value: 1\n    within_ms: 100\n"
+			"      value: 1\n    within_us: 100000\n"
 		if err := os.WriteFile("checks.yaml", []byte(startChecks), 0o600); err != nil {
 			fail(27, "writing the checks file: %v", err)
 		}
 		for _, load := range []struct {
 			code int
 			read func() ([]CheckResult, error)
+			text string
 		}{
-			{28, func() ([]CheckResult, error) { return LoadChecksFromYAML(startChecks) }},
-			{34, func() ([]CheckResult, error) { return LoadChecksFromYAML(whenThen) }},
-			{29, func() ([]CheckResult, error) { return LoadChecksFromYAMLFile("checks.yaml") }},
-			{35, func() ([]CheckResult, error) { return LoadChecksFromYAML("checks.yaml") }},
+			{28, func() ([]CheckResult, error) { return LoadChecksFromYAML(startChecks) }, decimals},
+			{34, func() ([]CheckResult, error) { return LoadChecksFromYAML(whenThen) },
+				"GHC runtime not initialized: call aletheia.StartRuntime or open a client before reading a time bound"},
+			{29, func() ([]CheckResult, error) { return LoadChecksFromYAMLFile("checks.yaml") }, decimals},
+			{35, func() ([]CheckResult, error) { return LoadChecksFromYAML("checks.yaml") }, decimals},
 		} {
 			checks, err := load.read()
 			if checks != nil {
 				fail(load.code, "a refused load returned checks: %v", checks)
 			}
-			expectText(err, ErrFFI, "GHC runtime not initialized: call aletheia.StartRuntime or open a client before parsing decimals", load.code)
+			expectText(err, ErrFFI, load.text, load.code)
 		}
 		checks, err := LoadChecksFromYAML("not: a checks list\n")
 		if checks != nil {
@@ -206,7 +210,7 @@ func runStartScenario(scenario string) {
 		if err := StartRuntime(lib, 1, nil); err != nil {
 			fail(24, "StartRuntime: %v", err)
 		}
-		if got, err := FromDecimal("1.5"); err != nil || got != (Rational{Numerator: 3, Denominator: 2}) {
+		if got, err := FromDecimal("1.5"); err != nil || got != (ratOf(3, 2)) {
 			fail(25, "FromDecimal after the start answered %v, %v", got, err)
 		}
 		if got, err := formatRational(half); err != nil || got != "0.5" {

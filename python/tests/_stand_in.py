@@ -18,7 +18,7 @@ import pytest
 from _processes import CommandWord, ProcessId
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
     from tools._determinism_guard import ProcessBytes
 
@@ -58,6 +58,22 @@ def stand_in_kernel(name: StandInName) -> Path:
     path = built / "stand-ins" / f"{name}.so"
     assert path.exists(), f"stand-in {path} not built; run 'cabal run shake -- build'"
     return path
+
+
+def keeping[**P, R](entry: Callable[P, R]) -> tuple[Callable[P, R], list[R]]:
+    """Wrap ``entry`` to keep each answer it gives, in the list returned beside the wrapper.
+
+    A test reads there what a stand-in kernel answered, as the binding took it
+    before reading it.
+    """
+    kept: list[R] = []
+
+    def keep(*args: P.args, **kwargs: P.kwargs) -> R:
+        answer = entry(*args, **kwargs)
+        kept.append(answer)
+        return answer
+
+    return keep, kept
 
 
 def never_written(directory: Path) -> Path:

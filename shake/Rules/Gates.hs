@@ -91,8 +91,8 @@ gateRules = do
         putInfo $ "Stdlib version OK: " ++ unwords requiredDeps
 
     phony "check-changelog" $ do
-        -- Commit subjects and the CHANGELOG, by the rules tools/check_changelog.py's
-        -- docstring lists; it is Python so local CI runs it without rebuilding
+        -- The CHANGELOG, by the rules tools/check_changelog.py's docstring
+        -- lists; it is Python so local CI runs it without rebuilding
         -- the Shake binary.
         cmd_ pythonBin "-m" "tools.check_changelog"
 
@@ -144,16 +144,6 @@ gateRules = do
         -- `#### `<name>`` heading in the runbook.  Missing entries fail the
         -- gate — operators must not be left blind on an event the code emits.
         cmd_ pythonBin "-m" "tools.check_runbook_coverage"
-
-    phony "check-limits-parity" $ do
-        -- Limits SSOT parity gate.  The Agda `Aletheia.Limits` module is the
-        -- single source of truth for every adversarial-input bound (AGENTS.md
-        -- universal rule).  The Go, Python and C++ bindings each mirror it,
-        -- and each header claims the values are mirrored verbatim; this
-        -- script enforces that promise on all three.  Failing on: a missing
-        -- required mirror, a numeric value mismatch, a BoundKind wire-string
-        -- mismatch, or either side holding an entry the other lacks.
-        cmd_ pythonBin "-m" "tools.check_limits_parity"
 
     phony "check-stability-bench" $ do
         -- Stability-bench coverage gate.  AGENTS.md cat 16 /

@@ -45,8 +45,6 @@ fn rust_emitted() -> Vec<(&'static str, LogLevel)> {
         (events::FRAME_PROCESSED, LogLevel::Debug),
         (events::ERROR_EVENT_SENT, LogLevel::Debug),
         (events::REMOTE_EVENT_SENT, LogLevel::Debug),
-        (events::ENRICHMENT_PROPERTY_INDEX_OOB, LogLevel::Warn),
-        (events::ENRICHMENT_EXTRACTION_FAILED, LogLevel::Warn),
         (events::EXTRACTION_PROCESS_FAILED, LogLevel::Warn),
         (events::EXTRACTION_PARSE_FAILED, LogLevel::Warn),
         (events::ENDSTREAM_UNCACHED_ATOM, LogLevel::Warn),
@@ -54,11 +52,11 @@ fn rust_emitted() -> Vec<(&'static str, LogLevel)> {
 }
 
 #[test]
-fn vocabulary_is_the_canonical_sixteen() {
+fn vocabulary_keeps_every_canonical_event() {
     assert_eq!(
         yaml_vocabulary().len(),
-        16,
-        "docs/LOG_EVENTS.yaml is the cross-binding canonical 16-event vocabulary"
+        14,
+        "docs/LOG_EVENTS.yaml is the cross-binding canonical vocabulary, no row dropped"
     );
 }
 
@@ -69,7 +67,11 @@ fn events_module_matches_the_vocabulary_exactly() {
     // not just the subset this client emits.
     use std::collections::BTreeSet;
     let module: BTreeSet<&str> = events::ALL.iter().copied().collect();
-    assert_eq!(module.len(), 16, "events::ALL has 16 distinct names");
+    assert_eq!(
+        module.len(),
+        events::ALL.len(),
+        "events::ALL names each event once"
+    );
     let yaml: BTreeSet<String> = yaml_vocabulary().into_keys().collect();
     let module_owned: BTreeSet<String> = module.iter().map(|s| (*s).to_string()).collect();
     assert_eq!(

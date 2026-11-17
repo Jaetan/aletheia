@@ -1,25 +1,22 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Unit tests: end-of-stream enrichment extracting each tracked frame once,
-// and a violation whose property index is out of the caller's range.
+// and what a new property set and an ended stream forget.
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include "client_test_access.hpp"
 #include "detail/mock_backend.hpp"
 #include "enrich_sentinels.hpp"
 #include "required.hpp"
 #include <aletheia/aletheia.hpp>
 #include <aletheia/enrich.hpp>
 
-#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 using aletheia::test::required;
@@ -27,13 +24,6 @@ using aletheia::test::required;
 using namespace aletheia;
 using aletheia::test::count_extraction_sentinels;
 using Catch::Matchers::ContainsSubstring;
-
-// Occurrences of a named log event in a captured level-and-event sequence.
-static auto count_log_event(std::vector<std::pair<LogLevel, std::string>> const& events,
-                            std::string_view name) -> std::size_t {
-    return static_cast<std::size_t>(
-        std::ranges::count_if(events, [name](auto const& e) { return e.second == name; }));
-}
 
 // ===========================================================================
 // Extract-once EOS enrichment: one extraction per tracked frame
@@ -54,7 +44,8 @@ TEST_CASE("end_stream extracts each tracked frame once across properties", "[cli
              "timestamp": 5000000, "reason": "Never satisfied"},
             {"type": "property", "status": "unresolved", "property_index": 1,
              "reason": "Atomic: predicate never resolved at end of stream"}
-        ]
+        ],
+        "warnings": []
     })");
     // ONE extraction of the single tracked frame serves BOTH properties —
     // the full-frame result is merged once and distributed per diagnostic.
@@ -67,9 +58,9 @@ TEST_CASE("end_stream extracts each tracked frame once across properties", "[cli
     auto client = required(AletheiaClient::create(std::move(mock)));
     std::vector<LtlFormula> props;
     props.push_back(ltl::eventually(
-        ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}}))));
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+        ltl::atomic(required(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})))));
+    props.push_back(ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})))));
 
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
@@ -105,11 +96,7 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
           "[client][enrich]") {
     // Zero extraction FFI calls when there is nothing to extract, yet the
     // enrichment must STILL be attached to every Fails/Unresolved result via
-    // the empty-values fallback reason. (The union-empty skip guard has the
-    // same observable contract — 0 extractions + attach-always — and is not
-    // separately reachable through the public API: every LtlFormula leaf
-    // carries a signal name, so a collected diagnostic always wants ≥ 1
-    // signal.)
+    // the empty-values fallback reason.
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
 
@@ -120,13 +107,14 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
         "results": [
             {"type": "property", "status": "fails", "property_index": 0,
              "timestamp": 5000000, "reason": "Never satisfied"}
-        ]
+        ],
+        "warnings": []
     })");
     // Deliberately NO extraction response queued — none may be consumed.
 
     auto client = required(AletheiaClient::create(std::move(mock)));
     auto formula = ltl::eventually(
-        ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})));
+        ltl::atomic(required(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -158,10 +146,10 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
 // {SigA, SigB} (mirrors the Python/Go extract-once suites).
 static auto two_signal_properties() -> std::vector<LtlFormula> {
     std::vector<LtlFormula> props;
-    props.push_back(ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"SigA"}, PhysicalValue{Rational{10, 1}}))));
-    props.push_back(ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"SigB"}, PhysicalValue{Rational{10, 1}}))));
+    props.push_back(ltl::eventually(ltl::atomic(
+        required(ltl::greater_than(SignalName{"SigA"}, PhysicalValue{Rational{10, 1}})))));
+    props.push_back(ltl::eventually(ltl::atomic(
+        required(ltl::greater_than(SignalName{"SigB"}, PhysicalValue{Rational{10, 1}})))));
     return props;
 }
 
@@ -181,7 +169,8 @@ TEST_CASE("end_stream with all properties holding makes zero extraction calls",
         "results": [
             {"type": "property", "status": "holds", "property_index": 0},
             {"type": "property", "status": "holds", "property_index": 1}
-        ]
+        ],
+        "warnings": []
     })");
     // Deliberately NO extraction response queued — none may be consumed.
 
@@ -201,6 +190,63 @@ TEST_CASE("end_stream with all properties holding makes zero extraction calls",
     CHECK(count_extraction_sentinels(*mock_ptr) == 0);
     CHECK_FALSE(end_result->results[0].enrichment.has_value());
     CHECK_FALSE(end_result->results[1].enrichment.has_value());
+}
+
+TEST_CASE("end_stream with diagnostics naming no signal extracts no tracked frame",
+          "[client][enrich]") {
+    // Every formula reaches an atomic predicate naming a signal, so the
+    // diagnostics are replaced by ones naming none: with two frames tracked,
+    // the wanted union is empty and no frame is extracted, yet the failing
+    // entry still carries the fallback reason with the core's.
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame 0x100
+    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame 0x200
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "fails", "property_index": 0,
+             "timestamp": 5000000, "reason": "eventually unmet"}
+        ],
+        "warnings": []
+    })");
+    // Read only by a loop that extracts, so the count below is what refuses it.
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "SigA", "value": 5}],
+        "errors": [], "absent": []
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "SigB", "value": 7}],
+        "errors": [], "absent": []
+    })");
+
+    auto client = required(AletheiaClient::create(std::move(mock)));
+    REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
+    PropertyDiagnostic const signalless{.signals = {}, .formula_desc = "eventually(nothing)"};
+    detail::ClientTestAccess::set_diagnostics(client, {signalless, signalless});
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto const dlc = Dlc::create(8).value();
+    FramePayload const data(8, std::byte{0});
+    auto const id1 = CanId{StandardId::create(0x100).value()};
+    auto const id2 = CanId{StandardId::create(0x200).value()};
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id1, dlc, data).has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id2, dlc, data).has_value());
+
+    auto const end_result = client.end_stream(std::stop_token{});
+    REQUIRE(end_result.has_value());
+    REQUIRE(end_result->results.size() == 1);
+
+    CHECK(count_extraction_sentinels(*mock_ptr) == 0);
+    REQUIRE(end_result->results[0].enrichment.has_value());
+    auto const& enrichment = *end_result->results[0].enrichment;
+    CHECK(enrichment.signals.empty());
+    CHECK(enrichment.enriched_reason == "violated: eventually(nothing) [core: eventually unmet]");
 }
 
 TEST_CASE("end_stream frame loop breaks early once the wanted union is covered",
@@ -224,7 +270,8 @@ TEST_CASE("end_stream frame loop breaks early once the wanted union is covered",
              "timestamp": 5000000, "reason": "eventually unmet"},
             {"type": "property", "status": "fails", "property_index": 1,
              "timestamp": 5000000, "reason": "eventually unmet"}
-        ]
+        ],
+        "warnings": []
     })");
     // Frame 0x100 (lowest CAN id, extracted first) covers the union.
     mock_ptr->queue_response(R"({
@@ -279,7 +326,8 @@ TEST_CASE("end_stream merge is first-frame-wins across tracked frames", "[client
              "timestamp": 5000000, "reason": "eventually unmet"},
             {"type": "property", "status": "fails", "property_index": 1,
              "timestamp": 5000000, "reason": "eventually unmet"}
-        ]
+        ],
+        "warnings": []
     })");
     // EOS extraction, frame 0x100 (first).
     mock_ptr->queue_response(R"({
@@ -319,168 +367,9 @@ TEST_CASE("end_stream merge is first-frame-wins across tracked frames", "[client
           PhysicalValue{Rational{3, 1}});
 }
 
-TEST_CASE("end_stream failed extraction warns once per frame, not per property",
-          "[client][enrich]") {
-    // Two failing properties share ONE tracked frame whose extraction fails
-    // (the queued extraction response is an error — the mock's unqueued
-    // default is a success, so the failure must be explicit). The shared
-    // frame loop attempts the frame once (1 sentinel) and emits ONE
-    // enrichment.extraction_failed warning — the old P-outer shape warned
-    // once per property (twice here). Both entries still get the
-    // empty-values fallback enrichment.
-    auto mock = std::make_unique<MockBackend>();
-    auto* mock_ptr = mock.get();
-
-    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
-    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
-    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame
-    mock_ptr->queue_response(R"({
-        "status": "complete",
-        "results": [
-            {"type": "property", "status": "fails", "property_index": 0,
-             "timestamp": 5000000, "reason": "eventually unmet"},
-            {"type": "property", "status": "fails", "property_index": 1,
-             "timestamp": 5000000, "reason": "eventually unmet"}
-        ]
-    })");
-    // EOS extraction fails.
-    mock_ptr->queue_response(R"({"status": "error", "code": "decode_error", "message": "boom"})");
-
-    std::vector<std::pair<LogLevel, std::string>> events;
-    Logger const logger(
-        [&](LogRecord const& r) { events.emplace_back(r.level, std::string{r.event}); });
-    auto client = required(AletheiaClient::create(std::move(mock), logger));
-
-    REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
-    REQUIRE(client.start_stream(std::stop_token{}).has_value());
-
-    auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-    FramePayload const data(8, std::byte{0});
-    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
-
-    auto const end_result = client.end_stream(std::stop_token{});
-    REQUIRE(end_result.has_value());
-    REQUIRE(end_result->results.size() == 2);
-
-    CHECK(count_extraction_sentinels(*mock_ptr) == 1);
-    CHECK(count_log_event(events, "enrichment.extraction_failed") == 1);
-
-    for (auto const& pr : end_result->results) {
-        REQUIRE(pr.enrichment.has_value());
-        CHECK(pr.enrichment->signals.empty());
-        CHECK_THAT(pr.enrichment->enriched_reason, ContainsSubstring("violated:"));
-        CHECK_THAT(pr.enrichment->enriched_reason, ContainsSubstring("[core: eventually unmet]"));
-    }
-}
-
-TEST_CASE("end_stream OOB property_index is excluded while the valid entry is still enriched",
-          "[client][enrich]") {
-    // Finalization batch [index 0 valid Fails, an OOB Fails] against a
-    // single registered property: exactly one enrichment.property_index_oob
-    // warning, the OOB entry gets NO enrichment, the valid entry is enriched,
-    // and the sentinel count reflects the valid entry's extraction only. The
-    // first OOB index is the count itself, the boundary the check draws.
-    auto const oob = GENERATE(1, 7);
-    auto mock = std::make_unique<MockBackend>();
-    auto* mock_ptr = mock.get();
-
-    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
-    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
-    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame
-    mock_ptr->queue_response(R"({
-        "status": "complete",
-        "results": [
-            {"type": "property", "status": "fails", "property_index": 0,
-             "timestamp": 5000000, "reason": "eventually unmet"},
-            {"type": "property", "status": "fails", "property_index": )" +
-                             std::to_string(oob) + R"(,
-             "timestamp": 5000000, "reason": "eventually unmet"}
-        ]
-    })");
-    mock_ptr->queue_response(R"({
-        "status": "success",
-        "values": [{"name": "SigA", "value": 5}],
-        "errors": [], "absent": []
-    })");
-
-    std::vector<std::pair<LogLevel, std::string>> events;
-    Logger const logger(
-        [&](LogRecord const& r) { events.emplace_back(r.level, std::string{r.event}); });
-    auto client = required(AletheiaClient::create(std::move(mock), logger));
-
-    // Only ONE property registered — index 7 is out of bounds.
-    std::vector<LtlFormula> props;
-    props.push_back(ltl::eventually(
-        ltl::atomic(ltl::greater_than(SignalName{"SigA"}, PhysicalValue{Rational{10, 1}}))));
-    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
-    REQUIRE(client.start_stream(std::stop_token{}).has_value());
-
-    auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-    FramePayload const data(8, std::byte{0});
-    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
-
-    auto const end_result = client.end_stream(std::stop_token{});
-    REQUIRE(end_result.has_value());
-    REQUIRE(end_result->results.size() == 2);
-
-    CHECK(count_log_event(events, "enrichment.property_index_oob") == 1);
-    CHECK(count_extraction_sentinels(*mock_ptr) == 1);
-
-    REQUIRE(end_result->results[0].enrichment.has_value());
-    CHECK(end_result->results[0].enrichment->signals.at(SignalName{"SigA"}) ==
-          PhysicalValue{Rational{5, 1}});
-    CHECK_FALSE(end_result->results[1].enrichment.has_value());
-}
-
 // ===========================================================================
-// A violation whose property index is out of the caller's range
+// What a new property set and an ended stream forget
 // ===========================================================================
-
-TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich]") {
-    auto mock = std::make_unique<MockBackend>();
-
-    // Queue: set_properties, start_stream, send_frame (violation with an index
-    // past the one property: the count itself, or far past it)
-    auto const oob = GENERATE(std::size_t{1}, std::size_t{999});
-    mock->queue_response(R"({"status": "success"})"); // set_properties
-    mock->queue_response(R"({"status": "success"})"); // start_stream
-    mock->queue_response(R"({
-        "type": "property_batch",
-        "results": [{
-            "status": "fails", "type": "property",
-                    "property_index": )" +
-                         std::to_string(oob) + R"(, "timestamp": 1000000,
-                    "reason": "some reason"
-        }]
-    })");
-
-    auto client = required(AletheiaClient::create(std::move(mock)));
-    // Set only 1 property — index 999 is out of bounds
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
-    std::vector<LtlFormula> props;
-    props.push_back(std::move(formula));
-
-    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
-    REQUIRE(client.start_stream(std::stop_token{}).has_value());
-
-    auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-    FramePayload const data(8, std::byte{0});
-    auto const result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
-
-    REQUIRE(result.has_value());
-    REQUIRE(std::holds_alternative<PropertyBatch>(*result));
-    auto const& b = std::get<PropertyBatch>(*result);
-    auto const* v = b.first_violation();
-    REQUIRE(v != nullptr);
-    CHECK(v->property_index == PropertyIndex{oob});
-    CHECK(v->reason == "some reason");
-    // Enrichment skipped due to OOB property index
-    CHECK_FALSE(v->enrichment.has_value());
-}
 
 TEST_CASE("set_properties replaces the diagnostics and forgets cached extractions",
           "[client][enrich]") {
@@ -492,7 +381,7 @@ TEST_CASE("set_properties replaces the diagnostics and forgets cached extraction
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
-                    "property_index": 0, "timestamp": 1000000
+                    "property_index": 0, "timestamp": 1000000, "reason": "test"
         }]
     })";
     std::string const extraction = R"({
@@ -508,8 +397,8 @@ TEST_CASE("set_properties replaces the diagnostics and forgets cached extraction
 
     auto client = required(AletheiaClient::create(std::move(mock)));
     std::vector<LtlFormula> first;
-    first.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+    first.push_back(ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})))));
     REQUIRE(client.set_properties(std::stop_token{}, first).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
@@ -528,7 +417,7 @@ TEST_CASE("set_properties replaces the diagnostics and forgets cached extraction
     // the frame is extracted afresh rather than served from the old cache.
     std::vector<LtlFormula> second;
     second.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Other"}, PhysicalValue{Rational{1, 1}}))));
+        ltl::atomic(required(ltl::less_than(SignalName{"Other"}, PhysicalValue{Rational{1, 1}})))));
     REQUIRE(client.set_properties(std::stop_token{}, second).has_value());
     auto const r2 = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
@@ -547,17 +436,20 @@ TEST_CASE("end_stream forgets the frames of the stream it ends", "[client][enric
     mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame
     mock_ptr->queue_response(R"({
         "status": "complete",
-        "results": [{"type": "property", "status": "holds", "property_index": 0}]
+        "results": [{"type": "property", "status": "holds", "property_index": 0}],
+        "warnings": []
     })");
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream again
     mock_ptr->queue_response(R"({
         "status": "complete",
-        "results": [{"type": "property", "status": "fails", "property_index": 0, "reason": "r"}]
+        "results": [{"type": "property", "status": "fails", "property_index": 0,
+                     "timestamp": 5000, "reason": "r"}],
+        "warnings": []
     })");
     auto client = required(AletheiaClient::create(std::move(mock)));
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})))));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = CanId{StandardId::create(0x100).value()};

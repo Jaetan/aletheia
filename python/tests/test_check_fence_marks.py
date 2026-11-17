@@ -10,6 +10,7 @@ import pytest
 
 from tools._common import RelPath
 from tools._hosted_markdown import SourceText, docstrings
+from tools.bundle_c_example import GUIDE
 from tools.check_fence_marks import (
     FenceLanguage,
     MarkdownText,
@@ -18,11 +19,15 @@ from tools.check_fence_marks import (
     scan_text,
 )
 
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
-    from aletheia.common_types import PositiveInt, Prose
+    from aletheia.common_types import PositiveInt
 
 # A line opening a fence: its run of backticks or tildes and its info string.
 FenceOpening = NewType("FenceOpening", str)
+# A whole fenced block as a document writes it: its opening line, its content and its closing.
+FencedText = NewType("FencedText", str)
 # A source text whose fence language is left to fill in, a docstring line opening
 # a block, and a whole source file's text.
 SourceTemplate = NewType("SourceTemplate", str)
@@ -75,6 +80,93 @@ def test_a_refused_fence_is_named_by_its_line_run_and_word() -> None:
     assert scan_text(_DOC, MarkdownText("# T\n\n```bash\nx\n```\n")) == [
         "docs/x.md:3: a fence opened with ``` and 'bash' is one no harness runs; "
         + "open it with tildes"
+    ]
+
+
+# The distribution guide's C section as the C example gate reads it: a recipe
+# fence under each recipe subsection beside a tilde tree, and the program's
+# fence, on lines 7, 17 and 23.
+_C_GUIDE = MarkdownText(
+    """# Guide
+
+### C
+
+#### Compile and link
+
+```bash
+gcc -o my_app main.c
+```
+
+#### Relative RPATH (relocatable binary)
+
+~~~
+bin/
+~~~
+
+```bash
+gcc -o bin/my_app main.c
+```
+
+#### Minimal C example
+
+```c
+int main(void) { return 0; }
+```
+"""
+)
+
+
+# Each fence of that guide the C example gate runs: its line, its text and its language.
+_C_RUN_FENCES = (
+    (7, FencedText("```bash\ngcc -o my_app main.c\n```"), FenceLanguage("bash")),
+    (17, FencedText("```bash\ngcc -o bin/my_app main.c\n```"), FenceLanguage("bash")),
+    (23, FencedText("```c\nint main(void) { return 0; }\n```"), FenceLanguage("c")),
+)
+
+
+def _no_harness(rel: RelPath, line: PositiveInt, word: FenceLanguage) -> Prose:
+    """Return the finding of a backtick fence no harness runs."""
+    return Prose(
+        f"{rel}:{line}: a fence opened with ``` and {word!r} is one no harness runs;"
+        + " open it with tildes"
+    )
+
+
+def test_the_fences_the_c_example_gate_runs_open_with_backticks() -> None:
+    """In the guide, the bash fence of each recipe and the c fence of the example pass."""
+    assert not scan_text(GUIDE, _C_GUIDE)
+
+
+@pytest.mark.parametrize("mark", ["~~~", "````"])
+@pytest.mark.parametrize(("line", "fence", "word"), _C_RUN_FENCES)
+def test_a_fence_the_c_example_gate_runs_opened_otherwise_is_refused(
+    mark: Prose, line: PositiveInt, fence: FencedText, word: FenceLanguage
+) -> None:
+    """TEETH: that gate takes its fence opened with tildes or a longer run; each is named."""
+    planted = str(_C_GUIDE).replace(fence, fence.replace("```", mark), 1)
+    assert planted != _C_GUIDE
+    assert scan_text(GUIDE, MarkdownText(planted)) == [
+        f"{GUIDE}:{line}: the C example gate (tools.bundle_c_example) runs this {word!r}"
+        + " fence; open it with ```"
+    ]
+
+
+def test_a_c_or_bash_backtick_fence_the_c_example_gate_does_not_run_is_refused() -> None:
+    """TEETH: a bash fence of the C section no recipe holds, or another document's, runs nowhere."""
+    planted = MarkdownText(str(_C_GUIDE).replace("### C\n\n", "### C\n\n```bash\nls\n```\n\n", 1))
+    assert scan_text(GUIDE, planted) == [_no_harness(GUIDE, 5, FenceLanguage("bash"))]
+    assert scan_text(_DOC, _C_GUIDE) == [
+        _no_harness(_DOC, line, word) for line, _, word in _C_RUN_FENCES
+    ]
+
+
+def test_a_c_section_the_c_example_gate_cannot_read_is_named() -> None:
+    """TEETH: with no example subsection that gate runs nothing, so the guide is named."""
+    planted = MarkdownText(str(_C_GUIDE).replace("#### Minimal C example", "#### Example", 1))
+    assert scan_text(GUIDE, planted) == [
+        f"{GUIDE}: the C example gate (tools.bundle_c_example) does not read the guide: "
+        + "0 '#### Minimal C example' sections under '### C', not one",
+        *(_no_harness(GUIDE, line, word) for line, _, word in _C_RUN_FENCES),
     ]
 
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """The outbound float-principle guard (``reject_inexact``) and its boundaries.
 
-``reject_inexact`` is the outbound twin of ``decode_wire_rational``: it rejects a
+``reject_inexact`` is the outbound twin of ``read_rational``: it rejects a
 ``float`` or ``bool`` at exactly the fields the Agda kernel parses as ℚ — signal
 ``factor``/``offset``/``minimum``/``maximum``, env-var ``initial``/``minimum``/
 ``maximum``, float-kind attribute ``min``/``max``/``value``, and predicate

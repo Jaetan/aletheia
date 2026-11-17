@@ -67,6 +67,8 @@ type runtimeEntries struct {
 	allocatedBytes unsafe.Pointer
 	formatRational unsafe.Pointer
 	parseDecimal   unsafe.Pointer
+	parseTimeBound unsafe.Pointer
+	checkProperty  unsafe.Pointer
 	freeStr        unsafe.Pointer
 }
 
@@ -156,7 +158,8 @@ func openKernel(libPath string) (unsafe.Pointer, error) {
 // start entry first. The caller pins the thread.
 func loadRuntimeSymbols(handle unsafe.Pointer) (runtimeSymbols, error) {
 	names := []string{rtsInitSymbol, rtsProcessorsSymbol, "aletheia_allocated_bytes",
-		"aletheia_format_rational", "aletheia_parse_decimal", "aletheia_free_str"}
+		"aletheia_format_rational", "aletheia_parse_decimal", "aletheia_parse_time_bound",
+		"aletheia_check_property", "aletheia_free_str"}
 	syms := make([]unsafe.Pointer, len(names))
 	for i, name := range names {
 		sym, err := loadSym(handle, name)
@@ -168,7 +171,10 @@ func loadRuntimeSymbols(handle unsafe.Pointer) (runtimeSymbols, error) {
 	return runtimeSymbols{
 		hsInit:     syms[0],
 		processors: syms[1],
-		entries:    runtimeEntries{allocatedBytes: syms[2], formatRational: syms[3], parseDecimal: syms[4], freeStr: syms[5]},
+		entries: runtimeEntries{
+			allocatedBytes: syms[2], formatRational: syms[3], parseDecimal: syms[4],
+			parseTimeBound: syms[5], checkProperty: syms[6], freeStr: syms[7],
+		},
 	}, nil
 }
 
@@ -205,7 +211,7 @@ func startRuntimeOn(syms runtimeSymbols, cores int, named bool, logger *slog.Log
 		// The argument vector always carries the heap cap, whatever the core
 		// count, so the host is contained either way. Its array and strings
 		// are leaked on purpose, as the preamble explains.
-		argv := rtsInitArgv(asked)
+		argv := rtsInitArgv(asked, os.Getenv(rtsOverrideEnv))
 		cargv := C.g_alloc_argv(C.int(len(argv)))
 		for i, s := range argv {
 			C.g_set_argv(cargv, C.int(i), C.CString(s))
@@ -227,10 +233,11 @@ func startRuntimeOn(syms runtimeSymbols, cores int, named bool, logger *slog.Log
 // StartRuntime opens libaletheia-ffi.so at libPath and starts the kernel's GHC
 // runtime on cores capabilities, unless it runs: 1 for one bus, the number of
 // buses when several goroutines each monitor their own. The kernel reads
-// every number a check carries ([FromDecimal], [LoadChecksFromYAML], the
-// Excel loader), so a program that loads checks before it opens a client
-// calls it first; a backend opened later without [WithRTSCores] asks for the
-// count running. A runtime already up keeps its count, and another count
+// every number a check carries ([FromDecimal], [ParseTimeBound],
+// [LoadChecksFromYAML], the Excel loader) and checks every check and
+// predicate a builder makes, so a program that builds or loads checks before
+// it opens a client calls it first; a backend opened later without
+// [WithRTSCores] asks for the count running. A runtime already up keeps its count, and another count
 // asked of it is logged as rts.cores_mismatch on logger; a nil logger logs
 // nothing.
 //

@@ -12,11 +12,14 @@
 //! names no field. Set `ALETHEIA_LIB` to the built shared library (run_ci / CI
 //! does).
 
-use aletheia::{
-    AttrScope, AttrType, Attribute, ByteOrder, Client, Dbc, DbcMessage, DbcSignal, EnvironmentVar,
-    Error, Presence, Rational, SignalGroup,
+use aletheia::limits::{
+    BOUND_KIND_ARRAY_CARDINALITY, BOUND_KIND_IDENTIFIER_LENGTH, BOUND_KIND_STRING_LENGTH,
 };
-use serde_json::json;
+use aletheia::{
+    AttrScope, AttrType, Attribute, BoundRefusal, ByteOrder, CanId, Client, Dbc, DbcMessage,
+    DbcSignal, EnvironmentVar, Error, ErrorCode, Presence, Rational, RawValueDescription,
+    SignalGroup,
+};
 
 fn client() -> Client {
     Client::new().expect("init client: is ALETHEIA_LIB set to a built libaletheia-ffi.so?")
@@ -109,22 +112,23 @@ fn with_environment_vars(n: usize) -> Dbc {
 /// `message`, which is its text.
 fn assert_refused<T: std::fmt::Debug>(
     result: Result<T, Error>,
-    (kind, observed, limit): (&str, u64, u64),
+    (kind, observed, limit): (&str, u128, u128),
     field: &str,
     message: &str,
 ) {
     let err = result.expect_err("a DBC past a size bound is refused");
     match &err {
-        Error::InputBoundExceeded {
-            code,
-            message: m,
-            bound_kind,
-            observed: o,
-            limit: l,
-            field: f,
-            located,
-        } => {
-            assert_eq!(code, "input_bound_exceeded");
+        Error::InputBoundExceeded(refusal) => {
+            let BoundRefusal {
+                code,
+                message: m,
+                bound_kind,
+                observed: o,
+                limit: l,
+                field: f,
+                located,
+            } = &**refusal;
+            assert_eq!(*code, ErrorCode::InputBoundExceeded);
             assert_eq!(m, message);
             assert_eq!((bound_kind.as_str(), *o, *l), (kind, observed, limit));
             assert_eq!(f.as_deref(), Some(field));
@@ -147,7 +151,7 @@ fn parse_dbc_refuses_too_many_signal_groups() {
     let dbc = with_signal_groups(10_001);
     assert_refused(
         client().parse_dbc(&dbc),
-        ("array_cardinality", 10_001, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_001, 10_000),
         "signal groups array",
         "ParseDBC: signal groups array: array cardinality 10001 exceeds limit 10000",
     );
@@ -158,7 +162,7 @@ fn parse_dbc_refuses_too_many_environment_variables() {
     let dbc = with_environment_vars(10_001);
     assert_refused(
         client().parse_dbc(&dbc),
-        ("array_cardinality", 10_001, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_001, 10_000),
         "environment variables array",
         "ParseDBC: environment variables array: array cardinality 10001 exceeds limit 10000",
     );
@@ -167,11 +171,15 @@ fn parse_dbc_refuses_too_many_environment_variables() {
 #[test]
 fn parse_dbc_refuses_too_many_unresolved_value_description_lines() {
     let mut dbc = base();
-    let line = json!({ "id": 999, "extended": false, "signalName": "Q", "entries": [] });
+    let line = RawValueDescription {
+        id: CanId::standard(999).expect("id"),
+        signal_name: "Q".to_owned(),
+        entries: Vec::new(),
+    };
     dbc.unresolved_value_descs = vec![line; 10_001];
     assert_refused(
         client().parse_dbc(&dbc),
-        ("array_cardinality", 10_001, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_001, 10_000),
         "unresolved value descriptions array",
         "ParseDBC: unresolved value descriptions array: array cardinality 10001 exceeds limit 10000",
     );
@@ -183,7 +191,7 @@ fn parse_dbc_refuses_too_many_senders() {
     dbc.messages[0].senders = names("N", 10_001);
     assert_refused(
         client().parse_dbc(&dbc),
-        ("array_cardinality", 10_001, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_001, 10_000),
         "senders array",
         "ParseDBC: senders array: array cardinality 10001 exceeds limit 10000",
     );
@@ -195,7 +203,7 @@ fn parse_dbc_refuses_too_many_receivers() {
     dbc.messages[0].signals[0].receivers = names("N", 10_001);
     assert_refused(
         client().parse_dbc(&dbc),
-        ("array_cardinality", 10_001, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_001, 10_000),
         "receivers array",
         "ParseDBC: receivers array: array cardinality 10001 exceeds limit 10000",
     );
@@ -210,7 +218,7 @@ fn parse_dbc_refuses_too_many_signal_group_members() {
     }];
     assert_refused(
         client().parse_dbc(&dbc),
-        ("array_cardinality", 1_025, 1_024),
+        (BOUND_KIND_ARRAY_CARDINALITY, 1_025, 1_024),
         "signal group members array",
         "ParseDBC: signal group members array: array cardinality 1025 exceeds limit 1024",
     );
@@ -228,7 +236,7 @@ fn parse_dbc_refuses_too_many_enum_labels() {
     }];
     assert_refused(
         client().parse_dbc(&dbc),
-        ("array_cardinality", 10_001, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_001, 10_000),
         "enum labels array",
         "ParseDBC: enum labels array: array cardinality 10001 exceeds limit 10000",
     );
@@ -249,7 +257,7 @@ fn parse_dbc_refuses_too_many_multiplex_values() {
     dbc.messages = vec![message(256, vec![selector, selected])];
     assert_refused(
         client().parse_dbc(&dbc),
-        ("array_cardinality", 1_025, 1_024),
+        (BOUND_KIND_ARRAY_CARDINALITY, 1_025, 1_024),
         "multiplex values array",
         "ParseDBC: multiplex values array: array cardinality 1025 exceeds limit 1024",
     );
@@ -260,7 +268,7 @@ fn validate_dbc_refuses_too_many_environment_variables() {
     let dbc = with_environment_vars(10_001);
     assert_refused(
         client().validate_dbc(&dbc),
-        ("array_cardinality", 10_001, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_001, 10_000),
         "environment variables array",
         "ValidateDBC: environment variables array: array cardinality 10001 exceeds limit 10000",
     );
@@ -271,7 +279,7 @@ fn format_dbc_text_refuses_too_many_signal_groups() {
     let dbc = with_signal_groups(10_001);
     assert_refused(
         client().format_dbc_text(&dbc),
-        ("array_cardinality", 10_001, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_001, 10_000),
         "signal groups array",
         "FormatDBCText: signal groups array: array cardinality 10001 exceeds limit 10000",
     );
@@ -283,7 +291,7 @@ fn format_dbc_text_refuses_a_version_string_too_long() {
     dbc.version = "x".repeat(65_537);
     assert_refused(
         client().format_dbc_text(&dbc),
-        ("string_length", 65_537, 65_536),
+        (BOUND_KIND_STRING_LENGTH, 65_537, 65_536),
         "version string",
         "FormatDBCText: version string: string length 65537 exceeds limit 65536",
     );
@@ -304,7 +312,7 @@ fn format_dbc_text_refuses_too_many_nodes_derived_from_the_senders() {
         .expect("the document is within every load bound");
     assert_refused(
         client().format_dbc_text(&dbc),
-        ("array_cardinality", 10_003, 10_000),
+        (BOUND_KIND_ARRAY_CARDINALITY, 10_003, 10_000),
         "nodes array",
         "FormatDBCText: nodes array: array cardinality 10003 exceeds limit 10000",
     );
@@ -324,7 +332,7 @@ fn parse_dbc_text_refuses_a_version_string_too_long() {
     assert_ne!(long, text, "the formatted text carries the base version");
     assert_refused(
         client().parse_dbc_text(&long),
-        ("string_length", 65_537, 65_536),
+        (BOUND_KIND_STRING_LENGTH, 65_537, 65_536),
         "version string",
         "ParseDBCText: version string: string length 65537 exceeds limit 65536",
     );
@@ -339,7 +347,7 @@ fn an_identifier_too_long_is_a_bound_naming_its_field() {
     };
     assert_refused(
         client().parse_dbc(&dbc),
-        ("identifier_length", 129, 128),
+        (BOUND_KIND_IDENTIFIER_LENGTH, 129, 128),
         "signal name",
         &format!(
             "ParseDBC: message 'M256', signal '{name}': signal name: identifier length 129 exceeds limit 128"

@@ -27,6 +27,7 @@ from _stand_in import ScriptSource, ToolName, install_stand_in
 
 from tools import mutation_run
 from tools._common import EnvName, EnvValue
+from tools.mutation_drift import rows_to_ledger
 from tools.mutation_go import GO_CONFIG, GremlinsLog, without_gremlins_settings
 from tools.mutation_report import MutantCount, MutationReport, Observed, load_spec
 
@@ -181,7 +182,7 @@ def test_a_recorded_row_the_run_no_longer_produces_is_a_stale_record(tmp_path: P
     """A line that gained a test fails the lane until the change deletes its row."""
     rows = mutation_run.go_mutant_rows(_SUMMARY, "NOT COVERED", _tree(tmp_path))
     ledger = [
-        *mutation_run.rows_to_ledger(rows),
+        *rows_to_ledger(rows),
         {"mutator": "Z", "file": "go/aletheia/limits.go", "text": "gone", "count": 1},
     ]
     entry = mutation_run.drift_for(
@@ -297,7 +298,7 @@ def _fake_gremlins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Gremlins
     """Let the lane find gremlins on the search path and sweep through the in-process stand-in."""
     install_stand_in(tmp_path, monkeypatch, ToolName("gremlins"), _NEVER_RUNS)
     gremlins = _Gremlins()
-    monkeypatch.setattr(mutation_run, "run_streaming", gremlins)
+    monkeypatch.setattr("tools.mutation_go_cases.run_streaming", gremlins)
     return gremlins
 
 

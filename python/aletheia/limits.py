@@ -5,11 +5,13 @@
 Single source of truth: ``src/Aletheia/Limits.agda`` (numeric values are
 mirrored here verbatim).  Wire spec: ``docs/architecture/PROTOCOL.md § Limits``.
 
-Parity with the SSOT is enforced by ``tools/check_limits_parity.py`` (also
-invoked as ``cabal run shake -- check-limits-parity``); see ``PYTHON_NAME_MAPPING``
+Parity with the SSOT is enforced by ``tools/check_limits_parity.py`` (run as
+``python/.venv/bin/python -m tools.check_limits_parity`` from the repository
+root over a configured ``cpp/build``); see ``PYTHON_NAME_MAPPING``
 and ``PYTHON_BOUND_KIND_MAPPING`` in that tool for the kebab-case ↔
-SCREAMING_SNAKE_CASE mapping table. The gate walks the Go, Python and C++
-mirrors, so none can drift from the Agda SSOT.
+SCREAMING_SNAKE_CASE mapping table. The gate walks the Go, Python, C++ and
+Rust mirrors, Rust's holding the bound kinds alone, so none can drift from
+the Agda SSOT.
 
 The Aletheia Agda kernel enforces these bounds, all but ``MAX_DBC_TEXT_BYTES``,
 which caps a file or text the binding reads: the kernel receives a DBC text
@@ -116,10 +118,11 @@ MAX_ATOM_COUNT_PER_PROPERTY: Final[Limit] = 1024
 # LTL properties submittable in one setProperties call.
 MAX_PROPERTIES_PER_STREAM: Final[Limit] = 1024
 
-# Magnitude cap on a JSON number's rational components (|numerator| and
-# denominator of the exact rational it denotes): the signed 64-bit wire
-# range shared with the binary FFI's rational slots and the decimal SSOT.
-MAX_RATIONAL_COMPONENT_MAGNITUDE: Final[Limit] = 9223372036854775807
+# Magnitude cap on every number's rational components (|numerator| and
+# denominator of the exact rational it denotes), for a JSON number, a DBC
+# literal and a decimal entry alike: 2^128 - 1, the unsigned 128-bit magnitude
+# the binary FFI's rational slots and the decimal entry carry.
+MAX_RATIONAL_COMPONENT_MAGNITUDE: Final[Limit] = 340282366920938463463374607431768211455
 
 
 __all__ = [

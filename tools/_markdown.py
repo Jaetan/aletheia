@@ -189,6 +189,17 @@ class Fence(NamedTuple):
     info: Prose
 
 
+class FencedBlock(NamedTuple):
+    """A fenced code block's fence and its content, as CommonMark reads it.
+
+    ``content`` is the lines between the fences, each less up to as many spaces as
+    the opening fence is indented.
+    """
+
+    fence: Fence
+    content: Prose
+
+
 class Row(NamedTuple):
     """A table row: its line, each cell's inline text and what it renders, and whether it heads.
 
@@ -581,8 +592,15 @@ def code_blocks(text: Prose) -> list[Prose]:
 
 def fences(text: Prose) -> list[Fence]:
     """Return every fenced code block of ``text``, in any container, in document order."""
+    return [block.fence for block in fenced_blocks(text)]
+
+
+def fenced_blocks(text: Prose) -> list[FencedBlock]:
+    """Return every fenced code block of ``text`` with its content, in document order."""
     return [
-        Fence(token.map[0] + 1, Prose(token.markup), Prose(token.info))
+        FencedBlock(
+            Fence(token.map[0] + 1, Prose(token.markup), Prose(token.info)), Prose(token.content)
+        )
         for token in _parse(text).tokens
         if token.type == "fence" and token.map is not None
     ]

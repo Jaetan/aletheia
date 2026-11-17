@@ -56,7 +56,12 @@ func TestClient_EveryCallReachesTheBackendHoldingTheLock(t *testing.T) {
 	id, dlc := testDefinition().Messages[0].ID, testDefinition().Messages[0].DLC
 	frame := Frame{Timestamp: Timestamp{Microseconds: 1}, ID: id, DLC: dlc, Data: make(FramePayload, dlc.ToBytes())}
 	speed := []SignalValue{{Name: "Speed", Value: IntRational(1)}}
-	checks := []CheckResult{CheckSignal("Speed").NeverExceeds(IntRational(220))}
+	// The check is written whole rather than built, since a builder reaches
+	// the kernel and this test runs without one; the backend reads no command.
+	checks := []CheckResult{{
+		formula:    Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: "Speed", Value: IntRational(220)}}},
+		signalName: "Speed",
+	}}
 	calls := []struct {
 		name string
 		call func()

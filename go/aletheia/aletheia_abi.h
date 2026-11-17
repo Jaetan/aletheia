@@ -29,10 +29,20 @@ struct aletheia_frame {
     uint8_t esi_value;
 };
 
+struct aletheia_uint128 {
+    uint64_t lo;
+    uint64_t hi;
+};
+
+struct aletheia_rational {
+    struct aletheia_uint128 numerator;
+    struct aletheia_uint128 denominator;
+    uint8_t negative;
+};
+
 struct aletheia_signal_values {
     const uint32_t *indices;
-    const int64_t *numerators;
-    const int64_t *denominators;
+    const struct aletheia_rational *values;
     uint32_t count;
 };
 
@@ -42,13 +52,17 @@ struct aletheia_buffer {
     uint32_t size;
 };
 
-struct aletheia_rational {
-    int64_t numerator;
-    int64_t denominator;
-};
-
 struct aletheia_decimal {
     struct aletheia_rational value;
+    char *err;
+};
+
+struct aletheia_time_bound {
+    uint64_t microseconds;
+    char *err;
+};
+
+struct aletheia_property_check {
     char *err;
 };
 

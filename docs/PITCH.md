@@ -64,16 +64,28 @@ Aletheia provides:
 
 1. **Multi-language APIs**: Familiar interfaces for automotive engineers
    ```python
+   from aletheia import start_runtime
+
+   start_runtime(1)
+
    speed_limit = checks.signal("Speed").never_exceeds(220)  # Python
    ```
    ```cpp
+   [[maybe_unused]] auto _start = start_runtime_from_env(1);  // the kernel checks every check
    auto speed_limit = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));  // C++
    ```
    ```go
-   speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))  // Go
+   if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+       panic(err)
+   }
+   speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))  // Go
+   if err != nil {
+       panic(err)
+   }
    ```
    ```rust
-   let speed_limit = check::signal("Speed").never_exceeds(220);  // Rust
+   aletheia::start_runtime(1, None)?;  // the kernel checks every check
+   let speed_limit = check::signal("Speed").never_exceeds(220)?;  // Rust
    ```
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
@@ -200,8 +212,10 @@ C++:
 auto speed = check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));
 [[maybe_unused]] auto _yaml  = load_checks_from_yaml("checks.yaml");
 [[maybe_unused]] auto _excel = load_checks_from_excel("tests.xlsx");
-// LTL formulas via ltl:: namespace (compositional, not fluent DSL):
-auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue::of(220, 1))));
+// LTL formulas via ltl:: namespace (compositional, not fluent DSL); a predicate
+// builder, like a check, returns a Result:
+auto f = ltl::less_than(SignalName{"Speed"}, PhysicalValue::of(220, 1))
+             .transform([](Predicate p) { return ltl::always(ltl::atomic(std::move(p))); });
 ```
 
 Go:
@@ -217,10 +231,11 @@ _ = f
 
 Rust:
 ```rust
-let speed = check::signal("Speed").never_exceeds(220);       // Check API (i64 → exact Rational)
+aletheia::start_runtime(1, None)?;                             // the kernel checks every check
+let speed = check::signal("Speed").never_exceeds(220)?;        // Check API (integer → exact Rational)
 let coolant = check::signal("Coolant").stays_between(80, 105)?;
 // LTL formulas via the compositional Formula/Predicate AST:
-let f = Formula::Always(Box::new(Formula::Atomic(Predicate::less_than("Speed", 220))));
+let f = Formula::Always(Box::new(Formula::Atomic(Predicate::less_than("Speed", 220)?)));
 ```
 
 **Streaming workflow** (Python shown). The client pattern, parse the DBC, add checks, feed frames and read verdicts, is identical across all four bindings. The `iter_can_log` log-file reader, however, is currently Python-only: in C++, Go, and Rust you supply frames from your own source (a live bus, your own parser, or replayed capture) and feed them to `send_frame` the same way.
@@ -298,7 +313,7 @@ A: Yes. Extension points:
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 
 **Q: What's the performance profile?**
-A: Comfortably real-time. A saturated 1 Mbit/s CAN bus of 8-byte frames delivers about 8,000 a second and a saturated 5 Mbit/s CAN-FD bus of 64-byte frames about 6,000, and every binding clears its bar with margin to spare. See [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for the throughput numbers and the real-time headroom.
+A: Real-time. A saturated 1 Mbit/s CAN bus of 8-byte frames delivers 9,009 a second, and a saturated CAN-FD bus of 64-byte frames, its data phase at 8 Mbit/s, 10,139. Every lane of every binding clears its bus on the seven GitHub runner classes measured, except Python's CAN-FD signal extraction on three of them and its CAN-FD frame building on the slowest, a current limitation. See [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for the throughput numbers and the real-time headroom.
 
 **Q: Dependencies?**
 A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime is just `libaletheia-ffi.so` and Python 3.14+ (plus your binding's own runtime). There is no wheel on PyPI; a release carries a signed bundle and native packages, and building from source installs the Python binding from the tree. [Building Guide § Prerequisites](development/BUILDING.md#prerequisites) carries the exact version pins, and is the one place they are written.

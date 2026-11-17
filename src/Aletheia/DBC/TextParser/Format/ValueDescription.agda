@@ -5,7 +5,7 @@
 -- DSL-side `ValueDescription-format`.
 --
 -- Production-permissive Format DSL Format for VAL_ lines:
---   "VAL_" ws nat ws identifier (ws nat ws string-lit)* ws? ";" newline
+--   "VAL_" ws nat ws identifier (ws int ws string-lit)* ws? ";" newline
 --
 -- Mirrors `Format.ValueTable.ValueTable-format` with two differences:
 --   * Prefix is "VAL_" (4 chars) instead of "VAL_TABLE_" (10 chars).
@@ -13,7 +13,7 @@
 --     `withWS ident` (signal name) slot.  ValueTable has just `withWS
 --     ident` (table name) at that position.
 --
--- The carrier is `ℕ × Identifier × List (ℕ × List Char)` — the RAW shape
+-- The carrier is `ℕ × Identifier × List (ℤ × List Char)` — the RAW shape
 -- before `buildCANId` decoding.  The `RawValueDesc` record (defined in
 -- `TextParser.ValueTables`) carries a decoded `CANId`, but the DSL layer
 -- speaks `ℕ` because `buildCANId` is partial (out-of-range `nat` rejects
@@ -39,6 +39,7 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ)
+open import Data.Integer using (ℤ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Sum using (inj₂)
@@ -97,7 +98,7 @@ private
 -- requires a total bijection at every `iso` slot.  The slim roundtrip
 -- in `Properties/ValueTables/ValueDesc.agda` chains the DSL universal
 -- with `buildCANId-rawCanIdℕ` to recover the `RawValueDesc` form.
-ValueDescription-format : Format (ℕ × Identifier × List (ℕ × List Char))
+ValueDescription-format : Format (ℕ × Identifier × List (ℤ × List Char))
 ValueDescription-format =
   iso (λ x → proj₁ x , proj₁ (proj₂ x) , proj₁ (proj₂ (proj₂ x)))
       (λ x → proj₁ x , proj₁ (proj₂ x) , proj₂ (proj₂ x) , tt)
@@ -148,7 +149,7 @@ private
 -- newlineFmt`.  Two cases on entries (empty / non-empty) parallel
 -- `Format.ValueTable.build-emits-ok`.
 build-emits-ok-vd : ∀ (rawId : ℕ) (sigId : Identifier)
-                     (entries : List (ℕ × List Char)) (outer-suffix : List Char)
+                     (entries : List (ℤ × List Char)) (outer-suffix : List Char)
   → RawValueDescNameStop sigId
   → SmallNat rawId
   → SmallKeys entries
@@ -217,7 +218,7 @@ build-emits-ok-vd rawId sigId ((v , d) ∷ rest) outer-suffix
 -- this universally from `validIdentifierᵇ`.
 parseValueDescription-format-roundtrip :
     ∀ (pos : Position) (rawId : ℕ) (sigId : Identifier)
-      (entries : List (ℕ × List Char)) (outer-suffix : List Char)
+      (entries : List (ℤ × List Char)) (outer-suffix : List Char)
   → RawValueDescNameStop sigId
   → SmallNat rawId
   → SmallKeys entries

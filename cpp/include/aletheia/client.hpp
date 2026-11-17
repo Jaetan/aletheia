@@ -41,6 +41,13 @@
 
 namespace aletheia {
 
+namespace detail {
+// The tests' way to the diagnostics `set_properties` built, which a test
+// replaces by ones naming no signal, since no formula builds those. Defined
+// where the tests live.
+struct ClientTestAccess;
+} // namespace detail
+
 // What `AletheiaClient::open` opens; each field may be left out. An empty
 // `library` is the one `find_ffi_library()` finds, no `rts_cores` asks for the
 // count running (1 when nothing runs), and the logger and the default checks
@@ -251,6 +258,8 @@ public:
     [[nodiscard]] auto end_stream(std::stop_token stop) -> Result<StreamResult>;
 
 private:
+    friend struct detail::ClientTestAccess;
+
     AletheiaClient(std::unique_ptr<IBackend> backend, BackendState state, Logger logger,
                    std::vector<CheckResult> default_checks);
 
@@ -262,9 +271,8 @@ private:
     // Signal-to-index resolution for binary FFI build/update paths.
     struct ResolvedSignals {
         std::vector<std::uint32_t> indices;
-        std::vector<std::int64_t> numerators;
-        std::vector<std::int64_t> denominators;
-        // Refuses rather than asserts: the three vectors are built together
+        std::vector<Rational> values;
+        // Refuses rather than asserts: the two vectors are built together
         // here, but the block's own contract is what the FFI reads.
         [[nodiscard]] auto injection() const -> Result<SignalInjection>;
     };
@@ -272,36 +280,37 @@ private:
         -> Result<ResolvedSignals>;
     // Takes a single PropertyResult (one entry from a
     // PropertyBatch.results) rather than a top-level Violation struct.
-    // The caller iterates the batch and invokes this per fails entry.
-    void enrich_violation(PropertyResult& pr, CanId id, Dlc dlc, std::span<std::byte const> data,
-                          std::uint32_t id_value, bool is_extended);
+    // The caller iterates the batch and invokes this per fails entry. An
+    // extraction the kernel refuses is the error.
+    auto enrich_violation(PropertyResult& pr, CanId id, Dlc dlc, std::span<std::byte const> data,
+                          std::uint32_t id_value, bool is_extended) -> Result<void>;
     // Post-parse hook for streaming frame responses.
     // Iterates a PropertyBatch's results, enriches each fails entry, and
-    // emits the standard `frame.processed` log event.  Kept apart from
-    // send_frame so that function stays under clang-tidy's cognitive-
-    // complexity threshold.
-    void finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
+    // emits the standard `frame.processed` log event, or answers the first
+    // enrichment's error.  Kept apart from send_frame so that function stays
+    // under clang-tidy's cognitive-complexity threshold.
+    auto finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
                                  std::span<std::byte const> data, std::uint32_t id_value,
-                                 bool is_extended);
+                                 bool is_extended) -> Result<void>;
     // End-of-stream enrichment, extract-once shape (uniform across bindings):
     // pass 1 collects the Fails/Unresolved results paired with their
-    // diagnostics (OOB property indices warn and are excluded); pass 2
-    // extracts each tracked last-frame at most once and merges the extracted
-    // signals first-frame-wins; pass 3 distributes per-diagnostic value
-    // slices, always attaching the enrichment, so the FFI is called at most
-    // once per tracked frame rather than once per property and frame.
-    void enrich_end_stream_results(StreamResult& result);
+    // diagnostics; pass 2 extracts each tracked last-frame at most once and
+    // merges the extracted signals first-frame-wins; pass 3 distributes
+    // per-diagnostic value slices, always attaching the enrichment, so the FFI
+    // is called at most once per tracked frame rather than once per property
+    // and frame. An extraction the kernel refuses is the error.
+    auto enrich_end_stream_results(StreamResult& result) -> Result<void>;
     auto collect_enrichable_results(StreamResult& result)
         -> std::vector<std::pair<PropertyResult*, PropertyDiagnostic const*>>;
     auto merge_last_known_values(std::set<SignalName> remaining)
-        -> std::map<SignalName, PhysicalValue>;
+        -> Result<std::map<SignalName, PhysicalValue>>;
     void log_end_stream_summary(StreamResult const& result);
     auto extract_signal_values(PropertyDiagnostic const& diag, CanId id, Dlc dlc,
                                std::span<std::byte const> data, std::uint32_t id_value,
-                               bool is_extended) -> std::map<SignalName, PhysicalValue>;
+                               bool is_extended) -> Result<std::map<SignalName, PhysicalValue>>;
     auto extract_signals_internal(CanId id, Dlc dlc, std::span<std::byte const> data,
                                   std::uint32_t id_value, bool is_extended)
-        -> std::optional<ExtractionResult>;
+        -> Result<ExtractionResult>;
 
     // Refresh signal name → index cache from a parsed DBC.  Shared between
     // parse_dbc() and parse_dbc_text(); both paths land here on success.

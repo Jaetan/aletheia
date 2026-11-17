@@ -3,11 +3,11 @@
 //
 // The GHC runtime's once-per-process state. `runtime_start.cpp` writes it when
 // it starts the runtime, for `aletheia::start_runtime` and every FfiBackend
-// alike, and the rational renderer, the decimal parser and
-// `aletheia::allocated_bytes` read it: they call the library the runtime
-// started on, through the entries the start recorded, and never start the
-// runtime themselves, which would fix its core count before the program chose
-// one. While it is down they refuse.
+// alike, and the rational renderer, the decimal and time-bound parsers, the
+// property check and `aletheia::allocated_bytes` read it: they call the
+// library the runtime started on, through the entries the start recorded, and
+// never start the runtime themselves, which would fix its core count before
+// the program chose one. While it is down they refuse.
 //
 // The `cores` field backs the `rts.cores_mismatch` warning when a later start
 // asks another count (the first start wins).
@@ -35,6 +35,8 @@ struct RuntimeEntries {
     char* (*format_rational)(FfiRational const*) = nullptr;
     void (*free_str)(char*) = nullptr;
     std::int8_t (*parse_decimal)(FfiText const*, FfiDecimal*) = nullptr;
+    std::int8_t (*parse_time_bound)(FfiText const*, FfiTimeBound*) = nullptr;
+    std::int8_t (*check_property)(FfiText const*, FfiPropertyCheck*) = nullptr;
 };
 
 struct RTSInitState {

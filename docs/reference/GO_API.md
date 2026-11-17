@@ -72,13 +72,20 @@ defer client.Close()
 
 ## Check API
 
-`aletheia.CheckSignal(name)` builds a property from a condition in plain English, and needs no temporal logic. A threshold is an exact `Rational`, never a `float64`: `aletheia.IntRational(n)` for a whole number, `aletheia.FromDecimal("0.25")` for a decimal. `NeverExceeds`, `NeverBelow` and `NeverEquals` cannot fail; `StaysBetween`, `SettlesBetween` and `.Within(ms)` answer `(CheckResult, error)`, refusing a lower bound above its upper one. Register the result with `AddChecks`:
+`aletheia.CheckSignal(name)` builds a property from a condition in plain English, and needs no temporal logic. A threshold is an exact `Rational`, never a `float64`: `aletheia.IntRational(n)` for a whole number, `aletheia.FromDecimal("0.25")` for a decimal. Each builder hands the check it made to the kernel, which refuses a lower bound above its upper one, a negative tolerance, a zero denominator and a signal name that is no identifier, with the reason `SetProperties` would give: `NeverExceeds`, `NeverBelow`, `NeverEquals` and `StaysBetween` answer `(CheckResult, error)`, and a chain answers it at the call that finishes it, `.Always()` or `.Within(bound)`. The kernel's runtime must be up, which `aletheia.StartRuntimeFromEnv` or an open client sees to. Register the result with `AddChecks`:
 
 ```go
-speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
-gear := aletheia.CheckSignal("Gear").NeverEquals(aletheia.IntRational(-1))
-// A range terminal refuses a lower bound above its upper one, so it answers an
-// error and the caller reads it.
+if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+    panic(err)
+}
+speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+if err != nil {
+    panic(err)
+}
+gear, err := aletheia.CheckSignal("Gear").NeverEquals(aletheia.IntRational(-1))
+if err != nil {
+    panic(err)
+}
 coolant, err := aletheia.CheckSignal("Coolant").StaysBetween(aletheia.IntRational(80), aletheia.IntRational(105))
 if err != nil {
     panic(err)
@@ -86,12 +93,15 @@ if err != nil {
 _, _, _ = speedLimit, coolant, gear
 ```
 
-A response-time check reads `CheckWhen(...).Then(...)` and closes with `.Within(ms)`. The result takes `.Named(...)` and `.Severity(...)`:
+A response-time check reads `CheckWhen(...).Then(...)` and closes with `.Within(bound)`, a `TimeBound` in microseconds. The result takes `.Named(...)` and `.Severity(...)`:
 
 ```go
-// The deadline closes the check, and refuses one that is not positive.
+if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+    panic(err)
+}
+// The deadline closes the check, which the kernel then reads whole.
 brakeResponse, err := aletheia.CheckWhen("Brake").Exceeds(aletheia.IntRational(50)).
-    Then("Decel").Exceeds(aletheia.IntRational(2)).Within(500)
+    Then("Decel").Exceeds(aletheia.IntRational(2)).Within(aletheia.TimeBound{Microseconds: 500_000})
 if err != nil {
     panic(err)
 }
@@ -103,7 +113,7 @@ _ = brakeResponse
 
 ## LTL DSL
 
-For full temporal control, build a formula from the types directly. Eight predicates say something about a signal: `Equals`, `LessThan`, `GreaterThan`, `LessThanOrEqual`, `GreaterThanOrEqual`, `Between`, `ChangedBy` and `StableWithin`. `Atomic` makes a formula of one, and formulas compose under `Not`, `And`, `Or`, `Next`, `WeakNext`, `Always`, `Eventually`, `Until` and `Release`. Four of those carry a deadline as `MetricAlways`, `MetricEventually`, `MetricUntil` and `MetricRelease`, and `Never`, `Implies`, `AlwaysWithin` and `EventuallyWithin` are free functions that build them. `aletheia.Signal(name)` builds all eight fluently, as Python's `aletheia.dsl.Signal` does.
+For full temporal control, build a formula from the types directly. Eight predicates say something about a signal: `Equals`, `LessThan`, `GreaterThan`, `LessThanOrEqual`, `GreaterThanOrEqual`, `Between`, `ChangedBy` and `StableWithin`. `Atomic` makes a formula of one, and formulas compose under `Not`, `And`, `Or`, `Next`, `WeakNext`, `Always`, `Eventually`, `Until` and `Release`. Four of those carry a deadline as `MetricAlways`, `MetricEventually`, `MetricUntil` and `MetricRelease`, and `Never`, `Implies`, `AlwaysWithin` and `EventuallyWithin` are free functions that build them. `aletheia.Signal(name)` builds all eight fluently, as Python's `aletheia.dsl.Signal` does, and has the kernel check each one where it is built, answering `(Predicate, error)`; `AlwaysWithin` and `EventuallyWithin` answer `(Formula, error)` the same way. A struct written directly is checked when `SetProperties` installs it.
 
 ```go
 // always(Speed < 220)
@@ -112,9 +122,16 @@ alwaysSafe := aletheia.Always{Inner: aletheia.Atomic{
 // eventually(BrakePressed == 1)
 brakesApply := aletheia.Eventually{Inner: aletheia.Atomic{
     Predicate: aletheia.Equals{Signal: "BrakePressed", Value: aletheia.IntRational(1)}}}
-// The fluent Signal(...) builder is exact sugar for the bare predicate struct:
-sameAsAbove := aletheia.Always{Inner: aletheia.Atomic{
-    Predicate: aletheia.Signal("Speed").LessThan(aletheia.IntRational(220))}}
+// The fluent Signal(...) builder makes the same predicate, checked by the
+// kernel where it is built, so its runtime must be up:
+if err := aletheia.StartRuntimeFromEnv(1, nil); err != nil {
+    panic(err)
+}
+belowLimit, err := aletheia.Signal("Speed").LessThan(aletheia.IntRational(220))
+if err != nil {
+    panic(err)
+}
+sameAsAbove := aletheia.Always{Inner: aletheia.Atomic{Predicate: belowLimit}}
 _, _, _ = alwaysSafe, brakesApply, sameAsAbove
 ```
 
@@ -186,7 +203,10 @@ BO_ 256 Engine: 8 ECU
         panic(err)
     }
 
-    speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+    speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+    if err != nil {
+        panic(err)
+    }
     if err := client.AddChecks(ctx, []aletheia.CheckResult{speedLimit}); err != nil {
         panic(err)
     }
@@ -277,7 +297,7 @@ func describe(err error) string {
 
 A DBC past a size bound, such as too many messages or too long a string, is refused by `ParseDBC`, `ParseDBCText`, `ValidateDBC` and `FormatDBCText` alike, `FormatDBCText` checking before it formats. The refusal is a `*aletheia.InputBoundExceededError` whose `BoundKind`, `Observed` and `Limit` name the bound, the size found and the limit, and whose `Field` names the part of the DBC that crossed it, such as `senders array`; `Field` is empty for a bound that names no part of a DBC, such as the input's length or a formula's nesting depth. The error's text, what `Error()` returns, is the kernel's message, which `Message` holds, such as `ParseDBC: senders array: array cardinality 10001 exceeds limit 10000`; a bound the binding checks itself before the call, such as an input past its length in bytes, has no kernel message, and its text names the kind, the size and the limit. Each limit is an exported constant, such as `aletheia.MaxMessagesPerFile`, and `aletheia.MaxStringLengthCharacters` bounds a DBC text field's length in characters.
 
-The YAML loaders (`LoadChecksFromYAML`, `LoadChecksFromYAMLFile`) and the Excel module's (`excel.LoadChecks`, `excel.LoadDbc`) hand the kernel each number they read as a rational, such as a check's `value` or a signal's `Factor`, as the text the document spells it with, so the kernel decides what a valid number is. A number the kernel refuses keeps the kernel's type, code and fields, an `*aletheia.Error` carrying the kernel's `Code` or an `*aletheia.InputBoundExceededError`, and gains `Location`, where the loader read it (`Check 'C'` for a YAML check named `C`, `Check '<unnamed>'` for one with no name, `Row 2` for a spreadsheet row), and `Key`, the YAML key or the column header it sat under (`value`, `within_ms`, `Factor`). Its `Error()` reads `<location>: invalid '<key>': <kernel message>`, such as `Check 'C': invalid 'value': parse failed at line 1, column 1` for a value written `.5`. A YAML check's `within_ms` is read the same way, and a value the kernel reads that is not a whole number, or is negative, is refused in the loader's own words, such as `check 'C': 'within_ms' must be a whole number, got "1.5"`. A loader outside the package locates a refusal with `aletheia.Locate(err, location, key)`, which answers a located copy of a coded `*aletheia.Error` or of an `*aletheia.InputBoundExceededError`, and any other error, such as a runtime that is not up, as it was given.
+The YAML loaders (`LoadChecksFromYAML`, `LoadChecksFromYAMLFile`) and the Excel module's (`excel.LoadChecks`, `excel.LoadDbc`) hand the kernel each number they read as a rational, such as a check's `value` or a signal's `Factor`, as the text the document spells it with, so the kernel decides what a valid number is. A number the kernel refuses keeps the kernel's type, code and fields, an `*aletheia.Error` carrying the kernel's `Code` or an `*aletheia.InputBoundExceededError`, and gains `Location`, where the loader read it (`Check 'C'` for a YAML check named `C`, `Check '<unnamed>'` for one with no name, `Row 2` for a spreadsheet row), and `Key`, the YAML key or the column header it sat under (`value`, `within_us`, `Factor`). Its `Error()` reads `<location>: invalid '<key>': <kernel message>`, such as `Check 'C': invalid 'value': parse failed at line 1, column 1` for a value written `.5`. A YAML check's `within_us`, the Excel module's `Time (µs)` and `Within (µs)` are whole microseconds the kernel reads through `aletheia.ParseTimeBound`, so `Check 'C': invalid 'within_us': timebound 1.5 is not a whole number`. A check the kernel refuses as it is built, where no single key holds the refusal, gains `Location` alone and reads `<location>: <kernel message>`, such as `Check 'C': between: min 5 exceeds max 1`. A loader outside the package locates a refusal with `aletheia.Locate(err, location, key)`, which answers a located copy of a coded `*aletheia.Error` or of an `*aletheia.InputBoundExceededError`, and any other error, such as a runtime that is not up, as it was given.
 
 <!-- refuses: text_parse_failure -->
 ```go

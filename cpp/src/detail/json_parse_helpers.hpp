@@ -1,23 +1,15 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// What the JSON response parsers and the DBC parsers share: the table lookup,
-// the integer reads that refuse a float or an out-of-range value, and the
-// rational and DBC decoders each side defines for the other.
+// The table lookup the JSON response parsers read an error code with, and the
+// DBC decoder json_parse_dbc.cpp defines for the replies carrying one.
 #pragma once
 
 #include <aletheia/dbc.hpp>
-#include <aletheia/types.hpp>
 
-#include <nlohmann/json.hpp>
+#include "wide_json.hpp"
 
-#include <cstdint>
-#include <limits>
 #include <optional>
-#include <stdexcept>
-#include <string>
 #include <string_view>
-#include <type_traits>
-#include <utility>
 
 namespace aletheia {
 
@@ -37,68 +29,8 @@ auto lookup(Table const& table, std::string_view wire)
 
 namespace aletheia::detail {
 
-using Json = nlohmann::json;
-
-// Reject a JSON float in an integer-only wire position.  nlohmann silently
-// `static_cast`s a JSON float to an integer type on `get<intT>()` (e.g.
-// 5.9 → 5), corrupting the value *before* any range check runs.  The FFI wire
-// and DBC integer-position fields are integer-only by construction — the Agda
-// core never emits a float there — so a non-integer number is a wire-format
-// violation and is rejected here rather than silently truncated.  Exact
-// rationals travel as `{numerator, denominator}` objects, never as floats.
-//
-// `require_int` accepts negatives (signed positions); `require_uint` rejects
-// negatives as well as floats (`is_number_unsigned` is false for both).  Both
-// preserve the caller's existing range check, which still runs on the returned
-// integer.
-//
-// Both also refuse a value the position cannot hold.  The JSON library keeps
-// a positive literal above the signed maximum as an unsigned one, and the
-// narrowing conversion wraps it: without this check an index one past the
-// signed 64-bit maximum reads as the most negative one and the caller's sign
-// test calls it negative, a CAN id of 2^32 reads as a valid zero, a frame
-// byte of 256 reads as zero.  The refusal names the position's own range, as
-// the kernel names the bound it refuses at its own entry.
-template<typename T>
-auto out_of_range(Json const& j, std::string_view context) -> std::runtime_error {
-    return std::runtime_error(std::string{context} + " is out of range (" +
-                              std::to_string(std::numeric_limits<T>::min()) + " to " +
-                              std::to_string(std::numeric_limits<T>::max()) +
-                              "), got: " + j.dump());
-}
-
-template<typename T>
-auto require_int(Json const& j, std::string_view context) -> T {
-    if (!j.is_number_integer())
-        throw std::runtime_error(std::string{context} + " must be an integer, got: " + j.dump());
-    // A signed value always fits a 64-bit target, so that branch is a check
-    // only for narrower targets.
-    bool fits = true;
-    if (j.is_number_unsigned())
-        fits = std::in_range<T>(j.get<std::uint64_t>());
-    else if constexpr (!std::is_same_v<T, std::int64_t>)
-        fits = std::in_range<T>(j.get<std::int64_t>());
-    if (!fits)
-        throw out_of_range<T>(j, context);
-    return j.get<T>();
-}
-
-template<typename T>
-auto require_uint(Json const& j, std::string_view context) -> T {
-    if (!j.is_number_unsigned())
-        throw std::runtime_error(std::string{context} +
-                                 " must be a non-negative integer, got: " + j.dump());
-    auto const wide = j.get<std::uint64_t>();
-    // A 64-bit unsigned target holds every value the reader can produce, so
-    // the range check exists only for the narrower ones.
-    if constexpr (std::numeric_limits<T>::max() < std::numeric_limits<std::uint64_t>::max()) {
-        if (!std::in_range<T>(wide))
-            throw out_of_range<T>(j, context);
-    }
-    return static_cast<T>(wide);
-}
-
-auto parse_rational(Json const& j) -> Rational;
-auto parse_dbc_definition(Json const& j) -> DbcDefinition;
+// The DBC object of a reply, at "dbc", each place refused as
+// detail/reply_shape.hpp refuses it.
+auto parse_dbc_definition(Json const& dbc) -> DbcDefinition;
 
 } // namespace aletheia::detail

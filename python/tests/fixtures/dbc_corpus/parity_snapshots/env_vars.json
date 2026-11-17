@@ -27,6 +27,7 @@
   "messages": [
     {
       "dlc": 1,
+      "extended": false,
       "id": 600,
       "name": "Dummy",
       "sender": "Host",

@@ -5,6 +5,7 @@ package aletheia_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -211,16 +212,54 @@ func TestRational_Float64(t *testing.T) {
 		r    aletheia.Rational
 		want float64
 	}{
-		"three quarters": {aletheia.Rational{Numerator: 3, Denominator: 4}, 0.75},
-		"one":            {aletheia.Rational{Numerator: 1, Denominator: 1}, 1.0},
-		"nothing":        {aletheia.Rational{Numerator: 0, Denominator: 1}, 0.0},
-		"a negative":     {aletheia.Rational{Numerator: -1, Denominator: 2}, -0.5},
-		"seven thirds":   {aletheia.Rational{Numerator: 7, Denominator: 3}, 7.0 / 3.0},
+		"three quarters": {ratOf(3, 4), 0.75},
+		"one":            {ratOf(1, 1), 1.0},
+		"nothing":        {ratOf(0, 1), 0.0},
+		"a negative":     {ratOf(-1, 2), -0.5},
+		"seven thirds":   {ratOf(7, 3), 7.0 / 3.0},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			if got := tc.r.Float64(); got != tc.want {
 				t.Errorf("read as %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A rational over zero, which only a caller writes, reads as float division
+// by zero does: an infinity of the numerator's sign, and NaN for zero.
+func TestRational_Float64OverZero(t *testing.T) {
+	five := aletheia.Uint128{Lo: 5}
+	if got := (aletheia.Rational{Numerator: five}).Float64(); !math.IsInf(got, 1) {
+		t.Errorf("5/0 read as %v, want +Inf", got)
+	}
+	if got := (aletheia.Rational{Negative: true, Numerator: five}).Float64(); !math.IsInf(got, -1) {
+		t.Errorf("-5/0 read as %v, want -Inf", got)
+	}
+	if got := (aletheia.Rational{}).Float64(); !math.IsNaN(got) {
+		t.Errorf("0/0 read as %v, want NaN", got)
+	}
+}
+
+// A whole number is its sign and its magnitude over one: zero carries no
+// sign, and -2^63, whose magnitude no int64 holds, is carried whole.
+func TestIntRational_CarriesTheSignAndTheMagnitude(t *testing.T) {
+	one := aletheia.Uint128{Lo: 1}
+	cases := map[string]struct {
+		n    int64
+		want aletheia.Rational
+	}{
+		"zero":      {0, aletheia.Rational{Denominator: one}},
+		"one":       {1, aletheia.Rational{Numerator: one, Denominator: one}},
+		"minus one": {-1, aletheia.Rational{Negative: true, Numerator: one, Denominator: one}},
+		"largest":   {math.MaxInt64, aletheia.Rational{Numerator: aletheia.Uint128{Lo: math.MaxInt64}, Denominator: one}},
+		"smallest":  {math.MinInt64, aletheia.Rational{Negative: true, Numerator: aletheia.Uint128{Lo: 1 << 63}, Denominator: one}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := aletheia.IntRational(tc.n); got != tc.want {
+				t.Errorf("IntRational(%d) = %+v, want %+v", tc.n, got, tc.want)
 			}
 		})
 	}

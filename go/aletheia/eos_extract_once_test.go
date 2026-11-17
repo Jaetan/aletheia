@@ -47,18 +47,18 @@ func twoSignalProperties() []aletheia.Formula {
 func endStreamFails(indices ...int) aletheia.MockResponse {
 	parts := make([]string, 0, len(indices))
 	for _, i := range indices {
-		parts = append(parts, fmt.Sprintf(`{"property_index":%d,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`, i))
+		parts = append(parts, fmt.Sprintf(`{"type":"property","property_index":%d,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`, i))
 	}
-	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(parts, ",") + `]}`)
+	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(parts, ",") + `],"warnings":[]}`)
 }
 
 // endStreamHolds is an end-of-stream response satisfying the given properties.
 func endStreamHolds(indices ...int) aletheia.MockResponse {
 	parts := make([]string, 0, len(indices))
 	for _, i := range indices {
-		parts = append(parts, fmt.Sprintf(`{"property_index":%d,"status":"holds"}`, i))
+		parts = append(parts, fmt.Sprintf(`{"type":"property","property_index":%d,"status":"holds"}`, i))
 	}
-	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(parts, ",") + `]}`)
+	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(parts, ",") + `],"warnings":[]}`)
 }
 
 // warnLog is a client option collecting warnings into the buffer it returns.
@@ -180,75 +180,8 @@ func TestEndStream_AllSatisfiedMakesNoExtractionCalls(t *testing.T) {
 	}
 }
 
-// Two failing properties over one frame whose extraction fails: the frame is
-// attempted once and warned about once, where a walk per property would warn
-// twice, and both entries still carry the fallback enrichment.
-func TestEndStream_FailedExtractionWarnsOncePerFrame(t *testing.T) {
-	logger, logged := warnLog()
-	c, mock := startedClientOpts(t, twoSignalProperties(), []aletheia.MockResponse{
-		aletheia.Respond(ack),
-		endStreamFails(0, 1),
-		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`),
-	}, logger)
-	sendOn(t, c, 0x100, 0)
-
-	results := mustEndStream(t, c, 2)
-	if got := extractCalls(mock); got != 1 {
-		t.Errorf("expected 1 extraction attempt for the one frame, got %d", got)
-	}
-	if got := strings.Count(logged.String(), "enrichment.extraction_failed"); got != 1 {
-		t.Errorf("expected 1 extraction_failed warning, got %d in:\n%s", got, logged.String())
-	}
-	for i, pr := range results {
-		if pr.Enrichment == nil {
-			t.Fatalf("result %d: expected the fallback enrichment", i)
-		}
-		if pr.Enrichment.Signals != nil {
-			t.Errorf("result %d: expected no values after a failed extraction, got %v", i, pr.Enrichment.Signals)
-		}
-		if !strings.HasPrefix(pr.Enrichment.EnrichedReason, "violated: ") {
-			t.Errorf("result %d: EnrichedReason = %q, want the formula fallback", i, pr.Enrichment.EnrichedReason)
-		}
-	}
-}
-
-// A verdict naming a property that does not exist is warned about once and
-// left unenriched, and it drives no extraction of its own; the valid entry
-// beside it is enriched.
-func TestEndStream_OOBIndexExcludedValidEntryStillEnriched(t *testing.T) {
-	logger, logged := warnLog()
-	c, mock := startedClientOpts(t, twoSignalProperties()[:1], []aletheia.MockResponse{
-		aletheia.Respond(ack),
-		endStreamFails(0, 3),
-		extractionOf("SigA", 5),
-	}, logger)
-	sendOn(t, c, 0x100, 0)
-
-	results := mustEndStream(t, c, 2)
-	out := logged.String()
-	if got := strings.Count(out, "enrichment.property_index_oob"); got != 1 {
-		t.Errorf("expected 1 property_index_oob warning, got %d in:\n%s", got, out)
-	}
-	if !strings.Contains(out, "index=3") || !strings.Contains(out, "count=1") {
-		t.Errorf("expected the warning to name index 3 against 1 property, got:\n%s", out)
-	}
-	if got := extractCalls(mock); got != 1 {
-		t.Errorf("expected 1 extraction, got %d", got)
-	}
-	wantOneSignal(t, results[0], "SigA", 5)
-	if results[1].Enrichment != nil {
-		t.Errorf("the out-of-bounds entry was enriched: %+v", results[1].Enrichment)
-	}
-}
-
 // With no frame ever sent there is nothing to extract, and the failing entry
 // still carries an enrichment with the fallback reason and the core's.
-//
-// This is also where the skip of the extraction pass over an empty union of
-// wanted signals is observable, since that union cannot be emptied through
-// the public surface: every serializable formula has an atomic leaf and the
-// signal collector keeps even an empty name. Inverting the skip's condition
-// would zero the extractions the other tests here count.
 func TestEndStream_NoTrackedFramesAttachesFallbackWithoutExtraction(t *testing.T) {
 	c, mock := startedClientWith(t, twoSignalProperties(), endStreamFails(0))
 
@@ -268,9 +201,43 @@ func TestEndStream_NoTrackedFramesAttachesFallbackWithoutExtraction(t *testing.T
 	}
 }
 
+// Diagnostics naming no signal extract no tracked frame, and the failing entry
+// still carries the fallback reason with the core's. Every serializable
+// formula has an atomic leaf and the signal collector keeps even an empty
+// name, so the diagnostics are replaced by ones naming none: with two frames
+// tracked, the frame loop stops at its head before the first extraction.
+func TestEndStream_AnEmptyUnionExtractsNoTrackedFrame(t *testing.T) {
+	c, mock := startedClientWith(t, twoSignalProperties(),
+		aletheia.Respond(ack), aletheia.Respond(ack),
+		endStreamFails(0),
+		// Read only by a loop that extracts, so the count below is what refuses it.
+		extractionOf("SigA", 5),
+		extractionOf("SigB", 7),
+	)
+	signalless := aletheia.PropertyDiagnostic{FormulaDesc: "eventually(nothing)"}
+	aletheia.SetDiagnostics(c, []aletheia.PropertyDiagnostic{signalless, signalless})
+	sendOn(t, c, 0x100, 0)
+	sendOn(t, c, 0x200, 1000)
+
+	results := mustEndStream(t, c, 1)
+	if got := extractCalls(mock); got != 0 {
+		t.Errorf("expected no extraction for an empty union, got %d", got)
+	}
+	e := results[0].Enrichment
+	if e == nil {
+		t.Fatal("expected an enrichment despite the empty union")
+	}
+	if e.Signals != nil {
+		t.Errorf("expected no values, got %v", e.Signals)
+	}
+	if want := "violated: eventually(nothing) [core: eventually unmet]"; e.EnrichedReason != want {
+		t.Errorf("EnrichedReason = %q, want %q", e.EnrichedReason, want)
+	}
+}
+
 // endStreamOf is an end-of-stream response carrying the entries as written.
 func endStreamOf(entries ...string) aletheia.MockResponse {
-	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(entries, ",") + `]}`)
+	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(entries, ",") + `],"warnings":[]}`)
 }
 
 // A holding entry ahead of a failing one is passed over, not the end of the
@@ -278,8 +245,8 @@ func endStreamOf(entries ...string) aletheia.MockResponse {
 func TestEndStream_AHoldingEntryDoesNotEndTheWalk(t *testing.T) {
 	c, _ := startedClientWith(t, twoSignalProperties(),
 		aletheia.Respond(ack),
-		endStreamOf(`{"property_index":0,"status":"holds"}`,
-			`{"property_index":1,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`),
+		endStreamOf(`{"type":"property","property_index":0,"status":"holds"}`,
+			`{"type":"property","property_index":1,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`),
 		extractionOf("SigB", 7),
 	)
 	sendOn(t, c, 0x100, 0)
@@ -291,56 +258,16 @@ func TestEndStream_AHoldingEntryDoesNotEndTheWalk(t *testing.T) {
 	wantOneSignal(t, results[1], "SigB", 7)
 }
 
-// An out-of-range entry ahead of a valid one is passed over, not the end of
-// the walk; the index equal to the property count is the first out of range.
-func TestEndStream_AnOutOfRangeEntryDoesNotEndTheWalk(t *testing.T) {
-	logger, logged := warnLog()
-	c, _ := startedClientOpts(t, twoSignalProperties()[:1], []aletheia.MockResponse{
-		aletheia.Respond(ack),
-		endStreamFails(1, 0),
-		extractionOf("SigA", 5),
-	}, logger)
-	sendOn(t, c, 0x100, 0)
-
-	results := mustEndStream(t, c, 2)
-	if results[0].Enrichment != nil {
-		t.Errorf("the out-of-range entry was enriched: %+v", results[0].Enrichment)
-	}
-	wantOneSignal(t, results[1], "SigA", 5)
-	if out := logged.String(); !strings.Contains(out, "enrichment.property_index_oob") || !strings.Contains(out, "index=1") {
-		t.Errorf("expected the warning to name index 1, got:\n%s", out)
-	}
-}
-
-// A frame whose extraction fails is passed over, not the end of the pass:
-// the next frame still supplies the wanted value.
-func TestEndStream_AFailedExtractionDoesNotEndThePass(t *testing.T) {
-	c, mock := startedClientWith(t, twoSignalProperties()[:1],
-		aletheia.Respond(ack), aletheia.Respond(ack),
-		endStreamFails(0),
-		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`), // frame 0x100
-		extractionOf("SigA", 5), // frame 0x200
-	)
-	sendOn(t, c, 0x100, 0)
-	sendOn(t, c, 0x200, 1000)
-
-	results := mustEndStream(t, c, 1)
-	if got := extractCalls(mock); got != 2 {
-		t.Errorf("expected 2 extractions, the failed frame and the next, got %d", got)
-	}
-	wantOneSignal(t, results[0], "SigA", 5)
-}
-
 // The stream.ended record counts the failing and the unresolved verdicts.
 func TestEndStream_TheEndedRecordCountsTheVerdicts(t *testing.T) {
 	var buf bytes.Buffer
 	logger := aletheia.WithLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	properties := append(twoSignalProperties(), aletheia.Eventually{Inner: gt("SigC", 1)}, aletheia.Eventually{Inner: gt("SigD", 1)})
 	c, _ := startedClientOpts(t, properties, []aletheia.MockResponse{
-		endStreamOf(`{"property_index":0,"status":"fails","reason":"a"}`,
-			`{"property_index":1,"status":"unresolved","reason":"b"}`,
-			`{"property_index":2,"status":"fails","reason":"c"}`,
-			`{"property_index":3,"status":"holds"}`),
+		endStreamOf(`{"type":"property","property_index":0,"status":"fails","timestamp":1000,"reason":"a"}`,
+			`{"type":"property","property_index":1,"status":"unresolved","reason":"b"}`,
+			`{"type":"property","property_index":2,"status":"fails","timestamp":1000,"reason":"c"}`,
+			`{"type":"property","property_index":3,"status":"holds"}`),
 	}, logger)
 
 	mustEndStream(t, c, 4)

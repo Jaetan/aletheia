@@ -6,8 +6,6 @@ package aletheia
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
-	"strconv"
 	"unicode/utf8"
 )
 
@@ -111,7 +109,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 			valueDescs := make([]map[string]any, 0, len(sig.ValueDescriptions))
 			for _, e := range sig.ValueDescriptions {
 				valueDescs = append(valueDescs, map[string]any{
-					"value":       e.Value,
+					"value":       json.Number(e.Value.String()),
 					"description": e.Description,
 				})
 			}
@@ -140,9 +138,9 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 			if mux, ok := sig.Presence.(Multiplexed); ok {
 				s["presence"] = "multiplexed"
 				s["multiplexor"] = string(mux.Multiplexor)
-				vals := make([]uint32, len(mux.MultiplexValues))
+				vals := make([]json.Number, len(mux.MultiplexValues))
 				for i, v := range mux.MultiplexValues {
-					vals[i] = uint32(v)
+					vals[i] = json.Number(v.String())
 				}
 				s["multiplex_values"] = vals
 			} else {
@@ -154,8 +152,6 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		if senders == nil {
 			senders = []NodeName{}
 		}
-		// The extended flag is written only when it is true, which is the shape
-		// the kernel writes and every binding reads.
 		m := map[string]any{
 			"name":    string(msg.Name),
 			"dlc":     msg.DLC.ToBytes(),
@@ -194,7 +190,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		entries := make([]map[string]any, 0, len(vt.Entries))
 		for _, e := range vt.Entries {
 			entries = append(entries, map[string]any{
-				"value":       e.Value,
+				"value":       json.Number(e.Value.String()),
 				"description": e.Description,
 			})
 		}
@@ -231,7 +227,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		entries := make([]map[string]any, 0, len(rvd.Entries))
 		for _, e := range rvd.Entries {
 			entries = append(entries, map[string]any{
-				"value":       e.Value,
+				"value":       json.Number(e.Value.String()),
 				"description": e.Description,
 			})
 		}
@@ -288,17 +284,16 @@ func byteOrderWireName(b ByteOrder) (string, error) {
 
 // --- Tier 2 serializers (Go to the kernel's JSON) ---
 
-// withCANID adds an identifier to m the way the kernel's formatter writes one:
-// the number always, the extended flag only when it is set. An identifier left
-// unset, nil in its interface, is refused rather than dereferenced.
+// withCANID adds an identifier to m as the kernel's formatter writes one, the
+// extended flag beside the number, so a definition reads alike on the way in
+// and on the way out. An identifier left unset, nil in its interface, is
+// refused rather than dereferenced.
 func withCANID(m map[string]any, id CANID) (map[string]any, error) {
 	if id == nil {
 		return nil, validationError("a CAN identifier is unset")
 	}
 	m["id"] = id.Value()
-	if id.IsExtended() {
-		m["extended"] = true
-	}
+	m["extended"] = id.IsExtended()
 	return m, nil
 }
 
@@ -444,94 +439,43 @@ func serializeAttribute(a DBCAttribute) (map[string]any, error) {
 	}
 }
 
-// validateRational refuses a rational the wire cannot carry, which is one
-// whose denominator is zero or negative. A [Rational] is a pair of integers,
-// so there is nothing else to refuse: no value of it is infinite or undefined.
-func validateRational(name string, r Rational) error {
-	if r.Denominator <= 0 {
-		return validationError(fmt.Sprintf("%s: non-positive denominator %d (must be > 0)",
-			name, r.Denominator))
-	}
-	return nil
-}
-
-// ratCmp compares two rationals with positive denominators by their
-// cross-products, answering as [big.Int.Cmp] does. The products are taken at
-// arbitrary width: at int64 they would wrap, and a numerator near the maximum
-// would compare as the smaller value.
-func ratCmp(r1, r2 Rational) int {
-	a := new(big.Int).Mul(big.NewInt(r1.Numerator), big.NewInt(r2.Denominator))
-	b := new(big.Int).Mul(big.NewInt(r2.Numerator), big.NewInt(r1.Denominator))
-	return a.Cmp(b)
-}
-
 // ratPredicate is a predicate over one signal carrying one rational under the
-// field name the wire gives it. The rational is refused here rather than at
-// the kernel, since a denominator the wire cannot represent is the caller's
-// mistake and the message names which field it was.
-func ratPredicate(kind string, signal SignalName, field string, value Rational) (map[string]any, error) {
-	if err := validateRational(kind+"."+field, value); err != nil {
-		return nil, err
-	}
+// field name the wire gives it.
+func ratPredicate(kind string, signal SignalName, field string, value Rational) map[string]any {
 	return map[string]any{
 		"predicate": kind,
 		"signal":    string(signal),
 		field:       serializeRational(value),
-	}, nil
+	}
 }
 
 // serializePredicate encodes a predicate in the shape the kernel's LTL parser
-// reads.
+// reads. Nothing is decided here: the kernel's property parse refuses a zero
+// denominator, a range whose minimum is above its maximum and a negative
+// tolerance, at a builder's check or at set_properties.
 func serializePredicate(p Predicate) (map[string]any, error) {
 	switch p := p.(type) {
 	case Equals:
-		return ratPredicate("equals", p.Signal, "value", p.Value)
+		return ratPredicate("equals", p.Signal, "value", p.Value), nil
 	case LessThan:
-		return ratPredicate("lessThan", p.Signal, "value", p.Value)
+		return ratPredicate("lessThan", p.Signal, "value", p.Value), nil
 	case GreaterThan:
-		return ratPredicate("greaterThan", p.Signal, "value", p.Value)
+		return ratPredicate("greaterThan", p.Signal, "value", p.Value), nil
 	case LessThanOrEqual:
-		return ratPredicate("lessThanOrEqual", p.Signal, "value", p.Value)
+		return ratPredicate("lessThanOrEqual", p.Signal, "value", p.Value), nil
 	case GreaterThanOrEqual:
-		return ratPredicate("greaterThanOrEqual", p.Signal, "value", p.Value)
+		return ratPredicate("greaterThanOrEqual", p.Signal, "value", p.Value), nil
 	case ChangedBy:
-		return ratPredicate("changedBy", p.Signal, "delta", p.Delta)
+		return ratPredicate("changedBy", p.Signal, "delta", p.Delta), nil
 	case Between:
-		out, err := ratPredicate("between", p.Signal, "min", p.Min)
-		if err != nil {
-			return nil, err
-		}
-		if err := validateRational("between.max", p.Max); err != nil {
-			return nil, err
-		}
-		if ratCmp(p.Max, p.Min) < 0 {
-			return nil, validationError(fmt.Sprintf("between: min (%s) exceeds max (%s)",
-				formatRationalExact(p.Min), formatRationalExact(p.Max)))
-		}
+		out := ratPredicate("between", p.Signal, "min", p.Min)
 		out["max"] = serializeRational(p.Max)
 		return out, nil
 	case StableWithin:
-		out, err := ratPredicate("stableWithin", p.Signal, "tolerance", p.Tolerance)
-		if err != nil {
-			return nil, err
-		}
-		if p.Tolerance.Numerator < 0 {
-			return nil, validationError(fmt.Sprintf("negative tolerance: %s",
-				formatRationalExact(p.Tolerance)))
-		}
-		return out, nil
+		return ratPredicate("stableWithin", p.Signal, "tolerance", p.Tolerance), nil
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported predicate type %T", p))
 	}
-}
-
-// validateTimeBound rejects TimeBounds the Agda core cannot represent
-// (negative microseconds).
-func validateTimeBound(t TimeBound) error {
-	if t.Microseconds < 0 {
-		return validationError(fmt.Sprintf("negative time bound: %d microseconds", t.Microseconds))
-	}
-	return nil
 }
 
 // serializeFormula encodes a formula for the kernel, bounded in depth so that
@@ -563,12 +507,8 @@ func binaryOp(op string, left, right Formula, depth int) (map[string]any, error)
 	return map[string]any{"operator": op, "left": l, "right": r}, nil
 }
 
-// metricOp adds the time bound the metric operators carry, refusing a bound
-// the kernel has no representation for.
+// metricOp adds the time bound the metric operators carry.
 func metricOp(bound TimeBound, build func() (map[string]any, error)) (map[string]any, error) {
-	if err := validateTimeBound(bound); err != nil {
-		return nil, err
-	}
 	m, err := build()
 	if err != nil {
 		return nil, err
@@ -622,82 +562,14 @@ func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 
 // --- Rational helpers ---
 
-// parseRational reads a Rational from a JSON scalar (number) or the
-// {"numerator","denominator"} object shape, matching Python's Fraction
-// decoding path.
-func parseRational(v any) (Rational, error) {
-	switch n := v.(type) {
-	case json.Number:
-		// A scalar number is the integer rational n/1.
-		i, cls := decodeJSONInt(v)
-		// The value is a number here, so only the fractional and the
-		// out-of-range answers can come back.
-		switch cls {
-		case intParseFractional:
-			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional: %v", v))
-		case intParseOverflow:
-			return Rational{}, protocolError(fmt.Sprintf("rational out of int64 range: %v", v))
-		}
-		return Rational{Numerator: i, Denominator: 1}, nil
-	case map[string]any:
-		num, den, err := rationalParts(n)
-		if err != nil {
-			return Rational{}, err
-		}
-		return Rational{Numerator: num, Denominator: den}, nil
-	default:
-		return Rational{}, protocolError(fmt.Sprintf("expected number or rational dict, got %T", v))
-	}
-}
-
-// rationalParts reads the two components of a wire rational, refusing every
-// shape the wire does not carry: a component missing or not a number (a missing
-// key reads as nil, which is not a number), one with a fractional part, one
-// outside int64, and a denominator of zero or less. A negative denominator is
-// refused rather than rewritten, since the kernel and the Python decoder both
-// refuse it and rewriting here would let a shape through Go that no other
-// binding accepts.
-func rationalParts(m map[string]any) (int64, int64, error) {
-	rawNum, rawDen := m["numerator"], m["denominator"]
-	num, numCls := decodeJSONInt(rawNum)
-	den, denCls := decodeJSONInt(rawDen)
-	if numCls == intParseNotNumber || denCls == intParseNotNumber {
-		return 0, 0, protocolError(fmt.Sprintf("rational needs a numeric numerator and denominator, got %v", m))
-	}
-	// The components are checked for being integers before anything is read
-	// from them, so a fractional denominator is not reported as a zero one and
-	// a fractional numerator is never truncated.
-	if numCls == intParseFractional || denCls == intParseFractional {
-		return 0, 0, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", rawNum, rawDen))
-	}
-	if numCls == intParseOverflow || denCls == intParseOverflow {
-		return 0, 0, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", rawNum, rawDen))
-	}
-	if den <= 0 {
-		return 0, 0, protocolError(fmt.Sprintf("non-positive denominator in rational: %v", m))
-	}
-	return num, den, nil
-}
-
-// serializeRational emits a rational as its two components, so the wire keeps
-// the exact value rather than a rounded one.
+// serializeRational emits a rational as its components, a whole number as its
+// digits and any other as the {numerator, denominator} object, so the wire
+// keeps the exact value rather than a rounded one. A zero numerator is
+// written unsigned.
 func serializeRational(r Rational) any {
-	if r.Denominator == 1 {
-		return r.Numerator
+	numerator := json.Number(SignMagnitude{Negative: r.Negative, Magnitude: r.Numerator}.String())
+	if r.Denominator == (Uint128{Lo: 1}) {
+		return numerator
 	}
-	return map[string]any{"numerator": r.Numerator, "denominator": r.Denominator}
-}
-
-// formatRationalExact renders a rational for a refusal message: through the
-// kernel when its runtime is up, which is the form every binding prints, and
-// as a bare fraction otherwise. Predicate validation runs before the runtime
-// need be up, so this never fails and never rounds.
-func formatRationalExact(r Rational) string {
-	if s, err := formatRational(r); err == nil {
-		return s
-	}
-	if r.Denominator == 1 {
-		return strconv.FormatInt(r.Numerator, 10)
-	}
-	return strconv.FormatInt(r.Numerator, 10) + "/" + strconv.FormatInt(r.Denominator, 10)
+	return map[string]any{"numerator": numerator, "denominator": json.Number(r.Denominator.String())}
 }

@@ -3,17 +3,29 @@
 
 //! LTL predicates and formulas.
 //!
-//! `Predicate` and `Formula` are plain Rust enums — naturally sealed and
-//! exhaustively matchable, replacing the Go binding's `predicate()` / `formula()`
-//! sealed-interface marker methods with no ceremony. `to_value` emits the exact
-//! JSON wire shape the Agda core accepts (`{"operator":…}` for formulas,
-//! `{"predicate":…}` for atoms), enforcing the same validity rules the other
-//! bindings apply at serialization time.
+//! `Predicate` and `Formula` are plain Rust enums, naturally sealed and
+//! exhaustively matchable, replacing the Go binding's `predicate()` /
+//! `formula()` sealed-interface marker methods with no ceremony. The kernel's
+//! JSON for each (`{"operator":…}` for formulas, `{"predicate":…}` for atoms)
+//! is written by the crate-private `Serialize` impls below, which decide
+//! nothing: the kernel's property parse decides every field, at a builder's
+//! end or at `set_properties`.
+//!
+//! Each builder hands what it made to the kernel's property parse
+//! (`aletheia_check_property`), which refuses it with the reason
+//! `set_properties` would give, so a predicate or a formula is refused where
+//! it is built. The parse needs the GHC runtime up
+//! ([`start_runtime`](crate::start_runtime) or a client) and never starts it:
+//! while the runtime is down each builder answers [`Error::RtsNotInitialized`].
+//! A predicate or a formula written as a literal skips this and is refused at
+//! `set_properties` instead.
 
-use serde_json::{json, Value};
+use serde::ser::{Serialize, SerializeMap, Serializer};
 
+use crate::backend::check_property;
 use crate::error::Error;
 use crate::types::{Rational, TimeBound};
+use crate::wire_json::{json_object, to_text, Number, Wire};
 
 /// Client-side recursion guard on formula nesting depth (mirrors Go's 100-deep
 /// stack guard), applied before serialization to fail fast rather than recurse
@@ -23,7 +35,7 @@ use crate::types::{Rational, TimeBound};
 /// it passes this guard.
 pub const MAX_FORMULA_DEPTH: usize = 100;
 
-/// A signal predicate — an atomic proposition over one signal's value.
+/// A signal predicate, an atomic proposition over one signal's value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Predicate {
     /// `signal == value`.
@@ -50,145 +62,124 @@ pub enum Predicate {
 
 impl Predicate {
     /// `signal == value` (Agda `ValuePredicate.Equals`).
-    #[must_use]
-    pub fn equals(signal: impl Into<String>, value: impl Into<Rational>) -> Predicate {
-        Predicate::Equals {
+    ///
+    /// # Errors
+    /// The kernel's refusal of the predicate, typed as
+    /// [`Rational::from_decimal`] types one ([`Error::Validation`] carrying the
+    /// kernel's code, [`Error::InputBoundExceeded`] for a bound), or
+    /// [`Error::RtsNotInitialized`] while the runtime is down.
+    pub fn equals(
+        signal: impl Into<String>,
+        value: impl Into<Rational>,
+    ) -> Result<Predicate, Error> {
+        checked_predicate(Predicate::Equals {
             signal: signal.into(),
             value: value.into(),
-        }
+        })
     }
 
     /// `signal < value` (Agda `ValuePredicate.LessThan`).
-    #[must_use]
-    pub fn less_than(signal: impl Into<String>, value: impl Into<Rational>) -> Predicate {
-        Predicate::LessThan {
+    ///
+    /// # Errors
+    /// As [`Predicate::equals`].
+    pub fn less_than(
+        signal: impl Into<String>,
+        value: impl Into<Rational>,
+    ) -> Result<Predicate, Error> {
+        checked_predicate(Predicate::LessThan {
             signal: signal.into(),
             value: value.into(),
-        }
+        })
     }
 
     /// `signal > value` (Agda `ValuePredicate.GreaterThan`).
-    #[must_use]
-    pub fn greater_than(signal: impl Into<String>, value: impl Into<Rational>) -> Predicate {
-        Predicate::GreaterThan {
+    ///
+    /// # Errors
+    /// As [`Predicate::equals`].
+    pub fn greater_than(
+        signal: impl Into<String>,
+        value: impl Into<Rational>,
+    ) -> Result<Predicate, Error> {
+        checked_predicate(Predicate::GreaterThan {
             signal: signal.into(),
             value: value.into(),
-        }
+        })
     }
 
     /// `signal <= value` (Agda `ValuePredicate.LessThanOrEqual`).
-    #[must_use]
-    pub fn less_than_or_equal(signal: impl Into<String>, value: impl Into<Rational>) -> Predicate {
-        Predicate::LessThanOrEqual {
+    ///
+    /// # Errors
+    /// As [`Predicate::equals`].
+    pub fn less_than_or_equal(
+        signal: impl Into<String>,
+        value: impl Into<Rational>,
+    ) -> Result<Predicate, Error> {
+        checked_predicate(Predicate::LessThanOrEqual {
             signal: signal.into(),
             value: value.into(),
-        }
+        })
     }
 
     /// `signal >= value` (Agda `ValuePredicate.GreaterThanOrEqual`).
-    #[must_use]
+    ///
+    /// # Errors
+    /// As [`Predicate::equals`].
     pub fn greater_than_or_equal(
         signal: impl Into<String>,
         value: impl Into<Rational>,
-    ) -> Predicate {
-        Predicate::GreaterThanOrEqual {
+    ) -> Result<Predicate, Error> {
+        checked_predicate(Predicate::GreaterThanOrEqual {
             signal: signal.into(),
             value: value.into(),
-        }
+        })
     }
 
     /// `min <= signal <= max` (Agda `ValuePredicate.Between`).
     ///
-    /// A range whose minimum exceeds its maximum is refused when the property
-    /// carrying it is sent, which is where every route to a predicate meets the
-    /// wire, and not here.
-    #[must_use]
+    /// # Errors
+    /// As [`Predicate::equals`]; the kernel refuses a range whose minimum is
+    /// above its maximum.
     pub fn between(
         signal: impl Into<String>,
         min: impl Into<Rational>,
         max: impl Into<Rational>,
-    ) -> Predicate {
-        Predicate::Between {
+    ) -> Result<Predicate, Error> {
+        checked_predicate(Predicate::Between {
             signal: signal.into(),
             min: min.into(),
             max: max.into(),
-        }
+        })
     }
 
     /// The signal moved by at least `delta` since the previous frame, a positive
     /// delta asking for a rise and a negative one for a fall
     /// (Agda `DeltaPredicate.ChangedBy`).
-    #[must_use]
-    pub fn changed_by(signal: impl Into<String>, delta: impl Into<Rational>) -> Predicate {
-        Predicate::ChangedBy {
+    ///
+    /// # Errors
+    /// As [`Predicate::equals`].
+    pub fn changed_by(
+        signal: impl Into<String>,
+        delta: impl Into<Rational>,
+    ) -> Result<Predicate, Error> {
+        checked_predicate(Predicate::ChangedBy {
             signal: signal.into(),
             delta: delta.into(),
-        }
+        })
     }
 
     /// The signal stayed within `tolerance` of its previous value
     /// (Agda `DeltaPredicate.StableWithin`).
     ///
-    /// A negative tolerance is refused when the property carrying it is sent,
-    /// and not here.
-    #[must_use]
-    pub fn stable_within(signal: impl Into<String>, tolerance: impl Into<Rational>) -> Predicate {
-        Predicate::StableWithin {
+    /// # Errors
+    /// As [`Predicate::equals`]; the kernel refuses a negative tolerance.
+    pub fn stable_within(
+        signal: impl Into<String>,
+        tolerance: impl Into<Rational>,
+    ) -> Result<Predicate, Error> {
+        checked_predicate(Predicate::StableWithin {
             signal: signal.into(),
             tolerance: tolerance.into(),
-        }
-    }
-
-    /// Encode the predicate as its `{"predicate":…}` wire object.
-    ///
-    /// # Errors
-    /// [`Error::Validation`] if `Between.min > max` or `StableWithin.tolerance < 0`.
-    pub(crate) fn to_value(&self) -> Result<Value, Error> {
-        let v = match self {
-            Predicate::Equals { signal, value } => {
-                json!({ "predicate": "equals", "signal": signal, "value": value.to_value() })
-            }
-            Predicate::LessThan { signal, value } => {
-                json!({ "predicate": "lessThan", "signal": signal, "value": value.to_value() })
-            }
-            Predicate::GreaterThan { signal, value } => {
-                json!({ "predicate": "greaterThan", "signal": signal, "value": value.to_value() })
-            }
-            Predicate::LessThanOrEqual { signal, value } => {
-                json!({ "predicate": "lessThanOrEqual", "signal": signal, "value": value.to_value() })
-            }
-            Predicate::GreaterThanOrEqual { signal, value } => {
-                json!({ "predicate": "greaterThanOrEqual", "signal": signal, "value": value.to_value() })
-            }
-            Predicate::Between { signal, min, max } => {
-                if !min.le(*max) {
-                    return Err(Error::validation(format!(
-                        "between: min ({}/{}) exceeds max ({}/{})",
-                        min.numerator(),
-                        min.denominator(),
-                        max.numerator(),
-                        max.denominator()
-                    )));
-                }
-                json!({ "predicate": "between", "signal": signal,
-                        "min": min.to_value(), "max": max.to_value() })
-            }
-            Predicate::ChangedBy { signal, delta } => {
-                json!({ "predicate": "changedBy", "signal": signal, "delta": delta.to_value() })
-            }
-            Predicate::StableWithin { signal, tolerance } => {
-                if tolerance.numerator() < 0 {
-                    return Err(Error::validation(format!(
-                        "stableWithin: negative tolerance {}/{}",
-                        tolerance.numerator(),
-                        tolerance.denominator()
-                    )));
-                }
-                json!({ "predicate": "stableWithin", "signal": signal,
-                        "tolerance": tolerance.to_value() })
-            }
-        };
-        Ok(v)
+        })
     }
 }
 
@@ -243,13 +234,13 @@ pub enum Formula {
 }
 
 impl Formula {
-    /// `G(¬p)` — the predicate never holds.
+    /// `G(¬p)`: the predicate never holds.
     #[must_use]
     pub fn never(p: Predicate) -> Formula {
         Formula::Always(Box::new(Formula::Not(Box::new(Formula::Atomic(p)))))
     }
 
-    /// `¬antecedent ∨ consequent` — the standard LTL encoding of implication.
+    /// `¬antecedent ∨ consequent`, the standard LTL encoding of implication.
     #[must_use]
     pub fn implies(antecedent: Formula, consequent: Formula) -> Formula {
         Formula::Or(
@@ -258,77 +249,245 @@ impl Formula {
         )
     }
 
-    /// `G[0,bound] inner`.
-    #[must_use]
-    pub fn always_within(bound: TimeBound, inner: Formula) -> Formula {
-        Formula::MetricAlways {
-            bound,
-            inner: Box::new(inner),
-        }
-    }
-
-    /// `F[0,bound] inner`.
-    #[must_use]
-    pub fn eventually_within(bound: TimeBound, inner: Formula) -> Formula {
-        Formula::MetricEventually {
-            bound,
-            inner: Box::new(inner),
-        }
-    }
-
-    /// Encode the formula as its `{"operator":…}` wire object.
+    /// `G[0,bound] inner`, read by the kernel's property parse, the bound
+    /// included, as the predicate builders' are.
     ///
     /// # Errors
-    /// [`Error::Validation`] if nesting exceeds [`MAX_FORMULA_DEPTH`] or a
-    /// contained predicate is invalid.
-    pub(crate) fn to_value(&self) -> Result<Value, Error> {
-        self.to_value_depth(0)
+    /// [`Error::Validation`] if `inner` nests past [`MAX_FORMULA_DEPTH`]; the
+    /// kernel's refusal of the formula, typed as [`Predicate::equals`] types
+    /// one; or [`Error::RtsNotInitialized`] while the runtime is down.
+    pub fn always_within(bound: TimeBound, inner: Formula) -> Result<Formula, Error> {
+        checked_formula(Formula::MetricAlways {
+            bound,
+            inner: Box::new(inner),
+        })
     }
 
-    fn to_value_depth(&self, depth: usize) -> Result<Value, Error> {
+    /// `F[0,bound] inner`, read by the kernel's property parse as
+    /// [`Formula::always_within`]'s is.
+    ///
+    /// # Errors
+    /// As [`Formula::always_within`].
+    pub fn eventually_within(bound: TimeBound, inner: Formula) -> Result<Formula, Error> {
+        checked_formula(Formula::MetricEventually {
+            bound,
+            inner: Box::new(inner),
+        })
+    }
+
+    /// Refuse the formula when it nests past [`MAX_FORMULA_DEPTH`], the
+    /// writer's guard on its own recursion, which every route to the wire
+    /// passes before the formula is written.
+    ///
+    /// # Errors
+    /// [`Error::Validation`] naming the depth.
+    pub(crate) fn within_depth(&self) -> Result<(), Error> {
+        self.within_depth_from(0)
+    }
+
+    fn within_depth_from(&self, depth: usize) -> Result<(), Error> {
         if depth > MAX_FORMULA_DEPTH {
             return Err(Error::validation(format!(
                 "formula nesting depth exceeds {MAX_FORMULA_DEPTH}"
             )));
         }
-        let unary = |op: &str, inner: &Formula| -> Result<Value, Error> {
-            Ok(json!({ "operator": op, "formula": inner.to_value_depth(depth + 1)? }))
-        };
-        let binary = |op: &str, l: &Formula, r: &Formula| -> Result<Value, Error> {
-            Ok(json!({ "operator": op,
-                       "left": l.to_value_depth(depth + 1)?,
-                       "right": r.to_value_depth(depth + 1)? }))
-        };
-        let metric_unary = |op: &str, b: TimeBound, inner: &Formula| -> Result<Value, Error> {
-            Ok(json!({ "operator": op, "timebound": b.micros(),
-                       "formula": inner.to_value_depth(depth + 1)? }))
-        };
-        let metric_binary =
-            |op: &str, b: TimeBound, l: &Formula, r: &Formula| -> Result<Value, Error> {
-                Ok(json!({ "operator": op, "timebound": b.micros(),
-                           "left": l.to_value_depth(depth + 1)?,
-                           "right": r.to_value_depth(depth + 1)? }))
-            };
         match self {
-            Formula::Atomic(p) => Ok(json!({ "operator": "atomic", "predicate": p.to_value()? })),
-            Formula::Not(f) => unary("not", f),
-            Formula::And(l, r) => binary("and", l, r),
-            Formula::Or(l, r) => binary("or", l, r),
-            Formula::Next(f) => unary("next", f),
-            Formula::WeakNext(f) => unary("weakNext", f),
-            Formula::Always(f) => unary("always", f),
-            Formula::Eventually(f) => unary("eventually", f),
-            Formula::Until(l, r) => binary("until", l, r),
-            Formula::Release(l, r) => binary("release", l, r),
-            Formula::MetricAlways { bound, inner } => metric_unary("metricAlways", *bound, inner),
+            Formula::Atomic(_) => Ok(()),
+            Formula::Not(inner)
+            | Formula::Next(inner)
+            | Formula::WeakNext(inner)
+            | Formula::Always(inner)
+            | Formula::Eventually(inner)
+            | Formula::MetricAlways { inner, .. }
+            | Formula::MetricEventually { inner, .. } => inner.within_depth_from(depth + 1),
+            Formula::And(left, right)
+            | Formula::Or(left, right)
+            | Formula::Until(left, right)
+            | Formula::Release(left, right)
+            | Formula::MetricUntil { left, right, .. }
+            | Formula::MetricRelease { left, right, .. } => {
+                left.within_depth_from(depth + 1)?;
+                right.within_depth_from(depth + 1)
+            }
+        }
+    }
+}
+
+/// Refuse `f` as the kernel's property parse refuses it, reading the formula
+/// exactly as `set_properties` writes one property: every field, ordering,
+/// denominator and time bound is decided, and each signal name as an
+/// identifier, whether a DBC carries the signal being left to
+/// `set_properties`.
+///
+/// # Errors
+/// [`Error::Validation`] if `f` nests past [`MAX_FORMULA_DEPTH`]; the kernel's
+/// refusal, typed as [`Rational::from_decimal`] types one ([`Error::Validation`]
+/// carrying the kernel's code, [`Error::InputBoundExceeded`] for a bound);
+/// [`Error::RtsNotInitialized`] while the runtime is down.
+pub(crate) fn check_formula(f: &Formula) -> Result<(), Error> {
+    f.within_depth()?;
+    check_property(&to_text(&Wire(f))?)
+}
+
+/// `f`, once the kernel's property parse reads it ([`check_formula`]).
+fn checked_formula(f: Formula) -> Result<Formula, Error> {
+    check_formula(&f)?;
+    Ok(f)
+}
+
+/// `p`, once the kernel's property parse reads the atomic formula wrapping it
+/// ([`check_formula`]).
+fn checked_predicate(p: Predicate) -> Result<Predicate, Error> {
+    check_property(&to_text(&Atom(&p))?)?;
+    Ok(p)
+}
+
+// ── The kernel's JSON ───────────────────────────────────────────────────────
+//
+// Each object's keys are written in byte order (see `wire_json::json_object`).
+
+/// A predicate as the atomic formula wrapping it.
+struct Atom<'a>(&'a Predicate);
+
+impl Serialize for Atom<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        json_object!(serializer, {
+            "operator" => "atomic",
+            "predicate" => &Wire(self.0),
+        })
+    }
+}
+
+/// A predicate carrying one rational under a key after `signal`.
+fn comparison<S: Serializer>(
+    serializer: S,
+    tag: &str,
+    signal: &str,
+    key: &'static str,
+    value: Rational,
+) -> Result<S::Ok, S::Error> {
+    let mut map = serializer.serialize_map(Some(3))?;
+    map.serialize_entry("predicate", tag)?;
+    map.serialize_entry("signal", signal)?;
+    map.serialize_entry(key, &Wire(&value))?;
+    map.end()
+}
+
+impl Serialize for Wire<'_, Predicate> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.0 {
+            Predicate::Equals { signal, value } => {
+                comparison(serializer, "equals", signal, "value", *value)
+            }
+            Predicate::LessThan { signal, value } => {
+                comparison(serializer, "lessThan", signal, "value", *value)
+            }
+            Predicate::GreaterThan { signal, value } => {
+                comparison(serializer, "greaterThan", signal, "value", *value)
+            }
+            Predicate::LessThanOrEqual { signal, value } => {
+                comparison(serializer, "lessThanOrEqual", signal, "value", *value)
+            }
+            Predicate::GreaterThanOrEqual { signal, value } => {
+                comparison(serializer, "greaterThanOrEqual", signal, "value", *value)
+            }
+            Predicate::StableWithin { signal, tolerance } => {
+                comparison(serializer, "stableWithin", signal, "tolerance", *tolerance)
+            }
+            Predicate::ChangedBy { signal, delta } => json_object!(serializer, {
+                "delta" => &Wire(delta),
+                "predicate" => "changedBy",
+                "signal" => signal,
+            }),
+            Predicate::Between { signal, min, max } => json_object!(serializer, {
+                "max" => &Wire(max),
+                "min" => &Wire(min),
+                "predicate" => "between",
+                "signal" => signal,
+            }),
+        }
+    }
+}
+
+/// An operator over one formula.
+fn unary<S: Serializer>(serializer: S, op: &str, inner: &Formula) -> Result<S::Ok, S::Error> {
+    json_object!(serializer, {
+        "formula" => &Wire(inner),
+        "operator" => op,
+    })
+}
+
+/// An operator over two formulas.
+fn binary<S: Serializer>(
+    serializer: S,
+    op: &str,
+    left: &Formula,
+    right: &Formula,
+) -> Result<S::Ok, S::Error> {
+    json_object!(serializer, {
+        "left" => &Wire(left),
+        "operator" => op,
+        "right" => &Wire(right),
+    })
+}
+
+/// A metric operator over one formula, with its time bound.
+fn unary_within<S: Serializer>(
+    serializer: S,
+    op: &str,
+    bound: TimeBound,
+    inner: &Formula,
+) -> Result<S::Ok, S::Error> {
+    json_object!(serializer, {
+        "formula" => &Wire(inner),
+        "operator" => op,
+        "timebound" => &Number::natural(bound.micros()),
+    })
+}
+
+/// A metric operator over two formulas, with its time bound.
+fn binary_within<S: Serializer>(
+    serializer: S,
+    op: &str,
+    bound: TimeBound,
+    left: &Formula,
+    right: &Formula,
+) -> Result<S::Ok, S::Error> {
+    json_object!(serializer, {
+        "left" => &Wire(left),
+        "operator" => op,
+        "right" => &Wire(right),
+        "timebound" => &Number::natural(bound.micros()),
+    })
+}
+
+/// A formula as `set_properties` writes one property. The recursion is
+/// bounded by [`Formula::within_depth`], which every writer of a formula
+/// passes first.
+impl Serialize for Wire<'_, Formula> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.0 {
+            Formula::Atomic(p) => Atom(p).serialize(serializer),
+            Formula::Not(f) => unary(serializer, "not", f),
+            Formula::And(l, r) => binary(serializer, "and", l, r),
+            Formula::Or(l, r) => binary(serializer, "or", l, r),
+            Formula::Next(f) => unary(serializer, "next", f),
+            Formula::WeakNext(f) => unary(serializer, "weakNext", f),
+            Formula::Always(f) => unary(serializer, "always", f),
+            Formula::Eventually(f) => unary(serializer, "eventually", f),
+            Formula::Until(l, r) => binary(serializer, "until", l, r),
+            Formula::Release(l, r) => binary(serializer, "release", l, r),
+            Formula::MetricAlways { bound, inner } => {
+                unary_within(serializer, "metricAlways", *bound, inner)
+            }
             Formula::MetricEventually { bound, inner } => {
-                metric_unary("metricEventually", *bound, inner)
+                unary_within(serializer, "metricEventually", *bound, inner)
             }
             Formula::MetricUntil { bound, left, right } => {
-                metric_binary("metricUntil", *bound, left, right)
+                binary_within(serializer, "metricUntil", *bound, left, right)
             }
             Formula::MetricRelease { bound, left, right } => {
-                metric_binary("metricRelease", *bound, left, right)
+                binary_within(serializer, "metricRelease", *bound, left, right)
             }
         }
     }
@@ -337,12 +496,28 @@ impl Formula {
 #[cfg(test)]
 mod tests {
     use super::Predicate;
+    use crate::backend::ensure_rts_for_test;
+    use crate::error::Error;
+    use crate::response::ErrorCode;
     use crate::types::Rational;
 
     #[test]
+    fn a_predicate_the_kernel_refuses_is_refused_where_it_is_built() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
+        let err = Predicate::between("Voltage", 14, 11).expect_err("an inverted range");
+        assert!(
+            matches!(&err, Error::Validation { code: Some(code), located: None, .. }
+                if *code == ErrorCode::HandlerPropertyRefused),
+            "got: {err:?}"
+        );
+        assert_eq!(err.to_string(), "between: min 14 exceeds max 11");
+    }
+
+    #[test]
     fn equals_constructor_builds_equals_variant() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
         assert_eq!(
-            Predicate::equals("Speed", 220),
+            Predicate::equals("Speed", 220).expect("the kernel reads the predicate"),
             Predicate::Equals {
                 signal: "Speed".to_string(),
                 value: Rational::integer(220),
@@ -352,8 +527,9 @@ mod tests {
 
     #[test]
     fn between_constructor_builds_between_variant() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
         assert_eq!(
-            Predicate::between("Voltage", 11, 14),
+            Predicate::between("Voltage", 11, 14).expect("the kernel reads the predicate"),
             Predicate::Between {
                 signal: "Voltage".to_string(),
                 min: Rational::integer(11),
@@ -364,8 +540,9 @@ mod tests {
 
     #[test]
     fn changed_by_constructor_builds_changed_by_variant() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
         assert_eq!(
-            Predicate::changed_by("Speed", -10),
+            Predicate::changed_by("Speed", -10).expect("the kernel reads the predicate"),
             Predicate::ChangedBy {
                 signal: "Speed".to_string(),
                 delta: Rational::integer(-10),
@@ -375,8 +552,9 @@ mod tests {
 
     #[test]
     fn stable_within_constructor_builds_stable_within_variant() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
         assert_eq!(
-            Predicate::stable_within("Temp", 2),
+            Predicate::stable_within("Temp", 2).expect("the kernel reads the predicate"),
             Predicate::StableWithin {
                 signal: "Temp".to_string(),
                 tolerance: Rational::integer(2),
@@ -386,8 +564,9 @@ mod tests {
 
     #[test]
     fn less_than_constructor_builds_less_than_variant() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
         assert_eq!(
-            Predicate::less_than("Speed", 220),
+            Predicate::less_than("Speed", 220).expect("the kernel reads the predicate"),
             Predicate::LessThan {
                 signal: "Speed".to_string(),
                 value: Rational::integer(220),
@@ -397,8 +576,9 @@ mod tests {
 
     #[test]
     fn greater_than_constructor_builds_greater_than_variant() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
         assert_eq!(
-            Predicate::greater_than("Speed", 220),
+            Predicate::greater_than("Speed", 220).expect("the kernel reads the predicate"),
             Predicate::GreaterThan {
                 signal: "Speed".to_string(),
                 value: Rational::integer(220),
@@ -408,8 +588,9 @@ mod tests {
 
     #[test]
     fn less_than_or_equal_constructor_builds_lte_variant() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
         assert_eq!(
-            Predicate::less_than_or_equal("Speed", 220),
+            Predicate::less_than_or_equal("Speed", 220).expect("the kernel reads the predicate"),
             Predicate::LessThanOrEqual {
                 signal: "Speed".to_string(),
                 value: Rational::integer(220),
@@ -419,8 +600,9 @@ mod tests {
 
     #[test]
     fn greater_than_or_equal_constructor_builds_gte_variant() {
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
         assert_eq!(
-            Predicate::greater_than_or_equal("Speed", 220),
+            Predicate::greater_than_or_equal("Speed", 220).expect("the kernel reads the predicate"),
             Predicate::GreaterThanOrEqual {
                 signal: "Speed".to_string(),
                 value: Rational::integer(220),
@@ -430,10 +612,11 @@ mod tests {
 
     #[test]
     fn fractional_value_via_rational() {
-        // A fractional threshold is passed as an explicit Rational (no From<f64>).
+        ensure_rts_for_test(); // each builder hands its predicate to the kernel
+                               // A fractional threshold is passed as an explicit Rational (no From<f64>).
         let half = Rational::new(1, 2).expect("1/2 is a valid rational");
         assert_eq!(
-            Predicate::less_than("Throttle", half),
+            Predicate::less_than("Throttle", half).expect("the kernel reads the predicate"),
             Predicate::LessThan {
                 signal: "Throttle".to_string(),
                 value: half,

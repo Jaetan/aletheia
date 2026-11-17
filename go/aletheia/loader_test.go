@@ -23,13 +23,13 @@ func thenBuilder() ThenSignalBuilder {
 // dispatcher test needs no more than this.
 type fixedValues struct {
 	value, lo, hi Rational
-	withinMs      int64
+	within        TimeBound
 	err           error
 }
 
 func (f fixedValues) Value() (Rational, error)           { return f.value, f.err }
 func (f fixedValues) Range() (Rational, Rational, error) { return f.lo, f.hi, f.err }
-func (f fixedValues) Within() (int64, error)             { return f.withinMs, f.err }
+func (f fixedValues) Within() (TimeBound, error)         { return f.within, f.err }
 
 // Each word the trailing half accepts builds what the same call written by
 // hand builds, reading the slots its own condition reads.
@@ -37,27 +37,31 @@ func TestDispatchThen_BuildsWhatTheBuilderBuilds(t *testing.T) {
 	cases := map[string]struct {
 		condition string
 		values    fixedValues
-		withinMs  int64
+		within    TimeBound
 		byHand    func() (CheckResult, error)
 	}{
 		"equals": {
-			condition: "equals", values: fixedValues{value: IntRational(1)}, withinMs: 100,
-			byHand: func() (CheckResult, error) { return thenBuilder().Equals(IntRational(1)).Within(100) },
+			condition: "equals", values: fixedValues{value: IntRational(1)}, within: TimeBound{Microseconds: 100_000},
+			byHand: func() (CheckResult, error) {
+				return thenBuilder().Equals(IntRational(1)).Within(TimeBound{Microseconds: 100_000})
+			},
 		},
 		"exceeds": {
-			condition: "exceeds", values: fixedValues{value: IntRational(30)}, withinMs: 200,
-			byHand: func() (CheckResult, error) { return thenBuilder().Exceeds(IntRational(30)).Within(200) },
+			condition: "exceeds", values: fixedValues{value: IntRational(30)}, within: TimeBound{Microseconds: 200_000},
+			byHand: func() (CheckResult, error) {
+				return thenBuilder().Exceeds(IntRational(30)).Within(TimeBound{Microseconds: 200_000})
+			},
 		},
 		"stays_between": {
-			condition: "stays_between", values: fixedValues{lo: IntRational(10), hi: IntRational(90)}, withinMs: 300,
+			condition: "stays_between", values: fixedValues{lo: IntRational(10), hi: IntRational(90)}, within: TimeBound{Microseconds: 300_000},
 			byHand: func() (CheckResult, error) {
-				return thenBuilder().StaysBetween(IntRational(10), IntRational(90)).Within(300)
+				return thenBuilder().StaysBetween(IntRational(10), IntRational(90)).Within(TimeBound{Microseconds: 300_000})
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, err := DispatchThen(thenBuilder(), tc.condition, tc.values, tc.withinMs)
+			got, err := DispatchThen(thenBuilder(), tc.condition, tc.values, tc.within)
 			if err != nil {
 				t.Fatalf("DispatchThen: %v", err)
 			}
@@ -85,7 +89,7 @@ func TestDispatchers_CarryTheLoadersRefusal(t *testing.T) {
 	refusal := errors.New("row 7: the column is empty")
 	for word := range thenBuilders {
 		t.Run("then/"+word, func(t *testing.T) {
-			_, err := DispatchThen(thenBuilder(), word, fixedValues{err: refusal}, 100)
+			_, err := DispatchThen(thenBuilder(), word, fixedValues{err: refusal}, TimeBound{Microseconds: 100_000})
 			if !errors.Is(err, refusal) {
 				t.Errorf("got %v, want the loader's own refusal", err)
 			}
@@ -135,19 +139,19 @@ func TestDispatchSimple_BuildsWhatTheBuilderBuilds(t *testing.T) {
 	}{
 		"never_exceeds": {
 			values: fixedValues{value: IntRational(220)},
-			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverExceeds(IntRational(220)), nil },
+			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverExceeds(IntRational(220)) },
 		},
 		"never_below": {
 			values: fixedValues{value: IntRational(220)},
-			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverBelow(IntRational(220)), nil },
+			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverBelow(IntRational(220)) },
 		},
 		"never_equals": {
 			values: fixedValues{value: IntRational(220)},
-			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverEquals(IntRational(220)), nil },
+			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverEquals(IntRational(220)) },
 		},
 		"equals": {
 			values: fixedValues{value: IntRational(220)},
-			byHand: func() (CheckResult, error) { return CheckSignal("Speed").Equals(IntRational(220)).Always(), nil },
+			byHand: func() (CheckResult, error) { return CheckSignal("Speed").Equals(IntRational(220)).Always() },
 		},
 		"stays_between": {
 			values: fixedValues{lo: IntRational(1), hi: IntRational(9)},
@@ -156,9 +160,9 @@ func TestDispatchSimple_BuildsWhatTheBuilderBuilds(t *testing.T) {
 			},
 		},
 		"settles_between": {
-			values: fixedValues{lo: IntRational(1), hi: IntRational(9), withinMs: 500},
+			values: fixedValues{lo: IntRational(1), hi: IntRational(9), within: TimeBound{Microseconds: 500_000}},
 			byHand: func() (CheckResult, error) {
-				return CheckSignal("Speed").SettlesBetween(IntRational(1), IntRational(9)).Within(500)
+				return CheckSignal("Speed").SettlesBetween(IntRational(1), IntRational(9)).Within(TimeBound{Microseconds: 500_000})
 			},
 		},
 	}
@@ -201,7 +205,7 @@ func TestDispatchers_RefuseWordsOutsideTheirLeg(t *testing.T) {
 		},
 		"then": {
 			dispatch: func() error {
-				_, err := DispatchThen(thenBuilder(), "flickers", fixedValues{}, 100)
+				_, err := DispatchThen(thenBuilder(), "flickers", fixedValues{}, TimeBound{Microseconds: 100_000})
 				return err
 			},
 			names: "unknown then condition",
@@ -229,9 +233,9 @@ func TestVocabulary_EveryWordLoads(t *testing.T) {
 		"never_equals":    "checks:\n  - signal: Speed\n    condition: never_equals\n    value: 10\n",
 		"equals":          "checks:\n  - signal: Speed\n    condition: equals\n    value: 10\n",
 		"stays_between":   "checks:\n  - signal: Speed\n    condition: stays_between\n    min: 1\n    max: 2\n",
-		"settles_between": "checks:\n  - signal: Speed\n    condition: settles_between\n    min: 1\n    max: 2\n    within_ms: 100\n",
+		"settles_between": "checks:\n  - signal: Speed\n    condition: settles_between\n    min: 1\n    max: 2\n    within_us: 100000\n",
 	}
-	trigger := "  - when:\n      signal: Brake\n      condition: exceeds\n      value: 10\n    within_ms: 100\n    then:\n      signal: Speed\n"
+	trigger := "  - when:\n      signal: Brake\n      condition: exceeds\n      value: 10\n    within_us: 100000\n    then:\n      signal: Speed\n"
 	obligations := map[string]string{
 		"equals":        "checks:\n" + trigger + "      condition: equals\n      value: 5\n",
 		"exceeds":       "checks:\n" + trigger + "      condition: exceeds\n      value: 5\n",

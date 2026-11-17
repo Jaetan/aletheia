@@ -100,7 +100,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_mux.add_argument(
         "--value",
-        type=int,
         help="multiplexor value (used with --mux to list active signals)",
     )
     p_mux.add_argument("--json", action="store_true", help="output as JSON")

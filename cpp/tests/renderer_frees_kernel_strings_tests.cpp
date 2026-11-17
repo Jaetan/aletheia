@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// The rational renderer releases every string the kernel hands it: a render,
-// and a decimal parse's refusal. A process of its own, because the renderer
-// calls the library the runtime started on, which happens once per process,
-// and the one library whose releases can be read is the recording kernel,
-// which counts them; the suite that shares a process with the real library
-// cannot point the renderer at it. For the same reason the allocation count is
-// read here, the recording kernel being the library this process's runtime
-// started on, and a client's diagnostics are built here, the recording kernel
-// rendering every value but the numerator it refuses.
+// The entries outside a session release every string the kernel hands them: a
+// render, and the refusal of a decimal, a check or a time bound. A process of
+// its own, because they call the library the runtime started on, which happens
+// once per process, and the one library whose releases can be read is the
+// recording kernel, which counts them; the suite that shares a process with
+// the real library cannot point them at it. For the same reason the allocation
+// count is read here, the recording kernel being the library this process's
+// runtime started on, and a client's diagnostics are built here, the recording
+// kernel rendering every value but the numerator it refuses. Its property
+// check refuses every property, so each property a client is given here is
+// written as its predicate rather than through a builder.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -37,20 +39,39 @@
 
 using aletheia::test::required;
 
+namespace {
+
+// The stand-in's count of the strings it was handed back, read through a
+// handle on it, which a backend on it must already have loaded.
+class FreeCount {
+public:
+    FreeCount() : handle_{dlopen(ALETHEIA_TEST_RECORDING_KERNEL, RTLD_NOW | RTLD_NOLOAD)} {
+        REQUIRE(handle_ != nullptr);
+        REQUIRE(count() != nullptr);
+    }
+
+    [[nodiscard]] auto operator()() const -> int { return count()(); }
+
+private:
+    [[nodiscard]] auto count() const -> int (*)() {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        return reinterpret_cast<int (*)()>(dlsym(handle_.get(), "aletheia_test_free_count"));
+    }
+
+    aletheia::test::LoadedLibrary handle_;
+};
+
+} // namespace
+
 TEST_CASE("the renderer frees the strings the kernel hands it", "[rational_renderer]") {
     // A backend on the stand-in starts the runtime on it, its runtime entry a
     // no-op, so the renderer calls the stand-in.
-    std::filesystem::path const stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
-    auto const backend = required(aletheia::make_ffi_backend(stand_in));
-    aletheia::test::LoadedLibrary const handle{dlopen(stand_in.c_str(), RTLD_NOW | RTLD_NOLOAD)};
-    REQUIRE(handle != nullptr);
-    using CountFn = int (*)();
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    auto* const frees = reinterpret_cast<CountFn>(dlsym(handle.get(), "aletheia_test_free_count"));
-    REQUIRE(frees != nullptr);
+    auto const backend =
+        required(aletheia::make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL}));
+    FreeCount const frees;
 
     auto before = frees();
-    CHECK(aletheia::detail::format_rational_ffi(22, 7) == "22/7");
+    CHECK(aletheia::detail::format_rational_ffi(aletheia::Rational{22, 7}) == "22/7");
     CHECK(frees() == before + 1);
 
     before = frees();
@@ -79,16 +100,15 @@ TEST_CASE("properties whose diagnostic is refused leave none of the last ones", 
     auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
     auto const bounded_by = [](std::int64_t bound) {
         std::vector<aletheia::LtlFormula> properties;
-        properties.push_back(aletheia::ltl::always(aletheia::ltl::atomic(aletheia::ltl::less_than(
-            aletheia::SignalName{"Speed"},
-            aletheia::PhysicalValue{aletheia::Rational::integer(bound)}))));
+        properties.push_back(aletheia::ltl::always(aletheia::ltl::atomic(aletheia::LessThan{
+            .signal = aletheia::SignalName{"Speed"},
+            .value = aletheia::PhysicalValue{aletheia::Rational::integer(bound)}})));
         return properties;
     };
     REQUIRE(client.set_properties(std::stop_token{}, bounded_by(220)).has_value());
     auto const refused = client.set_properties(std::stop_token{}, bounded_by(7919));
     CHECK(aletheia::detail::error_of(refused).kind() == aletheia::ErrorKind::Ffi);
-    CHECK(aletheia::detail::error_of(refused).text() ==
-          "aletheia_format_rational returned a null pointer");
+    CHECK(aletheia::detail::error_of(refused).text() == "aletheia_format_rational returned null");
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};
     aletheia::FramePayload const data(8, std::byte{0});
@@ -98,6 +118,50 @@ TEST_CASE("properties whose diagnostic is refused leave none of the last ones", 
     auto const& batch = std::get<aletheia::PropertyBatch>(*sent);
     REQUIRE(batch.results.size() == 1);
     CHECK_FALSE(batch.results.front().enrichment.has_value());
+}
+
+TEST_CASE("a check and a time bound the kernel refuses free the refusal it hands back", "[check]") {
+    auto const backend =
+        required(aletheia::make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL}));
+    FreeCount const frees;
+
+    auto before = frees();
+    auto const check =
+        aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue::of(220, 1));
+    REQUIRE_FALSE(check.has_value());
+    CHECK(frees() == before + 1);
+
+    before = frees();
+    auto const bound = aletheia::TimeBound::parse("1s");
+    REQUIRE_FALSE(bound.has_value());
+    CHECK(frees() == before + 1);
+}
+
+TEST_CASE("the end of a stream whose diagnostics were refused answers its verdicts alone",
+          "[client]") {
+    // The kernel accepted the property, whose diagnostic the stand-in refuses
+    // to render, so the client holds none to enrich the failure with.
+    auto const backend =
+        required(aletheia::make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL}));
+    auto mock = std::make_unique<aletheia::MockBackend>();
+    // set_properties and the start of the stream are accepted.
+    std::ranges::for_each(std::views::repeat(std::string{R"({"status": "success"})"}, 2),
+                          [&mock](std::string const& accepted) { mock->queue_response(accepted); });
+    mock->queue_response(R"({"status": "complete", "results": [{"type": "property",)"
+                         R"( "status": "fails", "property_index": 0, "timestamp": 1000,)"
+                         R"( "reason": "core"}], "warnings": []})");
+    auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
+    std::vector<aletheia::LtlFormula> properties;
+    properties.push_back(aletheia::ltl::always(aletheia::ltl::atomic(
+        aletheia::LessThan{.signal = aletheia::SignalName{"Speed"},
+                           .value = aletheia::PhysicalValue{aletheia::Rational::integer(7919)}})));
+    REQUIRE_FALSE(client.set_properties(std::stop_token{}, properties).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+    auto const ended = client.end_stream(std::stop_token{});
+    REQUIRE(ended.has_value());
+    REQUIRE(ended->results.size() == 1);
+    CHECK(ended->results.front().verdict == aletheia::Verdict::Fails);
+    CHECK_FALSE(ended->results.front().enrichment.has_value());
 }
 
 TEST_CASE("a violation whose observed value is refused keeps its frame and names the formula alone",
@@ -119,8 +183,8 @@ TEST_CASE("a violation whose observed value is refused keeps its frame and names
     auto client = required(aletheia::AletheiaClient::create(std::move(mock)));
     std::vector<aletheia::LtlFormula> properties;
     properties.push_back(aletheia::ltl::always(aletheia::ltl::atomic(
-        aletheia::ltl::less_than(aletheia::SignalName{"Speed"},
-                                 aletheia::PhysicalValue{aletheia::Rational::integer(220)}))));
+        aletheia::LessThan{.signal = aletheia::SignalName{"Speed"},
+                           .value = aletheia::PhysicalValue{aletheia::Rational::integer(220)}})));
     REQUIRE(client.set_properties(std::stop_token{}, properties).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};

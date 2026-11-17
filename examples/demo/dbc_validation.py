@@ -2,12 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """DBC Validation Demo.
 
-Aletheia validates DBC files during parse_dbc(), distinguishing hard errors from
-warnings:
-  - Signal overlap (unless multiplexed to different mux values) is an ERROR — the
-    DBC is rejected (response status "error").
-  - minimum > maximum is a WARNING — the DBC still parses (status "success") with
-    a ``min_exceeds_max`` issue flagged for the caller.
+Aletheia validates DBC files during parse_dbc(), rejecting each structural
+error (response status "error"):
+  - Signal overlap (unless multiplexed to different mux values).
+  - A signal whose minimum exceeds its maximum (``min_exceeds_max``).
 
 Requirements:
     - Aletheia built: `cabal run shake -- build`
@@ -242,28 +240,18 @@ def check_dbc(
     dbc: DBCDefinition,
     *,
     expect_valid: bool,
-    expect_warning: str | None = None,
 ) -> bool:
-    """Parse a DBC and check its status, and optionally an expected warning code.
+    """Parse a DBC and check its status against ``expect_valid``.
 
     ``expect_valid`` is the hard accept/reject outcome (status "success" vs
-    "error"); ``expect_warning`` additionally asserts a non-fatal warning code is
-    present (e.g. ``min_exceeds_max`` — a warning that flags but does not reject).
-
-    A successful ``parse_dbc`` returns ``{status, dbc, warnings}`` — the
-    non-fatal codes live under ``warnings`` (the ``issues`` key is the
-    *validate* path, which merges errors and warnings into one list).
+    "error").
     """
     try:
         with AletheiaClient() as client:
             response = client.parse_dbc(dbc)
 
             valid = response["status"] == "success"
-            warned = expect_warning is None or (
-                response["status"] == "success"
-                and any(warning["code"] == expect_warning for warning in response["warnings"])
-            )
-            passed = valid == expect_valid and warned
+            passed = valid == expect_valid
             status = "VALID" if valid else "INVALID"
             verdict = "PASS" if passed else "FAIL"
 
@@ -271,8 +259,6 @@ def check_dbc(
             msg = response.get("message", "")
             if msg:
                 print(f"    {msg}")
-            if expect_warning is not None:
-                print(f"    warning {expect_warning!r}: {'present' if warned else 'MISSING'}")
             return passed
 
     except AletheiaError as e:
@@ -291,10 +277,7 @@ def main() -> None:
         check_dbc("Valid DBC (no overlap)", create_valid_dbc(), expect_valid=True),
         check_dbc("Overlapping signals", create_overlapping_dbc(), expect_valid=False),
         check_dbc(
-            "Inconsistent range (min > max) — warns, not rejected",
-            create_inconsistent_range_dbc(),
-            expect_valid=True,
-            expect_warning="min_exceeds_max",
+            "Inconsistent range (min > max)", create_inconsistent_range_dbc(), expect_valid=False
         ),
         check_dbc("Multiplexed (overlap OK)", create_multiplexed_dbc(), expect_valid=True),
     ]

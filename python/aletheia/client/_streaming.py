@@ -18,15 +18,24 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import TYPE_CHECKING, NamedTuple
 
 from aletheia.client._client_bin import FrameIdentity
 from aletheia.client._enrichment import format_enriched_reason
 from aletheia.client._ffi import KernelResponse, parse_json_object
+from aletheia.client._helpers.reply_shape import (
+    REPLY_ROOT,
+    at,
+    came_word,
+    held,
+    reply_refusal,
+    words,
+)
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
 from aletheia.client._response_parsers import (
     build_error_response,
+    entry_reason,
     parse_complete_warnings,
     parse_event_response,
     parse_finalization_results,
@@ -35,11 +44,9 @@ from aletheia.client._response_parsers import (
 )
 from aletheia.client._types import (
     MAX_EXTRACT_CACHE,
-    AletheiaError,
     CANFrameTuple,
     FrameResult,
     PropertyDiagnostic,
-    ProtocolError,
     SignalExtractionResult,
     StateError,
     StreamCaches,
@@ -63,7 +70,6 @@ if TYPE_CHECKING:
         ErrorResponse,
         PropertyBatchResponse,
         PropertyResultEntry,
-        Response,
         SuccessResponse,
     )
 
@@ -124,9 +130,7 @@ class StreamingMixin(ClientHostState):
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             response_bytes = self._backend.start_stream_binary(self._state)
-        response = parse_success_or_error(
-            cast("Response", parse_json_object(KernelResponse(response_bytes))),
-        )
+        response = parse_success_or_error(parse_json_object(KernelResponse(response_bytes)))
         if response["status"] == "success":
             self._caches.clear()
             log_event(_logger, logging.INFO, LogEvent.STREAM_STARTED)
@@ -142,20 +146,17 @@ class StreamingMixin(ClientHostState):
 
         Takes one inner ``PropertyResultEntry`` from
         ``PropertyBatchResponse.results``; caller filters to fails entries.
+
+        Raises:
+            ProtocolError: If the entry carries no ``reason``, which the
+                kernel writes on every fails event, or the reader refuses
+                the frame's extraction reply.
+
         """
         if not self._diags:
             return
-        idx = result["property_index"]
-        diag = self._diags.get(idx)
-        if diag is None:
-            log_event(
-                _logger,
-                logging.WARNING,
-                LogEvent.ENRICHMENT_PROPERTY_INDEX_OOB,
-                index=idx,
-                count=len(self._diags),
-            )
-            return
+        diag = self._diags[result["property_index"]]
+        core_reason = entry_reason(result)
 
         # Extract signal values (cached, bounded).
         cache_key = (frame_id.can_id, frame_id.extended, bytes(data))
@@ -168,35 +169,21 @@ class StreamingMixin(ClientHostState):
                 canId=frame_id.can_id,
                 dlc=frame_id.dlc,
             )
-            try:
-                extraction = self.extract_signals(
-                    can_id=frame_id.can_id,
-                    dlc=frame_id.dlc,
-                    data=data,
-                    extended=frame_id.extended,
-                )
-                if len(self._caches.extraction) < MAX_EXTRACT_CACHE:
-                    self._caches.extraction[cache_key] = extraction
-                elif not self._caches.full_reported:
-                    self._caches.full_reported = True
-                    log_event(
-                        _logger,
-                        logging.WARNING,
-                        LogEvent.CACHE_FULL,
-                        size=len(self._caches.extraction),
-                    )
-            except (AletheiaError, ValueError) as exc:
-                # Enrichment is best-effort — the frame still streamed and the
-                # core verdict is authoritative.  Emit a single-line warning
-                # with the exception message; dropping ``exc_info`` keeps
-                # production logs scannable (traceback-worthy paths use
-                # ``_logger.error(..., exc_info=True)`` instead).
+            extraction = self.extract_signals(
+                can_id=frame_id.can_id,
+                dlc=frame_id.dlc,
+                data=data,
+                extended=frame_id.extended,
+            )
+            if len(self._caches.extraction) < MAX_EXTRACT_CACHE:
+                self._caches.extraction[cache_key] = extraction
+            elif not self._caches.full_reported:
+                self._caches.full_reported = True
                 log_event(
                     _logger,
                     logging.WARNING,
-                    LogEvent.ENRICHMENT_EXTRACTION_FAILED,
-                    canId=frame_id.can_id,
-                    error=str(exc),
+                    LogEvent.CACHE_FULL,
+                    size=len(self._caches.extraction),
                 )
         else:
             log_event(
@@ -208,13 +195,11 @@ class StreamingMixin(ClientHostState):
             )
 
         values: dict[str, Fraction | None] = {}
-        if extraction is not None:
-            for sig in diag.signals:
-                val = extraction.values.get(sig)
-                if val is not None:
-                    values[sig] = val
+        for sig in diag.signals:
+            val = extraction.values.get(sig)
+            if val is not None:
+                values[sig] = val
 
-        core_reason = result.get("reason", "")
         result["enrichment"] = {
             "signals": values,
             "formula_desc": diag.formula_desc,
@@ -260,6 +245,11 @@ class StreamingMixin(ClientHostState):
 
         Returns:
             AckResponse, PropertyBatchResponse, or ErrorResponse
+
+        Raises:
+            ProtocolError: If the reply is malformed, a fails event carries
+                no ``reason``, or the reader refuses the extraction reply
+                that enriches a fails event.
 
         """
         validate_timestamp(timestamp)
@@ -317,12 +307,11 @@ class StreamingMixin(ClientHostState):
         # Slow path: batched events / errors — full JSON parse.
         # Streaming PropertyResponse is a batch envelope
         # (type=property_batch + results[]); enrich each fails entry.
-        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
-        result = parse_frame_response(response)
-        if result.get("type") == "property_batch":
-            batch = cast("PropertyBatchResponse", result)
+        result = parse_frame_response(parse_json_object(KernelResponse(result_bytes)))
+        # Of the three replies the reader builds, only the batch carries `type`.
+        if "type" in result:
             frame_id = FrameIdentity(can_id, extended, dlc)
-            self._handle_property_batch(batch, frame_id, data, timestamp)
+            self._handle_property_batch(result, frame_id, data, timestamp)
         elif _logger.isEnabledFor(logging.DEBUG):
             log_event(
                 _logger,
@@ -331,7 +320,7 @@ class StreamingMixin(ClientHostState):
                 ts=timestamp,
                 canId=can_id,
                 extended=extended,
-                response=result.get("status", "unknown"),
+                response=result["status"],
             )
         return result
 
@@ -468,8 +457,9 @@ class StreamingMixin(ClientHostState):
                 response="ack",
             )
             return {"status": "ack"}
-        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
-        return parse_event_response(response, "error_event", timestamp)
+        return parse_event_response(
+            parse_json_object(KernelResponse(result_bytes)), "error_event", timestamp
+        )
 
     def send_remote(
         self,
@@ -520,8 +510,9 @@ class StreamingMixin(ClientHostState):
                 response="ack",
             )
             return {"status": "ack"}
-        response = cast("Response", parse_json_object(KernelResponse(result_bytes)))
-        return parse_event_response(response, "remote_event", timestamp)
+        return parse_event_response(
+            parse_json_object(KernelResponse(result_bytes)), "remote_event", timestamp
+        )
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
         """End streaming mode and finalize all properties.
@@ -541,14 +532,19 @@ class StreamingMixin(ClientHostState):
         field containing ``signals``, ``formula_desc``, ``enriched_reason``,
         and ``core_reason`` when checks have been registered.
 
+        Raises:
+            ProtocolError: If the reply is malformed, a fails or unresolved
+                entry carries no ``reason``, or the reader refuses the
+                extraction reply of a last-seen frame.
+
         """
         with self._ffi_lock:
             if self._backend is None or self._state is None:
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             response_bytes = self._backend.end_stream_binary(self._state)
-        response = cast("Response", parse_json_object(KernelResponse(response_bytes)))
-        status = response.get("status")
+        response = parse_json_object(KernelResponse(response_bytes))
+        status = held(response, "status")
 
         if status == "complete":
             todo: list[_EnrichmentTodo] = []
@@ -561,15 +557,15 @@ class StreamingMixin(ClientHostState):
             num_fails = sum(1 for r in results if r["status"] == "fails")
             num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
             self._caches.last_frames.clear()
+            # The kernel proves every warning's kind is ``uncached_atom``.
             for w in warnings:
-                if w["kind"] == "uncached_atom":
-                    log_event(
-                        _logger,
-                        logging.WARNING,
-                        LogEvent.ENDSTREAM_UNCACHED_ATOM,
-                        property_index=w["property_index"],
-                        detail=w["detail"],
-                    )
+                log_event(
+                    _logger,
+                    logging.WARNING,
+                    LogEvent.ENDSTREAM_UNCACHED_ATOM,
+                    property_index=w["property_index"],
+                    detail=w["detail"],
+                )
             log_event(
                 _logger,
                 logging.INFO,
@@ -584,8 +580,11 @@ class StreamingMixin(ClientHostState):
         if status == "error":
             return build_error_response(response)
 
-        msg = f"Unexpected response status: {status!r} (expected 'complete' or 'error')"
-        raise ProtocolError(msg)
+        raise reply_refusal(
+            at(REPLY_ROOT, "status"),
+            words("complete", "error"),
+            came_word(response, "status"),
+        )
 
     def _collect_finalization_todo(
         self,
@@ -595,25 +594,14 @@ class StreamingMixin(ClientHostState):
         """Record a fails/unresolved finalization entry for enrichment.
 
         Passed to :func:`parse_finalization_results` as its ``enrich``
-        callback.  The out-of-bounds warn-and-exclude happens here at
-        collection time so the warnings keep the results-list order; the
-        actual extraction is deferred to the shared extract-once pass in
-        :meth:`_enrich_finalization_results`.
+        callback.  The entry's ``property_index`` reads the diagnostics
+        directly, the kernel proving it below the number of properties
+        ``set_properties`` was handed; the extraction is deferred to the
+        shared extract-once pass in :meth:`_enrich_finalization_results`.
         """
         if not self._diags:
             return
-        idx = result["property_index"]
-        diag = self._diags.get(idx)
-        if diag is None:
-            log_event(
-                _logger,
-                logging.WARNING,
-                LogEvent.ENRICHMENT_PROPERTY_INDEX_OOB,
-                index=idx,
-                count=len(self._diags),
-            )
-            return
-        todo.append(_EnrichmentTodo(result, diag))
+        todo.append(_EnrichmentTodo(result, self._diags[result["property_index"]]))
 
     def _extract_merged_values(self, union: set[str]) -> dict[str, Fraction]:
         """Extract signal values from last-seen frames — one pass per frame.
@@ -621,42 +609,30 @@ class StreamingMixin(ClientHostState):
         Runs one full-frame extraction per last-seen frame (ascending
         ``(canID, extended)`` order — matching Go's explicit sort and C++'s
         ``std::map`` ordering) and merges every extracted signal
-        first-frame-wins into one map.  Stops early once every name in
-        *union* (the signals wanted by any pending enrichment) has a value.
+        first-frame-wins into one map.  Stops before the next frame once every
+        name in *union* (the signals wanted by any pending enrichment) has a
+        value, so a pass that starts with *union* empty extracts nothing.
+
+        Raises:
+            ProtocolError: If the reader refuses a frame's extraction reply.
+
         """
         merged: dict[str, Fraction] = {}
         remaining = set(union)
-        for (lf_id, lf_ext), (lf_dlc, lf_data) in sorted(
-            self._caches.last_frames.items(),
-            key=lambda item: (item[0][0], item[0][1]),
-        ):
-            try:
-                extraction = self.extract_signals(
-                    can_id=lf_id,
-                    dlc=lf_dlc,
-                    data=lf_data,
-                    extended=lf_ext,
-                )
-            except (AletheiaError, ValueError) as exc:
-                # Finalization enrichment is best-effort (mirrors the hot
-                # path); keep the warning single-line so operators can grep
-                # ``enrichment.extraction_failed`` without drowning in
-                # tracebacks.  One warning per failed frame per end_stream —
-                # extraction runs once per frame, not once per property.
-                log_event(
-                    _logger,
-                    logging.WARNING,
-                    LogEvent.ENRICHMENT_EXTRACTION_FAILED,
-                    canId=lf_id,
-                    error=str(exc),
-                )
-                continue
+        for lf_id, lf_ext in sorted(self._caches.last_frames):
+            if not remaining:
+                return merged
+            lf_dlc, lf_data = self._caches.last_frames[lf_id, lf_ext]
+            extraction = self.extract_signals(
+                can_id=lf_id,
+                dlc=lf_dlc,
+                data=lf_data,
+                extended=lf_ext,
+            )
             for sig, val in extraction.values.items():
                 if sig not in merged:
                     merged[sig] = val
                     remaining.discard(sig)
-            if not remaining:
-                break
         return merged
 
     def _enrich_finalization_results(self, todo: list[_EnrichmentTodo]) -> None:
@@ -665,22 +641,28 @@ class StreamingMixin(ClientHostState):
         One shared extraction pass services every pending entry: the frame
         loop in :meth:`_extract_merged_values` runs at most once per
         ``end_stream``, then each entry's enrichment filters the merged map
-        down to its own diagnostic's signals.  An empty signal union skips
-        the extraction pass entirely (zero FFI calls) but every entry still
+        down to its own diagnostic's signals.  An empty signal union
+        extracts no frame (zero FFI calls) but every entry still
         gets its enrichment attached, falling back to the formula
         description when no values are available.
+
+        Raises:
+            ProtocolError: If an entry carries no ``reason``, which the kernel
+                writes on every fails and unresolved entry, or the reader
+                refuses a frame's extraction reply.
+
         """
         if not todo:
             return
         union: set[str] = set()
         for _, diag in todo:
             union.update(diag.signals)
-        merged = self._extract_merged_values(union) if union else {}
+        merged = self._extract_merged_values(union)
         for result, diag in todo:
             values: dict[str, Fraction | None] = {
                 sig: merged[sig] for sig in diag.signals if sig in merged
             }
-            core_reason = result.get("reason", "")
+            core_reason = entry_reason(result)
             result["enrichment"] = {
                 "signals": values,
                 "formula_desc": diag.formula_desc,

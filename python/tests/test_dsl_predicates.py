@@ -32,6 +32,8 @@ if TYPE_CHECKING:
 # SIGNAL COMPARISON OPERATORS
 # ============================================================================
 
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 
 class TestSignalComparison:
     """Test Signal comparison methods."""
@@ -182,9 +184,11 @@ class TestSignalComparison:
         assert inner_pred["max"] == 5
 
     def test_between_reversed_bounds_rejected(self) -> None:
-        """between() rejects reversed bounds."""
-        with pytest.raises(ValidationError, match="must be <="):
+        """between() is refused by the kernel when its bounds are reversed, saying which."""
+        with pytest.raises(ValidationError) as refused:
             Signal("X").between(10, 5)
+        assert refused.value.code == "handler_property_refused"
+        assert str(refused.value) == "between: min 10 exceeds max 5"
 
 
 # ============================================================================

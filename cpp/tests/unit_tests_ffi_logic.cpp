@@ -11,7 +11,6 @@
 // test's own strings, so the mock records whether it was called and with what
 // and never frees.
 
-#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "detail/ffi_abi.hpp"
@@ -21,9 +20,7 @@
 #include <aletheia/error.hpp>
 
 #include <aletheia/limits.hpp>
-#include <aletheia/types.hpp>
 #include <cstddef>
-#include <cstdint>
 
 #include <string>
 #include <string_view>
@@ -194,8 +191,8 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
         auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
-        CHECK(err->code() == ErrorCode::Unknown);
-        CHECK(std::string_view{err->message()}.starts_with("Malformed error envelope boom: "));
+        CHECK_FALSE(err->code().has_value());
+        CHECK(std::string_view{err->message()}.starts_with("reply: expected JSON text, got "));
         CHECK(free_calls() == 1);
     }
     SECTION("an envelope whose status is not error") {
@@ -203,8 +200,8 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
         auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
-        CHECK(err->code() == ErrorCode::Unknown);
-        CHECK(std::string{err->message()} == "Error envelope without status \"error\": " + buf);
+        CHECK_FALSE(err->code().has_value());
+        CHECK(std::string{err->message()} == R"(reply status: expected "error", got "success")");
         CHECK(free_calls() == 1);
     }
     SECTION("an envelope without its message") {
@@ -212,9 +209,8 @@ TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a pr
         auto const err = detail::ffi_error_from_status(1, buf.data(), mock_free);
         REQUIRE(err.has_value());
         CHECK(err->kind() == ErrorKind::Protocol);
-        CHECK(err->code() == ErrorCode::Unknown);
-        CHECK(std::string{err->message()} ==
-              "Error response missing or non-string 'message' field");
+        CHECK_FALSE(err->code().has_value());
+        CHECK(std::string{err->message()} == "reply message: expected string, got nothing");
         CHECK(free_calls() == 1);
     }
 }
@@ -258,18 +254,4 @@ TEST_CASE("abi_version_refusal admits the backend's version and names any other"
                         std::to_string(detail::abi_version + 1) + ", and this binding needs " +
                         std::to_string(detail::abi_version));
     CHECK(detail::abi_version_refusal(detail::abi_version - 1).has_value());
-}
-
-TEST_CASE("decimal_value builds over a positive denominator and refuses any other",
-          "[ffi][logic]") {
-    CHECK(detail::decimal_value(3, 1) == Rational{3, 1});
-    for (auto const denominator : {std::int64_t{0}, std::int64_t{-1}}) {
-        INFO("denominator " << denominator);
-        auto const value = detail::decimal_value(1, denominator);
-        REQUIRE_FALSE(value.has_value());
-        CHECK(value.error().kind() == ErrorKind::Protocol);
-        CHECK(value.error().text() ==
-              "aletheia_parse_decimal answered a non-positive denominator " +
-                  std::to_string(denominator));
-    }
 }

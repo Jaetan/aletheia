@@ -52,7 +52,7 @@ func TestWithLogger_StreamLifecycle(t *testing.T) {
 	ctx := t.Context()
 	c, buf := loggedClient(t,
 		aletheia.Respond(`{"status":"ack"}`),
-		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"holds"}]}`),
+		aletheia.Respond(`{"status":"complete","results":[{"type":"property","property_index":0,"status":"holds"}],"warnings":[]}`),
 	)
 	sendFrame(t, c, 1000, zeroPayload...)
 	if _, err := c.EndStream(ctx); err != nil {
@@ -68,7 +68,7 @@ func TestWithLogger_Enrichment(t *testing.T) {
 	c, buf := loggedClient(t,
 		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
-		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}]}`),
+		aletheia.Respond(`{"status":"complete","results":[{"type":"property","property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],"warnings":[]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
 	)
 	sendFrame(t, c, 5000, 0xFF, 0, 0, 0, 0, 0, 0, 0)
@@ -82,18 +82,18 @@ func TestWithLogger_Enrichment(t *testing.T) {
 	}
 }
 
-// An extraction that fails is logged twice, once where it failed and once
-// where the enrichment gave up, and the violation still reaches the caller.
+// An extraction the enrichment needs and the kernel refuses is logged where it
+// failed and returned to the caller of the frame.
 func TestWithLogger_ExtractionError(t *testing.T) {
 	c, buf := loggedClient(t,
 		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"test"}]}`),
 		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`),
 	)
-	resp := sendFrame(t, c, 5000, zeroPayload...)
-	if _, ok := resp.(aletheia.PropertyBatch); !ok {
-		t.Fatalf("the frame answered %T, want the violation despite the failed extraction", resp)
+	f := standardFrame(t, 0x123, 5000, zeroPayload...)
+	if _, err := c.SendFrame(t.Context(), f.Timestamp, f.ID, f.DLC, f.Data, nil, nil); err == nil {
+		t.Fatal("the frame answered no error, want the refused extraction")
 	}
-	requireLogged(t, buf.String(), "extraction.parse_failed", "enrichment.extraction_failed")
+	requireLogged(t, buf.String(), "extraction.parse_failed")
 }
 
 // With no logger the same stream runs, every logging site being a no-op
@@ -102,7 +102,7 @@ func TestWithoutLogger(t *testing.T) {
 	ctx := t.Context()
 	c, _ := startedClientOpts(t, speedUnder220(), []aletheia.MockResponse{
 		aletheia.Respond(`{"status":"ack"}`),
-		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"holds"}]}`),
+		aletheia.Respond(`{"status":"complete","results":[{"type":"property","property_index":0,"status":"holds"}],"warnings":[]}`),
 	})
 	sendFrame(t, c, 1000, zeroPayload...)
 	if _, err := c.EndStream(ctx); err != nil {

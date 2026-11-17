@@ -4,9 +4,9 @@
 // The GHC runtime's start, once per process, which `aletheia::start_runtime`
 // and every FfiBackend share. The runtime is never finalised (`hs_exit` does
 // not allow a second start), and the start records the entries of the library
-// it started on that the renderer, the decimal parser and `allocated_bytes`
-// call, so those reach the kernel through that library and open none of their
-// own.
+// it started on that the renderer, the decimal and time-bound parsers, the
+// property check and `allocated_bytes` call, so those reach the kernel through
+// that library and open none of their own.
 
 #include <aletheia/backend.hpp>
 #include <aletheia/detail/checked.hpp>
@@ -81,6 +81,10 @@ auto runtime_symbols(SymbolResolver& resolver) -> RuntimeSymbols {
             .free_str = resolver.get<void (*)(char*)>("aletheia_free_str"),
             .parse_decimal = resolver.get<std::int8_t (*)(FfiText const*, FfiDecimal*)>(
                 "aletheia_parse_decimal"),
+            .parse_time_bound = resolver.get<std::int8_t (*)(FfiText const*, FfiTimeBound*)>(
+                "aletheia_parse_time_bound"),
+            .check_property = resolver.get<std::int8_t (*)(FfiText const*, FfiPropertyCheck*)>(
+                "aletheia_check_property"),
         }};
 }
 

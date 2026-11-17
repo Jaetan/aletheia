@@ -29,8 +29,19 @@ bindings:
     install: |
       python/.venv/bin/pip install -e 'python/.[mutation]'
     hot_path:
-      # The cat 14(g) Python list, at the paths those modules are at.
+      # The cat 14(g) Python list: the client with its binary, streaming and
+      # reply-reading parts, the FFI backend, the DBC converter, the YAML
+      # loader, the issue codes and the domain types.  These are the files
+      # python/pyproject.toml's [tool.mutmut] source_paths names, which
+      # tools/check_mutation_setup.py holds to this list both ways.
       - python/aletheia/client/_client.py
+      - python/aletheia/client/_client_bin.py
+      - python/aletheia/client/_streaming.py
+      - python/aletheia/client/_response_parsers.py
+      - python/aletheia/client/_helpers/reply_shape.py
+      - python/aletheia/client/_helpers/property_check.py
+      - python/aletheia/client/_backend.py
+      - python/aletheia/client/_ffi.py
       - python/aletheia/dbc/_converter.py
       - python/aletheia/yaml_loader.py
       - python/aletheia/codes/_issue.py
@@ -59,24 +70,30 @@ bindings:
       # rewritten (wrapped, lowered or uppered, up to three mutants per
       # literal), then an assignment's value replaced by None, and the rest
       # a swapped operator, keyword or number. Every literal is one the
-      # module wrote, and Python has no undefined behaviour to crash on, so
-      # a kill is a test failing, an exception the test did not expect
-      # included; mutmut records no reason, so an argument dropped from a
-      # call that then raised is not told apart in the record from one a test
-      # caught by its result. The string mutants split by what the literal
+      # module wrote, and a kill is a test failing, an exception the test did
+      # not expect included; mutmut records no reason, so an argument dropped
+      # from a call that then raised is not told apart in the record from one
+      # a test caught by its result. The string mutants split by what the literal
       # is: a key, a code or an operator name on the wire, which a test that
       # reads the wire kills, or a message meant for a person, which only a
       # test pinning its wording kills.
       survivors: 0
-      total_mutants: 909
+      total_mutants: 3689
       score_pct: 100
-      run_at: "2026-10-28"
+      run_at: "2026-11-16"
       # A mutant mutmut ended at its timeout is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a sweep in which
       # the cap fired, and a timed-out mutant is a hang to remove, never a cap
       # to raise. The tests mutmut runs hold no thread and no timed wait, so a
       # mutant whose loop never ends is the one way left to reach the cap.
       timeout_ceiling: 0
+      # The FFI glue hands the kernel pointers, so a mutant there can end its
+      # process on a signal before any test reports, which mutmut files apart
+      # from its kills: no test observed it, so the lane refuses a sweep in
+      # which one did, naming it. Each pointer the glue hands is built by
+      # steps that refuse None, and the kernel and its stand-ins answer every
+      # null the header names, so a mutant reads an answer instead.
+      crash_ceiling: 0
 
   go:
     # AGENTS.md cat 14(g) names gomut, go-mutesting and mutate. This lane uses
@@ -90,8 +107,14 @@ bindings:
     hot_path:
       # The cat 14(g) Go list, at the paths those modules are at: the client
       # is client.go with its stream and enrichment parts, the protocol
-      # marshalling is json.go with its response and DBC decoding parts, and
-      # the per-frame enrichment is enrich.go.
+      # marshalling is json.go with its response and DBC decoding parts, the
+      # reply readers' shape checks in reply_shape.go and the 128-bit
+      # magnitudes in uint128.go, the FFI is ffi.go with the rational layout
+      # in wire_rational.go and the property check's entry in
+      # property_check.go, ffi.go and property_check.go each with the file
+      # that stands in for it without cgo, and the per-frame enrichment is
+      # enrich.go. gremlins sweeps the whole package all the same, the
+      # generated files held out, so this list selects nothing.
       - go/aletheia/client.go
       - go/aletheia/client_stream.go
       - go/aletheia/client_enrich.go
@@ -99,8 +122,13 @@ bindings:
       - go/aletheia/json.go
       - go/aletheia/json_response.go
       - go/aletheia/json_dbc.go
+      - go/aletheia/reply_shape.go
+      - go/aletheia/uint128.go
       - go/aletheia/ffi.go
       - go/aletheia/ffi_nocgo.go
+      - go/aletheia/wire_rational.go
+      - go/aletheia/property_check.go
+      - go/aletheia/property_check_nocgo.go
       - go/aletheia/enrich.go
     config:
       # The runner names this file to gremlins. It holds the stringer outputs
@@ -115,7 +143,9 @@ bindings:
       # gremlins writes its summary to stdout, counting the mutants it killed,
       # those that lived, those on a line no test reaches, those that timed
       # out, and those not viable or skipped. The runner reads every count from
-      # it: a mutant on an uncovered line is neither killed nor lived, so the
+      # it, once each mutant it planted in a function body has moved from
+      # not covered to the bucket its run gave (not_covered_ledger, below): a
+      # mutant on an uncovered line is neither killed nor lived, so the
       # total below is killed plus lived, and generated is every bucket.
     baseline:
       # gremlins puts every mutant it generates in exactly one bucket, so the
@@ -156,12 +186,12 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 727
-      not_covered: 15
+      generated: 831
+      not_covered: 12
       timeouts: 0
-      total_mutants: 712
+      total_mutants: 819
       score_pct: 100.0
-      run_at: "2026-10-25"
+      run_at: "2026-11-15"
       # A mutant that times out is neither killed nor lived, and no verdict
       # may come from a clock: a survivor runs the whole suite, the slowest
       # run there is, so a cap it reached would hide it as a timeout. A mutant
@@ -180,18 +210,29 @@ bindings:
       # and a row the sweep no longer produces as a stale record, until the
       # change that reaches the line deletes its row.
       #
-      # What is left is package-level constants and the one constraint written
-      # as a type set. Go's cover profile marks statements, and neither a
-      # constant declaration nor a function's signature is one, so no test
-      # executes these lines and none can; gremlins runs no test against a
-      # mutant on a line its profile never marks, so the mutants are counted
-      # here and never tried. The constants' values are held elsewhere: the
-      # limits by the parity test over the resource budgets, the two
-      # identifier maxima by the constructors' range tests, and the map-key
-      # flag by the lookups that tell a standard identifier from an extended
-      # one of the same value. The type set's mutants are none at all:
-      # gremlins reads each | of it as a bitwise or and would invert it to &,
-      # which Go's grammar does not admit there, so no build carries one.
+      # A row is a mutant outside every function body, and what is left is
+      # package-level constants. Go's cover profile marks the statements of
+      # function bodies, and neither a declaration at package level nor a
+      # function's signature is one, so no test executes these lines and none
+      # can; gremlins runs no test against a mutant on a line its profile
+      # never marks, so the mutants are counted here and never tried. The
+      # constants' values are held elsewhere: the limits by the parity test
+      # over the resource budgets, the two identifier maxima by the
+      # constructors' range tests, and the map-key flag by the lookups that
+      # tell a standard identifier from an extended one of the same value.
+      #
+      # A mutant inside a function body is never a row. gremlins reports some
+      # of them not covered and tries none: every mutant of a case clause's
+      # expression, since Go's cover tool opens the clause's block after its
+      # colon, and others besides. The runner plants each one after the
+      # sweep, of the package or of a shard (tools/mutation_go_cases.py):
+      # gremlins' token change at the column gremlins reports, made in the
+      # sweep's copy, the package's tests run under the sweep's variables,
+      # the file restored. The mutant is killed, lived or not viable as its
+      # run gives, timed out where go test's own deadline ended it, and a
+      # lived one is a survivor held as gremlins' are. Where the unmutated
+      # tests fail in the copy nothing is planted, and the mutants stay not
+      # covered, rows this ledger does not name.
       not_covered_ledger:
         - mutator: ARITHMETIC_BASE
           file: go/aletheia/limits.go
@@ -233,10 +274,6 @@ bindings:
           file: go/aletheia/dbc.go
           text: const extendedIDFlag = 1 << 32 // bit 32 distinguishes extended from standard IDs in map keys
           count: 1
-        - mutator: INVERT_BITWISE
-          file: go/aletheia/json_response.go
-          text: func narrow[T ~uint8 | ~uint16 | ~uint32 | ~int32](v int64) (T, bool) {
-          count: 3
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many share it, as the C++ and Rust survivors are
       # recorded. The lane refuses one not named here at any count, and a
@@ -261,9 +298,10 @@ bindings:
       # clang plugin .so.  Cache keys: pr-heavy-lanes.yml mutation lane; the
       # procedure: docs/operations/MUTATION.md § C++.
     hot_path:
-      # AGENTS.md cat 14(g) C++ list, less `mock_backend.cpp` and `types.cpp`
-      # (test-only and type definitions).  This list is what the static gate
-      # requires to exist; it does not select what Mull mutates.  The IR
+      # The library's client, DBC model, enrichment, loaders, FFI backend,
+      # JSON reading and writing, reply readers and property check: the test
+      # double and the type definitions are not on it.  This list is what the
+      # static gate requires to exist; it does not select what Mull mutates.  The IR
       # plugin is attached to the library and the test binary, so Mull
       # mutates whatever those compile and the link keeps, which reaches
       # files not listed here.  A listed file with no mutant is a defect of
@@ -279,6 +317,9 @@ bindings:
       - cpp/src/json_parse.cpp
       - cpp/src/json_parse_dbc.cpp
       - cpp/src/json_serialize.cpp
+      - cpp/src/property_check.cpp
+      - cpp/src/reply_shape.cpp
+      - cpp/src/wide_json.cpp
       - cpp/src/yaml.cpp
     config:
       build_dir: cpp/build-mutation
@@ -415,8 +456,8 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 6
-      total_mutants: 1586
+      survivors: 7
+      total_mutants: 1578
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -480,7 +521,7 @@ bindings:
         cpp/src/yaml.cpp: 24.7
       timeouts: 0
       score_pct: 99.6
-      run_at: "2026-10-27"
+      run_at: "2026-11-16"
       # A mutant the runner ended at its cap is neither killed nor survived,
       # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -489,12 +530,12 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1556
+        test: 1544
         kernel: 2
-        check: 14
-        fault: 8
+        check: 15
+        fault: 10
         timeout: 0
-        survived: 6
+        survived: 7
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
       # survivor not named here even at an unchanged count, and a row that no
@@ -514,7 +555,7 @@ bindings:
           file: cpp/src/client.cpp
           text: if (!inj)
           count: 2
-        # an out-parameter the callee writes, 3 mutants, an irreducible C++23
+        # an out-parameter the callee writes, 4 mutants, an irreducible C++23
         # equivalent:
         # from_chars writes its result through a reference, and open_memstream
         # its size through a pointer, on success, and nothing reads either on
@@ -533,6 +574,10 @@ bindings:
         - mutator: cxx_init_const
           file: cpp/benchmarks/stability_snapshot.hpp
           text: std::size_t size = 0;
+          count: 1
+        - mutator: cxx_init_const
+          file: cpp/src/wide_json.cpp
+          text: unsigned __int128 value = 0;
           count: 1
         # the terminate call of a noexcept function, 1 mutant, an equivalent:
         # every backend's close is noexcept, and the FFI one calls the kernel's
@@ -556,7 +601,10 @@ bindings:
       # reporting nothing before the process stops: an instrument is what ends
       # them, and on the shipped build, which runs none of them, nothing would.
       # The rest call the GHC runtime while it is down, which it refuses on any
-      # build by ending the process, before any test can report.
+      # build by ending the process, before any test can report, or skip a call
+      # nlohmann's DOM builder needs, which leaves its stack of open containers
+      # wrong: its own assertion or the standard library's check ends the parse
+      # before any test reads the tree.
       #
       # A row is never a refusal path that itself reads what the language does
       # not define: the loaders' refusals once appended dlerror's answer, which
@@ -659,6 +707,36 @@ bindings:
           route: check
           refused: get() != pointer()
           count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/wide_json.cpp
+          text: return dom_.end_array();
+          route: fault
+          refused: ''
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/wide_json.cpp
+          text: return dom_.key(value);
+          route: fault
+          refused: ''
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/wide_json.cpp
+          text: return dom_.start_array(length);
+          route: check
+          refused: attempt to access an element in an empty container.
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/wide_json.cpp
+          text: return dom_.start_object(length);
+          route: check
+          refused: attempt to access an element in an empty container.
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/benchmarks/stability_report.hpp
+          text: 'per_cycle.empty() ? 0 : std::ranges::max(per_cycle) - std::ranges::min(per_cycle);'
+          route: check
+          refused: __first != __last
+          count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/include/aletheia/ltl.hpp
           text: 'return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;'
@@ -696,12 +774,6 @@ bindings:
           refused: attempt to dereference a past-the-end iterator.
           count: 1
         - mutator: cxx_replace_scalar_call
-          file: cpp/src/json_serialize.cpp
-          text: if (r.numerator() == std::numeric_limits<std::int64_t>::min()) {
-          route: check
-          refused: __val != __gnu_cxx::__int_traits<_Res>::__min
-          count: 2
-        - mutator: cxx_replace_scalar_call
           file: cpp/src/runtime_start.cpp
           text: auto argc = static_cast<int>(rts_argv_ptrs.size());
           route: fault
@@ -729,11 +801,16 @@ bindings:
     install: |
       cargo install cargo-mutants --version 27.1.0 --locked
     hot_path:
-      # The cat 14(g) Rust list: the response decoder, the DBC model, the
+      # The cat 14(g) Rust list: the response decoder, with the reply
+      # readers' shape checks and the wire's JSON numbers, the DBC model, the
       # domain types and the FFI backend.  These are the files
-      # rust/.cargo/mutants.toml names, so the static gate's list and the
-      # tool's are one; a file added there is added here.
+      # rust/.cargo/mutants.toml names, which tools/check_mutation_setup.py
+      # holds to this list both ways.  limits.rs, the bound kinds' names, is
+      # constants alone, in which cargo-mutants makes no mutant.
       - rust/src/response.rs
+      - rust/src/response/error_codes.rs
+      - rust/src/reply_shape.rs
+      - rust/src/wire_json.rs
       - rust/src/dbc.rs
       - rust/src/dbc/decode.rs
       - rust/src/dbc/encode.rs
@@ -780,20 +857,21 @@ bindings:
       # crate's, and an arithmetic swap the compiler refuses on a constant.
       # A kill is a test failing, a panic included.
       #
-      # No survivor.  The Drop impl that returns the backend handle to the
-      # kernel frees nothing when removed, which the real kernel acknowledges
-      # without reading; a test reads the release from the recording kernel
-      # the build makes beside the library, which counts the closes and the
-      # frees it is handed (rust/tests/kernel_releases.rs).  A string the
-      # kernel returns is copied and released in one function, with no Drop
-      # of its own to remove, and the same count holds that release.
-      survivors: 0
-      generated: 386
-      unviable: 62
+      # The two survivors are the equivalent pair the ledger below records.
+      # The Drop impl that returns the backend handle to the kernel frees
+      # nothing when removed, which the real kernel acknowledges without
+      # reading; a test reads the release from the recording kernel the
+      # build makes beside the library, which counts the closes and the frees
+      # it is handed (rust/tests/kernel_releases.rs).  A string the kernel
+      # returns is copied and released in one function, with no Drop of its
+      # own to remove, and the same count holds that release.
+      survivors: 2
+      generated: 719
+      unviable: 173
       timeouts: 0
-      total_mutants: 324
-      score_pct: 100.0
-      run_at: "2026-10-25"
+      total_mutants: 546
+      score_pct: 99.6
+      run_at: "2026-11-15"
       # A mutant cargo-mutants ended at its timeout is neither killed nor
       # alive, and no verdict comes from a clock.  None can hang a run by
       # construction: the lane's files hold no wait, no thread and no loop
@@ -802,4 +880,16 @@ bindings:
       # operator, which leaves such a loop finite.  Its cap is a backstop, and
       # the lane refuses a sweep in which it fired.
       timeout_ceiling: 0
-      survivors_ledger: []
+      survivors_ledger:
+        # serde's Visitor requires expecting, whose text lands only in the error
+        # serde builds for a reply of another shape, and every reader drops that
+        # error (parse_object and string end in .ok()), so a body that writes
+        # nothing passes the suite: 2 mutants, an equivalent.
+        - mutator: "replace <impl Deserialize<'de> for Text<'de>>::deserialize::<impl Visitor<'de> for TextVisitor>::expecting -> fmt::Result with Ok(Default::default())"
+          file: rust/src/wire_json.rs
+          text: 'f.write_str("a string")'
+          count: 1
+        - mutator: "replace <impl Deserialize<'de> for Object<'de>>::deserialize::<impl Visitor<'de> for ObjectVisitor>::expecting -> fmt::Result with Ok(Default::default())"
+          file: rust/src/wire_json.rs
+          text: 'f.write_str("an object")'
+          count: 1

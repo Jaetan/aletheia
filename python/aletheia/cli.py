@@ -33,7 +33,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn, TextIO, cast
+from typing import TYPE_CHECKING, NewType, NoReturn, TextIO, cast
 
 from aletheia._cli_parser import build_parser
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
@@ -41,6 +41,7 @@ from aletheia.checks_runner import CheckRunResult, Violation, run_checks
 from aletheia.client._client import AletheiaClient
 from aletheia.client._enrichment import format_rational
 from aletheia.client._ffi import start_runtime
+from aletheia.client._helpers.rational import from_decimal
 from aletheia.client._types import (
     AletheiaError,
     DBCValidationFailedError,
@@ -690,6 +691,31 @@ def _print_check_report(
 # Subcommand —mux-query
 # ============================================================================
 
+# The text ``--value`` gives, a decimal as the kernel reads one.
+_MuxValueText = NewType("_MuxValueText", str)
+
+# A multiplexor's value: a whole number from 0 to 2^128-1.
+_MultiplexValue = NewType("_MultiplexValue", int)
+
+
+def _read_mux_value(text: _MuxValueText) -> _MultiplexValue:
+    """Read ``--value`` by the kernel's decimal grammar, as the Go and C++ CLIs do.
+
+    The runtime is up, a client having started it.  Exits 2 naming the
+    refusal, in this order: a text the kernel refuses, with the kernel's
+    message; a number that is not whole; a negative one, named as the kernel's
+    canonical number.
+    """
+    try:
+        number = from_decimal(text)
+    except (ValidationError, InputBoundExceededError) as exc:
+        _die(f"invalid --value: {text}: {exc}")
+    if number.denominator != 1:
+        _die(f"invalid --value: {text}")
+    if number < 0:
+        _die(f"--value must not be negative, got {number.numerator}")
+    return _MultiplexValue(number.numerator)
+
 
 def _resolve_mux_message(args: argparse.Namespace, dbc: DBCDefinition) -> DBCMessage:
     """Resolve the target DBC message for ``mux-query`` from positional args.
@@ -781,9 +807,12 @@ def _cmd_mux_query(args: argparse.Namespace) -> int:
     msg = _resolve_mux_message(args, dbc)
 
     mux_name: str | None = getattr(args, "mux", None)
-    value: int | None = getattr(args, "value", None)
+    value_text: _MuxValueText | None = getattr(args, "value", None)
     as_json: bool = getattr(args, "json", False)
 
+    # The value is read before it is paired with --mux, so a refused text is
+    # named even without --mux.
+    value: int | None = None if value_text is None else _read_mux_value(value_text)
     if (mux_name is None) != (value is None):
         _die("--mux and --value must be provided together")
 

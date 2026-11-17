@@ -116,18 +116,16 @@ struct PropertyBatch {
 
 using FrameResponse = std::variant<Ack, PropertyBatch>;
 
+/// The kinds of EndStream diagnostic. The kernel has one: `UncachedAtom`, a
+/// property's atom referencing a signal that never appeared in the trace. Its
+/// Unresolved verdict is sound (three-valued Kleene Unknown) but would be
+/// indistinguishable from a genuine Kleene-undecidable Unresolved without the
+/// warning. The reader refuses any other kind word.
+enum class WarningKind { UncachedAtom };
+
 /// One EndStream diagnostic surfaced by the kernel.
-///
-/// kind == "uncached_atom" is emitted when
-/// a property's atom references a signal that never appeared in trace.
-/// The Unresolved verdict on that property is sound (three-valued Kleene
-/// Unknown) but indistinguishable from a genuine Kleene-undecidable
-/// Unresolved without this warning.
-///
-/// New kinds are additive on the wire (kernel adds new WarningKind
-/// constructors; bindings should accept unknown kinds rather than reject).
 struct StreamWarning {
-    std::string kind;
+    WarningKind kind = WarningKind::UncachedAtom;
     PropertyIndex property_index{0};
     std::string detail;
 };

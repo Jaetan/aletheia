@@ -1,0 +1,130 @@
+{
+  "host": {
+    "cpu": "AMD EPYC 7763 64-Core Processor"
+  },
+  "toolchain": {
+    "c++": "Ubuntu clang version 23.1.6 (++20261108033755+c47d7823685a-1~exp1~20261108153854.96)",
+    "ghc": "9.8.4",
+    "glibc": "glibc 2.39",
+    "go": "go1.27.4",
+    "python": "3.14.10 (main, Oct 26 2026, 14:19:15) [GCC 13.3.0]",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "valgrind": "valgrind-3.22.0"
+  },
+  "frames": [
+    100,
+    1100
+  ],
+  "lanes": {
+    "cpp": {
+      "CAN 2.0B: Frame Building": {
+        "instructions": 178628,
+        "fps_min": 46515.1
+      },
+      "CAN 2.0B: Signal Extraction": {
+        "instructions": 58303,
+        "fps_min": 158273.6
+      },
+      "CAN 2.0B: Stream LTL (2 props)": {
+        "instructions": 66329,
+        "fps_min": 102685.1
+      },
+      "CAN-FD:   Frame Building": {
+        "instructions": 769319,
+        "fps_min": 11792.3
+      },
+      "CAN-FD:   Signal Extraction": {
+        "instructions": 861130,
+        "fps_min": 11423.5
+      },
+      "CAN-FD:   Stream LTL (3 props)": {
+        "instructions": 136295,
+        "fps_min": 67765.4
+      }
+    },
+    "go": {
+      "CAN 2.0B: Frame Building": {
+        "instructions": 180406,
+        "fps_min": 44118.6
+      },
+      "CAN 2.0B: Signal Extraction": {
+        "instructions": 61670,
+        "fps_min": 129284.8
+      },
+      "CAN 2.0B: Stream LTL (2 props)": {
+        "instructions": 68370,
+        "fps_min": 115107.7
+      },
+      "CAN-FD:   Frame Building": {
+        "instructions": 771844,
+        "fps_min": 11613.8
+      },
+      "CAN-FD:   Signal Extraction": {
+        "instructions": 869577,
+        "fps_min": 10871.2
+      },
+      "CAN-FD:   Stream LTL (3 props)": {
+        "instructions": 138523,
+        "fps_min": 62190.9
+      }
+    },
+    "python": {
+      "CAN 2.0B: Frame Building": {
+        "instructions": 279457,
+        "fps_min": 22995.0
+      },
+      "CAN 2.0B: Signal Extraction": {
+        "instructions": 154261,
+        "fps_min": 38904.3
+      },
+      "CAN 2.0B: Stream LTL (2 props)": {
+        "instructions": 126613,
+        "fps_min": 53726.5
+      },
+      "CAN-FD:   Frame Building": {
+        "instructions": 898670,
+        "fps_min": 8820.0
+      },
+      "CAN-FD:   Signal Extraction": {
+        "instructions": 1124454,
+        "fps_min": 7757.3
+      },
+      "CAN-FD:   Stream LTL (3 props)": {
+        "instructions": 198087,
+        "fps_min": 36464.2
+      }
+    },
+    "rust": {
+      "CAN 2.0B: Frame Building": {
+        "instructions": 178404,
+        "fps_min": 41553.6
+      },
+      "CAN 2.0B: Signal Extraction": {
+        "instructions": 58314,
+        "fps_min": 156910.3
+      },
+      "CAN 2.0B: Stream LTL (2 props)": {
+        "instructions": 66726,
+        "fps_min": 114577.6
+      },
+      "CAN-FD:   Frame Building": {
+        "instructions": 768653,
+        "fps_min": 11444.0
+      },
+      "CAN-FD:   Signal Extraction": {
+        "instructions": 865692,
+        "fps_min": 11468.9
+      },
+      "CAN-FD:   Stream LTL (3 props)": {
+        "instructions": 136663,
+        "fps_min": 66144.8
+      }
+    }
+  },
+  "limitations": {
+    "python": [
+      "CAN-FD:   Frame Building",
+      "CAN-FD:   Signal Extraction"
+    ]
+  }
+}

@@ -5,53 +5,93 @@
 One decoder for every entry that answers ``{"status": "error", "code": …,
 "message": …}`` plus the code's own fields: a bound refusal lifts to
 :class:`InputBoundExceededError`, every other refusal raises the caller's kind
-with its code, its text the kernel's message verbatim.  Below the rational
-helpers in the import graph, so the decimal entry and the response parsers both
-reach it.
+with its code, its text the kernel's message verbatim.  A place of the
+envelope holding what the kernel never writes there is refused in the one form
+of :mod:`~aletheia.client._helpers.reply_shape`.  Below the rational helpers in
+the import graph, so the decimal entry and the response parsers both reach it.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Final, NoReturn
 
+from aletheia.client._helpers.reply_shape import (
+    NUMBER,
+    REPLY_ROOT,
+    STRING,
+    Expectation,
+    at,
+    came,
+    came_word,
+    field_member,
+    held,
+    reply_refusal,
+    words,
+)
 from aletheia.client._types import (
     InputBoundExceededError,
     KernelRefusal,
     ProtocolError,
     ValidationError,
 )
+from aletheia.codes import ErrorCode
 from aletheia.common_types import Prose
 from aletheia.limits import BoundField, BoundKind, Limit
 
 if TYPE_CHECKING:
+    from aletheia.client._helpers.reply_shape import ReplyFields
     from aletheia.common_types import PositiveInt
-    from aletheia.types import Response
+
+# The keys of a bound refusal's triple, in the order they are read.
+_TRIPLE_KEYS: Final = ("bound_kind", "observed", "limit")
+
+_AN_ERROR_CODE: Final = Expectation("an error code")
 
 
-def extract_bound_triple(response: Response) -> tuple[BoundKind, PositiveInt, Limit] | None:
-    """Return the ``(bound_kind, observed, limit)`` triple, or ``None`` if absent.
+def read_error_code(envelope: ReplyFields) -> ErrorCode:
+    """Read an error envelope's ``code`` as the :class:`ErrorCode` member it names.
 
-    All-or-nothing: a partial triple is treated as missing, matching the C++
-    binding's degrade-to-nullopt rule in ``make_json_error``. ``observed`` and
-    ``limit`` are positive integers; ``bool`` is excluded because
-    ``isinstance(True, int)`` is ``True`` and a boolean is a malformed wire
-    value, not a count. Single source for the triple shape, shared by
+    Raises:
+        ProtocolError: If the code is absent, not a string, or no error code,
+            refused at ``code`` as ``an error code``.
+
+    """
+    return field_member(envelope, REPLY_ROOT, "code", ErrorCode, _AN_ERROR_CODE)
+
+
+def extract_bound_triple(reply: ReplyFields) -> tuple[BoundKind, PositiveInt, Limit] | None:
+    """Return the ``(bound_kind, observed, limit)`` triple, or ``None`` if none of it is there.
+
+    An envelope holding any of the three keys holds all three: ``bound_kind``
+    a string, ``observed`` and ``limit`` whole numbers, read without a range
+    check since the kernel proves them positive, a boolean refused though
+    ``isinstance(True, int)`` holds. Each broken key is refused at its own
+    place. Single source for the triple shape, shared by
     :func:`~aletheia.client._response_parsers.build_error_response` (which folds
     it into the ``ErrorResponse``) and :func:`raise_if_input_bound_exceeded`
-    (which gates it on the wire code), so
-    no call site re-derives the field rules.
+    (which gates it on the wire code), so no call site re-derives the field
+    rules.
+
+    Raises:
+        ProtocolError: If one key of the triple is there and another is
+            absent or not of its kind.
+
     """
-    bound_kind = response.get("bound_kind")
-    observed = response.get("observed")
-    limit = response.get("limit")
-    if not (isinstance(bound_kind, str) and isinstance(observed, int) and isinstance(limit, int)):
+    if not any(key in reply for key in _TRIPLE_KEYS):
         return None
-    if isinstance(observed, bool) or isinstance(limit, bool) or min(observed, limit) <= 0:
-        return None
+    bound_kind = held(reply, "bound_kind")
+    if not isinstance(bound_kind, str):
+        raise reply_refusal(at(REPLY_ROOT, "bound_kind"), STRING, came(reply, "bound_kind"))
+    observed = held(reply, "observed")
+    if not isinstance(observed, int) or isinstance(observed, bool):
+        raise reply_refusal(at(REPLY_ROOT, "observed"), NUMBER, came(reply, "observed"))
+    limit = held(reply, "limit")
+    if not isinstance(limit, int) or isinstance(limit, bool):
+        raise reply_refusal(at(REPLY_ROOT, "limit"), NUMBER, came(reply, "limit"))
     return (BoundKind(bound_kind), observed, limit)
 
 
-def raise_if_input_bound_exceeded(response: Response) -> None:
+def raise_if_input_bound_exceeded(reply: ReplyFields) -> None:
     """Raise :class:`InputBoundExceededError` for an ``input_bound_exceeded`` error envelope.
 
     Gates on the wire code, like
@@ -59,42 +99,64 @@ def raise_if_input_bound_exceeded(response: Response) -> None:
     C++ / Rust decoders, then reads the triple with :func:`extract_bound_triple`,
     the ``field`` the refusal names, and the kernel's
     ``message``, which is the error's text. Returns normally when the code
-    differs, the triple is not whole, ``field`` is present and not a string, or
-    ``message`` is not a string, so the caller raises its own fallback rather
-    than an error with fabricated fields. The single lift-and-raise shared by
-    every DBC command, the decimal entry and the binary-output entries.
+    differs. The single lift-and-raise shared by every DBC command, the
+    decimal entry and the binary-output entries.
+
+    Raises:
+        InputBoundExceededError: If the envelope is a whole bound refusal.
+        ProtocolError: If its triple, its ``field`` or its ``message`` is not of
+            its kind, the kernel writing the triple and the message on every
+            bound refusal.
+
     """
-    if response.get("code") != "input_bound_exceeded":
+    if held(reply, "code") != "input_bound_exceeded":
         return
-    triple = extract_bound_triple(response)
-    field = response.get("field")
-    message = response.get("message")
-    if triple is None or not (field is None or isinstance(field, str)):
-        return
-    if not isinstance(message, str):
-        return
+    triple = extract_bound_triple(reply)
+    if triple is None:
+        raise reply_refusal(at(REPLY_ROOT, "bound_kind"), STRING, came(reply, "bound_kind"))
+    field = bound_field(reply)
+    message = envelope_message(reply)
     kind, observed, limit = triple
     raise InputBoundExceededError(
         kind,
         observed,
         limit,
-        code="input_bound_exceeded",
-        refusal=KernelRefusal(Prose(message), None if field is None else BoundField(field)),
+        code=ErrorCode.INPUT_BOUND_EXCEEDED,
+        refusal=KernelRefusal(message, field),
     )
 
 
-def envelope_message(response: Response, missing: Prose) -> Prose:
+def bound_field(reply: ReplyFields) -> BoundField | None:
+    """Return the part of the input a bound refusal names, or ``None`` when it names none.
+
+    Raises:
+        ProtocolError: If ``field`` is there and not a string.
+
+    """
+    if "field" not in reply:
+        return None
+    field = reply["field"]
+    if not isinstance(field, str):
+        raise reply_refusal(at(REPLY_ROOT, "field"), STRING, came(reply, "field"))
+    return BoundField(field)
+
+
+def envelope_message(reply: ReplyFields) -> Prose:
     """Return an error envelope's text: the kernel's ``message``, verbatim.
 
-    An envelope without a string ``message`` is a malformed reply, and its text
-    is *missing*, the binding's own.
+    Raises:
+        ProtocolError: If the envelope has no string ``message``, which the
+            kernel writes on every error envelope.
+
     """
-    message = response.get("message")
-    return Prose(message) if isinstance(message, str) else missing
+    message = held(reply, "message")
+    if not isinstance(message, str):
+        raise reply_refusal(at(REPLY_ROOT, "message"), STRING, came(reply, "message"))
+    return Prose(message)
 
 
 def raise_entry_refusal(
-    envelope: Response,
+    envelope: ReplyFields,
     *,
     error: type[ProtocolError | ValidationError] = ProtocolError,
 ) -> NoReturn:
@@ -109,18 +171,17 @@ def raise_entry_refusal(
     carrying the envelope's ``code``, its text the kernel's ``message``
     verbatim: :class:`ProtocolError` for the binary-output entries,
     :class:`ValidationError` for the decimal entry, whose text is the caller's
-    own. An envelope whose ``status`` is not ``"error"``, or without a string
-    ``code`` and ``message``, is malformed and raises a :class:`ProtocolError`
-    without a code whatever *error* is. The one decoder shared by both.
+    own. An envelope whose ``status`` is not ``"error"``, whose ``code`` is no
+    error code, or without a string ``message``, is malformed: it raises a
+    :class:`ProtocolError` without a code whatever *error* is, refused at the
+    first of ``status``, ``code`` and ``message`` that is broken. The one
+    decoder shared by both.
     """
-    code = envelope.get("code")
-    message = envelope.get("message")
-    if (
-        envelope.get("status") != "error"
-        or not isinstance(code, str)
-        or not isinstance(message, str)
-    ):
-        msg = f"malformed error envelope {envelope!r}"
-        raise ProtocolError(msg)
+    if held(envelope, "status") != "error":
+        raise reply_refusal(at(REPLY_ROOT, "status"), words("error"), came_word(envelope, "status"))
+    code = read_error_code(envelope)
+    message = held(envelope, "message")
+    if not isinstance(message, str):
+        raise reply_refusal(at(REPLY_ROOT, "message"), STRING, came(envelope, "message"))
     raise_if_input_bound_exceeded(envelope)
     raise error(message, code=code)

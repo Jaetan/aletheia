@@ -3,7 +3,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- What the literal core guarantees: a literal it holds has an exact
--- value with a reduced component of at least 2^64, and a literal it
+-- value with a reduced component of at least 2^128, and a literal it
 -- does not hold reads to exactly the value of the digit fold.
 module Aletheia.DBC.DecRat.Literal.Properties where
 
@@ -323,7 +323,7 @@ exactTriple digits places power =
 canonical : ℕ × ℕ × ℕ → ℕ × ℕ × ℕ
 canonical (n , a , b) = canonicalizeNat n a b
 
--- A reduced numerator or denominator of at least 2^64.
+-- A reduced numerator or denominator of at least 2^128.
 LargeComponent : ℕ × ℕ × ℕ → Set
 LargeComponent (n , a , b) = heldMagnitude ≤ n ⊎ heldMagnitude ≤ 2 ^ a * 5 ^ b
 
@@ -337,17 +337,17 @@ data Verdict (raw value : ℕ × ℕ × ℕ) : Set where
   held  : Held raw → LargeComponent value → Verdict raw value
 
 -- Small arithmetic facts.
-2^64≡ : 2 ^ 64 ≡ heldMagnitude
-2^64≡ = refl
+2^128≡ : 2 ^ 128 ≡ heldMagnitude
+2^128≡ = refl
 
 10^n≡ : ∀ n → 10 ^ n ≡ 2 ^ n * 5 ^ n
 10^n≡ n = ^-distribʳ-* n 2 5
 
-2^64≤10^64 : heldMagnitude ≤ 10 ^ 64
-2^64≤10^64 = ^-monoˡ-≤ 64 {2} {10} (s≤s (s≤s z≤n))
+2^128≤10^128 : heldMagnitude ≤ 10 ^ 128
+2^128≤10^128 = ^-monoˡ-≤ 128 {2} {10} (s≤s (s≤s z≤n))
 
-2^64≤5^64 : heldMagnitude ≤ 5 ^ 64
-2^64≤5^64 = ^-monoˡ-≤ 64 {2} {5} (s≤s (s≤s z≤n))
+2^128≤5^128 : heldMagnitude ≤ 5 ^ 128
+2^128≤5^128 = ^-monoˡ-≤ 128 {2} {5} (s≤s (s≤s z≤n))
 
 -- `(a ∨ b) ≡ true` is one of them true.
 ∨-true : ∀ a b → (a ∨ b) ≡ true → a ≡ true ⊎ b ≡ true
@@ -433,12 +433,12 @@ sig-verdict m ms t places power m≢0 nondiv with places ≤ᵇ power + t in le
     covered with digitCutoff ≤ᵇ length (m ∷ ms) + e in cut
     ... | true  = held (inj₁ refl) (subst LargeComponent (sym canonV) (inj₁ large))
       where
-        64≤ : 64 ≤ length ms + e
-        64≤ with ≤ᵇ⇒≤ digitCutoff (suc (length ms) + e) (subst T (sym cut) tt)
+        128≤ : 128 ≤ length ms + e
+        128≤ with ≤ᵇ⇒≤ digitCutoff (suc (length ms) + e) (subst T (sym cut) tt)
         ... | s≤s h = h
         large : heldMagnitude ≤ v * 10 ^ e
-        large = ≤-trans 2^64≤10^64
-                (≤-trans (^-monoʳ-≤ 10 {64} {length ms + e} 64≤)
+        large = ≤-trans 2^128≤10^128
+                (≤-trans (^-monoʳ-≤ 10 {128} {length ms + e} 128≤)
                 (≤-trans (≤-reflexive (^-distribˡ-+-* 10 (length ms) e))
                          (*-monoˡ-≤ (10 ^ e) (foldDigits-lower m ms m≢0))))
     ... | false = exact (trans (canonicalizeNat-unfold (v * 10 ^ e) 0 0) (sym canonV))
@@ -478,9 +478,9 @@ sig-verdict m ms t places power m≢0 nondiv with places ≤ᵇ power + t in le
       canonicalizeNat v d d
       ∎
       where open ≡-Reasoning
-    -- 10^64 ≤ v when the significand has at least `digitCutoff` digits.
-    v-large : digitCutoff ≤ length (m ∷ ms) → 10 ^ 64 ≤ v
-    v-large (s≤s 64≤) = ≤-trans (^-monoʳ-≤ 10 64≤) (foldDigits-lower m ms m≢0)
+    -- 10^128 ≤ v when the significand has at least `digitCutoff` digits.
+    v-large : digitCutoff ≤ length (m ∷ ms) → 10 ^ 128 ≤ v
+    v-large (s≤s 128≤) = ≤-trans (^-monoʳ-≤ 10 128≤) (foldDigits-lower m ms m≢0)
     -- The large component of `canonicalizeNat v d d`.
     large : 2 ∤ v ⊎ 5 ∤ v → (placeCutoff ≤ d ⊎ digitCutoff ≤ length (m ∷ ms))
           → LargeComponent (canonicalizeNat v d d)
@@ -494,21 +494,21 @@ sig-verdict m ms t places power m≢0 nondiv with places ≤ᵇ power + t in le
         value : v * 5 ^ proj₂ s5 ≡ proj₁ s5 * 5 ^ d
         value = stripShared5-abs-value v d
         byPlaces : (placeCutoff ≤ d ⊎ digitCutoff ≤ length (m ∷ ms)) → LargeComponent (proj₁ s5 , d , proj₂ s5)
-        byPlaces (inj₁ 64≤d) = inj₂ (≤-trans (^-monoʳ-≤ 2 64≤d) (m≤m*n (2 ^ d) (5 ^ proj₂ s5) ⦃ m^n≢0 5 (proj₂ s5) ⦄))
-        byPlaces (inj₂ 65≤s) with placeCutoff ≤ᵇ d in pl
+        byPlaces (inj₁ 128≤d) = inj₂ (≤-trans (^-monoʳ-≤ 2 128≤d) (m≤m*n (2 ^ d) (5 ^ proj₂ s5) ⦃ m^n≢0 5 (proj₂ s5) ⦄))
+        byPlaces (inj₂ 129≤s) with placeCutoff ≤ᵇ d in pl
         ... | true  = inj₂ (≤-trans (^-monoʳ-≤ 2 (≤ᵇ⇒≤ placeCutoff d (subst T (sym pl) tt)))
                                     (m≤m*n (2 ^ d) (5 ^ proj₂ s5) ⦃ m^n≢0 5 (proj₂ s5) ⦄))
-        ... | false = inj₁ (≤-trans (m≤m*n heldMagnitude 5) (*-cancelʳ-≤ (heldMagnitude * 5) (proj₁ s5) (5 ^ 63) chain))
+        ... | false = inj₁ (≤-trans (m≤m*n heldMagnitude 5) (*-cancelʳ-≤ (heldMagnitude * 5) (proj₁ s5) (5 ^ 127) chain))
           where
-            d≤63 : d ≤ 63
-            d≤63 with ≤ᵇ-false placeCutoff d pl
+            d≤127 : d ≤ 127
+            d≤127 with ≤ᵇ-false placeCutoff d pl
             ... | s≤s h = h
-            chain : heldMagnitude * 5 * 5 ^ 63 ≤ proj₁ s5 * 5 ^ 63
-            chain = ≤-trans (≤-reflexive (trans (*-assoc heldMagnitude 5 (5 ^ 63)) (sym (10^n≡ 64))))
-                    (≤-trans (v-large 65≤s)
+            chain : heldMagnitude * 5 * 5 ^ 127 ≤ proj₁ s5 * 5 ^ 127
+            chain = ≤-trans (≤-reflexive (trans (*-assoc heldMagnitude 5 (5 ^ 127)) (sym (10^n≡ 128))))
+                    (≤-trans (v-large 129≤s)
                     (≤-trans (m≤m*n v (5 ^ proj₂ s5) ⦃ m^n≢0 5 (proj₂ s5) ⦄)
                     (≤-trans (≤-reflexive value)
-                             (*-monoʳ-≤ (proj₁ s5) (^-monoʳ-≤ 5 d≤63)))))
+                             (*-monoʳ-≤ (proj₁ s5) (^-monoʳ-≤ 5 d≤127)))))
     large (inj₂ 5∤v) which = subst LargeComponent (sym canon) (byPlaces which)
       where
         s2 = stripShared2-abs v d
@@ -520,24 +520,24 @@ sig-verdict m ms t places power m≢0 nondiv with places ≤ᵇ power + t in le
         canon = trans (canonicalizeNat-unfold v d d)
                       (cong (λ q → (proj₁ q , proj₂ s2 , proj₂ q)) (stripShared5-abs-noDiv (proj₁ s2) d (λ _ → 5∤n₂)))
         byPlaces : (placeCutoff ≤ d ⊎ digitCutoff ≤ length (m ∷ ms)) → LargeComponent (proj₁ s2 , proj₂ s2 , d)
-        byPlaces (inj₁ 64≤d) = inj₂ (≤-trans 2^64≤5^64 (≤-trans (^-monoʳ-≤ 5 64≤d) (m≤n*m (5 ^ d) (2 ^ proj₂ s2) ⦃ m^n≢0 2 (proj₂ s2) ⦄)))
-        byPlaces (inj₂ 65≤s) with placeCutoff ≤ᵇ d in pl
-        ... | true  = inj₂ (≤-trans 2^64≤5^64 (≤-trans (^-monoʳ-≤ 5 (≤ᵇ⇒≤ placeCutoff d (subst T (sym pl) tt)))
+        byPlaces (inj₁ 128≤d) = inj₂ (≤-trans 2^128≤5^128 (≤-trans (^-monoʳ-≤ 5 128≤d) (m≤n*m (5 ^ d) (2 ^ proj₂ s2) ⦃ m^n≢0 2 (proj₂ s2) ⦄)))
+        byPlaces (inj₂ 129≤s) with placeCutoff ≤ᵇ d in pl
+        ... | true  = inj₂ (≤-trans 2^128≤5^128 (≤-trans (^-monoʳ-≤ 5 (≤ᵇ⇒≤ placeCutoff d (subst T (sym pl) tt)))
                                                        (m≤n*m (5 ^ d) (2 ^ proj₂ s2) ⦃ m^n≢0 2 (proj₂ s2) ⦄)))
-        ... | false = inj₁ (≤-trans (m≤m*n heldMagnitude 2) (*-cancelʳ-≤ (heldMagnitude * 2) (proj₁ s2) (2 ^ 63) chain))
+        ... | false = inj₁ (≤-trans (m≤m*n heldMagnitude 2) (*-cancelʳ-≤ (heldMagnitude * 2) (proj₁ s2) (2 ^ 127) chain))
           where
-            d≤63 : d ≤ 63
-            d≤63 with ≤ᵇ-false placeCutoff d pl
+            d≤127 : d ≤ 127
+            d≤127 with ≤ᵇ-false placeCutoff d pl
             ... | s≤s h = h
-            -- 2^64 * 2 * 2^63 = 2^64 * 2^64 ≤ 2^64 * 5^64 = 10^64
-            chain : heldMagnitude * 2 * 2 ^ 63 ≤ proj₁ s2 * 2 ^ 63
-            chain = ≤-trans (≤-reflexive (*-assoc heldMagnitude 2 (2 ^ 63)))
-                    (≤-trans (*-monoʳ-≤ heldMagnitude 2^64≤5^64)
-                    (≤-trans (≤-reflexive (sym (10^n≡ 64)))
-                    (≤-trans (v-large 65≤s)
+            -- 2^128 * 2 * 2^127 = 2^128 * 2^128 ≤ 2^128 * 5^128 = 10^128
+            chain : heldMagnitude * 2 * 2 ^ 127 ≤ proj₁ s2 * 2 ^ 127
+            chain = ≤-trans (≤-reflexive (*-assoc heldMagnitude 2 (2 ^ 127)))
+                    (≤-trans (*-monoʳ-≤ heldMagnitude 2^128≤5^128)
+                    (≤-trans (≤-reflexive (sym (10^n≡ 128)))
+                    (≤-trans (v-large 129≤s)
                     (≤-trans (m≤m*n v (2 ^ proj₂ s2) ⦃ m^n≢0 2 (proj₂ s2) ⦄)
                     (≤-trans (≤-reflexive value)
-                             (*-monoʳ-≤ (proj₁ s2) (^-monoʳ-≤ 2 d≤63)))))))
+                             (*-monoʳ-≤ (proj₁ s2) (^-monoʳ-≤ 2 d≤127)))))))
     uncovered : Verdict (if (placeCutoff ≤ᵇ d) ∨ (digitCutoff ≤ᵇ length (m ∷ ms))
                            then heldDenominator else (foldDigits (m ∷ ms) , d , d))
                         (canonicalizeNat V places places)
@@ -589,12 +589,12 @@ SmallTriple (n , a , b) =
 smallTriple : ∀ d → SmallDecRat d → SmallTriple (∣ DecRat.numerator d ∣ , DecRat.twoExp d , DecRat.fiveExp d)
 smallTriple d small = smallDecRat-components d small
 
-max<2^64 : max-rational-component-magnitude < heldMagnitude
-max<2^64 = <ᵇ⇒< max-rational-component-magnitude heldMagnitude tt
+max<2^128 : max-rational-component-magnitude < heldMagnitude
+max<2^128 = <ᵇ⇒< max-rational-component-magnitude heldMagnitude tt
 
 small-not-large : ∀ r → SmallTriple r → LargeComponent r → ⊥
-small-not-large (n , a , b) (n≤ , _)  (inj₁ 2^64≤n) = <-irrefl refl (≤-<-trans (≤-trans 2^64≤n n≤) max<2^64)
-small-not-large (n , a , b) (_ , d≤)  (inj₂ 2^64≤d) = <-irrefl refl (≤-<-trans (≤-trans 2^64≤d d≤) max<2^64)
+small-not-large (n , a , b) (n≤ , _)  (inj₁ 2^128≤n) = <-irrefl refl (≤-<-trans (≤-trans 2^128≤n n≤) max<2^128)
+small-not-large (n , a , b) (_ , d≤)  (inj₂ 2^128≤d) = <-irrefl refl (≤-<-trans (≤-trans 2^128≤d d≤) max<2^128)
 
 -- A literal whose exact value fits the bound is read exactly.
 rawLiteral-exact : ∀ digits places power → SmallTriple (exactTriple digits places power)
@@ -603,11 +603,11 @@ rawLiteral-exact digits places power small with literal-verdict digits places po
 ... | exact e  = e
 ... | held _ l = ⊥-elim (small-not-large (exactTriple digits places power) small l)
 
--- A natural-number literal is its digits' value, or 2^64 when that value
--- is at least 10^64.
+-- A natural-number literal is its digits' value, or 2^128 when that value
+-- is at least 10^128.
 natLiteral-spec : ∀ digits →
   natLiteral digits ≡ foldDigits digits
-  ⊎ (natLiteral digits ≡ heldMagnitude × 10 ^ 64 ≤ foldDigits digits)
+  ⊎ (natLiteral digits ≡ heldMagnitude × 10 ^ 128 ≤ foldDigits digits)
 natLiteral-spec digits with significand digits | significand-spec digits
 ... | [] , t | spec = inj₁ (sym (SignificandSpec.value spec))
 ... | m ∷ ms , t | spec
@@ -616,30 +616,30 @@ natLiteral-spec digits with significand digits | significand-spec digits
   where
     m≢0 : digitValue m ≢ 0
     m≢0 = subst HeadNonzero (sym (SignificandSpec.sig≡ spec)) (SignificandSpec.headM spec)
-    64≤ : 64 ≤ length ms + t
-    64≤ with ≤ᵇ⇒≤ digitCutoff (suc (length ms) + t) (subst T (sym cut) tt)
+    128≤ : 128 ≤ length ms + t
+    128≤ with ≤ᵇ⇒≤ digitCutoff (suc (length ms) + t) (subst T (sym cut) tt)
     ... | s≤s h = h
-    large : 10 ^ 64 ≤ foldDigits digits
-    large = subst (10 ^ 64 ≤_) (sym (SignificandSpec.value spec))
-              (≤-trans (^-monoʳ-≤ 10 {64} {length ms + t} 64≤)
+    large : 10 ^ 128 ≤ foldDigits digits
+    large = subst (10 ^ 128 ≤_) (sym (SignificandSpec.value spec))
+              (≤-trans (^-monoʳ-≤ 10 {128} {length ms + t} 128≤)
               (≤-trans (≤-reflexive (^-distribˡ-+-* 10 (length ms) t))
                        (*-monoˡ-≤ (10 ^ t) (foldDigits-lower m ms m≢0))))
 ...   | false = inj₁ (sym (SignificandSpec.value spec))
 
-natLiteral-exact : ∀ digits → foldDigits digits < 10 ^ 64 → natLiteral digits ≡ foldDigits digits
+natLiteral-exact : ∀ digits → foldDigits digits < 10 ^ 128 → natLiteral digits ≡ foldDigits digits
 natLiteral-exact digits small with natLiteral-spec digits
 ... | inj₁ e          = e
 ... | inj₂ (_ , large) = ⊥-elim (<-irrefl refl (≤-<-trans large small))
 
-max<10^64 : max-rational-component-magnitude < 10 ^ 64
-max<10^64 = <ᵇ⇒< max-rational-component-magnitude (10 ^ 64) tt
+max<10^128 : max-rational-component-magnitude < 10 ^ 128
+max<10^128 = <ᵇ⇒< max-rational-component-magnitude (10 ^ 128) tt
 
 -- A natural within the bound reads back from its own digits.
 natLiteral-showNat-chars : ∀ n → n ≤ max-rational-component-magnitude →
   natLiteral (showNat-chars n) ≡ n
 natLiteral-showNat-chars n n≤ =
   trans (natLiteral-exact (showNat-chars n)
-          (subst (_< 10 ^ 64) (sym (foldDigits-showNat-chars n)) (≤-<-trans n≤ max<10^64)))
+          (subst (_< 10 ^ 128) (sym (foldDigits-showNat-chars n)) (≤-<-trans n≤ max<10^128)))
         (foldDigits-showNat-chars n)
 
 -- ============================================================================
@@ -737,7 +737,7 @@ exponent-held m ms t places -[1+ e ] lt
 
 -- A literal the core holds, by its own rule or by the exponent rule,
 -- has a large component in its exact value: the verdict says so, or the
--- held value canonicalises to itself and is at 2^64 outright.
+-- held value canonicalises to itself and is at 2^128 outright.
 held-large : ∀ digits places power → Held (rawLiteral digits places power)
            → LargeComponent (exactTriple digits places power)
 held-large digits places power h with literal-verdict digits places power

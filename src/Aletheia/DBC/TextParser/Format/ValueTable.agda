@@ -37,10 +37,11 @@ open import Data.Bool using (false)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using (ℕ; suc; s≤s; z≤n)
+open import Data.Nat using (ℕ; suc; s≤s; z≤n; _≤_)
+open import Data.Integer using (ℤ; +_; -[1+_]; -_; ∣_∣)
 open import Data.Product using (_×_; _,_; proj₂; Σ-syntax)
 open import Data.String using (toList)
-open import Data.Sum using (inj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
@@ -53,9 +54,9 @@ open import Aletheia.DBC.Types using (ValueTable)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using (showNat-chars; quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
-  using (SuffixStops; ∷-stop; showNat-chars-head)
-open import Aletheia.DBC.DecRat.Magnitude using (SmallNat)
+  using (SuffixStops; ∷-stop; showNat-chars-head; showNat-chars-head-≢-dash)
 open import Aletheia.DBC.Bounds using (SmallKeys)
+open import Aletheia.Limits using (max-value-description-key-magnitude)
 open import Data.List.Relation.Unary.All using ([]; _∷_)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; stringLit; pair; iso; many;
@@ -90,11 +91,26 @@ private
 -- DSL DEFINITIONS
 -- ============================================================================
 
--- One ` <nat> "<desc>"` entry — single space then nat, single space then
--- quoted string-literal description.  Production permissiveness preserved
--- via `withWS`.
-ValueEntry-format : Format (ℕ × List Char)
-ValueEntry-format = pair (withWS nat) (withWS stringLit)
+-- A signed integer: an optional '-' then digits.  `-0` reads as 0 and is
+-- never written.
+int : Format ℤ
+int = iso fromSum toSum fromSum∘toSum (altSum (withPrefix ('-' ∷ []) nat) nat)
+  where
+    fromSum : ℕ ⊎ ℕ → ℤ
+    fromSum (inj₁ n) = - (+ n)
+    fromSum (inj₂ n) = + n
+    toSum : ℤ → ℕ ⊎ ℕ
+    toSum (+ n)    = inj₂ n
+    toSum -[1+ n ] = inj₁ (suc n)
+    fromSum∘toSum : ∀ z → fromSum (toSum z) ≡ z
+    fromSum∘toSum (+ n)    = refl
+    fromSum∘toSum -[1+ n ] = refl
+
+-- One ` <int> "<desc>"` entry — single space then a signed key, single
+-- space then quoted string-literal description.  Production permissiveness
+-- preserved via `withWS`.
+ValueEntry-format : Format (ℤ × List Char)
+ValueEntry-format = pair (withWS int) (withWS stringLit)
 
 -- Full `VAL_TABLE_ <name>(<entries>) ;\n` line.  Production-permissive:
 -- post-`VAL_TABLE_` and intra-entry whitespaces are `withWS`; pre-`;`
@@ -110,10 +126,10 @@ ValueTable-format =
             withWSCanonOne (
               withPrefix (';' ∷ []) newlineFmt)))))
   where
-    fwd : Identifier × (List (ℕ × List Char) × ⊤) → ValueTable
+    fwd : Identifier × (List (ℤ × List Char) × ⊤) → ValueTable
     fwd (name , entries , _) = record { name = name ; entries = entries }
 
-    bwd : ValueTable → Identifier × (List (ℕ × List Char) × ⊤)
+    bwd : ValueTable → Identifier × (List (ℤ × List Char) × ⊤)
     bwd vt = ValueTable.name vt , ValueTable.entries vt , tt
 
 -- ============================================================================
@@ -183,6 +199,12 @@ private
       digit-non-quote
         (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
 
+-- The '-' branch of `int` fails on the digits a non-negative key writes.
+minus-fails-on-digits : ∀ pos (n : ℕ) (rest : List Char)
+  → proj₂ (parse (withPrefix ('-' ∷ []) nat) pos (showNat-chars n ++ₗ rest)) ≡ nothing
+minus-fails-on-digits pos n rest with showNat-chars-head-≢-dash n
+... | _ , _ , eq , ne rewrite eq | ne = refl
+
 -- ============================================================================
 -- WELL-FORMEDNESS — per-entry EmitsOK
 -- ============================================================================
@@ -201,14 +223,20 @@ private
 --
 -- All four boil down to head-of-residual checks; the caller supplies the
 -- `outer-rest` head non-`"` witness.
-build-EmitsOK-entry : ∀ (v : ℕ) (d : List Char) (outer-rest : List Char)
-  → SmallNat v
+build-EmitsOK-entry : ∀ (z : ℤ) (d : List Char) (outer-rest : List Char)
+  → ∣ z ∣ ≤ max-value-description-key-magnitude
   → SuffixStops (λ c → c ≈ᵇ '"') outer-rest
-  → EmitsOK ValueEntry-format (v , d) outer-rest
-build-EmitsOK-entry v d outer-rest v-small q-stop =
-  ((showNat-head-non-hspace v
+  → EmitsOK ValueEntry-format (z , d) outer-rest
+build-EmitsOK-entry (+ n) d outer-rest small q-stop =
+  ((showNat-head-non-hspace n
       (' ' ∷ quoteStringLit-chars d ++ₗ outer-rest)
-   , (v-small , ∷-stop refl))
+   , ((small , ∷-stop refl)
+     , λ pos → minus-fails-on-digits pos n (' ' ∷ quoteStringLit-chars d ++ₗ outer-rest)))
+  , (∷-stop refl
+    , q-stop))
+build-EmitsOK-entry -[1+ n ] d outer-rest small q-stop =
+  ((∷-stop refl
+   , (tt , (small , ∷-stop refl)))
   , (∷-stop refl
     , q-stop))
 
@@ -222,7 +250,7 @@ build-EmitsOK-entry v d outer-rest v-small q-stop =
 --   `' '`, non-`"`); recursive `[]` step.
 -- Cons (non-last): per-entry EmitsOK against next entry's leading `' '`
 --   (head non-`"`); recursive cons step.
-build-EmitsOKMany : ∀ (entries : List (ℕ × List Char)) (outer-suffix : List Char)
+build-EmitsOKMany : ∀ (entries : List (ℤ × List Char)) (outer-suffix : List Char)
   → SmallKeys entries
   → EmitsOKMany ValueEntry-format entries
       (' ' ∷ ';' ∷ '\n' ∷ outer-suffix)

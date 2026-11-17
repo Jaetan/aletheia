@@ -72,6 +72,9 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._client_bin",
             "parse_extraction_buffer",
         ),
+        # The magnitude a 128-bit word pair carries, naming what a hand-packed
+        # value entry holds.
+        ("test_binary_extraction.py", "aletheia.client._ffi", "Magnitude"),
         # Decode-validation lockstep — exercises the private decoders
         # directly to assert they reject malformed core output (out-of-range
         # ids/bits, bad presence discriminator, trailing extraction bytes).
@@ -95,19 +98,10 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # for the decode paths and don't need to be called from user code.
         # _helpers.py was split into a package; the test paths below pin
         # to the new submodule layout.
-        (
-            "test_property_hypothesis.py",
-            "aletheia.client._helpers.rational",
-            "decode_wire_rational",
-        ),
-        # Wire-decoder reject coverage — exercises decode_wire_rational's dict
-        # branch directly to pin the missing-field / non-int-component rejects
-        # (Go #86 parity). Not public API; the test needs the reach-through.
-        (
-            "test_wire_rational_decode_reject.py",
-            "aletheia.client._helpers.rational",
-            "decode_wire_rational",
-        ),
+        # The rational reader every reply place is read with, held to its
+        # shapes and fed every numerator and denominator.
+        ("test_property_hypothesis.py", "aletheia.client._helpers.reply_shape", "ReplyPath"),
+        ("test_property_hypothesis.py", "aletheia.client._helpers.reply_shape", "read_rational"),
         (
             "test_property_hypothesis.py",
             "aletheia.client._helpers.json_codec",
@@ -179,6 +173,48 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._response_parsers",
             "raise_if_input_bound_exceeded",
         ),
+        # Each reader refuses a reply missing a key the kernel always writes;
+        # the real kernel never sends one, so only a direct call reaches it.
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "build_error_response",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "entry_reason",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "parse_frame_response",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "parse_complete_warnings",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "parse_finalization_results",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "parse_parsed_dbc_response",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "raise_if_dbc_validation_failed",
+        ),
+        (
+            "test_response_parsers_reply_shape.py",
+            "aletheia.client._response_parsers",
+            "raise_if_text_roundtrip_failed",
+        ),
         # Pre-__enter__ send-frame stub — a defensive raise shadowed by
         # send_frame's own _state guard, so a direct call is the only way to
         # exercise (and mutation-test) it.
@@ -214,14 +250,18 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._enrichment",
             "format_formula",
         ),
+        # The renderer reads the library the runtime start opened; the test
+        # holds that a render after a start goes there, with no backend.
+        (
+            "test_start_runtime.py",
+            "aletheia.client._enrichment",
+            "format_rational",
+        ),
         # The shared formula's wire (docs/FORMULA_RENDERING.yaml) writes a
         # rational as a reply does; the rendering test reads it with the
-        # decoder the client reads replies with.
-        (
-            "test_enrichment.py",
-            "aletheia.client._helpers.rational",
-            "decode_wire_rational",
-        ),
+        # reader the client reads replies with.
+        ("test_enrichment.py", "aletheia.client._helpers.reply_shape", "ReplyPath"),
+        ("test_enrichment.py", "aletheia.client._helpers.reply_shape", "read_rational"),
         # FFI loader security test exercises the ALETHEIA_LIB
         # world/group-writable rejection path directly.
         # ``find_ffi_library`` is binding-internal — public callers go
@@ -237,12 +277,55 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "AletheiaText"),
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "configure_ffi_signatures"),
+        ("test_parse_decimal_ffi.py", "aletheia.client._helpers.rational", "decimal_value"),
+        # A refusal's string is freed through the one wrapper that passes its
+        # address as a pointer, and the address is named as one.
+        ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "KernelString"),
+        ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "free_kernel_string"),
         # The rational the decimal entry answers is read by one helper, held on
-        # the out-parameters the kernel never writes (a non-positive
-        # denominator), which no public path reaches.
+        # an out-parameter the kernel never writes (a sign byte past 1), which
+        # no public path reaches, laid out by the helper the binding packs a
+        # rational with.
         ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaDecimal"),
-        ("test_from_decimal.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_from_decimal.py", "aletheia.client._ffi", "wire_rational"),
         ("test_from_decimal.py", "aletheia.client._helpers.rational", "decimal_value"),
+        # The free entry's declaration and the wrapping of an address are read
+        # without a call that could free a truncated pointer.
+        ("test_kernel_string_free.py", "aletheia.client._ffi", "KernelString"),
+        ("test_kernel_string_free.py", "aletheia.client._ffi", "configure_ffi_signatures"),
+        ("test_kernel_string_free.py", "aletheia.client._ffi", "free_kernel_string"),
+        # The packers every sent rational goes through are read back through
+        # the structure's own fields, a layout no public path exposes.
+        ("test_wire_rationals.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_wire_rationals.py", "aletheia.client._ffi", "Word"),
+        ("test_wire_rationals.py", "aletheia.client._ffi", "wire_rational"),
+        ("test_wire_rationals.py", "aletheia.client._ffi", "wire_rationals"),
+        # Each reader of a kernel rational (a reply's dict, the decimal entry's
+        # out-parameter, an extraction value) is held to checking kinds only,
+        # on parts the kernel never writes, which no public path reaches.
+        (
+            "test_reader_drops_denominator_checks.py",
+            "aletheia.client._client_bin",
+            "parse_extraction_buffer",
+        ),
+        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "AletheiaDecimal"),
+        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_reader_drops_denominator_checks.py", "aletheia.client._ffi", "AletheiaUint128"),
+        (
+            "test_reader_drops_denominator_checks.py",
+            "aletheia.client._helpers.rational",
+            "decimal_value",
+        ),
+        (
+            "test_reader_drops_denominator_checks.py",
+            "aletheia.client._helpers.reply_shape",
+            "ReplyPath",
+        ),
+        (
+            "test_reader_drops_denominator_checks.py",
+            "aletheia.client._helpers.reply_shape",
+            "read_rational",
+        ),
         # Demo-script gate: runs every examples/demo/*.py as a subprocess and
         # resolves the .so the same way the binding does, passing it through as
         # ALETHEIA_LIB — the public surface is ``AletheiaClient`` (which the demos
@@ -305,20 +388,94 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaFrame"),
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaSignalValues"),
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaText"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaUint128"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaTimeBound"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaPropertyCheck"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaBuffer"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaFrame"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaSignalValues"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaText"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaTimeBound"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaPropertyCheck"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "wire_rational"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "configure_ffi_signatures"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "find_ffi_library"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "KernelResponse"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "parse_json_object"),
+        # Every string an entry answers is freed through the one wrapper that
+        # passes its address as a pointer, and the address is named as one.
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "KernelString"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "free_kernel_string"),
+        # The words of a rational the entries wrote, read back field by field.
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "Magnitude"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "uint128_value"),
+        # The reader of a refused entry's envelope, which frees it once read.
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "take_error_envelope"),
+        # The same reader, wrapped to keep the envelope the recording stand-in
+        # answers: its code is no error code, so the entry's quote of its
+        # arguments is read there, before the binding refuses the code.
+        ("test_ffi_backend_stand_ins.py", "aletheia.client._ffi", "take_error_envelope"),
+        ("test_start_runtime.py", "aletheia.client._ffi", "take_error_envelope"),
+        # The runtime's command-line builder, read as a table as the peer
+        # bindings' tests read theirs, and the override type it takes.
+        ("test_start_runtime.py", "aletheia.client._ffi", "rts_arguments"),
+        ("test_start_runtime.py", "aletheia.client._ffi", "RuntimeOverride"),
         # The binding's ABI version, which the version test holds to the header's.
         ("test_ffi_abi_version.py", "aletheia.client._ffi", "ABI_VERSION"),
         # The one decoder of a failed entry's envelope, fed an envelope no
         # kernel answers (no ``status``) to hold that it refuses it.
         ("test_entry_refusal.py", "aletheia.client._refusal", "raise_entry_refusal"),
+        # The DBC reader, fed a DBC reply broken at one place per row.
+        ("test_dbc_reply_refusals.py", "aletheia.client._helpers.dbc_normalize", "normalize_dbc"),
+        # The reply parsers, each fed every broken copy of a real reply directly.
+        (
+            "test_reply_places_refused_where_broken.py",
+            "aletheia.client._response_parsers",
+            "build_error_response",
+        ),
+        (
+            "test_reply_places_refused_where_broken.py",
+            "aletheia.client._response_parsers",
+            "parse_complete_warnings",
+        ),
+        (
+            "test_reply_places_refused_where_broken.py",
+            "aletheia.client._response_parsers",
+            "parse_finalization_results",
+        ),
+        (
+            "test_reply_places_refused_where_broken.py",
+            "aletheia.client._response_parsers",
+            "parse_frame_response",
+        ),
+        (
+            "test_reply_places_refused_where_broken.py",
+            "aletheia.client._response_parsers",
+            "parse_parsed_dbc_response",
+        ),
+        # The one form every reply reader's refusal is built in, held on its own
+        # for the kinds, quoting and paths the readers rest on.
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "A_RATIONAL"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "Arrival"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "Expectation"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "JSONKind"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "OBJECT"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "REPLY_ROOT"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "ReplyFields"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "ReplyPath"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "STRING"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "at"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "came"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "came_as"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "came_word"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "field_member"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "field_word"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "json_kind"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "read_rational"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "reply_refusal"),
+        ("test_reply_shape.py", "aletheia.client._helpers.reply_shape", "words"),
     )
 )
 

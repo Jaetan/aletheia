@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 # TEMPORAL OPERATORS
 # ============================================================================
 
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 
 class TestTemporalOperators:
     """Test Predicate temporal operators."""
@@ -69,14 +71,14 @@ class TestTemporalOperators:
 
     def test_within(self) -> None:
         """Predicate.within() creates bounded temporal property."""
-        prop = Signal("BrakePressed").equals(1).within(100)
+        prop = Signal("BrakePressed").equals(1).within(100_000)
         data = cast("MetricEventuallyFormula", prop.to_dict())
         assert data["operator"] == "metricEventually"
         assert data["timebound"] == 100_000
 
     def test_for_at_least(self) -> None:
         """Predicate.for_at_least() creates bounded temporal property."""
-        prop = Signal("DoorClosed").equals(1).for_at_least(50)
+        prop = Signal("DoorClosed").equals(1).for_at_least(50_000)
         data = cast("MetricAlwaysFormula", prop.to_dict())
         assert data["operator"] == "metricAlways"
         assert data["timebound"] == 50_000
@@ -95,32 +97,32 @@ class TestTemporalOperators:
 
     def test_large_time_bounds(self) -> None:
         """Large time bounds work (hours)."""
-        prop = Signal("EngineOn").equals(1).for_at_least(3600000)  # 1 hour
+        prop = Signal("EngineOn").equals(1).for_at_least(3_600_000_000)  # 1 hour
         data = cast("MetricAlwaysFormula", prop.to_dict())
         assert data["timebound"] == 3_600_000_000
 
     def test_negative_timebound_within(self) -> None:
         """Negative time bound is rejected."""
-        with pytest.raises(ValidationError, match="non-negative"):
+        with pytest.raises(ValidationError, match=r"^timebound -1 is negative$"):
             Signal("S").less_than(100).within(-1)
 
     def test_negative_timebound_for_at_least(self) -> None:
         """Negative time bound is rejected."""
-        with pytest.raises(ValidationError, match="non-negative"):
+        with pytest.raises(ValidationError, match=r"^timebound -1 is negative$"):
             Signal("S").less_than(100).for_at_least(-1)
 
     def test_negative_timebound_metric_until(self) -> None:
         """Negative time bound is rejected."""
         p = Signal("S").less_than(100).always()
         q = Signal("T").equals(1).always()
-        with pytest.raises(ValidationError, match="non-negative"):
+        with pytest.raises(ValidationError, match=r"^timebound -1 is negative$"):
             p.metric_until(-1, q)
 
     def test_negative_timebound_metric_release(self) -> None:
         """Negative time bound is rejected."""
         p = Signal("S").less_than(100).always()
         q = Signal("T").equals(1).always()
-        with pytest.raises(ValidationError, match="non-negative"):
+        with pytest.raises(ValidationError, match=r"^timebound -1 is negative$"):
             p.metric_release(-1, q)
 
 
@@ -207,7 +209,7 @@ class TestMetricUntilOperator:
         """Property.metric_until() creates MetricUntilFormula."""
         speed_ok = Signal("Speed").greater_than(50).always()
         brake = Signal("Brake").equals(1).eventually()
-        prop = speed_ok.metric_until(1000, brake)
+        prop = speed_ok.metric_until(1_000_000, brake)
 
         data = cast("MetricUntilFormula", prop.to_dict())
         assert data["operator"] == "metricUntil"
@@ -228,7 +230,7 @@ class TestMetricUntilOperator:
         """metric_until with large time bound (1 hour)."""
         left = Signal("X").equals(1).always()
         right = Signal("Y").equals(1).eventually()
-        prop = left.metric_until(3600000, right)
+        prop = left.metric_until(3_600_000_000, right)
 
         data = cast("MetricUntilFormula", prop.to_dict())
         assert data["timebound"] == 3_600_000_000
@@ -246,7 +248,7 @@ class TestMetricReleaseOperator:
         """Property.metric_release() creates MetricReleaseFormula."""
         ignition = Signal("Ignition").equals(1).eventually()
         brake = Signal("Brake").equals(1).always()
-        prop = ignition.metric_release(5000, brake)
+        prop = ignition.metric_release(5_000_000, brake)
 
         data = cast("MetricReleaseFormula", prop.to_dict())
         assert data["operator"] == "metricRelease"
@@ -265,7 +267,7 @@ class TestMetricReleaseOperator:
         assert data_zero["timebound"] == 0
 
         # Large time (24 hours)
-        prop_large = left.metric_release(86400000, right)
+        prop_large = left.metric_release(86_400_000_000, right)
         data_large = cast("MetricReleaseFormula", prop_large.to_dict())
         assert data_large["timebound"] == 86_400_000_000
 
@@ -517,7 +519,7 @@ class TestPredicateOperands:
     def test_predicate_metric_until(self) -> None:
         """Predicate.metric_until carries its bound in microseconds."""
         speed, brake = Signal("Speed").greater_than(50), Signal("Brake").equals(1)
-        assert speed.metric_until(1000, brake).to_dict() == {
+        assert speed.metric_until(1_000_000, brake).to_dict() == {
             "operator": "metricUntil",
             "timebound": 1_000_000,
             "left": speed.to_formula(),
@@ -527,7 +529,7 @@ class TestPredicateOperands:
     def test_predicate_metric_release(self) -> None:
         """Predicate.metric_release carries its bound in microseconds."""
         ignition, brake = Signal("Ignition").equals(1), Signal("Brake").equals(1)
-        assert ignition.metric_release(5000, brake).to_dict() == {
+        assert ignition.metric_release(5_000_000, brake).to_dict() == {
             "operator": "metricRelease",
             "timebound": 5_000_000,
             "left": ignition.to_formula(),
@@ -537,9 +539,9 @@ class TestPredicateOperands:
     def test_predicate_metric_operators_refuse_a_negative_bound(self) -> None:
         """A negative bound is refused on a predicate as on a property."""
         speed, brake = Signal("Speed").greater_than(50), Signal("Brake").equals(1)
-        with pytest.raises(ValidationError, match="non-negative"):
+        with pytest.raises(ValidationError, match=r"^timebound -1 is negative$"):
             speed.metric_until(-1, brake)
-        with pytest.raises(ValidationError, match="non-negative"):
+        with pytest.raises(ValidationError, match=r"^timebound -1 is negative$"):
             speed.metric_release(-1, brake)
 
     def test_property_operators_take_a_predicate(self) -> None:
@@ -556,13 +558,13 @@ class TestPredicateOperands:
             "left": held.to_formula(),
             "right": light.to_formula(),
         }
-        assert held.metric_until(5, light).to_dict() == {
+        assert held.metric_until(5000, light).to_dict() == {
             "operator": "metricUntil",
             "timebound": 5000,
             "left": held.to_formula(),
             "right": light.to_formula(),
         }
-        assert held.metric_release(5, light).to_dict() == {
+        assert held.metric_release(5000, light).to_dict() == {
             "operator": "metricRelease",
             "timebound": 5000,
             "left": held.to_formula(),

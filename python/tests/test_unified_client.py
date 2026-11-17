@@ -20,10 +20,10 @@ import json
 import subprocess
 import sys
 import textwrap
-from pathlib import Path
 
 import pytest
 from _dbc_helpers import dbc, message, signal
+from _repo_root import REPO_ROOT
 from _stream_helpers import send_test_frame
 
 from aletheia import (
@@ -46,7 +46,7 @@ _FRESH_RUNTIME = (
 @pytest.fixture(name="demo_dbc")
 def demo_dbc_fixture() -> DBCDefinition:
     """Load the demo vehicle DBC."""
-    dbc_path = Path(__file__).parent.parent.parent / "examples" / "demo" / "vehicle.dbc"
+    dbc_path = REPO_ROOT / "examples" / "demo" / "vehicle.dbc"
     return dbc_to_json(str(dbc_path))
 
 

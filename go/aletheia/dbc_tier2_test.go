@@ -35,14 +35,14 @@ func tier2DBC(t *testing.T) aletheia.DBCDefinition {
 		Attributes: []aletheia.DBCAttribute{
 			aletheia.DBCAttrDef{Name: "IntAttr", Scope: aletheia.DBCAttrScopeNetwork, AttrType: aletheia.DBCAttrTypeInt{Min: 0, Max: 100}},
 			aletheia.DBCAttrDef{Name: "FloatAttr", Scope: aletheia.DBCAttrScopeSignal, AttrType: aletheia.DBCAttrTypeFloat{
-				Min: aletheia.Rational{Numerator: -1, Denominator: 2}, Max: aletheia.Rational{Numerator: 22, Denominator: 7}}},
+				Min: ratOf(-1, 2), Max: ratOf(22, 7)}},
 			aletheia.DBCAttrDef{Name: "StrAttr", Scope: aletheia.DBCAttrScopeMessage, AttrType: aletheia.DBCAttrTypeString{}},
 			aletheia.DBCAttrDef{Name: "EnumAttr", Scope: aletheia.DBCAttrScopeNode, AttrType: aletheia.DBCAttrTypeEnum{Values: []string{"low", "high"}}},
 			aletheia.DBCAttrDef{Name: "HexAttr", Scope: aletheia.DBCAttrScopeEnvVar, AttrType: aletheia.DBCAttrTypeHex{Min: 0, Max: 255}},
 			aletheia.DBCAttrDefault{Name: "IntAttr", Value: aletheia.DBCAttrValueInt{Value: 42}},
 			aletheia.DBCAttrAssign{Name: "IntAttr", Target: aletheia.DBCAttrTargetNetwork{}, Value: aletheia.DBCAttrValueInt{Value: 7}},
 			aletheia.DBCAttrAssign{Name: "FloatAttr", Target: aletheia.DBCAttrTargetNode{Node: "ECU"},
-				Value: aletheia.DBCAttrValueFloat{Value: aletheia.Rational{Numerator: 1, Denominator: 3}}},
+				Value: aletheia.DBCAttrValueFloat{Value: ratOf(1, 3)}},
 			aletheia.DBCAttrAssign{Name: "StrAttr", Target: aletheia.DBCAttrTargetMessage{ID: extended}, Value: aletheia.DBCAttrValueString{Value: "extended"}},
 			aletheia.DBCAttrAssign{Name: "StrAttr", Target: aletheia.DBCAttrTargetSignal{ID: standardID(t, 256), Signal: "RPM"}, Value: aletheia.DBCAttrValueString{Value: "hello"}},
 			aletheia.DBCAttrAssign{Name: "EnumAttr", Target: aletheia.DBCAttrTargetNodeMsg{Node: "ECU", ID: standardID(t, 256)}, Value: aletheia.DBCAttrValueEnum{Value: 1}},
@@ -106,12 +106,20 @@ func TestSignalReceiversAndMessageSenders_RoundtripThroughMock(t *testing.T) {
 	})
 }
 
-// Tier 2 keys, a signal's receivers and a message's senders absent from a
-// response decode to nil.
-func TestFormatDBC_AbsentTier2KeysDecodeToNil(t *testing.T) {
+// The tier 2 lists the kernel writes empty decode to nil, and a signal's
+// receivers and a message's senders written empty read as empty; a signal
+// lacking its receivers is refused there.
+func TestFormatDBC_EmptyTier2Lists(t *testing.T) {
 	ctx := t.Context()
-	c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(oneSignalMessage(
-		`{"name":"S","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always"}`))))
+	const fields = `"name":"S","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"",`
+	c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(oneSignalMessage(`{`+fields+`"presence":"always"}`))))
+	_, err := c.FormatDBC(ctx)
+	requireKind(t, err, aletheia.ErrProtocol)
+	if want := "reply dbc/messages/signals/receivers: expected array, got nothing"; err.Error() != want {
+		t.Errorf("got %q, want %q", err.Error(), want)
+	}
+	c, _ = mockClient(t, aletheia.Respond(formatDBCResponse(oneSignalMessage(
+		`{`+fields+`"receivers":[],"valueDescriptions":[],"presence":"always"}`))))
 	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
@@ -119,21 +127,12 @@ func TestFormatDBC_AbsentTier2KeysDecodeToNil(t *testing.T) {
 	if dbc.Nodes != nil || dbc.Comments != nil || dbc.Attributes != nil {
 		t.Errorf("expected nil tier 2 slices, got %v %v %v", dbc.Nodes, dbc.Comments, dbc.Attributes)
 	}
-	if got := dbc.Messages[0].Senders; got != nil {
-		t.Errorf("absent senders: want nil, got %v", got)
+	if got := dbc.Messages[0].Senders; len(got) != 0 {
+		t.Errorf("empty senders: want none, got %v", got)
 	}
-	if got := dbc.Messages[0].Signals[0].Receivers; got != nil {
-		t.Errorf("absent receivers: want nil, got %v", got)
+	if got := dbc.Messages[0].Signals[0].Receivers; len(got) != 0 {
+		t.Errorf("empty receivers: want none, got %v", got)
 	}
-}
-
-// A comment target kind outside the five is a protocol error naming it.
-func TestFormatDBC_RejectsUnknownCommentTargetKind(t *testing.T) {
-	ctx := t.Context()
-	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[],"comments":[{"target":{"kind":"bogus"},"text":"bad"}]}}`))
-	_, err := c.FormatDBC(ctx)
-	requireKind(t, err, aletheia.ErrProtocol)
-	requireErrorContains(t, err, "comment target kind")
 }
 
 // Absent tier 2 metadata is written as three empty arrays.

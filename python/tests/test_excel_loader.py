@@ -596,7 +596,7 @@ class TestLoadErrors:
                 [None, "Temp", "settles_between", None, 80, 100, None, None],
             ],
         )
-        with pytest.raises(ValidationError, match="requires 'Time \\(ms\\)'"):
+        with pytest.raises(ValidationError, match="requires 'Time \\(µs\\)'"):
             load_checks_from_excel(p)
 
     def test_unknown_when_condition(self, tmp_path: Path) -> None:
@@ -718,10 +718,10 @@ class TestLoadCellTypes:
         with pytest.raises(ValidationError, match="format it as TEXT"):
             load_dbc_from_excel(p)
 
-    def test_integer_field_as_float_cell_rejected(self, tmp_path: Path) -> None:
-        """Float principle (get_excel_int): a Time (ms) float NUMBER cell is rejected."""
-        # Min/Max are TEXT; only Time (ms) (col 7) is a real number cell, so
-        # get_excel_int rejects it ("format it as TEXT") before any other check.
+    def test_time_bound_as_float_cell_rejected(self, tmp_path: Path) -> None:
+        """Float principle (get_excel_time_bound): a Time (µs) float NUMBER cell is rejected."""
+        # Min/Max are TEXT; only Time (µs) (col 7) is a real number cell, so
+        # get_excel_time_bound rejects it ("format it as TEXT") before any other check.
         p = make_number_cell_workbook(
             tmp_path,
             "Checks",
@@ -731,18 +731,22 @@ class TestLoadCellTypes:
         with pytest.raises(ValidationError, match="format it as TEXT"):
             load_checks_from_excel(p)
 
-    def test_integer_field_as_non_integer_text_rejected(self, tmp_path: Path) -> None:
-        """get_int: a whole-number field given a fractional TEXT cell is rejected.
+    def test_time_bound_as_non_integer_text_rejected(self, tmp_path: Path) -> None:
+        """A time window given a fractional TEXT cell is refused by the kernel, located.
 
-        "5000.5" parses exactly via from_decimal but is not a whole number, so the
-        unit-denominator check refuses it (mirrors Rust ``get_int``).
+        "5000.5" is a decimal but not a whole number of microseconds, which the
+        kernel's time-bound entry decides and words.
         """
         p = make_checks_workbook(
             tmp_path,
             [[None, "Temp", "settles_between", None, 80, 100, "5000.5", None]],
         )
-        with pytest.raises(ValidationError, match="must be a whole number"):
+        with pytest.raises(ValidationError) as refused:
             load_checks_from_excel(p)
+        assert refused.value.code == "handler_property_refused"
+        assert str(refused.value) == (
+            "Row 2: invalid 'Time (µs)': timebound 5000.5 is not a whole number"
+        )
 
 
 # ============================================================================
@@ -902,5 +906,7 @@ def test_demo_workbook_checks_match_the_api() -> None:
     checks = load_checks_from_excel(_demo_workbook())
     assert len(checks) == 10  # 6 simple + 4 when/then
     assert checks[0].to_dict() == signal("VehicleSpeed").never_exceeds(220).to_dict()
-    expected_wt = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
+    expected_wt = (
+        when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100_000).to_dict()
+    )
     assert checks[6].to_dict() == expected_wt

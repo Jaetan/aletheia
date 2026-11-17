@@ -18,12 +18,13 @@ How to package, distribute, and integrate Aletheia — the self-contained releas
 
 A GitHub release ships one self-contained tarball — `aletheia.tar.gz` — that carries the verified library **and** all four language wrappers. Download it, verify it ([RELEASE.md § Verifying release artifacts](RELEASE.md#verifying-release-artifacts-consumer-side)), unpack it anywhere, and you are ready to use Aletheia from Python, C++, Go, or Rust in minutes — no Agda or GHC toolchain required.
 
-Every release is validated this way before it is published: the release workflow builds one consumer program per compiled binding (C++, Go, Rust) from the exact recipes `install.sh` / `install.fish` print and drives a real verification scenario through the bundle's kernel, alongside a Python smoke test of the same `env.sh` → `ALETHEIA_LIB` chain. A weekly scheduled workflow replays the same validation against both a fresh `shake dist` from the default branch and the latest published release. See [RELEASE.md § Release-path bundle validation](RELEASE.md#release-path-bundle-validation).
+Every release is validated this way before it is published: the release workflow builds one consumer program per compiled binding (C++, Go, Rust) from the exact recipes `install.sh` / `install.fish` print and drives a real verification scenario through the bundle's kernel, and builds the [C example](#minimal-c-example) with both C recipes of this guide and runs it, alongside a Python smoke test of the same `env.sh` → `ALETHEIA_LIB` chain. A weekly scheduled workflow replays the same validation against a fresh `shake dist` from the default branch, and the binding consumers' against the latest published release. See [RELEASE.md § Release-path bundle validation](RELEASE.md#release-path-bundle-validation).
 
 ~~~
 aletheia/
-├── lib/libaletheia-ffi.so      # verified Agda kernel + GHC runtime (RPATH=$ORIGIN)
-├── lib/libHS*.so libffi.so.8   # GHC runtime dependencies
+├── lib/libaletheia-ffi.so      # verified Agda kernel and the C ABI (RPATH=$ORIGIN)
+├── lib/libHSrts-*.so           # GHC runtime, which defines hs_init
+├── lib/libHS*.so libffi.so.8   # the other Haskell libraries and libffi the two above need
 ├── licenses/                   # license texts of the third-party code in lib/
 ├── include/aletheia.h          # C ABI header (C / C++-via-C consumers)
 ├── bindings/
@@ -39,7 +40,7 @@ aletheia/
 └── LICENSE.md                  # BSD-2-Clause license text
 ~~~
 
-Why source and not just a header + `.so`? For C there is nothing more to ship: `include/aletheia.h` + `lib/libaletheia-ffi.so` is the whole interface. But Python, Go, and Rust have no header/compiled-lib split: their libraries *are* source (a pure-ctypes package, a Go module, a Rust crate). The `bindings/` trees carry each wrapper in its only distributable form, library files only with no tests or benchmarks, each with a copy of `LICENSE.md` so that a binding taken out of the bundle keeps its license.
+Why source and not just a header + `.so`? For C there is nothing more to ship: a C host compiles against `include/aletheia.h` as C23, links `lib/libaletheia-ffi.so` and the GHC runtime `lib/libHSrts-*.so`, which defines `hs_init`, and the other libraries of `lib/` load at run time through their `RPATH=$ORIGIN` ([C](#c)). But Python, Go, and Rust have no header/compiled-lib split: their libraries *are* source (a pure-ctypes package, a Go module, a Rust crate). The `bindings/` trees carry each wrapper in its only distributable form, library files only with no tests or benchmarks, each with a copy of `LICENSE.md` so that a binding taken out of the bundle keeps its license.
 
 ### 1. Make the library discoverable
 
@@ -217,7 +218,8 @@ my-project/
 │   └── aletheia/
 │       ├── lib/
 │       │   ├── libaletheia-ffi.so
-│       │   └── libHS*.so
+│       │   ├── libHS*.so
+│       │   └── libffi.so.8
 │       └── include/
 │           └── aletheia.h
 └── src/
@@ -226,17 +228,19 @@ my-project/
 
 ### C
 
+`aletheia.h` is C23: gcc 15, clang 21 and clang 23 build both recipes below, while gcc 13 refuses `-std=gnu23` and clang 18 refuses the header's `constexpr`.
+
 #### Compile and link
 
-~~~bash
-gcc -I/path/to/aletheia/include \
+```bash
+gcc -std=gnu23 -I/path/to/aletheia/include \
     -L/path/to/aletheia/lib \
     -Wl,-rpath,/path/to/aletheia/lib \
-    -laletheia-ffi \
-    -o my_app main.c
-~~~
+    -o my_app main.c \
+    -laletheia-ffi -l:"$(basename /path/to/aletheia/lib/libHSrts-*.so)"
+```
 
-The `-Wl,-rpath` flag embeds the library path in the binary, eliminating `LD_LIBRARY_PATH` at runtime.
+The `-Wl,-rpath` flag embeds the library path in the binary, eliminating `LD_LIBRARY_PATH` at runtime. `main.c` comes before the libraries: with the libraries first, gcc 15 leaves every call into them undefined. `hs_init` is defined in the GHC runtime library `libHSrts-*.so`, not in `libaletheia-ffi.so`, and the link refuses a symbol from a library the command does not name, so `-l:` names that file, whose name carries the GHC version.
 
 #### Relative RPATH (relocatable binary)
 
@@ -248,45 +252,60 @@ my-deploy/
 │   └── my_app
 └── lib/
     ├── libaletheia-ffi.so
-    └── libHS*.so
+    ├── libHS*.so
+    └── libffi.so.8
 ~~~
 
-Use `$ORIGIN` to make the `my-deploy/` directory relocatable:
+Use `$ORIGIN` to make the `my-deploy/` directory relocatable. Run in a directory holding the unpacked bundle as `aletheia/` and a `bin/` directory, the recipe writes `bin/my_app`, which finds the libraries in the `lib/` beside `bin/`, a copy of the bundle's `lib/`:
 
-~~~bash
-gcc -Ialetheia/include \
+```bash
+gcc -std=gnu23 -Ialetheia/include \
     -Laletheia/lib \
     -Wl,-rpath,'$ORIGIN/../lib' \
-    -laletheia-ffi \
-    -o bin/my_app main.c
-~~~
+    -o bin/my_app main.c \
+    -laletheia-ffi -l:"$(basename aletheia/lib/libHSrts-*.so)"
+```
 
 #### Minimal C example
 
 See `aletheia.h` for complete function documentation. For the JSON command/response format, see the [JSON Protocol](../architecture/PROTOCOL.md).
 
-~~~c
+```c
 #include "aletheia.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
 int main(void) {
-    hs_init(NULL, NULL);  /* GHC RTS init — once per process, before any aletheia_* call */
+    /* The one call allowed before hs_init: refuse a library built for another ABI */
+    const uint32_t abi = aletheia_abi_version();
+    if (abi != ALETHEIA_ABI_VERSION) {
+        fprintf(stderr, "libaletheia-ffi implements ABI %" PRIu32 ", this program expects %" PRIu32 "\n",
+                abi, ALETHEIA_ABI_VERSION);
+        return 1;
+    }
+    hs_init(NULL, NULL); /* starts the GHC runtime, once per process */
 
     void *session = aletheia_init();
-    const char *command = "{\"type\":\"command\",\"command\":\"parseDBC\",\"dbc\":{\"messages\":[]}}";
+    const char *command =
+        "{\"type\":\"command\",\"command\":\"parseDBC\",\"dbc\":{\"version\":\"1.0\",\"messages\":[]}}";
     const struct aletheia_text input = {.data = command, .size = strlen(command)};
     char *response = aletheia_process(session, &input);
+    if (response == NULL) {
+        fputs("aletheia_process: out of memory\n", stderr);
+        aletheia_close(session);
+        return 1;
+    }
     printf("%s\n", response);
 
     aletheia_free_str(response);
     aletheia_close(session);
-    /* Do NOT call hs_exit() — GHC RTS does not support reinitialization */
+    /* No hs_exit(): the runtime cannot start again, and the process exit cleans it up */
     return 0;
 }
-~~~
+```
 
-`aletheia_process()` handles JSON commands (parseDBC, setProperties, startStream, etc.), each passed as one `struct aletheia_text`: its UTF-8 bytes and their count, with no terminating NUL. To send CAN data frames during streaming, use `aletheia_send_frame()`, a separate binary entry point that takes the frame as one `struct aletheia_frame`. See `aletheia.h` for the full signature and the structure's layout and [PROTOCOL.md](../architecture/PROTOCOL.md) for details. Before any other call, compare `aletheia_abi_version()` with the header's `ALETHEIA_ABI_VERSION`, as every binding does: a library built from a commit whose C ABI differs reports another number.
+`aletheia_process()` handles the JSON commands, `parseDBC`, `setProperties` and the others the [JSON Protocol](../architecture/PROTOCOL.md) lists, each passed as one `struct aletheia_text`: its UTF-8 bytes and their count, with no terminating NUL. The stream has no JSON command: `aletheia_start_stream()` starts it, and `aletheia_send_frame()`, a binary entry point, takes each CAN data frame as one `struct aletheia_frame`. See `aletheia.h` for the signatures and the structures' layout and [PROTOCOL.md](../architecture/PROTOCOL.md#binary-entry-points) for details. The example's first call compares `aletheia_abi_version()` with the header's `ALETHEIA_ABI_VERSION`, as every binding does: a library built from a commit whose C ABI differs reports another number, and the program refuses it before the runtime starts.
 
 ### C++ (with the aletheia-cpp binding)
 
@@ -504,7 +523,7 @@ ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
 
 | Approach | Used by | How it finds the .so |
 |----------|---------|---------------------|
-| **Link-time** (`-laletheia-ffi`) | C | `-L` at compile time + `RPATH` at runtime |
+| **Link-time** (`-laletheia-ffi` and the runtime file `libHSrts-*.so`) | C | `-L` at compile time + `RPATH` at runtime |
 | **dlopen** (runtime) | C++, Go, Rust, Python | An explicit `.so` path, **or** the `ALETHEIA_LIB` env var — all four bindings support both; the release bundle's `env.sh` sets `ALETHEIA_LIB` |
 
 C++, Go, and Rust use `dlopen` because they wrap the FFI through a `Backend` interface that abstracts the loading mechanism, enabling mock backends for testing without a real `.so`.
@@ -515,7 +534,7 @@ For all `dlopen` consumers, the only input is the **path to `libaletheia-ffi.so`
 
 See `aletheia.h` for the authoritative specification. In summary:
 
-- **hs_init**: Once per process, before any `aletheia_*` call. Never call `hs_exit()`.
+- **hs_init**: Once per process, before any `aletheia_*` call but `aletheia_abi_version()`. Never call `hs_exit()`.
 - **aletheia_init/close**: Can be called from any thread.
 - **aletheia_process**: One thread per session handle. Different sessions may run concurrently.
 - **aletheia_send_frame**: Same constraint — one thread per session handle.
@@ -531,8 +550,7 @@ Install libgmp: `sudo apt install libgmp10` (Debian/Ubuntu) or `sudo dnf install
 **`dlsym failed for aletheia_init: undefined symbol`**
 The `.so` was stripped too aggressively. Rebuild with `cabal run shake -- dist` (uses `--strip-unneeded`, not `--strip-all`).
 
-**Segmentation fault on first `aletheia_*` call**
-`hs_init()` was not called. It must be called exactly once before any other Aletheia function.
+**`newBoundTask: RTS is not initialised; call hs_init() first`, and the process exits with status 1** An `aletheia_*` call other than `aletheia_abi_version()` came before `hs_init()`. Call `hs_init()` exactly once per process, before any of them.
 
 **GHC `.so` files not found (ldd shows "not found")**
 `patchelf` was not installed during `cabal run shake -- dist`. Either reinstall patchelf and re-run dist, or set `LD_LIBRARY_PATH` to the `lib/` directory.

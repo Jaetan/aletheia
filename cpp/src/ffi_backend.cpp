@@ -10,6 +10,7 @@
 #include "detail/ffi_abi.hpp"
 #include "detail/ffi_logic.hpp"
 #include "detail/kernel_library.hpp"
+#include "detail/kernel_value.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +20,7 @@
 #include <format>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -117,11 +119,17 @@ static auto payload_frame(CanId const& id, Dlc dlc, std::span<std::byte const> d
     return frame;
 }
 
-static auto signal_values(SignalInjection const& signals) -> detail::FfiSignalValues {
-    return {.indices = signals.indices().data(),
-            .numerators = signals.numerators().data(),
-            .denominators = signals.denominators().data(),
-            .count = signals.count()};
+// The values of a signal injection as the structures the entries read.
+static auto wire_values(SignalInjection const& signals) -> std::vector<detail::FfiRational> {
+    return std::ranges::to<std::vector>(signals.values() |
+                                        std::views::transform(detail::wire_rational));
+}
+
+// The block the entries read: the injection's indices beside `values`, its
+// values laid out by wire_values, which outlive the call.
+static auto signal_values(SignalInjection const& signals,
+                          std::span<detail::FfiRational const> values) -> detail::FfiSignalValues {
+    return {.indices = signals.indices().data(), .values = values.data(), .count = signals.count()};
 }
 
 // The payload of a frame is exactly the byte count its DLC names, the rule the
@@ -175,20 +183,14 @@ class FfiBackend : public IBackend {
     // with `active_cores` / `requested_cores` fields (Go + Python parity).
     std::optional<std::pair<int, int>> rts_mismatch_;
 
-    // Wrap an FFI char* result with the standard null-check + RAII deleter
-    // + std::string conversion pattern.  Refuses with ErrorKind::Protocol and
-    // `error_msg` when result is null; otherwise materializes the C string
-    // into a std::string and frees the FFI buffer via free_str.  Protocol is
-    // the correct kind here per the narrow definition of ErrorKind::Ffi in
-    // error.hpp ("Library load / RTS initialization failure": the boundary
-    // itself failed before Agda ran); a runtime null-return means the kernel
-    // was loaded but did not produce a response, which mirrors the
-    // ProtocolError the Python client raises for the same condition.  Every
-    // string-returning endpoint below goes through it.
+    // Copies the string a text entry returned and frees it through free_str.
+    // A null is the library or the boundary malfunctioning, never a reply, so
+    // it is refused with kind Ffi and `error_msg`, `<entry> returned null`, as
+    // in every binding. Every text endpoint below goes through it.
     [[nodiscard]] auto wrap_str_result(char* result, std::string_view error_msg)
         -> Result<std::string> {
         if (result == nullptr)
-            return std::unexpected(AletheiaError{ErrorKind::Protocol, std::string{error_msg}});
+            return std::unexpected(AletheiaError{ErrorKind::Ffi, std::string{error_msg}});
         auto const deleter = [this](char* p) { fns_.free_str(p); };
         std::unique_ptr<char, decltype(deleter)> const guard{result, deleter};
         return std::string{result};
@@ -287,7 +289,8 @@ public:
                          SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         auto const frame = header_frame(id, dlc);
-        auto const values = signal_values(signals);
+        auto const wire = wire_values(signals);
+        auto const values = signal_values(signals, wire);
         std::vector<std::byte> buf(expected_bytes);
         detail::FfiBuffer out{.data = as_u8(buf.data()),
                               .err = nullptr,
@@ -306,7 +309,8 @@ public:
         if (auto const err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
-        auto const values = signal_values(signals);
+        auto const wire = wire_values(signals);
+        auto const values = signal_values(signals, wire);
         std::vector<std::byte> buf(expected_bytes);
         detail::FfiBuffer out{.data = as_u8(buf.data()),
                               .err = nullptr,

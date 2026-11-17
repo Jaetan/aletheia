@@ -8,16 +8,20 @@
 //! check file authored for one binding loads identically here. The document is a
 //! mapping with a single `checks:` list; each entry is either a single-signal
 //! check (`signal` + `condition` + operands) or a causal `when`/`then` check
-//! (with a top-level `within_ms`). The scalar under a number key, plain, quoted
+//! (with a top-level `within_us`). The scalar under a number key, plain, quoted
 //! or tagged with a core-schema tag other than `!!null`, is parsed EXACTLY from the text the document
 //! spells it with by the kernel [`Rational::from_decimal`] (the cross-binding
 //! single source of truth): the YAML library resolves no integer, hexadecimal,
 //! float or boolean of its own, so the kernel decides what a valid number is
 //! and refuses any other text, located, rather than clamping it; a null or a
-//! missing number is the loader's own refusal. Loading a check needs the GHC
-//! runtime up, every number being read by the kernel: a program that loads
-//! before it builds a client calls [`start_runtime`](crate::start_runtime)
-//! first. Unknown keys are ignored (matching the peers).
+//! missing number is the loader's own refusal. A time window, the `within_us`
+//! a `settles_between` or a `when`/`then` check requires, is a whole number of
+//! microseconds the kernel reads from its text the same way, through
+//! [`TimeBound::parse`]. Loading a check needs the GHC runtime up, every
+//! number being read and every check built by the kernel: a program that
+//! loads before it builds a client calls
+//! [`start_runtime`](crate::start_runtime) first. Unknown keys are ignored
+//! (matching the peers).
 
 use std::path::Path;
 
@@ -27,7 +31,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::check::{self, Check};
 use crate::error::Error;
-use crate::types::Rational;
+use crate::types::{Rational, TimeBound};
 
 /// The shared 64 MiB input-length cap (Python `MAX_DBC_TEXT_BYTES`, Go
 /// `MaxDBCTextBytes`). Applied at this trust boundary so an adversarial check
@@ -100,10 +104,13 @@ impl MarkedEventReceiver for ScalarText {
 /// unknown, or a number is out of the kernel's decimal grammar (carrying the
 /// kernel's `code`); [`Error::InputBoundExceeded`] if a number crosses the
 /// rational component magnitude bound. Both number refusals are
-/// [`Rational::from_decimal`]'s, with the kernel's message, code and fields,
-/// located (see [`Error::located`]) at `Check '<name>'` (`<unnamed>` for a
-/// check with no name) under the number's key; [`Error::RtsNotInitialized`]
-/// if the runtime has not started.
+/// [`Rational::from_decimal`]'s, or [`TimeBound::parse`]'s for `within_us`,
+/// with the kernel's message, code and fields, located (see
+/// [`Error::located`]) at `Check '<name>'` (`<unnamed>` for a check with no
+/// name) under the number's key. A check the kernel refuses where it is built
+/// keeps the builder's error, located at the check with no key (see
+/// [`Error::located_at`]), so it prints `Check '<name>': <the kernel's
+/// message>`; [`Error::RtsNotInitialized`] if the runtime has not started.
 pub fn load_checks_from_yaml(content: &str) -> Result<Vec<Check>, Error> {
     load_checks_within(content, MAX_INPUT_BYTES)
 }
@@ -140,6 +147,23 @@ fn load_checks_within(content: &str, limit: usize) -> Result<Vec<Check>, Error> 
         .as_vec()
         .ok_or_else(|| invalid("YAML must contain a 'checks' list"))?;
     entries.iter().map(parse_check).collect()
+}
+
+/// A refusal no single key holds, such as a check its builder refused, located
+/// at `location` with no key: a refusal carrying the kernel's code, or a bound
+/// refusal, that no reader located gains the place; one a reader located, or
+/// one without a code (the loader's own words, the runtime down), comes back
+/// as it was.
+fn locate_refusal(err: Error, location: &str) -> Error {
+    let coded = matches!(
+        &err,
+        Error::Validation { code: Some(_), .. } | Error::InputBoundExceeded(_)
+    );
+    if coded && err.location().is_none() {
+        err.located_at(location)
+    } else {
+        err
+    }
 }
 
 /// Load checks from a YAML file.
@@ -192,15 +216,16 @@ fn parse_check(entry: &Yaml) -> Result<Check, Error> {
     let name = entry["name"].as_str().unwrap_or("");
     let ctx = if name.is_empty() { "<unnamed>" } else { name };
 
-    let check = if present(&entry["when"]) {
-        parse_when_then(entry, ctx)?
+    let built = if present(&entry["when"]) {
+        parse_when_then(entry, ctx)
     } else if present(&entry["signal"]) {
-        parse_simple(entry, ctx)?
+        parse_simple(entry, ctx)
     } else {
         return Err(invalid(format!(
             "check '{ctx}': must have 'signal' or 'when'/'then'"
         )));
     };
+    let check = built.map_err(|err| locate_refusal(err, &format!("Check '{ctx}'")))?;
 
     // Metadata is applied only when non-empty (matching the peers).
     let check = if name.is_empty() {
@@ -226,18 +251,22 @@ fn parse_simple(entry: &Yaml, ctx: &str) -> Result<Check, Error> {
         .ok_or_else(|| invalid(format!("check '{ctx}': missing 'condition'")))?;
     let sig = check::signal(signal);
     match condition {
-        "never_exceeds" => Ok(sig.never_exceeds(number(entry, "value", ctx, condition)?)),
-        "never_below" => Ok(sig.never_below(number(entry, "value", ctx, condition)?)),
-        "never_equals" => Ok(sig.never_equals(number(entry, "value", ctx, condition)?)),
-        "equals" => Ok(sig.equals(number(entry, "value", ctx, condition)?).always()),
+        "never_exceeds" => sig.never_exceeds(number(entry, "value", ctx, condition)?),
+        "never_below" => sig.never_below(number(entry, "value", ctx, condition)?),
+        "never_equals" => sig.never_equals(number(entry, "value", ctx, condition)?),
+        "equals" => sig.equals(number(entry, "value", ctx, condition)?).always(),
         "stays_between" => {
             let (lo, hi) = range(entry, ctx, condition)?;
             sig.stays_between(lo, hi)
         }
         "settles_between" => {
             let (lo, hi) = range(entry, ctx, condition)?;
-            let ms = within_ms(entry, ctx, condition)?;
-            sig.settles_between(lo, hi).within(ms)
+            let bound = within_us(
+                entry,
+                ctx,
+                format!("check '{ctx}': condition '{condition}' requires 'within_us'"),
+            )?;
+            sig.settles_between(lo, hi).within(bound)
         }
         other => Err(invalid(format!(
             "check '{ctx}': unknown condition '{other}'"
@@ -253,8 +282,12 @@ fn parse_when_then(entry: &Yaml, ctx: &str) -> Result<Check, Error> {
             "check '{ctx}': must have 'signal' or 'when'/'then'"
         )));
     }
-    // within_ms lives at the entry's top level and is mandatory for when/then.
-    let ms = within_ms(entry, ctx, "when/then")?;
+    // within_us lives at the entry's top level and is mandatory for when/then.
+    let bound = within_us(
+        entry,
+        ctx,
+        format!("check '{ctx}': when/then checks require 'within_us'"),
+    )?;
 
     let when_signal = when["signal"]
         .as_str()
@@ -294,7 +327,7 @@ fn parse_when_then(entry: &Yaml, ctx: &str) -> Result<Check, Error> {
             )))
         }
     };
-    then_condition.within(ms)
+    then_condition.within(bound)
 }
 
 /// The kernel's reading of a number's text: a refusal keeps the kernel's error
@@ -305,10 +338,11 @@ fn decimal(text: &str, key: &str, ctx: &str) -> Result<Rational, Error> {
 
 /// Extract a numeric operand as a [`Rational`], parsed EXACTLY by the kernel
 /// [`Rational::from_decimal`] from the text the document spells it with (see
-/// [`ScalarText`]), so no float ever materialises. A null, a collection, a
-/// scalar tagged `!!bool` or `!!null`, or a missing key is refused; text the
-/// kernel refuses is refused as [`decimal`] locates it. Decimal parsing needs
-/// the GHC runtime up.
+/// [`ScalarText`]), so no float ever materialises. A null (a `!!null` scalar
+/// included), a collection or a missing key is refused; any other scalar's
+/// text, a `!!bool` one included, is the kernel's to read, and text it refuses
+/// is refused as [`decimal`] locates it. Decimal parsing needs the GHC runtime
+/// up.
 fn number(node: &Yaml, key: &str, ctx: &str, cond: &str) -> Result<Rational, Error> {
     match &node[key] {
         Yaml::String(text) => decimal(text, key, ctx),
@@ -331,31 +365,25 @@ fn range(node: &Yaml, ctx: &str, cond: &str) -> Result<(Rational, Rational), Err
     ))
 }
 
-/// Extract the required whole-millisecond `within_ms` operand: the kernel reads
-/// its text as [`number`] reads an operand's, and the value must be a whole,
-/// non-negative number.
-fn within_ms(node: &Yaml, ctx: &str, cond: &str) -> Result<u64, Error> {
-    let v = &node["within_ms"];
-    if !present(v) {
-        return Err(invalid(format!(
-            "check '{ctx}': condition '{cond}' requires 'within_ms'"
-        )));
+/// Extract the required `within_us` operand, a whole number of microseconds
+/// the kernel reads from the text the document spells it with through
+/// [`TimeBound::parse`]: a refusal keeps the kernel's error and gains the check
+/// as its location and `within_us` as its key. A null, a collection or a
+/// missing key is refused with `missing`; any other scalar is the kernel's to
+/// read (see [`ScalarText`]). Reading the bound needs the GHC runtime up.
+fn within_us(node: &Yaml, ctx: &str, missing: String) -> Result<TimeBound, Error> {
+    match &node["within_us"] {
+        Yaml::String(text) => {
+            TimeBound::parse(text).map_err(|e| e.located(format!("Check '{ctx}'"), "within_us"))
+        }
+        _ => Err(invalid(missing)),
     }
-    let not_integer = || invalid(format!("check '{ctx}': 'within_ms' must be an integer"));
-    let Yaml::String(text) = v else {
-        return Err(not_integer());
-    };
-    let ms = decimal(text, "within_ms", ctx)?;
-    if ms.denominator() != 1 {
-        return Err(not_integer());
-    }
-    u64::try_from(ms.numerator())
-        .map_err(|_| invalid(format!("check '{ctx}': 'within_ms' must be non-negative")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::response::ErrorCode;
     use crate::types::Rational;
 
     fn one(yaml: &str) -> Check {
@@ -380,19 +408,19 @@ mod tests {
         assert_eq!(
             one("checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 220\n")
                 .formula(),
-            check::signal("Speed").never_exceeds(220).formula()
+            check::signal("Speed").never_exceeds(220).unwrap().formula()
         );
         assert_eq!(
             one("checks:\n  - signal: V\n    condition: never_below\n    value: 5\n").formula(),
-            check::signal("V").never_below(5).formula()
+            check::signal("V").never_below(5).unwrap().formula()
         );
         assert_eq!(
             one("checks:\n  - signal: E\n    condition: never_equals\n    value: 255\n").formula(),
-            check::signal("E").never_equals(255).formula()
+            check::signal("E").never_equals(255).unwrap().formula()
         );
         assert_eq!(
             one("checks:\n  - signal: G\n    condition: equals\n    value: 0\n").formula(),
-            check::signal("G").equals(0).always().formula()
+            check::signal("G").equals(0).always().unwrap().formula()
         );
         assert_eq!(
             one("checks:\n  - signal: T\n    condition: stays_between\n    min: 60\n    max: 80\n")
@@ -400,11 +428,11 @@ mod tests {
             check::signal("T").stays_between(60, 80).unwrap().formula()
         );
         assert_eq!(
-            one("checks:\n  - signal: T\n    condition: settles_between\n    min: 60\n    max: 80\n    within_ms: 500\n")
+            one("checks:\n  - signal: T\n    condition: settles_between\n    min: 60\n    max: 80\n    within_us: 500000\n")
                 .formula(),
             check::signal("T")
                 .settles_between(60, 80)
-                .within(500)
+                .within(TimeBound(500_000))
                 .unwrap()
                 .formula()
         );
@@ -417,7 +445,7 @@ mod tests {
             "checks:\n",
             "  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n",
             "    then:\n      signal: Light\n      condition: equals\n      value: 1\n",
-            "    within_ms: 100\n",
+            "    within_us: 100000\n",
         ));
         assert_eq!(
             c.formula(),
@@ -425,7 +453,7 @@ mod tests {
                 .exceeds(50)
                 .then("Light")
                 .equals(1)
-                .within(100)
+                .within(TimeBound(100_000))
                 .unwrap()
                 .formula()
         );
@@ -438,7 +466,9 @@ mod tests {
         // Rational every binding produces. Decimal parsing is RTS-gated.
         let _rts = test_backend();
         let c = one("checks:\n  - signal: S\n    condition: never_exceeds\n    value: 100.5\n");
-        let expected = check::signal("S").never_exceeds(Rational::new(201, 2).unwrap());
+        let expected = check::signal("S")
+            .never_exceeds(Rational::new(201, 2).unwrap())
+            .unwrap();
         assert_eq!(c.formula(), expected.formula());
     }
 
@@ -482,27 +512,41 @@ mod tests {
             load_checks_from_yaml("checks:\n  - signal: S\n    condition: never_exceeds\n")
                 .is_err()
         );
-        // when/then without within_ms.
+        // when/then without within_us.
         assert!(load_checks_from_yaml(concat!(
             "checks:\n  - when:\n      signal: A\n      condition: exceeds\n      value: 1\n",
             "    then:\n      signal: B\n      condition: equals\n      value: 1\n",
         ))
         .is_err());
-        // Inverted range.
-        assert!(load_checks_from_yaml(
-            "checks:\n  - signal: S\n    condition: stays_between\n    min: 10\n    max: 0\n"
+        // Inverted range: the kernel refuses the check where it is built, and
+        // the loader locates the refusal at the check.
+        let inverted = load_checks_from_yaml(
+            "checks:\n  - signal: S\n    condition: stays_between\n    min: 10\n    max: 0\n",
         )
-        .is_err());
+        .expect_err("an inverted range is refused");
+        assert!(
+            matches!(&inverted, Error::Validation { code: Some(code), .. }
+                if *code == ErrorCode::HandlerPropertyRefused),
+            "got: {inverted:?}"
+        );
+        assert_eq!(
+            (inverted.location(), inverted.key()),
+            (Some("Check '<unnamed>'"), None)
+        );
+        assert_eq!(
+            inverted.to_string(),
+            "Check '<unnamed>': between: min 10 exceeds max 0"
+        );
         // Neither signal nor when.
         assert!(load_checks_from_yaml("checks:\n  - severity: warning\n").is_err());
     }
 
     #[test]
     fn rejects_non_finite_and_overflowing_values() {
-        // `.nan` / `.inf` are out of the kernel decimal grammar; the 20-digit
-        // integer part crosses the kernel's rational component magnitude bound.
-        // The loader rejects all three (never clamps), as every binding's
-        // decimal SSOT does. RTS-gated.
+        // `.nan` / `.inf` are out of the kernel decimal grammar; 2^128 crosses
+        // the kernel's rational component magnitude bound, 2^128-1, which
+        // 99999999999999999999.5 is within. The loader rejects the three
+        // (never clamps), as every binding's decimal SSOT does. RTS-gated.
         let _rts = test_backend();
         assert!(load_checks_from_yaml(
             "checks:\n  - signal: S\n    condition: never_exceeds\n    value: .nan\n"
@@ -512,10 +556,20 @@ mod tests {
             "checks:\n  - signal: S\n    condition: never_exceeds\n    value: .inf\n"
         )
         .is_err());
-        assert!(load_checks_from_yaml(
-            "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n"
+        let past = load_checks_from_yaml(
+            "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 340282366920938463463374607431768211456\n",
         )
-        .is_err());
+        .expect_err("2^128 is past the bound");
+        assert!(
+            matches!(&past, Error::InputBoundExceeded(refusal)
+                if refusal.field.as_deref() == Some("decimal")),
+            "got: {past:?}"
+        );
+        assert_eq!(past.key(), Some("value"));
+        load_checks_from_yaml(
+            "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n",
+        )
+        .expect("a 20-digit integer part is within the bound");
     }
 
     /// The kernel's message for `1.5x`: the literal `1.5`, then text it cannot
@@ -537,7 +591,7 @@ mod tests {
         let Error::Validation { code, .. } = &err else {
             panic!("expected a validation refusal, got {err:?}");
         };
-        assert_eq!(code.as_deref(), Some("text_trailing_input"), "{err:?}");
+        assert_eq!(*code, Some(ErrorCode::TextTrailingInput), "{err:?}");
         assert_eq!(err.location(), Some(location), "{err:?}");
         assert_eq!(err.key(), Some(key), "{err:?}");
         assert_eq!(
@@ -562,7 +616,7 @@ mod tests {
                 "checks:\n  - name: W\n",
                 "    when:\n      signal: A\n      condition: exceeds\n      value: 1\n",
                 "    then:\n      signal: B\n      condition: equals\n      value: 1.5x\n",
-                "    within_ms: 100\n",
+                "    within_us: 100000\n",
             ),
             "Check 'W'",
             "value",
@@ -589,7 +643,7 @@ mod tests {
         for spelled in ["!!int 017", "'17'"] {
             assert_eq!(
                 one(&value(spelled)).formula(),
-                check::signal("S").never_exceeds(17).formula(),
+                check::signal("S").never_exceeds(17).unwrap().formula(),
                 "{spelled}"
             );
         }
@@ -615,11 +669,11 @@ mod tests {
     }
 
     #[test]
-    fn within_ms_is_read_by_the_kernel() {
+    fn within_us_is_read_by_the_kernel() {
         let _rts = test_backend();
-        let settles = |ms: &str| {
+        let settles = |us: &str| {
             format!(
-                "checks:\n  - name: T\n    signal: T\n    condition: settles_between\n    min: 60\n    max: 80\n    within_ms: {ms}\n"
+                "checks:\n  - name: T\n    signal: T\n    condition: settles_between\n    min: 60\n    max: 80\n    within_us: {us}\n"
             )
         };
         // A quoted whole number is the same text as the plain one.
@@ -627,26 +681,38 @@ mod tests {
             one(&settles("\"500\"")).formula(),
             check::signal("T")
                 .settles_between(60, 80)
-                .within(500)
+                .within(TimeBound(500))
                 .unwrap()
                 .formula()
         );
-        assert_trailing(&settles("1.5x"), "Check 'T'", "within_ms", TRAILING_AT_4);
+        assert_trailing(&settles("1.5x"), "Check 'T'", "within_us", TRAILING_AT_4);
         // A hexadecimal is the kernel's to read, and it refuses one.
-        assert_trailing(&settles("0x1F4"), "Check 'T'", "within_ms", TRAILING_AT_2);
-        // A fraction, a negative and a null keep the loader's own refusals; a
-        // boolean word is the kernel's.
-        let refused = |ms: &str| {
-            load_checks_from_yaml(&settles(ms))
-                .expect_err("refused")
-                .to_string()
-        };
-        assert_eq!(refused("1.5"), "check 'T': 'within_ms' must be an integer");
-        assert_eq!(refused("-1"), "check 'T': 'within_ms' must be non-negative");
-        assert_eq!(refused("~"), "check 'T': 'within_ms' must be an integer");
+        assert_trailing(&settles("0x1F4"), "Check 'T'", "within_us", TRAILING_AT_2);
+        // A fraction and a negative are the kernel's time-bound refusals, as
+        // a boolean word is its decimal refusal; a null keeps the loader's own.
+        let refused = |us: &str| load_checks_from_yaml(&settles(us)).expect_err("refused");
+        for (us, message) in [
+            ("1.5", "timebound 1.5 is not a whole number"),
+            ("-1", "timebound -1 is negative"),
+        ] {
+            let err = refused(us);
+            assert!(
+                matches!(&err, Error::Validation { code: Some(code), .. }
+                    if *code == ErrorCode::HandlerPropertyRefused),
+                "{us}: {err:?}"
+            );
+            assert_eq!(
+                err.to_string(),
+                format!("Check 'T': invalid 'within_us': {message}")
+            );
+        }
         assert_eq!(
-            refused("true"),
-            format!("Check 'T': invalid 'within_ms': {NO_LITERAL}")
+            refused("~").to_string(),
+            "check 'T': condition 'settles_between' requires 'within_us'"
+        );
+        assert_eq!(
+            refused("true").to_string(),
+            format!("Check 'T': invalid 'within_us': {NO_LITERAL}")
         );
     }
 

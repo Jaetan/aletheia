@@ -36,7 +36,9 @@ envelope:
 modes:
 
   throughput:
-    flags: ["--frames", "--runs", "--warmup", "--json"]
+    # --lane K runs the K-th lane alone, counted from 1 in lane_names' order;
+    # 0, the default, runs every lane.
+    flags: ["--frames", "--runs", "--warmup", "--lane", "--json"]
     results_container: list
     # One object per lane, keys in any order but this exact set.
     row_keys: [name, frames, runs, fps_mean, fps_stdev, fps_min, fps_max, us_per_frame]

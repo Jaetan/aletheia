@@ -11,7 +11,9 @@
 #   * head-dist — builds an UNSIGNED `shake dist` from the current default
 #     branch and runs tools/bundle_validate.py against it with every compiled
 #     binding required, plus the validator's --self-test (corrupted copies of
-#     the bundle must FAIL validation — a gate that cannot fail has a bug).
+#     the bundle must FAIL validation, since a gate that cannot fail has a bug),
+#     and tools/bundle_c_example.py, which builds the C example of
+#     docs/development/DISTRIBUTION.md with each of its C recipes and runs it.
 #   * release-replay — downloads the latest PUBLISHED GitHub Release exactly
 #     as a consumer would (the RELEASE.md § Verifying release artifacts
 #     commands: sha256 sidecar + keyless cosign against the release
@@ -191,6 +193,19 @@ jobs:
       # signing with a warning.  This job validates staging + recipes + the
       # bindings, not provenance — signing stays a release.yml concern, and
       # the release-replay job below verifies a published signature.
+      - name: Cache clang-23 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang23-libstdcxx15-noble-v2
+      # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
+      # toolchain) compiles both the kernel library's C (haskell-shim/cabal.project)
+      # and the bundled C++ binding (cpp/CMakeLists.txt), so it is installed from
+      # apt.llvm.org before the build.  Same package set + cache key as
+      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
+
       - name: Build the distribution tarball (unsigned)
         # --keep-going: every gate dist needs reports, whichever fails first.
         run: cabal run shake -- --keep-going dist
@@ -211,18 +226,6 @@ jobs:
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
           rustc --version && cargo --version
-
-      - name: Cache clang-23 .debs (Clang is a large download)
-        uses: actions/cache@v6
-        with:
-          path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v2
-      # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
-      # enforces Clang (cpp/CMakeLists.txt), so install clang-23 (the
-      # supported toolchain) from apt.llvm.org.  Same package set + cache key
-      # as pr-full-ci.yml so this workflow shares the deb cache seeded there.
-      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 
       # The bundle ships install.fish / env.fish; with fish on PATH the
       # validator also runs the fish installer, checks bash/fish recipe
@@ -255,6 +258,16 @@ jobs:
           python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
             --require cpp,go,rust \
             --fetchcontent-cache "${HOME}/fetchcontent-cache"
+
+      # The C example of docs/development/DISTRIBUTION.md, built against the
+      # tarball with each C recipe there and run.  The recipes name gcc and ask
+      # for C23; clang-23, installed above, stands for it.
+      - name: Build and run the guide's C example against the bundle
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python/.venv/bin/python3 -m tools.bundle_c_example dist/aletheia.tar.gz \
+            --c-compiler clang-23
 
       - name: Self-test the validator (corrupted bundles must fail)
         if: ${{ !cancelled() && steps.validate.outcome == 'success' }}

@@ -38,7 +38,7 @@ formatValuePredicateFields (LessThanOrEqual s v) =
   ("predicate" , JString (toList "lessThanOrEqual")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (GreaterThanOrEqual s v) =
   ("predicate" , JString (toList "greaterThanOrEqual")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("value" , JNumber v) ∷ []
-formatValuePredicateFields (Between s min max) =
+formatValuePredicateFields (Between s min max _) =
   ("predicate" , JString (toList "between")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("min" , JNumber min) ∷ ("max" , JNumber max) ∷ []
 
 -- ============================================================================
@@ -49,7 +49,7 @@ formatValuePredicateFields (Between s min max) =
 formatDeltaPredicateFields : DeltaPredicate → List (String × JSON)
 formatDeltaPredicateFields (ChangedBy s d) =
   ("predicate" , JString (toList "changedBy")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("delta" , JNumber d) ∷ []
-formatDeltaPredicateFields (StableWithin s t) =
+formatDeltaPredicateFields (StableWithin s t _) =
   ("predicate" , JString (toList "stableWithin")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("tolerance" , JNumber t) ∷ []
 
 -- ============================================================================

@@ -3,17 +3,17 @@
 """Tests for DBC pretty-printer (format_dbc + dbc_to_text)."""
 
 from fractions import Fraction
-from pathlib import Path
 
 import pytest
 from _dbc_helpers import message, mux_signal, signal
+from _repo_root import REPO_ROOT
 
 from aletheia import AletheiaClient, ProtocolError, TextRoundTripFailedError, dbc_to_text
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.dbc import dbc_to_json
 from aletheia.types import DBCDefinition, DLCByteCount
 
-EXAMPLE_DBC = Path(__file__).parent.parent.parent / "examples" / "example.dbc"
+EXAMPLE_DBC = REPO_ROOT / "examples" / "example.dbc"
 
 
 # ============================================================================

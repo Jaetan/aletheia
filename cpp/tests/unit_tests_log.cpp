@@ -51,7 +51,8 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
         "status": "complete",
         "results": [
             {"type": "property", "status": "holds", "property_index": 0}
-        ]
+        ],
+        "warnings": []
     })");
 
     // Collect log events
@@ -61,8 +62,8 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
 
     auto client = required(AletheiaClient::create(std::move(mock), logger));
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -110,8 +111,8 @@ TEST_CASE("a client with no logger runs every emit site", "[client][log]") {
 
     auto client = required(AletheiaClient::create(std::move(mock)));
 
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -288,8 +289,8 @@ static auto streaming_client(std::unique_ptr<IBackend> backend, Logger const& lo
     -> AletheiaClient {
     auto client = required(AletheiaClient::create(std::move(backend), logger));
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})))));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     return client;
@@ -343,17 +344,18 @@ TEST_CASE("properties.set carries the property count", "[client][log][fields]") 
     auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
 
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"RPM"}, PhysicalValue{Rational{9000, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})))));
+    props.push_back(ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"RPM"}, PhysicalValue{Rational{9000, 1}})))));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     auto const& e = cap.only("properties.set");
     CHECK(e.level == LogLevel::Info);
     CHECK(field<std::uint64_t>(e, "count") == 2);
 }
 
-TEST_CASE("stream.ended counts the verdicts and warnings, and re-emits uncached atoms",
+TEST_CASE("stream.ended counts the verdicts and warnings, and every warning is re-emitted as an "
+          "uncached atom",
           "[client][log][fields]") {
     Capture cap;
     auto mock = std::make_unique<MockBackend>();
@@ -362,21 +364,22 @@ TEST_CASE("stream.ended counts the verdicts and warnings, and re-emits uncached 
     mock->queue_response(R"({
         "status": "complete",
         "results": [
-            {"type": "property", "status": "fails", "property_index": 0, "reason": "r"},
+            {"type": "property", "status": "fails", "property_index": 0, "timestamp": 5000,
+             "reason": "r"},
             {"type": "property", "status": "unresolved", "property_index": 1, "reason": "r"},
             {"type": "property", "status": "holds", "property_index": 2},
             {"type": "property", "status": "holds", "property_index": 2}
         ],
         "warnings": [
             {"kind": "uncached_atom", "property_index": 1, "detail": "RPM"},
-            {"kind": "other", "property_index": 0, "detail": "not re-emitted"}
+            {"kind": "uncached_atom", "property_index": 0, "detail": "Speed"}
         ]
     })");
     auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
     std::vector<LtlFormula> props;
     for (auto const* name : {"Speed", "RPM", "Voltage"})
-        props.push_back(ltl::always(
-            ltl::atomic(ltl::less_than(SignalName{name}, PhysicalValue{Rational{1, 1}}))));
+        props.push_back(ltl::always(ltl::atomic(
+            required(ltl::less_than(SignalName{name}, PhysicalValue{Rational{1, 1}})))));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     REQUIRE(client.end_stream(std::stop_token{}).has_value());
@@ -387,10 +390,17 @@ TEST_CASE("stream.ended counts the verdicts and warnings, and re-emits uncached 
     CHECK(field<std::uint64_t>(ended, "numFails") == 1);
     CHECK(field<std::uint64_t>(ended, "numUnresolved") == 1);
     CHECK(field<std::uint64_t>(ended, "numWarnings") == 2);
-    auto const& atom = cap.only("endstream.uncached_atom");
-    CHECK(atom.level == LogLevel::Warn);
-    CHECK(field<std::uint64_t>(atom, "property_index") == 1);
-    CHECK(field<std::string>(atom, "detail") == "RPM");
+    // Each warning is logged under its event in the reply's order.
+    REQUIRE(cap.count("endstream.uncached_atom") == 2);
+    std::vector<std::pair<std::uint64_t, std::string>> atoms;
+    for (auto const& e : cap.events) {
+        if (e.name != "endstream.uncached_atom")
+            continue;
+        CHECK(e.level == LogLevel::Warn);
+        atoms.emplace_back(field<std::uint64_t>(e, "property_index"),
+                           field<std::string>(e, "detail"));
+    }
+    CHECK(atoms == std::vector<std::pair<std::uint64_t, std::string>>{{1, "RPM"}, {0, "Speed"}});
 }
 
 TEST_CASE("frame.processed classifies the response and names the frame", "[client][log][fields]") {
@@ -570,8 +580,8 @@ TEST_CASE("set_properties empties the extraction cache and re-arms cache.full",
     send_numbered_frames(client, 0, k_cache_capacity + 1);
     REQUIRE(cap.count("cache.full") == 1);
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(
+        required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})))));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     send_numbered_frames(client, 0, k_cache_capacity + 1);
     CHECK(cap.count("cache.full") == 2);
@@ -611,61 +621,8 @@ TEST_CASE("a client assigned from another takes its extraction cache and whether
     CHECK(cap.count("cache.full") == 2);
 }
 
-TEST_CASE("enrichment.property_index_oob names the index and the count on both paths",
+TEST_CASE("extraction failures on the JSON path are logged by kind and returned",
           "[client][log][fields]") {
-    Capture cap;
-    auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(R"({"status": "success"})"); // set_properties
-    mock->queue_response(R"({"status": "success"})"); // start_stream
-    mock->queue_response(R"({
-        "type": "property_batch",
-        "results": [{"status": "fails", "type": "property", "property_index": 1,
-                     "timestamp": 1000000, "reason": "core"}]
-    })");
-    mock->queue_response(R"({
-        "status": "complete",
-        "results": [{"type": "property", "status": "fails", "property_index": 1, "reason": "r"}]
-    })");
-    auto client = streaming_client(std::move(mock), cap.logger());
-
-    auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-    FramePayload const data(8, std::byte{0});
-    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, dlc, data).has_value());
-    REQUIRE(client.end_stream(std::stop_token{}).has_value());
-
-    REQUIRE(cap.count("enrichment.property_index_oob") == 2);
-    for (auto const& e : cap.events) {
-        if (e.name != "enrichment.property_index_oob")
-            continue;
-        CHECK(e.level == LogLevel::Warn);
-        CHECK(field<std::int64_t>(e, "index") == 1);
-        CHECK(field<std::uint64_t>(e, "count") == 1);
-    }
-}
-
-TEST_CASE("without properties, a failing verdict is not an out-of-range index",
-          "[client][log][fields]") {
-    Capture cap;
-    auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(R"({"status": "success"})"); // start_stream
-    mock->queue_response(std::string{k_violation});
-    mock->queue_response(R"({
-        "status": "complete",
-        "results": [{"type": "property", "status": "fails", "property_index": 0, "reason": "r"}]
-    })");
-    auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
-    REQUIRE(client.start_stream(std::stop_token{}).has_value());
-
-    auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-    FramePayload const data(8, std::byte{0});
-    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, dlc, data).has_value());
-    REQUIRE(client.end_stream(std::stop_token{}).has_value());
-    CHECK(cap.count("enrichment.property_index_oob") == 0);
-}
-
-TEST_CASE("extraction failures on the JSON path are logged by kind", "[client][log][fields]") {
     Capture cap;
     auto const fresh = [] {
         auto mock = std::make_unique<MockBackend>();
@@ -673,39 +630,42 @@ TEST_CASE("extraction failures on the JSON path are logged by kind", "[client][l
         mock->queue_response(R"({"status": "success"})"); // start_stream
         return mock;
     };
-    SECTION("the backend throws: extraction.process_failed") {
+    auto const id = CanId{StandardId::create(0x100).value()};
+    SECTION("the backend refuses: extraction.process_failed") {
         auto mock = fresh();
         mock->queue_response(std::string{k_violation});
-        // No extraction response is queued, so the mock throws on the call.
+        // No extraction response is queued, so the mock refuses the call.
         auto client = streaming_client(std::move(mock), cap.logger());
-        auto const id = CanId{StandardId::create(0x100).value()};
-        REQUIRE(client
-                    .send_frame(std::stop_token{}, Timestamp{1000}, id, Dlc::create(8).value(),
-                                FramePayload(8))
-                    .has_value());
+        auto const sent = client.send_frame(std::stop_token{}, Timestamp{1000}, id,
+                                            Dlc::create(8).value(), FramePayload(8));
+        REQUIRE_FALSE(sent.has_value());
+        CHECK(sent.error().kind() == ErrorKind::State);
+        CHECK(sent.error().message() ==
+              "mock backend: no queued response for <binary:extractAllSignals>");
         auto const& e = cap.only("extraction.process_failed");
         CHECK(e.level == LogLevel::Warn);
         CHECK(field<std::uint64_t>(e, "canId") == 0x100);
-        CHECK(field<std::string>(e, "error").contains("no queued response"));
+        CHECK(field<std::string>(e, "error") == sent.error().message());
     }
     SECTION("the response does not parse: extraction.parse_failed") {
         auto mock = fresh();
         mock->queue_response(std::string{k_violation});
         mock->queue_response(R"({"status": "success", "values": "not an array"})");
         auto client = streaming_client(std::move(mock), cap.logger());
-        auto const id = CanId{StandardId::create(0x100).value()};
-        REQUIRE(client
-                    .send_frame(std::stop_token{}, Timestamp{1000}, id, Dlc::create(8).value(),
-                                FramePayload(8))
-                    .has_value());
+        auto const sent = client.send_frame(std::stop_token{}, Timestamp{1000}, id,
+                                            Dlc::create(8).value(), FramePayload(8));
+        REQUIRE_FALSE(sent.has_value());
+        CHECK(sent.error().kind() == ErrorKind::Protocol);
+        CHECK(sent.error().message() == "reply values: expected array, got string");
         auto const& e = cap.only("extraction.parse_failed");
         CHECK(e.level == LogLevel::Warn);
         CHECK(field<std::uint64_t>(e, "canId") == 0x100);
-        CHECK_FALSE(field<std::string>(e, "error").empty());
+        CHECK(field<std::string>(e, "error") == sent.error().message());
     }
 }
 
-TEST_CASE("extraction failures on the binary path are logged by kind, and a success is not",
+TEST_CASE("extraction failures on the binary path are logged by kind and returned, and a success "
+          "is not",
           "[client][log][fields]") {
     Capture cap;
     auto const arm = [&](std::unique_ptr<BinExtractMockBackend> mock) -> AletheiaClient {
@@ -716,36 +676,37 @@ TEST_CASE("extraction failures on the binary path are logged by kind, and a succ
         auto client = required(AletheiaClient::create(std::move(mock), cap.logger()));
         REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
         std::vector<LtlFormula> props;
-        props.push_back(ltl::always(
-            ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{1, 1}}))));
+        props.push_back(ltl::always(ltl::atomic(
+            required(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{1, 1}})))));
         REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
         REQUIRE(client.start_stream(std::stop_token{}).has_value());
         return client;
     };
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const send = [&](AletheiaClient& client) {
-        auto const r = client.send_frame(std::stop_token{}, Timestamp{1000}, id,
-                                         Dlc::create(8).value(), FramePayload(8));
-        REQUIRE(r.has_value());
-        auto const* v = std::get<PropertyBatch>(*r).first_violation();
-        REQUIRE(v != nullptr);
-        REQUIRE(v->enrichment.has_value());
-        return v->enrichment->signals;
+        return client.send_frame(std::stop_token{}, Timestamp{1000}, id, Dlc::create(8).value(),
+                                 FramePayload(8));
     };
     SECTION("a buffer that does not decode: extraction.parse_failed") {
         auto client = arm(std::make_unique<BinExtractMockBackend>(std::vector<std::byte>(9)));
-        CHECK(send(client).empty());
+        auto const sent = send(client);
+        REQUIRE_FALSE(sent.has_value());
+        CHECK(sent.error().kind() == ErrorKind::Protocol);
+        CHECK(sent.error().message().contains("Truncated"));
         auto const& e = cap.only("extraction.parse_failed");
         CHECK(e.level == LogLevel::Warn);
         CHECK(field<std::uint64_t>(e, "canId") == 0x100);
-        CHECK(field<std::string>(e, "error").contains("Truncated"));
+        CHECK(field<std::string>(e, "error") == sent.error().message());
     }
     SECTION("an error other than BinaryUnsupported: extraction.process_failed, no fallback") {
         auto mock = std::make_unique<BinExtractMockBackend>(
             std::unexpected(AletheiaError{ErrorKind::Protocol, "boom"}));
         auto const* raw = mock.get();
         auto client = arm(std::move(mock));
-        CHECK(send(client).empty());
+        auto const sent = send(client);
+        REQUIRE_FALSE(sent.has_value());
+        CHECK(sent.error().kind() == ErrorKind::Protocol);
+        CHECK(sent.error().message() == "boom");
         auto const& e = cap.only("extraction.process_failed");
         CHECK(e.level == LogLevel::Warn);
         CHECK(field<std::uint64_t>(e, "canId") == 0x100);
@@ -754,7 +715,12 @@ TEST_CASE("extraction failures on the binary path are logged by kind, and a succ
     }
     SECTION("a buffer that decodes: the value is enriched and nothing is warned") {
         auto client = arm(std::make_unique<BinExtractMockBackend>(one_value_at_index_zero()));
-        auto const signals = send(client);
+        auto const sent = send(client);
+        REQUIRE(sent.has_value());
+        auto const* v = std::get<PropertyBatch>(*sent).first_violation();
+        REQUIRE(v != nullptr);
+        REQUIRE(v->enrichment.has_value());
+        auto const& signals = v->enrichment->signals;
         REQUIRE(signals.contains(SignalName{"Speed"}));
         CHECK(signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{7, 1}});
         CHECK(cap.count("extraction.parse_failed") == 0);
@@ -772,8 +738,8 @@ TEST_CASE("a logger given no callback takes no sink and is never enabled", "[log
 
 TEST_CASE("set_properties that the backend refuses logs no properties.set", "[client][log]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(
-        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
+    mock->queue_response(R"({"status": "error", "code": "handler_validation_failed",)"
+                         R"( "message": "no", "has_errors": true, "issues": []})");
     std::vector<std::string> events;
     Logger const logger([&](LogRecord const& r) { events.emplace_back(r.event); });
     auto client = required(AletheiaClient::create(std::move(mock), logger));
@@ -793,10 +759,10 @@ TEST_CASE("a sink added after construction takes events", "[log]") {
 
 TEST_CASE("an event the backend refuses logs no sent event", "[client][log]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(
-        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
-    mock->queue_response(
-        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
+    mock->queue_response(R"({"status": "error", "code": "handler_validation_failed",)"
+                         R"( "message": "no", "has_errors": true, "issues": []})");
+    mock->queue_response(R"({"status": "error", "code": "handler_validation_failed",)"
+                         R"( "message": "no", "has_errors": true, "issues": []})");
     std::vector<std::string> events;
     Logger const logger([&](LogRecord const& r) { events.emplace_back(r.event); });
     auto client = required(AletheiaClient::create(std::move(mock), logger));

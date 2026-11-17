@@ -7,7 +7,7 @@
 //! referenced signal's value, the formula description, and a combined reason.
 
 use aletheia::{
-    check, CanId, Client, Dlc, FrameResponse, Rational, SignalValue, Timestamp, Verdict,
+    check, CanId, Client, Dlc, FrameResponse, Rational, SignalValue, TimeBound, Timestamp, Verdict,
 };
 
 const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minimal.dbc");
@@ -20,7 +20,9 @@ fn streaming_violation_carries_enrichment() {
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
 
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+    c.add_checks(&[check::signal("EngineSpeed")
+        .never_exceeds(1000)
+        .expect("check")])
         .expect("add_checks");
     c.start_stream().expect("start stream");
 
@@ -78,7 +80,9 @@ fn no_enrichment_without_a_violation() {
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
-    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+    c.add_checks(&[check::signal("EngineSpeed")
+        .never_exceeds(1000)
+        .expect("check")])
         .expect("add_checks");
     c.start_stream().expect("start stream");
     // 100 conforms — no Fails, so any Verdicts carry no enrichment.
@@ -122,7 +126,7 @@ fn end_of_stream_violation_carries_enrichment() {
         .exceeds(1000)
         .then("EngineSpeed")
         .equals(0)
-        .within(60_000)
+        .within(TimeBound(60_000_000))
         .expect("check");
     c.add_checks(&[chk]).expect("add_checks");
     c.start_stream().expect("start stream");

@@ -4,23 +4,30 @@
 
 The documentation marks every fenced block by the way it opens. A fence opened
 with three backticks is an example a harness compiles and runs: the first word
-of its info string is a language one of the four harnesses reads (``py``,
-``python`` or ``python3``; ``go``; ``cpp``; ``rust``), and each binding's own
-gates hold every tracked document carrying one to that harness's list. Every
-other fenced block, a shell session, a JSON message, a signature sketch, an
-example written for a past release, opens with tildes, which no harness reads.
-A reader tells checked code from unchecked code by the fence alone.
+of its info string is a language one of the four binding harnesses reads
+(``py``, ``python`` or ``python3``; ``go``; ``cpp``; ``rust``), and each
+binding's own gates hold every tracked document carrying one to that harness's
+list. In the C section of ``docs/development/DISTRIBUTION.md`` the C example
+gate (``tools.bundle_c_example``) runs the ``bash`` fence of each recipe and the
+``c`` fence of the example program, found by subsection and language as that
+gate finds them. Every other fenced block, a shell session, a JSON message, a
+signature sketch, an example written for a past release, opens with tildes,
+which no harness reads. A reader tells checked code from unchecked code by the
+fence alone.
 
 The Go, C++ and Rust extractors take only a fence opened with three backticks.
 The Python harness collects through ``harness_markdown_it``, the parser this
-module builds, which reads a tilde fence as a code block, so no harness runs a
-tilde fence either.
+module builds, which reads a tilde fence as a code block. The C example gate
+takes its fences opened with tildes or a longer run of backticks too, so the
+gate refuses each of them opened any way but three backticks, and names the
+guide when that gate does not find its fences.
 
 The gate reads every tracked Markdown file as CommonMark (``tools._markdown``),
 whose parser the harness's is built on, and refuses a fence opened with
 backticks whose run is not exactly three or whose first info word is not one of
 those languages: a suffixed word (``go,ignore``), an alias (``golang``) or
-another language (``bash``) is refused alike.
+another language (``bash``, outside the C example gate's fences) is refused
+alike.
 
 Source files hold Markdown too, read by ``tools._hosted_markdown`` as the
 harness of each host reads it, and the rule holds there with each host's own
@@ -40,8 +47,8 @@ parse as Python that calls, binds or opens something, the Google prose sections
 (``Args:``, ``Returns:`` and the rest) apart.
 
 Run ``python -m tools.check_fence_marks`` from the repository root. Exit 0 =
-clean, 1 = a backtick fence no harness runs, 2 = could-not-check (a tracked
-file was unreadable, never reported as clean). Its rule is unit-tested by
+clean, 1 = a fence refused, 2 = could-not-check (a tracked file was unreadable,
+never reported as clean). Its rule is unit-tested by
 ``python/tests/test_check_fence_marks.py``.
 """
 
@@ -66,6 +73,8 @@ from tools._hosted_markdown import (
     rust_doc_texts,
 )
 from tools._markdown import blocks, commonmark, fences
+from tools.bundle_c_example import GUIDE as C_GUIDE
+from tools.bundle_c_example import CGuideError, c_guide_fences
 
 from aletheia.common_types import ExitStatus, PositiveInt, Prose
 
@@ -87,6 +96,8 @@ FenceLanguage = NewType("FenceLanguage", str)
 RUN_LANGUAGES = frozenset(map(FenceLanguage, ("py", "python", "python3", "go", "cpp", "rust")))
 # The one opening the Go, C++ and Rust extractors take.
 RUN_FENCE = "```"
+# The harness running the C section's recipes and program in the distribution guide.
+C_HARNESS = Prose("C example gate (tools.bundle_c_example)")
 _MARKDOWN_SUFFIXES = (".md", ".mdx", ".svx")
 _CPP_SUFFIXES = (".cpp", ".hpp", ".h")
 # The sources rustdoc runs the doc comments of: the library crates'.
@@ -167,19 +178,31 @@ def _finding(rel: RelPath, line: PositiveInt, what: Prose) -> Prose:
 
 
 def _refused(
-    rel: RelPath, hosted: HostedText, languages: frozenset[FenceLanguage], *, rustdoc: bool = False
+    rel: RelPath,
+    hosted: HostedText,
+    languages: frozenset[FenceLanguage],
+    *,
+    rustdoc: bool = False,
+    c_example: frozenset[PositiveInt] = frozenset(),
 ) -> list[Prose]:
     """Return one finding per fence of ``hosted`` whose opening its host's harness does not run.
 
     Under ``rustdoc`` a backtick fence runs when its info string is ``rust`` alone,
     and a tilde fence is refused when rustdoc would still compile it: no language,
-    or rust, or one of its attributes.
+    or rust, or one of its attributes. A fence on a line of ``c_example``, which
+    the C example gate runs whatever its opening, passes opened with three
+    backticks alone.
     """
     findings: list[Prose] = []
     for fence in fences(hosted.text):
         words = fence.info.split()
         word = FenceLanguage(words[0] if words else "")
         line = hosted.lines[fence.line - 1]
+        if fence.line in c_example:
+            if fence.markup != RUN_FENCE:
+                what = f"the {C_HARNESS} runs this {word!r} fence; open it with {RUN_FENCE}"
+                findings.append(_finding(rel, line, Prose(what)))
+            continue
         if fence.markup.startswith("`"):
             if (
                 fence.markup == RUN_FENCE
@@ -213,10 +236,23 @@ def _refused(
 
 
 def scan_text(rel: RelPath, text: MarkdownText) -> list[Prose]:
-    """Return one finding per backtick fence of ``text`` that no harness runs."""
+    """Return one finding per fence of ``text`` whose opening is not the mark of whether it runs.
+
+    In the distribution guide the C example gate's fences are read as that gate
+    reads them, and a guide it does not read is a finding.
+    """
     count = text.count("\n") + 1
     lines: tuple[PositiveInt, ...] = tuple(range(1, count + 1))
-    return _refused(rel, HostedText(Owner("<document>"), lines, Prose(text)), RUN_LANGUAGES)
+    hosted = HostedText(Owner("<document>"), lines, Prose(text))
+    if rel != C_GUIDE:
+        return _refused(rel, hosted, RUN_LANGUAGES)
+    try:
+        found = c_guide_fences(Prose(text))
+    except CGuideError as error:
+        unread = Prose(f"{rel}: the {C_HARNESS} does not read the guide: {error}")
+        return [unread, *_refused(rel, hosted, RUN_LANGUAGES)]
+    c_example = frozenset(block.fence.line for block in found)
+    return _refused(rel, hosted, RUN_LANGUAGES, c_example=c_example)
 
 
 def _is_code(block: list[Prose]) -> bool:
@@ -357,7 +393,7 @@ def _is_not_read(rel: RelPath) -> bool:
 
 
 def main() -> ExitStatus:
-    """Report every backtick fence no harness runs; 2 if a file was unreadable, 1 if any found."""
+    """Report every fence refused; 2 if a file was unreadable, 1 if any found."""
     argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     rust = {
         RelPath(rel): SourceText((REPO_ROOT / rel).read_text(encoding="utf-8"))
@@ -373,9 +409,10 @@ def main() -> ExitStatus:
         report_tree_scan(
             "check_fence_marks",
             scan,
-            found=f"{len(scan.findings)} backtick fence(s) no harness runs:",
+            found=f"{len(scan.findings)} fence(s) not opened as whether a harness runs them:",
             found_lines=scan.findings,
-            clean="every backtick fence of the tracked Markdown and sources is one a harness runs.",
+            clean="every backtick fence of the tracked Markdown and sources is one a harness runs,"
+            + " and every fence a harness runs opens with backticks.",
         )
     )
 

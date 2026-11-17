@@ -31,6 +31,9 @@ from aletheia import AletheiaClient
 from aletheia.dsl import Property, Signal
 from aletheia.types import DLCCode
 
+# The kernel checks a property as it is built, so the runtime is up first.
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 _REPO = Path(__file__).resolve().parents[2]
 
 # What holds an example: a docstring's dotted owner, or a document heading's text.

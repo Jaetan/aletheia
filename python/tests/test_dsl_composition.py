@@ -17,6 +17,9 @@ Tests cover:
 from fractions import Fraction
 from typing import TYPE_CHECKING, cast
 
+import pytest
+
+from aletheia import ValidationError
 from aletheia.dsl import Property, Signal
 
 if TYPE_CHECKING:
@@ -39,6 +42,8 @@ if TYPE_CHECKING:
 # ============================================================================
 # LOGICAL OPERATORS - PROPERTY LEVEL
 # ============================================================================
+
+pytestmark = pytest.mark.usefixtures("rts_up")
 
 
 class TestPropertyLogicalOperators:
@@ -212,7 +217,7 @@ class TestJSONSerialization:
 
     def test_serialization_preserves_values(self) -> None:
         """Serialization preserves all values correctly."""
-        prop = Signal("Voltage").between(Fraction("11.5"), Fraction("14.5")).for_at_least(1000)
+        prop = Signal("Voltage").between(Fraction("11.5"), Fraction("14.5")).for_at_least(1_000_000)
         data = cast("MetricAlwaysFormula", prop.to_dict())
 
         assert data["timebound"] == 1_000_000
@@ -230,12 +235,24 @@ class TestJSONSerialization:
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
-    def test_signal_with_unicode_name(self) -> None:
-        """Signal names can contain unicode (validation in Agda)."""
-        sig = Signal("Tür_Öffnen")
-        pred = sig.equals(1)
-        formula = cast("AtomicFormula", pred.to_formula())
-        assert formula["predicate"]["signal"] == "Tür_Öffnen"
+    def test_a_signal_name_outside_the_dbc_character_set_is_refused_at_build(self) -> None:
+        """The kernel decides a signal name's characters when the predicate is built."""
+        with pytest.raises(ValidationError) as refused:
+            Signal("Tür_Öffnen").equals(1)
+        assert refused.value.code == "dbc_invalid_character"
+        assert str(refused.value) == (
+            "signal: character at index 1 (code point 252) is outside the DBC character set"
+        )
+
+    def test_a_signal_name_that_is_no_identifier_is_refused_at_build(self) -> None:
+        """The kernel decides a signal name as a DBC identifier when the predicate is built."""
+        with pytest.raises(ValidationError) as refused:
+            Signal("1bad").equals(1)
+        assert refused.value.code == "parse_invalid_identifier"
+        assert str(refused.value) == (
+            "signal: '1bad' is not a valid DBC identifier"
+            " (must start with letter or '_', followed by alphanumerics or '_')"
+        )
 
     def test_signal_with_special_chars(self) -> None:
         """Signal names can contain special characters."""
@@ -270,7 +287,7 @@ class TestEdgeCases:
 
     def test_very_large_time_bound(self) -> None:
         """Very large time bounds work."""
-        prop = Signal("X").equals(1).within(999999999)
+        prop = Signal("X").equals(1).within(999_999_999_000)
         data = cast("MetricEventuallyFormula", prop.to_dict())
         assert data["timebound"] == 999_999_999_000
 
@@ -336,14 +353,14 @@ class TestRealWorldExamples:
 
     def test_door_debounce(self) -> None:
         """Door closed signal must be stable (debounced)."""
-        prop = Signal("DoorClosed").equals(1).for_at_least(50)
+        prop = Signal("DoorClosed").equals(1).for_at_least(50_000)
         data = cast("MetricAlwaysFormula", prop.to_dict())
         assert data["timebound"] == 50_000
 
     def test_emergency_brake(self) -> None:
         """Emergency brake -> Speed decreases quickly (desugars to or)."""
         emergency = Signal("EmergencyBrake").equals(1)
-        speed_dec = Signal("Speed").changed_by(-20).within(200)
+        speed_dec = Signal("Speed").changed_by(-20).within(200_000)
         prop = emergency.implies(speed_dec)
 
         data = cast("OrFormula", prop.to_dict())
@@ -381,7 +398,7 @@ class TestRealWorldExamples:
         on = Signal("LeftTurnSignal").equals(1)
         off = Signal("LeftTurnSignal").equals(0)
         # Simplified: on implies off within 500ms (desugars to or)
-        prop = on.implies(off.within(500))
+        prop = on.implies(off.within(500_000))
 
         data = cast("OrFormula", prop.to_dict())
         consequent = cast("MetricEventuallyFormula", data["right"])

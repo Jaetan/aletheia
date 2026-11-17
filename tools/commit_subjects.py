@@ -6,8 +6,10 @@ A subject reads ``type(scope)!: text``: a type and a scope from the lists below,
 the breaking mark ``!`` after the scope, a colon, one space and the text.  The
 lists are closed.  A type or a scope they do not name is refused, and adding or
 retiring one is a change to this module, whose tests pin each list.  A pull
-request's title is the subject its squash commit lands with, so the title is
-held to the same vocabulary as every commit on the branch.
+request's title is the subject its squash commit lands with, the one subject
+that reaches the comparison ref and the CHANGELOG, so the vocabulary holds the
+title (``tools/check_pr_title.py``); a commit on the branch reads in it only to
+mark the release preparation or a correction.
 
 Whether a subject owes the CHANGELOG an entry is one table (``owed_entry``):
 
@@ -21,22 +23,23 @@ Whether a subject owes the CHANGELOG an entry is one table (``owed_entry``):
   own subject), and it owes what that subject owes.
 * The breaking mark makes any subject owe an entry, with a BREAKING lead under
   ``### Changed``, or ``### Removed`` when surface goes.
-* A branch edits the CHANGELOG only when a subject owes it an entry or a record
-  of the public surface changed, two subjects apart, both owing none: the
-  release preparation, ``chore(dist): prepare vX.Y.Z``, moves the unreleased
-  entries under the version's heading (``cuts_a_release``; ``release_version``
-  reads the version, ``released`` every version a branch prepares); a
-  correction, ``docs(changelog): text``, removes or rewrites entries and adds
-  none (``corrects_the_changelog``).  The ``changelog`` scope belongs to an
+* A pull request's branch edits the CHANGELOG only when its title owes it an
+  entry, two titles apart, both owing none, each also the subject of a commit
+  on the branch: the release preparation, ``chore(dist): prepare vX.Y.Z``,
+  moves the unreleased entries under the version's heading (``cuts_a_release``;
+  ``release_version`` reads the version, ``released`` every version the
+  branch's commits prepare); a correction, ``docs(changelog): text``, removes or
+  rewrites entries and adds none (``corrects_the_changelog``; ``corrected``
+  reads it from the branch's commits).  The ``changelog`` scope belongs to an
   unmarked ``docs`` subject alone.
 
 The text is one line of printable characters, starting with one that is not a
 space.
 
 A label is the author's claim, so it is held to the files the branch changes
-where a file can say it (``mislabelled``): a branch that changes what users get
-(``ships``) carries a label naming a shipped scope, or none, never internal ones
-alone.  A behaviour change filed as a ``refactor`` of a shipped scope reads the
+where a file can say it (``mislabelled``): the title of a branch that changes
+what users get (``ships``) names a shipped scope, or none, never an internal
+one.  A behaviour change filed as a ``refactor`` of a shipped scope reads the
 same as a real one from its files, and stays a reviewer's call; so does a change
 to the dist rules, ``shake/Rules/Dist.hs``, which ``ships`` leaves out.
 

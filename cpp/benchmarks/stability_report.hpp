@@ -16,7 +16,6 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <expected>
 #include <format>
 #include <iterator>
@@ -28,33 +27,47 @@
 
 namespace aletheia::bench {
 
-// Soft-threshold caps, established empirically on a quiet WSL2 host; revise
-// inline if a host rejects them as too tight or too loose.
-inline constexpr std::int64_t k_rss_delta_bytes_cap = 50LL * 1024 * 1024;    // 50 MiB
-inline constexpr std::int64_t k_malloc_delta_bytes_cap = 50LL * 1024 * 1024; // 50 MiB
-
 // One resource's verdict: its reading at each snapshot, the drift between
-// them, and the gate and threshold it was judged under.
+// them, and the gate it was judged under. The kernel's allocation also carries
+// each cycle's bytes and the most one cycle allocated less what the least did.
 struct SubCheck {
     std::string name;
-    std::string gate; // "hard_zero" or "soft_threshold"
+    std::string gate; // "hard_zero", "equal_per_cycle" or "report"
     std::int64_t start;
     std::int64_t end;
     std::int64_t delta;
     std::int64_t threshold;
     bool passed;
+    std::vector<std::int64_t> per_cycle;
+    std::int64_t spread = 0;
 };
 
-// Each resource the harness watches, as the pair of snapshots it is judged on.
-inline auto build_sub_checks(Snapshot const& start, Snapshot const& end) -> std::vector<SubCheck> {
+// Each cycle's bytes: the difference of each reading of the kernel's
+// allocation and the one before it.
+inline auto per_cycle_of(std::vector<std::int64_t> const& readings) -> std::vector<std::int64_t> {
+    return readings | std::views::pairwise_transform([](std::int64_t before, std::int64_t after) {
+               return after - before;
+           }) |
+           std::ranges::to<std::vector>();
+}
+
+// Each resource the harness watches: the exact counts as the pair of snapshots
+// they are judged on, the kernel's allocation as its readings before and after
+// every cycle (`readings` holds at least the opening one), and the resident set
+// and the allocator's bytes reported, deciding nothing.
+inline auto build_sub_checks(Snapshot const& start, Snapshot const& end,
+                             std::vector<std::int64_t> const& readings) -> std::vector<SubCheck> {
+    auto const per_cycle = per_cycle_of(readings);
+    auto const spread =
+        per_cycle.empty() ? 0 : std::ranges::max(per_cycle) - std::ranges::min(per_cycle);
     return {
         {.name = "rss",
-         .gate = "soft_threshold",
+         .gate = "report",
          .start = start.rss_bytes,
          .end = end.rss_bytes,
          .delta = end.rss_bytes - start.rss_bytes,
-         .threshold = k_rss_delta_bytes_cap,
-         .passed = std::abs(end.rss_bytes - start.rss_bytes) <= k_rss_delta_bytes_cap},
+         .threshold = 0,
+         .passed = true},
         {.name = "fd_count",
          .gate = "hard_zero",
          .start = start.fd_count,
@@ -70,13 +83,21 @@ inline auto build_sub_checks(Snapshot const& start, Snapshot const& end) -> std:
          .threshold = 0,
          .passed = end.active_thread_count == start.active_thread_count},
         {.name = "malloc_info",
-         .gate = "soft_threshold",
+         .gate = "report",
          .start = start.malloc_info_bytes,
          .end = end.malloc_info_bytes,
          .delta = end.malloc_info_bytes - start.malloc_info_bytes,
-         .threshold = k_malloc_delta_bytes_cap,
-         .passed =
-             std::abs(end.malloc_info_bytes - start.malloc_info_bytes) <= k_malloc_delta_bytes_cap},
+         .threshold = 0,
+         .passed = true},
+        {.name = "kernel_allocation",
+         .gate = "equal_per_cycle",
+         .start = readings.front(),
+         .end = readings.back(),
+         .delta = readings.back() - readings.front(),
+         .threshold = 0,
+         .passed = spread == 0,
+         .per_cycle = per_cycle,
+         .spread = spread},
     };
 }
 
@@ -98,7 +119,7 @@ inline auto report_text(int cycles, int frames, double elapsed_seconds,
                     "  \"elapsed_seconds\": {},\n"
                     "  \"sub_checks\": [\n",
                     cycles, frames, static_cast<std::int64_t>(cycles) * frames, elapsed_seconds);
-    for (auto const [i, c] : std::views::enumerate(sub_checks))
+    for (auto const [i, c] : std::views::enumerate(sub_checks)) {
         std::format_to(std::back_inserter(text),
                        "{}    {{\n"
                        "      \"name\": \"{}\",\n"
@@ -106,11 +127,18 @@ inline auto report_text(int cycles, int frames, double elapsed_seconds,
                        "      \"start\": {},\n"
                        "      \"end\": {},\n"
                        "      \"delta\": {},\n"
-                       "      \"threshold\": {},\n"
+                       "      \"threshold\": {},\n",
+                       i == 0 ? "" : ",\n", c.name, c.gate, c.start, c.end, c.delta, c.threshold);
+        if (c.gate == "equal_per_cycle")
+            std::format_to(std::back_inserter(text),
+                           "      \"per_cycle\": {},\n"
+                           "      \"spread\": {},\n",
+                           c.per_cycle, c.spread);
+        std::format_to(std::back_inserter(text),
                        "      \"passed\": {}\n"
                        "    }}",
-                       i == 0 ? "" : ",\n", c.name, c.gate, c.start, c.end, c.delta, c.threshold,
                        c.passed);
+    }
     std::format_to(std::back_inserter(text),
                    "\n  ],\n"
                    "  \"passed\": {}\n"

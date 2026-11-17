@@ -17,17 +17,17 @@ Companion gates: ``go/aletheia/log_events_test.go`` and
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
 import yaml
+from _repo_root import REPO_ROOT
 from _yaml_shape import as_str_object_dict
 
 from aletheia.client._log import KNOWN_EVENTS, LogEvent
 
 _VALID_LEVELS: frozenset[str] = frozenset({"debug", "info", "warn"})
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = REPO_ROOT
 _YAML_PATH = _REPO_ROOT / "docs" / "LOG_EVENTS.yaml"
 
 
@@ -92,11 +92,10 @@ def test_yaml_matches_log_event_enum() -> None:
     assert yaml_names == KNOWN_EVENTS
 
 
-def test_yaml_event_count_matches_documented_total() -> None:
-    """The YAML carries exactly 16 events.
+def test_yaml_event_count_is_the_one_every_binding_pins() -> None:
+    """The YAML carries exactly the cross-binding events, none dropped silently.
 
-    This count is documented in ``python/aletheia/client/_log.py``,
-    ``go/aletheia/doc.go``, and ``cpp/include/aletheia/log.hpp``.  Bumping
-    it requires a coordinated edit across all four files plus a CHANGELOG entry.
+    The count is held here and by each binding's parity test (Go, C++ and
+    Rust); moving it is a coordinated edit of the four plus a CHANGELOG entry.
     """
-    assert len(_EVENTS) == 16, f"expected 16 cross-binding events, found {len(_EVENTS)}"
+    assert len(_EVENTS) == 14, f"expected 14 cross-binding events, found {len(_EVENTS)}"

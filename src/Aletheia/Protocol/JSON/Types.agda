@@ -83,8 +83,8 @@ mutual
 -- (the parsed, reduced components — reduction only shrinks magnitudes,
 -- so a bounded submitted literal stays bounded).  Companion to
 -- `jsonDepth`: direct measurement of the parsed tree, consumed by the
--- post-parse `max-rational-component-magnitude` bound (the Int64 wire
--- range) at the `processJSONLine` surface.  Primitives without numeric
+-- post-parse `max-rational-component-magnitude` bound (the 128-bit
+-- magnitude range) at the `processJSONLine` surface.  Primitives without numeric
 -- content and empty containers contribute 0.
 mutual
   jsonMaxComponent : JSON → ℕ
@@ -132,16 +132,6 @@ mutual
 -- numerator and its denominator, the claim `jsonMaxComponent` measures.
 ComponentsWithin : ℕ → ℚ → Set
 ComponentsWithin bound q = ∣ ℚ.numerator q ∣ ≤ bound × suc (ℚ.denominator-1 q) ≤ bound
-
--- Every number in a JSON value has both components within the bound.
-NumbersWithin : ℕ → JSON → Set
-NumbersWithin bound = NumbersSatisfy (ComponentsWithin bound)
-
-ListNumbersWithin : ℕ → List JSON → Set
-ListNumbersWithin bound = ListNumbersSatisfy (ComponentsWithin bound)
-
-FieldsNumbersWithin : ℕ → List (String × JSON) → Set
-FieldsNumbersWithin bound = FieldsNumbersSatisfy (ComponentsWithin bound)
 
 -- A JSON value nested at most `k` deep: each array or object takes one
 -- level, so a primitive is within any depth and a container within `suc k`

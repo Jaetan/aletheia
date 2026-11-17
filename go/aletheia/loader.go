@@ -24,7 +24,7 @@ type SimpleValues interface {
 	// Within is read by the settling condition alone, which is why the time
 	// bound is a slot here and a parameter in the then half, where every
 	// obligation is bounded.
-	Within() (milliseconds int64, err error)
+	Within() (TimeBound, error)
 }
 
 // ThenValues is the same for the obligation a when-then check closes with,
@@ -41,28 +41,28 @@ var simpleBuilders = map[string]func(signal string, v SimpleValues) (CheckResult
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return CheckSignal(signal).NeverExceeds(value), nil
+		return CheckSignal(signal).NeverExceeds(value)
 	},
 	"never_below": func(signal string, v SimpleValues) (CheckResult, error) {
 		value, err := v.Value()
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return CheckSignal(signal).NeverBelow(value), nil
+		return CheckSignal(signal).NeverBelow(value)
 	},
 	"never_equals": func(signal string, v SimpleValues) (CheckResult, error) {
 		value, err := v.Value()
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return CheckSignal(signal).NeverEquals(value), nil
+		return CheckSignal(signal).NeverEquals(value)
 	},
 	"equals": func(signal string, v SimpleValues) (CheckResult, error) {
 		value, err := v.Value()
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return CheckSignal(signal).Equals(value).Always(), nil
+		return CheckSignal(signal).Equals(value).Always()
 	},
 	"stays_between": func(signal string, v SimpleValues) (CheckResult, error) {
 		lo, hi, err := v.Range()
@@ -76,11 +76,11 @@ var simpleBuilders = map[string]func(signal string, v SimpleValues) (CheckResult
 		if err != nil {
 			return CheckResult{}, err
 		}
-		ms, err := v.Within()
+		within, err := v.Within()
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return CheckSignal(signal).SettlesBetween(lo, hi).Within(ms)
+		return CheckSignal(signal).SettlesBetween(lo, hi).Within(within)
 	},
 }
 
@@ -95,27 +95,27 @@ var whenBuilders = map[string]func(WhenSignalBuilder, Rational) WhenCondition{
 
 // thenBuilders are the obligations the trailing half takes, each bounded in
 // time.
-var thenBuilders = map[string]func(b ThenSignalBuilder, v ThenValues, withinMs int64) (CheckResult, error){
-	"equals": func(b ThenSignalBuilder, v ThenValues, withinMs int64) (CheckResult, error) {
+var thenBuilders = map[string]func(b ThenSignalBuilder, v ThenValues, within TimeBound) (CheckResult, error){
+	"equals": func(b ThenSignalBuilder, v ThenValues, within TimeBound) (CheckResult, error) {
 		value, err := v.Value()
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return b.Equals(value).Within(withinMs)
+		return b.Equals(value).Within(within)
 	},
-	"exceeds": func(b ThenSignalBuilder, v ThenValues, withinMs int64) (CheckResult, error) {
+	"exceeds": func(b ThenSignalBuilder, v ThenValues, within TimeBound) (CheckResult, error) {
 		value, err := v.Value()
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return b.Exceeds(value).Within(withinMs)
+		return b.Exceeds(value).Within(within)
 	},
-	"stays_between": func(b ThenSignalBuilder, v ThenValues, withinMs int64) (CheckResult, error) {
+	"stays_between": func(b ThenSignalBuilder, v ThenValues, within TimeBound) (CheckResult, error) {
 		lo, hi, err := v.Range()
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return b.StaysBetween(lo, hi).Within(withinMs)
+		return b.StaysBetween(lo, hi).Within(within)
 	},
 }
 
@@ -150,12 +150,12 @@ func DispatchWhen(builder WhenSignalBuilder, condition string, value Rational) (
 
 // DispatchThen builds the trailing half, bounded in time, asking the loader
 // for the slots the obligation reads.
-func DispatchThen(builder ThenSignalBuilder, condition string, values ThenValues, withinMs int64) (CheckResult, error) {
+func DispatchThen(builder ThenSignalBuilder, condition string, values ThenValues, within TimeBound) (CheckResult, error) {
 	build, ok := thenBuilders[condition]
 	if !ok {
 		return CheckResult{}, validationError(fmt.Sprintf("unknown then condition: %q", condition))
 	}
-	return build(builder, values, withinMs)
+	return build(builder, values, within)
 }
 
 // applyMetadata puts the optional name and severity on a check.

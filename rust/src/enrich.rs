@@ -124,7 +124,7 @@ fn format_predicate(p: &Predicate) -> Result<String, Error> {
             )
         }
         Predicate::ChangedBy { signal, delta } => {
-            if delta.numerator() >= 0 {
+            if !delta.is_negative() {
                 format!("Δ{signal} >= {}", format_rational(*delta)?)
             } else {
                 format!("Δ{signal} <= {}", format_rational(*delta)?)
@@ -274,8 +274,9 @@ mod tests {
     use super::*;
     use crate::backend::ensure_rts_for_test;
     use crate::check;
+    use crate::wire_json::{to_text, Wire};
 
-    fn r(n: i64) -> Rational {
+    fn r(n: i128) -> Rational {
         Rational::integer(n)
     }
 
@@ -377,7 +378,9 @@ mod tests {
         let wire: serde_json::Value =
             serde_json::from_str(contract["wire"].as_str().unwrap()).unwrap();
         let f = every_alternative();
-        assert_eq!(f.to_value().unwrap(), wire);
+        let written: serde_json::Value =
+            serde_json::from_str(&to_text(&Wire(&f)).unwrap()).unwrap();
+        assert_eq!(written, wire);
         assert_eq!(
             format_formula(&f).unwrap(),
             contract["rendering"].as_str().unwrap()
@@ -386,8 +389,8 @@ mod tests {
 
     #[test]
     fn never_shape_and_signals() {
-        ensure_rts_for_test(); // build_diagnostic renders the formula description
-        let f = check::signal("Speed").never_exceeds(220);
+        ensure_rts_for_test(); // the builder and build_diagnostic run through the kernel
+        let f = check::signal("Speed").never_exceeds(220).unwrap();
         let d = build_diagnostic(f.formula()).unwrap();
         assert_eq!(d.signals, vec!["Speed".to_string()]);
         assert_eq!(d.formula_desc, "always(Speed <= 220)");
@@ -395,9 +398,9 @@ mod tests {
 
     #[test]
     fn never_equals_renders_as_never() {
-        ensure_rts_for_test(); // build_diagnostic renders the formula description
-                               // never_equals builds Always(Not(Atomic(Equals))) → the `never P` shape.
-        let f = check::signal("Mode").never_equals(3);
+        ensure_rts_for_test(); // the builder and build_diagnostic run through the kernel
+                               // never_equals builds Always(Not(Atomic(Equals))), the `never P` shape.
+        let f = check::signal("Mode").never_equals(3).unwrap();
         assert_eq!(
             build_diagnostic(f.formula()).unwrap().formula_desc,
             "never Mode = 3"
@@ -406,12 +409,12 @@ mod tests {
 
     #[test]
     fn collect_dedups_across_when_then() {
-        ensure_rts_for_test(); // build_diagnostic renders the formula description
+        ensure_rts_for_test(); // the builder and build_diagnostic run through the kernel
         let f = check::when("Brake")
             .exceeds(50)
             .then("Light")
             .equals(1)
-            .within(100)
+            .within(TimeBound(100_000))
             .unwrap();
         let d = build_diagnostic(f.formula()).unwrap();
         // Both signals referenced, in first-seen order; metric bound rendered.

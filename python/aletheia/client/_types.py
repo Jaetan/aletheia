@@ -3,6 +3,7 @@
 """Client types, exceptions, and result containers."""
 
 import dataclasses
+import importlib
 from dataclasses import dataclass
 from fractions import Fraction
 from types import MappingProxyType
@@ -28,7 +29,7 @@ from aletheia.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from aletheia.codes import ValidationIssue
+    from aletheia.codes import ErrorCode, ValidationIssue
     from aletheia.common_types import DocumentKey, Location, PositiveInt
 
 type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
@@ -38,7 +39,8 @@ class AletheiaError(Exception):
     """Base exception for all Aletheia errors.
 
     The string form is the message, prefixed for an error a loader located:
-    ``<location>: invalid '<key>': <message>``.
+    ``<location>: invalid '<key>': <message>``, or ``<location>: <message>``
+    for one no single key holds, such as a check its builder refused.
 
     Attributes:
         message: The error's text; for an error the kernel answered, the
@@ -52,25 +54,25 @@ class AletheiaError(Exception):
         location: Where a YAML or Excel loader read the value the error
             refuses (``Check 'C'``, ``Row 2``), or ``None`` for an error no
             loader located.
-        key: The key or the column header the refused value sat under, set
-            with ``location``.
+        key: The key or the column header the refused value sat under, or
+            ``None`` for an error no loader located or no single key holds.
 
     """
 
     message: Prose
-    code: str | None
+    code: ErrorCode | None
     location: Location | None
     key: DocumentKey | None
 
-    def __init__(self, message: str, code: str | None = None) -> None:
+    def __init__(self, message: str, code: ErrorCode | None = None) -> None:
         super().__init__(message)
         self.message = Prose(message)
         self.code = code
         self.location = None
         self.key = None
 
-    def locate(self, location: Location, key: DocumentKey) -> None:
-        """Record where a loader read the refused value and the key it sat under."""
+    def locate(self, location: Location, key: DocumentKey | None = None) -> None:
+        """Record where a loader read the refused value and the key it sat under, if one."""
         self.location = location
         self.key = key
 
@@ -79,15 +81,18 @@ class AletheiaError(Exception):
         """Return the message, after the location and the key when a loader set them."""
         if self.location is None:
             return self.message
+        if self.key is None:
+            return Prose(f"{self.location}: {self.message}")
         return Prose(f"{self.location}: invalid '{self.key}': {self.message}")
 
 
 class FFIError(AletheiaError):
-    """Library-load / RTS-init / FFI-null-pointer failures.
+    """Library-load, RTS-init and null-reply failures.
 
-    Mirrors Go ``ErrFFI`` and C++ ``ErrorKind::Ffi`` — the kind for
-    `dlopen` / `dlsym` / `hs_init` / `aletheia_init() → null` failures
-    where the boundary itself failed before any Agda code ran.
+    Mirrors Go ``ErrFFI`` and C++ ``ErrorKind::Ffi``: the kind for a
+    `dlopen`, `dlsym` or `hs_init` failure and for a C entry answering
+    null, read as ``<entry> returned null`` (``aletheia_init returned null``,
+    ``aletheia_process returned null``).
     """
 
 
@@ -150,8 +155,8 @@ class InputBoundExceededError(AletheiaError):
 
     Mirrors the Agda ``Error.InputBoundExceeded`` constructor.  Attributes
     carry the bound kind (e.g. ``"input_length_bytes"``), the observed value
-    (``2**64 - 1`` when the kernel measured more, its message then saying
-    "at least"), the canonical limit per :mod:`aletheia.limits`, and the
+    (``2**128 - 1`` when the kernel measured more, its message then naming no
+    number), the limit the refusal names, and the
     part of the input that crossed the bound as the kernel names it (a DBC's
     ``"senders array"`` or ``"signal factor"``, a decimal's ``"decimal"``),
     or ``None`` for a bound that names no field.
@@ -175,7 +180,7 @@ class InputBoundExceededError(AletheiaError):
         kind: BoundKind,
         observed: PositiveInt,
         limit: Limit,
-        code: str | None = None,
+        code: ErrorCode | None = None,
         *,
         refusal: KernelRefusal | None = None,
     ) -> None:
@@ -226,7 +231,7 @@ class DBCValidationFailedError(AletheiaError):
         issues: list[ValidationIssue],
         *,
         has_errors: bool,
-        code: str | None = None,
+        code: ErrorCode | None = None,
     ) -> None:
         super().__init__(message, code=code)
         self.issues = issues
@@ -260,7 +265,7 @@ class TextRoundTripFailedError(AletheiaError):
         issues: list[ValidationIssue],
         *,
         has_errors: bool,
-        code: str | None = None,
+        code: ErrorCode | None = None,
     ) -> None:
         super().__init__(message, code=code)
         self.issues = issues
@@ -406,11 +411,14 @@ class FrameResult:
         the Agda invariant in dispatchIterResult, violations always
         close a batch — there is at most one violation per frame, and
         if present it is the last result.
+
+        Raises:
+            ProtocolError: If a ``property_batch`` response has no ``results``.
+
         """
         if self.response.get("type") != "property_batch":
             return None
-        results = cast("PropertyBatchResponse", self.response).get("results", [])
-        for entry in results:
+        for entry in self._batch_results():
             if entry.get("status") == "fails":
                 return entry
         return None
@@ -422,14 +430,39 @@ class FrameResult:
         Properties that completed (became Satisfied) on this frame are
         surfaced here in source-order.  Empty list for ack-only frames
         and for violation-only frames.
+
+        Raises:
+            ProtocolError: If a ``property_batch`` response has no ``results``.
+
         """
         if self.response.get("type") != "property_batch":
             return []
-        return [
-            entry
-            for entry in cast("PropertyBatchResponse", self.response).get("results", [])
-            if entry.get("status") == "holds"
-        ]
+        return [entry for entry in self._batch_results() if entry.get("status") == "holds"]
+
+    def _batch_results(self) -> list[PropertyResultEntry]:
+        """Return a ``property_batch`` response's ``results``, which the kernel always writes.
+
+        Raises:
+            ProtocolError: If the response has no ``results``.
+
+        """
+        batch = cast("PropertyBatchResponse", self.response)
+        if "results" not in batch:
+            raise _no_results(batch)
+        return batch["results"]
+
+
+def _no_results(batch: PropertyBatchResponse) -> ProtocolError:
+    """Refuse a ``property_batch`` without ``results`` in the one form of a reply refusal.
+
+    The one form's module reads :class:`ProtocolError` from this one, so it is
+    imported where the refusal is built rather than at the top.
+    """
+    shape = importlib.import_module("aletheia.client._helpers.reply_shape")
+    refusal: ProtocolError = shape.reply_refusal(
+        shape.at(shape.REPLY_ROOT, "results"), shape.ARRAY, shape.came(batch, "results")
+    )
+    return refusal
 
 
 def make_frame_result(

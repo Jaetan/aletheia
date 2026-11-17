@@ -100,6 +100,151 @@ def test_a_block_without_its_tool_or_its_hot_paths_is_named(
     ]
 
 
+# A tool told which files to mutate is told the hot path, and nothing else.
+
+_PYPROJECT: Final = RelPath("python/pyproject.toml")
+_MUTANTS_TOML: Final = RelPath("rust/.cargo/mutants.toml")
+
+
+def _plant_selections(
+    root: Path, monkeypatch: pytest.MonkeyPatch, source_paths: Prose, examine_globs: Prose
+) -> None:
+    """Plant mutmut's ``source_paths`` and cargo-mutants' ``examine_globs``, each a TOML array."""
+    _ = plant(
+        root,
+        {
+            _PYPROJECT: Prose(f"[tool.mutmut]\nsource_paths = {source_paths}\n"),
+            _MUTANTS_TOML: Prose(f"examine_globs = {examine_globs}\n"),
+        },
+    )
+    monkeypatch.setattr(check_mutation_setup, "PYPROJECT_PATH", root / _PYPROJECT)
+    monkeypatch.setattr(check_mutation_setup, "MUTANTS_TOML_PATH", root / _MUTANTS_TOML)
+
+
+def test_tools_told_their_hot_paths_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each tool told exactly its block's hot path, in another order, is clean."""
+    _plant_selections(
+        tmp_path, monkeypatch, Prose('["b.py", "a.py"]'), Prose('["src/x.rs", "src/y.rs"]')
+    )
+    assert not check_mutation_setup.every_selecting_tool_mutates_its_hot_path(
+        {
+            BindingName("python"): [RelPath("python/a.py"), RelPath("python/b.py")],
+            BindingName("rust"): [RelPath("rust/src/y.rs"), RelPath("rust/src/x.rs")],
+            BindingName("go"): [RelPath("go/aletheia/client.go")],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("table", "named"),
+    [
+        (Prose('process_isolation = "forkserver"\n'), []),
+        (
+            Prose('process_isolation = "fork"\n'),
+            ["[python/mutmut] process_isolation is 'fork', not 'forkserver'"],
+        ),
+        (Prose(""), ["[python/mutmut] process_isolation is None, not 'forkserver'"]),
+    ],
+    ids=["forkserver", "fork", "unset"],
+)
+def test_the_python_lane_forks_each_mutant_from_its_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, table: Prose, named: list[Prose]
+) -> None:
+    """The lane forks each mutant's process from mutmut's server alone, anything else named."""
+    _ = plant(tmp_path, {_PYPROJECT: Prose(f"[tool.mutmut]\n{table}")})
+    monkeypatch.setattr(check_mutation_setup, "PYPROJECT_PATH", tmp_path / _PYPROJECT)
+    found = check_mutation_setup.python_lane_forks_from_a_collecting_server()
+    assert [str(failure).split(":", 1)[0] for failure in found] == named
+
+
+@pytest.mark.parametrize(
+    ("table", "named"),
+    [
+        (Prose("log_to_file = true\n"), []),
+        (
+            Prose("log_to_file = false\n"),
+            ["[python/mutmut] log_to_file is False, not true"],
+        ),
+        (Prose(""), ["[python/mutmut] log_to_file is None, not true"]),
+        (
+            Prose('log_to_file = true\nlog_file_path = "elsewhere.log"\n'),
+            ["[python/mutmut] log_file_path is set"],
+        ),
+    ],
+    ids=["kept", "off", "unset", "moved"],
+)
+def test_the_python_lane_has_mutmut_write_its_log_where_the_lane_keeps_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, table: Prose, named: list[Prose]
+) -> None:
+    """The lane has mutmut log, to its default place, anything else named."""
+    _ = plant(tmp_path, {_PYPROJECT: Prose(f"[tool.mutmut]\n{table}")})
+    monkeypatch.setattr(check_mutation_setup, "PYPROJECT_PATH", tmp_path / _PYPROJECT)
+    found = check_mutation_setup.python_lane_keeps_mutmuts_log()
+    assert [str(failure).split(":", 1)[0] for failure in found] == named
+
+
+def test_a_file_on_one_side_alone_is_named_both_ways(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file a tool mutates unlisted, and a listed file it leaves alone, are each named."""
+    _plant_selections(tmp_path, monkeypatch, Prose('["a.py", "new.py"]'), Prose('["src/x.rs"]'))
+    assert check_mutation_setup.every_selecting_tool_mutates_its_hot_path(
+        {
+            BindingName("python"): [RelPath("python/a.py")],
+            BindingName("rust"): [RelPath("rust/src/x.rs"), RelPath("rust/src/moved.rs")],
+        }
+    ) == [
+        "[python] [tool.mutmut] source_paths has the tool mutate python/new.py, which the "
+        + "hot path does not list",
+        "[rust] the hot path lists rust/src/moved.rs, which rust/.cargo/mutants.toml's "
+        + "examine_globs leaves unmutated",
+    ]
+
+
+def test_a_block_listing_no_hot_path_has_every_told_file_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no Rust block, and no list told to mutmut, each side's files are named."""
+    _plant_selections(tmp_path, monkeypatch, Prose("[]"), Prose('["src/x.rs"]'))
+    assert check_mutation_setup.every_selecting_tool_mutates_its_hot_path(
+        {BindingName("python"): [RelPath("python/a.py")]}
+    ) == [
+        "[python] the hot path lists python/a.py, which [tool.mutmut] source_paths leaves "
+        + "unmutated",
+        "[rust] rust/.cargo/mutants.toml's examine_globs has the tool mutate rust/src/x.rs, "
+        + "which the hot path does not list",
+    ]
+
+
+def test_a_told_list_that_is_no_list_of_strings_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """An ``examine_globs`` holding a number stops the gate with exit 2 naming the file."""
+    _plant_selections(tmp_path, monkeypatch, Prose('["a.py"]'), Prose('["src/x.rs", 3]'))
+    assert stderr_of_exit_2(
+        capsys, lambda: check_mutation_setup.every_selecting_tool_mutates_its_hot_path({})
+    ) == (
+        f"ERROR: cannot read {tmp_path / _MUTANTS_TOML}: its examine_globs is not a list "
+        + "of strings\n"
+    )
+
+
+def test_the_hot_paths_read_are_each_blocks_path_entries() -> None:
+    """A block no mapping is skipped, one listing no hot path has none, an entry no path drops."""
+    assert check_mutation_setup.listed_hot_paths(
+        {
+            "a": "gremlins",
+            "b": {"tool": "gremlins"},
+            "c": {"hot_path": "go/aletheia/client.go"},
+            "d": {"hot_path": [3, "go/aletheia/client.go"]},
+        }
+    ) == {
+        BindingName("b"): [],
+        BindingName("c"): [],
+        BindingName("d"): [RelPath("go/aletheia/client.go")],
+    }
+
+
 @pytest.mark.parametrize(
     ("record", "reason"),
     [
@@ -216,71 +361,84 @@ def test_a_misshapen_ledger_or_row_is_named() -> None:
 
 # main runs every check, each record-reading one on the record it read.
 
-# Each check, in main's order, and whether it reads the record.
+# Each check, in main's order, and what it is handed: the record main read,
+# the hot paths main read from the record, or nothing.
 _CHECKS: Final = (
-    (CheckName("every_block_names_its_tool_and_hot_paths"), True),
-    (CheckName("every_tools_importing_test_is_ignored"), False),
-    (CheckName("every_above_tree_test_skips_or_is_ignored"), False),
-    (CheckName("cpp_slice_weights_are_of_the_domain"), True),
-    (CheckName("every_runner_has_a_block"), True),
-    (CheckName("ledger_rows_still_name_their_line"), True),
-    (CheckName("python_lane_runs_no_doc_harness"), False),
-    (CheckName("go_lane_runs_no_doc_harness"), False),
-    (CheckName("rust_lane_runs_no_doc_harness"), False),
-    (CheckName("cpp_lane_runs_no_doc_harness"), False),
-    (CheckName("go_lane_turns_on_the_default_off_mutators"), False),
-    (CheckName("cpp_lane_links_the_library_statically"), False),
-    (CheckName("every_block_records_its_counts"), True),
+    (CheckName("every_block_names_its_tool_and_hot_paths"), "record"),
+    (CheckName("every_selecting_tool_mutates_its_hot_path"), "hot paths"),
+    (CheckName("every_tools_importing_test_is_ignored"), "nothing"),
+    (CheckName("every_above_tree_test_skips_or_is_ignored"), "nothing"),
+    (CheckName("cpp_slice_weights_are_of_the_domain"), "record"),
+    (CheckName("every_runner_has_a_block"), "record"),
+    (CheckName("ledger_rows_still_name_their_line"), "record"),
+    (CheckName("python_lane_runs_no_doc_harness"), "nothing"),
+    (CheckName("python_lane_forks_from_a_collecting_server"), "nothing"),
+    (CheckName("python_lane_keeps_mutmuts_log"), "nothing"),
+    (CheckName("go_lane_runs_no_doc_harness"), "nothing"),
+    (CheckName("rust_lane_runs_no_doc_harness"), "nothing"),
+    (CheckName("cpp_lane_runs_no_doc_harness"), "nothing"),
+    (CheckName("cpp_lane_runs_every_integration_case"), "nothing"),
+    (CheckName("go_lane_turns_on_the_default_off_mutators"), "nothing"),
+    (CheckName("cpp_lane_links_the_library_statically"), "nothing"),
+    (CheckName("every_block_records_its_counts"), "record"),
 )
 # The record the stand-in loader returns, held by identity.
 _RECORD: Final = {"python": "a block"}
+# The hot paths the stand-in reader returns, held by identity and counted.
+_HOT_PATHS: Final = {BindingName("python"): [RelPath("python/a.py"), RelPath("python/b.py")]}
 
 
-def _stand_in(monkeypatch: pytest.MonkeyPatch, *, failing: bool) -> list[Mock]:
-    """Stand ``_RECORD`` and every check in, each returning its own name if ``failing``."""
+def _stand_in(monkeypatch: pytest.MonkeyPatch, *, failing: bool) -> tuple[list[Mock], Mock]:
+    """Stand ``_RECORD``, its ``_HOT_PATHS`` and every check in, each named if ``failing``."""
     monkeypatch.setattr(sys, "argv", ["check_mutation_setup"])
     monkeypatch.setattr(check_mutation_setup, "_load_bindings", Mock(return_value=_RECORD))
+    reader = Mock(return_value=_HOT_PATHS)
+    monkeypatch.setattr(check_mutation_setup, "listed_hot_paths", reader)
     checks: list[Mock] = []
-    for name, _reads_record in _CHECKS:
+    for name, _reads in _CHECKS:
         check = Mock(return_value=[Prose(name)] if failing else [])
         monkeypatch.setattr(check_mutation_setup, name, check)
         checks.append(check)
-    return checks
+    return checks, reader
 
 
-def _each_called_once_as_main_should(checks: list[Mock]) -> None:
-    """Hold every check to one call: on the record ``main`` read, or on nothing."""
-    for (_name, reads_record), check in zip(_CHECKS, checks, strict=True):
-        if reads_record:
+def _each_called_once_as_main_should(checks: list[Mock], reader: Mock) -> None:
+    """Hold every check to one call on what it reads, and the hot paths to one read."""
+    assert reader.call_count == 1
+    assert len(reader.call_args.args) == 1
+    assert reader.call_args.args[0] is _RECORD
+    handed = {"record": _RECORD, "hot paths": _HOT_PATHS}
+    for (_name, reads), check in zip(_CHECKS, checks, strict=True):
+        if reads == "nothing":
+            check.assert_called_once_with()
+        else:
             assert check.call_count == 1
             assert len(check.call_args.args) == 1
-            assert check.call_args.args[0] is _RECORD
+            assert check.call_args.args[0] is handed[reads]
             assert not check.call_args.kwargs
-        else:
-            check.assert_called_once_with()
 
 
 def test_main_runs_every_check_and_names_each_failure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
     """Every check's diagnostic reaches stderr, in order, and the gate exits 1."""
-    checks = _stand_in(monkeypatch, failing=True)
+    checks, reader = _stand_in(monkeypatch, failing=True)
     assert check_mutation_setup.main() == 1
     err = capsys.readouterr().err
     assert [line.removeprefix("  - ") for line in err.splitlines() if line.startswith("  - ")] == [
-        name for name, _reads_record in _CHECKS
+        name for name, _reads in _CHECKS
     ]
     assert f"\n{len(_CHECKS)} issue(s) above." in err
-    _each_called_once_as_main_should(checks)
+    _each_called_once_as_main_should(checks, reader)
 
 
 def test_main_passes_when_every_check_does(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
     """With every check clean the gate exits 0 and says so on stdout."""
-    checks = _stand_in(monkeypatch, failing=False)
+    checks, reader = _stand_in(monkeypatch, failing=False)
     assert check_mutation_setup.main() == 0
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out.startswith("Mutation-setup coverage gate OK: 1 bindings, 0 hot-path ")
-    _each_called_once_as_main_should(checks)
+    assert captured.out.startswith("Mutation-setup coverage gate OK: 1 bindings, 2 hot-path ")
+    _each_called_once_as_main_should(checks, reader)

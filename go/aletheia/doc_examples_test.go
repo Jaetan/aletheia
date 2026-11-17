@@ -158,7 +158,6 @@ var (
 
 %s
 func buildDocDBC() aletheia.DBCDefinition {
-	rat := func(n, d int64) aletheia.Rational { return aletheia.Rational{Numerator: n, Denominator: d} }
 	signal := func(name aletheia.SignalName, start aletheia.BitPosition, length aletheia.BitLength, maxVal int64) aletheia.DBCSignal {
 		return aletheia.DBCSignal{
 			Name:      name,
@@ -166,10 +165,10 @@ func buildDocDBC() aletheia.DBCDefinition {
 			BitLength: length,
 			ByteOrder: aletheia.LittleEndian,
 			IsSigned:  false,
-			Factor:    rat(1, 1),
-			Offset:    rat(0, 1),
-			Minimum:   rat(0, 1),
-			Maximum:   rat(maxVal, 1),
+			Factor:    aletheia.IntRational(1),
+			Offset:    aletheia.IntRational(0),
+			Minimum:   aletheia.IntRational(0),
+			Maximum:   aletheia.IntRational(maxVal),
 			Unit:      "",
 			Presence:  aletheia.AlwaysPresent{},
 		}

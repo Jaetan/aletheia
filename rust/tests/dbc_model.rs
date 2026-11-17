@@ -160,7 +160,7 @@ fn validate_dbc_refuses_out_of_frame_geometry_at_the_gate() {
         panic!("expected a typed core refusal, got {err:?}");
     };
     assert!(
-        code.starts_with("parse_signal_"),
+        code.as_str().starts_with("parse_signal_"),
         "expected a parse_signal_* geometry refusal, got {code}"
     );
 }

@@ -18,8 +18,8 @@
 // (test_dbc_corpus_parity.py) and C++ (dbc_corpus_parity_tests.cpp) tests
 // compare against the same files, so when all three pass the bindings have
 // seen the same structure for every fixture. The canonical form is sorted
-// keys, two-space indent, a trailing newline, and an integer where the
-// denominator is 1, which the binding's own serializer already writes.
+// keys, two-space indent, a trailing newline, an integer where the
+// denominator is 1, and every identifier's extended flag written.
 
 package aletheia
 
@@ -33,19 +33,52 @@ import (
 	"testing"
 )
 
-// canonicalDBCJSON encodes a DBCDefinition in the snapshots' form: serializeDBC
-// marshals a map, so its keys are sorted, and MarshalIndent re-indents the
-// returned RawMessage without reordering.
+// canonicalDBCJSON encodes a DBCDefinition in the snapshots' form, which is
+// the kernel's reply: serializeDBC's encoding, decoded with its numbers kept
+// as written, every identifier given the extended flag the reply writes
+// whatever it is and the command form leaves out when false, then re-encoded
+// with sorted keys and re-indented.
 func canonicalDBCJSON(dbc DBCDefinition) ([]byte, error) {
 	m, err := serializeDBC(dbc)
 	if err != nil {
 		return nil, err
 	}
-	out, err := json.MarshalIndent(m, "", "  ")
+	encoded, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(encoded))
+	dec.UseNumber()
+	var tree any
+	if err := dec.Decode(&tree); err != nil {
+		return nil, err
+	}
+	flagEveryIdentifier(tree)
+	out, err := json.MarshalIndent(tree, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	return append(out, '\n'), nil
+}
+
+// flagEveryIdentifier writes "extended": false into every object of v that
+// carries an identifier and no extended flag.
+func flagEveryIdentifier(v any) {
+	switch v := v.(type) {
+	case map[string]any:
+		if _, hasID := v["id"]; hasID {
+			if _, flagged := v["extended"]; !flagged {
+				v["extended"] = false
+			}
+		}
+		for _, field := range v {
+			flagEveryIdentifier(field)
+		}
+	case []any:
+		for _, item := range v {
+			flagEveryIdentifier(item)
+		}
+	}
 }
 
 // Every corpus DBC parsed through the real library canonicalises to its

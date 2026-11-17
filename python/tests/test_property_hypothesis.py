@@ -28,8 +28,9 @@ from aletheia import ProtocolError, ValidationError
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.client._ffi import KernelResponse, parse_json_object
 from aletheia.client._helpers.json_codec import parse_values_list
-from aletheia.client._helpers.rational import decode_wire_rational
+from aletheia.client._helpers.reply_shape import ReplyPath, read_rational
 from aletheia.client._types import validate_can_id
+from aletheia.common_types import Prose
 from aletheia.types import (
     ByteOrder,
     DBCDefinition,
@@ -42,6 +43,8 @@ from aletheia.types import (
 
 if TYPE_CHECKING:
     from _hypothesis_profiles import ProfileName
+
+    from aletheia.types import JSONValue
 
 # The seed every binding's property tests draw their sample from.
 PropertySeed = NewType("PropertySeed", int)
@@ -140,25 +143,51 @@ def dbc_strategy(draw: st.DrawFn) -> DBCDefinition:
 # -----------------------------------------------------------------------------
 
 
+def _json_kind(value: JSONValue) -> Prose:
+    """Name the JSON kind of a decoded value, a boolean before the number it subclasses."""
+    match value:
+        case None:
+            return Prose("null")
+        case bool():
+            return Prose("boolean")
+        case int() | float():
+            return Prose("number")
+        case str():
+            return Prose("string")
+        case list():
+            return Prose("array")
+        case dict():
+            return Prose("object")
+
+
 @seed(PROPERTY_SEED)
 @given(payload=st.text(_PRINTABLE) | _JSON_VALUES.map(json.dumps))
 def test_response_reader_answers_an_object_or_a_protocol_error(payload: str) -> None:
-    """``parse_json_object`` returns the object a payload spells, else ``ProtocolError``.
+    """``parse_json_object`` returns the object a payload spells, else refuses the whole reply.
 
     Counterpart of Go's ``TestProperty_ParseResponseTotal``: the reader every
     kernel response goes through lets no other exception escape on a printable
-    payload a run draws, whether arbitrary text or a JSON value of any shape.
+    payload a run draws, whether arbitrary text or a JSON value of any shape. A
+    payload that is not JSON is refused with the decoder's own message, and a
+    JSON value that is not an object with its kind.
     """
     response = KernelResponse(payload.encode("utf-8"))
     try:
-        spells_an_object = isinstance(json.loads(payload), dict)
-    except json.JSONDecodeError:
-        spells_an_object = False
-    if spells_an_object:
-        assert parse_json_object(response) == json.loads(payload)
+        decoded: JSONValue = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        said = Prose(f"reply: expected JSON text, got {exc}")
     else:
-        with pytest.raises(ProtocolError):
-            parse_json_object(response)
+        if isinstance(decoded, dict):
+            assert parse_json_object(response) == decoded
+            return
+        said = Prose(f"reply: expected object, got {_json_kind(decoded)}")
+    with pytest.raises(ProtocolError) as excinfo:
+        parse_json_object(response)
+    assert str(excinfo.value) == said
+
+
+# A rational place of a reply, where the readers below are fed.
+_PLACE = ReplyPath("values/value")
 
 
 @seed(PROPERTY_SEED)
@@ -166,20 +195,12 @@ def test_response_reader_answers_an_object_or_a_protocol_error(payload: str) -> 
     numerator=st.integers(min_value=-(10**18), max_value=10**18),
     denominator=st.integers(min_value=1, max_value=10**18),
 )
-def test_decode_wire_rational_accepts_positive_denominator(
+def test_read_rational_accepts_positive_denominator(
     numerator: int,
     denominator: int,
 ) -> None:
-    """`decode_wire_rational` accepts positive-denominator rationals exactly.
-
-    The Agda kernel's DecRat stores denominators as ``ℕ⁺`` (strictly positive).
-    `decode_wire_rational` mirrors that contract by rejecting non-positive
-    denominators on the wire (cross-binding parity with Go's ``validateRational``
-    and C++'s ``Rational::make``) — silent Fraction-sign-flipping a negative
-    denominator would hide a wire-format violation.
-    """
-    rational_dict = {"numerator": numerator, "denominator": denominator}
-    parsed = decode_wire_rational(rational_dict)
+    """`read_rational` reads a rational over a ``ℕ⁺`` denominator exactly."""
+    parsed = read_rational({"numerator": numerator, "denominator": denominator}, _PLACE)
     assert parsed.denominator > 0
     assert parsed == Fraction(numerator, denominator)
 
@@ -187,60 +208,51 @@ def test_decode_wire_rational_accepts_positive_denominator(
 @seed(PROPERTY_SEED)
 @given(
     numerator=st.integers(min_value=-(10**18), max_value=10**18),
-    denominator=st.integers(min_value=-(10**18), max_value=0),
+    denominator=st.integers(min_value=-(10**18), max_value=-1),
 )
-def test_decode_wire_rational_rejects_non_positive_denominator(
+def test_read_rational_hands_a_negative_denominator_to_fraction(
     numerator: int,
     denominator: int,
 ) -> None:
-    """`decode_wire_rational` rejects non-positive denominator with ProtocolError.
-
-    Cross-binding parity: Go ``validateRational`` rejects
-    ``<= 0``; C++ ``Rational::make`` rejects the same;
-    Python rejects too instead of silently sign-flipping via Fraction.
-    """
-    rational_dict = {"numerator": numerator, "denominator": denominator}
-    try:
-        decode_wire_rational(rational_dict)
-    except ProtocolError:
-        pass
-    else:
-        msg = f"expected ProtocolError for denominator={denominator}"
-        raise AssertionError(msg)
+    """`read_rational` checks a denominator's kind, not its sign: ``Fraction`` reads it."""
+    rational: JSONValue = {"numerator": numerator, "denominator": denominator}
+    assert read_rational(rational, _PLACE) == Fraction(numerator, denominator)
 
 
-# --- B6d: the wire decoder rejects floats (a computed value on the internal
-# wire must be an exact rational, never a float). decode_wire_rational accepts
-# only an int or a {numerator, denominator} object; a float, string, or bool is
-# a wire-format violation, so a float can never slip onto the wire. ---
+# A value read off the wire is an exact rational, never a float: a rational
+# place holds an integer or a {numerator, denominator} object, and anything else
+# is refused, so a float can never slip into a reading.
 
 
-def test_decode_wire_rational_rejects_float() -> None:
-    """A bare float on the wire is a format violation (B6c's leak, Python side)."""
+def test_read_rational_rejects_float() -> None:
+    """A bare float at a rational place is refused, as a number that is no rational."""
     for bad in (1.5, 150.0, float("nan"), float("inf")):
-        with pytest.raises(ProtocolError):
-            decode_wire_rational(bad)
+        with pytest.raises(ProtocolError) as excinfo:
+            _ = read_rational(bad, _PLACE)
+        assert str(excinfo.value) == "reply values/value: expected a rational, got number"
 
 
-def test_decode_wire_rational_rejects_string_and_bool() -> None:
-    """The wire carries int or {num,den} only; a string or bool is rejected."""
-    for bad in ("1/2", "0.1", True, False):
-        with pytest.raises(ProtocolError):
-            decode_wire_rational(bad)
+def test_read_rational_rejects_string_and_bool() -> None:
+    """A rational place holds an integer or an object only; a string or a boolean is refused."""
+    for bad, kind in (("1/2", "string"), ("0.1", "string"), (True, "boolean"), (False, "boolean")):
+        with pytest.raises(ProtocolError) as excinfo:
+            _ = read_rational(bad, _PLACE)
+        assert str(excinfo.value) == f"reply values/value: expected a rational, got {kind}"
 
 
-def test_decode_wire_rational_accepts_int_and_dict_exactly() -> None:
-    """The two wire shapes round-trip exactly, including above 2^53."""
-    assert decode_wire_rational(150) == Fraction(150)
-    assert decode_wire_rational({"numerator": 1, "denominator": 10}) == Fraction(1, 10)
+def test_read_rational_accepts_int_and_dict_exactly() -> None:
+    """The two wire shapes read exactly, including above 2^53."""
+    assert read_rational(150, _PLACE) == Fraction(150)
+    assert read_rational({"numerator": 1, "denominator": 10}, _PLACE) == Fraction(1, 10)
     big = 9007199254740993  # 2^53 + 1
-    assert decode_wire_rational(big) == Fraction(big)
+    assert read_rational(big, _PLACE) == Fraction(big)
 
 
 def test_parse_values_list_wire_rejects_float_value() -> None:
     """The extraction-value wire decoder rejects a float, accepts the int shape."""
-    with pytest.raises(ProtocolError):
+    with pytest.raises(ProtocolError) as excinfo:
         parse_values_list([{"name": "Speed", "value": 150.0}])
+    assert str(excinfo.value) == "reply values/value: expected a rational, got number"
     assert parse_values_list([{"name": "Speed", "value": 150}]) == {"Speed": Fraction(150)}
 
 

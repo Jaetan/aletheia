@@ -11,8 +11,6 @@ from tools._common import find_executable, git_clean_env, run_capture
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from tools.commit_subjects import Revision
-
 
 def git(repo: Path, *args: str) -> str:
     """Run a git command in ``repo``, asserting success, and return its stdout.
@@ -42,11 +40,6 @@ def commit(repo: Path, message: str) -> str:
     git(repo, "add", "-A")
     git(repo, *_AS_TESTER, "commit", "-q", "-m", message)
     return git(repo, "rev-parse", "HEAD").strip()
-
-
-def merge(repo: Path, source: Revision) -> None:
-    """Merge ``source`` into the checked-out branch with a merge commit, as ``commit`` commits."""
-    _ = git(repo, *_AS_TESTER, "merge", "--no-ff", "--no-edit", source)
 
 
 def repo_with_an_uncommitted_edit(root: Path, source: Path) -> Path:

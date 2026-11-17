@@ -38,31 +38,11 @@ auto detail::render_desc(std::span<DescPart const> parts) -> Result<std::string>
     return out;
 }
 
-// A bound as an inverted range's refusal prints it: the kernel's rendering, or
-// `n` or `n/d` while the runtime is down, since a check is built before any
-// start too.
-static auto bound_text(Rational const& r) -> std::string {
-    auto rendered = detail::format_rational(r);
-    if (rendered)
-        return std::move(rendered).value();
-    if (r.denominator() == 1)
-        return std::to_string(r.numerator());
-    return std::format("{}/{}", r.numerator(), r.denominator());
-}
-
-auto detail::range_refusal(std::string_view op, PhysicalValue lo, PhysicalValue hi)
-    -> std::optional<std::string> {
-    if (lo.get() <= hi.get())
-        return std::nullopt;
-    return std::format("{}: lo ({}) must be <= hi ({})", op, bound_text(lo.get()),
-                       bound_text(hi.get()));
-}
-
 // Greek capital delta, the change-predicate prefix.
 constexpr std::string_view k_delta = "\u0394";
 
-static auto format_timebound(Timestamp t) -> std::string {
-    auto const us = t.count();
+static auto format_timebound(TimeBound t) -> std::string {
+    auto const us = t.microseconds;
     if (us % us_per_second == 0)
         return std::format("{}s ", us / us_per_second);
     if (us % us_per_millisecond == 0)
@@ -112,7 +92,7 @@ static auto format_predicate(Predicate const& p) -> Result<std::string> {
                 // The sign of the delta says which direction the change bounds.
                 return detail::format_rational(v.delta.get()).transform([&](auto const& delta) {
                     return std::format("{}{} {} {}", k_delta, signal,
-                                       v.delta.get() >= Rational{0, 1} ? ">=" : "<=", delta);
+                                       v.delta.get().negative() ? "<=" : ">=", delta);
                 });
             else if constexpr (requires { v.tolerance; })
                 return detail::format_rational(v.tolerance.get()).transform([&](auto const& tol) {

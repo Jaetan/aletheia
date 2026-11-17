@@ -56,6 +56,13 @@ GateName = NewType("GateName", str)
 # How many calls a pool may run at once.
 WorkerCount = NewType("WorkerCount", int)
 
+# The GHC runtime option every run whose count is a gate passes: it turns the
+# runtime's idle-time collector off.  That collection runs once the process has
+# idled long enough and allocates in the kernel's heap (808 bytes a time,
+# measured), so a count of the kernel's allocation or of a run's instructions
+# would otherwise rest on how long the process happened to idle.
+COUNTED_RTS_OPTS = "-I0"
+
 # A variable's name and value in a process's environment, and one word of a command line.
 EnvName = NewType("EnvName", str)
 EnvValue = NewType("EnvValue", str)
@@ -83,11 +90,30 @@ CPP_LINT_LANE = "cpp-lint"
 # configure of the C++ test tree, which fetches the C++ dependencies' sources.
 BUILD_STEP = GateName("build")
 CPP_CONFIGURE_STEP = GateName("cpp configure")
+# The tests that read the C++ test tree's compile database, which the cpp
+# lane's configure writes as cpp/build/compile_commands.json: the reply-place
+# gate's C++ reader, and the gate run whole by the Go and Rust readers' tests.
+# run_ci runs them in the cpp lane once that configure has run.
+CPP_DATABASE_TESTS = (
+    "tests/test_check_limits_parity_reply_cpp_calls.py",
+    "tests/test_check_limits_parity_reply_cpp_reads.py",
+    "tests/test_check_limits_parity_reply_cpp_rows.py",
+    "tests/test_check_limits_parity_reply_cpp_tables.py",
+    "tests/test_check_limits_parity_reply_cpp_words.py",
+    "tests/test_check_limits_parity_reply_go_breaches.py",
+    "tests/test_check_limits_parity_reply_rust_breaches.py",
+)
 # What every run of the whole Python suite passes pytest, from python/: the
-# cross-CLI parity harness is left out, since run_ci runs it in the cpp lane
-# once the C++ CLI it needs is built, and the property tests draw the ``ci``
-# hypothesis profile that python/tests/_hypothesis_profiles.py registers.
-PYTEST_SUITE_ARGS = ("tests/", "--ignore=tests/test_cli_parity.py", "--hypothesis-profile=ci")
+# cross-CLI parity harness and the tests reading the C++ compile database are
+# left out, since run_ci runs them in the cpp lane once what they need is
+# built, and the property tests draw the ``ci`` hypothesis profile that
+# python/tests/_hypothesis_profiles.py registers.
+PYTEST_SUITE_ARGS = (
+    "tests/",
+    "--ignore=tests/test_cli_parity.py",
+    *(f"--ignore={test}" for test in CPP_DATABASE_TESTS),
+    "--hypothesis-profile=ci",
+)
 
 
 def match_paren_content(text: str, start: int) -> str | None:

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from _stream_helpers import send_test_frame
 
 from aletheia import AletheiaClient, Signal
@@ -25,6 +26,9 @@ from aletheia.types import DBCDefinition, DLCCode
 
 if TYPE_CHECKING:
     from aletheia.types import UntilFormula
+
+# The kernel checks a property as it is built, so the runtime is up first.
+pytestmark = pytest.mark.usefixtures("rts_up")
 
 
 def test_raw_until_satisfied_drops_from_active_set(simple_dbc: DBCDefinition) -> None:

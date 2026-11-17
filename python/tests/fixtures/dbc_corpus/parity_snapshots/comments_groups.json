@@ -16,6 +16,7 @@
     },
     {
       "target": {
+        "extended": false,
         "id": 500,
         "kind": "message"
       },
@@ -23,6 +24,7 @@
     },
     {
       "target": {
+        "extended": false,
         "id": 501,
         "kind": "signal",
         "signal": "GyroX"
@@ -49,6 +51,7 @@
   "messages": [
     {
       "dlc": 8,
+      "extended": false,
       "id": 500,
       "name": "TelemetryA",
       "sender": "Alpha",
@@ -107,6 +110,7 @@
     },
     {
       "dlc": 8,
+      "extended": false,
       "id": 501,
       "name": "TelemetryB",
       "sender": "Beta",
