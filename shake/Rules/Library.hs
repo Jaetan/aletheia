@@ -342,36 +342,22 @@ libraryRules = do
             ["--ghc-options=+RTS -A64M -M3G -RTS"]
             "aletheia-ffi"
 
-        -- Find and copy the built .so.  cabal keeps a SEPARATE dist-newstyle
-        -- tree per compiler and per package version (ghc-<GHC>/aletheia-<VER>/…),
-        -- so a bare `find … | head -1` is non-deterministic when a stale tree
-        -- from a prior compiler or version lingers (readdir order is unstable)
-        -- and can silently copy the OLD build's .so (verified: it shipped a
-        -- Jun-build .so under a bumped version).  Scope to the subtree of the
-        -- CURRENT compiler and package version (the stable, semantic boundary,
-        -- NOT cabal's internal component layout) and FAIL LOUD on anything but
-        -- exactly one match rather than guessing: the exactly-one check is the
-        -- real guard, so no coupling to the `f/aletheia-ffi/…` path is needed
-        -- (there is one libaletheia-ffi.so per such tree).  (`dist`
-        -- additionally prunes stale trees up front; this rule is the always-on
-        -- guard.)
-        cabalContents <- liftIO $ readFile "haskell-shim/aletheia.cabal"
-        let ver = parseCabalVersion cabalContents
-        when (null ver) $
-            error "Could not parse `version:` from haskell-shim/aletheia.cabal"
-        Stdout ghcNumeric <- cmd ghc "--numeric-version"
-        let tree = "ghc-" ++ strip ghcNumeric ++ "/aletheia-" ++ ver
-        Stdout rawSo <- cmd (Cwd "haskell-shim") Shell
-            ( "find dist-newstyle -type f -path '*/" ++ tree
-              ++ "/*' -name 'libaletheia-ffi.so'" )
-        case filter (not . null) (map strip (lines rawSo)) of
-            [trimmedPath] -> do
-                cmd_ (Cwd "haskell-shim") "cp" trimmedPath ("../" ++ out)
-                putInfo $ "Shared library created: " ++ out
-                                ++ " (from " ++ tree ++ ")"
-            [] -> error $ "No libaletheia-ffi.so under haskell-shim/dist-newstyle"
-                        ++ " for " ++ tree
-                        ++ " (did `cabal build aletheia-ffi` run?)."
-            many -> error $ "Ambiguous libaletheia-ffi.so for " ++ tree
-                        ++ " — expected exactly one, found "
-                        ++ show (length many) ++ ": " ++ intercalate ", " many
+        -- Copy the .so the build above made.  cabal keeps a SEPARATE
+        -- dist-newstyle tree per compiler, package version and optimization
+        -- level, so searching the trees finds a stale sibling beside the
+        -- current build (verified: a search shipped a Jun-build .so under a
+        -- bumped version, and an -O2 build beside the -O1 one made it
+        -- ambiguous).  `cabal list-bin` names the one library of the project's
+        -- current configuration, the compiler and the optimization level the
+        -- build above used, so no sibling is ever a candidate.  (`dist`
+        -- additionally prunes stale trees up front.)
+        Stdout listed <- cmd (Cwd "haskell-shim") "cabal" "list-bin" "aletheia-ffi"
+        let built = case reverse (filter (not . null) (map strip (lines listed))) of
+                path : _ -> path
+                []       -> error "`cabal list-bin aletheia-ffi` names no library"
+        present <- liftIO $ SysDir.doesFileExist built
+        unless present $
+            error $ "`cabal list-bin aletheia-ffi` names " ++ built
+                    ++ ", which the build did not make (did `cabal build aletheia-ffi` run?)."
+        cmd_ "cp" built out
+        putInfo $ "Shared library created: " ++ out ++ " (from " ++ built ++ ")"

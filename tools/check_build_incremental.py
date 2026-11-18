@@ -28,6 +28,12 @@ the graph stays correct.  It checks two properties:
    ``--version`` and passes every other call to the real compiler, a build
    must relink the ``.so``, and for the C compiler rebuild a stand-in kernel
    too.  A build on the real compiler follows each, so the gate ends on it.
+4. **A stale sibling build is never copied** — cabal keeps a build per
+   compiler and per optimization level beside the current one, so the edits of
+   property 1 are built with a sibling present (another optimization level's
+   library, cabal's ``opt/`` tree, a decoy when none is there): copying it
+   would leave the edits out of the ``.so``, and refusing it as ambiguous
+   fails the build.
 
 The oracle is *behavioral* (does the edit reach the artifact? was it relinked?),
 never bit-identical — an incremental build differs benignly from a from-scratch one.
@@ -342,6 +348,43 @@ def _check_baseline() -> dict[Path, str] | None:
     return originals
 
 
+def _sibling_build() -> Path:
+    """Return where cabal lays out the shim's library at another optimization level.
+
+    ``cabal list-bin`` names the current build; its ``opt/`` sibling is the
+    ``-O2`` one cabal keeps beside it.  Raises when the layout is not cabal's.
+    """
+    listed = run_guarded(
+        [find_executable("cabal"), "list-bin", "aletheia-ffi"], cwd=REPO_ROOT / "haskell-shim"
+    )
+    built = listed.stdout.strip().splitlines()[-1] if listed.returncode == 0 else ""
+    marker = "/f/aletheia-ffi/build/"
+    if marker not in built:
+        message = f"`cabal list-bin aletheia-ffi` names no library in cabal's layout: {built!r}"
+        raise RuntimeError(message)
+    return Path(built.replace(marker, "/f/aletheia-ffi/opt/build/"))
+
+
+def _plant_sibling() -> list[Path]:
+    """Put a stale sibling build where cabal would leave one; return what it made, deepest first."""
+    sibling = _sibling_build()
+    if sibling.exists():
+        return []
+    made = [directory for directory in sibling.parents if not directory.exists()]
+    sibling.parent.mkdir(parents=True, exist_ok=True)
+    _ = sibling.write_bytes(b"a stale sibling build the library rule must not copy\n")
+    return [sibling, *made]
+
+
+def _remove_planted(planted: list[Path]) -> None:
+    """Remove what ``_plant_sibling`` made, the file and then each directory it created."""
+    for made in planted:
+        if made.is_dir():
+            made.rmdir()
+        else:
+            made.unlink(missing_ok=True)
+
+
 def _check_edits_and_reverts(originals: dict[Path, str]) -> bool:
     """Edit all anchors → build → all reach .so; revert all → build → none do.  True iff sound."""
     # 1. edit ALL → one build: every edit MUST reach the .so (else the build is stale).
@@ -459,9 +502,11 @@ def _run() -> int:
     install_restore_handlers()
     for path in (*(probe.file for probe in _PROBES), _HEADER):
         track_inflight(str(path), originals[path])
+    planted = _plant_sibling()
     try:
         if not _check_edits_and_reverts(originals):
             return 1
+        emit("  the edits and reverts were built beside a stale sibling build ✓")
         if not _check_incremental():
             return 1
         if not _check_compiler_moves():
@@ -470,6 +515,7 @@ def _run() -> int:
         for path in (*(probe.file for probe in _PROBES), _HEADER):
             _ = path.write_text(originals[path], encoding="utf-8")
             untrack_inflight(str(path))
+        _remove_planted(planted)
 
     post_probe_id = gnu_build_id(_SO)
     if baseline_id and post_probe_id is not None and post_probe_id != baseline_id:
@@ -480,7 +526,7 @@ def _run() -> int:
 
     emit(
         "=== build-incremental gate: PASS — edits/reverts reach the .so; no-op is incremental; "
-        + "a compiler move rebuilds ==="
+        + "a compiler move rebuilds; a stale sibling build is never copied ==="
     )
     return 0
 

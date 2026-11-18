@@ -32,7 +32,7 @@ open import Data.Nat.Properties
   renaming (_≟_ to _≟ₙ_)
 open import Data.Nat.DivMod using (m/n*n≡m)
 open import Data.Nat.Divisibility using (m%n≡0⇒n∣m)
-open import Data.Integer.Base using (ℤ; +_)
+open import Data.Integer.Base using (+_)
 import Data.Integer.Base as ℤ
 open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.Maybe.Base using (Maybe; just; nothing)

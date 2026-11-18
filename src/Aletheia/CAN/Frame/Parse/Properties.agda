@@ -15,7 +15,7 @@ module Aletheia.CAN.Frame.Parse.Properties where
 
 open import Data.Bool using (Bool; true; false; T)
 open import Data.Empty using (⊥-elim)
-open import Data.Integer using (ℤ; +_; -[1+_])
+open import Data.Integer using (+_; -[1+_])
 open import Data.List as List using (List; []; _∷_)
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ; zero; suc; _+_; _<ᵇ_; _≤ᵇ_; _≤_; _<_)

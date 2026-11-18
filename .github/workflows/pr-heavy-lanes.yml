@@ -100,41 +100,35 @@ jobs:
           # `rust_job` what the Rust runner is (tools/mutation_rust.py
           # `rust_stage`), each empty for the other lanes.
           #
-          # Every budget is read off a measurement: the lane's slowest recorded
-          # wall clock plus the allowance for its caches missing, rounded up
-          # to five minutes.  The allowance is what a cold run paid, measured
-          # on run 30150643321 (the toolchain bump, every cache cold): the Agda
-          # install 18m34s and the FFI build 9m08s, 27m42s; a C++ leg adds the
-          # Mull build, 5m35s on run 35486430315, 33m17s.  The Python
-          # shards' slowest wall is run 44013432066's, 10m49s; plus the
-          # allowance, 38m31s, rounded up.  The Go lane's is its first run
-          # against a suite that passes in each mutant's copy, 36801545298:
-          # 20m24s of wall, of which the sweep took 16m51s (`elapsed_s`); plus
-          # the 27m42s allowance, 48m06s, rounded up.  Each Go shard keeps that
-          # budget until a sharded run measures one: a shard sweeps part of the
-          # package that run swept whole.
-          # The C++ legs' is run 36017662713's, with the Mull cache cold for
-          # its patches: 33.6, 43.0 and 33.8 minutes.  The legs share one
-          # budget, the slowest of them, because which slice is slowest moves
-          # with the surface: 43.0 plus the 33.3 cold allowance is 76.3,
-          # rounded up.
-          # The Rust lane's budget is its first run's, 36228427884: 16.7
-          # minutes of wall, of which the sweep at 369 mutants took 12.2
-          # (`elapsed_s`) on the runner's four cores, against 5.8 locally on
-          # twenty, and cargo-mutants' install from cold 1.2, its cache
-          # missing on that run; plus the 33.3 cold allowance, 50.0.
-          # Each budget is the slowest run recorded, so a faster one leaves it
-          # where it is.  A budget is a measurement of the
-          # surface it was read from: it is re-taken when the mutation surface
-          # changes or a run exceeds it, from `elapsed_s` in the lane's
-          # summary.json (a leg's, and `cpp-legs.json` beside the merge's).
+          # Every budget is read off measurements, rounded up to five minutes:
+          # the lane's slowest recorded sweep (its `Mutation testing` step)
+          # plus the slowest setup one of its legs paid with every cache cold,
+          # the leg's wall less its sweep, on run 44088790366 (the move to GHC
+          # 9.12.2 and Agda 2.9.0).  Python: 16m36s on run 44052235766 plus
+          # 31m41s, 48m17s.  Rust: 26m58s on run 44052235766 plus 25m05s and
+          # the install a missing cargo-mutants cache adds, 1m11s on run
+          # 42744190696 (the move to LLVM 23.1.6), 53m14s.  C++: 18m56s on run
+          # 44052235766 plus 27m18s, the Mull build a missing Mull cache adds,
+          # 5m51s on run 42744190696, and the whole-tree census the first leg
+          # takes when what slices the mutants moves, 6m35s on run
+          # 44052235766, 58m40s; the legs share one budget because which slice
+          # is slowest moves with the surface.  Go: the cold run stopped one
+          # shard 19m21s into its sweep, after a 30m53s setup, so that shard's
+          # slowest sweep is unrecorded; its fastest, 13m46s on run
+          # 44052235766, times the widest spread one leg's sweep has shown
+          # across these runs, 1.92 (`cpp-2`, 18m56s against 9m52s), is
+          # 26m25s, plus 30m53s, 57m18s.
+          # Each budget is the slowest recorded, so a faster run leaves it
+          # where it is; it is re-taken when the mutation surface changes or
+          # a run exceeds it, from `elapsed_s` in the lane's summary.json (a
+          # leg's, and `cpp-legs.json` beside the merge's).
           - lane: python-1
             binding: python
             stage: ''
             python_shard: '1'
             go_shard: ''
             rust_job: ''
-            timeout: 40
+            timeout: 50
             skip_python: ''
             skip_go: '1'
             skip_cpp: '1'
@@ -145,7 +139,7 @@ jobs:
             python_shard: '2'
             go_shard: ''
             rust_job: ''
-            timeout: 40
+            timeout: 50
             skip_python: ''
             skip_go: '1'
             skip_cpp: '1'
@@ -156,7 +150,7 @@ jobs:
             python_shard: ''
             go_shard: '1'
             rust_job: ''
-            timeout: 50
+            timeout: 60
             skip_python: '1'
             skip_go: ''
             skip_cpp: '1'
@@ -167,7 +161,7 @@ jobs:
             python_shard: ''
             go_shard: '2'
             rust_job: ''
-            timeout: 50
+            timeout: 60
             skip_python: '1'
             skip_go: ''
             skip_cpp: '1'
@@ -178,7 +172,7 @@ jobs:
             python_shard: ''
             go_shard: ''
             rust_job: '1'
-            timeout: 50
+            timeout: 55
             skip_python: '1'
             skip_go: '1'
             skip_cpp: '1'
@@ -189,7 +183,7 @@ jobs:
             python_shard: ''
             go_shard: ''
             rust_job: '2'
-            timeout: 50
+            timeout: 55
             skip_python: '1'
             skip_go: '1'
             skip_cpp: '1'
@@ -200,7 +194,7 @@ jobs:
             python_shard: ''
             go_shard: ''
             rust_job: ''
-            timeout: 80
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -211,7 +205,7 @@ jobs:
             python_shard: ''
             go_shard: ''
             rust_job: ''
-            timeout: 80
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -222,7 +216,7 @@ jobs:
             python_shard: ''
             go_shard: ''
             rust_job: ''
-            timeout: 80
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
