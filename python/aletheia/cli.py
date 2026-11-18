@@ -29,6 +29,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import importlib
+import io
 import logging
 import os
 import sys
@@ -125,8 +126,22 @@ def _emit(text: str = "") -> None:
     stdout: TextIO | None = sys.stdout
     if stdout is None:  # the interpreter found descriptor 1 closed
         _die(f"writing the report: {os.strerror(errno.EBADF)}")
+    line = f"{text}\n"
     try:
-        stdout.write(f"{text}\n")
+        match stdout:
+            case io.TextIOWrapper(buffer=io.FileIO() as descriptor, errors=str() as errors):
+                # Unbuffered (``python -u``, PYTHONUNBUFFERED), the text layer writes straight to
+                # the descriptor and drops what a short write leaves, so a report a file's size
+                # limit cuts would end in success: the rest is written again until the descriptor
+                # refuses it, and a write taking no byte is refused as one that would block.
+                rest = memoryview(line.encode(stdout.encoding, errors))
+                while rest:
+                    taken = descriptor.write(rest)
+                    if not taken:
+                        raise BlockingIOError(errno.EAGAIN, os.strerror(errno.EAGAIN))
+                    rest = rest[taken:]
+            case _:
+                stdout.write(line)
     except (OSError, ValueError) as exc:  # ValueError: text it cannot encode, or stdout closed
         _refuse_report(exc)
 

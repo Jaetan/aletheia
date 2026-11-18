@@ -45,6 +45,8 @@ from _cli_check_helpers import StdoutFd, run_captured
 from _excel_helpers import sheet_headers
 from _yaml_shape import as_str_object_dict
 
+from tools._common import EnvName, EnvValue
+
 from aletheia.common_types import Prose
 from aletheia.excel_loader import CHECKS_HEADERS, DBC_HEADERS, WHEN_THEN_HEADERS
 from aletheia.types import is_str_dict
@@ -338,10 +340,58 @@ _SUBCOMMANDS, _SCENARIOS = _load_contract()
 
 _SCENARIO_IDS: list[ScenarioId] = [scenario["id"] for scenario in _SCENARIOS]
 
+# How a case starts the CLI's interpreter: as a user starts it, unbuffered by the interpreter's
+# flag or by its variable, or with an empty bytecode cache.
+type Start = Literal["as-is", "-u", "PYTHONUNBUFFERED", "empty-bytecode-cache"]
+
+
+class Case(NamedTuple):
+    """One run of the parity test: a CLI, a scenario, and how the CLI's interpreter starts."""
+
+    cli: CliName
+    scenario: Scenario
+    start: Start
+
+
+def _cases() -> list[Case]:
+    """Every scenario on every CLI as a user starts it, and the Python CLI's other starts.
+
+    Unbuffered, by ``-u`` or PYTHONUNBUFFERED, the Python CLI's stdout writes
+    straight to its descriptor, so each scenario whose stdout refuses a write
+    runs so too.  Under the file-size limit an interpreter writing bytecode as
+    it starts is ended by the limit's signal before its report is refused, so
+    the over-limit scenario runs with an empty bytecode cache as well.
+    """
+    cases = [Case(cli, scenario, "as-is") for scenario in _SCENARIOS for cli in _CLI_NAMES]
+    for scenario in _SCENARIOS:
+        if "stdout" in scenario:
+            cases += [Case("python", scenario, "-u"), Case("python", scenario, "PYTHONUNBUFFERED")]
+        if scenario.get("stdout") == "over-limit":
+            cases.append(Case("python", scenario, "empty-bytecode-cache"))
+    return cases
+
+
+_CASES = _cases()
+
 
 # ---------------------------------------------------------------------------
 # CLI launchers
 # ---------------------------------------------------------------------------
+
+
+def _cli_environment() -> dict[EnvName, EnvValue]:
+    """Return the environment of every CLI run: the harness's own, ALETHEIA_LIB the built kernel.
+
+    A CLI starts buffered, as its users start it, whatever the harness's own run
+    sets; a case starting it unbuffered sets that itself.
+    """
+    env = {
+        EnvName(name): EnvValue(value)
+        for name, value in os.environ.items()
+        if name != "PYTHONUNBUFFERED"
+    }
+    env[EnvName("ALETHEIA_LIB")] = EnvValue(str(_FFI_LIB))
+    return env
 
 
 @pytest.fixture(scope="session", name="cli_env")
@@ -349,9 +399,7 @@ def fixture_cli_env() -> dict[str, str]:
     """Environment for every CLI call: ALETHEIA_LIB -> the repo's built .so."""
     if not _FFI_LIB.exists():
         pytest.skip(f"libaletheia-ffi.so missing at {_FFI_LIB} — run 'cabal run shake -- build'")
-    env = dict(os.environ)
-    env["ALETHEIA_LIB"] = str(_FFI_LIB)
-    return env
+    return {str(name): str(value) for name, value in _cli_environment().items()}
 
 
 @pytest.fixture(scope="session", name="go_cli")
@@ -420,8 +468,14 @@ def _run_cli(
                 os.close(writer)
         case "over-limit":
             assert scratch is not None, "an over-limit run writes its report under a scratch dir"
+            # The interpreter writes no bytecode under the limit: one missing from its cache
+            # would be written as it starts, before it ignores the limit's signal, which would
+            # end the run first.
             return run_captured(
-                [*_ONE_BLOCK_LIMIT, *argv], env, cwd=_SUBPROCESS_CWD, stdout_to=scratch / "report"
+                [*_ONE_BLOCK_LIMIT, *argv],
+                env | {"PYTHONDONTWRITEBYTECODE": "1"},
+                cwd=_SUBPROCESS_CWD,
+                stdout_to=scratch / "report",
             )
 
 
@@ -523,23 +577,42 @@ def _failure_report(argv: list[str], result: subprocess.CompletedProcess[str]) -
 
 
 @pytest.mark.process(_RUNS_AS_A_PROGRAM)
-@pytest.mark.parametrize("scenario", _SCENARIOS, ids=_SCENARIO_IDS)
-def test_scenario(
-    cli: CliUnderTest, scenario: Scenario, cli_env: dict[str, str], tmp_path: Path
-) -> None:
-    """Every contract scenario holds on every CLI (exit code, streams, JSON, files)."""
+@pytest.mark.parametrize(
+    ("cli", "case"),
+    [(case.cli, case) for case in _CASES],
+    ids=[
+        f"{case.cli}-{case.scenario['id']}" + ("" if case.start == "as-is" else f"-{case.start}")
+        for case in _CASES
+    ],
+    indirect=["cli"],
+)
+def test_scenario(cli: CliUnderTest, case: Case, cli_env: dict[str, str], tmp_path: Path) -> None:
+    """Every contract scenario holds on every CLI (exit code, streams, JSON, files).
+
+    It holds too on the Python CLI started unbuffered, or with an empty bytecode
+    cache, where the scenario's stdout refuses a write.
+    """
+    scenario = case.scenario
     sid = scenario["id"]
     fixture_path = _resolve_fixture(scenario)
     fixture_before = _digest(fixture_path)
+    interpreter = [cli.argv[0], "-u", *cli.argv[1:]] if case.start == "-u" else cli.argv
     argv = [
-        *cli.argv,
+        *interpreter,
         scenario["subcommand"],
         *(
             _substitute(arg, fixture_path, tmp_path, sid)
             for arg in _effective_args(scenario, cli.name)
         ),
     ]
-    result = _run_cli(argv, cli_env, scenario.get("stdout"), tmp_path)
+    env = cli_env
+    if case.start == "PYTHONUNBUFFERED":
+        env = cli_env | {"PYTHONUNBUFFERED": "1"}
+    elif case.start == "empty-bytecode-cache":
+        cache = tmp_path / "bytecode"
+        cache.mkdir()
+        env = cli_env | {"PYTHONPYCACHEPREFIX": str(cache)}
+    result = _run_cli(argv, env, scenario.get("stdout"), tmp_path)
     assert _digest(fixture_path) == fixture_before, (
         f"{sid} on {cli.name}: the run changed its fixture\n{_failure_report(argv, result)}"
     )
@@ -605,6 +678,16 @@ def test_scenario_ids_unique() -> None:
     assert len(set(_SCENARIO_IDS)) == len(_SCENARIO_IDS), (
         f"duplicate scenario ids in CLI_SCENARIOS.yaml: {sorted(_SCENARIO_IDS)}"
     )
+
+
+def test_a_cli_starts_buffered_whatever_the_harness_s_run_sets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The harness's own run may be unbuffered; a CLI it starts is only where its case says so."""
+    monkeypatch.setenv("PYTHONUNBUFFERED", "1")
+    env = _cli_environment()
+    assert EnvName("PYTHONUNBUFFERED") not in env
+    assert env[EnvName("ALETHEIA_LIB")] == str(_FFI_LIB)
 
 
 def _load_entry(entry: YamlEntry) -> Scenario:
