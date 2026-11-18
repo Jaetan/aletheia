@@ -2,6 +2,12 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 packages: .
 
+-- The GHC that builds the kernel library, whatever `ghc` the search path
+-- holds: the workflows' GHC_VERSION names the same one, and the build's
+-- rules, the bundle's licence and SBOM tools and the instruction counts read
+-- the compiler from this line.
+with-compiler: ghc-9.12.2
+
 -- Every C compile cabal runs for the shim (hsc2hs, the c-sources, GHC's own
 -- stubs) uses the toolchain's C compiler, which compiles include/aletheia.h
 -- as C23.  The stand-in kernels' rule reads the compiler from this line.

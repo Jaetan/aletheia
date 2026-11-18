@@ -69,9 +69,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      GHC_VERSION: '9.8.4'
-      AGDA_VERSION: '2.8.0'
-      STDLIB_VERSION: 'v2.4'
+      GHC_VERSION: '9.12.2'
+      AGDA_VERSION: '2.9.0'
+      STDLIB_VERSION: 'v2.4.1'
       RUST_VERSION: '1.98.1'
       # Defaults apply on pull_request (no inputs); the PR gate is consistent
       # because every PR run uses these same values, matching the baseline.
@@ -418,10 +418,11 @@ jobs:
       # counts or the budgets rest on another toolchain.  Scaling: fail when the bytes
       # a binding's DBC load allocates outgrow the doublings of its messages or
       # of one number's digits.  tools/benchmark_gate.py says by how much.
-      # Both read counts a re-run repeats, so a failed gate is a verdict and
-      # nothing re-runs.  PR-only: exploratory workflow_dispatch runs are not
-      # gated.  It reads what the measurement and the count write, so it waits
-      # on them.
+      # Both read counts a re-run repeats to well within those bounds (an
+      # instruction count to within 1.76% across runner classes), so a failed
+      # gate is a verdict and nothing re-runs.  PR-only: exploratory
+      # workflow_dispatch runs are not gated.  It reads what the measurement
+      # and the count write, so it waits on them.
       - name: Regression gate
         if: ${{ env.LANE_MEASURES != '0' && github.event_name == 'pull_request' && !cancelled() && steps.measure.outcome == 'success' && (matrix.bench != 'throughput' || steps.count.outcome == 'success') }}
         run: |

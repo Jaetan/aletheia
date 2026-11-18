@@ -432,9 +432,9 @@ The flags below harden against regressions.
 
 - **GHC**: `--ghc-options=-optc-ffile-prefix-map=$REPO_ROOT=.` (passed
   via the library rule's cabal-build invocation in `shake/Rules/Library.hs`;
-  takes effect when GHC's bundled C compiler embeds debug info).  GHC ≥ 9.10's
-  `-fdebug-prefix-map` would be the direct flag; we pin GHC 9.8.4
-  which lacks it, so we go through the C-compiler pass-through.
+  takes effect when GHC's bundled C compiler embeds debug info).  GHC has no
+  prefix-map flag of its own (`ghc --show-options` lists none), so the C
+  compiler's is passed through.
 - **C++ binding**: `-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.` on
   `aletheia-cpp` library target (covers `__FILE__` macros + DWARF).
 - **Tarball**: `tar --sort=name --mtime=@<commit-epoch> --owner=0

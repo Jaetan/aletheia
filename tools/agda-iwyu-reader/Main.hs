@@ -78,15 +78,16 @@ import           System.IO (hSetEncoding, stdout, utf8)
 import           Agda.Interaction.FindFile (findFile', mkInterfaceFile, toIFile)
 import           Agda.Interaction.Imports (readInterface)
 import           Agda.Interaction.Options (defaultOptions, optIncludePaths)
-import           Agda.Syntax.Abstract.Name (ModuleName (..), QName, nameBindingSite, qnameModule, qnameName)
+import           Agda.Syntax.Abstract.Name
+                   (AbstractModule (..), AbstractName (..), ModuleName (..), QName, nameBindingSite,
+                    qnameModule, qnameName)
 import           Agda.Syntax.Common.Aspect (Aspects (..), DefinitionSite (..))
 import           Agda.Syntax.Common.Pretty (prettyShow)
 import qualified Agda.Syntax.Concrete.Name as C
 import           Agda.Syntax.Internal (Abs (..), Clause (..), ConHead (..), Term (..))
 import           Agda.Syntax.Internal.Names (namesIn)
 import           Agda.Syntax.Position (posPos, rStart, rangeFileName, srcFile)
-import           Agda.Syntax.Scope.Base
-                   (AbstractModule (..), AbstractName (..), Scope, allNamesInScope, scopeModules)
+import           Agda.Syntax.Scope.Base (Scope, allNamesInScope, scopeModules)
 import           Agda.Syntax.TopLevelModuleName (rawTopLevelModuleNameForModuleName)
 import           Agda.TypeChecking.Monad.Base
                    (Definition, Interface, TCM, defCopy, defInstance, funClauses, iHighlighting, iInsideScope,

@@ -360,6 +360,10 @@ def test_file_hits_reads_a_grant_with_the_two_lines_after_it() -> None:
         "-- Redistribution and use in source and binary forms, with or without",
         "-- Distributed under the ISC licence.",
         "-- Released under the MIT license.",
+        "/*! Pseudorandom secret taken directly from FARSH. */",
+        "-- The implementation of 'permutations' is adopted from 'GHC.Internal.Data.List'",
+        "-- This function is modified from GHC.Internal.IO.Handle.Text.",
+        "-- with data from: https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt.",
     ],
 )
 def test_file_hits_reads_each_phrasing_found_in_the_sources(line: Prose) -> None:

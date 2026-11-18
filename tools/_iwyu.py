@@ -30,10 +30,10 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 from tools._agda_opens import ModulePath, find_opens
-from tools._common import emit, find_executable, run_capture
+from tools._common import emit, find_executable, run_capture, shim_ghc
 from tools._warm import AGDA_BIN, SRC_DIR, Name, RelPath
 
 if TYPE_CHECKING:
@@ -43,6 +43,9 @@ SRC = SRC_DIR
 REPO = SRC.parent
 AGDA = str(AGDA_BIN)
 PKG = Path(__file__).resolve().parent / "agda-iwyu-reader"
+# The toolchain a built reader links, one line, written beside it by its build.
+ReaderToolchain = NewType("ReaderToolchain", str)
+READER_STAMP = PKG / "agda-iwyu-reader.toolchain"
 
 # The filesystem path string of a compiled `.agdai`.
 type AgdaiPath = str
@@ -201,7 +204,7 @@ type WildUsed = dict[WildQuery, frozenset[Name]]
 
 @functools.cache
 def _agda_version() -> str:
-    """Numeric Agda version (e.g. ``2.8.0``) — names the `_build/<ver>/` tree."""
+    """Numeric Agda version (e.g. ``2.9.0``) — names the `_build/<ver>/` tree."""
     return run_capture([AGDA, "--numeric-version"], check=True).stdout.strip()
 
 
@@ -214,7 +217,7 @@ def _store_package_db() -> Path:
     of the cabal version.  Raises with the exact searched paths if none is found
     (a could-not-build-reader error, never a silent skip).
     """
-    ghc = find_executable("ghc")
+    ghc = find_executable(shim_ghc())
     ghc_version = run_capture([ghc, "--numeric-version"], check=True).stdout.strip()
     store = Path.home() / ".cabal" / "store"
     for candidate in [*sorted(store.glob(f"ghc-{ghc_version}-*")), store / f"ghc-{ghc_version}"]:
@@ -229,22 +232,43 @@ def _store_package_db() -> Path:
     raise FileNotFoundError(message)
 
 
+def reader_toolchain() -> ReaderToolchain:
+    """Name the toolchain a reader built now links: the shim's GHC and the search path's Agda."""
+    return ReaderToolchain(f"{shim_ghc()} Agda-{_agda_version()}\n")
+
+
+def reader_current(binary: Path, source: Path, stamp: Path, toolchain: ReaderToolchain) -> bool:
+    """Say whether ``binary`` exists, is no older than ``source`` and was built for ``toolchain``.
+
+    A reader linked against another Agda cannot read this Agda's interfaces, and
+    answers no query rather than failing, so a toolchain move makes it stale.
+    """
+    return (
+        binary.is_file()
+        and binary.stat().st_mtime >= source.stat().st_mtime
+        and stamp.is_file()
+        and stamp.read_text(encoding="utf-8") == toolchain
+    )
+
+
 def build_reader() -> Path:
     """Build (if stale) and return the reader binary, linking the store's Agda.
 
     A plain `cabal build` re-solves and rebuilds Agda (~15 min); this points ghc
     at the store package.db so the prebuilt library is linked directly.  Rebuilds
-    only when the binary is missing or older than `Main.hs`.
+    when the binary is missing, older than `Main.hs`, or built for another
+    toolchain than ``reader_toolchain`` names, which the stamp beside it records.
     """
     binary, source = PKG / "agda-iwyu-reader", PKG / "Main.hs"
-    if binary.is_file() and binary.stat().st_mtime >= source.stat().st_mtime:
+    toolchain = reader_toolchain()
+    if reader_current(binary, source, READER_STAMP, toolchain):
         return binary
     db = _store_package_db()  # existing store db, or raises with the exact searched paths
     outdir = Path(tempfile.gettempdir()) / "agda-iwyu-build"
     outdir.mkdir(exist_ok=True)
     result = run_capture(
         [
-            find_executable("ghc"),
+            find_executable(shim_ghc()),
             "-package-db",
             str(db),
             "-package",
@@ -267,6 +291,7 @@ def build_reader() -> Path:
         emit(result.stderr)
         message = "agda-iwyu-reader build failed"
         raise RuntimeError(message)
+    _ = READER_STAMP.write_text(toolchain, encoding="utf-8")
     return binary
 
 

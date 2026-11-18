@@ -1,0 +1,12 @@
+ghc-internal-9.1202.0 compiles code that its source credits to two other works.
+
+HBC: in GHC.Internal.Data.OldList, nubBy ("stolen from HBC") and unlines
+("HBC version (stolen)"); in GHC.Internal.List, break ("HBC version
+(stolen)").  ghc-internal's source names no licence for this code.
+Copyright in it stays with HBC's authors.
+
+nhc: in GHC.Internal.Data.OldList, the merge sort behind sort and sortBy,
+"originally contributed to the nhc12 compiler by Thomas Nordin in 2002".
+nhc98's licence, whose copyright notice names Thomas Nordin among nhc98's
+contributors, is LICENSE-nhc98 beside this file; nhc98 is published at
+http://www.haskell.org/nhc98/.

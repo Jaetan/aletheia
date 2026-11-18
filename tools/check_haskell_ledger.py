@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType, cast
 
 from tools import _markdown
-from tools._common import emit, find_executable, run_capture
+from tools._common import emit, find_executable, run_capture, shim_ghc_pkg
 from tools.docs_arms import BUILDING_GUIDE
 from tools.sbom_generate import GhcPackage, ghc_library
 
@@ -209,7 +209,9 @@ def _licence_findings(
 
 def ghc_pkg_licence(package: GhcPackage) -> Prose | None:
     """Return the licence ghc-pkg records for ``package``, or None when it records none."""
-    read = run_capture([find_executable("ghc-pkg"), "field", package, "license", "--simple-output"])
+    read = run_capture(
+        [find_executable(shim_ghc_pkg()), "field", package, "license", "--simple-output"]
+    )
     words = read.stdout.split()
     return Prose(words[0]) if read.returncode == 0 and words else None
 

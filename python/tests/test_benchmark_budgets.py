@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 _CPP, _PYTHON = BindingName("cpp"), BindingName("python")
 _CLASSIC = LaneName("CAN 2.0B: Frame Building")
 _FD = LaneName("CAN-FD:   Signal Extraction")
+_FD_BUILDING = LaneName("CAN-FD:   Frame Building")
 _TOOLCHAIN = {ToolName("python"): ToolVersion("3.14.10")}
 _FRAMES = [FrameCount(100), FrameCount(1100)]
 _SLOWEST = RUNNER_CLASSES[0]
@@ -180,6 +181,16 @@ def test_a_run_no_budget_rests_on_is_refused(
     """
     with pytest.raises(CalibrationError, match=reason):
         _ = calibrate(_write_run(tmp_path, counts, rates, cpu))
+
+
+@pytest.mark.parametrize("lane", [_FD, _FD_BUILDING])
+def test_each_of_python_s_can_fd_lanes_under_its_bus_is_a_limitation(
+    tmp_path: Path, lane: LaneName
+) -> None:
+    """Python's CAN-FD signal extraction and frame building, each under its bus, are noted."""
+    counts = {_PYTHON: {lane: InstructionCount(1)}}
+    rates = {_PYTHON: {lane: FramesPerSecond(10_138)}}
+    assert calibrate(_write_run(tmp_path, counts, rates))["limitations"] == {_PYTHON: [lane]}
 
 
 def test_main_writes_the_record_or_exits_1_naming_why(

@@ -16,6 +16,7 @@ are in ``test_bundle_licences_staging.py``.
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 from pathlib import Path
 from typing import Literal, NamedTuple
@@ -42,6 +43,7 @@ from _licence_fixtures import (
 )
 from _processes import CommandWord
 
+from tools._common import shim_ghc, shim_ghc_pkg
 from tools.bundle_licences import (
     AGDA_LIB,
     AUDIT,
@@ -438,9 +440,9 @@ def test_kept_findings_names_a_libffi_folder_for_another_release(tmp_path: Path)
 
 
 def test_kept_findings_names_a_record_of_another_ghc(tmp_path: Path) -> None:
-    """A record of a GHC that is not the search path's is a finding."""
+    """A record of a GHC that is not the one the shim's project names is a finding."""
     assert _findings(tmp_path, ghc=GhcVersion("9.10.1")) == [
-        Prose(f"{_WHERE}: records GHC {_GHC}, the search path's is 9.10.1")
+        Prose(f"{_WHERE}: records GHC {_GHC}, the shim's project names 9.10.1")
     ]
 
 
@@ -583,9 +585,13 @@ def _answering(
     return asked
 
 
-_GHC_ASKED = _words(CommandWord("ghc"), CommandWord("--numeric-version"))
+# The GHC and the ghc-pkg the shim's project names, as the check asks them.
+_SHIM_GHC = CommandWord(shim_ghc())
+_SHIM_GHC_PKG = CommandWord(shim_ghc_pkg())
+_GHC_ASKED = _words(_SHIM_GHC, CommandWord("--numeric-version"))
 _GHC_PKG_ASKED = [
-    CommandWord(word) for word in ("ghc-pkg", "field", "rts", "include-dirs", "--simple-output")
+    _SHIM_GHC_PKG,
+    *(CommandWord(word) for word in ("field", "rts", "include-dirs", "--simple-output")),
 ]
 _AGDA_ASKED = _words(CommandWord("agda"), CommandWord("--numeric-version"))
 # The Agda library file the repository holds at its root, by the name it has there.
@@ -617,7 +623,7 @@ def test_agda_version_refuses_an_agda_naming_no_version(
 
 def test_ghc_version_is_what_ghc_prints(monkeypatch: pytest.MonkeyPatch) -> None:
     """The version is ghc's numeric version, stripped."""
-    asked = _answering(monkeypatch, {CommandWord("ghc"): _done(_GHC_ASKED, HELD, Prose("9.8.4\n"))})
+    asked = _answering(monkeypatch, {_SHIM_GHC: _done(_GHC_ASKED, HELD, Prose("9.8.4\n"))})
     assert ghc_version() == _GHC
     assert asked == [_GHC_ASKED]
 
@@ -630,9 +636,10 @@ def test_ghc_version_refuses_a_ghc_naming_no_version(
 ) -> None:
     """A ghc that fails, or prints nothing, names no version."""
     answer = _done(_GHC_ASKED, status, out, Prose("ghc: broken\n"))
-    _ = _answering(monkeypatch, {CommandWord("ghc"): answer})
+    _ = _answering(monkeypatch, {_SHIM_GHC: answer})
     with pytest.raises(
-        LicenceUnreadError, match=r"^ghc --numeric-version names no version: ghc: broken$"
+        LicenceUnreadError,
+        match=rf"^{re.escape(_SHIM_GHC)} --numeric-version names no version: ghc: broken$",
     ):
         _ = ghc_version()
 
@@ -650,7 +657,7 @@ def test_ghc_libffi_reads_the_first_ffi_h_naming_a_release(
     _ = (named / "ffi.h").write_text(_HEADER, encoding="utf-8")
     _ = (later / "ffi.h").write_text(_header(LibffiRelease("3.4.7")), encoding="utf-8")
     out = Prose(f"{none} {unnamed}\n{named}\n{later}\n")
-    asked = _answering(monkeypatch, {CommandWord("ghc-pkg"): _done(_GHC_PKG_ASKED, HELD, out)})
+    asked = _answering(monkeypatch, {_SHIM_GHC_PKG: _done(_GHC_PKG_ASKED, HELD, out)})
     assert ghc_libffi() == LIBFFI
     assert asked == [_GHC_PKG_ASKED]
 
@@ -663,7 +670,7 @@ def test_ghc_libffi_refuses_include_directories_with_no_named_release(
     header = _HEADER if status == FOUND else Prose("/* none */\n")
     _ = (tmp_path / "ffi.h").write_text(header, encoding="utf-8")
     answer = _done(_GHC_PKG_ASKED, status, Prose(f"{tmp_path}\n"))
-    _ = _answering(monkeypatch, {CommandWord("ghc-pkg"): answer})
+    _ = _answering(monkeypatch, {_SHIM_GHC_PKG: answer})
     with pytest.raises(LicenceUnreadError, match=r"^no ffi\.h naming a libffi release"):
         _ = ghc_libffi()
 
@@ -693,8 +700,8 @@ def _prepare(
     _ = _answering(
         monkeypatch,
         {
-            CommandWord("ghc"): ghc or _done(_GHC_ASKED, HELD, Prose("9.8.4\n")),
-            CommandWord("ghc-pkg"): _done(_GHC_PKG_ASKED, HELD, Prose(f"{include}\n")),
+            _SHIM_GHC: ghc or _done(_GHC_ASKED, HELD, Prose("9.8.4\n")),
+            _SHIM_GHC_PKG: _done(_GHC_PKG_ASKED, HELD, Prose(f"{include}\n")),
             CommandWord("agda"): agda or _done(_AGDA_ASKED, HELD, Prose("2.8.0\n")),
         },
     )
@@ -800,7 +807,8 @@ def test_main_check_holds_the_record_to_the_ghc_on_the_search_path(
     repo = _plant_tree(tmp_path)
     ghc = _done(_GHC_ASKED, HELD, Prose("9.10.1\n"))
     assert _run_main(monkeypatch, repo, _words(_CHECK, *LIBRARIES), ghc) == _Ran(
-        FOUND, [Prose(f"bundle-licences: {_WHERE}: records GHC 9.8.4, the search path's is 9.10.1")]
+        FOUND,
+        [Prose(f"bundle-licences: {_WHERE}: records GHC 9.8.4, the shim's project names 9.10.1")],
     )
 
 
@@ -903,9 +911,7 @@ def test_main_check_is_unchecked_when_the_record_cannot_be_read(
     assert ran.said[0].endswith("; the licence texts are unchecked")
 
 
-@pytest.mark.parametrize(
-    "absent", [CommandWord("ghc"), CommandWord("ghc-pkg"), CommandWord("agda")]
-)
+@pytest.mark.parametrize("absent", [_SHIM_GHC, _SHIM_GHC_PKG, CommandWord("agda")])
 def test_main_is_unchecked_when_a_tool_it_runs_is_not_on_the_search_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, absent: CommandWord
 ) -> None:

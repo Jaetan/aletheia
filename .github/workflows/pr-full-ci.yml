@@ -51,9 +51,9 @@ jobs:
             lanes: agda,python,go,rust,misc,ubsan
             saves_build_tree: true
     env:
-      GHC_VERSION: '9.8.4'
-      AGDA_VERSION: '2.8.0'
-      STDLIB_VERSION: 'v2.4'
+      GHC_VERSION: '9.12.2'
+      AGDA_VERSION: '2.9.0'
+      STDLIB_VERSION: 'v2.4.1'
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v7

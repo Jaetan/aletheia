@@ -22,6 +22,18 @@ the graph stays correct.  It checks two properties:
    (its mtime stays put).  A regression back to the always-full-rebuild
    sledgehammer would pass property 1 (edits still reach the ``.so``) but fail
    here.  Asserted structurally (was the artifact rewritten?), never by wall-clock.
+3. **A compiler move rebuilds** — the GHC and the C compiler the shim's project
+   names are no files in the tree, so each moving must still reach what it
+   compiles: with a stand-in first on the search path that reports another
+   ``--version`` and passes every other call to the real compiler, a build
+   must relink the ``.so``, and for the C compiler rebuild a stand-in kernel
+   too.  A build on the real compiler follows each, so the gate ends on it.
+4. **A stale sibling build is never copied** — cabal keeps a build per
+   compiler and per optimization level beside the current one, so the edits of
+   property 1 are built with a sibling present (another optimization level's
+   library, cabal's ``opt/`` tree, a decoy when none is there): copying it
+   would leave the edits out of the ``.so``, and refusing it as ambiguous
+   fails the build.
 
 The oracle is *behavioral* (does the edit reach the artifact? was it relinked?),
 never bit-identical — an incremental build differs benignly from a from-scratch one.
@@ -50,10 +62,13 @@ import argparse
 import fcntl
 import os
 import re
+import shlex
 import struct
 import subprocess
 import sys
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType
 
 from tools._common import (
@@ -63,6 +78,8 @@ from tools._common import (
     install_restore_handlers,
     process_alive,
     run_guarded,
+    shim_c_compiler,
+    shim_ghc,
     track_inflight,
     untrack_inflight,
 )
@@ -77,9 +94,11 @@ from tools.check_install_freshness import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from tools._common import CommandWord
 
 _SO = REPO_ROOT / "build" / "libaletheia-ffi.so"
+# A stand-in kernel the shim's C compiler builds, read after a move of that compiler.
+_STAND_IN = REPO_ROOT / "build" / "stand-ins" / "null_kernel.so"
 _HEADER = REPO_ROOT / "haskell-shim" / "include" / "aletheia.h"
 _SHAKE_LOCK = REPO_ROOT / "build" / ".shake.lock"
 
@@ -235,12 +254,17 @@ def _library_version() -> AbiVersion | None:
     return AbiVersion(int(answer)) if result.returncode == 0 and answer.isdigit() else None
 
 
-def _build() -> None:
-    """Run ``cabal run shake -- build`` under ``run_guarded``; raise, echoing output, on failure."""
-    result = run_guarded(
-        [find_executable("cabal"), "run", "shake", "--", "build"],
-        cwd=REPO_ROOT,
-    )
+def _build(path_first: Path | None = None) -> None:
+    """Run ``cabal run shake -- build`` under ``run_guarded``; raise, echoing output, on failure.
+
+    ``path_first`` is a folder put first on the build's search path, where a
+    moved compiler's stand-in sits.
+    """
+    words = [find_executable("cabal"), "run", "shake", "--", "build"]
+    if path_first is not None:
+        search = f"PATH={path_first}{os.pathsep}{os.environ.get('PATH', '')}"
+        words = [find_executable("env"), search, *words]
+    result = run_guarded(words, cwd=REPO_ROOT)
     if result.returncode != 0:
         emit(result.stdout)
         message = f"`cabal run shake -- build` failed (exit {result.returncode})"
@@ -324,6 +348,43 @@ def _check_baseline() -> dict[Path, str] | None:
     return originals
 
 
+def _sibling_build() -> Path:
+    """Return where cabal lays out the shim's library at another optimization level.
+
+    ``cabal list-bin`` names the current build; its ``opt/`` sibling is the
+    ``-O2`` one cabal keeps beside it.  Raises when the layout is not cabal's.
+    """
+    listed = run_guarded(
+        [find_executable("cabal"), "list-bin", "aletheia-ffi"], cwd=REPO_ROOT / "haskell-shim"
+    )
+    built = listed.stdout.strip().splitlines()[-1] if listed.returncode == 0 else ""
+    marker = "/f/aletheia-ffi/build/"
+    if marker not in built:
+        message = f"`cabal list-bin aletheia-ffi` names no library in cabal's layout: {built!r}"
+        raise RuntimeError(message)
+    return Path(built.replace(marker, "/f/aletheia-ffi/opt/build/"))
+
+
+def _plant_sibling() -> list[Path]:
+    """Put a stale sibling build where cabal would leave one; return what it made, deepest first."""
+    sibling = _sibling_build()
+    if sibling.exists():
+        return []
+    made = [directory for directory in sibling.parents if not directory.exists()]
+    sibling.parent.mkdir(parents=True, exist_ok=True)
+    _ = sibling.write_bytes(b"a stale sibling build the library rule must not copy\n")
+    return [sibling, *made]
+
+
+def _remove_planted(planted: list[Path]) -> None:
+    """Remove what ``_plant_sibling`` made, the file and then each directory it created."""
+    for made in planted:
+        if made.is_dir():
+            made.rmdir()
+        else:
+            made.unlink(missing_ok=True)
+
+
 def _check_edits_and_reverts(originals: dict[Path, str]) -> bool:
     """Edit all anchors → build → all reach .so; revert all → build → none do.  True iff sound."""
     # 1. edit ALL → one build: every edit MUST reach the .so (else the build is stale).
@@ -376,6 +437,46 @@ def _check_incremental() -> bool:
     return True
 
 
+def _write_moved(compiler: CommandWord, folder: Path) -> None:
+    """Write into ``folder`` a stand-in for ``compiler`` reporting another ``--version``.
+
+    Every other call passes to the real compiler.
+    """
+    real = shlex.quote(find_executable(compiler))
+    script = folder / compiler
+    _ = script.write_text(
+        "#!/usr/bin/env bash\n"
+        + 'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then\n'
+        + f'  printf "%s (moved by the build-incremental gate)\\n" "$({real} --version)"\n'
+        + "  exit 0\n"
+        + "fi\n"
+        + f'exec {real} "$@"\n',
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+
+def _check_compiler_moves() -> bool:
+    """Move each compiler the shim's project names; True iff each move rebuilds what it compiles."""
+    for compiler, builds_stand_ins in ((shim_ghc(), False), (shim_c_compiler(), True)):
+        with tempfile.TemporaryDirectory() as folder:
+            _write_moved(compiler, Path(folder))
+            so_before = _SO.stat().st_mtime_ns
+            stand_in_before = _STAND_IN.stat().st_mtime_ns
+            _build(path_first=Path(folder))
+            if _SO.stat().st_mtime_ns == so_before:
+                _fail(f"a move of {compiler} did not rebuild the .so (STALE)")
+                return False
+            emit(f"  a move of {compiler} rebuilt the .so ✓")
+            if builds_stand_ins and _STAND_IN.stat().st_mtime_ns == stand_in_before:
+                _fail(f"a move of {compiler} did not rebuild {_rel(_STAND_IN)} (STALE)")
+                return False
+            if builds_stand_ins:
+                emit(f"  a move of {compiler} rebuilt {_STAND_IN.name} ✓")
+        _build()  # back on the compiler the project names
+    return True
+
+
 def _run() -> int:
     """Run the staleness + incrementality checks; restore every edited source always."""
     if not _check_no_leftovers():
@@ -401,15 +502,20 @@ def _run() -> int:
     install_restore_handlers()
     for path in (*(probe.file for probe in _PROBES), _HEADER):
         track_inflight(str(path), originals[path])
+    planted = _plant_sibling()
     try:
         if not _check_edits_and_reverts(originals):
             return 1
+        emit("  the edits and reverts were built beside a stale sibling build ✓")
         if not _check_incremental():
+            return 1
+        if not _check_compiler_moves():
             return 1
     finally:
         for path in (*(probe.file for probe in _PROBES), _HEADER):
             _ = path.write_text(originals[path], encoding="utf-8")
             untrack_inflight(str(path))
+        _remove_planted(planted)
 
     post_probe_id = gnu_build_id(_SO)
     if baseline_id and post_probe_id is not None and post_probe_id != baseline_id:
@@ -418,7 +524,10 @@ def _run() -> int:
             RelinkCertificate(baseline_build_id=baseline_id, post_probe_build_id=post_probe_id),
         )
 
-    emit("=== build-incremental gate: PASS — edits/reverts reach the .so; no-op is incremental ===")
+    emit(
+        "=== build-incremental gate: PASS — edits/reverts reach the .so; no-op is incremental; "
+        + "a compiler move rebuilds; a stale sibling build is never copied ==="
+    )
     return 0
 
 

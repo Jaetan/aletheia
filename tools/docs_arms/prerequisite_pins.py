@@ -6,7 +6,8 @@ Four pins are held, each where the guide spells it, its fences included, to
 the file that pins it:
 
 * the standard-library tag ``git checkout v<tag>`` checks out, to the
-  ``standard-library-<tag>`` that ``aletheia.agda-lib`` depends on;
+  ``STDLIB_VERSION`` the full-CI workflow clones (``aletheia.agda-lib``
+  depends on the library's name, which a point release keeps);
 * the ``cmake version <floor>`` a check prints, to the ``VERSION`` of
   ``cpp/CMakeLists.txt``'s ``cmake_minimum_required``;
 * the ``go version go<floor>`` a check prints, to the major and minor version
@@ -37,13 +38,13 @@ if TYPE_CHECKING:
 # A version as a pin spells it, digits with dots between.
 Version = NewType("Version", str)
 
-AGDA_LIB = RelPath("aletheia.agda-lib")
+STDLIB_WORKFLOW = RelPath(".github/workflows/pr-full-ci.yml")
 CMAKE = RelPath("cpp/CMakeLists.txt")
 GO_MOD = RelPath("go/go.mod")
 PYPROJECT = RelPath("python/pyproject.toml")
 
 _STDLIB_STATED = re.compile(r"git checkout v(\d+(?:\.\d+)*)")
-_STDLIB_PINNED = re.compile(r"standard-library-(\d+(?:\.\d+)*)")
+_STDLIB_PINNED = re.compile(r"STDLIB_VERSION: 'v(\d+(?:\.\d+)*)'")
 _CMAKE_STATED = re.compile(r"cmake version (\d+(?:\.\d+)*)")
 _CMAKE_PINNED = re.compile(r"cmake_minimum_required\(VERSION (\d+(?:\.\d+)*)")
 _GO_STATED = re.compile(r"go version go(\d+\.\d+)")
@@ -91,7 +92,7 @@ def findings(
     guide = documents[BUILDING_GUIDE]
     out: list[Prose] = []
     for name, stated, source, pinned in (
-        (Prose("standard-library"), _STDLIB_STATED, AGDA_LIB, _STDLIB_PINNED),
+        (Prose("standard-library"), _STDLIB_STATED, STDLIB_WORKFLOW, _STDLIB_PINNED),
         (Prose("CMake"), _CMAKE_STATED, CMAKE, _CMAKE_PINNED),
         (Prose("Go"), _GO_STATED, GO_MOD, _GO_PINNED),
         (Prose("Python"), _PYTHON, PYPROJECT, _PYTHON),

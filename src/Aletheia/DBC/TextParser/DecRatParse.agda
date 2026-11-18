@@ -32,7 +32,7 @@
 module Aletheia.DBC.TextParser.DecRatParse where
 
 open import Data.List using (List; [])
-open import Data.Integer using (ℤ; +_)
+open import Data.Integer using (+_)
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; fail; _>>=_; _<|>_; char; digit; optional; some)

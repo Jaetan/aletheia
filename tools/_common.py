@@ -28,6 +28,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -36,10 +37,9 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType
+from typing import TYPE_CHECKING, Literal, NewType
 
 if TYPE_CHECKING:
-    import re
     from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
     from concurrent.futures import Executor
     from typing import IO
@@ -228,6 +228,47 @@ def find_executable(name: str) -> str:
         message = f"required executable not found on PATH: {name}"
         raise RuntimeError(message)
     return resolved
+
+
+# The shim's cabal project, whose `with-compiler:` line names the GHC that
+# builds the kernel library and whose `gcc-location:` line names the C compiler
+# that compiles its C, and each line's form.
+SHIM_PROJECT = RelPath("haskell-shim/cabal.project")
+type ShimCompilerField = Literal["with-compiler", "gcc-location"]
+_SHIM_COMPILER_LINES = {
+    "with-compiler": re.compile(r"^\s*with-compiler:\s*(ghc-[0-9][0-9.]*)\s*$", re.MULTILINE),
+    "gcc-location": re.compile(r"^\s*gcc-location:\s*(\S+)\s*$", re.MULTILINE),
+}
+
+
+def _shim_compiler(field: ShimCompilerField) -> CommandWord:
+    """Return the compiler the shim's project gives ``field``, raising unless one line gives it."""
+    text = (Path(__file__).resolve().parents[1] / SHIM_PROJECT).read_text(encoding="utf-8")
+    found = _SHIM_COMPILER_LINES[field].findall(text)
+    if len(found) != 1:
+        message = f"{SHIM_PROJECT} names {len(found)} `{field}:` lines of its form, not one"
+        raise RuntimeError(message)
+    return CommandWord(found[0])
+
+
+def shim_ghc() -> CommandWord:
+    """Return the GHC the shim's project names, ``ghc-<version>``.
+
+    Every tool asking which GHC built the kernel reads it here, never the
+    ``ghc`` the search path holds, which may be another.  Raises unless the
+    project names exactly one.
+    """
+    return _shim_compiler("with-compiler")
+
+
+def shim_c_compiler() -> CommandWord:
+    """Return the C compiler the shim's project names, which compiles the kernel's C."""
+    return _shim_compiler("gcc-location")
+
+
+def shim_ghc_pkg() -> CommandWord:
+    """Return the ghc-pkg of the GHC the shim's project names, ``ghc-pkg-<version>``."""
+    return CommandWord("ghc-pkg-" + str.removeprefix(shim_ghc(), "ghc-"))
 
 
 def run_capture(
