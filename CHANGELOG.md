@@ -2540,6 +2540,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The Python CLI refuses a report cut short when it writes unbuffered.**
+  Run with `python -u` or `PYTHONUNBUFFERED` set, its standard output writes
+  straight to the descriptor, and the bytes a short write left (a report
+  reaching a file's size limit) were dropped with no error: the report was cut
+  and the CLI exited 0. The rest of a short write is now written again, so the
+  write the descriptor refuses is refused as it is buffered, exit 2 with
+  `writing the report: File too large`. The parity harness runs every scenario
+  whose standard output refuses a write on the Python CLI unbuffered too.
+
 - **A validation refusal is built in time linear in its issues.** The
   `handler_validation_failed` message joins every error issue's detail; the
   join copied the text joined so far at every step, so a DBC whose messages
