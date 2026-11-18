@@ -105,9 +105,9 @@ jobs:
           # plus the slowest setup one of its legs paid with every cache cold,
           # the leg's wall less its sweep, on run 44088790366 (the move to GHC
           # 9.12.2 and Agda 2.9.0).  Python: 16m36s on run 44052235766 plus
-          # 31m41s, 48m17s.  Rust: 26m58s on run 44052235766 plus 25m05s and
+          # 31m41s, 48m17s.  Rust: 33m36s on run 44206342072 plus 25m05s and
           # the install a missing cargo-mutants cache adds, 1m11s on run
-          # 42744190696 (the move to LLVM 23.1.6), 53m14s.  C++: 18m56s on run
+          # 42744190696 (the move to LLVM 23.1.6), 59m52s.  C++: 18m56s on run
           # 44052235766 plus 27m18s, the Mull build a missing Mull cache adds,
           # 5m51s on run 42744190696, and the whole-tree census the first leg
           # takes when what slices the mutants moves, 6m35s on run
@@ -172,7 +172,7 @@ jobs:
             python_shard: ''
             go_shard: ''
             rust_job: '1'
-            timeout: 55
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: '1'
@@ -183,7 +183,7 @@ jobs:
             python_shard: ''
             go_shard: ''
             rust_job: '2'
-            timeout: 55
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: '1'

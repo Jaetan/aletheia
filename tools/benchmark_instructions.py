@@ -11,11 +11,10 @@ totals and cancel.  Every Python run compiles its modules afresh, so neither
 total reads bytecode the other wrote, and every run turns the GHC runtime's
 idle-time collector off, so no total rests on how long the process idled.
 
-A count is a function of the tree and the toolchain, not of the machine's
-speed or load: measured on one host, a Python lane repeats to within two
-instructions in 283,716 and a Go lane to within about 60 per operation, and
-three runs of one tree on three runner classes spread the widest lane, Go's
-CAN-FD signal extraction, by 0.475%.  The
+A count barely moves with the machine's speed or load: measured on one host,
+a Python lane repeats to within two instructions in 283,716 and a Go lane to
+within about 60 per operation, and three runs of one tree on three runner
+classes spread the widest lane, Go's CAN-FD signal extraction, by 1.76%.  The
 report records the toolchain the counts rest on, so
 ``tools/benchmark_gate.py --bench instructions`` can refuse a comparison
 across toolchains by name.

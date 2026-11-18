@@ -313,7 +313,7 @@ A: Yes. Extension points:
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 
 **Q: What's the performance profile?**
-A: Real-time. A saturated 1 Mbit/s CAN bus of 8-byte frames delivers 9,009 a second, and a saturated CAN-FD bus of 64-byte frames, its data phase at 8 Mbit/s, 10,139. Every lane of every binding clears its bus on most GitHub runner classes measured; Python's two CAN-FD lanes fall short on the slowest ones, a current limitation. See [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for the throughput numbers and the real-time headroom.
+A: Real-time. A saturated 1 Mbit/s CAN bus of 8-byte frames delivers 9,009 a second, and a saturated CAN-FD bus of 64-byte frames, its data phase at 8 Mbit/s, 10,139. Every lane of every binding clears its bus on most GitHub runner classes measured; Python's two CAN-FD lanes fall short on the slowest ones, and Go's CAN-FD signal extraction just short on the slowest, current limitations. See [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for the throughput numbers and the real-time headroom.
 
 **Q: Dependencies?**
 A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime is just `libaletheia-ffi.so` and Python 3.14+ (plus your binding's own runtime). There is no wheel on PyPI; a release carries a signed bundle and native packages, and building from source installs the Python binding from the tree. [Building Guide § Prerequisites](development/BUILDING.md#prerequisites) carries the exact version pins, and is the one place they are written.

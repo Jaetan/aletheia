@@ -76,7 +76,7 @@ BINDINGS = ("cpp", "go", "python", "rust")
 # A lane whose instructions per operation moved more than this percentage from
 # its committed count, either way, fails.  Three runs of one tree on three
 # runner classes, the GHC runtime's idle collector off, spread 20 lanes of 24 by
-# under 0.1% and the widest, Go's CAN-FD signal extraction, by 0.475%.
+# under 0.1% and the widest, Go's CAN-FD signal extraction, by 1.76%.
 MAX_INSTRUCTION_DRIFT_PERCENT = 5
 
 # The counts the instruction check holds each lane to.
