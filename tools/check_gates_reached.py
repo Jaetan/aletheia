@@ -25,6 +25,7 @@ from pathlib import Path
 
 from tools._ci_steps import AGDA_SHAKE_TARGETS
 from tools._common import GateName, ShakeSource, emit, read_shake_program
+from tools._progress import reporting
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -102,4 +103,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-gates-reached")))

@@ -57,7 +57,10 @@ from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from tools._common import RelPath, emit, find_executable, git_toplevel, run_capture
+from tools._progress import reporting
 from tools._vendored import UnreadRecordError, recorded_blobs
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -322,4 +325,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-spdx-headers")))

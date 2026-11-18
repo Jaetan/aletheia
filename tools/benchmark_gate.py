@@ -53,6 +53,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast
 
+from tools._progress import reporting
 from tools.benchmark_budgets import BUDGETS_PATH, budget_of, class_rank
 from tools.benchmark_instructions import RESULT_PATH, ToolName
 
@@ -541,4 +542,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("benchmark gate")))

@@ -11,16 +11,20 @@ gate's own tiny workloads against the schema's flags.
 from __future__ import annotations
 
 import re
+import sys
+from pathlib import Path
 from typing import Final, TypedDict, cast
 
 import pytest
 import yaml
 
+from tools import check_bench_schema
 from tools.check_bench_schema import (
     MODE_ARGS,
     RUNNER_MODES_HELD,
     RUNNER_PATH,
     SCHEMA_PATH,
+    Binding,
     Finding,
     Flag,
     ModeName,
@@ -256,3 +260,30 @@ def test_the_planted_runner_s_arms_are_the_real_runner_s_shapes() -> None:
     for line in str(RUNNER).splitlines():
         if re.match(r"^\s*latency\)", line):
             assert line in runner, line
+
+
+def test_each_binding_is_reported_as_the_check_reaches_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The check reports on stderr before the first binding and as it passes each."""
+    absent = [
+        Binding(
+            name=name,
+            exe=Path("/absent"),
+            cwd=Path("/absent"),
+            available=False,
+            required=False,
+            python_module=False,
+        )
+        for name in ("go", "rust")
+    ]
+
+    def present(*, built: bool) -> list[Binding]:
+        assert built
+        return absent
+
+    monkeypatch.setattr(check_bench_schema, "bindings", present)
+    monkeypatch.setattr(sys, "argv", ["check_bench_schema", "--built"])
+    assert check_bench_schema.main() == 0
+    printed = [line for line in capsys.readouterr().err.splitlines() if line.startswith("progress")]
+    assert printed == [f"progress: {done}/2 bindings" for done in range(3)]

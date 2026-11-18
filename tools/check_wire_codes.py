@@ -47,6 +47,9 @@ from typing import NewType, cast
 import yaml
 
 from tools._common import emit
+from tools._progress import reporting
+
+from aletheia.common_types import Prose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_AGDA_ROOT = REPO_ROOT / "src"
@@ -296,4 +299,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-wire-codes")))

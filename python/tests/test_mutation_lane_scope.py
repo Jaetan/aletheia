@@ -37,8 +37,8 @@ _SWEEP_STEP = "Mutation testing (${{ matrix.lane }})"
 # A step added here is a step whose minutes every lane pays.
 _UNGATED_STEPS = (
     "Checkout (full history)",
-    "Ensure a local `main` ref for `git diff main...HEAD`",
     "Set up Python 3.14",
+    "Ensure a local `main` ref for `git diff main...HEAD`",
     "Create the dev venv with the [mutation] extra (mutmut)",
     "Does this lane's binding sweep on this diff?",
     "Upload the lane's reports",

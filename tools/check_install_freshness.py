@@ -54,6 +54,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools._common import emit
+from tools._progress import reporting
+
+from aletheia.common_types import Prose
 
 _CHUNK_BYTES = 1 << 20
 _ELFCLASS64 = 2
@@ -360,4 +363,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-install-freshness")))

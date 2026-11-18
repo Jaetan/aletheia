@@ -20,7 +20,7 @@ import os
 import signal
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 from _executors import DrivenExecutor, Order
@@ -36,11 +36,15 @@ from tools._scheduler import (
     StepEvent,
     StepNotRun,
     StepResult,
+    Watch,
     all_passed,
     run_lane,
     run_lanes,
+    step_file,
     unmet_needs,
 )
+from tools._watchdog import NO_REPORTS_YET, PatternText, Progress
+from tools._watchdog import Seconds as WatchSeconds
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -78,31 +82,35 @@ def _ran(results: Sequence[StepOutcome]) -> list[StepResult]:
     return ran
 
 
-def test_all_pass_collects_every_step(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_all_pass_collects_every_step(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Every step of every lane is run and collected when all succeed."""
     runs = install(monkeypatch, _table(a1=passes, a2=passes, b1=passes))
     lanes = [[_step(A1), _step(A2)], [_step(B1)]]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert all_passed(results)
     assert {r.name for r in results} == {"a1", "a2", "b1"}
     assert runs.commands == [A1, A2, B1]
 
 
-def test_failure_surfaces_with_real_returncode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failure_surfaces_with_real_returncode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A failing step makes the run fail and keeps its real exit code."""
     _ = install(monkeypatch, _table(ok=passes, bad=ends(ExitStatus(3))))
     lanes = [[_step(CommandWord("ok"))], [_step(CommandWord("bad"))]]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert not all_passed(results)
     bad = next(r for r in _ran(results) if r.name == "bad")
     assert bad.returncode == 3
 
 
-def test_a_failure_leaves_the_rest_of_its_lane_running(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_failure_leaves_the_rest_of_its_lane_running(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A step that needs nothing runs after a failure in its lane, and its outcome is reported."""
     runs = install(monkeypatch, _table(first=passes, boom=ends(ExitStatus(1)), after=passes))
     lanes = [[_step(FIRST), _step(BOOM), _step(AFTER)]]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert runs.commands == [FIRST, BOOM, AFTER]
     assert [(r.name, r.returncode) for r in _ran(results)] == [
         ("first", 0),
@@ -112,7 +120,9 @@ def test_a_failure_leaves_the_rest_of_its_lane_running(monkeypatch: pytest.Monke
     assert not all_passed(results)
 
 
-def test_a_step_needing_a_failed_step_is_reported_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_step_needing_a_failed_step_is_reported_not_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A step needing one that failed is not run and names it; a step needing nothing still runs.
 
     The step not run is neither a pass nor a failure: it is an outcome of its
@@ -122,40 +132,46 @@ def test_a_step_needing_a_failed_step_is_reported_not_run(monkeypatch: pytest.Mo
         monkeypatch, _table(first=passes, boom=ends(ExitStatus(1)), uses=passes, after=passes)
     )
     lanes = [[_step(FIRST), _step(BOOM), _step(USES, needs=(BOOM,)), _step(AFTER)]]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert runs.commands == [FIRST, BOOM, AFTER]
     assert [r.name for r in results] == ["first", "boom", "uses", "after"]
     assert results[2] == _not_run(USES, BOOM)
     assert not all_passed(results)
 
 
-def test_a_step_needing_one_not_run_is_not_run_either(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_step_needing_one_not_run_is_not_run_either(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Not running passes down a chain of needs, each step naming the one it needed."""
     runs = install(monkeypatch, _table(boom=ends(ExitStatus(1)), uses=passes, after=passes))
     lanes = [[_step(BOOM), _step(USES, needs=(BOOM,)), _step(AFTER, needs=(USES,))]]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert runs.commands == [BOOM]
     assert results[1:] == [_not_run(USES, BOOM), _not_run(AFTER, USES)]
 
 
 def test_a_step_needing_a_step_run_before_the_lanes_runs_only_if_it_passed(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A step run before the lanes, the build, answers a need in every lane, pass or fail."""
     runs = install(monkeypatch, _table(uses=passes, after=passes))
     lanes = [[_step(USES, needs=(BUILD,))], [_step(AFTER, needs=(BUILD,))]]
     failed = StepResult(BUILD, ExitStatus(1), NO_OUTPUT, 0.0)
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor, before=[failed])
+    results = run_lanes(
+        lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor, before=[failed]
+    )
     assert runs.commands == []
     assert results == [_not_run(USES, BUILD), _not_run(AFTER, BUILD)]
     passed = StepResult(BUILD, ExitStatus(0), NO_OUTPUT, 0.0)
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor, before=[passed])
+    results = run_lanes(
+        lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor, before=[passed]
+    )
     assert runs.commands == [USES, AFTER]
     assert all_passed(results)
 
 
 def test_a_need_no_earlier_step_of_its_lane_answers_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A need names an earlier step of the same lane or one run before the lanes, or nothing runs.
 
@@ -166,11 +182,13 @@ def test_a_need_no_earlier_step_of_its_lane_answers_is_refused(
     lanes = [[_step(A1, needs=(A2,)), _step(A2)], [_step(B1, needs=(A1, BUILD))]]
     assert unmet_needs(lanes, frozenset({GateName(BUILD)})) == [("a1", "a2"), ("b1", "a1")]
     with pytest.raises(ValueError, match="a1 needs a2, b1 needs a1"):
-        _ = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+        _ = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert runs.commands == []
 
 
-def test_one_lane_failure_does_not_abort_siblings(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_one_lane_failure_does_not_abort_siblings(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A failing lane never drops sibling lanes — run_lanes awaits every future.
 
     This is the failing-step-finishes-first / no-silent-drop guarantee: the
@@ -181,12 +199,14 @@ def test_one_lane_failure_does_not_abort_siblings(monkeypatch: pytest.MonkeyPatc
         [_step(CommandWord("fail"))],
         [_step(CommandWord("sib1")), _step(CommandWord("sib2"))],
     ]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert {r.name for r in results} == {"fail", "sib1", "sib2"}
     assert not all_passed(results)
 
 
-def test_a_lane_starts_no_step_once_the_sweep_is_stopping(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_lane_starts_no_step_once_the_sweep_is_stopping(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A lane raising stops the sweep: a lane not yet run starts none of its steps.
 
     The sweep closes its stop pipe once it reads the exception, and a step
@@ -200,12 +220,12 @@ def test_a_lane_starts_no_step_once_the_sweep_is_stopping(monkeypatch: pytest.Mo
     runs = install(monkeypatch, _table(boom=raises, a1=passes, a2=passes))
     lanes = [[_step(BOOM)], [_step(A1), _step(A2)]]
     with pytest.raises(RuntimeError, match="a lane's own fault"):
-        _ = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+        _ = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert runs.commands == [BOOM]
 
 
 def test_a_heavy_step_waiting_for_its_slot_when_the_sweep_stops_does_not_start(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The stop is read after the wait for the memory semaphore, not only before it.
 
@@ -219,18 +239,20 @@ def test_a_heavy_step_waiting_for_its_slot_when_the_sweep_stops_does_not_start(
         stops.append(True)
         return True
 
-    shared = LaneContext(acquire, lambda: None, lambda: bool(stops), None, None, frozenset())
+    shared = LaneContext(
+        acquire, lambda: None, lambda: bool(stops), None, None, frozenset(), tmp_path
+    )
     assert not run_lane([_step(CommandWord("heavy"), heavy=True)], shared)
     assert stops == [True]
     assert runs.commands == []
 
 
-def test_signal_death_counts_as_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_signal_death_counts_as_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A SIGKILL's status (the OOM-killer signature) is a failure: a step needing it is not run."""
     killed = ExitStatus(128 + signal.SIGKILL)  # the status the guard reports for a signal death
     runs = install(monkeypatch, _table(oom=ends(killed), uses=passes))
     lanes = [[_step(OOM), _step(USES, needs=(OOM,))]]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert not all_passed(results)
     assert results == [StepResult(OOM, killed, NO_OUTPUT, 0.0), _not_run(USES, OOM)]
     assert runs.commands == [OOM]
@@ -238,9 +260,10 @@ def test_signal_death_counts_as_failure(monkeypatch: pytest.MonkeyPatch) -> None
 
 # A sweep of two lanes run in parallel, one of them a step running the build.
 _PARALLEL = ScriptSource(
-    "from tools._scheduler import Step, run_lanes; "
+    "from tools._scheduler import Step, Watch, run_lanes; "
     + "run_lanes([[Step('build', 'cabal run shake -- build')], [Step('other', 'true')]], "
-    + "heavy_limit=1)"
+    + "heavy_limit=1, "
+    + "watch=Watch(__import__('pathlib').Path(__import__('os').environ['STEP_FILES'])))"
 )
 
 
@@ -274,9 +297,10 @@ def test_an_interrupted_serial_sweep_stops_its_step(tmp_path: Path) -> None:
     leaving closes.
     """
     serial = ScriptSource(
-        "from tools._scheduler import Step, run_lanes; "
+        "from tools._scheduler import Step, Watch, run_lanes; "
         + "run_lanes([[Step('build', 'cabal run shake -- build')]], "
-        + "heavy_limit=1, executor=None)"
+        + "heavy_limit=1, executor=None, "
+        + "watch=Watch(__import__('pathlib').Path(__import__('os').environ['STEP_FILES'])))"
     )
     with driving_a_held_build(tmp_path, serial, own_group=True) as build:
         os.killpg(build.driver.pid, signal.SIGINT)
@@ -309,10 +333,11 @@ def test_a_killed_sweep_stops_a_step_that_guards_its_own_build(tmp_path: Path) -
     hold the path an exception takes out of ``run_guarded``.
     """
     nested = ScriptSource(
-        "import sys; from tools._scheduler import Step, run_lanes; "
+        "import sys; from tools._scheduler import Step, Watch, run_lanes; "
         + "run_lanes([[Step('build', [sys.executable, '-c', "
         + "'from tools.check_build_incremental import _build; _build()'])], "
-        + "[Step('other', 'true')]], heavy_limit=1)"
+        + "[Step('other', 'true')]], heavy_limit=1, "
+        + "watch=Watch(__import__('pathlib').Path(__import__('os').environ['STEP_FILES'])))"
     )
     with driving_a_held_build(tmp_path, nested) as build:
         build.driver.kill()
@@ -320,7 +345,9 @@ def test_a_killed_sweep_stops_a_step_that_guards_its_own_build(tmp_path: Path) -
         stopped(build.lock)
 
 
-def test_each_step_keeps_its_own_output_whole(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_each_step_keeps_its_own_output_whole(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Each step's merged output lands, whole and alone, in that step's result."""
     noisy, mixed = Prose("MARKER_42\n"), Prose("one\ntwo\nthree\n")
     _ = install(
@@ -328,21 +355,78 @@ def test_each_step_keeps_its_own_output_whole(monkeypatch: pytest.MonkeyPatch) -
         _table(noisy=ends(ExitStatus(0), noisy), mixed=ends(ExitStatus(0), mixed)),
     )
     lanes = [[_step(CommandWord("noisy"))], [_step(CommandWord("mixed"))]]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert [(r.name, r.output) for r in _ran(results)] == [("noisy", noisy), ("mixed", mixed)]
 
 
-def test_serial_mode_runs_every_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.process(
+    "only a real step's output crosses the guard and the watchdog into the step's file"
+)
+def test_a_real_step_s_output_and_reports_reach_its_file_and_result(tmp_path: Path) -> None:
+    """A step's output lands in its file and its result, its reports counted, nothing stalled.
+
+    Its progress holds no allowance, as a step being measured does, so the
+    watchdog waits for output with no deadline: nothing here waits on a time.
+    """
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"))
+    step = Step(name="counts", cmd="printf '[1/2] a\\nnote\\n[2/2] b\\n'", progress=counted)
+    (result,) = _ran(run_lanes([[step]], heavy_limit=1, executor=None, watch=Watch(tmp_path)))
+    assert (result.returncode, result.reports, result.stalled) == (0, 2, False)
+    assert result.output == "[1/2] a\nnote\n[2/2] b\n"
+    assert step_file(tmp_path, GateName("counts")).read_text(encoding="utf-8") == result.output
+
+
+def test_a_stalled_step_fails_its_output_ending_with_the_watchdog_s_verdict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The watchdog stopped it: the step fails, a step needing it is not run, the reason is told."""
+    stalls = Answer(ExitStatus(0), Prose("[1/9] parse\nwarning: slow\n"), stalled=True)
+    _ = install(monkeypatch, _table(stuck=lambda _call: stalls, uses=passes))
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"), WatchSeconds(600.0))
+    stuck = Step(name="stuck", cmd="stuck", progress=counted)
+    lanes = [[stuck, _step(USES, needs=(CommandWord("stuck"),))]]
+    first, second = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
+    assert isinstance(first, StepResult)
+    assert (first.returncode, first.stalled) == (1, True)
+    assert first.output.endswith(
+        "\nwatchdog: no progress report for 600s; stopped."
+        + " Last report: [1/9] parse. Last line: warning: slow\n"
+    )
+    assert second == _not_run(USES, CommandWord("stuck"))
+
+
+def test_a_report_passing_a_quarter_of_the_work_is_told_once_short_of_the_whole(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reports at 10, 30, 40, 60, 99 and 100% tell the sweep at 30, 60 and 99%: one per quarter."""
+    output = Prose("".join(f"[{k}/100]\n" for k in (10, 30, 40, 60, 99, 100)))
+    _ = install(monkeypatch, _table(counts=ends(ExitStatus(0), output)))
+    events: list[StepEvent] = []
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"), WatchSeconds(600.0))
+    step = Step(name="counts", cmd="counts", progress=counted)
+    _ = run_lanes(
+        [[step]], heavy_limit=1, watch=Watch(tmp_path, events.append), executor=DrivenExecutor
+    )
+    assert [e.report for e in events if e.phase == "progress"] == [
+        "[30/100]",
+        "[60/100]",
+        "[99/100]",
+    ]
+
+
+def test_serial_mode_runs_every_lane(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The serial fallback still runs and collects every lane, with no stop descriptor."""
     runs = install(monkeypatch, _table(a=passes, b=passes))
     lanes = [[_step(CommandWord("a"))], [_step(CommandWord("b"))]]
-    results = run_lanes(lanes, heavy_limit=1, executor=None)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=None)
     assert all_passed(results)
     assert {r.name for r in results} == {"a", "b"}
     assert [call.stop_fd for call in runs.calls] == [None, None]
 
 
-def test_results_ordered_by_lane_not_completion(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_results_ordered_by_lane_not_completion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Results come back in lane-then-step order when the last lane finishes first."""
     runs = install(monkeypatch, _table(a1=passes, a2=passes, b1=passes))
     lanes = [[_step(A1), _step(A2)], [_step(B1)]]
@@ -350,7 +434,7 @@ def test_results_ordered_by_lane_not_completion(monkeypatch: pytest.MonkeyPatch)
     results = run_lanes(
         lanes,
         heavy_limit=1,
-        progress=events.append,
+        watch=Watch(tmp_path, events.append),
         executor=partial(DrivenExecutor, order=Order.LAST_SUBMITTED),
     )
     assert [e.name for e in events if e.phase == "done"] == ["b1", "a1", "a2"]
@@ -358,7 +442,9 @@ def test_results_ordered_by_lane_not_completion(monkeypatch: pytest.MonkeyPatch)
     assert runs.commands == [B1, A1, A2]
 
 
-def test_heavy_steps_execute_under_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_heavy_steps_execute_under_the_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Heavy steps run and are captured (the bound is the Semaphore's contract)."""
     heavy = Prose("HEAVY\n")
     runs = install(monkeypatch, _table(h1=passes, h2=ends(ExitStatus(0), heavy)))
@@ -366,24 +452,30 @@ def test_heavy_steps_execute_under_the_gate(monkeypatch: pytest.MonkeyPatch) -> 
         [_step(CommandWord("h1"), heavy=True)],
         [_step(CommandWord("h2"), heavy=True)],
     ]
-    results = run_lanes(lanes, heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert all_passed(results)
     assert [r.output for r in _ran(results)] == [NO_OUTPUT, heavy]
     assert runs.commands == ["h1", "h2"]
 
 
-def test_progress_observes_start_and_done_per_step(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_progress_observes_start_and_done_per_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """The live channel fires a start and a done event for every executed step.
 
     Within a lane the order is start→done per step in lane order, each step
-    running between its own two events; the done event carries the step's
-    real result (the fail case pins the exit code).
+    running between its own two events; the start event names the file the
+    step writes into, and the done event carries the step's real result (the
+    fail case pins the exit code).
     """
     events: list[StepEvent] = []
 
     def runs_after_its_start(status: ExitStatus) -> StandIn:
         def answer(call: StepCall) -> Answer:
-            assert events[-1] == StepEvent("start", call.command), events
+            started = StepEvent(
+                "start", call.command, live=step_file(tmp_path, GateName(call.command))
+            )
+            assert events[-1] == started, events
             return Answer(status)
 
         return answer
@@ -393,7 +485,9 @@ def test_progress_observes_start_and_done_per_step(monkeypatch: pytest.MonkeyPat
         _table(first=runs_after_its_start(ExitStatus(0)), boom=runs_after_its_start(ExitStatus(4))),
     )
     lanes = [[_step(FIRST), _step(BOOM)]]
-    results = run_lanes(lanes, heavy_limit=1, progress=events.append, executor=DrivenExecutor)
+    results = run_lanes(
+        lanes, heavy_limit=1, watch=Watch(tmp_path, events.append), executor=DrivenExecutor
+    )
     assert not all_passed(results)
     assert [(e.phase, e.name) for e in events] == [
         ("start", "first"),
@@ -407,14 +501,14 @@ def test_progress_observes_start_and_done_per_step(monkeypatch: pytest.MonkeyPat
     assert events[0].result is None  # a start event carries no outcome yet
 
 
-def test_progress_observes_a_step_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_progress_observes_a_step_not_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A step not run fires one event of its own, carrying the step it needed, and no start."""
     events: list[StepEvent] = []
     _ = install(monkeypatch, _table(boom=ends(ExitStatus(1)), uses=passes))
     _ = run_lanes(
         [[_step(BOOM), _step(USES, needs=(BOOM,))]],
         heavy_limit=1,
-        progress=events.append,
+        watch=Watch(tmp_path, events.append),
         executor=DrivenExecutor,
     )
     assert [(e.phase, e.name) for e in events] == [
@@ -426,7 +520,7 @@ def test_progress_observes_a_step_not_run(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_a_step_reports_the_time_the_clock_moved_while_it_ran(
-    clock: Clock, monkeypatch: pytest.MonkeyPatch
+    clock: Clock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A step's duration is what the clock read between its start and its end, and nothing else."""
 
@@ -439,22 +533,29 @@ def test_a_step_reports_the_time_the_clock_moved_while_it_ran(
         run_lanes(
             [[_step(CommandWord("timed"))]],
             heavy_limit=1,
-            progress=observe,
+            watch=Watch(tmp_path, observe),
             executor=None,
         )
     )
     assert result.duration == 3.0
 
 
-def test_progress_none_is_supported(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_progress_none_is_supported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The default (no observer) runs exactly as before — the seam is optional."""
     runs = install(monkeypatch, _table(quiet=passes))
-    results = run_lanes([[_step(CommandWord("quiet"))]], heavy_limit=1, executor=DrivenExecutor)
+    results = run_lanes(
+        [[_step(CommandWord("quiet"))]],
+        heavy_limit=1,
+        watch=Watch(tmp_path),
+        executor=DrivenExecutor,
+    )
     assert all_passed(results)
     assert runs.commands == ["quiet"]
 
 
-def test_a_parallel_sweep_leaves_no_descriptor_open(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_parallel_sweep_leaves_no_descriptor_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Both ends of the parallel sweep's stop pipe are closed once it returns.
 
     Each step is handed the pipe's read end while it runs, which shows the
@@ -474,9 +575,55 @@ def test_a_parallel_sweep_leaves_no_descriptor_open(monkeypatch: pytest.MonkeyPa
     _ = run_lanes(
         [[_step(CommandWord("a"))], [_step(CommandWord("b"))]],
         heavy_limit=1,
+        watch=Watch(tmp_path),
         executor=DrivenExecutor,
     )
     assert sorted(fds.iterdir()) == before
     stop_fds = [call.stop_fd for call in runs.calls]
     assert open_while_running == stop_fds
     assert len(set(stop_fds)) == 1
+
+
+class _Timed(NamedTuple):
+    """A step run for ``seconds`` printing ``output`` and ending ``status``.
+
+    ``reporting`` says whether it declares reports, ``fails`` whether the watchdog fails it.
+    """
+
+    seconds: Seconds
+    output: Prose
+    reporting: bool
+    fails: bool
+    status: ExitStatus = ExitStatus(0)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        _Timed(Seconds(11.0), Prose("compiling\n"), reporting=True, fails=True),
+        _Timed(Seconds(9.0), Prose("compiling\n"), reporting=True, fails=False),
+        _Timed(Seconds(11.0), Prose("[1/9] compiling\n"), reporting=True, fails=False),
+        _Timed(Seconds(11.0), Prose("compiling\n"), reporting=False, fails=False),
+        _Timed(Seconds(11.0), Prose("error\n"), reporting=True, fails=False, status=ExitStatus(3)),
+    ],
+)
+def test_a_reporting_step_that_runs_past_ten_seconds_with_no_report_fails(
+    clock: Clock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, case: _Timed
+) -> None:
+    """Over 10 s with no report fails a reporting step that passed.
+
+    A report, none declared, or a failure of its own does not; a failed step keeps its status
+    and its last line.
+    """
+
+    def runs(_call: StepCall) -> Answer:
+        clock.advance(case.seconds)
+        return Answer(case.status, case.output)
+
+    _ = install(monkeypatch, _table(timed=runs))
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"))
+    step = Step(name="timed", cmd="timed", progress=counted if case.reporting else NO_REPORTS_YET)
+    (result,) = _ran(run_lanes([[step]], heavy_limit=1, watch=Watch(tmp_path), executor=None))
+    assert result.returncode == (case.status or (1 if case.fails else 0))
+    said = "watchdog: the step declares progress reports and made none in 11s"
+    assert (said in result.output) == case.fails

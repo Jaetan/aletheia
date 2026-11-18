@@ -25,18 +25,22 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, Self, TypedDict, Unpack
+from typing import TYPE_CHECKING, Literal, NamedTuple, Self, TypedDict, Unpack
 
 import pytest
+from _stalling_output import stall_after_first_output
 from _stand_in import never_written, stopped
 
-from tools import _common
+from tools import _common, _watchdog
+from tools._watchdog import Line, PatternText, Progress, Seconds, StepWatch
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from types import TracebackType
 
     from _processes import CommandWord
+
+    from tools._common import Descriptor
 
 REPO_ROOT = Path(_common.__file__).resolve().parents[1]
 
@@ -80,7 +84,7 @@ def _started(
         import os
         import signal
         import subprocess
-        from tools import _common
+        from tools import _common, _watchdog
         guards = []
         class Recorded(subprocess.Popen):
             def __init__(self, *args, **kwargs):
@@ -177,10 +181,6 @@ def test_closing_the_stop_descriptor_stops_the_command(tmp_path: Path) -> None:
         os.close(stop_read)
     # A guard that stops its group ends in that group's SIGKILL, itself included.
     assert result.returncode == -signal.SIGKILL
-
-
-# A file descriptor of this process.
-Descriptor = NewType("Descriptor", int)
 
 
 class _GuardOptions(TypedDict):
@@ -331,3 +331,67 @@ def test_a_command_that_ignores_the_interrupt_is_killed_after_the_grace_period(
         build.driver.kill()
         _ = build.driver.wait()
         stopped(build.lock)
+
+
+_COUNTED = PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]")
+
+
+@pytest.mark.process(
+    "the command's output crosses the guard into the watchdog, so only a started command"
+    + " shows its reports heard and its output copied into its file"
+)
+def test_a_watched_command_s_reports_are_heard_and_its_output_copied(tmp_path: Path) -> None:
+    """Each report is heard in order, the file holds the whole output, the status passes through."""
+    live = tmp_path / "step.log"
+    heard: list[Line] = []
+    with live.open("wb") as written:
+        ran = _watchdog.run_watched(
+            [
+                _common.CommandWord("sh"),
+                _common.CommandWord("-c"),
+                _common.CommandWord("printf '[1/2] a\\nb\\n[2/2] c\\n'; exit 3"),
+            ],
+            cwd=None,
+            stop_fd=None,
+            watch=StepWatch(written, Progress(_COUNTED), heard.append),
+        )
+    assert (ran.returncode, ran.pumped.stalled, ran.pumped.reports) == (3, False, 2)
+    assert heard == ["[1/2] a", "[2/2] c"]
+    assert live.read_text(encoding="utf-8") == "[1/2] a\nb\n[2/2] c\n"
+
+
+@pytest.mark.process(
+    "a stall is ended by the guard interrupting the command's group, so only a started"
+    + " command, blocked on a pipe no one writes, shows it stopped and its output kept"
+)
+def test_a_watched_command_that_stalls_is_stopped_through_its_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After its first report the command blocks; past its deadline the guard stops it.
+
+    What the command writes as it is stopped, its interrupt trap's line, is
+    copied into its file too.
+
+    The output is read for real, but the clock is the test's: the first wait
+    is answered by the output itself, and every later one moves the clock by
+    the wait it was given, so the deadline passes at once and nothing waits.
+    """
+    never = tmp_path / "never"
+    os.mkfifo(never)
+    stall_after_first_output(monkeypatch)
+    live = tmp_path / "step.log"
+    command = (
+        "trap 'echo interrupted; exit 1' INT; " + f"printf '[1/2] parse\\n'; cat {never} & wait"
+    )
+    with live.open("wb") as written:
+        ran = _watchdog.run_watched(
+            [_common.CommandWord("sh"), _common.CommandWord("-c"), _common.CommandWord(command)],
+            cwd=None,
+            stop_fd=None,
+            watch=StepWatch(written, Progress(_COUNTED, Seconds(60.0)), lambda _report: None),
+        )
+    assert ran.pumped.stalled
+    assert ran.pumped.last_report == "[1/2] parse"
+    # The guard ends its group with SIGKILL once the command has gone, itself included.
+    assert ran.returncode == -signal.SIGKILL
+    assert live.read_text(encoding="utf-8") == "[1/2] parse\ninterrupted\n"

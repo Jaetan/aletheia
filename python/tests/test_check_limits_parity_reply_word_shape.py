@@ -15,6 +15,8 @@ import pytest
 from tools._reply_places import (
     AGDA_REPLY_RANGE,
     AgdaText,
+    BindingReader,
+    ReaderSets,
     ReplyTables,
     ReplyWord,
     read_reply_tables,
@@ -31,6 +33,25 @@ def test_the_reply_proof_as_written_holds_identifier_shaped_words() -> None:
     """Every word of ``replyText`` has the shape the readers' comparisons are read by."""
     tables = read_reply_tables(AgdaText(AGDA_REPLY_RANGE.read_text(encoding="utf-8")), ())
     assert isinstance(tables, ReplyTables), tables
+
+
+def _reader(name: Prose) -> BindingReader:
+    """Stand in a binding's reader that reads nothing and names itself."""
+
+    def read(_unread: list[Prose]) -> ReaderSets:
+        return ReaderSets(name, Prose("table"), {}, {})
+
+    return read
+
+
+def test_each_binding_read_is_reported_as_it_is_read(capsys: pytest.CaptureFixture[Prose]) -> None:
+    """Reading the tables reports on stderr before the first binding and as each one is read."""
+    text = AgdaText(AGDA_REPLY_RANGE.read_text(encoding="utf-8"))
+    tables = read_reply_tables(text, (_reader(Prose("go")), _reader(Prose("rust"))))
+    assert isinstance(tables, ReplyTables), tables
+    assert capsys.readouterr().err == (
+        "progress: 0/2 bindings read\nprogress: 1/2 bindings read\nprogress: 2/2 bindings read\n"
+    )
 
 
 @pytest.mark.parametrize(

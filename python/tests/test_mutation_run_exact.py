@@ -22,7 +22,11 @@ from tools._common import RelPath
 from tools.mutation_report import KillRoute, MutantCount, MutationReport, Observed
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tools.mutation_report import Baseline, BindingSpec, DriftEntry, DriftStatus, RouteCensus
+
+    from aletheia.common_types import Prose
 
 _ROUTES: RouteCensus = {
     KillRoute("test"): MutantCount(7),
@@ -149,3 +153,14 @@ def test_a_regression_outranks_a_stale_record() -> None:
     entry = _drift(_binding({"total_mutants": 11}, [_A]), files=frozenset())
     assert entry["status"] == "regression"
     assert entry.get("baseline_total_mutants") == 11
+
+
+def test_each_binding_is_reported_as_the_sweep_reaches_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The sweep reports on stderr before the first binding and as it passes each, run or not."""
+    reports, _elapsed = mutation_run.run_enabled_bindings(tmp_path, set())
+    assert not reports
+    total = len(mutation_run.RUNNERS)
+    printed = [line for line in capsys.readouterr().err.splitlines() if line.startswith("progress")]
+    assert printed == [f"progress: {done}/{total} bindings" for done in range(total + 1)]

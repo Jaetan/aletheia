@@ -35,8 +35,10 @@ from tools.check_build_incremental import (
     shake_lock_holder,
 )
 
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
 NAMED = f"{MARKER_PREFIX}RF_pid4242_20260924T101500Z"
@@ -242,3 +244,38 @@ def test_a_killed_gate_stops_its_build(tmp_path: Path) -> None:
         build.driver.kill()
         _ = build.driver.wait()
         stopped(build.lock)
+
+
+def _reports(err: Prose) -> list[Prose]:
+    """Return the progress reports among the lines of ``err``."""
+    return [Prose(line) for line in err.splitlines() if line.startswith("progress: ")]
+
+
+def test_the_properties_are_reported_as_each_holds_and_stop_at_the_first_that_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The three checks run in order, each reported as it holds, none after a failure."""
+    ran: list[Prose] = []
+
+    def check(name: Prose, *, holds: bool) -> Callable[[], bool]:
+        def run() -> bool:
+            ran.append(name)
+            return holds
+
+        return run
+
+    monkeypatch.setattr(gate, "_check_incremental", check(Prose("incremental"), holds=True))
+    monkeypatch.setattr(gate, "_check_compiler_moves", check(Prose("moves"), holds=True))
+    assert gate.properties_hold(check(Prose("edits"), holds=True))
+    assert ran == ["edits", "incremental", "moves"]
+    assert _reports(Prose(capsys.readouterr().err)) == [
+        f"progress: {done}/3 properties" for done in range(4)
+    ]
+    ran.clear()
+    monkeypatch.setattr(gate, "_check_incremental", check(Prose("incremental"), holds=False))
+    assert not gate.properties_hold(check(Prose("edits"), holds=True))
+    assert ran == ["edits", "incremental"]
+    assert _reports(Prose(capsys.readouterr().err)) == [
+        "progress: 0/3 properties",
+        "progress: 1/3 properties",
+    ]

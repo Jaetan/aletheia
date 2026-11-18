@@ -55,6 +55,13 @@ concurrency:
   group: benchmark-${{ github.ref }}
   cancel-in-progress: true
 
+# Every `run:` step runs under the watchdog (tools/watch_step.py): `bash -e` as
+# GitHub's own default shell runs it, its output in the job log as it comes, its
+# progress held by the step's declaration in tools/_workflow_steps.py.
+defaults:
+  run:
+    shell: python3.14 -m tools.watch_step {0}
+
 jobs:
   benchmark:
     # One leg per mode: throughput and scaling on a pull request, the chosen
@@ -84,9 +91,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure a local `main` ref for `git diff main...HEAD`
-        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
-
       # Exact versions: an instruction count rests on the interpreter's build,
       # and the committed counts record the toolchain they were taken with.
       - name: Set up Python 3.14.10
@@ -98,6 +102,9 @@ jobs:
           # runs (the venv itself is re-created each run; this saves the fetch).
           cache: pip
           cache-dependency-path: python/pyproject.toml
+
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
 
       - name: Create the dev venv (python/.venv) with aletheia installed
         run: |

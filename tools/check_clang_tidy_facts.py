@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import NewType
 
 from tools._common import emit, find_executable, git_toplevel, run_capture
+from tools._progress import reporting
 from tools.pin_scope import PinGate, gate_runs
 
 from aletheia.common_types import ExitStatus, Prose
@@ -124,4 +125,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-clang-tidy-facts")))

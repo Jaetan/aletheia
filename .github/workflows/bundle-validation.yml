@@ -49,6 +49,13 @@ env:
   AGDA_VERSION: '2.9.0'
   STDLIB_VERSION: 'v2.4.1'
 
+# Every `run:` step runs under the watchdog (tools/watch_step.py): `bash -e` as
+# GitHub's own default shell runs it, its output in the job log as it comes, its
+# progress held by the step's declaration in tools/_workflow_steps.py.
+defaults:
+  run:
+    shell: python3.14 -m tools.watch_step {0}
+
 jobs:
   # ── Job 1: build a fresh (unsigned) dist from HEAD and validate it ─────────
   head-dist:
@@ -63,6 +70,14 @@ jobs:
           # from `git log -1 --format=%ct HEAD` and stages the bindings via
           # `git archive HEAD`, so the commit must be reachable.
           fetch-depth: 0
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
 
       - name: Set up GHC + cabal
         run: |
@@ -156,14 +171,6 @@ jobs:
           fi
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-          # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
-          cache: pip
-          cache-dependency-path: python/pyproject.toml
 
       - name: Create the dev venv (python/.venv)
         run: |

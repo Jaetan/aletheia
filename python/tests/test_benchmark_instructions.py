@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from _executors import DrivenExecutor, Order
@@ -38,6 +39,9 @@ from tools.benchmark_instructions import (
     run_argv,
 )
 from tools.check_bench_schema import Binding
+
+if TYPE_CHECKING:
+    from aletheia.common_types import Prose
 
 _PYTHON = Binding(
     "python",
@@ -131,6 +135,14 @@ def test_every_lane_of_every_binding_lands_at_its_own_place(order: Order) -> Non
         },
     }
     assert counts == want
+
+
+def test_each_counted_run_is_reported_as_it_arrives(capsys: pytest.CaptureFixture[Prose]) -> None:
+    """The count reports on stderr before the first run and as each run's total is read."""
+    _ = count_lanes([_PYTHON, _GO], [LaneName("a")], count=_stand_in, executor=DrivenExecutor)
+    assert capsys.readouterr().err == "".join(
+        f"progress: {done}/4 lane runs counted\n" for done in range(5)
+    )
 
 
 def test_a_run_that_fails_ends_the_count() -> None:

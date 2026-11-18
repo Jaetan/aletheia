@@ -661,9 +661,9 @@ def test_a_syntax_check_overlays_the_file_with_its_candidates_const(
 
 
 def test_each_file_is_resolved_on_the_executor_handed_in(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
-    """Candidates group by file, each file compiled through its first candidate's unit."""
+    """Candidates group by file, each compiled through its first candidate's unit and reported."""
     database = tmp_path / gate.COMPILE_DB
     database.parent.mkdir(parents=True)
     _ = database.write_text(
@@ -689,6 +689,9 @@ def test_each_file_is_resolved_on_the_executor_handed_in(
     )
     assert compiled[0] == (_FILE, Path("/b"))
     assert (other, Path("/b")) in compiled
+    assert capsys.readouterr().err == "".join(
+        f"progress: {done}/2 files compiled as const\n" for done in range(3)
+    )
 
 
 def test_an_unrecorded_local_fails_with_the_row_that_would_allow_it(

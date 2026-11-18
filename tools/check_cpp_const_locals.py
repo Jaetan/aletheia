@@ -87,9 +87,10 @@ from tools._clang_query import (
     unit_arguments,
 )
 from tools._common import RelPath, WorkerCount, emit
+from tools._progress import ItemCount, counted, reporting
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
 
-from aletheia.common_types import ExitStatus
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -613,7 +614,12 @@ def const_able(
                 lambda compiled, pending: settled(compiled, file, lines, pending, scopes),
             )
 
-        return sorted(c for found in pool.map(one_file, by_file.values()) for c in found)
+        resolved = counted(
+            pool.map(one_file, by_file.values()),
+            ItemCount(len(by_file)),
+            Prose("files compiled as const"),
+        )
+        return sorted(c for found in resolved for c in found)
 
 
 def observed_rows(found: Iterable[Candidate]) -> RatchetRows:
@@ -679,4 +685,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-cpp-const-locals")))

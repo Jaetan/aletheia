@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
 
 from tools._common import agda_tree_lock, emit, find_executable, git_toplevel, run_capture
+from tools._progress import reported
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -541,6 +542,6 @@ def run_warm_gate(
     if not files:
         return 0  # nothing in scope (e.g. --diff with no .agda change): a true no-op
     with agda_tree_lock(wait=wait_lock), WarmAgda() as agda:
-        for rel in files:
+        for rel in reported(files, Prose("files loaded")):
             _ = agda.load(str(SRC / rel))  # refresh `.agdai` so the reader sees current interfaces
         return action(agda, files)

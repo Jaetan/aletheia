@@ -35,6 +35,7 @@ from typing import NamedTuple
 
 from tools._branch_diff import branch_changes
 from tools._common import CommandWord, RelPath, emit, find_executable, run_capture
+from tools._progress import reported, reporting
 from tools._resources import detect_cpus
 
 from aletheia.common_types import ExitStatus, Prose
@@ -121,7 +122,7 @@ def main() -> ExitStatus:
         return ExitStatus(2)
     cmake = CommandWord(find_executable("cmake"))
     with tempfile.TemporaryDirectory(prefix="aletheia-installed-consumer-") as scratch:
-        for step in steps(Path(scratch), cmake):
+        for step in reported(list(steps(Path(scratch), cmake)), Prose("CMake steps")):
             run = run_capture(step.argv, cwd=REPO_ROOT)
             if run.returncode != 0:
                 emit(f"check_cpp_installed_consumer: {step.label} failed ({run.returncode}):")
@@ -135,4 +136,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-cpp-installed-consumer")))

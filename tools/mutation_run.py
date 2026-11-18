@@ -219,6 +219,7 @@ from tools._common import (
     short_sha,
     write_and_report_summary,
 )
+from tools._progress import reported, reporting
 from tools.mutation_cpp import cpp_survivor_rows, cpp_unobserved_rows, run_cpp
 from tools.mutation_drift import drift_for
 from tools.mutation_go import (
@@ -831,6 +832,7 @@ _GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
     "tools/mull/",  # the patches the Mull plugin is built with, which decide its mutants
     "tools/build_mull.sh",  # the Mull release the plugin is built from, and how
     "tools/_common.py",  # the harness's shared helpers
+    "tools/_progress.py",  # how the harness reports its progress to the watchdog
     "tools/_resources.py",  # the CPU budget the C++ lane builds with
     "tools/__init__.py",  # the package every harness module is imported through
     "docs/MUTATION_BENCH.yaml",  # the per-binding baselines the drift gate reads
@@ -894,7 +896,7 @@ RUNNERS: list[tuple[str, str, Callable[[Path], MutationReport]]] = [
 ]
 
 
-def _run_enabled_bindings(
+def run_enabled_bindings(
     artifact_dir: Path, in_scope: set[str] | None
 ) -> tuple[list[MutationReport], dict[str, float]]:
     """Run each enabled, in-scope binding; archive its JSON; collect reports and wall times.
@@ -909,7 +911,7 @@ def _run_enabled_bindings(
     # read off a measurement rather than guessed, a measurement nobody had when
     # a lane was killed by its own wall clock.
     elapsed: dict[str, float] = {}
-    for name, skip_var, runner in RUNNERS:
+    for name, skip_var, runner in reported(RUNNERS, Prose("bindings")):
         if os.environ.get(skip_var) == "1":
             _ = sys.stderr.write(f"[mutation] skip {name}: {skip_var}=1\n")
             continue
@@ -951,7 +953,7 @@ def main() -> int:
         _ = sys.stderr.write(
             f"[mutation] diff-scope: changed bindings only → {sorted(in_scope) or 'NONE'}\n"
         )
-    reports, elapsed = _run_enabled_bindings(artifact_dir, in_scope)
+    reports, elapsed = run_enabled_bindings(artifact_dir, in_scope)
 
     # Drift gate: hold each binding's run to its baseline in the YAML spec.
     # A null survivor count is a first run, not gated yet; otherwise a run off
@@ -982,4 +984,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("mutation testing")))

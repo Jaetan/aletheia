@@ -68,6 +68,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType
 
@@ -83,6 +84,7 @@ from tools._common import (
     track_inflight,
     untrack_inflight,
 )
+from tools._progress import reported, reporting
 from tools._warm import REPO_ROOT
 from tools.check_install_freshness import (
     RelinkCertificate,
@@ -93,7 +95,11 @@ from tools.check_install_freshness import (
     write_relink_certificate,
 )
 
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tools._common import CommandWord
 
 _SO = REPO_ROOT / "build" / "libaletheia-ffi.so"
@@ -423,6 +429,7 @@ def _check_edits_and_reverts(originals: dict[Path, str]) -> bool:
             _fail(f"a revert of {probe.file.name} did not reach the .so (STALE)")
             return False
         emit(f"  revert of {probe.file.name} reached the .so ✓")
+    emit("  the edits and reverts were built beside a stale sibling build ✓")
     return True
 
 
@@ -477,6 +484,12 @@ def _check_compiler_moves() -> bool:
     return True
 
 
+def properties_hold(edits_and_reverts: Callable[[], bool]) -> bool:
+    """Check the gate's three properties in order, each reported as it holds; stop at a failure."""
+    checks = (edits_and_reverts, _check_incremental, _check_compiler_moves)
+    return all(check() for check in reported(checks, Prose("properties")))
+
+
 def _run() -> int:
     """Run the staleness + incrementality checks; restore every edited source always."""
     if not _check_no_leftovers():
@@ -504,12 +517,7 @@ def _run() -> int:
         track_inflight(str(path), originals[path])
     planted = _plant_sibling()
     try:
-        if not _check_edits_and_reverts(originals):
-            return 1
-        emit("  the edits and reverts were built beside a stale sibling build ✓")
-        if not _check_incremental():
-            return 1
-        if not _check_compiler_moves():
+        if not properties_hold(partial(_check_edits_and_reverts, originals)):
             return 1
     finally:
         for path in (*(probe.file for probe in _PROBES), _HEADER):
@@ -539,4 +547,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("build staleness")))

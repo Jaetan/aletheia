@@ -57,6 +57,13 @@ env:
   AGDA_VERSION: '2.9.0'
   STDLIB_VERSION: 'v2.4.1'
 
+# Every `run:` step runs under the watchdog (tools/watch_step.py): `bash -e` as
+# GitHub's own default shell runs it, its output in the job log as it comes, its
+# progress held by the step's declaration in tools/_workflow_steps.py.
+defaults:
+  run:
+    shell: python3.14 -m tools.watch_step {0}
+
 jobs:
   # ── reproducible-build (REQUIRED-intended; deterministic) ──────────────────
   # Self-building: tools.check_reproducible_build runs `cabal run shake -- build`
@@ -77,6 +84,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
 
       - name: Set up GHC + cabal
         run: |
@@ -174,11 +186,6 @@ jobs:
           fi
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
 
       - name: Cache clang-23 .debs (Clang is a large download)
         uses: actions/cache@v6
@@ -214,6 +221,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
+
       - name: Set up GHC + cabal
         run: |
           set -euo pipefail
@@ -310,14 +325,6 @@ jobs:
           fi
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-          # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
-          cache: pip
-          cache-dependency-path: python/pyproject.toml
 
       - name: Create the dev venv (python/.venv)
         run: |
@@ -369,10 +376,12 @@ jobs:
           restore-keys: |
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
 
-      - name: Build the FFI library + C++ stability harness
+      - name: Build the FFI library
+        run: cabal run shake -- build
+
+      - name: Build the C++ stability harness
         run: |
           set -euo pipefail
-          cabal run shake -- build
           # -S cpp: the CMakeLists.txt lives in cpp/, not the repo root (the
           # default source dir when only -B is given).  The first run failed
           # with "source directory does not contain CMakeLists.txt".
@@ -420,9 +429,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure a local `main` ref for `git diff main...HEAD`
-        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
-
       - name: Set up Python 3.14
         uses: actions/setup-python@v7
         with:
@@ -430,6 +436,9 @@ jobs:
           # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
           cache: pip
           cache-dependency-path: python/pyproject.toml
+
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
 
       - name: Create the dev venv (python/.venv)
         run: |

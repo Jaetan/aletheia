@@ -43,6 +43,7 @@ from pathlib import Path
 
 from tools._common import RelPath, TreeScan, report_tree_scan, scan_tracked_tree
 from tools._markdown import prose_lines
+from tools._progress import reporting
 
 from aletheia.common_types import Prose
 
@@ -99,4 +100,4 @@ def main(*, repo: Path = REPO) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-refused-words")))

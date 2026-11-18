@@ -43,7 +43,10 @@ from typing import cast
 import yaml
 
 from tools._common import emit
+from tools._progress import reporting
 from tools.coverage_run import RUNNERS
+
+from aletheia.common_types import Prose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = REPO_ROOT / "docs" / "COVERAGE_BENCH.yaml"
@@ -195,4 +198,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-coverage-setup")))

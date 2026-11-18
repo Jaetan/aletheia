@@ -464,3 +464,21 @@ def test_main_measures_nothing_out_of_scope_and_passes(
     summary = json.loads((tmp_path / "abc1234" / "summary.json").read_text())
     assert summary["runs"] == []
     assert summary["passed"] is True
+
+
+def test_each_binding_is_reported_as_the_run_reaches_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The run reports on stderr before the first binding and as it passes each, measured or not."""
+    monkeypatch.delenv("ALETHEIA_COVERAGE_NO_DIFF_SCOPE", raising=False)
+    _fake_diff(monkeypatch, files=["docs/x.md"])
+    monkeypatch.setattr(coverage_run, "ARTIFACT_BASE", tmp_path)
+    monkeypatch.setattr(coverage_run, "short_sha", _sha)
+
+    def never(_art: Path, _spec: coverage_run.Spec) -> CoverageReport:
+        pytest.fail("a binding out of scope was measured")
+
+    monkeypatch.setattr(coverage_run, "RUNNERS", [("go", never), ("rust", never)])
+    assert coverage_run.main([]) == 0
+    printed = [line for line in capsys.readouterr().err.splitlines() if line.startswith("progress")]
+    assert printed == [f"progress: {done}/2 bindings" for done in range(3)]

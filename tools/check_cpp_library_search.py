@@ -30,6 +30,7 @@ from pathlib import Path
 
 from tools._common import RelPath, TreeScan, git_ls_files, report_tree_scan
 from tools._hosted_markdown import SourceText, scan_tracked_sources
+from tools._progress import reporting
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -96,4 +97,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-cpp-library-search")))

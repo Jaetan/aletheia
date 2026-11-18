@@ -147,6 +147,7 @@ def driving_a_held_build(
         pytest.skip("flock(1) is not installed")
     root = tmp_path / "held-build"
     (root / "bin").mkdir(parents=True)
+    (root / "steps").mkdir()
     lock, started = root / "build.lock", root / "started"
     os.mkfifo(started)
     never = never_written(root)
@@ -168,7 +169,11 @@ def driving_a_held_build(
             driver = subprocess.Popen(
                 [sys.executable, "-c", source],
                 cwd=_REPO,
-                env=os.environ | {"PATH": f"{cabal.parent}{os.pathsep}{os.environ['PATH']}"},
+                env=os.environ
+                | {
+                    "PATH": f"{cabal.parent}{os.pathsep}{os.environ['PATH']}",
+                    "STEP_FILES": str(root / "steps"),
+                },
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 pass_fds=(held,),

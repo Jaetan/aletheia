@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from _typeshed import SupportsItems
 
+
 # A path relative to the repository root, spelled as git prints it: `git ls-files`
 # and `git diff --name-only` both use this spelling, and only a git listing mints one.
 RelPath = NewType("RelPath", str)
@@ -67,6 +68,11 @@ COUNTED_RTS_OPTS = "-I0"
 EnvName = NewType("EnvName", str)
 EnvValue = NewType("EnvValue", str)
 CommandWord = NewType("CommandWord", str)
+# An open file descriptor of this process; how long an interrupted command has before SIGKILL;
+# the status a process ended with.
+Descriptor = NewType("Descriptor", int)
+GraceSeconds = NewType("GraceSeconds", float)
+ProcessStatus = NewType("ProcessStatus", int)
 
 
 # What builds the executor a tool runs its concurrent calls on, given how many
@@ -316,12 +322,15 @@ def run_guarded(
     ``grace_seconds`` is how long an interrupted command has to exit before
     its group gets SIGKILL.
     """
-    guard = Path(__file__).with_name("_guarded_run.py")
     watch_read, watch_write = os.pipe()
     watched = (watch_read,) if stop_fd is None else (watch_read, stop_fd)
     try:
         proc = subprocess.Popen(
-            [sys.executable, str(guard), ",".join(map(str, watched)), str(grace_seconds), *cmd],
+            under_the_guard(
+                [CommandWord(word) for word in cmd],
+                tuple(map(Descriptor, watched)),
+                GraceSeconds(grace_seconds),
+            ),
             cwd=cwd,
             stdin=subprocess.DEVNULL,
             stdout=output,
@@ -338,6 +347,21 @@ def run_guarded(
         finally:
             os.close(watch_write)  # end-of-file for the guard: stop the group if it runs
     return subprocess.CompletedProcess(cmd, proc.returncode, collected or "", "")
+
+
+def under_the_guard(
+    cmd: Sequence[CommandWord], watched: tuple[Descriptor, ...], grace: GraceSeconds
+) -> list[CommandWord]:
+    """Return the command line that runs ``cmd`` under ``tools/_guarded_run.py``."""
+    guard = Path(__file__).with_name("_guarded_run.py")
+    watch_list = CommandWord(",".join(map(str, watched)))
+    return [
+        CommandWord(sys.executable),
+        CommandWord(str(guard)),
+        watch_list,
+        CommandWord(str(grace)),
+        *cmd,
+    ]
 
 
 def run_streaming(

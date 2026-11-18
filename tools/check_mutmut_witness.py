@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
 from tools._common import emit, git_toplevel
+from tools._progress import reporting
 from tools.check_mutmut_operators import INSTALL_HINT, missing_mutmut
 from tools.mutation_run import (
     MUTMUT_LOG,
@@ -275,4 +276,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-mutmut-witness")))

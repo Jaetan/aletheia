@@ -34,6 +34,13 @@ concurrency:
   group: cache-prune
   cancel-in-progress: false
 
+# Every `run:` step runs under the watchdog (tools/watch_step.py): `bash -e` as
+# GitHub's own default shell runs it, its output in the job log as it comes, its
+# progress held by the step's declaration in tools/_workflow_steps.py.
+defaults:
+  run:
+    shell: python3.14 -m tools.watch_step {0}
+
 jobs:
   prune:
     name: Prune the Actions cache

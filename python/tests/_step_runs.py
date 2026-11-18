@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The commands of a sweep's steps, answered in-process in place of ``run_guarded``.
+"""The commands of a sweep's steps, answered in-process in place of ``run_watched``.
 
 A test gives every step command it registers a stand-in: what the command does
 to the files it reaches, the output it writes and the status it ends with.
-:class:`StepRuns`, installed as ``tools._scheduler.run_guarded`` by
+:class:`StepRuns`, installed as ``tools._scheduler.run_watched`` by
 :func:`install`, records each command the scheduler asks for with the
 directory and the stop descriptor it hands over, fails the test on a command
 that has no stand-in, and answers the rest without starting a process.  What
@@ -14,13 +14,14 @@ the order of a merged stream, is held by ``test_run_guarded``.
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NewType
+from typing import TYPE_CHECKING
 
 from _processes import CommandWord
 
 from tools import _scheduler
+from tools._common import Descriptor, ProcessStatus
+from tools._watchdog import Line, Pumped, ReportCount, Seconds, WatchedRun
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -30,8 +31,8 @@ if TYPE_CHECKING:
 
     import pytest
 
-# An open file descriptor of this process.
-Descriptor = NewType("Descriptor", int)
+    from tools._watchdog import StepWatch
+
 
 # The shell and the flag the scheduler runs a step's command text under.
 _SHELL = (CommandWord("/bin/sh"), CommandWord("-c"))
@@ -51,10 +52,11 @@ class StepCall:
 
 @dataclass(frozen=True)
 class Answer:
-    """How a stand-in command ends: its status and its merged output."""
+    """How a stand-in command ends: its status, its merged output, whether it stalled."""
 
     status: ExitStatus
     output: Prose = NO_OUTPUT
+    stalled: bool = False
 
 
 # What a step command does, in-process: any effect on the files, then its answer.
@@ -84,19 +86,41 @@ class StepRuns:
         self.calls: list[StepCall] = []
 
     def __call__(
-        self, cmd: list[CommandWord], *, cwd: Path | None, stop_fd: Descriptor | None
-    ) -> subprocess.CompletedProcess[Prose]:
-        """Record ``cmd`` and answer it as its stand-in does.
+        self,
+        cmd: list[CommandWord],
+        *,
+        cwd: Path | None,
+        stop_fd: Descriptor | None,
+        watch: StepWatch,
+    ) -> WatchedRun:
+        """Record ``cmd`` and answer it as its stand-in does, through the watch it is handed.
 
         The scheduler hands a step's command text to ``/bin/sh -c``; an argv of
-        any other shape, or a command with no stand-in, fails the test.
+        any other shape, or a command with no stand-in, fails the test.  The
+        answer's output goes into the step's file, each of its lines the step's
+        progress pattern matches reaching the watch as a report.
         """
         shell, flag, command = cmd
         assert (shell, flag) == _SHELL, cmd
         call = StepCall(command, cwd, stop_fd)
         self.calls.append(call)
         answer = self._stand_ins[command](call)
-        return subprocess.CompletedProcess(cmd, answer.status, answer.output, NO_OUTPUT)
+        _ = watch.written.write(answer.output.encode())
+        reports = [
+            Line(line) for line in answer.output.splitlines() if watch.progress.reports(Line(line))
+        ]
+        for report in reports:
+            watch.on_report(report)
+        lines = answer.output.splitlines()
+        pumped = Pumped(
+            stalled=answer.stalled,
+            reports=ReportCount(len(reports)),
+            longest_quiet=Seconds(0.0),
+            last_report=reports[-1] if reports else Line(""),
+            last_line=Line(lines[-1]) if lines else Line(""),
+            ran_for=Seconds(0.0),
+        )
+        return WatchedRun(ProcessStatus(answer.status), pumped)
 
     @property
     def commands(self) -> list[CommandWord]:
@@ -107,5 +131,5 @@ class StepRuns:
 def install(monkeypatch: pytest.MonkeyPatch, stand_ins: Mapping[CommandWord, StandIn]) -> StepRuns:
     """Answer every step the scheduler runs from ``stand_ins`` for the rest of the test."""
     runs = StepRuns(stand_ins)
-    monkeypatch.setattr(_scheduler, "run_guarded", runs)
+    monkeypatch.setattr(_scheduler, "run_watched", runs)
     return runs

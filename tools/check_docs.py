@@ -62,6 +62,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tools._common import MARKDOWN_SUFFIXES, RelPath, emit, git_ls_files
+from tools._progress import reporting
 from tools.docs_arms import (
     Unread,
     atx_headings,
@@ -168,4 +169,4 @@ def main(argv: list[str] | None = None) -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-docs")))

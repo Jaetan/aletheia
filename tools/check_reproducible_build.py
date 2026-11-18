@@ -44,6 +44,9 @@ from tools._common import (
     run_guarded,
     sha256_file,
 )
+from tools._progress import ItemCount, report, reporting
+
+from aletheia.common_types import Prose
 
 ARTIFACT = Path("build/libaletheia-ffi.so")
 MAX_DIFF_BYTES = 20
@@ -150,10 +153,12 @@ def _emit_failure(hash1: str, hash2: str, work_dir: Path, *, keep: bool) -> None
     )
 
 
-def _run_two_builds(work_dir: Path) -> tuple[str, str]:
+def run_two_builds(work_dir: Path) -> tuple[str, str]:
     """Run two clean builds and return their .so hashes, emitting timing lines."""
     start = dt.datetime.now(dt.UTC)
+    report(ItemCount(0), ItemCount(2), Prose("clean builds"))
     hash1 = _run_clean_build(1, work_dir, work_dir / "lib1.so")
+    report(ItemCount(1), ItemCount(2), Prose("clean builds"))
     mid = dt.datetime.now(dt.UTC)
     emit(
         f"check-reproducible-build: build 1 sha256 {hash1} "
@@ -161,6 +166,7 @@ def _run_two_builds(work_dir: Path) -> tuple[str, str]:
     )
 
     hash2 = _run_clean_build(2, work_dir, work_dir / "lib2.so")
+    report(ItemCount(2), ItemCount(2), Prose("clean builds"))
     end = dt.datetime.now(dt.UTC)
     emit(
         f"check-reproducible-build: build 2 sha256 {hash2} "
@@ -221,7 +227,7 @@ def main() -> int:
         if args.test_fail:
             hash1, hash2 = _synthesize_mismatch(work_dir)
         else:
-            hash1, hash2 = _run_two_builds(work_dir)
+            hash1, hash2 = run_two_builds(work_dir)
 
         if hash1 == hash2:
             emit(f"check-reproducible-build: ok ({hash1})")
@@ -235,4 +241,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-reproducible-build")))

@@ -260,9 +260,17 @@ class _Cargo:
         _ = (out / "shard.txt").write_text(f"{number}/{total}")
         document = _shard_outcomes(mutation_rust.RustShard(number), mutation_rust.ShardCount(total))
         _ = (out / "mutants.out" / "outcomes.json").write_text(json.dumps(document))
-        # A sweep prints nothing, so no line reaches the lane's log.
-        del sink
+        # The tool prints a caught or an unviable mutant only when told to.
+        if CommandWord("--caught") in cmd:
+            _ = sink(_CAUGHT)
+        if CommandWord("--unviable") in cmd:
+            _ = sink(_UNVIABLE)
         return subprocess.CompletedProcess(cmd, 0, Prose(""), Prose(""))
+
+
+# One caught and one unviable mutant, as cargo-mutants prints them when told to.
+_CAUGHT = Prose("caught   src/lib.rs:3:5: replace one -> u8 with 0 in 0.4s build + 0.2s test\n")
+_UNVIABLE = Prose("unviable src/lib.rs:7:9: replace two -> u8 with 1 in 0.3s build\n")
 
 
 def _shard_outcomes(
@@ -377,6 +385,20 @@ def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
     assert len(copies) == 2
     assert not any(copy.exists() for copy in lane.copies.made)
     assert (repo / "rust" / "src" / "lib.rs").read_text(encoding="utf-8") == "uncommitted edit\n"
+
+
+def test_each_mutant_s_outcome_reaches_the_step_s_output_as_it_is_tested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Caught and unviable mutants are printed too, on stderr and in the shard's own log."""
+    _ = _sweepable(tmp_path, monkeypatch)
+    monkeypatch.setattr(mutation_rust, "rust_shards", lambda: mutation_rust.ShardCount(1))
+    artifacts = tmp_path / "artifacts"
+    report = mutation_rust.run_rust(artifacts, executor=DrivenExecutor)
+    assert report.error is None
+    assert capsys.readouterr().err == _CAUGHT + _UNVIABLE
+    log = mutation_rust.shard_log(artifacts, mutation_rust.RustShard(0))
+    assert log.read_text(encoding="utf-8") == _CAUGHT + _UNVIABLE
 
 
 def _refuse(message: Prose) -> NoReturn:

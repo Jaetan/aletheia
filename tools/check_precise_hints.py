@@ -65,6 +65,7 @@ from pathlib import Path, PurePosixPath
 from typing import NamedTuple, NewType, cast
 
 from tools._common import RelPath, emit, git_ls_files, git_toplevel
+from tools._progress import reporting
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
 from tools._vendored import VENDOR
 
@@ -579,4 +580,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-precise-hints")))

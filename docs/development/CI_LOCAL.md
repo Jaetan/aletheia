@@ -78,6 +78,24 @@ sweep, or a `--lanes` sweep of some lanes, runs a subset and records no
 digest.  The header and the summary also carry the tree of the tracked content
 the sweep saw, the record a push asks for
 ([§ Pushing](#pushing-sweep-first-then-connect)).
+
+Each step writes its output to `<log>.steps/<step>.log` as it runs, and the
+log itself holds when each step started, reported its progress and ended, with
+a failed step's output echoed after it.  Every step reports its progress in its
+own output, a line [`tools/_ci_progress.py`](../../tools/_ci_progress.py)
+declares for it: the count its tool prints, or the `progress: k/n` line our
+tools print through [`tools/_progress.py`](../../tools/_progress.py).  A
+watchdog stops and fails a step that goes its allowance without a report, the
+allowance being five times the longest stretch measured without one and never
+under the floor that file names; a step declaring reports that passes and made
+none past `UNREPORTED_FOR` ([`tools/_watchdog.py`](../../tools/_watchdog.py))
+fails too.  `progress.json` in the steps directory records, per step, its run
+time, its reports and its longest stretch without one, which the allowances
+are set from.  On GitHub every job that checks out the tree runs each step's
+script through [`tools/watch_step.py`](../../tools/watch_step.py), its shell,
+under the same watchdog: [`tools/_workflow_steps.py`](../../tools/_workflow_steps.py)
+declares each step our tooling runs and exempts each step GitHub alone runs
+(an install, a cache, a release upload), and refuses a step it names in neither.
 Every step runs in a process group of its own under a guard that interrupts it
 when the sweep dies, however it dies, and Ctrl-C stops the running steps before
 the sweep exits, so an ended sweep leaves no build holding Shake's lock.

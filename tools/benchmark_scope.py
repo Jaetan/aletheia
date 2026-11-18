@@ -29,9 +29,10 @@ import sys
 from typing import TYPE_CHECKING
 
 from tools._common import write_workflow_line
+from tools._progress import reporting
 from tools.mutation_run import BINDING_DIRS, KERNEL_PATHS, REPO_ROOT, bindings_in_scope
 
-from aletheia.common_types import ExitStatus
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,6 +57,7 @@ BENCHMARK_GLOBAL_PATHS = (
     "tools/check_bench_schema.py",
     "tools/mutation_run.py",  # the reading of the diff this question asks
     "tools/_common.py",
+    "tools/_progress.py",
     "tools/__init__.py",
     ".github/workflows/benchmark.yml",
 )
@@ -88,4 +90,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("benchmark scope")))

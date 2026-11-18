@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import io
+import json
 import os
 from dataclasses import replace
 from typing import TYPE_CHECKING, NamedTuple
@@ -42,6 +43,9 @@ from tools import run_ci
 from tools._common import EnvName, EnvValue, GateName
 from tools._records import records_dir
 from tools._run_ci_options import LaneName, OptInOptions
+from tools._scheduler import step_file
+from tools._watchdog import PatternText, Progress
+from tools._watchdog import Seconds as WatchSeconds
 from tools.check_gate_claim import SOURCES_ENV, SOURCES_LINE, SOURCES_UNRECORDED, evidence_for
 from tools.run_ci import RunContext, Runner
 from tools.sweep_evidence import (
@@ -61,8 +65,75 @@ if TYPE_CHECKING:
     from tools.commit_subjects import GitArg
     from tools.sweep_evidence import TreeId
 
+# A step command whose stand-in writes a line and fails.
+_WRITES = CommandWord("writes")
+
 # The variable naming the records directory, spelled as the workflows set it.
 _RECORDS_ENV = EnvName("ALETHEIA_CI_OUTPUT")
+
+
+def test_the_header_names_where_steps_write_and_a_failure_s_tail_names_its_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The header names the directory steps write into; a failed step's tail names its file."""
+    runner = ci_runner(tmp_path)
+    live = step_file(runner.steps_dir, GateName("a"))
+    _ = install(monkeypatch, {_WRITES: ends(ExitStatus(1), Prose("compiling module 3 of 9\n"))})
+    runner.step("a", _WRITES, lane="x")
+    assert runner.run() == 1
+    printed = capsys.readouterr()
+    assert f"Outputs:  {runner.steps_dir}/<step>.log, written as each step runs" in printed.out
+    assert f"─── tail of failed step output (the whole of it: {live}) ───" in printed.err
+    assert live.read_text(encoding="utf-8") == "compiling module 3 of 9\n"
+
+
+def test_a_step_s_quarter_reports_are_shown_and_a_stall_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Reports passing a quarter of the work are shown; a step the watchdog stopped is named so."""
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"), WatchSeconds(600.0))
+
+    def declared(_name: GateName) -> Progress:
+        return counted
+
+    monkeypatch.setattr(run_ci, "progress_of", declared)
+    reports = Prose("".join(f"[{k}/100]\n" for k in (10, 30, 60, 100)))
+    stalls = Answer(ExitStatus(0), Prose("[1/9]\n"), stalled=True)
+    _ = install(monkeypatch, {_WRITES: ends(ExitStatus(0), reports), EXIT_1: lambda _c: stalls})
+    runner = ci_runner(tmp_path)
+    runner.step("a", _WRITES, lane="x")
+    runner.step("b", EXIT_1, lane="y")
+    assert runner.run() == 1
+    err = capsys.readouterr().err
+    assert "  ⋯ a: [30/100]\n  ⋯ a: [60/100]\n" in err
+    assert "[10/100]" not in err
+    assert "  ✗ b FAILED (stopped by the watchdog, no progress report, exit 1, 0s)" in err
+
+
+def test_what_the_watchdog_measured_of_each_step_is_recorded_beside_the_step_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``progress.json`` holds each step's run time, reports, longest quiet, whether it stalled."""
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"), WatchSeconds(600.0))
+
+    def declared(_name: GateName) -> Progress:
+        return counted
+
+    monkeypatch.setattr(run_ci, "progress_of", declared)
+    measured_in_process(monkeypatch)
+    _ = install(monkeypatch, {_WRITES: ends(ExitStatus(0), Prose("[1/2]\n[2/2]\n"))})
+    runner = ci_runner(tmp_path)
+    runner.step("a", _WRITES, lane="x")
+    assert runner.run() == 0
+    measured = json.loads((runner.steps_dir / "progress.json").read_text(encoding="utf-8"))
+    assert measured == {
+        "a": {
+            "seconds": measured["a"]["seconds"],
+            "reports": 2,
+            "longest_quiet": 0.0,
+            "stalled": False,
+        }
+    }
 
 
 def test_all_pass_returns_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

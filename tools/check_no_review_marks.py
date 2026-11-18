@@ -66,6 +66,7 @@ from tools._common import (
     scan_tracked_tree,
 )
 from tools._markdown import prose_lines
+from tools._progress import reporting
 
 from aletheia.common_types import Prose
 
@@ -173,4 +174,4 @@ def main(argv: list[str] | None = None, *, repo: Path = REPO) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-no-review-marks")))

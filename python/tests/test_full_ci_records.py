@@ -26,8 +26,10 @@ _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-
 _SWEEP = Prose("-m tools.run_ci")
 _UPLOAD = Prose("actions/upload-artifact@")
 _RUNNER_TEMP = EnvValue("${{ runner.temp }}/")
-# The name of the files the sweep writes in the records directory.
+# The name of the files the sweep writes in the records directory, and of the directory beside
+# each that holds its steps' output.
 _LOGS = "*.log"
+_STEPS = "*.steps/"
 
 _JobId = NewType("_JobId", str)
 
@@ -84,7 +86,7 @@ def test_each_sweep_names_a_records_directory_under_the_runner_temp() -> None:
 
 
 def test_the_job_uploads_the_log_from_the_records_directory_its_sweep_names() -> None:
-    """A job running the sweep uploads, after it, the logs in the directory the sweep wrote to."""
+    """A job running the sweep uploads, after it, the logs and steps' output the sweep wrote."""
     jobs = [job for job in _jobs() if _sweeps(job)]
     assert jobs, f"no job of {_WORKFLOW.name} runs {_SWEEP}"
     for job in jobs:
@@ -92,5 +94,6 @@ def test_the_job_uploads_the_log_from_the_records_directory_its_sweep_names() ->
         (sweep,) = _sweeps(job)
         uploads = [step for step in steps if step.get("uses", Prose("")).startswith(_UPLOAD)]
         read = [step.get("with", _Inputs()).get("path") for step in uploads]
-        assert read == [f"{_records(sweep)}/{_LOGS}"], read
+        records = _records(sweep)
+        assert read == [f"{records}/{_LOGS}\n{records}/{_STEPS}\n"], read
         assert steps.index(sweep) < steps.index(uploads[0]), "the upload runs after the sweep"

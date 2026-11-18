@@ -29,7 +29,10 @@ import sys
 from typing import TYPE_CHECKING
 
 from tools._common import write_workflow_line
+from tools._progress import reporting
 from tools.mutation_run import REPO_ROOT, RUNNERS, bindings_in_scope
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -79,4 +82,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("mutation scope")))

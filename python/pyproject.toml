@@ -504,7 +504,12 @@ pytest_add_cli_args = [
     # tools/, not the hot-path aletheia/ modules, so excluding them does not
     # weaken the mutation signal on those modules.
     "--ignore=tests/test_resources.py",
+    "--ignore=tests/test_ci_progress.py",
+    "--ignore=tests/test_progress.py",
     "--ignore=tests/test_scheduler.py",
+    "--ignore=tests/test_watchdog.py",
+    "--ignore=tests/test_watch_step.py",
+    "--ignore=tests/test_workflow_steps.py",
     "--ignore=tests/test_run_ci_runner.py",
     "--ignore=tests/test_ci_step_commands.py",
     "--ignore=tests/test_run_ci_sweep.py",

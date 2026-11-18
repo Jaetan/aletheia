@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NewType, TypedDict, cast
 
 from tools._common import emit, find_executable, git_ls_files, run_capture
+from tools._progress import reporting
 from tools.docs_arms import BUILDING_GUIDE, section_rows
 from tools.docs_arms.ledger_packages import RUST_LAYER, rust_manifests
 
@@ -154,4 +155,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-rust-licences")))

@@ -36,6 +36,9 @@ import sys
 from pathlib import Path
 
 from tools._common import emit, find_executable, run_capture
+from tools._progress import reporting
+
+from aletheia.common_types import Prose
 
 # The one true venv, repo-root-relative.
 CANONICAL_VENV = "python/.venv"
@@ -219,4 +222,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-venv-convention")))

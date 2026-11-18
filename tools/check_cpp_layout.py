@@ -50,6 +50,7 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 import yaml
 
 from tools._common import RelPath, emit, find_executable, git_ls_files, git_toplevel, run_capture
+from tools._progress import reporting
 from tools.commit_subjects import GitArg, Revision
 
 from aletheia.common_types import ExitStatus, Prose
@@ -380,4 +381,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-cpp-layout")))

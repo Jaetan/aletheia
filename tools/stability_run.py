@@ -59,6 +59,7 @@ from tools._common import (
     short_sha,
     write_and_report_summary,
 )
+from tools._progress import ItemCount, report, reporting
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -101,8 +102,8 @@ def find_lib() -> Path:
 
 def _verdict_from_report(stdout: str) -> bool:
     """Return the harness's ``passed`` verdict from its JSON stdout (False if absent)."""
-    report = cast("_HarnessReport", json.loads(stdout))
-    return bool(report.get("passed", False))
+    harness = cast("_HarnessReport", json.loads(stdout))
+    return bool(harness.get("passed", False))
 
 
 def _finalize_lane(binding: str, proc: subprocess.CompletedProcess[str], out_path: Path) -> Run:
@@ -254,6 +255,7 @@ def main() -> int:
     base_env["ALETHEIA_RTS_OPTS"] = COUNTED_RTS_OPTS
 
     runs: list[Run] = [run_python_with_heap_profile(artifact_dir, base_env)]
+    report(ItemCount(1), ItemCount(3), Prose("bindings"))
 
     # Rename the GHC RTS heap profile to the cat 16 spec filename.
     hp_emitted = artifact_dir / "aletheia.hp"
@@ -265,11 +267,13 @@ def main() -> int:
     # already happened in the Python lane; they only contribute their own
     # binding-level sub-checks).
     runs.append(run_go(artifact_dir, base_env))
+    report(ItemCount(2), ItemCount(3), Prose("bindings"))
     runs.append(run_cpp(artifact_dir, base_env))
+    report(ItemCount(3), ItemCount(3), Prose("bindings"))
 
     summary = _build_summary(sha, artifact_dir, runs, hp_target)
     return write_and_report_summary(artifact_dir, summary)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("stability bench")))

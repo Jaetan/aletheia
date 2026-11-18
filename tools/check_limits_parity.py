@@ -102,6 +102,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
 from tools._common import emit
+from tools._progress import reporting
 from tools._reply_places import (
     AGDA_REPLY_RANGE,
     PYTHON_REPLY_TEXT,
@@ -121,6 +122,8 @@ from tools._reply_places_rust import (
     rust_reader,
     rust_untagged_rows,
 )
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -913,4 +916,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-limits-parity")))

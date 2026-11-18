@@ -26,6 +26,13 @@ concurrency:
   group: pr-title-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Every `run:` step runs under the watchdog (tools/watch_step.py): `bash -e` as
+# GitHub's own default shell runs it, its output in the job log as it comes, its
+# progress held by the step's declaration in tools/_workflow_steps.py.
+defaults:
+  run:
+    shell: python3.14 -m tools.watch_step {0}
+
 jobs:
   title:
     name: PR title
@@ -37,15 +44,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fetch the base branch as a local ref
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/heads/${BASE_REF}"
-
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+
+      - name: Fetch the base branch as a local ref
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/heads/${BASE_REF}"
 
       - name: Hold the title to the vocabulary
         env:

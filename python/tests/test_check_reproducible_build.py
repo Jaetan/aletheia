@@ -9,14 +9,18 @@ fail on it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 from _processes import CommandWord
 from _stand_in import ScriptSource, driving_a_held_build, stopped
 
+from tools import check_reproducible_build as gate
+
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from aletheia.common_types import Prose
 
 
 @pytest.mark.process(
@@ -41,3 +45,22 @@ def test_a_killed_gate_stops_its_build(tmp_path: Path, target: CommandWord) -> N
         build.driver.kill()
         _ = build.driver.wait()
         stopped(build.lock)
+
+
+# Which of the two clean builds a run is, and the digest of the library it built.
+BuildLabel = NewType("BuildLabel", int)
+Digest = NewType("Digest", str)
+
+
+def test_each_clean_build_is_reported_as_it_ends(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The two builds report on stderr before the first and as each one ends."""
+
+    def built(label: BuildLabel, _work_dir: Path, _copy_to: Path) -> Digest:
+        return Digest(f"sha-{label}")
+
+    monkeypatch.setattr(gate, "_run_clean_build", built)
+    assert gate.run_two_builds(tmp_path) == ("sha-1", "sha-2")
+    reports = [line for line in capsys.readouterr().err.splitlines() if line.startswith("progress")]
+    assert reports == [f"progress: {done}/2 clean builds" for done in range(3)]
