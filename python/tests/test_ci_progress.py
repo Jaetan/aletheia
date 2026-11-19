@@ -11,6 +11,11 @@ is done, and passes over lines that are no count.
 from __future__ import annotations
 
 import ast
+import contextlib
+import io
+import itertools
+import re
+import shlex
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType
@@ -23,13 +28,16 @@ from tools import _ci_steps
 from tools._ci_progress import ALLOWANCE_FLOOR, LONGEST_QUIET, STEP_PROGRESS
 from tools._ci_steps import register_all_steps
 from tools._common import GateName
-from tools._progress import REPORT
+from tools._progress import ItemCount, report
 from tools._run_ci_options import OptInLanes
 from tools._watchdog import Chunk, heard_line
+from tools._workflow_steps import WATCHED
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from tools._scheduler import Step
-    from tools._watchdog import Line, Share
+    from tools._watchdog import Line, PatternText, Share
 
 # A module of the tools package, named without the package.
 ModuleName = NewType("ModuleName", str)
@@ -69,24 +77,61 @@ def _reports_through_the_helper(module: ModuleName) -> bool:
     )
 
 
+def _our_line() -> Line:
+    """Return a report our progress helper prints, as the watchdog hears it."""
+    printed = io.StringIO()
+    with contextlib.redirect_stderr(printed):
+        report(ItemCount(1), ItemCount(2), Prose("files"))
+    return heard_line(Chunk(printed.getvalue().encode()))
+
+
+def _step_module(step: Step) -> ModuleName | None:
+    """Return the tools module a sweep step runs with ``-m``, from its words or its shell line."""
+    words = shlex.split(step.cmd) if isinstance(step.cmd, str) else list(step.cmd)
+    return next(
+        (
+            ModuleName(module.removeprefix("tools."))
+            for flag, module in itertools.pairwise(words)
+            if flag == "-m" and module.startswith("tools.")
+        ),
+        None,
+    )
+
+
+def _watched_module(runs: PatternText) -> ModuleName | None:
+    """Return the tools module a watched workflow step's pattern names."""
+    found = re.search(r"-m tools\\\.(\w+)", runs)
+    return None if found is None else ModuleName(found.group(1))
+
+
 def test_every_step_declaring_our_reports_runs_a_tool_that_makes_them(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A step whose pattern holds our report line runs a tool importing the progress helper.
+    """A step whose pattern reads our report line runs a tool importing the progress helper.
 
-    A short tool ends inside the window the sweep gives a reporting step before
-    it fails one that made no report, so a tool that stopped reporting is
-    caught here rather than by a run.
+    Every step of the sweep and every watched step of the workflows, a pattern
+    joined with other tools' and a step run as a shell line included.  A short
+    tool ends inside the window the sweep gives a reporting step before it fails
+    one that made no report, so a tool that stopped reporting is caught here
+    rather than by a run.
     """
-    silent = [
-        step.name
+    ours = _our_line()
+    reading = [
+        (step.name, _step_module(step))
         for step in _registered(tmp_path, monkeypatch)
-        if REPORT in STEP_PROGRESS[GateName(step.name)].pattern
-        and not isinstance(step.cmd, str)
-        and "-m" in step.cmd
-        and (module := step.cmd[list(step.cmd).index("-m") + 1]).startswith("tools.")
-        and not _reports_through_the_helper(ModuleName(module.removeprefix("tools.")))
+        if STEP_PROGRESS[GateName(step.name)].reports(ours)
+    ] + [
+        (step.runs, _watched_module(step.runs))
+        for step in WATCHED
+        if step.progress is not None and step.progress.reports(ours)
     ]
+    unnamed = [name for name, module in reading if module is None]
+    silent = [
+        name
+        for name, module in reading
+        if module is not None and not _reports_through_the_helper(module)
+    ]
+    assert not unnamed, unnamed
     assert not silent, silent
 
 
@@ -133,6 +178,19 @@ def test_every_step_declaring_our_reports_runs_a_tool_that_makes_them(
             0.72,
         ),
         ("coverage python", "tests/test_x.py ........................... [ 25%]", 0.25),
+        ("coverage go", "progress: 1/4 bindings", 0.25),
+        (
+            "coverage go",
+            "ok  \tgithub.com/Jaetan/aletheia/go/v5/aletheia\t22.517s"
+            + "\tcoverage: 94.8% of statements",
+            None,
+        ),
+        ("coverage cpp", "progress: 1/4 bindings", 0.25),
+        (
+            "coverage cpp",
+            " 2/18 Test  #2: rational_runtime_refused ..........   Passed    1.85 sec",
+            2 / 18,
+        ),
         ("coverage rust", "test frame::tests::refuses_a_long_payload ... ok", None),
     ],
 )

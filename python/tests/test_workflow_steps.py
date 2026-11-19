@@ -227,6 +227,21 @@ _BENCH_SCHEMA_STEP = ScriptText(
         ),
         (_BENCH_SCHEMA_STEP, "   Compiling proc-macro2 v1.0.106"),
         (_BENCH_SCHEMA_STEP, "progress: 0/1 check-bench-schema"),
+        ("python3.14 -m tools.coverage_run", "progress: 1/4 bindings"),
+        ("python3.14 -m tools.coverage_run", "." * 72 + " [ 20%]"),
+        (
+            "python3.14 -m tools.coverage_run",
+            "ok  \tgithub.com/Jaetan/aletheia/go/v5/aletheia\t22.517s"
+            + "\tcoverage: 94.8% of statements",
+        ),
+        (
+            "python3.14 -m tools.coverage_run",
+            " 2/18 Test  #2: rational_runtime_refused ..........   Passed    1.85 sec",
+        ),
+        (
+            "python3.14 -m tools.coverage_run",
+            "test async_client::tests::async_client_is_send_and_sync ... ok",
+        ),
     ],
 )
 def test_a_watched_step_reads_the_lines_its_tool_prints(script: ScriptText, line: Line) -> None:

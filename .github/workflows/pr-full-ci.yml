@@ -423,11 +423,13 @@ jobs:
           python/.venv/bin/python3 -m tools.run_ci --iwyu-all --parallel
           --lanes ${{ matrix.lanes }}
           ${{ github.event_name == 'push' && '--build-staleness=always' || '' }}
-      # The sweep echoes a step's output only when it fails.  Its log holds when
-      # each step started, reported and ended; the steps directory beside it
-      # holds each step's whole output, written as the step ran (the proof
-      # gate's per-module times included), and progress.json, what the
-      # watchdog measured of each step, which its allowance is set from.
+      # The job's log shows each step as it starts and ends, the quarters of its
+      # work its reports count, and the tail of a failed step's output.  The
+      # sweep's own log holds each step's whole output with its duration and
+      # outcome; the steps directory beside it holds each step's output written
+      # as the step ran (the proof gate's per-module times included), and
+      # progress.json, what the watchdog measured of each step, which its
+      # allowance is set from.
       - name: Upload the sweep log and its steps' output
         if: always()
         uses: actions/upload-artifact@v7

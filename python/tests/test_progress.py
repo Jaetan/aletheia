@@ -11,15 +11,12 @@ its share.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pytest
 
-from tools._progress import REPORT, reported
-from tools._watchdog import Line, PatternText, Progress, Share
+from tools._progress import REPORT, ItemCount, report, reported
+from tools._watchdog import Chunk, Line, PatternText, Progress, Share, heard_line
 
 from aletheia.common_types import Prose
-
-if TYPE_CHECKING:
-    import pytest
 
 _WHAT = Prose("files")
 
@@ -64,3 +61,22 @@ def test_the_declared_pattern_reads_a_report_s_share() -> None:
     assert declared.reports(Line("progress: 5/20 files"))
     assert declared.share(Line("progress: 5/20 files")) == Share(0.25)
     assert not declared.reports(Line("checking progress: 5/20 files"))
+
+
+@pytest.mark.parametrize("what", ["", "   "])
+def test_a_report_naming_nothing_is_refused(
+    what: Prose, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """A report names what it counts: the watchdog hears a line stripped, and reads none bare."""
+    with pytest.raises(ValueError, match="names what it counts"):
+        report(ItemCount(1), ItemCount(4), what)
+    assert not capsys.readouterr().err
+
+
+def test_every_report_the_helper_prints_is_read_as_the_watchdog_hears_it(
+    capsys: pytest.CaptureFixture[Prose],
+) -> None:
+    """A report the helper prints, stripped as the watchdog strips a line, reads with its share."""
+    report(ItemCount(1), ItemCount(4), Prose("x"))
+    heard = heard_line(Chunk(capsys.readouterr().err.encode()))
+    assert Progress(PatternText(REPORT)).share(heard) == Share(0.25)

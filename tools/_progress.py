@@ -36,8 +36,14 @@ def report(done: ItemCount, total: ItemCount, what: Prose) -> None:
     """Print one progress report to stderr, flushed: ``done`` of ``total`` ``what``.
 
     Stderr, as every progress line the tools print: stdout stays the tool's
-    data, read whole by whatever runs it, and the watchdog reads both.
+    data, read whole by whatever runs it, and the watchdog reads both.  A
+    report names what it counts: the watchdog hears a line stripped, and
+    :data:`REPORT` would not read one naming nothing, so ``what`` empty or
+    blank is refused with :class:`ValueError`.
     """
+    if not what.strip():
+        message = "a progress report names what it counts"
+        raise ValueError(message)
     _ = sys.stderr.write(f"progress: {done}/{total} {what}\n")
     sys.stderr.flush()
 

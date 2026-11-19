@@ -79,19 +79,25 @@ digest.  The header and the summary also carry the tree of the tracked content
 the sweep saw, the record a push asks for
 ([§ Pushing](#pushing-sweep-first-then-connect)).
 
-Each step writes its output to `<log>.steps/<step>.log` as it runs, and the
-log itself holds when each step started, reported its progress and ended, with
-a failed step's output echoed after it.  Every step reports its progress in its
-own output, a line [`tools/_ci_progress.py`](../../tools/_ci_progress.py)
-declares for it: the count its tool prints, or the `progress: k/n` line our
-tools print through [`tools/_progress.py`](../../tools/_progress.py).  A
+Each step writes its output to `<log>.steps/<step>.log` as it runs, `<log>`
+being the log's path without `.log`.  The sweep's standard error shows each
+step as it starts and as it ends, as it passes each quarter of its work where
+its reports count that work, and the last lines of a failed step's output; the
+log holds each step's whole output with its duration and outcome, written once
+the lanes end.  A step reports its progress in its own output, on the lines
+[`tools/_ci_progress.py`](../../tools/_ci_progress.py) declares for it: the
+count its tool prints or the line it prints per item done (a module checked, a
+test, a mutant), or the `progress: k/n` line our tools print through
+[`tools/_progress.py`](../../tools/_progress.py); a step whose tool prints
+neither declares none.  A
 watchdog stops and fails a step that goes its allowance without a report, the
 allowance being five times the longest stretch measured without one and never
 under the floor that file names; a step declaring reports that passes and made
 none past `UNREPORTED_FOR` ([`tools/_watchdog.py`](../../tools/_watchdog.py))
-fails too.  A step's Python programs run with `PYTHONUNBUFFERED` set, so each
-line they print reaches the watchdog as it is printed, not a pipe's block at a
-time.  `progress.json` in the steps directory records, per step, its run
+fails too.  The command a step runs has `PYTHONUNBUFFERED` set, which each
+Python program it starts inherits unless given an environment of its own, so
+each line they print reaches the watchdog as it is printed, not a pipe's block
+at a time.  `progress.json` in the steps directory records, per step, its run
 time, its reports and its longest stretch without one, which the allowances
 are set from.  On GitHub every job that checks out the tree runs each step's
 script through [`tools/watch_step.py`](../../tools/watch_step.py), its shell,
