@@ -53,7 +53,10 @@
 #                 is gone (broken pipe), and "over-limit" a file under a
 #                 one-block file-size limit (file too large). Such a run has
 #                 nothing to read back, so neither its `expect` nor an
-#                 override's pins stdout_contains or json.
+#                 override's pins stdout_contains or json. On the Python CLI
+#                 such a scenario runs unbuffered as well, by `-u` and by
+#                 PYTHONUNBUFFERED, and the over-limit one with an empty
+#                 bytecode cache.
 #     expect:
 #       exit:            required exact exit code (see contract above)
 #       stdout_contains: optional substrings that must appear on stdout
