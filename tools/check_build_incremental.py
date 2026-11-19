@@ -43,7 +43,8 @@ never bit-identical — an incremental build differs benignly from a from-scratc
 Crash behaviour: every edited source is restored on exit, on SIGINT and on
 SIGTERM.  SIGKILL bypasses that and leaves the run's marker in the two sources.
 The build runs under ``run_guarded``, so it stops when the run dies, SIGKILL
-included, rather than relinking the ``.so`` with the marker in it.  The marker
+included, rather than relinking the ``.so`` with the marker in it, and its
+output reaches the gate's own as it comes.  The marker
 names the run that wrote it, by pid and start time, and the startup check
 refuses on one, saying which run left it, whether that run still lives, and the
 edit that restores the file.  The check also refuses while a build still holds
@@ -263,8 +264,10 @@ def _library_version() -> AbiVersion | None:
 
 
 def _build(path_first: Path | None = None) -> None:
-    """Run ``cabal run shake -- build`` under ``run_guarded``; raise, echoing output, on failure.
+    """Run ``cabal run shake -- build`` under ``run_guarded``; raise on failure.
 
+    The build's merged output goes to this gate's standard output as the build
+    writes it, so a step running the gate reports the build's own progress.
     ``path_first`` is a folder put first on the build's search path, where a
     moved compiler's stand-in sits.
     """
@@ -272,9 +275,9 @@ def _build(path_first: Path | None = None) -> None:
     if path_first is not None:
         search = f"PATH={path_first}{os.pathsep}{os.environ.get('PATH', '')}"
         words = [find_executable("env"), search, *words]
-    result = run_guarded(words, cwd=REPO_ROOT)
+    sys.stdout.flush()  # what the gate printed comes before the build's own lines
+    result = run_guarded(words, cwd=REPO_ROOT, output=sys.stdout)
     if result.returncode != 0:
-        emit(result.stdout)
         message = f"`cabal run shake -- build` failed (exit {result.returncode})"
         raise RuntimeError(message)
 

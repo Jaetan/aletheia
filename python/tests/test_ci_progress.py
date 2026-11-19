@@ -155,6 +155,8 @@ def test_every_step_declaring_our_reports_runs_a_tool_that_makes_them(
         ("agda gates", "[16/64]   1.5s OK   Aletheia/Parser/Properties.agda", 0.25),
         ("build", "[ 136 of 544] Compiling MAlonzo.Code.Aletheia.Main", 0.25),
         ("build", "# agda (for build/MAlonzo/Code/Aletheia/Main.hs)", None),
+        ("build staleness", "[ 136 of 544] Compiling MAlonzo.Code.Aletheia.Main", 0.25),
+        ("build staleness", "# agda (for build/MAlonzo/Code/Aletheia/Main.hs)", None),
         (
             "build",
             "Checking Aletheia.Main (/home/runner/work/aletheia/aletheia/src/Aletheia/Main.agda).",

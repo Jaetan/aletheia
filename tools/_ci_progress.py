@@ -75,7 +75,8 @@ _MUTATION = either(_OURS, _MUTATION_TOOLS, _CMAKE_BUILD)
 
 _DECLARED = {
     "build": either(_SHAKE_BUILD, _AGDA_CHECKING),
-    "build staleness": _OURS,
+    # The staleness gate's reports, and the lines of each build it runs, streamed as they come.
+    "build staleness": either(_OURS, _SHAKE_BUILD, _AGDA_CHECKING),
     "agda gates": _AGDA_GATES,
     "iwyu": _OURS,
     "iwyu-self-test": _OURS,
@@ -175,11 +176,14 @@ _ALLOWANCE_FACTOR = 5.0
 # Measured on this tree's sweeps, warm and cold, every lane on, and on GitHub's runners.
 LONGEST_QUIET: Mapping[GateName, Seconds] = {
     # Its longer clean build on GitHub's runners, which prints nothing while it runs.
-    GateName("check-reproducible-build"): Seconds(286.0),
+    GateName("check-reproducible-build"): Seconds(305.0),
     # doc_example_tests, which compiles every C++ fence of the documents and is reported only when
-    # it ends, run by both steps at once beside clang-tidy on GitHub's runners with a warm build.
-    GateName("ctest"): Seconds(268.8),
-    GateName("asan ctest"): Seconds(290.4),
+    # it ends, run by both steps at once beside clang-tidy on GitHub's runners.
+    GateName("ctest"): Seconds(343.7),
+    GateName("asan ctest"): Seconds(374.8),
+    # pytest writes its share only as each line of results ends, and on GitHub's runners a line of
+    # the reply-parity tests runs this long.
+    GateName("pytest (C++ compile database)"): Seconds(228.0),
 }
 
 

@@ -246,6 +246,52 @@ def test_a_killed_gate_stops_its_build(tmp_path: Path) -> None:
         stopped(build.lock)
 
 
+@pytest.mark.process(
+    "only a started build writing to the gate's real standard output shows its lines arriving"
+    + " while it still runs"
+)
+def test_the_gate_s_build_writes_its_lines_as_the_build_writes_them(tmp_path: Path) -> None:
+    """A build's lines reach the gate's standard output while the build still runs.
+
+    A stand-in ``cabal`` first on the search path writes a line, waits on a FIFO
+    only this test writes, then writes another and exits 0.  The first line is
+    read while the build waits, which an output captured until the build ends
+    never gives: a gate that held it back would hang the read, which is the
+    run's own limit to report.
+    """
+    stand_ins = tmp_path / "bin"
+    stand_ins.mkdir()
+    release = tmp_path / "release"
+    os.mkfifo(release)
+    cabal = stand_ins / "cabal"
+    _ = cabal.write_text(
+        "#!/bin/sh\n"
+        + "printf '[1 of 2] Compiling A\\n'\n"
+        + f'cat "{release}" > /dev/null\n'
+        + "printf '[2 of 2] Compiling B\\n'\n",
+        encoding="utf-8",
+    )
+    cabal.chmod(0o755)
+    with subprocess.Popen(
+        [sys.executable, "-c", "from tools.check_build_incremental import _build; _build()"],
+        cwd=gate.REPO_ROOT,
+        env=os.environ | {"PATH": f"{stand_ins}{os.pathsep}{os.environ['PATH']}"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    ) as driver:
+        assert driver.stdout is not None
+        first = driver.stdout.readline()
+        # Opening the FIFO waits for the build's read of it; closing it ends that read.
+        with release.open("w", encoding="ascii"):
+            pass
+        rest = driver.stdout.read()
+    assert (first, rest, driver.returncode) == (
+        b"[1 of 2] Compiling A\n",
+        b"[2 of 2] Compiling B\n",
+        0,
+    )
+
+
 def _reports(err: Prose) -> list[Prose]:
     """Return the progress reports among the lines of ``err``."""
     return [Prose(line) for line in err.splitlines() if line.startswith("progress: ")]
