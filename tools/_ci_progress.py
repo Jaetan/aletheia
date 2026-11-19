@@ -6,7 +6,8 @@ Every step reports its progress in its own output (``tools._watchdog``): a
 line its pattern matches, naming how much of its work is done where the tool
 says.  A tool that counts its work prints its own count: pytest's percentage,
 ctest's and clang-tidy's ``k/n``, cabal's ``[k of n]``, CMake's percentage,
-go test's and cargo's line per package, test or crate.  A tool of ours reports
+Agda's line per module checked, go test's and cargo's line per package, test
+or crate.  A tool of ours reports
 through ``tools._progress``.  A third-party tool that prints no count reports
 nothing, and its allowance holds it from its start.  The table names each
 step as ``tools/_ci_steps.py`` registers it; a step it does not name reports
@@ -34,6 +35,7 @@ _CMAKE_BUILD = Progress(PatternText(r"^\[\s*(?P<percent>\d+)%\]"))
 _CLANG_TIDY = Progress(PatternText(r"^\[\s*(?P<done>\d+)/(?P<total>\d+)\]\["))
 _AGDA_GATES = Progress(PatternText(r"^\[\s*(?P<done>\d+)/(?P<total>\d+)\]|^# \S+ \(for "))
 _SHAKE_BUILD = Progress(PatternText(r"^\[\s*(?P<done>\d+) of (?P<total>\d+)\]|^# \S+ \(for "))
+_AGDA_CHECKING = Progress(PatternText(r"^Checking \S+ \("))
 _GO_TEST = Progress(PatternText(r"^(ok|FAIL|---|\?)\s"))
 _CARGO_TEST = Progress(PatternText(r"^test .+ \.\.\. (ok|FAILED|ignored)$|^running \d+ tests?$"))
 _CARGO_BUILD = Progress(PatternText(r"^(Compiling|Checking|Documenting|Finished|Fresh)\s"))
@@ -41,13 +43,21 @@ _CARGO_BUILD = Progress(PatternText(r"^(Compiling|Checking|Documenting|Finished|
 _SILENT = NO_REPORTS_YET
 
 
-def _either(*kinds: Progress) -> Progress:
-    """Join kinds of report into one pattern, each kind's count groups given a suffix of its own."""
+def either(*kinds: Progress) -> Progress:
+    """Join kinds of report into one, for a step running several tools.
+
+    Each kind's count groups get a suffix of their own; the joined kind keeps
+    the longest allowance of its kinds, none where none has one.
+    """
     parts = [
         re.sub(r"\(\?P<(done|total|percent)>", rf"(?P<\1_{place}>", kind.pattern)
         for place, kind in enumerate(kinds)
     ]
-    return Progress(PatternText("|".join(f"(?:{part})" for part in parts)))
+    allowances = [kind.allowance for kind in kinds if kind.allowance is not None]
+    return Progress(
+        PatternText("|".join(f"(?:{part})" for part in parts)),
+        max(allowances) if allowances else None,
+    )
 
 
 # The mutation tools' own counts: mutmut's and Mull's ``k/n``, gremlins' and cargo-mutants' outcome
@@ -59,10 +69,11 @@ _MUTATION_TOOLS = Progress(
         + r"|^(caught|MISSED|TIMEOUT|unviable)\s+\S|^ok\s+Unmutated baseline\b"
     )
 )
-_MUTATION = _either(_OURS, _MUTATION_TOOLS)
+# The C++ sweep builds the tree it mutates with CMake before Mull counts a mutant.
+_MUTATION = either(_OURS, _MUTATION_TOOLS, _CMAKE_BUILD)
 
 _DECLARED = {
-    "build": _SHAKE_BUILD,
+    "build": either(_SHAKE_BUILD, _AGDA_CHECKING),
     "build staleness": _OURS,
     "agda gates": _AGDA_GATES,
     "iwyu": _OURS,
@@ -141,15 +152,15 @@ _DECLARED = {
     "check-reproducible-build": _OURS,
     "stability bench": _OURS,
     "mutation testing": _MUTATION,
-    "coverage python": _either(_OURS, _PYTEST),
-    "coverage go": _either(_OURS, _GO_TEST),
-    "coverage cpp": _either(_OURS, _CTEST),
-    "coverage rust": _either(_OURS, _CARGO_TEST),
+    "coverage python": either(_OURS, _PYTEST),
+    "coverage go": either(_OURS, _GO_TEST),
+    "coverage cpp": either(_OURS, _CTEST),
+    "coverage rust": either(_OURS, _CARGO_TEST),
     "check-cargo-mutants-shards": _OURS,
     "check-mutmut-operators": _OURS,
     "check-mutmut-witness": _OURS,
     "check-mull-plugin-facts": _OURS,
-    "check-cpp-slices-census-build": _OURS,
+    "check-cpp-slices-census-build": either(_OURS, _CMAKE_BUILD),
     "check-cpp-slices-census": _OURS,
     "actionlint": _SILENT,
 }
@@ -162,7 +173,6 @@ _ALLOWANCE_FACTOR = 5.0
 # The longest stretch measured without a report, for each step five times which passes the floor.
 # Measured on this tree's sweeps, warm and cold, every lane on, and on GitHub's runners.
 LONGEST_QUIET: Mapping[GateName, Seconds] = {
-    GateName("build"): Seconds(238.0),  # a cold build of the kernel on GitHub's runners
     # Its longer clean build on GitHub's runners, which prints nothing while it runs.
     GateName("check-reproducible-build"): Seconds(334.0),
 }
@@ -193,7 +203,7 @@ def progress_of(name: GateName) -> Progress:
 # Coverage of every binding in one run: each binding's test runner counts as it runs, and the run
 # goes no longer without a report than the slowest binding's own step may.
 COVERAGE_OF_EVERY_BINDING = replace(
-    _either(_OURS, _PYTEST, _GO_TEST, _CTEST, _CARGO_TEST),
+    either(_OURS, _PYTEST, _GO_TEST, _CTEST, _CARGO_TEST),
     allowance=max(
         STEP_PROGRESS[GateName(f"coverage {binding}")].allowance or ALLOWANCE_FLOOR
         for binding in ("python", "go", "cpp", "rust")

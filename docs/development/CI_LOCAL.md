@@ -89,7 +89,9 @@ watchdog stops and fails a step that goes its allowance without a report, the
 allowance being five times the longest stretch measured without one and never
 under the floor that file names; a step declaring reports that passes and made
 none past `UNREPORTED_FOR` ([`tools/_watchdog.py`](../../tools/_watchdog.py))
-fails too.  `progress.json` in the steps directory records, per step, its run
+fails too.  A step's Python programs run with `PYTHONUNBUFFERED` set, so each
+line they print reaches the watchdog as it is printed, not a pipe's block at a
+time.  `progress.json` in the steps directory records, per step, its run
 time, its reports and its longest stretch without one, which the allowances
 are set from.  On GitHub every job that checks out the tree runs each step's
 script through [`tools/watch_step.py`](../../tools/watch_step.py), its shell,

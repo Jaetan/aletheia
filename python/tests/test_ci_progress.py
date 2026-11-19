@@ -101,6 +101,11 @@ def test_every_step_declaring_our_reports_runs_a_tool_that_makes_them(
         ("agda gates", "[16/64]   1.5s OK   Aletheia/Parser/Properties.agda", 0.25),
         ("build", "[ 136 of 544] Compiling MAlonzo.Code.Aletheia.Main", 0.25),
         ("build", "# agda (for build/MAlonzo/Code/Aletheia/Main.hs)", None),
+        (
+            "build",
+            "Checking Aletheia.Main (/home/runner/work/aletheia/aletheia/src/Aletheia/Main.agda).",
+            None,
+        ),
         ("go test -race", "ok  \tgithub.com/Jaetan/aletheia/go/v5/aletheia\t40.265s", None),
         ("cargo test", "test frame::tests::refuses_a_long_payload ... ok", None),
         ("cargo test", "running 182 tests", None),
@@ -117,6 +122,16 @@ def test_every_step_declaring_our_reports_runs_a_tool_that_makes_them(
         ),
         ("mutation testing", "ok       Unmutated baseline in 8s build + 5s test", None),
         ("mutation testing", "progress: 1/4 bindings", 0.25),
+        (
+            "mutation testing",
+            "[ 72%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/json_parse.cpp.o",
+            0.72,
+        ),
+        (
+            "check-cpp-slices-census-build",
+            "[ 72%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/property_check.cpp.o",
+            0.72,
+        ),
         ("coverage python", "tests/test_x.py ........................... [ 25%]", 0.25),
         ("coverage rust", "test frame::tests::refuses_a_long_payload ... ok", None),
     ],

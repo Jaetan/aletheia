@@ -24,6 +24,7 @@ from tools._ci_progress import (
     ALLOWANCE_FLOOR,
     COVERAGE_OF_EVERY_BINDING,
     LONGEST_STEP_ALLOWANCE,
+    either,
     progress_of,
 )
 from tools._common import GateName
@@ -64,16 +65,16 @@ def _watched(runs: PatternText, progress: Progress) -> WorkflowStep:
 # reports or ends; the benchmark runner's line as each binding starts and ends; ours.  The sweep
 # run as one step outlasts the longest allowance of a step it runs by the floor, so the sweep's own
 # watchdog stops and names a stuck step first.  The benchmark runner's longest stretch measured
-# without a report on GitHub's runners, 56 s, puts it on the floor.
+# without a report on GitHub's runners, 73 s, puts it on the floor.
 _SWEEP = Progress(PatternText(r"^(▶|✓|✗|⊘|⋯) "), Seconds(LONGEST_STEP_ALLOWANCE + ALLOWANCE_FLOOR))
 _BENCHMARKS = Progress(PatternText(r"^>>> Running |^Saved: "), ALLOWANCE_FLOOR)
 _OURS = progress_of(GateName("check-action-pins"))
 # The sweep steps whose tools a workflow step also runs, reporting as they do there.
 _ACTIONLINT = progress_of(GateName("actionlint"))
 _BUILD = progress_of(GateName("build"))
-_CARGO_BUILD_TESTS = progress_of(GateName("cargo build (tests)"))
 _CHECK_CARGO_MUTANTS_SHARDS = progress_of(GateName("check-cargo-mutants-shards"))
 _CHECK_CPP_SLICES_CENSUS = progress_of(GateName("check-cpp-slices-census"))
+_CHECK_CPP_SLICES_CENSUS_BUILD = progress_of(GateName("check-cpp-slices-census-build"))
 _CHECK_MULL_PLUGIN_FACTS = progress_of(GateName("check-mull-plugin-facts"))
 _CHECK_MUTMUT_OPERATORS = progress_of(GateName("check-mutmut-operators"))
 _CHECK_MUTMUT_WITNESS = progress_of(GateName("check-mutmut-witness"))
@@ -82,6 +83,12 @@ _CPP_BUILD = progress_of(GateName("cpp build"))
 _GO_BUILD_NO_CGO = progress_of(GateName("go build (no cgo)"))
 _MUTATION_TESTING = progress_of(GateName("mutation testing"))
 _STABILITY_BENCH = progress_of(GateName("stability bench"))
+# A dist builds the kernel and checks its proofs, reporting as the build and the proof gates do.
+_DIST = either(_BUILD, progress_of(GateName("agda gates")))
+# The schema step builds the Rust benchmark, then checks every binding's report.
+_BENCH_SCHEMA = either(
+    progress_of(GateName("cargo build (tests)")), progress_of(GateName("check-bench-schema"))
+)
 
 
 def _exempt(runs: PatternText, why: Prose) -> WorkflowStep:
@@ -93,7 +100,7 @@ def _exempt(runs: PatternText, why: Prose) -> WorkflowStep:
 WATCHED: tuple[WorkflowStep, ...] = (
     _watched(PatternText(r"-m tools\.run_ci\b"), _SWEEP),
     _watched(PatternText(r"cabal run shake -- build\b"), _BUILD),
-    _watched(PatternText(r"cabal run shake -- --keep-going dist\b"), _BUILD),
+    _watched(PatternText(r"cabal run shake -- --keep-going dist\b"), _DIST),
     _watched(PatternText(r"-m tools\.mutation_scope\b"), _OURS),
     _watched(PatternText(r"-m tools\.mutation_run\b"), _MUTATION_TESTING),
     _watched(
@@ -113,7 +120,11 @@ WATCHED: tuple[WorkflowStep, ...] = (
         _CHECK_MULL_PLUGIN_FACTS,
     ),
     _watched(
-        PatternText(r"-m tools\.check_cpp_slices_census\b"),
+        PatternText(r"-m tools\.check_cpp_slices_census --census\b"),
+        _CHECK_CPP_SLICES_CENSUS_BUILD,
+    ),
+    _watched(
+        PatternText(r"-m tools\.check_cpp_slices_census --compare\b"),
         _CHECK_CPP_SLICES_CENSUS,
     ),
     _watched(PatternText(r"-m tools\.benchmark_scope\b"), _OURS),
@@ -125,10 +136,7 @@ WATCHED: tuple[WorkflowStep, ...] = (
         PatternText(r"go build -o benchmarks/benchmark\b"),
         _GO_BUILD_NO_CGO,
     ),
-    _watched(
-        PatternText(r"cargo build --release --example benchmark\b"),
-        _CARGO_BUILD_TESTS,
-    ),
+    _watched(PatternText(r"-m tools\.check_bench_schema\b"), _BENCH_SCHEMA),
     _watched(PatternText(r"-m tools\.coverage_run\b"), COVERAGE_OF_EVERY_BINDING),
     _watched(PatternText(r"-m tools\.stability_run\b"), _STABILITY_BENCH),
     _watched(

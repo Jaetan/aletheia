@@ -361,6 +361,35 @@ def test_a_watched_command_s_reports_are_heard_and_its_output_copied(tmp_path: P
 
 
 @pytest.mark.process(
+    "how a Python child buffers what it prints is set when it starts, so only a started"
+    + " child shows whether its output reaches the watchdog line by line"
+)
+def test_a_watched_python_child_writes_each_line_as_it_prints_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through a pipe a Python child holds its prints in a block unless its output writes through.
+
+    The sweep's own children run with the setting, so it is removed here first:
+    the child has it only where the watchdog gives it.
+    """
+    monkeypatch.delenv("PYTHONUNBUFFERED", raising=False)
+    live = tmp_path / "step.log"
+    with live.open("wb") as written:
+        ran = _watchdog.run_watched(
+            [
+                _common.CommandWord(sys.executable),
+                _common.CommandWord("-c"),
+                _common.CommandWord("import sys; print(sys.stdout.write_through)"),
+            ],
+            cwd=None,
+            stop_fd=None,
+            watch=StepWatch(written, Progress(_COUNTED), lambda _report: None),
+        )
+    assert ran.returncode == 0
+    assert live.read_text(encoding="utf-8") == "True\n"
+
+
+@pytest.mark.process(
     "a stall is ended by the guard interrupting the command's group, so only a started"
     + " command, blocked on a pipe no one writes, shows it stopped and its output kept"
 )

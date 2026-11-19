@@ -296,6 +296,10 @@ def run_watched(
         proc = subprocess.Popen(
             under_the_guard(cmd, watched, _GRACE),
             cwd=cwd,
+            # Through a pipe a Python child holds what it prints in a block until the block fills,
+            # so a tool's count, run-clang-tidy's ``[k/n]``, would reach the watchdog in bursts:
+            # every Python child of the command writes each line as it prints it.
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

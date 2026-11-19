@@ -189,6 +189,15 @@ def test_a_script_running_our_tooling_is_watched_one_running_two_or_nothing_know
     assert "make world" in unknown
 
 
+# The benchmark workflow's schema step: the Rust benchmark's build, then our schema check.
+_BENCH_SCHEMA_STEP = ScriptText(
+    "set -euo pipefail\n"
+    + "cargo build --release --example benchmark --manifest-path rust/Cargo.toml\n"
+    + "source python/.venv/bin/activate\n"
+    + "python3 -m tools.check_bench_schema --built\n"
+)
+
+
 @pytest.mark.parametrize(
     ("script", "line"),
     [
@@ -200,6 +209,24 @@ def test_a_script_running_our_tooling_is_watched_one_running_two_or_nothing_know
         ("bash benchmarks/run_all.sh --bench x", ">>> Running Python throughput benchmark..."),
         ("bash benchmarks/run_all.sh --bench x", "    Saved: python_throughput.json"),
         ("python3.14 -m tools.check_action_pins", "progress: 0/1 check-action-pins"),
+        (
+            "python/.venv/bin/python3 -m tools.check_cpp_slices_census --census",
+            "[ 72%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/json_parse.cpp.o",
+        ),
+        (
+            "python/.venv/bin/python3 -m tools.check_cpp_slices_census --compare mutation-legs",
+            "progress: 0/1 check-cpp-slices-census",
+        ),
+        (
+            "cabal run shake -- --keep-going dist",
+            "Checking Aletheia.Main (/home/runner/work/aletheia/aletheia/src/Aletheia/Main.agda).",
+        ),
+        (
+            "cabal run shake -- --keep-going dist",
+            "[ 1/64]   2.4s OK   Aletheia/Parser/Properties.agda",
+        ),
+        (_BENCH_SCHEMA_STEP, "   Compiling proc-macro2 v1.0.106"),
+        (_BENCH_SCHEMA_STEP, "progress: 0/1 check-bench-schema"),
     ],
 )
 def test_a_watched_step_reads_the_lines_its_tool_prints(script: ScriptText, line: Line) -> None:
