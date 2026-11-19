@@ -4,14 +4,15 @@
 
 The build's honest dependency graph (the Shakefile ``.so`` rule depends on the
 ``.agda`` sources; ``aletheia.cabal`` lists every MAlonzo module so cabal tracks
-the real ``.hs -> .so`` graph) must rebuild ``libaletheia-ffi.so`` when — and
-only when — a source changes.  This gate is the behavioral regression test that
-the graph stays correct.  It checks two properties:
+the real ``.hs -> .so`` graph) must rebuild ``libaletheia-ffi.so`` when, and
+only when, a source or a compiler the shim's project names changes.  This gate is
+the behavioral regression test that the graph stays correct.  It checks these
+properties:
 
 1. **Never stale** — editing a runtime string literal in a source must REACH the
    ``.so``, and reverting it must too.  This is the failure the old ``rm -rf``
    sledgehammer masked by always full-rebuilding.  Probed at TWO structurally
-   distant modules (Protocol/ResponseFormat and DBC/Formatter) so a graph bug that
+   distant modules (Protocol/ResponseFormat and DBC/Validator/Checks) so a graph bug that
    breaks propagation for only one subtree is caught: both edits land in one build,
    and BOTH distinct tokens must appear in the ``.so``.  The C header is probed
    too, through the one value of it the library reports: an edit to
@@ -27,7 +28,8 @@ the graph stays correct.  It checks two properties:
    compiles: with a stand-in first on the search path that reports another
    ``--version`` and passes every other call to the real compiler, a build
    must relink the ``.so``, and for the C compiler rebuild a stand-in kernel
-   too.  A build on the real compiler follows each, so the gate ends on it.
+   too.  A build on the real compiler follows each move that passes, so a passing
+   gate ends on it.
 4. **A stale sibling build is never copied** — cabal keeps a build per
    compiler and per optimization level beside the current one, so the edits of
    property 1 are built with a sibling present (another optimization level's
@@ -485,9 +487,9 @@ def _check_compiler_moves() -> bool:
 
 
 def properties_hold(edits_and_reverts: Callable[[], bool]) -> bool:
-    """Check the gate's three properties in order, each reported as it holds; stop at a failure."""
+    """Run the gate's property checks in order, each reported as it passes; stop at a failure."""
     checks = (edits_and_reverts, _check_incremental, _check_compiler_moves)
-    return all(check() for check in reported(checks, Prose("properties")))
+    return all(check() for check in reported(checks, Prose("checks")))
 
 
 def _run() -> int:

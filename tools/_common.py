@@ -341,7 +341,9 @@ def run_guarded(
         )
     finally:
         os.close(watch_read)
-    with proc:  # leaving the block waits for the guard, and so for the group
+    # Leaving the block waits for the guard, at most 0.25 s on KeyboardInterrupt, and so for the
+    # group once the guard has stopped it.
+    with proc:
         try:
             collected: str | None = proc.communicate()[0]
         finally:

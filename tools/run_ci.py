@@ -267,9 +267,11 @@ def _git_value(repo_root: Path, *args: str) -> str:
 
 
 def _why(result: StepResult) -> Prose:
-    """Say how a failed step ended: stopped by the watchdog, or with its exit status."""
+    """Say how a failed step ended: stopped or failed by the watchdog, or with its exit status."""
     if result.stalled:
         return Prose(f"stopped by the watchdog, no progress report, exit {result.returncode}")
+    if result.unreported:
+        return Prose("failed by the watchdog, no progress report, exit 0")
     return Prose(f"exit {result.returncode}")
 
 
@@ -515,15 +517,17 @@ class Runner:
         return list(lanes.values())
 
     def _progress(self, event: StepEvent) -> None:
-        """Write one live progress line to stderr the moment a step starts, reports, or ends.
+        """Write a live line to stderr the moment a step starts, reports, ends, or is not run.
 
-        A step's report is written as the step passes each quarter of its work,
-        and a step the watchdog stopped is named so.  Fires from worker threads
-        under ``--parallel``, hence the lock — each line lands whole.  This is
+        A step's report is written when it passes a quarter of the count it
+        reports beyond the last one written, short of the whole: at most three
+        a count, a report at the whole starting the count again.  A step
+        the watchdog stopped or failed is named so.  Fires from worker threads
+        under ``--parallel``, hence the lock: each line lands whole.  This is
         the LIVE channel; the deterministic lane-then-step record (full
-        outputs, ✓/✗ lines) still lands in the log via :meth:`_emit`, so the log
-        reads identically run-to-run while the terminal shows what is happening
-        as it happens.
+        outputs, ✓/✗ lines) still lands in the log via :meth:`_emit`, so the
+        log's blocks come in the same order run-to-run while the terminal shows
+        what is happening as it happens.
         """
         result = event.result
         if event.report is not None:

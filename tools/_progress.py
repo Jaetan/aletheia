@@ -3,12 +3,12 @@
 """How a tool reports its progress to the watchdog: ``progress: <done>/<total> <what>``.
 
 A step of the sweep reports its progress in its own output (``tools._watchdog``);
-a tool of ours does it through :func:`reported`, which wraps the items its work
-walks and prints a report before the first, after each item that completes
+a tool of ours can do it through :func:`reported`, which wraps the items its
+work walks and prints a report before the first, after each item that completes
 another twentieth of them, and after the last: at most 21 lines, counted by
 items, never by a clock.  Each report is flushed as it is printed, so it is in
 the step's file the moment it is made.  A short tool's whole work is one item:
-:func:`reporting` runs it between a report as it starts and one as it ends.
+:func:`reporting` reports it as its ``main`` starts and as it returns.
 :data:`REPORT` is the pattern every such step declares.
 """
 
@@ -28,21 +28,20 @@ ReportPattern = NewType("ReportPattern", str)
 ItemCount = NewType("ItemCount", int)
 REPORT = ReportPattern(r"^progress: (?P<done>\d+)/(?P<total>\d+) ")
 
-# How many reports a walk makes between its first and its last.
+# How many reports a walk makes after its first, its last included, at most.
 _STRETCHES = 20
 
 
 def report(done: ItemCount, total: ItemCount, what: Prose) -> None:
     """Print one progress report to stderr, flushed: ``done`` of ``total`` ``what``.
 
-    Stderr, as every progress line the tools print: stdout stays the tool's
-    data, read whole by whatever runs it, and the watchdog reads both.  A
-    report names what it counts: the watchdog hears a line stripped, and
-    :data:`REPORT` would not read one naming nothing, so ``what`` empty or
-    blank is refused with :class:`ValueError`.
+    Stderr: stdout stays the tool's data, and the watchdog reads both.  A
+    report is one line naming what it counts: the watchdog hears each line cut
+    at a line end and stripped, and :data:`REPORT` matches none naming nothing,
+    so ``what`` blank or holding a line end is refused with :class:`ValueError`.
     """
-    if not what.strip():
-        message = "a progress report names what it counts"
+    if not what.strip() or "\n" in what or "\r" in what:
+        message = "a progress report names what it counts on one line"
         raise ValueError(message)
     _ = sys.stderr.write(f"progress: {done}/{total} {what}\n")
     sys.stderr.flush()
@@ -57,9 +56,11 @@ def counted[T](items: Iterable[T], total: ItemCount, what: Prose) -> Iterator[T]
     """Yield ``items``, ``total`` of them, as they come, reporting as :func:`reported` does.
 
     For items that arrive one by one, a pool's results in order: each report is
-    made as the item that completes its share arrives.
+    made once the consumer is done with the item that completes its share,
+    before the next item is drawn.
     """
-    marks = {round(stretch * total / _STRETCHES) for stretch in range(1, _STRETCHES + 1)}
+    # The item completing ``stretch`` twentieths is that share of ``total``, rounded up.
+    marks = {-(-stretch * total // _STRETCHES) for stretch in range(1, _STRETCHES + 1)}
     report(ItemCount(0), total, what)
     for done, item in enumerate(items, 1):
         yield item
@@ -68,7 +69,7 @@ def counted[T](items: Iterable[T], total: ItemCount, what: Prose) -> Iterator[T]
 
 
 def reporting[S](main: Callable[[], S], what: Prose) -> S:
-    """Run a short tool's ``main`` as one item of work: reported as it starts and as it ends."""
+    """Run ``main`` as one item of work: reported as it starts and as it returns."""
     report(ItemCount(0), ItemCount(1), what)
     status = main()
     report(ItemCount(1), ItemCount(1), what)

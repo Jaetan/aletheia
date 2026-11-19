@@ -663,7 +663,10 @@ def test_a_syntax_check_overlays_the_file_with_its_candidates_const(
 def test_each_file_is_resolved_on_the_executor_handed_in(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
-    """Candidates group by file, each compiled through its first candidate's unit and reported."""
+    """Candidates group by file, each compiled through its first candidate's unit.
+
+    The files compiled are counted on stderr.
+    """
     database = tmp_path / gate.COMPILE_DB
     database.parent.mkdir(parents=True)
     _ = database.write_text(

@@ -201,12 +201,13 @@ _EnvValue = NewType("_EnvValue", str)
 
 
 class _Harness(NamedTuple):
-    """A binding's harness stood in: it passes, naming its binding."""
+    """A binding's harness stood in: it passes, naming its binding, and says on stderr it ended."""
 
     binding: Prose
 
     def __call__(self, artifact_dir: Path, _env: Mapping[_EnvName, _EnvValue]) -> Run:
-        """Answer that the binding's harness passed."""
+        """Answer that the binding's harness passed, saying on stderr that it ended."""
+        _ = sys.stderr.write(f"{self.binding} ended\n")
         return Run(binding=self.binding, artifact_path=artifact_dir, passed=True)
 
 
@@ -242,5 +243,8 @@ def test_each_binding_is_reported_as_its_harness_ends(
     monkeypatch.setattr(stability_run, "_build_summary", _summary_reached)
     with pytest.raises(_SummaryReachedError):
         _ = stability_run.main()
-    printed = [line for line in capsys.readouterr().err.splitlines() if line.startswith("progress")]
-    assert printed == [f"progress: {done}/3 bindings" for done in range(1, 4)]
+    assert capsys.readouterr().err.splitlines() == [
+        line
+        for done, binding in enumerate(("python", "go", "cpp"), 1)
+        for line in (f"{binding} ended", f"progress: {done}/3 bindings")
+    ]

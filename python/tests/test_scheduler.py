@@ -16,11 +16,13 @@ the lock a build held frees.
 
 from __future__ import annotations
 
+import fcntl
 import os
 import signal
+import stat
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import pytest
 from _executors import DrivenExecutor, Order
@@ -194,13 +196,14 @@ def test_one_lane_failure_does_not_abort_siblings(
     This is the failing-step-finishes-first / no-silent-drop guarantee: the
     result set always contains every sibling step regardless of completion order.
     """
-    _ = install(monkeypatch, _table(fail=ends(ExitStatus(7)), sib1=passes, sib2=passes))
+    runs = install(monkeypatch, _table(fail=ends(ExitStatus(7)), sib1=passes, sib2=passes))
     lanes = [
         [_step(CommandWord("fail"))],
         [_step(CommandWord("sib1")), _step(CommandWord("sib2"))],
     ]
     results = run_lanes(lanes, heavy_limit=1, watch=Watch(tmp_path), executor=DrivenExecutor)
     assert {r.name for r in results} == {"fail", "sib1", "sib2"}
+    assert runs.commands == [CommandWord("fail"), CommandWord("sib1"), CommandWord("sib2")]
     assert not all_passed(results)
 
 
@@ -348,7 +351,7 @@ def test_a_killed_sweep_stops_a_step_that_guards_its_own_build(tmp_path: Path) -
 def test_each_step_keeps_its_own_output_whole(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Each step's merged output lands, whole and alone, in that step's result."""
+    """Each step's output lands, whole and alone, in that step's result."""
     noisy, mixed = Prose("MARKER_42\n"), Prose("one\ntwo\nthree\n")
     _ = install(
         monkeypatch,
@@ -363,13 +366,14 @@ def test_each_step_keeps_its_own_output_whole(
     "only a real step's output crosses the guard and the watchdog into the step's file"
 )
 def test_a_real_step_s_output_and_reports_reach_its_file_and_result(tmp_path: Path) -> None:
-    """A step's output lands in its file and its result, its reports counted, nothing stalled.
+    """A step's output, stderr merged in order, lands in its file and result, its reports counted.
 
-    Its progress holds no allowance, as a step being measured does, so the
-    watchdog waits for output with no deadline: nothing here waits on a time.
+    Its progress holds no allowance, so the watchdog waits for output with no
+    deadline: nothing here waits on a time.
     """
     counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"))
-    step = Step(name="counts", cmd="printf '[1/2] a\\nnote\\n[2/2] b\\n'", progress=counted)
+    command = "printf '[1/2] a\\n'; printf 'note\\n' >&2; printf '[2/2] b\\n'"
+    step = Step(name="counts", cmd=command, progress=counted)
     (result,) = _ran(run_lanes([[step]], heavy_limit=1, executor=None, watch=Watch(tmp_path)))
     assert (result.returncode, result.reports, result.stalled) == (0, 2, False)
     assert result.output == "[1/2] a\nnote\n[2/2] b\n"
@@ -398,11 +402,14 @@ def test_a_stalled_step_fails_its_output_ending_with_the_watchdog_s_verdict(
 def test_a_report_passing_a_quarter_of_the_work_is_told_once_short_of_the_whole(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Reports at 10, 30, 40, 60, 99 and 100% tell the sweep at 30, 60 and 99%: one per quarter."""
+    """Reports at 10, 30, 40, 60, 99 and 100% are told at 30, 60 and 99%.
+
+    One per quarter passed, short of the whole.
+    """
     output = Prose("".join(f"[{k}/100]\n" for k in (10, 30, 40, 60, 99, 100)))
     _ = install(monkeypatch, _table(counts=ends(ExitStatus(0), output)))
     events: list[StepEvent] = []
-    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"), WatchSeconds(600.0))
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"))
     step = Step(name="counts", cmd="counts", progress=counted)
     _ = run_lanes(
         [[step]], heavy_limit=1, watch=Watch(tmp_path, events.append), executor=DrivenExecutor
@@ -412,6 +419,27 @@ def test_a_report_passing_a_quarter_of_the_work_is_told_once_short_of_the_whole(
         "[60/100]",
         "[99/100]",
     ]
+
+
+def test_a_report_at_the_whole_starts_the_count_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A report at the whole tells nothing and starts the count again.
+
+    A step running two counts, a build's and then its tests', tells up to
+    three quarters of each.
+    """
+    build = "".join(f"[{k}/100]\n" for k in (30, 60, 80, 100))
+    output = Prose(build + "".join(f"[{k}/8]\n" for k in (2, 5, 7, 8)) + "[3/4]\n")
+    _ = install(monkeypatch, _table(counts=ends(ExitStatus(0), output)))
+    events: list[StepEvent] = []
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"))
+    step = Step(name="counts", cmd="counts", progress=counted)
+    _ = run_lanes(
+        [[step]], heavy_limit=1, watch=Watch(tmp_path, events.append), executor=DrivenExecutor
+    )
+    told = [e.report for e in events if e.phase == "progress"]
+    assert told == ["[30/100]", "[60/100]", "[80/100]", "[2/8]", "[5/8]", "[7/8]", "[3/4]"]
 
 
 def test_serial_mode_runs_every_lane(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -445,6 +473,37 @@ def test_results_ordered_by_lane_not_completion(
 def test_heavy_steps_execute_under_the_gate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """A heavy step runs holding a slot of the memory semaphore, given back after it ends.
+
+    A step that is not heavy takes no slot.
+    """
+    seen: list[CommandWord | Literal["acquire", "release"]] = []
+
+    def recorded(answer: StandIn) -> StandIn:
+        def run(call: StepCall) -> Answer:
+            seen.append(call.command)
+            return answer(call)
+
+        return run
+
+    def acquire() -> bool:
+        seen.append("acquire")
+        return True
+
+    lane = [
+        _step(CommandWord("h1"), heavy=True),
+        _step(CommandWord("light")),
+        _step(CommandWord("h2"), heavy=True),
+    ]
+    _ = install(monkeypatch, {CommandWord(step.name): recorded(passes) for step in lane})
+    shared = LaneContext(
+        acquire, lambda: seen.append("release"), lambda: False, None, None, frozenset(), tmp_path
+    )
+    assert all_passed(run_lane(lane, shared))
+    assert seen == ["acquire", "h1", "release", "light", "acquire", "h2", "release"]
+
+
+def test_heavy_steps_run_and_are_captured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Heavy steps run and are captured (the bound is the Semaphore's contract)."""
     heavy = Prose("HEAVY\n")
     runs = install(monkeypatch, _table(h1=passes, h2=ends(ExitStatus(0), heavy)))
@@ -519,6 +578,24 @@ def test_progress_observes_a_step_not_run(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert events[-1].result == _not_run(USES, BOOM)
 
 
+def test_a_step_whose_file_another_step_wrote_raises_before_its_start_event(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two steps whose names give one file: the second raises, and no event says it started."""
+    first, second = CommandWord("a b"), CommandWord("a-b")
+    runs = install(monkeypatch, {first: passes, second: passes})
+    events: list[StepEvent] = []
+    with pytest.raises(FileExistsError):
+        _ = run_lanes(
+            [[_step(first), _step(second)]],
+            heavy_limit=1,
+            watch=Watch(tmp_path, events.append),
+            executor=DrivenExecutor,
+        )
+    assert [(e.phase, e.name) for e in events] == [("start", "a b"), ("done", "a b")]
+    assert runs.commands == [first]
+
+
 def test_a_step_reports_the_time_the_clock_moved_while_it_ran(
     clock: Clock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -541,7 +618,7 @@ def test_a_step_reports_the_time_the_clock_moved_while_it_ran(
 
 
 def test_progress_none_is_supported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The default (no observer) runs exactly as before — the seam is optional."""
+    """With no observer, ``Watch``'s default, the sweep runs and collects its steps."""
     runs = install(monkeypatch, _table(quiet=passes))
     results = run_lanes(
         [[_step(CommandWord("quiet"))]],
@@ -568,6 +645,8 @@ def test_a_parallel_sweep_leaves_no_descriptor_open(
         assert call.stop_fd is not None
         if (fds / str(call.stop_fd)).exists():
             open_while_running.append(call.stop_fd)
+        assert stat.S_ISFIFO(os.fstat(call.stop_fd).st_mode)
+        assert fcntl.fcntl(call.stop_fd, fcntl.F_GETFL) & os.O_ACCMODE == os.O_RDONLY
         return Answer(ExitStatus(0))
 
     runs = install(monkeypatch, _table(a=watch, b=watch))
@@ -601,6 +680,7 @@ class _Timed(NamedTuple):
     "case",
     [
         _Timed(Seconds(11.0), Prose("compiling\n"), reporting=True, fails=True),
+        _Timed(Seconds(10.0), Prose("compiling\n"), reporting=True, fails=False),
         _Timed(Seconds(9.0), Prose("compiling\n"), reporting=True, fails=False),
         _Timed(Seconds(11.0), Prose("[1/9] compiling\n"), reporting=True, fails=False),
         _Timed(Seconds(11.0), Prose("compiling\n"), reporting=False, fails=False),
@@ -626,4 +706,4 @@ def test_a_reporting_step_that_runs_past_ten_seconds_with_no_report_fails(
     (result,) = _ran(run_lanes([[step]], heavy_limit=1, watch=Watch(tmp_path), executor=None))
     assert result.returncode == (case.status or (1 if case.fails else 0))
     said = "watchdog: the step declares progress reports and made none in 11s"
-    assert (said in result.output) == case.fails
+    assert result.output == case.output + (f"\n{said}\n" if case.fails else "")

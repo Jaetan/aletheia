@@ -2,16 +2,17 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """How each step of the sweep reports its progress, and how long it may go without a report.
 
-Every step reports its progress in its own output (``tools._watchdog``): a
-line its pattern matches, naming how much of its work is done where the tool
-says.  A tool that counts its work prints its own count: pytest's percentage,
-ctest's and clang-tidy's ``k/n``, cabal's ``[k of n]``, CMake's percentage,
-Agda's line per module checked, go test's and cargo's line per package, test
-or crate.  A tool of ours reports
-through ``tools._progress``.  A third-party tool that prints no count reports
-nothing, and its allowance holds it from its start.  The table names each
-step as ``tools/_ci_steps.py`` registers it; a step it does not name reports
-nothing and holds no deadline.
+A step reports its progress in its own output (``tools._watchdog``): a line
+its pattern matches, naming how much of its work is done where the tool says.
+A tool that counts its work prints its own count: pytest's percentage, ctest's
+and clang-tidy's ``k/n``, GHC's ``[k of n]`` printed through cabal, CMake's
+percentage, Agda's line per module checked, Shake's ``# cmd (for target)``
+line, the warm proof checker's ``[k/n]``, go test's and cargo's line per
+package, test or crate.  Any other tool of ours reports through
+``tools._progress``.  A third-party tool that prints no count reports nothing,
+and its allowance holds it from its start.  The table names each step as
+``tools/_ci_steps.py`` registers it; a step it does not name reports nothing
+and holds no deadline.
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ def either(*kinds: Progress) -> Progress:
     the longest allowance of its kinds, none where none has one.
     """
     parts = [
-        re.sub(r"\(\?P<(done|total|percent)>", rf"(?P<\1_{place}>", kind.pattern)
+        re.sub(r"\(\?P<((?:done|total|percent)\w*)>", rf"(?P<\1_{place}>", kind.pattern)
         for place, kind in enumerate(kinds)
     ]
     allowances = [kind.allowance for kind in kinds if kind.allowance is not None]
@@ -167,16 +168,16 @@ _DECLARED = {
 
 # How long a step may go without a report before the watchdog stops it and fails it: five times
 # the longest stretch measured without one, and never less than the floor, so a step is stopped
-# for being stuck and never for running on a slower machine.
+# for being stuck, not for running up to five times slower than its slowest measured run.
 ALLOWANCE_FLOOR = Seconds(15 * 60.0)
 _ALLOWANCE_FACTOR = 5.0
 # The longest stretch measured without a report, for each step five times which passes the floor.
 # Measured on this tree's sweeps, warm and cold, every lane on, and on GitHub's runners.
 LONGEST_QUIET: Mapping[GateName, Seconds] = {
     # Its longer clean build on GitHub's runners, which prints nothing while it runs.
-    GateName("check-reproducible-build"): Seconds(334.0),
-    # doc_example_tests, which compiles every C++ fence of the documents and prints only when it
-    # ends, run by both steps at once beside clang-tidy on GitHub's runners with a warm build.
+    GateName("check-reproducible-build"): Seconds(286.0),
+    # doc_example_tests, which compiles every C++ fence of the documents and is reported only when
+    # it ends, run by both steps at once beside clang-tidy on GitHub's runners with a warm build.
     GateName("ctest"): Seconds(268.8),
     GateName("asan ctest"): Seconds(290.4),
 }

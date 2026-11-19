@@ -10,6 +10,8 @@ read through the gate's own parser of the reply proof.
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from tools._reply_places import (
@@ -36,9 +38,10 @@ def test_the_reply_proof_as_written_holds_identifier_shaped_words() -> None:
 
 
 def _reader(name: Prose) -> BindingReader:
-    """Stand in a binding's reader that reads nothing and names itself."""
+    """Stand in a binding's reader that reads nothing, names itself and says on stderr it read."""
 
     def read(_unread: list[Prose]) -> ReaderSets:
+        _ = sys.stderr.write(f"read {name}\n")
         return ReaderSets(name, Prose("table"), {}, {})
 
     return read
@@ -50,7 +53,8 @@ def test_each_binding_read_is_reported_as_it_is_read(capsys: pytest.CaptureFixtu
     tables = read_reply_tables(text, (_reader(Prose("go")), _reader(Prose("rust"))))
     assert isinstance(tables, ReplyTables), tables
     assert capsys.readouterr().err == (
-        "progress: 0/2 bindings read\nprogress: 1/2 bindings read\nprogress: 2/2 bindings read\n"
+        "progress: 0/2 bindings read\nread go\nprogress: 1/2 bindings read\n"
+        + "read rust\nprogress: 2/2 bindings read\n"
     )
 
 

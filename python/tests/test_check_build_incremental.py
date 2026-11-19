@@ -18,7 +18,7 @@ import os
 import subprocess
 import sys
 import textwrap
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import pytest
 from _processes import pid_no_process_holds
@@ -251,15 +251,22 @@ def _reports(err: Prose) -> list[Prose]:
     return [Prose(line) for line in err.splitlines() if line.startswith("progress: ")]
 
 
-def test_the_properties_are_reported_as_each_holds_and_stop_at_the_first_that_fails(
+class _Ran(NamedTuple):
+    """A check that ran, and the reports printed between the check before it and its start."""
+
+    check: Prose
+    heard: list[Prose]
+
+
+def test_the_checks_are_reported_as_each_passes_and_stop_at_the_first_that_fails(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
-    """The three checks run in order, each reported as it holds, none after a failure."""
-    ran: list[Prose] = []
+    """The checks run in order, each reported as it passes, none after a failure."""
+    ran: list[_Ran] = []
 
     def check(name: Prose, *, holds: bool) -> Callable[[], bool]:
         def run() -> bool:
-            ran.append(name)
+            ran.append(_Ran(name, _reports(Prose(capsys.readouterr().err))))
             return holds
 
         return run
@@ -267,15 +274,14 @@ def test_the_properties_are_reported_as_each_holds_and_stop_at_the_first_that_fa
     monkeypatch.setattr(gate, "_check_incremental", check(Prose("incremental"), holds=True))
     monkeypatch.setattr(gate, "_check_compiler_moves", check(Prose("moves"), holds=True))
     assert gate.properties_hold(check(Prose("edits"), holds=True))
-    assert ran == ["edits", "incremental", "moves"]
-    assert _reports(Prose(capsys.readouterr().err)) == [
-        f"progress: {done}/3 properties" for done in range(4)
+    assert ran == [
+        ("edits", ["progress: 0/3 checks"]),
+        ("incremental", ["progress: 1/3 checks"]),
+        ("moves", ["progress: 2/3 checks"]),
     ]
+    assert _reports(Prose(capsys.readouterr().err)) == ["progress: 3/3 checks"]
     ran.clear()
     monkeypatch.setattr(gate, "_check_incremental", check(Prose("incremental"), holds=False))
     assert not gate.properties_hold(check(Prose("edits"), holds=True))
-    assert ran == ["edits", "incremental"]
-    assert _reports(Prose(capsys.readouterr().err)) == [
-        "progress: 0/3 properties",
-        "progress: 1/3 properties",
-    ]
+    assert ran == [("edits", ["progress: 0/3 checks"]), ("incremental", ["progress: 1/3 checks"])]
+    assert not _reports(Prose(capsys.readouterr().err))

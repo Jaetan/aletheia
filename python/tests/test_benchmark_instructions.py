@@ -13,6 +13,7 @@ own thread.
 
 from __future__ import annotations
 
+import sys
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -137,12 +138,24 @@ def test_every_lane_of_every_binding_lands_at_its_own_place(order: Order) -> Non
     assert counts == want
 
 
-def test_each_counted_run_is_reported_as_it_arrives(capsys: pytest.CaptureFixture[Prose]) -> None:
-    """The count reports on stderr before the first run and as each run's total is read."""
-    _ = count_lanes([_PYTHON, _GO], [LaneName("a")], count=_stand_in, executor=DrivenExecutor)
-    assert capsys.readouterr().err == "".join(
-        f"progress: {done}/4 lane runs counted\n" for done in range(5)
-    )
+def _said_stand_in(run: CountedRun) -> InstructionCount:
+    """Count a run as ``_stand_in`` does, saying on stderr which run it is."""
+    _ = sys.stderr.write(f"ran {run.binding.name} {run.frames}\n")
+    return _stand_in(run)
+
+
+def test_the_count_is_reported_as_the_runs_arrive(capsys: pytest.CaptureFixture[Prose]) -> None:
+    """The count reports on stderr before the first run's total is read and as each one is read."""
+    _ = count_lanes([_PYTHON, _GO], [LaneName("a")], count=_said_stand_in, executor=DrivenExecutor)
+    runs = [(name, frames) for name in ("python", "go") for frames in (FRAMES_LOW, FRAMES_HIGH)]
+    assert capsys.readouterr().err.splitlines() == [
+        "progress: 0/4 lane runs counted",
+        *(
+            line
+            for done, (name, frames) in enumerate(runs, 1)
+            for line in (f"ran {name} {frames}", f"progress: {done}/4 lane runs counted")
+        ),
+    ]
 
 
 def test_a_run_that_fails_ends_the_count() -> None:

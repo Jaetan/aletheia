@@ -7,13 +7,13 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, NewType
 
 from tools import check_cpp_installed_consumer as gate
 from tools._common import CommandWord, RelPath
 from tools.check_cpp_installed_consumer import CONSUMER, PROGRAMS, in_scope, steps
 
-from aletheia.common_types import Prose
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     import pytest
@@ -51,17 +51,38 @@ def test_every_program_the_consumer_builds_is_run() -> None:
     assert ran == [[CommandWord(str(work / "consumer" / program))] for program in PROGRAMS]
 
 
-def test_each_cmake_step_is_reported_as_it_runs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
-) -> None:
-    """The gate reports on stderr before its first CMake step and as each one passes."""
+# Where a stood-in CMake step fails, counted from the first step.
+_StepAt = NewType("_StepAt", int)
+
+
+class _Gated(NamedTuple):
+    """What the gate returned, the reports each step had heard as it started, and those after."""
+
+    status: ExitStatus
+    heard: list[list[Prose]]
+    left: list[Prose]
+
+
+def _reports(err: Prose) -> list[Prose]:
+    """Return the lines of ``err`` that begin with ``progress``."""
+    return [Prose(line) for line in err.splitlines() if line.startswith("progress")]
+
+
+def _gated(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Prose],
+    failing: _StepAt | None,
+) -> _Gated:
+    """Run the gate with each CMake step stood in, the step at ``failing`` exiting 1."""
     (tmp_path / "cpp" / "build" / "_deps" / "x-src").mkdir(parents=True)
-    ran: list[list[CommandWord]] = []
+    heard: list[list[Prose]] = []
 
     def run(argv: list[CommandWord], *, cwd: Path) -> subprocess.CompletedProcess[Prose]:
         del cwd
-        ran.append(argv)
-        return subprocess.CompletedProcess(argv, 0, Prose(""), Prose(""))
+        heard.append(_reports(Prose(capsys.readouterr().err)))
+        status = 1 if len(heard) - 1 == failing else 0
+        return subprocess.CompletedProcess(argv, status, Prose(""), Prose(""))
 
     def unknown(_root: Path) -> list[RelPath] | None:
         return None
@@ -74,7 +95,27 @@ def test_each_cmake_step_is_reported_as_it_runs(
     monkeypatch.setattr(gate, "branch_changes", unknown)
     monkeypatch.setattr(gate, "find_executable", found)
     monkeypatch.setattr(gate, "run_capture", run)
-    assert gate.main() == 0
-    total = len(ran)
-    printed = [line for line in capsys.readouterr().err.splitlines() if line.startswith("progress")]
-    assert printed == [f"progress: {done}/{total} CMake steps" for done in range(total + 1)]
+    status = gate.main()
+    return _Gated(status, heard, _reports(Prose(capsys.readouterr().err)))
+
+
+def test_each_cmake_step_is_reported_as_it_passes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The gate reports on stderr before its first CMake step and as each one passes."""
+    gated = _gated(monkeypatch, tmp_path, capsys, None)
+    assert gated.status == 0
+    total = len(gated.heard)
+    assert gated.heard == [[f"progress: {done}/{total} CMake steps"] for done in range(total)]
+    assert gated.left == [f"progress: {total}/{total} CMake steps"]
+
+
+def test_a_failing_cmake_step_ends_the_gate_without_its_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The gate stops at a CMake step that fails, before reporting it."""
+    total = len(steps(Path("/scratch"), CommandWord("cmake")))
+    gated = _gated(monkeypatch, tmp_path, capsys, _StepAt(1))
+    assert gated.status == 1
+    assert gated.heard == [[f"progress: {done}/{total} CMake steps"] for done in range(2)]
+    assert not gated.left

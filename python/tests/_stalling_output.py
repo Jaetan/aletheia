@@ -3,9 +3,9 @@
 """A watched command's output read for real, on a clock a test moves: a stall without a wait.
 
 :func:`stall_after_first_output` makes ``tools._watchdog.watched_output`` answer
-the first wait with the command's own output, so its first report is read, and
-every later wait by moving the test's clock past it, so the command's deadline
-passes at once and nothing waits on a time.
+the first wait, and every wait with no deadline, with the command's own output;
+every other wait moves the test's clock by that wait, to the deadline, so the
+deadline passes at once and nothing waits on a time.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 def stall_after_first_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make every watched command stall once its first output is read, for the rest of the test."""
+    """Make every watched command with an allowance stall once its first output is read."""
     clock = [Seconds(0.0)]
     really = _watchdog.watched_output
 

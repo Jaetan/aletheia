@@ -18,6 +18,7 @@ comes hangs the run, which is the run's own limit to report.
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
 import shutil
 import signal
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from _processes import CommandWord
 
     from tools._common import Descriptor
+    from tools._determinism_guard import ProcessBytes
 
 REPO_ROOT = Path(_common.__file__).resolve().parents[1]
 
@@ -424,3 +426,233 @@ def test_a_watched_command_that_stalls_is_stopped_through_its_guard(
     # The guard ends its group with SIGKILL once the command has gone, itself included.
     assert ran.returncode == -signal.SIGKILL
     assert live.read_text(encoding="utf-8") == "[1/2] parse\ninterrupted\n"
+
+
+def _release_readers(fifo: Path) -> bool:
+    """Release whatever reads ``fifo`` or waits in its open; answer whether anything did.
+
+    The open for writing never waits: with no reader it is refused, and
+    otherwise it ends the reader's wait, its close then giving the reader
+    end-of-file.
+    """
+    try:
+        held = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError as refused:
+        if refused.errno == errno.ENXIO:
+            return False
+        raise
+    os.close(held)
+    return True
+
+
+def _record_waits(monkeypatch: pytest.MonkeyPatch) -> list[list[Seconds | None]]:
+    """Keep, for each output a watched run reads after this, the waits its reader is given.
+
+    It wraps the output in place, so it comes after ``stall_after_first_output``;
+    the first reader is the pump's, any later one the drain's after a stall.
+    """
+    stalling = _watchdog.watched_output
+    waits: list[list[Seconds | None]] = []
+
+    def recorded(out: Descriptor) -> _watchdog.Output:
+        """Read ``out`` as the stalling output does, keeping each wait this reader is given."""
+        output = stalling(out)
+        given: list[Seconds | None] = []
+        waits.append(given)
+
+        def readable_within(wait: Seconds | None) -> bool:
+            given.append(wait)
+            return output.readable_within(wait)
+
+        return _watchdog.Output(output.read, readable_within, output.now)
+
+    monkeypatch.setattr(_watchdog, "watched_output", recorded)
+    return waits
+
+
+def _drain_on_a_clock(monkeypatch: pytest.MonkeyPatch) -> list[Descriptor]:
+    """Make the reader of a watched run's output after the first read none of it, on a clock.
+
+    It wraps the output in place, so it comes after ``stall_after_first_output``:
+    the pump reads the output as that makes it, and the drain after a stall
+    reads nothing, each wait moving a clock of its own by that wait.  What it
+    returns holds, once the drain has begun, a copy of the output's descriptor,
+    which reads the output's end once nothing else holds the output open.
+    """
+    stalling = _watchdog.watched_output
+    readers: list[Descriptor] = []
+    copies: list[Descriptor] = []
+
+    def on_a_clock(out: Descriptor) -> _watchdog.Output:
+        """Read ``out`` as the stalling output does for the pump, and not at all after it."""
+        output = stalling(out)
+        readers.append(out)
+        if len(readers) == 1:
+            return output
+        copies.append(_common.Descriptor(os.dup(out)))
+        clock = [output.now()]
+
+        def waited(wait: Seconds | None) -> bool:
+            assert wait is not None, "the drain waits the grace at most"
+            clock[0] = Seconds(clock[0] + wait)
+            return False
+
+        return _watchdog.Output(output.read, waited, lambda: clock[0])
+
+    monkeypatch.setattr(_watchdog, "watched_output", on_a_clock)
+    return copies
+
+
+def _entered(monkeypatch: pytest.MonkeyPatch) -> list[subprocess.Popen[ProcessBytes]]:
+    """Keep each process entered after this as it is entered: a watched run's guard first."""
+    started: list[subprocess.Popen[ProcessBytes]] = []
+
+    def kept(process: subprocess.Popen[ProcessBytes]) -> subprocess.Popen[ProcessBytes]:
+        """Enter ``process`` as ``Popen.__enter__`` does, by returning it, keeping it here too."""
+        started.append(process)
+        return process
+
+    monkeypatch.setattr(subprocess.Popen, "__enter__", kept)
+    return started
+
+
+@pytest.mark.process(
+    "what the command leaves in its group outlives the guard, which exits with the command,"
+    + " so only a started command and its real group show the stall ending what is left"
+)
+@pytest.mark.parametrize("leaves", ["a member", "nothing"])
+def test_a_stall_kills_what_the_command_left_in_its_group_once_the_guard_has_exited(
+    leaves: Literal["a member", "nothing"], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stall after the guard has exited kills what the command left in its group, if anything.
+
+    The command reports and exits at once, leaving in the background a member
+    that holds the output open and blocks opening a FIFO nothing writes, or
+    leaving nothing; the guard exits with it and stops nothing.  The report
+    waits for the guard to exit, so the stall always comes after it.
+    """
+    started = _entered(monkeypatch)
+
+    def guard_exited(_report: Line) -> None:
+        _ = started[0].wait()
+
+    stall_after_first_output(monkeypatch)
+    waits = _record_waits(monkeypatch)
+    never = never_written(tmp_path)
+    member = f"; cat {never} &" if leaves == "a member" else ""
+    command = f"printf '[1/2] parse\\n'{member}"
+    live = tmp_path / "step.log"
+    try:
+        with live.open("wb") as written:
+            ran = _watchdog.run_watched(
+                [
+                    _common.CommandWord("sh"),
+                    _common.CommandWord("-c"),
+                    _common.CommandWord(command),
+                ],
+                cwd=None,
+                stop_fd=None,
+                watch=StepWatch(written, Progress(_COUNTED, Seconds(60.0)), guard_exited),
+            )
+    finally:
+        outlived = _release_readers(never)
+    assert ran.pumped.stalled
+    # The guard exited with the command, so its status is the command's own.
+    assert ran.returncode == 0
+    assert not outlived, "the member blocked on the FIFO outlived the stall"
+    assert waits[1:] == [[10.0]], "the drain reads the output's end at its first wait and stops"
+
+
+@pytest.mark.process(
+    "a guard can exit with its command just after the stall finds it running, so only a started"
+    + " command and its real group show the grace's end killing what the command left"
+)
+def test_a_stall_kills_what_is_left_of_the_group_once_the_grace_has_passed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once the grace has passed, what is left of the group is killed, whatever the guard did.
+
+    The command reports and exits at once, leaving in the background a member
+    that holds the output open and blocks opening a FIFO nothing writes, and
+    the guard exits with it; at the stall the guard is found running, as one
+    whose command ends just then is.  The drain reads none of the output, its
+    wait moving a clock to the grace's end; the test then reads the output to
+    its end, which comes once the killed member has gone.
+    """
+    started = _entered(monkeypatch)
+
+    def guard_exited(_report: Line) -> None:
+        _ = started[0].wait()
+        monkeypatch.setattr(started[0], "poll", lambda: None)  # found running at the stall
+
+    stall_after_first_output(monkeypatch)
+    copies = _drain_on_a_clock(monkeypatch)
+    never = never_written(tmp_path)
+    live = tmp_path / "step.log"
+    try:
+        with live.open("wb") as written:
+            ran = _watchdog.run_watched(
+                [
+                    _common.CommandWord("sh"),
+                    _common.CommandWord("-c"),
+                    _common.CommandWord(f"printf '[1/2] parse\\n'; cat {never} &"),
+                ],
+                cwd=None,
+                stop_fd=None,
+                watch=StepWatch(written, Progress(_COUNTED, Seconds(60.0)), guard_exited),
+            )
+        assert len(copies) == 1, "the drain began once"
+        # The output ends once the killed member has gone, its open of the FIFO undone; a
+        # kill that never comes hangs the read, which is the run's own limit to report.
+        with os.fdopen(copies[0], "rb") as output:
+            _ = output.read()
+    finally:
+        # Frees the member when the read above never ends.
+        _ = _release_readers(never)
+    assert ran.pumped.stalled
+    # The guard exited with the command, so its status is the command's own.
+    assert ran.returncode == 0
+
+
+@pytest.mark.process(
+    "a process in a session of its own is outside the group the guard and the stall stop,"
+    + " so only a started command and its real session show the output still held"
+)
+def test_a_stall_reads_the_output_a_detached_process_holds_for_the_grace_at_most(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a stall the output is read until the guard's grace has passed, whoever holds it.
+
+    The command starts a process that, once in a session of its own, makes the
+    report and then holds the output open, reading a FIFO the test holds open,
+    so the output does not end while the test runs; once interrupted, the
+    command's shell writes a line.  The drain's first wait, of the whole grace,
+    reads that line, and its next, of what is left of the grace, moves the
+    test's clock to the grace's end.
+    """
+    held = tmp_path / "held"
+    os.mkfifo(held)
+    # Opened for reading and writing, the FIFO opens at once; its reader ends once this closes.
+    holding = os.open(held, os.O_RDWR)
+    stall_after_first_output(monkeypatch)
+    waits = _record_waits(monkeypatch)
+    detached = "printf '[1/2] parse\\n'; exec cat"
+    command = f"trap 'echo interrupted; exit 1' INT; setsid sh -c \"{detached}\" < {held} & wait"
+    live = tmp_path / "step.log"
+    try:
+        with live.open("wb") as written:
+            ran = _watchdog.run_watched(
+                [
+                    _common.CommandWord("sh"),
+                    _common.CommandWord("-c"),
+                    _common.CommandWord(command),
+                ],
+                cwd=None,
+                stop_fd=None,
+                watch=StepWatch(written, Progress(_COUNTED, Seconds(60.0)), lambda _report: None),
+            )
+    finally:
+        os.close(holding)
+    assert ran.pumped.stalled
+    assert live.read_text(encoding="utf-8") == "[1/2] parse\ninterrupted\n"
+    assert waits[1:] == [[10.0, 10.0]], "after the pump, one reader waits the guard's 10 s grace"

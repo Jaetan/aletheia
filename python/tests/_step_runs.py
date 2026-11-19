@@ -3,13 +3,16 @@
 """The commands of a sweep's steps, answered in-process in place of ``run_watched``.
 
 A test gives every step command it registers a stand-in: what the command does
-to the files it reaches, the output it writes and the status it ends with.
-:class:`StepRuns`, installed as ``tools._scheduler.run_watched`` by
-:func:`install`, records each command the scheduler asks for with the
-directory and the stop descriptor it hands over, fails the test on a command
-that has no stand-in, and answers the rest without starting a process.  What
-a command and its guard do between processes, the status a signal leaves and
-the order of a merged stream, is held by ``test_run_guarded``.
+to the files it reaches, the output it writes, the status it ends with, whether
+it stalled and its longest quiet stretch.  :class:`StepRuns`, installed as
+``tools._scheduler.run_watched`` by :func:`install`, records each command the
+scheduler asks for with the directory and the stop descriptor it hands over,
+fails the test on a command that has no stand-in, and answers the rest without
+starting a process.  What only a started process shows is held by the tests
+that start one: ``test_run_guarded`` holds the guard's stop, a signal's status
+and the order of a merged stream for ``run_guarded``, and the stop and status
+of a step ``run_watched`` finds stalled; ``test_scheduler``'s real step holds
+the order of ``run_watched``'s merged stream.
 """
 
 from __future__ import annotations
@@ -40,6 +43,9 @@ _SHELL = (CommandWord("/bin/sh"), CommandWord("-c"))
 # The output of a command that writes nothing.
 NO_OUTPUT = Prose("")
 
+# The longest quiet stretch a stand-in answers when its test names none.
+_NO_QUIET = Seconds(0.0)
+
 
 @dataclass(frozen=True)
 class StepCall:
@@ -52,11 +58,16 @@ class StepCall:
 
 @dataclass(frozen=True)
 class Answer:
-    """How a stand-in command ends: its status, its merged output, whether it stalled."""
+    """How a stand-in command ends: its status, its merged output, whether it stalled, its quiet.
+
+    ``longest_quiet`` is the longest stretch the watchdog would have measured
+    with no report.
+    """
 
     status: ExitStatus
     output: Prose = NO_OUTPUT
     stalled: bool = False
+    longest_quiet: Seconds = _NO_QUIET
 
 
 # What a step command does, in-process: any effect on the files, then its answer.
@@ -78,7 +89,7 @@ def passes(_call: StepCall) -> Answer:
 
 
 class StepRuns:
-    """A stand-in for ``run_guarded`` that answers each step command from a table."""
+    """A stand-in for ``run_watched`` that answers each step command from a table."""
 
     def __init__(self, stand_ins: Mapping[CommandWord, StandIn]) -> None:
         """Answer the commands ``stand_ins`` names, and fail on any other."""
@@ -115,7 +126,7 @@ class StepRuns:
         pumped = Pumped(
             stalled=answer.stalled,
             reports=ReportCount(len(reports)),
-            longest_quiet=Seconds(0.0),
+            longest_quiet=answer.longest_quiet,
             last_report=reports[-1] if reports else Line(""),
             last_line=Line(lines[-1]) if lines else Line(""),
             ran_for=Seconds(0.0),

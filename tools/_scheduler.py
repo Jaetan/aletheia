@@ -16,22 +16,30 @@ bounds how many run at once — coarse and robust, no per-step byte estimates.
 Aggregation is **fail-loud**, the property a gate orchestrator must never get
 wrong (a swallowed failure is a false green):
 
-* every executed step yields a :class:`StepResult` with its real return code;
-* a signal death — ``returncode`` 128 plus the signal, e.g. ``137`` from the
-  OOM killer's SIGKILL — is a failure like any other (``returncode != 0``);
+* every executed step yields a :class:`StepResult` with its real return code,
+  or 1 when the watchdog fails a step that exited 0;
+* a signal death is a failure like any other (``returncode != 0``): 128 plus
+  the signal, e.g. ``137`` from the OOM killer's SIGKILL, or ``-9`` for a step
+  the watchdog or the sweep stopped, whose guard ends with its group's SIGKILL;
 * every step runs unless a step it ``needs`` did not pass, and then yields a
   :class:`StepNotRun` naming that step, so a failure hides no check that does
   not rest on it and every step of every lane has an outcome;
 * a need names an earlier step of the same lane or one run before the lanes,
   which are the steps whose outcome is known when it starts, and a need
   naming anything else is refused before any step runs;
-* a lane task that raises propagates out of :func:`run_lanes` (never dropped).
+* the first exception a lane task raises, in lane order, propagates out of
+  :func:`run_lanes`; a later lane's is dropped.
 
-Every step runs under ``run_watched``, in a process group of its own, so a
-step stops when the sweep dies, SIGKILL included, rather than outliving it
-holding a lock the next run waits on.  An interrupt of the sweep, Ctrl-C
-included, stops every running step and starts no other before
-:func:`run_lanes` re-raises it.
+Every step runs under ``run_watched``, in a process group of its own whose
+guard interrupts the step's command when the sweep is interrupted or dies,
+SIGKILL included, and kills what is left once the command has ended or the
+guard's grace has passed: no command outlives the sweep by more than that
+grace, holding a lock the next run waits on.  A process a command leaves in
+its group once it exits, holding the step's output, is stopped by the
+watchdog's stall while the sweep runs.  An interrupt of the sweep, Ctrl-C
+included, is an exceptional exit: a step a lane starts as it arrives is
+interrupted as it starts, :func:`run_lanes` re-raises it, and what a step
+left behind may outlive the sweep, for whoever interrupted it to clean up.
 
 Every step's output, stderr merged into stdout, is copied into a file of its
 own (:func:`step_file`) chunk by chunk as it comes, so what a step has
@@ -50,7 +58,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from tools._common import CommandWord, Descriptor, GateName, WorkerCount
 from tools._resources import cpu_budget
@@ -77,7 +85,7 @@ _POSIX_SHELL = "/bin/sh"
 _NO_REPORTS = ReportCount(0)
 _NO_QUIET = WatchSeconds(0.0)
 
-# A step's work in quarters: its progress is told to the sweep as it passes each.
+# How many parts each count a step reports is cut into for the reports :func:`_quarters` tells.
 _QUARTERS = 4
 
 
@@ -103,9 +111,21 @@ class Step:
     progress: Progress = NO_REPORTS_YET
 
 
+# Why the watchdog failed a step: it stopped the step, or the step exited 0 having made none of
+# the reports it declares.
+type WatchdogFailure = Literal["stalled", "unreported"]
+
+
 @dataclass(frozen=True)
 class StepResult:
-    """Outcome of one executed step: combined output + real return code."""
+    """Outcome of one executed step: its combined output and its return code.
+
+    ``returncode`` is the guard's, as :class:`tools._watchdog.WatchedRun` has
+    it, or 1 when the watchdog failed a step that exited 0; ``failure`` is why
+    the watchdog failed the step, if it did: ``"stalled"`` when it stopped the
+    step, ``"unreported"`` when the step exited 0 having run past
+    :data:`tools._watchdog.UNREPORTED_FOR` with no report.
+    """
 
     name: str
     returncode: int
@@ -113,7 +133,17 @@ class StepResult:
     duration: float
     reports: ReportCount = _NO_REPORTS
     longest_quiet: WatchSeconds = _NO_QUIET
-    stalled: bool = False
+    failure: WatchdogFailure | None = None
+
+    @property
+    def stalled(self) -> bool:
+        """Answer whether the watchdog stopped the step."""
+        return self.failure == "stalled"
+
+    @property
+    def unreported(self) -> bool:
+        """Answer whether the watchdog failed the step, which exited 0, for making no report."""
+        return self.failure == "unreported"
 
 
 @dataclass(frozen=True)
@@ -130,17 +160,16 @@ type StepOutcome = StepResult | StepNotRun
 
 @dataclass(frozen=True)
 class StepEvent:
-    """A live progress event: a step started, finished with its outcome, or was not run.
+    """A live event: a step started, passed a quarter of a count, ended, or was not run.
 
     ``phase`` is ``"start"`` (``result`` is ``None``, ``live`` the file the
     step writes its output into as it runs), ``"done"`` (``result`` carries the
     outcome), ``"progress"`` (``report``, a report of the step's that passed
-    another quarter of its work) or ``"not run"`` (``result`` names the step it
-    needed).  Events
-    fire the moment they happen — from worker threads under ``--parallel`` —
-    so a consumer that writes them to a terminal must serialize its own
-    writes; the deterministic lane-then-step ordering of :func:`run_lanes`'s
-    RETURN VALUE is unaffected by observation.
+    another quarter of the count it reports) or ``"not run"`` (``result`` names
+    the step it needed).  Events fire the moment they happen, from worker
+    threads under ``--parallel``, so a consumer that writes them to a terminal
+    must serialize its own writes; the deterministic lane-then-step ordering of
+    :func:`run_lanes`'s RETURN VALUE is unaffected by observation.
     """
 
     phase: str
@@ -162,21 +191,22 @@ def step_file(live_dir: Path, name: GateName) -> Path:
 def _run_one(step: Step, sweep: LaneContext) -> StepResult:
     """Execute one step, its merged output written into its file as it comes, then read back.
 
-    The file is created afresh, so two steps a sweep would write into one file
-    raise ``FileExistsError`` rather than mix.  The caller holds the memory
-    semaphore for a heavy step, so the ``start`` event marks the step actually
-    RUNNING (not queued behind the OOM guard) and the reported duration matches
-    what the observer perceives.
+    The file is created afresh, so the second of two steps a sweep would write
+    into one file raises ``FileExistsError``, before its ``start`` event,
+    rather than mix.  The caller holds the memory semaphore for a heavy step,
+    so the ``start`` event marks the step actually RUNNING (not queued behind
+    the OOM guard) and the reported duration matches what the observer
+    perceives.
     """
     progress = sweep.progress
     live = step_file(sweep.live_dir, GateName(step.name))
-    start = time.monotonic()
-    if progress is not None:
-        progress(StepEvent("start", step.name, live=live))
     argv: Sequence[str]
     argv = [_POSIX_SHELL, "-c", step.cmd] if isinstance(step.cmd, str) else step.cmd
     heard = _quarters(step, progress)
     with live.open("xb") as written:
+        start = time.monotonic()
+        if progress is not None:
+            progress(StepEvent("start", step.name, live=live))
         ran = run_watched(
             [CommandWord(word) for word in argv],
             cwd=step.cwd,
@@ -193,7 +223,7 @@ def _run_one(step: Step, sweep: LaneContext) -> StepResult:
         duration,
         pumped.reports,
         pumped.longest_quiet,
-        pumped.stalled,
+        "stalled" if pumped.stalled else "unreported" if failed else None,
     )
     if progress is not None:
         progress(StepEvent("done", step.name, result))
@@ -201,10 +231,12 @@ def _run_one(step: Step, sweep: LaneContext) -> StepResult:
 
 
 def _quarters(step: Step, progress: Callable[[StepEvent], None] | None) -> Callable[[Line], None]:
-    """Answer what hears ``step``'s reports and fires a ``progress`` event at each new quarter.
+    """Answer what hears ``step``'s reports, telling ``progress`` of those that pass a new quarter.
 
-    The event fires when a report passes a quarter of the step's work no
-    earlier report passed, short of the whole: at most three per step.
+    A report is told when it passes a quarter of the count it reports beyond
+    the last one told, short of the whole: at most three per count.  A report
+    at the whole tells nothing and starts the count again, so a step running
+    two counts, a build's and then its tests', tells quarters of each.
     """
     passed = [0]
 
@@ -213,7 +245,9 @@ def _quarters(step: Step, progress: Callable[[StepEvent], None] | None) -> Calla
         if progress is None or share is None:
             return
         quarter = int(share * _QUARTERS)
-        if passed[0] < quarter < _QUARTERS:
+        if quarter >= _QUARTERS:
+            passed[0] = 0
+        elif passed[0] < quarter:
             passed[0] = quarter
             progress(StepEvent("progress", step.name, report=report))
 
@@ -222,7 +256,7 @@ def _quarters(step: Step, progress: Callable[[StepEvent], None] | None) -> Calla
 
 @dataclass(frozen=True)
 class Watch:
-    """How a sweep is watched as it runs: where its steps write, and who hears them start and end.
+    """How a sweep is watched as it runs: where its steps write, and who hears each of their events.
 
     ``live_dir``, an existing directory, receives each step's file
     (:func:`step_file`), written as the step runs; ``progress``, when given,
@@ -338,8 +372,9 @@ def run_lanes(
     host.  ``heavy_limit`` caps how
     many ``heavy`` steps run at once (the OOM guard).  Results are returned in
     lane-then-step order, deterministic regardless of completion timing, so the
-    caller can tee them without interleaving.  Any exception inside a lane
-    propagates (it is never silently dropped).
+    caller can tee them without interleaving.  The first exception a lane
+    raises, in lane order, propagates once the other lanes have stopped; a
+    later lane's is dropped.
 
     ``before`` holds the outcomes of the steps run before the lanes, the build,
     which every lane may need; a lane's step may need those and the steps
@@ -347,12 +382,10 @@ def run_lanes(
     before a step runs.
 
     ``watch`` names the directory each step writes its file into as it runs
-    and the observer of the steps' events (:class:`Watch`).
-
-    The watch's ``progress`` observes each step's start and completion the
-    moment they happen (from worker threads under parallel mode) — the live
+    and the observer of the steps' events (:class:`Watch`), which hears each
+    the moment it happens (from worker threads under parallel mode): the live
     channel for a terminal spinner or per-step timing, deliberately separate
-    from the deterministic result stream.  A ``None`` progress is zero-overhead.
+    from the deterministic result stream.  A ``None`` progress hears no event.
     """
     unavailable = _did_not_pass_before(lanes, before)
     heavy_sem = threading.Semaphore(max(1, heavy_limit))

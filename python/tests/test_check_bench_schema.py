@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import re
 import sys
+from itertools import groupby
 from pathlib import Path
-from typing import Final, TypedDict, cast
+from typing import Final, NoReturn, TypedDict, cast
 
 import pytest
 import yaml
@@ -265,13 +266,16 @@ def test_the_planted_runner_s_arms_are_the_real_runner_s_shapes() -> None:
 def test_each_binding_is_reported_as_the_check_reaches_it(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
-    """The check reports on stderr before the first binding and as it passes each."""
-    absent = [
+    """The check reports on stderr before the first binding and as it passes each.
+
+    Each run of a binding says so on stderr and fails; the check records the failure and goes on.
+    """
+    stood_in = [
         Binding(
             name=name,
-            exe=Path("/absent"),
-            cwd=Path("/absent"),
-            available=False,
+            exe=Path("/stood-in"),
+            cwd=Path("/stood-in"),
+            available=True,
             required=False,
             python_module=False,
         )
@@ -280,10 +284,24 @@ def test_each_binding_is_reported_as_the_check_reaches_it(
 
     def present(*, built: bool) -> list[Binding]:
         assert built
-        return absent
+        return stood_in
+
+    def run(binding: Binding, _mode: ModeName, *, one_lane: bool = False) -> NoReturn:
+        del one_lane
+        _ = sys.stderr.write(f"ran {binding.name}\n")
+        raise RuntimeError
 
     monkeypatch.setattr(check_bench_schema, "bindings", present)
+    monkeypatch.setattr(check_bench_schema, "_run", run)
     monkeypatch.setattr(sys, "argv", ["check_bench_schema", "--built"])
-    assert check_bench_schema.main() == 0
-    printed = [line for line in capsys.readouterr().err.splitlines() if line.startswith("progress")]
-    assert printed == [f"progress: {done}/2 bindings" for done in range(3)]
+    assert check_bench_schema.main() == 1
+    err = capsys.readouterr().err
+    printed = [line for line in err.splitlines() if line.startswith(("progress", "ran "))]
+    # A binding is run several times, and its runs in a row read as one line.
+    assert [line for line, _runs in groupby(printed)] == [
+        "progress: 0/2 bindings",
+        "ran go",
+        "progress: 1/2 bindings",
+        "ran rust",
+        "progress: 2/2 bindings",
+    ]

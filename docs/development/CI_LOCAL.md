@@ -81,10 +81,12 @@ the sweep saw, the record a push asks for
 
 Each step writes its output to `<log>.steps/<step>.log` as it runs, `<log>`
 being the log's path without `.log`.  The sweep's standard error shows each
-step as it starts and as it ends, as it passes each quarter of its work where
-its reports count that work, and the last lines of a failed step's output; the
-log holds each step's whole output with its duration and outcome, written once
-the lanes end.  A step reports its progress in its own output, on the lines
+step as it starts and as it ends, as its reports pass a new quarter of the count
+they carry, short of that count's whole, a report at the whole starting the
+count again, and the last lines of a failed step's output; the log holds each
+step's whole output with its duration and outcome, written once the lanes end,
+the build's before they start and the staleness gate's as it ends.  A step
+reports its progress in its own output, on the lines
 [`tools/_ci_progress.py`](../../tools/_ci_progress.py) declares for it: the
 count its tool prints or the line it prints per item done (a module checked, a
 test, a mutant), or the `progress: k/n` line our tools print through
@@ -102,11 +104,16 @@ time, its reports and its longest stretch without one, which the allowances
 are set from.  On GitHub every job that checks out the tree runs each step's
 script through [`tools/watch_step.py`](../../tools/watch_step.py), its shell,
 under the same watchdog: [`tools/_workflow_steps.py`](../../tools/_workflow_steps.py)
-declares each step our tooling runs and exempts each step GitHub alone runs
-(an install, a cache, a release upload), and refuses a step it names in neither.
-Every step runs in a process group of its own under a guard that interrupts it
-when the sweep dies, however it dies, and Ctrl-C stops the running steps before
-the sweep exits, so an ended sweep leaves no build holding Shake's lock.
+declares each step it watches, with its progress, and exempts each step only
+GitHub runs (a tool's install, a cache, the runner's setup, a release's
+packaging, signing or publishing, a tally of the jobs it needs, or the printing
+of what the job found), and refuses a step it names in neither.
+Every step of the sweep runs in a process group of its own under a guard that
+interrupts its command when the sweep is interrupted or dies, however it dies,
+and kills what is left once the command has ended or the guard's grace has
+passed, so an ended sweep leaves no build holding Shake's lock past that grace.
+A process a sweep step's command leaves in its group once it exits, holding the
+step's output, is stopped by the watchdog's stall alone.
 
 ### The build prerequisite and the staleness gate
 

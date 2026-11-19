@@ -1,17 +1,16 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""What every GitHub Actions step runs, as the watchdog judges it: watched, or exempt and why.
+"""What a workflow's ``run:`` step runs, as the watchdog judges it: watched, or exempt and why.
 
-Every ``run:`` step of every workflow runs under ``tools.watch_step``, which
-asks :func:`declared_for` what the step's script is.  A step that runs our
-tooling, a step a local run also runs, is watched: its declaration carries the
-step's progress (``tools._watchdog``).  A step only GitHub runs, a tool's
-install, a cache, the setup of a runner, release packaging, is exempt: no
-deadline holds it, as the user ruled, and its output still reaches the job log
-as it comes.  A script that runs any of our tooling is watched by the one
-watched declaration it matches; one that runs none is exempt by an exempt
-declaration it matches; a script matching no declaration, or two watched
-ones, is refused, so a step added to a workflow is declared before it runs.
+Every ``run:`` step of a job that checks out the tree runs under ``tools.watch_step``, which
+asks :func:`declared_for` what the step's script is; a job that checks out nothing runs
+GitHub's own ``bash -e`` and only exempt steps.  A script matching one watched declaration is
+watched, its declaration carrying the step's progress (``tools._watchdog``).  A script matching
+no watched declaration is exempt by the first exempt one it matches (a tool's install, a cache,
+the setup of a runner, the packaging, signing or publishing of a release, a tally of the jobs
+it needs, or the printing of what the job found): no deadline holds it, and its output still
+reaches the job log as it comes.  A script matching no declaration, or more than one watched
+one, is refused, so a step added to a job that checks out the tree is declared before it runs.
 """
 
 from __future__ import annotations
@@ -32,7 +31,8 @@ from tools._watchdog import PatternText, Progress, Seconds
 
 from aletheia.common_types import Prose
 
-# A step's ``run:`` text as GitHub hands it to the shell.
+# A step's ``run:`` text, as the workflow spells it or as GitHub hands it to the shell with its
+# expressions filled in.
 ScriptText = NewType("ScriptText", str)
 
 # The reason a watched step carries, which needs none.
@@ -52,20 +52,24 @@ class WorkflowStep:
     why: Prose = _NO_REASON
 
     def names(self, script: ScriptText) -> bool:
-        """Answer whether ``script`` is a step of this kind."""
-        return re.search(self.runs, script, flags=re.MULTILINE) is not None
+        """Answer whether ``runs`` matches a line of ``script``.
+
+        :func:`declared_for` decides which matching kind the step is.
+        """
+        return any(re.search(self.runs, line) is not None for line in script.splitlines())
 
 
 def _watched(runs: PatternText, progress: Progress) -> WorkflowStep:
-    """Declare a step running our tooling, and how it reports its progress."""
+    """Declare a watched step: the lines that are it, and how it reports its progress."""
     return WorkflowStep(runs, progress)
 
 
 # How the steps that are not the sweep's report: the sweep's own lines as each of its steps starts,
-# reports or ends; the benchmark runner's line as each binding starts and ends; ours.  The sweep
-# run as one step outlasts the longest allowance of a step it runs by the floor, so the sweep's own
-# watchdog stops and names a stuck step first.  The benchmark runner's longest stretch measured
-# without a report on GitHub's runners, 73 s, puts it on the floor.
+# passes a quarter of a count, or ends; the benchmark runner's line as each binding starts and
+# ends; ours.  The sweep run as one step outlasts the longest allowance of a step it runs by the
+# floor, so the sweep's own watchdog stops and names a stuck step first when that step's last
+# report came less than the floor after the sweep's last line.  The benchmark runner's longest
+# stretch measured without a report on GitHub's runners, 103 s, puts it on the floor.
 _SWEEP = Progress(PatternText(r"^(▶|✓|✗|⊘|⋯) "), Seconds(LONGEST_STEP_ALLOWANCE + ALLOWANCE_FLOOR))
 _BENCHMARKS = Progress(PatternText(r"^>>> Running |^Saved: "), ALLOWANCE_FLOOR)
 _OURS = progress_of(GateName("check-action-pins"))
@@ -96,7 +100,7 @@ def _exempt(runs: PatternText, why: Prose) -> WorkflowStep:
     return WorkflowStep(runs, None, why)
 
 
-# Steps that run our tooling, each its own declaration so each gets its own progress.
+# The watched steps, each its own declaration so each gets its own progress.
 WATCHED: tuple[WorkflowStep, ...] = (
     _watched(PatternText(r"-m tools\.run_ci\b"), _SWEEP),
     _watched(PatternText(r"cabal run shake -- build\b"), _BUILD),
@@ -156,6 +160,7 @@ _INSTALL = Prose("installs a tool on the runner, which a local run already has")
 _CACHE = Prose("keeps GitHub's caches")
 _RELEASE = Prose("packages, signs or publishes a release, which only GitHub does")
 _TALLY = Prose("reads the result of the jobs it needs, which only GitHub has")
+_LOG = Prose("prints what the job found into its log, which only GitHub has")
 
 # Steps only GitHub runs.
 EXEMPT: tuple[WorkflowStep, ...] = (
@@ -184,8 +189,8 @@ EXEMPT: tuple[WorkflowStep, ...] = (
     _exempt(PatternText(r"^\s*printf 'mutation lanes: "), _TALLY),
     _exempt(PatternText(r'^\s*if \[ -n "\$\{CLOSED_PR_NUMBER\}" \]'), _CACHE),
     _exempt(PatternText(r'^\s*case "\$\{BENCH\}" in$'), _SETUP),
-    _exempt(PatternText(r"^\s*for f in benchmarks/results/\*_"), _SETUP),
-    _exempt(PatternText(r'^\s*echo "This diff moves no binding'), _SETUP),
+    _exempt(PatternText(r"^\s*for f in benchmarks/results/\*_"), _LOG),
+    _exempt(PatternText(r'^\s*echo "This diff moves no binding'), _LOG),
     _exempt(PatternText(r'^\s*mkdir -p "\$\{RUNNER_TEMP\}/(tarballs|release)"'), _SETUP),
     _exempt(PatternText(r'^\s*cd "\$\{RUNNER_TEMP\}/release"'), _RELEASE),
     _exempt(PatternText(r"-m tools\.bundle_(validate|c_example)\b"), _RELEASE),
@@ -202,7 +207,7 @@ EXEMPT: tuple[WorkflowStep, ...] = (
 
 
 def declared_for(script: ScriptText) -> WorkflowStep | Prose:
-    """Return the declaration of what ``script`` runs, or why it has none."""
+    """Return the declaration of what ``script`` runs, or why it is refused."""
     watched = [step for step in WATCHED if step.names(script)]
     if len(watched) > 1:
         both = " and ".join(step.runs for step in watched)

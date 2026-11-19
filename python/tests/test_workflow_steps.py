@@ -1,15 +1,14 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Every GitHub Actions step runs under the watchdog, declared watched or exempt.
+"""Every ``run:`` step is declared, and runs under the watchdog where its job checks out the tree.
 
-Every ``run:`` step of every workflow is declared in ``tools/_workflow_steps.py``:
-watched when it runs our tooling, exempt when only GitHub runs it.  Every job
-that checks out the tree runs its steps under ``tools.watch_step``, the shell
-its workflow names, having checked out the tree and set up Python 3.14 before
-its first ``run:`` step; a job that checks out nothing has no tooling to run,
-so it runs GitHub's own default shell and only exempt steps.  A script running
-our tooling is watched however many setup lines it also has; one running two
-watched tools, or none and nothing exempt, is refused.
+Every ``run:`` step of every workflow is declared watched or exempt in
+``tools/_workflow_steps.py``.  Every job that checks out the tree runs its steps under
+``tools.watch_step``, the shell its workflow names, having checked out the tree and set up
+Python 3.14 before its first ``run:`` step; a job that checks out nothing has no ``tools``
+package, so it runs GitHub's own default shell and only exempt steps.  A script running a
+watched tool stays watched beside any setup lines; one running two watched tools, or nothing
+a declaration names, is refused.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ import pytest
 import yaml
 
 from tools._ci_progress import ALLOWANCE_FLOOR, STEP_PROGRESS
-from tools._watchdog import Chunk, heard_line
+from tools._watchdog import Chunk, PatternText, heard_line
 from tools._workflow_steps import WATCHED, ScriptText, WorkflowStep, declared_for
 
 if TYPE_CHECKING:
@@ -34,19 +33,36 @@ if TYPE_CHECKING:
 _WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 
 # A shell line as a workflow names it; an action a step uses; a step's name; a job's id; a
-# Python version as setup-python reads it; a place in the workflows, file and job.
+# Python version as setup-python reads it; a directory on the runner; a repository a checkout
+# names; a sparse checkout's patterns; a container's image; a place in the workflows: a file
+# and a job, or a step of it.
 ShellLine = NewType("ShellLine", str)
 ActionRef = NewType("ActionRef", str)
 StepName = NewType("StepName", str)
 JobId = NewType("JobId", str)
 PythonVersion = NewType("PythonVersion", str)
+Directory = NewType("Directory", str)
+Repository = NewType("Repository", str)
+SparsePatterns = NewType("SparsePatterns", str)
+ContainerImage = NewType("ContainerImage", str)
 Place = NewType("Place", str)
 
-# The shell every job that checks out the tree names, and GitHub's own default.
+# The shell every job that checks out the tree runs under, as its workflow names it, and
+# GitHub's own default.
 _WATCHED_SHELL = ShellLine("python3.14 -m tools.watch_step {0}")
 _GITHUB_SHELL = ShellLine("bash -e {0}")
+_CHECKOUT, _SETUP_PYTHON = ActionRef("actions/checkout"), ActionRef("actions/setup-python")
 
-_With = TypedDict("_With", {"python-version": PythonVersion}, total=False)
+_With = TypedDict(
+    "_With",
+    {
+        "python-version": PythonVersion,
+        "repository": Repository,
+        "sparse-checkout": SparsePatterns,
+        "path": Directory,
+    },
+    total=False,
+)
 _Step = TypedDict(
     "_Step",
     {
@@ -55,24 +71,27 @@ _Step = TypedDict(
         "uses": ActionRef,
         "with": _With,
         "shell": ShellLine,
-        "working-directory": Place,
+        "working-directory": Directory,
     },
     total=False,
 )
-
-
-class _RunDefaults(TypedDict, total=False):
-    shell: ShellLine
+_RunDefaults = TypedDict(
+    "_RunDefaults", {"shell": ShellLine, "working-directory": Directory}, total=False
+)
 
 
 class _Defaults(TypedDict, total=False):
     run: _RunDefaults
 
 
+class _Container(TypedDict, total=False):
+    image: ContainerImage
+
+
 class _Job(TypedDict, total=False):
     steps: list[_Step]
     defaults: _Defaults
-    container: Place
+    container: ContainerImage | _Container
 
 
 class _Workflow(TypedDict, total=False):
@@ -82,16 +101,27 @@ class _Workflow(TypedDict, total=False):
 
 def _jobs() -> Iterator[tuple[Place, _Job, _Workflow]]:
     """Each job of each workflow, with its place and its workflow."""
-    for path in sorted(_WORKFLOWS.glob("*.yml")):
+    paths = sorted(_WORKFLOWS.glob("*.y*ml"))
+    assert paths, _WORKFLOWS
+    for path in paths:
         workflow = cast("_Workflow", yaml.safe_load(path.read_text(encoding="utf-8")))
         for job_id, job in workflow.get("jobs", {}).items():
             yield Place(f"{path.name}:{job_id}"), job, workflow
 
 
+def _step_place(place: Place, step: _Step) -> Place:
+    return Place(f"{place}:{step.get('name', '?')}")
+
+
+def _run_defaults(job: _Job, workflow: _Workflow) -> tuple[_RunDefaults, _RunDefaults]:
+    """Answer the ``defaults.run`` of a job and of its workflow, empty where none is named."""
+    return job.get("defaults", {}).get("run", {}), workflow.get("defaults", {}).get("run", {})
+
+
 def _shell(job: _Job, workflow: _Workflow) -> ShellLine | None:
-    """Answer the shell a job's ``run:`` steps run under: its own default, else its workflow's."""
-    for scope in (job.get("defaults", {}), workflow.get("defaults", {})):
-        shell = scope.get("run", {}).get("shell")
+    """Answer the default shell a job names: its own, else its workflow's, else None."""
+    for defaults in _run_defaults(job, workflow):
+        shell = defaults.get("shell")
         if shell is not None:
             return shell
     return None
@@ -101,78 +131,95 @@ def _uses(step: _Step, action: ActionRef) -> bool:
     return step.get("uses", "").startswith(action)
 
 
+def _checks_out_the_tree(step: _Step) -> bool:
+    """Answer whether a step checks out the tree whole, naming no repository or sparse patterns."""
+    inputs = step.get("with", {})
+    return _uses(step, _CHECKOUT) and "repository" not in inputs and "sparse-checkout" not in inputs
+
+
 def test_every_run_step_of_every_workflow_is_declared() -> None:
-    """No step runs that ``tools/_workflow_steps.py`` does not declare watched or exempt."""
+    """Every ``run:`` step is declared watched or exempt in ``tools/_workflow_steps.py``."""
     undeclared: list[tuple[Place, Prose]] = []
     for place, job, _workflow in _jobs():
         for step in job.get("steps", []):
             if "run" in step:
                 declared = declared_for(step["run"])
                 if not isinstance(declared, WorkflowStep):
-                    undeclared.append((Place(f"{place}:{step.get('name', '?')}"), declared))
+                    undeclared.append((_step_place(place, step), declared))
     assert not undeclared, undeclared
 
 
 def test_every_job_that_checks_out_the_tree_runs_under_the_watchdog() -> None:
     """Its shell is ``tools.watch_step``; the tree and Python 3.14 precede its first run step."""
-    checkout, setup_python = ActionRef("actions/checkout"), ActionRef("actions/setup-python")
     wrong: list[Place] = []
     for place, job, workflow in _jobs():
         steps = job.get("steps", [])
         first_run = next((i for i, step in enumerate(steps) if "run" in step), None)
-        if first_run is None or not any(_uses(step, checkout) for step in steps):
+        if first_run is None or not any(_uses(step, _CHECKOUT) for step in steps):
             continue
         before = steps[:first_run]
         python = any(
-            _uses(step, setup_python)
+            _uses(step, _SETUP_PYTHON)
             and str(step.get("with", {}).get("python-version", "")).startswith("3.14")
             for step in before
         )
-        checked_out = any(_uses(step, checkout) for step in before)
+        checked_out = any(_checks_out_the_tree(step) for step in before)
         if _shell(job, workflow) != _WATCHED_SHELL or not checked_out or not python:
             wrong.append(place)
     assert not wrong, wrong
 
 
 def test_no_run_step_of_a_watched_job_leaves_the_wrapper_or_the_checkout_s_root() -> None:
-    """No step names its own shell or directory, and no watched job runs in a container.
+    """No ``run:`` step of a watched job leaves the watchdog or the checkout's root.
 
-    A shell of its own runs a step outside the watchdog, and a directory of its own or a
-    container leaves ``-m tools.watch_step`` without the checkout's ``tools`` package.
+    None names its own shell or directory, no default directory moves them, and no checkout
+    names a path: a shell of its own runs a step outside the watchdog, and a directory or a
+    checkout's path leaves ``-m tools.watch_step`` without the checkout's ``tools`` package.
+    No watched job runs in a container either, so every step runs on the runner itself, where
+    the job set up ``python3.14``.
     """
     wrong: list[Place] = []
     for place, job, workflow in _jobs():
         if _shell(job, workflow) != _WATCHED_SHELL:
             continue
-        if "container" in job:
+        moved = any("working-directory" in run for run in _run_defaults(job, workflow))
+        if "container" in job or moved:
             wrong.append(place)
-        wrong.extend(
-            Place(f"{place}:{step.get('name', '?')}")
-            for step in job.get("steps", [])
-            if "run" in step and ("shell" in step or "working-directory" in step)
-        )
+        for step in job.get("steps", []):
+            own = "run" in step and ("shell" in step or "working-directory" in step)
+            elsewhere = _uses(step, _CHECKOUT) and "path" in step.get("with", {})
+            if own or elsewhere:
+                wrong.append(_step_place(place, step))
     assert not wrong, wrong
 
 
 def test_a_job_that_checks_out_nothing_runs_github_s_shell_and_exempt_steps_only() -> None:
-    """With no tree there is no tooling: GitHub's ``bash -e``, and every step exempt."""
-    checkout = ActionRef("actions/checkout")
+    """With no tree there is no ``tools`` package, so every ``run:`` step is exempt.
+
+    Each runs under GitHub's ``bash -e``: the job's default, with no shell of its own.
+    """
     wrong: list[Place] = []
     for place, job, workflow in _jobs():
         steps = job.get("steps", [])
-        runs = [step["run"] for step in steps if "run" in step]
-        if not runs or any(_uses(step, checkout) for step in steps):
+        runs = [step for step in steps if "run" in step]
+        if not runs or any(_uses(step, _CHECKOUT) for step in steps):
             continue
-        declared = [declared_for(script) for script in runs]
+        declared = [declared_for(step["run"]) for step in runs]
         exempt = all(isinstance(d, WorkflowStep) and d.progress is None for d in declared)
         if _shell(job, workflow) != _GITHUB_SHELL or not exempt:
             wrong.append(place)
+        wrong.extend(_step_place(place, step) for step in runs if "shell" in step)
     assert not wrong, wrong
 
 
-def test_a_script_running_our_tooling_is_watched_one_running_two_or_nothing_known_refused() -> None:
-    """Setup lines beside a watched tool leave it watched; two watched tools or none are refused."""
-    with_setup = declared_for(ScriptText("set -euo pipefail\npython -m tools.check_pr_title x\n"))
+def test_a_watched_tool_beside_setup_stays_watched_two_or_nothing_known_refused() -> None:
+    """Setup lines beside a watched tool leave it watched, and alone they are exempt.
+
+    Two watched tools, or nothing a declaration names, are refused.
+    """
+    with_setup = declared_for(
+        ScriptText("sudo apt-get install -y valgrind\npython -m tools.check_pr_title x\n")
+    )
     assert isinstance(with_setup, WorkflowStep)
     assert with_setup.progress is not None
     assert "check_pr_title" in with_setup.runs
@@ -187,6 +234,15 @@ def test_a_script_running_our_tooling_is_watched_one_running_two_or_nothing_know
     assert isinstance(unknown, str)
     assert "no declaration" in unknown
     assert "make world" in unknown
+
+
+def test_a_kind_is_searched_a_line_at_a_time() -> None:
+    """A kind's pattern is searched in each line of a script on its own, never across two."""
+    kind = WorkflowStep(PatternText(r"run_ci\s+--parallel"), None)
+    assert kind.names(ScriptText("python -m tools.run_ci --parallel\necho done\n"))
+    assert kind.names(ScriptText("set -e\npython -m tools.run_ci --parallel\necho done\n"))
+    assert kind.names(ScriptText("set -e\npython -m tools.run_ci --parallel\n"))
+    assert not kind.names(ScriptText("python -m tools.run_ci\n--parallel\n"))
 
 
 # The benchmark workflow's schema step: the Rust benchmark's build, then our schema check.
@@ -204,7 +260,11 @@ _BENCH_SCHEMA_STEP = ScriptText(
         ("python3.14 -m tools.run_ci --parallel", "  ▶ build …"),
         ("python3.14 -m tools.run_ci --parallel", "  ✓ build (0s)"),
         ("python3.14 -m tools.run_ci --parallel", "  ✗ agda gates FAILED (exit 1, 21s)"),
-        ("python3.14 -m tools.run_ci --parallel", "  ⊘ check-reproducible-build skipped (set it)"),
+        (
+            "python3.14 -m tools.run_ci --parallel",
+            "  ⊘ check-reproducible-build skipped"
+            + " (set ALETHEIA_REPRO_CHECK=1 or pass --repro to enable)",
+        ),
         ("python3.14 -m tools.run_ci --parallel", "  ⋯ pytest: ............... [ 25%]"),
         ("bash benchmarks/run_all.sh --bench x", ">>> Running Python throughput benchmark..."),
         ("bash benchmarks/run_all.sh --bench x", "    Saved: python_throughput.json"),
@@ -253,7 +313,7 @@ def test_a_watched_step_reads_the_lines_its_tool_prints(script: ScriptText, line
 
 
 def test_every_watched_kind_has_an_allowance_no_shorter_than_the_floor() -> None:
-    """A watched step is stopped once it goes its allowance without a report, never sooner."""
+    """Every watched kind declares an allowance, none shorter than ``ALLOWANCE_FLOOR``."""
     short = [
         step.runs
         for step in WATCHED
@@ -265,7 +325,10 @@ def test_every_watched_kind_has_an_allowance_no_shorter_than_the_floor() -> None
 
 
 def test_the_sweep_run_as_one_step_outlasts_every_step_it_runs() -> None:
-    """The sweep's own watchdog stops and names a stuck step before the step running the sweep."""
+    """The step running the sweep may go longer without a sweep line than any step it runs.
+
+    Its allowance outlasts the longest a step it runs may go without a report.
+    """
     sweep = declared_for(ScriptText("python3.14 -m tools.run_ci --parallel\n"))
     assert isinstance(sweep, WorkflowStep), sweep
     assert sweep.progress is not None

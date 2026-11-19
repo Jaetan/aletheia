@@ -29,9 +29,10 @@ concurrency:
   group: gha-checks-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Every `run:` step runs under the watchdog (tools/watch_step.py): `bash -e` as
-# GitHub's own default shell runs it, its output in the job log as it comes, its
-# progress held by the step's declaration in tools/_workflow_steps.py.
+# Every `run:` step of a job that checks out the tree runs under the watchdog
+# (tools/watch_step.py): `bash -e` as GitHub's own default shell runs it, its
+# output in the job log as it comes, its progress held, or exempt, as the step's
+# declaration in tools/_workflow_steps.py says.
 defaults:
   run:
     shell: python3.14 -m tools.watch_step {0}

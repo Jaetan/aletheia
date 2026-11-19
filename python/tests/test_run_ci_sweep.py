@@ -10,15 +10,15 @@ swept, exports the digest to its steps, and vouches for neither once they moved
 under it; a sweep of a subset vouches for nothing.  Its log lands in the
 records directory ``tools._records`` names, made when absent, and a relative
 one refuses the sweep before git is asked for the branch or the commit.  Each
-step's command is answered in-process by a stand-in (``_step_runs``) and the
-sweep's measures are read from the scratch tree's files (``_ci_runner``): no
-real gates, no timing asserts.
+step's command is answered in-process by a stand-in (``_step_runs``), and the
+sweep's measures are read from the scratch tree's files (``_ci_runner``) or,
+where a test discovers a checkout, planted (``_plant_discovery``): no real
+gates, and no clock but the suite's, which only a test moves.
 """
 
 from __future__ import annotations
 
 import contextlib
-import datetime as dt
 import io
 import json
 import os
@@ -41,6 +41,7 @@ from _step_runs import Answer, StepCall, ends, install, passes
 
 from tools import run_ci
 from tools._common import EnvName, EnvValue, GateName
+from tools._determinism_guard import Clock, Seconds
 from tools._records import records_dir
 from tools._run_ci_options import LaneName, OptInOptions
 from tools._scheduler import step_file
@@ -65,7 +66,7 @@ if TYPE_CHECKING:
     from tools.commit_subjects import GitArg
     from tools.sweep_evidence import TreeId
 
-# A step command whose stand-in writes a line and fails.
+# A step command whose output and status each test installs.
 _WRITES = CommandWord("writes")
 
 # The variable naming the records directory, spelled as the workflows set it.
@@ -90,7 +91,10 @@ def test_the_header_names_where_steps_write_and_a_failure_s_tail_names_its_file(
 def test_a_step_s_quarter_reports_are_shown_and_a_stall_is_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
-    """Reports passing a quarter of the work are shown; a step the watchdog stopped is named so."""
+    """A report passing a new quarter of the work, short of the whole, is shown.
+
+    A step the watchdog stopped is named so.
+    """
     counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"), WatchSeconds(600.0))
 
     def declared(_name: GateName) -> Progress:
@@ -107,32 +111,71 @@ def test_a_step_s_quarter_reports_are_shown_and_a_stall_is_named(
     err = capsys.readouterr().err
     assert "  ⋯ a: [30/100]\n  ⋯ a: [60/100]\n" in err
     assert "[10/100]" not in err
+    assert "[100/100]" not in err
     assert "  ✗ b FAILED (stopped by the watchdog, no progress report, exit 1, 0s)" in err
 
 
-def test_what_the_watchdog_measured_of_each_step_is_recorded_beside_the_step_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_step_the_watchdog_fails_for_making_no_report_is_named_so(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+    clock: Clock,
 ) -> None:
-    """``progress.json`` holds each step's run time, reports, longest quiet, whether it stalled."""
-    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"), WatchSeconds(600.0))
+    """A step declaring reports that exits 0 after 11 s with none fails, its line saying why."""
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"))
 
     def declared(_name: GateName) -> Progress:
         return counted
 
+    def quiet(_call: StepCall) -> Answer:
+        clock.advance(Seconds(11.0))
+        return Answer(ExitStatus(0), Prose("compiling\n"))
+
+    monkeypatch.setattr(run_ci, "progress_of", declared)
+    _ = install(monkeypatch, {_WRITES: quiet})
+    runner = ci_runner(tmp_path)
+    runner.step("q", _WRITES, lane="x")
+    assert runner.run() == 1
+    err = capsys.readouterr().err
+    assert "  ✗ q FAILED (failed by the watchdog, no progress report, exit 0, 11s)" in err
+
+
+def test_what_the_watchdog_measured_of_each_step_is_recorded_beside_the_step_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: Clock
+) -> None:
+    """``progress.json`` holds each step that ran: run time, reports, longest quiet, stalled.
+
+    A step failing by its own exit is no stalled one.
+    """
+    counted = Progress(PatternText(r"\[(?P<done>\d+)/(?P<total>\d+)\]"), WatchSeconds(600.0))
+    fails = CommandWord("fails")
+
+    def declared(_name: GateName) -> Progress:
+        return counted
+
+    def reports(_call: StepCall) -> Answer:
+        clock.advance(Seconds(12.34))
+        return Answer(ExitStatus(0), Prose("[1/2]\n[2/2]\n"), longest_quiet=WatchSeconds(4.56))
+
+    stalls = Answer(
+        ExitStatus(0), Prose("[1/9]\n"), stalled=True, longest_quiet=WatchSeconds(600.0)
+    )
     monkeypatch.setattr(run_ci, "progress_of", declared)
     measured_in_process(monkeypatch)
-    _ = install(monkeypatch, {_WRITES: ends(ExitStatus(0), Prose("[1/2]\n[2/2]\n"))})
+    _ = install(
+        monkeypatch, {_WRITES: reports, EXIT_1: lambda _c: stalls, fails: ends(ExitStatus(5))}
+    )
     runner = ci_runner(tmp_path)
     runner.step("a", _WRITES, lane="x")
-    assert runner.run() == 0
+    runner.step("b", EXIT_1, lane="y")
+    runner.step("c", EXIT_0, lane="y", needs=(GateName("b"),))
+    runner.step("d", fails, lane="z")
+    assert runner.run() == 1
     measured = json.loads((runner.steps_dir / "progress.json").read_text(encoding="utf-8"))
     assert measured == {
-        "a": {
-            "seconds": measured["a"]["seconds"],
-            "reports": 2,
-            "longest_quiet": 0.0,
-            "stalled": False,
-        }
+        "a": {"seconds": 12.3, "reports": 2, "longest_quiet": 4.6, "stalled": False},
+        "b": {"seconds": 0.0, "reports": 1, "longest_quiet": 600.0, "stalled": True},
+        "d": {"seconds": 0.0, "reports": 0, "longest_quiet": 0.0, "stalled": False},
     }
 
 
@@ -528,10 +571,10 @@ def test_an_untracked_file_or_a_subset_sweep_records_no_tree(
 
 
 def _plant_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Answer what discovering a checkout at ``tmp_path / "repo"`` asks of git and the clock.
+    """Answer what discovering a checkout at ``tmp_path / "repo"`` asks of git.
 
-    Git names branch and commit ``main``, the sources digest to zeros, no tree
-    is named, and the clock reads one fixed instant; the checkout is returned.
+    Git names branch and commit ``main``, the sources digest to zeros and no
+    tree is named; the checkout is returned.
     """
 
     def answers(_root: Path, *_args: GitArg) -> Prose:
@@ -543,13 +586,9 @@ def _plant_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     def no_tree(_root: Path) -> TreeId | None:
         return None
 
-    def instant() -> dt.datetime:
-        return dt.datetime(2001, 9, 9, 1, 46, 40, tzinfo=dt.UTC)
-
     monkeypatch.setattr(run_ci, "_git_value", answers)
     monkeypatch.setattr(run_ci, "sources_digest_of_worktree", digest)
     monkeypatch.setattr(run_ci, "worktree_tree", no_tree)
-    monkeypatch.setattr(run_ci, "_now_utc", instant)
     repo = tmp_path / "repo"
     repo.mkdir()
     return repo

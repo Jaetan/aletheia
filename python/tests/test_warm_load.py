@@ -23,7 +23,7 @@ from tools._warm import LoadResult, describe_exit, read_load, run_warm_gate
 from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
+    from collections.abc import Callable, Generator, Iterator
     from types import TracebackType
 
 
@@ -101,9 +101,10 @@ LoadedPath = NewType("LoadedPath", str)
 
 @dataclass
 class _Warm:
-    """A warm process stood in: it records each file it is asked to load."""
+    """A warm process stood in: it records each file it is asked to load and what stderr held."""
 
-    loaded: list[LoadedPath] = field(default_factory=list[LoadedPath])
+    heard: Callable[[], Prose]
+    loaded: list[tuple[LoadedPath, Prose]] = field(default_factory=list[tuple[LoadedPath, Prose]])
 
     def __call__(self) -> Self:
         """Stand for ``WarmAgda()``: the process the gate opens."""
@@ -122,8 +123,8 @@ class _Warm:
         """Close nothing."""
 
     def load(self, abspath: LoadedPath) -> LoadResult:
-        """Record the file and answer that it checked."""
-        self.loaded.append(abspath)
+        """Record the file and what stderr held, and answer that it checked."""
+        self.loaded.append((abspath, self.heard()))
         return LoadResult(tokens=[], ok=True, error="", warnings=[])
 
 
@@ -134,15 +135,27 @@ def _unlocked(*, wait: bool) -> Generator[None]:
     yield
 
 
-def test_each_file_the_warm_gate_loads_is_reported(
+def test_the_warm_gate_reports_before_its_first_load_and_as_its_loads_complete(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
-    """The gate reports on stderr before the first load and as each scoped file is loaded."""
-    warm = _Warm()
+    """The gate reports on stderr before the first load and as its loads complete.
+
+    A report follows each load that completes another twentieth of the scope: here both files.
+    """
+    warm = _Warm(heard=lambda: Prose(capsys.readouterr().err))
     monkeypatch.setattr(_warm, "WarmAgda", warm)
     monkeypatch.setattr(_warm, "agda_tree_lock", _unlocked)
-    assert run_warm_gate(["A.agda", "B.agda"], lambda _agda, _files: 0, wait_lock=False) == 0
-    assert [path.rsplit("/", 1)[-1] for path in warm.loaded] == ["A.agda", "B.agda"]
-    assert capsys.readouterr().err == (
-        "progress: 0/2 files loaded\nprogress: 1/2 files loaded\nprogress: 2/2 files loaded\n"
-    )
+    acted: list[Prose] = []
+
+    def action(_agda: _warm.WarmAgda, _files: list[_warm.RelPath]) -> ExitStatus:
+        """Stand for the gate's work, keeping what was printed before it ran."""
+        acted.append(Prose(capsys.readouterr().err))
+        return ExitStatus(0)
+
+    assert run_warm_gate(["A.agda", "B.agda"], action, wait_lock=False) == 0
+    assert [(path.rsplit("/", 1)[-1], heard) for path, heard in warm.loaded] == [
+        ("A.agda", "progress: 0/2 files loaded\n"),
+        ("B.agda", "progress: 1/2 files loaded\n"),
+    ]
+    assert acted == ["progress: 2/2 files loaded\n"]
+    assert not capsys.readouterr().err

@@ -156,11 +156,28 @@ def test_a_regression_outranks_a_stale_record() -> None:
 
 
 def test_each_binding_is_reported_as_the_sweep_reaches_it(
-    tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
 ) -> None:
     """The sweep reports on stderr before the first binding and as it passes each, run or not."""
-    reports, _elapsed = mutation_run.run_enabled_bindings(tmp_path, set())
-    assert not reports
-    total = len(mutation_run.RUNNERS)
-    printed = [line for line in capsys.readouterr().err.splitlines() if line.startswith("progress")]
-    assert printed == [f"progress: {done}/{total} bindings" for done in range(total + 1)]
+
+    def ran(_artifact_dir: Path) -> MutationReport:
+        return MutationReport("go", "gremlins", 1, 0, "")
+
+    def never(_artifact_dir: Path) -> MutationReport:
+        pytest.fail("a binding out of scope ran")
+
+    table = [
+        ("go", "ALETHEIA_MUTATION_SKIP_GO", ran),
+        ("rust", "ALETHEIA_MUTATION_SKIP_RUST", never),
+    ]
+    for _name, skip, _runner in table:
+        monkeypatch.delenv(skip, raising=False)
+    monkeypatch.setattr(mutation_run, "RUNNERS", table)
+    reports, _elapsed = mutation_run.run_enabled_bindings(tmp_path, {"go"})
+    assert [report.binding for report in reports] == ["go"]
+    # Each binding the sweep passes, run or skipped, prints a line of its own.
+    lines = capsys.readouterr().err.splitlines()
+    passed_at = [at for at, line in enumerate(lines) if line.startswith("[mutation] ")]
+    reported_at = [at for at, line in enumerate(lines) if line.startswith("progress")]
+    assert [lines[at] for at in reported_at] == [f"progress: {k}/2 bindings" for k in range(3)]
+    assert reported_at == [0, *(at + 1 for at in passed_at)]
