@@ -175,6 +175,10 @@ _ALLOWANCE_FACTOR = 5.0
 LONGEST_QUIET: Mapping[GateName, Seconds] = {
     # Its longer clean build on GitHub's runners, which prints nothing while it runs.
     GateName("check-reproducible-build"): Seconds(334.0),
+    # doc_example_tests, which compiles every C++ fence of the documents and prints only when it
+    # ends, run by both steps at once beside clang-tidy on GitHub's runners with a warm build.
+    GateName("ctest"): Seconds(268.8),
+    GateName("asan ctest"): Seconds(290.4),
 }
 
 
