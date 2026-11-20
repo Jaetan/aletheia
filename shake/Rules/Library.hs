@@ -179,9 +179,14 @@ libraryRules = do
         -- Agda will then update .agdai files as needed based on source changes
         putInfo "Compiling Agda to Haskell (this may take a few minutes)..."
         cores <- liftIO getNumProcessors
+        -- -I0.3 turns the runtime's idle collector back on, which Agda's binary
+        -- turns off (its built-in -I0): on several capabilities a compile could
+        -- otherwise sleep for good with every thread idle.  Measured on the
+        -- staleness gate's runs of 2026-11-20: 2 of 13 hung with -I0, none of 40
+        -- with -I0.3.
         cmd_ (Cwd "src")
             "agda"
-            "+RTS" ("-N" ++ show cores) "-M16G" "-RTS"
+            "+RTS" ("-N" ++ show cores) "-M16G" "-I0.3" "-RTS"
             "--compile"
             "--compile-dir=../build"
             "--ghc-dont-call-ghc"

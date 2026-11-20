@@ -140,7 +140,7 @@ The staleness gate is a *behavioral* regression test that the honest dependency
 graph (see [BUILDING.md → Incremental Builds](BUILDING.md#incremental-builds))
 stays correct.  It mutates real runtime string literals in two structurally
 distant modules and the ABI version in the C header, whose observable is what
-`aletheia_abi_version()` answers, rebuilds, and checks two properties:
+`aletheia_abi_version()` answers, rebuilds, and checks five properties:
 
 1. **Never stale** — an edit to a runtime literal must REACH the `.so` (and a
    revert must too).  This is the failure the old `rm -rf` sledgehammer masked by
@@ -148,6 +148,16 @@ distant modules and the ABI version in the C header, whose observable is what
 2. **Incremental** — a no-op build must NOT relink the `.so` (its mtime stays
    put).  A regression back to the sledgehammer would pass property 1 but fail
    here.
+3. **A compiler move rebuilds** — with a stand-in GHC or C compiler first on the
+   search path, reporting another version, a build must relink the `.so`, and
+   the C compiler's move must rebuild the stand-in kernel too; a build on the
+   real compiler follows each move that passes.
+4. **A stale sibling build is never copied** — the edits are built beside
+   another optimization level's library, which the build must not copy.
+5. **The same sources build the same library** — the run ends on its baseline
+   `.so` byte for byte.  The foreign library compiles with
+   `-fobject-determinism`, and `check-install-freshness` compares a deployed copy
+   with `build/` by build-id, so a rebuild of the same sources must not move it.
 
 Every edited source is restored on exit, on SIGINT and on SIGTERM.  SIGKILL
 bypasses that and leaves the run's marker in the two sources.  The build runs
@@ -251,8 +261,9 @@ Both lanes are always-on, not opt-in; if clang is absent the step fails
 loudly rather than silently skipping — install clang or run the sweep on a
 host that has it.
 
-**Reproducible build lane (`--repro`)** — no extra tools (the gate runs
-two clean Shake builds and `sha256sum`s the result).
+**Reproducible build lane (`--repro`)** — no extra tools (the gate builds
+over what the tree holds, then twice from clean, and requires the three
+libraries' sha256 to be one).
 
 **Stability bench lane (`--stability`)** — needs Python `psutil` (already
 in the project's `[dev]` extras) for the Python harness; Go and C++
