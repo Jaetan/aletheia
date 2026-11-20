@@ -69,7 +69,10 @@ from tools._common import (
     short_sha,
     write_workflow_line,
 )
+from tools._progress import reported, reporting
 from tools.mutation_run import BINDING_DIRS, KERNEL_PATHS, bindings_in_scope
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -98,6 +101,7 @@ _GLOBAL_COVERAGE_PATHS: tuple[str, ...] = (
     "tools/coverage_run.py",
     "tools/mutation_run.py",  # the scope function this lane reads
     "tools/_common.py",
+    "tools/_progress.py",
     "docs/COVERAGE_BENCH.yaml",
     ".github/workflows/pr-build-lanes.yml",
 )
@@ -654,7 +658,7 @@ def _measure(
     run_at = time.strftime("%Y-%m-%d")
     reports: list[CoverageReport] = []
     verdicts: dict[str, Verdict] = {}
-    for name, runner in RUNNERS:
+    for name, runner in reported(RUNNERS, Prose("bindings")):
         if asked is not None and name not in asked:
             continue
         if asked is None and in_scope is not None and name not in in_scope:
@@ -741,4 +745,4 @@ def _summary_name(asked: list[str] | None) -> str:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("coverage")))

@@ -39,10 +39,11 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 import yaml
 
 from tools._common import COUNTED_RTS_OPTS, ExecutorFactory, WorkerCount, shim_ghc
+from tools._progress import ItemCount, counted, reporting
 from tools._resources import cpu_budget
 from tools.check_bench_schema import REPO, SCHEMA_PATH, Binding, bindings, lib_env
 
-from aletheia.common_types import ExitStatus
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -203,7 +204,10 @@ def count_lanes(
     ]
     with executor(workers or WorkerCount(cpu_budget())) as pool:
         futures = [pool.submit(count, run) for run in runs]
-        totals = {run: future.result() for run, future in zip(runs, futures, strict=True)}
+        arriving = counted(
+            zip(runs, futures, strict=True), ItemCount(len(runs)), Prose("lane runs counted")
+        )
+        totals = {run: future.result() for run, future in arriving}
     return {
         BindingName(binding.name): {
             lane: per_operation(
@@ -299,4 +303,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("instruction counts")))

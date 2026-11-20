@@ -584,6 +584,12 @@ foreign-library aletheia-ffi
         -fmax-simplifier-iterations=10
         -fsplit-sections
         -fspec-constr-count=10
+        -- GHC's guide says this flag guarantees deterministic objects (its 9.12
+        -- notes call it experimental), so a rebuild of the same sources gives back
+        -- the library byte for byte: the staleness gate fails a run whose rebuilds
+        -- do not, and the freshness gate compares a deployed copy with build/ by
+        -- build-id.
+        -fobject-determinism
         -Wno-unused-imports
         -Wno-missing-signatures
         -Wno-unused-matches

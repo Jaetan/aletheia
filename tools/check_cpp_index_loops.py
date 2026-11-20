@@ -60,7 +60,10 @@ from tools._common import (
     git_toplevel,
     match_paren_content,
 )
+from tools._progress import reporting
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
+
+from aletheia.common_types import Prose
 
 # One clause of a three-clause `for` header: its init, its condition or its
 # increment, as `for_clauses` cut it; nothing else mints one.
@@ -405,4 +408,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-cpp-index-loops")))

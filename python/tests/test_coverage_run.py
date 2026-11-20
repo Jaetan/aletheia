@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -464,3 +465,31 @@ def test_main_measures_nothing_out_of_scope_and_passes(
     summary = json.loads((tmp_path / "abc1234" / "summary.json").read_text())
     assert summary["runs"] == []
     assert summary["passed"] is True
+
+
+def test_each_binding_is_reported_as_the_run_reaches_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The run reports on stderr before the first binding and as it passes each, measured or not."""
+    monkeypatch.delenv("ALETHEIA_COVERAGE_NO_DIFF_SCOPE", raising=False)
+    _fake_diff(monkeypatch, files=["go/x.go"])
+    monkeypatch.setattr(coverage_run, "ARTIFACT_BASE", tmp_path)
+    monkeypatch.setattr(coverage_run, "short_sha", _sha)
+
+    def measured(_art: Path, _spec: coverage_run.Spec) -> CoverageReport:
+        _ = sys.stderr.write("measured go\n")
+        return CoverageReport("go", "t", Figure("statements", 9, 10), Figure("blocks", 7, 10))
+
+    def never(_art: Path, _spec: coverage_run.Spec) -> CoverageReport:
+        pytest.fail("a binding out of scope was measured")
+
+    monkeypatch.setattr(coverage_run, "RUNNERS", [("go", measured), ("rust", never)])
+    assert coverage_run.main([]) == 0
+    assert capsys.readouterr().err.splitlines() == [
+        "[coverage] diff-scope: changed bindings only → ['go']",
+        "progress: 0/2 bindings",
+        "measured go",
+        "progress: 1/2 bindings",
+        "[coverage] rust: out of scope, not measured",
+        "progress: 2/2 bindings",
+    ]

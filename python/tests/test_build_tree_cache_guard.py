@@ -32,10 +32,11 @@ PRESENCE_CONDITION = f"steps.{PRESENCE_ID}.outputs.present == 'true'"
 # saved on the strength of it is the near-empty archive this guards against.
 THE_TEST = "[ -f build/libaletheia-ffi.so ]"
 
-# The gate that must not have a tree handed to it: it builds twice from clean
-# and compares the two, so a restored tree is not a clean build and a lane that
-# restored one would compare a cached artifact with itself.  Named by what it
-# runs rather than by its job's name, which is the thing an edit renames.
+# The gate that must have a tree handed to it: it builds over what the tree holds,
+# then twice from clean, cleaning before each, and requires the three to agree, so
+# without a restored tree its first build would be a third clean one and the
+# comparison of an incremental build with clean ones would not happen.  Named by
+# what it runs rather than by its job's name, which is the thing an edit renames.
 THE_CLEAN_BUILD_GATE = "tools.check_reproducible_build"
 
 
@@ -75,13 +76,13 @@ def _caches_the_build_tree(step: Step) -> bool:
     return "actions/cache" in step.get("uses", "") and key.startswith("build-tree-")
 
 
-def test_the_clean_build_gate_is_handed_no_tree() -> None:
-    """The lane that compares two clean builds restores no build tree.
+def test_the_clean_build_gate_builds_over_a_restored_tree() -> None:
+    """The lane running the reproducible-build gate restores a build tree first, and saves none.
 
-    Its claim is that two builds of one source tree produce one artifact, and
-    it reads that from the builds it runs itself.  A restored tree would make
-    the first of them incremental, so the gate would compare a cached artifact
-    against a rebuild of nothing and pass on both.
+    The gate's claim is that a build over another tree's history makes the same
+    library as two clean builds, and it reads the history from the tree the lane
+    restores before it runs.  Saving stays with the sweep that type-checks every
+    module.
     """
     lanes = [
         job
@@ -90,10 +91,20 @@ def test_the_clean_build_gate_is_handed_no_tree() -> None:
     ]
     assert lanes, f"no job runs {THE_CLEAN_BUILD_GATE}"
     for job in lanes:
-        caches = [step for step in job.steps if _caches_the_build_tree(step)]
-        assert not caches, (
-            f"{job.label} runs the clean-build gate and caches a build tree, "
-            "so the gate would compare a restored artifact with itself"
+        gate = next(
+            n for n, step in enumerate(job.steps) if THE_CLEAN_BUILD_GATE in step.get("run", "")
+        )
+        restores = [
+            n
+            for n, step in enumerate(job.steps)
+            if _caches_the_build_tree(step) and "actions/cache/restore" in step.get("uses", "")
+        ]
+        assert restores, f"{job.label} runs the clean-build gate over no restored build tree"
+        assert all(n < gate for n in restores), (
+            f"{job.label} restores its build tree after the gate"
+        )
+        assert not any(_saves_the_build_tree(step) for step in job.steps), (
+            f"{job.label} runs the clean-build gate and saves a build tree"
         )
 
 

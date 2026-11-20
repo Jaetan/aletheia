@@ -39,6 +39,7 @@ import contextlib
 import json
 import os
 import re
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast
@@ -347,14 +348,19 @@ def run_rust(
 
         def sweep(number: RustShard) -> ExitStatus:
             # Streams to the shard's own log, so a sweep killed by a wall clock
-            # still leaves how far each shard got.  Colours off, so the log is
-            # the text it printed.
+            # still leaves how far each shard got, and to stderr, the step's
+            # output, where each outcome is a progress report the watchdog
+            # reads.  Colours off, so the log is the text it printed; every
+            # outcome printed, caught and unviable ones too, so a sweep that
+            # misses nothing still reports each mutant as it is tested.
             with shard_log(artifact_dir, number).open("w", encoding="utf-8", buffering=1) as log:
                 proc = run_streaming(
                     [
                         cargo,
                         "mutants",
                         "--in-place",
+                        "--caught",
+                        "--unviable",
                         "--colors",
                         "never",
                         "--shard",
@@ -364,7 +370,7 @@ def run_rust(
                     ],
                     cwd=trees[number] / CRATE,
                     env=env,
-                    sink=log.write,
+                    sink=lambda line: (log.write(line), sys.stderr.write(line)),
                 )
             return ExitStatus(proc.returncode)
 

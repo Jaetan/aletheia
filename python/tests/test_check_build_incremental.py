@@ -8,17 +8,23 @@ cover the startup half: a marker names the run that wrote it; a marker in a
 source, a build holding Shake's lock, or another gate holding the Agda lock
 each refuse the run before any build starts and before any source is captured
 or touched.  The last holds that the build a killed run started stops with it,
-rather than relinking the library with the killed run's marker in it.
+rather than relinking the library with the killed run's marker in it.  The rest
+hold the checks' order and the one that ends a run: back on the sources it
+started from, the library is the baseline's byte for byte, which the kernel's
+deterministic objects make possible; and the build's Agda compile keeps the
+runtime's idle collector on, without which the compile hung.
 """
 
 from __future__ import annotations
 
 import fcntl
 import os
+import re
 import subprocess
 import sys
 import textwrap
-from typing import TYPE_CHECKING, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal, NamedTuple, NewType
 
 import pytest
 from _processes import pid_no_process_holds
@@ -35,9 +41,10 @@ from tools.check_build_incremental import (
     shake_lock_holder,
 )
 
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-    from pathlib import Path
+    from collections.abc import Callable, Iterator
 
 NAMED = f"{MARKER_PREFIX}RF_pid4242_20260924T101500Z"
 
@@ -242,3 +249,172 @@ def test_a_killed_gate_stops_its_build(tmp_path: Path) -> None:
         build.driver.kill()
         _ = build.driver.wait()
         stopped(build.lock)
+
+
+@pytest.mark.process(
+    "only a started build writing to the gate's real standard output shows its lines arriving"
+    + " while it still runs"
+)
+def test_the_gate_s_build_writes_its_lines_as_the_build_writes_them(tmp_path: Path) -> None:
+    """A build's lines reach the gate's standard output while the build still runs.
+
+    A stand-in ``cabal`` first on the search path writes a line, waits on a FIFO
+    only this test writes, then writes another and exits 0.  The first line is
+    read while the build waits, which an output captured until the build ends
+    never gives: a gate that held it back would hang the read, which is the
+    run's own limit to report.
+    """
+    stand_ins = tmp_path / "bin"
+    stand_ins.mkdir()
+    release = tmp_path / "release"
+    os.mkfifo(release)
+    cabal = stand_ins / "cabal"
+    _ = cabal.write_text(
+        "#!/bin/sh\n"
+        + "printf '[1 of 2] Compiling A\\n'\n"
+        + f'cat "{release}" > /dev/null\n'
+        + "printf '[2 of 2] Compiling B\\n'\n",
+        encoding="utf-8",
+    )
+    cabal.chmod(0o755)
+    with subprocess.Popen(
+        [sys.executable, "-c", "from tools.check_build_incremental import _build; _build()"],
+        cwd=gate.REPO_ROOT,
+        env=os.environ | {"PATH": f"{stand_ins}{os.pathsep}{os.environ['PATH']}"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    ) as driver:
+        assert driver.stdout is not None
+        first = driver.stdout.readline()
+        # Opening the FIFO waits for the build's read of it; closing it ends that read.
+        with release.open("w", encoding="ascii"):
+            pass
+        rest = driver.stdout.read()
+    assert (first, rest, driver.returncode) == (
+        b"[1 of 2] Compiling A\n",
+        b"[2 of 2] Compiling B\n",
+        0,
+    )
+
+
+def _reports(err: Prose) -> list[Prose]:
+    """Return the progress reports among the lines of ``err``."""
+    return [Prose(line) for line in err.splitlines() if line.startswith("progress: ")]
+
+
+class _Ran(NamedTuple):
+    """A check that ran, and the reports printed between the check before it and its start."""
+
+    check: Prose
+    heard: list[Prose]
+
+
+def test_the_checks_are_reported_as_each_passes_and_stop_at_the_first_that_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The checks run in order, each reported as it passes, none after a failure."""
+    ran: list[_Ran] = []
+
+    def check(name: Prose, *, holds: bool) -> Callable[[], bool]:
+        def run() -> bool:
+            ran.append(_Ran(name, _reports(Prose(capsys.readouterr().err))))
+            return holds
+
+        return run
+
+    monkeypatch.setattr(gate, "_check_incremental", check(Prose("incremental"), holds=True))
+    monkeypatch.setattr(gate, "_check_compiler_moves", check(Prose("moves"), holds=True))
+    same = check(Prose("same library"), holds=True)
+    assert gate.properties_hold(check(Prose("edits"), holds=True), same)
+    assert ran == [
+        ("edits", ["progress: 0/4 checks"]),
+        ("incremental", ["progress: 1/4 checks"]),
+        ("moves", ["progress: 2/4 checks"]),
+        ("same library", ["progress: 3/4 checks"]),
+    ]
+    assert _reports(Prose(capsys.readouterr().err)) == ["progress: 4/4 checks"]
+    ran.clear()
+    monkeypatch.setattr(gate, "_check_incremental", check(Prose("incremental"), holds=False))
+    assert not gate.properties_hold(check(Prose("edits"), holds=True), same)
+    assert ran == [("edits", ["progress: 0/4 checks"]), ("incremental", ["progress: 1/4 checks"])]
+    assert not _reports(Prose(capsys.readouterr().err))
+
+
+# The bytes a scratch library holds.
+_Image = NewType("_Image", bytes)
+
+
+class _Ending(NamedTuple):
+    """What the run's rebuilds leave as the library, the gate's status, and a line it prints."""
+
+    library: _Image
+    status: Literal[0, 1]
+    said: Prose
+
+
+_BASELINE = _Image(b"\x7fELF the baseline library")
+
+
+@pytest.mark.parametrize(
+    "ending",
+    [
+        _Ending(
+            _Image(b"\x7fELF another library"),
+            1,
+            Prose("the .so the run ended on is not the baseline's byte for byte"),
+        ),
+        _Ending(_BASELINE, 0, Prose("the same sources built the baseline .so byte for byte")),
+    ],
+    ids=["moved", "same"],
+)
+def test_a_run_ends_on_its_baseline_library_byte_for_byte(
+    gate_on_scratch: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[Prose],
+    ending: _Ending,
+) -> None:
+    """Back on the sources it started from, a run whose library's bytes moved fails."""
+    a, b = gate_on_scratch
+    so = tmp_path / "libaletheia-ffi.so"
+    _ = so.write_bytes(_BASELINE)
+    header = tmp_path / "aletheia.h"
+    _ = header.write_text("constexpr uint32_t ALETHEIA_ABI_VERSION = 3;\n", encoding="utf-8")
+    originals = {path: path.read_text(encoding="utf-8") for path in (a, b, header)}
+    monkeypatch.setattr(gate, "_SO", so)
+    monkeypatch.setattr(gate, "_HEADER", header)
+    monkeypatch.setattr(gate, "_check_baseline", lambda: originals)
+    monkeypatch.setattr(gate, "install_restore_handlers", lambda: None)
+    monkeypatch.setattr(gate, "_plant_sibling", list)
+    # `bool` stands in for the edit-and-revert check: given the run's originals, a mapping
+    # holding three files, it holds.  The compiler moves' rebuilds relink the library.
+    monkeypatch.setattr(gate, "_check_edits_and_reverts", bool)
+    monkeypatch.setattr(gate, "_check_incremental", lambda: True)
+    monkeypatch.setattr(gate, "_check_compiler_moves", lambda: bool(so.write_bytes(ending.library)))
+    assert gate.main() == ending.status
+    assert ending.said in capsys.readouterr().out
+
+
+# The build's rules; the one compiling the kernel's Agda sets the runtime options it runs with.
+_LIBRARY_RULES = Path(__file__).resolve().parents[2] / "shake" / "Rules" / "Library.hs"
+
+
+def test_the_agda_compile_keeps_the_idle_collector_on() -> None:
+    """The kernel's Agda compile runs with ``-I0.3``, under which no measured gate run hung."""
+    rules = _LIBRARY_RULES.read_text(encoding="utf-8")
+    found = re.search(r'"agda"\s+"\+RTS"(?P<rts>.*?)"-RTS"\s+"--compile"', rules, re.DOTALL)
+    assert found is not None, "no `agda +RTS ... -RTS --compile` call in the library rules"
+    assert '"-I0.3"' in found["rts"]
+
+
+# The kernel's cabal file, whose foreign library's GHC options the byte-for-byte check rests on.
+_CABAL = Path(__file__).resolve().parents[2] / "haskell-shim" / "aletheia.cabal"
+
+
+def test_the_kernel_compiles_to_deterministic_objects() -> None:
+    """The foreign library's GHC options name ``-fobject-determinism``, outside any comment."""
+    stanza = _CABAL.read_text(encoding="utf-8").split("\nforeign-library aletheia-ffi\n", 1)[1]
+    stanza = re.split(r"\n(?=\S)", stanza, maxsplit=1)[0]
+    options = stanza.split("ghc-options:", 1)[1].splitlines()
+    words = [word for line in options if not line.strip().startswith("--") for word in line.split()]
+    assert "-fobject-determinism" in words

@@ -73,6 +73,7 @@ from tools._hosted_markdown import (
     rust_doc_texts,
 )
 from tools._markdown import blocks, commonmark, fences
+from tools._progress import reporting
 from tools.bundle_c_example import GUIDE as C_GUIDE
 from tools.bundle_c_example import CGuideError, c_guide_fences
 
@@ -418,4 +419,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-fence-marks")))

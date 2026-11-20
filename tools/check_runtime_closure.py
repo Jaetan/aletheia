@@ -36,6 +36,9 @@ import sys
 from pathlib import Path
 
 from tools._common import emit
+from tools._progress import reporting
+
+from aletheia.common_types import Prose
 
 CABAL_DEFAULT = Path("haskell-shim/aletheia.cabal")
 SNAPSHOT_DEFAULT = Path("haskell-shim/runtime-closure.snapshot")
@@ -163,4 +166,4 @@ def _report_drift(added: list[str], removed: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-runtime-closure")))

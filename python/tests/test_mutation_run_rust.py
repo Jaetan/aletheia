@@ -226,6 +226,8 @@ class _Run:
 class _Cargo:
     """cargo-mutants, as the lane lists with it and sweeps each shard with it."""
 
+    # Called once the caught mutant is printed, before the unviable one is.
+    after_caught: Callable[[], None] = field(default=lambda: None)
     listings: list[_Run] = field(default_factory=list[_Run])
     sweeps: list[_Run] = field(default_factory=list[_Run])
 
@@ -260,9 +262,18 @@ class _Cargo:
         _ = (out / "shard.txt").write_text(f"{number}/{total}")
         document = _shard_outcomes(mutation_rust.RustShard(number), mutation_rust.ShardCount(total))
         _ = (out / "mutants.out" / "outcomes.json").write_text(json.dumps(document))
-        # A sweep prints nothing, so no line reaches the lane's log.
-        del sink
+        # The tool prints a caught or an unviable mutant only when told to.
+        if CommandWord("--caught") in cmd:
+            _ = sink(_CAUGHT)
+            self.after_caught()
+        if CommandWord("--unviable") in cmd:
+            _ = sink(_UNVIABLE)
         return subprocess.CompletedProcess(cmd, 0, Prose(""), Prose(""))
+
+
+# One caught and one unviable mutant, as cargo-mutants prints them when told to.
+_CAUGHT = Prose("caught   src/lib.rs:3:5: replace one -> u8 with 0 in 0s build + 0s test\n")
+_UNVIABLE = Prose("unviable src/lib.rs:7:9: replace two -> S with Default::default() in 0s build\n")
 
 
 def _shard_outcomes(
@@ -377,6 +388,30 @@ def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
     assert len(copies) == 2
     assert not any(copy.exists() for copy in lane.copies.made)
     assert (repo / "rust" / "src" / "lib.rs").read_text(encoding="utf-8") == "uncommitted edit\n"
+
+
+def test_each_mutant_s_outcome_reaches_the_step_s_output_as_it_is_tested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """Caught and unviable mutants are printed too, on stderr and in the shard's own log.
+
+    The caught one is read back from both before the unviable one is printed.
+    """
+    lane = _sweepable(tmp_path, monkeypatch)
+    monkeypatch.setattr(mutation_rust, "rust_shards", lambda: mutation_rust.ShardCount(1))
+    artifacts = tmp_path / "artifacts"
+    log = mutation_rust.shard_log(artifacts, mutation_rust.RustShard(0))
+    heard: list[tuple[Prose, Prose]] = []
+
+    def read_back() -> None:
+        heard.append((Prose(capsys.readouterr().err), Prose(log.read_text(encoding="utf-8"))))
+
+    lane.cargo.after_caught = read_back
+    report = mutation_rust.run_rust(artifacts, executor=DrivenExecutor)
+    assert report.error is None
+    assert heard == [(_CAUGHT, _CAUGHT)]
+    assert capsys.readouterr().err == _UNVIABLE
+    assert log.read_text(encoding="utf-8") == _CAUGHT + _UNVIABLE
 
 
 def _refuse(message: Prose) -> NoReturn:

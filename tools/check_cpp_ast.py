@@ -24,8 +24,9 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from tools import check_cpp_checked_reads, check_cpp_restated_types
 from tools._clang_query import Query, query_tree
+from tools._progress import reporting
 
-from aletheia.common_types import ExitStatus
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -66,4 +67,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-cpp-ast")))

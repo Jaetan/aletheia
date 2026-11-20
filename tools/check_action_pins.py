@@ -34,6 +34,9 @@ import re
 import sys
 
 from tools._common import GateName, emit, gate_repo_root, workflow_files
+from tools._progress import reporting
+
+from aletheia.common_types import Prose
 
 USES_RE = re.compile(r"uses:\s*(\S+?)@(\S+)")
 SHA_RE = re.compile(r"^[a-f0-9]{40}$")
@@ -131,4 +134,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-action-pins")))

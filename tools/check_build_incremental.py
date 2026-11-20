@@ -4,14 +4,15 @@
 
 The build's honest dependency graph (the Shakefile ``.so`` rule depends on the
 ``.agda`` sources; ``aletheia.cabal`` lists every MAlonzo module so cabal tracks
-the real ``.hs -> .so`` graph) must rebuild ``libaletheia-ffi.so`` when — and
-only when — a source changes.  This gate is the behavioral regression test that
-the graph stays correct.  It checks two properties:
+the real ``.hs -> .so`` graph) must rebuild ``libaletheia-ffi.so`` when, and
+only when, a source or a compiler the shim's project names changes.  This gate is
+the behavioral regression test that the graph stays correct.  It checks these
+properties:
 
 1. **Never stale** — editing a runtime string literal in a source must REACH the
    ``.so``, and reverting it must too.  This is the failure the old ``rm -rf``
    sledgehammer masked by always full-rebuilding.  Probed at TWO structurally
-   distant modules (Protocol/ResponseFormat and DBC/Formatter) so a graph bug that
+   distant modules (Protocol/ResponseFormat and DBC/Validator/Checks) so a graph bug that
    breaks propagation for only one subtree is caught: both edits land in one build,
    and BOTH distinct tokens must appear in the ``.so``.  The C header is probed
    too, through the one value of it the library reports: an edit to
@@ -27,21 +28,30 @@ the graph stays correct.  It checks two properties:
    compiles: with a stand-in first on the search path that reports another
    ``--version`` and passes every other call to the real compiler, a build
    must relink the ``.so``, and for the C compiler rebuild a stand-in kernel
-   too.  A build on the real compiler follows each, so the gate ends on it.
+   too.  A build on the real compiler follows each move that passes, so a passing
+   gate ends on it.
 4. **A stale sibling build is never copied** — cabal keeps a build per
    compiler and per optimization level beside the current one, so the edits of
    property 1 are built with a sibling present (another optimization level's
    library, cabal's ``opt/`` tree, a decoy when none is there): copying it
    would leave the edits out of the ``.so``, and refusing it as ambiguous
    fails the build.
+5. **The same sources build the same library** — back on the sources and the
+   compilers it started from, the run ends on the baseline ``.so`` byte for
+   byte.  The foreign library compiles to deterministic objects
+   (``-fobject-determinism``), and ``tools/check_install_freshness.py`` compares
+   a deployed copy with the ``.so`` by build-id, so a rebuild of the same
+   sources must not move it.
 
-The oracle is *behavioral* (does the edit reach the artifact? was it relinked?),
-never bit-identical — an incremental build differs benignly from a from-scratch one.
+The first four oracles are *behavioral* (does the edit reach the artifact? was it
+relinked?); the fifth compares bytes, the library the run ends on against the one
+it started from, never against a from-scratch build.
 
 Crash behaviour: every edited source is restored on exit, on SIGINT and on
 SIGTERM.  SIGKILL bypasses that and leaves the run's marker in the two sources.
 The build runs under ``run_guarded``, so it stops when the run dies, SIGKILL
-included, rather than relinking the ``.so`` with the marker in it.  The marker
+included, rather than relinking the ``.so`` with the marker in it, and its
+output reaches the gate's own as it comes.  The marker
 names the run that wrote it, by pid and start time, and the startup check
 refuses on one, saying which run left it, whether that run still lives, and the
 edit that restores the file.  The check also refuses while a build still holds
@@ -60,6 +70,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import os
 import re
 import shlex
@@ -68,6 +79,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType
 
@@ -83,17 +95,14 @@ from tools._common import (
     track_inflight,
     untrack_inflight,
 )
+from tools._progress import reported, reporting
 from tools._warm import REPO_ROOT
-from tools.check_install_freshness import (
-    RelinkCertificate,
-    chain_baseline,
-    gnu_build_id,
-    load_relink_certificate,
-    relink_certificate_path,
-    write_relink_certificate,
-)
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tools._common import CommandWord
 
 _SO = REPO_ROOT / "build" / "libaletheia-ffi.so"
@@ -111,6 +120,9 @@ _RUN_ID = f"pid{os.getpid()}_{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
 
 # Linux x86_64 ``struct flock``: l_type, l_whence, l_start, l_len, l_pid.
 _FLOCK = "hhqqi"
+
+# The SHA-256 of a library's bytes, as hex.
+LibraryDigest = NewType("LibraryDigest", str)
 
 
 class RunMarker(NamedTuple):
@@ -255,8 +267,10 @@ def _library_version() -> AbiVersion | None:
 
 
 def _build(path_first: Path | None = None) -> None:
-    """Run ``cabal run shake -- build`` under ``run_guarded``; raise, echoing output, on failure.
+    """Run ``cabal run shake -- build`` under ``run_guarded``; raise on failure.
 
+    The build's merged output goes to this gate's standard output as the build
+    writes it, so a step running the gate reports the build's own progress.
     ``path_first`` is a folder put first on the build's search path, where a
     moved compiler's stand-in sits.
     """
@@ -264,9 +278,9 @@ def _build(path_first: Path | None = None) -> None:
     if path_first is not None:
         search = f"PATH={path_first}{os.pathsep}{os.environ.get('PATH', '')}"
         words = [find_executable("env"), search, *words]
-    result = run_guarded(words, cwd=REPO_ROOT)
+    sys.stdout.flush()  # what the gate printed comes before the build's own lines
+    result = run_guarded(words, cwd=REPO_ROOT, output=sys.stdout)
     if result.returncode != 0:
-        emit(result.stdout)
         message = f"`cabal run shake -- build` failed (exit {result.returncode})"
         raise RuntimeError(message)
 
@@ -423,6 +437,7 @@ def _check_edits_and_reverts(originals: dict[Path, str]) -> bool:
             _fail(f"a revert of {probe.file.name} did not reach the .so (STALE)")
             return False
         emit(f"  revert of {probe.file.name} reached the .so ✓")
+    emit("  the edits and reverts were built beside a stale sibling build ✓")
     return True
 
 
@@ -456,6 +471,23 @@ def _write_moved(compiler: CommandWord, folder: Path) -> None:
     script.chmod(0o755)
 
 
+def library_digest(path: Path) -> LibraryDigest:
+    """Return the SHA-256 of the library at ``path``, as hex."""
+    return LibraryDigest(hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+def _check_same_library(baseline: LibraryDigest) -> bool:
+    """Assert the run ended on the baseline .so byte for byte; True iff it did."""
+    if library_digest(_SO) != baseline:
+        _fail(
+            "the .so the run ended on is not the baseline's byte for byte: a rebuild of the "
+            + "same sources changed it (NOT deterministic)"
+        )
+        return False
+    emit("  the same sources built the baseline .so byte for byte ✓")
+    return True
+
+
 def _check_compiler_moves() -> bool:
     """Move each compiler the shim's project names; True iff each move rebuilds what it compiles."""
     for compiler, builds_stand_ins in ((shim_ghc(), False), (shim_c_compiler(), True)):
@@ -477,6 +509,14 @@ def _check_compiler_moves() -> bool:
     return True
 
 
+def properties_hold(
+    edits_and_reverts: Callable[[], bool], same_library: Callable[[], bool]
+) -> bool:
+    """Run the gate's property checks in order, each reported as it passes; stop at a failure."""
+    checks = (edits_and_reverts, _check_incremental, _check_compiler_moves, same_library)
+    return all(check() for check in reported(checks, Prose("checks")))
+
+
 def _run() -> int:
     """Run the staleness + incrementality checks; restore every edited source always."""
     if not _check_no_leftovers():
@@ -484,32 +524,16 @@ def _run() -> int:
     originals = _check_baseline()
     if originals is None:
         return 1
-
-    # The probes below RELINK the .so, and GHC recompilation is not
-    # symbol-deterministic — the reverted final relink carries a fresh GNU
-    # build-id for the same link inputs.  Record the baseline id now (chaining
-    # through any prior certificate whose post-probe id matches — consecutive
-    # probe cycles keep vouching for the oldest baseline) and drop the old
-    # certificate immediately, so a run that dies mid-probe leaves nothing
-    # vouching for a half-probed library.  On full PASS the certificate is
-    # rewritten, letting the freshness gate accept a deployed copy of the
-    # baseline build against the post-probe library (same inputs, proven by
-    # this gate's own edit/revert checks).
-    baseline_id = chain_baseline(load_relink_certificate(REPO_ROOT), gnu_build_id(_SO) or "")
-    cert_file = relink_certificate_path(REPO_ROOT)
-    cert_file.unlink(missing_ok=True)
+    baseline = library_digest(_SO)
 
     install_restore_handlers()
     for path in (*(probe.file for probe in _PROBES), _HEADER):
         track_inflight(str(path), originals[path])
     planted = _plant_sibling()
     try:
-        if not _check_edits_and_reverts(originals):
-            return 1
-        emit("  the edits and reverts were built beside a stale sibling build ✓")
-        if not _check_incremental():
-            return 1
-        if not _check_compiler_moves():
+        if not properties_hold(
+            partial(_check_edits_and_reverts, originals), partial(_check_same_library, baseline)
+        ):
             return 1
     finally:
         for path in (*(probe.file for probe in _PROBES), _HEADER):
@@ -517,16 +541,10 @@ def _run() -> int:
             untrack_inflight(str(path))
         _remove_planted(planted)
 
-    post_probe_id = gnu_build_id(_SO)
-    if baseline_id and post_probe_id is not None and post_probe_id != baseline_id:
-        write_relink_certificate(
-            REPO_ROOT,
-            RelinkCertificate(baseline_build_id=baseline_id, post_probe_build_id=post_probe_id),
-        )
-
     emit(
         "=== build-incremental gate: PASS — edits/reverts reach the .so; no-op is incremental; "
-        + "a compiler move rebuilds; a stale sibling build is never copied ==="
+        + "a compiler move rebuilds; a stale sibling build is never copied; the same sources "
+        + "build the same .so ==="
     )
     return 0
 
@@ -539,4 +557,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("build staleness")))

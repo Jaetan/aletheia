@@ -11,16 +11,21 @@ gate's own tiny workloads against the schema's flags.
 from __future__ import annotations
 
 import re
-from typing import Final, TypedDict, cast
+import sys
+from itertools import groupby
+from pathlib import Path
+from typing import Final, NoReturn, TypedDict, cast
 
 import pytest
 import yaml
 
+from tools import check_bench_schema
 from tools.check_bench_schema import (
     MODE_ARGS,
     RUNNER_MODES_HELD,
     RUNNER_PATH,
     SCHEMA_PATH,
+    Binding,
     Finding,
     Flag,
     ModeName,
@@ -256,3 +261,47 @@ def test_the_planted_runner_s_arms_are_the_real_runner_s_shapes() -> None:
     for line in str(RUNNER).splitlines():
         if re.match(r"^\s*latency\)", line):
             assert line in runner, line
+
+
+def test_each_binding_is_reported_as_the_check_reaches_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The check reports on stderr before the first binding and as it passes each.
+
+    Each run of a binding says so on stderr and fails; the check records the failure and goes on.
+    """
+    stood_in = [
+        Binding(
+            name=name,
+            exe=Path("/stood-in"),
+            cwd=Path("/stood-in"),
+            available=True,
+            required=False,
+            python_module=False,
+        )
+        for name in ("go", "rust")
+    ]
+
+    def present(*, built: bool) -> list[Binding]:
+        assert built
+        return stood_in
+
+    def run(binding: Binding, _mode: ModeName, *, one_lane: bool = False) -> NoReturn:
+        del one_lane
+        _ = sys.stderr.write(f"ran {binding.name}\n")
+        raise RuntimeError
+
+    monkeypatch.setattr(check_bench_schema, "bindings", present)
+    monkeypatch.setattr(check_bench_schema, "_run", run)
+    monkeypatch.setattr(sys, "argv", ["check_bench_schema", "--built"])
+    assert check_bench_schema.main() == 1
+    err = capsys.readouterr().err
+    printed = [line for line in err.splitlines() if line.startswith(("progress", "ran "))]
+    # A binding is run several times, and its runs in a row read as one line.
+    assert [line for line, _runs in groupby(printed)] == [
+        "progress: 0/2 bindings",
+        "ran go",
+        "progress: 1/2 bindings",
+        "ran rust",
+        "progress: 2/2 bindings",
+    ]

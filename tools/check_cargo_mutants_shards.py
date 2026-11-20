@@ -33,6 +33,7 @@ import sys
 from typing import TYPE_CHECKING, cast
 
 from tools._common import emit, git_toplevel, run_capture
+from tools._progress import reporting
 from tools.mutation_rust import (
     CRATE,
     RUST_JOB_SHARDS,
@@ -160,4 +161,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-cargo-mutants-shards")))

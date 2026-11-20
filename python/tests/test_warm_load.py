@@ -11,16 +11,20 @@ from __future__ import annotations
 
 import json
 import queue
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, NewType, Self
 
 import pytest
 
-from tools._warm import describe_exit, read_load
+from tools import _warm
+from tools._warm import LoadResult, describe_exit, read_load, run_warm_gate
 
 from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Generator, Iterator
+    from types import TracebackType
 
 
 def _lines(*payloads: dict[str, object]) -> Iterator[str]:
@@ -89,3 +93,69 @@ def test_describe_exit_without_error_output_names_the_status_alone() -> None:
     """A process that wrote nothing is reported by its status, and one not yet ended says so."""
     assert describe_exit(ExitStatus(9), Prose("  \n")) == "exit status 9"
     assert describe_exit(None, Prose("")) == "still running"
+
+
+# A file the warm process is asked to load, by its absolute path.
+LoadedPath = NewType("LoadedPath", str)
+
+
+@dataclass
+class _Warm:
+    """A warm process stood in: it records each file it is asked to load and what stderr held."""
+
+    heard: Callable[[], Prose]
+    loaded: list[tuple[LoadedPath, Prose]] = field(default_factory=list[tuple[LoadedPath, Prose]])
+
+    def __call__(self) -> Self:
+        """Stand for ``WarmAgda()``: the process the gate opens."""
+        return self
+
+    def __enter__(self) -> Self:
+        """Open nothing."""
+        return self
+
+    def __exit__(
+        self,
+        _kind: type[BaseException] | None,
+        _error: BaseException | None,
+        _trace: TracebackType | None,
+    ) -> None:
+        """Close nothing."""
+
+    def load(self, abspath: LoadedPath) -> LoadResult:
+        """Record the file and what stderr held, and answer that it checked."""
+        self.loaded.append((abspath, self.heard()))
+        return LoadResult(tokens=[], ok=True, error="", warnings=[])
+
+
+@contextmanager
+def _unlocked(*, wait: bool) -> Generator[None]:
+    """Stand for the agda-tree lock, taking nothing."""
+    del wait
+    yield
+
+
+def test_the_warm_gate_reports_before_its_first_load_and_as_its_loads_complete(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The gate reports on stderr before the first load and as its loads complete.
+
+    A report follows each load that completes another twentieth of the scope: here both files.
+    """
+    warm = _Warm(heard=lambda: Prose(capsys.readouterr().err))
+    monkeypatch.setattr(_warm, "WarmAgda", warm)
+    monkeypatch.setattr(_warm, "agda_tree_lock", _unlocked)
+    acted: list[Prose] = []
+
+    def action(_agda: _warm.WarmAgda, _files: list[_warm.RelPath]) -> ExitStatus:
+        """Stand for the gate's work, keeping what was printed before it ran."""
+        acted.append(Prose(capsys.readouterr().err))
+        return ExitStatus(0)
+
+    assert run_warm_gate(["A.agda", "B.agda"], action, wait_lock=False) == 0
+    assert [(path.rsplit("/", 1)[-1], heard) for path, heard in warm.loaded] == [
+        ("A.agda", "progress: 0/2 files loaded\n"),
+        ("B.agda", "progress: 1/2 files loaded\n"),
+    ]
+    assert acted == ["progress: 2/2 files loaded\n"]
+    assert not capsys.readouterr().err

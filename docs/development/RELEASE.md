@@ -145,7 +145,7 @@ python/.venv/bin/python3 -m aletheia --version                              # al
   the PR (step 6) this runs in CI at the head SHA, which satisfies this gate; run
   it locally too when releasing off-CI.
 - **Reproducible build** — `python/.venv/bin/python3 -m tools.check_reproducible_build`
-  (two clean builds, sha256 compared, ~10-25 min). Not in the default `run_ci.py`
+  (the tree's own build and two clean builds, sha256 compared, ~10-25 min). Not in the default `run_ci.py`
   battery, but the PR's **`reproducible-build` lane runs it at the head SHA**
   (same module invocation), so a green PR covers it; run it locally only when
   releasing off-CI, or when the PR touches documentation alone, which is the one
@@ -410,11 +410,13 @@ release pushes keep the visibility; no further action needed.
 
 `cabal run shake -- build` produces the same `libaletheia-ffi.so`
 sha256 across two clean builds on the same toolchain pin (GHC, cabal,
-Agda, agda-stdlib).  Drift indicates build-time non-determinism — see
+Agda, agda-stdlib), and a build over a tree holding an earlier build
+produces that sha256 too.  Drift indicates build-time non-determinism — see
 the rule in AGENTS.md § Universal Rules.
 
 The gate is **not in the default `tools/run_ci.py` battery** because
-it costs two cold builds (~10 min wall-clock).  Run it on demand:
+it costs two cold builds after the tree's own build (~10-25 min wall-clock).
+Run it on demand:
 
 ~~~bash
 python/.venv/bin/python -m tools.check_reproducible_build
@@ -434,7 +436,9 @@ The flags below harden against regressions.
   via the library rule's cabal-build invocation in `shake/Rules/Library.hs`;
   takes effect when GHC's bundled C compiler embeds debug info).  GHC has no
   prefix-map flag of its own (`ghc --show-options` lists none), so the C
-  compiler's is passed through.
+  compiler's is passed through.  The foreign library's `ghc-options` in
+  `haskell-shim/aletheia.cabal` carry `-fobject-determinism`, so a module
+  compiled on its own gives the objects a clean build gives.
 - **C++ binding**: `-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.` on
   `aletheia-cpp` library target (covers `__FILE__` macros + DWARF).
 - **Tarball**: `tar --sort=name --mtime=@<commit-epoch> --owner=0

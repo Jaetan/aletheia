@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# The heavy lanes no required check reports: reproducible-build (two clean
-# builds of libaletheia-ffi.so, sha256 compared), the stability bench
+# The heavy lanes no required check reports: reproducible-build (a build over
+# the restored build tree and two clean builds of libaletheia-ffi.so, sha256
+# compared), the stability bench
 # (advisory, because it is genuinely timing-flaky) and the coverage floors
 # (each binding's suite under its own coverage tool, held to the floors
 # docs/COVERAGE_BENCH.yaml records).  Each builds the whole tree and measures
@@ -57,10 +58,19 @@ env:
   AGDA_VERSION: '2.9.0'
   STDLIB_VERSION: 'v2.4.1'
 
+# Every `run:` step of a job that checks out the tree runs under the watchdog
+# (tools/watch_step.py): `bash -e` as GitHub's own default shell runs it, its
+# output in the job log as it comes, its progress held, or exempt, as the step's
+# declaration in tools/_workflow_steps.py says.
+defaults:
+  run:
+    shell: python3.14 -m tools.watch_step {0}
+
 jobs:
   # ── reproducible-build (REQUIRED-intended; deterministic) ──────────────────
-  # Self-building: tools.check_reproducible_build runs `cabal run shake -- build`
-  # twice and compares sha256(build/libaletheia-ffi.so).  Needs only the Agda
+  # Self-building: tools.check_reproducible_build builds over the build tree the
+  # job restores, then twice from clean, and requires one
+  # sha256(build/libaletheia-ffi.so) of the three.  Needs only the Agda
   # toolchain + a 3.14 python to invoke the tool (no venv extras, no C++/Go).
   reproducible-build:
     name: reproducible-build
@@ -77,6 +87,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
 
       - name: Set up GHC + cabal
         run: |
@@ -175,11 +190,6 @@ jobs:
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-
       - name: Cache clang-23 .debs (Clang is a large download)
         uses: actions/cache@v6
         with:
@@ -187,13 +197,29 @@ jobs:
           key: clang23-libstdcxx15-noble-v2
       # ubuntu-24.04 pre-installs only clang ≤19, and clang-23 (the supported
       # toolchain) compiles the kernel library's C (haskell-shim/cabal.project),
-      # so it is installed from apt.llvm.org before the two builds.  Same
+      # so it is installed from apt.llvm.org before the builds.  Same
       # package set + cache key as pr-full-ci.yml so this job shares the deb
       # cache seeded there.
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libstdc++-15-dev
 
-      - name: Reproducible-build hash gate (two clean builds, sha256 compare)
+      # The build tree the sweep saved, so the gate's first build is an
+      # incremental one over another tree's history, which its two clean builds
+      # must then equal byte for byte.
+      - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
+        id: build-tree-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            build
+            _build
+            dist-newstyle
+            haskell-shim/dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+
+      - name: Reproducible-build hash gate (the tree's build and two clean builds, sha256 compare)
         run: python3 -m tools.check_reproducible_build
 
   # ── stability bench (ADVISORY; once per PR) ────────────────────────────────
@@ -214,6 +240,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
+
       - name: Set up GHC + cabal
         run: |
           set -euo pipefail
@@ -310,14 +344,6 @@ jobs:
           fi
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-          # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
-          cache: pip
-          cache-dependency-path: python/pyproject.toml
 
       - name: Create the dev venv (python/.venv)
         run: |
@@ -352,8 +378,8 @@ jobs:
       # the tree is restored rather than compiled again: `cabal run shake --
       # build` no-ops on a hit (0.03s against about five minutes), Shake
       # deciding freshness on content, which actions/cache's reset mtimes do
-      # not disturb.  The reproducible-build job above restores nothing on
-      # purpose: it compares two clean builds, and a restored tree is not one.
+      # not disturb.  The reproducible-build job above restores the same tree
+      # for its first build, which its two clean builds must then equal.
       # Restore-only: pr-full-ci is the one saver, being the sweep that
       # type-checks every module, so the interfaces it saves are complete.
       - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
@@ -369,10 +395,12 @@ jobs:
           restore-keys: |
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
 
-      - name: Build the FFI library + C++ stability harness
+      - name: Build the FFI library
+        run: cabal run shake -- build
+
+      - name: Build the C++ stability harness
         run: |
           set -euo pipefail
-          cabal run shake -- build
           # -S cpp: the CMakeLists.txt lives in cpp/, not the repo root (the
           # default source dir when only -B is given).  The first run failed
           # with "source directory does not contain CMakeLists.txt".
@@ -420,9 +448,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure a local `main` ref for `git diff main...HEAD`
-        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
-
       - name: Set up Python 3.14
         uses: actions/setup-python@v7
         with:
@@ -430,6 +455,9 @@ jobs:
           # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
           cache: pip
           cache-dependency-path: python/pyproject.toml
+
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
 
       - name: Create the dev venv (python/.venv)
         run: |

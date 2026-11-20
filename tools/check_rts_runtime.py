@@ -62,6 +62,7 @@ from typing import NewType, cast
 import yaml
 
 from tools._common import emit
+from tools._progress import reporting
 
 from aletheia.common_types import Prose
 
@@ -326,4 +327,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-rts-runtime")))

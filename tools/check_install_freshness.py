@@ -47,13 +47,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 from tools._common import emit
+from tools._progress import reporting
+
+from aletheia.common_types import Prose
 
 _CHUNK_BYTES = 1 << 20
 _ELFCLASS64 = 2
@@ -86,7 +87,7 @@ def _note_desc(data: bytes, sec_off: int) -> str:
     return data[desc_off : desc_off + descsz].hex()
 
 
-def _gnu_build_id(path: Path) -> str | None:
+def gnu_build_id(path: Path) -> str | None:
     """Return the GNU build-id note of a 64-bit little-endian ELF, or None.
 
     Minimal section-table walk (the only ELF flavour this project ships);
@@ -111,76 +112,7 @@ def _gnu_build_id(path: Path) -> str | None:
     return None
 
 
-# GHC recompilation is not symbol-deterministic, so the build-staleness gate's
-# probe relinks (edit → build → revert → build) legitimately mint a NEW GNU
-# build-id for a .so linked from byte-identical inputs.  The gate's own PASS is
-# the proof that the pre-probe and post-probe libraries are builds of the same
-# inputs, and this certificate is how it hands that proof to the freshness
-# gate: the deployed copy carrying ``baseline_build_id`` is the same build as a
-# ``build/`` library carrying ``post_probe_build_id``.  The certificate binds
-# to one exact probe cycle — any REAL rebuild mints an id the certificate does
-# not vouch for, so it can never mask true rot.  Consecutive probe cycles
-# chain (see :func:`chain_baseline`), preserving the oldest vouched baseline.
-RELINK_CERT = Path("build") / "so-relink-certificate.json"
-
-
-@dataclass(frozen=True)
-class RelinkCertificate:
-    """One probe cycle's same-inputs proof: baseline id → post-probe id."""
-
-    baseline_build_id: str
-    post_probe_build_id: str
-
-
-def gnu_build_id(path: Path) -> str | None:
-    """Public alias of the GNU build-id reader (used by the staleness gate)."""
-    return _gnu_build_id(path)
-
-
-def relink_certificate_path(repo_root: Path) -> Path:
-    """Location of the probe-relink certificate under *repo_root*."""
-    return repo_root / RELINK_CERT
-
-
-def load_relink_certificate(repo_root: Path) -> RelinkCertificate | None:
-    """Read the certificate, or None when absent or structurally invalid."""
-    try:
-        raw = json.loads(relink_certificate_path(repo_root).read_text(encoding="utf-8"))
-        baseline, post = raw["baseline_build_id"], raw["post_probe_build_id"]
-    except OSError, ValueError, TypeError, KeyError:
-        return None
-    if not isinstance(baseline, str) or not isinstance(post, str) or not baseline or not post:
-        return None
-    return RelinkCertificate(baseline_build_id=baseline, post_probe_build_id=post)
-
-
-def write_relink_certificate(repo_root: Path, cert: RelinkCertificate) -> None:
-    """Persist *cert* (the staleness gate calls this after a full PASS)."""
-    payload = {
-        "baseline_build_id": cert.baseline_build_id,
-        "post_probe_build_id": cert.post_probe_build_id,
-    }
-    _ = relink_certificate_path(repo_root).write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-    )
-
-
-def chain_baseline(prior: RelinkCertificate | None, current_id: str) -> str:
-    """Baseline the NEXT certificate should vouch for, given the prior one.
-
-    Consecutive probe cycles with no real rebuild in between must keep
-    vouching for the ORIGINAL baseline (a deployed copy is only ever synced
-    to one of them), so when the prior certificate's post-probe id matches
-    the library the new cycle starts from, the chain compresses: the new
-    baseline is the prior baseline.  Anything else (no certificate, or a
-    real rebuild broke the chain) starts fresh from *current_id*.
-    """
-    if prior is not None and prior.post_probe_build_id == current_id:
-        return prior.baseline_build_id
-    return current_id
-
-
-def _same_build(a: Path, b: Path, cert: RelinkCertificate | None = None) -> bool:
+def _same_build(a: Path, b: Path) -> bool:
     """Return whether *a* (the ``build/`` library) and *b* are the same build.
 
     Compares GNU build-ids when BOTH files carry one (the note survives the
@@ -189,20 +121,14 @@ def _same_build(a: Path, b: Path, cert: RelinkCertificate | None = None) -> bool
     a build-id (a non-ELF file, or a strip that dropped the note), falls
     back to a full SHA-256 content compare — the decision must be joint,
     never build-id on one side versus a hash on the other (which could
-    never compare equal).
-
-    A relink certificate widens the build-id branch by exactly one pair:
-    when *a* is the post-probe library the certificate names, a deployed *b*
-    carrying the certified baseline id is the same build (same link inputs,
-    re-linked by the staleness gate's probes — see ``RELINK_CERT``).
+    never compare equal).  Equal ids are the whole identity: the kernel
+    compiles to deterministic objects, and the staleness gate
+    (``tools/check_build_incremental.py``) fails a run whose rebuilds do not
+    give back its baseline library.
     """
-    id_a, id_b = _gnu_build_id(a), _gnu_build_id(b)
+    id_a, id_b = gnu_build_id(a), gnu_build_id(b)
     if id_a is not None and id_b is not None:
-        if id_a == id_b:
-            return True
-        return (
-            cert is not None and id_a == cert.post_probe_build_id and id_b == cert.baseline_build_id
-        )
+        return id_a == id_b
     return _sha256(a) == _sha256(b)
 
 
@@ -216,7 +142,7 @@ _RECEIPT_FIELDS = 3  # prefix, library path, config path — one per line
 _REINSTALL = "rerun `cabal run shake -- install`"
 
 
-def _receipt_problems(receipt: Path, build_so: Path, cert: RelinkCertificate | None) -> list[str]:
+def _receipt_problems(receipt: Path, build_so: Path) -> list[str]:
     """Verify the install recorded in ``.install-receipt`` (authoritative path)."""
     lines = [line.strip() for line in receipt.read_text().splitlines() if line.strip()]
     if len(lines) < _RECEIPT_FIELDS:
@@ -227,7 +153,7 @@ def _receipt_problems(receipt: Path, build_so: Path, cert: RelinkCertificate | N
         detail = f"install receipt points at a missing library ({deploy_so})"
         return [f"{detail} — {_REINSTALL}, {clear}"]
     problems: list[str] = []
-    if not _same_build(build_so, deploy_so, cert):
+    if not _same_build(build_so, deploy_so):
         problems.append(
             f"stale local install: {deploy_so} does not match {build_so} — {_REINSTALL}"
         )
@@ -237,16 +163,14 @@ def _receipt_problems(receipt: Path, build_so: Path, cert: RelinkCertificate | N
     return problems
 
 
-def _default_prefix_problems(
-    prefix: Path, build_so: Path, cert: RelinkCertificate | None
-) -> list[str]:
+def _default_prefix_problems(prefix: Path, build_so: Path) -> list[str]:
     """Probe the installer's default prefix (pre-receipt installs only)."""
     lib_dir = prefix / "lib" / "aletheia"
     deploy_so = lib_dir / "libaletheia-ffi.so"
     if not deploy_so.is_file():
         return []
     problems: list[str] = []
-    if not _same_build(build_so, deploy_so, cert):
+    if not _same_build(build_so, deploy_so):
         problems.append(
             f"stale local install: {deploy_so} does not match {build_so} — {_REINSTALL}"
         )
@@ -311,9 +235,8 @@ def find_problems(repo_root: Path, prefix: Path) -> list[str]:
 
     problems: list[str] = []
 
-    cert = load_relink_certificate(repo_root)
     dist_so = repo_root / DIST_SO
-    if dist_so.is_file() and not _same_build(build_so, dist_so, cert):
+    if dist_so.is_file() and not _same_build(build_so, dist_so):
         remedy = "rerun `cabal run shake -- dist`, or remove dist/ if no release is in flight"
         problems.append(f"stale dist/: {dist_so} does not match {build_so} — {remedy}")
 
@@ -321,13 +244,13 @@ def find_problems(repo_root: Path, prefix: Path) -> list[str]:
     if receipt.is_file():
         # Authoritative: the install target recorded exactly where it
         # deployed — no prefix guessing, no layout assumptions.
-        problems.extend(_receipt_problems(receipt, build_so, cert))
+        problems.extend(_receipt_problems(receipt, build_so))
     else:
         # No receipt (pre-receipt install, or never installed): probe the
         # installer's DEFAULT prefix.  A custom-prefix pre-receipt install
         # is invisible here — rerunning install once writes the receipt
         # and brings it under watch.
-        problems.extend(_default_prefix_problems(prefix, build_so, cert))
+        problems.extend(_default_prefix_problems(prefix, build_so))
 
     return problems
 
@@ -360,4 +283,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-install-freshness")))

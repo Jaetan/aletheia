@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
     from tools._run_ci_options import LaneName
 
+
 # The digest of the build sources a sweep observes, as its header records it.
 SourcesDigest = NewType("SourcesDigest", str)
 

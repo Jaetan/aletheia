@@ -30,6 +30,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, NamedTuple, NewType, NotRequired, TypedDict, cast
 
 from tools._common import CPP_LINT_TREE, WorkerCount, emit, git_toplevel
+from tools._progress import ItemCount, counted
 
 from aletheia.common_types import Prose
 
@@ -168,7 +169,8 @@ def query_units(
         try:
             # The thread pool's own default count, spelled out for the factory.
             with executor(WorkerCount(min(32, (os.process_cpu_count() or 1) + 4))) as pool:
-                return list(pool.map(partial(query_unit, repo, script), units))
+                queried = pool.map(partial(query_unit, repo, script), units)
+                return list(counted(queried, ItemCount(len(units)), Prose("units queried")))
         except QueryFailedError as failure:
             return Prose(str(failure))
 

@@ -118,6 +118,7 @@ from tools._determinism_syntax import (
     replaying_profiles,
     unseeded_properties,
 )
+from tools._progress import reporting
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
 
 from aletheia.common_types import ExitStatus, Prose
@@ -901,4 +902,4 @@ def tree_report(repo: Path, recorded: RatchetRows) -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-test-determinism")))

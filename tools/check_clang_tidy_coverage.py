@@ -57,6 +57,7 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, cast
 
 from tools._clang_query import CompileArg, UnitPath, unit_arguments
 from tools._common import CPP_LINT_TREE, RelPath, WorkerCount, emit, git_toplevel
+from tools._progress import reporting
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -419,4 +420,4 @@ def main(
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-clang-tidy-coverage")))

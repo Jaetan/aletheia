@@ -45,6 +45,7 @@ import sys
 from pathlib import Path
 
 from tools._common import RelPath, emit
+from tools._progress import reporting
 from tools.commit_subjects import (
     RUNTIME_CLOSURE,
     Branch,
@@ -198,4 +199,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("PR title")))

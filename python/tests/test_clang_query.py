@@ -213,7 +213,9 @@ def test_a_tree_that_cannot_be_queried_is_none_and_the_reason_printed(
 
     monkeypatch.setattr(clang_query, "query_unit", fail)
     assert query_tree(Query("m"), executor=DrivenExecutor) is None
-    assert capsys.readouterr().out == f"{tmp_path}/cpp/src/a.cpp: clang-query could not parse it\n"
+    printed = capsys.readouterr()
+    assert printed.out == f"{tmp_path}/cpp/src/a.cpp: clang-query could not parse it\n"
+    assert printed.err == "progress: 0/1 units queried\n"
 
 
 def test_every_unit_runs_on_the_executor_handed_in_and_keeps_its_place(

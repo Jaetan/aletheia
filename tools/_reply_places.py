@@ -29,6 +29,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
+from tools._progress import reported
+
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
@@ -844,7 +846,7 @@ def read_reply_tables(
     agda_text, agda_non_empty, unread = _parse_agda_reply_places(text)
     if not agda_text or not agda_non_empty:
         unread.append(Prose("no replyText or replyNonEmpty rows parsed"))
-    sets = tuple(read(unread) for read in readers)
+    sets = tuple(read(unread) for read in reported(readers, Prose("bindings read")))
     return unread or ReplyTables(agda_text, agda_non_empty, sets)
 
 

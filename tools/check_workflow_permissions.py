@@ -41,6 +41,9 @@ import yaml
 from yaml.error import YAMLError
 
 from tools._common import GateName, emit, gate_repo_root, workflow_files
+from tools._progress import reporting
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -169,4 +172,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-workflow-permissions")))

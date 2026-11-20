@@ -46,6 +46,10 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, cast
 
 import yaml
 
+from tools._progress import reported, reporting
+
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
@@ -467,7 +471,7 @@ def check_all(schema: dict[object, object], *, built: bool) -> tuple[list[str], 
     errors: list[str] = []
     notices: list[str] = []
     modes = _strs(_obj_map(schema["envelope"])["benchmarks"])
-    for binding in bindings(built=built):
+    for binding in reported(list(bindings(built=built)), Prose("bindings")):
         if not binding.available:
             if binding.required:
                 detail = "expected a built benchmark binary" if built else "expected python/.venv"
@@ -602,4 +606,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-bench-schema")))

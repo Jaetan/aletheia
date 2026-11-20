@@ -67,8 +67,11 @@ from tools._iwyu import (
     verdict_fields,
     wildcard_fields,
 )
+from tools._progress import reporting
 from tools._resources import cpu_budget
 from tools._warm import AGDA_BIN, SRC, RelPath, WarmAgda, run_warm_gate, select_files
+
+from aletheia.common_types import Prose
 
 FIXTURES = PKG / "test" / "fixtures"
 MANIFEST = PKG / "test" / "manifest.tsv"
@@ -371,4 +374,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("iwyu")))

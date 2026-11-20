@@ -164,6 +164,7 @@ rather than silently skipping.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import re
 import subprocess
@@ -176,12 +177,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NewType, TextIO
 
 from tools import _run_ci_options
+from tools._ci_progress import progress_of
 from tools._ci_steps import BUILD_STALENESS_STEP, FAST_STEPS, HEAVY_STEPS, register_all_steps
 from tools._common import GateName, emit, find_executable, git_toplevel
 from tools._records import UnusableRecordsDirError, environment, records_dir
 from tools._resources import cpu_budget
 from tools._run_ci_options import LaneName, OptInOptions
-from tools._scheduler import Step, StepEvent, StepNotRun, StepResult, run_lanes, unmet_needs
+from tools._scheduler import (
+    Step,
+    StepEvent,
+    StepNotRun,
+    StepResult,
+    Watch,
+    run_lanes,
+    step_file,
+    unmet_needs,
+)
 from tools.check_gate_claim import (
     SOURCES_ENV,
     SOURCES_LINE,
@@ -197,6 +208,8 @@ from tools.sweep_evidence import (
     TreeId,
     worktree_tree,
 )
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -251,6 +264,15 @@ def _git_value(repo_root: Path, *args: str) -> str:
         check=True,
     )
     return result.stdout.strip()
+
+
+def _why(result: StepResult) -> Prose:
+    """Say how a failed step ended: stopped or failed by the watchdog, or with its exit status."""
+    if result.stalled:
+        return Prose(f"stopped by the watchdog, no progress report, exit {result.returncode}")
+    if result.unreported:
+        return Prose("failed by the watchdog, no progress report, exit 0")
+    return Prose(f"exit {result.returncode}")
 
 
 def _now_utc() -> dt.datetime:
@@ -335,6 +357,11 @@ class Runner:
         """Open the log file handle and start the clock."""
         self.start = time.time()
         self.log_fh = _open_log(self.ctx.log_path)
+
+    @property
+    def steps_dir(self) -> Path:
+        """The directory each step writes its output into as it runs, beside the log."""
+        return self.ctx.log_path.with_suffix(".steps")
 
     @property
     def repo_root(self) -> Path:
@@ -423,6 +450,7 @@ class Runner:
                     f"Mode:     {mode}",
                     f"Opt-ins:  {opt_in}",
                     f"Log:      {self.ctx.log_path}",
+                    f"Outputs:  {self.steps_dir}/<step>.log, written as each step runs",
                 ]
             ),
         )
@@ -457,6 +485,8 @@ class Runner:
         (``_LANE_BY_DIR``); pass it explicitly for Shake steps (cwd=None).
         ``needs`` names the steps whose output this one reads, the build or
         earlier steps of its lane: it runs only once each of them passed.
+        Its progress, the lines of its output that report it and how long it may
+        go without one, is the one ``tools._ci_progress`` declares for its name.
         "heavy" (OOM-gated in parallel mode) is derived from ``HEAVY_STEPS``.
         """
         if lane == "misc" and cwd is not None and cwd.is_relative_to(self.repo_root):
@@ -470,6 +500,7 @@ class Runner:
                 heavy=name in HEAVY_STEPS,
                 lane=lane,
                 needs=tuple(needs),
+                progress=progress_of(GateName(name)),
             ),
         )
 
@@ -486,23 +517,29 @@ class Runner:
         return list(lanes.values())
 
     def _progress(self, event: StepEvent) -> None:
-        """Write one live progress line to stderr the moment a step starts/ends.
+        """Write a live line to stderr the moment a step starts, reports, ends, or is not run.
 
-        Fires from worker threads under ``--parallel``, hence the lock — each
-        line lands whole.  This is the LIVE channel; the deterministic
-        lane-then-step record (full outputs, ✓/✗ lines) still lands in the log
-        via :meth:`_emit`, so the log reads identically run-to-run while the
-        terminal shows what is happening as it happens.
+        A step's report is written when it passes a quarter of the count it
+        reports beyond the last one written, short of the whole: at most three
+        a count, a report at the whole starting the count again.  A step
+        the watchdog stopped or failed is named so.  Fires from worker threads
+        under ``--parallel``, hence the lock: each line lands whole.  This is
+        the LIVE channel; the deterministic lane-then-step record (full
+        outputs, ✓/✗ lines) still lands in the log via :meth:`_emit`, so the
+        log's blocks come in the same order run-to-run while the terminal shows
+        what is happening as it happens.
         """
         result = event.result
-        if result is None:
+        if event.report is not None:
+            line = f"  ⋯ {event.name}: {event.report}"
+        elif result is None:
             line = f"  ▶ {event.name} …"
         elif isinstance(result, StepNotRun):
             line = f"  ⊘ {event.name} not run (needs {result.needs})"
         elif result.returncode == 0:
             line = f"  ✓ {event.name} ({int(result.duration)}s)"
         else:
-            line = f"  ✗ {event.name} FAILED (exit {result.returncode}, {int(result.duration)}s)"
+            line = f"  ✗ {event.name} FAILED ({_why(result)}, {int(result.duration)}s)"
         with self._progress_lock:
             _ = sys.stderr.write(line + "\n")
             sys.stderr.flush()
@@ -535,10 +572,11 @@ class Runner:
             self.log_fh.flush()
             return
         _ = self.log_fh.write(
-            f"  ✗ {result.name} FAILED (exit {result.returncode}, {int(result.duration)}s)\n",
+            f"  ✗ {result.name} FAILED ({_why(result)}, {int(result.duration)}s)\n",
         )
         self.log_fh.flush()
-        self._tee_err("─── tail of failed step output ───")
+        whole = step_file(self.steps_dir, GateName(result.name))
+        self._tee_err(f"─── tail of failed step output (the whole of it: {whole}) ───")
         for line in result.output.splitlines()[-FAILURE_TAIL_LINES:]:
             _ = sys.stderr.write(line + "\n")
         sys.stderr.flush()
@@ -646,16 +684,34 @@ class Runner:
         for name, reason in self._skips:
             self._tee_err(f"  ⊘ {name} skipped ({reason})")
 
+        self.steps_dir.mkdir()
+        results = self._run_partition(executor, build, lanes, last)
+        self._record_progress(results)
+        return self._finalize(results, total)
+
+    def _run_partition(
+        self,
+        executor: ExecutorFactory,
+        build: Step | None,
+        lanes: list[list[Step]],
+        last: Step | None,
+    ) -> list[StepOutcome]:
+        """Run the build, then the lanes, then the staleness gate, each step writing its file."""
         results: list[StepOutcome] = []
         if build is not None:
-            built = run_lanes([[build]], heavy_limit=1, progress=self._progress, executor=None)
+            built = run_lanes(
+                [[build]],
+                heavy_limit=1,
+                watch=Watch(self.steps_dir, self._progress),
+                executor=None,
+            )
             self._emit(built[0])
             results.extend(built)
 
         lane_results = run_lanes(
             lanes,
             heavy_limit=self.opts.heavy_limit,
-            progress=self._progress,
+            watch=Watch(self.steps_dir, self._progress),
             executor=executor if self.opts.parallel else None,
             before=results,
         )
@@ -663,12 +719,36 @@ class Runner:
             self._emit(result)
         if last is not None:
             (staleness,) = run_lanes(
-                [[last]], heavy_limit=1, progress=self._progress, executor=None, before=results
+                [[last]],
+                heavy_limit=1,
+                watch=Watch(self.steps_dir, self._progress),
+                executor=None,
+                before=results,
             )
             self._emit(staleness)
             lane_results.append(staleness)
         results.extend(lane_results)
-        return self._finalize(results, total)
+        return results
+
+    def _record_progress(self, results: list[StepOutcome]) -> None:
+        """Write each step's run time, reports and longest quiet stretch beside the step files.
+
+        ``progress.json`` holds, per step that ran, what the watchdog measured of
+        it: what each step's allowance is set from.
+        """
+        measured = {
+            result.name: {
+                "seconds": round(result.duration, 1),
+                "reports": result.reports,
+                "longest_quiet": round(result.longest_quiet, 1),
+                "stalled": result.stalled,
+            }
+            for result in results
+            if isinstance(result, StepResult)
+        }
+        _ = (self.steps_dir / "progress.json").write_text(
+            json.dumps(measured, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
     def _finalize(self, results: list[StepOutcome], total: int) -> int:
         """Tee the summary, close the log, return 0 iff every step passed.

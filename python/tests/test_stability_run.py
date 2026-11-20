@@ -14,8 +14,9 @@ process.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
+from typing import TYPE_CHECKING, NamedTuple, NewType, NoReturn, TypedDict, Unpack
 
 import pytest
 from _processes import CommandWord
@@ -191,3 +192,59 @@ def test_a_go_harness_that_does_not_build_has_no_verdict(
     assert lane.run == Run("go", tmp_path / "go.json", passed=False, error=error)
     assert lane.asked == _built_and_ran(lane.binary)[:1]
     assert not lane.binary.parent.exists()
+
+
+# A commit as the artifact directory names it, and an environment variable's name and value.
+_Commit = NewType("_Commit", str)
+_EnvName = NewType("_EnvName", str)
+_EnvValue = NewType("_EnvValue", str)
+
+
+class _Harness(NamedTuple):
+    """A binding's harness stood in: it passes, naming its binding, and says on stderr it ended."""
+
+    binding: Prose
+
+    def __call__(self, artifact_dir: Path, _env: Mapping[_EnvName, _EnvValue]) -> Run:
+        """Answer that the binding's harness passed, saying on stderr that it ended."""
+        _ = sys.stderr.write(f"{self.binding} ended\n")
+        return Run(binding=self.binding, artifact_path=artifact_dir, passed=True)
+
+
+class _SummaryReachedError(Exception):
+    """Raised where the gate starts its summary, every harness having run."""
+
+
+def _summary_reached(
+    _sha: _Commit, _artifact_dir: Path, _runs: list[Run], _hp_target: Path
+) -> NoReturn:
+    """Stop the gate where its summary starts."""
+    raise _SummaryReachedError
+
+
+def test_each_binding_is_reported_as_its_harness_ends(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[Prose]
+) -> None:
+    """The gate reports on stderr as each of the three harnesses ends, before its summary."""
+
+    def commit(_root: Path | None = None) -> _Commit:
+        return _Commit("abc1234")
+
+    def library() -> Path:
+        return tmp_path / "libaletheia-ffi.so"
+
+    monkeypatch.setattr(sys, "argv", ["stability_run"])
+    monkeypatch.setattr(stability_run, "ARTIFACT_BASE", tmp_path)
+    monkeypatch.setattr(stability_run, "short_sha", commit)
+    monkeypatch.setattr(stability_run, "find_lib", library)
+    monkeypatch.setattr(stability_run, "run_python_with_heap_profile", _Harness(Prose("python")))
+    monkeypatch.setattr(stability_run, "run_go", _Harness(Prose("go")))
+    monkeypatch.setattr(stability_run, "run_cpp", _Harness(Prose("cpp")))
+    monkeypatch.setattr(stability_run, "_build_summary", _summary_reached)
+    with pytest.raises(_SummaryReachedError):
+        _ = stability_run.main()
+    assert capsys.readouterr().err.splitlines() == [
+        line
+        for done, binding in enumerate(("python", "go", "cpp"), 1)
+        for line in (f"{binding} ended", f"progress: {done}/3 bindings")
+    ]

@@ -44,8 +44,8 @@ _NOTHING_STEP = Prose("Nothing to measure on this diff")
 # measures, gates or uploads, and reads the decision.
 _UNGATED_STEPS = (
     Prose("Checkout (full history, for the diff the scope reads)"),
-    Prose("Ensure a local `main` ref for `git diff main...HEAD`"),
     Prose("Set up Python 3.14.10"),
+    Prose("Ensure a local `main` ref for `git diff main...HEAD`"),
     Prose("Create the dev venv (python/.venv) with aletheia installed"),
     _QUESTION_STEP,
     Prose("Print the result JSON"),

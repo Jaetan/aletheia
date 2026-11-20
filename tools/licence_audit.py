@@ -66,6 +66,7 @@ import yaml
 from yaml.error import YAMLError
 
 from tools._common import emit
+from tools._progress import reporting
 from tools.bundle_licences import (
     AUDIT,
     GHC_TARBALL,
@@ -419,4 +420,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("licence audit")))

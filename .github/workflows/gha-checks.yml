@@ -29,6 +29,14 @@ concurrency:
   group: gha-checks-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Every `run:` step of a job that checks out the tree runs under the watchdog
+# (tools/watch_step.py): `bash -e` as GitHub's own default shell runs it, its
+# output in the job log as it comes, its progress held, or exempt, as the step's
+# declaration in tools/_workflow_steps.py says.
+defaults:
+  run:
+    shell: python3.14 -m tools.watch_step {0}
+
 jobs:
   actionlint:
     name: Lint workflow YAML (actionlint)
@@ -37,6 +45,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
 
       - name: Install actionlint
         env:

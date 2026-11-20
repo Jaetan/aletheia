@@ -36,8 +36,9 @@ from pathlib import Path
 from typing import NewType
 
 from tools._common import emit
+from tools._progress import reporting
 
-from aletheia.common_types import ExitStatus
+from aletheia.common_types import ExitStatus, Prose
 
 HaskellSource = NewType("HaskellSource", str)
 GeneratedName = NewType(
@@ -127,4 +128,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-shim-builds-no-kernel-value")))

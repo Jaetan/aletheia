@@ -78,9 +78,42 @@ sweep, or a `--lanes` sweep of some lanes, runs a subset and records no
 digest.  The header and the summary also carry the tree of the tracked content
 the sweep saw, the record a push asks for
 ([§ Pushing](#pushing-sweep-first-then-connect)).
-Every step runs in a process group of its own under a guard that interrupts it
-when the sweep dies, however it dies, and Ctrl-C stops the running steps before
-the sweep exits, so an ended sweep leaves no build holding Shake's lock.
+
+Each step writes its output to `<log>.steps/<step>.log` as it runs, `<log>`
+being the log's path without `.log`.  The sweep's standard error shows each
+step as it starts and as it ends, as its reports pass a new quarter of the count
+they carry, short of that count's whole, a report at the whole starting the
+count again, and the last lines of a failed step's output; the log holds each
+step's whole output with its duration and outcome, written once the lanes end,
+the build's before they start and the staleness gate's as it ends.  A step
+reports its progress in its own output, on the lines
+[`tools/_ci_progress.py`](../../tools/_ci_progress.py) declares for it: the
+count its tool prints or the line it prints per item done (a module checked, a
+test, a mutant), or the `progress: k/n` line our tools print through
+[`tools/_progress.py`](../../tools/_progress.py); a step whose tool prints
+neither declares none.  A
+watchdog stops and fails a step that goes its allowance without a report, the
+allowance being five times the longest stretch measured without one and never
+under the floor that file names; a step declaring reports that passes and made
+none past `UNREPORTED_FOR` ([`tools/_watchdog.py`](../../tools/_watchdog.py))
+fails too.  The command a step runs has `PYTHONUNBUFFERED` set, which each
+Python program it starts inherits unless given an environment of its own, so
+each line they print reaches the watchdog as it is printed, not a pipe's block
+at a time.  `progress.json` in the steps directory records, per step, its run
+time, its reports and its longest stretch without one, which the allowances
+are set from.  On GitHub every job that checks out the tree runs each step's
+script through [`tools/watch_step.py`](../../tools/watch_step.py), its shell,
+under the same watchdog: [`tools/_workflow_steps.py`](../../tools/_workflow_steps.py)
+declares each step it watches, with its progress, and exempts each step only
+GitHub runs (a tool's install, a cache, the runner's setup, a release's
+packaging, signing or publishing, a tally of the jobs it needs, or the printing
+of what the job found), and refuses a step it names in neither.
+Every step of the sweep runs in a process group of its own under a guard that
+interrupts its command when the sweep is interrupted or dies, however it dies,
+and kills what is left once the command has ended or the guard's grace has
+passed, so an ended sweep leaves no build holding Shake's lock past that grace.
+A process a sweep step's command leaves in its group once it exits, holding the
+step's output, is stopped by the watchdog's stall alone.
 
 ### The build prerequisite and the staleness gate
 
@@ -107,7 +140,7 @@ The staleness gate is a *behavioral* regression test that the honest dependency
 graph (see [BUILDING.md → Incremental Builds](BUILDING.md#incremental-builds))
 stays correct.  It mutates real runtime string literals in two structurally
 distant modules and the ABI version in the C header, whose observable is what
-`aletheia_abi_version()` answers, rebuilds, and checks two properties:
+`aletheia_abi_version()` answers, rebuilds, and checks five properties:
 
 1. **Never stale** — an edit to a runtime literal must REACH the `.so` (and a
    revert must too).  This is the failure the old `rm -rf` sledgehammer masked by
@@ -115,6 +148,16 @@ distant modules and the ABI version in the C header, whose observable is what
 2. **Incremental** — a no-op build must NOT relink the `.so` (its mtime stays
    put).  A regression back to the sledgehammer would pass property 1 but fail
    here.
+3. **A compiler move rebuilds** — with a stand-in GHC or C compiler first on the
+   search path, reporting another version, a build must relink the `.so`, and
+   the C compiler's move must rebuild the stand-in kernel too; a build on the
+   real compiler follows each move that passes.
+4. **A stale sibling build is never copied** — the edits are built beside
+   another optimization level's library, which the build must not copy.
+5. **The same sources build the same library** — the run ends on its baseline
+   `.so` byte for byte.  The foreign library compiles with
+   `-fobject-determinism`, and `check-install-freshness` compares a deployed copy
+   with `build/` by build-id, so a rebuild of the same sources must not move it.
 
 Every edited source is restored on exit, on SIGINT and on SIGTERM.  SIGKILL
 bypasses that and leaves the run's marker in the two sources.  The build runs
@@ -218,8 +261,9 @@ Both lanes are always-on, not opt-in; if clang is absent the step fails
 loudly rather than silently skipping — install clang or run the sweep on a
 host that has it.
 
-**Reproducible build lane (`--repro`)** — no extra tools (the gate runs
-two clean Shake builds and `sha256sum`s the result).
+**Reproducible build lane (`--repro`)** — no extra tools (the gate builds
+over what the tree holds, then twice from clean, and requires the three
+libraries' sha256 to be one).
 
 **Stability bench lane (`--stability`)** — needs Python `psutil` (already
 in the project's `[dev]` extras) for the Python harness; Go and C++

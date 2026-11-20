@@ -32,6 +32,7 @@ from pathlib import Path, PurePosixPath
 from typing import NamedTuple, NewType
 
 from tools._common import emit, find_executable, read_shake_program, run_capture
+from tools._progress import reporting
 from tools.bundle_licences import LicenceText
 from tools.check_dist_staging import DistStagingError, parse_stage_bindings
 
@@ -162,4 +163,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-python-wheel")))

@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
 from tools._common import RelPath, TreeScan, git_ls_files, report_tree_scan
+from tools._progress import reporting
 from tools._vendored import BlobSha, FileBytes, UnreadRecordError, blob_sha, recorded_blobs
 
 from aletheia.common_types import ExitStatus, Prose
@@ -153,4 +154,4 @@ def main(*, repo: Path = REPO) -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-source-length")))

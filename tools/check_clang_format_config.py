@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import NewType
 
 from tools._common import emit, git_toplevel, run_capture
+from tools._progress import reporting
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -151,4 +152,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-clang-format-config")))

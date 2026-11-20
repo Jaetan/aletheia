@@ -89,6 +89,9 @@ from tools._common import (
     report_tree_scan,
     scan_tracked_tree,
 )
+from tools._progress import reporting
+
+from aletheia.common_types import Prose
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -213,4 +216,4 @@ def main(argv: list[str] | None = None, *, repo: Path = REPO) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-no-memory-citations")))

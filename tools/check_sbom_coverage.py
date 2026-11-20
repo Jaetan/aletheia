@@ -44,7 +44,10 @@ from typing import cast
 
 from tools._common import emit
 from tools._manifests import ManifestError
+from tools._progress import reporting
 from tools.sbom_generate import MANIFEST_FILES, parse_binding_components
+
+from aletheia.common_types import Prose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -258,4 +261,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-sbom-coverage")))

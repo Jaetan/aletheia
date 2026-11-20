@@ -76,6 +76,7 @@ from pathlib import Path
 from yaml.error import YAMLError
 
 from tools._common import ShakeSource, emit, find_executable, read_shake_program, run_capture
+from tools._progress import reporting
 from tools.bundle_c_example import GUIDE, CGuide, CGuideError, read_guide_file
 from tools.bundle_licences import KEPT, RECORD, LicenceUnreadError, read_record
 
@@ -598,4 +599,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-dist-staging")))

@@ -28,6 +28,7 @@ from typing import NewType
 from tools._common import RelPath, report_tree_scan
 from tools._hosted_markdown import SourceText, cpp_comment_texts, scan_tracked_sources
 from tools._markdown import commonmark
+from tools._progress import reporting
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -105,4 +106,4 @@ def main() -> ExitStatus:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(reporting(main, Prose("check-cpp-fence-const-auto")))
