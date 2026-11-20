@@ -16,6 +16,8 @@ module, and each holds one claim:
   is a foreign export of the shim;
 * ``fuzz_targets``: the Go standard names exactly the fuzz targets the
   binding defines, and nothing schedules a fuzz run;
+* ``go_module_major``: the core Go module's path carries the major of the
+  release the release runbook tags it at;
 * ``ignored_build_trees``: every build tree the build file and the documents
   name is ignored by the tracked rules, and no top-level venv but the
   sanctioned one is;
@@ -68,6 +70,7 @@ from tools.docs_arms import (
     atx_headings,
     ffi_symbols,
     fuzz_targets,
+    go_module_major,
     ignored_build_trees,
     index_coverage,
     labels,
@@ -105,6 +108,7 @@ ARMS: tuple[Arm, ...] = (
     atx_headings.findings,
     ffi_symbols.findings,
     fuzz_targets.findings,
+    go_module_major.findings,
     ignored_build_trees.findings,
     index_coverage.findings,
     ledger_licences.findings,

@@ -2339,13 +2339,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   path named a location this repository does not publish from, so a consumer typing
   it reached whatever is served there rather than this code. Go accepts a major of
   two or more only when the path ends in the matching suffix, so before this the
-  core module could not name any release after the first major: the spreadsheet
-  loader required it at a placeholder version that only the development workspace
-  resolved, and now requires it at the version of the last release. A consumer of
+  core module could not name any release after the first major. A consumer of
   the distribution bundle follows the same printed recipe as before, with the new
   path in it. A release now also tags `go/vX.Y.Z`, which is the tag Go looks for
-  when a module lives in a subdirectory: without it the requirement resolves to
-  nothing.
+  when a module lives in a subdirectory: without it a requirement of a release
+  version resolves to nothing.
 
 - **The Go and Rust predicate builders carry every predicate the kernel defines.**
   Both carried the five comparisons, where the kernel has eight: `Signal(name)` in Go
@@ -2539,6 +2537,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **The Excel module resolves outside the Go workspace.** It required the core
+  module at a version only the repository's `go/go.work` resolved: the
+  placeholder `v0.0.0` in 5.0.0, then `v5.0.0`, which Go looks for as the tag
+  `go/v5.0.0`, and no such tag exists. Resolving the module on its own failed,
+  `go list -m all` outside the repository and Dependabot's Go updates among
+  them. It now requires the core at the pseudo-version of a commit on main,
+  which GitHub serves.
 
 - **The Python CLI refuses a report cut short when it writes unbuffered.**
   Run with `python -u` or `PYTHONUNBUFFERED` set, its standard output writes

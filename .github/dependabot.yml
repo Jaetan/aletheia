@@ -60,6 +60,11 @@ updates:
     labels:
       - "dependencies"
       - "go"
+    # The repository's own modules require each other at versions moved by hand
+    # with go/go.work's replaces: a bump of one alone leaves its replace
+    # matching nothing.
+    ignore:
+      - dependency-name: "github.com/Jaetan/aletheia/*"
 
   - package-ecosystem: gomod
     directory: /go/excel
@@ -71,6 +76,11 @@ updates:
     labels:
       - "dependencies"
       - "go"
+    # The repository's own modules require each other at versions moved by hand
+    # with go/go.work's replaces: a bump of one alone leaves its replace
+    # matching nothing.
+    ignore:
+      - dependency-name: "github.com/Jaetan/aletheia/*"
 
   - package-ecosystem: github-actions
     directory: /

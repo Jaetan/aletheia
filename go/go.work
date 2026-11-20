@@ -5,11 +5,11 @@
 // core binding alone. The command line, ./cmd/aletheia, is a module of its own
 // for the same reason: its template command writes through the loader.
 //
-// The replaces below are what let a change to one module reach the modules
-// that require it without a release. The use directive alone does not: it
-// registers the module for the workspace and leaves version resolution to the
-// require, which names a version no tag in this tree carries, so Go would go
-// looking for it on the network. Each replace is written here rather than in
+// A module the use directive names is the one the workspace builds, whatever
+// version another module's require names, but Go still reads that version's
+// go.mod. The replaces below give it the tree's, so the workspace resolves
+// with no network: without one, Go asks the network for that version, which an
+// offline build refuses. Each replace is written here rather than in
 // the requiring module's own file because a relative path written there would
 // travel with the module. Each names the same version the requires do, a
 // version-specific replace matching nothing when the two drift apart.
@@ -27,5 +27,7 @@ use (
 )
 
 replace github.com/Jaetan/aletheia/go/v5 v5.0.0 => ./
+
+replace github.com/Jaetan/aletheia/go/v5 v5.0.0-20261120132838-2150dabcfa97 => ./
 
 replace github.com/Jaetan/aletheia/go/excel v0.0.0 => ./excel
