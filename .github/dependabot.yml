@@ -31,6 +31,15 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    # Every Python bump in one weekly pull request, so one CI round takes them
+    # all.  markdown-it-py stays out, in a pull request of its own: its next
+    # major waits on pytest-markdown-docs allowing it (python/pyproject.toml).
+    groups:
+      python:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "markdown-it-py"
     ignore:
       # mutmut is pinned to one exact version because the mutation lane's
       # baseline is a measured mutant count: two releases in one major
