@@ -169,6 +169,11 @@ GO_BUILD_NO_CGO = "CGO_ENABLED=0 go build -o /dev/null ./..."
 GO_TEST_NO_CGO = "CGO_ENABLED=0 go test ./... -count=1"
 GO_EXCEL_MODULE = Path("excel")
 
+# Every module built outside the workspace, as a consumer does: against the versions it requires.
+GO_BUILD_OUTSIDE_WORKSPACE = (
+    "GOWORK=off GOPRIVATE=github.com/Jaetan/aletheia go build -mod=readonly -o /dev/null ./..."
+)
+
 
 # The Python at the repository root, outside the package's ``python/`` tree: the
 # gate scripts, the shared micro-benchmarks, the examples and the doc-example
@@ -646,6 +651,11 @@ def _run_lints(runner: Runner) -> None:
     runner.step(
         "go test (no cgo)",
         in_every_go_module(GO_TEST_NO_CGO, but=GO_EXCEL_MODULE),
+        cwd=runner.repo_root / "go",
+    )
+    runner.step(
+        "go build (outside the workspace)",
+        in_every_go_module(GO_BUILD_OUTSIDE_WORKSPACE),
         cwd=runner.repo_root / "go",
     )
 

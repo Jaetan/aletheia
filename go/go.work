@@ -14,6 +14,12 @@
 // travel with the module. Each names the same version the requires do, a
 // version-specific replace matching nothing when the two drift apart.
 //
+// Outside the workspace each module builds against the versions it requires,
+// which the sweep's "go build (outside the workspace)" step holds: a module
+// coming to use what a required version lacks moves that requirement to a
+// later commit on main, with `go get <module>@<commit>` run under GOWORK=off
+// in the requiring module, and its replace here moves with it.
+//
 // This file is not part of the bundle a release builds, which carries the core
 // module's files alone, and a consumer of any module never sees it.
 go 1.24.0
@@ -26,8 +32,6 @@ use (
 	./excel
 )
 
-replace github.com/Jaetan/aletheia/go/v5 v5.0.0 => ./
-
 replace github.com/Jaetan/aletheia/go/v5 v5.0.0-20261120132838-2150dabcfa97 => ./
 
-replace github.com/Jaetan/aletheia/go/excel v0.0.0 => ./excel
+replace github.com/Jaetan/aletheia/go/excel v0.0.0-20261120222537-2b12b86d9f6a => ./excel
