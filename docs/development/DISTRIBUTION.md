@@ -350,7 +350,7 @@ The GHC runtime `.so` files are found automatically via `RPATH=$ORIGIN` on `liba
 
 ### Go
 
-The Go binding (`go/` in the Aletheia repository) uses `dlopen` at runtime via cgo. Requires Go 1.24+ and `CGO_ENABLED=1`.
+The Go binding (`go/` in the Aletheia repository) uses `dlopen` at runtime via cgo. Requires Go 1.26+ and `CGO_ENABLED=1`.
 
 #### Install
 
