@@ -33,6 +33,7 @@ from tools._ci_steps import (
     DOC_EXAMPLE_PACKAGE,
     FAST_STEPS,
     GO_BUILD_NO_CGO,
+    GO_BUILD_OUTSIDE_WORKSPACE,
     GO_EXCEL_MODULE,
     GO_TEST_NO_CGO,
     in_every_go_module,
@@ -214,6 +215,24 @@ def test_the_cgo_free_suites_run_but_the_excel_loaders(tmp_path: Path) -> None:
     step = _registered_step(tmp_path, GateName("go test (no cgo)"))
     assert step.cmd == in_every_go_module(GO_TEST_NO_CGO, but=GO_EXCEL_MODULE)
     assert shlex.split(GO_TEST_NO_CGO)[:3] == ["CGO_ENABLED=0", "go", "test"]
+
+
+def test_every_module_builds_outside_the_workspace(tmp_path: Path) -> None:
+    """Every module is built with the workspace off, against the versions its go.mod requires.
+
+    The modules are listed from the workspace, so GOWORK=off sits on each
+    module's build alone; this repository's modules are fetched past the proxy
+    and the checksum database, -mod=readonly refuses a go.sum missing a required
+    version's lines, and nothing is linked into the tree.  The command is read
+    rather than run, as the cgo-free build's is.
+    """
+    step = _registered_step(tmp_path, GateName("go build (outside the workspace)"))
+    assert step.cmd == in_every_go_module(GO_BUILD_OUTSIDE_WORKSPACE)
+    words = shlex.split(GO_BUILD_OUTSIDE_WORKSPACE)
+    build = words.index("build")
+    assert words[: build - 1] == ["GOWORK=off", "GOPRIVATE=github.com/Jaetan/aletheia"]
+    assert words[build - 1 : build] == ["go"]
+    assert words[build + 1 : words.index("./...")] == ["-mod=readonly", "-o", "/dev/null"]
     assert Path("excel") == GO_EXCEL_MODULE
 
 

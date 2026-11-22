@@ -88,6 +88,8 @@ cd go && go test ./aletheia/ -shuffle=on -count=1 -race
 # Every module of the workspace, since ./... stops at a module's edge:
 cd go && for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && go vet ./...); done
 cd go && for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && CGO_ENABLED=0 go build -o /dev/null ./...); done
+# Each module again outside the workspace, against the versions its go.mod requires:
+cd go && for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && GOWORK=off GOPRIVATE=github.com/Jaetan/aletheia go build -mod=readonly -o /dev/null ./...); done
 # Cat 33 dynamic-analysis lanes (opt-in via build tags or extended runs):
 cd go && go test ./aletheia/ -fuzz=Fuzz -fuzztime=60s -run='^$'   # one target at a time; iterate
 cd go && go test ./aletheia/ -run CrossBinding -v                  # cross-binding integration
