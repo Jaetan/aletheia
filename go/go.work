@@ -22,9 +22,7 @@
 //
 // This file is not part of the bundle a release builds, which carries the core
 // module's files alone, and a consumer of any module never sees it.
-go 1.24.0
-
-toolchain go1.24.6
+go 1.26.0
 
 use (
 	.
