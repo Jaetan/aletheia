@@ -46,6 +46,11 @@ ASYNC_CLIENT_ON_A_THREAD = CanonicalText("thread: an async client on its default
 # earlier run saved.
 UNSEEDED_PROPERTY = CanonicalText("random: a property test whose sample no seed fixes")
 REPLAYING_PROFILE = CanonicalText("random: a property profile replaying what an earlier run saved")
+# Hypothesis also times what it runs: a deadline fails an example slower than
+# it, and the ``too_slow`` health check fails a strategy slower than its bound.
+# A profile turns both off, and a settings call turning either back on lets a
+# clock decide an outcome.
+TIMED_PROPERTY = CanonicalText("time: a property test's deadline or speed check")
 
 
 _ASYNC_MODULE = DottedName("aletheia.asyncio")
@@ -165,3 +170,52 @@ def replaying_profiles(text: SourceText) -> SiteCount:
             )
         )
     )
+
+
+def _suppresses_too_slow(value: ast.expr) -> bool:
+    """Say whether a ``suppress_health_check`` value names ``too_slow`` or every health check."""
+    if isinstance(value, ast.List | ast.Tuple | ast.Set):
+        return any(
+            isinstance(item, ast.Attribute) and item.attr == "too_slow" for item in value.elts
+        )
+    return (
+        isinstance(value, ast.Call)
+        and _dotted(value.func) == "list"
+        and len(value.args) == 1
+        and (_dotted(value.args[0]) or "").rsplit(".", 1)[-1] == "HealthCheck"
+    )
+
+
+def timed_properties(text: SourceText) -> SiteCount:
+    """Count the hypothesis settings in a Python test file that let a clock decide an outcome.
+
+    A call of hypothesis's ``settings``, however the file imports it, counts
+    when it passes a ``deadline`` other than None or a ``suppress_health_check``
+    leaving ``too_slow`` out.  A call of ``settings.register_profile`` counts
+    unless it passes ``deadline=None`` and suppresses ``too_slow``, since a
+    profile without them takes hypothesis's own deadline and speed check.  A
+    file the parser refuses counts none here.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return SiteCount(0)
+    settings = _spellings(tree, _HYPOTHESIS, BoundName("settings"))
+    register = {DottedName(f"{name}.register_profile") for name in settings}
+    count = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        callee = _dotted(node.func)
+        given = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg}
+        deadline, speed = given.get("deadline"), given.get("suppress_health_check")
+        deadline_off = isinstance(deadline, ast.Constant) and deadline.value is None
+        speed_off = speed is not None and _suppresses_too_slow(speed)
+        turned_on = (deadline is not None and not deadline_off) or (
+            speed is not None and not speed_off
+        )
+        if (callee in settings and turned_on) or (
+            callee in register and not (deadline_off and speed_off)
+        ):
+            count += 1
+    return SiteCount(count)
