@@ -18,6 +18,8 @@ module, and each holds one claim:
   binding defines, and nothing schedules a fuzz run;
 * ``go_module_major``: the core Go module's path carries the major of the
   release the release runbook tags it at;
+* ``go_requirements``: the command line requires every module the Excel
+  module requires, at that version or later;
 * ``ignored_build_trees``: every build tree the build file and the documents
   name is ignored by the tracked rules, and no top-level venv but the
   sanctioned one is;
@@ -33,7 +35,7 @@ module, and each holds one claim:
 * ``phase_word``: the phase table names one current phase, and every
   document uses the table's word for it;
 * ``prerequisite_pins``: the toolchain pins the building guide's
-  prerequisites state are the tree's own;
+  prerequisites state are the tree's own, and the Go binding has one floor;
 * ``readme_extras``: every pip extra a README names is one
   ``python/pyproject.toml`` defines;
 * ``readme_tree``: the project tree ``README.md`` prints names exactly the
@@ -71,6 +73,7 @@ from tools.docs_arms import (
     ffi_symbols,
     fuzz_targets,
     go_module_major,
+    go_requirements,
     ignored_build_trees,
     index_coverage,
     labels,
@@ -109,6 +112,7 @@ ARMS: tuple[Arm, ...] = (
     ffi_symbols.findings,
     fuzz_targets.findings,
     go_module_major.findings,
+    go_requirements.findings,
     ignored_build_trees.findings,
     index_coverage.findings,
     ledger_licences.findings,

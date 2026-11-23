@@ -411,9 +411,7 @@ func docHarnessSetup(t *testing.T, root string) (yamlFix, excelFix string) {
 
 	goMod := fmt.Sprintf(`module aletheia_doc_harness
 
-go 1.24.0
-
-toolchain go1.24.6
+go 1.26.0
 
 require (
 	github.com/Jaetan/aletheia/go/v5 v5.0.0

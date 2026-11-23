@@ -383,6 +383,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Go): the Go binding needs Go 1.26 or later.** The core module,
+  the Excel module and the command line declare `go 1.26.0`, where they declared
+  `go 1.24.0`, and carry no `toolchain` line. The Excel module and the command
+  line now require excelize 2.11.1, which declares `go 1.26.0`, as do the
+  `golang.org/x/crypto`, `golang.org/x/net` and `golang.org/x/text` releases it
+  requires, so neither module can take them on an older floor; the core module
+  moves with them, so the binding has one floor.
+
 - **BREAKING (C ABI 4, every binding): a rational's numerator and denominator,
   a multiplex value and a value-description key reach 2^128 - 1 in magnitude,
   the sign held apart.** Go `Uint128`, C++ `unsigned __int128` and Rust `u128`

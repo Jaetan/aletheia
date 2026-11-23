@@ -640,6 +640,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_docs_arm_ledger_versions.py",
     "--ignore=tests/test_docs_arm_prerequisite_pins.py",
     "--ignore=tests/test_docs_arm_go_module_major.py",
+    "--ignore=tests/test_docs_arm_go_requirements.py",
     "--ignore=tests/test_docs_arm_ledger_packages.py",
     "--ignore=tests/test_docs_arm_ledger_licences.py",
     "--ignore=tests/test_check_rust_licences.py",
