@@ -27,6 +27,7 @@ from tools.check_test_determinism import (
     CLEAN,
     OUT_OF_STEP,
     REPLAYING_PROFILE,
+    TIMED_PROPERTY,
     UNSEEDED_PROPERTY,
     Binding,
     SiteCount,
@@ -39,6 +40,7 @@ from tools.check_test_determinism import (
     rust_test_modules,
     rust_tests_run_alone,
     sites_in,
+    timed_properties,
     unseeded_properties,
     which_are_tests,
 )
@@ -492,7 +494,62 @@ def test_an_unseeded_hypothesis_test_and_a_replaying_profile_are_random_sites(
     assert rows_of(tmp_path, rel, source) == {
         RowKey(rel, UNSEEDED_PROPERTY): 4,
         RowKey(rel, REPLAYING_PROFILE): 2,
+        # None of the four profiles turns off the deadline and the speed check.
+        RowKey(rel, TIMED_PROPERTY): 4,
     }
+    assert not rows_of(tmp_path, RelPath("python/aletheia/x.py"), source)
+
+
+def test_a_property_deadline_or_speed_check_is_a_time_site(tmp_path: Path) -> None:
+    """A hypothesis setting that lets a clock decide an outcome counts as a time site.
+
+    A settings call counts when it passes a deadline other than None or a
+    suppress_health_check leaving too_slow out, however the file imports
+    settings; a profile counts unless it turns both off.  A call setting
+    neither, the off spellings, a call of another module's settings and a
+    mention in a string are none.
+    """
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            from datetime import timedelta
+            import hypothesis as h
+            from hypothesis import HealthCheck, settings
+            from hypothesis import settings as s
+            import other
+
+            @settings(deadline=200)
+            def test_a(): ...
+
+            @s(deadline=timedelta(milliseconds=50))
+            def test_b(): ...
+
+            @h.settings(suppress_health_check=[HealthCheck.filter_too_much])
+            def test_c(): ...
+
+            settings.register_profile("p", database=None, deadline=None)
+            s.register_profile("q", database=None, suppress_health_check=[HealthCheck.too_slow])
+
+            @settings(max_examples=5)
+            def test_d(): ...
+
+            @settings(deadline=None, suppress_health_check=(HealthCheck.too_slow,))
+            def test_e(): ...
+
+            @h.settings(suppress_health_check=list(HealthCheck))
+            def test_f(): ...
+
+            settings.register_profile(
+                "r", database=None, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+            )
+            other.settings(deadline=200)
+            note = "@settings(deadline=200)"
+            """
+        )
+    )
+    assert timed_properties(source) == 5
+    rel = RelPath("python/tests/test_x.py")
+    assert rows_of(tmp_path, rel, source) == {RowKey(rel, TIMED_PROPERTY): 5}
     assert not rows_of(tmp_path, RelPath("python/aletheia/x.py"), source)
 
 

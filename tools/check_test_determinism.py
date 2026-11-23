@@ -109,6 +109,7 @@ from tools._determinism_syntax import (
     PYTHON,
     REPLAYING_PROFILE,
     RUST,
+    TIMED_PROPERTY,
     UNSEEDED_PROPERTY,
     BindingName,
     NetWord,
@@ -116,6 +117,7 @@ from tools._determinism_syntax import (
     SourceText,
     async_clients_on_a_thread,
     replaying_profiles,
+    timed_properties,
     unseeded_properties,
 )
 from tools._progress import reporting
@@ -690,6 +692,7 @@ def scan_of(repo: Path, rel: RelPath, text: SourceText) -> Scan:
             (ASYNC_CLIENT_ON_A_THREAD, async_clients_on_a_thread(text)),
             (UNSEEDED_PROPERTY, unseeded_properties(text)),
             (REPLAYING_PROFILE, replaying_profiles(text)),
+            (TIMED_PROPERTY, timed_properties(text)),
         ):
             if count:
                 rows[RowKey(rel, label)] = count
