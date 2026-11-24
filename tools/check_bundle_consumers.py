@@ -12,8 +12,11 @@ consumer or the gate:
 * Go: the consumer, its import pointed at ``go/go.mod``'s module path, in a
   module of its own that replaces that module with ``go/``, built with
   ``go build``;
-* C++: the consumer's source syntax-checked by ``clang++-23 -std=c++23``
-  against ``cpp/include``;
+* C++: the consumer's source syntax-checked by ``clang++-23 -std=gnu++23``
+  against ``cpp/include``, the dialect its CMake build compiles in
+  (``cxx_std_23`` with CMake's extensions on): in strict ``-std=c++23``,
+  libstdc++ before 16 counts no ``unsigned __int128`` as integral, which the
+  library's ``Rational`` needs;
 * Rust: the crate staged as the dist step stages it (``Cargo.toml`` written by
   ``tools/bundle_rust_manifest.py``, ``Cargo.lock``, ``src/``) checked as a
   package of its own with ``cargo check --locked``, as the release image builds
@@ -137,10 +140,10 @@ def cpp_steps(work: Path) -> list[Step]:
     word = CommandWord
     return [
         Step(
-            Prose("clang++-23 -fsyntax-only"),
+            Prose("clang++-23 -std=gnu++23 -fsyntax-only"),
             _words(
                 word(find_executable("clang++-23")),
-                word("-std=c++23"),
+                word("-std=gnu++23"),
                 word("-fsyntax-only"),
                 word(f"-I{REPO_ROOT / 'cpp' / 'include'}"),
                 FIXTURE_DIR / "consumer_cpp" / "main.cpp",

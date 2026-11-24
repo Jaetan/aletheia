@@ -118,10 +118,15 @@ def test_the_go_consumer_builds_against_the_tree_s_module(tmp_path: Path) -> Non
 
 
 def test_the_cpp_consumer_is_checked_against_the_tree_s_headers(tmp_path: Path) -> None:
-    """One syntax-only compile of the consumer, the tree's include directory first on its path."""
+    """One syntax-only compile of the consumer in its build's dialect, against the tree's headers.
+
+    The consumer's CMake build compiles with CMake's extensions on, and strict
+    -std=c++23 refuses the library's Rational under libstdc++ before 16.
+    """
     (step,) = check_bundle_consumers.cpp_steps(tmp_path)
     assert "-fsyntax-only" in step.argv
-    assert "-std=c++23" in step.argv
+    assert "-std=gnu++23" in step.argv
+    assert "-std=c++23" not in step.argv
     assert f"-I{_REPO / 'cpp' / 'include'}" in step.argv
     assert step.argv[-1].endswith("tools/bundle_validation/consumer_cpp/main.cpp")
 
