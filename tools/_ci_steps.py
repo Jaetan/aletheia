@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tools._branch_diff import branch_changes
+from tools._ci_consumer_steps import register_consumer_steps
 from tools._ci_opt_in_steps import register_opt_in_steps
 from tools._ci_tool_fact_steps import register_mutation_fact_steps, register_tool_fact_steps
 from tools._common import (
@@ -503,17 +504,9 @@ def _run_binding_tests(runner: Runner) -> None:
         lane="cpp",
         needs=(CPP_CONFIGURE_STEP,),
     )
-    # The installed package: a project of its own finds it with find_package and
-    # links and runs the client and both loaders, where the branch moves what
-    # the package installs; it needs the configure of the test tree, which
-    # fetched the sources the gate builds the package from.
-    runner.step(
-        "check-cpp-installed-consumer",
-        [runner.python, "-m", "tools.check_cpp_installed_consumer"],
-        cwd=runner.repo_root,
-        lane="cpp",
-        needs=(CPP_CONFIGURE_STEP,),
-    )
+    # The consumer gates: the installed C++ package and the bundle validator's
+    # consumers, each built as a user would, in its binding's lane.
+    register_consumer_steps(runner)
     # Rust binding — loads libaletheia-ffi.so at runtime (like Go / C++). The
     # tracer-bullet slice proves the FFI lifecycle + GHC-allocated-memory
     # ownership; ALETHEIA_LIB points cargo's test at the freshly built .so.

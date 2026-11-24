@@ -57,7 +57,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from tools._common import emit, find_executable
 from tools._resources import detect_cpus
@@ -84,7 +84,7 @@ _TRUNCATE_KEEP_CHARS = 200
 
 # Placeholder in the Rust consumer's Cargo.toml template that receives the
 # [dependencies] block printed by the installer, verbatim.
-_DEPENDENCIES_PLACEHOLDER = "@ALETHEIA_DEPENDENCIES@"
+DEPENDENCIES_PLACEHOLDER = "@ALETHEIA_DEPENDENCIES@"
 
 # installer + env script per supported shell.
 _SHELL_FILES: dict[str, tuple[str, str]] = {
@@ -110,6 +110,13 @@ class BundleValidationError(Exception):
     """A validation step failed; the message names the step and carries output."""
 
 
+class Scenario(NamedTuple):
+    """What the consumers are built from and run on: their fixtures and the scenario .dbc."""
+
+    dbc: Path
+    fixtures: Path = FIXTURE_DIR
+
+
 @dataclass(frozen=True)
 class Config:
     """One validation run's inputs, as parsed from the CLI."""
@@ -118,7 +125,7 @@ class Config:
     bindings: tuple[str, ...]
     require: frozenset[str]
     shell: str
-    dbc: Path
+    scenario: Scenario
     keep_work: bool = False
     fetchcontent_cache: Path | None = None
 
@@ -335,7 +342,7 @@ def cpp_consumer_build_command(cmake: str, build: Path) -> list[str]:
 def run_cpp_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> None:
     """Build + run the C++ consumer via the printed CMake recipe lines."""
     src = work / "consumer_cpp"
-    _ = shutil.copytree(FIXTURE_DIR / "consumer_cpp", src)
+    _ = shutil.copytree(cfg.scenario.fixtures / "consumer_cpp", src)
     recipe_file = src / "recipe.cmake"
     _ = recipe_file.write_text("\n".join(recipe) + "\n")
     build = src / "build"
@@ -355,7 +362,7 @@ def run_cpp_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> N
     _ = run_step("cpp: cmake configure", configure)
     _ = run_step("cpp: cmake build", cpp_consumer_build_command(cmake, build))
     scenario = run_step(
-        "cpp: scenario", [str(build / "your_app"), str(cfg.dbc)], env=_consumer_env(lib)
+        "cpp: scenario", [str(build / "your_app"), str(cfg.scenario.dbc)], env=_consumer_env(lib)
     )
     assert_consumer_ok("cpp", scenario.stdout)
 
@@ -364,7 +371,7 @@ def run_cpp_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> N
 # own line.  The module path a bundle ships is a fact of that bundle, not of
 # this tree: a release's Go binding keeps the path its go.mod declared, so the
 # consumer imports whatever the bundle under test names.
-_GO_MODULE_LINE = re.compile(r"^module\s+(\S+)\s*$", re.MULTILINE)
+GO_MODULE_LINE = re.compile(r"^module\s+(\S+)\s*$", re.MULTILINE)
 
 # The fixture's import of the bundled package: the module path is the part
 # before the package name, and that is the part the bundle decides.
@@ -377,7 +384,7 @@ def read_go_module(bundle: Path) -> str:
     if not go_mod.is_file():
         message = f"go: the bundle carries no {go_mod.relative_to(bundle)}"
         raise BundleValidationError(message)
-    found = _GO_MODULE_LINE.findall(go_mod.read_text())
+    found = GO_MODULE_LINE.findall(go_mod.read_text())
     if len(found) != 1:
         message = f"go: {go_mod.relative_to(bundle)} declares {len(found)} module paths, not one"
         raise BundleValidationError(message)
@@ -410,7 +417,7 @@ def run_go_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> No
         raise BundleValidationError(message)
     src = work / "consumer_go"
     src.mkdir()
-    fixture = (FIXTURE_DIR / "consumer_go" / "main.go").read_text()
+    fixture = (cfg.scenario.fixtures / "consumer_go" / "main.go").read_text()
     _ = (src / "main.go").write_text(retarget_go_consumer(fixture, module))
     go = find_executable("go")
     env = _consumer_env(lib)
@@ -421,7 +428,7 @@ def run_go_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> No
         argv[0] = go  # the shape check pinned the leading word; resolve it on PATH
         _ = run_step(f"go: {line}", argv, cwd=src, env=env)
     _ = run_step("go: build", [go, "build", "-o", "consumer", "."], cwd=src, env=env)
-    scenario = run_step("go: scenario", [str(src / "consumer"), str(cfg.dbc)], env=env)
+    scenario = run_step("go: scenario", [str(src / "consumer"), str(cfg.scenario.dbc)], env=env)
     assert_consumer_ok("go", scenario.stdout)
 
 
@@ -429,21 +436,23 @@ def run_rust_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> 
     """Build + run the Rust consumer with the printed [dependencies] block."""
     src = work / "consumer_rust"
     (src / "src").mkdir(parents=True)
-    template = (FIXTURE_DIR / "consumer_rust" / "Cargo.toml.in").read_text()
-    if template.count(_DEPENDENCIES_PLACEHOLDER) != 1:
+    template = (cfg.scenario.fixtures / "consumer_rust" / "Cargo.toml.in").read_text()
+    if template.count(DEPENDENCIES_PLACEHOLDER) != 1:
         message = (
-            f"Cargo.toml.in must contain the {_DEPENDENCIES_PLACEHOLDER} placeholder exactly "
+            f"Cargo.toml.in must contain the {DEPENDENCIES_PLACEHOLDER} placeholder exactly "
             + "once (a stray occurrence — e.g. in a comment — would also be substituted)"
         )
         raise BundleValidationError(message)
-    manifest = template.replace(_DEPENDENCIES_PLACEHOLDER, "\n".join(recipe))
+    manifest = template.replace(DEPENDENCIES_PLACEHOLDER, "\n".join(recipe))
     _ = (src / "Cargo.toml").write_text(manifest)
-    _ = shutil.copy(FIXTURE_DIR / "consumer_rust" / "src" / "main.rs", src / "src" / "main.rs")
+    _ = shutil.copy(
+        cfg.scenario.fixtures / "consumer_rust" / "src" / "main.rs", src / "src" / "main.rs"
+    )
     cargo = find_executable("cargo")
     env = _consumer_env(lib)
     _ = run_step("rust: cargo build", [cargo, "build"], cwd=src, env=env)
     scenario_bin = src / "target" / "debug" / "consumer"
-    scenario = run_step("rust: scenario", [str(scenario_bin), str(cfg.dbc)], env=env)
+    scenario = run_step("rust: scenario", [str(scenario_bin), str(cfg.scenario.dbc)], env=env)
     assert_consumer_ok("rust", scenario.stdout)
 
 
@@ -522,8 +531,8 @@ def validate(cfg: Config) -> int:
     if not cfg.tarball.is_file():
         emit(f"bundle validation: FAIL — tarball not found: {cfg.tarball}")
         return 1
-    if not cfg.dbc.is_file():
-        emit(f"bundle validation: FAIL — scenario DBC not found: {cfg.dbc}")
+    if not cfg.scenario.dbc.is_file():
+        emit(f"bundle validation: FAIL — scenario DBC not found: {cfg.scenario.dbc}")
         return 1
     work = Path(tempfile.mkdtemp(prefix="aletheia-bundle-"))
     try:
@@ -591,7 +600,7 @@ def _run_corruption(
             bindings=bindings,
             require=frozenset(bindings),
             shell=cfg.shell,
-            dbc=cfg.dbc,
+            scenario=cfg.scenario,
             keep_work=False,
             fetchcontent_cache=cfg.fetchcontent_cache,
         )
@@ -688,6 +697,12 @@ def parse_args(argv: list[str] | None = None) -> tuple[Config, bool]:
         "--keep-work", action="store_true", help="keep the temporary work tree for debugging"
     )
     parser.add_argument(
+        "--fixtures",
+        type=Path,
+        default=FIXTURE_DIR,
+        help="the consumer fixtures directory (default: this tree's; a release's own to replay it)",
+    )
+    parser.add_argument(
         "--fetchcontent-cache",
         type=Path,
         default=None,
@@ -704,7 +719,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[Config, bool]:
         bindings=_parse_binding_list(parser, "--bindings", args.bindings),
         require=frozenset(_parse_binding_list(parser, "--require", args.require)),
         shell=args.shell,
-        dbc=args.dbc,
+        scenario=Scenario(dbc=args.dbc, fixtures=args.fixtures),
         keep_work=args.keep_work,
         fetchcontent_cache=args.fetchcontent_cache,
     )
