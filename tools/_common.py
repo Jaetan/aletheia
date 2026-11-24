@@ -21,6 +21,7 @@ as the ratchet record reader does in ``tools/_ratchet.py``.
 
 from __future__ import annotations
 
+import argparse
 import atexit
 import contextlib
 import errno
@@ -68,6 +69,8 @@ COUNTED_RTS_OPTS = "-I0"
 EnvName = NewType("EnvName", str)
 EnvValue = NewType("EnvValue", str)
 CommandWord = NewType("CommandWord", str)
+# A command line's help text, as argparse prints it.
+HelpText = NewType("HelpText", str)
 # An open file descriptor of this process; how long an interrupted command has before SIGKILL;
 # the status a process ended with.
 Descriptor = NewType("Descriptor", int)
@@ -92,10 +95,15 @@ CPP_LINT_TREE = "build-tidy"
 # toolchain's clang-tidy does, which reads none.
 CPP_LINT_LANE = "cpp-lint"
 # The sweep's steps whose output steps registered in more than one module read:
-# the build, which writes the library and the generated code, and the
-# configure of the C++ test tree, which fetches the C++ dependencies' sources.
+# the build, which writes the library and the generated code, the configure of
+# the C++ test tree, which fetches the C++ dependencies' sources, the build of
+# that tree, and the build of each crate's tests, which fetches the crates they
+# resolve.
 BUILD_STEP = GateName("build")
 CPP_CONFIGURE_STEP = GateName("cpp configure")
+CPP_BUILD_STEP = GateName("cpp build")
+CARGO_TEST_BUILD_STEP = GateName("cargo build (tests)")
+EXCEL_CARGO_TEST_BUILD_STEP = GateName("cargo build (tests, excel crate)")
 # The tests that read the C++ test tree's compile database, which the cpp
 # lane's configure writes as cpp/build/compile_commands.json: the reply-place
 # gate's C++ reader, and the gate run whole by the Go and Rust readers' tests.
@@ -221,6 +229,15 @@ def sha256_file(path: Path) -> str:
 def now_iso() -> str:
     """Return the current UTC time as a timezone-aware ISO-8601 string."""
     return datetime.now(UTC).isoformat()
+
+
+def binding_parser[B: str](
+    bindings: tuple[B, ...], description: HelpText
+) -> argparse.ArgumentParser:
+    """Return a gate's parser of ``--binding``, which refuses a binding not in ``bindings``."""
+    parser = argparse.ArgumentParser(description=description)
+    _ = parser.add_argument("--binding", choices=bindings, required=True)
+    return parser
 
 
 def find_executable(name: str) -> str:

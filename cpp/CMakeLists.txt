@@ -500,6 +500,11 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # byte-identical across checkouts (the reproducible-build invariant).
     set(ALETHEIA_TEST_REPO_ROOT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
     set(ALETHEIA_TEST_LIB "ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
+    # Every Catch2 suite runs its cases in an order of its own each run, the
+    # seed it drew printed, so no case can lean on another having run first.
+    function(aletheia_add_catch_test name)
+        add_test(NAME ${name} COMMAND ${name} --order rand)
+    endfunction()
 
     # Compile-time tests (no framework — just needs to compile)
     add_executable(static_tests tests/static_tests.cpp)
@@ -663,7 +668,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         target_link_libraries(json_cleanup_abort PRIVATE nlohmann_json::nlohmann_json)
         set_target_properties(json_cleanup_abort PROPERTIES ENABLE_EXPORTS ON)
     endif()
-    add_test(NAME unit_tests COMMAND unit_tests)
+    aletheia_add_catch_test(unit_tests)
     set_tests_properties(unit_tests PROPERTIES ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # Integration tests (real .so, Catch2, threads for concurrent test). The
@@ -683,7 +688,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Threads::Threads Catch2::Catch2WithMain)
     target_include_directories(integration_tests PRIVATE src ${ALETHEIA_KERNEL_HEADER_DIR})
-    add_test(NAME integration_tests COMMAND integration_tests)
+    aletheia_add_catch_test(integration_tests)
     set_tests_properties(integration_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
@@ -697,7 +702,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_include_directories(dbc_corpus_parity_tests PRIVATE src)
     target_link_libraries(dbc_corpus_parity_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
-    add_test(NAME dbc_corpus_parity_tests COMMAND dbc_corpus_parity_tests)
+    aletheia_add_catch_test(dbc_corpus_parity_tests)
     set_tests_properties(dbc_corpus_parity_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
@@ -714,7 +719,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     endif()
     target_link_libraries(yaml_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    add_test(NAME yaml_tests COMMAND yaml_tests)
+    aletheia_add_catch_test(yaml_tests)
     set_tests_properties(yaml_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_LIB}")
 
@@ -734,7 +739,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     endif()
     target_link_libraries(excel_tests
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    add_test(NAME excel_tests COMMAND excel_tests)
+    aletheia_add_catch_test(excel_tests)
     # The cross-binding portability test loads examples/demo/demo_workbook.xlsx
     # from the repository root.
     set_tests_properties(excel_tests PROPERTIES
@@ -781,7 +786,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     add_executable(cli_tests tests/cli_tests.cpp)
     target_link_libraries(cli_tests PRIVATE aletheia-cli-core nlohmann_json::nlohmann_json
                                             Catch2::Catch2WithMain)
-    add_test(NAME cli_tests COMMAND cli_tests)
+    aletheia_add_catch_test(cli_tests)
     set_tests_properties(cli_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
 
@@ -829,7 +834,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(fresh_process_tests PRIVATE Catch2::Catch2WithMain)
     target_compile_definitions(fresh_process_tests PRIVATE ${ALETHEIA_FRESH_PROCESS_DEFINITIONS})
     add_dependencies(fresh_process_tests ${ALETHEIA_FRESH_PROCESS_BINARIES})
-    add_test(NAME fresh_process_tests COMMAND fresh_process_tests)
+    aletheia_add_catch_test(fresh_process_tests)
     set_tests_properties(fresh_process_tests PROPERTIES ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
     if(ALETHEIA_MUTATION)
         target_sources(unit_tests PRIVATE tests/fresh_process_tests.cpp)
@@ -861,8 +866,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/test_cross_binding_integration.cpp)
     target_link_libraries(cross_binding_integration_tests
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
-    add_test(NAME cross_binding_integration_tests
-        COMMAND cross_binding_integration_tests)
+    aletheia_add_catch_test(cross_binding_integration_tests)
     set_tests_properties(cross_binding_integration_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
@@ -871,7 +875,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # that ctest starts with LC_ALL=C; the test fails under any other locale.
     add_executable(locale_tests tests/test_locale.cpp)
     target_link_libraries(locale_tests PRIVATE aletheia-cpp Catch2::Catch2WithMain)
-    add_test(NAME locale_tests COMMAND locale_tests)
+    aletheia_add_catch_test(locale_tests)
     set_tests_properties(locale_tests PROPERTIES
         ENVIRONMENT "LC_ALL=C;${ALETHEIA_TEST_LIB}")
 
@@ -925,7 +929,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # fence's mark names.
     target_compile_definitions(doc_example_tests PRIVATE
         ALETHEIA_DOC_FORWARDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/forwarding_kernel.so")
-    add_test(NAME doc_example_tests COMMAND doc_example_tests)
+    aletheia_add_catch_test(doc_example_tests)
     set_tests_properties(doc_example_tests PROPERTIES
         ENVIRONMENT
             "${ALETHEIA_TEST_REPO_ROOT};ALETHEIA_DOC_INCLUDE=${CMAKE_CURRENT_SOURCE_DIR}/include")

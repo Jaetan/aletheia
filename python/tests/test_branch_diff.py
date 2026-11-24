@@ -82,3 +82,72 @@ def test_without_git_the_diff_is_none(monkeypatch: pytest.MonkeyPatch, tmp_path:
     """No git on the search path is no answer either."""
     monkeypatch.setenv("PATH", str(tmp_path))
     assert branch_changes(_ROOT) is None
+
+
+def test_the_changed_paths_take_in_the_work_tree_s_and_the_untracked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sweep before a commit reads the paths it is about to commit, each path once."""
+    answers = {
+        BRANCH_RANGE: Prose("committed.py\nshared.py\n"),
+        "HEAD": Prose("staged.py\nshared.py\n"),
+        "--exclude-standard": Prose("new.py\n"),
+    }
+    asked: list[list[CommandWord]] = []
+
+    def answer(cmd: list[CommandWord]) -> subprocess.CompletedProcess[Prose]:
+        asked.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, answers[cmd[-1]], Prose(""))
+
+    def git(_name: CommandWord) -> CommandWord:
+        return _GIT
+
+    monkeypatch.setattr(_branch_diff, "run_capture", answer)
+    monkeypatch.setattr(_branch_diff, "find_executable", git)
+    assert branch_changes(_ROOT) == [
+        RelPath("committed.py"),
+        RelPath("shared.py"),
+        RelPath("staged.py"),
+        RelPath("new.py"),
+    ]
+    assert [_GIT, "-C", "/repo", "diff", "--name-only", "HEAD"] in asked
+    assert [_GIT, "-C", "/repo", "ls-files", "--others", "--exclude-standard"] in asked
+
+
+def test_a_work_tree_question_git_refuses_is_none_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A committed diff with the work tree unread is no answer, never the committed part alone."""
+    for refused in (CommandWord("HEAD"), CommandWord("--exclude-standard")):
+
+        def answer(
+            cmd: list[CommandWord], refused: CommandWord = refused
+        ) -> subprocess.CompletedProcess[Prose]:
+            status = 128 if cmd[-1] == refused else 0
+            return subprocess.CompletedProcess(cmd, status, Prose("a.py\n"), Prose(""))
+
+        def git(_name: CommandWord) -> CommandWord:
+            return _GIT
+
+        monkeypatch.setattr(_branch_diff, "run_capture", answer)
+        monkeypatch.setattr(_branch_diff, "find_executable", git)
+        assert branch_changes(_ROOT) is None, refused
+
+
+def test_a_branch_that_committed_nothing_changed_nothing_whatever_its_work_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Before a branch's first commit the answer is the empty list, read as everything."""
+    answers = {
+        BRANCH_RANGE: Prose(""),
+        "HEAD": Prose("staged.py\n"),
+        "--exclude-standard": Prose("new.py\n"),
+    }
+
+    def answer(cmd: list[CommandWord]) -> subprocess.CompletedProcess[Prose]:
+        return subprocess.CompletedProcess(cmd, 0, answers[cmd[-1]], Prose(""))
+
+    def git(_name: CommandWord) -> CommandWord:
+        return _GIT
+
+    monkeypatch.setattr(_branch_diff, "run_capture", answer)
+    monkeypatch.setattr(_branch_diff, "find_executable", git)
+    assert branch_changes(_ROOT) == []

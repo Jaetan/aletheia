@@ -133,7 +133,10 @@ def test_should_run_staleness_decision() -> None:
 def _diff_naming(
     monkeypatch: pytest.MonkeyPatch, changed: RelPath, *, status: ExitStatus = _SUCCEEDED
 ) -> list[list[CommandWord]]:
-    """Answer the build-graph question's ``git diff`` with ``changed``; return what was asked."""
+    """Answer the build-graph question's ``git diff`` with ``changed``; return what was asked.
+
+    The branch's diff is asked first; the work tree's questions after it get the same answer.
+    """
     asked: list[list[CommandWord]] = []
 
     def answer_the_diff(cmd: list[CommandWord]) -> subprocess.CompletedProcess[Prose]:
@@ -164,7 +167,7 @@ def test_a_branch_touching_the_build_graph_is_seen(
     """A branch changing the build program or the shim changed the graph the gate checks."""
     asked = _diff_naming(monkeypatch, changed)
     assert build_graph_touched(tmp_path)
-    assert asked == [_diff_against_main(tmp_path)]
+    assert asked[0] == _diff_against_main(tmp_path)
 
 
 def test_a_branch_touching_a_document_leaves_the_graph(
@@ -173,7 +176,7 @@ def test_a_branch_touching_a_document_leaves_the_graph(
     """A branch changing a document only leaves the build graph as it was."""
     asked = _diff_naming(monkeypatch, RelPath("docs/BUILDING.md"))
     assert not build_graph_touched(tmp_path)
-    assert asked == [_diff_against_main(tmp_path)]
+    assert asked[0] == _diff_against_main(tmp_path)
 
 
 def test_a_diff_git_cannot_give_counts_as_a_touched_graph(
@@ -211,7 +214,7 @@ def test_under_auto_the_staleness_gate_is_a_step_of_its_own_when_the_graph_chang
             "agda",
             ("build",),
         )
-    assert asked == [_diff_against_main(tmp_path)]
+    assert asked[0] == _diff_against_main(tmp_path)
 
 
 def test_build_staleness_flag_resolves() -> None:

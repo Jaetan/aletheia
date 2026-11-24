@@ -322,7 +322,15 @@ def run_go(artifact_dir: Path) -> CoverageReport:
         rel = module.relative_to(REPO_ROOT / "go").as_posix()
         name = "core" if rel == "." else rel.replace("/", "-")
         profile = artifact_dir / f"go-{name}.cover"
-        cmd = [go, "test", "./...", "-count=1", "-covermode=atomic", f"-coverprofile={profile}"]
+        cmd = [
+            go,
+            "test",
+            "./...",
+            "-count=1",
+            "-shuffle=on",
+            "-covermode=atomic",
+            f"-coverprofile={profile}",
+        ]
         rep.error = _run(cmd, cwd=module, label=f"coverage go ({name})")
         if rep.error is not None:
             return rep

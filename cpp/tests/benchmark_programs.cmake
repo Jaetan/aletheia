@@ -30,7 +30,7 @@ target_link_libraries(benchmark_program_tests PRIVATE Catch2::Catch2WithMain)
 target_compile_definitions(benchmark_program_tests
     PRIVATE ALETHEIA_BENCHMARK_BIN="$<TARGET_FILE:benchmark>")
 add_dependencies(benchmark_program_tests benchmark)
-add_test(NAME benchmark_program_tests COMMAND benchmark_program_tests)
+aletheia_add_catch_test(benchmark_program_tests)
 set_tests_properties(benchmark_program_tests PROPERTIES
     ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
 
@@ -61,7 +61,7 @@ target_compile_definitions(stability_bench_tests PRIVATE
     ALETHEIA_STATUS_OPEN_FAULT="$<TARGET_FILE:status_open_fault>"
     ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
 add_dependencies(stability_bench_tests stability_bench status_open_fault)
-add_test(NAME stability_bench_tests COMMAND stability_bench_tests)
+aletheia_add_catch_test(stability_bench_tests)
 set_tests_properties(stability_bench_tests PROPERTIES ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
 message(STATUS

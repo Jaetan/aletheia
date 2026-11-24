@@ -410,6 +410,13 @@ _NEEDS: dict[GateName, tuple[GateName, ...]] = {
         "check-mull-plugin-facts": ("build",),
         "check-cpp-slices-census-build": ("build",),
         "check-cpp-slices-census": ("check-cpp-slices-census-build",),
+        "check-tests-alone-go": ("build",),
+        "check-tests-alone-cpp": ("build", "cpp build"),
+        "check-tests-alone-rust": (
+            "build",
+            "cargo build (tests)",
+            "cargo build (tests, excel crate)",
+        ),
     }.items()
 }
 
@@ -537,3 +544,12 @@ def test_the_documented_doc_example_command_runs_what_the_step_runs(tmp_path: Pa
         str(DOC_EXAMPLE_PACKAGE),
     ]
     assert step.cwd == tmp_path
+
+
+def test_every_go_suite_run_shuffles_its_tests(tmp_path: Path) -> None:
+    """Each Go suite run orders its tests by a fresh seed, so none can lean on another's run.
+
+    The race run and the cgo-free run both shuffle, and go prints the seed it drew.
+    """
+    for name in (GateName("go test -race"), GateName("go test (no cgo)")):
+        assert " -shuffle=on" in str(_registered_step(tmp_path, name).cmd), name

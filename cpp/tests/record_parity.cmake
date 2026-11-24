@@ -14,7 +14,7 @@ add_executable(feature_matrix_tests tests/test_feature_matrix_parity.cpp)
 target_compile_features(feature_matrix_tests PRIVATE cxx_std_23)
 target_link_libraries(feature_matrix_tests
     PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
+aletheia_add_catch_test(feature_matrix_tests)
 set_tests_properties(feature_matrix_tests PROPERTIES
     ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
@@ -29,7 +29,7 @@ add_executable(log_events_tests tests/test_log_events_parity.cpp tests/rts_setup
 target_include_directories(log_events_tests PRIVATE src)
 target_link_libraries(log_events_tests
     PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-add_test(NAME log_events_tests COMMAND log_events_tests)
+aletheia_add_catch_test(log_events_tests)
 set_tests_properties(log_events_tests PROPERTIES
     ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
@@ -42,7 +42,7 @@ if(NOT ALETHEIA_MUTATION)
     add_executable(layout_tests tests/test_cpp_layout.cpp)
     target_link_libraries(layout_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    add_test(NAME layout_tests COMMAND layout_tests)
+    aletheia_add_catch_test(layout_tests)
     set_tests_properties(layout_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 endif()
@@ -56,6 +56,6 @@ endif()
 add_executable(wire_codes_tests tests/test_wire_codes_parity.cpp)
 target_link_libraries(wire_codes_tests
     PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-add_test(NAME wire_codes_tests COMMAND wire_codes_tests)
+aletheia_add_catch_test(wire_codes_tests)
 set_tests_properties(wire_codes_tests PROPERTIES
     ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")

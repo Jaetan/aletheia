@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NewType, cast
 
 import pytest
 from _hypothesis_profiles import CI_PROFILE
@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from _processes import CommandWord
+
+
+# The module directories ``go list -m`` prints, one a line.
+GoModuleListing = NewType("GoModuleListing", str)
 
 
 def _fake_diff(monkeypatch: pytest.MonkeyPatch, *, files: list[str], returncode: int = 0) -> None:
@@ -493,3 +497,28 @@ def test_each_binding_is_reported_as_the_run_reaches_it(
         "[coverage] rust: out of scope, not measured",
         "progress: 2/2 bindings",
     ]
+
+
+def test_the_go_measurement_runs_each_suite_in_an_order_of_its_own(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The coverage lane shuffles each Go module's suite, as run_ci's Go runs do."""
+    commands: list[list[CommandWord]] = []
+
+    def listed(
+        cmd: list[CommandWord], *, cwd: Path
+    ) -> subprocess.CompletedProcess[GoModuleListing]:
+        del cwd
+        listing = GoModuleListing(f"{coverage_run.REPO_ROOT / 'go'}\n")
+        return subprocess.CompletedProcess(cmd, 0, stdout=listing)
+
+    def stopped(cmd: list[CommandWord], *, cwd: Path, label: Prose) -> Prose:
+        del cwd, label
+        commands.append(cmd)
+        return Prose("stopped before the suite ran")
+
+    monkeypatch.setattr(coverage_run, "run_capture", listed)
+    monkeypatch.setattr(coverage_run, "_run", stopped)
+    assert coverage_run.run_go(tmp_path).error == "stopped before the suite ran"
+    assert len(commands) == 1
+    assert "-shuffle=on" in commands[0]

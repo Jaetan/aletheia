@@ -53,9 +53,18 @@ pytestmark = pytest.mark.usefixtures("rts_up")
 
 
 def test_ffibackend_satisfies_backend_protocol() -> None:
-    """``FFIBackend`` instances pass ``isinstance(..., Backend)``."""
+    """``FFIBackend`` instances pass ``isinstance(..., Backend)``.
+
+    A backend takes a runtime reference when built and gives it back at
+    ``close``, so the test closes the session it opens rather than leave the
+    reference held for every later test.
+    """
     backend = FFIBackend()
-    assert isinstance(backend, Backend)
+    state = backend.init()
+    try:
+        assert isinstance(backend, Backend)
+    finally:
+        backend.close(state)
 
 
 def test_ffibackend_null_handles_yield_clean_error_not_segfault() -> None:
