@@ -11,9 +11,16 @@ tree runs.  The image writes its own source lines, and they are the script's.
 Both refuse a toolchain built from an upstream version ``check_upstream.sh``
 does not record, whichever path installed it, since an evicted cache is filled
 again with the archives' newest builds.
-The script refreshes apt's lists only when its cache is empty, so every other
-step installing from an archive refreshes them itself, and one weekly job
-installs from an empty directory, where an archive's change of key shows.
+A job names every package it takes from an archive in its install, since a
+later refresh of apt's lists would read the script's sources and wait on their
+servers; a later step that must refresh runs apt through
+``apt_without_toolchain.sh``, over every source but those.  A
+cache key stands for one package list, since a cache hit installs what the
+cache holds whatever the install names, and the script installs from its
+cache only when every package it names ends installed.  The script refreshes
+the lists only when its cache cannot install what it names, so a later step
+installing from an archive refreshes them itself, and one weekly job installs
+from an empty directory, where an archive's change of key shows.
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ from typing import NamedTuple, NewType, TypedDict, cast
 import pytest
 import yaml
 
-from tools._common import find_executable, run_capture
+from tools._common import CommandWord, find_executable, run_capture
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -49,12 +56,23 @@ ToolModule = NewType("ToolModule", str)
 
 class _With(TypedDict, total=False):
     path: CachePath
+    key: CacheKey
 
 
 # Functional, since `if` and `with` are keywords.
 _Step = TypedDict(
     "_Step", {"uses": ActionRef, "run": ShellText, "if": IfExpression, "with": _With}, total=False
 )
+# A cache step's key, a package as an archive names it, a source file under
+# /etc/apt/sources.list.d/, and a line a stand-in program logs.
+CacheKey = NewType("CacheKey", str)
+ArchivePackage = NewType("ArchivePackage", str)
+SourceFile = NewType("SourceFile", str)
+CallLine = NewType("CallLine", str)
+# Where in a step's shell text something starts, -1 where it is absent.
+TextOffset = NewType("TextOffset", int)
+# The packages one install names, in its order.
+type _PackageList = tuple[ArchivePackage, ...]
 
 
 class _Job(TypedDict, total=False):
@@ -94,6 +112,9 @@ class _JobSteps(NamedTuple):
 _REPO = Path(__file__).resolve().parents[2]
 _WORKFLOWS = _REPO / ".github" / "workflows"
 _SCRIPT = _REPO / "cpp" / "toolchain" / "install.sh"
+# The script a step after the toolchain install runs apt through.
+_APT = _REPO / "cpp" / "toolchain" / "apt_without_toolchain.sh"
+_APT_CALL = "cpp/toolchain/apt_without_toolchain.sh"
 _DOCKERFILE = _REPO / "Dockerfile.runtime"
 # The directory the toolchain's packages are cached in, as every workflow names it.
 _CACHE = CachePath("~/llvm-cache")
@@ -166,19 +187,78 @@ def test_no_workflow_step_writes_an_apt_source_or_key() -> None:
 def test_every_workflow_apt_install_refreshes_the_lists_first() -> None:
     """A step installing from an archive refreshes apt's lists itself, before it installs.
 
-    The script refreshes them only when its cache is empty, so no later step
-    can count on lists another step refreshed.
+    The script refreshes them only when its cache cannot install what it
+    names, so no later step can count on lists another step refreshed.
     """
     installs = 0
     for job in _jobs():
         for step in job.steps:
-            run = step.get("run", "")
-            install = run.find("apt-get install")
+            run = step.get("run", ShellText(""))
+            install = _first(run, CommandWord("install"))
             if install == -1:
                 continue
-            assert -1 < run.find("apt-get update") < install, job.label
+            assert -1 < _first(run, CommandWord("update")) < install, job.label
             installs += 1
     assert installs > 0
+
+
+def _first(run: ShellText, command: CommandWord) -> TextOffset:
+    """Return where ``run`` first gives apt-get ``command``, directly or through the script."""
+    found = re.search(rf"(?:apt-get|{re.escape(_APT_CALL)}) {command}\b", run)
+    return TextOffset(-1 if found is None else found.start())
+
+
+def _script_sources() -> list[SourceFile]:
+    """Return the source files the script writes under /etc/apt/sources.list.d/."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    return [SourceFile(name) for name in re.findall(r"tee /etc/apt/sources\.list\.d/(\S+)", text)]
+
+
+def test_no_step_after_the_toolchain_install_refreshes_its_sources() -> None:
+    """A step after the script in its job runs apt only through the script beside it.
+
+    A refresh reading the script's sources waits on their servers for any
+    package, and a 503 from one fails the step.
+    """
+    through = 0
+    for job in _jobs():
+        runs = [step.get("run", "") for step in job.steps]
+        installed = next(
+            (at for at, run in enumerate(runs) if "cpp/toolchain/install.sh" in run), None
+        )
+        if installed is None:
+            continue
+        for run in runs[installed + 1 :]:
+            assert "apt-get" not in run, job.label
+            through += _APT_CALL in run
+    assert through > 0
+
+
+def test_apt_runs_through_the_script_over_every_source_but_the_install_s() -> None:
+    """Every apt call of the script reads a copy of the sources without the install's files."""
+    text = _APT.read_text(encoding="utf-8")
+    assert sorted(re.findall(r"! -name (\S+)", text)) == sorted(_script_sources())
+    calls = [line for line in text.splitlines() if "apt-get " in line and not line.startswith("#")]
+    assert calls == ['sudo apt-get -o "Dir::Etc::SourceParts=$parts" "$@"']
+
+
+def test_a_cache_key_stands_for_one_package_list() -> None:
+    """Every install from one toolchain cache key names the same packages.
+
+    A cache hit installs what the cache holds whatever the install names, so
+    an install naming a package the key's other installs do not would find it
+    missing from a cache they filled, and refresh from every archive to get it.
+    """
+    lists: dict[CacheKey, set[_PackageList]] = {}
+    for job in _jobs():
+        for at, step in enumerate(job.steps):
+            if not _caches_the_toolchain(step):
+                continue
+            words = job.steps[at + 1].get("run", "").split()[2:]
+            key = step.get("with", {}).get("key", CacheKey(""))
+            lists.setdefault(key, set()).add(tuple(ArchivePackage(word) for word in words))
+    assert lists
+    assert {key: len(named) for key, named in lists.items()} == dict.fromkeys(lists, 1)
 
 
 def test_every_toolchain_cache_is_installed_by_the_script_under_its_condition() -> None:
@@ -433,3 +513,125 @@ def test_the_image_checks_the_upstream_after_its_install() -> None:
     assert _CHECK_COPIED in image
     install = image.index("apt-get install -y --no-install-recommends clang-23")
     assert _CHECK_RUN in image[install:]
+
+
+_A_SHELL_RUNS_THE_SCRIPT = "only bash runs what the script does with its cache and the archives"
+_KEY_FILES = ("apt.llvm.org.asc", "ubuntu-toolchain-r.asc")
+# The stand-ins: sudo runs its command but writes nothing under /etc, dpkg and
+# apt-get log their arguments, and dpkg-query answers installed for a package
+# the test names.
+_SUDO = """#!/bin/sh
+case "$1" in
+  tee) cat > /dev/null; exit 0 ;;
+  install) exit 0 ;;
+esac
+exec "$@"
+"""
+_LOGGER = '#!/bin/sh\necho "$(basename "$0") $*" >> "$CALLS"\n'
+# dpkg logs too, and fails when the test says the cache does not install whole.
+_DPKG = _LOGGER + 'exit "${DPKG_EXIT:-0}"\n'
+_QUERY = """#!/bin/sh
+for last; do :; done
+for package in $INSTALLED; do
+  [ "$package" = "$last" ] && { printf installed; exit 0; }
+done
+exit 1
+"""
+
+
+def _copy_script(tmp_path: Path) -> Path:
+    """Copy the script and its key files, with a check that passes, and return the copy."""
+    toolchain = tmp_path / "toolchain"
+    toolchain.mkdir()
+    script = toolchain / "install.sh"
+    _ = script.write_text(_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    for name in _KEY_FILES:
+        _ = (toolchain / name).write_bytes((_SCRIPT.parent / name).read_bytes())
+    check = toolchain / "check_upstream.sh"
+    _ = check.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    script.chmod(0o755)
+    check.chmod(0o755)
+    return script
+
+
+def _stand_ins(tmp_path: Path) -> Path:
+    """Write the stand-in programs into a directory of their own, and return it."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, text in (
+        ("sudo", _SUDO),
+        ("dpkg", _DPKG),
+        ("apt-get", _LOGGER),
+        ("dpkg-query", _QUERY),
+    ):
+        stand_in = bin_dir / name
+        _ = stand_in.write_text(text, encoding="utf-8")
+        stand_in.chmod(0o755)
+    return bin_dir
+
+
+def _run_script(
+    tmp_path: Path,
+    named: list[ArchivePackage],
+    installed: list[ArchivePackage],
+    *,
+    dpkg_fails: bool = False,
+) -> list[CallLine]:
+    """Run the script on a cache holding one package, and return what reached dpkg and apt-get.
+
+    dpkg-query answers ``installed`` for each of ``installed``, as after the
+    cache's packages are installed.
+    """
+    script = _copy_script(tmp_path)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    _ = (cache / "cached.deb").write_bytes(b"")
+    calls = tmp_path / "calls"
+    gnupg = tmp_path / "gnupg"
+    gnupg.mkdir(mode=0o700)
+    env = os.environ | {
+        "PATH": f"{_stand_ins(tmp_path)}{os.pathsep}{os.environ['PATH']}",
+        "CALLS": str(calls),
+        "INSTALLED": " ".join(installed),
+        "GNUPGHOME": str(gnupg),
+        "DPKG_EXIT": "1" if dpkg_fails else "0",
+    }
+    result = run_capture([find_executable("bash"), str(script), str(cache), *named], env=env)
+    assert result.returncode == 0, result.stderr
+    return [CallLine(line) for line in calls.read_text(encoding="utf-8").splitlines()]
+
+
+@pytest.mark.process(_A_SHELL_RUNS_THE_SCRIPT)
+def test_a_cache_that_installs_every_named_package_reaches_no_archive(tmp_path: Path) -> None:
+    """A warm run is dpkg over the cache alone: apt-get is never called."""
+    named = [ArchivePackage("clang-23"), ArchivePackage("fish")]
+    calls = _run_script(tmp_path, named, installed=named)
+    assert calls == [CallLine(f"dpkg -i {tmp_path / 'cache' / 'cached.deb'}")]
+
+
+@pytest.mark.process(_A_SHELL_RUNS_THE_SCRIPT)
+def test_a_named_package_the_cache_lacks_is_installed_from_the_archives(tmp_path: Path) -> None:
+    """A cache filled while the image carried a package leaves it out, and it is still installed.
+
+    The script refreshes the lists and has apt install the missing package
+    alone, rather than return with it missing or upgrade the installed ones.
+    """
+    named = [ArchivePackage("clang-23"), ArchivePackage("fish")]
+    calls = _run_script(tmp_path, named, installed=[ArchivePackage("clang-23")])
+    assert calls[1:] == [
+        CallLine("apt-get update"),
+        CallLine("apt-get -f install -y"),
+        CallLine("apt-get install -y fish"),
+    ]
+
+
+@pytest.mark.process(_A_SHELL_RUNS_THE_SCRIPT)
+def test_what_dpkg_leaves_broken_apt_fixes_named_no_package(tmp_path: Path) -> None:
+    """A cache dpkg cannot install whole is fixed by apt, which does so only when named no package.
+
+    Named packages, apt refuses with "Unmet dependencies", as an ubuntu:24.04
+    container showed with a cache dpkg installed out of pre-dependency order.
+    """
+    named = [ArchivePackage("clang-23"), ArchivePackage("fish")]
+    calls = _run_script(tmp_path, named, installed=named, dpkg_fails=True)
+    assert calls[1:] == [CallLine("apt-get update"), CallLine("apt-get -f install -y")]

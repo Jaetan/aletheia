@@ -258,15 +258,22 @@ jobs:
       # clang-tidy-23 explicitly and routes clang-format through the venv-pinned
       # binary, so no update-alternatives is needed.  libclang1-23 holds the
       # libclang the reply-place gate reads the C++ binding through; clang-23
-      # depends on it, so the cached packages are the same with it named.
-      # Adjust on red runs.
+      # depends on it, so the cached packages are the same with it named.  The
+      # step installs every package the job takes from an archive with it:
+      # ccache, and fish, since run_ci's check-dist-staging gate syntax-checks
+      # the packaging/*.fish consumer entry scripts with `fish --no-execute`
+      # and, on a runner, fails closed without it rather than skipping.  rpm
+      # is the release job's: benchmark.yml, bundle-validation.yml and
+      # release.yml install from this key, a key stands for one package list,
+      # and this workflow's runs on main save it where every later run reads
+      # it, the benchmark's and the release's included.  Adjust on red runs.
       - name: Cache clang-23 .debs (Clang is a large download)
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v2
+          key: clang23-libstdcxx15-ccache-fish-rpm-noble-v3
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libstdc++-15-dev
+        run: cpp/toolchain/install.sh ~/llvm-cache clang-23 clang-tidy-23 libclang1-23 libstdc++-15-dev ccache fish rpm
 
       # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
       # / Catch2) for every C++ tree run_ci configures: the test build, the
@@ -291,13 +298,12 @@ jobs:
       # auto-enables it (CMAKE_CXX_COMPILER_LAUNCHER) when ccache is on PATH.  CI
       # configures a fresh build dir for ctest + the UBSan lane each run, so
       # without a warm ccache every TU recompiles cold (ctest ~394s, ubsan ~689s).
-      # ubuntu-24.04 ships ccache; pin its dir + size via env (survives the
-      # cache restore, unlike ccache.conf).  Split restore/save (like the build
+      # The toolchain step installs ccache; pin its dir + size via env (survives
+      # the cache restore, unlike ccache.conf).  Split restore/save (like the build
       # tree) so a run that compiled C++ but failed a later gate still seeds it.
       - name: Set up ccache
         run: |
           set -euo pipefail
-          command -v ccache >/dev/null || { sudo apt-get update && sudo apt-get install -y ccache; }
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
             echo "CCACHE_MAXSIZE=2G"
@@ -335,17 +341,6 @@ jobs:
           tar xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
           sudo install -m 0755 actionlint /usr/local/bin/actionlint
           actionlint --version
-
-      # run_ci's check-dist-staging gate syntax-checks the packaging/*.fish
-      # consumer entry scripts via `fish --no-execute`.  On a runner (detected
-      # through GITHUB_ACTIONS) the gate treats a missing fish as a
-      # misconfiguration and fails closed — never a skip — so a broken .fish
-      # entry script cannot ship because the runner happened to lack the shell.
-      # Install it here so the check is genuinely always-on in CI.
-      - name: Install fish (check-dist-staging syntax-checks packaging/*.fish)
-        run: |
-          set -euo pipefail
-          command -v fish >/dev/null || { sudo apt-get update && sudo apt-get install -y fish; }
 
       # ── Incremental build-tree cache (Agda interfaces + MAlonzo .hs + the
       # cabal foreign-lib build) ─────────────────────────────────────────────
